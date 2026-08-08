@@ -965,7 +965,11 @@ const indexHTML = `<!doctype html>
 
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--page); }
-  .boardhead { display:flex; gap:.9rem; align-items:center; margin:0 0 1.2rem; }
+  .boardhead { display:flex; gap:.9rem; align-items:center; margin:0 0 1.2rem; flex-wrap:wrap; }
+  .lanehead .lrole { font:11px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  .lanehead .lteam { font:11px/1.5 var(--mono); color:var(--accent); }
+  .wcard { cursor:pointer; }
+  .wcard .wlong { font:11px/1.5 var(--mono); color:var(--muted); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
   .boardhead md-icon-button { align-self:end; margin-bottom:.4rem; }
@@ -1423,12 +1427,6 @@ const indexHTML = `<!doctype html>
         fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="lbl"></span>
     </md-list-item>
-    <md-list-item id="railBoard" type="link">
-      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
-        d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z"
-        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="lbl"></span>
-    </md-list-item>
     <md-list-item id="railMcp" type="link">
       <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
         d="M9.5 14.5 5.8 18.2M14.5 9.5l3.7-3.7M7.4 11.1 5.6 12.9a3.2 3.2 0 0 0 4.5 4.5l1.8-1.8M12.1 6.6l1.8-1.8a3.2 3.2 0 0 1 4.5 4.5l-1.8 1.8M9.8 14.2l4.4-4.4"
@@ -1448,7 +1446,6 @@ const indexHTML = `<!doctype html>
          for an icon above a word — so two siblings put the count on a line below the label. -->
     <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
-    <md-primary-tab id="tabBoard"></md-primary-tab>
     <md-primary-tab id="tabMcp"></md-primary-tab>
   </md-tabs>
   <md-chip-set id="summary"></md-chip-set>
@@ -1821,8 +1818,7 @@ ptabs.addEventListener('change', () => {
 wide.addEventListener('change', drawPanels);
 const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
-const boardEl = document.getElementById('board'), tabBoard = document.getElementById('tabBoard');
-const railBoard = document.getElementById('railBoard');
+const boardEl = document.getElementById('board');
 const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('tabMcp');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
@@ -1843,6 +1839,9 @@ const railSkills = document.getElementById('railSkills'), railMcp = document.get
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 // Corrections used to be a destination of its own and is now the first half of the experience
 // page. An address somebody kept still lands on the thing it was pointing at.
+// board went the same way in the other direction: it was a destination and is now reached from the
+// fleet, because it is a question ABOUT the fleet — what these companions have been doing — rather
+// than a fifth place to be. Both addresses still land where they pointed.
 const RENAMED = {interventions: 'skills'};
 const view = () => {
   const v = new URLSearchParams(location.search).get('v') || 'fleet';
@@ -1858,7 +1857,10 @@ const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companio
 
 const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', mcp: '?v=mcp'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
-const TABS = ['fleet', 'skills', 'board', 'mcp'];
+// The board is not among them. It keeps its address and its crumb; what it lost is a permanent
+// seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
+// question about the past rather than one they live on.
+const TABS = ['fleet', 'skills', 'mcp'];
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -2025,6 +2027,14 @@ function summarise(list) {
     };
     return b;
   }));
+  // The way to the board, from the list it is about. Text rather than a chip: the chips are a
+  // filter on this table and this is not — a control that looked like them and did something else
+  // would be the worst of both.
+  const past = document.createElement('md-text-button');
+  past.className = 'toboard';
+  past.textContent = tr('nav.board');
+  past.onclick = () => { history.pushState({}, '', at(HREF.board)); render(); };
+  box.append(past);
 }
 
 // grounds is the report the agent wrote for whoever has to decide.
@@ -2283,6 +2293,7 @@ const dayOf = ts => (ts || '').slice(0, 10);
 const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
   .toISOString().slice(0, 10);
 let boardDay = '';
+let boardQuery = '';
 
 async function loadBoard() {
   const list = await fetchList('/fleet');
@@ -2322,11 +2333,18 @@ async function loadBoard() {
   const today = document.createElement('md-text-button');
   today.textContent = tr('board.today');
   today.onclick = () => { boardDay = todayISO(); loadBoard(); };
+  // Narrowing a day's work by what it was about. Ranked the same way the shared-knowledge search
+  // is, so "the one about retries" finds it without knowing how the request was worded — and over
+  // the cards already fetched, so it narrows as you type rather than after a round trip.
+  const find = document.createElement('md-outlined-text-field');
+  find.setAttribute('label', tr('label.find'));
+  find.value = boardQuery;
+  find.addEventListener('input', () => { boardQuery = find.value; loadBoard(); });
   // Tomorrow holds nothing: the store only has what has happened. The forward arrow is disabled on
   // today rather than hidden, because a control that vanishes moves the ones beside it.
   const fwd = step(1, 'board.next');
   if (boardDay >= todayISO()) fwd.setAttribute('disabled', '');
-  head.append(step(-1, 'board.prev'), day, fwd, today);
+  head.append(step(-1, 'board.prev'), day, fwd, today, find);
 
   // Ordered the way the fleet is: trouble first. A board that sorted by name would bury the column
   // somebody needs behind the alphabet.
@@ -2341,18 +2359,36 @@ async function loadBoard() {
     // A session counts for the day if it was running at any point in it, not only if it began
     // then: a task started at 23:40 and finished at 01:10 belongs to both days somebody might ask
     // about, and belonging to neither is how a long night disappears from a board.
-    const work = runs[i].filter(h => dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay);
+    let work = runs[i].filter(h => dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay);
+    if (boardQuery.trim()) {
+      const order = rankByIDF(boardQuery, work.map(h => h.title || ''));
+      work = order.map(k => work[k]);
+    }
     if (!work.length) return;
     anything = true;
     const lane = cell('lane');
     const title = cell('lanehead');
     title.append(cell('lname', a.name));
+    // Who did it is the column, so the label that is missing from a card is what it was FOR. The
+    // team and the role are what the fleet already publishes about this companion — nothing new is
+    // recorded to put them here.
+    if (a.role) title.append(cell('lrole', a.role));
+    if (a.team) title.append(cell('lteam', a.team));
     title.append(cell('lcount', work.length + ''));
     lane.append(title);
     for (const h of work) {
       const card = cell('wcard' + (h.current ? ' now' : ''));
-      card.append(cell('wwhen', h.current ? tr('board.now') : (h.started || '').slice(11, 16)));
+      const when = cell('wwhen', h.current ? tr('board.now') : (h.started || '').slice(11, 16));
+      card.append(when);
       card.append(cell('wwhat', h.title || tr('history.untitled')));
+      // How long it took, when it is over. A card that says only when it started tells you nothing
+      // about whether the day went well.
+      if (!h.current && h.started && h.ended) {
+        const mins = Math.round((Date.parse(h.ended) - Date.parse(h.started)) / 60000);
+        if (mins > 0) card.append(cell('wlong', dur(mins * 60)));
+      }
+      // Opening the companion is the next thing somebody wants from a card they just read.
+      card.onclick = () => go(a.socket, a.peer);
       lane.append(card);
     }
     lanes.append(lane);
@@ -3095,7 +3131,6 @@ function paint() {
   painted = true;
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
   tabSkills.textContent = tr('nav.lessons');
-  tabBoard.textContent = tr('nav.board');
   document.getElementById('ptabTalk').textContent = tr('panel.talk');
   document.getElementById('ptabState').textContent = tr('panel.state');
   tabMcp.textContent = tr('nav.connections');
@@ -3115,7 +3150,7 @@ function paint() {
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.lessons'],
-                           [railBoard, 'nav.board'], [railMcp, 'nav.connections']]) {
+                           [railMcp, 'nav.connections']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
@@ -3309,8 +3344,7 @@ back.onclick = e => {
 // The rail's four, addressed the same way the tabs are. They are md-list-item with an href, so the
 // component draws a real anchor: the click is intercepted like every other in-page link, and a
 // middle click or a copied address still lands.
-const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'],
-               [railBoard, 'board'], [railMcp, 'mcp']];
+const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'], [railMcp, 'mcp']];
 for (const [el, key] of RAILS) {
   el.href = at(HREF[key]);
   el.onclick = e => {
@@ -3359,8 +3393,7 @@ langEl.addEventListener('change', () => {
   loadPack();
 });
 
-for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills'],
-                         [tabBoard, 'board'], [tabMcp, 'mcp']]) {
+for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills'], [tabMcp, 'mcp']]) {
   // The href is set as well as the click: a middle-click or a copied link has to reach the same
   // place, and on a project site an absolute one does not.
   el.setAttribute('href', at(HREF[key]));

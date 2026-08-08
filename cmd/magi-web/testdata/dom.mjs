@@ -152,7 +152,7 @@ let byTabs = false;
 globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'tabs', 'tabFleet', 'skills', 'tabSkills',  'mcp', 'tabMcp', 'board', 'tabBoard', 'railBoard', 'handoffs', 'history', 'intervened', 'agentview', 'stream', 'side', 'plan', 'send',
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'tabs', 'tabFleet', 'skills', 'tabSkills',  'mcp', 'tabMcp', 'board', 'handoffs', 'history', 'intervened', 'agentview', 'stream', 'side', 'plan', 'send',
                  'rail', 'railNav', 'scrim', 'cnote', 'notifyK', 'notify', 'notifyBtn', 'notifyWhy', 'ptabs', 'ptabTalk', 'ptabState', 'theme', 'lang', 'prefsK',
                  'consoleK', 'console', 'prefs', 'prefsDialog', 'prefsClose', 'prefsForm', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');
@@ -165,14 +165,14 @@ for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'pro
 byId.lang = element('md-outlined-select');
 // The dialog holds the controls it holds; a test asks the form what is in it.
 byId.prefsForm.append(byId.lang);
-for (const id of ['tabFleet', 'tabSkills', 'tabBoard', 'tabMcp']) byId.tabs.append(byId[id]);
+for (const id of ['tabFleet', 'tabSkills', 'tabMcp']) byId.tabs.append(byId[id]);
 // md-tabs answers activeTabIndex from its CHILDREN, so a strip whose tabs were never appended
 // reports -1 for every selection and the page reads that as "the first one".
 for (const id of ['ptabTalk', 'ptabState']) byId.ptabs.append(byId[id]);
 // The companions tab holds a label element beside its badge, so the word can be rewritten without
 // taking the badge with it. Mirrored here for the same reason the rail's labels are.
 { const wrap = element('span'); wrap.className = 'tablbl'; const l = element('span'); l.className = 'lbl'; wrap.append(l); wrap.append(byId.tabBadge); byId.tabFleet.append(wrap); }
-for (const id of ['railFleet', 'railSkills', 'railBoard', 'railMcp']) {
+for (const id of ['railFleet', 'railSkills', 'railMcp']) {
   byId.railNav.append(byId[id]);
   // The label is markup, not something the module creates: paint() writes into it by class.
   const lbl = element('span');

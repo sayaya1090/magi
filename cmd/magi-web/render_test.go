@@ -467,7 +467,9 @@ const fiveStates = `[
 func TestTheSummaryCountsEachStateAndFilters(t *testing.T) {
 	got := runPage(t, fiveStates, "", rowsHelper+`
 await loadFleet();
-const tiles = byId.summary.children.map(t => ({k: t.text, pressed: !!t.selected, off: !!t.disabled}));
+// The way to the board sits in this row too, and it is not a tile: it is a link out, not a filter.
+const tiles = byId.summary.children.filter(t => t.className !== 'toboard')
+  .map(t => ({k: t.text, pressed: !!t.selected, off: !!t.disabled}));
 console.log(JSON.stringify({tiles, rows: rows().length}));
 `)
 	var got4 []string
@@ -694,7 +696,7 @@ byId.tabSkills.onclick({preventDefault() { throw new Error('the click default wa
 console.log(JSON.stringify({
   where: location.search,
   on: byId.tabs.activeTabIndex,
-  byHand: ['tabFleet', 'tabSkills', 'tabBoard', 'tabMcp'].filter(id => byId[id].setDirectly),
+  byHand: ['tabFleet', 'tabSkills', 'tabMcp'].filter(id => byId[id].setDirectly),
 }));
 `)
 	if got["where"] != "?v=skills" {
@@ -1270,11 +1272,11 @@ func TestTheRailAgreesWithTheTabs(t *testing.T) {
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 console.log(JSON.stringify({
   on: byId.tabs.activeTabIndex,
-  lit: ['railFleet','railSkills','railBoard','railMcp'].filter(id => byId[id].hasAttribute('selected')),
+  lit: ['railFleet','railSkills','railMcp'].filter(id => byId[id].hasAttribute('selected')),
 }));
 `)
-	if got["on"].(float64) != 3 {
-		t.Errorf("the tabs have %v active and MCP is the fourth", got["on"])
+	if got["on"].(float64) != 2 {
+		t.Errorf("the tabs have %v active and MCP is the third", got["on"])
 	}
 	lit := got["lit"].([]any)
 	if len(lit) != 1 || lit[0] != "railMcp" {
@@ -1777,7 +1779,7 @@ func TestClickingATabLandsOnIt(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 const seen = [];
-for (const [name, el] of [['experience', tabSkills], ['board', tabBoard],
+for (const [name, el] of [['experience', tabSkills],
                           ['connections', tabMcp], ['companions', tabFleet]]) {
   el.onclick({preventDefault(){}});
   seen.push({name, search: location.search, crumb: back.text, href: back.attrs.href,
@@ -1792,7 +1794,6 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 	seen := got["seen"].([]any)
 	want := []struct{ search, crumb, href string }{
 		{"?v=skills", "experience", "/?v=skills"},
-		{"?v=board", "board", "/?v=board"},
 		{"?v=mcp", "MCP", "/?v=mcp"},
 		{"", "companions", "/"},
 	}
@@ -1808,8 +1809,8 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 	}
 	// Each panel is shown only on its own tab — and the corrections panel now belongs to the
 	// experience page, which is the whole of that merge.
-	if seen[0].(map[string]any)["ivs"] != false || seen[0].(map[string]any)["skills"] != false ||
-		seen[2].(map[string]any)["mcp"] != false || seen[3].(map[string]any)["fleet"] != false {
+	if seen[0].(map[string]any)["skills"] != false ||
+		seen[1].(map[string]any)["mcp"] != false || seen[2].(map[string]any)["fleet"] != false {
 		t.Errorf("a tab did not reveal its own panel: %v", seen)
 	}
 	// The crumb led where it said: from lessons, back to lessons' own url is wrong — it names the
@@ -1824,13 +1825,13 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 func TestTheLabelsComeFromTheLanguagePack(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 // The first paint uses the seed the server inlines — no dotted keys, no flash.
-const first = {tabs: [tabFleet.text, tabSkills.text, tabBoard.text, tabMcp.text],
+const first = {tabs: [tabFleet.text, tabSkills.text, tabMcp.text],
                ask: byId.t.attrs.label};
 // A pack arriving afterwards repaints what is already on screen.
 labels$.next({'nav.companions': '컴패니언', 'nav.lessons': '경험',
               'nav.board': '보드', 'nav.connections': 'MCP',
               'label.ask': 'magi에게 요청'});
-const after = [tabFleet.text, tabSkills.text, tabBoard.text, tabMcp.text];
+const after = [tabFleet.text, tabSkills.text, tabMcp.text];
 const askAfter = byId.t.attrs.label;
 // Something drawn by hand before a pack lands must survive it.
 byId.detail.replaceChildren(cell('f', 'a thing somebody was reading'));
