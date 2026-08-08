@@ -40,6 +40,8 @@
   "state.idle": "idle",
   "state.abandoned": "abandoned",
   "state.stopped": "stopped",
+  "state.live": "live",
+  "state.reconnecting": "reconnecting…",
   "context.measured": "measured",
   "context.estimated": "estimated",
   "context.messages": "{n} messages",

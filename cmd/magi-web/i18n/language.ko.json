@@ -40,6 +40,8 @@
   "state.idle": "유휴",
   "state.abandoned": "중단됨",
   "state.stopped": "정지",
+  "state.live": "연결됨",
+  "state.reconnecting": "재연결 중…",
   "context.measured": "실측",
   "context.estimated": "추정",
   "context.messages": "메시지 {n}개",

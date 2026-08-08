@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -302,4 +303,60 @@ func TestEveryMaterialRoleIsMagisAndFollowsTheTheme(t *testing.T) {
 				"and a hex here stays dark in both", role, value)
 		}
 	}
+}
+
+// A string the language pack has an entry for must not be written into the page as itself.
+//
+// This is the defect this file keeps finding from the other side. The pack carried translations for
+// "cannot reach magi-web", "handed out", "context", "summarised away" and "say who it is for" while
+// the script printed each of them as an English literal — five keys with no reader, and five
+// English words on a Korean page. Nothing failed, because the pack was complete and the code simply
+// did not ask it anything.
+//
+// Only values long enough to be unambiguous are checked. A pack entry of "to" or "url" would match
+// half the source by accident and say nothing.
+func TestNoLabelIsWrittenInEnglishBesideItsOwnTranslation(t *testing.T) {
+	raw, err := assetFS.ReadFile("i18n/language.en.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pack map[string]string
+	if err := json.Unmarshal(raw, &pack); err != nil {
+		t.Fatal(err)
+	}
+	// Comments do not print. One of them mentions a label by name to explain what it is for, and a
+	// scan that counted it would be asking the author to stop writing about the page.
+	body := withoutComments(scriptBody(t, indexHTML))
+	checked := 0
+	for key, val := range pack {
+		if len([]rune(val)) < 8 || strings.Contains(val, "{") {
+			continue // too short to be distinctive, or a template that never appears literally
+		}
+		checked++
+		for _, quoted := range []string{"'" + val + "'", `"` + val + `"`} {
+			if strings.Contains(body, quoted) {
+				t.Errorf("the script writes %s directly, and %q is its translation key — "+
+					"that label stays English in every other language", quoted, key)
+			}
+		}
+	}
+	if checked < 15 {
+		t.Errorf("only %d pack entries were long enough to check; this guard has stopped looking "+
+			"at the pack", checked)
+	}
+}
+
+// withoutComments strips // and /* */ from a script, so a scan reads what the page PRINTS.
+func withoutComments(src string) string {
+	src = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(src, "")
+	var out []string
+	for _, line := range strings.Split(src, "\n") {
+		// Naive on purpose: a "//" inside a string literal would cut that line short, and a line cut
+		// short can only make this check miss something, never invent one.
+		if at := strings.Index(line, "//"); at >= 0 {
+			line = line[:at]
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

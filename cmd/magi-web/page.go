@@ -1543,7 +1543,7 @@ function retitle(waiting) {
   // Where you are goes in the title as well: with four sections and a page you leave open, the tab
   // strip in a browser is the outermost breadcrumb somebody actually reads.
   const s = sock();
-  const where = s ? nameOf(s) : SECTION[view()] || 'companions';
+  const where = s ? nameOf(s) : SECTION[view()] || tr('nav.companions');
   const name = 'magi · ' + where;
   document.title = waiting ? '(' + waiting + ') ' + name : name;
 }
@@ -1575,7 +1575,7 @@ function drawPrompt(a) {
 // failure for an empty list and draw "nothing here" over a screen that simply lost its server.
 async function fetchList(path) {
   try { return await (await fetch(path)).json(); }
-  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return null; }
+  catch { state.className = 'lost'; state.textContent = tr('error.unreachable'); return null; }
 }
 
 async function loadFleet() {
@@ -1714,19 +1714,22 @@ function teamHead(name, members) {
 function drawDetail(a) {
   const box = document.getElementById('detail');
   if (!a) { box.hidden = true; box.replaceChildren(); return; }
-  const field = (k, v, cls) => {
-    const f = cell('f'); f.append(cell('k', k), cell('v ' + (cls || ''), v)); return f;
+  // Takes a KEY, not a word. Every label in this panel was written in English here while the pack
+  // carried a translation for it, and the panel is the one screen that answers "what am I looking
+  // at" — the last place that should be answering it in a language the reader did not pick.
+  const field = (key, v, cls) => {
+    const f = cell('f'); f.append(cell('k', tr(key)), cell('v ' + (cls || ''), v)); return f;
   };
   box.replaceChildren(
-    field('status', a.state, 'state ' + a.state),
-    field('workspace', a.workdir),
-    ...(a.role ? [field('role', a.role)] : []),
-    ...(a.team ? [field('team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
-    field('host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
+    field('field.status', a.state, 'state ' + a.state),
+    field('field.workspace', a.workdir),
+    ...(a.role ? [field('field.role', a.role)] : []),
+    ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
+    field('field.host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
-    field('steps', a.steps ? a.steps + '' : '—'),
-    field('last activity', ago(a.idle)),
-    field('session', a.session),
+    field('field.steps', a.steps ? a.steps + '' : '—'),
+    field('field.last_activity', ago(a.idle)),
+    field('field.session', a.session),
   );
   box.hidden = false;
   drawPlan(a);
@@ -1771,7 +1774,7 @@ async function drawHandoffs(a) {
     el.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
     return el;
   });
-  box.replaceChildren(cell('k', 'handed out'), ...rows);
+  box.replaceChildren(cell('k', tr('field.handed_out')), ...rows);
   box.hidden = false;
 }
 
@@ -1815,10 +1818,10 @@ async function drawContext(a, box, field) {
 
   // Which model, because the window below is that model's and a companion can be on one you did
   // not put it on — /route changes it mid-session and nothing else on this page would say so.
-  if (c.model) box.append(field('model', c.model));
+  if (c.model) box.append(field('field.model', c.model));
   // Said once, where somebody would otherwise wonder why there is no cache figure at all.
   if (!c.cacheReported && !c.estimated) {
-    box.append(field('cache', 'this backend does not report it'));
+    box.append(field('field.cache', tr('context.no_cache_report')));
   }
 
   const size = cell('v', '');
@@ -1828,7 +1831,7 @@ async function drawContext(a, box, field) {
   const note = document.createElement('small');
   // Said plainly, because the difference decides what the number is worth: one is the provider's
   // own count from the last turn, the other is arithmetic over the transcript.
-  note.textContent = ' ' + (c.estimated ? 'estimated' : 'measured') +
+  note.textContent = ' ' + tr(c.estimated ? 'context.estimated' : 'context.measured') +
                      (c.messages ? ' · ' + c.messages + ' messages' : '');
   // What the backend served from its own prompt cache — and only when it said. A backend that
   // reports nothing about a cache is not a backend whose cache never hits, and drawing 0% for both
@@ -1839,7 +1842,7 @@ async function drawContext(a, box, field) {
   }
   size.append(note);
   const f = cell('f');
-  f.append(cell('k', 'context'), size);
+  f.append(cell('k', tr('field.context')), size);
   // The lever beside the reading. magi folds by itself when the window fills past its ratio; this
   // is for the case that rule does not cover — somebody who can see the run is about to need room
   // and would rather it happened now, between turns, than in the middle of the next one.
@@ -1878,7 +1881,7 @@ async function drawContext(a, box, field) {
                      (c.lastAt ? ' at ' + c.lastAt.slice(11, 16) + 'Z' : '');
     v.append(s2);
     const cf = cell('f');
-    cf.append(cell('k', 'summarised away'), v);
+    cf.append(cell('k', tr('field.summarised_away')), v);
     if (c.topics && c.topics.length) {
       // Naming them is the difference between "the detail is not lost" as a claim and as a fact:
       // these are the subjects the companion can pull back in full.
@@ -2014,8 +2017,8 @@ async function loadSkills() {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
-      (sk.tier === 'global' ? 'every companion' : 'only ' + sk.companion) +
-      (sk.peer ? ' on ' + sk.peer : '')));
+      (sk.tier === 'global' ? tr('reach.every_companion') : tr('reach.only', {name: sk.companion})) +
+      (sk.peer ? tr('reach.on_peer', {peer: sk.peer}) : '')));
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('md-text-button');
     drop.className = 'drop'; drop.textContent = tr('action.forget');
@@ -2170,11 +2173,11 @@ function draw(rows) {
 let es, fleetTimer;
 function connect() {
   es = new EventSource('/events' + q());
-  es.onopen = () => { state.className = 'live'; state.textContent = 'live'; };
+  es.onopen = () => { state.className = 'live'; state.textContent = tr('state.live'); };
   es.onmessage = e => draw(JSON.parse(e.data));
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
-  es.onerror = () => { state.className = 'lost'; state.textContent = 'reconnecting…';
+  es.onerror = () => { state.className = 'lost'; state.textContent = tr('state.reconnecting');
                        es.close(); if (sock()) setTimeout(connect, 1500); };
 }
 
@@ -2251,7 +2254,7 @@ function render() {
   // It names the SECTION, not always the fleet. A crumb that read "fleet" while you stood in the
   // connections tab answered a question nobody asked and offered a way back to somewhere you had
   // not been.
-  const section = s ? 'companions' : SECTION[v] || 'companions';
+  const section = s ? tr('nav.companions') : SECTION[v] || tr('nav.companions');
   retitle(0);
   back.textContent = section;
   back.setAttribute('href', at(s ? '' : HREF[v] || ''));
@@ -2431,7 +2434,7 @@ f.onsubmit = e => {
   // From the fleet: addressed work. An empty address would have to guess who it is for, and
   // guessing sends somebody's turn into the wrong workspace — so it asks instead.
   const to = toEl.value.trim();
-  if (!to) { state.className = 'lost'; state.textContent = 'say who it is for'; toEl.focus(); return; }
+  if (!to) { state.className = 'lost'; state.textContent = tr('error.say_who'); toEl.focus(); return; }
   t.value = ''; grow();
   post('/dispatch', new URLSearchParams({to: to, text: v})).then(loadFleet);
 };
