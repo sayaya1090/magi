@@ -30,6 +30,8 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # To delete the duplicate artifacts described in the deploy job. Nothing else here writes.
+  actions: write
 
 jobs:
   build:
@@ -72,5 +74,26 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # deploy-pages refuses when the run holds more than one artifact called github-pages, and a
+      # run can end up holding several two ways: re-running a failed deploy leaves the previous
+      # attempt's upload in place, and the upload step itself has been observed producing three at
+      # once — run 31236274403 had three, all created inside the same second, from a single build.
+      #
+      # Whichever it was, the deploy only ever needs the newest, and it is worth more to publish
+      # than to preserve evidence of a runner hiccup. The older ones go.
+      - name: leave exactly one pages artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          extra=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '[.artifacts[] | select(.name=="github-pages")]
+                  | sort_by(.created_at) | reverse | .[1:] | .[].id')
+          if [ -z "$extra" ]; then echo "one artifact, nothing to do"; exit 0; fi
+          for id in $extra; do
+            echo "deleting duplicate github-pages artifact $id"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+          done
+
       - id: deployment
         uses: actions/deploy-pages@v4
