@@ -302,6 +302,10 @@ const indexHTML = `<!doctype html>
 
     --measure: 74ch;   /* prose */
     --wide: 108ch;     /* transcript, where lines are code and wrapping costs more than width */
+    /* What a whole screen of console may take. Wider than the transcript's measure on purpose: the
+       fleet is a table and a table uses room, while prose inside it keeps --measure. Capped rather
+       than unbounded so an ultrawide monitor does not stretch a row to a metre. */
+    --page: 150ch;
   }
 
   * { box-sizing:border-box; }
@@ -349,7 +353,7 @@ const indexHTML = `<!doctype html>
     padding:.85rem 1.4rem .6rem;
     padding-top:calc(.7rem + env(safe-area-inset-top));
     display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
-    max-width:var(--wide); margin-right:auto;
+    max-width:var(--page); margin-right:auto; padding-right:2.4rem;
   }
   .mark {
     font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
@@ -468,7 +472,10 @@ const indexHTML = `<!doctype html>
      page moved by HALF the rail's growth and lost the other half off its own width, so opening the
      drawer re-wrapped every column instead of sliding the page across. A block that keeps its width
      and moves by exactly the distance the rail took is the one a reader can follow. */
-  main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin-right:auto; }
+  main {
+    padding:1.6rem 2.4rem calc(var(--dock, 8rem) + 2rem) 1.4rem;
+    max-width:var(--page); margin-right:auto;
+  }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
   /* Wrapping, because these are sentences and there are three of them now: at 390px the three
@@ -489,7 +496,7 @@ const indexHTML = `<!doctype html>
      108ch and the fleet filled the page, so changing menus moved the left edge and re-set the line
      length — three different pages rather than four views of one. The prose inside keeps its own
      measure, which is where a reading width belongs. */
-  #ivs { display:block; max-width:var(--wide); }
+  #ivs { display:block; max-width:var(--page); }
   #ivs .said { max-width:var(--measure); }
   .iv {
     display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
@@ -518,7 +525,7 @@ const indexHTML = `<!doctype html>
      the system mentions it again. */
   /* Wider than the prose measure: a rule's description reads like prose but the line under it
      carries a name, a date range and sometimes a file path, and 74ch put those on three lines. */
-  #skills { display:block; max-width:var(--wide); }
+  #skills { display:block; max-width:var(--page); }
   .sk { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
@@ -533,6 +540,14 @@ const indexHTML = `<!doctype html>
   .sk.fact .what { font:italic 400 16px/1.4 var(--display); }
   .sk .meta { margin-top:.3rem; font-size:11px; letter-spacing:.05em; color:var(--muted); }
   .sk .drop { margin-left:auto; }
+  .sk .fold { margin-left:auto; }
+  .sk .fold + .drop { margin-left:0; }
+  /* The rule as written. A reading measure, because it is prose and the row is not. */
+  .sk .body {
+    margin:.5rem 0 .1rem; padding:.6rem 0 0; max-width:var(--measure);
+    border-top:1px solid var(--outlineVariant);
+    font:13px/1.65 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
+  }
 
   /* ── what they can reach ────────────────────────────────────────────────── */
   /* An MCP server is where a companion's reach leaves this machine's file system. The list is
@@ -540,7 +555,7 @@ const indexHTML = `<!doctype html>
      monospace and complete rather than tidied. */
   /* Not prose at all: the transport line is a command with arguments and the line under it is an
      absolute path. Clipping either to a reading measure hides the part being read for. */
-  #mcp { display:block; max-width:var(--wide); }
+  #mcp { display:block; max-width:var(--page); }
   .srv { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
@@ -692,15 +707,28 @@ const indexHTML = `<!doctype html>
 
   /* Row actions. Open is the row itself as well, but a named control is what makes it discoverable
      — and stopping must never require entering first, which is the whole point of a console. */
-  .actions { display:flex; gap:.8rem; justify-content:flex-end; align-items:center; }
+  /* One icon, inside the column. "open" was a word for something the whole row already does — the
+     row is a link — and the pair of labelled buttons was wider than the 6rem column they sat in, so
+     they hung off the right edge of the table. */
+  .actions { display:flex; gap:.2rem; justify-content:flex-end; align-items:center; }
+  .actions md-icon-button {
+    --md-icon-button-icon-color:var(--muted);
+    --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
+    color:var(--muted);
+  }
+  .actions md-icon-button:hover { --md-icon-button-icon-color:var(--error); color:var(--error); }
   /* open is a link and stays one — it has an address, and a companion's page has to be reachable
      with a middle click and a copied url. It is dressed to match the button beside it. */
-  .actions .open {
-    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; display:flex; align-items:center;
-    text-decoration:none; white-space:nowrap; border-radius:var(--shape-full);
+  /* One icon, inside the column. "open" was a word for something the whole row already does — the
+     row is a link — and the pair of labelled buttons was wider than the 6rem column they sat in, so
+     they hung off the right edge of the table. */
+  .actions { display:flex; gap:.2rem; justify-content:flex-end; align-items:center; }
+  .actions md-icon-button {
+    --md-icon-button-icon-color:var(--muted);
+    --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
+    color:var(--muted);
   }
-  .actions .open:hover { color:var(--primary); }
+  .actions md-icon-button:hover { --md-icon-button-icon-color:var(--error); color:var(--error); }
 
   /* The grounds a decision is put on: a key-and-value block, set like the rest of this page's
      labelled readings. Two columns on anything but a phone, because the keys are short words and
@@ -1437,28 +1465,29 @@ function card(a) {
   return el;
 }
 
-// rowActions: enter, and stop. Stopping must not require entering first — on a console the row you
-// want to halt is the one you are already looking at, and making somebody open it to reach the
-// button is how a runaway turn gets another thirty seconds.
+// rowActions: stopping, and only that.
+//
+// "open" is gone. The whole row is a link to the companion, so a button beside it saying "open" was
+// a second way to do what a click anywhere already did — and the pair of labelled buttons was wider
+// than the column they sit in, which is why they hung off the right edge of the table.
+//
+// Stopping stays, and it stays HERE rather than one level in: the row you want to halt is the one
+// you are already looking at, and making somebody open it first is how a runaway turn gets another
+// thirty seconds. As an icon, because it is one action in a 6rem column and the word did not fit.
 function rowActions(a) {
   const box = cell('actions');
-  const open = document.createElement('a');
-  // The chevron stays; the word does not. This one sat in English beside a translated stop button
-  // on every row of a Korean page — the last hardcoded label on the fleet.
-  open.className = 'open'; open.textContent = tr('action.open') + ' ›';
-  open.href = href(a);
-  open.onclick = e => { e.preventDefault(); e.stopPropagation(); go(a.socket, a.peer); };
-  box.append(open);
-  if (a.live && (a.state === 'working' || a.state === 'waiting')) {
-    const stop = document.createElement('md-text-button');
-    stop.className = 'stop'; stop.textContent = tr('action.interrupt');
-    stop.title = 'interrupt the turn this agent is running';
-    stop.onclick = e => {
-      e.preventDefault(); e.stopPropagation();
-      post('/interrupt', null, a.socket, a.peer).then(loadFleet);
-    };
-    box.append(stop);
-  }
+  if (!(a.live && (a.state === 'working' || a.state === 'waiting'))) return box;
+  const stop = document.createElement('md-icon-button');
+  stop.className = 'stop';
+  stop.setAttribute('aria-label', tr('action.interrupt'));
+  stop.title = tr('action.interrupt');
+  stop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+    '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+  stop.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    post('/interrupt', null, a.socket, a.peer).then(loadFleet);
+  };
+  box.append(stop);
   return box;
 }
 
@@ -1566,6 +1595,13 @@ function emptyState(whatKey, howKey) {
   e.innerHTML = tr(whatKey) + '<br>' + tr(howKey);
   return e;
 }
+
+// stripSource removes the provenance line the store appends to a body, so the rule reads as the
+// rule. Where it came from is drawn as its own field rather than as a sentence at the end of the
+// text — see the meta line.
+const SOURCE_LINE = /\n*\(source: ([^)]*)\)\s*$/;
+function stripSource(body) { return body.replace(SOURCE_LINE, '').trim(); }
+function sourceOf(body) { const m = SOURCE_LINE.exec(body || ''); return m ? m[1] : ''; }
 
 // jumpToFirstRow brings the top row of the filtered list into view.
 //
@@ -2130,7 +2166,33 @@ async function loadSkills() {
     }
     if (sk.groups && sk.groups.length) bits.push('only agents in ' + sk.groups.join(', '));
     if (sk.tags && sk.tags.length) bits.push('tagged ' + sk.tags.join(', '));
+    // Where it came from, which the store keeps as a line at the end of the body.
+    const src = sourceOf(sk.body);
+    if (src) bits.push(tr('skill.learned_from', {src}));
     el.append(cell('meta', bits.join(' · ')));
+
+    // The rule itself. The list showed a one-line description and governed something nobody could
+    // read — a screen for deciding whether a rule should exist, with the rule not on it. The body
+    // is already in the answer; it was only never drawn.
+    //
+    // Behind a toggle rather than always open: these are paragraphs, and twenty of them expanded
+    // is a page you scroll past rather than one you audit.
+    const body = (sk.body || '').trim();
+    if (!body) return el;
+    const text = cell('body');
+    text.textContent = stripSource(body);
+    text.hidden = true;
+    const more = document.createElement('md-text-button');
+    more.className = 'fold';
+    let open = false;
+    more.textContent = tr('action.read');
+    more.onclick = () => {
+      open = !open;
+      text.hidden = !open;
+      more.textContent = tr(open ? 'action.collapse' : 'action.read');
+    };
+    top.insertBefore(more, drop);
+    el.append(text);
     return el;
   }));
 }

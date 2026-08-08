@@ -93,10 +93,17 @@ const demoScript = `
     '/skills': [
       {name: 'skill-tests-before-done', kind: 'skill', tier: 'global', observed: 6,
        firstSeen: '2026-06-30', lastSeen: '2026-08-07',
-       description: 'run the tests before saying it is done'},
+       description: 'run the tests before saying it is done',
+       body: 'Run the project\'s own test command and read the output before reporting a task '
+           + 'finished. A build that compiles is not a test that passed, and "it should work" is '
+           + 'the sentence that precedes every regression in this repository.\n\n'
+           + 'If the tests cannot be run, say so and say why, rather than landing the work quietly.'
+           + '\n\n(source: agent)'},
       {name: 'skill-tokens', kind: 'skill', tier: 'project', companion: 'design',
        socket: '/demo/design.sock', observed: 3, firstSeen: '2026-07-14', lastSeen: '2026-08-06',
-       description: 'spacing comes from the scale, never hand-written'},
+       description: 'spacing comes from the scale, never hand-written',
+       body: 'Every margin and padding is a token from the spacing scale. A hand-written value is '
+           + 'one more thing to keep in step with the rest, and it will not be.\n\n(source: agent)'},
       {name: 'mem-staging', kind: 'memory', tier: 'project', companion: 'api',
        socket: '/demo/api.sock', observed: 1, lastSeen: '2026-08-05', tags: ['ops'],
        description: 'the staging database is restored from prod every Monday'},
