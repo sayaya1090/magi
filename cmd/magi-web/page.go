@@ -389,6 +389,22 @@ const indexHTML = `<!doctype html>
      handbook's arrangement and the one M3 describes for these two widths.
 
      The breakpoint is 768/769px, the handbook's, so the two products break in the same place. */
+  /* The scrim is an ELEMENT, not a shadow on the rail. Drawn as a box-shadow it darkened the page
+     without covering it: everything under it stayed clickable, so a page that looked disabled took
+     a click and navigated away under an open drawer. It also gives the drawer the dismissal every
+     modal surface has — a click on the page you can see is the way out of it. */
+  /* Faded on its background rather than on opacity. Not a style preference: the contrast check
+     reads every opacity in this sheet as text being dimmed, because a container's opacity takes
+     everything inside it down too — and it cannot tell from CSS that this box never holds text.
+     Animating the colour is the same fade with nothing to misread. */
+  #scrim {
+    position:fixed; inset:0; z-index:3; background-color:transparent; pointer-events:none;
+    transition:background-color 250ms var(--ease-emphasized);
+  }
+  body[nav="open"] #scrim {
+    background-color:color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
+    pointer-events:auto;
+  }
   #rail {
     position:fixed; top:0; bottom:0; left:0; z-index:3;
     width:var(--rail-now, var(--rail-w)); box-sizing:border-box;
@@ -1172,7 +1188,13 @@ const indexHTML = `<!doctype html>
     .row { grid-template-columns:1fr; gap:.2rem; }
     .who { text-align:left; }
     .row.user .txt { font-size:16px; }
-    form { padding-left:1rem; padding-right:1rem; }
+    /* The prompt's inner column narrows with the rest of them. Left out, it kept the 1.4rem the
+       wide layout gives it and the question sat 6px right of the transcript it is about — which is
+       the same misalignment the dock had, one breakpoint down. */
+    form, #prompt .inner { padding-left:1rem; padding-right:1rem; }
+    /* A phone's rail is a section at the foot of the page rather than a drawer, so there is nothing
+       to open and nothing to dim behind. */
+    #scrim { display:none; }
 
   }
 
@@ -1199,7 +1221,7 @@ const indexHTML = `<!doctype html>
     header, main, #prompt .inner, form { padding-left:1.6rem; padding-right:1.6rem; }
     #dock { padding-left:var(--rail-w); }
     /* Open, it is a floating panel. Closed, it is part of the furniture. */
-    body[nav="open"] #rail { box-shadow:0 0 0 100vmax color-mix(in srgb, #000 28%, transparent); }
+
     #tabs, #themeToggle { display:none; }
     }
   /* Compact (below 600px, M3's own boundary): the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
@@ -1314,6 +1336,7 @@ const indexHTML = `<!doctype html>
      they are real links with the component's ripple and focus ring: a rail you cannot middle-click
      is a navigation that forgot it was made of addresses. -->
 
+<div id="scrim"></div>
 <nav id="rail">
   <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
        far corner it did not look like it belonged to the column across the page. -->
@@ -2908,10 +2931,12 @@ for (const [el, key] of RAILS) {
 
 // Widening the rail is a wide-screen idea only. On a phone the rail is not a drawer — it is a
 // section at the foot of the page — so there is nothing to open and nothing to close.
+const scrimEl = document.getElementById('scrim');
 const closeNav = () => {
   document.body.removeAttribute('nav');
   railMenu.setAttribute('aria-expanded', 'false');
 };
+scrimEl.onclick = closeNav;
 railMenu.onclick = () => {
   if (document.body.getAttribute('nav') === 'open') { closeNav(); return; }
   document.body.setAttribute('nav', 'open');
