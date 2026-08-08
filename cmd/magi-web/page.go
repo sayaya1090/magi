@@ -908,7 +908,10 @@ const indexHTML = `<!doctype html>
 
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--page); }
-  .boardhead { display:flex; gap:.9rem; align-items:end; margin:0 0 1.2rem; }
+  .boardhead { display:flex; gap:.9rem; align-items:center; margin:0 0 1.2rem; }
+  /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
+     and carries a floating label above its text, so centring on the row puts them over the label. */
+  .boardhead md-icon-button { align-self:end; margin-bottom:.4rem; }
   /* Scrolls sideways, and ONLY here. The page must never do it, but a board of lanes is the one
      shape where sideways is the reading direction, and clipping a lane would hide a companion. */
   .lanes { display:flex; gap:1.4rem; align-items:flex-start; overflow-x:auto; padding-bottom:.6rem; }
@@ -2009,10 +2012,37 @@ async function loadBoard() {
   day.setAttribute('label', tr('board.day'));
   day.value = boardDay;
   day.addEventListener('change', () => { boardDay = day.value || todayISO(); loadBoard(); });
+  // Reading a week backwards is the common way to use this, and a date field makes that four
+  // interactions per day: open the picker, find the cell, click, wait. A step is one click. The
+  // field stays because jumping to a date a month back is the other way to use it, and stepping
+  // there would be thirty clicks.
+  const step = (delta, key) => {
+    const b = document.createElement('md-icon-button');
+    b.setAttribute('aria-label', tr(key));
+    b.title = tr(key);
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+      '<path d="' + (delta < 0 ? 'M14.5 5.5 8 12l6.5 6.5' : 'M9.5 5.5 16 12l-6.5 6.5') +
+      '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
+      'stroke-linejoin="round"/></svg>';
+    b.onclick = () => {
+      // Parsed as UTC and stepped in whole days, so the answer does not depend on which side of a
+      // daylight-saving change the reader is standing on: local-midnight arithmetic lands on 23:00
+      // the previous day twice a year, and a board that skips a day is worse than no arrows.
+      const d = new Date(boardDay + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() + delta);
+      boardDay = d.toISOString().slice(0, 10);
+      loadBoard();
+    };
+    return b;
+  };
   const today = document.createElement('md-text-button');
   today.textContent = tr('board.today');
   today.onclick = () => { boardDay = todayISO(); loadBoard(); };
-  head.append(day, today);
+  // Tomorrow holds nothing: the store only has what has happened. The forward arrow is disabled on
+  // today rather than hidden, because a control that vanishes moves the ones beside it.
+  const fwd = step(1, 'board.next');
+  if (boardDay >= todayISO()) fwd.setAttribute('disabled', '');
+  head.append(step(-1, 'board.prev'), day, fwd, today);
 
   // Ordered the way the fleet is: trouble first. A board that sorted by name would bury the column
   // somebody needs behind the alphabet.

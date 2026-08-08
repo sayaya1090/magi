@@ -7,6 +7,8 @@
   "nav.connections": "MCP",
   "nav.board": "board",
   "board.day": "day",
+  "board.prev": "previous day",
+  "board.next": "next day",
   "board.today": "today",
   "board.nothing": "Nothing ran on this day.",
   "board.nothing_how": "Pick another day, or today, to see what each companion was working on.",
