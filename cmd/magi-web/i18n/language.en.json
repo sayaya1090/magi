@@ -2,6 +2,8 @@
   "nav.companions": "companions",
   "nav.corrections": "corrections",
   "nav.lessons": "experience",
+  "nav.to_promote": "waiting to be promoted",
+  "nav.in_force": "in force",
   "nav.connections": "MCP",
   "nav.board": "board",
   "board.day": "day",

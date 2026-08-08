@@ -515,7 +515,17 @@ const indexHTML = `<!doctype html>
      108ch and the fleet filled the page, so changing menus moved the left edge and re-set the line
      length — three different pages rather than four views of one. The prose inside keeps its own
      measure, which is where a reading width belongs. */
+  /* Both halves of one story, on one page: what has been said often enough to become a rule, and
+     the rules. They were two destinations, and a reader had to know that promoting on one made
+     something appear on the other. Each half says which it is. */
   #ivs { display:block; max-width:var(--page); }
+  .sectionhead {
+    display:flex; align-items:baseline; gap:.7rem;
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin:0 0 .8rem;
+  }
+  .sectionhead .n { margin-left:auto; }
+  #skills { margin-top:2.2rem; }
   #ivs .said { max-width:var(--measure); }
   .iv {
     display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
@@ -1257,12 +1267,6 @@ const indexHTML = `<!doctype html>
       </span>
       <span class="lbl"></span>
     </md-list-item>
-    <md-list-item id="railIv" type="link">
-      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
-        d="M4 5.5h16v9.5H9.5L5.5 18.5V15H4zM8 8.8h8M8 11.8h5"
-        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="lbl"></span>
-    </md-list-item>
     <md-list-item id="railSkills" type="link">
       <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
         d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
@@ -1293,7 +1297,6 @@ const indexHTML = `<!doctype html>
     <!-- Label and badge in ONE slotted element. A tab stacks what is slotted into it — it is built
          for an icon above a word — so two siblings put the count on a line below the label. -->
     <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
-    <md-primary-tab id="tabIv">corrections</md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
     <md-primary-tab id="tabBoard"></md-primary-tab>
     <md-primary-tab id="tabMcp"></md-primary-tab>
@@ -1492,13 +1495,14 @@ const state = document.getElementById('state'), sidEl = document.getElementById(
 const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
 const ivsEl = document.getElementById('ivs'), tabsEl = document.getElementById('tabs');
+// The corrections section lives on the experience page now: it is the same story's first half.
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board'), tabBoard = document.getElementById('tabBoard');
 const railBoard = document.getElementById('railBoard');
 const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('tabMcp');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
-const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
+const tabFleet = document.getElementById('tabFleet');
 const railEl = document.getElementById('rail');
 const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
@@ -1510,22 +1514,27 @@ const railBadge = document.getElementById('railBadge'), tabBadge = document.getE
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
 const historyEl = document.getElementById('history');
-const railFleet = document.getElementById('railFleet'), railIv = document.getElementById('railIv');
+const railFleet = document.getElementById('railFleet');
 const railSkills = document.getElementById('railSkills'), railMcp = document.getElementById('railMcp');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
-const view = () => new URLSearchParams(location.search).get('v') || 'fleet';
+// Corrections used to be a destination of its own and is now the first half of the experience
+// page. An address somebody kept still lands on the thing it was pointing at.
+const RENAMED = {interventions: 'skills'};
+const view = () => {
+  const v = new URLSearchParams(location.search).get('v') || 'fleet';
+  return RENAMED[v] || v;
+};
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
-const SECTION_KEY = {fleet: 'nav.companions', interventions: 'nav.corrections',
-                     skills: 'nav.lessons', board: 'nav.board', mcp: 'nav.connections'};
+const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.lessons',
+                     board: 'nav.board', mcp: 'nav.connections'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-const HREF = {fleet: '', interventions: '?v=interventions', skills: '?v=skills',
-              board: '?v=board', mcp: '?v=mcp'};
+const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', mcp: '?v=mcp'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
-const TABS = ['fleet', 'interventions', 'skills', 'board', 'mcp'];
+const TABS = ['fleet', 'skills', 'board', 'mcp'];
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -2333,7 +2342,9 @@ async function loadInterventions() {
     ivsEl.replaceChildren(emptyState('empty.nothing_to_promote', 'empty.nothing_to_promote_how'));
     return;
   }
-  ivsEl.replaceChildren(...rows.map(g => {
+  const head = cell('sectionhead');
+  head.append(cell('', tr('nav.to_promote')), cell('n', rows.length + ''));
+  ivsEl.replaceChildren(head, ...rows.map(g => {
     const el = cell('iv ' + g.kind);
     el.append(cell('times', g.n + '×'));
     const body = cell('body');
@@ -2401,7 +2412,9 @@ async function loadSkills() {
     skillsEl.replaceChildren(emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
     return;
   }
-  skillsEl.replaceChildren(...list.map(sk => {
+  const shead = cell('sectionhead');
+  shead.append(cell('', tr('nav.in_force')), cell('n', list.length + ''));
+  skillsEl.replaceChildren(shead, ...list.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
@@ -2601,7 +2614,6 @@ function connect() {
 function paint() {
   painted = true;
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
-  tabIv.textContent = tr('nav.corrections');
   tabSkills.textContent = tr('nav.lessons');
   tabBoard.textContent = tr('nav.board');
   tabMcp.textContent = tr('nav.connections');
@@ -2621,9 +2633,8 @@ function paint() {
   prefsClose.textContent = tr('action.close');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
-  for (const [el, key] of [[railFleet, 'nav.companions'], [railIv, 'nav.corrections'],
-                           [railSkills, 'nav.lessons'], [railBoard, 'nav.board'],
-                           [railMcp, 'nav.connections']]) {
+  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.lessons'],
+                           [railBoard, 'nav.board'], [railMcp, 'nav.connections']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
@@ -2644,8 +2655,8 @@ function paint() {
   //
   // Guarded on a first paint having happened, or this would run before the loaders are declared.
   if (!repaintable) return;
-  if (view() === 'skills') loadSkills();
-  else if (view() === 'interventions') loadInterventions();
+  if (view() === 'skills') { loadInterventions(); loadSkills(); }
+
   else if (view() === 'mcp') loadMCP();
   else if (view() === 'board') loadBoard();
   else if (!sock()) loadFleet();
@@ -2731,7 +2742,7 @@ function render() {
   for (const [el, key] of RAILS) el.toggleAttribute('selected', !s && v === key);
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
-  ivsEl.hidden = !!s || v !== 'interventions';
+  ivsEl.hidden = !!s || v !== 'skills';
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
   mcpEl.hidden = !!s || v !== 'mcp';
@@ -2763,15 +2774,12 @@ function render() {
     return;
   }
   if (v === 'skills') {
-    // Not polled, for the same reason the corrections page is not: this is read and thought about.
-    loadSkills();
-    return;
-  }
-  if (v === 'interventions') {
-    // Not polled: this is a page somebody reads and thinks about, and a list that reorders itself
-    // under the cursor while they are deciding what to promote is worse than one that is a minute
-    // old. It reloads when they come back to it.
+    // Both halves of the same story, in the order it happens: what has been said often enough to
+    // become a rule, then the rules. Not polled — this is read and thought about, and a list that
+    // reorders itself under the cursor while somebody decides what to promote is worse than one a
+    // minute old.
     loadInterventions();
+    loadSkills();
     return;
   }
   // The other two poll: the fleet for its rows, a companion's page for the facts about itself that
@@ -2803,7 +2811,7 @@ back.onclick = e => {
 // The rail's four, addressed the same way the tabs are. They are md-list-item with an href, so the
 // component draws a real anchor: the click is intercepted like every other in-page link, and a
 // middle click or a copied address still lands.
-const RAILS = [[railFleet, 'fleet'], [railIv, 'interventions'], [railSkills, 'skills'],
+const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'],
                [railBoard, 'board'], [railMcp, 'mcp']];
 for (const [el, key] of RAILS) {
   el.href = at(HREF[key]);
@@ -2851,7 +2859,7 @@ langEl.addEventListener('change', () => {
   loadPack();
 });
 
-for (const [el, key] of [[tabFleet, 'fleet'], [tabIv, 'interventions'], [tabSkills, 'skills'],
+for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills'],
                          [tabBoard, 'board'], [tabMcp, 'mcp']]) {
   // The href is set as well as the click: a middle-click or a copied link has to reach the same
   // place, and on a project site an absolute one does not.

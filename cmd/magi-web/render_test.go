@@ -570,7 +570,6 @@ console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHe
 	// have not been.
 	for _, tc := range []struct{ query, want, href string }{
 		{"", "companions", "/"},
-		{"?v=interventions", "corrections", "/?v=interventions"},
 		{"?v=skills", "experience", "/?v=skills"},
 		{"?v=mcp", "MCP", "/?v=mcp"},
 	} {
@@ -595,13 +594,12 @@ console.log(JSON.stringify({back: back.text, href: back.attrs.href, sep: crumbSe
 // a Korean page — so the check moved to what it was really protecting: each place the router can
 // reach has a name, and the name comes from the pack rather than from the page.
 func TestTheTabsAreNamedAsPlaces(t *testing.T) {
-	for _, view := range []string{"fleet", "interventions", "skills", "board", "mcp"} {
+	for _, view := range []string{"fleet", "skills", "board", "mcp"} {
 		if !strings.Contains(indexHTML, "'"+view+"'") {
 			t.Errorf("the router does not know %q", view)
 		}
 	}
-	for _, key := range []string{"nav.companions", "nav.corrections", "nav.lessons", "nav.board",
-		"nav.connections"} {
+	for _, key := range []string{"nav.companions", "nav.lessons", "nav.board", "nav.connections"} {
 		if v := packEntry(t, key); strings.TrimSpace(v) == "" {
 			t.Errorf("%s is empty in the pack; that destination has no name", key)
 		}
@@ -698,7 +696,7 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/int
 ] : []});
 await loadInterventions();
 console.log(JSON.stringify({
-  rows: byId.ivs.children.map(r => ({cls: r.className, text: r.text})),
+  rows: byId.ivs.children.filter(r => r.className !== 'sectionhead').map(r => ({cls: r.className, text: r.text})),
   state: byId.state.text,
 }));
 `)
@@ -762,14 +760,14 @@ byId.tabSkills.onclick({preventDefault() { throw new Error('the click default wa
 console.log(JSON.stringify({
   where: location.search,
   on: byId.tabs.activeTabIndex,
-  byHand: ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp'].filter(id => byId[id].setDirectly),
+  byHand: ['tabFleet', 'tabSkills', 'tabBoard', 'tabMcp'].filter(id => byId[id].setDirectly),
 }));
 `)
 	if got["where"] != "?v=skills" {
 		t.Errorf("clicking the lessons tab went to %q", got["where"])
 	}
-	if got["on"].(float64) != 2 {
-		t.Errorf("md-tabs has tab %v active, and lessons is the third", got["on"])
+	if got["on"].(float64) != 1 {
+		t.Errorf("md-tabs has tab %v active, and experience is the second", got["on"])
 	}
 	if hand := got["byHand"].([]any); len(hand) > 0 {
 		t.Errorf("the page set active on %v itself; md-tabs animates its indicator only when it is "+
@@ -1162,11 +1160,11 @@ func TestTheRailAgreesWithTheTabs(t *testing.T) {
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 console.log(JSON.stringify({
   on: byId.tabs.activeTabIndex,
-  lit: ['railFleet','railIv','railSkills','railBoard','railMcp'].filter(id => byId[id].hasAttribute('selected')),
+  lit: ['railFleet','railSkills','railBoard','railMcp'].filter(id => byId[id].hasAttribute('selected')),
 }));
 `)
-	if got["on"].(float64) != 4 {
-		t.Errorf("the tabs have %v active and connections is the fifth", got["on"])
+	if got["on"].(float64) != 3 {
+		t.Errorf("the tabs have %v active and MCP is the fourth", got["on"])
 	}
 	lit := got["lit"].([]any)
 	if len(lit) != 1 || lit[0] != "railMcp" {
@@ -1216,7 +1214,7 @@ func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {
 	fleet := runPage(t, `[]`, "", `
 // Which tab is current is the component's own active property, not a class of ours.
 console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: !!byId.tabFleet.active,
-  ivOn: !!byId.tabIv.active, fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden}));
+  ivOn: !!byId.tabSkills.active, fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden}));
 `)
 	if fleet["tabs"].(bool) || fleet["fleetOn"] != true || fleet["ivOn"] != false {
 		t.Errorf("on the fleet the tabs read %+v", fleet)
@@ -1224,13 +1222,13 @@ console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: !!byId.tabFleet.act
 	if fleet["ivsHidden"] != true || fleet["fleetHidden"] != false {
 		t.Errorf("the fleet view shows the wrong list: %+v", fleet)
 	}
-	ivs := runPage(t, `[]`, "?v=interventions", `
+	ivs := runPage(t, `[]`, "?v=skills", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
-console.log(JSON.stringify({fleetOn: !!byId.tabFleet.active, ivOn: !!byId.tabIv.active,
+console.log(JSON.stringify({fleetOn: !!byId.tabFleet.active, ivOn: !!byId.tabSkills.active,
   fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden, summaryHidden: byId.summary.hidden}));
 `)
 	if ivs["ivOn"] != true || ivs["fleetOn"] != false {
-		t.Errorf("on the interventions page the tabs read %+v", ivs)
+		t.Errorf("on the experience page the tabs read %+v", ivs)
 	}
 	if ivs["ivsHidden"] != false || ivs["fleetHidden"] != true || ivs["summaryHidden"] != true {
 		t.Errorf("the interventions view shows the wrong list: %+v", ivs)
@@ -1259,7 +1257,7 @@ globalThis.fetch = async (p, init) => {
   ] : []};
 };
 await loadInterventions();
-const byText = t => byId.ivs.children.find(r => r.text.includes(t));
+const byText = t => byId.ivs.children.filter(r => r.className !== 'sectionhead').find(r => r.text.includes(t));
 const shared = byText('run the tests first'), single = byText('do not touch vendor');
 console.log(JSON.stringify({
   sharedButtons: shared.find(clicky).map(b => b.textContent),
@@ -1299,7 +1297,7 @@ globalThis.fetch = async (p, init) => {
   ] : []};
 };
 await loadInterventions();
-const row = byId.ivs.children[0];
+const row = byId.ivs.children.filter(r => r.className !== 'sectionhead')[0];
 row.find(clicky)[0].onclick();          // rule for api
 row.find(clicky)[1] && row.find(clicky)[1].onclick();
 await new Promise(r => queueMicrotask(r));
@@ -1336,7 +1334,7 @@ globalThis.fetch = async (p, init) => {
   ] : []};
 };
 await loadSkills();
-const rows = byId.skills.children;
+const rows = byId.skills.children.filter(r => r.className !== 'sectionhead');
 const drop = rows[1].find('md-text-button')[0];
 // Once asks. A destructive control that acts on the first press has no confirmation at all, and
 // the error colour it used to rely on lives on :hover, which a touch screen does not have.
@@ -1853,7 +1851,7 @@ func TestClickingATabLandsOnIt(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 const seen = [];
-for (const [name, el] of [['corrections', tabIv], ['lessons', tabSkills],
+for (const [name, el] of [['experience', tabSkills], ['board', tabBoard],
                           ['connections', tabMcp], ['companions', tabFleet]]) {
   el.onclick({preventDefault(){}});
   seen.push({name, search: location.search, crumb: back.text, href: back.attrs.href,
@@ -1867,8 +1865,8 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 `)
 	seen := got["seen"].([]any)
 	want := []struct{ search, crumb, href string }{
-		{"?v=interventions", "corrections", "/?v=interventions"},
 		{"?v=skills", "experience", "/?v=skills"},
+		{"?v=board", "board", "/?v=board"},
 		{"?v=mcp", "MCP", "/?v=mcp"},
 		{"", "companions", "/"},
 	}
@@ -1882,8 +1880,9 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 				row["name"], row["crumb"], row["href"], w.crumb, w.href)
 		}
 	}
-	// Each panel is shown only on its own tab.
-	if seen[0].(map[string]any)["ivs"] != false || seen[1].(map[string]any)["skills"] != false ||
+	// Each panel is shown only on its own tab — and the corrections panel now belongs to the
+	// experience page, which is the whole of that merge.
+	if seen[0].(map[string]any)["ivs"] != false || seen[0].(map[string]any)["skills"] != false ||
 		seen[2].(map[string]any)["mcp"] != false || seen[3].(map[string]any)["fleet"] != false {
 		t.Errorf("a tab did not reveal its own panel: %v", seen)
 	}
@@ -1899,13 +1898,13 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 func TestTheLabelsComeFromTheLanguagePack(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 // The first paint uses the seed the server inlines — no dotted keys, no flash.
-const first = {tabs: [tabFleet.text, tabIv.text, tabSkills.text, tabMcp.text],
+const first = {tabs: [tabFleet.text, tabSkills.text, tabBoard.text, tabMcp.text],
                ask: byId.t.attrs.label};
 // A pack arriving afterwards repaints what is already on screen.
-labels$.next({'nav.companions': '컴패니언', 'nav.corrections': '교정',
-              'nav.lessons': '배운 것', 'nav.connections': '연결',
+labels$.next({'nav.companions': '컴패니언', 'nav.lessons': '경험',
+              'nav.board': '보드', 'nav.connections': 'MCP',
               'label.ask': 'magi에게 요청'});
-const after = [tabFleet.text, tabIv.text, tabSkills.text, tabMcp.text];
+const after = [tabFleet.text, tabSkills.text, tabBoard.text, tabMcp.text];
 const askAfter = byId.t.attrs.label;
 // Something drawn by hand before a pack lands must survive it.
 byId.detail.replaceChildren(cell('f', 'a thing somebody was reading'));
@@ -1914,14 +1913,14 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 `)
 	first := got["first"].(map[string]any)
 	tabs := first["tabs"].([]any)
-	if tabs[0] != "companions" || tabs[2] != "experience" {
+	if tabs[0] != "companions" || tabs[1] != "experience" {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
 	if first["ask"] != "ask magi" {
 		t.Errorf("the composer's label came from nowhere: %q", first["ask"])
 	}
 	after := got["after"].([]any)
-	if after[0] != "컴패니언" || after[3] != "연결" {
+	if after[0] != "컴패니언" || after[1] != "경험" {
 		t.Errorf("a pack arriving later did not reach the tabs: %v", after)
 	}
 	if got["askAfter"] != "magi에게 요청" {
