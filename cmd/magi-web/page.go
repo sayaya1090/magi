@@ -847,6 +847,20 @@ const indexHTML = `<!doctype html>
      against dimming was about text somebody still has to read. */
   #detail .f .fold { justify-self:start; margin-top:.4rem; }
 
+  /* The conversation and the facts about it, side by side where there is room. The transcript is
+     the wider of the two because its lines are code; the aside is a reading column of short
+     labelled facts and does not want more than it needs. */
+  #agentview { display:grid; grid-template-columns:minmax(0, 1fr); gap:1.6rem; }
+  @media (min-width:1100px) {
+    #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
+    /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
+       glancing back at, and a plan that scrolls away is one you re-find rather than read. */
+    #side { position:sticky; top:5.5rem; }
+  }
+  #stream, #side { min-width:0; display:flex; flex-direction:column; gap:1.4rem; }
+  #side md-outlined-card { margin-bottom:0; }
+  #side #plan, #side #handoffs, #side #history { max-width:none; }
+
   /* ── the agent's own plan ───────────────────────────────────────────────── */
   #plan { max-width:var(--measure); }
   #plan .k {
@@ -1306,12 +1320,25 @@ const indexHTML = `<!doctype html>
   <div id="board" hidden></div>
   <div id="mcp" hidden></div>
   <div id="fleet"></div>
-  <md-outlined-card id="detail" hidden></md-outlined-card>
-  <md-outlined-card id="plan" hidden></md-outlined-card>
-  <md-outlined-card id="handoffs" hidden></md-outlined-card>
-  <md-outlined-card id="intervened" hidden></md-outlined-card>
-  <md-outlined-card id="history" hidden></md-outlined-card>
-  <div id="log"></div>
+  <!-- Two reasons to be on a companion's page, and they want different things. Checking on it wants
+       the facts: state, workspace, model, context, plan. Reading what it is doing and steering it
+       wants the transcript and the box under it.
+       
+       Stacked, the transcript was 1335px down a 1267px screen — off it — behind five cards of which
+       three are history. So the conversation is the page and the facts stand beside it, and on a
+       narrow screen the conversation comes first with the rest underneath. -->
+  <div id="agentview">
+    <div id="stream">
+      <md-outlined-card id="detail" hidden></md-outlined-card>
+      <div id="log"></div>
+    </div>
+    <aside id="side">
+      <md-outlined-card id="plan" hidden></md-outlined-card>
+      <md-outlined-card id="handoffs" hidden></md-outlined-card>
+      <md-outlined-card id="intervened" hidden></md-outlined-card>
+      <md-outlined-card id="history" hidden></md-outlined-card>
+    </aside>
+  </div>
 </main>
 
 
