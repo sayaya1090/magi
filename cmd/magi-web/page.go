@@ -984,6 +984,9 @@ const indexHTML = `<!doctype html>
   .lanehead .lteam { font:11px/1.5 var(--mono); color:var(--accent); }
   .wcard { cursor:pointer; }
   .wcard .wlong { font:11px/1.5 var(--mono); color:var(--muted); }
+  .wcard .wmodel {
+    font:11px/1.5 var(--mono); color:var(--accent); overflow-wrap:anywhere;
+  }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
   .boardhead md-icon-button { align-self:end; margin-bottom:.4rem; }
@@ -2389,7 +2392,7 @@ async function loadBoard() {
     // about, and belonging to neither is how a long night disappears from a board.
     let work = runs[i].filter(h => dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay);
     if (boardQuery.trim()) {
-      const order = rankByIDF(boardQuery, work.map(h => h.title || ''));
+      const order = rankByIDF(boardQuery, work.map(h => [h.title, h.model].filter(Boolean).join(' ')));
       work = order.map(k => work[k]);
     }
     if (!work.length) return;
@@ -2417,6 +2420,10 @@ async function loadBoard() {
         const mins = Math.round((Date.parse(h.ended) - Date.parse(h.started)) / 60000);
         if (mins > 0) card.append(cell('wlong', dur(mins * 60)));
       }
+      // Which engine did it. The lane says WHO, and a companion's model can be changed mid-life —
+      // so the one it is on now says nothing about the work on this card, and this is the only
+      // place that fact survives.
+      if (h.model) card.append(cell('wmodel', h.model));
       // Opening the companion is the next thing somebody wants from a card they just read.
       card.onclick = () => go(a.socket, a.peer);
       lane.append(card);

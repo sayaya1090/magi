@@ -42,10 +42,18 @@ type Session struct {
 // SessionMeta is a lightweight summary used for listing sessions without
 // loading their full event logs.
 type SessionMeta struct {
-	ID           SessionID `json:"id"`
-	Workdir      string    `json:"workdir"`
-	Title        string    `json:"title,omitempty"`
-	Agent        string    `json:"agent,omitempty"`  // subagent role (child sessions)
+	ID      SessionID `json:"id"`
+	Workdir string    `json:"workdir"`
+	Title   string    `json:"title,omitempty"`
+	Agent   string    `json:"agent,omitempty"` // subagent role (child sessions)
+	// Model is what the session was OPENED with, off its first event. Carried because a list of
+	// past work is a list of work done by something, and which engine did it is the one fact about
+	// a finished session that is neither in its title nor derivable later — a companion's model can
+	// be changed mid-life by /route, so the one it is on now says nothing about last Tuesday.
+	//
+	// Free: scanSessions already unmarshals the created event to find the parent, and this was
+	// sitting in the same struct being thrown away.
+	Model        string    `json:"model,omitempty"`
 	Parent       string    `json:"parent,omitempty"` // spawning session id (child sessions)
 	Created      time.Time `json:"created"`
 	LastActivity time.Time `json:"lastActivity"`

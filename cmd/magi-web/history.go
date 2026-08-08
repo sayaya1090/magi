@@ -40,6 +40,10 @@ type pastSession struct {
 	// Ago is seconds since it last did anything, so the page says "3d ago" the same way the fleet
 	// does rather than inventing a second way to write a time.
 	Ago int `json:"ago"`
+	// Model is what it was opened with. A companion's model can be changed mid-life, so the one it
+	// is on now says nothing about what ran last Tuesday — and "which engine did this" is the fact
+	// about a finished piece of work that is neither in its title nor recoverable afterwards.
+	Model string `json:"model,omitempty"`
 	// Current marks the session the companion is in right now, which is on this list too: it is
 	// work it is doing, and leaving it off would make the newest row the second-newest thing.
 	Current bool `json:"current,omitempty"`
@@ -78,6 +82,7 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 			Started: m.Created.UTC().Format(time.RFC3339),
 			Ended:   m.LastActivity.UTC().Format(time.RFC3339),
 			Ago:     int(now.Sub(m.LastActivity).Seconds()),
+			Model:   m.Model,
 			Current: string(m.ID) == in.Session,
 		})
 	}

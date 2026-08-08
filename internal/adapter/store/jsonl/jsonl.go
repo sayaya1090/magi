@@ -600,6 +600,7 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 			if json.Unmarshal(evs[0].Data, &d) == nil {
 				m.Agent = d.Agent
 				m.Parent = d.Parent
+				m.Model = d.Model.Model
 			}
 		}
 		metas = append(metas, m)

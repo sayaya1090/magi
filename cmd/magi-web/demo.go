@@ -83,6 +83,9 @@ const demoScript = `
     const st = day(daysAgo); st.setHours(startH, 0, 0, 0);
     const en = new Date(st.getTime() + hours * 3600000);
     return {id, title, started: iso(st), ended: iso(current ? new Date() : en),
+            // Two models across the fixtures, because one everywhere would not show that the label
+            // is per SESSION rather than per companion.
+            model: daysAgo > 1 ? 'qwen3-coder:30b' : 'qwen3-coder-next',
             ago: current ? 0 : Math.round((Date.now() - en) / 1000), current: !!current};
   };
   const HISTORY = {
