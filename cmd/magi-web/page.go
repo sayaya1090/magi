@@ -826,6 +826,19 @@ const indexHTML = `<!doctype html>
 
   /* ── work handed to other companions ────────────────────────────────────── */
   #handoffs { max-width:var(--measure); }
+
+  /* ── what this companion did before now ─────────────────────────────────── */
+  #history { max-width:var(--measure); }
+  #history .k {
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:.5rem;
+  }
+  .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:.3rem 1.2rem; padding:.35rem 0; }
+  .hs + .hs { border-top:1px solid var(--outlineVariant); }
+  .hs .when { font:11px/1.6 var(--mono); color:var(--muted); text-align:right; }
+  .hs .what { font-size:13px; color:var(--fg); overflow-wrap:anywhere; }
+  /* The one it is in now is work too, and it is the newest row. Marked rather than left off. */
+  .hs.now .when { color:var(--success); font-weight:600; }
   #handoffs .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.5rem;
@@ -1178,6 +1191,7 @@ const indexHTML = `<!doctype html>
   <md-outlined-card id="detail" hidden></md-outlined-card>
   <md-outlined-card id="plan" hidden></md-outlined-card>
   <md-outlined-card id="handoffs" hidden></md-outlined-card>
+  <md-outlined-card id="history" hidden></md-outlined-card>
   <div id="log"></div>
 </main>
 
@@ -1356,6 +1370,7 @@ const railMenu = document.getElementById('railMenu');
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
+const historyEl = document.getElementById('history');
 const railFleet = document.getElementById('railFleet'), railIv = document.getElementById('railIv');
 const railSkills = document.getElementById('railSkills'), railMcp = document.getElementById('railMcp');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
@@ -1700,6 +1715,30 @@ function drawPrompt(a) {
   measureDock();
 }
 
+// What this companion has done before now.
+//
+// Every other panel on this page is about the turn it is in. When that turn ends the page shows the
+// next one, so "what has this one actually been doing" — the question somebody has after being away
+// — had no answer here, while the answer sat in the log store the whole time.
+//
+// The request as it was made, not a summary of it. A summary would be this page deciding what the
+// work was about, which quietly rewrites what somebody asked for.
+async function loadHistory() {
+  const list = await fetchList('/history' + q());
+  if (!list || !list.length) { historyEl.hidden = true; historyEl.replaceChildren(); return; }
+  const box = cell('');
+  box.append(cell('k', tr('field.history')));
+  for (const h of list) {
+    const row = cell('hs' + (h.current ? ' now' : ''));
+    row.append(cell('when', h.current ? tr('state.working') : ago(h.ago)));
+    row.append(cell('what', h.title || tr('history.untitled')));
+    box.append(row);
+  }
+  historyEl.replaceChildren(box);
+  historyEl.hidden = false;
+  measureDock();
+}
+
 // A list from this console, or null when the console itself cannot be reached.
 //
 // The three loaders had this same try/catch, and the distinction it draws is the one thing they
@@ -1739,6 +1778,10 @@ async function loadFleet() {
     const mine = list.find(a => a.socket === here && (a.peer || '') === peerOf());
     drawPrompt(mine);
     drawDetail(mine);
+    // Once per visit, not on every poll: a list of finished work does not change while you read it,
+    // and re-fetching it four times a minute would be four reads of the whole store for an answer
+    // that is the same every time.
+    if (!historyEl.children.length) loadHistory();
     return;
   }
 
@@ -2458,6 +2501,7 @@ function render() {
   document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
   document.getElementById('detail').hidden = !s;
   document.getElementById('handoffs').hidden = true;
+  historyEl.hidden = true;
   document.getElementById('plan').hidden = true;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';

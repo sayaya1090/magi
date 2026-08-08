@@ -37,6 +37,8 @@
   "field.cache": "캐시",
   "field.plan": "계획",
   "field.handed_out": "넘긴 일",
+  "field.history": "지나온 작업",
+  "history.untitled": "(요청 기록 없음)",
   "field.summarised_away": "요약되어 사라진 것",
   "state.waiting": "대기 중",
   "state.waiting_on_you": "{n}건이 당신을 기다립니다",

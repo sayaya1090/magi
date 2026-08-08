@@ -465,6 +465,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/plan":                 s.plan,
 		"/compact":              s.compact,
 		"/console":              s.console,
+		"/history":              s.history,
 	}
 }
 

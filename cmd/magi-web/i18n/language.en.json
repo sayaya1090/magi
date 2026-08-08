@@ -37,6 +37,8 @@
   "field.cache": "cache",
   "field.plan": "plan",
   "field.handed_out": "handed out",
+  "field.history": "what it has done",
+  "history.untitled": "(no request recorded)",
   "field.summarised_away": "summarised away",
   "state.waiting": "waiting",
   "state.waiting_on_you": "{n} waiting on you",

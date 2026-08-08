@@ -124,6 +124,17 @@ const demoScript = `
       {content: 'get it reviewed by buttons', status: 'pending'},
       {content: 'fold it into the component docs', status: 'pending'},
     ],
+    // What this companion has done before now — the store's own session list, newest first.
+    '/history': [
+      {id: 'd1', title: 'spec the empty state for the fleet table, and name the exact tokens',
+       ago: 0, current: true},
+      {id: 'c9', title: 'audit the button emphasis against the M3 scale and fix the inversions',
+       ago: 5400},
+      {id: 'c4', title: 'the filter chips are not reachable with a keyboard on the corrections page',
+       ago: 93000},
+      {id: 'b7', title: 'move the palette into styles.go so the two surfaces cannot drift',
+       ago: 260000},
+    ],
     '/handoffs': [
       {from: 'design', to: 'buttons', socket: '/demo/buttons.sock', state: 'idle',
        request: 'make the toggle read its state from the store',
