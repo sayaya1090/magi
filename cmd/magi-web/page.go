@@ -2282,7 +2282,27 @@ function paint() {
   paintChoice(themeEl, 'theme');
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
+
+  // The lists are drawn by functions, and a function's words are read at draw time. A pack that
+  // lands after the list did leaves it in the old language until somebody navigates — measured on
+  // the lessons page, which showed an English "forget" beside a Korean "정말?" on the same control.
+  //
+  // Only the LISTS. The transcript and the detail panel are not repainted, because a pack can land
+  // mid-interaction and re-rendering there is what once wiped a panel somebody was reading. A list
+  // replaces its own container and nothing else, so redrawing it costs the reader nothing.
+  //
+  // Guarded on a first paint having happened, or this would run before the loaders are declared.
+  if (!repaintable) return;
+  if (view() === 'skills') loadSkills();
+  else if (view() === 'interventions') loadInterventions();
+  else if (view() === 'mcp') loadMCP();
+  else if (!sock()) loadFleet();
+  // The crumb is written by render() and is a word too.
+  back.textContent = sock() ? SECTION.fleet : (SECTION[view()] || tr('nav.companions'));
 }
+// True once the page has drawn itself at least once. paint() runs before that on the first pass,
+// when the loaders exist but the view has not been decided.
+let repaintable = false;
 
 // A select whose options are the same list every time and whose words are not. Rebuilt on a pack
 // change rather than translated in place: an md-select-option holds its label as slotted content,
@@ -2508,6 +2528,7 @@ document.getElementById('stop').onclick = () => post('/interrupt', null);
 
 paint();
 render();
+repaintable = true;
 loadConsole();
 </script>
 `

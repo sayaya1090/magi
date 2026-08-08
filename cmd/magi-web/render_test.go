@@ -1029,6 +1029,40 @@ console.log(JSON.stringify({heads: byId.fleet.children.filter(c => c.className =
 	}
 }
 
+// A pack that arrives after a list is drawn still reaches it.
+//
+// The lists are built by functions and a function reads its words at draw time, so a pack landing
+// afterwards left them in the old language until somebody navigated away and back. Seen on the
+// lessons page as an English "forget" beside a Korean "정말?" on the same control — half a button
+// in each language.
+//
+// The transcript and the detail panel are deliberately NOT repainted: a pack can land mid
+// interaction, and re-rendering there is what once wiped a panel somebody was reading.
+func TestALatePackReachesTheListsAlreadyDrawn(t *testing.T) {
+	got := runPage(t, `[]`, "?v=skills", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => String(p).startsWith('/skills') ? [
+  {"name":"skill-x","description":"a rule","tier":"global","observed":1,"lastSeen":"2026-08-06"}
+] : []});
+await loadSkills();
+const before = byId.skills.text;
+byId.detail.replaceChildren(cell('', 'a thing somebody was reading'));
+labels$.next({'action.forget': '잊기', 'nav.lessons': '배운 것'});
+// Drain the microtasks the repaint's own fetch runs on. NOT a second loadSkills() by hand — that
+// would be the test doing the thing it is checking for, and it would pass with the fix removed.
+for (let i = 0; i < 20; i++) await Promise.resolve();
+console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.text}));
+`)
+	if strings.Contains(got["before"].(string), "잊기") {
+		t.Fatal("the fixture was already translated; this test cannot see the change")
+	}
+	if !strings.Contains(got["after"].(string), "잊기") {
+		t.Errorf("the list kept the old language after the pack landed: %q", got["after"])
+	}
+	if got["kept"] != "a thing somebody was reading" {
+		t.Errorf("repainting the lists wiped the detail panel: %q", got["kept"])
+	}
+}
+
 // The rail widens, and the theme has a control of its own.
 //
 // There is no drawer on a phone any more: the tabs navigate, the theme toggle sits in the masthead,
