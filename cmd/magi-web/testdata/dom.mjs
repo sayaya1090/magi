@@ -15,6 +15,7 @@ function element(tag) {
   const node = {
     tag,
     children: [],
+    _on: {},
     attrs: {},
     style: {},
     _class: '',
@@ -38,7 +39,18 @@ function element(tag) {
     get hidden() { return !!this.attrs.hidden; },
     append(...kids) { this.children.push(...kids); },
     replaceChildren(...kids) { this.children = kids; },
-    addEventListener() {},
+    // Listeners are kept and dispatched, not swallowed. A no-op here made the fake disagree with
+    // the DOM in the direction that hides bugs: md-tabs reports a switch by firing 'change' and
+    // nothing else, so a page that listened for it looked correct while doing nothing at all.
+    addEventListener(type, fn) { (this._on[type] || (this._on[type] = [])).push(fn); },
+    removeEventListener(type, fn) {
+      const l = this._on[type];
+      if (l) this._on[type] = l.filter(x => x !== fn);
+    },
+    dispatchEvent(e) {
+      for (const fn of this._on[e && e.type] || []) fn.call(this, e);
+      return true;
+    },
     requestSubmit() {},
     focus() {},
     // md-primary-tab keeps its selection in a property, not a class.
@@ -129,7 +141,7 @@ globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
 const byId = {};
 for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'tabs', 'tabFleet', 'skills', 'tabSkills',  'mcp', 'tabMcp', 'board', 'tabBoard', 'railBoard', 'handoffs', 'history', 'intervened', 'agentview', 'stream', 'side', 'plan', 'send',
-                 'rail', 'railNav', 'scrim', 'cnote', 'notifyK', 'notify', 'notifyBtn', 'notifyWhy', 'theme', 'lang', 'prefsK',
+                 'rail', 'railNav', 'scrim', 'cnote', 'notifyK', 'notify', 'notifyBtn', 'notifyWhy', 'ptabs', 'ptabTalk', 'ptabState', 'theme', 'lang', 'prefsK',
                  'consoleK', 'console', 'prefs', 'prefsDialog', 'prefsClose', 'prefsForm', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
@@ -142,6 +154,9 @@ byId.lang = element('md-outlined-select');
 // The dialog holds the controls it holds; a test asks the form what is in it.
 byId.prefsForm.append(byId.lang);
 for (const id of ['tabFleet', 'tabSkills', 'tabBoard', 'tabMcp']) byId.tabs.append(byId[id]);
+// md-tabs answers activeTabIndex from its CHILDREN, so a strip whose tabs were never appended
+// reports -1 for every selection and the page reads that as "the first one".
+for (const id of ['ptabTalk', 'ptabState']) byId.ptabs.append(byId[id]);
 // The companions tab holds a label element beside its badge, so the word can be rewritten without
 // taking the badge with it. Mirrored here for the same reason the rail's labels are.
 { const wrap = element('span'); wrap.className = 'tablbl'; const l = element('span'); l.className = 'lbl'; wrap.append(l); wrap.append(byId.tabBadge); byId.tabFleet.append(wrap); }
@@ -213,10 +228,18 @@ globalThis.addEventListener = () => {};
 // Two queries are asked now and they mean different things: hover:none is a touch screen, and the
 // width one is the layout breakpoint. A stub answering both with the same flag made a phone-sized
 // test claim a desktop layout.
-globalThis.matchMedia = (q) => ({
-  matches: String(q).includes('hover') ? process.env.TOUCH === '1'
-                                       : process.env.NARROW === '1',
-});
+globalThis.matchMedia = (q) => {
+  const s = String(q);
+  // A min-width query asks "is the window at least this wide", so under NARROW it is FALSE. Written
+  // as `matches: NARROW` it answered yes to exactly the question a narrow screen answers no to —
+  // harmless while the only width query was in CSS, and wrong the moment the page asked one.
+  const matches = s.includes('hover') ? process.env.TOUCH === '1'
+                : s.includes('min-width') ? process.env.NARROW !== '1'
+                : process.env.NARROW === '1';
+  // A media query is an EventTarget. The page listens for the breakpoint being crossed, which is
+  // how a window dragged across it re-lays out; a stub without these throws on the way past.
+  return {matches, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}};
+};
 // Timers are recorded rather than run: a test needs to know that the page ARMED a poll — the one
 // on an agent's page is how the prompt it is blocked on ever reaches the browser — without the
 // suite then waiting three seconds for it.

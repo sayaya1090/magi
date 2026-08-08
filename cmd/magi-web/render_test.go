@@ -785,6 +785,56 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// Below the two-column width a companion is two screens, not one column of six cards.
+//
+// Stacked, the order was: the facts, then the conversation, then four cards of which three are
+// history. Measured at 430px the transcript began 1073px down a 900px screen — off it — and the
+// composer, fixed at the foot, was nowhere near the words it answers. Above the breakpoint both
+// columns are visible and there is nothing to switch between, so the strip must not appear there.
+func TestOnANarrowScreenACompanionIsTwoPanels(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+	   "task":"add the key","steps":3,"idle":4,"session":"s1"}]`
+	probe := `
+await loadFleet();
+const vis = id => !byId[id].hidden;
+const out = {tabs: !byId.ptabs.hidden, talk: {log: vis('log'), detail: vis('detail'), side: vis('side')}};
+if (!byId.ptabs.hidden) {
+  byId.ptabs.activeTabIndex = 1;
+  byId.ptabs.dispatchEvent({type: 'change'});
+  out.state = {log: vis('log'), detail: vis('detail'), side: vis('side')};
+}
+console.log(JSON.stringify(out));
+`
+	t.Run("narrow", func(t *testing.T) {
+		t.Setenv("NARROW", "1")
+		got := runPage(t, one, "?d=%2Fs%2Fa.sock", probe)
+		if got["tabs"] != true {
+			t.Fatal("no way to reach the other half: the strip is hidden on a stacked layout")
+		}
+		talk := got["talk"].(map[string]any)
+		if talk["log"] != true || talk["detail"] != false || talk["side"] != false {
+			t.Errorf("the conversation panel shows %v — it must be the conversation and nothing above it", talk)
+		}
+		state, ok := got["state"].(map[string]any)
+		if !ok {
+			t.Fatal("switching panels produced nothing")
+		}
+		if state["log"] != false || state["detail"] != true || state["side"] != true {
+			t.Errorf("the status panel shows %v", state)
+		}
+	})
+	t.Run("wide", func(t *testing.T) {
+		got := runPage(t, one, "?d=%2Fs%2Fa.sock", probe)
+		if got["tabs"] != false {
+			t.Error("the strip is drawn where both columns already fit")
+		}
+		talk := got["talk"].(map[string]any)
+		if talk["log"] != true || talk["detail"] != true || talk["side"] != true {
+			t.Errorf("the two-column layout hid something: %v", talk)
+		}
+	})
+}
+
 // A question is answered in the composer, and the composer says so.
 //
 // Both boxes drawn, an agent's page had two text fields stacked: the upper one answering the

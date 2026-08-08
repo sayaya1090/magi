@@ -846,7 +846,8 @@ const indexHTML = `<!doctype html>
      A card lays its slotted children out itself (:host is flex, and a slot is display:contents),
      so a display of ours on the host wins and the children stay grid items. */
   md-outlined-card { padding:1.1rem 1.2rem; margin-bottom:1.4rem; }
-  #detail {
+  #detail { display:flex; flex-direction:column; gap:1.1rem; }
+  #detail .grid {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
        step count. 14rem is the width of the longest SHORT field (the context reading), so the long
        ones take a whole row of their own instead of squeezing the rest. */
@@ -875,6 +876,31 @@ const indexHTML = `<!doctype html>
      the wider of the two because its lines are code; the aside is a reading column of short
      labelled facts and does not want more than it needs. */
   #agentview { display:grid; grid-template-columns:minmax(0, 1fr); gap:1.6rem; }
+  /* The facts fold away. On this page they answer "what am I looking at" once, and after that they
+     are 380px of masthead between the reader and the conversation they came for — measured at
+     430px wide, the transcript began 1073px down a 900px screen. Folded, the summary line still
+     carries the state and the workspace, which is what somebody glancing back actually wants. */
+  #detail .foldbar {
+    display:flex; align-items:baseline; gap:.7rem; width:100%; cursor:pointer;
+    background:none; border:0; padding:0; color:inherit; text-align:left; font:inherit;
+  }
+  #detail .foldbar .caret { color:var(--muted); transition:transform 200ms var(--ease-standard); }
+  #detail[folded] .foldbar .caret { transform:rotate(-90deg); }
+  #detail .foldbar .sum {
+    font:var(--body-s) var(--mono); color:var(--muted); margin-left:auto;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #detail[folded] .grid { display:none; }
+  /* Two panels on one screen instead of six cards in a column.
+     Below the two-column width the page stacked: the facts, then the conversation, then four cards
+     of which three are history — so the transcript was off the first screen and the composer, fixed
+     at the foot, was nowhere near the words it answers. The tabs put the conversation on its own
+     screen and everything else on the other. Above it, both columns are visible and there is
+     nothing to switch between. */
+  #ptabs { margin:0 0 1.2rem; }
+  @media (min-width:1100px) {
+    #ptabs { display:none !important; }
+  }
   @media (min-width:1100px) {
     #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
     /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
@@ -1401,6 +1427,10 @@ const indexHTML = `<!doctype html>
        Stacked, the transcript was 1335px down a 1267px screen — off it — behind five cards of which
        three are history. So the conversation is the page and the facts stand beside it, and on a
        narrow screen the conversation comes first with the rest underneath. -->
+  <md-tabs id="ptabs" hidden>
+    <md-primary-tab id="ptabTalk"></md-primary-tab>
+    <md-primary-tab id="ptabState"></md-primary-tab>
+  </md-tabs>
   <div id="agentview">
     <div id="stream">
       <md-outlined-card id="detail" hidden></md-outlined-card>
@@ -1690,6 +1720,42 @@ const state = document.getElementById('state'), sidEl = document.getElementById(
 const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
 const tabsEl = document.getElementById('tabs');
+// ── the companion page's two panels, below the two-column width ──────────────
+// Which of a companion's two halves is on screen. Only meaningful under 1100px, where the columns
+// have collapsed into a stack; above it both are visible and the strip is display:none.
+//
+// Not in the URL. The destination is the companion; which half of it you were reading is a scroll
+// position, and putting it in the address bar would make a link somebody sends land on a screen
+// they did not mean to share. It does not survive a reload either, on purpose: arriving at a
+// companion, the conversation is what you came for.
+const ptabs = document.getElementById('ptabs');
+const streamEl = document.getElementById('stream'), sideEl = document.getElementById('side');
+const detailEl = document.getElementById('detail');
+let panel = 'talk';
+// A media query object rather than a width read: it fires on the change, so a window dragged past
+// the breakpoint re-lays out without waiting for anything else to happen.
+const wide = matchMedia('(min-width:1100px)');
+function drawPanels() {
+  const s = sock();
+  ptabs.hidden = !s || wide.matches;
+  if (!s || wide.matches) {
+    // Both halves, as they were. Nothing may stay hidden from a previous narrow visit.
+    if (sideEl) sideEl.hidden = false;
+    if (detailEl) detailEl.hidden = !s;
+    log.hidden = !s;
+    return;
+  }
+  const talk = panel === 'talk';
+  log.hidden = !talk;
+  detailEl.hidden = talk;
+  sideEl.hidden = talk;
+}
+ptabs.addEventListener('change', () => {
+  panel = ptabs.activeTabIndex === 1 ? 'state' : 'talk';
+  drawPanels();
+  measureDock();
+});
+wide.addEventListener('change', drawPanels);
 const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board'), tabBoard = document.getElementById('tabBoard');
@@ -2348,6 +2414,18 @@ function teamHead(name, members) {
   return h;
 }
 
+// Folded or not, remembered. A preference somebody sets on one companion means the same thing on
+// the next one — it is a statement about how much of the screen they want the conversation to have,
+// not about this agent.
+function setFolded(want) {
+  const box = document.getElementById('detail');
+  box.toggleAttribute('folded', want);
+  const bar = box.querySelector('.foldbar');
+  if (bar) bar.setAttribute('aria-expanded', want ? 'false' : 'true');
+  localStorage.setItem('facts', want ? 'folded' : 'open');
+  measureDock();
+}
+
 // drawDetail is the agent page's own header: what this is, where it runs, how far it has got.
 // A detail view that does not say which resource it is showing is the one place a console cannot
 // afford to be quiet, and a transcript does not say it.
@@ -2360,7 +2438,8 @@ function drawDetail(a) {
   const field = (key, v, cls) => {
     const f = cell('f'); f.append(cell('k', tr(key)), cell('v ' + (cls || ''), v)); return f;
   };
-  box.replaceChildren(
+  const grid = cell('grid');
+  grid.append(
     field('field.status', a.state, 'state ' + a.state),
     field('field.workspace', a.workdir),
     ...(a.role ? [field('field.role', a.role)] : []),
@@ -2371,13 +2450,26 @@ function drawDetail(a) {
     field('field.last_activity', ago(a.idle)),
     field('field.session', a.session),
   );
+  // A button, not a clickable div: this is the one control on the card and it has to be reachable
+  // by keyboard and announce itself as pressed or not.
+  const bar = document.createElement('button');
+  bar.type = 'button';
+  bar.className = 'foldbar';
+  bar.append(cell('caret', '▾'), cell('k', tr('field.facts')),
+             cell('sum', a.state + ' · ' + a.workdir));
+  bar.onclick = () => setFolded(!box.hasAttribute('folded'));
+  box.replaceChildren(bar, grid);
+  setFolded(localStorage.getItem('facts') === 'folded');
   box.hidden = false;
+  // Which of the two panels it belongs to when the columns have stacked. Called here rather than
+  // left to render(), because this runs on every fleet poll and render() does not.
+  if (sock()) drawPanels();
   drawPlan(a);
   drawHandoffs(a);
   // Returned rather than dropped: the caller does not wait for it, but a caller that WANTS to —
   // a test, or a later screen that needs the whole panel settled — has no other way to know when
   // the slow half landed, and a promise nobody can await is a promise nobody can check.
-  return drawContext(a, box, field);
+  return drawContext(a, box, grid, field);
 }
 
 // ── the plan it is working through ───────────────────────────────────────────
@@ -2443,7 +2535,7 @@ function contextKey(a) {
   return (a.peer || '') + '\u0000' + a.socket + '\u0000' + (a.steps || 0) + '\u0000' + a.state;
 }
 
-async function drawContext(a, box, field) {
+async function drawContext(a, box, grid, field) {
   const key = contextKey(a);
   let c = ctxHeld.key === key ? ctxHeld.data : null;
   if (!c) {
@@ -2456,14 +2548,18 @@ async function drawContext(a, box, field) {
     if (mine !== ctxDraw) return;
     ctxHeld = {key: key, data: c};
   }
-  if (!c || box.hidden) return;
+  // The panel it was drawn into may have been replaced while this was in flight. Checked on the
+  // box that was passed in rather than looked up: on the stacked layout the card is legitimately
+  // hidden behind the other tab, and looking it up would drop the context every time somebody was
+  // reading the conversation.
+  if (!c || box.children.indexOf(grid) < 0) return;
 
   // Which model, because the window below is that model's and a companion can be on one you did
   // not put it on — /route changes it mid-session and nothing else on this page would say so.
-  if (c.model) box.append(field('field.model', c.model));
+  if (c.model) grid.append(field('field.model', c.model));
   // Said once, where somebody would otherwise wonder why there is no cache figure at all.
   if (!c.cacheReported && !c.estimated) {
-    box.append(field('field.cache', tr('context.no_cache_report')));
+    grid.append(field('field.cache', tr('context.no_cache_report')));
   }
 
   const size = cell('v', '');
@@ -2511,7 +2607,7 @@ async function drawContext(a, box, field) {
     bar.append(fill);
     f.append(bar);
   }
-  box.append(f);
+  grid.append(f);
 
   // A compaction is the one moment a companion silently stops knowing something. Four of them in
   // one session is the reason its earlier reasoning cannot be assumed still there.
@@ -2530,7 +2626,7 @@ async function drawContext(a, box, field) {
       cf.append(cell('v', c.topics.slice(0, 6).join(' · ') +
                           (c.topics.length > 6 ? ' +' + (c.topics.length - 6) : '')));
     }
-    box.append(cf);
+    grid.append(cf);
   }
 }
 
@@ -2801,6 +2897,8 @@ function paint() {
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
   tabSkills.textContent = tr('nav.lessons');
   tabBoard.textContent = tr('nav.board');
+  document.getElementById('ptabTalk').textContent = tr('panel.talk');
+  document.getElementById('ptabState').textContent = tr('panel.state');
   tabMcp.textContent = tr('nav.connections');
   // label, not placeholder. Material Web floats the LABEL into the outline's notch when the field
   // takes focus or holds a value; a placeholder is the grey hint inside an empty one and never
@@ -2933,15 +3031,15 @@ function render() {
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
   mcpEl.hidden = !!s || v !== 'mcp';
-  log.hidden = !s;
-  // The composer is on both views now. On a companion's page it steers that companion; on the
-  // fleet it dispatches, and the address field is the difference.
   // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
   f.hidden = !s;
   document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
-  document.getElementById('detail').hidden = !s;
+  // Leaving a companion resets the panel: the next one is arrived at for its conversation, and
+  // landing on the facts of an agent you just opened is a screen nobody asked for.
+  if (!s) panel = 'talk';
+  drawPanels();
   document.getElementById('handoffs').hidden = true;
   historyEl.hidden = true;
   intervenedEl.hidden = true;
