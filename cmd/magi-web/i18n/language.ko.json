@@ -32,6 +32,7 @@
   "field.handed_out": "넘긴 일",
   "field.summarised_away": "요약되어 사라진 것",
   "state.waiting": "대기 중",
+  "state.waiting_on_you": "{n}건이 당신을 기다립니다",
   "state.working": "작업 중",
   "state.idle": "유휴",
   "state.abandoned": "중단됨",

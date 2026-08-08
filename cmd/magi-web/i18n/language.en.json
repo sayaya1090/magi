@@ -32,6 +32,7 @@
   "field.handed_out": "handed out",
   "field.summarised_away": "summarised away",
   "state.waiting": "waiting",
+  "state.waiting_on_you": "{n} waiting on you",
   "state.working": "working",
   "state.idle": "idle",
   "state.abandoned": "abandoned",

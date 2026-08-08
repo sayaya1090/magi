@@ -358,6 +358,13 @@ const indexHTML = `<!doctype html>
     color:var(--muted); display:flex; align-items:center; gap:.45rem;
   }
   #state::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--outline); }
+  /* The count is a readout; this part of it is a control, and it says so by being one. */
+  #state .jump {
+    --md-text-button-label-text-color:var(--warn);
+    --md-text-button-hover-label-text-color:var(--warn);
+    --md-text-button-label-text-size:11px;
+    margin-left:-.3rem;
+  }
   #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
   #state.lost::before { background:var(--error); }
   #back {
@@ -413,6 +420,15 @@ const indexHTML = `<!doctype html>
     --md-list-item-label-text-color:var(--primary);
     --md-list-item-container-color:color-mix(in srgb, var(--primary) 14%, transparent);
   }
+  md-badge {
+    --md-badge-color:var(--warn);
+    --md-badge-large-color:var(--warn);
+    --md-badge-large-label-text-color:var(--bg);
+    --md-badge-large-label-text-font:var(--mono);
+  }
+  /* On a tab the badge sits beside the word rather than over it: these labels are words, not icons,
+     and a count parked on top of "companions" lands on a letter. */
+  #tabs md-badge { position:static; margin-left:.45rem; vertical-align:middle; }
   #railFoot { display:flex; flex-direction:column; gap:.7rem; margin-top:auto; }
   /* Sits where the preferences will appear, so opening them does not move the eye. */
   #prefsBtn { margin-top:auto; align-self:center;
@@ -940,15 +956,21 @@ const indexHTML = `<!doctype html>
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
        which also puts them under the thumb rather than beside it. */
-    .composer { flex-wrap:wrap; }
-    .composer md-outlined-text-field#to { flex:0 0 14rem; min-width:9rem; }
+    /* Two rows, not three. Measured at 390px: the dock was 261px, 36% of the screen, because the
+       address, the box and the button each took a line of their own. The box gets its row and the
+       other two share the next one — the send button is a word, and a word does not need a row.
+       Ordered rather than reordered in the markup: the tab order that reads to → message → send is
+       the right one, and only where they SIT changes. */
+    .composer { flex-wrap:wrap; align-items:end; }
+    .composer md-outlined-text-field#t { order:1; }
+    .composer md-outlined-text-field#to { order:2; flex:1 1 8rem; min-width:7rem; }
+    .composer md-filled-button, .composer md-filled-tonal-button { order:3; flex:0 0 auto; }
     /* The component, not the element it replaced. These two rules named "textarea" and "button",
        which the composer has not held since it became Material Web — dead selectors, so on a phone
        the field never took its own row and was squeezed to a third of one. The same slip as the
        host rules that could not reach a label: a migration that leaves the old CSS behind leaves
        it pointing at nothing. */
     .composer md-outlined-text-field#t { flex:1 0 100%; }
-    .composer md-filled-button, .composer md-filled-tonal-button { flex:1; }
     header { padding-left:1rem; padding-right:1rem; }
     main { padding:1.2rem 1rem calc(var(--dock, 8rem) + 1.5rem); }
     .card .name { font:600 var(--title-l) var(--display); }
@@ -995,7 +1017,10 @@ const indexHTML = `<!doctype html>
 
 <main>
   <md-tabs id="tabs" hidden>
-    <md-primary-tab id="tabFleet">companions</md-primary-tab>
+    <!-- The label is its own element because the badge is a sibling: writing the word with
+         textContent would take the badge with it, the way setting textContent replaces everything
+         a node holds. -->
+    <md-primary-tab id="tabFleet"><span class="lbl"></span><md-badge id="tabBadge" hidden></md-badge></md-primary-tab>
     <md-primary-tab id="tabIv">corrections</md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
     <md-primary-tab id="tabMcp">connections</md-primary-tab>
@@ -1024,6 +1049,7 @@ const indexHTML = `<!doctype html>
        with. Stroked in currentColor, so the selected state colours the shape with its label. -->
   <md-list id="railNav">
     <md-list-item id="railFleet" type="link">
+      <md-badge slot="end" id="railBadge" hidden></md-badge>
       <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
         d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
         fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1238,6 +1264,7 @@ const themeEl = document.getElementById('theme'), langEl = document.getElementBy
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsBtn = document.getElementById('prefsBtn');
 const railMenu = document.getElementById('railMenu');
+const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
 const railFleet = document.getElementById('railFleet'), railIv = document.getElementById('railIv');
@@ -1401,7 +1428,11 @@ function summarise(list) {
     // this list is rebuilt from filter on the next render, so the two cannot drift.
     b.selected = filter === k;
     b.append(cell('n', n + ''), cell('k', k));
-    b.onclick = () => { filter = filter === k ? null : k; render(); };
+    b.onclick = () => {
+      filter = filter === k ? null : k;
+      render();
+      if (filter) jumpToFirstRow();
+    };
     return b;
   }));
 }
@@ -1425,6 +1456,34 @@ function grounds(a) {
     box.append(cell('gk', sec.key), cell('gv', sec.text));
   }
   return box.children.length ? box : null;
+}
+
+// markWaiting puts the count on the companions section, in both navigations.
+//
+// Hidden at zero rather than shown as "0": a badge is there to be noticed, and one that is always
+// present is one the eye stops reading. Both surfaces are set from here so the rail and the tabs
+// cannot end up claiming different numbers.
+function markWaiting(n) {
+  for (const b of [railBadge, tabBadge]) {
+    b.value = n ? String(n) : '';
+    b.hidden = !n;
+  }
+}
+
+// jumpToFirstRow brings the top row of the filtered list into view.
+//
+// Filtering alone was not enough. On a phone the list starts below a screen of masthead and
+// summary, and the report a decision rests on was measured at 989px down a 720px screen — so
+// pressing "2 waiting" reordered something the reader could not see. Scrolling is the other half
+// of the answer to "show me what needs me".
+//
+// Deferred a frame: the rows are replaced by the render() that precedes this, and measuring an
+// element the layout has not placed yet gives a position it is about to leave.
+function jumpToFirstRow() {
+  requestAnimationFrame(() => {
+    const first = fleetEl.querySelector('.card');
+    if (first && first.scrollIntoView) first.scrollIntoView({block: 'start', behavior: 'smooth'});
+  });
 }
 
 // answerBox is the reply to a blocked agent, next to the question it answers.
@@ -1531,8 +1590,23 @@ async function loadFleet() {
     return;
   }
 
-  state.textContent = list.length + (list.length === 1 ? ' agent' : ' agents') +
-                      (waiting ? ' · ' + waiting + ' waiting on you' : '');
+  // A badge on the section that holds them, which is what M3 uses one for: a count of things
+  // wanting attention, on the navigation item that leads to them. It rides the rail item's end slot
+  // so it survives the rail collapsing to icons — the state where a count matters most, because the
+  // words are gone and the shape is all there is.
+  markWaiting(waiting);
+
+  // The count says somebody is blocked; pressing it goes there. It said so and did nothing before,
+  // which is the readout every console has and the reason nobody presses it.
+  state.replaceChildren(document.createTextNode(
+    list.length + (list.length === 1 ? ' agent' : ' agents')));
+  if (waiting) {
+    const go = document.createElement('md-text-button');
+    go.className = 'jump';
+    go.textContent = tr('state.waiting_on_you', {n: waiting});
+    go.onclick = () => { filter = 'waiting'; render(); jumpToFirstRow(); };
+    state.append(go);
+  }
   state.className = waiting ? 'lost' : '';
   summarise(list);
 
@@ -2030,7 +2104,7 @@ function connect() {
 // by a function. Called once at startup and again whenever the pack changes.
 function paint() {
   painted = true;
-  tabFleet.textContent = tr('nav.companions');
+  tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
   tabIv.textContent = tr('nav.corrections');
   tabSkills.textContent = tr('nav.lessons');
   tabMcp.textContent = tr('nav.connections');

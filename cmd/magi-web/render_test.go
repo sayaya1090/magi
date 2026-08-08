@@ -112,7 +112,7 @@ const cards = rows().map(c => ({
   actions: (c.find('div').find(d => d.className === 'actions') || {find: () => []}).find(clicky).map(b => b.textContent),
   inputs: c.find('md-outlined-text-field').length,
 }));
-console.log(JSON.stringify({cards, state: byId.state.textContent, stateCls: byId.state.className}));
+console.log(JSON.stringify({cards, state: byId.state.text, stateCls: byId.state.className}));
 `
 
 // The dashboard draws one card per agent, and the card's class is how a person picks it out of
@@ -664,7 +664,7 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/int
 await loadInterventions();
 console.log(JSON.stringify({
   rows: byId.ivs.children.map(r => ({cls: r.className, text: r.text})),
-  state: byId.state.textContent,
+  state: byId.state.text,
 }));
 `)
 	rows := got["rows"].([]any)
@@ -835,6 +835,71 @@ console.log(JSON.stringify({grounds: rows()[0].find('div').filter(d => String(d.
 	}
 	if got["asking"] != true {
 		t.Error("the prompt itself went missing")
+	}
+}
+
+// The count of what needs a person rides the section that holds them, in both navigations.
+//
+// M3 puts a badge on a navigation item for exactly this, and it earns its place when the rail is
+// collapsed: the words are gone and the shape is all there is, so a number on it is the only thing
+// saying somebody is blocked. Hidden at zero — a badge that is always there is one the eye stops
+// reading — and set from one place so the rail and the tabs cannot claim different numbers.
+func TestTheWaitingCountRidesTheNavigation(t *testing.T) {
+	two := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"p1#1","askKind":"permission","steps":1,"idle":3},
+      {"socket":"/s/b.sock","name":"ops","workdir":"/w/ops","state":"waiting","live":true,
+       "asking":"which region?","askId":"q1#1","askKind":"question","steps":2,"idle":9},
+      {"socket":"/s/c.sock","name":"docs","workdir":"/w/docs","state":"working","live":true,
+       "task":"writing","steps":4,"idle":1}
+    ]`, "", `
+await loadFleet();
+console.log(JSON.stringify({rail: byId.railBadge.value, railHidden: byId.railBadge.hidden,
+  tab: byId.tabBadge.value, tabHidden: byId.tabBadge.hidden}));
+`)
+	if two["rail"] != "2" || two["tab"] != "2" {
+		t.Errorf("two agents are blocked and the badges read rail=%v tab=%v", two["rail"], two["tab"])
+	}
+	if two["railHidden"] == true || two["tabHidden"] == true {
+		t.Error("the badges are hidden while two agents wait")
+	}
+
+	none := runPage(t, `[
+      {"socket":"/s/c.sock","name":"docs","workdir":"/w/docs","state":"working","live":true,
+       "task":"writing","steps":4,"idle":1}
+    ]`, "", `
+await loadFleet();
+console.log(JSON.stringify({railHidden: byId.railBadge.hidden, tabHidden: byId.tabBadge.hidden,
+  value: byId.railBadge.value}));
+`)
+	if none["railHidden"] != true || none["tabHidden"] != true {
+		t.Errorf("nothing is waiting and the badges are still drawn: %+v", none)
+	}
+	if none["value"] != "" {
+		t.Errorf("the badge kept the value %q after the last agent unblocked", none["value"])
+	}
+}
+
+// Repainting the tab's word must not take its badge with it.
+//
+// A tab holds a label and a badge, and textContent replaces everything a node holds — so writing
+// the word straight onto the tab deleted the count. Found by the fake DOM the day it was taught
+// what textContent actually does.
+func TestRepaintingATabKeepsItsBadge(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"p1#1","askKind":"permission","steps":1,"idle":3}
+    ]`, "", `
+await loadFleet();
+labels$.next({'nav.companions': '컴패니언'});
+console.log(JSON.stringify({word: byId.tabFleet.text, badge: byId.tabBadge.value,
+  still: byId.tabFleet.children.some(c => c === byId.tabBadge)}));
+`)
+	if got["still"] != true || got["badge"] != "1" {
+		t.Errorf("the language change dropped the badge: %+v", got)
+	}
+	if !strings.Contains(got["word"].(string), "컴패니언") {
+		t.Errorf("the tab did not repaint: %q", got["word"])
 	}
 }
 
@@ -1070,7 +1135,7 @@ const rows = byId.skills.children;
 rows[1].find('md-text-button')[0].onclick();
 console.log(JSON.stringify({
   rows: rows.map(r => ({cls: r.className, text: r.text})),
-  state: byId.state.textContent,
+  state: byId.state.text,
   posts: RENDERED.filter(r => r.method === 'POST'),
 }));
 `)
@@ -1233,7 +1298,7 @@ answer = null;
 await loadFleet();
 console.log(JSON.stringify({
   before: drawn, after: byId.fleet.text,
-  state: byId.state.textContent, cls: byId.state.className,
+  state: byId.state.text, cls: byId.state.className,
 }));
 `)
 	if !strings.Contains(got["before"].(string), "api") {
@@ -1377,7 +1442,7 @@ await f.onsubmit({preventDefault(){}});
 console.log(JSON.stringify({
   posts: RENDERED.filter(r => r.to),
   refused: RENDERED.filter(r => r.to).length === before,
-  state: byId.state.textContent,
+  state: byId.state.text,
   suggestions: byId.roles.children.map(o => o.value),
   fleetText: byId.fleet.text,
 }));
@@ -1453,7 +1518,7 @@ form.find('md-outlined-select')[0].value = '/s/a.sock';
 await form.onsubmit({preventDefault(){}});
 const drops = byId.mcp.find('md-text-button').filter(b => (b.className || '').split(' ').includes('drop'));
 drops[1].onclick();
-console.log(JSON.stringify({text, state: byId.state.textContent, posts: RENDERED.filter(r => r.to)}));
+console.log(JSON.stringify({text, state: byId.state.text, posts: RENDERED.filter(r => r.to)}));
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"every companion here", "only api", "npx -y figma-mcp",

@@ -21,7 +21,11 @@ function element(tag) {
     _text: '',
     set className(v) { this._class = String(v); },
     get className() { return this._class; },
-    set textContent(v) { this._text = String(v); },
+    // Setting textContent REPLACES the node's contents, children included. The fake kept only its
+    // own string and left the children standing, so a readout rebuilt from "5 agents" plus a button
+    // and then reset to "cannot reach magi-web" read as both at once here and correctly in a
+    // browser — a fake disagreeing with the DOM in the direction that hides a bug.
+    set textContent(v) { this._text = String(v); this.children = []; },
     get textContent() { return this._text; },
     set innerHTML(v) { this._text = String(v).replace(/<[^>]*>/g, ' '); },
     set href(v) { this.attrs.href = v; },
@@ -116,12 +120,15 @@ globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 const byId = {};
 for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan', 'send',
                  'rail', 'railNav', 'railFoot', 'theme', 'lang', 'prefsK',
-                 'consoleK', 'console', 'prefsBtn', 'railMenu', 'themeToggle', 'railMenu', 'railFleet', 'railIv', 'railSkills', 'railMcp',
+                 'consoleK', 'console', 'prefsBtn', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railIv', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.
 for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp']) byId.tabs.append(byId[id]);
+// The companions tab holds a label element beside its badge, so the word can be rewritten without
+// taking the badge with it. Mirrored here for the same reason the rail's labels are.
+{ const l = element('span'); l.className = 'lbl'; byId.tabFleet.append(l); byId.tabFleet.append(byId.tabBadge); }
 for (const id of ['railFleet', 'railIv', 'railSkills', 'railMcp']) {
   byId.railNav.append(byId[id]);
   // The label is markup, not something the module creates: paint() writes into it by class.
