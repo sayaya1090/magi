@@ -245,7 +245,8 @@ Markdown and syntax highlighting adapt to dark/light terminals automatically.
 ./magi --attach                # attach a terminal UI to this workspace's daemon
 ./magi --agents                # every magi on this machine, and what each is doing
 ./magi-web                     # the same, in a browser (127.0.0.1:7777) — interrupt, answer,
-                               # promote a correction into a rule; -peer adds another machine
+                               # read what they have learned, and be told on your phone when one
+                               # of them blocks; -peer adds another machine
 ```
 
 The console has a clickable demo — the real page, mocked data, no server:

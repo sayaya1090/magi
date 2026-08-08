@@ -552,7 +552,7 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   its sequence number is unchanged.
 - **The console reads; the daemons act.** `magi-web` builds its own `app.App` over the same store
   with **no LLM and no tools** — it cannot run a turn even by mistake. Everything that changes a run
-  (submit, steer, interrupt, answer a permission, promote, forget) goes to the daemon that owns it.
+  (submit, steer, interrupt, answer a permission, forget) goes to the daemon that owns it.
 - **Federation is composition.** A console that watches several machines is a console that reads
   several consoles: `/fleet`, `/interventions` and `/skills` are the wire format, and actions are
   forwarded with only the method, path, target socket and form body copied. Peer URLs come from the
@@ -571,10 +571,16 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   The rule is read off a label in the transcript, which survives restarts, attaches and resumes.
 - **What the console serves**, all of it derived or forwarded: `/fleet` (the list), `/events` (a
   transcript, streamed), `/context` `/plan` `/handoffs` (one companion, read off its log),
-  `/interventions` `/skills` `/promote` `/forget` (the supervision loop), `/mcp` (read and edit a
-  companion's external tool servers), and the five that change a run — `/submit` `/interrupt`
-  `/answer` `/dispatch` `/compact` — each forwarded to the daemon that owns it. A test checks that
-  every path the page references is one this binary serves.
+  `/interventions` `/skills` `/forget` (the supervision loop), `/history` (what a companion has
+  done before now), `/mcp` (read and edit a companion's external tool servers), `/console` (which
+  machine this is), `/push` and `/sw.js` (waking a phone when a companion blocks), and the five that
+  change a run — `/submit` `/interrupt` `/answer` `/dispatch` `/compact` — each forwarded to the
+  daemon that owns it. A test checks that every path the page references — including its ES imports,
+  which is how a 404 on `/vendor/material.js` went unseen — is one this binary serves.
+
+  ⚠ `/promote` is gone with the promotion pipeline, and `/dispatch` no longer has a caller on the
+  page: addressing a companion by typing its name, from a list where it is already one click away,
+  was a second and harder way to do what the list does.
 - **The binary carries what the page loads.** The typeface, the vendored RxJS bundle
   (`cmd/magi-web/vendor`, built once from a pinned version with its hash written down) and the
   language packs (`cmd/magi-web/i18n`) are embedded and served from this process. Nothing is

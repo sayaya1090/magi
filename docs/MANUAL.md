@@ -578,8 +578,8 @@ it shows from the event logs already on disk and sends actions over the same soc
 | Screen | What it is for |
 |---|---|
 | companions | every agent, its state, what it is doing, which host and IP, how long it has been idle. Tiles at the top filter the table; a row's actions interrupt it or answer what it is asking |
-| what I had to say | every time a person stepped into a running turn, grouped by the words. The same correction to three companions is a rule waiting to be written — promote it to the project or the global tier from here |
-| what they have learned | both tiers of the store, rules and remembered facts, each row saying what it reaches ("every companion" / "only api"). A wrong one can be forgotten |
+| the board | work as cards, a column per companion, and a day you can move. The column is who did it rather than a state, because there is no such thing as the state a companion was in last Tuesday |
+| experience | all three tiers of the store — global, team, project — rules and remembered facts, each row saying what it reaches ("every companion" / "the frontend team" / "only api"), what the agent was doing when it learned it, and the body itself. A wrong one can be forgotten |
 | what they can reach | every MCP server, which companion has it and what it actually runs. Add, change or remove one — it is written to that companion's config and attaches when its daemon next starts |
 | a companion's page | the transcript live, what it is blocked on, what it handed to other companions and what came back, and what fills its context — including what share of the prompt the backend served from its cache, when it reports one: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
 
@@ -660,11 +660,16 @@ assumes.
 A team nobody speaks for is not addressable as a group: it resolves to every member and the caller
 picks.
 
-### 13.5 Dispatching from the console
+### 13.5 Dispatching by role (`/dispatch`)
 
-The fleet view's composer gains an **address field** (`to: a name, or what they do`). A person
-addressing a role goes through the same resolver under the same rules and down the same path, so a
-dispatch and somebody typing into that companion's page reach the daemon by exactly one route.
+`POST /dispatch` takes `to=` — a name, words from a role, or a team — and resolves it through the
+same rules and down the same path as somebody typing into that companion's page, so both reach the
+daemon by exactly one route. Two matches are an error, never a choice.
+
+⚠ **The console no longer has a field for it.** Naming a companion by typing, from a list where it
+is already on screen and one click away, was a second way to do what the list does — and the harder
+one, since it asks somebody to spell a name they can see. The endpoint stays for anything that
+addresses work by role rather than by socket.
 
 ### 13.6 Joining a team (`magi --join`)
 

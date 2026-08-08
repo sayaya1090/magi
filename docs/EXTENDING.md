@@ -158,16 +158,24 @@ making it a git repo is how a team shares it (`internal/adapter/experience/git/s
 > instead: the console's *what they have learned* screen lists every entry in both tiers and can
 > forget a wrong one (MANUAL §12), and `git log` in the store is the audit trail.
 
-### 2.0 Two tiers, and which one a lesson lands in
+### 2.0 Three tiers, and which one a lesson lands in
 
-The store has been **two tiers** since the layered store landed
-(`internal/adapter/experience/layered`), and the tier a lesson goes to is the only thing that decides
-whether it crosses between workspaces:
+The store is **three tiers** (`internal/adapter/experience/layered`), and the tier a lesson goes to
+is the only thing that decides how far it crosses:
 
 | Tier | Path | Reach |
 |---|---|---|
-| project | `<workspace>/.magi/experience` | that workspace only — and its repo, so the team gets it |
+| project | `<workspace>/.magi/experience` | that workspace only — and its repo, so whoever clones it gets it |
+| team | `<config>/teams/<name>/experience` | every companion on this machine that declared that team |
 | global | `<config>/experience` (or `experience_dir`) | every magi this person runs, on every project |
+
+The team tier exists because most of what a team knows is neither one project's nor every project's:
+a convention four companions share crosses workspaces and stops at the team. A contribution scoped
+`team` by a companion with no team declared falls back to **project**, never to global — widening a
+lesson past what its author asked for is the one direction that cannot be undone by reading it.
+
+⚠ It is **one machine's** directory. Two machines in a team keep two stores that never meet; see
+[`UI.md`](UI.md) §7.
 
 Retrieval merges both under **one** budget, so adding a tier never widens the injected context.
 A contribution routes by `Scope`, defaulting to **project** — the narrower one, because a fact
