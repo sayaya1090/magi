@@ -20,17 +20,23 @@ How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Inter
 
 ---
 
-## 1. The three questions this page answers
+## 1. The four questions this page answers
 
-A supervisor asks three things a day, several times:
+A supervisor asks four things a day, several times:
 
 1. **Who is doing what** — and which of them is waiting on *me*
-2. **What did I have to say** — anything I said twice is a rule waiting to be written
-3. **What have they learned** — and how far does each lesson reach (project / global)
+2. **What have they learned** — and how far does each lesson reach (project / team / global)
+3. **What has been done, and when** — a board of work with a day you can move
 4. **What can they reach** — which MCP server is attached to which companion
 
-The four tabs are exactly those — the fourth being **what can they reach** (MCP servers). A
-fifth tab needs a fifth question first.
+The four destinations are exactly those. A fifth needs a fifth question first.
+
+⚠ There used to be a fifth, **what I had to say** — every moment somebody stepped into a running
+turn, grouped by the words, each promotable into the project or global tier. It is gone. Grouping
+corrections was a rule factory with no evidence that any rule it produced was wanted, and the
+promotion pipeline asked a person to decide something they had no grounds for. What survived is the
+useful half: the interventions for ONE companion, on that companion's own page, as a reading about
+it rather than as a queue of candidate rules.
 
 ## 2. The console's screens
 
@@ -41,17 +47,42 @@ doing. The order is the order the eye should travel: **waiting on a person → w
 
 - The **summary tiles** are counts and filters at once. A tile at zero is not clickable — a control
   that can be pressed and does nothing is worse than one that cannot.
-- A row: state badge · **how far through its own plan** (`3/7`) · name · **role** · team (and
-  whether it speaks for it) · workspace path · what it is doing · host and IP · idle time · actions
-  (interrupt, and the answer buttons when it asked). Not a progress bar: a todo list is not a
-  schedule, and a bar would promise a completion time nobody can honour.
-- **A blocked agent shows the question**, not the work — the question is why nothing is happening.
-  The buttons sit under the question rather than in the actions column, because they belong to the
-  prompt and not to the row.
-- The composer at the bottom has an **address field**: a name, words from a role, or a team
-  (MANUAL §13.5).
+- **Grouped by team**, trouble first within each. A heading names the team, says which companion
+  speaks for it, and badges how many of its members are waiting.
+- A row: state badge · **how far through its own plan** (`3/7`) · name · **role** · workspace path ·
+  what it is doing · host and IP · idle time · one icon button to interrupt. Not a progress bar: a
+  todo list is not a schedule, and a bar would promise a completion time nobody can honour. There is
+  no "open" button — the row is a link, and a button repeating what the row already does is a second
+  way to do one thing.
+- **A blocked agent shows the question**, not the work — the question is why nothing is happening,
+  and under it **the grounds it wants decided on**: what the agent tried, what each way costs, and
+  which it would pick (§2.6). The answer controls sit under the question rather than in the actions
+  column, because they belong to the prompt and not to the row.
+- The composer at the bottom has **no address field**. Naming a companion by typing, from a list
+  where it is already on screen and one click away, is a second way to do what the list does — and
+  the harder one, since it asks somebody to spell a name they can see. The `/dispatch` endpoint that
+  resolves an address by role is still there; nothing on this page calls it.
 
 ### 2.2 One companion (`/?d=<socket>`)
+
+**Two things are wanted here and they are not the same thing.** Somebody opens a companion to see
+its state, or to read what it is saying and steer it. Everything stacked in one column served the
+first and buried the second: measured at 430px the transcript began 1073px down a 900px screen, and
+at 900px it was the same — this was never a phone problem.
+
+| | ≥1100px | below |
+|---|---|---|
+| layout | two columns: the conversation, and the facts beside it | two panels, **대화 / 상태** |
+| what stays put | the side column is sticky — a plan that scrolls away is one you re-find | — |
+
+Which panel you were on is **not in the URL**. The destination is the companion; which half of it
+you were reading is a scroll position, and putting it in the address bar would make a link somebody
+sends land on a screen they did not mean to share. Leaving a companion resets it, because the next
+one is opened for its conversation.
+
+The facts card **folds**, at every width, remembered across companions. It answers "what am I
+looking at" once and is then 547px of masthead between a reader and the conversation; folded it is
+58px with the state and the workspace still on its summary line.
 
 Header fields: status · workspace · role · team · host, address and pid · steps · last activity ·
 session id · **model** · **context** · **what was summarised away**.
@@ -81,31 +112,68 @@ answers in its own transcript — there is no reply channel — so this is the f
 once. **An answer appears only when the receiver is idle**: a line taken mid-turn is what it
 happened to be saying, not a conclusion.
 
+Then **what I had to say to this one** — every moment somebody stepped into one of its turns, with
+how far in (`8s into the turn` corrects the instruction; `20m in` corrects the work, and no rule
+would have helped). Derived, not recorded: a user prompt arriving while a turn is open *is* a steer,
+so a screen written today answers for last month's logs.
+
+Then **what it has done before now** — every session it has ever run, newest first, by the request
+that opened it. The title is the request as it was made; a summary would be this process deciding
+what the work was about, which is a judgement it has no grounds for.
+
 Below that: the live transcript (SSE) and the composer.
 
-### 2.3 What I had to say (`/?v=interventions`)
+**When it is blocked on a question, the composer becomes the answer field.** Both drawn, the page
+had two text fields stacked — the upper one answering the question, the lower one addressing work to
+an agent that is not listening — with nothing saying which was which. One field in two roles: the
+same component, a different label and note, and what is typed goes to `/answer`. A permission prompt
+keeps its own three buttons and leaves the composer alone, because they are buttons and nothing
+collides, and "do something else instead" is a legitimate reply to being asked whether to drop a
+table.
 
-Every moment a person stepped into a running turn. Derived, not recorded — a user prompt arriving
-while a turn is open *is* a steer — so **a screen written today answers for last month's logs**.
+### 2.3 The board (`/?v=board`)
 
-- **Grouped by the words.** The same correction to three companions is a rule waiting to be written.
-  Grouped on the text itself, normalised only for case and spacing: anything cleverer merges two
-  different corrections and puts words in somebody's mouth.
-- It says **how far into the turn** the person stepped in (`stepped in 8s–20m into the turn`). Eight
-  seconds in corrects the *instruction*, and a rule can prevent the next one; twenty minutes in
-  corrects the *work*, and no rule would have helped.
-- Each one can be **promoted into the project or the global tier**. Never automatically (§4).
+Work as cards, a column per companion, and a day you can move.
 
-### 2.4 What they have learned (`/?v=skills`)
+A kanban's columns are usually a **state**, and a state is a fact about NOW: there is no such thing
+as the state a companion was in last Tuesday, because the fleet derives state from what is open in a
+log and nothing is open in a log from last week. Columns of state would be a board that could only
+ever show today — the one day the fleet page already covers. So the column is **who did it** and the
+card is **the work**, which reads the same on any day.
 
-Both tiers of the store — rules and remembered facts, local and from every federated console.
+- Arrows step a day at a time, in UTC and in whole days: local-midnight arithmetic lands on 23:00
+  the previous day twice a year, and a board that skips a day is worse than no arrows. The date
+  field stays for jumping a month back, where stepping would be thirty clicks. Forward is disabled
+  on today, not hidden — a control that vanishes moves the ones beside it.
+- A session counts for a day if it was **running at any point in it**. A task started at 23:40 and
+  finished at 01:10 belongs to both days somebody might ask about, and belonging to neither is how a
+  long night disappears from a board.
+- ⚠ **There is no unassigned column, and there cannot be one.** Every `/submit` resolves a socket
+  and a session before it is accepted, so a request with no owner has no way to exist in this
+  system. A column for it would be permanently empty, which is a lie about the shape of the thing.
 
-- Each row leads with **the reach, in words**: `every companion` / `only api on laptop`. Words rather
-  than a colour, because the decision made here is exactly which of those two a rule should be.
+### 2.4 Experience (`/?v=skills`)
+
+**Three** tiers of the store — rules and remembered facts, local and from every federated console.
+
+- Each row leads with **the reach, in words**: `every companion` / `the frontend team` / `only api
+  on laptop`. Words rather than a colour, because the decision made here is exactly which of those a
+  rule should be. Sorted widest first, so the rows read as three rings rather than an alphabet, and
+  each tier gets its own colour — painted with the project's, a team rule was indistinguishable from
+  a project one, which is the single thing that word is on the row to say.
+- The **team tier** sits between a workspace and a machine, because that is where most of what a
+  team knows actually lives: a convention four companions share is neither one project's nor every
+  project's. Listed from the directory rather than from a roster — a team that has been disbanded
+  still has knowledge, and reading membership would make it vanish the moment nobody was left on it.
+  ⚠ It is **one machine's** directory (`<config>/teams/<name>/experience`); nothing syncs it between
+  machines yet (§7).
+- **The body can be read**, and it says **what the agent was doing when it learned it**. Every entry
+  used to record its source as the word "agent", which answers who wrote it — a question nobody is
+  asking. The question in front of a rule you did not write is what it came out of.
 - A fact is set in italic, quoted. **A stale fact is merely wrong; a stale rule is an instruction
   still being followed.**
 - `seen 3× · 2026-07-14 → 2026-08-07` tells a settled lesson from a one-off.
-- A wrong one can be forgotten. **Nobody promotes into a store they cannot correct.**
+- A wrong one can be forgotten. **Nobody writes into a store they cannot correct.**
 
 ### 2.5 What they can reach (`/?v=mcp`)
 
@@ -128,6 +196,52 @@ Refused: a definition that is neither a url nor a command; one that is both (the
 startup, so the command would sit there never running); and a name that cannot be a TOML table
 header — refused rather than sanitised, since a name quietly rewritten is a server nobody can find
 again in their own file.
+
+### 2.6 The grounds a decision rests on
+
+Until recently a decision reached the console as a question and two to four option labels — "which
+branch should this land on?" with `[main] [engine-ui-split]` — and nothing about what had been
+tried, what either choice costs, or what the agent would pick. A person was asked to decide with no
+grounds, by a machine that had spent an hour accumulating exactly those grounds and then dropped
+them.
+
+The shape is defined by a **skill**, not a config field: what belongs in a report is a matter of
+taste, and taste differs per person and per kind of work. Skills already carry that — a companion
+whose workspace holds its own `decision-report` gets its own report, everyone else gets the global
+one, and with neither the default applies: **tried · stakes · lean**.
+
+magi checks the sections rather than trusting the prose. A skill that says "write what you tried" is
+advice, and this tree has repeatedly watched advice evaporate under pressure. The model supplies
+named fields; the tool refuses a report with one missing or blank, naming what is absent.
+
+⚠ The section names are the skill's own identifiers and are **not translated** — a custom skill's
+keys could not be, and translating only magi's defaults would make the two inconsistent.
+
+### 2.7 Being told (`/push`, `/sw.js`)
+
+The console had exactly one way to say that a companion is blocked: the tab title. That reaches
+somebody with the tab in front of them, and the fleet page exists for the person who is not.
+
+- **Web Push**, the browser's own mechanism, implemented against RFC 8291 and 8292 in
+  `internal/core/webpush` with no dependency — every primitive is in the standard library, and the
+  arithmetic is pinned to the RFC's own worked example byte for byte. That is the only test that
+  says anything about interoperating: this shape round-trips against itself with the info string
+  wrong or the salt and key material swapped, and a decrypt-what-I-encrypted test passes all of it.
+- The push service relays and **must not be able to read**. The payload is encrypted to a key the
+  browser generated and never sent anywhere but here; the request is signed with a key this console
+  generated and never sends at all.
+- Only the **edge** into waiting is announced. A blocked companion stays blocked until somebody
+  answers, so state alone would buzz every three seconds; the other direction is silent, because "it
+  is no longer waiting" is not worth waking a phone for and notifications that say nothing teach
+  people to swipe them away unread.
+- The switch **says why when it cannot be used**, and the reasons are different: no push support, or
+  not a secure context, or a permission already refused — only the last of which the reader can
+  undo, and only in their own settings.
+- ⚠ A service worker needs a secure context. magi-web binds loopback and nothing else, so the
+  ordinary way of reaching it from a phone is a tunnel to `localhost` — which **is** a secure
+  context. No certificate is needed.
+- The console still has no authentication, so anyone who can open it can point a notification at
+  their own browser. That is the access they already have to read every transcript on it.
 
 ## 3. The design language
 
@@ -247,38 +361,74 @@ a dark room.
 (This section used to say "there is no toggle — the OS already knows, and asking again is asking
 twice." The OS knows what the machine prefers, which is not always what the reader wants on it.)
 
-### 3.5a Two widths, one navigation
+### 3.5a Three widths, one navigation
 
-The breakpoint is **768/769px**, the handbook's, so the two products break in the same place.
+The breakpoints are **600px** — M3's own boundary between compact and medium, so the rail appears
+where the guide says it should — and **1100px**, where a companion's two columns fit.
 
-| | wide (≥769px) | narrow (≤768px) |
-|---|---|---|
-| navigating | the rail, beside the page | the tabs, as before |
-| the hamburger | widens the rail into a drawer | slides the drawer in over the page |
-| scrim | none — the page behind stays usable | yes, and picking a destination closes the drawer |
-| tabs | hidden — two navigations for four sections is one too many | the navigation |
+| | ≥1100px | 600–1099px | <600px |
+|---|---|---|---|
+| navigating | the rail | the rail | the tabs |
+| a companion | two columns | two panels, 대화 / 상태 | two panels |
+| the rail, opened | floats over the page | floats over the page | slides in over the page |
 
-It is **one element in two modes**, not two that have to agree. The rail's items are
+It is **one element in three modes**, not several that have to agree. The rail's items are
 `md-list-item` with an `href`, which the component renders as a real anchor: a navigation made of
 addresses should survive a middle click.
 
-Which section is current is written once, in `render()`, beside the tabs' own index. Two places
-saying where you are is how they come to disagree.
+**Opening the drawer moves nothing.** The rail's width and the gutter the page reserves used to be
+one number, so widening the rail took 184px out of the content box: `main` and the header stayed
+put, measured at dx 0, while everything inside them shifted right and narrowed. Two names now —
+`--rail-w` is the gutter and never changes, `--rail-now` is how wide the rail is drawing itself. A
+test fails if anything but the rail's own width reads the second one.
 
-### 3.5b The drawer's other half
+The **scrim is an element**, at every width. Drawn as a box-shadow on the rail it darkened the page
+without covering it, so a page that looked disabled took a click and navigated away underneath; and
+its spread animated with the rail's width, so the dimming swept across rather than arriving. It
+does not animate at all now — what is behind the drawer is behind it the moment it opens — and a
+click on it closes the drawer, which is the dismissal every modal surface has.
 
-Preferences and identity, which had nowhere else to live: **theme** (system/light/dark),
-**language** (browser/English/한국어), and **which machine this console is** — the host and the
-config directory, from `/console`.
+Which destination is current is written once, in `render()`, beside the tabs' own index. Two places
+saying where you are is how they come to disagree. ⚠ The selected state is painted on the **host**,
+not through `--md-list-item-container-color`, which does nothing in the shipped build — measured
+with an opaque colour, the container stays transparent. The slotted icon takes the colour the same
+way the label does, because the label is `display:none` on a collapsed rail, which is how it stands
+most of the time. A companion's page keeps the companions destination lit: it is inside it.
+
+### 3.5b Preferences
+
+One dialog, reached from one icon at every width: **language** (browser/English/한국어),
+**notifications** (§2.7), and **which machine this console is** — the host and the config
+directory, from `/console`.
+
+**Theme is not in it.** It has a toggle in the masthead — one tap for the setting that gets changed
+most — and a select saying the same thing three feet away was one preference with two controls and
+two ways to be wrong about it.
 
 That last one is not an account. magi has no users to log in; the console is reachable by whoever
 can reach the port. What a supervisor with three of these open actually asks is which machine they
 are looking at, and before this the answer was to recognise the companions in the list — which
 fails exactly when two machines are running the same work.
 
+### 3.5c Motion
+
+M3's **fade-through** where the page swaps one body of content for another — a destination, a
+companion's two panels — from 96% rather than 92%, because a table of monospaced text at 92% is
+visibly the wrong size for a tenth of a second and the point is to say "this is new", not to zoom.
+The prompt bar rises ten pixels instead, since it arrives from the edge it is fixed to.
+
+Fired on **navigation only**. The fleet redraws itself every three seconds and the prompt is rebuilt
+on each of those polls, so animating on "this is visible" would restart the entrance three times a
+minute under somebody trying to read the question.
+
+`prefers-reduced-motion` turns all of it off — not shortens, off. The override is universal so it
+reaches the components' own animations, including md-tabs' indicator inside a shadow root this
+stylesheet cannot otherwise name. 0.01ms rather than 0, so an `animationend` that something waits on
+still arrives.
+
 ### 3.6 On a phone
 
-- Under 640px the composer wraps so the text box keeps a full row. Measured: without it the box was
+- The composer wraps so the text box keeps a full row. Measured: without it the box was
   squeezed to a third of the row and the placeholder was cut mid-sentence.
 - The tab row wraps too. Three sentence-shaped labels are wider than 390px, and a nav that overflows
   takes the whole page sideways with it — the one scroll direction a phone should never have.
@@ -292,7 +442,14 @@ fails exactly when two machines are running the same work.
 ### 3.7 PWA
 
 `manifest.webmanifest` and `icon.svg`, so it opens from a home screen without an address bar. The
-icon is served by the binary too, for the reason in §3.2.
+icon is served by the binary too, for the reason in §3.2. A page added to a home screen is also
+what lets iOS deliver a push (§2.7).
+
+The service worker at `/sw.js` **caches nothing**, deliberately. A cached fleet is worse than no
+fleet: the whole page is an answer to "what is happening right now". It exists only to receive
+notifications, and everything it knows arrives in the message — so changing what a notification says
+needs no new worker and no reinstall, which is the part that would otherwise go stale on somebody's
+phone for months.
 
 ## 4. The rules this page keeps
 
@@ -306,20 +463,51 @@ icon is served by the binary too, for the reason in §3.2.
    under `cannot reach magi-web` — **an empty table reads as "no agents".**
 4. **Refuse rather than pick.** An address matching several companions is refused with both names.
    Sending work to the wrong workspace runs a turn there, and noticing later does not undo it.
-5. **No automatic promotion.** A person decides that a correction is a rule, and which tier it goes
-   in.
+   (The page no longer addresses by role — §2.1 — but `/dispatch` keeps the rule.)
+5. **Nothing is written on somebody's behalf.** An agent proposes what it learned and a person can
+   forget it; no screen turns a repeated correction into a rule by itself. The pipeline that offered
+   to is gone, because deciding a correction is a rule was a judgement nobody had grounds for.
 6. **No authentication of its own.** Loopback, behind whatever the organisation already runs.
+7. **A demo is not the product.** `-emit-demo` writes a static copy answered by a mock in the
+   browser. It hid a dead console for weeks (§5), so a change to this page is confirmed against a
+   running `magi-web` before it is believed.
 
 ## 5. How it is verified
 
 The page is a Go string, so no Go test can execute it. `cmd/magi-web/testdata/dom.mjs` is a **fake
-DOM** — createElement, textContent, className, append, replaceChildren, about that much — and the
-tests run the page's real JavaScript against it under node. Anything the fake cannot express is a
-sign the page is doing more than it should, which is why it is not jsdom.
+DOM** — createElement, textContent, className, classList, append, replaceChildren, a listener
+registry, about that much — and the tests run the page's real JavaScript against it under node.
+Anything the fake cannot express is a sign the page is doing more than it should, which is why it is
+not jsdom.
 
-A test also checks that every path the page references is a path this binary serves. That is the
-real meaning of "self-contained", and it cannot be checked against a list that exists only as
-statements.
+⚠ **The fake has been wrong three times, always in the direction that hides a bug**, and each
+correction is worth more than the test it unblocked: `textContent` did not clear children, so a
+readout rebuilt from a string plus a button kept the old button; `matchMedia` answered `min-width`
+queries with the narrow flag itself, saying yes to exactly the question a narrow screen answers no
+to; and `addEventListener` was a no-op, so a page listening for md-tabs' `change` — the only way
+that component reports a switch — would have looked correct while doing nothing.
+
+The standing guards, each pinned by removing the thing it guards and watching it fail:
+
+| | |
+|---|---|
+| self-contained | every `href`, `src`, `url()` **and ES `import`** is a path this binary serves, and the language packs have a route |
+| cascade | the layout media queries are **last in the sheet**, checked by position rather than effect |
+| themes | the two light palettes say the same thing; the web's colours all come from the TUI's `styles.go` |
+| contrast | every `opacity` clears AA against its role in both themes (keyframes excepted — a keyframe is not a resting state) |
+| the migration | no rule names `button`, `textarea`, `select` or `input`, which this page has not had since Material Web; the check fails first if the markup grows one back |
+| language | every phrase in the pack is asked for, counting keys built from a prefix; no English label sits beside its own translation key |
+| the drawer | nothing but the rail's own width reads the live rail width |
+| motion | there are keyframes AND a `prefers-reduced-motion` escape that overrides them universally |
+
+**The demo hid a dead console.** `import '/vendor/material.js'` answered 404 on a real magi-web —
+`asset` was written and never routed — and a module whose import fails does not execute at all, so a
+live console had no components, no script, and no language beyond the seed inlined into the HTML.
+Measured on a running binary: `customElements.get('md-primary-tab')` false, the page's own `BASE`
+undefined, every button showing the raw English in the markup. It went unnoticed because
+`-emit-demo` writes those files to disk beside the page, and weeks of reviewing this console were
+reviews of the demo — the one copy where those routes are not needed. The check that should have
+caught it read `href`, `src` and `url()`; an ES import is none of those.
 
 ---
 
@@ -423,6 +611,26 @@ the point of the arrangement.
 
 ## 7. Not there yet
 
+Listed with what each would actually take, so none of them reads as a wish.
+
+- **The team tier is one machine's.** `<config>/teams/<name>/experience` is a directory on the box
+  the console runs on. Two machines in a team keep two stores that never meet. The shape that would
+  fix it is the same one [`proposals/distributed-magi-2026-08-06.md`](proposals/distributed-magi-2026-08-06.md)
+  describes, and probably an MCP server holding the shared store rather than a sync.
+- **An agent cannot ask another for what it knows.** A companion can hand out WORK (`/handoffs`) and
+  it can read the shared store, but "tell me what you know about X" is neither: it is a question
+  about knowledge, answered from a transcript nobody is reading. What it needs is a tool on the
+  asking side and a shape for the answer, and neither exists.
+- **Notification is only about blocking.** §2.7 wakes a phone when a companion starts waiting.
+  Nothing tells the asker that a handoff came back — the answer is in the receiver's transcript and
+  §2.2 collects it, but only when somebody looks.
 - **A placement review screen** — [`proposals/companion-performance-2026-08-07.md`](proposals/companion-performance-2026-08-07.md).
-- **A reply channel.** Answers are read from the receiver's transcript — §2.2 collects them, but
-  nothing notifies the asker.
+- **Provisioning.** The console can only talk to companions that are already running; there is no
+  way to start one. Deliberately, for now —
+  [`proposals/provisioning-2026-08-08.md`](proposals/provisioning-2026-08-08.md) argues the unit is
+  a machine rather than a process, which makes it a different tool's job.
+- **A child's clone is not drawn.** `internal/app/workspace.go` gives every child agent its own
+  checkout and merges the work back, and no screen says which clone a child worked in or what came
+  back.
+- **The report's section names are untranslated** (§2.6), and cannot be while a custom skill can
+  name its own.
