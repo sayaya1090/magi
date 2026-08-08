@@ -1,5 +1,5 @@
-// Package layered composes two git-backed experience stores into a single
-// ExperienceStore with a project tier and a global tier. The project tier lives
+// Package layered composes git-backed experience stores into a single
+// ExperienceStore with a project tier, a team tier and a global tier. The project tier lives
 // inside the workspace (e.g. <workspace>/.magi/experience, git-trackable with the
 // repo so a team shares it) and holds context-specific learnings; the global tier
 // (e.g. <config>/experience) holds cross-project knowledge. Retrieval merges both
@@ -14,18 +14,27 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// Store is a two-tier ExperienceStore. Either tier may be nil.
+// Store is a three-tier ExperienceStore. Any tier may be nil.
 type Store struct {
 	project *expgit.Store
-	global  *expgit.Store
+	// team is what companions doing related work share. A workspace is one companion's, and the
+	// global tier is every companion on the machine — neither can hold "the frontend team decided
+	// X", which is the thing a person actually wants to write down once and have three companions
+	// follow. It sits between them because it is more specific than the machine and less specific
+	// than one directory.
+	team   *expgit.Store
+	global *expgit.Store
 }
 
-// New returns a store with a project tier rooted at projectDir and a global tier
-// rooted at globalDir. An empty dir disables that tier.
-func New(projectDir, globalDir string) *Store {
+// New returns a store with the three tiers rooted at the given directories. An empty dir disables
+// that tier — a companion that declares no team has no team tier, which is not an error.
+func New(projectDir, teamDir, globalDir string) *Store {
 	s := &Store{}
 	if projectDir != "" {
 		s.project = expgit.New(projectDir)
+	}
+	if teamDir != "" {
+		s.team = expgit.New(teamDir)
 	}
 	if globalDir != "" {
 		s.global = expgit.New(globalDir)
@@ -59,7 +68,10 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 			skills = append(skills, x)
 		}
 	}
+	// Most specific first, and the caps below cut from the end: what this workspace learned beats
+	// what the team decided, which beats what the machine knows.
 	add(s.project, "[project]")
+	add(s.team, "[team]")
 	add(s.global, "[global]")
 
 	if len(mems) > memCap {
@@ -71,19 +83,25 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 	return mems, skills, nil
 }
 
-// Propose routes a contribution to the tier named by c.Scope. "global" targets
-// the global tier; anything else (including "" and "project") targets the project
-// tier. If the requested tier is not configured, it falls back to the other.
+// Propose routes a contribution to the tier named by c.Scope: "global", "team", or anything else
+// (including "" and "project") for the project tier.
+//
+// A scope with no tier behind it falls back rather than failing — a companion that declares no team
+// and is asked to remember something for the team should not lose it. It lands in the next tier
+// down, which is the project, because writing to the machine's tier on a companion's behalf would
+// put a private decision in front of everybody.
 func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
-	target, fallback := s.project, s.global
-	if c.Scope == "global" {
-		target, fallback = s.global, s.project
+	order := []*expgit.Store{s.project, s.team, s.global}
+	switch c.Scope {
+	case "global":
+		order = []*expgit.Store{s.global, s.team, s.project}
+	case "team":
+		order = []*expgit.Store{s.team, s.project, s.global}
 	}
-	if target == nil {
-		target = fallback
+	for _, t := range order {
+		if t != nil {
+			return t.Propose(ctx, c)
+		}
 	}
-	if target == nil {
-		return nil // no tier configured: silently drop rather than error
-	}
-	return target.Propose(ctx, c)
+	return nil // no tier configured: silently drop rather than error
 }

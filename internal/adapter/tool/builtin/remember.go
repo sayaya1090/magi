@@ -36,11 +36,15 @@ func (Remember) Description() string {
 		"             One call, and you never have to ask for it back. It is not a log of what you " +
 		"did — that is what your reply is for.\n" +
 		"  \"project\" (default) — a durable workspace learning, recallable in later sessions via recall_memory.\n" +
+		"  \"team\"    — something the companions doing related work all need: a decision the team took, a " +
+		"convention it follows, a fact about the system they share. Written where every companion on this " +
+		"team reads it, and nowhere else. Use it when the answer would be wrong to keep to yourself and " +
+		"wrong to impose on unrelated work.\n" +
 		"  \"global\"  — knowledge useful across all projects.\n" +
 		"Do not include secrets."
 }
 func (Remember) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","global"],"description":"turn (reminded before this turn ends), project (default), or global"}},"required":["text"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"}},"required":["text"]}`)
 }
 
 func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -52,8 +56,8 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		return errResult("", "text is required"), nil
 	}
 	scope := strings.TrimSpace(a.Scope)
-	if scope != "" && scope != "turn" && scope != "project" && scope != "global" {
-		return errResult("", "scope must be \"turn\", \"project\" or \"global\""), nil
+	if scope != "" && scope != "turn" && scope != "project" && scope != "team" && scope != "global" {
+		return errResult("", "scope must be \"turn\", \"project\", \"team\" or \"global\""), nil
 	}
 	// A turn note never leaves this session: it is handed straight back to the agent that wrote
 	// it, before the turn can end. Nothing reads it in between.
@@ -77,8 +81,8 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		return errResult("", err.Error()), nil
 	}
 	where := "project"
-	if scope == "global" {
-		where = "global"
+	if scope == "team" || scope == "global" {
+		where = scope
 	}
 	return okText("", "saved to "+where+" memory (recallable via recall_memory)"), nil
 }

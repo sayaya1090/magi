@@ -577,7 +577,15 @@ func run() int {
 	// events before bind() (there are none: the first turn starts after plugin
 	// load) are dropped harmlessly.
 	obs := &pluginObserver{}
-	experienceStore := explayered.New(expProjectDir, expDir)
+	// The team's tier, when this companion declares a team. One directory per team under the config
+	// directory, so every companion on this machine that says "frontend" reads and writes the same
+	// one — which is the whole of "shared" here: shared by declaring the same name, not by a
+	// registry or a permission. A companion with no team simply has no tier, which is not an error.
+	expTeamDir := ""
+	if t := strings.TrimSpace(cfg.Companion.Team); t != "" {
+		expTeamDir = filepath.Join(plat.ConfigDir(), "teams", sanitizeTeam(t), "experience")
+	}
+	experienceStore := explayered.New(expProjectDir, expTeamDir, expDir)
 
 	// Seeing the other magi on this machine. Registered here rather than in builtin because the
 	// daemon package imports app and app imports builtin, so a built-in that reads daemon records
@@ -1484,3 +1492,26 @@ var systemPrompt = "You are magi, an AI coding agent working in the user's proje
 	"LANGUAGE (important): always write your replies to the user in the SAME language they used in their latest " +
 	"message — if they wrote Korean, answer in Korean; Japanese, answer in Japanese. This overrides the language of " +
 	"these instructions or of any file/tool output. Keep code, identifiers, and file paths unchanged."
+
+// sanitizeTeam turns a team name into one path segment.
+//
+// A team name is typed by a person into a config file, and it becomes a directory. Anything that is
+// not a letter, a digit, a dash or an underscore becomes a dash, so "front end / web" cannot walk
+// out of the teams directory or collide with a separator. Two names that differ only in punctuation
+// land in one directory, which is the right failure: they are the same team said two ways.
+func sanitizeTeam(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "team"
+	}
+	return out
+}
