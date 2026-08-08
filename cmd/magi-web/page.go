@@ -349,7 +349,7 @@ const indexHTML = `<!doctype html>
     padding:.85rem 1.4rem .6rem;
     padding-top:calc(.7rem + env(safe-area-inset-top));
     display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
-    max-width:var(--wide); margin:0 auto;
+    max-width:var(--wide); margin-right:auto;
   }
   .mark {
     font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
@@ -464,7 +464,11 @@ const indexHTML = `<!doctype html>
      composer itself grows with what you type. A constant padding here either wastes a screen of
      space or hides the last thing the agent said behind the controls, and on a phone it is the
      second one. The page measures the dock and reserves exactly that. */
-  main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin:0 auto; }
+  /* Left-aligned beside the rail rather than centred in what is left of the window. Centred, the
+     page moved by HALF the rail's growth and lost the other half off its own width, so opening the
+     drawer re-wrapped every column instead of sliding the page across. A block that keeps its width
+     and moves by exactly the distance the rail took is the one a reader can follow. */
+  main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin-right:auto; }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
   /* Wrapping, because these are sentences and there are three of them now: at 390px the three
@@ -481,7 +485,12 @@ const indexHTML = `<!doctype html>
   /* ── what I had to say ───────────────────────────────────────────────────── */
   /* Grouped by what was said, because the repetition IS the finding: one correction is a remark,
      the same one to three companions is a rule waiting to be written. */
-  #ivs { display:block; max-width:var(--measure); }
+  /* Every section is the same width. They were not: this one was 74ch while lessons and MCP were
+     108ch and the fleet filled the page, so changing menus moved the left edge and re-set the line
+     length — three different pages rather than four views of one. The prose inside keeps its own
+     measure, which is where a reading width belongs. */
+  #ivs { display:block; max-width:var(--wide); }
+  #ivs .said { max-width:var(--measure); }
   .iv {
     display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
     border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0;
@@ -621,16 +630,16 @@ const indexHTML = `<!doctype html>
   }
   .thead .r, .card .r { text-align:right; }
 
+  /* A row, and it must not read as a card. It carried a coloured left edge and a rounded corner
+     while sitting flush against the next one — the two devices belong to different things: a card
+     is a bounded surface with space around it, a row is a line in a table separated by a rule.
+     Having both, with no gap, asked the reader to see cards that had been stacked without margins.
+     The state is already said in the badge, twice over, as a word and a coloured dot. */
   .card {
     text-decoration:none; color:var(--md-on-surface); border-bottom:1px solid var(--outlineVariant);
-    padding:.75rem .8rem .8rem; margin-left:-.8rem; border-left:2px solid transparent;
-    border-radius:var(--shape-s); position:relative;
+    padding:.75rem .8rem .8rem; margin-left:-.8rem; position:relative;
   }
   .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
-  .card.here { border-left-color:var(--primary); }
-  .card.working { border-left-color:var(--success); }
-  .card.waiting { border-left-color:var(--warn); }
-  .card.abandoned { border-left-color:var(--error); }
   .card.stopped { opacity:.8; }
 
   /* A team's heading. Set as a rule with a name on it rather than as a bar: this page separates
@@ -696,12 +705,16 @@ const indexHTML = `<!doctype html>
   /* The grounds a decision is put on: a key-and-value block, set like the rest of this page's
      labelled readings. Two columns on anything but a phone, because the keys are short words and
      giving each its own line would push the reasoning off the screen it exists to be read on. */
+  /* No surface of its own. M3 expresses height with TONE, so a tinted box inside a row is a second
+     layer, and a second layer inside a region that is already one asks the reader to work out a
+     hierarchy that means nothing — the grounds are not deeper than the row, they are part of it.
+     Separated by the device this page already uses everywhere else: a rule and a gutter of
+     small-caps labels. */
   .grounds {
     grid-column:1 / -1;
     display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:.25rem .9rem;
-    margin:.6rem 0 .1rem; padding:.7rem .9rem; max-width:var(--measure);
-    background:var(--md-surface-container-low); border-radius:var(--shape-s);
-    border-left:2px solid var(--outlineVariant);
+    margin:.7rem 0 .1rem; padding:.7rem 0 0; max-width:var(--measure);
+    border-top:1px solid var(--outlineVariant);
   }
   .grounds .gk {
     font:600 10px/1.6 var(--mono); letter-spacing:.16em; text-transform:uppercase;
@@ -838,7 +851,7 @@ const indexHTML = `<!doctype html>
     background:var(--bg); border-top:2px solid var(--warn);
     padding:.9rem 1.4rem .8rem;
   }
-  #prompt .inner { max-width:var(--wide); margin:0 auto; }
+  #prompt .inner { max-width:var(--wide); margin-right:auto; }
   #prompt .asking { font:600 14px/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
@@ -2370,8 +2383,11 @@ function render() {
   log.hidden = !s;
   // The composer is on both views now. On a companion's page it steers that companion; on the
   // fleet it dispatches, and the address field is the difference.
-  f.hidden = !s && v !== 'fleet';
-  toEl.hidden = !!s;
+  // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
+  // it is already on screen and one click away, is a second way to do the thing the list does — and
+  // the harder one: it asks somebody to spell a name they can see.
+  f.hidden = !s;
+  toEl.hidden = true;
   document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
   document.getElementById('detail').hidden = !s;
   document.getElementById('handoffs').hidden = true;

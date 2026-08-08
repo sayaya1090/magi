@@ -571,8 +571,8 @@ console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHe
 	for _, tc := range []struct{ query, want, href string }{
 		{"", "companions", "/"},
 		{"?v=interventions", "corrections", "/?v=interventions"},
-		{"?v=skills", "lessons", "/?v=skills"},
-		{"?v=mcp", "connections", "/?v=mcp"},
+		{"?v=skills", "experience", "/?v=skills"},
+		{"?v=mcp", "MCP", "/?v=mcp"},
 	} {
 		// An empty fleet: the crumb is drawn by render() from the query alone, and handing the
 		// other views a list of agents makes them throw on data shaped for a different screen.
@@ -1854,8 +1854,8 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 	seen := got["seen"].([]any)
 	want := []struct{ search, crumb, href string }{
 		{"?v=interventions", "corrections", "/?v=interventions"},
-		{"?v=skills", "lessons", "/?v=skills"},
-		{"?v=mcp", "connections", "/?v=mcp"},
+		{"?v=skills", "experience", "/?v=skills"},
+		{"?v=mcp", "MCP", "/?v=mcp"},
 		{"", "companions", "/"},
 	}
 	for i, w := range want {
@@ -1900,7 +1900,7 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 `)
 	first := got["first"].(map[string]any)
 	tabs := first["tabs"].([]any)
-	if tabs[0] != "companions" || tabs[2] != "lessons" {
+	if tabs[0] != "companions" || tabs[2] != "experience" {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
 	if first["ask"] != "ask magi" {
