@@ -395,3 +395,34 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 		t.Error("the compact rules come before the rail's; they must be able to undo them")
 	}
 }
+
+// Opening the drawer must not move the page.
+//
+// The rail's width and the gutter the page reserves were one number, so widening the rail widened
+// the gutter: main and the header stayed put while everything inside them shifted 184px right and
+// lost 184px of width, which is the reflow that kept being reported. Two names now — --rail-w for
+// the gutter, --rail-now for how wide the rail is drawing itself — and the page must only ever read
+// the first. Checked as a rule about which name appears where, because the effect is a layout in a
+// browser and this is the thing that can be asserted about the text.
+func TestTheDrawerDoesNotTakeWidthFromThePage(t *testing.T) {
+	css := indexHTML
+	// --rail-w is declared once, at :root, and never redefined. A second declaration anywhere is a
+	// gutter that changes with something, which is the defect.
+	if n := strings.Count(css, "--rail-w:"); n != 1 {
+		t.Errorf("--rail-w is declared %d times; the gutter the page reserves is one constant", n)
+	}
+	if !strings.Contains(css, "--rail-now:16rem") {
+		t.Error("nothing widens the rail; the drawer cannot open")
+	}
+	// Whatever reads the live width, it must be the rail itself. Anything else reading --rail-now
+	// is a part of the page that moves when the drawer does.
+	for _, line := range strings.Split(css, "\n") {
+		if !strings.Contains(line, "var(--rail-now") {
+			continue
+		}
+		if !strings.Contains(line, "width:") {
+			t.Errorf("something other than the rail's own width reads the live width: %q",
+				strings.TrimSpace(line))
+		}
+	}
+}

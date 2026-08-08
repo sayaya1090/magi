@@ -391,15 +391,24 @@ const indexHTML = `<!doctype html>
      The breakpoint is 768/769px, the handbook's, so the two products break in the same place. */
   #rail {
     position:fixed; top:0; bottom:0; left:0; z-index:3;
-    width:var(--rail-w); box-sizing:border-box;
+    width:var(--rail-now, var(--rail-w)); box-sizing:border-box;
+    /* Over the page, not beside it: a floating drawer is the one that can open without moving
+       anything. It has a surface of its own and a shadow, because something that overlaps has to
+       say that it does. */
+    z-index:4;
     padding:calc(.7rem + env(safe-area-inset-top)) .5rem 1.2rem;
     background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
     display:flex; flex-direction:column; gap:1rem; overflow:hidden auto;
     /* Same curve and duration as the components use for a container that changes size, so the rail
        and the page's own margin arrive together rather than one chasing the other. */
-    transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized);
+    transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized),
+                box-shadow 250ms var(--ease-emphasized);
   }
-  body[nav="open"] { --rail-w:16rem; }
+  /* Two numbers, not one. --rail-w is the gutter the PAGE reserves and it never changes; --rail-now
+     is how wide the rail is drawing itself right now. Widening the rail used to widen the gutter,
+     so the table shifted 184px right and lost 184px of width every time the drawer opened. The
+     drawer floats over the gutter instead, and nothing on the page moves. */
+  body[nav="open"] { --rail-now:16rem; }
   /* Collapsed, the rail is 4.5rem and a word like "connections" is not — so collapsed shows the
      icon and nothing else. Clipping the label instead would put half a word on screen, which reads
      as a bug rather than as a choice. The label still exists for a screen reader: it is the
@@ -1000,18 +1009,33 @@ const indexHTML = `<!doctype html>
     padding-bottom:env(safe-area-inset-bottom);
   }
   #prompt {
-    background:var(--bg); border-top:2px solid var(--warn);
-    padding:.9rem 1.4rem .8rem;
+    background:var(--bg);
+    padding:.9rem 0 .8rem;
   }
-  #prompt .inner { max-width:var(--wide); }
+  /* The rule belongs to the column, not to the window. Drawn on #prompt it ran the full width of
+     the viewport while the words under it started 514px in, which reads as a divider for the whole
+     page rather than the top of one bar. */
+  #prompt .inner { border-top:2px solid var(--warn); padding-top:.9rem; }
+  /* The dock stands in the same column as the page. It used to centre its own narrower measure in
+     whatever space was left, which put the composer 235px to the right of the text it answers — the
+     footer read as belonging to a different page. Same max-width and same centring as main, and the
+     reading measure applies INSIDE that, pinned left. */
+  /* The dock stands in the same column as the page: same max-width, same centring, same inner
+     padding as main. It used to centre a narrower measure of its own in whatever space was left,
+     which put the composer 235px right of the text it answers, and matching only the OUTER box
+     left it 25px off — the padding is part of where a column starts. */
+  #prompt .inner, form {
+    max-width:var(--page); margin-inline:auto; width:100%; box-sizing:border-box;
+    padding-left:1.4rem; padding-right:1.4rem;
+  }
   #prompt .asking { font:600 14px/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
-    padding:1rem 1.4rem; display:flex; justify-content:center;
+    padding-top:1rem; padding-bottom:1rem; display:block;
   }
   .composer {
-    display:flex; gap:.9rem; width:100%; max-width:var(--wide); align-items:flex-end;
+    display:flex; gap:.9rem; align-items:flex-end;
     border-top:1px solid var(--fg); padding-top:.8rem;
   }
   /* The composer's field is an M3 outlined text field. Its outline, focus behaviour, floating
@@ -1165,8 +1189,14 @@ const indexHTML = `<!doctype html>
   /* Wide: the rail IS the navigation, so the tabs go — two of them for one set of four sections is
      one too many. The page starts to the right of the rail, by exactly its width. */
   @media (min-width:600px) {
-    header, main { padding-left:calc(var(--rail-w) + 1.9rem); }
+    /* The rail's room is taken from the BODY, not from the page's own padding. Taken from the
+       padding it came out of the CONTENT box, which is why the masthead's rule ran 102px further
+       left than the words above it — a border is drawn on the box and padding sits inside it. */
+    body { padding-left:var(--rail-w); }
+    header, main, #prompt .inner, form { padding-left:1.6rem; padding-right:1.6rem; }
     #dock { padding-left:var(--rail-w); }
+    /* Open, it is a floating panel. Closed, it is part of the furniture. */
+    body[nav="open"] #rail { box-shadow:0 0 0 100vmax color-mix(in srgb, #000 28%, transparent); }
     #tabs, #themeToggle { display:none; }
     }
   /* Compact (below 600px, M3's own boundary): the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
