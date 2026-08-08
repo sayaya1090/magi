@@ -167,9 +167,26 @@ const demoScript = `
   };
   const banner = document.createElement('div');
   banner.className = 'demo-banner';
+  // The rail is fixed to the top of the window and knows nothing about this notice, so on a wide
+  // screen the notice covered its first control — the button that widens it. The offset is set
+  // from here because the banner is the demo's, and the page should not carry a rule about
+  // furniture that only exists in a copy of itself.
+  const pushBelowBanner = () => {
+    const h = Math.ceil(banner.getBoundingClientRect().height);
+    if (!h) return;   // not laid out yet; the caller tries again
+    document.documentElement.style.setProperty('--demo-banner', h + 'px');
+    const rail = document.getElementById('rail');
+    if (rail) rail.style.paddingTop = 'calc(' + h + 'px + .7rem)';
+  };
   banner.textContent = 'demo — the real page, answered by a mock. Nothing here is a running agent, ' +
                        'and every action reports what it would have sent.';
-  addEventListener('DOMContentLoaded', () => document.body.prepend(banner));
+  addEventListener('DOMContentLoaded', () => {
+    document.body.prepend(banner);
+    // AFTER it is in the document. Measured before, it is zero high, and the rail stayed under it —
+    // which is exactly what this exists to prevent.
+    requestAnimationFrame(pushBelowBanner);
+    addEventListener('resize', pushBelowBanner);
+  });
 
   // Kept before the mock takes over: the language packs are real files sitting beside this page,
   // and they are the one thing here that must NOT be answered by a fixture.

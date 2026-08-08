@@ -456,6 +456,15 @@ const indexHTML = `<!doctype html>
      the icon is the only thing there. */
   .icwrap { position:relative; display:inline-flex; width:20px; height:20px; }
   .icwrap md-badge { position:absolute; top:-5px; right:-7px; width:16px; height:16px; }
+  /* Widened, the row has a word in it and the count belongs after the word — riding the icon is
+     what a badge does when the icon is all there is. Anchored to the ITEM rather than to the icon,
+     so it lands at the end of the row. */
+  body[nav="open"] #rail md-list-item { position:relative; }
+  body[nav="open"] #rail .icwrap { overflow:visible; }
+  body[nav="open"] #rail .icwrap md-badge {
+    position:absolute; top:50%; right:auto; left:auto;
+    inset-inline-start:calc(100% + 9.2rem); transform:translateY(-50%);
+  }
   #prefsForm { display:flex; flex-direction:column; gap:1rem; min-width:16rem; }
   #prefsForm .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
@@ -465,7 +474,9 @@ const indexHTML = `<!doctype html>
   #railMenu, #themeToggle, #prefs {
     --md-icon-button-icon-color:var(--muted); color:var(--muted);
   }
-  #railMenu { align-self:center; margin-bottom:.2rem; }
+  /* Where the icons are, not centred on whatever width the rail happens to be. Centred, it slid
+     sideways every time the rail widened — the one control that should not move when you press it. */
+  #railMenu { align-self:start; margin:0 0 .2rem .25rem; }
   #themeToggle { margin-left:.2rem; }
   /* One of the two is always hidden, and which one follows the theme in force — including when that
      theme is the machine's, so the query appears here as well as the attribute. Same pairing the
@@ -1209,6 +1220,11 @@ const indexHTML = `<!doctype html>
     /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
        all. The preferences it used to carry are in the dialog now. */
     #rail { display:none; }
+    /* The aside is four cards of context under a conversation, which is a long way to scroll for
+       something you glance at. Tighter, so the transcript keeps the screen. */
+    #side { gap:.8rem; }
+    #side md-outlined-card { padding:.9rem 1rem; }
+    #history .hs, .ho { grid-template-columns:4.5rem 1fr; }
     }
 
 </style>
