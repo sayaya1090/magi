@@ -407,8 +407,6 @@ const indexHTML = `<!doctype html>
   #rail .lbl { white-space:nowrap; }
   body:not([nav="open"]) #rail .lbl { display:none; }
   body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:14px; }
-  #rail #railFoot { display:none; }
-  body[nav="open"] #rail #railFoot { display:flex; }
   #rail .ic { flex:none; display:block; }
   #rail md-list {
     --md-list-container-color:transparent;
@@ -429,7 +427,14 @@ const indexHTML = `<!doctype html>
     --md-list-item-label-text-color:var(--primary);
     --md-list-item-container-color:color-mix(in srgb, var(--primary) 14%, transparent);
   }
+  /* The badge, corrected. Its inner box is position:absolute at top / 50% across, which is right
+     when the badge is laid over an icon and wrong everywhere else — dropped into a flow it anchors
+     to whatever ancestor happens to be positioned and lands somewhere unrelated. Giving the host a
+     size and a position makes the host the thing it anchors to, which is what a caller has to do
+     for a component still in the library's unstable half. */
   md-badge {
+    position:relative; display:inline-block; vertical-align:middle;
+    width:18px; height:18px; flex:none;
     --md-badge-color:var(--warn);
     --md-badge-large-color:var(--warn);
     --md-badge-large-label-text-color:var(--bg);
@@ -437,18 +442,18 @@ const indexHTML = `<!doctype html>
   }
   /* On a tab the badge sits beside the word rather than over it: these labels are words, not icons,
      and a count parked on top of "companions" lands on a letter. */
-  #tabs md-badge { position:static; margin-left:.45rem; vertical-align:middle; }
-  #railFoot { display:flex; flex-direction:column; gap:.7rem; margin-top:auto; }
-  /* Sits where the preferences will appear, so opening them does not move the eye. */
-  #prefsBtn { margin-top:auto; align-self:center;
-              --md-icon-button-icon-color:var(--muted); color:var(--muted); }
-  body[nav="open"] #prefsBtn { display:none; }
-  #railFoot .k {
+  #tabs md-badge { margin-left:.5rem; }
+  /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
+     the icon is the only thing there. */
+  .icwrap { position:relative; display:inline-flex; width:20px; height:20px; }
+  .icwrap md-badge { position:absolute; top:-6px; right:-10px; width:16px; height:16px; }
+  #prefsForm { display:flex; flex-direction:column; gap:1rem; min-width:16rem; }
+  #prefsForm .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
   }
   #console { font:12px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   #console b { color:var(--fg); font-weight:600; }
-  #railMenu, #themeToggle, #prefsBtn {
+  #railMenu, #themeToggle, #prefs {
     --md-icon-button-icon-color:var(--muted); color:var(--muted);
   }
   #railMenu { align-self:center; margin-bottom:.2rem; }
@@ -513,15 +518,19 @@ const indexHTML = `<!doctype html>
     margin-top:.35rem; font-size:11px; letter-spacing:.05em; color:var(--muted);
   }
   .iv.denied .times { color:var(--error); }
-  .iv .promote { display:flex; gap:1rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
-  .iv .promote button {
-    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; cursor:pointer; white-space:nowrap;
+  /* What to do about this correction, set apart from the correction itself by a rule. It sat in the
+     middle of the text block with nothing separating them, so it read as floating rather than as
+     belonging to the words above it.
+     
+     No rules for a bare "button" here any more: these have been md-text-button since the
+     migration, and a rule naming the old element reaches nothing — the third such this week. */
+  .iv .promote {
+    display:flex; gap:.4rem; margin-top:.7rem; padding-top:.5rem; flex-wrap:wrap;
+    align-items:center; border-top:1px solid var(--outlineVariant);
   }
-  .iv .promote button:hover { color:var(--primary); border-bottom-color:var(--primary); }
-  .iv .promote .done { color:var(--success); font:600 11px/1 var(--mono); letter-spacing:.14em;
-                       text-transform:uppercase; }
+  .iv .promote .done {
+    color:var(--success); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+  }
 
   /* ── what they have learned ─────────────────────────────────────────────── */
   /* Two tiers on one page, the crossing one first. The boundary between them is the whole of
@@ -678,6 +687,14 @@ const indexHTML = `<!doctype html>
   .teamhead md-badge { position:static; }
 
   /* status */
+  /* The column's word, for the width where the column heads are not drawn. */
+  .colk { display:none; }
+  @media (max-width:1000px) {
+    .colk {
+      display:inline; margin-left:.35rem;
+      font:600 10px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+    }
+  }
   .card .badge {
     font:600 11px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
     display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
@@ -1143,8 +1160,9 @@ const indexHTML = `<!doctype html>
       background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
       order:9;   /* last on the page, first-but-one in the tab order it is written in */
     }
-    #rail #railNav, #railMenu, #prefsBtn { display:none; }
-    #rail #railFoot { display:flex; max-width:22rem; }
+    /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
+       all. The preferences it used to carry are in the dialog now. */
+    #rail { display:none; }
     }
 
 </style>
@@ -1164,6 +1182,13 @@ const indexHTML = `<!doctype html>
        while the page is dark — because a control showing its current state leaves you working out
        what it does. Two shapes with one hidden, rather than a morphing path: an icon that changes
        shape is an icon that has to be got right twice. -->
+  <md-icon-button id="prefs">
+    <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    </svg>
+  </md-icon-button>
   <md-icon-button id="themeToggle">
     <svg class="sun" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
       <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
@@ -1195,10 +1220,15 @@ const indexHTML = `<!doctype html>
        with. Stroked in currentColor, so the selected state colours the shape with its label. -->
   <md-list id="railNav">
     <md-list-item id="railFleet" type="link">
-      <md-badge slot="end" id="railBadge" hidden></md-badge>
-      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
-        d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
-        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <!-- The badge rides the icon, which is what a badge is for and the only place it can be when
+           the rail is collapsed to icons. In the end slot it sat at the right edge of the item,
+           46px from the shape it was counting for. -->
+      <span slot="start" class="icwrap">
+        <svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+          d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <md-badge id="railBadge" hidden></md-badge>
+      </span>
       <span class="lbl"></span>
     </md-list-item>
     <md-list-item id="railIv" type="link">
@@ -1226,23 +1256,7 @@ const indexHTML = `<!doctype html>
       <span class="lbl"></span>
     </md-list-item>
   </md-list>
-  <!-- Visible while the rail is collapsed, which on a wide screen is most of the time: the
-       preferences themselves need the width, but a way IN to them must not. Without this the only
-       route to the theme was a hamburger at the far corner, and it did not look like it led here. -->
-  <md-icon-button id="prefsBtn">
-    <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
-      <path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4"
-            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-    </svg>
-  </md-icon-button>
-  <div id="railFoot">
-    <div class="k" id="prefsK">preferences</div>
-    <md-outlined-select id="theme"></md-outlined-select>
-    <md-outlined-select id="lang"></md-outlined-select>
-    <div class="k" id="consoleK">this console</div>
-    <div id="console"></div>
-  </div>
+
 </nav>
 
 <main>
@@ -1269,6 +1283,23 @@ const indexHTML = `<!doctype html>
   <div id="log"></div>
 </main>
 
+
+<!-- Preferences, in one place instead of four. As a section at the foot of every page these were
+     the same three controls repeated under lists somebody was reading for something else; as a
+     panel in the rail they were a second copy of that. A dialog is what M3 uses for a short task
+     that interrupts nothing, and it is the same dialog at every width. -->
+<md-dialog id="prefsDialog">
+  <div slot="headline" id="prefsK"></div>
+  <form slot="content" method="dialog" id="prefsForm">
+    <md-outlined-select id="theme"></md-outlined-select>
+    <md-outlined-select id="lang"></md-outlined-select>
+    <div class="k" id="consoleK"></div>
+    <div id="console"></div>
+  </form>
+  <div slot="actions">
+    <md-text-button id="prefsClose" form="prefsForm" value="close"></md-text-button>
+  </div>
+</md-dialog>
 
 <footer id="dock">
   <div id="prompt" hidden></div>
@@ -1438,10 +1469,11 @@ const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
 const railEl = document.getElementById('rail');
-const railFoot = document.getElementById('railFoot');
 const themeEl = document.getElementById('theme'), langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
-const prefsBtn = document.getElementById('prefsBtn');
+const prefsEl = document.getElementById('prefs');
+const prefsDialog = document.getElementById('prefsDialog');
+const prefsClose = document.getElementById('prefsClose');
 const railMenu = document.getElementById('railMenu');
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
@@ -1539,7 +1571,12 @@ function card(a) {
   }
   el.append(doing);
 
-  el.append(cell('num r', a.steps ? a.steps + '' : '—'));
+  // The step count carries its own word on a phone. The column heads are hidden there, so this and
+  // the two beside it were three unlabelled readings — "3  4s ago  studio" — and only the age says
+  // what it is on its own.
+  const steps = cell('num r', a.steps ? a.steps + '' : '—');
+  steps.append(cell('colk', tr('field.steps')));
+  el.append(steps);
   el.append(cell('num r', ago(a.idle)));
 
   const host = cell('host');
@@ -2273,8 +2310,11 @@ async function loadInterventions() {
     const when = g.early === Infinity ? '' :
       ' · stepped in ' + (g.early === g.late ? dur(g.early) : dur(g.early) + '–' + dur(g.late)) +
       ' into the turn';
+    // The DAY, not the second. "last 2026-08-08 04:08:43" is four extra characters of precision
+    // nobody reading a list of corrections is using, and on a phone they were the difference
+    // between three lines and four. The exact moment is in the log for anyone who needs it.
     body.append(cell('where', [...g.where].join(' · ') + when +
-                              ' · last ' + g.at.replace('T', ' ').replace('Z', '')));
+                              ' · ' + tr('field.last') + ' ' + g.at.slice(0, 10)));
     body.append(promoteBox(g));
     el.append(body);
     return el;
@@ -2546,7 +2586,8 @@ function paint() {
   document.getElementById('stop').textContent = tr('action.interrupt');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
   themeToggle.setAttribute('aria-label', tr('pref.theme'));
-  prefsBtn.setAttribute('aria-label', tr('nav.preferences'));
+  prefsEl.setAttribute('aria-label', tr('nav.preferences'));
+  prefsClose.textContent = tr('action.close');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railIv, 'nav.corrections'],
@@ -2600,12 +2641,22 @@ function paintChoice(el, kind) {
     o.append(cell('', tr(key)));
     return o;
   }));
-  // Told through the SELECT, after its options exist. Marking the option selected on the way in
-  // left the field showing the raw value — "dark" where the option said "다크" — because a select
-  // reads its display text from the option it chose, and it had not chosen one: it had been handed
-  // children that already claimed to be chosen. The same shape as the tabs, where writing the state
+  // Told through the SELECT, and told again once it has rendered.
+  //
+  // Two things had to be got right here. Marking the option selected on the way in left the field
+  // showing the raw value — "dark" where the option said "다크" — because a select reads its
+  // display text from the option it CHOSE, and it had chosen nothing: it had been handed children
+  // that already claimed to be chosen. That is the same shape as the tabs, where writing the state
   // onto the child instead of asking the parent cost the animation.
-  el.value = prefOf(kind);
+  //
+  // And the options are custom elements, which are not upgraded in the tick they are appended. A
+  // select told its value in that tick has nothing to resolve it against and renders an empty field
+  // over a value it is holding — measured: value "dark", displayText "". So it is told once now,
+  // for the case where the elements are already upgraded, and again after the render that upgrades
+  // them.
+  const want = prefOf(kind);
+  el.value = want;
+  if (el.updateComplete) el.updateComplete.then(() => { el.value = want; });
 }
 
 // paint does NOT redraw the view, and that is the whole point. A pack can land at any moment — mid
@@ -2636,6 +2687,7 @@ function render() {
   // Which kind of page this is, for the rules that differ between them. On a companion's page the
   // tabs are gone, so anything that leans on them being there has to know.
   document.body.setAttribute('at', s ? 'agent' : 'list');
+  document.body.setAttribute('view', s ? '' : v);
   // Which tab is current is asked of md-tabs, not written onto the tabs. Both leave the right tab
   // selected, but only one of them moves: the indicator is animated inside Tabs.activateTab and
   // nowhere else — it measures the outgoing tab's indicator and slides the incoming one from there
@@ -2744,9 +2796,13 @@ railMenu.onclick = () => {
   document.body.setAttribute('nav', 'open');
   railMenu.setAttribute('aria-expanded', 'true');
 };
-// Three ways to the same door on a wide screen — the rail's hamburger and the gear at its foot —
-// and one state behind them, so they cannot disagree about whether it is open.
-prefsBtn.onclick = () => railMenu.onclick();
+// One door to the preferences, at every width. The rail's hamburger is a different thing: it
+// widens the navigation, and it no longer opens anything.
+prefsEl.onclick = () => prefsDialog.show();
+// Painted when it OPENS, not before. A dialog does not render what is slotted into it until then,
+// so a select told its value while the dialog was closed had no options to resolve it against and
+// showed an empty field over a value it was holding.
+prefsDialog.addEventListener('opened', () => { if (painted) paint(); });
 // The toggle writes the SAME preference the select does, so the two are one setting with two
 // controls rather than two settings. Pressing it leaves 'system' behind on purpose: asking for the
 // other theme is a choice, and pretending it was still deferring to the machine would mean the
