@@ -56,6 +56,7 @@ import (
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -134,7 +135,11 @@ type Waiting struct {
 	Args    json.RawMessage `json:"args,omitempty"`
 	Reason  string          `json:"reason,omitempty"`
 	Options []string        `json:"options,omitempty"`
-	Since   string          `json:"since"` // RFC3339
+	// Report is the grounds a question was asked on. It crosses the socket for the same reason the
+	// options do: a console in another process draws the prompt, and a prompt whose grounds stayed
+	// behind is the one this exists to stop.
+	Report []report.Filled `json:"report,omitempty"`
+	Since  string          `json:"since"` // RFC3339
 }
 
 // Event turns a pending prompt back into the event a UI already knows how to draw.
@@ -161,7 +166,7 @@ func (w *Waiting) Event(sid session.SessionID) (event.Event, error) {
 	case "question":
 		typ = event.TypeQuestionRequested
 		data, err = json.Marshal(event.QuestionRequestedData{
-			CallID: w.ID, Question: w.What, Options: w.Options, Index: 1, Total: 1})
+			CallID: w.ID, Question: w.What, Options: w.Options, Report: w.Report, Index: 1, Total: 1})
 	default:
 		typ = event.TypePermissionRequested
 		data, err = json.Marshal(event.PermissionRequestedData{
@@ -353,7 +358,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn) {
 			if ask, ok := eng.Waiting(session.SessionID(req.Session)); ok {
 				resp.Waiting = &Waiting{
 					ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args,
-					Reason: ask.Reason, Options: ask.Options,
+					Reason: ask.Reason, Options: ask.Options, Report: ask.Report,
 					Since: ask.Since.UTC().Format(time.RFC3339),
 				}
 			}

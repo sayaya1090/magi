@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -373,8 +374,12 @@ type QuestionRequestedData struct {
 	CallID   string   `json:"callId"`
 	Question string   `json:"question"`
 	Options  []string `json:"options,omitempty"`
-	Index    int      `json:"index"` // 1-based position within the call
-	Total    int      `json:"total"`
+	// Report is the grounds the person is meant to decide on, in the order the decision-report
+	// skill asked for them. Recorded rather than transient: a decision's reasons are the part
+	// somebody comes back to a month later asking why the fleet went the way it did.
+	Report []report.Filled `json:"report,omitempty"`
+	Index  int             `json:"index"` // 1-based position within the call
+	Total  int             `json:"total"`
 }
 
 // ContextUsageData — TypeContextUsage (live context meter). Tokens is the current

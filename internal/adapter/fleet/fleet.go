@@ -17,6 +17,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -140,8 +141,13 @@ type Agent struct {
 	Asking  string `json:"asking"`  // what it is blocked on, when State is waiting
 	AskID   string `json:"askId"`   // the call id an answer must carry
 	AskKind string `json:"askKind"` // "permission" | "question"
-	Task    string `json:"task"`    // what the open turn asked for, or the last thing said
-	Steps   int    `json:"steps"`   // tool calls the open turn has made — what a crash would cost
+	// Report is what the agent wrote for the person to decide on. Carried whole rather than
+	// summarised: a supervisor deciding for a companion on another machine has this and the
+	// question, and nothing else — clipping it here would clip the grounds, which is the one part
+	// that must arrive intact.
+	Report []report.Filled `json:"report,omitempty"`
+	Task   string          `json:"task"`  // what the open turn asked for, or the last thing said
+	Steps  int             `json:"steps"` // tool calls the open turn has made — what a crash would cost
 	// PlanDone and PlanTotal are the agent's own todo list, counted. "working" says it is alive;
 	// "working · 3/7" says whether it is getting anywhere, which is the question somebody has when
 	// they look twice in ten minutes.
@@ -194,6 +200,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			// is true and is not the thing that needs doing about it.
 			a.State, a.Steps, a.Asking = Waiting, open.Steps, describeAsk(in.Asking)
 			a.AskID, a.AskKind = in.Asking.ID, in.Asking.Kind
+			a.Report = in.Asking.Report
 			a.Task = Clip(open.Text, 160)
 		case in.Live && isOpen:
 			a.State, a.Steps, a.Task = Working, open.Steps, Clip(open.Text, 160)

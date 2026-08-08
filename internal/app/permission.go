@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -16,13 +17,13 @@ import (
 // at a time (the seq counter keys each question's channel under the call id).
 // Only a top-level interactive session has a human to ask — everywhere else it
 // returns nil so the ask_user tool degrades to "decide for yourself".
-func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *session.ToolCall) func(string, []string) (string, error) {
+func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *session.ToolCall) func(string, []string, []report.Filled) (string, error) {
 	if depth != 0 || !a.cfg.Interactive {
 		return nil
 	}
 	sid := s.ID
 	seq := 0
-	return func(question string, options []string) (string, error) {
+	return func(question string, options []string, grounds []report.Filled) (string, error) {
 		seq++
 		qid := fmt.Sprintf("%s#%d", tc.CallID, seq)
 		ch := make(chan string, 1)
@@ -31,7 +32,8 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			a.stateLocked(sid).questions = map[string]chan string{}
 		}
 		a.stateLocked(sid).questions[qid] = ch
-		a.noteAskingLocked(sid, qid, Ask{ID: qid, Kind: "question", What: question, Options: options, Since: time.Now()})
+		a.noteAskingLocked(sid, qid, Ask{ID: qid, Kind: "question", What: question, Options: options,
+			Report: grounds, Since: time.Now()})
 		a.mu.Unlock()
 		defer func() {
 			a.mu.Lock()
@@ -39,7 +41,8 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			delete(a.stateLocked(sid).asking, qid)
 			a.mu.Unlock()
 		}()
-		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options, Index: seq})
+		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options,
+			Report: grounds, Index: seq})
 		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
 		var expired <-chan time.Time
 		if a.cfg.AnswerWait > 0 {
@@ -279,7 +282,12 @@ type Ask struct {
 	Args    json.RawMessage
 	Reason  string
 	Options []string
-	Since   time.Time // when it was asked, so a viewer can say how long it has been waiting
+	// Report is why the decision is being put to a person: what the agent tried, what each option
+	// costs, which way it leans — whatever the decision-report skill asks for. It travels with the
+	// prompt because a viewer in another process has no other way to reach it, and a question
+	// without it is the thing this was built to stop.
+	Report []report.Filled
+	Since  time.Time // when it was asked, so a viewer can say how long it has been waiting
 }
 
 // noteAskingLocked records an open prompt. Caller holds a.mu.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -245,7 +246,13 @@ type ToolEnv struct {
 	// AskUser presents a multiple-choice question to the HUMAN user and blocks
 	// for the pick (top-level interactive sessions only; nil otherwise — the
 	// tool then tells the model to proceed on its own judgment).
-	AskUser func(question string, options []string) (string, error)
+	//
+	// grounds is the report the person decides ON: what was tried, what each option costs, which
+	// way the agent leans. Its sections are whatever the decision-report skill declares, so what a
+	// report contains is the operator's choice and differs per companion. A question used to arrive
+	// as a sentence and two labels, and the person was asked to choose with none of what the agent
+	// had spent an hour learning.
+	AskUser func(question string, options []string, grounds []report.Filled) (string, error)
 	// Council asks the configured council for a reading of the work so far and returns their
 	// answers as text. complete marks the call as a DECLARATION that the task is finished: the
 	// council reads the record as a finish, and if it accepts, the application ends the turn.

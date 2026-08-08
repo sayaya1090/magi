@@ -20,7 +20,11 @@ import (
 // with the user's pick; the answer lands in the tool result the model sees.
 func TestAskUserRoundTrip(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("ask_user", `{"questions":[{"question":"which approach?","options":["redis","in-memory"]}]}`),
+		// With the grounds the person decides on. Without them the tool refuses before anybody is
+		// asked, which is the behaviour TestAskUserRefusesADecisionWithNoGrounds pins.
+		toolStep("ask_user", `{"questions":[{"question":"which approach?","options":["redis","in-memory"],`+
+			`"report":{"tried":"benchmarked both","stakes":"redis is another process to run",`+
+			`"lean":"in-memory until it hurts"}}]}`),
 		textStep("done"),
 	}}
 	store, _ := jsonl.New(t.TempDir())
