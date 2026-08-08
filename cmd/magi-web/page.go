@@ -669,10 +669,6 @@ const indexHTML = `<!doctype html>
     font:600 11px/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
     overflow-wrap:anywhere; margin-top:.15rem;
   }
-  .card .team {
-    font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
-    color:var(--muted); margin-top:.2rem;
-  }
   .card .path { font-size:11px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
 
   /* what it is doing: one line, clipped — the detail view is one click away for the rest */
@@ -1362,9 +1358,10 @@ function card(a) {
   // What it is for, when it says so. The path stays: a role is how you pick a companion and a
   // path is how you go and look at it, and neither answers the other's question.
   if (a.role) who.append(cell('role', a.role));
-  // The team, and whether this is the one that answers for it. Addressing a team reaches its hub,
-  // so which row that is decides where work goes — it is not decoration.
-  if (a.team) who.append(cell('team', a.team + (a.hub ? ' · speaks for it' : '')));
+  // The team is NOT repeated here. It is on the group's heading, which is where it belongs — and
+  // with grouping on whenever any companion declares one, a team cell in the row could only ever
+  // say again what the line above it just said. Unreachable the rest of the time, because "no
+  // grouping" and "no teams" are the same condition.
   who.append(cell('path', a.workdir));
   el.append(who);
 
@@ -1724,7 +1721,7 @@ function drawDetail(a) {
     field('status', a.state, 'state ' + a.state),
     field('workspace', a.workdir),
     ...(a.role ? [field('role', a.role)] : []),
-    ...(a.team ? [field('team', a.team + (a.hub ? ' · speaks for it' : ''))] : []),
+    ...(a.team ? [field('team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
     field('host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
     field('steps', a.steps ? a.steps + '' : '—'),

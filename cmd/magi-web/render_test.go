@@ -1609,10 +1609,16 @@ console.log(JSON.stringify({
 	if n := strings.Count(strings.Join(sugg, "\x00"), "frontend"); n != 1 {
 		t.Errorf("the team is offered %d times: %v", n, sugg)
 	}
-	// And the row says which one answers for the team, because that is where work addressed to the
-	// team actually lands.
-	if !strings.Contains(got["fleetText"].(string), "frontend · speaks for it") {
-		t.Errorf("the hub is not marked:\n%s", got["fleetText"])
+	// And the list says which companion answers for the team, because that is where work addressed
+	// to the team actually lands. It is on the group's HEADING now rather than repeated in every
+	// row of it — a fact about the team, said once.
+	txt := got["fleetText"].(string)
+	if !strings.Contains(txt, "frontend") || !strings.Contains(txt, "design speaks for it") {
+		t.Errorf("the hub is not marked:\n%s", txt)
+	}
+	if strings.Count(txt, "speaks for it") != 1 {
+		t.Errorf("the hub is marked %d times; the heading says it once:\n%s",
+			strings.Count(txt, "speaks for it"), txt)
 	}
 }
 
