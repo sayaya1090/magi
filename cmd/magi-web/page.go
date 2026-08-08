@@ -718,7 +718,13 @@ const indexHTML = `<!doctype html>
      the library's buttons: focus ring, state layers and a 48dp target all come with them. What is
      said here is that the choice is the warning colour, because the agent is stopped until it. */
   .answer { display:flex; gap:.6rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
-  .answer md-text-button { --md-text-button-label-text-color:var(--warn); }
+  .answer md-filled-tonal-button {
+    --md-filled-tonal-button-container-color:var(--md-surface-container-high);
+    --md-filled-tonal-button-label-text-color:var(--fg);
+    --md-filled-tonal-button-label-text-font:var(--mono);
+    --md-filled-tonal-button-label-text-size:12px;
+    letter-spacing:.1em; text-transform:uppercase;
+  }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
 
   .empty { font:16px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
@@ -1533,7 +1539,17 @@ function answerBox(a) {
     box.append(i, b);
   } else {
     for (const [label, decision] of [['allow', 'allow'], ['always', 'always'], ['deny', 'deny']]) {
-      const b = document.createElement('md-text-button'); b.textContent = label;
+      // Filled tonal, not text. M3 ranks buttons by emphasis — filled, filled tonal, outlined, text
+      // — and these three were at the BOTTOM of it while being the highest-stakes control on the
+      // page: the one that approves a "drop table" on a live database. On the same screen, answering
+      // "which surface should the empty state sit on?" was drawn as a filled button, so the page
+      // was shouting about a design question and whispering about a destructive command.
+      //
+      // All three at the SAME weight, deliberately. Raising only "allow" would make the page nudge
+      // toward approving, and a console that leans on a permission decision is worse than one that
+      // draws it quietly. The colour stays neutral for the same reason; the question above them
+      // already carries the warning colour.
+      const b = document.createElement('md-filled-tonal-button'); b.textContent = label;
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
       box.append(b);
     }
