@@ -46,7 +46,7 @@ func TestTheIgnoredArgumentNoteSaysWhetherTheCallRan(t *testing.T) {
 	// The failing shape: the misspelling took the required argument with it.
 	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor,
 		&session.ToolCall{CallID: "bad", Name: "write",
-			Args: json.RawMessage(`{"file_name":"/x.txt","content":"hello"}`)}, g)
+			Args: json.RawMessage(`{"file_name":"/x.txt","content":"hello"}`)}, g, "")
 	body := resultBody(t, a, sid, "bad")
 	if !strings.Contains(body, "file_name") {
 		t.Fatalf("the dropped argument is not named, so nothing here is under test:\n%s", body)
@@ -61,7 +61,7 @@ func TestTheIgnoredArgumentNoteSaysWhetherTheCallRan(t *testing.T) {
 	// The succeeding shape is unchanged: the result is real, just narrower than what was asked.
 	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor,
 		&session.ToolCall{CallID: "ok", Name: "write",
-			Args: json.RawMessage(`{"path":"` + s.Workdir + `/x.txt","content":"hello","mode":"append"}`)}, g)
+			Args: json.RawMessage(`{"path":"` + s.Workdir + `/x.txt","content":"hello","mode":"append"}`)}, g, "")
 	body = resultBody(t, a, sid, "ok")
 	if !strings.Contains(body, "mode") {
 		t.Fatalf("the dropped argument is not named, so nothing here is under test:\n%s", body)

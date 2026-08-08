@@ -10,6 +10,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -100,7 +101,10 @@ func (a *App) gatePreHooks(ctx context.Context, s session.Session, actor event.A
 }
 
 // executeTool runs one tool call (with permission gating) and persists the result.
-func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, guard *runGuard) {
+// turnTask is the user instruction this turn answers. It reaches here for one reason: what an agent
+// learns is worth little without what it was doing when it learned it, and the experience store had
+// no way to know. See the Propose closure below.
+func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, guard *runGuard, turnTask string) {
 	sid := s.ID
 	workdir := s.Workdir
 	toolMsgID := "m_" + newID()
@@ -353,6 +357,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")
+			}
+			// What it was doing when it learned this. The store writes Source as a line at the end
+			// of the body and the console draws it, and until now every entry said the same word:
+			// "agent". That answers who wrote it, which nobody was asking — the question a person
+			// has in front of a rule they did not write is what it came out of.
+			//
+			// Clipped, because a task can be a paragraph and this is a provenance line, not a copy
+			// of the request. Only added when the caller left Source at its default: a contribution
+			// that names its own source knows better than this does.
+			if c.Source == "agent" && strings.TrimSpace(turnTask) != "" {
+				c.Source = "agent · " + text.Clip(strings.Join(strings.Fields(turnTask), " "), 140)
 			}
 			err := a.cfg.Experience.Propose(ctx, c)
 			if err == nil {

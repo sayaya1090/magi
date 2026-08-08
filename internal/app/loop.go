@@ -356,7 +356,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				wg.Add(1)
 				go func(tc *session.ToolCall) {
 					defer wg.Done()
-					a.executeTool(ctx, s, agent, depth, agentActor, tc, guard)
+					a.executeTool(ctx, s, agent, depth, agentActor, tc, guard, turnTask)
 				}(tc)
 			}
 			wg.Wait()
@@ -365,7 +365,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				if ctx.Err() != nil {
 					return lastText, ctx.Err()
 				}
-				a.executeTool(ctx, s, agent, depth, agentActor, tc, guard)
+				a.executeTool(ctx, s, agent, depth, agentActor, tc, guard, turnTask)
 			}
 		}
 

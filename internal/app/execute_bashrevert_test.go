@@ -43,7 +43,7 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 		args, _ := json.Marshal(map[string]string{"command": cmd})
 		a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, actor, &session.ToolCall{
 			CallID: "c_" + newID(), Name: "bash", Args: args,
-		}, guard)
+		}, guard, "")
 	}
 
 	run("cp heap.c heap.c.bak")
@@ -110,7 +110,7 @@ func TestRemovingAPathThatNeverExistedSaysNothing(t *testing.T) {
 		args, _ := json.Marshal(map[string]string{"command": cmd})
 		a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, actor, &session.ToolCall{
 			CallID: "c_" + newID(), Name: "bash", Args: args,
-		}, guard)
+		}, guard, "")
 		evs, err := a.store.Read(ctx, sid, 0)
 		if err != nil {
 			t.Fatal(err)
