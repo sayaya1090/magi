@@ -390,7 +390,7 @@ const indexHTML = `<!doctype html>
     margin-left:auto; font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); display:flex; align-items:center; gap:.45rem;
   }
-  #state::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--outline); }
+  #state::before { content:""; width:6px; height:6px; border-radius:var(--shape-full); background:var(--outline); }
   /* The count is a readout; this part of it is a control, and it says so by being one. */
   #state .jump {
     --md-text-button-label-text-color:var(--warn);
@@ -630,7 +630,7 @@ const indexHTML = `<!doctype html>
   .sk .body {
     margin:.5rem 0 .1rem; padding:.6rem 0 0; max-width:var(--measure);
     border-top:1px solid var(--outlineVariant);
-    font:13px/1.65 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
+    font:14px/1.6 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
   }
 
   /* ── what they can reach ────────────────────────────────────────────────── */
@@ -696,7 +696,7 @@ const indexHTML = `<!doctype html>
     display:inline-flex; align-items:center; gap:.35rem;
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
-  .tile .k::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .tile .k::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; }
   .tile.waiting .k { color:var(--warn); }
   .tile.working .k { color:var(--success); }
   .tile.idle    .k { color:var(--accent); }
@@ -771,14 +771,14 @@ const indexHTML = `<!doctype html>
   @media (max-width:1000px) {
     .colk {
       display:inline; margin-left:.35rem;
-      font:600 10px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+      font:600 11px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
     }
   }
   .card .badge {
     font:600 11px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
     display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
   }
-  .card .badge::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+  .card .badge::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; flex:none; }
   .card.working .badge { color:var(--success); }
   .card.waiting .badge { color:var(--warn); }
   .card.idle .badge { color:var(--accent); }
@@ -846,7 +846,7 @@ const indexHTML = `<!doctype html>
     border-top:1px solid var(--outlineVariant);
   }
   .grounds .gk {
-    font:600 10px/1.6 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    font:600 11px/1.6 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); text-align:right;
   }
   .grounds .gv { font:12px/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
@@ -1001,7 +1001,7 @@ const indexHTML = `<!doctype html>
     padding:.6rem .7rem; margin-bottom:.6rem; background:var(--md-surface-container-low);
   }
   .wcard .wwhen { font:11px/1.5 var(--mono); color:var(--muted); }
-  .wcard .wwhat { font-size:13px; line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
+  .wcard .wwhat { font-size:14px; line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
   /* The one running now, in the colour the rest of the page uses for that. */
   .wcard.now { border-color:var(--success); }
   .wcard.now .wwhen { color:var(--success); font-weight:600; }
@@ -1015,7 +1015,7 @@ const indexHTML = `<!doctype html>
   .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:.3rem 1.2rem; padding:.35rem 0; }
   .hs + .hs { border-top:1px solid var(--outlineVariant); }
   .hs .when { font:11px/1.6 var(--mono); color:var(--muted); text-align:right; }
-  .hs .what { font-size:13px; color:var(--fg); overflow-wrap:anywhere; }
+  .hs .what { font-size:14px; color:var(--fg); overflow-wrap:anywhere; }
   /* The one it is in now is work too, and it is the newest row. Marked rather than left off. */
   .hs.now .when { color:var(--success); font-weight:600; }
   #handoffs .k {
@@ -1305,7 +1305,7 @@ const indexHTML = `<!doctype html>
     /* One line, clipped at the end rather than wrapped. Squeezed between the brand and two icons it
        broke "5 AGENTS ·" across three rows, which is taller than the two-row masthead it replaced. */
     #state {
-      font-size:10px; letter-spacing:.08em; margin-left:auto; min-width:0;
+      font-size:11px; letter-spacing:.08em; margin-left:auto; min-width:0;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     /* The two icon buttons sit at the end of the same line, not on one of their own. Adding the

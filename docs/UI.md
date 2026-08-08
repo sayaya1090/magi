@@ -254,12 +254,12 @@ containers, no state layers. Counted now, mechanically, by the audit in `.claude
 
 | | |
 |---|---|
-| shape | 8 radii, **0 off the scale** (4·8·12·16·24·full, plus a stated 0) |
-| type | literals are 11·12·14·16px, the rest through tokens; **0 off the scale** |
+| shape | every radius is a `--shape-*` token or a stated 0 — **checked**, after three dots drawn `border-radius:50%` were found |
+| type | literals are 11·12·14·16px, the rest through tokens — **checked**, after 10px and 13px had crept back in |
 | colour | 10 `on-` roles, 5 surface-container roles, both themes |
 | interaction | 11 component kinds bring their own; one state-layer recipe for the 7 surfaces that are not components |
 | motion | `cubic-bezier(0.2, 0, 0, 1)` / 100ms, from material-components-android's Motion.md |
-| targets | 48px minimum, Material's, with 4 `:focus-visible` rules of ours and the rest the components' |
+| targets | 48px, measured on the components' own touch target rather than on their visual box — every control on the page clears it |
 
 ### 3.1b The components, and what is left to us
 
@@ -340,7 +340,8 @@ its own dotted key because a string was added to one file.
 
 Contrast is **computed, not eyeballed**: the quiet parts still have to be readable, so `--muted`
 clears WCAG AA against its background. Everything interactive has a `:focus-visible` outline, and
-touch targets are at least 44px.
+every touch target measures **48px or more** — read off the components' own touch element, not off
+their visual box, which is 40px and would have read as a failure it is not.
 
 ### 3.5 Dark and light, and the reader's say in it
 

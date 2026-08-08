@@ -584,3 +584,43 @@ func TestEveryPhraseInThePackIsAskedFor(t *testing.T) {
 			"the English inline:\n  %s", len(dead), strings.Join(dead, "\n  "))
 	}
 }
+
+// The shape and type scales, checked rather than claimed.
+//
+// UI.md's audit table said "0 off the scale" for both, and both had drifted: three dots drawn with
+// border-radius:50% and six literals at 10px and 13px, neither of which M3 has. A sentence in a
+// document is true on the day it is written; this is the thing that stays true.
+func TestTheShapeAndTypeScalesHaveNothingOffThem(t *testing.T) {
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	css = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+
+	// Radii come from the scale tokens or are zero. A literal percentage is the same circle a
+	// --shape-full gives on a 7px box, and it is off the list a reader is told everything is on.
+	for _, m := range regexp.MustCompile(`border-radius:\s*([^;}]+)`).FindAllStringSubmatch(css, -1) {
+		v := strings.TrimSpace(m[1])
+		if strings.HasPrefix(v, "var(--shape-") || v == "0" || v == "inherit" {
+			continue
+		}
+		t.Errorf("border-radius:%s is not on the shape scale", v)
+	}
+
+	// M3's type scale bottoms out at body-small, 12px. Anything smaller is a size the system does
+	// not have, and 13 is between two it does.
+	allowed := map[string]bool{"11": true, "12": true, "14": true, "16": true, "20": true, "22": true, "24": true}
+	seen := map[string]bool{}
+	for _, m := range regexp.MustCompile(`font(?:-size)?:[^;}]*?(\d+)px`).FindAllStringSubmatch(css, -1) {
+		if !allowed[m[1]] {
+			seen[m[1]] = true
+		}
+	}
+	if len(seen) > 0 {
+		var off []string
+		for k := range seen {
+			off = append(off, k+"px")
+		}
+		sort.Strings(off)
+		t.Errorf("%s are not on the type scale — its floor is body-small at 12, and 11 is the "+
+			"one deliberate exception this page makes for its small-caps gutter labels",
+			strings.Join(off, ", "))
+	}
+}
