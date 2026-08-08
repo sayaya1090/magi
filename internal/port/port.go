@@ -268,6 +268,10 @@ type ToolEnv struct {
 	RouteInterjection func(action, reason, requestID string) error
 	// SetTodos replaces the session's plan (TodoWrite); nil when unavailable.
 	SetTodos func(todos []session.Todo)
+	// SetLabels replaces what the agent says this work is about; nil when unavailable. The whole
+	// set each time, for the same reason SetTodos takes the whole plan: a reader that has to fold
+	// a stream of adds and removes is a reader that is wrong the first time one is missed.
+	SetLabels func(labels []string)
 	// NoteForTurn stores one thing the agent asked to be reminded of before this turn ends
 	// (remember{scope:"turn"}). Verbatim in, verbatim out; nil when unavailable. Returns the
 	// reason the note was NOT kept (the queue is bounded), or nil when it was — a caller that

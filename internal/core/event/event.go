@@ -27,7 +27,14 @@ const (
 	TypeCompaction        Type = "compaction"
 	TypeTurnFinished      Type = "turn.finished"
 	TypeTodosChanged      Type = "todos.changed"
-	TypeError             Type = "error"
+	// TypeLabelsChanged — what the agent says this piece of work is ABOUT, in its own words.
+	//
+	// Recorded rather than derived, and that is not a hole in "derive, never record": the rule
+	// exists so state cannot go stale, and a label is not state — it is a judgement made while the
+	// work was happening, like a todo or a remembered fact. Nothing can derive it afterwards,
+	// because "this was the billing refactor" is not visible in any count of turns or errors.
+	TypeLabelsChanged Type = "labels.changed"
+	TypeError         Type = "error"
 
 	// Council termination gate (D14): the consensus that decides whether the loop
 	// finishes or continues. Persisted so the deliberation is replayable/auditable.

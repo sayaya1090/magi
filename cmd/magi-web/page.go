@@ -987,6 +987,16 @@ const indexHTML = `<!doctype html>
   .wcard .wmodel {
     font:11px/1.5 var(--mono); color:var(--accent); overflow-wrap:anywhere;
   }
+  /* A label is pressable, so it is drawn as something that can be pressed — a chip's shape, at the
+     size of the line it sits on rather than the size of a control, because a card carrying three
+     of them is still a card. */
+  .wcard .wlabel {
+    display:inline-block; cursor:pointer; margin:.3rem .3rem 0 0;
+    font:600 11px/1.4 var(--mono); letter-spacing:.06em;
+    color:var(--primary); background:color-mix(in srgb, var(--primary) 12%, transparent);
+    border-radius:var(--shape-full); padding:.15rem .5rem;
+  }
+  .wcard .wlabel:hover { background:color-mix(in srgb, var(--primary) 22%, transparent); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
   .boardhead md-icon-button { align-self:end; margin-bottom:.4rem; }
@@ -2392,7 +2402,8 @@ async function loadBoard() {
     // about, and belonging to neither is how a long night disappears from a board.
     let work = runs[i].filter(h => dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay);
     if (boardQuery.trim()) {
-      const order = rankByIDF(boardQuery, work.map(h => [h.title, h.model].filter(Boolean).join(' ')));
+      const order = rankByIDF(boardQuery,
+        work.map(h => [h.title, h.model, ...(h.labels || [])].filter(Boolean).join(' ')));
       work = order.map(k => work[k]);
     }
     if (!work.length) return;
@@ -2424,6 +2435,15 @@ async function loadBoard() {
       // so the one it is on now says nothing about the work on this card, and this is the only
       // place that fact survives.
       if (h.model) card.append(cell('wmodel', h.model));
+      // What the agent said it was about. First on the card after the title, because it is the one
+      // line somebody scanning a week is actually reading for.
+      for (const l of h.labels || []) {
+        const chip = cell('wlabel', l);
+        // Pressing one searches for it, which is the whole point of a label: the second piece of
+        // work that carries it is what you are looking for.
+        chip.onclick = e => { e.stopPropagation(); boardQuery = l; loadBoard(); };
+        card.append(chip);
+      }
       // Opening the companion is the next thing somebody wants from a card they just read.
       card.onclick = () => go(a.socket, a.peer);
       lane.append(card);

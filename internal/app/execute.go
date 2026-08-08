@@ -353,6 +353,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		RouteInterjection: routeInterjectionFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
 		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
+		SetLabels:         func(ls []string) { a.putLabels(ctx, sid, actor, ls) },
 		NoteForTurn:       func(t string) error { return a.noteForTurn(sid, t) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {

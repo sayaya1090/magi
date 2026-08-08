@@ -79,31 +79,32 @@ const demoScript = `
   // Sessions, dated against the clock so the board's day picker has yesterday and last week in it.
   const day = n => new Date(Date.now() - n * 86400000);
   const iso = d => d.toISOString().replace(/\.\d+Z$/, 'Z');
-  const ran = (id, title, daysAgo, startH, hours, current) => {
+  const ran = (id, title, daysAgo, startH, hours, current, labels) => {
     const st = day(daysAgo); st.setHours(startH, 0, 0, 0);
     const en = new Date(st.getTime() + hours * 3600000);
     return {id, title, started: iso(st), ended: iso(current ? new Date() : en),
             // Two models across the fixtures, because one everywhere would not show that the label
             // is per SESSION rather than per companion.
             model: daysAgo > 1 ? 'qwen3-coder:30b' : 'qwen3-coder-next',
+            labels: labels,
             ago: current ? 0 : Math.round((Date.now() - en) / 1000), current: !!current};
   };
   const HISTORY = {
     '/demo/design.sock': [
-      ran('d1', 'spec the empty state for the fleet table, and name the exact tokens', 0, 9, 2, true),
+      ran('d1', 'spec the empty state for the fleet table, and name the exact tokens', 0, 9, 2, true, ['empty-state', 'tokens']),
       ran('d0', 'audit the button emphasis against the M3 scale and fix the inversions', 0, 6, 2),
       ran('c9', 'the filter chips are not reachable with a keyboard on the corrections page', 1, 14, 3),
       ran('b7', 'move the palette into styles.go so the two surfaces cannot drift', 4, 10, 5),
     ],
     '/demo/api.sock': [
-      ran('a1', 'add the idempotency key to the billing endpoint', 0, 8, 3, true),
-      ran('a0', 'why does the invoice job double-charge on retry', 1, 9, 6),
+      ran('a1', 'add the idempotency key to the billing endpoint', 0, 8, 3, true, ['billing']),
+      ran('a0', 'why does the invoice job double-charge on retry', 1, 9, 6, false, ['billing']),
     ],
     '/demo/design.sock2': [
       ran('p1', 'which surface should the empty state sit on', 0, 11, 1, true),
     ],
     '/demo/buttons.sock': [
-      ran('b1', 'the toggle should read its state from the store rather than a prop', 0, 7, 2),
+      ran('b1', 'the toggle should read its state from the store rather than a prop', 0, 7, 2, false, ['components']),
       ran('b0', 'ripple is missing on the tonal buttons in dark mode', 2, 13, 2),
     ],
     '/demo/ops.sock': [

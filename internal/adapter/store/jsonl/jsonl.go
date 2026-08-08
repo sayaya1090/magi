@@ -595,6 +595,18 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 		m.Created = evs[0].TS
 		m.LastActivity = evs[len(evs)-1].TS
 		m.Title = firstPromptSummary(evs)
+		// The LAST set wins. Each event carries the whole set, so the newest is the answer and
+		// there is nothing to fold — and this loop is already walking every event for the title.
+		for i := len(evs) - 1; i >= 0; i-- {
+			if evs[i].Type != event.TypeLabelsChanged {
+				continue
+			}
+			var ld event.LabelsChangedData
+			if json.Unmarshal(evs[i].Data, &ld) == nil {
+				m.Labels = ld.Labels
+			}
+			break
+		}
 		if evs[0].Type == event.TypeSessionCreated {
 			var d event.SessionCreatedData
 			if json.Unmarshal(evs[0].Data, &d) == nil {

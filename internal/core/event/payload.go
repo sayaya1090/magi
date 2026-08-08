@@ -166,6 +166,13 @@ type TodosChangedData struct {
 	Todos []session.Todo `json:"todos"`
 }
 
+// LabelsChangedData — TypeLabelsChanged. The whole set each time, not a delta: a reader that has to
+// replay every add and remove to know the current labels is a reader that gets it wrong the first
+// time an event is missed, and the set is a handful of short strings.
+type LabelsChangedData struct {
+	Labels []string `json:"labels"`
+}
+
 // ModelChangedData — TypeModelChanged. The session's new active model, so any UI
 // caching the model name (header chip, routing editor) re-reads it from one signal
 // regardless of which path changed it (plugin set_model, /route edit, reload_config).

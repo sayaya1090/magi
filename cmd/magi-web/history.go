@@ -44,6 +44,9 @@ type pastSession struct {
 	// is on now says nothing about what ran last Tuesday — and "which engine did this" is the fact
 	// about a finished piece of work that is neither in its title nor recoverable afterwards.
 	Model string `json:"model,omitempty"`
+	// Labels is what the agent said this work was about. The one thing on a card that no derivation
+	// could produce, and the reason the board can be searched by subject rather than by wording.
+	Labels []string `json:"labels,omitempty"`
 	// Current marks the session the companion is in right now, which is on this list too: it is
 	// work it is doing, and leaving it off would make the newest row the second-newest thing.
 	Current bool `json:"current,omitempty"`
@@ -83,6 +86,7 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 			Ended:   m.LastActivity.UTC().Format(time.RFC3339),
 			Ago:     int(now.Sub(m.LastActivity).Seconds()),
 			Model:   m.Model,
+			Labels:  m.Labels,
 			Current: string(m.ID) == in.Session,
 		})
 	}

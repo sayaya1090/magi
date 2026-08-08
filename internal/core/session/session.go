@@ -53,7 +53,10 @@ type SessionMeta struct {
 	//
 	// Free: scanSessions already unmarshals the created event to find the parent, and this was
 	// sitting in the same struct being thrown away.
-	Model        string    `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Labels is what the agent said this work was about, as of the last time it said so. Free to
+	// carry: the scan that builds this already reads every event to find the title.
+	Labels       []string  `json:"labels,omitempty"`
 	Parent       string    `json:"parent,omitempty"` // spawning session id (child sessions)
 	Created      time.Time `json:"created"`
 	LastActivity time.Time `json:"lastActivity"`

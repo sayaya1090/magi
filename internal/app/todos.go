@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -186,4 +187,23 @@ func (a *App) turnNotesBlock(sid session.SessionID) string {
 	}
 	return "── WHAT YOU ASKED TO CHECK BEFORE DECLARING THIS FINISHED ──\n- " +
 		strings.Join(notes, "\n- ")
+}
+
+// putLabels records what the agent says this session's work is about.
+//
+// Unconditional, unlike putTodos, which skips a write when the plan is unchanged. A plan is written
+// on nearly every step and the guard is there to keep a log from filling with copies; labels are
+// set once or twice in a session, so the guard would cost a comparison to save nothing — and a
+// repeated write of the same set is harmless, since the last one wins on read.
+func (a *App) putLabels(ctx context.Context, sid session.SessionID, actor event.Actor, ls []string) {
+	d, err := json.Marshal(event.LabelsChangedData{Labels: ls})
+	if err != nil {
+		return
+	}
+	if err := a.appendFact(ctx, sid, event.TypeLabelsChanged, actor, d); err != nil {
+		// Best-effort, and said so: a label that did not land costs a card its chip and nothing
+		// else, and failing the tool call over it would make the agent retry a thing that is not
+		// the work. The log is where a store that cannot be written to shows up.
+		log.Printf("magi: recording labels: %v", err)
+	}
 }
