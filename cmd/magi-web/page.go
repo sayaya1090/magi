@@ -1947,11 +1947,38 @@ function drawPrompt(a) {
   inner.append(k);
   const why = grounds(a);
   if (why) inner.append(why);
-  inner.append(answerBox(a));
+  // A question is answered in the composer, not in a second box above it. Both drawn, the page had
+  // two text fields one over the other — the upper one answering the question and the lower one
+  // sending a fresh request to an agent that is not listening — and no mark saying which was which.
+  // A permission prompt keeps its own controls: they are buttons, so nothing collides, and leaving
+  // the composer live there is deliberate — "do something else instead" is a legitimate reply to
+  // being asked whether to drop a table.
+  if (a.askKind !== 'question') inner.append(answerBox(a));
   box.replaceChildren(inner);
   box.hidden = false;
+  answerMode(a.askKind === 'question' ? a : null);
   measureDock();
 }
+
+// What the composer is for right now. Null when it sends work; an agent when it answers that
+// agent's question. Held here rather than read off the DOM because the submit handler needs the
+// call id, and a call id parked in a data attribute is a string that can go stale without anything
+// noticing.
+let answering = null;
+// One field in two roles rather than two fields that have to agree about which is live. The
+// component is the same md-outlined-text-field; what changes is the label, the supporting line
+// under it, and where pressing the button sends what was typed.
+function answerMode(a) {
+  answering = a;
+  t.setAttribute('label', tr(a ? 'label.answer' : 'label.ask'));
+  t.setAttribute('supporting-text', a ? tr('answer.instead') : '');
+  document.getElementById('send').textContent = tr(a ? 'action.answer' : 'action.send');
+  // The old text was addressed at magi and the new question is not the same subject. Carrying it
+  // over would put a half-written request in front of somebody as though it were their answer.
+  if (!!a !== wasAnswering) { t.value = ''; }
+  wasAnswering = !!a;
+}
+let wasAnswering = false;
 
 // What this companion has done before now.
 //
@@ -2678,10 +2705,11 @@ function paint() {
   // moves. Written as placeholders here, the fields had no notch and nothing to float — which is
   // what "the placeholder looks wrong" was. The longer sentence becomes supporting text, which is
   // where an explanation belongs and where it does not have to fit in a notch.
-  t.setAttribute('label', tr('label.ask'));
+  // Through answerMode, so a language change does not quietly turn the answer field back into the
+  // request field while the agent is still waiting on the question above it.
+  answerMode(answering);
   toEl.setAttribute('label', tr('label.address'));
   toEl.setAttribute('supporting-text', tr('hint.address'));
-  document.getElementById('send').textContent = tr('action.send');
   document.getElementById('stop').textContent = tr('action.interrupt');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
   themeToggle.setAttribute('aria-label', tr('pref.theme'));
@@ -2957,6 +2985,13 @@ t.addEventListener('input', grow);
 f.onsubmit = e => {
   e.preventDefault();
   const v = t.value.trim(); if (!v) return;
+  if (answering) {
+    const a = answering;
+    t.value = ''; grow();
+    post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text: v}), a.socket, a.peer)
+      .then(loadFleet);
+    return;
+  }
   if (sock()) { t.value = ''; grow(); post('/submit', new URLSearchParams({text: v})); return; }
   // From the fleet: addressed work. An empty address would have to guess who it is for, and
   // guessing sends somebody's turn into the wrong workspace — so it asks instead.

@@ -786,6 +786,51 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// A question is answered in the composer, and the composer says so.
+//
+// Both boxes drawn, an agent's page had two text fields stacked: the upper one answering the
+// question and the lower one addressed at an agent that is not listening, with nothing on the page
+// saying which was which. One field in two roles instead — and a permission prompt, whose controls
+// are buttons, keeps the composer for work.
+func TestTheComposerBecomesTheAnswerFieldForAQuestion(t *testing.T) {
+	probe := `
+await loadFleet();
+console.log(JSON.stringify({
+  label: byId.t.attrs['label'], support: byId.t.attrs['supporting-text'] || '',
+  send: byId.send.textContent,
+  fieldsInPrompt: byId.prompt.find('md-outlined-text-field').length,
+}));
+`
+	q := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"which branch should this land on?","askId":"q1#1","askKind":"question","idle":5}]`,
+		"?d=%2Fs%2Fa.sock", probe)
+	if q["label"] != "your answer" {
+		t.Errorf("the composer still asks for work while the agent waits on a question: %q", q["label"])
+	}
+	if q["send"] != "answer" {
+		t.Errorf("the button still says %q, which sends the text somewhere it will not be read", q["send"])
+	}
+	if q["support"] == "" {
+		t.Error("the field changed its job and said nothing about it")
+	}
+	if q["fieldsInPrompt"].(float64) != 0 {
+		t.Errorf("%v text fields in the prompt as well as the composer", q["fieldsInPrompt"])
+	}
+
+	p := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"p1#1","askKind":"permission","idle":3}]`,
+		"?d=%2Fs%2Fa.sock", probe)
+	if p["label"] != "ask magi" {
+		t.Errorf("a permission prompt took the composer away: %q — deciding not to do the thing at "+
+			"all is a legitimate reply, and it is typed here", p["label"])
+	}
+	if p["support"] != "" {
+		t.Errorf("the composer carries an answering note while nothing is being answered: %q", p["support"])
+	}
+}
+
 // A prompt with no report is the prompt it always was, not an empty box.
 //
 // A companion on an older build, or one whose report was lost between its socket and this page,

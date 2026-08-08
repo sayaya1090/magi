@@ -97,6 +97,7 @@
   "label.ask": "magi에게 요청",
   "label.address": "받는 곳",
   "label.answer": "답변",
+  "answer.instead": "위 질문에 답합니다. 다른 일을 시키려면 먼저 답하거나 중단하세요.",
   "label.reach": "컴패니언",
   "label.mcp_name": "이름",
   "label.mcp_command": "명령",

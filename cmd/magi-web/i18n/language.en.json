@@ -97,6 +97,7 @@
   "label.ask": "ask magi",
   "label.address": "to",
   "label.answer": "your answer",
+  "answer.instead": "answering the question above; to ask for something else, answer it or interrupt first",
   "label.reach": "companion",
   "label.mcp_name": "name",
   "label.mcp_command": "command",
