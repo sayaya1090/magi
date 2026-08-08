@@ -911,39 +911,6 @@ const indexHTML = `<!doctype html>
      still a plain control. */
   .composer button:focus-visible { outline:3px solid var(--primary); outline-offset:2px; }
 
-  /* ── the two widths ─────────────────────────────────────────────────────
-     LAST in the stylesheet, and that is load-bearing. A media query adds no specificity, so these
-     rules only win by coming after the ones they override — and they did not. Written above the
-     sections they contradict, the wide rule lost to a later "#tabs { display:flex }" and the page
-     offset lost to a later "padding:" shorthand, which resets the padding-left this sets. The
-     result was both navigations at once on a desktop and, on a narrow screen, a fixed rail sitting
-     on top of the page it was supposed to stand beside. */
-
-  /* Wide: the rail IS the navigation, so the tabs go — two of them for one set of four sections is
-     one too many. The page starts to the right of the rail, by exactly its width. */
-  @media (min-width:769px) {
-    header, main { padding-left:calc(var(--rail-w) + 1.9rem); }
-    #dock { padding-left:var(--rail-w); }
-    #tabs, #themeToggle { display:none; }
-    }
-  /* Narrow: the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
-     an invitation to look in the wrong place. What is left behind the button is the preferences,
-     so on this width it says so and wears a gear. */
-  /* Narrow: no drawer at all. The tabs navigate, the theme has its own toggle in the masthead, and
-     what is left — language, and which machine this is — is a plain section at the foot of the
-     page. A drawer for two selects is a door in front of a cupboard, and on a phone it covered the
-     thing the reader had just navigated to. */
-  @media (max-width:768px) {
-    #rail {
-      position:static; transform:none; width:auto; overflow:visible;
-      border-right:0; border-top:1px solid var(--outlineVariant);
-      background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
-      order:9;   /* last on the page, first-but-one in the tab order it is written in */
-    }
-    #rail #railNav, #railMenu, #prefsBtn { display:none; }
-    #rail #railFoot { display:flex; max-width:22rem; }
-    }
-
   /* ── the table, when the table does not fit ──────────────────────────────
      A separate breakpoint from the navigation's, because it answers a different question. 768px is
      where a rail stops being worth its width; this is where seven columns stop fitting, which is a
@@ -997,6 +964,45 @@ const indexHTML = `<!doctype html>
     form { padding-left:1rem; padding-right:1rem; }
 
   }
+
+  /* ── the two widths ─────────────────────────────────────────────────────
+     The breakpoint is 600px, which is M3's own: compact is below 600, medium is 600–839, expanded is
+     840 and up, and the guide puts a rail on medium and above. It was 768 — a number taken from the
+     handbook — and measuring against the guide showed the cost: a 700px window is medium, the guide
+     asks for a rail there, and this page was still drawing tabs.
+
+     LAST in the stylesheet, and that is load-bearing. A media query adds no specificity, so these
+     rules only win by coming after the ones they override — and they did not. Written above the
+     sections they contradict, the wide rule lost to a later "#tabs { display:flex }" and the page
+     offset lost to a later "padding:" shorthand, which resets the padding-left this sets. The
+     result was both navigations at once on a desktop and, on a narrow screen, a fixed rail sitting
+     on top of the page it was supposed to stand beside. */
+
+  /* Wide: the rail IS the navigation, so the tabs go — two of them for one set of four sections is
+     one too many. The page starts to the right of the rail, by exactly its width. */
+  @media (min-width:600px) {
+    header, main { padding-left:calc(var(--rail-w) + 1.9rem); }
+    #dock { padding-left:var(--rail-w); }
+    #tabs, #themeToggle { display:none; }
+    }
+  /* Compact (below 600px, M3's own boundary): the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
+     an invitation to look in the wrong place. What is left behind the button is the preferences,
+     so on this width it says so and wears a gear. */
+  /* Narrow: no drawer at all. The tabs navigate, the theme has its own toggle in the masthead, and
+     what is left — language, and which machine this is — is a plain section at the foot of the
+     page. A drawer for two selects is a door in front of a cupboard, and on a phone it covered the
+     thing the reader had just navigated to. */
+  @media (max-width:599px) {
+    #rail {
+      position:static; transform:none; width:auto; overflow:visible;
+      border-right:0; border-top:1px solid var(--outlineVariant);
+      background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
+      order:9;   /* last on the page, first-but-one in the tab order it is written in */
+    }
+    #rail #railNav, #railMenu, #prefsBtn { display:none; }
+    #rail #railFoot { display:flex; max-width:22rem; }
+    }
+
 </style>
 
 <header>

@@ -360,3 +360,38 @@ func withoutComments(src string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// The rules that place the page around the rail must be the LAST media queries in the stylesheet.
+//
+// A media query adds no specificity, so these win only by coming after what they override — and
+// three times now they have not. Written above a plain `#tabs { display:flex }` the tabs stayed on
+// a desktop; written above a `padding:` shorthand for main the page offset became 0 and the fixed
+// rail sat on top of the page; and moving the breakpoint to 600 put a 640px composer rule after
+// them, which reset the offset again in the 40px between.
+//
+// Checked by position rather than by effect because the fake DOM has no CSS and a browser is not
+// in this suite. Position is what was wrong all three times.
+func TestTheLayoutQueriesComeLast(t *testing.T) {
+	sheet := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	at := func(q string) int {
+		i := strings.Index(sheet, q)
+		if i < 0 {
+			t.Fatalf("the stylesheet has no %q — this guard has lost its subject", q)
+		}
+		return i
+	}
+	nav := at("@media (min-width:600px)")
+	for _, earlier := range []string{
+		"@media (max-width:1000px)", // the table's own collapse
+		"@media (max-width:640px)",  // the composer's
+	} {
+		// The LAST occurrence, since a query may appear more than once.
+		if last := strings.LastIndex(sheet, earlier); last > nav {
+			t.Errorf("%s is written after the rail's layout rules, so it overrides the page offset "+
+				"in the widths where both apply — the padding shorthand resets padding-left", earlier)
+		}
+	}
+	if compact := at("@media (max-width:599px)"); compact < nav {
+		t.Error("the compact rules come before the rail's; they must be able to undo them")
+	}
+}
