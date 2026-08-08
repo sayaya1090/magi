@@ -2835,6 +2835,7 @@ function sayShared() {
 }
 
 let skillQuery = '';
+let mcpQuery = '';
 // Which model this machine embeds with, from /console. Empty is a real answer, not a missing one.
 let embedModel = '';
 
@@ -2865,6 +2866,18 @@ function rankByIDF(query, docs) {
   return hits.map(h => h.i);
 }
 
+// One find box, told which half it belongs to. Written once because two of them written twice is
+// two that drift, and the only difference between the halves is where the typed text is kept.
+function findBox(get, set) {
+  const box = cell('skfind');
+  const f = document.createElement('md-outlined-text-field');
+  f.setAttribute('label', tr('label.find'));
+  f.value = get();
+  f.addEventListener('input', () => set(f.value));
+  box.append(f);
+  return box;
+}
+
 // A heading over each half of the shared destination. Two lists under one tab need to say which is
 // which, and the destination's own name is now the pair rather than either.
 function sectionHead(key) {
@@ -2878,15 +2891,8 @@ function sectionHead(key) {
 // Rebuilt on every load rather than kept, because the list behind it is — and a box whose value
 // survived while the rows under it were replaced is a box that lies about what it is filtering.
 // The typed text is held outside, in skillQuery, which is the part that must survive.
-function skillFind() {
-  const box = cell('skfind');
-  const find = document.createElement('md-outlined-text-field');
-  find.setAttribute('label', tr('label.find'));
-  find.value = skillQuery;
-  find.addEventListener('input', () => { skillQuery = find.value; loadSkills(); });
-  box.append(find);
-  return box;
-}
+const skillFind = () => findBox(() => skillQuery, v => { skillQuery = v; loadSkills(); });
+const mcpFind = () => findBox(() => mcpQuery, v => { mcpQuery = v; loadMCP(); });
 
 // Writing goes UNDER what you have read, not over it.
 //
@@ -3054,7 +3060,17 @@ async function loadMCP() {
   sayShared();
   shared.reachedFrom = reach.size;
 
-  const rows = list.map(sv => {
+  // Same search, the other half. Ten servers is a screen and a half, and the half below the fold is
+  // the half nobody scrolls to — the experience list got a find the moment it had four rows and
+  // this one was left to grow without.
+  let show = list;
+  if (mcpQuery.trim()) {
+    const docs = list.map(sv => [sv.name, sv.command, (sv.args || []).join(' '), sv.url,
+                                 sv.companion, (sv.env || []).join(' ')].filter(Boolean).join(' '));
+    show = rankByIDF(mcpQuery, docs).map(i => list[i]);
+  }
+
+  const rows = show.map(sv => {
     const el = cell('srv ' + sv.tier);
     const top = cell('top');
     top.append(cell('tier', sv.tier === 'global' ? 'every companion here' : 'only ' + sv.companion));
@@ -3138,7 +3154,12 @@ async function loadMCP() {
     mcpEl.replaceChildren(sectionHead('nav.connections'), emptyState('empty.no_servers', 'empty.no_servers_how'), form);
     return;
   }
-  mcpEl.replaceChildren(sectionHead('nav.connections'), ...rows, form);
+  if (!rows.length) {
+    mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(),
+      emptyState('empty.no_match', 'empty.no_match_how'), form);
+    return;
+  }
+  mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(), ...rows, form);
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
