@@ -835,6 +835,43 @@ console.log(JSON.stringify(out));
 	})
 }
 
+// The permission prompt is asked for before anything is awaited.
+//
+// requestPermission needs transient user activation. An await hands the turn back to the event
+// loop and the activation is spent by the time the call is reached, so it resolves 'default'
+// having shown nobody a prompt — which from outside is a switch that does nothing. This is a
+// property of ORDER, not of what gets called: the old code called requestPermission too, one
+// await too late.
+func TestThePermissionPromptComesBeforeAnyAwait(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+// Cleared first: the switch paints itself on load, and that look at the registration is not part
+// of what the click does.
+globalThis.ORDER.length = 0;
+byId.notifyBtn.onclick();
+// Drained with microtasks: this harness's setTimeout is a stub that never fires, deliberately —
+// a test that waited on a real timer would wait for the page's three-second poll.
+for (let i = 0; i < 20; i++) await Promise.resolve();
+console.log(JSON.stringify({order: globalThis.ORDER, why: byId.notifyWhy.textContent}));
+`)
+	var order []string
+	for _, v := range got["order"].([]any) {
+		order = append(order, v.(string))
+	}
+	if len(order) == 0 {
+		t.Fatal("the switch reached nothing at all")
+	}
+	if order[0] != "requestPermission" {
+		t.Errorf("the page did %v first — the prompt must be asked for in the click's own turn, "+
+			"before any await spends the user activation", order)
+	}
+	// And a refusal stops there rather than registering a worker nobody can be notified through.
+	for _, step := range order {
+		if step == "register" || step == "subscribe" {
+			t.Errorf("permission was refused and the page went on to %s: %v", step, order)
+		}
+	}
+}
+
 // A question is answered in the composer, and the composer says so.
 //
 // Both boxes drawn, an agent's page had two text fields stacked: the upper one answering the

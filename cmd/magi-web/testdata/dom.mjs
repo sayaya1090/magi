@@ -203,7 +203,15 @@ globalThis.document = {
     return byId[id];
   },
 };
-globalThis.window = { innerHeight: 800, scrollY: 0, scrollTo() {} };
+// The page asks `'Notification' in window` and reads window.isSecureContext, so what a browser
+// puts on window has to be here too — a bare object made the notifications switch throw before it
+// reached anything, and an async handler swallows that into a rejected promise nobody awaits.
+globalThis.window = {
+  innerHeight: 800, scrollY: 0, scrollTo() {},
+  isSecureContext: true,
+  get Notification() { return globalThis.Notification; },
+  get PushManager() { return globalThis.PushManager; },
+};
 // The address bar, enough of it. pushState WRITES the search string, because the page navigates
 // by pushing a url and re-reading it — a no-op stub made every tab click look like it did nothing,
 // which is a fake that answers "broken" for a page that works.
@@ -228,6 +236,11 @@ globalThis.localStorage = {
 const tags = (process.env.LANG_TAGS ?? process.env.LANG_TAG ?? 'en-US').split(',');
 Object.defineProperty(globalThis.navigator, 'language', {value: tags[0], configurable: true});
 Object.defineProperty(globalThis.navigator, 'languages', {value: tags, configurable: true});
+// A getter, because the worker fake is defined further down and a value read here would be
+// undefined — which is how `navigator.serviceWorker.getRegistration` throws on a fake that looks
+// present.
+Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+  get() { return globalThis.__sw; }, configurable: true});
 
 globalThis.location = { search: process.env.QUERY ?? '', pathname: process.env.BASE ?? '/' };
 globalThis.history = {
@@ -237,6 +250,34 @@ globalThis.history = {
   },
 };
 globalThis.addEventListener = () => {};
+// Enough of the notification surface to drive the switch, and no more. ORDER records which of these
+// the page reached first, because the ONE thing that matters about this flow is not what it calls
+// but WHEN: requestPermission needs transient user activation, and an await before it spends the
+// activation — the call then resolves 'default' having shown nobody a prompt, which is what "the
+// button does nothing" looks like from outside.
+globalThis.ORDER = [];
+globalThis.isSecureContext = true;
+globalThis.Notification = {
+  permission: process.env.PERM || 'default',
+  requestPermission() {
+    ORDER.push('requestPermission');
+    return Promise.resolve(process.env.PERM_ANSWER || 'denied');
+  },
+};
+globalThis.PushManager = function () {};
+const swReg = {
+  pushManager: {
+    getSubscription() { ORDER.push('getSubscription'); return Promise.resolve(null); },
+    subscribe() { ORDER.push('subscribe'); return Promise.resolve(null); },
+  },
+};
+// Added TO the existing navigator, not over it: the language properties are defined on it further
+// down, and replacing the object took them with it.
+globalThis.__sw = {
+  getRegistration() { ORDER.push('getRegistration'); return Promise.resolve(swReg); },
+  register() { ORDER.push('register'); return Promise.resolve(swReg); },
+  get ready() { return Promise.resolve(swReg); },
+};
 // Two queries are asked now and they mean different things: hover:none is a touch screen, and the
 // width one is the layout breakpoint. A stub answering both with the same flag made a phone-sized
 // test claim a desktop layout.

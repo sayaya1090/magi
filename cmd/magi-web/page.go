@@ -1722,6 +1722,15 @@ async function paintNotify() {
 }
 
 notifyBtn.onclick = async () => {
+  // The prompt is asked for FIRST, before anything is awaited. requestPermission needs transient
+  // user activation, and an await hands the turn back to the event loop — the activation is spent
+  // by the time the call is reached, and it resolves 'default' without ever showing a prompt. That
+  // is exactly what "it does not ask for permission" looks like: a button that does nothing.
+  //
+  // Harmless when a subscription already exists, which is the other thing this button does: a
+  // permission already granted resolves immediately and shows nobody anything.
+  const asked = 'Notification' in window && Notification.permission !== 'granted'
+    ? Notification.requestPermission() : Promise.resolve('granted');
   notifyBtn.disabled = true;
   try {
     const existing = await currentSub();
@@ -1734,7 +1743,7 @@ notifyBtn.onclick = async () => {
       await existing.unsubscribe();
       return paintNotify();
     }
-    if (await Notification.requestPermission() !== 'granted') return paintNotify();
+    if (await asked !== 'granted') return paintNotify();
     if (!vapidKey) {
       const info = await fetchList('/push');
       vapidKey = info && info.key;
