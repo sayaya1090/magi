@@ -831,6 +831,40 @@ console.log(JSON.stringify({
 	}
 }
 
+// A row has exactly as many cells as the header has columns, whatever the agent is doing.
+//
+// The row is a CSS grid with a fixed seven-column template, so a cell that appears only sometimes
+// does not add a column — it shifts every cell after it one to the right and wraps the last one
+// onto a line of its own. That is what the plan indicator did: an agent with a todo list had its
+// task rendered in the step count's 72px and its buttons on a second row, and an agent without one
+// looked fine. Counted here because the fake DOM has no CSS and cannot see the damage, only the
+// arithmetic that causes it.
+func TestARowHasAsManyCellsAsTheHeaderHasColumns(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+       "task":"with a plan","steps":7,"idle":12,"planDone":1,"planTotal":4},
+      {"socket":"/s/b.sock","name":"docs","workdir":"/w/docs","state":"working","live":true,
+       "task":"without one","steps":2,"idle":9},
+      {"socket":"/s/c.sock","name":"ops","workdir":"/w/ops","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"p1#1","askKind":"permission","steps":1,"idle":3,
+       "planDone":2,"planTotal":3}
+    ]`, "", rowsHelper+`
+await loadFleet();
+const head = byId.fleet.children.find(c => c.className === 'thead').children.length;
+console.log(JSON.stringify({head, rows: rows().map(r => r.children.length)}));
+`)
+	head := int(got["head"].(float64))
+	if head == 0 {
+		t.Fatal("the table head drew no columns")
+	}
+	for i, n := range got["rows"].([]any) {
+		if int(n.(float64)) != head {
+			t.Errorf("row %d has %v cells and the header has %d columns — every cell after the "+
+				"extra one lands in the wrong column and the last wraps", i, n, head)
+		}
+	}
+}
+
 // The tabs say which resource is on screen and switch without a reload — and a companion's own page
 // is neither of them, being one level in.
 func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {

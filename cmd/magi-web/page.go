@@ -282,6 +282,13 @@ const indexHTML = `<!doctype html>
     /* Read out of the shipped bundle rather than a document: it is what md-tabs animates its own
        indicator with, so a container that opens beside them moves on the same curve. */
     --ease-emphasized:cubic-bezier(0.3, 0, 0, 1);
+
+    /* How much room the rail takes. Declared HERE and not only on #rail, because the page's own
+       left offset is computed from it — and a var() that resolves to nothing does not fall back to
+       the shorthand underneath it. The declaration becomes invalid at computed-value time and the
+       property takes its initial value, which for padding is 0: the offset silently vanished and
+       the rail stood on top of the page at every width. */
+    --rail-w:4.5rem;
     --dur-short2:100ms; --dur-short4:200ms; --dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -368,7 +375,7 @@ const indexHTML = `<!doctype html>
      The breakpoint is 768/769px, the handbook's, so the two products break in the same place. */
   #rail {
     position:fixed; top:0; bottom:0; left:0; z-index:3;
-    width:var(--rail-w, 4.5rem); box-sizing:border-box;
+    width:var(--rail-w); box-sizing:border-box;
     padding:calc(4.4rem + env(safe-area-inset-top)) .5rem 1.2rem;
     background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
     display:flex; flex-direction:column; gap:1rem; overflow:hidden auto;
@@ -592,7 +599,7 @@ const indexHTML = `<!doctype html>
   /* status */
   .card .badge {
     font:600 11px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
-    display:flex; align-items:center; gap:.4rem;
+    display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
   }
   .card .badge::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
   .card.working .badge { color:var(--success); }
@@ -1196,10 +1203,16 @@ function card(a) {
   el.href = href(a);
   el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
-  el.append(cell('badge', a.state));
-  // How far through its own plan. Not a progress bar: a todo list is not a schedule, and a bar
-  // would promise a completion time nobody can honour.
-  if (a.planTotal) el.append(cell('plan', a.planDone + '/' + a.planTotal));
+  const badge = cell('badge', a.state);
+  // How far through its own plan, INSIDE the status cell. Not a progress bar: a todo list is not a
+  // schedule, and a bar would promise a completion time nobody can honour.
+  //
+  // Inside, because it is conditional and the row is a grid of seven fixed columns. As a sibling it
+  // was an eighth item on the rows that had a plan: every cell after it shifted one column right,
+  // the task landed in the step count's 72px, and the actions wrapped onto a line of their own.
+  // A conditional cell in a fixed template is a row that reads differently depending on its data.
+  if (a.planTotal) badge.append(cell('plan', a.planDone + '/' + a.planTotal));
+  el.append(badge);
 
   const who = cell('who-col');
   who.append(cell('name', a.name));
