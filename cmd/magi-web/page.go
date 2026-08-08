@@ -528,6 +528,20 @@ const indexHTML = `<!doctype html>
     inset-inline-start:calc(100% + 9.2rem); transform:translateY(-50%);
   }
   #prefsForm { display:flex; flex-direction:column; gap:1rem; min-width:16rem; }
+  /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
+     display at all — four controls in a block, no gap, no shared baseline — which is what "the
+     screen's controls" looked like until somebody measured it. */
+  .skfind { display:flex; margin:0 0 1.4rem; }
+  .skfind md-outlined-text-field { flex:1 1 22rem; max-width:34rem; }
+  .skwrite {
+    display:flex; flex-wrap:wrap; gap:.9rem; align-items:flex-end;
+    margin:2rem 0 0; padding-top:1.4rem; border-top:1px solid var(--outlineVariant);
+  }
+  .skwrite md-outlined-select { flex:0 0 14rem; }
+  .skwrite md-outlined-text-field { flex:1 1 22rem; }
+  .skwrite .skmodel {
+    flex:1 1 100%; font:var(--body-s) var(--mono); color:var(--muted); overflow-wrap:anywhere;
+  }
   #notify { display:flex; flex-direction:column; align-items:flex-start; gap:.3rem; }
   #notifyWhy { font:var(--body-s) var(--mono); color:var(--muted); max-width:26rem; overflow-wrap:anywhere; }
   #prefsForm .k {
@@ -2864,14 +2878,24 @@ function sectionHead(key) {
 // Rebuilt on every load rather than kept, because the list behind it is — and a box whose value
 // survived while the rows under it were replaced is a box that lies about what it is filtering.
 // The typed text is held outside, in skillQuery, which is the part that must survive.
-function skillTools(all) {
-  const box = cell('sktools');
-
+function skillFind() {
+  const box = cell('skfind');
   const find = document.createElement('md-outlined-text-field');
   find.setAttribute('label', tr('label.find'));
   find.value = skillQuery;
   find.addEventListener('input', () => { skillQuery = find.value; loadSkills(); });
   box.append(find);
+  return box;
+}
+
+// Writing goes UNDER what you have read, not over it.
+//
+// Above the list it was the first thing on a screen whose job is reading what the organisation
+// shares — and the first four stops of a keyboard, which had to walk a form to reach the content.
+// It also reads better in that order: somebody writes a rule down BECAUSE they just looked for one
+// and it was not there.
+function skillWrite(all) {
+  const box = cell('skwrite');
 
   // Where it goes. Named tiers rather than "share this": the whole decision on this screen is how
   // far something reaches, and a control that hid it would be deciding on somebody's behalf.
@@ -2931,8 +2955,8 @@ async function loadSkills() {
   shared.crossing = crossing;
   sayShared();
   if (!list.length) {
-    skillsEl.replaceChildren(sectionHead('nav.lessons'), skillTools(list),
-      emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
+    skillsEl.replaceChildren(sectionHead('nav.lessons'),
+      emptyState('empty.nothing_learned', 'empty.nothing_learned_how'), skillWrite(list));
     return;
   }
   // Ranked, not filtered on a substring: "cache" should find the rule about prompt caching before
@@ -2944,11 +2968,11 @@ async function loadSkills() {
     shown = order.map(i => list[i]);
   }
   if (!shown.length) {
-    skillsEl.replaceChildren(sectionHead('nav.lessons'), skillTools(list),
-      emptyState('empty.no_match', 'empty.no_match_how'));
+    skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(),
+      emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list));
     return;
   }
-  skillsEl.replaceChildren(sectionHead('nav.lessons'), skillTools(list), ...shown.map(sk => {
+  skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(), ...shown.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
@@ -3015,7 +3039,7 @@ async function loadSkills() {
     top.insertBefore(more, drop);
     el.append(text);
     return el;
-  }));
+  }), skillWrite(list));
 }
 
 // ── what they can reach ──────────────────────────────────────────────────────
