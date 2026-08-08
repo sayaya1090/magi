@@ -305,7 +305,7 @@ const indexHTML = `<!doctype html>
     /* What a whole screen of console may take. Wider than the transcript's measure on purpose: the
        fleet is a table and a table uses room, while prose inside it keeps --measure. Capped rather
        than unbounded so an ultrawide monitor does not stretch a row to a metre. */
-    --page: 150ch;
+    --page: 170ch;
   }
 
   * { box-sizing:border-box; }
@@ -321,11 +321,11 @@ const indexHTML = `<!doctype html>
   }
   html { scrollbar-gutter:stable; -webkit-text-size-adjust:100%; }
   body {
-    /* A column, so the rail can be moved to the end of a narrow page with an order property while
-       staying BEFORE the page in the markup. Tab order follows the document, not the layout:
-       with the rail written after main a keyboard reached the navigation only after every row
-       of the fleet — measured on the deployed page, 41 focusable things with the nav last. */
-    display:flex; flex-direction:column; min-height:100vh;
+    /* Block, again. It was a flex column so the rail could be moved to the foot of a narrow page
+       with an order property — and the rail is not drawn at all on that width any more, so the
+       reason is gone. It cost something while it lasted: an auto margin on a flex item's cross axis
+       sizes it to its CONTENT, which is why centring the page silently pinned it to 720px. */
+    min-height:100vh;
     margin:0; background:var(--bg); color:var(--fg);
     font:14px/1.65 var(--mono);
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
@@ -353,7 +353,7 @@ const indexHTML = `<!doctype html>
     padding:.85rem 1.4rem .6rem;
     padding-top:calc(.7rem + env(safe-area-inset-top));
     display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
-    max-width:var(--page); padding-right:2.4rem;
+    max-width:var(--page); margin-inline:auto; padding-right:2.4rem;
   }
   .mark {
     font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
@@ -502,9 +502,14 @@ const indexHTML = `<!doctype html>
      size to its CONTENT instead of stretching — so this was 720px wide inside a 1264px cap on a
      2497px screen, which is what "the right margin disappeared" and "a wide screen is not used"
      both were. A stretched item with a max-width already sits at the start of a column. */
+  /* Centred in what is left beside the rail. Left-aligned it left a 1233px gutter on a 2497px
+     screen — the page in one corner of the window and nothing in the rest of it. Centring cannot
+     re-wrap anything at that width, because the block is already narrower than the room: the
+     re-wrap this was avoiding only happens when the drawer opening takes the available width BELOW
+     the cap, and there it still fills and still does not move. */
   main {
-    padding:1.6rem 2.4rem calc(var(--dock, 8rem) + 2rem) 1.4rem;
-    max-width:var(--page);
+    padding:1.6rem 2.4rem calc(var(--dock, 8rem) + 2rem);
+    max-width:var(--page); margin-inline:auto;
   }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
@@ -1215,7 +1220,6 @@ const indexHTML = `<!doctype html>
       position:static; transform:none; width:auto; overflow:visible;
       border-right:0; border-top:1px solid var(--outlineVariant);
       background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
-      order:9;   /* last on the page, first-but-one in the tab order it is written in */
     }
     /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
        all. The preferences it used to carry are in the dialog now. */
