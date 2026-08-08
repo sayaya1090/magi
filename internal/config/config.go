@@ -33,6 +33,13 @@ type CompanionConfig struct {
 	// A team with no hub is still a team, and addressing it says so rather than picking a member.
 	Team string `toml:"team"`
 	Hub  bool   `toml:"hub"`
+	// MCPPeers attaches every companion already running here as an MCP server, so this one can ask
+	// them what they know without an operator writing a command per peer into a config file.
+	//
+	// Off unless asked for, because it is not free: two tools per peer in the tool list of every
+	// prompt, and a subprocess per peer held open for the life of the daemon. A weak model given
+	// thirty tools chooses worse among the ten that matter, and this tree has measured that.
+	MCPPeers bool `toml:"mcp_peers"`
 }
 
 type Config struct {
