@@ -1050,7 +1050,7 @@ labels$.next({'action.forget': '잊기', 'nav.lessons': '배운 것'});
 // Drain the microtasks the repaint's own fetch runs on. NOT a second loadSkills() by hand — that
 // would be the test doing the thing it is checking for, and it would pass with the fix removed.
 for (let i = 0; i < 20; i++) await Promise.resolve();
-console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.text}));
+console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.text, title: document.title}));
 `)
 	if strings.Contains(got["before"].(string), "잊기") {
 		t.Fatal("the fixture was already translated; this test cannot see the change")
@@ -1060,6 +1060,10 @@ console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.t
 	}
 	if got["kept"] != "a thing somebody was reading" {
 		t.Errorf("repainting the lists wiped the detail panel: %q", got["kept"])
+	}
+	if !strings.Contains(got["title"].(string), "배운 것") {
+		t.Errorf("the tab title stayed in the old language: %q — it is the one word a reader sees "+
+			"without looking at the page", got["title"])
 	}
 }
 

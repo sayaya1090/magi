@@ -1601,7 +1601,11 @@ function answerBox(a) {
 // or behind an app switcher, and an agent that starts waiting there is invisible until you look —
 // the title is the one channel that reaches a page nobody is watching, without asking for
 // notification permission or shipping a service worker to deliver them.
+// How many were waiting when the title was last written, so a repaint can rewrite it without
+// re-counting a fleet it has not fetched.
+let lastWaiting = 0;
 function retitle(waiting) {
+  lastWaiting = waiting;
   // Where you are goes in the title as well: with four sections and a page you leave open, the tab
   // strip in a browser is the outermost breadcrumb somebody actually reads.
   const s = sock();
@@ -2297,8 +2301,11 @@ function paint() {
   else if (view() === 'interventions') loadInterventions();
   else if (view() === 'mcp') loadMCP();
   else if (!sock()) loadFleet();
-  // The crumb is written by render() and is a word too.
+  // The crumb and the tab title are written by render() and are words too. The title is the one a
+  // reader sees without looking at the page at all, which makes it the last place worth leaving in
+  // a language they did not pick.
   back.textContent = sock() ? SECTION.fleet : (SECTION[view()] || tr('nav.companions'));
+  retitle(lastWaiting);
 }
 // True once the page has drawn itself at least once. paint() runs before that on the first pass,
 // when the loaders exist but the view has not been decided.
