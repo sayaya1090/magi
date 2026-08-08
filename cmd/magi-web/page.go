@@ -1106,6 +1106,36 @@ const indexHTML = `<!doctype html>
      what is left — language, and which machine this is — is a plain section at the foot of the
      page. A drawer for two selects is a door in front of a cupboard, and on a phone it covered the
      thing the reader had just navigated to. */
+  /* ── the phone's first screen ────────────────────────────────────────────
+     Measured on a 730px screen: the masthead, the tabs and the filters took 455px before the first
+     agent, and a fleet page that shows one and a half rows is a list you scroll to read rather than
+     one you glance at. Everything below is that 455 coming down. */
+  @media (max-width:599px) {
+    /* The masthead on one line. It wrapped, so the brand and the count each took a row. */
+    header { padding-top:calc(.5rem + env(safe-area-inset-top)); padding-bottom:.4rem; gap:.6rem; }
+    header .mark { font-size:20px; }
+    /* The count on the SAME line as the brand. Given its own row it cost 40px of the first screen
+       to say something that fits beside a five-letter word. It is allowed to shrink and to clip:
+       "5 agents · 2 waiting" is legible at any truncation that keeps the number. */
+    #state { font-size:10px; letter-spacing:.08em; margin-left:auto; min-width:0; overflow:hidden; }
+    #state .jump { --md-text-button-label-text-size:10px; }
+    /* The crumb is hidden only where the tab strip below already says the same thing. On a
+       companion's page there are no tabs, and hiding it left a masthead reading "magi" with no
+       word anywhere for WHICH companion — the one question that page exists to answer. */
+    body:not([at="agent"]) #crumbs { display:none; }
+    #crumbs { font-size:11px; }
+    /* The filters as one scrolling row rather than three stacked ones. Four chips do not fit across
+       390px and never will; a row that scrolls keeps them one line high and keeps the fourth
+       reachable, which stacking also did but at three times the cost. */
+    #summary {
+      flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none;
+      margin:.9rem 0 .2rem; padding-bottom:.7rem;
+    }
+    #summary::-webkit-scrollbar { display:none; }
+    .tile { flex:0 0 auto; }
+    /* The tab strip is a navigation, not a heading: it does not need the room a heading takes. */
+    #tabs { --md-primary-tab-container-height:44px; }
+  }
   @media (max-width:599px) {
     #rail {
       position:static; transform:none; width:auto; overflow:visible;
@@ -1915,7 +1945,7 @@ async function loadFleet() {
   // The count says somebody is blocked; pressing it goes there. It said so and did nothing before,
   // which is the readout every console has and the reason nobody presses it.
   state.replaceChildren(document.createTextNode(
-    list.length + (list.length === 1 ? ' agent' : ' agents')));
+    list.length + (list.length === 1 ? ' agent' : ' agents') + (waiting ? ' · ' : '')));
   if (waiting) {
     const go = document.createElement('md-text-button');
     go.className = 'jump';
@@ -2603,6 +2633,9 @@ function render() {
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';
   tabsEl.hidden = !!s;
+  // Which kind of page this is, for the rules that differ between them. On a companion's page the
+  // tabs are gone, so anything that leans on them being there has to know.
+  document.body.setAttribute('at', s ? 'agent' : 'list');
   // Which tab is current is asked of md-tabs, not written onto the tabs. Both leave the right tab
   // selected, but only one of them moves: the indicator is animated inside Tabs.activateTab and
   // nowhere else — it measures the outgoing tab's indicator and slides the incoming one from there
