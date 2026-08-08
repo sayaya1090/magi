@@ -119,6 +119,22 @@ func proposeJoin(source daemon.Info, c config.Config) string {
 			"# newcomer start knowing things.\n")
 		fmt.Fprintf(&b, "# experience_dir = %q\n\n", c.ExperienceDir)
 	}
+	if m := strings.TrimSpace(c.EmbedModel); m != "" {
+		// Not a preference — a compatibility requirement. Two companions searching one team's notes
+		// with different embedding models are comparing numbers from different spaces, and the
+		// answer is not merely worse, it is meaningless. The vectors are cached per model too, so a
+		// newcomer on a different one silently re-embeds everything it reads and shares nothing.
+		//
+		// The endpoint is deliberately NOT copied: it may carry a host only their machine can
+		// reach, and a key is never copied anywhere by this file. The MODEL is the part that has
+		// to match.
+		b.WriteString("# The embedding model their searches use. This one has to MATCH: vectors\n" +
+			"# from two different models are not comparable, so a newcomer on another model gets\n" +
+			"# answers that are not worse but meaningless, and shares no cached work with them.\n" +
+			"# The endpoint is not copied — set MAGI_EMBED_BASE_URL yourself if theirs is not\n" +
+			"# reachable from here.\n")
+		fmt.Fprintf(&b, "# embed_model = %q\n\n", m)
+	}
 	if len(c.MCP) > 0 {
 		names := make([]string, 0, len(c.MCP))
 		for n := range c.MCP {

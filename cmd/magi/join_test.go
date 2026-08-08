@@ -51,6 +51,7 @@ func TestJoinProposesWhatTheTeamSharesAndAppliesNothing(t *testing.T) {
 	// experience_dir before the first table: after it, TOML reads it as companion.experience_dir.
 	publishWorkspace(t, cfg, "d", daemon.Identity{Name: "design", Team: "frontend"}, `
 experience_dir = "/srv/team-experience"
+embed_model = "team-embed-v2"
 
 [companion]
 name = "design"
@@ -190,5 +191,60 @@ func TestJoiningSomebodyWhoSharesNothingSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "share nothing beyond this") {
 		t.Errorf("an empty proposal does not say it is empty:\n%s", b)
+	}
+}
+
+// The embedding model comes with the join, because it is not a preference.
+//
+// Two companions searching one team's notes with different embedding models compare numbers from
+// different spaces: the answer is not merely worse, it is meaningless, and the per-model vector
+// cache means the newcomer silently re-embeds everything and shares no work with them. The
+// ENDPOINT is not copied — it may name a host only their machine can reach, and a key is never
+// copied by this file at all.
+func TestJoinCarriesTheEmbeddingModelAndNotItsEndpoint(t *testing.T) {
+	cfg, err := os.MkdirTemp("/tmp", "magijoinembed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(cfg)
+
+	publishWorkspace(t, cfg, "d", daemon.Identity{Name: "design", Team: "frontend"}, `
+embed_model = "team-embed-v2"
+base_url = "http://their-box:11434/v1"
+api_key = "sk-theirs"
+
+[companion]
+name = "design"
+team = "frontend"
+`)
+	mine, err := os.MkdirTemp("/tmp", "magijoinembedme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(mine)
+	var out bytes.Buffer
+	if code := joinTeam(&out, cfg, mine, "design"); code != 0 {
+		t.Fatalf("join exited %d: %s", code, out.String())
+	}
+	body, err := os.ReadFile(filepath.Join(mine, ".magi", "joined-design.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(body)
+	if !strings.Contains(got, `embed_model = "team-embed-v2"`) {
+		t.Errorf("the model a newcomer has to match did not come across:\n%s", got)
+	}
+	if !strings.Contains(got, "MATCH") {
+		t.Errorf("nothing says the model has to be the same one:\n%s", got)
+	}
+	// Their endpoint and their key stay theirs.
+	for _, secret := range []string{"their-box", "sk-theirs"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("%q was copied into somebody else's workspace:\n%s", secret, got)
+		}
+	}
+	// And it is a proposal like everything else here: commented out, in effect nowhere.
+	if !strings.Contains(got, "# embed_model") {
+		t.Errorf("the line is live rather than proposed:\n%s", got)
 	}
 }
