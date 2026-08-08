@@ -757,7 +757,13 @@ const indexHTML = `<!doctype html>
   }
   .teamhead .thub { font:11px/1.5 var(--mono); color:var(--accent); }
   .teamhead .tn { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
-  .teamhead md-badge { position:static; }
+  /* NOT position:static. The general md-badge rule above makes the host the thing the component's
+     absolutely-positioned inner box anchors to, and that is the whole reason it exists — "dropped
+     into a flow it anchors to whatever ancestor happens to be positioned and lands somewhere
+     unrelated". Static put it back: both team badges rendered at the same point 616px and 498px
+     away from their rows, stacked on each other, as a stray number floating over the table head.
+     The inner box rides at left:50% of the host, so the host is widened to hold it instead. */
+  .teamhead md-badge { position:relative; width:26px; }
 
   /* status */
   /* The column's word, for the width where the column heads are not drawn. */
