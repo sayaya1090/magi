@@ -27,6 +27,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/llm/openai"
 	"github.com/sayaya1090/magi/internal/adapter/mcp"
+	"github.com/sayaya1090/magi/internal/adapter/mcpserve"
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -241,6 +242,7 @@ func run() int {
 		attachMode      = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		joinTo          = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
 		listAgents      = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
+		mcpTo           = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion's recorded knowledge: its name, or words from its role. Reach another machine's with ssh")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -429,6 +431,50 @@ func run() int {
 	if *joinTo != "" {
 		return joinTeam(os.Stdout, plat.ConfigDir(), wd, *joinTo)
 	}
+	// Serving one companion's knowledge to whoever ran this process.
+	//
+	// Not a daemon and not a port: the caller is an MCP client that started this as a subprocess,
+	// so reaching a companion's notes needs the right to run a program as somebody who can read
+	// their files — the permission that already governs those files. Crossing a machine is ssh's
+	// job, which an operator already knows how to reason about, and it is why there is no listener
+	// here to secure.
+	if *mcpTo != "" {
+		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))
+		if lerr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", lerr)
+			return 1
+		}
+		found := fleet.Resolve(list, *mcpTo)
+		switch len(found) {
+		case 0:
+			fmt.Fprintf(os.Stderr, "magi: nobody here is called %q or does that. There is: %s\n",
+				*mcpTo, fleet.Roster(list))
+			return 1
+		case 1:
+		default:
+			// Refused rather than picked, the same rule handing work over follows. Serving the
+			// wrong companion's notes is a quieter mistake than sending work to the wrong one and
+			// a harder one to notice: the answers look plausible.
+			fmt.Fprintf(os.Stderr, "magi: %q matches %s — name one of them\n", *mcpTo, fleet.Names(found))
+			return 1
+		}
+		who := found[0]
+		if who.Workdir == "" {
+			fmt.Fprintf(os.Stderr, "magi: %s published no workspace, so there is no store to read\n", who.Name)
+			return 1
+		}
+		srv := &mcpserve.Server{
+			Name: who.Name, Role: who.Role,
+			Dir: filepath.Join(who.Workdir, ".magi", "experience"),
+		}
+		if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "magi:", err)
+			return 1
+		}
+		return 0
+	}
+
 	if *listAgents {
 		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))

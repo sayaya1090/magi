@@ -1,0 +1,314 @@
+// Package mcpserve answers MCP over stdin and stdout, so one companion can be asked what it knows.
+//
+// # Why every companion is a server rather than one board being one
+//
+// The alternative was a shared store everybody posts into. It has a central part that can be down,
+// it separates knowledge from the companion that earned it, and it needs somebody to decide what is
+// worth publishing before anybody has asked. Serving instead means the knowledge stays where it was
+// written and the question goes to it — which is also what happens between people.
+//
+// # Why stdio, and why that is the whole security story
+//
+// The MCP client this tree already has speaks stdio and HTTP. HTTP would mean a listening port with
+// no authentication on it, which is the direction magi-web has refused from the start (it binds
+// loopback and says so). stdio means the caller runs a process:
+//
+//	command = "magi --mcp --to design"                 # another companion on this machine
+//	command = "ssh buildbox magi --mcp --to design"    # …or on another one
+//
+// So reaching a companion's knowledge requires being able to run a program as somebody who can read
+// their files — which is exactly the permission that already governs it. Nothing new is exposed,
+// there is no port, and crossing a machine boundary is ssh's job, which is a thing operators
+// already know how to reason about.
+//
+// # Two tools, because asking and reading are different
+//
+// `knows` answers "what have you got on X" with one line each. `detail` returns one entry whole.
+// A search that returned full bodies would put four pages of somebody else's notes into the asker's
+// context to answer a question that might be settled by a title — and the caller cannot know which
+// until it has seen the titles.
+package mcpserve
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
+
+	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	"github.com/sayaya1090/magi/internal/core/rank"
+	"github.com/sayaya1090/magi/internal/core/text"
+)
+
+// Server answers for one companion.
+type Server struct {
+	// Name is what this companion is called, so an answer says who it came from. A model reading
+	// three of these back to back has no other way to tell them apart.
+	Name string
+	// Role is what it is for, one line. It goes in the server's own description because the first
+	// question about an unfamiliar tool is whether it is the right one to call.
+	Role string
+	// Dir is the experience store to answer from — a companion's own workspace tier.
+	Dir string
+	// Now is injectable so a test can assert on what is rendered rather than on today's date.
+	Now func() string
+}
+
+// entry is one thing this companion wrote down, flattened out of the store's two kinds.
+type entry struct {
+	ID       string
+	Kind     string // "rule" or "fact"
+	Title    string
+	Body     string
+	Observed int
+	Seen     string
+}
+
+func (s *Server) load(ctx context.Context) ([]entry, error) {
+	inv, err := expgit.New(s.Dir).Inventory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entry, 0, len(inv))
+	for _, e := range inv {
+		kind := "rule"
+		if e.Kind == "memory" {
+			kind = "fact"
+		}
+		title := strings.TrimSpace(e.Description)
+		if title == "" {
+			title = strings.TrimSpace(firstLine(e.Body))
+		}
+		seen := e.FirstSeen
+		if e.LastSeen != "" && e.LastSeen != e.FirstSeen {
+			seen = e.FirstSeen + " → " + e.LastSeen
+		}
+		out = append(out, entry{
+			ID: e.Name, Kind: kind, Title: title, Body: e.Body,
+			Observed: e.Observed, Seen: seen,
+		})
+	}
+	return out, nil
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// knows searches, and answers in lines rather than JSON.
+//
+// The reader is a model deciding whether to ask for the whole of something. That decision is made
+// on the title, how often the thing has been seen, and how recently — not on a schema.
+func (s *Server) knows(ctx context.Context, about string, limit int) string {
+	all, err := s.load(ctx)
+	if err != nil {
+		return "cannot read what " + s.Name + " has written down: " + err.Error()
+	}
+	if len(all) == 0 {
+		return s.Name + " has written nothing down."
+	}
+	docs := make([]string, len(all))
+	for i, e := range all {
+		// Title and body both: a note whose title is "the staging database" and whose body names
+		// the table somebody asked about should be findable by the table.
+		docs[i] = e.Title + " " + e.Body
+	}
+	hits := rank.ByIDF(about, docs)
+	if len(hits) == 0 {
+		// Named, so the caller can tell "nothing on this" from "wrong companion". Without it the
+		// two look identical and the caller asks the same question again somewhere else.
+		return fmt.Sprintf("%s has %d entries and none of them mention %q.", s.Name, len(all), about)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s on %q — %d of %d entries, best first. Ask `detail` with an id for the whole thing.\n",
+		s.Name, about, min(len(hits), limit), len(all))
+	for i, h := range hits {
+		if i == limit {
+			fmt.Fprintf(&b, "\n(+%d weaker matches — narrow the topic)\n", len(hits)-limit)
+			break
+		}
+		e := all[h.Index]
+		fmt.Fprintf(&b, "\n%s · %s · %s", e.Kind, e.ID, e.Title)
+		if e.Observed > 1 {
+			fmt.Fprintf(&b, " · seen %d×", e.Observed)
+		}
+		if e.Seen != "" {
+			fmt.Fprintf(&b, " · %s", e.Seen)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// detail returns one entry whole.
+func (s *Server) detail(ctx context.Context, id string) string {
+	all, err := s.load(ctx)
+	if err != nil {
+		return "cannot read what " + s.Name + " has written down: " + err.Error()
+	}
+	for _, e := range all {
+		if strings.EqualFold(e.ID, id) {
+			return fmt.Sprintf("%s · %s · %s\nfrom %s\n\n%s", e.Kind, e.ID, e.Title, s.Name,
+				strings.TrimSpace(e.Body))
+		}
+	}
+	// The ids that exist, because a caller who mistyped one has no other way to find out and
+	// guessing again is the only thing left to it.
+	ids := make([]string, 0, len(all))
+	for _, e := range all {
+		ids = append(ids, e.ID)
+	}
+	sort.Strings(ids)
+	return fmt.Sprintf("%s has nothing called %q. It has: %s",
+		s.Name, id, text.Clip(strings.Join(ids, ", "), 600))
+}
+
+// tools is what this server advertises.
+func (s *Server) tools() []map[string]any {
+	who := s.Name
+	if s.Role != "" {
+		who += " (" + s.Role + ")"
+	}
+	return []map[string]any{
+		{
+			"name": "knows",
+			"description": "Search what " + who + " has written down — its lessons and remembered " +
+				"facts — and get one line each, best match first. This is what it RECORDED, not " +
+				"what it is doing right now.",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{
+				"about":{"type":"string","description":"the topic, in a few words"},
+				"limit":{"type":"integer","description":"how many lines at most (default 8)"}
+			},"required":["about"],"additionalProperties":false}`),
+		},
+		{
+			"name":        "detail",
+			"description": "Get one of " + who + "'s entries in full, by the id `knows` printed.",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{
+				"id":{"type":"string","description":"the id from a knows result"}
+			},"required":["id"],"additionalProperties":false}`),
+		},
+	}
+}
+
+// defaultLimit is how many lines come back when the caller does not say. Enough to see a topic's
+// shape, few enough to read — and this lands in somebody's context, where every line costs.
+const defaultLimit = 8
+
+// Serve reads JSON-RPC from in and writes answers to out, until in ends.
+//
+// One message per line, which is what the client on the other side writes. Errors in a request are
+// answered as errors rather than logged and dropped: a client waiting on an id it will never be
+// answered for hangs, and the reason is invisible from over there.
+func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	sc := bufio.NewScanner(in)
+	// A body is a note somebody wrote; the default 64KB line limit would truncate one silently.
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	enc := json.NewEncoder(out)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			continue // not a message; there is nobody to tell, since we do not know the id
+		}
+		// A notification has no id and takes no answer. Replying to one is a protocol error the
+		// client is entitled to complain about.
+		if len(req.ID) == 0 {
+			continue
+		}
+		result, rpcErr := s.handle(ctx, req.Method, req.Params)
+		reply := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(req.ID)}
+		if rpcErr != "" {
+			reply["error"] = map[string]any{"code": -32601, "message": rpcErr}
+		} else {
+			reply["result"] = result
+		}
+		if err := enc.Encode(reply); err != nil {
+			return err
+		}
+	}
+	return sc.Err()
+}
+
+func (s *Server) handle(ctx context.Context, method string, params json.RawMessage) (any, string) {
+	switch method {
+	case "initialize":
+		return map[string]any{
+			// The version the client asks for. Answering with a different one is how two
+			// implementations that would have worked decide not to talk.
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"serverInfo":      map[string]any{"name": "magi:" + s.Name, "version": "1"},
+		}, ""
+	case "tools/list":
+		return map[string]any{"tools": s.tools()}, ""
+	case "tools/call":
+		var p struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"arguments"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errResult("could not read the call: " + err.Error()), ""
+		}
+		return s.call(ctx, p.Name, p.Args), ""
+	default:
+		return nil, "no such method: " + method
+	}
+}
+
+// call runs one tool. A tool that refuses answers with isError rather than a JSON-RPC error: the
+// call reached the server and was understood, and the difference matters to a model deciding
+// whether to try a different argument or a different tool.
+func (s *Server) call(ctx context.Context, name string, args json.RawMessage) map[string]any {
+	switch name {
+	case "knows":
+		var a struct {
+			About string `json:"about"`
+			Limit int    `json:"limit"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return errResult("could not read the arguments: " + err.Error())
+		}
+		if strings.TrimSpace(a.About) == "" {
+			return errResult("say what the topic is. Asking for everything returns the whole " +
+				"store, which is not an answer")
+		}
+		if a.Limit <= 0 || a.Limit > 40 {
+			a.Limit = defaultLimit
+		}
+		return okResult(s.knows(ctx, a.About, a.Limit))
+	case "detail":
+		var a struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return errResult("could not read the arguments: " + err.Error())
+		}
+		if strings.TrimSpace(a.ID) == "" {
+			return errResult("say which entry — the id is in a `knows` result")
+		}
+		return okResult(s.detail(ctx, a.ID))
+	default:
+		return errResult("no such tool: " + name + ". This server has knows and detail")
+	}
+}
+
+func okResult(s string) map[string]any {
+	return map[string]any{"content": []map[string]any{{"type": "text", "text": s}}}
+}
+
+func errResult(s string) map[string]any {
+	return map[string]any{"isError": true, "content": []map[string]any{{"type": "text", "text": s}}}
+}
