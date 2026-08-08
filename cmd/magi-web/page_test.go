@@ -540,3 +540,47 @@ func TestMotionCanBeTurnedOffByThePersonReadingIt(t *testing.T) {
 		t.Errorf("the override names specific selectors, so a component's own motion escapes it:\n%s", block)
 	}
 }
+
+// Every phrase in the pack reaches a screen, and every phrase on a screen comes from the pack.
+//
+// The second half is what this is really for. A key nobody asks for is not merely clutter: it is
+// almost always a phrase somebody translated for a place that then rendered the English inline.
+// Nineteen were sitting here at once — four state words, five parts of the context line, the plan
+// heading — every one of them written, and its site hard-coded in English on a Korean page.
+//
+// Keys are reached two ways and both are counted: written out, or built from a prefix and a value
+// off the wire ("state." + a.state). A prefix builder claims its whole family, which is as precise
+// as this can be from the text and still honest about the mechanism.
+func TestEveryPhraseInThePackIsAskedFor(t *testing.T) {
+	raw, err := assetFS.ReadFile("i18n/language.en.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pack map[string]string
+	if err := json.Unmarshal(raw, &pack); err != nil {
+		t.Fatal(err)
+	}
+	if len(pack) == 0 {
+		t.Fatal("the pack is empty; this check is measuring nothing")
+	}
+	// Prefixes the page concatenates onto, e.g. `'state.' + s`.
+	built := map[string]bool{}
+	for _, m := range regexp.MustCompile(`'([a-z_]+\.)'\s*\+`).FindAllStringSubmatch(indexHTML, -1) {
+		built[m[1]] = true
+	}
+	var dead []string
+	for k := range pack {
+		if strings.Contains(indexHTML, "'"+k+"'") {
+			continue
+		}
+		if i := strings.IndexByte(k, '.'); i > 0 && built[k[:i+1]] {
+			continue
+		}
+		dead = append(dead, k)
+	}
+	sort.Strings(dead)
+	if len(dead) > 0 {
+		t.Errorf("%d phrase(s) nobody asks for — usually a translated phrase whose site renders "+
+			"the English inline:\n  %s", len(dead), strings.Join(dead, "\n  "))
+	}
+}

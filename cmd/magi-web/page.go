@@ -1548,6 +1548,11 @@ let L = {};
 labels$.subscribe(v => { L = v; });
 // t('nav.lessons') — the key IS the fallback, so a missing entry shows the key rather than a blank
 // space, which is the difference between "somebody forgot to translate this" and "this is empty".
+// A companion's state in the reader's language. Not tr() directly: tr falls back to the KEY, which
+// would put "state.gone" on a row, and the raw word is the better fallback because it is at least
+// the thing itself. Five states reached the screen in English on a Korean page while the pack
+// carried all five — written, and never called.
+const stateWord = s => L['state.' + s] || s || '';
 const tr = (key, vars) => {
   let out = L[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) out = out.replace('{' + k + '}', v);
@@ -1857,7 +1862,10 @@ const q = () => sock() ? '?d=' + encodeURIComponent(sock()) + (peerOf() ? '&p=' 
 // is not an "ago" and reads as nonsense with the suffix on it.
 const dur = s => s < 60 ? s + 's' : s < 3600 ? Math.round(s/60) + 'm'
                : s < 86400 ? Math.round(s/3600) + 'h' : Math.round(s/86400) + 'd';
-const ago = s => s < 0 ? '' : dur(s) + ' ago';
+// The unit stays compact — s/m/h/d reads the same in every language this ships in, and a table
+// column sized for "4s" cannot hold "4 seconds". Only the word is translated, which is the part
+// that was English on an otherwise Korean row.
+const ago = s => s < 0 ? '' : tr('time.ago', {d: dur(s)});
 
 // The order the eye should travel: what needs somebody, what is moving, what is asleep, what is
 // gone. Kubernetes consoles sort trouble to the top for the same reason — a list you have to read
@@ -1886,7 +1894,7 @@ function card(a) {
   el.href = href(a);
   el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
-  const badge = cell('badge', a.state);
+  const badge = cell('badge', stateWord(a.state));
   // How far through its own plan, INSIDE the status cell. Not a progress bar: a todo list is not a
   // schedule, and a bar would promise a completion time nobody can honour.
   //
@@ -1976,9 +1984,12 @@ function rowActions(a) {
 
 function tableHead() {
   const h = cell('thead');
-  for (const [c, t] of [['', 'status'], ['', 'agent'], ['', 'doing'], ['r', 'steps'], ['r', 'age'],
-                        ['', 'host'], ['r', '']]) {
-    h.append(cell(c, t));
+  // Written out here in English until now, on a page where every other word came from the pack —
+  // and invisible to the audit that finds unasked-for phrases, because a column nobody translated
+  // has no key to go unused. The last column is the actions, which has no heading to give.
+  for (const [c, key] of [['', 'col.status'], ['', 'col.agent'], ['', 'col.doing'],
+                          ['r', 'col.steps'], ['r', 'col.age'], ['', 'col.host'], ['r', '']]) {
+    h.append(cell(c, key ? tr(key) : ''));
   }
   return h;
 }
@@ -1996,7 +2007,7 @@ function summarise(list) {
     // The chip's own selected state, not an aria attribute of ours. It toggles itself on click and
     // this list is rebuilt from filter on the next render, so the two cannot drift.
     b.selected = filter === k;
-    b.append(cell('n', n + ''), cell('k', k));
+    b.append(cell('n', n + ''), cell('k', stateWord(k)));
     b.onclick = () => {
       filter = filter === k ? null : k;
       render();
@@ -2123,7 +2134,8 @@ function answerBox(a) {
     i.onkeydown = e => { if (e.key === 'Enter') go(e); };
     box.append(i, b);
   } else {
-    for (const [label, decision] of [['allow', 'allow'], ['always', 'always'], ['deny', 'deny']]) {
+    for (const [label, decision] of [['action.allow', 'allow'], ['action.always', 'always'],
+                                     ['action.deny', 'deny']]) {
       // Filled tonal, not text. M3 ranks buttons by emphasis — filled, filled tonal, outlined, text
       // — and these three were at the BOTTOM of it while being the highest-stakes control on the
       // page: the one that approves a "drop table" on a live database. On the same screen, answering
@@ -2134,7 +2146,7 @@ function answerBox(a) {
       // toward approving, and a console that leans on a permission decision is worse than one that
       // draws it quietly. The colour stays neutral for the same reason; the question above them
       // already carries the warning colour.
-      const b = document.createElement('md-filled-tonal-button'); b.textContent = label;
+      const b = document.createElement('md-filled-tonal-button'); b.textContent = tr(label);
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
       box.append(b);
     }
@@ -2383,7 +2395,8 @@ async function loadFleet() {
   // The count says somebody is blocked; pressing it goes there. It said so and did nothing before,
   // which is the readout every console has and the reason nobody presses it.
   state.replaceChildren(document.createTextNode(
-    list.length + (list.length === 1 ? ' agent' : ' agents') + (waiting ? ' · ' : '')));
+    tr(list.length === 1 ? 'count.agent' : 'count.agents', {n: list.length}) +
+    (waiting ? ' · ' : '')));
   if (waiting) {
     const go = document.createElement('md-text-button');
     go.className = 'jump';
@@ -2496,7 +2509,7 @@ function drawDetail(a) {
   };
   const grid = cell('grid');
   grid.append(
-    field('field.status', a.state, 'state ' + a.state),
+    field('field.status', stateWord(a.state), 'state ' + a.state),
     field('field.workspace', a.workdir),
     ...(a.role ? [field('field.role', a.role)] : []),
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
@@ -2512,7 +2525,7 @@ function drawDetail(a) {
   bar.type = 'button';
   bar.className = 'foldbar';
   bar.append(cell('caret', '▾'), cell('k', tr('field.facts')),
-             cell('sum', a.state + ' · ' + a.workdir));
+             cell('sum', stateWord(a.state) + ' · ' + a.workdir));
   bar.onclick = () => setFolded(!box.hasAttribute('folded'));
   box.replaceChildren(bar, grid);
   setFolded(localStorage.getItem('facts') === 'folded');
@@ -2540,7 +2553,7 @@ async function drawPlan(a) {
   // sat here and a .td.done rule sat in the stylesheet, both waiting on a value the schema forbids.
   const mark = t => t.status === 'completed' ? '✓'
                   : t.status === 'in_progress' ? '▸' : '·';
-  box.replaceChildren(cell('k', 'plan'), ...todos.map(t => {
+  box.replaceChildren(cell('k', tr('field.plan')), ...todos.map(t => {
     const el = cell('td ' + (t.status || ''));
     el.append(cell('mark', mark(t)), cell('what', t.content));
     return el;
@@ -2626,13 +2639,13 @@ async function drawContext(a, box, grid, field) {
   // Said plainly, because the difference decides what the number is worth: one is the provider's
   // own count from the last turn, the other is arithmetic over the transcript.
   note.textContent = ' ' + tr(c.estimated ? 'context.estimated' : 'context.measured') +
-                     (c.messages ? ' · ' + c.messages + ' messages' : '');
+                     (c.messages ? ' · ' + tr('context.messages', {n: c.messages}) : '');
   // What the backend served from its own prompt cache — and only when it said. A backend that
   // reports nothing about a cache is not a backend whose cache never hits, and drawing 0% for both
   // would report a working one as broken. Measured on the default local backend: it says nothing.
   if (c.cacheReported) {
     const share = c.used ? Math.round((c.cached || 0) * 100 / c.used) : 0;
-    note.textContent += ' · ' + share + '% of it cached';
+    note.textContent += ' · ' + tr('context.cached_share', {pct: share});
   }
   size.append(note);
   const f = cell('f');
@@ -2642,8 +2655,7 @@ async function drawContext(a, box, grid, field) {
   // and would rather it happened now, between turns, than in the middle of the next one.
   const fold = document.createElement('md-text-button');
   fold.className = 'fold'; fold.textContent = tr('action.compact_now');
-  fold.title = 'summarise the older turns — the detail stays on disk and can be recalled, but the ' +
-               'live window loses the original wording';
+  fold.title = tr('hint.compact');
   // Returns its promise, for the same reason drawDetail does: a caller that wants to know when the
   // fold has landed — a test, or a later screen — has no other way, and the held reading must be
   // dropped before anything redraws or the panel keeps showing pre-fold numbers.
@@ -2668,9 +2680,10 @@ async function drawContext(a, box, grid, field) {
   // A compaction is the one moment a companion silently stops knowing something. Four of them in
   // one session is the reason its earlier reasoning cannot be assumed still there.
   if (c.compactions) {
-    const v = cell('v', c.compactions + (c.compactions === 1 ? ' fold' : ' folds'));
+    const v = cell('v', c.compactions === 1 ? tr('context.fold')
+                                       : tr('context.folds', {n: c.compactions}));
     const s2 = document.createElement('small');
-    s2.textContent = ' · ' + (c.shed || 0).toLocaleString() + ' tokens shed' +
+    s2.textContent = ' · ' + tr('context.shed', {n: (c.shed || 0).toLocaleString()}) +
                      (c.lastBefore ? ' · last ' + c.lastBefore.toLocaleString() + '→' + c.lastAfter.toLocaleString() : '') +
                      (c.lastAt ? ' at ' + c.lastAt.slice(11, 16) + 'Z' : '');
     v.append(s2);
@@ -2758,7 +2771,7 @@ async function loadSkills() {
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
-    drop.title = 'remove this rule from the store';
+    drop.title = tr('hint.forget');
     arm(drop, tr('action.forget'), () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
       // peer name is how this one knows which machine to ask; a global rule has no socket and the
@@ -2825,7 +2838,7 @@ async function loadMCP() {
   if (!list) return;
   const reach = new Set(list.map(s => s.companion || 'every companion here'));
   state.className = '';
-  state.textContent = list.length + (list.length === 1 ? ' server' : ' servers') +
+  state.textContent = tr(list.length === 1 ? 'count.server' : 'count.servers', {n: list.length}) +
                       ' · ' + reach.size + ' reached from';
 
   const rows = list.map(sv => {
@@ -2835,7 +2848,7 @@ async function loadMCP() {
     top.append(cell('what', sv.name));
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
-    drop.title = 'delete this definition from ' + sv.file;
+    drop.title = tr('hint.remove_server', {file: sv.file});
     arm(drop, tr('action.remove'), () => {
       const body = new URLSearchParams({name: sv.name, delete: '1'});
       if (!sv.socket) body.set('tier', 'global');
