@@ -353,7 +353,7 @@ const indexHTML = `<!doctype html>
     padding:.85rem 1.4rem .6rem;
     padding-top:calc(.7rem + env(safe-area-inset-top));
     display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
-    max-width:var(--page); margin-right:auto; padding-right:2.4rem;
+    max-width:var(--page); padding-right:2.4rem;
   }
   .mark {
     font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
@@ -471,10 +471,15 @@ const indexHTML = `<!doctype html>
   /* Left-aligned beside the rail rather than centred in what is left of the window. Centred, the
      page moved by HALF the rail's growth and lost the other half off its own width, so opening the
      drawer re-wrapped every column instead of sliding the page across. A block that keeps its width
-     and moves by exactly the distance the rail took is the one a reader can follow. */
+     and moves by exactly the distance the rail took is the one a reader can follow.
+     
+     No auto margin. Body is a flex column, and an auto margin on the cross axis makes a flex item
+     size to its CONTENT instead of stretching — so this was 720px wide inside a 1264px cap on a
+     2497px screen, which is what "the right margin disappeared" and "a wide screen is not used"
+     both were. A stretched item with a max-width already sits at the start of a column. */
   main {
     padding:1.6rem 2.4rem calc(var(--dock, 8rem) + 2rem) 1.4rem;
-    max-width:var(--page); margin-right:auto;
+    max-width:var(--page);
   }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
@@ -879,7 +884,7 @@ const indexHTML = `<!doctype html>
     background:var(--bg); border-top:2px solid var(--warn);
     padding:.9rem 1.4rem .8rem;
   }
-  #prompt .inner { max-width:var(--wide); margin-right:auto; }
+  #prompt .inner { max-width:var(--wide); }
   #prompt .asking { font:600 14px/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
