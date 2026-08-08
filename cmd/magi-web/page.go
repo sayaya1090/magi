@@ -827,6 +827,42 @@ const indexHTML = `<!doctype html>
   /* ── work handed to other companions ────────────────────────────────────── */
   #handoffs { max-width:var(--measure); }
 
+  /* ── the board: a column per companion, a card per piece of work ────────── */
+  #board { display:block; max-width:var(--page); }
+  .boardhead { display:flex; gap:.9rem; align-items:end; margin:0 0 1.2rem; }
+  /* Scrolls sideways, and ONLY here. The page must never do it, but a board of lanes is the one
+     shape where sideways is the reading direction, and clipping a lane would hide a companion. */
+  .lanes { display:flex; gap:1.4rem; align-items:flex-start; overflow-x:auto; padding-bottom:.6rem; }
+  /* A fixed lane width, and it has to be spelled out three ways: flex-basis alone loses to the
+     content's own minimum, so a long title widened its lane and a short one narrowed it, and the
+     columns stopped lining up — which is the one thing a board is for. */
+  .lane { flex:0 0 15rem; width:15rem; min-width:15rem; }
+  /* Only when there is more board than room. Without this a single lane still drew a scrollbar,
+     which reads as "there is more over there" when there is not. */
+  /* The lanes scroll, so the strip must reach the page's edge rather than stopping at the reading
+     column's — a lane half off the right of a 150ch box, with room to its right, reads as clipped
+     rather than as scrollable. */
+  .lanes { scrollbar-width:thin; }
+  #board { padding-right:0; }
+  .lanes::after { content:""; flex:0 0 1.4rem; }   /* the last lane gets a right edge too */
+  .lanehead {
+    display:flex; gap:.6rem; align-items:baseline;
+    border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin-bottom:.6rem;
+  }
+  .lanehead .lname {
+    font:600 12px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--fg);
+  }
+  .lanehead .lcount { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
+  .wcard {
+    border:1px solid var(--outlineVariant); border-radius:var(--shape-s);
+    padding:.6rem .7rem; margin-bottom:.6rem; background:var(--md-surface-container-low);
+  }
+  .wcard .wwhen { font:11px/1.5 var(--mono); color:var(--muted); }
+  .wcard .wwhat { font-size:13px; line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
+  /* The one running now, in the colour the rest of the page uses for that. */
+  .wcard.now { border-color:var(--success); }
+  .wcard.now .wwhen { color:var(--success); font-weight:600; }
+
   /* ── what this companion did before now ─────────────────────────────────── */
   #history { max-width:var(--measure); }
   #history .k {
@@ -1147,6 +1183,12 @@ const indexHTML = `<!doctype html>
         fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="lbl"></span>
     </md-list-item>
+    <md-list-item id="railBoard" type="link">
+      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+        d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="lbl"></span>
+    </md-list-item>
     <md-list-item id="railMcp" type="link">
       <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
         d="M9.5 14.5 5.8 18.2M14.5 9.5l3.7-3.7M7.4 11.1 5.6 12.9a3.2 3.2 0 0 0 4.5 4.5l1.8-1.8M12.1 6.6l1.8-1.8a3.2 3.2 0 0 1 4.5 4.5l-1.8 1.8M9.8 14.2l4.4-4.4"
@@ -1181,11 +1223,13 @@ const indexHTML = `<!doctype html>
     <md-primary-tab id="tabFleet"><span class="lbl"></span><md-badge id="tabBadge" hidden></md-badge></md-primary-tab>
     <md-primary-tab id="tabIv">corrections</md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
-    <md-primary-tab id="tabMcp">connections</md-primary-tab>
+    <md-primary-tab id="tabBoard"></md-primary-tab>
+    <md-primary-tab id="tabMcp"></md-primary-tab>
   </md-tabs>
   <md-chip-set id="summary"></md-chip-set>
   <div id="ivs" hidden></div>
   <div id="skills" hidden></div>
+  <div id="board" hidden></div>
   <div id="mcp" hidden></div>
   <div id="fleet"></div>
   <md-outlined-card id="detail" hidden></md-outlined-card>
@@ -1357,6 +1401,8 @@ const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
 const ivsEl = document.getElementById('ivs'), tabsEl = document.getElementById('tabs');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
+const boardEl = document.getElementById('board'), tabBoard = document.getElementById('tabBoard');
+const railBoard = document.getElementById('railBoard');
 const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('tabMcp');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
@@ -1380,12 +1426,13 @@ const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getEl
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
 const SECTION_KEY = {fleet: 'nav.companions', interventions: 'nav.corrections',
-                     skills: 'nav.lessons', mcp: 'nav.connections'};
+                     skills: 'nav.lessons', board: 'nav.board', mcp: 'nav.connections'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-const HREF = {fleet: '', interventions: '?v=interventions', skills: '?v=skills', mcp: '?v=mcp'};
+const HREF = {fleet: '', interventions: '?v=interventions', skills: '?v=skills',
+              board: '?v=board', mcp: '?v=mcp'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
-const TABS = ['fleet', 'interventions', 'skills', 'mcp'];
+const TABS = ['fleet', 'interventions', 'skills', 'board', 'mcp'];
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -1737,6 +1784,80 @@ async function loadHistory() {
   historyEl.replaceChildren(box);
   historyEl.hidden = false;
   measureDock();
+}
+
+// ── the board ────────────────────────────────────────────────────────────────
+// Work as cards, a column per companion, and a day you can move.
+//
+// # Why the columns are companions and not states
+//
+// A kanban's columns are usually a state, and a state is a fact about NOW: waiting, working, idle.
+// There is no such thing as the state a companion was in last Tuesday — the fleet derives state
+// from what is open in a log, and nothing is open in a log from last week. Columns of state would
+// be a board that could only ever show today, which is the one day the fleet page already covers.
+//
+// So the column is who did it and the card is the work, which reads the same on any day. The day
+// moves; the shape does not.
+//
+// # One request per companion
+//
+// The history endpoint answers for one companion because that is the question every other panel
+// asks it. Fanning out here rather than adding a fleet-wide endpoint keeps one way to ask, and the
+// fan-out is the size of the fleet — a handful, once per visit.
+const dayOf = ts => (ts || '').slice(0, 10);
+const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+  .toISOString().slice(0, 10);
+let boardDay = '';
+
+async function loadBoard() {
+  const list = await fetchList('/fleet');
+  if (!list) return;
+  fleetSeen = list;
+  if (!boardDay) boardDay = todayISO();
+
+  const head = cell('boardhead');
+  const day = document.createElement('md-outlined-text-field');
+  day.setAttribute('type', 'date');
+  day.setAttribute('label', tr('board.day'));
+  day.value = boardDay;
+  day.addEventListener('change', () => { boardDay = day.value || todayISO(); loadBoard(); });
+  const today = document.createElement('md-text-button');
+  today.textContent = tr('board.today');
+  today.onclick = () => { boardDay = todayISO(); loadBoard(); };
+  head.append(day, today);
+
+  // Ordered the way the fleet is: trouble first. A board that sorted by name would bury the column
+  // somebody needs behind the alphabet.
+  const cols = [...list].sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
+  const runs = await Promise.all(cols.map(a =>
+    fetchList('/history?d=' + encodeURIComponent(a.socket) + (a.peer ? '&p=' + encodeURIComponent(a.peer) : ''))
+      .then(h => h || [])));
+
+  const lanes = cell('lanes');
+  let anything = false;
+  cols.forEach((a, i) => {
+    // A session counts for the day if it was running at any point in it, not only if it began
+    // then: a task started at 23:40 and finished at 01:10 belongs to both days somebody might ask
+    // about, and belonging to neither is how a long night disappears from a board.
+    const work = runs[i].filter(h => dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay);
+    if (!work.length) return;
+    anything = true;
+    const lane = cell('lane');
+    const title = cell('lanehead');
+    title.append(cell('lname', a.name));
+    title.append(cell('lcount', work.length + ''));
+    lane.append(title);
+    for (const h of work) {
+      const card = cell('wcard' + (h.current ? ' now' : ''));
+      card.append(cell('wwhen', h.current ? tr('board.now') : (h.started || '').slice(11, 16)));
+      card.append(cell('wwhat', h.title || tr('history.untitled')));
+      lane.append(card);
+    }
+    lanes.append(lane);
+  });
+
+  boardEl.replaceChildren(head,
+    anything ? lanes : emptyState('board.nothing', 'board.nothing_how'));
 }
 
 // A list from this console, or null when the console itself cannot be reached.
@@ -2381,6 +2502,7 @@ function paint() {
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
   tabIv.textContent = tr('nav.corrections');
   tabSkills.textContent = tr('nav.lessons');
+  tabBoard.textContent = tr('nav.board');
   tabMcp.textContent = tr('nav.connections');
   // label, not placeholder. Material Web floats the LABEL into the outline's notch when the field
   // takes focus or holds a value; a placeholder is the grey hint inside an empty one and never
@@ -2398,7 +2520,8 @@ function paint() {
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railIv, 'nav.corrections'],
-                           [railSkills, 'nav.lessons'], [railMcp, 'nav.connections']]) {
+                           [railSkills, 'nav.lessons'], [railBoard, 'nav.board'],
+                           [railMcp, 'nav.connections']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
@@ -2423,6 +2546,7 @@ function paint() {
   if (view() === 'skills') loadSkills();
   else if (view() === 'interventions') loadInterventions();
   else if (view() === 'mcp') loadMCP();
+  else if (view() === 'board') loadBoard();
   else if (!sock()) loadFleet();
   // The crumb and the tab title are written by render() and are words too. The title is the one a
   // reader sees without looking at the page at all, which makes it the last place worth leaving in
@@ -2489,6 +2613,7 @@ function render() {
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';
   skillsEl.hidden = !!s || v !== 'skills';
+  boardEl.hidden = !!s || v !== 'board';
   mcpEl.hidden = !!s || v !== 'mcp';
   log.hidden = !s;
   // The composer is on both views now. On a companion's page it steers that companion; on the
@@ -2511,6 +2636,10 @@ function render() {
   if (v === 'mcp') {
     // The picker names companions, so the fleet is read once first.
     fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
+    return;
+  }
+  if (v === 'board') {
+    loadBoard();
     return;
   }
   if (v === 'skills') {
@@ -2555,7 +2684,7 @@ back.onclick = e => {
 // component draws a real anchor: the click is intercepted like every other in-page link, and a
 // middle click or a copied address still lands.
 const RAILS = [[railFleet, 'fleet'], [railIv, 'interventions'], [railSkills, 'skills'],
-               [railMcp, 'mcp']];
+               [railBoard, 'board'], [railMcp, 'mcp']];
 for (const [el, key] of RAILS) {
   el.href = at(HREF[key]);
   el.onclick = e => {
@@ -2604,7 +2733,7 @@ langEl.addEventListener('change', () => {
 });
 
 for (const [el, key] of [[tabFleet, 'fleet'], [tabIv, 'interventions'], [tabSkills, 'skills'],
-                         [tabMcp, 'mcp']]) {
+                         [tabBoard, 'board'], [tabMcp, 'mcp']]) {
   // The href is set as well as the click: a middle-click or a copied link has to reach the same
   // place, and on a project site an absolute one does not.
   el.setAttribute('href', at(HREF[key]));

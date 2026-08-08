@@ -588,12 +588,22 @@ console.log(JSON.stringify({back: back.text, href: back.attrs.href, sep: crumbSe
 	}
 }
 
-// The tabs are nouns. A tab is a place you are standing, and "what I had to say" is a sentence
-// about one — which also does not fit beside three others on a phone.
+// Every destination is named, once, from the pack.
+//
+// This used to look for ">companions<" and the rest in the markup. The tabs carry no words there
+// any more — paint() fills them from the language pack, which is what stops them being English on
+// a Korean page — so the check moved to what it was really protecting: each place the router can
+// reach has a name, and the name comes from the pack rather than from the page.
 func TestTheTabsAreNamedAsPlaces(t *testing.T) {
-	for _, want := range []string{">companions<", ">corrections<", ">lessons<", ">connections<"} {
-		if !strings.Contains(indexHTML, want) {
-			t.Errorf("the tab strip has no %s", want)
+	for _, view := range []string{"fleet", "interventions", "skills", "board", "mcp"} {
+		if !strings.Contains(indexHTML, "'"+view+"'") {
+			t.Errorf("the router does not know %q", view)
+		}
+	}
+	for _, key := range []string{"nav.companions", "nav.corrections", "nav.lessons", "nav.board",
+		"nav.connections"} {
+		if v := packEntry(t, key); strings.TrimSpace(v) == "" {
+			t.Errorf("%s is empty in the pack; that destination has no name", key)
 		}
 	}
 	// The strip itself, not the whole page: the same phrases are section headings in the CSS and
@@ -1148,11 +1158,11 @@ func TestTheRailAgreesWithTheTabs(t *testing.T) {
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 console.log(JSON.stringify({
   on: byId.tabs.activeTabIndex,
-  lit: ['railFleet','railIv','railSkills','railMcp'].filter(id => byId[id].hasAttribute('selected')),
+  lit: ['railFleet','railIv','railSkills','railBoard','railMcp'].filter(id => byId[id].hasAttribute('selected')),
 }));
 `)
-	if got["on"].(float64) != 3 {
-		t.Errorf("the tabs have %v active and connections is the fourth", got["on"])
+	if got["on"].(float64) != 4 {
+		t.Errorf("the tabs have %v active and connections is the fifth", got["on"])
 	}
 	lit := got["lit"].([]any)
 	if len(lit) != 1 || lit[0] != "railMcp" {

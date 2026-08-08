@@ -76,6 +76,38 @@ const demoScript = `
      session: 'o1', state: 'stopped', live: false, task: 'rotated the staging certificates', idle: 90000,
      host: 'mini', addr: '10.0.0.9'},
   ];
+  // Sessions, dated against the clock so the board's day picker has yesterday and last week in it.
+  const day = n => new Date(Date.now() - n * 86400000);
+  const iso = d => d.toISOString().replace(/\.\d+Z$/, 'Z');
+  const ran = (id, title, daysAgo, startH, hours, current) => {
+    const st = day(daysAgo); st.setHours(startH, 0, 0, 0);
+    const en = new Date(st.getTime() + hours * 3600000);
+    return {id, title, started: iso(st), ended: iso(current ? new Date() : en),
+            ago: current ? 0 : Math.round((Date.now() - en) / 1000), current: !!current};
+  };
+  const HISTORY = {
+    '/demo/design.sock': [
+      ran('d1', 'spec the empty state for the fleet table, and name the exact tokens', 0, 9, 2, true),
+      ran('d0', 'audit the button emphasis against the M3 scale and fix the inversions', 0, 6, 2),
+      ran('c9', 'the filter chips are not reachable with a keyboard on the corrections page', 1, 14, 3),
+      ran('b7', 'move the palette into styles.go so the two surfaces cannot drift', 4, 10, 5),
+    ],
+    '/demo/api.sock': [
+      ran('a1', 'add the idempotency key to the billing endpoint', 0, 8, 3, true),
+      ran('a0', 'why does the invoice job double-charge on retry', 1, 9, 6),
+    ],
+    '/demo/design.sock2': [
+      ran('p1', 'which surface should the empty state sit on', 0, 11, 1, true),
+    ],
+    '/demo/buttons.sock': [
+      ran('b1', 'the toggle should read its state from the store rather than a prop', 0, 7, 2),
+      ran('b0', 'ripple is missing on the tonal buttons in dark mode', 2, 13, 2),
+    ],
+    '/demo/ops.sock': [
+      ran('o1', 'rotate the staging certificates before they expire', 1, 22, 2),
+    ],
+  };
+
   const answers = {
     '/fleet': fleet,
     // Which machine this console is. A demo that left it blank would be showing the drawer with a
@@ -124,17 +156,7 @@ const demoScript = `
       {content: 'get it reviewed by buttons', status: 'pending'},
       {content: 'fold it into the component docs', status: 'pending'},
     ],
-    // What this companion has done before now — the store's own session list, newest first.
-    '/history': [
-      {id: 'd1', title: 'spec the empty state for the fleet table, and name the exact tokens',
-       ago: 0, current: true},
-      {id: 'c9', title: 'audit the button emphasis against the M3 scale and fix the inversions',
-       ago: 5400},
-      {id: 'c4', title: 'the filter chips are not reachable with a keyboard on the corrections page',
-       ago: 93000},
-      {id: 'b7', title: 'move the palette into styles.go so the two surfaces cannot drift',
-       ago: 260000},
-    ],
+
     '/handoffs': [
       {from: 'design', to: 'buttons', socket: '/demo/buttons.sock', state: 'idle',
        request: 'make the toggle read its state from the store',
@@ -161,6 +183,13 @@ const demoScript = `
       const body = init.body ? ' ' + init.body.toString() : '';
       banner.textContent = 'demo — would have sent: POST ' + url + body;
       return {ok: true, status: 204, text: async () => ''};
+    }
+      // History is per companion, so it is answered from the FULL path rather than the stripped one:
+    // a board with the same four cards in every lane would be showing the mock, not the shape.
+    if (url === '/history') {
+      const who = new URLSearchParams(String(path).split('?')[1] || '').get('d') || '';
+      const runs = HISTORY[who] || [];
+      return {ok: true, status: 200, json: async () => runs, text: async () => JSON.stringify(runs)};
     }
     const body = answers[url];
     if (body === undefined) return {ok: false, status: 404, json: async () => [], text: async () => ''};

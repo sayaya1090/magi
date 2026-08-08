@@ -118,18 +118,18 @@ let byTabs = false;
 globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'history', 'plan', 'send',
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'board', 'tabBoard', 'railBoard', 'handoffs', 'history', 'plan', 'send',
                  'rail', 'railNav', 'railFoot', 'theme', 'lang', 'prefsK',
                  'consoleK', 'console', 'prefsBtn', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railIv', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.
-for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp']) byId.tabs.append(byId[id]);
+for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabBoard', 'tabMcp']) byId.tabs.append(byId[id]);
 // The companions tab holds a label element beside its badge, so the word can be rewritten without
 // taking the badge with it. Mirrored here for the same reason the rail's labels are.
 { const l = element('span'); l.className = 'lbl'; byId.tabFleet.append(l); byId.tabFleet.append(byId.tabBadge); }
-for (const id of ['railFleet', 'railIv', 'railSkills', 'railMcp']) {
+for (const id of ['railFleet', 'railIv', 'railSkills', 'railBoard', 'railMcp']) {
   byId.railNav.append(byId[id]);
   // The label is markup, not something the module creates: paint() writes into it by class.
   const lbl = element('span');
