@@ -71,6 +71,7 @@
   "context.fold": "1번 접힘",
   "context.shed": "{n} 토큰 덜어냄",
   "reach.every_companion": "모든 컴패니언",
+  "reach.team": "{team} 팀",
   "reach.only": "{name}만",
   "reach.on_peer": " ({peer})",
   "empty.no_agents": "이 config 디렉터리 아래에 도는 magi가 없습니다.",

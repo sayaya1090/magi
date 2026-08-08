@@ -136,6 +136,12 @@ const demoScript = `
        description: 'spacing comes from the scale, never hand-written',
        body: 'Every margin and padding is a token from the spacing scale. A hand-written value is '
            + 'one more thing to keep in step with the rest, and it will not be.\n\n(source: agent)'},
+      {name: 'skill-empty-states', kind: 'skill', tier: 'team', team: 'frontend', observed: 4,
+       firstSeen: '2026-07-20', lastSeen: '2026-08-08',
+       description: 'an empty state names the thing that is absent and how it stops being absent',
+       body: 'Two lines. The first says what is not there; the second says the one action that '
+           + 'would put something there. No illustrations, no apologies.\n\n(source: agent · '
+           + 'spec the empty state for the fleet table)'},
       {name: 'mem-staging', kind: 'memory', tier: 'project', companion: 'api',
        socket: '/demo/api.sock', observed: 1, lastSeen: '2026-08-05', tags: ['ops'],
        description: 'the staging database is restored from prod every Monday'},

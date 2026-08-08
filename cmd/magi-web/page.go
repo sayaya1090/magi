@@ -582,6 +582,10 @@ const indexHTML = `<!doctype html>
     flex-basis:100%; order:-1;
   }
   .sk.global .tier { color:var(--warn); }
+  /* A team's reach sits between the other two, and it gets the third colour rather than sharing
+     one: painted --accent it was indistinguishable from a project skill, which is the one thing the
+     tier word is on the row to tell you. */
+  .sk.team .tier { color:var(--primary); }
   .sk.project .tier { color:var(--accent); }
   .sk .what { font:600 16px/1.35 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   /* A fact is quoted, not instructed: it reads as something the companion believes rather than
@@ -2406,7 +2410,9 @@ async function loadSkills() {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
-      (sk.tier === 'global' ? tr('reach.every_companion') : tr('reach.only', {name: sk.companion})) +
+      (sk.tier === 'global' ? tr('reach.every_companion')
+       : sk.tier === 'team' ? tr('reach.team', {team: sk.team})
+       : tr('reach.only', {name: sk.companion})) +
       (sk.peer ? tr('reach.on_peer', {peer: sk.peer}) : '')));
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('md-text-button');
@@ -2416,7 +2422,9 @@ async function loadSkills() {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
       // peer name is how this one knows which machine to ask; a global rule has no socket and the
       // peer name alone routes it.
-      post('/forget', new URLSearchParams({name: sk.name, tier: sk.tier}),
+      const body = new URLSearchParams({name: sk.name, tier: sk.tier});
+      if (sk.tier === 'team') body.set('team', sk.team);
+      post('/forget', body,
            sk.tier === 'project' ? sk.socket : null, sk.peer).then(loadSkills);
     });
     top.append(drop);

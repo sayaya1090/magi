@@ -71,6 +71,7 @@
   "context.fold": "1 fold",
   "context.shed": "{n} tokens shed",
   "reach.every_companion": "every companion",
+  "reach.team": "the {team} team",
   "reach.only": "only {name}",
   "reach.on_peer": " on {peer}",
   "empty.no_agents": "No magi is running under this config directory.",

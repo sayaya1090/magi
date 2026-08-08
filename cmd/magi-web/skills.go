@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -28,6 +29,7 @@ type storedSkill struct {
 	Tier      string `json:"tier"`                // "project" | "global"
 	Companion string `json:"companion,omitempty"` // whose project tier, when it is one
 	Socket    string `json:"socket,omitempty"`    // how a delete names it back
+	Team      string `json:"team,omitempty"`      // whose team tier, when it is one
 	Peer      string `json:"peer,omitempty"`      // the console it lives on, when it is not this one
 }
 
@@ -39,6 +41,27 @@ func (s *server) skills(w http.ResponseWriter, r *http.Request) {
 	if list, err := global.Inventory(r.Context()); err == nil {
 		for _, sk := range list {
 			out = append(out, storedSkill{SkillInfo: sk, Tier: "global"})
+		}
+	}
+
+	// The team tiers: one directory per team that a companion on this machine has declared. Read
+	// from the directory rather than from the fleet, because a team's knowledge outlives the
+	// companions that wrote it — disband the team today and what it decided is still governed here
+	// tomorrow, which is exactly the case a page that listed only live teams would hide.
+	teams, terr := os.ReadDir(filepath.Join(s.cfgDir, "teams"))
+	if terr == nil {
+		for _, t := range teams {
+			if !t.IsDir() {
+				continue
+			}
+			st := expgit.New(filepath.Join(s.cfgDir, "teams", t.Name(), "experience"))
+			list, ierr := st.Inventory(r.Context())
+			if ierr != nil {
+				continue
+			}
+			for _, sk := range list {
+				out = append(out, storedSkill{SkillInfo: sk, Tier: "team", Team: t.Name()})
+			}
 		}
 	}
 
@@ -64,9 +87,15 @@ func (s *server) skills(w http.ResponseWriter, r *http.Request) {
 	// "three rules" about a store that holds nine.
 	out = append(out, s.peerSkills(r.Context())...)
 
+	// Widest reach first: what every companion follows, then what a team follows, then one
+	// workspace. A page about who a rule reaches is ordered by how far it reaches.
+	rank := map[string]int{"global": 0, "team": 1, "project": 2}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Tier != out[j].Tier {
-			return out[i].Tier == "global" // the crossing tier first: it is the one with reach
+			return rank[out[i].Tier] < rank[out[j].Tier]
+		}
+		if out[i].Team != out[j].Team {
+			return out[i].Team < out[j].Team
 		}
 		if out[i].Peer != out[j].Peer {
 			return out[i].Peer < out[j].Peer // this console's own first: the empty name sorts before any
@@ -163,6 +192,14 @@ func (s *server) companionDirs(r *http.Request) ([]companion, error) {
 func (s *server) storeDirFor(r *http.Request, scope string) (string, error) {
 	if scope == "global" {
 		return filepath.Join(s.cfgDir, "experience"), nil
+	}
+	// A team tier is named, not resolved from a companion: the team outlives its members, and
+	// asking "which companion is this for" would fail for a team with nobody running.
+	if team := strings.TrimSpace(r.FormValue("team")); scope == "team" && team != "" {
+		if strings.ContainsAny(team, `/\.`) {
+			return "", fmt.Errorf("a team name is one path segment, and %q is not", team)
+		}
+		return filepath.Join(s.cfgDir, "teams", team, "experience"), nil
 	}
 	in, err := s.target(r)
 	if err != nil {
