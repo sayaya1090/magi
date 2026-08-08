@@ -903,6 +903,75 @@ console.log(JSON.stringify({word: byId.tabFleet.text, badge: byId.tabBadge.value
 	}
 }
 
+// Teams group the list, and the groups keep the rule the flat list followed.
+//
+// Trouble first is why the rows are ordered the way they are, and grouping by team would scatter
+// the blocked agents across the page and take it back. So the groups are ordered by the worst
+// state in each: a team holding somebody blocked comes before a team that is merely busy. The
+// unnamed group goes last however its members are doing — "these belong to no team" is a remark
+// about the roster, not something anybody scans for.
+func TestTeamsGroupTheFleetWithoutHidingTrouble(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/1","name":"ops","workdir":"/w/1","state":"working","live":true,
+       "team":"alpha","task":"deploying","steps":2,"idle":3},
+      {"socket":"/s/2","name":"loose","workdir":"/w/2","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"p#1","askKind":"permission","steps":1,"idle":1},
+      {"socket":"/s/3","name":"design","workdir":"/w/3","state":"idle","live":true,
+       "team":"zulu","hub":true,"task":"specced it","steps":5,"idle":40},
+      {"socket":"/s/4","name":"buttons","workdir":"/w/4","state":"waiting","live":true,
+       "team":"zulu","asking":"which token?","askId":"q#1","askKind":"question","steps":3,"idle":9}
+    ]`, "", rowsHelper+`
+await loadFleet();
+const heads = byId.fleet.children.filter(c => c.className === 'teamhead');
+console.log(JSON.stringify({
+  order: heads.map(h => h.find('div').find(d => d.className === 'tname').textContent),
+  hub: heads.map(h => { const x = h.find('div').find(d => d.className === 'thub'); return x ? x.textContent : ''; }),
+  badges: heads.map(h => { const b = h.find('md-badge')[0]; return b ? b.value : ''; }),
+  rows: rows().length,
+}));
+`)
+	var order []string
+	for _, o := range got["order"].([]any) {
+		order = append(order, o.(string))
+	}
+	// frontend holds a blocked agent; infra is only working; the unnamed one is last regardless.
+	// "zulu" sorts after "alpha"; it comes first anyway, because it is the one holding somebody up.
+	if strings.Join(order, "|") != "zulu|alpha|no team" {
+		t.Errorf("the groups are ordered %v — a team holding somebody blocked comes first, and the "+
+			"unnamed group last", order)
+	}
+	hub := got["hub"].([]any)
+	if !strings.Contains(hub[0].(string), "design") {
+		t.Errorf("the zulu heading does not say who answers for it: %q", hub[0])
+	}
+	badges := got["badges"].([]any)
+	if badges[0] != "1" || badges[1] != "" {
+		t.Errorf("the headings count %v blocked; zulu has one and alpha none", badges)
+	}
+	if got["rows"].(float64) != 4 {
+		t.Errorf("%v rows drawn for four agents", got["rows"])
+	}
+}
+
+// No teams, no headings. A single-workspace machine declares none, and a heading saying so would
+// be furniture over every list.
+func TestAFleetWithNoTeamsDrawsNoHeadings(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/1","name":"api","workdir":"/w/1","state":"working","live":true,"task":"x","steps":1,"idle":2},
+      {"socket":"/s/2","name":"ops","workdir":"/w/2","state":"idle","live":true,"task":"y","steps":0,"idle":90}
+    ]`, "", rowsHelper+`
+await loadFleet();
+console.log(JSON.stringify({heads: byId.fleet.children.filter(c => c.className === 'teamhead').length,
+  rows: rows().length}));
+`)
+	if got["heads"].(float64) != 0 {
+		t.Errorf("%v headings drawn for a fleet with no teams", got["heads"])
+	}
+	if got["rows"].(float64) != 2 {
+		t.Errorf("%v rows for two agents", got["rows"])
+	}
+}
+
 // The rail widens, and the theme has a control of its own.
 //
 // There is no drawer on a phone any more: the tabs navigate, the theme toggle sits in the masthead,

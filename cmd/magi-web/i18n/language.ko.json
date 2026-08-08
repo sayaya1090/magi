@@ -20,6 +20,8 @@
   "field.workspace": "워크스페이스",
   "field.role": "역할",
   "field.team": "팀",
+  "team.none": "팀 없음",
+  "team.spoken_for": "{name}이(가) 대표",
   "field.host": "호스트",
   "field.config": "설정",
   "field.steps": "스텝",

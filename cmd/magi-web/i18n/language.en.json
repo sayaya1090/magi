@@ -20,6 +20,8 @@
   "field.workspace": "workspace",
   "field.role": "role",
   "field.team": "team",
+  "team.none": "no team",
+  "team.spoken_for": "{name} speaks for it",
   "field.host": "host",
   "field.config": "config",
   "field.steps": "steps",

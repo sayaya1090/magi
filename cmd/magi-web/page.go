@@ -628,6 +628,21 @@ const indexHTML = `<!doctype html>
   .card.abandoned { border-left-color:var(--error); }
   .card.stopped { opacity:.8; }
 
+  /* A team's heading. Set as a rule with a name on it rather than as a bar: this page separates
+     with lines, and a filled band per team would turn a table into a stack of boxes. */
+  .teamhead {
+    display:flex; align-items:baseline; gap:.7rem; flex-wrap:wrap;
+    margin:1.6rem 0 .2rem; padding:0 0 .35rem;
+    border-bottom:1px solid var(--fg);
+  }
+  .teamhead:first-of-type { margin-top:.6rem; }
+  .teamhead .tname {
+    font:600 12px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--fg);
+  }
+  .teamhead .thub { font:11px/1.5 var(--mono); color:var(--accent); }
+  .teamhead .tn { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
+  .teamhead md-badge { position:static; }
+
   /* status */
   .card .badge {
     font:600 11px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
@@ -1623,7 +1638,65 @@ async function loadFleet() {
   const rows = list
     .filter(a => !filter || GROUP[a.state] === filter)
     .sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
-  fleetEl.replaceChildren(tableHead(), ...rows.map(card));
+  fleetEl.replaceChildren(tableHead(), ...grouped(rows));
+}
+
+// grouped lays the rows out by team, when there are teams.
+//
+// # Why this does not simply group
+//
+// The order above exists for a reason written next to it: trouble first, because a list you have to
+// read to find the problem is a list that hides it. Grouping by team scatters the blocked agents
+// across the page and takes that back. So the ROWS keep their order inside a group, and the GROUPS
+// are ordered by the worst state in each — a team with somebody blocked comes first. The rule the
+// flat list followed still holds; it now holds twice.
+//
+// # Why it is conditional
+//
+// Nothing declares a team on a single-workspace machine, and a header saying so would be a line of
+// furniture over every list. Grouping appears when the data has teams in it and not before, which
+// is the same test the page applies to everything else it draws.
+function grouped(rows) {
+  const teams = new Map();
+  for (const a of rows) {
+    const key = a.team || '';
+    if (!teams.has(key)) teams.set(key, []);
+    teams.get(key).push(a);
+  }
+  // One group, and it is the unnamed one: this machine has no teams and there is nothing to say.
+  if (teams.size <= 1 && teams.has('')) return rows.map(card);
+
+  const order = [...teams.entries()].sort((x, y) => {
+    // The unnamed group last however its members are doing: "these belong to no team" is a remark
+    // about the roster, and the roster is not the thing somebody is scanning for.
+    if ((x[0] === '') !== (y[0] === '')) return x[0] === '' ? 1 : -1;
+    const worst = g => Math.min(...g.map(a => ORDER[a.state]));
+    return (worst(x[1]) - worst(y[1])) || x[0].localeCompare(y[0]);
+  });
+  const out = [];
+  for (const [name, members] of order) {
+    out.push(teamHead(name, members), ...members.map(card));
+  }
+  return out;
+}
+
+// teamHead names a team and says who answers for it.
+//
+// The hub is on the header rather than on its own row: which companion speaks for a team is a fact
+// about the team, and a badge buried in one row is a fact somebody has to go looking for.
+function teamHead(name, members) {
+  const h = cell('teamhead');
+  h.append(cell('tname', name || tr('team.none')));
+  const hub = members.find(a => a.hub);
+  if (hub) h.append(cell('thub', tr('team.spoken_for', {name: hub.name})));
+  const waiting = members.filter(a => a.state === 'waiting').length;
+  if (waiting) {
+    const b = document.createElement('md-badge');
+    b.value = String(waiting);
+    h.append(b);
+  }
+  h.append(cell('tn', members.length + ''));
+  return h;
 }
 
 // drawDetail is the agent page's own header: what this is, where it runs, how far it has got.
