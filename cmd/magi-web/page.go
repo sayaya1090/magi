@@ -498,6 +498,8 @@ const indexHTML = `<!doctype html>
     inset-inline-start:calc(100% + 9.2rem); transform:translateY(-50%);
   }
   #prefsForm { display:flex; flex-direction:column; gap:1rem; min-width:16rem; }
+  #notify { display:flex; flex-direction:column; align-items:flex-start; gap:.3rem; }
+  #notifyWhy { font:var(--body-s) var(--mono); color:var(--muted); max-width:26rem; overflow-wrap:anywhere; }
   #prefsForm .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
   }
@@ -1426,6 +1428,8 @@ const indexHTML = `<!doctype html>
        languages, and which machine this is. -->
   <form slot="content" method="dialog" id="prefsForm">
     <md-outlined-select id="lang"></md-outlined-select>
+    <div class="k" id="notifyK"></div>
+    <div id="notify"><md-text-button id="notifyBtn"></md-text-button><div id="notifyWhy"></div></div>
     <div class="k" id="consoleK"></div>
     <div id="console"></div>
   </form>
@@ -1582,6 +1586,103 @@ function loadConsole() {
     }
   });
 }
+// ── notifications ────────────────────────────────────────────────────────────
+// A phone that is asleep, told that a companion is blocked.
+//
+// # Why this is the only channel that reaches anybody
+//
+// The tab title carries the count, and that is a channel to a person who has the tab in front of
+// them. The fleet page exists for the person who does not. Everything else this console can do
+// requires somebody to be looking at it.
+//
+// # Three ways this can be unavailable, and they are different
+//
+// A switch that is simply missing teaches nobody anything, so each reason says itself:
+//
+//   - no service worker or no PushManager — an old browser, and nothing to be done here;
+//   - not a secure context — the page is being read over plain http from another machine. Note that
+//     a tunnel to localhost IS secure, and magi-web only ever binds loopback, so the ordinary way
+//     of reaching this from a phone already qualifies;
+//   - permission denied — the browser was told no once and will not ask again from a click. Only
+//     the reader can undo that, in the browser's own settings.
+const notifyBtn = document.getElementById('notifyBtn');
+const notifyWhy = document.getElementById('notifyWhy');
+let vapidKey = null;
+
+// A base64url key becomes the Uint8Array PushManager wants. It takes no other form.
+const keyBytes = k => {
+  const b = atob(k.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((k.length + 3) % 4));
+  return Uint8Array.from(b, c => c.charCodeAt(0));
+};
+
+async function currentSub() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return undefined;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+async function paintNotify() {
+  const why = (key, on) => {
+    notifyWhy.textContent = tr(key);
+    notifyBtn.disabled = !on;
+  };
+  document.getElementById('notifyK').textContent = tr('notify.k');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    notifyBtn.textContent = tr('notify.on');
+    return why('notify.unsupported', false);
+  }
+  if (!window.isSecureContext) {
+    notifyBtn.textContent = tr('notify.on');
+    return why('notify.insecure', false);
+  }
+  if (Notification.permission === 'denied') {
+    notifyBtn.textContent = tr('notify.on');
+    return why('notify.denied', false);
+  }
+  const sub = await currentSub();
+  notifyBtn.textContent = tr(sub ? 'notify.off' : 'notify.on');
+  why(sub ? 'notify.is_on' : 'notify.how', true);
+}
+
+notifyBtn.onclick = async () => {
+  notifyBtn.disabled = true;
+  try {
+    const existing = await currentSub();
+    if (existing) {
+      // Told BOTH sides. Unsubscribing only in the browser leaves this console posting to an
+      // endpoint that answers 410 for a while and then stops existing; telling only the console
+      // leaves the browser holding a subscription nothing will ever use.
+      await post('/push', new URLSearchParams({
+        endpoint: existing.endpoint, p256dh: '-', auth: '-', delete: '1'}));
+      await existing.unsubscribe();
+      return paintNotify();
+    }
+    if (await Notification.requestPermission() !== 'granted') return paintNotify();
+    if (!vapidKey) {
+      const info = await fetchList('/push');
+      vapidKey = info && info.key;
+    }
+    if (!vapidKey) { notifyWhy.textContent = tr('notify.nokey'); return; }
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    // The worker has to be running before it can be subscribed against; a registration that is
+    // still installing has no active worker and subscribe throws.
+    await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      // Every browser requires this. A subscription that could deliver silently is a subscription
+      // a page could use to track somebody without showing them anything.
+      userVisibleOnly: true,
+      applicationServerKey: keyBytes(vapidKey),
+    });
+    const j = sub.toJSON();
+    await post('/push', new URLSearchParams({
+      endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth}));
+  } catch (e) {
+    notifyWhy.textContent = String(e && e.message || e);
+  } finally {
+    paintNotify();
+  }
+};
+
 labels$.pipe(distinctUntilChanged()).subscribe(() => { if (painted) paint(); });
 
 const fleetEl = document.getElementById('fleet'), log = document.getElementById('log');
@@ -2727,6 +2828,7 @@ function paint() {
   }
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
+  paintNotify();
 
   // The lists are drawn by functions, and a function's words are read at draw time. A pack that
   // lands after the list did leaves it in the old language until somebody navigates — measured on
@@ -2926,7 +3028,7 @@ prefsEl.onclick = () => prefsDialog.show();
 // Painted when it OPENS, not before. A dialog does not render what is slotted into it until then,
 // so a select told its value while the dialog was closed had no options to resolve it against and
 // showed an empty field over a value it was holding.
-prefsDialog.addEventListener('opened', () => { if (painted) paint(); });
+prefsDialog.addEventListener('opened', () => { if (painted) paint(); paintNotify(); });
 // The toggle writes the SAME preference the select does, so the two are one setting with two
 // controls rather than two settings. Pressing it leaves 'system' behind on purpose: asking for the
 // other theme is a choice, and pretending it was still deferring to the machine would mean the

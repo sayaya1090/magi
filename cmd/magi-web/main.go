@@ -127,6 +127,17 @@ func run() int {
 		stream: &http.Client{},
 	}
 	defer srv.closeAll()
+	if p, err := newPush(cd); err != nil {
+		fmt.Fprintln(os.Stderr, "magi-web: notifications are off:", err)
+	} else {
+		srv.pushes = p
+		ctx, stop := context.WithCancel(context.Background())
+		defer stop()
+		// Three seconds, which is the fleet page's own refresh. Anything slower would let somebody
+		// watching the page see a block before their phone did, and the poll reads the same cache
+		// the page does — most ticks are a map read.
+		go srv.watch(ctx, 3*time.Second)
+	}
 	mux := http.NewServeMux()
 	for path, h := range srv.routes() {
 		mux.HandleFunc(path, h)
@@ -204,6 +215,11 @@ type server struct {
 	// What a dashboard refresh would otherwise re-derive every three seconds for every idle agent:
 	// the last thing it said, which by definition is not changing while it is idle.
 	fleetCache fleet.Cache
+
+	// Notifications, or nil when the key could not be read. Nil is a working console without them
+	// rather than a console that refuses to start: being unable to buzz a phone is not a reason to
+	// withhold the page from somebody sitting in front of it.
+	pushes *pushState
 }
 
 func (s *server) closeAll() {
@@ -465,6 +481,8 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/compact":              s.compact,
 		"/console":              s.console,
 		"/history":              s.history,
+		"/push":                 s.push,
+		"/sw.js":                s.serviceWorker,
 	}
 }
 

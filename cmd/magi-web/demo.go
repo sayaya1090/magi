@@ -114,6 +114,10 @@ const demoScript = `
     // hole in it, and the hole is the part that answers "am I looking at the right one".
     '/console': {host: 'studio', configDir: '/Users/you/.config/magi',
                  peers: ['mini', 'laptop']},
+    // A key so the notifications switch draws its live state rather than "this console has no push
+    // key". Nothing can be subscribed here — there is no server to post to and the mock refuses
+    // writes — but the reason a reader sees is then the browser's own, which is the true one.
+    '/push': {key: 'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8', count: 0},
     '/interventions': [
       {companion: 'design', socket: '/demo/design.sock', kind: 'steer', afterSec: 8,
        text: 'use the tokens from the scale, not hand-written spacing', at: now},
