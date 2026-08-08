@@ -784,6 +784,7 @@ func run() int {
 			fmt.Fprintf(os.Stderr, "magi: mcp %q: %v\n", name, err)
 		}
 	}
+	attachCompanionMCP(mcpMgr, cfg, store, plat.ConfigDir(), wd)
 
 	ctx := context.Background()
 	sockPath := daemon.SocketPath(plat.ConfigDir(), wd)
@@ -986,6 +987,23 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 			cfg.Plugins = map[string]map[string]any{}
 		}
 		cfg.Plugins[k] = v
+	}
+	// Who this companion is belongs to the WORKSPACE, so a project that declares anything replaces
+	// the whole block rather than merging into it.
+	//
+	// It was not merged at all. MANUAL §13 says to write `[companion]` into `.magi/config.toml`
+	// "so it travels with the repo", and every word of it was dropped on the floor: a workspace
+	// declaring name = "invoices", a role and team = "backend" published as "billing" — its
+	// directory's basename — with no role and no team. The whole of teams, roles and hubs was
+	// unreachable the documented way, and reachable the other way only by giving every workspace on
+	// the machine one identity.
+	//
+	// Wholesale rather than field by field because two of these are booleans: `hub = false` and an
+	// unset hub are the same value, so a per-field merge could never let a workspace turn off
+	// something the global config turned on. An identity is one thing anyway — half this
+	// companion's name and half another's is not a state anybody wants.
+	if proj.Companion != (config.CompanionConfig{}) {
+		cfg.Companion = proj.Companion
 	}
 	cfg.Theme.Dark = mergeStrMap(cfg.Theme.Dark, proj.Theme.Dark)
 	cfg.Theme.Light = mergeStrMap(cfg.Theme.Light, proj.Theme.Light)
@@ -1538,6 +1556,65 @@ var systemPrompt = "You are magi, an AI coding agent working in the user's proje
 	"LANGUAGE (important): always write your replies to the user in the SAME language they used in their latest " +
 	"message — if they wrote Korean, answer in Korean; Japanese, answer in Japanese. This overrides the language of " +
 	"these instructions or of any file/tool output. Keep code, identifiers, and file paths unchanged."
+
+// attachCompanionMCP gives this magi one MCP server per companion already running here.
+//
+// # Why it is not written in a config file
+//
+// Every companion publishes to one directory and every companion reads it — that is how the roster
+// and the fleet page work. So the list of peers is already known, exactly, at startup, and asking
+// an operator to hand-write `command = "magi --mcp --to design"` once per peer per workspace is
+// asking them to maintain a copy of something the machine can see. The copy goes stale the first
+// time somebody starts a fifth companion.
+//
+// # What it costs, and why it is off unless asked for
+//
+// Two tools per peer, in the tool list of every prompt. Four companions is eight extra tools, and
+// the weight of a tool list is a real cost this tree has measured before — a weak model given
+// thirty tools chooses worse among the ten that matter. It is also a subprocess per peer, held open
+// for the life of the daemon.
+//
+// So it is a choice: `[companion] mcp_peers = true`. The operator who wants their companions able
+// to ask each other things turns it on for the workspaces where that is true, which is usually the
+// ones in a team.
+//
+// # What it does NOT do
+//
+// It attaches what is running WHEN THIS STARTS. A companion started afterwards is not picked up —
+// there is no watch here, deliberately: a manager that added and removed tools underneath a running
+// turn would change the tool list between one step and the next, and a model that called something
+// that has just gone is a failure nobody can read afterwards. Restarting is the way to pick up a
+// new peer, and it is one line to say so.
+func attachCompanionMCP(mgr *mcp.Manager, cfg config.Config, store *jsonl.Store, cfgDir, wd string) {
+	if !cfg.Companion.MCPPeers {
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "magi: mcp peers: cannot find this binary:", err)
+		return
+	}
+	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+	list, lerr := fleet.List(context.Background(), reader, cfgDir, daemon.SocketPath(cfgDir, wd))
+	if lerr != nil {
+		fmt.Fprintln(os.Stderr, "magi: mcp peers:", lerr)
+		return
+	}
+	for _, a := range list {
+		// Not itself: a companion asking itself what it knows gets what retrieval already put in
+		// front of it, through a subprocess and a round trip.
+		if a.Here || !a.Live || a.Name == "" {
+			continue
+		}
+		// Named after the companion, so the tools arrive as design__knows rather than as a number.
+		// A model with four of these attached decides which to ask by that name.
+		if err := mgr.AddStdio(context.Background(), a.Name, self, []string{"--mcp", a.Name}, nil); err != nil {
+			// One peer that will not start is not a reason to withhold the others, and it is worth
+			// saying: a silent failure here looks like a companion that knows nothing.
+			fmt.Fprintf(os.Stderr, "magi: mcp peer %q: %v\n", a.Name, err)
+		}
+	}
+}
 
 // sanitizeTeam turns a team name into one path segment.
 //

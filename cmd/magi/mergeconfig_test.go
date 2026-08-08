@@ -156,3 +156,41 @@ func eqStr(a, b []string) bool {
 	}
 	return true
 }
+
+// Who a companion is comes from its workspace, and it used to come from nowhere.
+//
+// MANUAL §13 says to write `[companion]` into `.magi/config.toml` "so it travels with the repo".
+// Nothing merged it: a workspace declaring a name, a role and a team published under its
+// directory's basename with neither — so teams, roles and hubs, the whole of §13, were unreachable
+// the documented way. The only way that worked was the global config, which gives every workspace
+// on the machine one identity.
+func TestMergeProjectConfig_TheWorkspaceSaysWhoTheCompanionIs(t *testing.T) {
+	global := config.Config{Companion: config.CompanionConfig{Name: "machine", Role: "everything"}}
+	proj := config.Config{Companion: config.CompanionConfig{
+		Name: "invoices", Role: "the billing API", Team: "backend", Hub: true, MCPPeers: true,
+	}}
+	got := mergeProjectConfig(global, proj).Companion
+	if got != proj.Companion {
+		t.Errorf("the workspace's identity did not survive the merge:\n got %+v\nwant %+v",
+			got, proj.Companion)
+	}
+
+	// Wholesale, not field by field: `hub = false` and an unset hub are the same value, so a
+	// per-field merge could never let a workspace turn off what the global config turned on.
+	on := config.Config{Companion: config.CompanionConfig{Name: "machine", Hub: true, MCPPeers: true}}
+	off := config.Config{Companion: config.CompanionConfig{Name: "invoices"}}
+	switch after := mergeProjectConfig(on, off).Companion; {
+	case after.Hub:
+		t.Error("a workspace that does not declare itself a hub inherited hub = true")
+	case after.MCPPeers:
+		t.Error("a workspace that did not ask for peer MCP inherited it")
+	case after.Name != "invoices":
+		t.Errorf("name %q", after.Name)
+	}
+
+	// And a workspace that declares nothing keeps whatever the machine said, which is what a
+	// single-companion setup does.
+	if got := mergeProjectConfig(global, config.Config{}).Companion; got != global.Companion {
+		t.Errorf("an empty [companion] block wiped the machine's: %+v", got)
+	}
+}
