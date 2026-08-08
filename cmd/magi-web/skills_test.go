@@ -253,3 +253,64 @@ func TestBothHalvesOfTheStoreAreGoverned(t *testing.T) {
 		t.Errorf("after forgetting the fact the store holds %+v", list)
 	}
 }
+
+// A person writing something down lands in the tier they chose, and says it was a person.
+//
+// The store had one writer until now — an agent calling remember mid-turn — so nothing here had
+// ever been asked to route a write by tier, and the source line is the only thing that separates
+// "somebody decided this" from "an agent inferred it from one afternoon".
+func TestWritingSomethingDownLandsInTheChosenTier(t *testing.T) {
+	dir := t.TempDir()
+	s := &server{cfgDir: dir}
+
+	write := func(v url.Values) int {
+		r := httptest.NewRequest(http.MethodPost, "/remember", strings.NewReader(v.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		s.remember(w, r)
+		return w.Code
+	}
+	if code := write(url.Values{"text": {"the staging box is rebuilt on Mondays"}, "tier": {"global"}}); code != http.StatusNoContent {
+		t.Fatalf("writing globally answered %d", code)
+	}
+	if code := write(url.Values{"text": {"spacing comes from the scale"}, "tier": {"team"}, "team": {"frontend"}}); code != http.StatusNoContent {
+		t.Fatalf("writing to a team answered %d", code)
+	}
+	// Each in its own directory, which is the whole of what the tier means.
+	for _, c := range []struct{ dir, want string }{
+		{filepath.Join(dir, "experience", "memories"), "Mondays"},
+		{filepath.Join(dir, "teams", "frontend", "experience", "memories"), "spacing"},
+	} {
+		found := false
+		entries, err := os.ReadDir(c.dir)
+		if err != nil {
+			t.Errorf("nothing was written to %s: %v", c.dir, err)
+			continue
+		}
+		for _, e := range entries {
+			b, _ := os.ReadFile(filepath.Join(c.dir, e.Name()))
+			if strings.Contains(string(b), c.want) {
+				found = true
+				// It says a person wrote it. Without that, a rule somebody typed is
+				// indistinguishable from one an agent inferred, and they are worth different
+				// amounts of trust.
+				if !strings.Contains(string(b), "console") {
+					t.Errorf("%s does not say where it came from:\n%s", e.Name(), b)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%q did not reach %s", c.want, c.dir)
+		}
+	}
+
+	// Nothing to write is refused rather than filed as an empty note, and a team name that is a
+	// path is refused rather than sanitised — a store written outside the config directory is a
+	// store nobody can find again.
+	if code := write(url.Values{"text": {"   "}, "tier": {"global"}}); code != http.StatusBadRequest {
+		t.Errorf("an empty note answered %d", code)
+	}
+	if code := write(url.Values{"text": {"x"}, "tier": {"team"}, "team": {"../../etc"}}); code != http.StatusBadRequest {
+		t.Errorf("a team name that is a path answered %d", code)
+	}
+}
