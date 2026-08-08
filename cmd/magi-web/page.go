@@ -442,11 +442,20 @@ const indexHTML = `<!doctype html>
   }
   /* On a tab the badge sits beside the word rather than over it: these labels are words, not icons,
      and a count parked on top of "companions" lands on a letter. */
-  #tabs md-badge { margin-left:.5rem; }
+  /* On a tab the host is NOT positioned: a tab lays its label out itself, and giving the badge a
+     relative box of its own dropped it onto a line below the word. Absolute inside the tab instead,
+     riding the label's top-right the way it rides the icon in the rail. */
+  /* In the flow, in a wrapper of its own, exactly like the rail's. Absolutely placed over the tab
+     it clipped the word it was counting for — "컴패니⓶" — and a count that eats its own label is
+     worse than no count. */
+  .tablbl { display:inline-flex; align-items:center; }
+  .badgewrap { width:16px; height:16px; margin-left:.35rem; }
+  .badgewrap md-badge { position:absolute; inset:0; width:16px; height:16px; }
+  .badgewrap[hidden], .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
      the icon is the only thing there. */
   .icwrap { position:relative; display:inline-flex; width:20px; height:20px; }
-  .icwrap md-badge { position:absolute; top:-6px; right:-10px; width:16px; height:16px; }
+  .icwrap md-badge { position:absolute; top:-5px; right:-7px; width:16px; height:16px; }
   #prefsForm { display:flex; flex-direction:column; gap:1rem; min-width:16rem; }
   #prefsForm .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
@@ -1134,7 +1143,20 @@ const indexHTML = `<!doctype html>
     /* The count on the SAME line as the brand. Given its own row it cost 40px of the first screen
        to say something that fits beside a five-letter word. It is allowed to shrink and to clip:
        "5 agents · 2 waiting" is legible at any truncation that keeps the number. */
-    #state { font-size:10px; letter-spacing:.08em; margin-left:auto; min-width:0; overflow:hidden; }
+    /* One line, clipped at the end rather than wrapped. Squeezed between the brand and two icons it
+       broke "5 AGENTS ·" across three rows, which is taller than the two-row masthead it replaced. */
+    #state {
+      font-size:10px; letter-spacing:.08em; margin-left:auto; min-width:0;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    /* The two icon buttons sit at the end of the same line, not on one of their own. Adding the
+       gear pushed the masthead back onto two rows and the first agent from 337px to 393px —
+       everything gained on this width, given straight back. */
+    header { flex-wrap:nowrap; }
+    #prefs, #themeToggle {
+      flex:none;
+      --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
+    }
     #state .jump { --md-text-button-label-text-size:10px; }
     /* The crumb is hidden only where the tab strip below already says the same thing. On a
        companion's page there are no tabs, and hiding it left a masthead reading "magi" with no
@@ -1182,11 +1204,15 @@ const indexHTML = `<!doctype html>
        while the page is dark — because a control showing its current state leaves you working out
        what it does. Two shapes with one hidden, rather than a morphing path: an icon that changes
        shape is an icon that has to be got right twice. -->
+  <!-- Sliders, not a cog. A cog beside the theme toggle is a circle with spokes next to a circle
+       with rays: at 21px they are the same picture, and the two controls sat side by side. -->
   <md-icon-button id="prefs">
     <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
-      <path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4"
+      <path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3"
             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      <circle cx="15" cy="7" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <circle cx="9" cy="12" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <circle cx="15" cy="17" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
     </svg>
   </md-icon-button>
   <md-icon-button id="themeToggle">
@@ -1264,7 +1290,9 @@ const indexHTML = `<!doctype html>
     <!-- The label is its own element because the badge is a sibling: writing the word with
          textContent would take the badge with it, the way setting textContent replaces everything
          a node holds. -->
-    <md-primary-tab id="tabFleet"><span class="lbl"></span><md-badge id="tabBadge" hidden></md-badge></md-primary-tab>
+    <!-- Label and badge in ONE slotted element. A tab stacks what is slotted into it — it is built
+         for an icon above a word — so two siblings put the count on a line below the label. -->
+    <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
     <md-primary-tab id="tabIv">corrections</md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
     <md-primary-tab id="tabBoard"></md-primary-tab>
@@ -1290,8 +1318,11 @@ const indexHTML = `<!doctype html>
      that interrupts nothing, and it is the same dialog at every width. -->
 <md-dialog id="prefsDialog">
   <div slot="headline" id="prefsK"></div>
+  <!-- No theme here. It has a toggle in the masthead — one tap for the setting that gets changed
+       most — and a select saying the same thing three feet away was the same preference twice, with
+       two ways to be wrong about it. What is left is what a toggle cannot carry: a choice of three
+       languages, and which machine this is. -->
   <form slot="content" method="dialog" id="prefsForm">
-    <md-outlined-select id="theme"></md-outlined-select>
     <md-outlined-select id="lang"></md-outlined-select>
     <div class="k" id="consoleK"></div>
     <div id="console"></div>
@@ -1469,7 +1500,7 @@ const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
 const railEl = document.getElementById('rail');
-const themeEl = document.getElementById('theme'), langEl = document.getElementById('lang');
+const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsEl = document.getElementById('prefs');
 const prefsDialog = document.getElementById('prefsDialog');
@@ -2600,7 +2631,6 @@ function paint() {
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
   }
-  paintChoice(themeEl, 'theme');
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
 
@@ -2810,17 +2840,12 @@ prefsDialog.addEventListener('opened', () => { if (painted) paint(); });
 themeToggle.onclick = () => {
   localStorage.setItem('theme', showing() === 'dark' ? 'light' : 'dark');
   applyTheme();
-  if (painted) paint();   // the select in the foot now reads something else
 };
 // Escape narrows it again, the way Escape leaves anything that has been opened.
 addEventListener('keydown', e => { if (e.key === 'Escape') closeNav(); });
 
 // A preference is written down and acted on immediately. Language re-fetches rather than reloads:
 // the pack is the only thing that changes, and a reload would throw away the transcript.
-themeEl.addEventListener('change', () => {
-  localStorage.setItem('theme', themeEl.value);
-  applyTheme();
-});
 langEl.addEventListener('change', () => {
   localStorage.setItem('lang', langEl.value);
   loadPack();

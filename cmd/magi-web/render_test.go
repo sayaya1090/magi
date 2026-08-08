@@ -928,7 +928,9 @@ func TestRepaintingATabKeepsItsBadge(t *testing.T) {
 await loadFleet();
 labels$.next({'nav.companions': '컴패니언'});
 console.log(JSON.stringify({word: byId.tabFleet.text, badge: byId.tabBadge.value,
-  still: byId.tabFleet.children.some(c => c === byId.tabBadge)}));
+  // Anywhere inside the tab. The badge sits in a wrapper beside the label now, because a tab
+  // STACKS what is slotted into it and two siblings put the count on a line of its own.
+  still: byId.tabFleet.find(n => n === byId.tabBadge).length > 0}));
 `)
 	if got["still"] != true || got["badge"] != "1" {
 		t.Errorf("the language change dropped the badge: %+v", got)
@@ -1120,11 +1122,12 @@ const closed = {nav: document.body.getAttribute('nav'), said: byId.railMenu.getA
 // Nothing chosen yet: the machine answers, and the fake reports a light one.
 const before = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
 byId.themeToggle.onclick();
-const after = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme'),
-               selected: byId.theme.children.filter(o => o.selected).map(o => o.value)};
+const after = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
 byId.themeToggle.onclick();
 const again = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
-console.log(JSON.stringify({opened, closed, before, after, again}));
+console.log(JSON.stringify({opened, closed, before, after, again,
+  // A real look, not a constant: the dialog must not hold a second control for the theme.
+  themeSelect: byId.prefsForm.find(n => String(n.tag).endsWith('-select')).length > 1}));
 `)
 	op, cl := got["opened"].(map[string]any), got["closed"].(map[string]any)
 	if op["nav"] != "open" || op["said"] != "true" {
@@ -1142,10 +1145,11 @@ console.log(JSON.stringify({opened, closed, before, after, again}));
 	if after["stored"] != "dark" || after["attr"] != "dark" {
 		t.Errorf("pressing the toggle on a light page gave %+v, want dark stored and applied", after)
 	}
-	// The select is the same setting seen from the other side.
-	sel := after["selected"].([]any)
-	if len(sel) != 1 || sel[0] != "dark" {
-		t.Errorf("the preferences select reads %v while the toggle says dark — two settings, not one", sel)
+	// There is no second control for the theme. It used to be a select in the preferences dialog as
+	// well, which is one preference with two ways to be wrong about it; the toggle is the only one
+	// now, so what has to hold is that the toggle and the STORE agree — checked above.
+	if got["themeSelect"] != false {
+		t.Error("the preferences dialog carries a theme control again; the masthead toggle is the one")
 	}
 	if again := got["again"].(map[string]any); again["stored"] != "light" || again["attr"] != "light" {
 		t.Errorf("pressing it again gave %+v, want light", again)
