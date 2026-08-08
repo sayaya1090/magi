@@ -1014,6 +1014,8 @@ const indexHTML = `<!doctype html>
      rather than as scrollable. */
   .lanes { scrollbar-width:thin; }
   #board { padding-right:0; }
+  /* Set apart from the chips it sits beside: they filter this list and it leaves it. */
+  #summary .toboard { margin-left:.6rem; }
   .lanes::after { content:""; flex:0 0 1.4rem; }   /* the last lane gets a right edge too */
   .lanehead {
     display:flex; gap:.6rem; align-items:baseline;
@@ -2051,11 +2053,24 @@ function summarise(list) {
   // The way to the board, from the list it is about. Text rather than a chip: the chips are a
   // filter on this table and this is not — a control that looked like them and did something else
   // would be the worst of both.
-  const past = document.createElement('md-text-button');
-  past.className = 'toboard';
-  past.textContent = tr('nav.board');
-  past.onclick = () => { history.pushState({}, '', at(HREF.board)); render(); };
-  box.append(past);
+  // …and only when there is a past to look at. On a machine with no companions the board can
+  // never have held anything, and a control that can be pressed to reach a blank screen is worse
+  // than one that is not there — the same rule the zero tiles above already follow.
+  if (list.length) {
+    // An icon, not a word. The row it sits in is four counting chips, and a fifth thing shaped like
+    // a word reads as a fifth count — this is a way OUT of the list rather than a filter on it, and
+    // the shape is what says so. It keeps its name in the tooltip and its aria-label, because an
+    // icon alone is a guess for anybody who has not pressed it once.
+    const past = document.createElement('md-icon-button');
+    past.className = 'toboard';
+    past.title = tr('nav.board');
+    past.setAttribute('aria-label', tr('nav.board'));
+    past.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+      '<path d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    past.onclick = () => { history.pushState({}, '', at(HREF.board)); render(); };
+    box.append(past);
+  }
 }
 
 // grounds is the report the agent wrote for whoever has to decide.

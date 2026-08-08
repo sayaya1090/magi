@@ -108,7 +108,7 @@
   "empty.no_agents": "이 config 디렉터리 아래에 도는 magi가 없습니다.",
   "empty.no_agents_how": "워크스페이스에서 <code>magi --daemon</code>으로 하나 띄우세요.",
   "empty.nothing_learned": "아직 배운 것이 없습니다.",
-  "empty.nothing_learned_how": "했던 말을 규칙으로 승격하면 규칙이, 컴패니언이 간직할 만하다고 판단하면 사실이 여기 남습니다.",
+  "empty.nothing_learned_how": "컴패니언이 간직할 만하다고 판단하면 여기 남습니다. 아래에서 직접 적어둘 수도 있습니다 — 셋에게 같은 말을 했다면 그건 규칙입니다.",
   "empty.no_servers": "외부 툴 서버가 없습니다.",
   "empty.no_servers_how": "컴패니언은 이 머신에서 읽고 실행합니다. 그 바깥에 닿는 방법이 MCP 서버입니다.",
   "error.unreachable": "magi-web에 닿을 수 없음",
