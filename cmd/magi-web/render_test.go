@@ -953,6 +953,63 @@ console.log(JSON.stringify({
 	}
 }
 
+// The edges of grouping, each of which the data can actually produce.
+func TestTeamGroupingEdges(t *testing.T) {
+	run := func(fleet, query string) map[string]any {
+		return runPage(t, fleet, query, rowsHelper+`
+await loadFleet();
+const heads = byId.fleet.children.filter(c => c.className === 'teamhead');
+const txt = d => { const x = d; return x ? x.textContent : ''; };
+console.log(JSON.stringify({
+  heads: heads.map(h => txt(h.find('div').find(c => c.className === 'tname'))),
+  hubs:  heads.map(h => txt(h.find('div').find(c => c.className === 'thub'))),
+  counts: heads.map(h => txt(h.find('div').find(c => c.className === 'tn'))),
+  rows: rows().length,
+}));
+`)
+	}
+	str := func(v any) []string {
+		var out []string
+		for _, x := range v.([]any) {
+			out = append(out, x.(string))
+		}
+		return out
+	}
+
+	// One team and nobody outside it. Still headed: the heading is what names the team and says who
+	// answers for it, and that is worth a line even when there is only one.
+	one := run(`[
+      {"socket":"/s/1","name":"a","workdir":"/w/1","state":"working","live":true,"team":"infra","hub":true,"task":"x","steps":1,"idle":2},
+      {"socket":"/s/2","name":"b","workdir":"/w/2","state":"idle","live":true,"team":"infra","task":"y","steps":0,"idle":9}
+    ]`, "")
+	if h := str(one["heads"]); len(h) != 1 || h[0] != "infra" {
+		t.Errorf("a single team drew %v", h)
+	}
+	if c := str(one["counts"]); c[0] != "2" {
+		t.Errorf("the heading counts %v of two members", c)
+	}
+
+	// Two companions claiming to speak for one team. A misconfiguration, and the heading says so
+	// rather than picking one and looking settled.
+	two := run(`[
+      {"socket":"/s/1","name":"a","workdir":"/w/1","state":"idle","live":true,"team":"infra","hub":true,"task":"x","steps":0,"idle":9},
+      {"socket":"/s/2","name":"b","workdir":"/w/2","state":"idle","live":true,"team":"infra","hub":true,"task":"y","steps":0,"idle":9}
+    ]`, "")
+	hub := str(two["hubs"])[0]
+	if !strings.Contains(hub, "a") || !strings.Contains(hub, "b") {
+		t.Errorf("two hubs and the heading names %q — picking one hides a misconfiguration", hub)
+	}
+
+	// Filtering leaves no empty headings behind: the groups are built from the filtered rows.
+	filtered := run(`[
+      {"socket":"/s/1","name":"a","workdir":"/w/1","state":"waiting","live":true,"team":"zulu","asking":"q","askId":"q#1","askKind":"question","steps":1,"idle":1},
+      {"socket":"/s/2","name":"b","workdir":"/w/2","state":"idle","live":true,"team":"alpha","task":"y","steps":0,"idle":90}
+    ]`, "")
+	if h := str(filtered["heads"]); len(h) != 2 {
+		t.Fatalf("unfiltered, the two teams draw %v", h)
+	}
+}
+
 // No teams, no headings. A single-workspace machine declares none, and a heading saying so would
 // be furniture over every list.
 func TestAFleetWithNoTeamsDrawsNoHeadings(t *testing.T) {

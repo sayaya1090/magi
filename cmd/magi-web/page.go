@@ -317,6 +317,11 @@ const indexHTML = `<!doctype html>
   }
   html { scrollbar-gutter:stable; -webkit-text-size-adjust:100%; }
   body {
+    /* A column, so the rail can be moved to the end of a narrow page with an order property while
+       staying BEFORE the page in the markup. Tab order follows the document, not the layout:
+       with the rail written after main a keyboard reached the navigation only after every row
+       of the fleet — measured on the deployed page, 41 focusable things with the nav last. */
+    display:flex; flex-direction:column; min-height:100vh;
     margin:0; background:var(--bg); color:var(--fg);
     font:14px/1.65 var(--mono);
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
@@ -937,6 +942,7 @@ const indexHTML = `<!doctype html>
       position:static; transform:none; width:auto; overflow:visible;
       border-right:0; border-top:1px solid var(--outlineVariant);
       background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
+      order:9;   /* last on the page, first-but-one in the tab order it is written in */
     }
     #rail #railNav, #railMenu, #prefsBtn { display:none; }
     #rail #railFoot { display:flex; max-width:22rem; }
@@ -1030,27 +1036,6 @@ const indexHTML = `<!doctype html>
      they are real links with the component's ripple and focus ring: a rail you cannot middle-click
      is a navigation that forgot it was made of addresses. -->
 
-<main>
-  <md-tabs id="tabs" hidden>
-    <!-- The label is its own element because the badge is a sibling: writing the word with
-         textContent would take the badge with it, the way setting textContent replaces everything
-         a node holds. -->
-    <md-primary-tab id="tabFleet"><span class="lbl"></span><md-badge id="tabBadge" hidden></md-badge></md-primary-tab>
-    <md-primary-tab id="tabIv">corrections</md-primary-tab>
-    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
-    <md-primary-tab id="tabMcp">connections</md-primary-tab>
-  </md-tabs>
-  <md-chip-set id="summary"></md-chip-set>
-  <div id="ivs" hidden></div>
-  <div id="skills" hidden></div>
-  <div id="mcp" hidden></div>
-  <div id="fleet"></div>
-  <md-outlined-card id="detail" hidden></md-outlined-card>
-  <md-outlined-card id="plan" hidden></md-outlined-card>
-  <md-outlined-card id="handoffs" hidden></md-outlined-card>
-  <div id="log"></div>
-</main>
-
 <nav id="rail">
   <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
        far corner it did not look like it belonged to the column across the page. -->
@@ -1107,6 +1092,28 @@ const indexHTML = `<!doctype html>
     <div id="console"></div>
   </div>
 </nav>
+
+<main>
+  <md-tabs id="tabs" hidden>
+    <!-- The label is its own element because the badge is a sibling: writing the word with
+         textContent would take the badge with it, the way setting textContent replaces everything
+         a node holds. -->
+    <md-primary-tab id="tabFleet"><span class="lbl"></span><md-badge id="tabBadge" hidden></md-badge></md-primary-tab>
+    <md-primary-tab id="tabIv">corrections</md-primary-tab>
+    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
+    <md-primary-tab id="tabMcp">connections</md-primary-tab>
+  </md-tabs>
+  <md-chip-set id="summary"></md-chip-set>
+  <div id="ivs" hidden></div>
+  <div id="skills" hidden></div>
+  <div id="mcp" hidden></div>
+  <div id="fleet"></div>
+  <md-outlined-card id="detail" hidden></md-outlined-card>
+  <md-outlined-card id="plan" hidden></md-outlined-card>
+  <md-outlined-card id="handoffs" hidden></md-outlined-card>
+  <div id="log"></div>
+</main>
+
 
 <footer id="dock">
   <div id="prompt" hidden></div>
@@ -1670,8 +1677,10 @@ function grouped(rows) {
     // The unnamed group last however its members are doing: "these belong to no team" is a remark
     // about the roster, and the roster is not the thing somebody is scanning for.
     if ((x[0] === '') !== (y[0] === '')) return x[0] === '' ? 1 : -1;
-    const worst = g => Math.min(...g.map(a => ORDER[a.state]));
-    return (worst(x[1]) - worst(y[1])) || x[0].localeCompare(y[0]);
+    // The most urgent member decides where the group sits. ORDER counts up from waiting, so the
+    // smallest number in a group is the loudest thing in it.
+    const loudest = g => Math.min(...g.map(a => ORDER[a.state]));
+    return (loudest(x[1]) - loudest(y[1])) || x[0].localeCompare(y[0]);
   });
   const out = [];
   for (const [name, members] of order) {
@@ -1687,8 +1696,11 @@ function grouped(rows) {
 function teamHead(name, members) {
   const h = cell('teamhead');
   h.append(cell('tname', name || tr('team.none')));
-  const hub = members.find(a => a.hub);
-  if (hub) h.append(cell('thub', tr('team.spoken_for', {name: hub.name})));
+  // Every companion claiming to speak for the team, not the first one found. Two is a
+  // misconfiguration — a team answers with one voice or the question of who answers is open — and
+  // naming one of them would draw a settled team over an unsettled one.
+  const hubs = members.filter(a => a.hub).map(a => a.name);
+  if (hubs.length) h.append(cell('thub', tr('team.spoken_for', {name: hubs.join(', ')})));
   const waiting = members.filter(a => a.state === 'waiting').length;
   if (waiting) {
     const b = document.createElement('md-badge');
