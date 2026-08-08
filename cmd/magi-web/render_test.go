@@ -1368,7 +1368,8 @@ globalThis.fetch = async (p, init) => {
   ] : []};
 };
 await loadSkills();
-const rows = byId.skills.children.filter(r => r.className !== 'sectionhead');
+// The tools row is the screen's own controls — find, reach, write down — not a rule.
+const rows = byId.skills.children.filter(r => r.className !== 'sectionhead' && r.className !== 'sktools');
 const drop = rows[1].find('md-text-button')[0];
 // Once asks. A destructive control that acts on the first press has no confirmation at all, and
 // the error colour it used to rely on lives on :hover, which a touch screen does not have.

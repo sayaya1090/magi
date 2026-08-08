@@ -123,8 +123,9 @@ func run() int {
 		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
 		// one must not, because an event stream is supposed to stay open and a timeout there would
 		// cut the transcript every few seconds.
-		http:   &http.Client{Timeout: peerTimeout},
-		stream: &http.Client{},
+		http:       &http.Client{Timeout: peerTimeout},
+		stream:     &http.Client{},
+		embedModel: os.Getenv("MAGI_EMBED_MODEL"),
 	}
 	defer srv.closeAll()
 	if p, err := newPush(cd); err != nil {
@@ -220,6 +221,10 @@ type server struct {
 	// rather than a console that refuses to start: being unable to buzz a phone is not a reason to
 	// withhold the page from somebody sitting in front of it.
 	pushes *pushState
+
+	// What searches here embed with, for the shared-knowledge screen to show. Read once at startup:
+	// changing it means restarting anyway, since the vectors already cached are the old model's.
+	embedModel string
 }
 
 func (s *server) closeAll() {
@@ -479,6 +484,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/interventions": s.interventions,
 		"/skills":        s.skills,
 		"/forget":        s.forgetSkill,
+		"/remember":      s.remember,
 		"/context":       s.context,
 		"/dispatch":      s.dispatch,
 		"/mcp":           s.mcp,

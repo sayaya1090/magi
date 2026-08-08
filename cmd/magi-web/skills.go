@@ -11,6 +11,8 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	"github.com/sayaya1090/magi/internal/core/text"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // What this person's companions have learned, and which of it crosses between them.
@@ -132,6 +134,62 @@ func (s *server) forgetSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := expgit.New(dir).Forget(r.Context(), name); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Writing something down on purpose, from the console.
+//
+// # Why a person needs this door at all
+//
+// Everything in the store arrived one way: an agent decided, mid-turn, that something was worth
+// keeping and called `remember`. That is the right way for most of it — the agent is the one who
+// just learned the thing — but it left no way at all for a PERSON to say "this is a rule now". A
+// supervisor who has told three companions the same thing has to wait for one of them to write it
+// down, and hope it lands in the tier they meant.
+//
+// # Why it says who wrote it
+//
+// The source line separates the two. An agent's entry carries what it was doing when it learned it
+// (internal/app/execute.go); this carries the person and the console. Reading a rule you did not
+// write, the first question is where it came from, and "somebody decided this" and "an agent
+// inferred it from one afternoon" deserve different amounts of trust.
+//
+// # Why it writes the file rather than asking a daemon
+//
+// The same reason /forget does: the store is a directory of files and the console already reads and
+// deletes from it. Routing a write through a daemon would mean picking WHICH daemon, and a team's
+// store belongs to no single companion — including a team that has nobody running at all.
+func (s *server) remember(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	body := strings.TrimSpace(r.FormValue("text"))
+	if body == "" {
+		http.Error(w, "nothing to write down", http.StatusBadRequest)
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	dir, err := s.storeDirFor(r, r.FormValue("tier"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// A fact, not a skill. A skill is a named procedure with a body, and a person typing one line
+	// into a box is stating something true — inventing a name for it would put a heading on the
+	// screen that nobody wrote.
+	c := port.Contribution{
+		Memories: []port.Memory{{Text: body}},
+		Source:   "console",
+	}
+	if who := strings.TrimSpace(r.FormValue("who")); who != "" {
+		c.Source = "console · " + text.Clip(who, 60)
+	}
+	if err := expgit.New(dir).Propose(r.Context(), c); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

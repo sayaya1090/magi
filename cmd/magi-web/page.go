@@ -1647,6 +1647,7 @@ function loadConsole() {
   fetchList('/console').then(c => {
     if (!c) return;
     consoleEl.replaceChildren();
+    embedModel = c.embedModel || '';
     for (const [k, val] of [['field.host', c.host], ['field.config', c.configDir]]) {
       if (!val) continue;
       const line = cell('');
@@ -2756,6 +2757,113 @@ async function loadIntervened(a) {
 }
 
 // ── what they have learned ───────────────────────────────────────────────────
+// What the organisation shares, and the two things a person does with it: find something, and
+// write something down.
+//
+// # Why the search is here and not only in an agent's hands
+//
+// A companion can ask another what it knows (magi --mcp). A person had no such thing: the screen
+// listed everything in whatever order the tiers came back in, and finding one rule among two
+// hundred meant reading two hundred. The same IDF ranking the agents' search uses runs here, over
+// the rows already fetched — no request, no round trip, and it narrows as you type.
+//
+// ⚠ Lexical, not semantic. The agents' search fuses in embeddings when a model is configured;
+// this one cannot, because the vectors live where the store is and this page holds only what
+// /skills returned. The heading says which model the machine is set up with, since that is the one
+// thing a person managing shared knowledge has to keep the same across a team — vectors from two
+// models are not comparable, and a search that quietly stopped matching is the symptom.
+let skillQuery = '';
+// Which model this machine embeds with, from /console. Empty is a real answer, not a missing one.
+let embedModel = '';
+
+// The same ranking the agents' search uses, in the page's own words: rare shared words first.
+//
+// Ported rather than fetched. It is nine lines, it runs over rows already in hand, and asking the
+// server would put a round trip between a keystroke and the list narrowing. ⚠ Two implementations
+// of one formula is the shape this tree keeps finding defects in — pinned here by a test that
+// checks this and internal/core/rank agree on the same corpus.
+function rankByIDF(query, docs) {
+  const toks = [...new Set(String(query).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3))];
+  if (!toks.length || !docs.length) return docs.map((_, i) => i);
+  const lower = docs.map(d => String(d).toLowerCase());
+  const df = Object.fromEntries(toks.map(t => [t, lower.filter(d => d.includes(t)).length]));
+  const n = docs.length;
+  const hits = [];
+  for (let i = 0; i < n; i++) {
+    let score = 0, matched = 0;
+    for (const t of toks) {
+      if (lower[i].includes(t)) {
+        score += Math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5));
+        matched++;
+      }
+    }
+    if (matched) hits.push({i: i, score: score, matched: matched});
+  }
+  hits.sort((a, b) => b.score - a.score || b.matched - a.matched || a.i - b.i);
+  return hits.map(h => h.i);
+}
+
+// The screen's own controls: find something, and write something down.
+//
+// Rebuilt on every load rather than kept, because the list behind it is — and a box whose value
+// survived while the rows under it were replaced is a box that lies about what it is filtering.
+// The typed text is held outside, in skillQuery, which is the part that must survive.
+function skillTools(all) {
+  const box = cell('sktools');
+
+  const find = document.createElement('md-outlined-text-field');
+  find.setAttribute('label', tr('label.find'));
+  find.value = skillQuery;
+  find.addEventListener('input', () => { skillQuery = find.value; loadSkills(); });
+  box.append(find);
+
+  // Where it goes. Named tiers rather than "share this": the whole decision on this screen is how
+  // far something reaches, and a control that hid it would be deciding on somebody's behalf.
+  const where = document.createElement('md-outlined-select');
+  where.setAttribute('label', tr('label.reaches'));
+  const teams = [...new Set(all.filter(s => s.tier === 'team' && s.team).map(s => s.team))].sort();
+  const opts = [['global', tr('reach.every_companion')],
+                ...teams.map(t => ['team:' + t, tr('reach.team', {team: t})])];
+  for (const [value, label] of opts) {
+    const o = document.createElement('md-select-option');
+    o.value = value;
+    const h = document.createElement('div');
+    h.setAttribute('slot', 'headline');
+    h.textContent = label;
+    o.append(h);
+    where.append(o);
+  }
+  box.append(where);
+
+  const note = document.createElement('md-outlined-text-field');
+  note.setAttribute('label', tr('label.write_down'));
+  note.setAttribute('type', 'textarea');
+  note.setAttribute('rows', '1');
+  box.append(note);
+
+  const save = document.createElement('md-filled-button');
+  save.textContent = tr('action.write_down');
+  save.onclick = () => {
+    const v = note.value.trim();
+    if (!v) return;
+    // The select resolves its value against the option it chose, and the options are custom
+    // elements — so it is read here rather than held, and defaulted rather than guessed.
+    const pick = where.value || 'global';
+    const body = new URLSearchParams({text: v, tier: pick.startsWith('team:') ? 'team' : 'global'});
+    if (pick.startsWith('team:')) body.set('team', pick.slice(5));
+    post('/remember', body).then(() => { note.value = ''; loadSkills(); });
+  };
+  box.append(save);
+
+  // Which model the searches on this machine are built on. It belongs on this screen because it is
+  // the one setting a person managing shared knowledge has to keep the same across a team: vectors
+  // from two models are not comparable, and the symptom is a search that quietly stops matching.
+  const model = cell('skmodel');
+  model.textContent = tr(embedModel ? 'embed.model' : 'embed.none', {model: embedModel});
+  box.append(model);
+  return box;
+}
+
 async function loadSkills() {
   const list = await fetchList('/skills');
   if (!list) return;
@@ -2766,10 +2874,23 @@ async function loadSkills() {
                       (list.length - rules) + ' remembered · ' +
                       crossing + ' crossing every companion';
   if (!list.length) {
-    skillsEl.replaceChildren(emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
+    skillsEl.replaceChildren(skillTools(list), emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
     return;
   }
-  skillsEl.replaceChildren(...list.map(sk => {
+  // Ranked, not filtered on a substring: "cache" should find the rule about prompt caching before
+  // the one that merely mentions caches in passing, and a substring match cannot order anything.
+  let shown = list;
+  if (skillQuery.trim()) {
+    const docs = list.map(sk => [sk.description, sk.name, sk.body, sk.source].filter(Boolean).join(' '));
+    const order = rankByIDF(skillQuery, docs);
+    shown = order.map(i => list[i]);
+  }
+  if (!shown.length) {
+    skillsEl.replaceChildren(skillTools(list),
+      emptyState('empty.no_match', 'empty.no_match_how'));
+    return;
+  }
+  skillsEl.replaceChildren(skillTools(list), ...shown.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',

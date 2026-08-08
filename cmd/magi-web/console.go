@@ -36,13 +36,18 @@ type consoleInfo struct {
 	// are the same question asked from either end, and answering only half of it invites a second
 	// endpoint later that disagrees with this one.
 	Peers []string `json:"peers,omitempty"`
+	// EmbedModel is what searches on this machine turn text into vectors with, or empty for none.
+	// It is here rather than on a settings screen because it is a COMPATIBILITY fact about the
+	// team: vectors from two models are not comparable, so two companions on different ones share
+	// no search at all, and the symptom is a search that quietly stops matching.
+	EmbedModel string `json:"embedModel,omitempty"`
 }
 
 func (s *server) console(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	out := consoleInfo{ConfigDir: s.cfgDir}
+	out := consoleInfo{ConfigDir: s.cfgDir, EmbedModel: s.embedModel}
 	// A host that cannot be read is left empty rather than filled with a guess: the page draws the
 	// lines it has, and "unknown" on a screen answering "which machine is this" is worse than the
 	// line not being there.

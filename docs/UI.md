@@ -629,8 +629,11 @@ Listed with what each would actually take, so none of them reads as a wish.
   way to start one. Deliberately, for now —
   [`proposals/provisioning-2026-08-08.md`](proposals/provisioning-2026-08-08.md) argues the unit is
   a machine rather than a process, which makes it a different tool's job.
-- **A child's clone is not drawn.** `internal/app/workspace.go` gives every child agent its own
-  checkout and merges the work back, and no screen says which clone a child worked in or what came
-  back.
+- ⚠ **A child's clone is not drawn, and there is nothing to draw.** `internal/app/workspace.go`
+  does give every child its own checkout and merge the work back — but the only path that makes a
+  child is a plugin declaring the `spawn` capability, and the one plugin compiled into the binary
+  (`engram`) does not declare it. The two that do are examples and are not shipped. So on a default
+  install no child clone exists, and a screen for them would be permanently empty — the same reason
+  the board has no unassigned column (§2.3).
 - **The report's section names are untranslated** (§2.6), and cannot be while a custom skill can
   name its own.
