@@ -175,6 +175,11 @@ const demoScript = `
        request: 'confirm the invoice endpoint is idempotent'},
     ],
   };
+  // A demo cannot notify anybody: there is no console behind it to watch a fleet, and the service
+  // worker the switch would register is not among the files exported here. Said out loud rather
+  // than left to fail as "ServiceWorker registration failed", which reads as a broken page instead
+  // of a copy of one. The page reads this flag; nothing else does.
+  globalThis.MAGI_DEMO = true;
   const banner = document.createElement('div');
   banner.className = 'demo-banner';
   // The rail is fixed to the top of the window and knows nothing about this notice, so on a wide

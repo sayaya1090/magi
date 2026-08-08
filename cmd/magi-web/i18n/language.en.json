@@ -45,6 +45,7 @@
   "field.config": "config",
   "notify.k": "notifications",
   "notify.on": "turn on",
+  "notify.demo": "This is the demo. A running console can notify you; this copy has nothing watching a fleet.",
   "notify.off": "turn off",
   "notify.how": "This browser will be told when a companion starts waiting, even with the page closed.",
   "notify.is_on": "This browser is subscribed. Add the page to a home screen to be woken there too.",

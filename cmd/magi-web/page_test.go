@@ -48,6 +48,46 @@ func TestThePageFetchesNothingItDoesNotServe(t *testing.T) {
 		}
 		t.Errorf("the page references %q and this server has no such route", u)
 	}
+
+	// ES imports, which are not href or src and are how this check was got past. `import
+	// '/vendor/material.js'` answered 404 on a real console — and a module whose import fails does
+	// not run AT ALL, so there were no components, no script and no language beyond the seed. It
+	// went unnoticed because the static demo writes those files to disk beside the page, and every
+	// review of this console for weeks was a review of the demo.
+	imp := regexp.MustCompile(`(?m)^\s*import\s+(?:[^'"]*from\s*)?['"]([^'"]+)['"]`)
+	for _, m := range imp.FindAllStringSubmatch(indexHTML, -1) {
+		u := m[1]
+		if !strings.HasPrefix(u, "/") {
+			t.Errorf("the page imports %q, which is not a root-relative path on this server", u)
+			continue
+		}
+		if _, ok := served[u]; ok {
+			continue
+		}
+		if i := strings.LastIndexByte(u, '/'); i > 0 {
+			if _, ok := served[u[:i+1]]; ok {
+				continue
+			}
+		}
+		t.Errorf("the page imports %q and this server has no such route — a module whose import "+
+			"404s does not run at all, so the whole page goes dark", u)
+	}
+
+	// And the language packs, which the page fetches at runtime from a path it BUILDS, so no
+	// scanner of this text can see them. Every pack that ships has to be reachable, or a reader
+	// whose browser asks for one gets the English seed and no way to tell why.
+	packs, err := assetFS.ReadDir("i18n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) == 0 {
+		t.Fatal("no language packs are embedded; this check is measuring nothing")
+	}
+	for _, p := range packs {
+		if _, ok := served["/i18n/"]; !ok {
+			t.Fatalf("nothing serves /i18n/, so %s never reaches a browser", p.Name())
+		}
+	}
 }
 
 // Both themes are declared. A terminal that follows the system theme and a browser stuck in dark

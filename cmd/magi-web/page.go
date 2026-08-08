@@ -1687,6 +1687,12 @@ async function paintNotify() {
     notifyBtn.disabled = !on;
   };
   document.getElementById('notifyK').textContent = tr('notify.k');
+  // The static demo has no console behind it and does not export the worker. Checked first, because
+  // every reason below it would be the browser's and this one is the page's.
+  if (globalThis.MAGI_DEMO) {
+    notifyBtn.textContent = tr('notify.on');
+    return why('notify.demo', false);
+  }
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     notifyBtn.textContent = tr('notify.on');
     return why('notify.unsupported', false);

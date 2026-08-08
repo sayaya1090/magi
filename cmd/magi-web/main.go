@@ -470,19 +470,25 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,
 		"/font/":                s.font,
-		"/interventions":        s.interventions,
-		"/skills":               s.skills,
-		"/forget":               s.forgetSkill,
-		"/context":              s.context,
-		"/dispatch":             s.dispatch,
-		"/mcp":                  s.mcp,
-		"/handoffs":             s.handoffs,
-		"/plan":                 s.plan,
-		"/compact":              s.compact,
-		"/console":              s.console,
-		"/history":              s.history,
-		"/push":                 s.push,
-		"/sw.js":                s.serviceWorker,
+		// The page's own two subtrees. Missing, `import '/vendor/material.js'` answered 404, which
+		// fails the whole ES module — so on a real console NOTHING ran: no components, no script, no
+		// language beyond the seed inlined above. The demo hid it for as long as it existed, because
+		// a static export writes these files to disk beside the page.
+		"/vendor/":       s.asset,
+		"/i18n/":         s.asset,
+		"/interventions": s.interventions,
+		"/skills":        s.skills,
+		"/forget":        s.forgetSkill,
+		"/context":       s.context,
+		"/dispatch":      s.dispatch,
+		"/mcp":           s.mcp,
+		"/handoffs":      s.handoffs,
+		"/plan":          s.plan,
+		"/compact":       s.compact,
+		"/console":       s.console,
+		"/history":       s.history,
+		"/push":          s.push,
+		"/sw.js":         s.serviceWorker,
 	}
 }
 
