@@ -12,6 +12,7 @@
   "action.answer": "answer",
   "action.forget": "forget",
   "action.remove": "remove",
+  "action.confirm": "confirm?",
   "action.compact_now": "compact now",
   "action.add_or_replace": "add or replace",
   "action.promote_project": "to this project",

@@ -860,9 +860,22 @@ const indexHTML = `<!doctype html>
      button (the border-bottom that used to be here did exactly that), and the font it set never
      reached the label, which lives in a shadow root. letter-spacing and text-transform are the
      two that do cross the boundary, being inherited properties, so those stay as they are. */
+  /* An armed control asks rather than warns, and it is the asking that is red. Before this the
+     error colour was on :hover, which a touch screen does not have — so the surface where a
+     misplaced thumb is likeliest carried no signal at all. */
+  md-text-button.armed {
+    --md-text-button-label-text-color:var(--error);
+    --md-text-button-hover-label-text-color:var(--error);
+    --md-text-button-hover-state-layer-color:var(--error);
+  }
   md-text-button {
     --md-text-button-label-text-font: var(--mono);
-    --md-text-button-label-text-size: 11px;
+    /* label-large, the role M3 assigns to a button. It was 11px — label-SMALL, a scale value in the
+       wrong role — on eight of the page's twelve buttons. The editorial identity is the face and
+       the letterspacing, both of which stay; M3 asks for a different typeface to keep the scale,
+       not for the scale to be shrunk to fit a look. */
+    --md-text-button-label-text-size: 14px;
+    --md-text-button-label-text-line-height: 20px;
     --md-text-button-label-text-weight: 600;
     --md-text-button-label-text-color: var(--muted);
     --md-text-button-hover-label-text-color: var(--primary);
@@ -1501,6 +1514,33 @@ function markWaiting(n) {
   }
 }
 
+// arm makes a destructive control ask once before it acts.
+//
+// M3's answer to a destructive action is a confirmation, not a colour, and this page had neither:
+// forget and remove posted on the first press, and the only warning was an error colour that
+// appeared on HOVER — which does not exist on a phone, so on the surface where a misplaced thumb is
+// likeliest there was no warning at all.
+//
+// Two presses rather than a dialog. A dialog for "forget this lesson" is heavier than the act it
+// guards, and it would take a component this page does not carry; the second press is the same
+// gesture, one row away from where the eye already is. The error colour arrives with the question,
+// so the colour appears exactly when it means something.
+//
+// It disarms itself after a few seconds. An armed control left sitting is one that will be pressed
+// by somebody who has forgotten what it asked.
+function arm(btn, label, act) {
+  let armed = false, timer = 0;
+  btn.textContent = label;
+  const reset = () => { armed = false; btn.className = btn.className.replace(' armed', ''); btn.textContent = label; };
+  btn.onclick = () => {
+    if (armed) { clearTimeout(timer); reset(); act(); return; }
+    armed = true;
+    btn.className += ' armed';
+    btn.textContent = tr('action.confirm');
+    timer = setTimeout(reset, 5000);
+  };
+}
+
 // jumpToFirstRow brings the top row of the filtered list into view.
 //
 // Filtering alone was not enough. On a phone the list starts below a screen of masthead and
@@ -2043,15 +2083,15 @@ async function loadSkills() {
       (sk.peer ? tr('reach.on_peer', {peer: sk.peer}) : '')));
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('md-text-button');
-    drop.className = 'drop'; drop.textContent = tr('action.forget');
+    drop.className = 'drop';
     drop.title = 'remove this rule from the store';
-    drop.onclick = () => {
+    arm(drop, tr('action.forget'), () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
       // peer name is how this one knows which machine to ask; a global rule has no socket and the
       // peer name alone routes it.
       post('/forget', new URLSearchParams({name: sk.name, tier: sk.tier}),
            sk.tier === 'project' ? sk.socket : null, sk.peer).then(loadSkills);
-    };
+    });
     top.append(drop);
     el.append(top);
     // A rule tells the companion what to do and a fact tells it what is true. Governed the same
@@ -2092,13 +2132,13 @@ async function loadMCP() {
     top.append(cell('tier', sv.tier === 'global' ? 'every companion here' : 'only ' + sv.companion));
     top.append(cell('what', sv.name));
     const drop = document.createElement('md-text-button');
-    drop.className = 'drop'; drop.textContent = tr('action.remove');
+    drop.className = 'drop';
     drop.title = 'delete this definition from ' + sv.file;
-    drop.onclick = () => {
+    arm(drop, tr('action.remove'), () => {
       const body = new URLSearchParams({name: sv.name, delete: '1'});
       if (!sv.socket) body.set('tier', 'global');
       post('/mcp', body, sv.socket || null).then(loadMCP);
-    };
+    });
     top.append(drop);
     el.append(top);
     // The transport, complete and unprettified: this line is the answer to "what actually runs".

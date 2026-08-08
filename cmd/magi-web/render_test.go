@@ -1247,6 +1247,8 @@ console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST')}));
 // The tier is the whole of context hygiene and the page has to make it impossible to miss: "every
 // companion" and "only this one" are different sentences, not a colour difference, because the
 // decision a supervisor makes on this page is exactly which of the two a rule should be.
+const tr_forget = "forget"
+
 func TestTheSkillsPageSaysWhatEachRuleReaches(t *testing.T) {
 	got := runPage(t, `[]`, "?v=skills", `
 globalThis.fetch = async (p, init) => {
@@ -1258,10 +1260,17 @@ globalThis.fetch = async (p, init) => {
 };
 await loadSkills();
 const rows = byId.skills.children;
-rows[1].find('md-text-button')[0].onclick();
+const drop = rows[1].find('md-text-button')[0];
+// Once asks. A destructive control that acts on the first press has no confirmation at all, and
+// the error colour it used to rely on lives on :hover, which a touch screen does not have.
+drop.onclick();
+const afterOne = {posts: RENDERED.filter(r => r.method === 'POST').length,
+                  label: drop.textContent, armed: (drop.className || '').includes('armed')};
+drop.onclick();
 console.log(JSON.stringify({
   rows: rows.map(r => ({cls: r.className, text: r.text})),
   state: byId.state.text,
+  afterOne,
   posts: RENDERED.filter(r => r.method === 'POST'),
 }));
 `)
@@ -1293,10 +1302,19 @@ console.log(JSON.stringify({
 	if !strings.Contains(got["state"].(string), "1 crossing") {
 		t.Errorf("the header does not count what crosses: %q", got["state"])
 	}
+	// One press asks and sends nothing; the second acts.
+	one := got["afterOne"].(map[string]any)
+	if one["posts"].(float64) != 0 {
+		t.Errorf("the first press already sent %v requests — nothing asked", one["posts"])
+	}
+	if one["armed"] != true || one["label"] == tr_forget {
+		t.Errorf("the first press did not turn the control into a question: %+v", one)
+	}
+
 	// Forgetting a project rule names the companion it belongs to; a global one has nobody to name.
 	posts := got["posts"].([]any)
 	if len(posts) != 1 {
-		t.Fatalf("pressing forget sent %d requests", len(posts))
+		t.Fatalf("confirming forget sent %d requests", len(posts))
 	}
 	u := posts[0].(map[string]any)["fetched"].(string)
 	if !strings.Contains(u, "/forget?d=") {
@@ -1649,7 +1667,8 @@ for (const i of form.find('md-outlined-text-field')) {
 form.find('md-outlined-select')[0].value = '/s/a.sock';
 await form.onsubmit({preventDefault(){}});
 const drops = byId.mcp.find('md-text-button').filter(b => (b.className || '').split(' ').includes('drop'));
-drops[1].onclick();
+drops[1].onclick();   // asks
+drops[1].onclick();   // acts
 console.log(JSON.stringify({text, state: byId.state.text, posts: RENDERED.filter(r => r.to)}));
 `)
 	text := got["text"].(string)
