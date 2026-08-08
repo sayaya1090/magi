@@ -3,10 +3,14 @@ package mcpserve
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/embed"
 )
 
 // A store with three things written in it, one of which is about the topic under test.
@@ -241,4 +245,65 @@ func textOf(t *testing.T, line string) string {
 		t.Fatalf("no content: %s", line)
 	}
 	return r.Result.Content[0].Text
+}
+
+// A word that is not in the store still finds the entry, when a model is there to say they mean
+// the same thing — and the answer says which kind of search it was.
+//
+// This is the one thing lexical ranking cannot do. "billing" and "invoice" share no characters, so
+// no amount of IDF will connect them; every real question is phrased in the asker's words rather
+// than in the words the answer happened to use.
+func TestASemanticSearchFindsWhatTheWordsDoNot(t *testing.T) {
+	// A backend that says the query is close to the invoice entry and far from the others. Faked,
+	// because what is being tested here is the fusion and the reporting — the client that talks to
+	// a real endpoint is tested against one in internal/core/embed.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		data := make([]map[string]any, len(in.Input))
+		for i, text := range in.Input {
+			// Anything about invoices or billing points one way; everything else the other.
+			v := []float32{0, 1}
+			if strings.Contains(text, "invoice") || strings.Contains(text, "billing") {
+				v = []float32{1, 0}
+			}
+			data[i] = map[string]any{"index": i, "embedding": v}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer srv.Close()
+
+	s := &Server{Name: "api", Dir: store(t), Embed: &embed.Client{
+		BaseURL: srv.URL + "/v1", Model: "m", CacheDir: t.TempDir(), HTTP: srv.Client(),
+	}}
+	got := textOf(t, call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"knows","arguments":{"about":"billing"}}}`+"\n"))
+	if !strings.Contains(got, "invoice-retry") {
+		t.Errorf("a word the store never uses found nothing:\n%s", got)
+	}
+	if !strings.Contains(got, "meaning") {
+		t.Errorf("the answer does not say it was a semantic search:\n%s", got)
+	}
+
+	// Without a model, the same question finds nothing — and says why, so nobody reads the miss as
+	// "this companion knows nothing about billing".
+	plain := &Server{Name: "api", Dir: store(t)}
+	got = textOf(t, call(t, plain, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"knows","arguments":{"about":"billing"}}}`+"\n"))
+	if strings.Contains(got, "invoice-retry") {
+		t.Errorf("a lexical search matched a word that is not in the store:\n%s", got)
+	}
+
+	// And a backend that is down costs the semantic half, not the answer.
+	srv.Close()
+	broken := &Server{Name: "api", Dir: store(t), Embed: &embed.Client{
+		BaseURL: srv.URL + "/v1", Model: "m", CacheDir: t.TempDir(), HTTP: srv.Client(),
+	}}
+	got = textOf(t, call(t, broken, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"knows","arguments":{"about":"idempotency retry"}}}`+"\n"))
+	if !strings.Contains(got, "invoice-retry") {
+		t.Errorf("a dead embedding endpoint took the whole search down:\n%s", got)
+	}
+	if !strings.Contains(got, "no embeddings") {
+		t.Errorf("the search quietly became worse and did not say so:\n%s", got)
+	}
 }

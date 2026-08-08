@@ -39,6 +39,7 @@ import (
 	"strings"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/rank"
 	"github.com/sayaya1090/magi/internal/core/text"
 )
@@ -55,6 +56,10 @@ type Server struct {
 	Dir string
 	// Now is injectable so a test can assert on what is rendered rather than on today's date.
 	Now func() string
+	// Embed is optional. With it, a search finds a note about the invoice job when the question was
+	// about billing; without it, the search is lexical and says so. Never fatal: an endpoint that
+	// is absent, refusing or slow costs the semantic half and nothing else.
+	Embed *embed.Client
 }
 
 // entry is one thing this companion wrote down, flattened out of the store's two kinds.
@@ -119,21 +124,22 @@ func (s *Server) knows(ctx context.Context, about string, limit int) string {
 		// the table somebody asked about should be findable by the table.
 		docs[i] = e.Title + " " + e.Body
 	}
-	hits := rank.ByIDF(about, docs)
-	if len(hits) == 0 {
+	lexical := rank.ByIDF(about, docs)
+	order, how := s.fuse(ctx, about, docs, lexical)
+	if len(order) == 0 {
 		// Named, so the caller can tell "nothing on this" from "wrong companion". Without it the
 		// two look identical and the caller asks the same question again somewhere else.
 		return fmt.Sprintf("%s has %d entries and none of them mention %q.", s.Name, len(all), about)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s on %q — %d of %d entries, best first. Ask `detail` with an id for the whole thing.\n",
-		s.Name, about, min(len(hits), limit), len(all))
-	for i, h := range hits {
+	fmt.Fprintf(&b, "%s on %q — %d of %d entries, %s, best first. Ask `detail` with an id for the whole thing.\n",
+		s.Name, about, min(len(order), limit), len(all), how)
+	for i, at := range order {
 		if i == limit {
-			fmt.Fprintf(&b, "\n(+%d weaker matches — narrow the topic)\n", len(hits)-limit)
+			fmt.Fprintf(&b, "\n(+%d weaker matches — narrow the topic)\n", len(order)-limit)
 			break
 		}
-		e := all[h.Index]
+		e := all[at]
 		fmt.Fprintf(&b, "\n%s · %s · %s", e.Kind, e.ID, e.Title)
 		if e.Observed > 1 {
 			fmt.Fprintf(&b, " · seen %d×", e.Observed)
@@ -144,6 +150,54 @@ func (s *Server) knows(ctx context.Context, about string, limit int) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// fuse blends the lexical ranking with a semantic one, and says which the caller got.
+//
+// Said out loud because the two answer differently and a reader has to know which they are holding:
+// a lexical search that found nothing means those words are not in the store, and a semantic one
+// that found nothing means rather more than that. A search that silently became worse — the model
+// endpoint went away — is a search whose results nobody can interpret.
+func (s *Server) fuse(ctx context.Context, about string, docs []string, lexical []rank.Hit) ([]int, string) {
+	lex := make([]int, len(lexical))
+	for i, h := range lexical {
+		lex[i] = h.Index
+	}
+	if !s.Embed.Available() {
+		return lex, "by wording"
+	}
+	// The documents and the query in one request; the documents are cached after the first search,
+	// so the steady-state cost is one embedding for the query.
+	vecs, err := s.Embed.Embed(ctx, append(append([]string{}, docs...), about))
+	if err != nil || len(vecs) != len(docs)+1 {
+		// Reported in the answer rather than swallowed. The caller asked a question and got the
+		// lexical answer to it, which is a fine answer as long as nobody thinks it was the other.
+		return lex, "by wording only — no embeddings (" + errWord(err) + ")"
+	}
+	q := vecs[len(vecs)-1]
+	type sim struct {
+		at    int
+		score float64
+	}
+	var sims []sim
+	for i := range docs {
+		if c := embed.Cosine(vecs[i], q); c > 0 {
+			sims = append(sims, sim{i, c})
+		}
+	}
+	sort.SliceStable(sims, func(a, b int) bool { return sims[a].score > sims[b].score })
+	sem := make([]int, len(sims))
+	for i, sm := range sims {
+		sem[i] = sm.at
+	}
+	return embed.Fuse(lex, sem), "by wording and meaning"
+}
+
+func errWord(err error) string {
+	if err == nil {
+		return "the backend answered with the wrong number of vectors"
+	}
+	return text.Clip(err.Error(), 120)
 }
 
 // detail returns one entry whole.

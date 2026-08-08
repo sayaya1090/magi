@@ -43,8 +43,15 @@ type CompanionConfig struct {
 }
 
 type Config struct {
-	Model         string               `toml:"model"`
-	BaseURL       string               `toml:"base_url"`
+	Model   string `toml:"model"`
+	BaseURL string `toml:"base_url"`
+	// EmbedModel names the model that turns text into vectors, for the semantic half of searching
+	// what a companion wrote down. Empty means lexical search only, which is the default: an
+	// embedding model is a second model to install and its endpoint is often not the chat one —
+	// Anthropic has none at all and points at Voyage, and vLLM answers only when it is serving an
+	// embedding model. MAGI_EMBED_BASE_URL and MAGI_EMBED_API_KEY point it elsewhere; unset, they
+	// follow the chat backend, which is right for Ollama and for a LiteLLM proxy.
+	EmbedModel    string               `toml:"embed_model"`
 	APIKey        string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
 	Permission    string               `toml:"permission"`
 	MCP           map[string]MCPServer `toml:"mcp"`            // name -> server

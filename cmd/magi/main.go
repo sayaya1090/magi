@@ -39,6 +39,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/event"
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -464,9 +465,30 @@ func run() int {
 			fmt.Fprintf(os.Stderr, "magi: %s published no workspace, so there is no store to read\n", who.Name)
 			return 1
 		}
+		// Embeddings are their own backend, not the chat one.
+		//
+		// The SHAPE is near-universal — OpenAI, Voyage, Ollama, vLLM and LiteLLM all answer
+		// POST /v1/embeddings with {model, input[]} — but the endpoint magi is pointed at for chat
+		// may not serve it at all: Anthropic has no embedding model and its own documentation
+		// sends you to Voyage, and vLLM only answers when the model it is serving is an embedding
+		// model. So the URL and key default to the chat ones, which is right for a local Ollama or
+		// a LiteLLM proxy, and can be pointed elsewhere for everything else.
+		//
+		// No model named means no semantic half, and the search says so rather than quietly
+		// becoming a worse search.
+		emb := &embed.Client{
+			BaseURL:  env("MAGI_EMBED_BASE_URL", *baseURL),
+			APIKey:   env("MAGI_EMBED_API_KEY", *apiKey),
+			Model:    env("MAGI_EMBED_MODEL", cfg.EmbedModel),
+			CacheDir: filepath.Join(plat.ConfigDir(), "embeddings"),
+			// stderr, because stdout is the MCP conversation and a warning written there would be
+			// a line the client cannot parse.
+			Warn: func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) },
+		}
 		srv := &mcpserve.Server{
 			Name: who.Name, Role: who.Role,
-			Dir: filepath.Join(who.Workdir, ".magi", "experience"),
+			Dir:   filepath.Join(who.Workdir, ".magi", "experience"),
+			Embed: emb,
 		}
 		if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "magi:", err)
