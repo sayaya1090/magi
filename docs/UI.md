@@ -710,6 +710,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 | A27 | 보드 카드가 **directly actionable인데 그 안에 동작하는 칩**이 있다(`e.stopPropagation()`이 증거) | 카드는 **동작하는 표면**이거나 **동작을 담는 컨테이너**, **둘 중 하나**. "An action shouldn't be placed on an actionable surface" | components/cards(accessibility) | **중간** — ⚠ guidelines 탭만 보고 "허용"이라 적었던 것을 **뒤집음** |
 | A28 | 보드 카드의 라벨 칩이 **`<div>` + `onclick`** — 탭 스톱도 역할도 없다 | "**모든 동작 요소는 탭 스톱**이어야", "**스크린리더 포커스와 키보드 포커스를 둘 다**" | components/cards(accessibility) | **중간** — **키보드로 라벨 필터를 쓸 방법이 없다** |
 | A29 | 툴팁 7개가 전부 **네이티브 `title`** — **키보드 포커스에서 안 뜨고** Tooltip 역할도 없다 | "hovered **or focused**", "**Tooltip role**" | components/tooltips(accessibility) | **중간** — ⚠ 번들에 툴팁 컴포넌트가 **없다**(0건). A19와 한 번에 고칠 것: ①벤더링 추가 ②`title`+포커스 자체 구현 |
+| A30 | 검색 결과가 바뀌어도 **아무것도 알리지 않는다** — `aria-live`·`role="status"`·`role="log"` **전부 0건** | "When search suggestions and results appear, the screen reader **must** announce the change" | components/search(accessibility) | **중간** — ⚠ **A25와 한 뿌리**(이 페이지에 변화를 알리는 영역이 하나도 없다). 오류·검색결과·연결상태를 **한 번에** 고칠 것 |
 
 **철회된 항목**: A2(compact `md-tabs`) — 목적지가 셋 미만이면 가이드가 탭을 지시한다.
 A3(74ch) — 큰 화면 천장은 120자다. 둘 다 **고쳤다면 위반을 만들었을 것**이다.
