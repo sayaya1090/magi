@@ -209,6 +209,37 @@ const demoScript = `
 
   // Kept before the mock takes over: the language packs are real files sitting beside this page,
   // and they are the one thing here that must NOT be answered by a fixture.
+  // ── the mock runs ────────────────────────────────────────────────────────
+  // A still fixture cannot show what this page spends most of its code on: the fleet poll, the
+  // board rebuilding itself, the transcript arriving a frame at a time, the live region announcing
+  // a change. Those were unverifiable here — the demo answered once and never again — so the
+  // things built for them could only be reasoned about, never watched. This ticks.
+  //
+  // It moves the fixture, not the page. Every mutation below is the shape a real handler would
+  // return a second later; nothing reaches into the console's own code.
+  let beat = 0;
+  setInterval(() => {
+    beat++;
+    for (const a of fleet) {
+      if (a.state === 'working') { a.steps++; a.idle = 0; }
+      else if (a.live) a.idle++;
+    }
+    // The one thing a person watches this page for: a companion stops working and starts waiting.
+    // On the fourth beat, so it is visibly a change rather than the state it opened in.
+    if (beat === 4) {
+      const d = fleet.find(a => a.name === 'design');
+      if (d) { d.state = 'waiting'; d.asking = 'the empty state needs a word for "nothing yet" — pick one'; d.askKind = 'question'; d.askId = 'call_77'; }
+    }
+    // And a new piece of work lands on the board, which is the view that had no way to change at
+    // all before this.
+    if (beat === 7) {
+      const runs = HISTORY['/demo/api.sock'] || (HISTORY['/demo/api.sock'] = []);
+      runs.unshift({title: 'retry the failed invoice sync', started: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+                    current: true, model: 'qwen3-coder-next', labels: ['billing', 'retry']});
+    }
+    if (beat === 12) beat = 0;
+  }, 3000);
+
   const realFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (path, init) => {
     const url = String(path).split('?')[0];
@@ -234,15 +265,25 @@ const demoScript = `
   // The transcript arrives over SSE, which a static host cannot serve either.
   globalThis.EventSource = class {
     constructor() {
-      setTimeout(() => this.onmessage && this.onmessage({data: JSON.stringify([
+      // Delivered a turn at a time, the way the real stream does — the page re-renders the whole
+      // transcript per frame, and a demo that hands it the finished conversation never shows that.
+      const turns = [
         {who: 'user', text: 'spec the empty state for the fleet table, and name the exact tokens'},
         {who: 'assistant', text: 'Reading what the empty states do today.'},
         {who: 'tool', text: 'grep "empty" cmd/magi-web/page.go'},
         {who: 'result', text: 'page.go:612  e.innerHTML = \'Nothing learned yet.<br>\''},
         {who: 'assistant', text: 'Three of them, and none says what would be there. Writing the spec.'},
-      ])}), 60);
+      ];
+      let n = 0;
+      const step = () => {
+        n++;
+        if (this.onopen && n === 1) this.onopen();
+        if (this.onmessage) this.onmessage({data: JSON.stringify(turns.slice(0, n))});
+        if (n < turns.length) this.timer = setTimeout(step, 1400);
+      };
+      this.timer = setTimeout(step, 200);
     }
-    close() {}
+    close() { clearTimeout(this.timer); }
   };
 })();
 </script>
