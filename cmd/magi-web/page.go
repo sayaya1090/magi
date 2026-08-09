@@ -145,35 +145,35 @@ const indexHTML = `<!doctype html>
     --md-ref-typeface-plain:var(--mono);
     --md-ref-typeface-brand:var(--display);
     --md-sys-typescale-label-small-font:var(--mono);
-    --md-sys-typescale-label-small-size:11px;
-    --md-sys-typescale-label-small-line-height:16px;
+    --md-sys-typescale-label-small-size:0.6875rem;
+    --md-sys-typescale-label-small-line-height:1rem;
     --md-sys-typescale-label-medium-font:var(--mono);
-    --md-sys-typescale-label-medium-size:12px;
-    --md-sys-typescale-label-medium-line-height:16px;
+    --md-sys-typescale-label-medium-size:0.75rem;
+    --md-sys-typescale-label-medium-line-height:1rem;
     --md-sys-typescale-label-large-font:var(--mono);
-    --md-sys-typescale-label-large-size:14px;
-    --md-sys-typescale-label-large-line-height:20px;
+    --md-sys-typescale-label-large-size:0.875rem;
+    --md-sys-typescale-label-large-line-height:1.25rem;
     --md-sys-typescale-body-small-font:var(--mono);
-    --md-sys-typescale-body-small-size:12px;
-    --md-sys-typescale-body-small-line-height:16px;
+    --md-sys-typescale-body-small-size:0.75rem;
+    --md-sys-typescale-body-small-line-height:1rem;
     --md-sys-typescale-body-medium-font:var(--mono);
-    --md-sys-typescale-body-medium-size:14px;
-    --md-sys-typescale-body-medium-line-height:20px;
+    --md-sys-typescale-body-medium-size:0.875rem;
+    --md-sys-typescale-body-medium-line-height:1.25rem;
     --md-sys-typescale-body-large-font:var(--mono);
-    --md-sys-typescale-body-large-size:16px;
-    --md-sys-typescale-body-large-line-height:24px;
-    --md-sys-typescale-title-small-font:var(--display);
-    --md-sys-typescale-title-small-size:14px;
-    --md-sys-typescale-title-small-line-height:20px;
-    --md-sys-typescale-title-medium-font:var(--display);
-    --md-sys-typescale-title-medium-size:16px;
-    --md-sys-typescale-title-medium-line-height:24px;
+    --md-sys-typescale-body-large-size:1rem;
+    --md-sys-typescale-body-large-line-height:1.5rem;
+    --md-sys-typescale-title-small-font:var(--mono);
+    --md-sys-typescale-title-small-size:0.875rem;
+    --md-sys-typescale-title-small-line-height:1.25rem;
+    --md-sys-typescale-title-medium-font:var(--mono);
+    --md-sys-typescale-title-medium-size:1rem;
+    --md-sys-typescale-title-medium-line-height:1.5rem;
     --md-sys-typescale-title-large-font:var(--display);
-    --md-sys-typescale-title-large-size:22px;
-    --md-sys-typescale-title-large-line-height:28px;
+    --md-sys-typescale-title-large-size:1.375rem;
+    --md-sys-typescale-title-large-line-height:1.75rem;
     --md-sys-typescale-headline-small-font:var(--display);
-    --md-sys-typescale-headline-small-size:24px;
-    --md-sys-typescale-headline-small-line-height:32px;
+    --md-sys-typescale-headline-small-size:1.5rem;
+    --md-sys-typescale-headline-small-line-height:2rem;
   }
   /* Light, said twice on purpose.
 
@@ -268,8 +268,9 @@ const indexHTML = `<!doctype html>
      than by somebody remembering four rules. */
 
   /* ── the M3 shape scale, and nothing off it ───────────────────────────── */
-    /* 4 · 8 · 12 · 16 · 24 · full. Every radius on this page is one of these; the page used to be
-       2px everywhere, which is not a value the scale has. */
+    /* 4 · 8 · 12 · 16 · 28 · full. Every radius on this page is one of these; the page used to be
+       2px everywhere, which is not a value the scale has. The scale has no 24 — it steps 20 then 28,
+       and this page said 24 until it was measured against the token table. */
     --shape-xs:4px; --shape-s:8px; --shape-m:12px; --shape-l:16px; --shape-xl:28px;
     --shape-full:9999px;
 
