@@ -171,8 +171,8 @@ func TestABlockedAgentGetsTheButtonsThatAnswerIt(t *testing.T) {
 	for _, b := range card["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	if strings.Join(labels, "/") != "allow/always/deny" {
-		t.Errorf("the answer buttons are %v, want allow/always/deny", labels)
+	if strings.Join(labels, "/") != "Allow/Always/Deny" {
+		t.Errorf("the answer buttons are %v, want Allow/Always/Deny", labels)
 	}
 	if n := card["inputs"].(float64); n != 0 {
 		t.Errorf("a permission prompt drew %v text inputs; it is a choice, not a sentence", n)
@@ -195,8 +195,8 @@ func TestAQuestionGetsSomewhereToTypeTheAnswer(t *testing.T) {
 	for _, b := range card["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	if strings.Join(labels, "/") != "answer" {
-		t.Errorf("a question's buttons are %v, want a single answer", labels)
+	if strings.Join(labels, "/") != "Answer" {
+		t.Errorf("a question's buttons are %v, want a single Answer", labels)
 	}
 }
 
@@ -345,7 +345,7 @@ console.log(JSON.stringify({
 	for _, b := range got["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	if strings.Join(labels, "/") != "allow/always/deny" {
+	if strings.Join(labels, "/") != "Allow/Always/Deny" {
 		t.Errorf("the answer buttons on the agent's page are %v", labels)
 	}
 	// One agent is waiting, so the tab says so — this page is often behind an app switcher — and it
@@ -385,7 +385,7 @@ func TestTheTabTitleCountsEveryWaitingAgent(t *testing.T) {
 await loadFleet();
 console.log(JSON.stringify({title: document.title}));
 `)
-	if got["title"].(string) != "(2) magi · companions" {
+	if got["title"].(string) != "(2) magi · Companions" {
 		t.Errorf("the tab title is %q, and two agents are waiting", got["title"])
 	}
 }
@@ -476,7 +476,7 @@ console.log(JSON.stringify({tiles, rows: rows().length}));
 	for _, tl := range got["tiles"].([]any) {
 		got4 = append(got4, tl.(map[string]any)["k"].(string))
 	}
-	want := "1 waiting|1 working|1 idle|2 gone"
+	want := "1 Waiting|1 Working|1 Idle|2 Gone"
 	if strings.Join(got4, "|") != want {
 		t.Errorf("the summary reads %v, want %s", got4, want)
 	}
@@ -570,11 +570,11 @@ console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHe
 	// crumb reading "fleet" answers a question nobody asked and offers a way back to somewhere you
 	// have not been.
 	for _, tc := range []struct{ query, want, href string }{
-		{"", "companions", "/"},
-		{"?v=skills", "shared", "/?v=skills"},
+		{"", "Companions", "/"},
+		{"?v=skills", "Shared", "/?v=skills"},
 		// The old address still lands: what a companion can reach joined what it has learned, and
 		// a link somebody kept must not stop working because two lists became one screen.
-		{"?v=mcp", "shared", "/?v=skills"},
+		{"?v=mcp", "Shared", "/?v=skills"},
 	} {
 		// An empty fleet: the crumb is drawn by render() from the query alone, and handing the
 		// other views a list of agents makes them throw on data shaped for a different screen.
@@ -629,7 +629,7 @@ console.log(JSON.stringify({hidden: d.hidden, text: d.text}));
 	if got["hidden"].(bool) {
 		t.Fatal("the detail header is hidden on a companion's own page")
 	}
-	for _, want := range []string{"waiting", "/w/api", "mini", "10.0.0.12", "7"} {
+	for _, want := range []string{"Waiting", "/w/api", "mini", "10.0.0.12", "7"} {
 		if !strings.Contains(got["text"].(string), want) {
 			t.Errorf("the header does not say %q: %q", want, got["text"])
 		}
@@ -970,10 +970,10 @@ console.log(JSON.stringify({
       {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
        "asking":"which branch should this land on?","askId":"q1#1","askKind":"question","idle":5}]`,
 		"?d=%2Fs%2Fa.sock", probe)
-	if q["label"] != "your answer" {
+	if q["label"] != "Your answer" {
 		t.Errorf("the composer still asks for work while the agent waits on a question: %q", q["label"])
 	}
-	if q["send"] != "answer" {
+	if q["send"] != "Answer" {
 		t.Errorf("the button still says %q, which sends the text somewhere it will not be read", q["send"])
 	}
 	if q["support"] == "" {
@@ -987,7 +987,7 @@ console.log(JSON.stringify({
       {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
        "asking":"rm -rf build","askId":"p1#1","askKind":"permission","idle":3}]`,
 		"?d=%2Fs%2Fa.sock", probe)
-	if p["label"] != "ask magi" {
+	if p["label"] != "Ask magi" {
 		t.Errorf("a permission prompt took the composer away: %q — deciding not to do the thing at "+
 			"all is a legitimate reply, and it is typed here", p["label"])
 	}
@@ -1116,7 +1116,7 @@ console.log(JSON.stringify({
 	}
 	// frontend holds a blocked agent; infra is only working; the unnamed one is last regardless.
 	// "zulu" sorts after "alpha"; it comes first anyway, because it is the one holding somebody up.
-	if strings.Join(order, "|") != "zulu|alpha|no team" {
+	if strings.Join(order, "|") != "zulu|alpha|No team" {
 		t.Errorf("the groups are ordered %v — a team holding somebody blocked comes first, and the "+
 			"unnamed group last", order)
 	}
@@ -1470,11 +1470,11 @@ console.log(JSON.stringify({
 	}
 	first := rows[0].(map[string]any)
 	if !strings.Contains(first["cls"].(string), "global") ||
-		!strings.Contains(first["text"].(string), "every companion") {
+		!strings.Contains(first["text"].(string), "Every companion") {
 		t.Errorf("the crossing rule does not say it crosses: %+v", first)
 	}
 	second := rows[1].(map[string]any)["text"].(string)
-	if !strings.Contains(second, "only api") {
+	if !strings.Contains(second, "Only api") {
 		t.Errorf("the project rule does not say whose it is: %q", second)
 	}
 	// The two facts a decision is made on, and neither is visible anywhere else after the day it
@@ -1542,7 +1542,7 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
   handed: byId.handoffs.text, plan: byId.plan.text}));
 `)
 	text := got["text"].(string)
-	for _, want := range []string{"82,000 / 100,000 tokens", "measured", "41 messages", "2 folds",
+	for _, want := range []string{"82,000 / 100,000 tokens", "Measured", "41 messages", "2 folds",
 		"31,000 tokens shed", "40,000→9,000", "internal/parse.go",
 		// Which model, because the window above is that model's and /route can change it
 		// mid-session with nothing else on the page saying so.
@@ -1599,7 +1599,7 @@ console.log(JSON.stringify({text: byId.detail.text,
   bars: byId.detail.find('div').filter(d => (d.className || '').split(' ').includes('bar') || (d.className || '') === 'bar tight').length}));
 `)
 	text = got["text"].(string)
-	if !strings.Contains(text, "~5,000 tokens") || !strings.Contains(text, "estimated") {
+	if !strings.Contains(text, "~5,000 tokens") || !strings.Contains(text, "Estimated") {
 		t.Errorf("an estimate is not marked as one:\n%s", text)
 	}
 	if strings.Contains(text, "/ ") {
@@ -1641,7 +1641,7 @@ console.log(JSON.stringify({
 	if got["after"] != got["before"] {
 		t.Errorf("losing the console redrew the table as %q", got["after"])
 	}
-	if got["state"] != "can't reach magi-web" || got["cls"] != "lost" {
+	if got["state"] != "Can't reach magi-web" || got["cls"] != "lost" {
 		t.Errorf("the page does not say it lost the console: %+v", got)
 	}
 }
@@ -1753,7 +1753,7 @@ drops[1].onclick();   // acts
 console.log(JSON.stringify({text, state: byId.state.text, posts: RENDERED.filter(r => r.to)}));
 `)
 	text := got["text"].(string)
-	for _, want := range []string{"every companion here", "only api", "npx -y figma-mcp",
+	for _, want := range []string{"every companion here", "Only api", "npx -y figma-mcp",
 		"needs FIGMA_TOKEN", "/w/a/.magi/config.toml"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the list does not say %q:\n%s", want, text)
@@ -1872,8 +1872,8 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 `)
 	seen := got["seen"].([]any)
 	want := []struct{ search, crumb, href string }{
-		{"?v=skills", "shared", "/?v=skills"},
-		{"", "companions", "/"},
+		{"?v=skills", "Shared", "/?v=skills"},
+		{"", "Companions", "/"},
 	}
 	for i, w := range want {
 		row := seen[i].(map[string]any)
@@ -1919,10 +1919,10 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 `)
 	first := got["first"].(map[string]any)
 	tabs := first["tabs"].([]any)
-	if tabs[0] != "companions" || tabs[1] != "shared" {
+	if tabs[0] != "Companions" || tabs[1] != "Shared" {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
-	if first["ask"] != "ask magi" {
+	if first["ask"] != "Ask magi" {
 		t.Errorf("the composer's label came from nowhere: %q", first["ask"])
 	}
 	after := got["after"].([]any)
