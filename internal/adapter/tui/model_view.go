@@ -938,7 +938,11 @@ func (m *Model) turnSummary() string {
 	if m.turnUnverified {
 		// The execution-evidence gate could not confirm the current version was run to a
 		// passing result — surface it plainly instead of letting the turn read as a clean finish.
-		parts = append(parts, "⚠ UNVERIFIED")
+		// Sentence case. The guide asks for it in all product text and says a caps block is not
+		// accessible, with no exception offered; the emphasis it costs is meant to come from weight,
+		// and here it comes from the ⚠ that is already carrying it. This line is a receipt a person
+		// reads, not a protocol token like the council's NO-EVIDENCE.
+		parts = append(parts, "⚠ Unverified")
 	}
 	return "▣ turn: " + strings.Join(parts, " · ")
 }

@@ -40,6 +40,17 @@ func logoBlock() string {
 // padded to one common width (artW): splashCompose centers each line independently
 // by its width, and equal widths are what keep the diagram's internal alignment
 // intact. The wordmark/version sit on the same axis.
+// sentenceCase capitalises the first letter and leaves the rest as the name was written, which is
+// what sentence case asks for and what an all-caps upper() destroys — a councillor written
+// "McCoy" comes back "Mccoy" from a naive title-caser.
+func sentenceCase(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	return strings.ToUpper(string(r[0])) + string(r[1:])
+}
+
 func (m *Model) splashConsole() []string {
 	frame := lipgloss.NewStyle().Foreground(logoColor).Bold(true)
 	names := m.app.CouncilMemberNames()
@@ -47,7 +58,13 @@ func (m *Model) splashConsole() []string {
 		if i >= len(names) {
 			return strings.Repeat(" ", w)
 		}
-		label := strings.ToUpper(strings.TrimSpace(names[i])) + " - " + strconv.Itoa(i+1)
+		// Sentence case, not a caps block. The guide asks for sentence case in all product text and
+		// says caps blocks are not accessible — there is no exception clause, and the replacement it
+		// names for the emphasis you lose is bold weight, which these labels already have. A
+		// councillor's name is a proper noun, so the capital it keeps is the one sentence case gives
+		// it. Same width either way: MELCHIOR and Melchior are both eight cells, so the diagram's
+		// boxes are unchanged.
+		label := sentenceCase(strings.TrimSpace(names[i])) + " - " + strconv.Itoa(i+1)
 		if lipgloss.Width(label) > w {
 			r := []rune(label)
 			for lipgloss.Width(string(r)) > w && len(r) > 0 {

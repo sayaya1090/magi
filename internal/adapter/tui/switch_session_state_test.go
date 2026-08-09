@@ -52,7 +52,11 @@ func TestResumingAnotherSessionClosesWhatBelongedToTheOldOne(t *testing.T) {
 		t.Error("a selection made in the previous session is still highlighted in this one")
 	}
 	frame := ansiSeq.ReplaceAllString(s.rawView(), "")
-	for _, gone := range []string{"Melchior", "session A", "rationale from session A"} {
+	// ⚠ Not "Melchior". That is a councillor's name and the splash draws all three of them in its
+	// console diagram, so it was only ever absent from this frame because the splash spelled it
+	// MELCHIOR — a marker that passed on a difference of case and would have gone on passing with
+	// the panel still open. The markers below belong to session A and to nothing else.
+	for _, gone := range []string{"session A", "rationale from session A", "evidence from session A"} {
 		if strings.Contains(frame, gone) {
 			t.Errorf("%q is still on screen after resuming another session:\n%s", gone, frame)
 		}
