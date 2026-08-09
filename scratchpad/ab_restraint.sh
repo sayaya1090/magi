@@ -10,7 +10,7 @@
 # endpoint invalidates both, which this tree has already paid for.
 set -u
 
-REPO=/Users/sayaya/IdeaProjects/magi
+REPO=${REPO:-$(cd "$(dirname "$0")/.." && pwd)}  # this checkout, not one machine's path
 cd "$REPO" || exit 1
 SHA=$(git rev-parse --short HEAD)
 STAMP=$(date +%Y-%m-%d)

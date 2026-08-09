@@ -34,3 +34,16 @@ cover.out
 
 # 세션 작업 노트 — 저장소 이력에 남기지 않는다
 scratchpad/overnight_log.md
+
+# The binaries this repo builds. A `go build ./cmd/magi-web` in the repo root drops one here, and
+# one of them had been committed — 11MB of macOS arm64 that no other machine can run, rebuilt into
+# a dirty tree by anybody who ran that command.
+/magi
+/magi-web
+
+# The agent's own runtime state. .magi/experience is what a companion has learned ON THIS MACHINE —
+# memories and skills it wrote itself. Four of them were swept in by a bulk add; they are working
+# data, not source, and committing them makes one machine's memory everybody's.
+/.magi/
+# Working patches from a session, kept while a change is in pieces.
+/scratchpad/hunks/
