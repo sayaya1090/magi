@@ -1491,7 +1491,9 @@ const afterOne = {posts: RENDERED.filter(r => r.method === 'POST').length,
 drop.onclick();
 console.log(JSON.stringify({
   rows: rows.map(r => ({cls: r.className, text: r.text})),
-  state: byId.state.text,
+  // The message, which is #note's now: #state carries the count and the poll rebuilds it, so a
+  // notice written there lived for whatever was left of the interval.
+  state: byId.note.text,
   afterOne,
   posts: RENDERED.filter(r => r.method === 'POST'),
 }));
@@ -1664,7 +1666,7 @@ answer = null;
 await loadFleet();
 console.log(JSON.stringify({
   before: drawn, after: byId.fleet.text,
-  state: byId.state.text, cls: byId.state.className,
+  state: byId.note.text, cls: byId.state.className,
 }));
 `)
 	if !strings.Contains(got["before"].(string), "api") {

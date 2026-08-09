@@ -493,6 +493,14 @@ const indexHTML = `<!doctype html>
      councillors in their hues: this console shows no council, and the comment that said it did
      described a thing forty lines above, where those colours are declared and deliberately unused. */
   .sid { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
+  /* The message sits after the count, in the same quiet role, and is allowed to be cut — it is the
+     one thing on this line that has a tooltip carrying the rest. Empty it takes no room at all,
+     which is why the masthead does not shift when something is said. */
+  #note {
+    font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0533em;
+    color:var(--magi-ref-muted); max-width:32ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #note:not(:empty) { padding-left:var(--magi-sys-space-100); border-left:1px solid var(--magi-ref-outlineVariant); }
   #state {
     margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0533em;
     color:var(--magi-ref-muted); display:flex; align-items:center; gap:var(--magi-sys-space-100);
@@ -504,11 +512,24 @@ const indexHTML = `<!doctype html>
     --md-text-button-hover-label-text-color:var(--magi-ref-warn);
     margin-left:calc(-1 * var(--magi-sys-space-50));
   }
-  #state.live::before { background:var(--magi-ref-success); box-shadow:0 0 0 3px color-mix(in srgb, var(--magi-ref-success) 20%, transparent); }
-  #state.lost::before { background:var(--magi-ref-error); }
-  /* Somebody is waiting on you. Its own colour, because it is not an error and the dot beside it
-     is the one that says whether this console can still hear the daemon. */
-  #state.asking::before { background:var(--magi-ref-warn); box-shadow:0 0 0 3px color-mix(in srgb, var(--magi-ref-warn) 20%, transparent); }
+  /* Three states and three SHAPES, not three hues of one shape.
+     The guide's through-line is that a state is never told by colour alone, and this dot was
+     telling three different things — connected, somebody is waiting, the stream is gone — with
+     nothing but its colour to tell them apart. Anyone who cannot separate green from amber from
+     red was reading one dot that never changed.
+     Connected is small and quiet with a soft halo. Waiting is bigger and solid, which is the one
+     that wants to be noticed. Gone is a ring with nothing in it, which is the shape of an absence
+     and reads as such in grey. */
+  #state.live::before {
+    background:var(--magi-ref-success);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--magi-ref-success) 20%, transparent);
+  }
+  #state.asking::before {
+    width:10px; height:10px; background:var(--magi-ref-warn);
+  }
+  #state.lost::before {
+    background:transparent; border:2px solid var(--magi-ref-error); width:10px; height:10px;
+  }
   #back {
     color:var(--magi-ref-muted); text-decoration:none; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:0.04em; border-bottom:1px solid var(--magi-ref-outlineVariant); padding-bottom:2px;
   }
@@ -1671,6 +1692,14 @@ const indexHTML = `<!doctype html>
        live region announces without stealing focus, which is what the guide asks for a status
        message and what it names for search results appearing. -->
   <span id="state" role="status" aria-live="polite"></span>
+  <!-- Where a passing message goes, and it is not the line above.
+       That line is the fleet's count, rebuilt every three seconds by the poll — so a message
+       written into it lived for whatever was left of the interval, sometimes a tenth of a second,
+       and while it showed there was no count and no way to jump to whoever was waiting. Two
+       writers on one readout, again. This one has a single writer and no timer: a message stays
+       until something replaces it or the screen changes, because a notice that removes itself is
+       one somebody can miss, which is the guide's whole objection to snackbars on the web. -->
+  <span id="note" role="status" aria-live="polite"></span>
   <!-- The page's one announcer. A live region has to be in the document BEFORE its text changes —
        one created per render is inserted already-full and says nothing. Everything that changes
        without moving focus speaks through here. -->
@@ -2194,6 +2223,7 @@ function paintConn() {
   state.classList.toggle('lost', lost);
   state.classList.toggle('live', !lost && streamAt === 'live');
 }
+const noteEl = document.getElementById('note');
 const conn = how => { streamAt = how; paintConn(); };
 const reach = ok => { reachOK = ok; paintConn(); };
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
@@ -3488,8 +3518,8 @@ let sayTimer = 0;
 // and the guide is explicit: do not cut text off without giving people a way to see it — a tooltip
 // or a link is what it names. Now that this page draws its own tooltips, it can be the tooltip.
 function says(text) {
-  state.textContent = text;
-  if (text) tip(state, text); else state.removeAttribute('data-tip');
+  noteEl.textContent = text;
+  if (text) tip(noteEl, text); else noteEl.removeAttribute('data-tip');
 }
 
 function say(text) {
