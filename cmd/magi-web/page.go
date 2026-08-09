@@ -387,11 +387,21 @@ const indexHTML = `<!doctype html>
     from { opacity:0; transform:scale(.96); }
     to   { opacity:1; transform:none; }
   }
+  /* Lateral: peers slide, they do not fade. The guide is explicit that a tab switch "does not use
+     a fade or parallax effect" and says why — fading makes the peer relationship and the swipe
+     gesture less obvious, and reads as forward-and-back instead of sideways. Two keyframes because
+     the direction has to say which way you moved. */
+  @keyframes slideFromRight { from { transform:translateX(12px); } to { transform:none; } }
+  @keyframes slideFromLeft  { from { transform:translateX(-12px); } to { transform:none; } }
   @keyframes riseIn {
     from { opacity:0; transform:translateY(10px); }
     to   { opacity:1; transform:none; }
   }
   .enter { animation:fadeThrough 200ms var(--ease-emphasized) both; }
+  /* No opacity in these: grouped elements moving in unison is the whole pattern, and a fade on top
+     of the slide is the thing being avoided. */
+  .slideL { animation:slideFromRight 200ms var(--ease-emphasized) both; }
+  .slideR { animation:slideFromLeft 200ms var(--ease-emphasized) both; }
   .rise  { animation:riseIn 250ms var(--ease-emphasized) both; }
 
   /* Somebody who asked their machine to stop moving things gets a page that does not move. Not a
@@ -1954,14 +1964,20 @@ function drawPanels() {
   sideEl.hidden = talk;
 }
 // Only when the reader switched, not on the poll that redraws the facts four times a minute.
-function revealPanel() {
-  reveal(panel === 'talk' ? log : detailEl);
-  if (panel !== 'talk') reveal(sideEl);
+// Sideways, in the direction the reader moved. Talk sits left of state, so arriving at state comes
+// in from the right and going back to talk comes in from the left — which is what tells somebody
+// these two are peers rather than one being under the other.
+function revealPanel(fromIndex) {
+  const how = fromIndex === undefined ? 'enter'
+            : (panel === 'state' ? 'slideL' : 'slideR');
+  reveal(panel === 'talk' ? log : detailEl, how);
+  if (panel !== 'talk') reveal(sideEl, how);
 }
 ptabs.addEventListener('change', () => {
+  const was = panel;
   panel = ptabs.activeTabIndex === 1 ? 'state' : 'talk';
   drawPanels();
-  revealPanel();
+  revealPanel(was === panel ? undefined : 0);
   measureDock();
 });
 wide.addEventListener('change', drawPanels);
@@ -3667,7 +3683,7 @@ function paintChoice(el, kind) {
 // to a destination arrives with no motion at all. Reading offsetWidth is what forces it.
 function reveal(el, how) {
   if (!el || el.hidden) return;
-  el.classList.remove('enter', 'rise');
+  el.classList.remove('enter', 'rise', 'slideL', 'slideR');
   void el.offsetWidth;
   el.classList.add(how || 'enter');
 }
