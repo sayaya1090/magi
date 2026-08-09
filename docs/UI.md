@@ -629,6 +629,9 @@ guide is silent.
 | compact navigates with **`md-tabs`** | compact navigation is a **navigation bar**; tabs switch content WITHIN a screen | ⚠ these are top-level destinations |
 | the prose measure is **74ch** | keep text at **40–60 characters per line** at every breakpoint | ⚠ the transcript's 108ch is separate and deliberate — it is code |
 | the **MCP form** is six fields inline under the list | form fields meet the full-screen dialog criterion, but full-screen is **compact only** — basic above | ⚠ and one action is allowed only when it is an acknowledgement, which a create form is not: it needs add + cancel, trailing-aligned, confirming closest to the edge |
+| the fleet **navigates away** to a companion | there are three canonical layouts, and this is **list-detail**: at expanded the list stays and the detail opens beside it | ⚠ **the largest of these.** Both reasons somebody opens a companion — to see its state, to read and steer it — get cheaper when the list survives, and "answering one moves to the next" would happen on one screen instead of needing a trip back. Compact is already right: one pane alternating IS list-detail's compact form |
+| the companion's side column is a fixed **22rem** | a supporting pane gives the primary area **about two thirds** | ⚠ 27% at 1300px, 22% at 1600 — a fixed width cannot hold a ratio |
+| a disabled control of ours is drawn by **the cursor and a missing hover** | every state carries **two visual indicators**, for accessibility | ⚠ neither of ours survives without a mouse: on touch or a keyboard there are zero. Fading was rejected for a measured reason (3.49:1), so this needs a second indicator that clears AA rather than a revert |
 
 **One is chosen and stays**: the expanded rail is modal with a scrim at every width, where the
 guide has it standard from expanded up. The overlap was asked for deliberately (§3.5a) — content
