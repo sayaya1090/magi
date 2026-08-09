@@ -769,7 +769,13 @@ const indexHTML = `<!doctype html>
      the 48dp target the same page asks for — the target is the bundle's job and it draws a 48px
      .touch regardless of how tall the container is. */
   .tile { --md-filter-chip-label-text-font:var(--mono); }
-  .tile .n { font:600 var(--title-m) var(--display); color:var(--fg); margin-right:.45rem; }
+  /* Label large, which is the chip's own type role — it was title-medium, a heading size inside a
+     chip. At 24px of line box in a 32dp container it left 4px above and below and read as cramped;
+     the count is still the loud thing here because it is 600 against an 11px word. */
+  .tile .n {
+    font:600 var(--md-sys-typescale-label-large-size, .875rem)/var(--md-sys-typescale-label-large-line-height, 1.25rem) var(--display);
+    color:var(--fg); margin-right:.45rem;
+  }
   .tile .k {
     font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     display:inline-flex; align-items:center; gap:.35rem;
