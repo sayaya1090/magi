@@ -3113,7 +3113,22 @@ async function boardSig() {
 // at, and it is not the same as a companion being quiet. Null, so a caller cannot mistake the
 // failure for an empty list and draw "nothing here" over a screen that simply lost its server.
 async function fetchList(path) {
-  try { return await (await fetch(path)).json(); }
+  // A refusal is not an exception. fetch only rejects when the request never completed, so a
+  // daemon answering 500 came back through the happy path — .json() threw on the error body if it
+  // was lucky, and returned garbage if it was not. Measured against a mock returning 500: the
+  // console went on showing the fleet it had, three seconds old and then a minute old, with a
+  // green dot and nothing said. Stale and confident is the worst of the three states this can be
+  // in; the other two both tell you.
+  let r;
+  try { r = await fetch(path); }
+  catch { reach(false); says(tr('error.unreachable')); return null; }
+  if (!r.ok) {
+    reach(false);
+    const why = (await r.text().catch(() => '')).trim();
+    says(why ? why.slice(0, 80) : tr('error.unreachable'));
+    return null;
+  }
+  try { return await r.json(); }
   catch { reach(false); says(tr('error.unreachable')); return null; }
 }
 
