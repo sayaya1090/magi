@@ -1394,10 +1394,12 @@ const indexHTML = `<!doctype html>
     border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-s);
     padding:var(--magi-sys-space-100) var(--magi-sys-space-150); margin-bottom:var(--magi-sys-space-100); background:var(--magi-ref-surface-container-low);
   }
-  /* Who did it, in the muted role — a fact about the card, not its title. */
+  /* Who did it, beside when. Named in the companion's own colour so it reads as an attribution
+     rather than one more grey fact — the card already has two of those under it. */
+  .wcard .wwhen { display:flex; align-items:baseline; gap:var(--magi-sys-space-100); }
   .wcard .wwho {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
-    letter-spacing:.05em; color:var(--magi-ref-muted);
+    letter-spacing:.05em; color:var(--magi-ref-primary);
   }
   .wcard .wwhen { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   .wcard .wwhat { font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; color:var(--magi-ref-fg); overflow-wrap:anywhere; }
@@ -3033,6 +3035,10 @@ async function loadBoard() {
       // seven in the morning is not telling them about their own day.
       const when = cell('wwhen', h.current ? tr('board.now') : hhmm(h.started));
       card.append(when);
+      // Who did it, on the same line as when — that line is the card's "who and when" and this was
+      // three rows down among the model and the labels, in the same muted grey, so it read as one
+      // more fact rather than the answer to whose work this is.
+      if (members.length > 1 || h.who !== key) when.append(cell('wwho', h.who));
       // The title is the way in. It carries the address so the companion is reachable with a middle
       // click and a copied url, the same as the fleet row.
       const mine = members.find(([m]) => m.name === h.who);
@@ -3045,7 +3051,6 @@ async function loadBoard() {
       card.append(what);
       // Which companion did it. It was the column heading and is now a fact about the card, which
       // is the right place for it: the column is the team, and a team is several of them.
-      if (members.length > 1 || h.who !== key) card.append(cell('wwho', h.who));
       // How long it took, when it is over. A card that says only when it started tells you nothing
       // about whether the day went well.
       if (!h.current && h.started && h.ended) {
@@ -4150,6 +4155,11 @@ function paint() {
   }
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
+  // Closed by hand. A dialog's form closes on the button that submitted it and remembers which one
+  // in returnValue — but a custom element is not that button: md-text-button carries form= and
+  // value= and neither reaches the native <dialog>, so pressing cancel left it open with an empty
+  // returnValue. Measured, after somebody pressed it.
+  mcpCancel.onclick = () => mcpDialog.close('cancel');
   mcpGo.textContent = tr('action.add_or_replace');
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too

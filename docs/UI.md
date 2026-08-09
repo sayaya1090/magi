@@ -155,6 +155,12 @@ card is **the work**, which reads the same on any day.
   and a session before it is accepted, so a request with no owner has no way to exist in this
   system. A column for it would be permanently empty, which is a lie about the shape of the thing.
 
+**A lane is a team, not a companion.** Six companions made six columns whose heads carried a name,
+a role sentence and a team word, so every lane began at a different height and the cards under them
+never lined up — which is the one thing a board is for. Work belongs to a team; which companion did
+it is a fact about the card, beside the time. A companion with no team keeps a lane of its own,
+because nothing declares a team on a single-workspace machine.
+
 ### 2.4 Experience (`/?v=skills`)
 
 **Three** tiers of the store — rules and remembered facts, local and from every federated console.
@@ -188,6 +194,15 @@ supervisor holding five companions could not answer "which of these can see prod
   URL), because that line is the answer to "what actually runs".
 - Environment variables are **named, never valued**. A token on a page is a token in a browser
   history, a screenshot and a support ticket.
+- **The form asks in two sets, because a server is one kind or the other.** Reached over HTTP it is
+  a url and that is the whole of it — what it can do is the server's own business, advertised over
+  the protocol. Started by this machine it has no url and needs the command. Asking for all six
+  every time made somebody filling in a url read four boxes that could not apply to them. The name
+  is the one both need, and it is filled in from the url or the command.
+- **Editing opens the same dialog, filled in, with the name locked.** The write is by name, so
+  retyping it into the add form is how a typo makes a second server instead of changing the first.
+- The button to add one is at the **head** of the section. Under the list, a console with a dozen
+  servers put all twelve between somebody and the way to add another.
 - Adding, changing and removing write to that companion's own `.magi/config.toml`. A person editing
   their own companion's config from the console is the same act as opening the file; a COMPANION
   accepting a server definition from another companion is still refused, because that is a command
