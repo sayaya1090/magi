@@ -687,7 +687,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 |---|---|---|---|---|
 | A1 | 컴패니언 2단 전환이 **1100px** | 2판 권장은 **expanded = 840dp**부터. 브레이크포인트는 다섯 | foundations §2 | 한 줄 |
 | A4 | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세 | foundations §4.1 | **큼** |
-| A5 | 컴패니언 보조 판이 **22rem 고정** | supporting pane은 주 영역 **약 2/3** | foundations §4.2 | 한 줄 |
+| A5 | 컴패니언 보조 판이 **22rem 고정** | supporting pane은 주 영역 **약 2/3** | foundations §4.2 | ⚠ **먼저 정할 것**: 이것이 캐노니컬 **supporting pane**(비율 규칙 적용)인가 **side sheet 컴포넌트**(고정 폭이 정상, 16dp 인셋, 닫기 버튼)인가. 시트로 규정하면 고정 폭이 오히려 맞다 — containers/side-sheets |
 | A6 | MCP 추가 폼 6필드가 목록 아래 **인라인**, 액션은 폼 안의 버튼 하나 | 다이얼로그로. **compact는 full-screen, 그 위는 basic**. 액션은 다이얼로그 슬롯에 `추가`+`취소`, 후행 정렬, 확정이 모서리에 가장 가깝게 | components §1 | 중간 |
 | A7 | 비활성 상태를 **커서 + 호버 없음**으로만 표시 | 상태마다 **시각 지표 둘**. 커서와 호버는 마우스가 없으면 **둘 다 관측 불가** — 터치·키보드에서는 지표 0 | foundations §5.1 | 작음, 다만 대비 가드와 충돌하니 값을 재야 함 |
 | A8 | 여백 값이 **8dp 스케일 밖** — .35/.7/.9/1.1/1.2/1.4/1.6/2.4rem = 5.6/11.2/14.4/17.6/19.2/22.4/25.6/38.4dp | 여백은 **8dp 배수**(space100=8dp) | foundations §6.2 | **큼** — 하나 고치면 리듬 전체가 바뀐다. A10과 함께, 셰이프·타이포처럼 **테스트로 고정** |
