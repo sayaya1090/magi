@@ -382,11 +382,11 @@ func (m *Model) paletteBody(matches []cmdInfo, sel int) string {
 			// so the row is uniformly cream — otherwise the foreground-only styled spans
 			// reset the bg and the terminal default (white in light themes) shows through
 			// behind the text, making a cream/white checkerboard.
-			onSurf := lipgloss.NewStyle().Background(colSurface)
+			onSurf := lipgloss.NewStyle().Background(colSurfContLow)
 			b.WriteString(onSurf.Render("  ") +
-				stylePalName.Background(colSurface).Render(name) +
+				stylePalName.Background(colSurfContLow).Render(name) +
 				onSurf.Render("   ") +
-				styleToolResult.Background(colSurface).Render(c.desc))
+				styleToolResult.Background(colSurfContLow).Render(c.desc))
 		}
 	}
 	return stylePalBox.Width(m.width - 2).Render(b.String())

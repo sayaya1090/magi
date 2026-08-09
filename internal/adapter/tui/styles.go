@@ -23,6 +23,21 @@ var (
 	colOutlVar  color.Color // outline-variant — dividers
 	colWarn     color.Color // caution (e.g. "allow" / YOLO permission)
 
+	// The colours that go ON the filled ones, and the tonal surfaces a layered thing sits on.
+	//
+	// They have been in the palette all along and only the web read them. The terminal used
+	// colSurface as its on-colour for every filled thing — a selected row, a button, a toast — which
+	// happens to be legible and is the wrong role: surface is what a thing sits ON, not what is
+	// written on top of it, and the arithmetic showed the cost. Measured against the palette:
+	// surface-on-primary is 4.36:1 in the light theme where on-primary is 5.02, surface-on-outline
+	// is 3.09 where on-surface over surface-container-high is 11.78, and the fold chip drew accent
+	// on primary-container at 3.95 where its own on-colour gives 11.58.
+	colOnPrimary    color.Color // text on a primary fill
+	colOnPrimCont   color.Color // text on a primary-container fill
+	colOnSurface    color.Color // text on any of the surface containers
+	colSurfContHigh color.Color // the tonal surface a raised thing sits on
+	colSurfContLow  color.Color // the one a floating box sits on — see stylePermBox
+
 	// Diff line backgrounds: a subtle green/red wash behind added/removed code, so
 	// the +/- is shown by background while the code keeps its syntax-highlight colors.
 	colDiffAddBg color.Color
@@ -193,6 +208,12 @@ func applyTheme(isDark bool) {
 	colPrimCont = col("primaryContainer")
 	colOutlVar = col("outlineVariant")
 	colWarn = col("warn")
+	colOnPrimary = col("onPrimary")
+	colOnPrimCont = col("onPrimaryContainer")
+	colOnSurface = col("onSurface")
+	colSurfContHigh = col("surfaceContainerHigh")
+	colSurfContLow = col("surfaceContainerLow")
+	colSurfContLow = col("surfaceContainerLow")
 	colMelchior = col("melchior")
 	colBalthasar = col("balthasar")
 	colCasper = col("casper")
@@ -231,31 +252,36 @@ func applyTheme(isDark bool) {
 	styleInput = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Padding(0, 1)
 	styleInputFocus = n().Border(lipgloss.RoundedBorder()).BorderForeground(colPrimary).Padding(0, 1)
 	styleFooter = n().Foreground(colMuted).Padding(0, 1)
-	stylePermBox = n().Border(lipgloss.RoundedBorder()).BorderForeground(colPrimary).Background(colSurface).Padding(0, 2)
+	// On surface-container-low, not surface. In a light theme the containers get DARKER as they
+	// rise, and this box writes its title in amber: on surface that is 4.36:1 and on the low
+	// container it is 4.54, which is the difference between under AA and over it. Dark gains too
+	// (6.54 → 6.83). The guide leaves the choice of surface role open — it is not tied to
+	// elevation — so the arithmetic is what picks it.
+	stylePermBox = n().Border(lipgloss.RoundedBorder()).BorderForeground(colPrimary).Background(colSurfContLow).Padding(0, 2)
 	stylePermTitle = n().Foreground(colPrimary).Bold(true)
-	stylePalBox = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Background(colSurface).Padding(0, 1)
+	stylePalBox = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Background(colSurfContLow).Padding(0, 1)
 	// Selected row: clear amber fill with contrasting text (reads as a selection,
 	// not a near-white block, in both light and dark).
-	stylePalSelRow = n().Foreground(colSurface).Background(colPrimary).Bold(true)
+	stylePalSelRow = n().Foreground(colOnPrimary).Background(colPrimary).Bold(true)
 	stylePalName = n().Foreground(colAccent)
 	styleThink = n().Foreground(colMuted).Italic(true)
 	styleDivider = n().Foreground(colOutlVar)
 	// Footer key (M3 Label): accent + bold for emphasis.
 	styleKeyLabel = n().Foreground(colAccent).Bold(true)
 	// Selection highlight: primary-container fill (reads as a selection band).
-	styleSelection = n().Foreground(colSurface).Background(colPrimary)
+	styleSelection = n().Foreground(colOnPrimary).Background(colPrimary)
 	// Toast: a floating accent chip overlaid in a corner, auto-dismissed.
-	styleToast = n().Foreground(colSurface).Background(colAccent).Bold(true).Padding(0, 1)
+	styleToast = n().Foreground(colOnPrimary).Background(colAccent).Bold(true).Padding(0, 1)
 	// Action button (e.g. the profile form's Save): a filled pill, brighter when
 	// selected, so it reads as a button distinct from the field rows.
-	styleBtn = n().Foreground(colSurface).Background(colOutline).Bold(true).Padding(0, 2)
-	styleBtnSel = n().Foreground(colSurface).Background(colPrimary).Bold(true).Padding(0, 2)
+	styleBtn = n().Foreground(colOnSurface).Background(colSurfContHigh).Bold(true).Padding(0, 2)
+	styleBtnSel = n().Foreground(colOnPrimary).Background(colPrimary).Bold(true).Padding(0, 2)
 	// Inline clickable control: a filled accent pill so an actionable element (the
 	// "‹ back" breadcrumb) reads as a BUTTON, not as plain accent-colored text. Uses
 	// the accent (interactive) hue, matching the toast/other tappable chrome.
-	styleClickable = n().Foreground(colSurface).Background(colAccent).Bold(true).Padding(0, 1)
+	styleClickable = n().Foreground(colOnPrimary).Background(colAccent).Bold(true).Padding(0, 1)
 	// In-transcript fold toggle (expand/collapse): a low-emphasis filled chip (badge
 	// container) so the clickable part of an otherwise-dim fold line reads as tappable,
 	// without a wall of bright accent down the transcript.
-	styleFoldChip = n().Foreground(colAccent).Background(colPrimCont).Padding(0, 1)
+	styleFoldChip = n().Foreground(colOnPrimCont).Background(colPrimCont).Padding(0, 1)
 }
