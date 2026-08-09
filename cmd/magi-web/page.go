@@ -279,8 +279,13 @@ const indexHTML = `<!doctype html>
        feel like one. */
     --ease-standard:cubic-bezier(0.2, 0, 0, 1);
     --ease-decelerate:cubic-bezier(0.05, 0.7, 0.1, 1);
-    /* Read out of the shipped bundle rather than a document: it is what md-tabs animates its own
-       indicator with, so a container that opens beside them moves on the same curve. */
+    /* Read out of the shipped bundle rather than a document, and the two disagree. The guide says
+       emphasized has NO css form ("N/A — use standard as a fallback"), because the real curve is a
+       two-segment path a single cubic-bezier cannot draw. Material Web resolved that its own way:
+       EMPHASIZED:"cubic-bezier(.3,0,0,1)" is a literal constant in the bundle. Following the
+       bundle over the guide is deliberate — the components on this page move on the library's
+       curve whatever we declare, and a container opening beside them has to match what they
+       actually do, not what the document wishes they did. */
     --ease-emphasized:cubic-bezier(0.3, 0, 0, 1);
 
     /* How much room the rail takes. Declared HERE and not only on #rail, because the page's own
