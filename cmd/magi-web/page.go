@@ -347,6 +347,18 @@ const indexHTML = `<!doctype html>
   h1, h2, h3 { font:inherit; margin:0; }
   /* Read, not seen. A live region has to be in the accessibility tree, so it cannot be display:none
      or visibility:hidden — it is clipped to nothing instead. */
+  /* Plain tooltip, at the spec's numbers: 24dp tall, 8dp of padding, a 4dp corner, and the
+     inverse surface pair so it reads against whatever it covers. Body-small is the type. The one
+     number the spec does not give is a max width, so this picks one. */
+  #tip {
+    position:fixed; z-index:9; pointer-events:none;
+    min-height:24px; padding:4px 8px; box-sizing:border-box;
+    border-radius:var(--shape-xs); max-width:20rem;
+    background:var(--md-sys-color-inverse-surface, var(--fg));
+    color:var(--md-sys-color-inverse-on-surface, var(--bg));
+    font:var(--md-sys-typescale-body-small-size, .75rem)/var(--md-sys-typescale-body-small-line-height, 1rem) var(--mono);
+    letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
   .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden;
              clip-path:inset(50%); white-space:nowrap; border:0; }
 
@@ -1438,6 +1450,11 @@ const indexHTML = `<!doctype html>
        one created per render is inserted already-full and says nothing. Everything that changes
        without moving focus speaks through here. -->
   <span id="say" class="sr-only" role="status" aria-live="polite"></span>
+  <!-- One tooltip for the page. Native title= only appears on hover, never on keyboard focus, and
+       carries no role — so every icon-only control on this page was unlabelled for anyone tabbing
+       through it. This surface is aria-hidden: the button beside it already carries the same words
+       as its aria-label, and announcing both would say everything twice. -->
+  <span id="tip" role="tooltip" aria-hidden="true" hidden></span>
   <!-- Narrow only, and top right where a thumb reaches. It shows what pressing it GIVES you — a sun
        while the page is dark — because a control showing its current state leaves you working out
        what it does. Two shapes with one hidden, rather than a morphing path: an icon that changes
@@ -2059,7 +2076,7 @@ function rowActions(a) {
   const stop = document.createElement('md-icon-button');
   stop.className = 'stop';
   stop.setAttribute('aria-label', tr('action.interrupt'));
-  stop.title = tr('action.interrupt');
+  tip(stop, tr('action.interrupt'));
   stop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
     '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
   stop.onclick = e => {
@@ -2116,7 +2133,7 @@ function summarise(list) {
     // icon alone is a guess for anybody who has not pressed it once.
     const past = document.createElement('md-icon-button');
     past.className = 'toboard';
-    past.title = tr('nav.board');
+    tip(past, tr('nav.board'));
     past.setAttribute('aria-label', tr('nav.board'));
     past.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
       '<path d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z" fill="none" ' +
@@ -2454,7 +2471,7 @@ async function loadBoard() {
   const step = (delta, key) => {
     const b = document.createElement('md-icon-button');
     b.setAttribute('aria-label', tr(key));
-    b.title = tr(key);
+    tip(b, tr(key));
     b.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
       '<path d="' + (delta < 0 ? 'M14.5 5.5 8 12l6.5 6.5' : 'M9.5 5.5 16 12l-6.5 6.5') +
       '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
@@ -2902,7 +2919,7 @@ async function drawContext(a, box, grid, field) {
   // and would rather it happened now, between turns, than in the middle of the next one.
   const fold = document.createElement('md-text-button');
   fold.className = 'fold'; fold.textContent = tr('action.compact_now');
-  fold.title = tr('hint.compact');
+  tip(fold, tr('hint.compact'));
   // Returns its promise, for the same reason drawDetail does: a caller that wants to know when the
   // fold has landed — a test, or a later screen — has no other way, and the held reading must be
   // dropped before anything redraws or the panel keeps showing pre-fold numbers.
@@ -3060,6 +3077,41 @@ function rankByIDF(query, docs) {
 
 // One find box, told which half it belongs to. Written once because two of them written twice is
 // two that drift, and the only difference between the halves is where the typed text is kept.
+// ── the page's one tooltip ───────────────────────────────────────────────────
+// Hover OR focus, which is the half native title= never did: a keyboard user tabbing onto an
+// icon-only button saw nothing at all. Placed above by default and flipped below when there is no
+// room, 4dp off a control's edge. It leaves 1.5s after the pointer or focus goes, and there is only
+// ever one — showing a second closes the first, because two tooltips is two answers to one
+// question.
+const tipEl = document.getElementById('tip');
+let tipTimer = 0;
+function showTip(host) {
+  const text = host.getAttribute('data-tip');
+  if (!text) return;
+  clearTimeout(tipTimer);
+  tipEl.textContent = text;
+  tipEl.hidden = false;
+  const r = host.getBoundingClientRect(), t = tipEl.getBoundingClientRect();
+  const above = r.top - t.height - 4;
+  tipEl.style.top = (above >= 0 ? above : r.bottom + 4) + 'px';
+  tipEl.style.left = Math.max(4, Math.min(r.left, innerWidth - t.width - 4)) + 'px';
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => { tipEl.hidden = true; }, 1500);
+}
+for (const [on, fn] of [['pointerover', showTip], ['focusin', showTip], ['pointerout', hideTip], ['focusout', hideTip]]) {
+  addEventListener(on, e => {
+    const host = e.target.closest && e.target.closest('[data-tip]');
+    if (host) fn(host); else if (fn === hideTip) hideTip();
+  }, true);
+}
+// Set where title= used to be set. Both, for now: the native one still serves a pointer user on a
+// browser that has not run the script yet.
+// setAttribute rather than el.dataset: the render test's DOM has no dataset, and a tooltip is not
+// worth teaching it one.
+function tip(el, text) { el.setAttribute('data-tip', text); el.title = text; }
+
 // Said to assistive tech, shown to nobody. The list visibly shrinks as you type, which is all the
 // feedback a sighted user needs and none of it for anyone else.
 const sayEl = document.getElementById('say');
@@ -3195,7 +3247,7 @@ async function loadSkills() {
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
-    drop.title = tr('hint.forget');
+    tip(drop, tr('hint.forget'));
     arm(drop, tr('action.forget'), () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
       // peer name is how this one knows which machine to ask; a global rule has no socket and the
@@ -3283,7 +3335,7 @@ async function loadMCP() {
     top.append(cell('what', sv.name));
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
-    drop.title = tr('hint.remove_server', {file: sv.file});
+    tip(drop, tr('hint.remove_server', {file: sv.file}));
     arm(drop, tr('action.remove'), () => {
       const body = new URLSearchParams({name: sv.name, delete: '1'});
       if (!sv.socket) body.set('tier', 'global');
