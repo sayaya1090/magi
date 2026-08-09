@@ -984,7 +984,8 @@ const indexHTML = `<!doctype html>
   .boardhead { display:flex; gap:.9rem; align-items:center; margin:0 0 1.2rem; flex-wrap:wrap; }
   .lanehead .lrole { font:11px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   .lanehead .lteam { font:11px/1.5 var(--mono); color:var(--accent); }
-  .wcard { cursor:pointer; }
+  .wcard .wwhat { color:inherit; text-decoration:none; cursor:pointer; }
+  .wcard .wwhat:hover { text-decoration:underline; }
   .wcard .wlong { font:11px/1.5 var(--mono); color:var(--muted); }
   .wcard .wmodel {
     font:11px/1.5 var(--mono); color:var(--accent); overflow-wrap:anywhere;
@@ -992,6 +993,7 @@ const indexHTML = `<!doctype html>
   /* A label is pressable, so it is drawn as something that can be pressed — a chip's shape, at the
      size of the line it sits on rather than the size of a control, because a card carrying three
      of them is still a card. */
+  .wcard .wlabel { font:inherit; border:0; cursor:pointer; }
   .wcard .wlabel {
     display:inline-block; cursor:pointer; margin:.3rem .3rem 0 0;
     font:600 11px/1.4 var(--mono); letter-spacing:.06em;
@@ -2473,12 +2475,25 @@ async function loadBoard() {
     title.append(cell('lcount', work.length + ''));
     lane.append(title);
     for (const h of work) {
+      // The card is a CONTAINER, not a button. A card is allowed to be one large target with
+      // nothing actionable inside it, or a plain container holding actions — not both. It used to
+      // be both: an onclick on the card and another on every label, with stopPropagation between
+      // them, which is the shape the guide names when it says an action must not sit on an
+      // actionable surface. It also put every one of those actions on a div, so a keyboard could
+      // reach none of them — the fleet row beside it has been an <a> the whole time.
       const card = cell('wcard' + (h.current ? ' now' : ''));
       // The clock face is the reader's too. A card that said 22:00 for work somebody started at
       // seven in the morning is not telling them about their own day.
       const when = cell('wwhen', h.current ? tr('board.now') : hhmm(h.started));
       card.append(when);
-      card.append(cell('wwhat', h.title || tr('history.untitled')));
+      // The title is the way in. It carries the address so the companion is reachable with a middle
+      // click and a copied url, the same as the fleet row.
+      const what = document.createElement('a');
+      what.className = 'wwhat';
+      what.href = href(a);
+      what.textContent = h.title || tr('history.untitled');
+      what.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
+      card.append(what);
       // How long it took, when it is over. A card that says only when it started tells you nothing
       // about whether the day went well.
       if (!h.current && h.started && h.ended) {
@@ -2492,14 +2507,17 @@ async function loadBoard() {
       // What the agent said it was about. First on the card after the title, because it is the one
       // line somebody scanning a week is actually reading for.
       for (const l of h.labels || []) {
-        const chip = cell('wlabel', l);
+        // A button, because pressing it does something. As a div with an onclick it was invisible
+        // to the keyboard and announced as nothing.
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'wlabel';
+        chip.textContent = l;
         // Pressing one searches for it, which is the whole point of a label: the second piece of
         // work that carries it is what you are looking for.
-        chip.onclick = e => { e.stopPropagation(); boardQuery = l; loadBoard(); };
+        chip.onclick = () => { boardQuery = l; loadBoard(); };
         card.append(chip);
       }
-      // Opening the companion is the next thing somebody wants from a card they just read.
-      card.onclick = () => go(a.socket, a.peer);
       lane.append(card);
     }
     lanes.append(lane);
