@@ -565,6 +565,9 @@ const indexHTML = `<!doctype html>
   /* Where the icons are, not centred on whatever width the rail happens to be. Centred, it slid
      sideways every time the rail widened — the one control that should not move when you press it. */
   #railMenu { align-self:start; margin:0 0 .2rem .25rem; }
+  #railMenu .ic-close { display:none; }
+  body[nav="open"] #railMenu .ic-open { display:none; }
+  body[nav="open"] #railMenu .ic-close { display:block; }
   #themeToggle { margin-left:.2rem; }
   /* One of the two is always hidden, and which one follows the theme in force — including when that
      theme is the machine's, so the query appears here as well as the attribute. Same pairing the
@@ -1426,9 +1429,15 @@ const indexHTML = `<!doctype html>
 <nav id="rail">
   <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
        far corner it did not look like it belonged to the column across the page. -->
+  <!-- Two icons, one shown at a time. The guide asks that an expanded rail's menu icon say it can
+       be collapsed, and aria-expanded alone says that only to a screen reader — the sighted user
+       pressing it twice got the same three lines both times. -->
   <md-icon-button id="railMenu" aria-expanded="false">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <svg class="ic-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
       <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+    <svg class="ic-close" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
   </md-icon-button>
   <!-- The icons are drawn here rather than pulled from Material Symbols: that is a whole font to
@@ -1502,7 +1511,7 @@ const indexHTML = `<!doctype html>
      the same three controls repeated under lists somebody was reading for something else; as a
      panel in the rail they were a second copy of that. A dialog is what M3 uses for a short task
      that interrupts nothing, and it is the same dialog at every width. -->
-<md-dialog id="prefsDialog">
+<md-dialog id="prefsDialog" type="alert">
   <div slot="headline" id="prefsK"></div>
   <!-- No theme here. It has a toggle in the masthead — one tap for the setting that gets changed
        most — and a select saying the same thing three feet away was the same preference twice, with
@@ -2099,7 +2108,8 @@ function grounds(a) {
 // cannot end up claiming different numbers.
 function markWaiting(n) {
   for (const b of [railBadge, tabBadge]) {
-    b.value = n ? String(n) : '';
+    // Four characters including the "+", which is what the badge container is drawn to hold.
+    b.value = n ? (n > 999 ? '999+' : String(n)) : '';
     b.hidden = !n;
   }
 }
@@ -3308,6 +3318,12 @@ function paint() {
   answerMode(answering);
   document.getElementById('stop').textContent = tr('action.interrupt');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
+  // Two navigation landmarks on one page have to be told apart, and the label must not repeat the
+  // role — a screen reader already says "navigation". Named one at a time rather than swept with a
+  // selector: the phrase pack's own test reads literal tr('…') calls to find phrases nobody asks
+  // for, and a lookup through a data attribute is invisible to it.
+  railEl.setAttribute('aria-label', tr('nav.destinations'));
+  document.getElementById('crumbs').setAttribute('aria-label', tr('nav.where'));
   themeToggle.setAttribute('aria-label', tr('pref.theme'));
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
   prefsClose.textContent = tr('action.close');
