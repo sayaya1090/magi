@@ -474,7 +474,7 @@ const indexHTML = `<!doctype html>
   #state .jump {
     --md-text-button-label-text-color:var(--warn);
     --md-text-button-hover-label-text-color:var(--warn);
-    margin-left:-var(--space-50);
+    margin-left:calc(-1 * var(--space-50));
   }
   #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
   #state.lost::before { background:var(--error); }
@@ -871,7 +871,7 @@ const indexHTML = `<!doctype html>
      The state is already said in the badge, twice over, as a word and a coloured dot. */
   .card {
     text-decoration:none; color:var(--md-on-surface); border-bottom:1px solid var(--outlineVariant);
-    padding:var(--space-150) var(--space-150) var(--space-150); margin-left:-var(--space-150); position:relative;
+    padding:var(--space-150) var(--space-150) var(--space-150); margin-left:calc(-1 * var(--space-150)); position:relative;
   }
   .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
   .card.stopped { opacity:.8; }
@@ -1095,7 +1095,7 @@ const indexHTML = `<!doctype html>
     body[side="shut"] #side { display:none; }
     #sideToggle { display:inline-flex; }
   }
-  #sideToggle { display:none; align-self:flex-end; margin-bottom:-var(--space-150); }
+  #sideToggle { display:none; align-self:flex-end; margin-bottom:calc(-1 * var(--space-150)); }
   #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--space-300); }
   #side md-outlined-card { margin-bottom:0; }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
@@ -1229,7 +1229,7 @@ const indexHTML = `<!doctype html>
   .row.user { margin:var(--space-300) 0 var(--space-150); }
   .row.user .txt {
     font:var(--md-sys-typescale-body-large-size)/1.55 var(--display); color:var(--primary);
-    border-left:2px solid var(--primary); padding-left:var(--space-200); margin-left:-var(--space-200);
+    border-left:2px solid var(--primary); padding-left:var(--space-200); margin-left:calc(-1 * var(--space-200));
   }
   .row.user .who { color:var(--primary); }
   .row.assistant .txt { color:var(--fg); }

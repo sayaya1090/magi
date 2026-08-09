@@ -28,23 +28,24 @@ const sheets = await page.evaluate(() => {
     for (let i = at; i < s.length; i++) { const k = skip(s, i); if (k > 0) { i = k - 1; continue; }
       if (s[i] === '{') d++; else if (s[i] === '}' && !--d) return i; } return s.length; };
 
-  // Property names declared directly in a block body (no nested blocks in it).
-  const names = body => { const out = []; let name = '', paren = 0;
+  // Declarations (name and value) written directly in a block body, which has no nested blocks.
+  const decls = body => { const out = []; let name = '', paren = 0;
     for (let i = 0; i < body.length; i++) { const k = skip(body, i); if (k > 0) { i = k - 1; continue; }
       const c = body[i];
       if (c === '(') { paren++; name += c; } else if (c === ')') { paren--; name += c; }
-      else if (c === ':' && !paren) { out.push(name.trim()); name = '';
-        for (; i < body.length; i++) { const k2 = skip(body, i); if (k2 > 0) { i = k2 - 1; continue; }
+      else if (c === ':' && !paren) { const n = name.trim(); name = ''; const from = i + 1;
+        for (i++; i < body.length; i++) { const k2 = skip(body, i); if (k2 > 0) { i = k2 - 1; continue; }
           if (body[i] === '(') paren++; else if (body[i] === ')') paren--;
-          else if (body[i] === ';' && !paren) break; } }
+          else if (body[i] === ';' && !paren) break; }
+        out.push([n, body.slice(from, i).trim()]); }
       else if (c === ';') name = ''; else name += c; }
-    return out.filter(n => n && !/[{}]/.test(n)); };
+    return out.filter(([n]) => n && !/[{}]/.test(n)); };
 
   // @font-face and friends hold descriptors, not properties; CSS.supports does not know them.
   const DESCRIPTOR_AT = /^@(font-face|font-feature-values|counter-style|property|page|viewport)/;
   const out = [];
   for (const el of document.querySelectorAll('style')) {
-    const src = el.textContent, unknown = [];
+    const src = el.textContent, unknown = [], bogus = [];
     let balance = 0;
     (function walk(from, to) {
       for (let i = from; i < to; i++) {
@@ -55,9 +56,14 @@ const sheets = await page.evaluate(() => {
         const nested = /\{/.test(body.replace(/\/\*[\s\S]*?\*\//g, ''));
         if (nested) walk(i + 1, end);
         else if (!DESCRIPTOR_AT.test(prelude)) {
-          for (const n of names(body)) {
-            if (n.startsWith('--') || CSS.supports(n, 'initial')) continue;
-            unknown.push(n.replace(/[ \t\n]+/g, ' ').slice(0, 64));
+          for (const [n, v] of decls(body)) {
+            if (n.startsWith('--')) continue;                      // a custom property takes anything
+            if (!CSS.supports(n, 'initial')) { unknown.push(n.replace(/[ \t\n]+/g, ' ').slice(0, 64)); continue; }
+            // The name can be real and the value still dead: -var(--x) is not a negative length,
+            // and the browser drops the declaration without a word. Four of those shipped in one
+            // commit because a substitution left the minus sign outside the var it moved.
+            const bare = v.replace(/!\s*important\s*$/, '').trim();   // supports() rejects the flag
+            if (bare && !CSS.supports(n, bare)) bogus.push((n + ':' + bare).replace(/[ \t\n]+/g, ' ').slice(0, 72));
           }
         }
         i = end;
@@ -66,7 +72,7 @@ const sheets = await page.evaluate(() => {
     for (let i = 0; i < src.length; i++) { const k = skip(src, i); if (k > 0) { i = k - 1; continue; }
       if (src[i] === '{') balance++; else if (src[i] === '}') balance--; }
     out.push({ balance, rules: el.sheet ? el.sheet.cssRules.length : -1,
-               unknown: [...new Set(unknown)] });
+               unknown: [...new Set(unknown)], bogus: [...new Set(bogus)] });
   }
   return out;
 });
@@ -78,7 +84,12 @@ sheets.forEach((s, i) => {
   if (s.unknown.length) { bad++;
     console.log(`⚠ ${tag}CSS가 모르는 프로퍼티 ${s.unknown.length}개 — 오타이거나 주석이 깨진 것:`);
     s.unknown.forEach(n => console.log('   ', JSON.stringify(n)));
-  } else console.log(`${tag}규칙 ${s.rules}개 · 모든 프로퍼티 이름이 유효`);
+  }
+  if (s.bogus.length) { bad++;
+    console.log(`⚠ ${tag}브라우저가 버리는 값 ${s.bogus.length}개:`);
+    s.bogus.forEach(n => console.log('   ', n));
+  }
+  if (!s.unknown.length && !s.bogus.length) console.log(`${tag}규칙 ${s.rules}개 · 모든 선언이 유효`);
 });
 process.exitCode = bad ? 1 : 0;
 await browser.close();
