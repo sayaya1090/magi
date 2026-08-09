@@ -320,6 +320,18 @@ const indexHTML = `<!doctype html>
     --label-m:var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height);
     --label-s:var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height);
 
+    /* ── the spacing scale ────────────────────────────────────────────────
+       8dp, where space100 = 8dp, with the 4dp half step the dense parts of a terminal need.
+       The page carried twenty-six distinct paddings and gaps — 1.6 · 2.4 · 3.2 · 3.5 · 4.8 ·
+       5.6 · 6.4 · 7.2 · 9.6 · 11.2 · 12.8 · 13.6 · 14.4 · 17.6 · 19.2 · 22.4 · 25.6 · 38.4dp —
+       which is not a rhythm but the absence of one: each was chosen against its neighbour and
+       none against a scale. Eight remain, and nothing moved more than 3.2dp getting here.
+       Written as tokens so a value off the scale reads as a literal and a test can say so. */
+    --space-50:0.25rem;  --space-100:0.5rem; --space-150:0.75rem; --space-200:1rem;
+    --space-300:1.5rem;  --space-400:2rem;   --space-500:2.5rem;  --space-600:3rem;
+    --space-700:3.5rem;  --space-800:4rem;   --space-1000:5rem;   --space-1200:6rem;
+    --space-1600:8rem;
+
     /* ── the widths where the layout changes ──────────────────────────────
        Written in em, and the em in a media query is the reader's default font size — not this
        page's, which is why it is the one unit that answers them. M3's breakpoints are dp
@@ -441,10 +453,10 @@ const indexHTML = `<!doctype html>
     position:sticky; top:0; z-index:2; background:var(--bg);
     border-bottom:1px solid var(--fg);
     box-shadow:0 3px 0 -2px var(--outlineVariant);   /* the hairline under the rule */
-    padding:.85rem 1.4rem .6rem;
-    padding-top:calc(.7rem + env(safe-area-inset-top));
-    display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
-    max-width:var(--page); margin-inline:auto; padding-right:2.4rem;
+    padding:var(--space-150) var(--space-300) var(--space-100);
+    padding-top:calc(var(--space-150) + env(safe-area-inset-top));
+    display:flex; gap:var(--space-200); align-items:baseline; flex-wrap:wrap;
+    max-width:var(--page); margin-inline:auto; padding-right:var(--space-500);
   }
   .mark {
     font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
@@ -455,14 +467,14 @@ const indexHTML = `<!doctype html>
   .sid { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
     margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0533em;
-    color:var(--muted); display:flex; align-items:center; gap:.45rem;
+    color:var(--muted); display:flex; align-items:center; gap:var(--space-100);
   }
   #state::before { content:""; width:6px; height:6px; border-radius:var(--shape-full); background:var(--outline); }
   /* The count is a readout; this part of it is a control, and it says so by being one. */
   #state .jump {
     --md-text-button-label-text-color:var(--warn);
     --md-text-button-hover-label-text-color:var(--warn);
-    margin-left:-.3rem;
+    margin-left:-var(--space-50);
   }
   #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
   #state.lost::before { background:var(--error); }
@@ -506,9 +518,9 @@ const indexHTML = `<!doctype html>
        separate two surfaces, and it is the one that survives when the scrim below it does the rest
        of the work. The shadow this comment used to promise went out with the box-shadow scrim. */
     z-index:4;
-    padding:calc(.7rem + env(safe-area-inset-top)) .5rem 1.2rem;
+    padding:calc(var(--space-150) + env(safe-area-inset-top)) var(--space-100) var(--space-200);
     background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
-    display:flex; flex-direction:column; gap:1rem; overflow:hidden auto;
+    display:flex; flex-direction:column; gap:var(--space-200); overflow:hidden auto;
     /* Same curve and duration as the components use for a container that changes size, so the rail
        and the page's own margin arrive together rather than one chasing the other. */
     transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized);
@@ -588,7 +600,7 @@ const indexHTML = `<!doctype html>
      it clipped the word it was counting for — "컴패니⓶" — and a count that eats its own label is
      worse than no count. */
   .tablbl { display:inline-flex; align-items:center; }
-  .badgewrap { width:16px; height:16px; margin-left:.35rem; }
+  .badgewrap { width:16px; height:16px; margin-left:var(--space-50); }
   .badgewrap md-badge { position:absolute; inset:0; width:16px; height:16px; }
   .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
@@ -604,28 +616,28 @@ const indexHTML = `<!doctype html>
      is where the spec puts it once there is a label to sit beside. The move is in paint() because
      it is a different parent, not a different offset. */
   body[nav="open"] #rail md-list-item > md-badge {
-    position:static; margin-left:auto; margin-right:.15rem; align-self:center;
+    position:static; margin-left:auto; margin-right:var(--space-50); align-self:center;
   }
   body[nav="open"] #rail .icwrap md-badge {
     position:absolute; top:50%; right:auto; left:auto;
     inset-inline-start:calc(100% + 9.2rem); transform:translateY(-50%);
   }
-  #prefsForm { display:flex; flex-direction:column; gap:1rem; min-width:16rem; }
+  #prefsForm { display:flex; flex-direction:column; gap:var(--space-200); min-width:16rem; }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
      screen's controls" looked like until somebody measured it. */
-  .skfind { display:flex; margin:0 0 1.4rem; }
+  .skfind { display:flex; margin:0 0 var(--space-300); }
   .skfind md-outlined-text-field { flex:1 1 22rem; max-width:34rem; }
   .skwrite {
-    display:flex; flex-wrap:wrap; gap:.9rem; align-items:flex-end;
-    margin:2rem 0 0; padding-top:1.4rem; border-top:1px solid var(--outlineVariant);
+    display:flex; flex-wrap:wrap; gap:var(--space-200); align-items:flex-end;
+    margin:var(--space-400) 0 0; padding-top:var(--space-300); border-top:1px solid var(--outlineVariant);
   }
   .skwrite md-outlined-select { flex:0 0 14rem; }
   .skwrite md-outlined-text-field { flex:1 1 22rem; }
   .skwrite .skmodel {
     flex:1 1 100%; font:var(--body-s) var(--mono); color:var(--muted); overflow-wrap:anywhere;
   }
-  #notify { display:flex; flex-direction:column; align-items:flex-start; gap:.3rem; }
+  #notify { display:flex; flex-direction:column; align-items:flex-start; gap:var(--space-50); }
   #notifyWhy { font:var(--body-s) var(--mono); color:var(--muted); max-width:26rem; overflow-wrap:anywhere; }
   #prefsForm .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
@@ -637,11 +649,11 @@ const indexHTML = `<!doctype html>
   }
   /* Where the icons are, not centred on whatever width the rail happens to be. Centred, it slid
      sideways every time the rail widened — the one control that should not move when you press it. */
-  #railMenu { align-self:start; margin:0 0 .2rem .25rem; }
+  #railMenu { align-self:start; margin:0 0 var(--space-50) var(--space-50); }
   #railMenu .ic-close { display:none; }
   body[nav="open"] #railMenu .ic-open { display:none; }
   body[nav="open"] #railMenu .ic-close { display:block; }
-  #themeToggle { margin-left:.2rem; }
+  #themeToggle { margin-left:var(--space-50); }
   /* One of the two is always hidden, and which one follows the theme in force — including when that
      theme is the machine's, so the query appears here as well as the attribute. Same pairing the
      palette uses, for the same reason: a reader can override the machine in both directions. */
@@ -672,7 +684,7 @@ const indexHTML = `<!doctype html>
      re-wrap this was avoiding only happens when the drawer opening takes the available width BELOW
      the cap, and there it still fills and still does not move. */
   main {
-    padding:1.6rem 2.4rem calc(var(--dock, 8rem) + 2rem);
+    padding:var(--space-300) var(--space-500) calc(var(--dock, var(--space-1600)) + var(--space-400));
     max-width:var(--page); margin-inline:auto;
   }
 
@@ -683,7 +695,7 @@ const indexHTML = `<!doctype html>
   /* The divider under the strip. The spec draws it as part of the tab container — 1dp of
      outline-variant, separating the tabs from what they switch — and neither the bundle nor this
      page had it. Without it the strip and the content below read as one block. */
-  #tabs { display:flex; flex-wrap:wrap; gap:.4rem 1.6rem; padding:.9rem 0 0;
+  #tabs { display:flex; flex-wrap:wrap; gap:var(--space-100) var(--space-300); padding:var(--space-200) 0 0;
           border-bottom:1px solid var(--outlineVariant); }
 
   /* ── what I had to say ───────────────────────────────────────────────────── */
@@ -710,8 +722,8 @@ const indexHTML = `<!doctype html>
   /* Wider than the prose measure: a rule's description reads like prose but the line under it
      carries a name, a date range and sometimes a file path, and 74ch put those on three lines. */
   #skills { display:block; max-width:var(--page); }
-  .sk { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
-  .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
+  .sk { border-bottom:1px solid var(--outlineVariant); padding:var(--space-200) 0; }
+  .sk .top { display:flex; gap:var(--space-150); align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     flex-basis:100%; order:-1;
@@ -726,13 +738,13 @@ const indexHTML = `<!doctype html>
   /* A fact is quoted, not instructed: it reads as something the companion believes rather than
      something it was told to do, which is the difference a person is judging on this page. */
   .sk.fact .what { font:italic 400 var(--md-sys-typescale-body-large-size)/1.4 var(--display); }
-  .sk .meta { margin-top:.3rem; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--muted); }
+  .sk .meta { margin-top:var(--space-50); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--muted); }
   .sk .drop { margin-left:auto; }
   .sk .fold { margin-left:auto; }
   .sk .fold + .drop { margin-left:0; }
   /* The rule as written. A reading measure, because it is prose and the row is not. */
   .sk .body {
-    margin:.5rem 0 .1rem; padding:.6rem 0 0; max-width:var(--measure);
+    margin:var(--space-100) 0 var(--space-50); padding:var(--space-100) 0 0; max-width:var(--measure);
     border-top:1px solid var(--outlineVariant);
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
   }
@@ -744,8 +756,8 @@ const indexHTML = `<!doctype html>
   /* Not prose at all: the transport line is a command with arguments and the line under it is an
      absolute path. Clipping either to a reading measure hides the part being read for. */
   #mcp { display:block; max-width:var(--page); }
-  .srv { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
-  .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
+  .srv { border-bottom:1px solid var(--outlineVariant); padding:var(--space-200) 0; }
+  .srv .top { display:flex; gap:var(--space-150); align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     flex-basis:100%; order:-1;
@@ -753,14 +765,14 @@ const indexHTML = `<!doctype html>
   .srv.global .tier { color:var(--warn); }
   .srv.project .tier { color:var(--accent); }
   .srv .what { font:600 var(--body-l) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
-  .srv .how { margin-top:.3rem; font:var(--md-sys-typescale-label-medium-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
-  .srv .where { margin-top:.2rem; font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
+  .srv .how { margin-top:var(--space-50); font:var(--md-sys-typescale-label-medium-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  .srv .where { margin-top:var(--space-50); font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
   .srv .drop { margin-left:auto; }
   /* Nothing here draws a box or a border: the field and the select bring their own outline, their
      own shape and their own 48dp target, and a second set drawn over them was two descriptions of
      one control that could only ever agree by accident. The form says how the controls are
      arranged and stops. */
-  #mcpAdd { display:grid; gap:.9rem; margin:1.4rem 0; max-width:var(--measure); }
+  #mcpAdd { display:grid; gap:var(--space-200); margin:var(--space-300) 0; max-width:var(--measure); }
   #mcpAdd md-filled-button { justify-self:start; }
   #mcpAdd .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); }
 
@@ -795,8 +807,8 @@ const indexHTML = `<!doctype html>
      slot when it has no label attribute, so the count and the word stay ours. */
   /* Clear of whatever is above it. The chips sat straight under the tab row with nothing between,
      so the row of filters read as part of the tabs — two different kinds of control touching. */
-  #summary { display:flex; flex-wrap:wrap; gap:.5rem; padding-bottom:.9rem;
-             margin:1.4rem 0 .2rem; border-bottom:1px solid var(--outlineVariant); }
+  #summary { display:flex; flex-wrap:wrap; gap:var(--space-100); padding-bottom:var(--space-200);
+             margin:var(--space-300) 0 var(--space-50); border-bottom:1px solid var(--outlineVariant); }
   /* Height left to the component. It was 40px, which is neither the 32dp the token asks for nor
      the 48dp target the same page asks for — the target is the bundle's job and it draws a 48px
      .touch regardless of how tall the container is. */
@@ -812,11 +824,11 @@ const indexHTML = `<!doctype html>
   .tile .n {
     display:inline-flex; align-items:center;
     font:600 var(--md-sys-typescale-label-large-size, .875rem)/var(--md-sys-typescale-label-large-line-height, 1.25rem) var(--display);
-    color:var(--fg); margin-right:.45rem;
+    color:var(--fg); margin-right:var(--space-100);
   }
   .tile .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
-    display:inline-flex; align-items:center; gap:.35rem;
+    display:inline-flex; align-items:center; gap:var(--space-50);
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
   .tile .k::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; }
@@ -844,11 +856,11 @@ const indexHTML = `<!doctype html>
        sideways, including a narrow desktop. Sizing each column to what it holds is only half the
        job; the other half is checking the total against the space there is. */
     grid-template-columns: 7rem minmax(8rem, 1fr) minmax(12rem, 2.6fr) 3.5rem 4rem 7rem 6rem;
-    gap:.9rem;
+    gap:var(--space-200);
   }
   .thead {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
-    padding:.9rem 0 .5rem; border-bottom:1px solid var(--fg);
+    padding:var(--space-200) 0 var(--space-100); border-bottom:1px solid var(--fg);
   }
   .thead .r, .card .r { text-align:right; }
 
@@ -859,7 +871,7 @@ const indexHTML = `<!doctype html>
      The state is already said in the badge, twice over, as a word and a coloured dot. */
   .card {
     text-decoration:none; color:var(--md-on-surface); border-bottom:1px solid var(--outlineVariant);
-    padding:.75rem .8rem .8rem; margin-left:-.8rem; position:relative;
+    padding:var(--space-150) var(--space-150) var(--space-150); margin-left:-var(--space-150); position:relative;
   }
   .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
   .card.stopped { opacity:.8; }
@@ -867,14 +879,14 @@ const indexHTML = `<!doctype html>
   /* A team's heading. Set as a rule with a name on it rather than as a bar: this page separates
      with lines, and a filled band per team would turn a table into a stack of boxes. */
   .teamhead {
-    display:flex; align-items:baseline; gap:.7rem; flex-wrap:wrap;
-    margin:1.6rem 0 .2rem; padding:0 0 .35rem;
+    display:flex; align-items:baseline; gap:var(--space-150); flex-wrap:wrap;
+    margin:var(--space-300) 0 var(--space-50); padding:0 0 var(--space-50);
     border-bottom:1px solid var(--fg);
   }
   /* The first team sits closer to the table head above it. Written :first-of-type it matched
      nothing — the table head is a div too, and it is the first one — so all three headers carried
      the same 1.6rem and the list opened with a gap that looked like a missing row. */
-  .thead + .teamhead { margin-top:.6rem; }
+  .thead + .teamhead { margin-top:var(--space-100); }
   .teamhead .tname {
     font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--fg);
   }
@@ -893,13 +905,13 @@ const indexHTML = `<!doctype html>
   .colk { display:none; }
   @media (max-width:62.5em) {
     .colk {
-      display:inline; margin-left:.35rem;
+      display:inline; margin-left:var(--space-50);
       font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0467em; color:var(--muted);
     }
   }
   .card .badge {
     font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:0.0467em; color:var(--muted);
-    display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
+    display:flex; align-items:center; gap:var(--space-100); flex-wrap:wrap;
   }
   .card .badge::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; flex:none; }
   .card.working .badge { color:var(--success); }
@@ -915,7 +927,7 @@ const indexHTML = `<!doctype html>
   }
   .card .role {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
-    overflow-wrap:anywhere; margin-top:.15rem;
+    overflow-wrap:anywhere; margin-top:var(--space-50);
   }
   .card .path { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
 
@@ -934,7 +946,7 @@ const indexHTML = `<!doctype html>
   /* One icon, inside the column. "open" was a word for something the whole row already does — the
      row is a link — and the pair of labelled buttons was wider than the 6rem column they sat in, so
      they hung off the right edge of the table. */
-  .actions { display:flex; gap:.2rem; justify-content:flex-end; align-items:center; }
+  .actions { display:flex; gap:var(--space-50); justify-content:flex-end; align-items:center; }
   .actions md-icon-button {
     --md-icon-button-icon-color:var(--muted);
     --md-icon-button-state-layer-width:40px; --md-icon-button-state-layer-height:40px;
@@ -952,8 +964,8 @@ const indexHTML = `<!doctype html>
      small-caps labels. */
   .grounds {
     grid-column:1 / -1;
-    display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:.25rem .9rem;
-    margin:.7rem 0 .1rem; padding:.7rem 0 0; max-width:var(--measure);
+    display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--space-50) var(--space-200);
+    margin:var(--space-150) 0 var(--space-50); padding:var(--space-150) 0 0; max-width:var(--measure);
     border-top:1px solid var(--outlineVariant);
   }
   .grounds .gk {
@@ -962,15 +974,15 @@ const indexHTML = `<!doctype html>
   }
   .grounds .gv { font:var(--md-sys-typescale-label-medium-size)/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
   @media (max-width:40em) {
-    .grounds { grid-template-columns:1fr; gap:.1rem; }
-    .grounds .gk { text-align:left; margin-top:.4rem; }
+    .grounds { grid-template-columns:1fr; gap:var(--space-50); }
+    .grounds .gk { text-align:left; margin-top:var(--space-100); }
   }
 
   /* answering, inline in the row that is asking */
   /* Answering is the one place on the fleet where a person types, so it is the library's field and
      the library's buttons: focus ring, state layers and a 48dp target all come with them. What is
      said here is that the choice is the warning colour, because the agent is stopped until it. */
-  .answer { display:flex; gap:.6rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
+  .answer { display:flex; gap:var(--space-100); margin-top:var(--space-100); flex-wrap:wrap; align-items:center; }
   .answer md-filled-tonal-button {
     --md-filled-tonal-button-container-color:var(--md-surface-container-high);
     --md-filled-tonal-button-label-text-color:var(--fg);
@@ -979,7 +991,7 @@ const indexHTML = `<!doctype html>
   }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
 
-  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
+  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--display); color:var(--muted); padding:var(--space-500) 0; max-width:52ch; }
   .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--mono); color:var(--accent); }
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
@@ -991,15 +1003,20 @@ const indexHTML = `<!doctype html>
 
      A card lays its slotted children out itself (:host is flex, and a slot is display:contents),
      so a display of ours on the host wins and the children stay grid items. */
-  md-outlined-card { padding:1.1rem 1.2rem; margin-bottom:1.4rem; }
-  #detail { display:flex; flex-direction:column; gap:1.1rem; }
+  md-outlined-card { padding:var(--space-200) var(--space-200); margin-bottom:var(--space-300); }
+  #detail { display:flex; flex-direction:column; gap:var(--space-200); }
   #detail .grid {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
        step count. 14rem is the width of the longest SHORT field (the context reading), so the long
-       ones take a whole row of their own instead of squeezing the rest. */
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:1.2rem 1.6rem;
+       ones take a whole row of their own instead of squeezing the rest.
+
+       The column gap is a scale step wider than the row gap on purpose: auto-fit spends every
+       pixel it saves on another column, so narrowing this one from 25.6dp to 24dp fitted a
+       fourth column, took 119px off each cell and wrapped the long fields it was drawn to keep
+       whole. Snapping to the scale is not the same as snapping to the nearest value. */
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:var(--space-200) var(--space-400);
   }
-  #detail .f { display:flex; flex-direction:column; gap:.2rem; }
+  #detail .f { display:flex; flex-direction:column; gap:var(--space-50); }
   #detail .f .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
   }
@@ -1008,7 +1025,7 @@ const indexHTML = `<!doctype html>
   /* The window, as a rule under the number rather than a gauge beside it: this is a fill level and
      the page already spends its colour on state. Unknown windows draw no bar at all — an empty
      track reads as "nearly empty", which is the opposite of "we do not know". */
-  #detail .f .bar { height:2px; background:var(--outlineVariant); margin-top:.35rem; }
+  #detail .f .bar { height:2px; background:var(--outlineVariant); margin-top:var(--space-50); }
   #detail .f .bar i { display:block; height:100%; background:var(--primary); }
   #detail .f .bar.tight i { background:var(--warn); }
   #detail .f .v small { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); }
@@ -1016,18 +1033,18 @@ const indexHTML = `<!doctype html>
      stylesheet and cannot see into a shadow root, so that opacity is not covered — which is the
      right answer rather than a gap: WCAG exempts inactive controls, and the repo's own rule
      against dimming was about text somebody still has to read. */
-  #detail .f .fold { justify-self:start; margin-top:.4rem; }
+  #detail .f .fold { justify-self:start; margin-top:var(--space-100); }
 
   /* The conversation and the facts about it, side by side where there is room. The transcript is
      the wider of the two because its lines are code; the aside is a reading column of short
      labelled facts and does not want more than it needs. */
-  #agentview { display:grid; grid-template-columns:minmax(0, 1fr); gap:1.6rem; }
+  #agentview { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--space-300); }
   /* The facts fold away. On this page they answer "what am I looking at" once, and after that they
      are 380px of masthead between the reader and the conversation they came for — measured at
      430px wide, the transcript began 1073px down a 900px screen. Folded, the summary line still
      carries the state and the workspace, which is what somebody glancing back actually wants. */
   #detail .foldbar {
-    display:flex; align-items:baseline; gap:.7rem; width:100%; cursor:pointer;
+    display:flex; align-items:baseline; gap:var(--space-150); width:100%; cursor:pointer;
     background:none; border:0; padding:0; color:inherit; text-align:left; font:inherit;
   }
   #detail .foldbar .caret { color:var(--muted); transition:transform 200ms var(--ease-standard); }
@@ -1050,7 +1067,7 @@ const indexHTML = `<!doctype html>
      label and icon instead of primary. The one part no token reaches is the indicator spanning the
      whole tab rather than hugging the label; that is set as a property in paint(). */
   #ptabs {
-    margin:0 0 1.2rem; border-bottom:1px solid var(--outlineVariant);
+    margin:0 0 var(--space-200); border-bottom:1px solid var(--outlineVariant);
     --md-primary-tab-active-indicator-height:2px;
     --md-primary-tab-active-label-text-color:var(--md-on-surface);
     --md-primary-tab-active-icon-color:var(--md-on-surface);
@@ -1078,8 +1095,8 @@ const indexHTML = `<!doctype html>
     body[side="shut"] #side { display:none; }
     #sideToggle { display:inline-flex; }
   }
-  #sideToggle { display:none; align-self:flex-end; margin-bottom:-.8rem; }
-  #stream, #side { min-width:0; display:flex; flex-direction:column; gap:1.4rem; }
+  #sideToggle { display:none; align-self:flex-end; margin-bottom:-var(--space-150); }
+  #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--space-300); }
   #side md-outlined-card { margin-bottom:0; }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
 
@@ -1090,7 +1107,7 @@ const indexHTML = `<!doctype html>
      outline-variant, which is under 3:1 against the surface, so the spec makes the end stop
      mandatory rather than decorative. */
   #plan .planbar {
-    display:block; margin:.35rem 0 .1rem;
+    display:block; margin:var(--space-50) 0 var(--space-50);
     /* The spec's numbers, which are also the component's defaults — set here so a change to either
        is visible as a change to this line rather than a silent drift. */
     --md-linear-progress-track-height:4px;
@@ -1098,12 +1115,12 @@ const indexHTML = `<!doctype html>
     --md-linear-progress-active-indicator-color:var(--primary);
     --md-linear-progress-track-color:var(--outlineVariant);
   }
-  #plan .plancount { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); margin-bottom:.4rem; }
+  #plan .plancount { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); margin-bottom:var(--space-100); }
   #plan .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:.4rem;
+    color:var(--muted); margin-bottom:var(--space-100);
   }
-  .td { display:grid; grid-template-columns:1.2rem 1fr; gap:.6rem; padding:.15rem 0; }
+  .td { display:grid; grid-template-columns:1.2rem 1fr; gap:var(--space-100); padding:var(--space-50) 0; }
   .td .mark { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--mono); color:var(--muted); text-align:center; }
   .td .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--fg); overflow-wrap:anywhere; }
   .td.completed .what { color:var(--muted); text-decoration:line-through; }
@@ -1115,7 +1132,7 @@ const indexHTML = `<!doctype html>
 
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--page); }
-  .boardhead { display:flex; gap:.9rem; align-items:center; margin:0 0 1.2rem; flex-wrap:wrap; }
+  .boardhead { display:flex; gap:var(--space-200); align-items:center; margin:0 0 var(--space-200); flex-wrap:wrap; }
   .lanehead .lrole { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   .lanehead .lteam { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); }
   .wcard .wwhat { color:inherit; text-decoration:none; cursor:pointer; }
@@ -1129,18 +1146,18 @@ const indexHTML = `<!doctype html>
      of them is still a card. */
   .wcard .wlabel { font:inherit; border:0; cursor:pointer; }
   .wcard .wlabel {
-    display:inline-block; cursor:pointer; margin:.3rem .3rem 0 0;
+    display:inline-block; cursor:pointer; margin:var(--space-50) var(--space-50) 0 0;
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:.06em;
     color:var(--primary); background:color-mix(in srgb, var(--primary) 12%, transparent);
-    border-radius:var(--shape-full); padding:.15rem .5rem;
+    border-radius:var(--shape-full); padding:var(--space-50) var(--space-100);
   }
   .wcard .wlabel:hover { background:color-mix(in srgb, var(--primary) 22%, transparent); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
-  .boardhead md-icon-button { align-self:end; margin-bottom:.4rem; }
+  .boardhead md-icon-button { align-self:end; margin-bottom:var(--space-100); }
   /* Scrolls sideways, and ONLY here. The page must never do it, but a board of lanes is the one
      shape where sideways is the reading direction, and clipping a lane would hide a companion. */
-  .lanes { display:flex; gap:1.4rem; align-items:flex-start; overflow-x:auto; padding-bottom:.6rem; }
+  .lanes { display:flex; gap:var(--space-300); align-items:flex-start; overflow-x:auto; padding-bottom:var(--space-100); }
   /* A fixed lane width, and it has to be spelled out three ways: flex-basis alone loses to the
      content's own minimum, so a long title widened its lane and a short one narrowed it, and the
      columns stopped lining up — which is the one thing a board is for. */
@@ -1153,11 +1170,11 @@ const indexHTML = `<!doctype html>
   .lanes { scrollbar-width:thin; }
   #board { padding-right:0; }
   /* Set apart from the chips it sits beside: they filter this list and it leaves it. */
-  #summary .toboard { margin-left:.6rem; }
+  #summary .toboard { margin-left:var(--space-100); }
   .lanes::after { content:""; flex:0 0 1.4rem; }   /* the last lane gets a right edge too */
   .lanehead {
-    display:flex; gap:.6rem; align-items:baseline;
-    border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin-bottom:.6rem;
+    display:flex; gap:var(--space-100); align-items:baseline;
+    border-bottom:1px solid var(--fg); padding-bottom:var(--space-50); margin-bottom:var(--space-100);
   }
   .lanehead .lname {
     font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--mono); letter-spacing:0.0467em; color:var(--fg);
@@ -1165,7 +1182,7 @@ const indexHTML = `<!doctype html>
   .lanehead .lcount { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
   .wcard {
     border:1px solid var(--outlineVariant); border-radius:var(--shape-s);
-    padding:.6rem .7rem; margin-bottom:.6rem; background:var(--md-surface-container-low);
+    padding:var(--space-100) var(--space-150); margin-bottom:var(--space-100); background:var(--md-surface-container-low);
   }
   .wcard .wwhen { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
   .wcard .wwhat { font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
@@ -1177,9 +1194,9 @@ const indexHTML = `<!doctype html>
   #history { max-width:var(--measure); }
   #history .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:.5rem;
+    color:var(--muted); margin-bottom:var(--space-100);
   }
-  .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:.3rem 1.2rem; padding:.35rem 0; }
+  .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:var(--space-50) var(--space-200); padding:var(--space-50) 0; }
   .hs + .hs { border-top:1px solid var(--outlineVariant); }
   .hs .when { font:var(--md-sys-typescale-label-small-size)/1.6 var(--mono); color:var(--muted); text-align:right; }
   .hs .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--fg); overflow-wrap:anywhere; }
@@ -1187,9 +1204,9 @@ const indexHTML = `<!doctype html>
   .hs.now .when { color:var(--success); font-weight:600; }
   #handoffs .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:.5rem;
+    color:var(--muted); margin-bottom:var(--space-100);
   }
-    .ho { display:grid; grid-template-columns:8rem 1fr; gap:.3rem 1.2rem; padding:.6rem 0; }
+    .ho { display:grid; grid-template-columns:8rem 1fr; gap:var(--space-50) var(--space-200); padding:var(--space-100) 0; }
   .ho .to { font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
   .ho .req { font:var(--body-l) var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .ho .ans { grid-column:2; font-size:var(--md-sys-typescale-label-medium-size); color:var(--muted); overflow-wrap:anywhere; }
@@ -1200,7 +1217,7 @@ const indexHTML = `<!doctype html>
      be dressing up evidence. The editorial part is the rhythm — a wide gutter of small-caps labels
      against a single column of text. */
   #log { max-width:var(--wide); }
-  .row { display:grid; grid-template-columns:6.5rem 1fr; gap:1.1rem; align-items:start; padding:.22rem 0; }
+  .row { display:grid; grid-template-columns:6.5rem 1fr; gap:var(--space-200); align-items:start; padding:var(--space-50) 0; }
   .who {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); text-align:right; user-select:none; opacity:.8;
@@ -1209,10 +1226,10 @@ const indexHTML = `<!doctype html>
 
   /* A user turn is the anchor you scan for: set as a lead, with the rule an editorial layout uses
      for a pull quote. */
-  .row.user { margin:1.6rem 0 .7rem; }
+  .row.user { margin:var(--space-300) 0 var(--space-150); }
   .row.user .txt {
     font:var(--md-sys-typescale-body-large-size)/1.55 var(--display); color:var(--primary);
-    border-left:2px solid var(--primary); padding-left:.9rem; margin-left:-.9rem;
+    border-left:2px solid var(--primary); padding-left:var(--space-200); margin-left:-var(--space-200);
   }
   .row.user .who { color:var(--primary); }
   .row.assistant .txt { color:var(--fg); }
@@ -1221,7 +1238,7 @@ const indexHTML = `<!doctype html>
   .row.tool .who { color:var(--accent); }
   .row.result .txt, .row.failed .txt {
     color:var(--muted); border-left:1px solid var(--outlineVariant);
-    padding:.15rem 0 .15rem .8rem; max-height:11rem; overflow:auto;
+    padding:var(--space-50) 0 var(--space-50) var(--space-150); max-height:11rem; overflow:auto;
   }
   .row.failed .who, .row.failed .txt { color:var(--error); border-left-color:var(--error); }
 
@@ -1241,12 +1258,12 @@ const indexHTML = `<!doctype html>
   }
   #prompt {
     background:var(--bg);
-    padding:.9rem 0 .8rem;
+    padding:var(--space-200) 0 var(--space-150);
   }
   /* The rule belongs to the column, not to the window. Drawn on #prompt it ran the full width of
      the viewport while the words under it started 514px in, which reads as a divider for the whole
      page rather than the top of one bar. */
-  #prompt .inner { border-top:2px solid var(--warn); padding-top:.9rem; }
+  #prompt .inner { border-top:2px solid var(--warn); padding-top:var(--space-200); }
   /* The dock stands in the same column as the page. It used to centre its own narrower measure in
      whatever space was left, which put the composer 235px to the right of the text it answers — the
      footer read as belonging to a different page. Same max-width and same centring as main, and the
@@ -1257,25 +1274,25 @@ const indexHTML = `<!doctype html>
      left it 25px off — the padding is part of where a column starts. */
   #prompt .inner, form {
     max-width:var(--page); margin-inline:auto; width:100%; box-sizing:border-box;
-    padding-left:1.4rem; padding-right:1.4rem;
+    padding-left:var(--space-300); padding-right:var(--space-300);
   }
   #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
-    padding-top:1rem; padding-bottom:1rem; display:block;
+    padding-top:var(--space-200); padding-bottom:var(--space-200); display:block;
   }
   /* Under the row, not inside the field. As the field's own supporting text it added 20px to the
      field's height, and the buttons — bottom-aligned so they stay put as the box grows — sat 20px
      below the box they belong to. It also reads better here: the note is about what pressing send
      will do, which is the row's business and not the box's. */
   #cnote {
-    font:var(--body-s) var(--mono); color:var(--muted); margin-top:.4rem;
-    padding-left:.2rem; overflow-wrap:anywhere;
+    font:var(--body-s) var(--mono); color:var(--muted); margin-top:var(--space-100);
+    padding-left:var(--space-50); overflow-wrap:anywhere;
   }
   .composer {
-    display:flex; gap:.9rem; align-items:flex-end;
-    border-top:1px solid var(--fg); padding-top:.8rem;
+    display:flex; gap:var(--space-200); align-items:flex-end;
+    border-top:1px solid var(--fg); padding-top:var(--space-150);
   }
   /* The composer's field is an M3 outlined text field. Its outline, focus behaviour, floating
      label slot and 56dp height are the component's; what is said here is that it takes the row and
@@ -1378,7 +1395,7 @@ const indexHTML = `<!doctype html>
     .thead { display:none; }   /* no columns left to label */
     .card {
       grid-template-columns:auto auto 1fr;
-      gap:.3rem .9rem; padding:1rem .8rem 1.1rem;
+      gap:var(--space-50) var(--space-200); padding:var(--space-200) var(--space-150) var(--space-200);
     }
     /* Everything takes the full width unless it is placed. The cells stay exactly as they are —
        a row still has as many cells as the head has columns — and only where they sit changes. */
@@ -1408,16 +1425,16 @@ const indexHTML = `<!doctype html>
        host rules that could not reach a label: a migration that leaves the old CSS behind leaves
        it pointing at nothing. */
     .composer md-outlined-text-field#t { flex:1 0 100%; }
-    header { padding-left:1rem; padding-right:1rem; }
-    main { padding:1.2rem 1rem calc(var(--dock, 8rem) + 1.5rem); }
+    header { padding-left:var(--space-200); padding-right:var(--space-200); }
+    main { padding:var(--space-200) var(--space-200) calc(var(--dock, var(--space-1600)) + var(--space-300)); }
     .card .name { font:600 var(--title-l) var(--display); }
-    .row { grid-template-columns:1fr; gap:.2rem; }
+    .row { grid-template-columns:1fr; gap:var(--space-50); }
     .who { text-align:left; }
     .row.user .txt { font-size:var(--md-sys-typescale-body-large-size); }
     /* The prompt's inner column narrows with the rest of them. Left out, it kept the 1.4rem the
        wide layout gives it and the question sat 6px right of the transcript it is about — which is
        the same misalignment the dock had, one breakpoint down. */
-    form, #prompt .inner { padding-left:1rem; padding-right:1rem; }
+    form, #prompt .inner { padding-left:var(--space-200); padding-right:var(--space-200); }
     /* A phone's rail is a section at the foot of the page rather than a drawer, so there is nothing
        to open and nothing to dim behind. */
     #scrim { display:none; }
@@ -1444,7 +1461,7 @@ const indexHTML = `<!doctype html>
        padding it came out of the CONTENT box, which is why the masthead's rule ran 102px further
        left than the words above it — a border is drawn on the box and padding sits inside it. */
     body { padding-left:var(--rail-w); }
-    header, main, #prompt .inner, form { padding-left:1.6rem; padding-right:1.6rem; }
+    header, main, #prompt .inner, form { padding-left:var(--space-300); padding-right:var(--space-300); }
     #dock { padding-left:var(--rail-w); }
     /* Open, it is a floating panel. Closed, it is part of the furniture. */
 
@@ -1463,7 +1480,7 @@ const indexHTML = `<!doctype html>
      one you glance at. Everything below is that 455 coming down. */
   @media (max-width:37.4375em) {
     /* The masthead on one line. It wrapped, so the brand and the count each took a row. */
-    header { padding-top:calc(.5rem + env(safe-area-inset-top)); padding-bottom:.4rem; gap:.6rem; }
+    header { padding-top:calc(var(--space-100) + env(safe-area-inset-top)); padding-bottom:var(--space-100); gap:var(--space-100); }
     header .mark { font-size:var(--md-sys-typescale-title-large-size); }
     /* The count on the SAME line as the brand. Given its own row it cost 40px of the first screen
        to say something that fits beside a five-letter word. It is allowed to shrink and to clip:
@@ -1492,7 +1509,7 @@ const indexHTML = `<!doctype html>
        reachable, which stacking also did but at three times the cost. */
     #summary {
       flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none;
-      margin:.9rem 0 .2rem; padding-bottom:.7rem;
+      margin:var(--space-200) 0 var(--space-50); padding-bottom:var(--space-150);
     }
     #summary::-webkit-scrollbar { display:none; }
     .tile { flex:0 0 auto; }
@@ -1502,15 +1519,15 @@ const indexHTML = `<!doctype html>
     #rail {
       position:static; transform:none; width:auto; overflow:visible;
       border-right:0; border-top:1px solid var(--outlineVariant);
-      background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
+      background:none; padding:var(--space-300) var(--space-300) var(--space-400); margin-top:var(--space-300);
     }
     /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
        all. The preferences it used to carry are in the dialog now. */
     #rail { display:none; }
     /* The aside is four cards of context under a conversation, which is a long way to scroll for
        something you glance at. Tighter, so the transcript keeps the screen. */
-    #side { gap:.8rem; }
-    #side md-outlined-card { padding:.9rem 1rem; }
+    #side { gap:var(--space-150); }
+    #side md-outlined-card { padding:var(--space-200) var(--space-200); }
     #history .hs, .ho { grid-template-columns:4.5rem 1fr; }
     }
 

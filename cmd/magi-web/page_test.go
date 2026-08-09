@@ -423,7 +423,7 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 	nav := at("@media (min-width:37.5em)")
 	for _, earlier := range []string{
 		"@media (max-width:62.5em)", // the table's own collapse
-		"@media (max-width:40em)",  // the composer's
+		"@media (max-width:40em)",   // the composer's
 	} {
 		// The LAST occurrence, since a query may appear more than once.
 		if last := strings.LastIndex(sheet, earlier); last > nav {
@@ -604,24 +604,40 @@ func TestTheShapeAndTypeScalesHaveNothingOffThem(t *testing.T) {
 		t.Errorf("border-radius:%s is not on the shape scale", v)
 	}
 
-	// M3's type scale bottoms out at body-small, 12px. Anything smaller is a size the system does
-	// not have, and 13 is between two it does.
-	allowed := map[string]bool{"11": true, "12": true, "14": true, "16": true, "20": true, "22": true, "24": true}
-	seen := map[string]bool{}
-	for _, m := range regexp.MustCompile(`font(?:-size)?:[^;}]*?(\d+)px`).FindAllStringSubmatch(css, -1) {
-		if !allowed[m[1]] {
-			seen[m[1]] = true
+	// A size in px is off the scale whatever its value, because px does not move when a reader
+	// raises their browser's default font size: the labels stayed at 11 while the rem parts around
+	// them grew, and the row scrolled off the side. Sizes come from the typescale tokens now, so
+	// the check is that there are none — a stronger statement than a list of the ones allowed,
+	// which this test used to carry and which had stopped matching anything at all.
+	var px []string
+	for _, m := range regexp.MustCompile(`font(?:-size)?:[^;}]*?(\d+(?:\.\d+)?px)`).FindAllStringSubmatch(css, -1) {
+		px = append(px, m[1])
+	}
+	if len(px) > 0 {
+		sort.Strings(px)
+		t.Errorf("%d font size(s) in px: %s — take the size from --md-sys-typescale-<role>-size, "+
+			"which is what the components read and what a reader's default scales",
+			len(px), strings.Join(px, ", "))
+	}
+
+	// Padding, gap and margin come from the spacing scale. The page carried twenty-six distinct
+	// values between 1.6 and 38.4dp, which is not a rhythm but the absence of one. A literal here
+	// is how the twenty-seventh gets in.
+	spacing := regexp.MustCompile(`\b(?:padding|margin|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|inline|block|inline-start|inline-end|block-start|block-end))?\s*:\s*([^;}]+)`)
+	rem := regexp.MustCompile(`\d*\.?\d+rem`)
+	var off []string
+	for _, m := range spacing.FindAllStringSubmatch(css, -1) {
+		if v := rem.FindAllString(m[1], -1); v != nil {
+			off = append(off, strings.TrimSpace(m[0]))
 		}
 	}
-	if len(seen) > 0 {
-		var off []string
-		for k := range seen {
-			off = append(off, k+"px")
-		}
+	if len(off) > 0 {
 		sort.Strings(off)
-		t.Errorf("%s are not on the type scale — its floor is body-small at 12, and 11 is the "+
-			"one deliberate exception this page makes for its small-caps gutter labels",
-			strings.Join(off, ", "))
+		if len(off) > 8 {
+			off = off[:8]
+		}
+		t.Errorf("spacing written as a rem literal rather than a --space-* token:\n  %s",
+			strings.Join(off, "\n  "))
 	}
 }
 
