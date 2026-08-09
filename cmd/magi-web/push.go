@@ -298,8 +298,12 @@ func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent, subs 
 			continue
 		}
 		body, err := json.Marshal(map[string]string{
-			"title": h.To + " answered " + h.From,
-			"body":  text.Clip(h.Answer, 160),
+			// Who answered belongs in the body, not the headline. The guide caps a title at 29
+			// characters and warns that a title cut off there does not come back when the
+			// notification expands — and two names plus " answered " passes 29 on ordinary names.
+			// The body has room and survives expansion, so it carries the pair.
+			"title": h.From + " answered",
+			"body":  text.Clip(h.To+": "+h.Answer, 80),
 			"url":   "/?d=" + h.Socket,
 			"tag":   "handoff:" + key,
 		})
@@ -343,7 +347,7 @@ func (s *server) notify(a fleet.Agent, subs []webpush.Subscription) {
 		// The question itself, not "an agent needs you": a person deciding whether to get their
 		// phone out is deciding about this question, and a notification that withholds it makes
 		// them open the console to find out whether it was worth opening the console.
-		"body": text.Clip(a.Asking, 160),
+		"body": text.Clip(a.Asking, 80),
 		"url":  "/?d=" + a.Socket,
 		// One tag per companion, so a second block from the same one replaces the first rather than
 		// stacking. Three notifications from an agent that asked three things in a row is the same
@@ -396,7 +400,7 @@ const swJS = `// magi's service worker. It exists to receive notifications; it c
 self.addEventListener('push', e => {
   let m = {};
   try { m = e.data ? e.data.json() : {}; } catch (_) { m = {body: e.data ? e.data.text() : ''}; }
-  e.waitUntil(self.registration.showNotification(m.title || 'magi', {
+  e.waitUntil(self.registration.showNotification(m.title || 'a companion is waiting', {
     body: m.body || '',
     tag: m.tag || 'magi',
     // Replaces the earlier notification for this companion without a second buzz: the tag already
