@@ -855,7 +855,7 @@ const indexHTML = `<!doctype html>
   .actions { display:flex; gap:.2rem; justify-content:flex-end; align-items:center; }
   .actions md-icon-button {
     --md-icon-button-icon-color:var(--muted);
-    --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
+    --md-icon-button-state-layer-width:40px; --md-icon-button-state-layer-height:40px;
     color:var(--muted);
   }
   .actions md-icon-button:hover { --md-icon-button-icon-color:var(--error); color:var(--error); }
@@ -1375,7 +1375,7 @@ const indexHTML = `<!doctype html>
     header { flex-wrap:nowrap; }
     #prefs, #themeToggle {
       flex:none;
-      --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
+      --md-icon-button-state-layer-width:40px; --md-icon-button-state-layer-height:40px;
     }
     /* The crumb is hidden only where the tab strip below already says the same thing. On a
        companion's page there are no tabs, and hiding it left a masthead reading "magi" with no
