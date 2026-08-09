@@ -564,7 +564,7 @@ m3.material.io 본문에서 직접 읽은 것(2026-08-09, 두 페이지: `/compo
 
 | 지금 | 가이드 | |
 |---|---|---|
-| 컴패니언 2단 전환이 **1100px** | 브레이크포인트는 다섯(compact <600, medium 600–839, **expanded 840–1199**, large 1200–1599, XL 1600+)이고 2판 권장은 **expanded=840부터** | ⚠ 1100은 아무도 유도하지 않은 값 |
+| ~~컴패니언 2단 전환이 **1100px**~~ **고침 → 840px** | 브레이크포인트는 다섯(compact <600, medium 600–839, **expanded 840–1199**, large 1200–1599, XL 1600+)이고 2판 권장은 **expanded=840부터** | ⚠ 1100은 아무도 유도하지 않은 값 |
 | ~~compact에서 **`md-tabs`**로 이동~~ **철회** | nav-rail 장은 "compact면 navigation bar"라 하지만, **nav-bar 장이 "목적지 셋 미만이면 bar 대신 탭"**(bar는 3~5개 전제) | ✅ 여기 목적지는 **둘**이다 — md-tabs가 가이드대로. 고쳤다면 위반이 됐다 |
 | ~~산문 measure **74ch**~~ **철회(주의)** | lists 장이 이상값과 천장을 나눈다: "ideal 40–60, but **large-screen … up to 120**" | ✅ 74·108 둘 다 천장 안. "120에 가까우면 줄높이 ↑"도 1.65로 충족 |
 | **MCP 폼**이 목록 아래 6필드 인라인 | 폼 필드는 full-screen 다이얼로그 조건이지만 **full-screen은 compact 전용** — 그 위는 basic | ⚠ 그리고 액션이 하나인 것은 **확인**일 때만 허용된다. 만드는 폼은 해당 안 되므로 `추가`+`취소`를 후행 정렬(확정이 모서리에 가장 가깝게)로 |
@@ -617,15 +617,14 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 > ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/`(16파일)에 있으나 그 디렉토리는
 > **버전관리 밖**이라 항목 전량을 여기 옮겨 둔다.
 >
-> **36건 고침 · 22건 남음.** 읽기는 사실상 끝났다 — Styles 21경로 · Foundations 18경로
+> **37건 고침 · 21건 남음.** 읽기는 사실상 끝났다 — Styles 21경로 · Foundations 18경로
 > · 컴포넌트 **specs 36/36 · `/overview` 36/36 · accessibility 30/36 · guidelines 26/36**.
 > ⚠ 더 읽으면 항목이 **줄 수도** 있다: **A2·A3·A7이 철회**됐고 A12는 심각도가 두 번 바뀌었다.
 
-### 남은 것 (22)
+### 남은 것 (21)
 
 | # | 지금 이 페이지 | 가이드 | 출처 | 크기 |
 |---|---|---|---|---|
-| A1 | 컴패니언 2단 전환이 **1100px** | 2판 권장은 **expanded = 840dp**부터. 브레이크포인트는 다섯 | foundations §2 | 한 줄 |
 | A4 | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세. ★ 가이드의 예시가 **정확히 이것**이다: "a pane is a single destination… in a messaging app, **the list of messages is one pane, and a specific conversation thread is another**" | foundations §4.1·§11.6, components/lists | **큼** |
 | A5 | 컴패니언 보조 판을 **닫을 수도 접을 수도 없다**(⚠ **폭은 결함이 아니다** — side sheet 범위가 **256~400dp**이고 22rem=**352px**는 그 안이다. 남은 것은 어포던스뿐) | ★★ **분류가 갈려도 결함 확정**: **side sheet면 닫기 아이콘 버튼이 필수**("Material requires… always present"), **fixed pane이면 드래그 핸들로 접고 펴기**. 선결 질문은 **고치는 모양**만 정한다. 원래 정리: 가이드는 판을 **flexible**(드래그 핸들로 **폭 조절**) 또는 **fixed**(드래그 핸들로 **접고 펴기** — 1판↔2판 전환) 둘 중 하나로 본다. **fixed 자체는 정상**이고, 빠진 것은 **어포던스**다. supporting pane 비율(주 영역 **약 2/3**)은 flexible을 고를 때 적용 | foundations §4.2 | ⚠ **먼저 정할 것**: 이것이 캐노니컬 **supporting pane**(비율 규칙 적용)인가 **side sheet 컴포넌트**(고정 폭이 정상, 16dp 인셋, 닫기 버튼)인가. 시트로 규정하면 고정 폭이 오히려 맞다 — containers/side-sheets. ⚠ 더해서 layout-overview가 **"A pane can be **fixed**, flexible, floating, or semi-permanent"** 라고 한다 — **fixed 판은 가이드가 인정하는 종류**다. `layout-overview`의 **Parts of layout 탭**을 읽고 판정할 것 |
 | A6 | MCP 추가 폼 6필드가 목록 아래 **인라인**, 액션은 폼 안의 버튼 하나 | 다이얼로그로. **compact는 full-screen, 그 위는 basic**. 액션은 다이얼로그 슬롯에 `추가`+`취소`, 후행 정렬, 확정이 모서리에 가장 가깝게 | components §1 | 중간 |
@@ -648,10 +647,11 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | A55 | `nav.connections`이 화면에 **`MCP`** 로 뜬다(정의 없는 맨 약어) | "**Spell things out whenever possible**" + 약어는 괄호로 정의. 시간 약어 예외 해당 없음 | global-writing/word-choice | **아주 작다** |
 | A56 | `.state`·`.chip` 등 **직접 만든 인터랙티브 요소에 링 모양 포커스 지시자가 없다**(`.state`는 `:focus-visible::after`로 **오버레이만**) | "it appears in its focused state with a **ring-like keyboard focus indicator**" + "Focus states apply to **all** interactive components". ⚠ 오버레이는 State layers의 focus state이고 **링은 별도 요구** | foundations/interaction/states/applying-states | **중간** — `md-*`는 `md-focus-ring`을 갖지만 자작 요소는 없다 |
 
-### 고친 것 (36)
+### 고친 것 (37)
 
 | # | 무엇이었나 | 가이드 | 출처 | 결과 |
 |---|---|---|---|---|
+| ~~A1~~ ✅ | 컴패니언 2단 전환이 **1100px** | 2판 권장은 **expanded = 840dp**부터. 브레이크포인트는 다섯 | foundations §2 | **고침** — `min-width:840px` 3곳 + `matchMedia`. 문서의 브레이크포인트 표도 함께(59189ab2) |
 | ~~A10~~ ✅ | 애니메이션 **210ms·240ms**(`.enter`, `.rise`)가 duration 스케일 밖 | short4=**200**, medium1=**250** | styles §9.2 | **고침** — `.enter` 200ms · `.rise` 250ms (62685ee7) |
 | ~~A11~~ ✅ | `--shape-xl:24px` — **셰이프 스케일에 24가 없다**(20 다음 28) | **28dp** | styles §10.4 | **고침** — `--shape-xl:28px` + 주석 정정 (62685ee7, 752519c5) |
 | ~~A12~~ ✅ | 선택된 내비 항목에 **채워진 아이콘이 없고 라벨도 bold가 아니다**(인디케이터+색까지만) | ❌ **"Avoid using the same unfilled icon style for both selected and unselected items"** — **아이콘이 내비 상태의 지배적 단서**다. 채운 버전이 없으면 **semibold**. 라벨은 선택 **bold** / 비선택 **medium** | components/nav-rail(accessibility), styles §11.5 | **고침** — 선택 = 인디케이터 + 색 + **bold 라벨(700)** + **굵은 아이콘(stroke 2.4)**. 선 아이콘이라 채운 판이 없어 가이드의 대체("thicker or heavier")를 씀 (cbf90ecb) |
