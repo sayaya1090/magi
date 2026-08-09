@@ -127,6 +127,20 @@ function element(tag) {
     removeAttribute(k) { delete this.attrs[k]; },
     hasAttribute(k) { return k in this.attrs; },
     toggleAttribute(k, on) { if (on) this.attrs[k] = ''; else delete this.attrs[k]; return !!on; },
+    // dataset, over the same attribute bag a browser keeps it in, so a page that writes
+    // el.dataset.kind and a test that reads getAttribute('data-kind') see one value. A plain object
+    // would have been two stores agreeing by luck, which is the shape this fake keeps being wrong
+    // in — and having no dataset at all is how a page that used one threw here and nowhere else.
+    get dataset() {
+      const attrs = this.attrs;
+      const key = (p) => 'data-' + String(p).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+      return new Proxy({}, {
+        get: (_, p) => attrs[key(p)],
+        set: (_, p, v) => { attrs[key(p)] = String(v); return true; },
+        has: (_, p) => key(p) in attrs,
+        deleteProperty: (_, p) => { delete attrs[key(p)]; return true; },
+      });
+    },
     // text is everything this node and its descendants would show.
     get text() {
       return [this._text, ...this.children.map((k) => k.text)].join(' ').replace(/\s+/g, ' ').trim();

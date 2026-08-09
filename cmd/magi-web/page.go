@@ -648,6 +648,10 @@ const indexHTML = `<!doctype html>
      around it moves is a number that will be wrong again. align-self does it at any width. */
   #railMenu { transition:transform 250ms var(--magi-sys-ease-emphasized); }
   body:not([nav="open"]) #railMenu { align-self:center; margin-left:0; }
+  /* Expanded, on the same vertical line as the destinations' icons rather than 20px to the left of
+     them. The item insets its content by space-200 and the icon sits centred in a 56px indicator;
+     the button is 40px, so it needs that inset plus half the difference to land on the same line. */
+  body[nav="open"] #railMenu { margin-left:calc(var(--magi-sys-space-200) + (56px - 40px) / 2); }
   #rail .ic { flex:none; display:block; }
   #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }
   /* A destination. Expanded it is a row — icon, then the word — and collapsed it is the word UNDER
@@ -881,6 +885,11 @@ const indexHTML = `<!doctype html>
   .srv .what { font:600 var(--magi-sys-body-l) var(--magi-ref-mono); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   .srv .how { margin-top:var(--magi-sys-space-50); font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
   .srv .where { margin-top:var(--magi-sys-space-50); font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); opacity:.85; overflow-wrap:anywhere; }
+  /* The pair sits at the trailing end together. Its own class, not the remove button's: a test
+     finds the destructive control by that class, and two buttons wearing it made the second one
+     the one being pressed. */
+  .srv .srvedit { margin-left:auto; }
+  .srv .srvedit + .drop { margin-left:0; }
   .srv .drop { margin-left:auto; }
   /* Nothing here draws a box or a border: the field and the select bring their own outline, their
      own shape and their own 48dp target, and a second set drawn over them was two descriptions of
@@ -888,7 +897,8 @@ const indexHTML = `<!doctype html>
      arranged and stops. */
   #mcpForm { display:grid; gap:var(--magi-sys-space-200); min-width:min(22rem, 80vw); }
   #mcpForm .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); }
-  .mcpopen { justify-self:start; margin-top:var(--magi-sys-space-300); }
+  .sectionhead { display:flex; align-items:center; gap:var(--magi-sys-space-200); }
+  .sectionhead .mcpopen { margin-left:auto; }
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
      is inert to the pointer so it can cover the whole control without eating its clicks. */
@@ -2324,6 +2334,7 @@ function paintConn() {
   state.classList.toggle('lost', lost);
   state.classList.toggle('live', !lost && streamAt === 'live');
 }
+let openMCP = () => {};
 const noteEl = document.getElementById('note');
 const conn = how => { streamAt = how; paintConn(); };
 const reach = ok => { reachOK = ok; paintConn(); };
@@ -3637,10 +3648,15 @@ function findBox(get, set) {
 
 // A heading over each half of the shared destination. Two lists under one tab need to say which is
 // which, and the destination's own name is now the pair rather than either.
-function sectionHead(key) {
+function sectionHead(key, action) {
   const h = document.createElement('h2');
   h.className = 'sectionhead';
   h.append(cell('', tr(key)));
+  // A section's own action belongs at its head, not under everything it holds. Adding a server sat
+  // at the BOTTOM of the list, so on a console with a dozen of them the way to add one was to
+  // scroll past all twelve — and on the screen where the list is empty it was the only control
+  // there, below an empty state, which reads as part of the emptiness rather than the way out.
+  if (action) h.append(action);
   return h;
 }
 
@@ -3836,6 +3852,14 @@ async function loadMCP() {
     // translate. Cased here to match the rest; the missing translation is recorded separately.
     top.append(cell('tier', sv.tier === 'global' ? 'Every companion here' : 'Only ' + sv.companion));
     top.append(cell('what', sv.name));
+    // Editing one meant typing all of it into the add form again and trusting the name matched —
+    // the write is by name, so a typo made a SECOND server rather than changing the first.
+    const edit = document.createElement('md-text-button');
+    edit.className = 'srvedit';
+    edit.textContent = tr('action.edit');
+    tip(edit, tr('hint.edit_server', {file: sv.file}));
+    edit.onclick = () => openMCP(sv);
+    top.append(edit);
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
     tip(drop, tr('hint.remove_server', {file: sv.file}));
@@ -3872,21 +3896,39 @@ async function loadMCP() {
   // The asterisk is part of the LABEL, not a decoration beside it: the guide asks for it at the
   // end of the label and says the accessibility label must include it. The server refuses a
   // nameless server, so this is the one field that has it.
+  //
+  // ⚠ And they are asked in two SETS, not all at once. A server is reached over HTTP or it is a
+  // process this machine starts, and the two have nothing in common: an HTTP server is a url and
+  // that is the whole of it — what it can do is the server's own business, advertised over the
+  // protocol, and nothing here needs to be told. A stdio server has no url and needs the command
+  // that starts it. Asking for all six every time made a person filling in a url read four boxes
+  // that could not apply to them and wonder which of the four they were getting wrong.
   const MCP_FIELDS = [
-    ['name', 'label.mcp_name', 'hint.mcp_name', true],
-    ['command', 'label.mcp_command', 'hint.mcp_command'],
-    ['args', 'label.mcp_args', 'hint.mcp_args'],
-    ['url', 'label.mcp_url', 'hint.mcp_url'],
-    ['env', 'label.mcp_env', 'hint.mcp_env'],
+    ['url', 'label.mcp_url', 'hint.mcp_url', false, 'http'],
+    ['command', 'label.mcp_command', 'hint.mcp_command', true, 'stdio'],
+    ['args', 'label.mcp_args', 'hint.mcp_args', false, 'stdio'],
+    ['env', 'label.mcp_env', 'hint.mcp_env', false, 'stdio'],
+    ['name', 'label.mcp_name', 'hint.mcp_name', true, 'both'],
   ];
-  const mcpField = ([name, labelKey, hintKey, must]) => {
+  const mcpField = ([name, labelKey, hintKey, must, kind]) => {
     const i = document.createElement('md-outlined-text-field');
     i.name = name;
+    i.dataset.kind = kind;
     i.setAttribute('label', tr(labelKey) + (must ? ' *' : ''));
     i.setAttribute('supporting-text', tr(hintKey));
     if (must) i.setAttribute('required', '');
     return i;
   };
+  // Which of the two, chosen first, because it decides what the rest of the form even is.
+  const kindSel = document.createElement('md-outlined-select');
+  kindSel.name = 'kind';
+  kindSel.setAttribute('label', tr('label.mcp_kind'));
+  for (const [v, k] of [['http', 'mcp.kind_http'], ['stdio', 'mcp.kind_stdio']]) {
+    const o = document.createElement('md-select-option');
+    o.value = v; o.append(cell('', tr(k)));
+    kindSel.append(o);
+  }
+  kindSel.value = 'http';
   const who = document.createElement('md-outlined-select');
   who.name = 'who';
   who.setAttribute('label', tr('label.reach'));
@@ -3897,7 +3939,33 @@ async function loadMCP() {
     o.value = v; o.append(cell('', label));
     who.append(o);
   }
-  form.append(who, ...MCP_FIELDS.map(mcpField));
+  const fieldEls = MCP_FIELDS.map(mcpField);
+  form.append(kindSel, who, ...fieldEls);
+  // Only the ones this kind uses. Hidden rather than disabled, because a disabled field somebody
+  // can see is a field they will try to fill in: these do not apply at all, they are not refused.
+  // The name is the one both need — it is the key this server is written under, not a description
+  // of it — and it is filled in from the url or the command so the common case is one box.
+  const showKind = () => {
+    for (const f of fieldEls) f.hidden = f.dataset.kind !== 'both' && f.dataset.kind !== kindSel.value;
+  };
+  kindSel.addEventListener('change', showKind);
+  showKind();
+  const nameEl = fieldEls.find(f => f.name === 'name');
+  const suggestName = src => {
+    if (nameEl.value.trim()) return;                 // never over somebody's own answer
+    const from = String(src || '').trim();
+    if (!from) return;
+    const base = /^https?:/i.test(from)
+      ? (from.replace(/^https?:\/\//i, '').split(/[/?#]/)[0] || '').split(':')[0].split('.')[0]
+      : from.split(/[\s/]+/).filter(Boolean).pop() || '';
+    nameEl.value = base.replace(/[^A-Za-z0-9_-]/g, '');
+  };
+  for (const f of fieldEls) {
+    if (f.name === 'url' || f.name === 'command') {
+      f.addEventListener('change', () => suggestName(f.value));
+      f.addEventListener('blur', () => suggestName(f.value));
+    }
+  }
   const note = cell('note',
     'Written to that companion\'s config file. It attaches when that daemon next starts — ' +
     'this changes the file, not a running process.');
@@ -3929,6 +3997,24 @@ async function loadMCP() {
     mcpDialog.close('add');
     loadMCP();
   };
+  // Opening it, empty for a new one and filled for an existing one. One dialog, because the two are
+  // the same answers and a second form would be a second place for them to disagree.
+  openMCP = (sv) => {
+    const put = (n, v) => { const f = fieldEls.find(x => x.name === n); if (f) f.value = v || ''; };
+    kindSel.value = sv && sv.command ? 'stdio' : 'http';
+    showKind();
+    put('url', sv && sv.url); put('command', sv && sv.command);
+    put('args', sv && (sv.args || []).join(' ')); put('env', sv && (sv.envNames || []).join(' '));
+    put('name', sv && sv.name);
+    // The name is the key this server is written under. Changing it while editing would leave the
+    // old one behind and make a second, which is what typing it again into the add form did.
+    nameEl.toggleAttribute('readonly', !!sv);
+    who.value = sv ? (sv.socket || '') : '';
+    mcpDialogK.textContent = tr(sv ? 'label.edit_server' : 'label.add_server');
+    mcpGo.textContent = tr(sv ? 'action.save' : 'action.add_or_replace');
+    for (const f of fieldEls) { f.removeAttribute('error'); f.removeAttribute('error-text'); }
+    mcpDialog.show();
+  };
   // What the page shows in the form's place: one button that opens it.
   // Tonal, not filled. This screen already carries the filled button for writing something down,
   // and the guide asks for one per page — filled is the action that ENDS a flow, and there cannot
@@ -3936,18 +4022,18 @@ async function loadMCP() {
   const open = document.createElement('md-filled-tonal-button');
   open.className = 'mcpopen';
   open.textContent = tr('action.add_server');
-  open.onclick = () => mcpDialog.show();
+  open.onclick = () => openMCP(null);
 
   if (!list.length) {
-    mcpEl.replaceChildren(sectionHead('nav.connections'), emptyState('empty.no_servers', 'empty.no_servers_how'), open);
+    mcpEl.replaceChildren(sectionHead('nav.connections', open), emptyState('empty.no_servers', 'empty.no_servers_how'));
     return;
   }
   if (!rows.length) {
-    mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(),
-      emptyState('empty.no_match', 'empty.no_match_how'), open);
+    mcpEl.replaceChildren(sectionHead('nav.connections', open), mcpFind(),
+      emptyState('empty.no_match', 'empty.no_match_how'));
     return;
   }
-  mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(), ...rows, open);
+  mcpEl.replaceChildren(sectionHead('nav.connections', open), mcpFind(), ...rows);
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────

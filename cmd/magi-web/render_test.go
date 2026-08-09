@@ -1796,16 +1796,22 @@ globalThis.fetch = async (p, init) => {
 fleetSeen = [{socket:'/s/a.sock', name:'api'}];
 await loadMCP();
 // The form lives in the dialog now, and the page shows one button that opens it.
-const opener = byId.mcp.children[byId.mcp.children.length - 1];
-if ((opener.className || '') !== 'mcpopen') throw new Error('the last thing on the page is ' + opener.tag + '.' + opener.className + ', not the button that opens the dialog');
+// At the head of the section, not under everything it holds — a dozen servers used to stand
+// between somebody and the way to add one.
+const head = byId.mcp.children[0];
+const opener = head.find('md-filled-tonal-button')[0];
+if (!opener) throw new Error('the section head carries no button to open the dialog: ' + head.text);
 opener.onclick();
 const form = byId.mcpForm;
 const text = byId.mcp.text + ' ' + form.text;
-for (const i of form.find('md-outlined-text-field')) {
+[...form.querySelectorAll('md-outlined-select')].find(e => e.name === 'kind').value = 'stdio';
+for (const i of form.querySelectorAll('md-outlined-text-field')) {
   if (i.name === 'name') i.value = 'tickets';
   if (i.name === 'command') i.value = 'uvx';
 }
-form.find('md-outlined-select')[0].value = '/s/a.sock';
+// By NAME, not by position: the form asks which kind of server first now, so the first select is
+// that one and the reach picker is the second.
+[...form.querySelectorAll('md-outlined-select')].find(e => e.name === 'who').value = '/s/a.sock';
 byId.mcpDialog.returnValue = 'add';
 await form.onsubmit({preventDefault(){}});
 const drops = byId.mcp.find('md-text-button').filter(b => (b.className || '').split(' ').includes('drop'));
