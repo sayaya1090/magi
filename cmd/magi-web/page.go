@@ -2634,6 +2634,18 @@ async function loadBoard() {
     anything ? lanes : emptyState('board.nothing', 'board.nothing_how'));
 }
 
+// What the board would draw, as one string. The poll below rebuilds only when this changes: the
+// cards come from every companion's history, and redrawing an identical board would blink the lane
+// somebody is reading and throw away the sideways scroll of the strip.
+async function boardSig() {
+  const list = await fetchList('/fleet');
+  if (!list) return null;
+  const runs = await Promise.all(list.map(a =>
+    fetchList('/history?d=' + encodeURIComponent(a.socket) + (a.peer ? '&p=' + encodeURIComponent(a.peer) : ''))
+      .then(h => h || [])));
+  return JSON.stringify(runs);
+}
+
 // A list from this console, or null when the console itself cannot be reached.
 //
 // The three loaders had this same try/catch, and the distinction it draws is the one thing they
@@ -3492,7 +3504,7 @@ function draw(rows) {
   if (stick) window.scrollTo(0, document.body.scrollHeight);
 }
 
-let es, fleetTimer;
+let es, fleetTimer, boardSub;
 function connect() {
   es = new EventSource('/events' + q());
   es.onopen = () => { state.className = 'live'; state.textContent = tr('state.live'); };
@@ -3634,6 +3646,7 @@ function reveal(el, how) {
 function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
+  if (boardSub) { boardSub.unsubscribe(); boardSub = null; }
   const s = sock();
   const v = s ? '' : view();
   // Where you are, in the masthead: magi / lessons, or magi / companions / design. The crumb that
@@ -3700,7 +3713,19 @@ function render() {
     return;
   }
   if (v === 'board') {
+    // Live, like the fleet beside it. A board that showed the day as it stood when you opened it
+    // went stale the moment an agent finished something — and the day you watch it is the day work
+    // is happening. rxjs because the page already speaks it, and because the guard belongs in the
+    // pipe rather than in a flag somebody has to remember to clear.
     loadBoard();
+    boardSub = timer(3000, 3000).pipe(
+      switchMap(() => from(boardSig())),
+      onlyWhen(Boolean),
+      distinctUntilChanged(),
+      // A field with the caret in it is a field somebody is using. Rebuilding the header under
+      // them would take the focus and the half-typed date with it.
+      onlyWhen(() => !boardEl.contains(document.activeElement)),
+    ).subscribe(() => loadBoard());
     return;
   }
   if (v === 'skills') {
