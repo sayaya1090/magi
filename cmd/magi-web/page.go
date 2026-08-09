@@ -412,7 +412,6 @@ const indexHTML = `<!doctype html>
   #state .jump {
     --md-text-button-label-text-color:var(--warn);
     --md-text-button-hover-label-text-color:var(--warn);
-    --md-text-button-label-text-size:11px;
     margin-left:-.3rem;
   }
   #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
@@ -728,7 +727,10 @@ const indexHTML = `<!doctype html>
      so the row of filters read as part of the tabs — two different kinds of control touching. */
   #summary { display:flex; flex-wrap:wrap; gap:.5rem; padding-bottom:.9rem;
              margin:1.4rem 0 .2rem; border-bottom:1px solid var(--outlineVariant); }
-  .tile { --md-filter-chip-container-height:40px; --md-filter-chip-label-text-font:var(--mono); }
+  /* Height left to the component. It was 40px, which is neither the 32dp the token asks for nor
+     the 48dp target the same page asks for — the target is the bundle's job and it draws a 48px
+     .touch regardless of how tall the container is. */
+  .tile { --md-filter-chip-label-text-font:var(--mono); }
   .tile .n { font:600 var(--title-m) var(--display); color:var(--fg); margin-right:.45rem; }
   .tile .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
@@ -891,7 +893,6 @@ const indexHTML = `<!doctype html>
     --md-filled-tonal-button-container-color:var(--md-surface-container-high);
     --md-filled-tonal-button-label-text-color:var(--fg);
     --md-filled-tonal-button-label-text-font:var(--mono);
-    --md-filled-tonal-button-label-text-size:12px;
     letter-spacing:.1em; text-transform:uppercase;
   }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
@@ -1198,7 +1199,7 @@ const indexHTML = `<!doctype html>
        not for the scale to be shrunk to fit a look. */
     --md-text-button-label-text-size: 14px;
     --md-text-button-label-text-line-height: 20px;
-    --md-text-button-label-text-weight: 600;
+    --md-text-button-label-text-weight: 500;
     --md-text-button-label-text-color: var(--muted);
     --md-text-button-hover-label-text-color: var(--primary);
     --md-text-button-focus-label-text-color: var(--primary);
@@ -1376,7 +1377,6 @@ const indexHTML = `<!doctype html>
       flex:none;
       --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
     }
-    #state .jump { --md-text-button-label-text-size:10px; }
     /* The crumb is hidden only where the tab strip below already says the same thing. On a
        companion's page there are no tabs, and hiding it left a masthead reading "magi" with no
        word anywhere for WHICH companion — the one question that page exists to answer. */
