@@ -676,12 +676,15 @@ Listed with what each would actually take, so none of them reads as a wish.
 **부모 컨테이너의 padding+gap**으로 안의 요소를 정렬하라고 한다. 자식마다 margin을 걸면 균일하지
 않고 토큰이 더 든다. 이 페이지에는 자식에 직접 `margin`을 거는 자리가 여럿 있다.
 
-## §6a-2 — The full list of departures from the guide (2026-08-09 기준)
+## §6a-2 — Departures from the guide — where each stands (2026-08-09)
 
-> ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/deviations.md`에 있으나 그 디렉토리는
-> **버전관리 밖**이라, 유실에 대비해 항목 전량을 여기 옮겨 둔다. 세 카테고리(foundations·styles·
-> components) 중 **21/약 50 페이지**를 읽은 시점의 목록이다. 더 읽으면 늘거나 **줄 수 있다** —
-> 실제로 A2·A3는 더 읽어서 철회됐다.
+> ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/`(14파일)에 있으나 그 디렉토리는
+> **버전관리 밖**이라, 유실에 대비해 항목 전량을 여기 옮겨 둔다.
+>
+> **15건 고침 · 29건 남음.** 세 카테고리 중 **105/약 122 페이지**를 읽은 시점이다.
+> 더 읽으면 늘거나 **줄 수 있다** — 실제로 A2·A3는 더 읽어서 철회됐고, A12는 심각도가 두 번 바뀌었다.
+
+### Still open (29)
 
 | # | what this page does | what the guide says | source | size |
 |---|---|---|---|---|
@@ -692,54 +695,58 @@ Listed with what each would actually take, so none of them reads as a wish.
 | A7 | 비활성 상태를 **커서 + 호버 없음**으로만 표시 | 상태마다 **시각 지표 둘**. 커서와 호버는 마우스가 없으면 **둘 다 관측 불가** — 터치·키보드에서는 지표 0 | foundations §5.1, §11.6 | **작음** — ⚠ "대비 가드와 충돌" 우려는 **해소됨**: `/designing/color-contrast`가 **"Disabled states do not need to meet contrast requirements"** 라고 명시한다 |
 | A8 | 여백 값이 **8dp 스케일 밖** — .35/.7/.9/1.1/1.2/1.4/1.6/2.4rem = 5.6/11.2/14.4/17.6/19.2/22.4/25.6/38.4dp | 여백은 **8dp 배수**(space100=8dp) | foundations §6.2 | **큼** — 하나 고치면 리듬 전체가 바뀐다. A10과 함께, 셰이프·타이포처럼 **테스트로 고정** |
 | A9 | 자식 요소에 `margin`을 직접 거는 자리가 여럿(`.wlabel`, `.toboard`, `.skwrite` 등) | ❌ 자식에 margin 금지. **부모에 padding+gap** | foundations §6.1 | 중간 |
-| A10 | 애니메이션 **210ms·240ms**(`.enter`, `.rise`)가 duration 스케일 밖 | short4=**200**, medium1=**250** | styles §9.2 | **작다** — 두 값 반올림. A8과 같은 커밋에 묶을 것 |
-| A11 | `--shape-xl:24px` — **셰이프 스케일에 24가 없다**(20 다음 28) | **28dp** | styles §10.4 | **아주 작다** — 사용처 1곳. 가이드·번들 둘 다 28이라 방어 논거 없음 |
 | A12 | 선택된 내비 항목에 **채워진 아이콘이 없고 라벨도 bold가 아니다**(인디케이터+색까지만) | ❌ **"Avoid using the same unfilled icon style for both selected and unselected items"** — **아이콘이 내비 상태의 지배적 단서**다. 채운 버전이 없으면 **semibold**. 라벨은 선택 **bold** / 비선택 **medium** | components/nav-rail(accessibility), styles §11.5 | **중간** — ⚠ 두 번 바뀐 항목: "색만 바뀜"(틀림) → "완결성 부족"(약함) → **명시적 Don't**(accessibility 탭). 접근성 탭을 안 읽어서 과소평가했다 |
 | A13 | `font-variation-settings` **0건** — 가변 폰트 축을 아예 안 쓴다 | 다크 배경 아이콘 **grade −25**, 밀집 데스크톱 **opsz 20**, 24dp 최소 **wght 200** | styles §11.1 | 작다 — 한 줄로 A12까지 열린다 |
-| A14 | 메뉴 아이콘이 **펼쳐져도 안 바뀐다**(고정 햄버거). `aria-expanded`만 바뀜 | 펼치면 아이콘이 **"접을 수 있다"**를 나타내야 | components/nav-rail | 작다 — 아이콘 하나 토글 |
 | A15 | 배지가 접힘/펼침에 상관없이 **한 자리** | 접힘=**아이콘 우상단**, 펼침=**라벨 옆** | components/nav-rail | 작다 |
 | A16 | 이미 선택된 목적지를 **다시 눌러도 맨 위로 안 간다**(확인 필요) | 재선택 = 스크롤 top | components/nav-bar | 아주 작다 |
 | A17 | `#ptabs`(대화/상태)가 **`md-primary-tab`** | 콘텐츠 영역 **안**의 두 번째 층은 **secondary tab**. secondary는 primary 아래에 | components/tabs | ⚠ **번들에 `md-secondary-tab`이 없다**(실측 0건 — 벤더링이 primary만 포함). 재벤더링은 과하다. 가이드가 "기능은 동일, **인디케이터 스타일만 더 단순**"이라 하므로 **`#ptabs`의 인디케이터 토큰만 secondary 모양으로** 바꾸는 것이 맞는 경로. 눈으로 볼 것 |
-| A18 | 배지 값이 **무제한**(`String(n)`) | **"+" 포함 4글자**까지 (99+ 식) | components/tabs | 아주 작다 |
 | A19 | 접힌 레일의 아이콘 전용 목적지에 **`.title` 툴팁이 없다**(`aria-label`만) | **"아이콘 전용 버튼에는 plain 툴팁으로 이름을 단다"** | components/tooltips | **작다** — 다른 아이콘 버튼 7개가 이미 `.title`을 쓴다. 레일만 빠졌다. B(라벨 숨김)를 지탱하는 조각이기도 하다 |
 | A20 | **헤딩 요소가 하나도 없다** — `<h1>`~`<h6>` 마크업 0건, JS 생성 0건. 시각적 섹션 머리글(`.lanehead`·`.teamhead`·`#state`)은 대문자 스타일일 뿐 | **내용 위계대로 H1~H6**, 레벨 건너뛰기 금지, **페이지 제목 H1 하나** | foundations §8.3.2 | **중간** — 보조기술 사용자는 헤딩으로 페이지를 훑는다. 훑을 것이 없다 |
-| A21 | `<nav>` **둘**(`#crumbs`·`#rail`)에 **`aria-label`이 없다** | 같은 랜드마크가 여럿이면 **라벨로 구별**. ⚠ 라벨에 역할 이름을 반복하지 말 것 | foundations §8.3.1 | **아주 작다** — 속성 두 개 |
-| A22 | `#rail .lbl { white-space:nowrap }` — **라벨이 줄바꿈되지 못한다** | 텍스트 확대 시 항목이 **세로로 자라고 줄바꿈해도 된다**. **2배까지 라벨 전체가 보여야** | components/nav-rail(accessibility) | **작다** — 한 줄. ⚠ 접힘 상태의 `display:none`과는 별개 문제 |
 | A25 | 폼 제출 실패가 **필드가 아니라 전역 `#state` 줄**로 가고(page.go:3586, 80자 절단), 그 줄에 **`role="alert"`도 `aria-live`도 없다** | 오류에는 **`alert` 역할**을 부여하고 메시지를 라벨로. 필드 오류는 **그 필드 자리에** | components/text-fields(accessibility), components/dialogs | **중간** — 두 결함이 겹쳐 **스크린리더는 오류를 전혀 못 듣는다**. ⚠ `post()`는 공유 헬퍼라 **폼 제출에 한정**해 고칠 것 |
-| A26 | `<md-dialog id="prefsDialog">`에 **`type` 속성이 없다** → 역할이 `dialog`(기본) | 웹의 **basic 다이얼로그는 `alertdialog` 역할**. 번들이 `type="alert"`일 때만 붙인다 | components/dialogs(accessibility) | **아주 작다** — 속성 하나. ⚠ 단, 이 다이얼로그는 **폼**을 담아 ARIA 관행과 갈릴 수 있다. 고칠 때 확인 |
 | A27 | 보드 카드가 **directly actionable인데 그 안에 동작하는 칩**이 있다(`e.stopPropagation()`이 증거) | 카드는 **동작하는 표면**이거나 **동작을 담는 컨테이너**, **둘 중 하나**. "An action shouldn't be placed on an actionable surface" | components/cards(accessibility) | **중간** — ⚠ guidelines 탭만 보고 "허용"이라 적었던 것을 **뒤집음** |
 | A28 | 보드 **카드 자체와 라벨 칩 둘 다** `<div>` + `onclick` — 파일 전체에 **`tabindex` 0건, `role="` 0건**(실측). ⚠ 대조군: 같은 페이지의 플릿 행은 `<a href>`라 통과 — **두 목록의 처우가 갈린다** | "**모든 동작 요소는 탭 스톱**이어야", "**스크린리더 포커스와 키보드 포커스를 둘 다**" | components/cards(accessibility) | **중간** — **키보드로 라벨 필터를 쓸 방법이 없다** |
 | A29 | 툴팁 7개가 전부 **네이티브 `title`** — **키보드 포커스에서 안 뜨고** Tooltip 역할도 없다 | "hovered **or focused**", "**Tooltip role**" | components/tooltips(accessibility) | **중간** — ⚠ 번들에 툴팁 컴포넌트가 **없다**(0건). A19와 한 번에 고칠 것: ①벤더링 추가 ②`title`+포커스 자체 구현 |
 | A30 | 검색 결과가 바뀌어도 **아무것도 알리지 않는다** — `aria-live`·`role="status"`·`role="log"` **전부 0건** | "When search suggestions and results appear, the screen reader **must** announce the change" | components/search(accessibility) | **중간** — ⚠ **A25와 한 뿌리**(이 페이지에 변화를 알리는 영역이 하나도 없다). 오류·검색결과·연결상태를 **한 번에** 고칠 것 |
-| A31 | 다크 테마 `--outline:#5A5048`가 `--bg:#14110d` 대비 **2.40:1** (라이트는 3.75:1로 통과) | **3:1 이상**. 칩 클러스터("outline 롤을 써서 **최소 3:1 확보**"), 텍스트 필드("container outline **minimum 3:1**"), color/roles("**or another color providing 3:1**") 세 곳이 같은 요구 | components/chips·text-fields(accessibility), styles/color/roles | **중간** — ⚠ **다크 팔레트 한 값**이 칩·텍스트필드 양쪽을 깬다. 앞서 "outline 롤을 쓰니 통과"라 적었으나 **롤이 아니라 값이 요구다** |
 | A32 | 탭 패널 전환(`#ptabs`)이 **fadeThrough + scale(.96)** | **Lateral**은 ⚠ **"does not use a fade or parallax effect… slide in unison"**. 이유까지 있다: ⚠ **"Fading content as it slides makes the peer relationship and swipe gesture less obvious"** + forward/backward로 **오해된다** | styles/motion/transitions(패턴·적용 **두 장**) | **중간** — 패턴 오배치 |
 | A33 | Top level 전환에서 나가는 화면이 **즉시 `hidden`** — 페이드 아웃이 아니라 **점프 컷** | "**Fully fade out content before fading new content in**" + "Jump cuts should generally be **avoided as a default**… **offers no clues** to help a user orient themselves" | styles/motion/transitions | **작다** — ⚠ 예외 조항 있음: "like opening a menu in a **productivity app**, a jump cut **may be preferred**". magi는 생산성 콘솔이라 **이 예외를 쓸지 정하면 된다** |
-| A34 | 푸시 **본문이 `text.Clip(…,160)`**(push.go:302·346) — 권장치의 **2배** | **펼친 본문 <80자**, 접힌 본문 <40자. 160은 가이드가 **SMS**에 준 숫자다 | content-design/notifications | **작다** — 상수 둘 |
-| A35 | 푸시 **제목에 동적 이름**(301은 **둘**: `To + " answered " + From`) → **<29자 초과 가능** | "**Title: <29 chars**" + ⚠ "**Text that gets truncated in the headline will not expand**" + "**Place dynamic text in the notification body**" | content-design/notifications | **중간** — 제목 구성을 바꿔야 |
 | A36 | `text-transform:uppercase` **20곳**(`.lanehead`·`.teamhead`·`#state`·`.thead` 등) | "**All text, including titles, headings, labels, menu items, navigation components, app bars, and buttons should use sentence-style capitalization**" | content-design/style-guide | ⚠ **큼 / 정체성 결정** — 이 페이지의 에디토리얼 성격(대문자+자간 머리글)을 바꾼다. **사용자 판단 필요** |
 | A37 | 영어 라벨 **143개 중 102개가 소문자 시작**(`nav.board:"board"`) | sentence case = "only the first letter of the first word **is capitalized**" | content-design/style-guide | ⚠ **큼 / A36과 한 몸** — 지금은 **대문자·소문자 양쪽으로** 규칙 밖이다 |
-| A38 | `hint.mcp_command`에 **`e.g.`** | ⚠ "Avoid Latin abbreviations in UI text **such as e.g. or etc.** Instead, use full phrases like **"for example,"**" | content-design/style-guide | **아주 작다** |
-| A39 | **단문에 마침표 9건**(`board.nothing`·`notify.unsupported`·`empty.*` 등) | "Avoid using periods to end **single** sentences" — 라벨·툴팁·다이얼로그 본문·목록에서. ⚠ `notify.insecure`는 2문장이라 **정상** | content-design/style-guide | **아주 작다** |
 | A40 | `#state`(page.go:1329-1333)와 `.foldbar .sum`(935)이 **말줄임으로 자르는데 툴팁·링크가 없다** | ❌ "**Don't cut off text without providing a way for users to view it**" / "Truncated text can be replaced with an ellipsis **if the text is available through a tooltip or link**" | writing/text-truncation | **작다** — 다른 6곳엔 `title`이 있는데 `#state`에만 없다 |
 | A41 | **sys 토큰 ~22개가 정적 값을 직접 보유** — 타입스케일 px 20개(148-176) + `shadow`·`scrim` hex(135-136) | "Whenever possible, **system tokens should point to reference tokens rather than static values**" | design-tokens | **중간** — ⚠ 색은 계층을 지켰는데 **타이포만 안 지켰다** |
 | A42 | 자체 토큰에 **시스템명·클래스 접두사 없음**(`--shape-*`·`--ease-*`·`--measure`·`--melchior` 등) | "All token names **start with the system name**" + "an abbreviation for the token class: **ref / sys / comp**" | design-tokens | **작다** — ⚠ 한 파일에 두 규약이 공존. 다만 **어떤 이름으로 바꿀지는 이 페이지에 근거가 없다** |
-| A43 | `showNotification(m.title \|\| 'magi', …)`(push.go:399) 폴백이 **앱 이름** | "An app's name or logo is **already included** in a notification's design. Use the limited space for other information" | content-design/notifications | **아주 작다** — 깨진 푸시에서만 뜬다 |
-| A44 | ~~sys 타입스케일 20개 토큰이 **px**~~ **✅ 고침** | 웹의 폰트 단위는 **rem** — "**Web: rem**", "the conversion is **SP_SIZE/16 = rem**" | styles/typography/type-scale-tokens | ✅ 20개 전부 환산. ★ **숫자 자체는 M3 표와 10/10 일치**했다 — 틀린 건 단위뿐 |
-| A45 | ~~`title-small`·`title-medium` 서체가 **brand**(`--display`)~~ **✅ 고침** | M3 표는 둘 다 **plain**(brand는 title-large부터). "**The plain typeface is used for smaller type styles**" | styles/typography/type-scale-tokens | ✅ `--mono`로 |
 | A46 | `--md-sys-color-secondary`가 **시안**(#5CD8E6, hue≈187°)인데 primary는 **주황**(#FF7A1A, hue≈27°) | "**Secondary, neutral variant, and neutral colors match primary in hue but are progressively less chromatic**" | styles/color/advanced/adjust-existing-colors | ⚠ **정체성 결정** — tertiary=시안은 **맞다**("complementary… by changing its hue"). secondary만 주황 저채도로 바꾸면 **secondary≡tertiary 중복도 함께 풀린다**. 사용자 판단 |
 | A47 | `--success`·`--warn`에 **4-롤 조가 없다**(단일 값) | 정적 색을 정의하면 "**the main color, on-main color, container color, and on-container color**" 넷이 나와야 | styles/color/advanced/define-new-colors | **중간** — 지금 `--warn` 배지가 on- 색이 없어 **`--bg`를 빌려 쓴다**(page.go:512) |
 | A48 | 다크 `--casper:#FF8A8A`가 `--error:#F2B8B5`와 **별개의 붉은색** | "Material provides the red Error color out of the box… **you do not need to define your own static color for a semantic red**" | styles/color/advanced/define-new-colors | ⚠ **판단 필요** — casper는 MAGI 세 현자의 **정체성 색**이고 가이드는 브랜드 색의 정적 유지를 **명시 허용**한다. 다만 **라이트에서는 이미 `--error`와 같은 값**이라 다크만 갈라진 게 의도인지 확인할 것 |
 
+### Fixed (15)
+
+| # | what it was | what the guide says | source | outcome |
+|---|---|---|---|---|
+| ~~A10~~ ✅ | 애니메이션 **210ms·240ms**(`.enter`, `.rise`)가 duration 스케일 밖 | short4=**200**, medium1=**250** | styles §9.2 | **고침** — `.enter` 200ms · `.rise` 250ms (62685ee7) |
+| ~~A11~~ ✅ | `--shape-xl:24px` — **셰이프 스케일에 24가 없다**(20 다음 28) | **28dp** | styles §10.4 | **고침** — `--shape-xl:28px` + 주석 정정 (62685ee7, 752519c5) |
+| ~~A14~~ ✅ | 메뉴 아이콘이 **펼쳐져도 안 바뀐다**(고정 햄버거). `aria-expanded`만 바뀜 | 펼치면 아이콘이 **"접을 수 있다"**를 나타내야 | components/nav-rail | **고침** — 펼치면 X 아이콘으로 전환 (9abc1202) |
+| ~~A18~~ ✅ | 배지 값이 **무제한**(`String(n)`) | **"+" 포함 4글자**까지 (99+ 식) | components/tabs | **고침** — `999+` 상한 (9abc1202) |
+| ~~A21~~ ✅ | `<nav>` **둘**(`#crumbs`·`#rail`)에 **`aria-label`이 없다** | 같은 랜드마크가 여럿이면 **라벨로 구별**. ⚠ 라벨에 역할 이름을 반복하지 말 것 | foundations §8.3.1 | **고침** — `destinations` / `where you are` — 역할명 미포함 (9abc1202) |
+| ~~A22~~ ✅ | `#rail .lbl { white-space:nowrap }` — **라벨이 줄바꿈되지 못한다** | 텍스트 확대 시 항목이 **세로로 자라고 줄바꿈해도 된다**. **2배까지 라벨 전체가 보여야** | components/nav-rail(accessibility) | **고침** — `overflow-wrap:anywhere` (62685ee7) |
+| ~~A26~~ ✅ | `<md-dialog id="prefsDialog">`에 **`type` 속성이 없다** → 역할이 `dialog`(기본) | 웹의 **basic 다이얼로그는 `alertdialog` 역할**. 번들이 `type="alert"`일 때만 붙인다 | components/dialogs(accessibility) | **고침** — `type="alert"` (9abc1202) |
+| ~~A31~~ ✅ | 다크 테마 `--outline:#5A5048`가 `--bg:#14110d` 대비 **2.40:1** (라이트는 3.75:1로 통과) | **3:1 이상**. 칩 클러스터("outline 롤을 써서 **최소 3:1 확보**"), 텍스트 필드("container outline **minimum 3:1**"), color/roles("**or another color providing 3:1**") 세 곳이 같은 요구 | components/chips·text-fields(accessibility), styles/color/roles | **고침** — 다크 `--outline:#72675C` = **3.41:1**, TUI도 동기화 (62685ee7) |
+| ~~A34~~ ✅ | 푸시 **본문이 `text.Clip(…,160)`**(push.go:302·346) — 권장치의 **2배** | **펼친 본문 <80자**, 접힌 본문 <40자. 160은 가이드가 **SMS**에 준 숫자다 | content-design/notifications | **고침** — 본문 80자 (d881c27d) |
+| ~~A35~~ ✅ | 푸시 **제목에 동적 이름**(301은 **둘**: `To + " answered " + From`) → **<29자 초과 가능** | "**Title: <29 chars**" + ⚠ "**Text that gets truncated in the headline will not expand**" + "**Place dynamic text in the notification body**" | content-design/notifications | **고침** — 제목에서 이름 하나를 본문으로 (d881c27d) |
+| ~~A38~~ ✅ | `hint.mcp_command`에 **`e.g.`** | ⚠ "Avoid Latin abbreviations in UI text **such as e.g. or etc.** Instead, use full phrases like **"for example,"**" | content-design/style-guide | **고침** — `for example` (d881c27d) |
+| ~~A39~~ ✅ | **단문에 마침표 9건**(`board.nothing`·`notify.unsupported`·`empty.*` 등) | "Avoid using periods to end **single** sentences" — 라벨·툴팁·다이얼로그 본문·목록에서. ⚠ `notify.insecure`는 2문장이라 **정상** | content-design/style-guide | **고침** — 단문 9건 — 긴 문장 3건은 규칙대로 유지 (d881c27d) |
+| ~~A43~~ ✅ | `showNotification(m.title \|\| 'magi', …)`(push.go:399) 폴백이 **앱 이름** | "An app's name or logo is **already included** in a notification's design. Use the limited space for other information" | content-design/notifications | **고침** — 폴백을 앱 이름 대신 상황 문구로 (d881c27d) |
+| A44 | ~~sys 타입스케일 20개 토큰이 **px**~~ **✅ 고침** | 웹의 폰트 단위는 **rem** — "**Web: rem**", "the conversion is **SP_SIZE/16 = rem**" | styles/typography/type-scale-tokens | ✅ 20개 전부 환산. ★ **숫자 자체는 M3 표와 10/10 일치**했다 — 틀린 건 단위뿐 |
+| A45 | ~~`title-small`·`title-medium` 서체가 **brand**(`--display`)~~ **✅ 고침** | M3 표는 둘 다 **plain**(brand는 title-large부터). "**The plain typeface is used for smaller type styles**" | styles/typography/type-scale-tokens | ✅ `--mono`로 |
+
 **철회된 항목**: A2(compact `md-tabs`) — 목적지가 셋 미만이면 가이드가 탭을 지시한다.
-A3(74ch) — 큰 화면 천장은 120자다. 둘 다 **고쳤다면 위반을 만들었을 것**이다.
+A3(74ch) — 큰 화면 천장은 120자다. **둘 다 고쳤다면 위반을 만들었을 것**이다.
 
 **유지하기로 한 것(B)**: 모든 폭에서 modal 레일(가이드가 든 modal 용례 "정보 밀도 높고 공간 제한"에
-해당) · 접힌 레일의 라벨 숨김(가이드의 "reduced visual impact" 탈출구, `aria-label`은 유지) ·
-108ch 트랜스크립트(천장 안, 줄높이 1.65로 조언 충족) · `--ease-emphasized`가 가이드 대신 번들을
-따르는 것(가이드는 CSS에 값이 없다 하고, 번들은 상수를 갖고 있으며 컴포넌트가 그 곡선으로 움직인다).
+해당하고, **드로어는 폐기되어 펼침 레일이 후계자**다) · 접힌 레일의 라벨 숨김(가이드의 "reduced
+visual impact" 탈출구, `aria-label` 유지) · 108ch 트랜스크립트(천장 안, 줄높이 1.65) ·
+`--ease-emphasized`가 문서 대신 번들을 따르는 것 · 테마 토글이 스위치가 아닌 것(값이 셋이고
+light/dark는 opposing options라 스위치면 **두 겹 위반**이었다).
 
-**아직 판정 못 한 것(7)**: ① MCP 폼의 필수 필드 표시(별표 + 별표의 뜻 설명) ② 폼 오류 표시
-방식(오류 텍스트가 보조 텍스트를 **교체**해야 하고 **오류 아이콘**이 강력 권장) ③ 중첩 컨테이너의
-optical roundness(바깥반경 − 패딩 = 안쪽반경, 중첩에 같은 값 금지) ④ ~~구분선 용법~~ **종결**(`.sk`·`.srv`는 담기지 않은 리스트라 허용 범주 안. 다만 반복 형식이라 여백만으로 충분할 수 있어 **간소화 후보**) ⑤ 한 화면에 filled 버튼이 둘 이상인
-곳(이상은 페이지당 하나) ⑥ 불가능한 동작을 **감추는가 비활성하는가**(가이드는 비활성 — A7과 같은
-자리) ⑦ 메뉴 항목 안에 중첩 동작이 있는가(있으면 키보드·스크린리더가 깨진다).
+**후보(측정·판단 전이라 A 아님)**: 아이콘버튼 36px·탭 44px 타겟(브라우저 실측 필요, 번들 `.touch`가
+48을 보장할 가능성) · 큰 화면에서 레일 자동 펼침(가이드가 "can") · reduced-motion 전면 제거
+(가이드는 "은은한 페이드"를 남기라는 뉘앙스이나 전면 제거가 더 보수적).
