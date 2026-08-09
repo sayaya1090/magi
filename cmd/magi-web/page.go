@@ -782,7 +782,7 @@ const indexHTML = `<!doctype html>
 
        These are MINIMA and their sum is what has to fit. The previous set added up to 1086px with
        the gaps, which is wider than this page's own measure — so every width tested scrolled
-       sideways, including a 1100px desktop. Sizing each column to what it holds is only half the
+       sideways, including a narrow desktop. Sizing each column to what it holds is only half the
        job; the other half is checking the total against the space there is. */
     grid-template-columns: 7rem minmax(8rem, 1fr) minmax(12rem, 2.6fr) 3.5rem 4rem 7rem 6rem;
     gap:.9rem;
@@ -985,10 +985,13 @@ const indexHTML = `<!doctype html>
      screen and everything else on the other. Above it, both columns are visible and there is
      nothing to switch between. */
   #ptabs { margin:0 0 1.2rem; border-bottom:1px solid var(--outlineVariant); }
-  @media (min-width:1100px) {
+  /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
+     1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
+     840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
+  @media (min-width:840px) {
     #ptabs { display:none !important; }
   }
-  @media (min-width:1100px) {
+  @media (min-width:840px) {
     #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
     /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
        glancing back at, and a plan that scrolls away is one you re-find rather than read. */
@@ -1870,7 +1873,7 @@ const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
 const tabsEl = document.getElementById('tabs');
 // ── the companion page's two panels, below the two-column width ──────────────
-// Which of a companion's two halves is on screen. Only meaningful under 1100px, where the columns
+// Which of a companion's two halves is on screen. Only meaningful under 840px, where the columns
 // have collapsed into a stack; above it both are visible and the strip is display:none.
 //
 // Not in the URL. The destination is the companion; which half of it you were reading is a scroll
@@ -1883,7 +1886,7 @@ const detailEl = document.getElementById('detail');
 let panel = 'talk';
 // A media query object rather than a width read: it fires on the change, so a window dragged past
 // the breakpoint re-lays out without waiting for anything else to happen.
-const wide = matchMedia('(min-width:1100px)');
+const wide = matchMedia('(min-width:840px)');
 function drawPanels() {
   const s = sock();
   ptabs.hidden = !s || wide.matches;

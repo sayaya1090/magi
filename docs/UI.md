@@ -73,7 +73,7 @@ its state, or to read what it is saying and steer it. Everything stacked in one 
 first and buried the second: measured at 430px the transcript began 1073px down a 900px screen, and
 at 900px it was the same — this was never a phone problem.
 
-| | ≥1100px | below |
+| | ≥840px | below |
 |---|---|---|
 | layout | two columns: the conversation, and the facts beside it | two panels, **대화 / 상태** |
 | what stays put | the side column is sticky — a plan that scrolls away is one you re-find | — |
@@ -370,7 +370,7 @@ twice." The OS knows what the machine prefers, which is not always what the read
 The breakpoints are **600px** — M3's own boundary between compact and medium, so the rail appears
 where the guide says it should — and **1100px**, where a companion's two columns fit.
 
-| | ≥1100px | 600–1099px | <600px |
+| | ≥840px | 600–839px | <600px |
 |---|---|---|---|
 | navigating | the rail | the rail | the tabs |
 | a companion | two columns | two panels, 대화 / 상태 | two panels |
