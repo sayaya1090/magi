@@ -741,6 +741,10 @@ const indexHTML = `<!doctype html>
   }
   .state:hover::after { opacity:.08; }
   .state:focus-visible::after, .state:active::after { opacity:.12; }
+  /* A ring, not only a wash. The state layer is the focus STATE; the guide asks separately for a
+     "ring-like keyboard focus indicator" so a keyboard user can see where they are — the library's
+     own components draw one with md-focus-ring, and the elements built here had nothing. */
+  .state:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--accent)); outline-offset:2px; }
   /* Material's minimum touch target is 48dp, with 8dp between targets. */
   .state { min-height:48px; }
 
@@ -2654,7 +2658,7 @@ async function boardSig() {
 // failure for an empty list and draw "nothing here" over a screen that simply lost its server.
 async function fetchList(path) {
   try { return await (await fetch(path)).json(); }
-  catch { state.className = 'lost'; state.textContent = tr('error.unreachable'); return null; }
+  catch { state.className = 'lost'; says(tr('error.unreachable')); return null; }
 }
 
 async function loadFleet() {
@@ -2820,7 +2824,14 @@ function drawDetail(a) {
   bar.type = 'button';
   bar.className = 'foldbar';
   bar.append(cell('caret', '▾'), cell('k', tr('field.facts')),
-             cell('sum', stateWord(a.state) + ' · ' + a.workdir));
+             (() => {
+               // The same rule as the status line: it ellipses, so it has to be readable in full
+               // somewhere. The workdir is the part that gets cut and the part somebody is looking
+               // for.
+               const sum = cell('sum', stateWord(a.state) + ' · ' + a.workdir);
+               tip(sum, stateWord(a.state) + ' · ' + a.workdir);
+               return sum;
+             })());
   bar.onclick = () => setFolded(!box.hasAttribute('folded'));
   box.replaceChildren(bar, grid);
   setFolded(localStorage.getItem('facts') === 'folded');
@@ -3093,7 +3104,7 @@ function sayShared() {
   if (shared.servers !== null) {
     bits.push(tr(shared.servers === 1 ? 'count.server' : 'count.servers', {n: shared.servers}));
   }
-  state.textContent = bits.join(' · ');
+  says(bits.join(' · '));
 }
 
 let skillQuery = '';
@@ -3184,6 +3195,14 @@ function tip(el, text) { el.setAttribute('data-tip', text); }
 // feedback a sighted user needs and none of it for anyone else.
 const sayEl = document.getElementById('say');
 let sayTimer = 0;
+// The status line, with a way to read what got cut. It is nowrap-and-ellipsis at narrow widths,
+// and the guide is explicit: do not cut text off without giving people a way to see it — a tooltip
+// or a link is what it names. Now that this page draws its own tooltips, it can be the tooltip.
+function says(text) {
+  state.textContent = text;
+  if (text) tip(state, text); else state.removeAttribute('data-tip');
+}
+
 function say(text) {
   clearTimeout(sayTimer);
   // Cleared first: repeating the same string into a live region is not a change, so the second
@@ -3507,11 +3526,11 @@ function draw(rows) {
 let es, fleetTimer, boardSub;
 function connect() {
   es = new EventSource('/events' + q());
-  es.onopen = () => { state.className = 'live'; state.textContent = tr('state.live'); };
+  es.onopen = () => { state.className = 'live'; says(tr('state.live')); };
   es.onmessage = e => draw(JSON.parse(e.data));
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
-  es.onerror = () => { state.className = 'lost'; state.textContent = tr('state.reconnecting');
+  es.onerror = () => { state.className = 'lost'; says(tr('state.reconnecting'));
                        es.close(); if (sock()) setTimeout(connect, 1500); };
 }
 
@@ -3706,7 +3725,7 @@ function render() {
   for (const el of [fleetEl, skillsEl, boardEl, mcpEl, streamEl]) reveal(el);
   measureDock();
   if (s) { draw([]); connect(); }
-  else { state.className = ''; state.textContent = ''; }
+  else { state.className = ''; says(''); }
   if (v === 'mcp') {
     // The picker names companions, so the fleet is read once first.
     fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
@@ -3850,7 +3869,7 @@ async function post(path, body, socket, peer) {
   if (peer) parts.push('p=' + encodeURIComponent(peer));
   const target = parts.length ? '?' + parts.join('&') : q();
   const r = await fetch(path + target, {method:'POST', body});
-  if (!r.ok) { state.className = 'lost'; state.textContent = (await r.text()).trim().slice(0, 80); }
+  if (!r.ok) { state.className = 'lost'; says((await r.text()).trim().slice(0, 80)); }
 }
 
 const t = document.getElementById('t');
