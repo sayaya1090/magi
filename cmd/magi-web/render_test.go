@@ -1641,7 +1641,7 @@ console.log(JSON.stringify({
 	if got["after"] != got["before"] {
 		t.Errorf("losing the console redrew the table as %q", got["after"])
 	}
-	if got["state"] != "cannot reach magi-web" || got["cls"] != "lost" {
+	if got["state"] != "can't reach magi-web" || got["cls"] != "lost" {
 		t.Errorf("the page does not say it lost the console: %+v", got)
 	}
 }
@@ -1799,7 +1799,7 @@ console.log(JSON.stringify({text: byId.detail.text}));
 	if strings.Contains(text, "% of it cached") {
 		t.Errorf("a figure was drawn for a backend that reported none:\n%s", text)
 	}
-	if !strings.Contains(text, "does not report it") {
+	if !strings.Contains(text, "doesn't report it") {
 		t.Errorf("the panel does not say why there is no figure:\n%s", text)
 	}
 }

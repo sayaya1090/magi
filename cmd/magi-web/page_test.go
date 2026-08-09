@@ -348,7 +348,7 @@ func TestEveryMaterialRoleIsMagisAndFollowsTheTheme(t *testing.T) {
 // A string the language pack has an entry for must not be written into the page as itself.
 //
 // This is the defect this file keeps finding from the other side. The pack carried translations for
-// "cannot reach magi-web", "handed out", "context", "summarised away" and "say who it is for" while
+// "can't reach magi-web", "handed out", "context", "summarised away" and "say who it is for" while
 // the script printed each of them as an English literal — five keys with no reader, and five
 // English words on a Korean page. Nothing failed, because the pack was complete and the code simply
 // did not ask it anything.
