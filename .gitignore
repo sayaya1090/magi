@@ -47,3 +47,7 @@ scratchpad/overnight_log.md
 /.magi/
 # Working patches from a session, kept while a change is in pieces.
 /scratchpad/hunks/
+
+# The agent's own work log, rendered from .magi/experience — the same three memories that are
+# ignored above, in a table. Machine output, not source.
+/SESSION_SUMMARY.md
