@@ -3720,6 +3720,10 @@ for (const [el, key] of RAILS) {
   el.onclick = e => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;  // let the browser have it
     e.preventDefault();
+    // Pressing the destination you are already on scrolls back to the top, which is what the guide
+    // asks a re-selected destination to do. Without it the press did nothing at all — the url was
+    // already this one — and a control that answers nothing reads as broken.
+    if (!sock() && view() === key) { scrollTo({top: 0, behavior: 'smooth'}); return; }
     history.pushState({}, '', at(HREF[key]));
     render();
   };
