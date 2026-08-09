@@ -613,6 +613,28 @@ A TUI and a browser can watch the same daemon at once. Whichever one you steer f
 lands in the same log — **there is no way for the two screens to tell different stories**, which is
 the point of the arrangement.
 
+## 6a. Where this page does not follow the guide
+
+Read out of m3.material.io itself (2026-08-09, two pages: `/components/dialogs/guidelines` and
+`/foundations/layout/breakpoints`). ⚠ That site is a SPA — a fetch returns the title and nothing
+else, so it has to be read in a browser, and `/guidelines` is the page with the rules while
+`/overview` is marketing and `/specs` is dimensions. Not knowing that is how somebody concludes the
+guide is silent.
+
+**Three of these are unread rather than chosen**, and all three are open:
+
+| here | the guide | |
+|---|---|---|
+| the two-column companion page switches at **1100px** | there are five breakpoints — compact <600, medium 600–839, **expanded 840–1199**, large 1200–1599, extra-large 1600+ — and two panes are recommended **from expanded, 840dp** | ⚠ 1100 is a number nobody derived |
+| compact navigates with **`md-tabs`** | compact navigation is a **navigation bar**; tabs switch content WITHIN a screen | ⚠ these are top-level destinations |
+| the prose measure is **74ch** | keep text at **40–60 characters per line** at every breakpoint | ⚠ the transcript's 108ch is separate and deliberate — it is code |
+| the **MCP form** is six fields inline under the list | form fields meet the full-screen dialog criterion, but full-screen is **compact only** — basic above | ⚠ and one action is allowed only when it is an acknowledgement, which a create form is not: it needs add + cancel, trailing-aligned, confirming closest to the edge |
+
+**One is chosen and stays**: the expanded rail is modal with a scrim at every width, where the
+guide has it standard from expanded up. The overlap was asked for deliberately (§3.5a) — content
+must not move when the drawer opens. Recorded here so the next reader can tell a decision from an
+omission.
+
 ## 7. Not there yet
 
 Listed with what each would actually take, so none of them reads as a wish.
