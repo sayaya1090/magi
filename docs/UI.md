@@ -666,3 +666,12 @@ Listed with what each would actually take, so none of them reads as a wish.
   the board has no unassigned column (§2.3).
 - **The report's section names are untranslated** (§2.6), and cannot be while a custom skill can
   name its own.
+
+**A8 — Spacing sits off the 8dp scale.** 가이드의 여백 체계는 `space100 = 8dp`의 배수다. 이 페이지가 쓰는
+`.35/.7/.9/1.1/1.2/1.4/1.6/2.4rem`은 5.6·11.2·14.4·17.6·19.2·22.4·25.6·38.4dp — 하나도 8의 배수가
+아니다. 셰이프·타이포에서 겪은 것과 같은 모양이다: 스케일을 따른다고 적고 값은 손으로 골랐다.
+⚠ 하나만 고칠 수 없다 — 페이지 전체의 리듬이므로 한 번에, 그리고 `--measure`(A3)와 함께 재야 한다.
+
+**A9 — Margins live on children.** 가이드는 "Material rarely uses margins in components"라 적고,
+**부모 컨테이너의 padding+gap**으로 안의 요소를 정렬하라고 한다. 자식마다 margin을 걸면 균일하지
+않고 토큰이 더 든다. 이 페이지에는 자식에 직접 `margin`을 거는 자리가 여럿 있다.
