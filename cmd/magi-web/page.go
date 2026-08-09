@@ -69,7 +69,7 @@ const indexHTML = `<!doctype html>
   /* Roles, verbatim from internal/adapter/tui/styles.go — nervDark / nervLight. */
   :root {
     color-scheme: dark light;
-    --primary:#FF7A1A; --accent:#5CD8E6; --muted:#C9C2B8; --outline:#5A5048;
+    --primary:#FF7A1A; --accent:#5CD8E6; --muted:#C9C2B8; --outline:#72675C;
     --error:#F2B8B5; --success:#86EFAC; --surface:#211B14;
     --primaryContainer:#4A2E0B; --outlineVariant:#463E34; --warn:#FFD479;
     /* The three council members' colours. Declared and unused HERE: the palette is the terminal's
@@ -270,7 +270,7 @@ const indexHTML = `<!doctype html>
   /* ── the M3 shape scale, and nothing off it ───────────────────────────── */
     /* 4 · 8 · 12 · 16 · 24 · full. Every radius on this page is one of these; the page used to be
        2px everywhere, which is not a value the scale has. */
-    --shape-xs:4px; --shape-s:8px; --shape-m:12px; --shape-l:16px; --shape-xl:24px;
+    --shape-xs:4px; --shape-s:8px; --shape-m:12px; --shape-l:16px; --shape-xl:28px;
     --shape-full:9999px;
 
     /* ── M3 motion ────────────────────────────────────────────────────────── */
@@ -361,8 +361,8 @@ const indexHTML = `<!doctype html>
     from { opacity:0; transform:translateY(10px); }
     to   { opacity:1; transform:none; }
   }
-  .enter { animation:fadeThrough 210ms var(--ease-emphasized) both; }
-  .rise  { animation:riseIn 240ms var(--ease-emphasized) both; }
+  .enter { animation:fadeThrough 200ms var(--ease-emphasized) both; }
+  .rise  { animation:riseIn 250ms var(--ease-emphasized) both; }
 
   /* Somebody who asked their machine to stop moving things gets a page that does not move. Not a
      shorter animation — none. The 0.01ms rather than 0 is the standard trick: it still FIRES, so an
@@ -462,7 +462,11 @@ const indexHTML = `<!doctype html>
      icon and nothing else. Clipping the label instead would put half a word on screen, which reads
      as a bug rather than as a choice. The label still exists for a screen reader: it is the
      item's aria-label, set beside the text in paint(). */
-  #rail .lbl { white-space:nowrap; }
+  /* Wrapping, not clipping. At 2x text the guide asks that the whole label stay on screen and
+     lets navigation items grow taller to hold it — so the label may take two lines rather than
+     lose its tail. Collapsed still shows no label at all, which is the line below and a different
+     decision. */
+  #rail .lbl { overflow-wrap:anywhere; }
   body:not([nav="open"]) #rail .lbl { display:none; }
   body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:14px; }
   #rail .ic { flex:none; display:block; }

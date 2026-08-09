@@ -91,7 +91,7 @@ type palette map[string]string
 // They are not decoration either. TestTheWebTakesItsColoursFromHere reads this file and the web's
 // stylesheet and fails when a shared role disagrees, so every entry here has a reader.
 var nervDark = palette{
-	"primary": "#FF7A1A", "accent": "#5CD8E6", "muted": "#C9C2B8", "outline": "#5A5048",
+	"primary": "#FF7A1A", "accent": "#5CD8E6", "muted": "#C9C2B8", "outline": "#72675C",
 	"error": "#F2B8B5", "success": "#86EFAC", "surface": "#211B14",
 	"primaryContainer": "#4A2E0B", "outlineVariant": "#463E34", "warn": "#FFD479",
 	// The MAGI — amber / cyan / coral, the NERV-console hues.
