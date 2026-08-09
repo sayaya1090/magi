@@ -1753,7 +1753,7 @@ drops[1].onclick();   // acts
 console.log(JSON.stringify({text, state: byId.state.text, posts: RENDERED.filter(r => r.to)}));
 `)
 	text := got["text"].(string)
-	for _, want := range []string{"every companion here", "Only api", "npx -y figma-mcp",
+	for _, want := range []string{"Every companion here", "Only api", "npx -y figma-mcp",
 		"needs FIGMA_TOKEN", "/w/a/.magi/config.toml"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the list does not say %q:\n%s", want, text)

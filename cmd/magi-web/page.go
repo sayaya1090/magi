@@ -3418,7 +3418,9 @@ async function loadMCP() {
   const rows = show.map(sv => {
     const el = cell('srv ' + sv.tier);
     const top = cell('top');
-    top.append(cell('tier', sv.tier === 'global' ? 'every companion here' : 'only ' + sv.companion));
+    // ⚠ Hardcoded English, not from the pack — so it missed the sentence-case pass and it does not
+    // translate. Cased here to match the rest; the missing translation is recorded separately.
+    top.append(cell('tier', sv.tier === 'global' ? 'Every companion here' : 'Only ' + sv.companion));
     top.append(cell('what', sv.name));
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
@@ -3726,11 +3728,6 @@ function render() {
   measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; says(''); }
-  if (v === 'mcp') {
-    // The picker names companions, so the fleet is read once first.
-    fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
-    return;
-  }
   if (v === 'board') {
     // Live, like the fleet beside it. A board that showed the day as it stood when you opened it
     // went stale the moment an agent finished something — and the day you watch it is the day work
@@ -3752,7 +3749,15 @@ function render() {
     // become a rule, then the rules. Not polled — this is read and thought about, and a list that
     // reorders itself under the cursor while somebody decides what to promote is worse than one a
     // minute old.
+    //
+    // BOTH halves, from here. There used to be a separate v === 'mcp' branch above this one, and
+    // it could not run: view() folds mcp into skills (RENAMED), so the test never matched while the
+    // element beside it was shown by the same fold. The servers arrived only when something else
+    // happened to call loadMCP — a language change, or adding one — which is why the list was there
+    // on one visit and empty on the next.
     loadSkills();
+    // The server picker names companions, so the fleet is read before the list is drawn.
+    fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
     return;
   }
   // The other two poll: the fleet for its rows, a companion's page for the facts about itself that
