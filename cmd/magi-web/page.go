@@ -1394,6 +1394,11 @@ const indexHTML = `<!doctype html>
     border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-s);
     padding:var(--magi-sys-space-100) var(--magi-sys-space-150); margin-bottom:var(--magi-sys-space-100); background:var(--magi-ref-surface-container-low);
   }
+  /* Who did it, in the muted role — a fact about the card, not its title. */
+  .wcard .wwho {
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
+    letter-spacing:.05em; color:var(--magi-ref-muted);
+  }
   .wcard .wwhen { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   .wcard .wwhat { font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   /* The one running now, in the colour the rest of the page uses for that. */
@@ -2968,11 +2973,37 @@ async function loadBoard() {
 
   const lanes = cell('lanes');
   let anything = false;
+  // A lane per TEAM, not per companion.
+  //
+  // Per companion, a console with six of them had six columns whose heads were a name, a role
+  // sentence and a team word — so every lane started at a different height and the cards below
+  // them never lined up, which is the one thing a board is for. And the columns were the wrong
+  // cut: work belongs to a team, and which companion did it is a fact about the card.
+  //
+  // Companions with no team keep their own lane; nothing declares a team on a single-workspace
+  // machine, and grouping those under one heading would invent a team that does not exist.
+  const laneOf = a => a.team || a.name;
+  const order = [];
+  const byLane = new Map();
   cols.forEach((a, i) => {
+    const key = laneOf(a);
+    if (!byLane.has(key)) { byLane.set(key, []); order.push(key); }
+    byLane.get(key).push([a, i]);
+  });
+  order.forEach(key => {
+    const members = byLane.get(key);
+    const a = members[0][0];
     // A session counts for the day if it was running at any point in it, not only if it began
     // then: a task started at 23:40 and finished at 01:10 belongs to both days somebody might ask
     // about, and belonging to neither is how a long night disappears from a board.
-    let work = runs[i].filter(h => dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay);
+    // Every member's work, each card remembering who did it.
+    let work = [];
+    for (const [who, i] of members) {
+      for (const h of runs[i]) {
+        if (dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay) work.push({...h, who: who.name});
+      }
+    }
+    work.sort((x, y) => String(y.started).localeCompare(String(x.started)));
     if (boardQuery.trim()) {
       const order = rankByIDF(boardQuery,
         work.map(h => [h.title, h.model, ...(h.labels || [])].filter(Boolean).join(' ')));
@@ -2983,12 +3014,11 @@ async function loadBoard() {
     const lane = cell('lane');
     const title = document.createElement('h2');
     title.className = 'lanehead';
-    title.append(cell('lname', a.name));
-    // Who did it is the column, so the label that is missing from a card is what it was FOR. The
-    // team and the role are what the fleet already publishes about this companion — nothing new is
-    // recorded to put them here.
-    if (a.role) title.append(cell('lrole', a.role));
-    if (a.team) title.append(cell('lteam', a.team));
+    title.append(cell('lname', key));
+    // The head is the team's name and a count, and nothing else. It used to carry the companion's
+    // role sentence too, which is what made the six heads six different heights — the cards under
+    // them started at six different places and could not be read across. Who did a piece of work
+    // is on the card that says it.
     title.append(cell('lcount', work.length + ''));
     lane.append(title);
     for (const h of work) {
@@ -3005,12 +3035,17 @@ async function loadBoard() {
       card.append(when);
       // The title is the way in. It carries the address so the companion is reachable with a middle
       // click and a copied url, the same as the fleet row.
+      const mine = members.find(([m]) => m.name === h.who);
+      const owner = mine ? mine[0] : a;
       const what = document.createElement('a');
       what.className = 'wwhat';
-      what.href = href(a);
+      what.href = href(owner);
       what.textContent = h.title || tr('history.untitled');
-      what.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
+      what.onclick = e => { e.preventDefault(); go(owner.socket, owner.peer); };
       card.append(what);
+      // Which companion did it. It was the column heading and is now a fact about the card, which
+      // is the right place for it: the column is the team, and a team is several of them.
+      if (members.length > 1 || h.who !== key) card.append(cell('wwho', h.who));
       // How long it took, when it is over. A card that says only when it started tells you nothing
       // about whether the day went well.
       if (!h.current && h.started && h.ended) {
