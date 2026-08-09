@@ -149,9 +149,13 @@ for (const scheme of ['dark', 'light']) {
 // navigation rail, and that component writes role="listitem" on the anchor it renders: link
 // semantics gone, name-from-content gone, and the whole navigation exposed as two unnamed nodes
 // with every child ignored. Nothing in the DOM looked wrong. The tree is where it showed.
-{
-  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
-  await page.goto(URL, { waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
+// Both widths, because the tab strip only exists on the narrow one, and with whatever dialog the
+// screen can open — a control inside a closed dialog is not in the tree, so it is never asked.
+for (const [screen, q] of Object.entries(SCREENS)) for (const w of [1280, 390]) {
+  const page = await browser.newPage({ viewport: { width: w, height: 1000 } });
+  await page.goto(URL + q, { waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
+  await page.evaluate(() => { const o = document.querySelector('.mcpopen'); if (o) o.click(); });
+  await page.waitForTimeout(600);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Accessibility.enable');
   const { nodes } = await cdp.send('Accessibility.getFullAXTree');
@@ -184,7 +188,16 @@ for (const scheme of ['dark', 'light']) {
     const want = canFocus[nameOf(nav)] ?? canFocus[Object.keys(canFocus)[0]] ?? 0;
     if (named < want) bad.push(`${nameOf(nav) || 'nav'}: ${want} things to reach, ${named} named in the tree`);
   }
-  if (bad.length) note('a11y-tree', 'namelessDestinations', [...new Set(bad)]);
+  // And everything else a keyboard reaches, anywhere on the screen. A control the tree cannot name
+  // is a control somebody listening cannot choose — the rail proved that a whole region can go
+  // dark while the DOM reads correctly, so the question is asked of every one of them.
+  for (const n of nodes) {
+    if (n.ignored || !/^(link|button|tab|checkbox|switch|textbox|combobox|menuitem)$/.test(roleOf(n))) continue;
+    if (nameOf(n).trim()) continue;
+    const at = (n.backendDOMNodeId || 0);
+    bad.push(`a ${roleOf(n)} with no name (#${at})`);
+  }
+  if (bad.length) note(`a11y-tree/${screen}@${w}`, 'namelessControls', [...new Set(bad)].slice(0, 6));
   await page.close();
 }
 
