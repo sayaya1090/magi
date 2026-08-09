@@ -989,7 +989,22 @@ const indexHTML = `<!doctype html>
      at the foot, was nowhere near the words it answers. The tabs put the conversation on its own
      screen and everything else on the other. Above it, both columns are visible and there is
      nothing to switch between. */
-  #ptabs { margin:0 0 1.2rem; border-bottom:1px solid var(--outlineVariant); }
+  /* Secondary tabs, drawn with primary tabs' tokens. These switch content INSIDE the companion
+     destination, which is what the guide calls a secondary tab — and the second level of tabs on a
+     page is exactly the case it says needs them. The bundle has no md-secondary-tab (checked), so
+     the difference is made here: a 2dp indicator instead of 3dp, and on-surface for the active
+     label and icon instead of primary. The one part no token reaches is the indicator spanning the
+     whole tab rather than hugging the label; that is set as a property in paint(). */
+  #ptabs {
+    margin:0 0 1.2rem; border-bottom:1px solid var(--outlineVariant);
+    --md-primary-tab-active-indicator-height:2px;
+    --md-primary-tab-active-label-text-color:var(--md-on-surface);
+    --md-primary-tab-active-icon-color:var(--md-on-surface);
+    --md-primary-tab-active-hover-label-text-color:var(--md-on-surface);
+    --md-primary-tab-active-hover-state-layer-color:var(--md-on-surface);
+    --md-primary-tab-active-pressed-label-text-color:var(--md-on-surface);
+    --md-primary-tab-active-pressed-state-layer-color:var(--md-on-surface);
+  }
   /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
      1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
      840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
@@ -3491,6 +3506,10 @@ function paint() {
   answerMode(answering);
   document.getElementById('stop').textContent = tr('action.interrupt');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
+  // A secondary tab's indicator spans the tab; a primary tab's hugs its label. The bundle keeps
+  // that as a reactive @state with no attribute behind it, so it is set as a property — assigning
+  // it re-renders the tab with the indicator on the button instead of on the content.
+  for (const id of ['ptabTalk', 'ptabState']) document.getElementById(id).fullWidthIndicator = true;
   // Two navigation landmarks on one page have to be told apart, and the label must not repeat the
   // role — a screen reader already says "navigation". Named one at a time rather than swept with a
   // selector: the phrase pack's own test reads literal tr('…') calls to find phrases nobody asks
