@@ -1817,7 +1817,9 @@ globalThis.fetch = async (p, init) => {
 const agent = {socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'};
 await drawDetail(agent);
 const fold = byId.detail.find('md-text-button').filter(b => (b.className || '').split(' ').includes('fold'))[0];
-const title = fold.attrs.title;
+// data-tip, not title: the page draws its own tooltip so that it also appears on keyboard focus,
+// which a native title never does.
+const title = fold.attrs['data-tip'];
 await fold.onclick();
 // The same companion, unchanged: without invalidation the panel would hold pre-fold numbers, and
 // nothing about an idle companion would ever change the key that would refresh them.

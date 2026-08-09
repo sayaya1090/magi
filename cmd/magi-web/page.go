@@ -522,6 +522,13 @@ const indexHTML = `<!doctype html>
   }
   #rail md-list-item[selected] .lbl,
   #rail md-list-item[selected] [slot="start"] { color:var(--primary); }
+  /* Three things change, not one. The guide asks a selected destination for an active indicator, a
+     FILLED icon, and a heavier label — colour alone is the case it names as insufficient. These
+     icons are drawn as strokes and have no filled twin, which is the case the guide answers too:
+     "if an icon doesn't have a filled style, use a thicker or heavier version of the icon". */
+  #rail md-list-item .lbl { font-weight:500; }
+  #rail md-list-item[selected] .lbl { font-weight:700; }
+  #rail md-list-item[selected] .ic path { stroke-width:2.4; }
   /* The badge, corrected. Its inner box is position:absolute at top / 50% across, which is right
      when the badge is laid over an icon and wrong everywhere else — dropped into a flow it anchors
      to whatever ancestor happens to be positioned and lands somewhere unrelated. Giving the host a
@@ -3084,11 +3091,12 @@ function rankByIDF(query, docs) {
 // ever one — showing a second closes the first, because two tooltips is two answers to one
 // question.
 const tipEl = document.getElementById('tip');
-let tipTimer = 0;
+let tipTimer = 0, tipHost = null;
 function showTip(host) {
   const text = host.getAttribute('data-tip');
   if (!text) return;
   clearTimeout(tipTimer);
+  tipHost = host;
   tipEl.textContent = text;
   tipEl.hidden = false;
   const r = host.getBoundingClientRect(), t = tipEl.getBoundingClientRect();
@@ -3098,8 +3106,17 @@ function showTip(host) {
 }
 function hideTip() {
   clearTimeout(tipTimer);
-  tipTimer = setTimeout(() => { tipEl.hidden = true; }, 1500);
+  tipTimer = setTimeout(() => { tipEl.hidden = true; tipHost = null; }, 1500);
 }
+// The tooltip outlived its button. This panel is redrawn on every fleet poll, so a control hovered
+// at the wrong moment is REPLACED rather than left — and a node that is gone never fires pointerout,
+// so nothing ever asked the tooltip to leave. Two guards: drop it the moment its host is off the
+// document, and drop it when the pointer is somewhere else regardless of which events fired.
+addEventListener('pointermove', e => {
+  if (!tipHost) return;
+  if (!tipHost.isConnected || !tipHost.contains(e.target)) hideTip();
+}, true);
+addEventListener('pointerdown', () => { if (tipHost) { clearTimeout(tipTimer); tipEl.hidden = true; tipHost = null; } }, true);
 for (const [on, fn] of [['pointerover', showTip], ['focusin', showTip], ['pointerout', hideTip], ['focusout', hideTip]]) {
   addEventListener(on, e => {
     const host = e.target.closest && e.target.closest('[data-tip]');
@@ -3108,9 +3125,10 @@ for (const [on, fn] of [['pointerover', showTip], ['focusin', showTip], ['pointe
 }
 // Set where title= used to be set. Both, for now: the native one still serves a pointer user on a
 // browser that has not run the script yet.
-// setAttribute rather than el.dataset: the render test's DOM has no dataset, and a tooltip is not
-// worth teaching it one.
-function tip(el, text) { el.setAttribute('data-tip', text); el.title = text; }
+// No title= alongside it. Setting both drew TWO tooltips on the same control — the browser's own,
+// which no script can time or place, and this one. setAttribute rather than el.dataset because the
+// render test's DOM has no dataset, and a tooltip is not worth teaching it one.
+function tip(el, text) { el.setAttribute('data-tip', text); }
 
 // Said to assistive tech, shown to nobody. The list visibly shrinks as you type, which is all the
 // feedback a sighted user needs and none of it for anyone else.
