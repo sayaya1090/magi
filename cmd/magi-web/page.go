@@ -3088,6 +3088,7 @@ function showTip(host) {
   const text = host.getAttribute('data-tip');
   if (!text) return;
   clearTimeout(tipTimer);
+  tipTimer = 0;
   tipHost = host;
   tipEl.textContent = text;
   tipEl.hidden = false;
@@ -3097,8 +3098,11 @@ function showTip(host) {
   tipEl.style.left = Math.max(4, Math.min(r.left, innerWidth - t.width - 4)) + 'px';
 }
 function hideTip() {
-  clearTimeout(tipTimer);
-  tipTimer = setTimeout(() => { tipEl.hidden = true; tipHost = null; }, 1500);
+  // Idempotent. This is called from pointerout AND from every pointermove that lands off the host,
+  // and the first version cleared the pending timer before setting a new one — so moving the mouse
+  // rewound the countdown on every frame and the tooltip never left until something else hid it.
+  if (tipTimer) return;
+  tipTimer = setTimeout(() => { tipEl.hidden = true; tipHost = null; tipTimer = 0; }, 1500);
 }
 // The tooltip outlived its button. This panel is redrawn on every fleet poll, so a control hovered
 // at the wrong moment is REPLACED rather than left — and a node that is gone never fires pointerout,
@@ -3108,7 +3112,7 @@ addEventListener('pointermove', e => {
   if (!tipHost) return;
   if (!tipHost.isConnected || !tipHost.contains(e.target)) hideTip();
 }, true);
-addEventListener('pointerdown', () => { if (tipHost) { clearTimeout(tipTimer); tipEl.hidden = true; tipHost = null; } }, true);
+addEventListener('pointerdown', () => { if (tipHost) { clearTimeout(tipTimer); tipTimer = 0; tipEl.hidden = true; tipHost = null; } }, true);
 for (const [on, fn] of [['pointerover', showTip], ['focusin', showTip], ['pointerout', hideTip], ['focusout', hideTip]]) {
   addEventListener(on, e => {
     const host = e.target.closest && e.target.closest('[data-tip]');
