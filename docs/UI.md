@@ -694,7 +694,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 | A9 | 자식 요소에 `margin`을 직접 거는 자리가 여럿(`.wlabel`, `.toboard`, `.skwrite` 등) | ❌ 자식에 margin 금지. **부모에 padding+gap** | foundations §6.1 | 중간 |
 | A10 | 애니메이션 **210ms·240ms**(`.enter`, `.rise`)가 duration 스케일 밖 | short4=**200**, medium1=**250** | styles §9.2 | **작다** — 두 값 반올림. A8과 같은 커밋에 묶을 것 |
 | A11 | `--shape-xl:24px` — **셰이프 스케일에 24가 없다**(20 다음 28) | **28dp** | styles §10.4 | **아주 작다** — 사용처 1곳. 가이드·번들 둘 다 28이라 방어 논거 없음 |
-| A12 | 선택된 내비 항목에 **채워진 아이콘이 없다**(인디케이터+색까지만) | ❌ **"Avoid using the same unfilled icon style for both selected and unselected items"** — **아이콘이 내비 상태의 지배적 단서**다. 채운 버전이 없으면 **semibold** | components/nav-rail(accessibility), styles §11.5 | **중간** — ⚠ 두 번 바뀐 항목: "색만 바뀜"(틀림) → "완결성 부족"(약함) → **명시적 Don't**(accessibility 탭). 접근성 탭을 안 읽어서 과소평가했다 |
+| A12 | 선택된 내비 항목에 **채워진 아이콘이 없고 라벨도 bold가 아니다**(인디케이터+색까지만) | ❌ **"Avoid using the same unfilled icon style for both selected and unselected items"** — **아이콘이 내비 상태의 지배적 단서**다. 채운 버전이 없으면 **semibold**. 라벨은 선택 **bold** / 비선택 **medium** | components/nav-rail(accessibility), styles §11.5 | **중간** — ⚠ 두 번 바뀐 항목: "색만 바뀜"(틀림) → "완결성 부족"(약함) → **명시적 Don't**(accessibility 탭). 접근성 탭을 안 읽어서 과소평가했다 |
 | A13 | `font-variation-settings` **0건** — 가변 폰트 축을 아예 안 쓴다 | 다크 배경 아이콘 **grade −25**, 밀집 데스크톱 **opsz 20**, 24dp 최소 **wght 200** | styles §11.1 | 작다 — 한 줄로 A12까지 열린다 |
 | A14 | 메뉴 아이콘이 **펼쳐져도 안 바뀐다**(고정 햄버거). `aria-expanded`만 바뀜 | 펼치면 아이콘이 **"접을 수 있다"**를 나타내야 | components/nav-rail | 작다 — 아이콘 하나 토글 |
 | A15 | 배지가 접힘/펼침에 상관없이 **한 자리** | 접힘=**아이콘 우상단**, 펼침=**라벨 옆** | components/nav-rail | 작다 |
