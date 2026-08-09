@@ -596,7 +596,15 @@ const indexHTML = `<!doctype html>
      Clipped rather than wrapped: the rail already hides its overflow, and a longer word in another
      language now runs out of the item instead of pushing the row apart. */
   #rail .lbl { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-  body:not([nav="open"]) #rail .lbl { display:none; }
+  /* The label waits for the room. It is revealed the instant the drawer is ASKED to open, and at
+     that instant the rail is still 80px wide — the item has no lane for a word beside a 24dp icon,
+     so it grew to 66px and came back to 56 as the rail caught up. Ten pixels of flinch on every
+     open, and 264 before the label was told not to wrap.
+     So the width goes first and the word follows it: the rail sets nav=open, its width transition
+     runs, and only then does the body say the labels may be drawn. Closing is the reverse and
+     immediate — a word cannot be left standing in a lane that is being taken away. */
+  body:not([rail="labels"]) #rail .lbl { display:none; }
+  #rail .lbl { animation:noticedWord 150ms var(--magi-sys-ease-standard); }
   /* Collapsed, the icon belongs on the rail's centre line, and it was 4px to the left of it: the
      item is 63px inside an 80px rail and its leading space put the 24px icon at the item's leading
      edge, not at the middle of either. The menu button was 8px out for the same reason.
@@ -4073,7 +4081,22 @@ function placeRailBadge() {
   railBadge.removeAttribute('slot');
   if (home && railBadge.parentNode !== home) home.append(railBadge);
 }
+// The labels come in after the rail has finished widening, and go the moment it starts closing.
+// Driven by the transition rather than a matching timer: two numbers that have to agree are one
+// number in two places, and the rail's duration is already written in the stylesheet.
+let labelsSoon = 0;
+function showRailLabels() {
+  clearTimeout(labelsSoon);
+  const done = e => { if (e.propertyName !== 'width') return;
+    railEl.removeEventListener('transitionend', done);
+    if (document.body.getAttribute('nav') === 'open') document.body.setAttribute('rail', 'labels'); };
+  railEl.addEventListener('transitionend', done);
+  // A transition that never runs — reduced motion, or a rail already at width — fires no event.
+  labelsSoon = setTimeout(() => { if (document.body.getAttribute('nav') === 'open') document.body.setAttribute('rail', 'labels'); }, 400);
+}
 const closeNav = () => {
+  clearTimeout(labelsSoon);
+  document.body.removeAttribute('rail');
   document.body.removeAttribute('nav');
   railMenu.setAttribute('aria-expanded', 'false');
   placeRailBadge();
@@ -4084,6 +4107,7 @@ railMenu.onclick = () => {
   document.body.setAttribute('nav', 'open');
   railMenu.setAttribute('aria-expanded', 'true');
   placeRailBadge();
+  showRailLabels();
 };
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
