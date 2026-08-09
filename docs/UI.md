@@ -513,7 +513,7 @@ finger reaches, what a colour computes to. Those are measured in a real browser 
 
 ### 5.1 Measured in a browser
 
-`scratchpad/` carries six probes that run the emitted demo in headless Chromium. They exist because
+`scratchpad/` carries seven probes that run the emitted demo in headless Chromium. They exist because
 the fake DOM cannot answer any question about layout, and because the mock now MOVES: the fleet's
 states cycle, plans change, the context gauge fills and folds, the connection drops and recovers.
 
@@ -525,6 +525,7 @@ states cycle, plans change, the context gauge fills and folds, the connection dr
 | `cssvalid.mjs` | unknown property names, values the browser drops, `var()` that resolves to nothing |
 | `spec.mjs` | the fourteen dimensions the guide states outright, on the elements as drawn |
 | `verify.mjs` | touch targets, keyboard focus, truncation, reflow, the **accessibility tree**, and that every `md-*` is a component the bundle defines |
+| `sweep.mjs` | presses **every control on every screen at two widths** and asks whether anything happened |
 
 ⚠ **A probe is not trusted until breaking something on purpose makes it speak.** Six findings in one
 session were the probe's own, not the page's:
@@ -541,6 +542,13 @@ session were the probe's own, not the page's:
   a box in the tree, so it has to ask the document what owns the point;
 - a zero-size control is not on screen, and a disabled one is not a target — Material marks disabled
   by turning its touch span off, so not skipping it reports the library defending itself.
+
+⚠ **A press that throws is the easy case.** Cancel on the MCP dialog did not throw — it did
+NOTHING, quietly, and a sweep listening only for errors called that a pass. So each press has to
+MOVE something: the url, the DOM, a dialog's open state, the theme attribute, or what is focused.
+That found three more controls drawn as pressable and inert — answer and write-it-down with an
+empty field, and the board's Today while already on today. The guide's answer is the one they
+were not doing: an action that cannot happen is **disabled**, not hidden and not silently inert.
 
 ⚠ **And the gate itself lied twice in one session.** A wrapper that grepped its output for
 `--- FAIL` called a Go syntax error green: a build failure prints neither that string nor anything

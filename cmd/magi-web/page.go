@@ -2748,8 +2748,15 @@ function answerBox(a) {
     const i = document.createElement('md-outlined-text-field');
     i.label = tr('label.answer');
     const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');
+    // Disabled until there is something to send, rather than pressable and inert. The guide is
+    // explicit that an action which cannot happen is DISABLED and not hidden, and the third state
+    // — drawn as pressable and then doing nothing — is the one it does not offer: a press that
+    // answers nothing reads as broken, and there is no way to tell it from a page that has died.
+    const arm2 = () => b.toggleAttribute('disabled', !i.value.trim());
+    arm2();
     const go = e => { e.preventDefault(); e.stopPropagation(); if (i.value.trim()) send(i.value.trim()); };
     b.onclick = go;
+    i.addEventListener('input', arm2);
     i.onclick = e => { e.preventDefault(); e.stopPropagation(); };
     i.onkeydown = e => { if (e.key === 'Enter') go(e); };
     box.append(i, b);
@@ -2953,6 +2960,9 @@ async function loadBoard() {
   const today = document.createElement('md-text-button');
   today.textContent = tr('board.today');
   today.onclick = () => { boardDay = todayISO(); loadBoard(); };
+  // Same rule as the forward arrow beside it, which has been disabled on today all along: a
+  // control that cannot go anywhere says so rather than answering a press with nothing.
+  if (boardDay >= todayISO()) today.setAttribute('disabled', '');
   // Narrowing a day's work by what it was about. Ranked the same way the shared-knowledge search
   // is, so "the one about retries" finds it without knowing how the request was worded — and over
   // the cards already fetched, so it narrows as you type rather than after a round trip.
@@ -3743,6 +3753,11 @@ function skillWrite(all) {
 
   const save = document.createElement('md-filled-button');
   save.textContent = tr('action.write_down');
+  // Same as the answer button: disabled while there is nothing to write down, rather than
+  // pressable and inert.
+  const armSave = () => save.toggleAttribute('disabled', !note.value.trim());
+  armSave();
+  note.addEventListener('input', armSave);
   save.onclick = () => {
     const v = note.value.trim();
     if (!v) return;
