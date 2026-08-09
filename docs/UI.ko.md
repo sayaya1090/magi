@@ -647,6 +647,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | A28 | 보드 카드의 라벨 칩이 **`<div>` + `onclick`** — 탭 스톱도 역할도 없다 | "**모든 동작 요소는 탭 스톱**이어야", "**스크린리더 포커스와 키보드 포커스를 둘 다**" | components/cards(accessibility) | **중간** — **키보드로 라벨 필터를 쓸 방법이 없다** |
 | A29 | 툴팁 7개가 전부 **네이티브 `title`** — **키보드 포커스에서 안 뜨고** Tooltip 역할도 없다 | "hovered **or focused**", "**Tooltip role**" | components/tooltips(accessibility) | **중간** — ⚠ 번들에 툴팁 컴포넌트가 **없다**(0건). A19와 한 번에 고칠 것: ①벤더링 추가 ②`title`+포커스 자체 구현 |
 | A30 | 검색 결과가 바뀌어도 **아무것도 알리지 않는다** — `aria-live`·`role="status"`·`role="log"` **전부 0건** | "When search suggestions and results appear, the screen reader **must** announce the change" | components/search(accessibility) | **중간** — ⚠ **A25와 한 뿌리**(이 페이지에 변화를 알리는 영역이 하나도 없다). 오류·검색결과·연결상태를 **한 번에** 고칠 것 |
+| A31 | 다크 테마 `--outline:#5A5048`가 `--bg:#14110d` 대비 **2.40:1** (라이트는 3.75:1로 통과) | **3:1 이상**. 칩 클러스터("outline 롤을 써서 **최소 3:1 확보**"), 텍스트 필드("container outline **minimum 3:1**"), color/roles("**or another color providing 3:1**") 세 곳이 같은 요구 | components/chips·text-fields(accessibility), styles/color/roles | **중간** — ⚠ **다크 팔레트 한 값**이 칩·텍스트필드 양쪽을 깬다. 앞서 "outline 롤을 쓰니 통과"라 적었으나 **롤이 아니라 값이 요구다** |
 
 **철회된 항목**: A2(compact `md-tabs`) — 목적지가 셋 미만이면 가이드가 탭을 지시한다.
 A3(74ch) — 큰 화면 천장은 120자다. 둘 다 **고쳤다면 위반을 만들었을 것**이다.
