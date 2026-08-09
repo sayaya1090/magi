@@ -1213,6 +1213,48 @@ const indexHTML = `<!doctype html>
     body[side="shut"] #side { display:none; }
     #sideToggle { display:inline-flex; }
   }
+
+  /* List-detail: the list stays while one of its rows is read.
+     The guide's own example of what a pane is happens to be this exact shape — "the list of
+     messages is one pane, and a specific conversation thread is another" — and opening a companion
+     used to take the whole screen, so the count, the other rows and whoever else was waiting all
+     left in order to read one of them.
+
+     Only main's two panes are placed; everything else in main keeps the full width, because a grid
+     put on a container lays out every child it has and the masthead is one of them.
+
+     The list gives up its columns here. Seven of them in 18rem is not a table, it is seven things
+     clipped, so what is left is the state and the name — which is what the list is FOR at this
+     width: seeing who else there is and moving between them. The whole table is one press away at
+     the top of it. */
+  @media (min-width:62.5em) {
+    body[list-detail] main {
+      display:grid; grid-template-columns:18rem minmax(0, 1fr);
+      gap:var(--magi-sys-space-400); align-items:start;
+    }
+    body[list-detail] main > * { grid-column:1 / -1; }
+    body[list-detail] #fleet { grid-column:1; position:sticky; top:5.5rem; }
+    body[list-detail] #agentview { grid-column:2; }
+    body[list-detail] #fleet .thead { display:none; }
+    body[list-detail] #fleet .card {
+      grid-template-columns:minmax(0, 1fr); gap:var(--magi-sys-space-50);
+      padding:var(--magi-sys-space-150);
+    }
+    /* The two that say who and how. The rest are still in the DOM for the screen reader's sake and
+       take no room — a name with no state beside it is a list you cannot scan. */
+    body[list-detail] #fleet .card > *:not(.badge):not(.name) { display:none; }
+    body[list-detail] #fleet .card .badge { order:-1; }
+    /* Which one is open. A list-detail list that does not say so is two panes that look unrelated. */
+    /* A wash, not a filled container. secondary-container took the state word down to 4.01:1 in the
+       light theme — the badge is drawn in success green and that green has no headroom on a
+       saturated ground. Eight percent of primary keeps the row distinct and leaves every colour on
+       it where it was. */
+    body[list-detail] #fleet .card.open {
+      background:color-mix(in srgb, var(--magi-ref-primary) 8%, transparent);
+      border-radius:var(--magi-sys-shape-m);
+    }
+    body[list-detail] #fleet .card.open .name { color:var(--magi-ref-primary); font-weight:700; }
+  }
   #sideToggle { display:none; align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
   #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
@@ -2156,6 +2198,16 @@ let panel = 'talk';
 // A media query object rather than a width read: it fires on the change, so a window dragged past
 // the breakpoint re-lays out without waiting for anything else to happen.
 const wide = matchMedia('(min-width:52.5em)');
+// List-detail: from this width a chosen companion appears BESIDE the list rather than instead of
+// it. The guide's own example of a pane is exactly this shape — the list of messages is one pane,
+// a specific thread is another — and going to a page for it meant the list, the count and whoever
+// else was waiting all left the screen to read one row.
+//
+// 1000px rather than the 840 where two panes are first recommended: at 840 the detail is already
+// two panes of its own (the conversation and the facts beside it), and a third at that width gives
+// the conversation about 350px. The facts pane folds by hand and is remembered, so somebody who
+// wants the list at 840 can have it by folding the other.
+const roomForList = matchMedia('(min-width:62.5em)');
 function drawPanels() {
   const s = sock();
   ptabs.hidden = !s || wide.matches;
@@ -2189,6 +2241,9 @@ ptabs.addEventListener('change', () => {
   measureDock();
 });
 wide.addEventListener('change', drawPanels);
+// Dragging a window past this one changes which shape the page is in, not just how it is spaced,
+// so it is a re-render rather than a re-layout.
+roomForList.addEventListener('change', () => { if (painted) render(); });
 const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board');
@@ -2310,7 +2365,8 @@ function card(a) {
   const before = wasState.get(a.socket);
   const news = before !== undefined && before !== a.state;
   wasState.set(a.socket, a.state);
-  el.className = 'card ' + a.state + ' state' + (a.here ? ' here' : '') + (news ? ' noticed' : '');
+  el.className = 'card ' + a.state + ' state' + (a.here ? ' here' : '') + (news ? ' noticed' : '')
+    + (a.socket === sock() ? ' open' : '');
   el.href = href(a);
   el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
@@ -2991,7 +3047,10 @@ async function loadFleet() {
     // that is the same every time.
     if (!historyEl.children.length) loadHistory();
     loadIntervened(mine);
-    return;
+    // Narrow, that is all: the list is not on screen and the rows below would be built for nobody.
+    // Wide, it IS on screen — beside this companion — and it goes on being drawn and kept current,
+    // which is the whole of what list-detail is.
+    if (!roomForList.matches) return;
   }
 
   // A badge on the section that holds them, which is what M3 uses one for: a count of things
@@ -3000,6 +3059,25 @@ async function loadFleet() {
   // words are gone and the shape is all there is.
   markWaiting(waiting);
 
+  // The masthead's count belongs to the list's own screen. Beside a companion the same line carries
+  // that companion's crumb, and writing a count over it would be the two-writers shape again.
+  if (!here) drawFleetCount(list, waiting);
+  if (!list.length) {
+    fleetEl.replaceChildren();
+    if (!here) fleetEl.append(emptyState('empty.no_agents', 'empty.no_agents_how'));
+    return;
+  }
+  // Trouble first, then movement, then quiet, then gone; most recently active within each. A list
+  // you have to read to find the problem is a list that hides it.
+  const rows = list
+    .filter(a => !filter || GROUP[a.state] === filter)
+    .sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
+  fleetEl.replaceChildren(...(here ? [] : [tableHead()]), ...grouped(rows));
+}
+
+// The masthead's readout for the list's own screen: how many there are, and a way to reach whoever
+// is blocked.
+function drawFleetCount(list, waiting) {
   // The count says somebody is blocked; pressing it goes there. It said so and did nothing before,
   // which is the readout every console has and the reason nobody presses it.
   state.replaceChildren(document.createTextNode(
@@ -3018,18 +3096,6 @@ async function loadFleet() {
   // the console went back to claiming it was connected. Measured with the mock dropping it.
   state.classList.toggle('asking', waiting > 0);
   summarise(list);
-
-  if (!list.length) {
-    fleetEl.replaceChildren();
-    fleetEl.append(emptyState('empty.no_agents', 'empty.no_agents_how'));
-    return;
-  }
-  // Trouble first, then movement, then quiet, then gone; most recently active within each. A list
-  // you have to read to find the problem is a list that hides it.
-  const rows = list
-    .filter(a => !filter || GROUP[a.state] === filter)
-    .sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
-  fleetEl.replaceChildren(tableHead(), ...grouped(rows));
 }
 
 // grouped lays the rows out by team, when there are teams.
@@ -3953,7 +4019,7 @@ function paint() {
   if (view() === 'skills') { loadSkills(); loadMCP(); }
 
   else if (view() === 'board') loadBoard();
-  else if (!sock()) loadFleet();
+  else if (!sock() || roomForList.matches) loadFleet();
   // The crumb and the tab title are written by render() and are words too. The title is the one a
   // reader sees without looking at the page at all, which makes it the last place worth leaving in
   // a language they did not pick.
@@ -4050,7 +4116,10 @@ function render() {
   // Marked by view alone it went dark the moment you opened a row, and the rail then said you were
   // nowhere — on the screen you reach it from most often.
   for (const [el, key] of RAILS) el.toggleAttribute('selected', s ? key === 'fleet' : v === key);
-  fleetEl.hidden = !!s || v !== 'fleet';
+  // Beside the companion, not instead of it — see roomForList.
+  const beside = !!s && roomForList.matches;
+  document.body.toggleAttribute('list-detail', beside);
+  fleetEl.hidden = beside ? false : (!!s || v !== 'fleet');
   summaryEl.hidden = !!s || v !== 'fleet';
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';

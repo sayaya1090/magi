@@ -296,6 +296,7 @@ draw([{who:'user',text:'do the thing'},{who:'thinking',text:'considering'},
 console.log(JSON.stringify({
   rows: byId.log.children.map(r => ({cls: r.className, text: r.text})),
   composerHidden: byId.f.hidden, fleetHidden: byId.fleet.hidden,
+  bodyAttrs: Object.keys(document.body.attrs || {}).join(' '),
 }));
 `)
 	rows := got["rows"].([]any)
@@ -315,8 +316,29 @@ console.log(JSON.stringify({
 	if got["composerHidden"].(bool) {
 		t.Error("the composer is hidden on an agent's page")
 	}
+	// Wide, the list stays BESIDE the transcript — that is list-detail, and the harness runs wide
+	// unless NARROW is set. Underneath it would be the old shape and is what this used to check.
+	if got["fleetHidden"].(bool) {
+		t.Error("the list left the screen when a companion was opened; from 1000px it stays beside it")
+	}
+	if !strings.Contains(got["bodyAttrs"].(string), "list-detail") {
+		t.Errorf("the page is not in list-detail, so main never becomes two panes: %v", got["bodyAttrs"])
+	}
+}
+
+// And narrow, where there is no room for two: opening a companion replaces the list.
+func TestANarrowScreenOpensACompanionInsteadOfTheList(t *testing.T) {
+	t.Setenv("NARROW", "1")
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/a","state":"idle","live":true,"idle":1}]`,
+		"?d=/s/a.sock", `
+console.log(JSON.stringify({fleetHidden: byId.fleet.hidden,
+  bodyAttrs: Object.keys(document.body.attrs || {}).join(' ')}));
+`)
 	if !got["fleetHidden"].(bool) {
-		t.Error("the fleet is still drawn underneath an agent's transcript")
+		t.Error("the list is still drawn under the transcript on a narrow screen")
+	}
+	if strings.Contains(got["bodyAttrs"].(string), "list-detail") {
+		t.Error("a narrow screen is in list-detail, and there is no room for two panes")
 	}
 }
 
