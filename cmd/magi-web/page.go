@@ -492,6 +492,26 @@ const indexHTML = `<!doctype html>
   }
   #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
 
+  /* A press must find 48dp even where the control is drawn smaller.
+     The library does this inside its own shadow root with a .touch span; these are hand-built, so
+     they say it here. The expander is centred on the visible box, taken out of flow so no row
+     grows around it, and it belongs to the control — a press on it is a press on the control.
+     ⚠ It is not applied to text links inside running prose: a card's title wraps across lines,
+     and a 48dp box on an inline box is either fragmented or a lie. Those are the targets the rule
+     exempts, because their size is set by the line height of the text they sit in. */
+  .hit48 { position:relative; }
+  .hit48::after {
+    content:''; position:absolute; left:0; right:0; top:50%; transform:translateY(-50%);
+    height:48px; border-radius:inherit;
+  }
+  /* By id, not by the class: the page assigns back.className outright when the crumb changes,
+     so a class put on it in the markup lasts until the first navigation and then is gone. */
+  #back { display:inline-block; position:relative; }
+  #back::after {
+    content:''; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+    width:100%; min-width:48px; height:48px;
+  }
+
   /* ── the rail: navigation on a wide screen, settings on a narrow one ────── */
   /* One element in two modes rather than two that have to agree. Wide: it stands beside the page
      as a rail and the hamburger widens it into a drawer. Narrow: it is off-screen and the same
@@ -1156,11 +1176,19 @@ const indexHTML = `<!doctype html>
      size of the line it sits on rather than the size of a control, because a card carrying three
      of them is still a card. */
   .wcard .wlabel { font:inherit; border:0; cursor:pointer; }
+  /* Drawn to the chip's own spec rather than to the line it sits on: height 32dp, Label Large,
+     8dp between one and the next. It was 23dp tall with 4dp gaps, which is under the 24dp floor
+     for any target at all, and the press target is a further 48dp on top — the guide states that
+     one separately from the container height, so the chip stays 32 and the reach is 48. */
   .wcard .wlabel {
-    display:inline-block; cursor:pointer; margin:var(--space-50) var(--space-50) 0 0;
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:.06em;
+    display:inline-flex; align-items:center; min-height:2rem; cursor:pointer;
+    /* 16dp between rows, not 8: the press target is 48dp on a 32dp chip, and at the 8dp
+       the guide gives as a minimum the targets of two wrapped rows overlap by 8dp — the
+       lower one takes presses aimed at the upper. Measured, not assumed. */
+    margin:var(--space-200) var(--space-100) 0 0;
+    font:600 var(--md-sys-typescale-label-large-size)/1.25rem var(--mono); letter-spacing:.06em;
     color:var(--primary); background:color-mix(in srgb, var(--primary) 12%, transparent);
-    border-radius:var(--shape-full); padding:var(--space-50) var(--space-100);
+    border-radius:var(--shape-full); padding:0 var(--space-150);
   }
   .wcard .wlabel:hover { background:color-mix(in srgb, var(--primary) 22%, transparent); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
@@ -1513,7 +1541,13 @@ const indexHTML = `<!doctype html>
        companion's page there are no tabs, and hiding it left a masthead reading "magi" with no
        word anywhere for WHICH companion — the one question that page exists to answer. */
     body:not([at="agent"]) #crumbs { display:none; }
-    #crumbs { font-size:var(--md-sys-typescale-label-small-size); }
+    /* And it must be able to give room back. At 320px the masthead's own children came to 13px
+       more than the 16dp margins leave, which the row absorbed by pushing the last button past
+       the padding — far enough that its 48dp touch expander crossed the viewport edge and the
+       page could be scrolled 1px sideways. The crumb is the one item here made of text that can
+       be cut, so it is the one that yields. */
+    #crumbs { font-size:var(--md-sys-typescale-label-small-size); min-width:0; overflow:hidden; }
+    #crumbs #back { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
     /* The filters as one scrolling row rather than three stacked ones. Four chips do not fit across
        390px and never will; a row that scrolls keeps them one line high and keeps the fourth
        reachable, which stacking also did but at three times the cost. */
@@ -2701,7 +2735,7 @@ async function loadBoard() {
         // to the keyboard and announced as nothing.
         const chip = document.createElement('button');
         chip.type = 'button';
-        chip.className = 'wlabel';
+        chip.className = 'wlabel hit48';
         chip.textContent = l;
         // Pressing one searches for it, which is the whole point of a label: the second piece of
         // work that carries it is what you are looking for.
@@ -2901,7 +2935,7 @@ function drawDetail(a) {
   // by keyboard and announce itself as pressed or not.
   const bar = document.createElement('button');
   bar.type = 'button';
-  bar.className = 'foldbar';
+  bar.className = 'foldbar hit48';
   bar.append(cell('caret', '▾'), cell('k', tr('field.facts')),
              (() => {
                // The same rule as the status line: it ellipses, so it has to be readable in full
