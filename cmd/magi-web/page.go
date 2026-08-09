@@ -1236,6 +1236,11 @@ const indexHTML = `<!doctype html>
     body[list-detail] #fleet { grid-column:1; position:sticky; top:5.5rem; }
     body[list-detail] #agentview { grid-column:2; }
     body[list-detail] #fleet .thead { display:none; }
+    /* Eight between them. Stacked flush, two 48dp rows share an edge and a press near it is a coin
+       toss — the guide asks for 8dp between targets and this is the one place on the page where
+       targets are stacked with nothing in between. */
+    body[list-detail] #fleet { display:flex; flex-direction:column; gap:var(--magi-sys-space-100); }
+    body[list-detail] #fleet .lane { display:flex; flex-direction:column; gap:var(--magi-sys-space-100); }
     body[list-detail] #fleet .card {
       grid-template-columns:minmax(0, 1fr); gap:var(--magi-sys-space-50);
       padding:var(--magi-sys-space-150);

@@ -656,7 +656,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 > ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/`(16파일)에 있으나 그 디렉토리는
 > **버전관리 밖**이라 항목 전량을 여기 옮겨 둔다.
 >
-> **51건 고침 · 2건 남음 · 5건 철회.** 남은 것은 **A4**(플릿→컴패니언 list-detail 재설계)와 **A6**(MCP 폼→다이얼로그) 둘뿐이다. 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
+> **52건 고침 · 1건 남음 · 5건 철회.** **A 목록은 비었다.** 남은 것은 접힌 레일 라벨(라벨 작명이 필요해 사용자 판단)뿐이다. 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
 > · 컴포넌트 **specs 36/36 · `/overview` 36/36 · accessibility 30/36 · guidelines 36/36**.
 > ⚠ 더 읽으면 항목이 **줄 수도** 있다: **A2·A3·A7이 철회**됐고 A12는 심각도가 두 번 바뀌었다.
 
@@ -664,7 +664,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 
 | # | 지금 이 페이지 | 가이드 | 출처 | 크기 |
 |---|---|---|---|---|
-| A4 | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세. ★ 가이드의 예시가 **정확히 이것**이다: "a pane is a single destination… in a messaging app, **the list of messages is one pane, and a specific conversation thread is another**" | foundations §4.1·§11.6, components/lists | **큼** |
+| ~~A4~~ ✅ | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세. ★ 가이드의 예시가 **정확히 이것**이다: "a pane is a single destination… in a messaging app, **the list of messages is one pane, and a specific conversation thread is another**" | foundations §4.1·§11.6, components/lists | **고침** — 1000px부터 컴패니언이 목록 **옆에** 열린다(list-detail). 840이 아니라 1000인 이유: 840에선 상세 자체가 이미 2판(대화+사실)이라 셋째 판이 대화를 350px로 만든다. 사실 판은 손으로 접히고 기억되므로 840에서 목록을 원하면 그쪽을 접으면 된다. 목록은 그 폭에서 컬럼을 포기하고 **상태+이름**만 남긴다(나머지는 DOM에 남아 스크린리더가 읽는다). ⚠ `loadFleet`이 컴패니언 페이지에서 일찍 반환해 행을 만들 기회가 없었다 — 갈라냈고, 마스트헤드 개수는 목록 화면에만 남는다. 열린 행 표시를 secondary-container로 했다가 상태 단어가 4.01:1로 떨어져 primary 8% 워시로 (9b9d3f04) |
 | ~~A5~~ ✅ | 컴패니언 보조 판을 **닫을 수도 접을 수도 없다**(⚠ **폭은 결함이 아니다** — side sheet 범위가 **256~400dp**이고 22rem=**352px**는 그 안이다. 남은 것은 어포던스뿐) | ★★ **분류가 갈려도 결함 확정**: **side sheet면 닫기 아이콘 버튼이 필수**("Material requires… always present"), **fixed pane이면 드래그 핸들로 접고 펴기**. 선결 질문은 **고치는 모양**만 정한다. 원래 정리: 가이드는 판을 **flexible**(드래그 핸들로 **폭 조절**) 또는 **fixed**(드래그 핸들로 **접고 펴기** — 1판↔2판 전환) 둘 중 하나로 본다. **fixed 자체는 정상**이고, 빠진 것은 **어포던스**다. supporting pane 비율(주 영역 **약 2/3**)은 flexible을 고를 때 적용 | foundations §4.2 | **고침** — `#sideToggle`로 접기/펼치기, 선택은 컴패니언 사이를 넘어 기억된다 (4ae642f6) |
 | A6 | MCP 추가 폼 6필드가 목록 아래 **인라인**, 액션은 폼 안의 버튼 하나 | 다이얼로그로. **compact는 full-screen, 그 위는 basic**. 액션은 다이얼로그 슬롯에 `추가`+`취소`, 후행 정렬, 확정이 모서리에 가장 가깝게 | components §1 | 중간 |
 | ~~A8~~ ✅ | 여백 값이 **8dp 스케일 밖** — .35/.7/.9/1.1/1.2/1.4/1.6/2.4rem = 5.6/11.2/14.4/17.6/19.2/22.4/25.6/38.4dp | 여백은 **8dp 배수**(space100=8dp) | foundations §6.2 | **고침** — 26개 값 → 8개 `--space-*` 토큰(4dp 격자), 최대 이동 3.2dp. 테스트로 고정 (d53bf827) |
