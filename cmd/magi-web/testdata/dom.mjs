@@ -193,11 +193,24 @@ let byTabs = false;
 
 globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
+// Every id the MARKUP carries, scraped from it by the harness and written in beside this file.
+//
+// It used to be a list kept here by hand, and keeping it was the tax on adding any element at all:
+// the way it told you it was short was an error in an unrelated test, naming the lookup rather
+// than the change. The markup's ids are exactly the set the page can ask for.
+import { MARKUP_IDS } from './ids.mjs';
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbs', 'crumbSep', 'crumbHere', 'say', 'tip', 'sideToggle', 'tabs', 'tabFleet', 'skills', 'tabSkills',  'mcp', 'tabMcp', 'board', 'handoffs', 'history', 'intervened', 'agentview', 'stream', 'side', 'plan', 'send',
-                 'rail', 'railNav', 'scrim', 'cnote', 'notifyK', 'notify', 'notifyBtn', 'notifyWhy', 'ptabs', 'ptabTalk', 'ptabState', 'theme', 'lang', 'prefsK',
-                 'consoleK', 'console', 'prefs', 'prefsDialog', 'mcpDialog', 'prefsClose', 'prefsForm', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railSkills', 'railMcp',
-                ]) byId[id] = element('div');
+for (const id of MARKUP_IDS) byId[id] = element('div');
+// A dialog opens, closes, and remembers which button closed it. The page reads returnValue to tell
+// a cancel from a confirm, and a fake without it makes every cancel look like a confirm — which is
+// the one thing a dialog must never get wrong.
+for (const id of MARKUP_IDS.filter(i => i.toLowerCase().endsWith('dialog'))) {
+  Object.assign(byId[id], {
+    open: false, returnValue: '',
+    show() { this.open = true; },
+    close(v) { this.open = false; if (v !== undefined) this.returnValue = String(v); },
+  });
+}
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.

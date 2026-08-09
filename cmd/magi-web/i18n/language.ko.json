@@ -1,8 +1,10 @@
 {
   "action.add_or_replace": "추가·교체",
+  "action.add_server": "서버 추가",
   "action.allow": "허용",
   "action.always": "항상 허용",
   "action.answer": "응답",
+  "action.cancel": "취소",
   "action.close": "닫기",
   "action.collapse": "접기",
   "action.compact_now": "이전 턴 지금 접기",
@@ -86,6 +88,7 @@
   "iv.refused": "거부 {n}회",
   "iv.refused_call": "{what} 거부",
   "iv.steers": "교정 {n}회",
+  "label.add_server": "MCP 서버 추가",
   "label.answer": "답변",
   "label.ask": "magi에게 요청",
   "label.find": "찾기",

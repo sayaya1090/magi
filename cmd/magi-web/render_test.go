@@ -43,6 +43,27 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	if err := os.WriteFile(filepath.Join(dir, "dom.mjs"), harness, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The ids the fake answers to, taken FROM THE MARKUP rather than kept by hand beside it.
+	//
+	// That list had to be edited every time an element was added, and the way it announced a
+	// missing entry was a thrown error in an unrelated test — five of them at once, naming a
+	// lookup rather than the thing that had changed. A markup id is exactly the set the page can
+	// ask for, so it is the set the fake should have.
+	var ids []string
+	for _, m := range regexp.MustCompile(`\sid="([A-Za-z][\w-]*)"`).FindAllStringSubmatch(indexHTML, -1) {
+		ids = append(ids, m[1])
+	}
+	if len(ids) < 20 {
+		t.Fatalf("only %d ids found in the markup; the scrape has lost its subject", len(ids))
+	}
+	list, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ids.mjs"),
+		[]byte("export const MARKUP_IDS = "+string(list)+";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// The page imports the vendored bundle by the path this binary serves it at. Node resolves
 	// neither that path nor a fetch of it, so the file is copied in beside the page and the
 	// specifier rewritten — the same bytes, reached differently.
@@ -707,7 +728,9 @@ byId.tabSkills.onclick({preventDefault() { throw new Error('the click default wa
 console.log(JSON.stringify({
   where: location.search,
   on: byId.tabs.activeTabIndex,
-  byHand: ['tabFleet', 'tabSkills', 'tabMcp'].filter(id => byId[id].setDirectly),
+  // tabMcp is not in the markup and never was — the fake's hand-kept id list answered for it
+  // anyway, so this filter has been reading a stub since it was written.
+  byHand: ['tabFleet', 'tabSkills'].filter(id => byId[id].setDirectly),
 }));
 `)
 	if got["where"] != "?v=skills" {
@@ -1748,13 +1771,18 @@ globalThis.fetch = async (p, init) => {
 };
 fleetSeen = [{socket:'/s/a.sock', name:'api'}];
 await loadMCP();
-const text = byId.mcp.text;
-const form = byId.mcp.children[byId.mcp.children.length - 1];
+// The form lives in the dialog now, and the page shows one button that opens it.
+const opener = byId.mcp.children[byId.mcp.children.length - 1];
+if ((opener.className || '') !== 'mcpopen') throw new Error('the last thing on the page is ' + opener.tag + '.' + opener.className + ', not the button that opens the dialog');
+opener.onclick();
+const form = byId.mcpForm;
+const text = byId.mcp.text + ' ' + form.text;
 for (const i of form.find('md-outlined-text-field')) {
   if (i.name === 'name') i.value = 'tickets';
   if (i.name === 'command') i.value = 'uvx';
 }
 form.find('md-outlined-select')[0].value = '/s/a.sock';
+byId.mcpDialog.returnValue = 'add';
 await form.onsubmit({preventDefault(){}});
 const drops = byId.mcp.find('md-text-button').filter(b => (b.className || '').split(' ').includes('drop'));
 drops[1].onclick();   // asks

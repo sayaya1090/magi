@@ -1,8 +1,10 @@
 {
   "action.add_or_replace": "Add or replace",
+  "action.add_server": "Add a server",
   "action.allow": "Allow",
   "action.always": "Always",
   "action.answer": "Answer",
+  "action.cancel": "Cancel",
   "action.close": "Close",
   "action.collapse": "Close",
   "action.compact_now": "Fold older turns now",
@@ -86,6 +88,7 @@
   "iv.refused": "{n} refused",
   "iv.refused_call": "Refused {what}",
   "iv.steers": "{n} corrections",
+  "label.add_server": "Add an MCP server",
   "label.answer": "Your answer",
   "label.ask": "Ask magi",
   "label.find": "Find",

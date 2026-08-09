@@ -839,9 +839,9 @@ const indexHTML = `<!doctype html>
      own shape and their own 48dp target, and a second set drawn over them was two descriptions of
      one control that could only ever agree by accident. The form says how the controls are
      arranged and stops. */
-  #mcpAdd { display:grid; gap:var(--magi-sys-space-200); margin:var(--magi-sys-space-300) 0; max-width:var(--magi-sys-measure); }
-  #mcpAdd md-filled-button { justify-self:start; }
-  #mcpAdd .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); }
+  #mcpForm { display:grid; gap:var(--magi-sys-space-200); min-width:min(22rem, 80vw); }
+  #mcpForm .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); }
+  .mcpopen { justify-self:start; margin-top:var(--magi-sys-space-300); }
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
      is inert to the pointer so it can cover the whole control without eating its clicks. */
@@ -1630,7 +1630,15 @@ const indexHTML = `<!doctype html>
     #side { gap:var(--magi-sys-space-150); }
     #side md-outlined-card { padding:var(--magi-sys-space-200) var(--magi-sys-space-200); }
     #history .hs, .ho { grid-template-columns:4.5rem 1fr; }
+    
+    /* The dialog takes the whole screen here. The guide gives a dialog two shapes and the reason is
+       room: six fields and a select in a basic dialog on a 390px phone is a box with its own
+       scrollbar inside a page that also has one. */
+    #mcpDialog {
+      max-width:100%; max-height:100%; width:100vw; height:100dvh;
+      --md-dialog-container-shape:0;
     }
+  }
 
 </style>
 
@@ -1803,6 +1811,20 @@ const indexHTML = `<!doctype html>
   </form>
   <div slot="actions">
     <md-text-button id="prefsClose" form="prefsForm" value="close"></md-text-button>
+  </div>
+</md-dialog>
+
+<!-- Adding a server is a task with six fields and one outcome, which is what a dialog is for. It
+     sat inline under the list, so the page a person came to READ ended in a form they were not
+     filling in, and the one control that committed it was a button inside that form with nothing
+     to say it was the confirming one. The actions live in the dialog's own slot now: cancel, then
+     add, trailing-aligned, with the confirming action nearest the corner. -->
+<md-dialog id="mcpDialog">
+  <div slot="headline" id="mcpDialogK"></div>
+  <form slot="content" id="mcpForm" method="dialog"></form>
+  <div slot="actions">
+    <md-text-button id="mcpCancel" form="mcpForm" value="cancel"></md-text-button>
+    <md-filled-button id="mcpGo" form="mcpForm" value="add"></md-filled-button>
   </div>
 </md-dialog>
 
@@ -2139,6 +2161,10 @@ const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsEl = document.getElementById('prefs');
 const prefsDialog = document.getElementById('prefsDialog');
+const mcpDialog = document.getElementById('mcpDialog');
+const mcpFormEl = document.getElementById('mcpForm');
+const mcpDialogK = document.getElementById('mcpDialogK');
+const mcpCancel = document.getElementById('mcpCancel'), mcpGo = document.getElementById('mcpGo');
 const prefsClose = document.getElementById('prefsClose');
 const railMenu = document.getElementById('railMenu');
 // There are TWO facts about the connection and they were one variable.
@@ -3646,8 +3672,9 @@ async function loadMCP() {
     return el;
   });
 
-  const form = document.createElement('form');
-  form.id = 'mcpAdd';
+  // The fields, built into the dialog's form rather than into a form of their own on the page.
+  const form = mcpFormEl;
+  form.replaceChildren();
   // A short label that can live in the outline's notch, and the explanation underneath it. Both
   // through tr(): these five were hardcoded English while the pack carried translations for them
   // that nothing read.
@@ -3681,14 +3708,15 @@ async function loadMCP() {
     who.append(o);
   }
   form.append(who, ...MCP_FIELDS.map(mcpField));
-  const go = document.createElement('md-filled-button');
-  go.type = 'submit'; go.textContent = tr('action.add_or_replace');
-  form.append(go);
   const note = cell('note',
     'Written to that companion\'s config file. It attaches when that daemon next starts — ' +
     'this changes the file, not a running process.');
   form.append(note);
+  // A dialog form closes on submit whichever button was pressed, so the value says which one it
+  // was. Cancel must not write anything — a form that posts on the way out is the shape of a
+  // dialog nobody trusts.
   form.onsubmit = async e => {
+    if (mcpDialog.returnValue === 'cancel') return;
     e.preventDefault();
     const body = new URLSearchParams();
     for (const el of [...form.find('md-outlined-text-field')]) {
@@ -3696,19 +3724,25 @@ async function loadMCP() {
     }
     if (!who.value) body.set('tier', 'global');
     await post('/mcp', body, who.value || null);
+    mcpDialog.close('add');
     loadMCP();
   };
+  // What the page shows in the form's place: one button that opens it.
+  const open = document.createElement('md-filled-button');
+  open.className = 'mcpopen';
+  open.textContent = tr('action.add_server');
+  open.onclick = () => mcpDialog.show();
 
   if (!list.length) {
-    mcpEl.replaceChildren(sectionHead('nav.connections'), emptyState('empty.no_servers', 'empty.no_servers_how'), form);
+    mcpEl.replaceChildren(sectionHead('nav.connections'), emptyState('empty.no_servers', 'empty.no_servers_how'), open);
     return;
   }
   if (!rows.length) {
     mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(),
-      emptyState('empty.no_match', 'empty.no_match_how'), form);
+      emptyState('empty.no_match', 'empty.no_match_how'), open);
     return;
   }
-  mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(), ...rows, form);
+  mcpEl.replaceChildren(sectionHead('nav.connections'), mcpFind(), ...rows, open);
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
@@ -3788,6 +3822,9 @@ function paint() {
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
   }
+  mcpDialogK.textContent = tr('label.add_server');
+  mcpCancel.textContent = tr('action.cancel');
+  mcpGo.textContent = tr('action.add_or_replace');
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
   paintNotify();
