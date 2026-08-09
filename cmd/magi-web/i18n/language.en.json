@@ -119,6 +119,7 @@
   "notify.unsupported": "This browser has no push support",
   "panel.state": "status",
   "panel.talk": "conversation",
+  "plan.progress": "{done} of {total} done",
   "pref.lang": "language",
   "pref.lang.en": "English",
   "pref.lang.ko": "한국어",

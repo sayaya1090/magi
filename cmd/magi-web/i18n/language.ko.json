@@ -119,6 +119,7 @@
   "notify.unsupported": "이 브라우저는 푸시를 지원하지 않습니다.",
   "panel.state": "상태",
   "panel.talk": "대화",
+  "plan.progress": "{total}개 중 {done}개 완료",
   "pref.lang": "언어",
   "pref.lang.en": "English",
   "pref.lang.ko": "한국어",

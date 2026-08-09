@@ -976,6 +976,23 @@ const indexHTML = `<!doctype html>
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
   #plan { max-width:var(--measure); }
+  /* The plan's own progress. Linear, at the top edge of the card it belongs to, spanning its
+     width — where the guide puts a bar for the container that is progressing. The track is
+     outline-variant, which is under 3:1 against the surface, so the spec makes the end stop
+     mandatory rather than decorative. */
+  #plan .planbar {
+    position:relative; height:4px; border-radius:var(--shape-full);
+    background:var(--outlineVariant); margin:.35rem 0 .1rem; overflow:hidden;
+  }
+  #plan .planfill {
+    position:absolute; inset:0 auto 0 0; border-radius:var(--shape-full);
+    background:var(--primary); transition:width var(--dur-medium2) var(--ease-standard);
+  }
+  #plan .planstop {
+    position:absolute; right:0; top:0; width:4px; height:4px;
+    border-radius:var(--shape-full); background:var(--primary);
+  }
+  #plan .plancount { font:11px/1.5 var(--mono); color:var(--muted); margin-bottom:.4rem; }
   #plan .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.4rem;
@@ -2753,7 +2770,28 @@ async function drawPlan(a) {
   // sat here and a .td.done rule sat in the stylesheet, both waiting on a value the schema forbids.
   const mark = t => t.status === 'completed' ? '✓'
                   : t.status === 'in_progress' ? '▸' : '·';
-  box.replaceChildren(cell('k', tr('field.plan')), ...todos.map(t => {
+  // How much of the plan is behind it. Determinate, because the counts are known — an
+  // indeterminate bar here would say "something is happening" to somebody who can already see
+  // exactly what is happening in the list below it.
+  const done = todos.filter(t => t.status === 'completed').length;
+  const pct = Math.round(done / todos.length * 100);
+  const bar = cell('planbar');
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', String(todos.length));
+  bar.setAttribute('aria-valuenow', String(done));
+  // Named for what it is measuring, not "loading": a progress bar that only says "progress" tells
+  // a screen reader nothing the number did not already say.
+  bar.setAttribute('aria-label', tr('plan.progress', {done: done, total: todos.length}));
+  const fill = cell('planfill');
+  fill.style.width = pct + '%';
+  // The 4dp dot at the end of the track. Required when the track itself is under 3:1 against what
+  // is behind it — outline-variant is 1.53:1 here — because otherwise there is nothing to say
+  // where the track ends, and a bar at 95% reads as a bar at 100%.
+  bar.append(fill, cell('planstop'));
+  box.replaceChildren(cell('k', tr('field.plan')), bar,
+    cell('plancount', tr('plan.progress', {done: done, total: todos.length})),
+    ...todos.map(t => {
     const el = cell('td ' + (t.status || ''));
     el.append(cell('mark', mark(t)), cell('what', t.content));
     return el;
