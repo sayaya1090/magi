@@ -506,6 +506,9 @@ const indexHTML = `<!doctype html>
   }
   #state.live::before { background:var(--magi-ref-success); box-shadow:0 0 0 3px color-mix(in srgb, var(--magi-ref-success) 20%, transparent); }
   #state.lost::before { background:var(--magi-ref-error); }
+  /* Somebody is waiting on you. Its own colour, because it is not an error and the dot beside it
+     is the one that says whether this console can still hear the daemon. */
+  #state.asking::before { background:var(--magi-ref-warn); box-shadow:0 0 0 3px color-mix(in srgb, var(--magi-ref-warn) 20%, transparent); }
   #back {
     color:var(--magi-ref-muted); text-decoration:none; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:0.04em; border-bottom:1px solid var(--magi-ref-outlineVariant); padding-bottom:2px;
   }
@@ -855,6 +858,24 @@ const indexHTML = `<!doctype html>
   .state:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--magi-ref-accent)); outline-offset:2px; }
   /* Material's minimum touch target is 48dp, with 8dp between targets. */
   .state { min-height:48px; }
+
+  /* Something changed here, and a person who was looking elsewhere gets to find out.
+     A wash of the surface behind the row, once, over 900ms — long enough to catch the eye that was
+     not on it and gentle enough not to read as an alarm. Colour and opacity only: the row does not
+     move, because a table whose rows jump while being read is the anxious version of this.
+     The reduced-motion block leaves this alone on purpose — it is a fade, which is what that block
+     keeps. */
+  @keyframes noticed {
+    from { background-color:color-mix(in srgb, var(--magi-ref-primary) 18%, transparent); }
+    to   { background-color:transparent; }
+  }
+  /* No fill mode. With a fill mode the last frame is held, and the last frame is a transparent
+     background — which is not nothing: it would sit on top of whatever background the row has of
+     its own for as long as the class is there. The wash should end and hand the row back. */
+  .noticed { animation:noticed 900ms var(--magi-sys-ease-standard); }
+  /* The state word itself, which is the thing that actually changed. */
+  @keyframes noticedWord { from { opacity:0; } to { opacity:1; } }
+  .noticed .badge { animation:noticedWord 300ms var(--magi-sys-ease-standard); }
 
   /* ── the fleet, as a resource table ─────────────────────────────────────── */
   /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
@@ -2120,6 +2141,24 @@ const prefsEl = document.getElementById('prefs');
 const prefsDialog = document.getElementById('prefsDialog');
 const prefsClose = document.getElementById('prefsClose');
 const railMenu = document.getElementById('railMenu');
+// There are TWO facts about the connection and they were one variable.
+//
+// One is whether the polls land — the fleet, the skills, the servers, all plain fetches. The other
+// is whether the transcript's stream is open. They fail apart: a daemon that is answering /fleet
+// while the SSE is dead is the exact case a person needs told about, and it is the case this dot
+// used to hide, because every successful poll wrote the indicator clear and the stream's own
+// failure lasted until the next one — measured at 400ms, three seconds apart.
+//
+// So they are kept apart and the dot shows the worse of the two. Anything else is a readout with
+// two writers, which is how it was wrong.
+let streamAt = '', reachOK = true;
+function paintConn() {
+  const lost = !reachOK || streamAt === 'lost';
+  state.classList.toggle('lost', lost);
+  state.classList.toggle('live', !lost && streamAt === 'live');
+}
+const conn = how => { streamAt = how; paintConn(); };
+const reach = ok => { reachOK = ok; paintConn(); };
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
@@ -2190,11 +2229,21 @@ function cell(cls, text) {
   return d;
 }
 
+// What each companion's state was the last time the table was drawn, so the next draw can tell
+// which rows are news. Keyed by socket rather than by index: the fleet gains and loses rows, and an
+// index would report the whole table as changed the moment one of them left.
+const wasState = new Map();
+
 // card is one row of the table. The class list is the state, so the left rule and the status colour
 // come from one place, and the row is a link because opening it is the common case.
 function card(a) {
   const el = document.createElement('a');
-  el.className = 'card ' + a.state + ' state' + (a.here ? ' here' : '');
+  // A state change gets a wash, once. Not on the first sight of a companion — everything is new
+  // then, and a table that lights up entirely on load has told the reader nothing.
+  const before = wasState.get(a.socket);
+  const news = before !== undefined && before !== a.state;
+  wasState.set(a.socket, a.state);
+  el.className = 'card ' + a.state + ' state' + (a.here ? ' here' : '') + (news ? ' noticed' : '');
   el.href = href(a);
   el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
@@ -2807,13 +2856,13 @@ async function boardSig() {
 // failure for an empty list and draw "nothing here" over a screen that simply lost its server.
 async function fetchList(path) {
   try { return await (await fetch(path)).json(); }
-  catch { state.className = 'lost'; says(tr('error.unreachable')); return null; }
+  catch { reach(false); says(tr('error.unreachable')); return null; }
 }
 
 async function loadFleet() {
   const list = await fetchList('/fleet');
   if (!list) return;
-  state.className = '';
+  reach(true);
   const waiting = list.filter(a => a.state === 'waiting').length;
   retitle(waiting);
 
@@ -2851,7 +2900,11 @@ async function loadFleet() {
     go.onclick = () => { filter = 'waiting'; render(); jumpToFirstRow(); };
     state.append(go);
   }
-  state.className = waiting ? 'lost' : '';
+  // Not the connection's class. A red dot means the stream is gone everywhere else on this page,
+  // and writing it here for "somebody is waiting" both said the wrong thing and CLEARED the real
+  // one: the fleet poll runs every three seconds, so a dropped stream showed for 400ms and then
+  // the console went back to claiming it was connected. Measured with the mock dropping it.
+  state.classList.toggle('asking', waiting > 0);
   summarise(list);
 
   if (!list.length) {
@@ -3244,7 +3297,7 @@ async function loadIntervened(a) {
 // by two writers.
 const shared = {rules: 0, facts: 0, crossing: 0, servers: null, reachedFrom: 0};
 function sayShared() {
-  state.className = '';
+  reach(true);
   const bits = [tr(shared.rules === 1 ? 'count.rule' : 'count.rules', {n: shared.rules}),
                 tr('count.remembered', {n: shared.facts}),
                 tr('count.crossing', {n: shared.crossing})];
@@ -3448,7 +3501,7 @@ async function loadSkills() {
   if (!list) return;
   const crossing = list.filter(s => s.tier === 'global').length;
   const rules = list.filter(s => s.kind !== 'memory').length;
-  state.className = '';
+  reach(true);
   shared.rules = rules;
   shared.facts = list.length - rules;
   shared.crossing = crossing;
@@ -3548,11 +3601,11 @@ async function loadSkills() {
 async function loadMCP() {
   const list = await fetchList('/mcp');
   if (!list) return;
-  const reach = new Set(list.map(s => s.companion || 'every companion here'));
-  state.className = '';
+  const reachedFrom = new Set(list.map(s => s.companion || 'every companion here'));
+  reach(true);
   shared.servers = list.length;
   sayShared();
-  shared.reachedFrom = reach.size;
+  shared.reachedFrom = reachedFrom.size;
 
   // Same search, the other half. Ten servers is a screen and a half, and the half below the fold is
   // the half nobody scrolls to — the experience list got a find the moment it had four rows and
@@ -3677,11 +3730,11 @@ function draw(rows) {
 let es, fleetTimer, boardSub;
 function connect() {
   es = new EventSource('/events' + q());
-  es.onopen = () => { state.className = 'live'; says(tr('state.live')); };
+  es.onopen = () => { conn('live'); says(tr('state.live')); };
   es.onmessage = e => draw(JSON.parse(e.data));
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
-  es.onerror = () => { state.className = 'lost'; says(tr('state.reconnecting'));
+  es.onerror = () => { conn('lost'); says(tr('state.reconnecting'));
                        es.close(); if (sock()) setTimeout(connect, 1500); };
 }
 
@@ -3874,7 +3927,7 @@ function render() {
   for (const el of [fleetEl, skillsEl, boardEl, mcpEl, streamEl]) reveal(el);
   measureDock();
   if (s) { draw([]); connect(); }
-  else { state.className = ''; says(''); }
+  else { conn(''); says(''); }
   if (v === 'board') {
     // Live, like the fleet beside it. A board that showed the day as it stood when you opened it
     // went stale the moment an agent finished something — and the day you watch it is the day work
@@ -4040,7 +4093,7 @@ async function post(path, body, socket, peer) {
   if (peer) parts.push('p=' + encodeURIComponent(peer));
   const target = parts.length ? '?' + parts.join('&') : q();
   const r = await fetch(path + target, {method:'POST', body});
-  if (!r.ok) { state.className = 'lost'; says((await r.text()).trim().slice(0, 80)); }
+  if (!r.ok) { reach(false); says((await r.text()).trim().slice(0, 80)); }
 }
 
 const t = document.getElementById('t');

@@ -253,8 +253,17 @@ func TestTheHeaderCountsWhatIsWaitingOnYou(t *testing.T) {
 	if !strings.Contains(state, "2 waiting on you") {
 		t.Errorf("the header says %q, and two agents are blocked", state)
 	}
-	if !strings.Contains(got["stateCls"].(string), "lost") {
-		t.Error("the header is not marked, so a blocked fleet looks like a calm one")
+	// "asking", not "lost". They are different facts and they used to share this one class, so
+	// whichever wrote last won — and the fleet poll writes every three seconds, which meant a
+	// genuinely dropped stream showed for 400ms and then the console went back to claiming it was
+	// connected. The red dot is the connection's; this one is the warn dot beside it.
+	cls := got["stateCls"].(string)
+	if !strings.Contains(cls, "asking") {
+		t.Errorf("the header is %q, so a blocked fleet looks like a calm one", cls)
+	}
+	if strings.Contains(cls, "lost") {
+		t.Errorf("the header is %q — that class means the stream is gone, and writing it for "+
+			"somebody waiting both says the wrong thing and clears the real one", cls)
 	}
 }
 

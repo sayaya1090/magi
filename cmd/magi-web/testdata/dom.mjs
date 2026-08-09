@@ -23,12 +23,21 @@ function element(tag) {
     set className(v) { this._class = String(v); },
     get className() { return this._class; },
     // classList over the same string the page reads back through className, so a test asserting on
-    // one sees what the other did. Only the three methods this page uses; a fuller fake would be
+    // one sees what the other did. Only the methods this page uses; a fuller fake would be
     // inventing a DOM nobody is calling.
     classList: {
       add(...c) { const n = this._n; n._class = [...new Set(n._class.split(/\s+/).filter(Boolean).concat(c))].join(' '); },
       remove(...c) { const n = this._n; n._class = n._class.split(/\s+/).filter(x => x && !c.includes(x)).join(' '); },
       contains(c) { return this._n._class.split(/\s+/).includes(c); },
+      // The fourth, now that the page needs it: a class that says one thing and is set from a
+      // condition. Written against add/remove so the three stay the single definition of what a
+      // class list does here, and taking the second argument, because the caller that wanted this
+      // passes one and a toggle that ignored it would flip on every render.
+      toggle(c, on) {
+        const want = on === undefined ? !this.contains(c) : !!on;
+        if (want) this.add(c); else this.remove(c);
+        return want;
+      },
     },
     // Reading it is what forces a reflow in a browser; here it only has to exist.
     offsetWidth: 0,

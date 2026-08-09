@@ -217,27 +217,108 @@ const demoScript = `
   //
   // It moves the fixture, not the page. Every mutation below is the shape a real handler would
   // return a second later; nothing reaches into the console's own code.
+  // The state a companion is in is the column a person reads this page for, and until now only one
+  // of them ever changed. A fleet that opens with one of each and then holds still shows the five
+  // words but none of the four transitions between them — and the transitions are what the row,
+  // the badge, the plan bar and the live region are all built to report.
+  //
+  // So: a cycle that visits every state change the console draws, and returns to where it began so
+  // it can be watched twice. Each entry is [beat, what changes], and the opening state is kept so
+  // the loop can restore it rather than drift.
+  const opening = JSON.parse(JSON.stringify(fleet));
+  const of = name => fleet.find(a => a.name === name);
+  const script = [
+    // idle → working. A companion that was sitting there picks something up.
+    [2, () => Object.assign(of('buttons'), {state: 'working', live: true, steps: 0, idle: 0,
+      task: 'give the switch a disabled state and the tokens for it', planDone: 0, planTotal: 3})],
+    // working → waiting. The one thing a person watches this page for.
+    [4, () => Object.assign(of('design'), {state: 'waiting',
+      asking: 'the empty state needs a word for "nothing yet" — pick one', askKind: 'question', askId: 'call_77'})],
+    // waiting → working: an answer arrives and the question clears. The asking line must go with it
+    // or the row keeps showing a question nobody is being asked.
+    [6, () => { const a = of('api'); a.state = 'working'; a.planDone = Math.max(a.planDone, 2);
+      delete a.asking; delete a.askId; delete a.askKind; }],
+    // A run lands on the board, which is the view that had no way to change at all.
+    [7, () => { const runs = HISTORY['/demo/api.sock'] || (HISTORY['/demo/api.sock'] = []);
+      runs.unshift({title: 'retry the failed invoice sync', started: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+                    current: true, model: 'qwen3-coder-next', labels: ['billing', 'retry']}); }],
+    // stopped → live. A machine that was down answers again, which changes the fleet's own count.
+    [8, () => Object.assign(of('ops'), {state: 'idle', live: true, idle: 0,
+      task: 'rotated the staging certificates'})],
+    [10, () => { const d = of('design'); d.state = 'working'; d.planDone = Math.max(d.planDone, 4);
+      delete d.asking; delete d.askId; delete d.askKind; }],
+    [12, () => { const p = of('palette'); p.state = 'working'; p.planTotal = 3; p.planDone = Math.max(p.planDone || 0, 1);
+      delete p.asking; delete p.askId; delete p.askKind; delete p.report; }],
+    [14, () => { const a = of('api'); a.planDone = Math.max(a.planDone, 3); }],
+    // working → idle. The plan is spent and the companion is waiting for the next thing.
+    [16, () => Object.assign(of('buttons'), {state: 'idle', planDone: 3, idle: 1})],
+    [18, () => Object.assign(of('design'), {state: 'idle', planDone: 5, idle: 1})],
+    // live → stopped, so the row that started stopped is reached from the other direction too.
+    [20, () => Object.assign(of('ops'), {state: 'stopped', live: false, idle: 90000})],
+    // A companion JOINS. The fleet's length changes, which is the case a list that only ever
+    // mutates its rows never exercises — the count in the masthead, the team's own count, the
+    // empty-to-populated path of the team block, and whatever keying the render does.
+    [9, () => fleet.push({socket: '/demo/docs.sock', name: 'docs', role: 'the handbook and its examples',
+      team: 'frontend', workdir: '/Users/you/work/docs', session: 'x1', state: 'working', live: true,
+      task: 'write the empty-state page from the spec', steps: 0, planDone: 0, planTotal: 2,
+      idle: 0, host: 'mini', addr: '10.0.0.9', pid: 4140})],
+    // And LEAVES, which is the other half and the one that breaks a stale reference.
+    [22, () => { const i = fleet.findIndex(a => a.name === 'docs'); if (i >= 0) fleet.splice(i, 1); }],
+  ];
+
+  // The context reading is a chart — a bar that fills and turns warn past 80% — and it was a
+  // constant. It moves the way a real one does: up as turns are added, and down all at once when
+  // a fold lands, which is the only event that ever gives a window room back.
+  const ctx = answers['/context'];
+  const ctxOpening = {...ctx};
+  const planOpening = JSON.parse(JSON.stringify(answers['/plan']));
   let beat = 0;
   setInterval(() => {
     beat++;
     for (const a of fleet) {
-      if (a.state === 'working') { a.steps++; a.idle = 0; }
-      else if (a.live) a.idle++;
+      if (a.state === 'working') {
+        a.steps++; a.idle = 0;
+        // The plan bar moves on its own too, one step every third beat, and stops at the total —
+        // a bar that runs past its plan is the bug this is here to make visible.
+        if (a.planTotal && beat % 3 === 0 && a.planDone < a.planTotal) a.planDone++;
+      } else if (a.live) a.idle++;
     }
-    // The one thing a person watches this page for: a companion stops working and starts waiting.
-    // On the fourth beat, so it is visibly a change rather than the state it opened in.
-    if (beat === 4) {
-      const d = fleet.find(a => a.name === 'design');
-      if (d) { d.state = 'waiting'; d.asking = 'the empty state needs a word for "nothing yet" — pick one'; d.askKind = 'question'; d.askId = 'call_77'; }
+    for (const [at, change] of script) if (beat === at) change();
+
+    // The gauge climbs, and a fold drops it — 104300 of 128000 is 81%, so it opens just past the
+    // threshold where the bar turns, comes down under it, and climbs back. Both sides of that
+    // line get drawn.
+    ctx.used = Math.min(ctx.window, ctx.used + 900);
+    ctx.messages++;
+    if (beat === 11) {
+      ctx.lastBefore = ctx.used; ctx.used = Math.round(ctx.used * 0.42); ctx.lastAfter = ctx.used;
+      ctx.compactions++; ctx.shed += ctx.lastBefore - ctx.used;
+      ctx.lastAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     }
-    // And a new piece of work lands on the board, which is the view that had no way to change at
-    // all before this.
-    if (beat === 7) {
-      const runs = HISTORY['/demo/api.sock'] || (HISTORY['/demo/api.sock'] = []);
-      runs.unshift({title: 'retry the failed invoice sync', started: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
-                    current: true, model: 'qwen3-coder-next', labels: ['billing', 'retry']});
+
+    // The plan changes too, and not only by ticking along: an item completes, and then one is
+    // ADDED mid-run, which is what a planner doing its job looks like and is the case a bar built
+    // from a fixed total gets wrong.
+    const plan = answers['/plan'];
+    if (beat === 5) { const at = plan.findIndex(t => t.status === 'in_progress');
+      if (at >= 0) { plan[at].status = 'completed';
+        if (plan[at + 1]) plan[at + 1].status = 'in_progress'; } }
+    if (beat === 13) plan.push({content: 'check the Korean wording with the docs companion', status: 'pending'});
+    if (beat === 19) { const at = plan.findIndex(t => t.status === 'in_progress');
+      if (at >= 0) { plan[at].status = 'completed';
+        if (plan[at + 1]) plan[at + 1].status = 'in_progress'; } }
+
+    // The connection itself. A console that never loses one cannot show what it does when it has:
+    // the state dot going red, the live region saying so, and the recovery that follows.
+    if (beat === 15) dropStream();
+    if (beat === 17) restoreStream();
+
+    if (beat === 24) {                       // back to the opening, so the cycle can be watched twice
+      fleet.splice(0, fleet.length, ...JSON.parse(JSON.stringify(opening)));
+      Object.assign(ctx, ctxOpening);
+      answers['/plan'] = JSON.parse(JSON.stringify(planOpening));
+      beat = 0;
     }
-    if (beat === 12) beat = 0;
   }, 3000);
 
   const realFetch = globalThis.fetch.bind(globalThis);
@@ -263,6 +344,14 @@ const demoScript = `
     return {ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body)};
   };
   // The transcript arrives over SSE, which a static host cannot serve either.
+  //
+  // Every instance is kept, because losing the connection is a thing this console has to be
+  // watchable doing: the state dot going red, the live region saying it is reconnecting, and the
+  // recovery afterwards. The page's own handler is what runs — the mock only fires onerror the way
+  // a dropped socket would, and then hands back a fresh stream when it is asked for one.
+  const streams = new Set();
+  const dropStream = () => { for (const s of streams) { clearTimeout(s.timer); if (s.onerror) s.onerror(new Event('error')); } };
+  const restoreStream = () => { for (const s of streams) if (s.onopen) { s.replay(); } };
   globalThis.EventSource = class {
     constructor() {
       // Delivered a turn at a time, the way the real stream does — the page re-renders the whole
@@ -282,8 +371,13 @@ const demoScript = `
         if (n < turns.length) this.timer = setTimeout(step, 1400);
       };
       this.timer = setTimeout(step, 200);
+      // Sending what it already sent is right, not lazy: a reconnecting stream replays the
+      // transcript from the top, and the page has to end up with one copy rather than two.
+      this.replay = () => { if (this.onopen) this.onopen();
+        if (this.onmessage) this.onmessage({data: JSON.stringify(turns.slice(0, n))}); };
+      streams.add(this);
     }
-    close() { clearTimeout(this.timer); }
+    close() { clearTimeout(this.timer); streams.delete(this); }
   };
 })();
 </script>
