@@ -642,11 +642,12 @@ const indexHTML = `<!doctype html>
      custom property and a custom property does not transition — the icon would arrive at its new
      column between two frames while the rail beside it took 250ms to get there. Same curve and
      length as the rail's own width, so the two are one movement. */
-  /* The icon is centred by the indicator it sits in — 56px wide in a 96px rail with 8px of padding
-     and 24px of item inset comes out on the centre line — so the transform that used to nudge it
-     there is gone with the component that needed it. The menu button still wants one. */
+  /* The icon is centred by the 56px indicator it sits in. The menu button is centred by being
+     told to be: it was nudged there with a translate measured against an 80px rail, and when the
+     rail became 96 the nudge was 12px short — a number that has to be recomputed whenever anything
+     around it moves is a number that will be wrong again. align-self does it at any width. */
   #railMenu { transition:transform 250ms var(--magi-sys-ease-emphasized); }
-  body:not([nav="open"]) #railMenu { transform:translateX(8px); }
+  body:not([nav="open"]) #railMenu { align-self:center; margin-left:0; }
   #rail .ic { flex:none; display:block; }
   #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }
   /* A destination. Expanded it is a row — icon, then the word — and collapsed it is the word UNDER
@@ -676,6 +677,22 @@ const indexHTML = `<!doctype html>
   /* Where you are, in three properties rather than one: the indicator, a heavier stroke on the
      icon, and a bold label. The guide names colour alone as the case that is not enough, and its
      answer for an icon with no filled twin is a thicker one. */
+  /* The state layer is the INDICATOR's, not the item's.
+     .state paints its overlay across the whole control, and collapsed the indicator is a 56x32
+     pill behind the icon — so hovering a selected destination drew two shapes at once, the pill
+     underneath and a full-width wash on top of it. The layer goes where the indicator is: on the
+     icon's pill collapsed, on the whole row expanded, which is where the indicator is then. */
+  .raili { position:relative; }
+  .raili .icwrap::after, .raili::after {
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:currentColor; opacity:0; transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
+  }
+  .raili:hover .icwrap::after { opacity:.08; }
+  .raili:focus-visible .icwrap::after, .raili:active .icwrap::after { opacity:.12; }
+  body[nav="open"] .raili .icwrap::after { opacity:0 !important; }
+  body[nav="open"] .raili:hover::after { opacity:.08; }
+  body[nav="open"] .raili:focus-visible::after, body[nav="open"] .raili:active::after { opacity:.12; }
+  .raili:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--magi-ref-accent)); outline-offset:2px; }
   .raili[selected] { color:var(--magi-ref-primary); }
   .raili[selected] .icwrap { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
   body[nav="open"] .raili[selected] { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
@@ -1831,7 +1848,7 @@ const indexHTML = `<!doctype html>
        state layers for the controls it builds; this is one more, and it is smaller than the
        workarounds it replaces. -->
   <div id="railNav">
-    <a id="railFleet" class="raili state">
+    <a id="railFleet" class="raili">
       <!-- The badge rides the icon, which is what a badge is for and the only place it can be when
            the rail is collapsed to icons. -->
       <span class="icwrap">
@@ -1842,7 +1859,7 @@ const indexHTML = `<!doctype html>
       </span>
       <span class="lbl"></span>
     </a>
-    <a id="railSkills" class="raili state">
+    <a id="railSkills" class="raili">
       <span class="icwrap">
         <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
           d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
@@ -2585,30 +2602,13 @@ function markWaiting(n) {
   // is visible in the DOM, and does not reach the link. Measured both ways: the attribute stood
   // there reading "Companions, 2 waiting on you" while the tree still said "Companions".
   const said = n ? ', ' + tr('state.waiting_on_you', {n}) : '';
-  let note = tabFleet.querySelector('.srcount');
-  if (!note) { note = srOnly(''); note.classList.add('srcount'); tabFleet.append(note); }
-  note.textContent = said;
-  nameRail(said);
-}
-
-// The rail's destinations, named — and made links again.
-//
-// A navigation rail is not a list, and Material Web does not ship one, so this rail is built out
-// of md-list-item. That component puts role="listitem" on the anchor it renders, which costs two
-// things at once: the link semantics, and name-from-content — listitem takes a name from the
-// author and not from what is inside it. Measured in the accessibility tree: the whole rail came
-// out as two unnamed listitems with every child IGNORED. A screen reader was told nothing about
-// the navigation at all, never mind how many companions were waiting.
-//
-// Reaching into the shadow root is not something to do lightly and is the only lever there is: the
-// role is written by the component on an element no selector of ours can name. Both attributes are
-// set every time the count changes, because the component re-renders and takes them with it.
-function nameRail(said) {
-  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared']]) {
-    const a = el.shadowRoot && el.shadowRoot.querySelector('a');
-    if (!a) continue;
-    a.setAttribute('role', 'link');
-    a.setAttribute('aria-label', tr(key) + (el === railFleet ? said : ''));
+  // Into the CONTENT of both, which is what names a link. It used to need a patch written into the
+  // list item's shadow root — the component put role="listitem" on the anchor it rendered, and a
+  // listitem takes no name from what is inside it. The rail is an anchor now and this is all it is.
+  for (const host of [railFleet, tabFleet]) {
+    let note = host.querySelector('.srcount');
+    if (!note) { note = srOnly(''); note.classList.add('srcount'); host.append(note); }
+    note.textContent = said;
   }
 }
 
@@ -4026,7 +4026,6 @@ function paint() {
     // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
-    nameRail(railBadge.hidden ? '' : ', ' + tr('state.waiting_on_you', {n: railBadge.value}));
   }
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
