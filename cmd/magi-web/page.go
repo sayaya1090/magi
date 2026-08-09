@@ -561,13 +561,19 @@ const indexHTML = `<!doctype html>
   .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
      the icon is the only thing there. */
-  .icwrap { position:relative; display:inline-flex; width:20px; height:20px; }
+  .icwrap { position:relative; display:inline-flex; width:24px; height:24px; }
   .icwrap md-badge { position:absolute; top:-5px; right:-7px; width:16px; height:16px; }
   /* Widened, the row has a word in it and the count belongs after the word — riding the icon is
      what a badge does when the icon is all there is. Anchored to the ITEM rather than to the icon,
      so it lands at the end of the row. */
   body[nav="open"] #rail md-list-item { position:relative; }
   body[nav="open"] #rail .icwrap { overflow:visible; }
+  /* Collapsed the badge sits on the icon's upper right; expanded it moves beside the label, which
+     is where the spec puts it once there is a label to sit beside. The move is in paint() because
+     it is a different parent, not a different offset. */
+  body[nav="open"] #rail md-list-item > md-badge {
+    position:static; margin-left:auto; margin-right:.15rem; align-self:center;
+  }
   body[nav="open"] #rail .icwrap md-badge {
     position:absolute; top:50%; right:auto; left:auto;
     inset-inline-start:calc(100% + 9.2rem); transform:translateY(-50%);
@@ -3510,6 +3516,11 @@ function paint() {
   // that as a reactive @state with no attribute behind it, so it is set as a property — assigning
   // it re-renders the tab with the indicator on the button instead of on the content.
   for (const id of ['ptabTalk', 'ptabState']) document.getElementById(id).fullWidthIndicator = true;
+  // The waiting badge changes parent with the rail, per the spec: on the icon while collapsed,
+  // beside the label once there is one.
+  const openNav = document.body.getAttribute('nav') === 'open';
+  const home = openNav ? railFleet : railFleet.querySelector('.icwrap');
+  if (home && railBadge.parentNode !== home) home.append(railBadge);
   // Two navigation landmarks on one page have to be told apart, and the label must not repeat the
   // role — a screen reader already says "navigation". Named one at a time rather than swept with a
   // selector: the phrase pack's own test reads literal tr('…') calls to find phrases nobody asks
