@@ -641,16 +641,9 @@ const indexHTML = `<!doctype html>
      so it lands at the end of the row. */
   body[nav="open"] #rail md-list-item { position:relative; }
   body[nav="open"] #rail .icwrap { overflow:visible; }
-  /* Collapsed the badge sits on the icon's upper right; expanded it moves beside the label, which
-     is where the spec puts it once there is a label to sit beside. The move is in paint() because
-     it is a different parent, not a different offset. */
-  body[nav="open"] #rail md-list-item > md-badge {
-    position:static; margin-left:auto; margin-right:var(--space-50); align-self:center;
-  }
-  body[nav="open"] #rail .icwrap md-badge {
-    position:absolute; top:50%; right:auto; left:auto;
-    inset-inline-start:calc(100% + 9.2rem); transform:translateY(-50%);
-  }
+  /* Expanded, the badge is a child of the list item and lays itself out beside the label; the
+     move is placeRailBadge()'s, and this rule only says what it looks like once it is there. */
+  body[nav="open"] #rail md-list-item > md-badge { position:static; align-self:center; }
   #prefsForm { display:flex; flex-direction:column; gap:var(--space-200); min-width:16rem; }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
@@ -3679,9 +3672,7 @@ function paint() {
   // beside the label once there is one.
   sideToggle.setAttribute('aria-label', tr(document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide'));
   tip(sideToggle, tr(document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide'));
-  const openNav = document.body.getAttribute('nav') === 'open';
-  const home = openNav ? railFleet : railFleet.querySelector('.icwrap');
-  if (home && railBadge.parentNode !== home) home.append(railBadge);
+  placeRailBadge();
   // Two navigation landmarks on one page have to be told apart, and the label must not repeat the
   // role — a screen reader already says "navigation". Named one at a time rather than swept with a
   // selector: the phrase pack's own test reads literal tr('…') calls to find phrases nobody asks
@@ -3932,15 +3923,32 @@ sideToggle.onclick = () => {
 };
 
 const scrimEl = document.getElementById('scrim');
+// Collapsed the badge sits on the icon's upper right; expanded it moves beside the label, which
+// is where the spec puts it once there is a label to sit beside. It is a different PARENT, not a
+// different offset — and it has to be said from wherever the rail changes width, not only from
+// paint(): paint does not run on a nav toggle, so the reparent never happened and a stylesheet
+// rule was quietly doing the work with a calc(100% + 9.2rem) nobody could derive. One mechanism.
+function placeRailBadge() {
+  const open = document.body.getAttribute('nav') === 'open';
+  const home = open ? railFleet : railFleet.querySelector('.icwrap');
+  // A list item lays its slotted children out itself, so which SLOT is the whole of where the
+  // badge lands: appended without one it goes to the default slot and stands wherever the label
+  // stops. A margin-left:auto next to it did nothing, because there is no flex line of ours for
+  // it to push along.
+  if (open) railBadge.slot = 'end'; else railBadge.removeAttribute('slot');
+  if (home && railBadge.parentNode !== home) home.append(railBadge);
+}
 const closeNav = () => {
   document.body.removeAttribute('nav');
   railMenu.setAttribute('aria-expanded', 'false');
+  placeRailBadge();
 };
 scrimEl.onclick = closeNav;
 railMenu.onclick = () => {
   if (document.body.getAttribute('nav') === 'open') { closeNav(); return; }
   document.body.setAttribute('nav', 'open');
   railMenu.setAttribute('aria-expanded', 'true');
+  placeRailBadge();
 };
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
