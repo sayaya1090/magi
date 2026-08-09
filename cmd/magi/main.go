@@ -1463,38 +1463,6 @@ func stepNarrationClause() string {
 	return "Keep the user informed as you go, ask before destructive or irreversible actions, and stay concise."
 }
 
-// restraintClause adds two habits magi's prompt does not currently ask for: SAY the assumptions,
-// and write the least code that does the job.
-//
-// The wording is magi's own; the two ideas come from a widely-circulated list of where LLMs go
-// wrong when writing code, and only the parts this prompt LACKS are here. It already asks for the
-// smallest change, for matching the surrounding style, for reproducing a bug before fixing it, and
-// for not adding stray files — repeating any of those in different words would put the same
-// obligation in two places, and the one thing this tree has measured about prompt length is that
-// the most-missed instruction sits in the hardest-to-read spot.
-//
-// What is genuinely absent is the part before the first edit (an unstated assumption is one nobody
-// can correct, and a request that reads two ways gets silently resolved one way) and the part about
-// shape rather than size (a single-use abstraction, configurability nobody asked for, a branch for
-// a case that cannot happen — none of which "smallest change" rules out).
-//
-// OFF by default, and it returns the EMPTY STRING when off, so an unflagged run's prompt is
-// byte-identical to what it was. That matters twice: the A/B measures only the clause, and the
-// prefix cache sees no change. MAGI_RESTRAINT=1 turns it on.
-func restraintClause() string {
-	if !envflag.Enabled("MAGI_RESTRAINT", false) {
-		return ""
-	}
-	return "\n### Before the first edit — say the quiet part\n" +
-		"- [ ] State the assumptions you are working from. An assumption you never wrote down is one nobody can correct.\n" +
-		"- [ ] If the request reads more than one way, LIST the readings and ask which — do not resolve it silently.\n" +
-		"- [ ] If a simpler route exists than the one you were asked for, say so before you build the one you were asked for.\n" +
-		"- [ ] If you are confused, stop and name the confusing part. Confusion carried into an edit becomes a wrong edit.\n" +
-		"\n### How much code — the least that does the job\n" +
-		"- [ ] No abstraction for something used once, no configurability nobody asked for, no branch for a case that cannot occur.\n" +
-		"- [ ] If what you wrote is four times the length of what would do, write the shorter one instead.\n"
-}
-
 var systemPrompt = "You are magi, an AI coding agent working in the user's project directory. " +
 	"You have tools to inspect and modify the workspace: read, write, edit, multiedit, grep, glob, list, bash. " +
 	"When the user asks about the project, its code, or its documentation, PROACTIVELY use list/glob/grep/read to " +
@@ -1560,7 +1528,6 @@ var systemPrompt = "You are magi, an AI coding agent working in the user's proje
 	"optional `question`, to get their reading on something you are unsure of; that is advice you may disagree with " +
 	"and it does not end anything.\n" +
 	stepNarrationClause() + "\n" +
-	restraintClause() + "\n" +
 	// Persistence / anti-defeatism (cross-platform). Local-model runs on Terminal-Bench
 	// repeatedly FAILED by giving up — declaring "no tools/empty env" without trying, or
 	// picking an absent runtime and quitting. Keep this platform-neutral: detect first,

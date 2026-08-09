@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -111,73 +112,39 @@ func TestTheTwoHeaviestStepsAreChecklists(t *testing.T) {
 	}
 }
 
-// The restraint clause is OFF by default and adds NOTHING when off.
+// The restraint clause is gone, and this is the record of why.
 //
-// An A/B measures the clause only if the control arm's prompt is what it always was. Returning a
-// header with no items, or a stray blank line, would make both arms different from the shipped
-// prompt and the comparison would be against neither.
-func TestRestraintIsOffAndCostsNothingUntilAskedFor(t *testing.T) {
-	t.Setenv("MAGI_RESTRAINT", "")
-	if got := restraintClause(); got != "" {
-		t.Errorf("the clause is on by default, or leaves residue when off: %q", got)
-	}
-
-	t.Setenv("MAGI_RESTRAINT", "1")
-	on := restraintClause()
-	if on == "" {
-		t.Fatal("MAGI_RESTRAINT=1 added nothing")
-	}
-	// The two things magi's prompt does NOT already ask for.
-	for what, want := range map[string]string{
-		"stating assumptions":     "assumptions you are working from",
-		"asking when ambiguous":   "LIST the readings",
-		"stopping when confused":  "name the confusing part",
-		"no single-use abstract":  "abstraction for something used once",
-		"no idle configurability": "configurability nobody asked for",
-		"no impossible branch":    "case that cannot occur",
-	} {
-		if !strings.Contains(on, want) {
-			t.Errorf("the clause does not cover %s (%q)", what, want)
-		}
-	}
-	// Checkbox shape, like the two gates beside it — this tree moved the heaviest obligations to
-	// checklists because prose in the middle of a paragraph is what gets skipped.
-	if n := strings.Count(on, "- [ ]"); n < 6 {
-		t.Errorf("the clause has %d checkboxes; it is prose again", n)
-	}
-}
-
-// It must not repeat what the prompt already demands. The same obligation in two wordings is how a
-// prompt grows until the instruction that matters is the one nobody reads.
-func TestRestraintDoesNotRestateWhatThePromptAlreadyAsks(t *testing.T) {
-	t.Setenv("MAGI_RESTRAINT", "1")
-	on := restraintClause()
-	for _, already := range []string{
-		"SMALLEST change", // step 3 already says it
-		"Match the surrounding style",
-		"REPRODUCE it first",
-		"stray files",
-	} {
-		if strings.Contains(on, already) {
-			t.Errorf("the clause repeats %q, which the prompt already demands", already)
-		}
-	}
-}
-
-// The SHIPPED prompt carries none of it.
+// It added two habits the prompt lacked — say the assumptions before the first edit, and write the
+// least code that does the job — behind MAGI_RESTRAINT, off by default, returning the empty string
+// when off so an unflagged run's prompt stayed byte-identical and the A/B measured only the clause.
 //
-// systemPrompt is built once at package init, so this reads the actual string a default run sends.
-// The control arm of an A/B has to be the prompt as it was, or the comparison is against neither
-// arm — and a clause that leaked in unflagged would make every measurement since meaningless.
-func TestTheShippedPromptDoesNotCarryTheRestraintClause(t *testing.T) {
-	for _, leak := range []string{
-		"say the quiet part",
-		"assumptions you are working from",
-		"LIST the readings",
-		"configurability nobody asked for",
-	} {
-		if strings.Contains(systemPrompt, leak) {
-			t.Errorf("the default prompt carries %q — the clause is not off by default", leak)
-		}
+// Measured on Terminal-Bench 2.1, fourteen tasks at three attempts per arm: it made no difference.
+// Paired by task, ten were identical, two were better with it (mteb-leaderboard 1/3 → 2/3,
+// sqlite-with-gcov 0/3 → 2/3) and two were worse (build-pmars 3/3 → 2/3, extract-elf 3/3 → 2/3).
+// The means were 0.476 and 0.500, and that +1 is a single trial out of forty-two.
+//
+// ⚠ The stronger finding is about the measurement, and it is why no rerun is planned. Of the
+// fourteen tasks four always pass and five never do, so at most five could move at all. Seven of
+// the twenty-eight (task, arm) cells are split across their own three attempts — a quarter of the
+// set is a coin flip on a single run. And 17 of 42 trials on one arm and 19 on the other ended in
+// AgentTimeoutError, concentrated in the five that never pass: caffe-cifar-10 averaged 181
+// minutes, schemelike 121, path-tracing 92. The harness is measuring throughput, not judgement,
+// and a prompt clause cannot show through that.
+//
+// So it is removed rather than left off-by-default. A lever nobody can justify turning on is a
+// thing every future reader has to evaluate again. The two ideas are not wrong — there is simply
+// no evidence here either way, and the honest home for them is this paragraph.
+func TestTheRestraintClauseIsGoneAndStaysGone(t *testing.T) {
+	if strings.Contains(systemPrompt, "say the quiet part") ||
+		strings.Contains(systemPrompt, "the least that does the job") {
+		t.Error("the restraint clause is back in the shipped prompt; it was measured and made no difference")
+	}
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The switch too: a flag that reads nothing is one somebody will set and then wonder about.
+	if strings.Contains(string(src), "MAGI_RESTRAINT") {
+		t.Error("MAGI_RESTRAINT is still read in main.go — the clause is gone, so the switch should be")
 	}
 }
