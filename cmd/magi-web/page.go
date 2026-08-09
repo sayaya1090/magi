@@ -70,6 +70,13 @@ const indexHTML = `<!doctype html>
   :root {
     color-scheme: dark light;
     --primary:#FF7A1A; --accent:#5CD8E6; --muted:#C9C2B8; --outline:#72675C;
+    /* Secondary takes primary's hue at a third of its chroma, which is the rule the guide
+       states for it: "secondary, neutral variant, and neutral colors match primary in hue but
+       are progressively less chromatic". It pointed at --accent, and so did tertiary, so the
+       two roles were one colour and the scheme had no secondary at all. The cyan is right
+       WHERE IT IS — tertiary is the complement, arrived at by changing the hue — and it is
+       still the councillor Balthasar's. Only the role that was borrowing it changes. */
+    --secondary:#E8B89F;
     --error:#F2B8B5; --success:#86EFAC; --surface:#211B14;
     --primaryContainer:#4A2E0B; --outlineVariant:#463E34; --warn:#FFD479;
     /* The three council members' colours. Declared and unused HERE: the palette is the terminal's
@@ -107,7 +114,7 @@ const indexHTML = `<!doctype html>
     --md-sys-color-on-primary:var(--md-on-primary);
     --md-sys-color-primary-container:var(--primaryContainer);
     --md-sys-color-on-primary-container:var(--md-on-primary-container);
-    --md-sys-color-secondary:var(--accent);
+    --md-sys-color-secondary:var(--secondary);
     --md-sys-color-on-secondary:var(--md-on-primary);
     --md-sys-color-secondary-container:var(--md-surface-container-high);
     --md-sys-color-on-secondary-container:var(--md-on-surface);
@@ -191,6 +198,7 @@ const indexHTML = `<!doctype html>
   @media (prefers-color-scheme: light) {
     :root:not([color-theme]) {
       --primary:#B45309; --accent:#0E7490; --muted:#4A453C; --outline:#8A7E6E;
+      --secondary:#82604F;
       --error:#B3261E; --success:#15803D; --surface:#F5EEE3;
       --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
       --melchior:#B45309; --balthasar:#0E7490; --casper:#B3261E;
@@ -215,6 +223,7 @@ const indexHTML = `<!doctype html>
   }
   :root[color-theme="light"] {
     --primary:#B45309; --accent:#0E7490; --muted:#4A453C; --outline:#8A7E6E;
+    --secondary:#82604F;
     --error:#B3261E; --success:#15803D; --surface:#F5EEE3;
     --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
     --melchior:#B45309; --balthasar:#0E7490; --casper:#B3261E;

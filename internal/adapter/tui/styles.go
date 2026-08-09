@@ -92,7 +92,13 @@ type palette map[string]string
 // stylesheet and fails when a shared role disagrees, so every entry here has a reader.
 var nervDark = palette{
 	"primary": "#FF7A1A", "accent": "#5CD8E6", "muted": "#C9C2B8", "outline": "#72675C",
-	"error": "#F2B8B5", "success": "#86EFAC", "surface": "#211B14",
+	// M3's secondary is primary's hue at a third of its chroma. The web needs it as a role of
+	// its own because the library reads --md-sys-color-secondary, and it had been pointing at
+	// accent, which tertiary also points at — one colour doing two jobs and neither of them
+	// secondary. The terminal keeps the cyan where it already is; this is the origin of record
+	// for a value the web draws, which is what this table is for.
+	"secondary": "#E8B89F",
+	"error":     "#F2B8B5", "success": "#86EFAC", "surface": "#211B14",
 	"primaryContainer": "#4A2E0B", "outlineVariant": "#463E34", "warn": "#FFD479",
 	// The MAGI — amber / cyan / coral, the NERV-console hues.
 	"melchior": "#FFB454", "balthasar": "#5CD8E6", "casper": "#FF8A8A",
@@ -119,7 +125,8 @@ var nervDark = palette{
 }
 var nervLight = palette{
 	"primary": "#B45309", "accent": "#0E7490", "muted": "#4A453C", "outline": "#8A7E6E",
-	"error": "#B3261E", "success": "#15803D", "surface": "#F5EEE3",
+	"secondary": "#82604F",
+	"error":     "#B3261E", "success": "#15803D", "surface": "#F5EEE3",
 	"primaryContainer": "#F8D9A8", "outlineVariant": "#D8CFC0", "warn": "#92600A",
 	"melchior": "#B45309", "balthasar": "#0E7490", "casper": "#B3261E",
 

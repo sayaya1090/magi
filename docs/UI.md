@@ -681,7 +681,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 > ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/`(16파일)에 있으나 그 디렉토리는
 > **버전관리 밖**이라 항목 전량을 여기 옮겨 둔다.
 >
-> **45건 고침 · 7건 남음 · 5건 철회.** 남은 것은 A4(플릿→컴패니언 list-detail 재설계) · A6(MCP 폼→다이얼로그) · A9(자식 margin 25곳) · A15(배지 자릿수) · A41·A42(토큰) · A48(붉은색 둘). A46(secondary 색상)은 정체성 결정이라 사용자 몫으로 남긴다. 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
+> **45건 고침 · 6건 남음 · 5건 철회.** 남은 것은 A4(플릿→컴패니언 list-detail 재설계) · A6(MCP 폼→다이얼로그) · A9(자식 margin 25곳) · A15(배지 자릿수) · A41·A42(토큰) · A48(붉은색 둘). 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
 > · 컴포넌트 **specs 36/36 · `/overview` 36/36 · accessibility 30/36 · guidelines 36/36**.
 > ⚠ 더 읽으면 항목이 **줄 수도** 있다: **A2·A3·A7이 철회**됐고 A12는 심각도가 두 번 바뀌었다.
 
@@ -705,7 +705,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 | ~~A40~~ ✅ | `#state`(page.go:1329-1333)와 `.foldbar .sum`(935)이 **말줄임으로 자르는데 툴팁·링크가 없다** | ❌ "**Don't cut off text without providing a way for users to view it**" / "Truncated text can be replaced with an ellipsis **if the text is available through a tooltip or link**" | writing/text-truncation | **고침** — 잘린 것은 툴팁으로 읽히고, 포커스는 링을 그린다 (bac3f4cd) |
 | A41 | **sys 토큰 ~22개가 정적 값을 직접 보유** — 타입스케일 px 20개(148-176) + `shadow`·`scrim` hex(135-136) | "Whenever possible, **system tokens should point to reference tokens rather than static values**" | design-tokens | **중간** — ⚠ 색은 계층을 지켰는데 **타이포만 안 지켰다** |
 | A42 | 자체 토큰에 **시스템명·클래스 접두사 없음**(`--shape-*`·`--ease-*`·`--measure`·`--melchior` 등) | "All token names **start with the system name**" + "an abbreviation for the token class: **ref / sys / comp**" | design-tokens | **작다** — ⚠ 한 파일에 두 규약이 공존. 다만 **어떤 이름으로 바꿀지는 이 페이지에 근거가 없다** |
-| A46 | `--md-sys-color-secondary`가 **시안**(#5CD8E6, hue≈187°)인데 primary는 **주황**(#FF7A1A, hue≈27°) | "**Secondary, neutral variant, and neutral colors match primary in hue but are progressively less chromatic**" | styles/color/advanced/adjust-existing-colors | ⚠ **정체성 결정** — tertiary=시안은 **맞다**("complementary… by changing its hue"). secondary만 주황 저채도로 바꾸면 **secondary≡tertiary 중복도 함께 풀린다**. 사용자 판단 |
+| ~~A46~~ ✅ | `--md-sys-color-secondary`가 **시안**(#5CD8E6, hue≈187°)인데 primary는 **주황**(#FF7A1A, hue≈27°) | "**Secondary, neutral variant, and neutral colors match primary in hue but are progressively less chromatic**" | styles/color/advanced/adjust-existing-colors | **고침** — `--secondary` 신설(primary 색조 49°, 채도 1/3): 다크 `#E8B89F` · 라이트 `#82604F`. tertiary는 시안 그대로. 대비 10.57:1 다크 / 5.31:1 라이트 |
 | ~~A47~~ ⊘ | `--success`·`--warn`에 **4-롤 조가 없다**(단일 값) | 정적 색을 정의하면 "**the main color, on-main color, container color, and on-container color**" 넷이 나와야 | styles/color/advanced/define-new-colors | ⚠ **철회(실측)** — `--bg` on `--warn` = **13.40:1 다크 / 5.08:1 라이트**로 통과. 소비자 없는 토큰 3개를 만드는 것은 이 저장소가 반복해 고쳐온 결함(생산자만 있고 소비자 없음) |
 | A48 | 다크 `--casper:#FF8A8A`가 `--error:#F2B8B5`와 **별개의 붉은색** | "Material provides the red Error color out of the box… **you do not need to define your own static color for a semantic red**" | styles/color/advanced/define-new-colors | ⚠ **판단 필요** — casper는 MAGI 세 현자의 **정체성 색**이고 가이드는 브랜드 색의 정적 유지를 **명시 허용**한다. 다만 **라이트에서는 이미 `--error`와 같은 값**이라 다크만 갈라진 게 의도인지 확인할 것 |
 | ~~A55~~ ⊘ | `nav.connections`이 화면에 **`MCP`** 로 뜬다(정의 없는 맨 약어) | "**Spell things out whenever possible**" + 약어는 괄호로 정의. 시간 약어 예외 해당 없음 | global-writing/word-choice | ⚠ **유지 결정** — `MCP`는 이 화면의 독자에게 통용되는 이름 |
