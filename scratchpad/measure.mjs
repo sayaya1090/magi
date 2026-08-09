@@ -62,6 +62,19 @@ if (process.argv[2] === '--all') {
       // A div that answers a click is a control a keyboard cannot reach. #scrim is the one
       // legitimate case — a backdrop is not a control, and Escape closes what it covers.
       divOnclick: [...document.querySelectorAll('div,span')].filter(d => d.onclick).map(d => d.id || d.className),
+      // Children sticking out of the box that is supposed to hold them. This found the summary
+      // chips: cell() builds a div, a div is a block, so the count took a line of its own and
+      // pushed the word onto a second one — 35px of content inside a 32dp chip, spilling out of
+      // both ends. Nothing in the tests could see it; the fake dom has no layout.
+      overflow: [...document.querySelectorAll('md-filter-chip, md-primary-tab, .wcard, md-list-item')]
+        .flatMap(par => {
+          const P = par.getBoundingClientRect();
+          if (!P.height) return [];
+          return [...par.children].filter(ch => {
+            const C = ch.getBoundingClientRect();
+            return C.height && (C.top < P.top - 0.5 || C.bottom > P.bottom + 0.5);
+          }).map(ch => (par.tagName + '>' + (ch.className || ch.tagName)).slice(0, 44));
+        }),
     }))));
   }
   console.log('\nERRORS:', errs.length ? errs.slice(0, 8) : 'none');

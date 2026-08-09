@@ -782,7 +782,13 @@ const indexHTML = `<!doctype html>
   /* Label large, which is the chip's own type role — it was title-medium, a heading size inside a
      chip. At 24px of line box in a 32dp container it left 4px above and below and read as cramped;
      the count is still the loud thing here because it is 600 against an 11px word. */
+  /* On one line with the word beside it. cell() builds a div, and a div is a BLOCK: the count took
+     a line of its own and pushed the word onto a second one, so 20px + 15px of content sat in a
+     32dp chip and spilled out of both ends of it. Measured in a browser — the count's box started
+     1.7px above the chip and the word's ended 1.7px below. Label large, which is the chip's own
+     type role; it was title-medium, a heading size, which made the same overflow worse. */
   .tile .n {
+    display:inline-flex; align-items:center;
     font:600 var(--md-sys-typescale-label-large-size, .875rem)/var(--md-sys-typescale-label-large-line-height, 1.25rem) var(--display);
     color:var(--fg); margin-right:.45rem;
   }
