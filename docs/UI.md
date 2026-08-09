@@ -689,7 +689,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 | A4 | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세 | foundations §4.1 | **큼** |
 | A5 | 컴패니언 보조 판이 **22rem 고정** | supporting pane은 주 영역 **약 2/3** | foundations §4.2 | ⚠ **먼저 정할 것**: 이것이 캐노니컬 **supporting pane**(비율 규칙 적용)인가 **side sheet 컴포넌트**(고정 폭이 정상, 16dp 인셋, 닫기 버튼)인가. 시트로 규정하면 고정 폭이 오히려 맞다 — containers/side-sheets |
 | A6 | MCP 추가 폼 6필드가 목록 아래 **인라인**, 액션은 폼 안의 버튼 하나 | 다이얼로그로. **compact는 full-screen, 그 위는 basic**. 액션은 다이얼로그 슬롯에 `추가`+`취소`, 후행 정렬, 확정이 모서리에 가장 가깝게 | components §1 | 중간 |
-| A7 | 비활성 상태를 **커서 + 호버 없음**으로만 표시 | 상태마다 **시각 지표 둘**. 커서와 호버는 마우스가 없으면 **둘 다 관측 불가** — 터치·키보드에서는 지표 0 | foundations §5.1 | 작음, 다만 대비 가드와 충돌하니 값을 재야 함 |
+| A7 | 비활성 상태를 **커서 + 호버 없음**으로만 표시 | 상태마다 **시각 지표 둘**. 커서와 호버는 마우스가 없으면 **둘 다 관측 불가** — 터치·키보드에서는 지표 0 | foundations §5.1 | **작음** — ⚠ "대비 가드와 충돌" 우려는 **해소됨**: `/designing/color-contrast`가 **"Disabled states do not need to meet contrast requirements"** 라고 명시한다 |
 | A8 | 여백 값이 **8dp 스케일 밖** — .35/.7/.9/1.1/1.2/1.4/1.6/2.4rem = 5.6/11.2/14.4/17.6/19.2/22.4/25.6/38.4dp | 여백은 **8dp 배수**(space100=8dp) | foundations §6.2 | **큼** — 하나 고치면 리듬 전체가 바뀐다. A10과 함께, 셰이프·타이포처럼 **테스트로 고정** |
 | A9 | 자식 요소에 `margin`을 직접 거는 자리가 여럿(`.wlabel`, `.toboard`, `.skwrite` 등) | ❌ 자식에 margin 금지. **부모에 padding+gap** | foundations §6.1 | 중간 |
 | A10 | 애니메이션 **210ms·240ms**(`.enter`, `.rise`)가 duration 스케일 밖 | short4=**200**, medium1=**250** | styles §9.2 | **작다** — 두 값 반올림. A8과 같은 커밋에 묶을 것 |
@@ -702,6 +702,8 @@ Listed with what each would actually take, so none of them reads as a wish.
 | A17 | `#ptabs`(대화/상태)가 **`md-primary-tab`** | 콘텐츠 영역 **안**의 두 번째 층은 **secondary tab**. secondary는 primary 아래에 | components/tabs | ⚠ **번들에 `md-secondary-tab`이 없다**(실측 0건 — 벤더링이 primary만 포함). 재벤더링은 과하다. 가이드가 "기능은 동일, **인디케이터 스타일만 더 단순**"이라 하므로 **`#ptabs`의 인디케이터 토큰만 secondary 모양으로** 바꾸는 것이 맞는 경로. 눈으로 볼 것 |
 | A18 | 배지 값이 **무제한**(`String(n)`) | **"+" 포함 4글자**까지 (99+ 식) | components/tabs | 아주 작다 |
 | A19 | 접힌 레일의 아이콘 전용 목적지에 **`.title` 툴팁이 없다**(`aria-label`만) | **"아이콘 전용 버튼에는 plain 툴팁으로 이름을 단다"** | components/tooltips | **작다** — 다른 아이콘 버튼 7개가 이미 `.title`을 쓴다. 레일만 빠졌다. B(라벨 숨김)를 지탱하는 조각이기도 하다 |
+| A20 | **헤딩 요소가 하나도 없다** — `<h1>`~`<h6>` 마크업 0건, JS 생성 0건. 시각적 섹션 머리글(`.lanehead`·`.teamhead`·`#state`)은 대문자 스타일일 뿐 | **내용 위계대로 H1~H6**, 레벨 건너뛰기 금지, **페이지 제목 H1 하나** | foundations §8.3.2 | **중간** — 보조기술 사용자는 헤딩으로 페이지를 훑는다. 훑을 것이 없다 |
+| A21 | `<nav>` **둘**(`#crumbs`·`#rail`)에 **`aria-label`이 없다** | 같은 랜드마크가 여럿이면 **라벨로 구별**. ⚠ 라벨에 역할 이름을 반복하지 말 것 | foundations §8.3.1 | **아주 작다** — 속성 두 개 |
 
 **철회된 항목**: A2(compact `md-tabs`) — 목적지가 셋 미만이면 가이드가 탭을 지시한다.
 A3(74ch) — 큰 화면 천장은 120자다. 둘 다 **고쳤다면 위반을 만들었을 것**이다.
