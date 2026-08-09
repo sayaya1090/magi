@@ -617,7 +617,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 > ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/`(16파일)에 있으나 그 디렉토리는
 > **버전관리 밖**이라 항목 전량을 여기 옮겨 둔다.
 >
-> **45건 고침 · 6건 남음 · 5건 철회.** 남은 것은 A4(플릿→컴패니언 list-detail 재설계) · A6(MCP 폼→다이얼로그) · A9(자식 margin 25곳) · A15(배지 자릿수) · A41·A42(토큰) · A48(붉은색 둘). 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
+> **45건 고침 · 9건 남음 · 4건 철회.** 남은 것은 A4(플릿→컴패니언 list-detail 재설계) · A6(MCP 폼→다이얼로그) · A9(자식 margin 25곳) · A15(배지 자릿수) · A41·A42(토큰) · A48(붉은색 둘). 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
 > · 컴포넌트 **specs 36/36 · `/overview` 36/36 · accessibility 30/36 · guidelines 36/36**.
 > ⚠ 더 읽으면 항목이 **줄 수도** 있다: **A2·A3·A7이 철회**됐고 A12는 심각도가 두 번 바뀌었다.
 
@@ -635,7 +635,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | ~~A16~~ ✅ | 이미 선택된 목적지를 **다시 눌러도 맨 위로 안 간다**(확인 필요) | 재선택 = 스크롤 top | components/nav-bar | **고침** — 같은 목적지를 다시 누르면 맨 위로 (3b40835e) |
 | ~~A17~~ ✅ | `#ptabs`(대화/상태)가 **`md-primary-tab`** | 콘텐츠 영역 **안**의 두 번째 층은 **secondary tab**. secondary는 primary 아래에 | components/tabs | **고침** — 2단 탭은 `md-secondary-tab` (d830126b) |
 | ~~A32~~ ✅ | 탭 패널 전환(`#ptabs`)이 **fadeThrough + scale(.96)** | **Lateral**은 ⚠ **"does not use a fade or parallax effect… slide in unison"**. 이유까지 있다: ⚠ **"Fading content as it slides makes the peer relationship and swipe gesture less obvious"** + forward/backward로 **오해된다** | styles/motion/transitions(패턴·적용 **두 장**) | **고침** — 동급 전환은 옆으로 미끄러진다 (917c14cb) |
-| ~~A33~~ ✅ | Top level 전환에서 나가는 화면이 **즉시 `hidden`** — 페이드 아웃이 아니라 **점프 컷** | "**Fully fade out content before fading new content in**" + "Jump cuts should generally be **avoided as a default**… **offers no clues** to help a user orient themselves" | styles/motion/transitions | **고침** — 나가는 화면이 점프 컷 대신 전환을 갖는다 (917c14cb) |
+| ~~A33~~ ⊘ | Top level 전환에서 나가는 화면이 **즉시 `hidden`** — 페이드 아웃이 아니라 **점프 컷** | "**Fully fade out content before fading new content in**" + "Jump cuts should generally be **avoided as a default**… **offers no clues** to help a user orient themselves" | styles/motion/transitions | ⊘ **유지 결정** — 가이드가 예외를 준다: "If pure efficiency is a top priority, **like opening a menu in a productivity app**, a jump cut may be preferred." 목적지 전환은 하루에 수십 번이라 나가는 화면을 페이드 아웃시키면 매번 그 시간을 낸다. 들어오는 쪽 페이드만 남긴다. ⚠ A32는 다르다 — 거기엔 예외가 없다 |
 | ~~A36~~ ✅ | `text-transform:uppercase` **21곳** — ⚠ 머리글만이 아니다: **버튼 라벨 2곳**(전역 `md-text-button`, `.answer md-filled-tonal-button`), **내비 라벨**(`#rail md-list`), **링크**(`#back`), **상태 값** 포함 | ❌ "**Avoid using caps blocks altogether; they're not accessible.**" / "**Use sentence case for all product text.**" ★ **예외 조항이 존재하지 않는다**(h3 13개 전수 확인). 대체 수단도 지정한다: "**use bold weight instead**" | style-guide/grammar-and-punctuation | **고침** — `text-transform:uppercase` 0곳 (7208bac7) |
 | ~~A37~~ ✅ | 영어 라벨 **143개 중 102개가 소문자 시작**(`nav.board:"board"`) | sentence case = "only the first letter of the first word **is capitalized**" | content-design/style-guide | **고침** — 문장 대소문자 (69e220e8) |
 | ~~A40~~ ✅ | `#state`(page.go:1329-1333)와 `.foldbar .sum`(935)이 **말줄임으로 자르는데 툴팁·링크가 없다** | ❌ "**Don't cut off text without providing a way for users to view it**" / "Truncated text can be replaced with an ellipsis **if the text is available through a tooltip or link**" | writing/text-truncation | **고침** — 잘린 것은 툴팁으로 읽히고, 포커스는 링을 그린다 (bac3f4cd) |
