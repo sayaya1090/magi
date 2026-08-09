@@ -249,6 +249,20 @@ func applyTheme(isDark bool) {
 	styleToolErr = n().Foreground(colError)
 	styleToolResult = n().Foreground(colMuted)
 	styleError = n().Foreground(colError).Bold(true)
+	// ⚠ Focus here is told by colour alone, and it stays that way on purpose.
+	//
+	// The guide names colour alone as insufficient and asks a focused outlined field for a THICKER
+	// outline as well. A terminal has no thickness, and the two substitutes both fail on measurement
+	// rather than on taste. A heavier border rune (┃, U+2503) is a different glyph from the one the
+	// startup probe measures — probe.go picks │ deliberately, because it is the East-Asian ambiguous
+	// rune the layout depends on, and drawing a different one puts the cursor 17 to 25 cells out on
+	// a terminal that renders the two at different widths. A background fill is invisible: every
+	// surface container in this palette is within 1.1:1 of the page, which is a state indicator
+	// nobody can see.
+	//
+	// So the amber border stands alone, and the case it fails is narrow: the composer is focused
+	// almost always, and the moment it is not, the thing that took the keys — a palette, a
+	// permission box — is drawn over the page and is the visible answer to where you are.
 	styleInput = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Padding(0, 1)
 	styleInputFocus = n().Border(lipgloss.RoundedBorder()).BorderForeground(colPrimary).Padding(0, 1)
 	styleFooter = n().Foreground(colMuted).Padding(0, 1)
