@@ -436,16 +436,17 @@ const indexHTML = `<!doctype html>
     position:fixed; top:0; bottom:0; left:0; z-index:3;
     width:var(--rail-now, var(--rail-w)); box-sizing:border-box;
     /* Over the page, not beside it: a floating drawer is the one that can open without moving
-       anything. It has a surface of its own and a shadow, because something that overlaps has to
-       say that it does. */
+       anything. It says that it overlaps with a TONAL difference and an edge, not a shadow — a
+       container role one step off the body's, plus a hairline. That is the guide's default way to
+       separate two surfaces, and it is the one that survives when the scrim below it does the rest
+       of the work. The shadow this comment used to promise went out with the box-shadow scrim. */
     z-index:4;
     padding:calc(.7rem + env(safe-area-inset-top)) .5rem 1.2rem;
     background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
     display:flex; flex-direction:column; gap:1rem; overflow:hidden auto;
     /* Same curve and duration as the components use for a container that changes size, so the rail
        and the page's own margin arrive together rather than one chasing the other. */
-    transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized),
-                box-shadow 250ms var(--ease-emphasized);
+    transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized);
   }
   /* Two numbers, not one. --rail-w is the gutter the PAGE reserves and it never changes; --rail-now
      is how wide the rail is drawing itself right now. Widening the rail used to widen the gutter,
