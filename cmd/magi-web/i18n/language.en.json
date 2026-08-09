@@ -5,7 +5,7 @@
   "action.answer": "Answer",
   "action.close": "Close",
   "action.collapse": "Close",
-  "action.compact_now": "Compact now",
+  "action.compact_now": "Fold older turns now",
   "action.confirm": "Confirm?",
   "action.deny": "Deny",
   "action.forget": "Forget",

@@ -586,7 +586,13 @@ const indexHTML = `<!doctype html>
      lets navigation items grow taller to hold it — so the label may take two lines rather than
      lose its tail. Collapsed still shows no label at all, which is the line below and a different
      decision. */
-  #rail .lbl { overflow-wrap:anywhere; }
+  /* One line, always. The label is revealed the instant the drawer is asked to open and the rail
+     is still 80px wide at that instant, so a label allowed to break anywhere broke into TEN lines
+     and stood the item 264px tall, then collapsed to 56px over the next 120ms as the rail caught
+     up. Measured, and it is the flinch a reader sees every time they open the drawer.
+     Clipped rather than wrapped: the rail already hides its overflow, and a longer word in another
+     language now runs out of the item instead of pushing the row apart. */
+  #rail .lbl { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
   body:not([nav="open"]) #rail .lbl { display:none; }
   /* Collapsed, the icon belongs on the rail's centre line, and it was 4px to the left of it: the
      item is 63px inside an 80px rail and its leading space put the 24px icon at the item's leading
@@ -3968,11 +3974,13 @@ const scrimEl = document.getElementById('scrim');
 function placeRailBadge() {
   const open = document.body.getAttribute('nav') === 'open';
   const home = open ? railFleet : railFleet.querySelector('.icwrap');
-  // A list item lays its slotted children out itself, so which SLOT is the whole of where the
-  // badge lands: appended without one it goes to the default slot and stands wherever the label
-  // stops. A margin-left:auto next to it did nothing, because there is no flex line of ours for
-  // it to push along.
-  if (open) railBadge.slot = 'end'; else railBadge.removeAttribute('slot');
+  // Beside the label means AFTER it, in the flow, which is a thing layout already knows how to do:
+  // in the item's default slot the badge follows the label's last character in any language, with
+  // nothing measured and nothing to keep in step. The version this replaces pushed it with a fixed
+  // calc(100% + 9.2rem), and that is where the language dependence came from — the badge stood 52px
+  // past an English label and 87px past a Korean one, in the same place both times.
+  // The trailing edge (slot="end") was tried and is worse: a count 100px from the word it counts.
+  railBadge.removeAttribute('slot');
   if (home && railBadge.parentNode !== home) home.append(railBadge);
 }
 const closeNav = () => {
