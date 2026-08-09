@@ -338,6 +338,10 @@ const indexHTML = `<!doctype html>
     font-variant-numeric:tabular-nums;  /* ages and step counts line up down the column */
   }
   [hidden] { display:none !important; }
+  /* Read, not seen. A live region has to be in the accessibility tree, so it cannot be display:none
+     or visibility:hidden — it is clipped to nothing instead. */
+  .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden;
+             clip-path:inset(50%); white-space:nowrap; border:0; }
 
   /* On opacity: every value below is set so the RESULT clears WCAG AA (4.5:1) against the page in
      BOTH themes, which is checked in page_test.go. Editorial layouts get their hierarchy from
@@ -1394,7 +1398,15 @@ const indexHTML = `<!doctype html>
        crumb is the way back, which is the same element that says where back goes. -->
   <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
   <span class="sid" id="sid"></span>
-  <span id="state"></span>
+  <!-- The one place that speaks. Errors, the connection dropping, and a search narrowing all
+       changed silently before this: a screen reader was never told. role=status with a polite
+       live region announces without stealing focus, which is what the guide asks for a status
+       message and what it names for search results appearing. -->
+  <span id="state" role="status" aria-live="polite"></span>
+  <!-- The page's one announcer. A live region has to be in the document BEFORE its text changes —
+       one created per render is inserted already-full and says nothing. Everything that changes
+       without moving focus speaks through here. -->
+  <span id="say" class="sr-only" role="status" aria-live="polite"></span>
   <!-- Narrow only, and top right where a thumb reaches. It shows what pressing it GIVES you — a sun
        while the page is dark — because a control showing its current state leaves you working out
        what it does. Two shapes with one hidden, rather than a morphing path: an icon that changes
@@ -2994,6 +3006,18 @@ function rankByIDF(query, docs) {
 
 // One find box, told which half it belongs to. Written once because two of them written twice is
 // two that drift, and the only difference between the halves is where the typed text is kept.
+// Said to assistive tech, shown to nobody. The list visibly shrinks as you type, which is all the
+// feedback a sighted user needs and none of it for anyone else.
+const sayEl = document.getElementById('say');
+let sayTimer = 0;
+function say(text) {
+  clearTimeout(sayTimer);
+  // Cleared first: repeating the same string into a live region is not a change, so the second
+  // search that lands on the same count would be silent.
+  sayEl.textContent = '';
+  sayTimer = setTimeout(() => { sayEl.textContent = text; }, 60);
+}
+
 function findBox(get, set) {
   const box = cell('skfind');
   const f = document.createElement('md-outlined-text-field');
@@ -3104,6 +3128,7 @@ async function loadSkills() {
       emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list));
     return;
   }
+  if (skillQuery) say(tr('find.results', {n: shown.length}));
   skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(), ...shown.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');

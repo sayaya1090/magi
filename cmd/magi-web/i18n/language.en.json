@@ -73,6 +73,7 @@
   "field.summarised_away": "summarised away",
   "field.team": "team",
   "field.workspace": "workspace",
+  "find.results": "{n} results",
   "hint.compact": "summarise the older turns. The detail stays on disk and can be recalled, but the live window loses the original wording",
   "hint.forget": "remove this rule from the store",
   "hint.mcp_args": "one per line, or separated by spaces",

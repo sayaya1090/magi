@@ -185,7 +185,7 @@ let byTabs = false;
 globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbs', 'crumbSep', 'crumbHere', 'tabs', 'tabFleet', 'skills', 'tabSkills',  'mcp', 'tabMcp', 'board', 'handoffs', 'history', 'intervened', 'agentview', 'stream', 'side', 'plan', 'send',
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbs', 'crumbSep', 'crumbHere', 'say', 'tabs', 'tabFleet', 'skills', 'tabSkills',  'mcp', 'tabMcp', 'board', 'handoffs', 'history', 'intervened', 'agentview', 'stream', 'side', 'plan', 'send',
                  'rail', 'railNav', 'scrim', 'cnote', 'notifyK', 'notify', 'notifyBtn', 'notifyWhy', 'ptabs', 'ptabTalk', 'ptabState', 'theme', 'lang', 'prefsK',
                  'consoleK', 'console', 'prefs', 'prefsDialog', 'mcpDialog', 'prefsClose', 'prefsForm', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');
