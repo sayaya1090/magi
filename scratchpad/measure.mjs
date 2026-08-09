@@ -48,7 +48,26 @@ const box = (s) => page.evaluate((s) => [...document.querySelectorAll(s)].map(e 
   };
 }), s);
 
-if (sel) {
+// Screens worth checking, because each one only assembles at its own url.
+const SCREENS = { fleet: '', board: '?v=board', shared: '?v=skills', companion: '?d=/demo/design.sock' };
+
+if (process.argv[2] === '--all') {
+  for (const [name, q] of Object.entries(SCREENS)) {
+    await page.goto(URL + q, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2200);
+    console.log(name.padEnd(11), JSON.stringify(await page.evaluate(() => ({
+      headings: [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].map(h => h.tagName),
+      live: document.querySelectorAll('[aria-live]').length,
+      focusable: document.querySelectorAll('a[href],button,[tabindex]:not([tabindex="-1"])').length,
+      // A div that answers a click is a control a keyboard cannot reach. #scrim is the one
+      // legitimate case — a backdrop is not a control, and Escape closes what it covers.
+      divOnclick: [...document.querySelectorAll('div,span')].filter(d => d.onclick).map(d => d.id || d.className),
+    }))));
+  }
+  console.log('\nERRORS:', errs.length ? errs.slice(0, 8) : 'none');
+  await browser.close();
+  process.exit(errs.length ? 1 : 0);
+} else if (sel) {
   console.log(sel, JSON.stringify(await box(sel), null, 1));
 } else {
   // The probes worth having by default: the ones with a number in the spec.
