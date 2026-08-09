@@ -85,6 +85,7 @@ const indexHTML = `<!doctype html>
        which is a contract kept, not a leftover. */
     --melchior:#FFB454; --balthasar:#5CD8E6; --casper:#FF8A8A;
     --bg:#14110d; --fg:#E8E2D8;
+    --shadow:#000000; --scrim:#000000;
 
     /* ── M3, dark ─────────────────────────────────────────────────────────── */
     /* The roles above are the terminal's, verbatim (a test pins them). These are the Material 3
@@ -139,8 +140,12 @@ const indexHTML = `<!doctype html>
     --md-sys-color-outline-variant:var(--outlineVariant);
     --md-sys-color-inverse-surface:var(--fg);
     --md-sys-color-inverse-on-surface:var(--bg);
-    --md-sys-color-shadow:#000000;
-    --md-sys-color-scrim:#000000;
+    /* Through the palette layer like every other colour role, rather than as two hex values
+       sitting among twenty var()s. The guide's rule for a system token is that it point at a
+       reference rather than hold a value, and these two were the only colours here not doing it —
+       which also meant styles.go could retune them and this page would not follow. */
+    --md-sys-color-shadow:var(--shadow);
+    --md-sys-color-scrim:var(--scrim);
 
     /* ── and the type, under the names Material Web reads ─────────────────── */
     /* A component takes its font from --md-sys-typescale-<role>-font, not from the ref typeface
@@ -484,8 +489,9 @@ const indexHTML = `<!doctype html>
     font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
     font-feature-settings:"liga" 1;
   }
-  /* The three councillors, in their own hues — the signature the terminal wears, set as a
-     nameplate's standing line. */
+  /* The session's own id, in the muted role — a nameplate's standing line. It is NOT the three
+     councillors in their hues: this console shows no council, and the comment that said it did
+     described a thing forty lines above, where those colours are declared and deliberately unused. */
   .sid { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
     margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0533em;
@@ -582,12 +588,23 @@ const indexHTML = `<!doctype html>
      decision. */
   #rail .lbl { overflow-wrap:anywhere; }
   body:not([nav="open"]) #rail .lbl { display:none; }
+  /* Collapsed, the icon belongs on the rail's centre line, and it was 4px to the left of it: the
+     item is 63px inside an 80px rail and its leading space put the 24px icon at the item's leading
+     edge, not at the middle of either. The menu button was 8px out for the same reason.
+
+     Moved with a transform rather than by changing the leading space, because the space is a
+     custom property and a custom property does not transition — the icon would arrive at its new
+     column between two frames while the rail beside it took 250ms to get there. Same curve and
+     length as the rail's own width, so the two are one movement. */
+  #rail [slot="start"], #railMenu { transition:transform 250ms var(--ease-emphasized); }
   body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:16px; }
+  body:not([nav="open"]) #rail [slot="start"] { transform:translateX(4px); }
+  body:not([nav="open"]) #railMenu { transform:translateX(8px); }
   #rail .ic { flex:none; display:block; }
   #rail md-list {
     --md-list-container-color:transparent;
     --md-list-item-label-text-font:var(--mono);
-    --md-list-item-label-text-size:12px;
+    --md-list-item-label-text-size:var(--md-sys-typescale-label-medium-size);
     --md-list-item-label-text-weight:600;
     --md-list-item-label-text-color:var(--muted);
     --md-list-item-container-shape:var(--shape-full);
@@ -606,6 +623,13 @@ const indexHTML = `<!doctype html>
      to icons, which is how it stands most of the time, the page gave no sign at all of which
      destination you were on. Slotted content is styled from out here, so the icon takes the colour
      the same way the label does. */
+  /* The two layers drawn over the item, which were two other shapes. A press painted a RECTANGLE
+     across the pill: md-ripple is border-radius:inherit inside its own shadow root and its host
+     carries none. The focus ring drew 8px, a third shape again — and setting the token on the item
+     did nothing, because the component assigns --md-focus-ring-shape:8px INSIDE its shadow root,
+     where an inherited value loses. Both are exposed as parts, which is the one way in. */
+  #rail md-list-item::part(ripple) { border-radius:var(--shape-full); }
+  #rail md-list-item::part(focus-ring) { --md-focus-ring-shape:var(--shape-full); }
   #rail md-list-item[selected] {
     background:color-mix(in srgb, var(--primary) 14%, transparent);
     border-radius:var(--shape-full);
@@ -1363,8 +1387,8 @@ const indexHTML = `<!doctype html>
        wrong role — on eight of the page's twelve buttons. The editorial identity is the face and
        the letterspacing, both of which stay; M3 asks for a different typeface to keep the scale,
        not for the scale to be shrunk to fit a look. */
-    --md-text-button-label-text-size: 14px;
-    --md-text-button-label-text-line-height: 20px;
+    --md-text-button-label-text-size: var(--md-sys-typescale-label-large-size);
+    --md-text-button-label-text-line-height: var(--md-sys-typescale-label-large-line-height);
     --md-text-button-label-text-weight: 500;
     --md-text-button-label-text-color: var(--muted);
     --md-text-button-hover-label-text-color: var(--primary);

@@ -121,6 +121,44 @@ func fontSizePx(rule string) (float64, bool) {
 	return 0, false
 }
 
+// An input a phone will not zoom into.
+//
+// iOS Safari zooms the whole page when a field under 16px takes focus, and it does not zoom back —
+// the reader is left on a page 1.4x too wide with no way to say no. The helper that reads a size
+// out of a rule has been in this file all along and NOTHING CALLED IT: the guard it was written
+// for is gone, so the constraint has been unenforced for as long as that has been true.
+//
+// The size may be written as a longhand, inside a font shorthand, or as the component's own
+// input-text-size token, which is why the helper takes all three.
+func TestNoFieldIsSmallEnoughToMakeAPhoneZoom(t *testing.T) {
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	css = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	// Rules that style something a person types into, by selector or by component token.
+	rule := regexp.MustCompile(`(?s)([^{}]+)\{([^{}]*)\}`)
+	checked := 0
+	for _, m := range rule.FindAllStringSubmatch(css, -1) {
+		sel, body := m[1], m[2]
+		typed := strings.Contains(sel, "input") || strings.Contains(sel, "textarea") ||
+			strings.Contains(sel, "text-field") || strings.Contains(body, "input-text-size")
+		if !typed {
+			continue
+		}
+		px, ok := fontSizePx(body)
+		if !ok {
+			continue // the rule says nothing about size, so it takes what it inherits
+		}
+		checked++
+		if px < 16 {
+			t.Errorf("%s sets %gpx on something a person types into; iOS Safari zooms below 16 "+
+				"and does not zoom back", strings.TrimSpace(sel), px)
+		}
+	}
+	if checked == 0 {
+		t.Error("no rule in the page states a size for a field, so this guard is measuring nothing " +
+			"— the two token declarations it was written for have been renamed or removed")
+	}
+}
+
 // The page is both views: a fleet and one agent. It used to be only the second, and the check that
 // it stays one document is worth having — the cheap way to add a dashboard is a second page, and
 // two pages is how the two views end up looking like different products.
