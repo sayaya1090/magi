@@ -838,18 +838,6 @@ const indexHTML = `<!doctype html>
     color:var(--muted);
   }
   .actions md-icon-button:hover { --md-icon-button-icon-color:var(--error); color:var(--error); }
-  /* open is a link and stays one — it has an address, and a companion's page has to be reachable
-     with a middle click and a copied url. It is dressed to match the button beside it. */
-  /* One icon, inside the column. "open" was a word for something the whole row already does — the
-     row is a link — and the pair of labelled buttons was wider than the 6rem column they sat in, so
-     they hung off the right edge of the table. */
-  .actions { display:flex; gap:.2rem; justify-content:flex-end; align-items:center; }
-  .actions md-icon-button {
-    --md-icon-button-icon-color:var(--muted);
-    --md-icon-button-state-layer-width:36px; --md-icon-button-state-layer-height:36px;
-    color:var(--muted);
-  }
-  .actions md-icon-button:hover { --md-icon-button-icon-color:var(--error); color:var(--error); }
 
   /* The grounds a decision is put on: a key-and-value block, set like the rest of this page's
      labelled readings. Two columns on anything but a phone, because the keys are short words and
