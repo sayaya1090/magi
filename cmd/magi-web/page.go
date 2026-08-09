@@ -341,6 +341,12 @@ const indexHTML = `<!doctype html>
     font-variant-numeric:tabular-nums;  /* ages and step counts line up down the column */
   }
   [hidden] { display:none !important; }
+  /* No caps blocks anywhere. The section heads on this page were set in uppercase with wide
+     tracking — an editorial look — and the guide forbids it without an exception worth the name:
+     "Avoid using caps blocks altogether; they're not accessible" and "use sentence case for all
+     product text". It names the replacement too, and this page was already using it: these heads
+     carry font-weight 600, so the hierarchy survives the change. The tracking came down with the
+     caps, because letter-spacing set for capitals is too loose for lowercase. */
   /* Headings carry the structure, not the styling. Each of these already had its own size, weight
      and colour as a div; becoming h1/h2/h3 must not also drag in the browser's default type scale
      and margins, or the page would resize itself for a change that is meant to be invisible. */
@@ -416,7 +422,7 @@ const indexHTML = `<!doctype html>
      nameplate's standing line. */
   .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
-    margin-left:auto; font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    margin-left:auto; font:600 11px/1.4 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); display:flex; align-items:center; gap:.45rem;
   }
   #state::before { content:""; width:6px; height:6px; border-radius:var(--shape-full); background:var(--outline); }
@@ -429,8 +435,7 @@ const indexHTML = `<!doctype html>
   #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
   #state.lost::before { background:var(--error); }
   #back {
-    color:var(--muted); text-decoration:none; font-size:11px; letter-spacing:.12em;
-    text-transform:uppercase; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
+    color:var(--muted); text-decoration:none; font-size:11px; letter-spacing:0.04em; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
   }
   #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
 
@@ -503,7 +508,7 @@ const indexHTML = `<!doctype html>
     --md-sys-color-primary:var(--primary);
     --md-sys-color-on-surface:var(--md-on-surface);
     --md-sys-color-on-surface-variant:var(--md-on-surface-variant);
-    letter-spacing:.1em; text-transform:uppercase;
+    letter-spacing:0.05em;
   }
   /* Where you are, in the colour the rest of the page uses for it. A list item has no selected
      state of its own — it is a list, not a set of choices — so this is ours.
@@ -585,7 +590,7 @@ const indexHTML = `<!doctype html>
   #notify { display:flex; flex-direction:column; align-items:flex-start; gap:.3rem; }
   #notifyWhy { font:var(--body-s) var(--mono); color:var(--muted); max-width:26rem; overflow-wrap:anywhere; }
   #prefsForm .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
   }
   #console { font:12px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   #console b { color:var(--fg); font-weight:600; }
@@ -670,7 +675,7 @@ const indexHTML = `<!doctype html>
   .sk { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     flex-basis:100%; order:-1;
   }
   .sk.global .tier { color:var(--warn); }
@@ -704,7 +709,7 @@ const indexHTML = `<!doctype html>
   .srv { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     flex-basis:100%; order:-1;
   }
   .srv.global .tier { color:var(--warn); }
@@ -756,7 +761,7 @@ const indexHTML = `<!doctype html>
   .tile { --md-filter-chip-label-text-font:var(--mono); }
   .tile .n { font:600 var(--title-m) var(--display); color:var(--fg); margin-right:.45rem; }
   .tile .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     display:inline-flex; align-items:center; gap:.35rem;
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
@@ -788,7 +793,7 @@ const indexHTML = `<!doctype html>
     gap:.9rem;
   }
   .thead {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     padding:.9rem 0 .5rem; border-bottom:1px solid var(--fg);
   }
   .thead .r, .card .r { text-align:right; }
@@ -817,7 +822,7 @@ const indexHTML = `<!doctype html>
      the same 1.6rem and the list opened with a gap that looked like a missing row. */
   .thead + .teamhead { margin-top:.6rem; }
   .teamhead .tname {
-    font:600 12px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--fg);
+    font:600 12px/1.4 var(--mono); letter-spacing:0.06em; color:var(--fg);
   }
   .teamhead .thub { font:11px/1.5 var(--mono); color:var(--accent); }
   .teamhead .tn { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
@@ -835,11 +840,11 @@ const indexHTML = `<!doctype html>
   @media (max-width:1000px) {
     .colk {
       display:inline; margin-left:.35rem;
-      font:600 11px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+      font:600 11px/1.4 var(--mono); letter-spacing:0.0467em; color:var(--muted);
     }
   }
   .card .badge {
-    font:600 11px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.6 var(--mono); letter-spacing:0.0467em; color:var(--muted);
     display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
   }
   .card .badge::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; flex:none; }
@@ -852,7 +857,7 @@ const indexHTML = `<!doctype html>
   .card .name { font:600 16px/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .card:hover .name { color:var(--primary); }
   .card .plan {
-    font:600 11px/1.4 var(--mono); letter-spacing:.1em; color:var(--muted); align-self:center;
+    font:600 11px/1.4 var(--mono); letter-spacing:0.05em; color:var(--muted); align-self:center;
   }
   .card .role {
     font:600 11px/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
@@ -898,7 +903,7 @@ const indexHTML = `<!doctype html>
     border-top:1px solid var(--outlineVariant);
   }
   .grounds .gk {
-    font:600 11px/1.6 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    font:600 11px/1.6 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); text-align:right;
   }
   .grounds .gv { font:12px/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
@@ -916,7 +921,7 @@ const indexHTML = `<!doctype html>
     --md-filled-tonal-button-container-color:var(--md-surface-container-high);
     --md-filled-tonal-button-label-text-color:var(--fg);
     --md-filled-tonal-button-label-text-font:var(--mono);
-    letter-spacing:.1em; text-transform:uppercase;
+    letter-spacing:0.05em;
   }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
 
@@ -942,10 +947,10 @@ const indexHTML = `<!doctype html>
   }
   #detail .f { display:flex; flex-direction:column; gap:.2rem; }
   #detail .f .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
   }
   #detail .f .v { font:var(--body-m) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
-  #detail .f .v.state { font-weight:600; letter-spacing:.1em; text-transform:uppercase; font-size:11px; }
+  #detail .f .v.state { font-weight:600; letter-spacing:0.05em; font-size:11px; }
   /* The window, as a rule under the number rather than a gauge beside it: this is a fill level and
      the page already spends its colour on state. Unknown windows draw no bar at all — an empty
      track reads as "nearly empty", which is the opposite of "we do not know". */
@@ -1018,7 +1023,7 @@ const indexHTML = `<!doctype html>
   }
   #plan .plancount { font:11px/1.5 var(--mono); color:var(--muted); margin-bottom:.4rem; }
   #plan .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em;
     color:var(--muted); margin-bottom:.4rem;
   }
   .td { display:grid; grid-template-columns:1.2rem 1fr; gap:.6rem; padding:.15rem 0; }
@@ -1078,7 +1083,7 @@ const indexHTML = `<!doctype html>
     border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin-bottom:.6rem;
   }
   .lanehead .lname {
-    font:600 12px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--fg);
+    font:600 12px/1.4 var(--mono); letter-spacing:0.0467em; color:var(--fg);
   }
   .lanehead .lcount { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
   .wcard {
@@ -1094,7 +1099,7 @@ const indexHTML = `<!doctype html>
   /* ── what this companion did before now ─────────────────────────────────── */
   #history { max-width:var(--measure); }
   #history .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em;
     color:var(--muted); margin-bottom:.5rem;
   }
   .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:.3rem 1.2rem; padding:.35rem 0; }
@@ -1104,7 +1109,7 @@ const indexHTML = `<!doctype html>
   /* The one it is in now is work too, and it is the newest row. Marked rather than left off. */
   .hs.now .when { color:var(--success); font-weight:600; }
   #handoffs .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:0.06em;
     color:var(--muted); margin-bottom:.5rem;
   }
     .ho { display:grid; grid-template-columns:8rem 1fr; gap:.3rem 1.2rem; padding:.6rem 0; }
@@ -1120,7 +1125,7 @@ const indexHTML = `<!doctype html>
   #log { max-width:var(--wide); }
   .row { display:grid; grid-template-columns:6.5rem 1fr; gap:1.1rem; align-items:start; padding:.22rem 0; }
   .who {
-    font:600 11px/1.9 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    font:600 11px/1.9 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); text-align:right; user-select:none; opacity:.8;
   }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -1229,7 +1234,7 @@ const indexHTML = `<!doctype html>
     --md-text-button-pressed-label-text-color: var(--primary);
     --md-text-button-hover-state-layer-color: var(--primary);
     --md-text-button-pressed-state-layer-color: var(--primary);
-    letter-spacing:.14em; text-transform:uppercase;
+    letter-spacing:0.0467em;
   }
   /* Removing something reads in the error colour on the way to being pressed, and only there: a
      control that is red at rest is a warning, and these are ordinary. */
