@@ -86,7 +86,7 @@ func paletteIn(t *testing.T, src, name string) map[string]string {
 // cssColoursIn reads the literal hex declarations of one rule, keyed by role name.
 //
 // The names are brought to one spelling: the stylesheet writes --md-sys-color-on-primary and
-// --md-surface-container-low, the palette writes onPrimary and surfaceContainerLow, and a test that
+// --magi-ref-surface-container-low, the palette writes onPrimary and surfaceContainerLow, and a test that
 // compared the two spellings would find nothing and pass while saying it had checked.
 func cssColoursIn(t *testing.T, selector string) map[string]string {
 	t.Helper()
@@ -101,12 +101,24 @@ func cssColoursIn(t *testing.T, selector string) map[string]string {
 	}
 	out := map[string]string{}
 	for _, m := range regexp.MustCompile(`--([a-zA-Z-]+)\s*:\s*(#[0-9A-Fa-f]{6})`).FindAllStringSubmatch(body[:end], -1) {
-		out[camel(strings.TrimPrefix(strings.TrimPrefix(m[1], "md-sys-color-"), "md-"))] = m[2]
+		out[camel(role(m[1]))] = m[2]
 	}
 	if len(out) == 0 {
 		t.Fatalf("the %q rule declares no colours", selector)
 	}
 	return out
+}
+
+// role strips whichever namespace a declaration wears down to the palette's own key. The page
+// carries three: Material's own roles, magi's reference layer, and the layer that used to wear
+// Material's prefix without being Material's.
+func role(name string) string {
+	for _, p := range []string{"md-sys-color-", "magi-ref-", "md-"} {
+		if strings.HasPrefix(name, p) {
+			return strings.TrimPrefix(name, p)
+		}
+	}
+	return name
 }
 
 func camel(kebab string) string {

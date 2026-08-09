@@ -69,23 +69,23 @@ const indexHTML = `<!doctype html>
   /* Roles, verbatim from internal/adapter/tui/styles.go — nervDark / nervLight. */
   :root {
     color-scheme: dark light;
-    --primary:#FF7A1A; --accent:#5CD8E6; --muted:#C9C2B8; --outline:#72675C;
+    --magi-ref-primary:#FF7A1A; --magi-ref-accent:#5CD8E6; --magi-ref-muted:#C9C2B8; --magi-ref-outline:#72675C;
     /* Secondary takes primary's hue at a third of its chroma, which is the rule the guide
        states for it: "secondary, neutral variant, and neutral colors match primary in hue but
-       are progressively less chromatic". It pointed at --accent, and so did tertiary, so the
+       are progressively less chromatic". It pointed at --magi-ref-accent, and so did tertiary, so the
        two roles were one colour and the scheme had no secondary at all. The cyan is right
        WHERE IT IS — tertiary is the complement, arrived at by changing the hue — and it is
        still the councillor Balthasar's. Only the role that was borrowing it changes. */
-    --secondary:#E8B89F;
-    --error:#F2B8B5; --success:#86EFAC; --surface:#211B14;
-    --primaryContainer:#4A2E0B; --outlineVariant:#463E34; --warn:#FFD479;
+    --magi-ref-secondary:#E8B89F;
+    --magi-ref-error:#F2B8B5; --magi-ref-success:#86EFAC; --magi-ref-surface:#211B14;
+    --magi-ref-primaryContainer:#4A2E0B; --magi-ref-outlineVariant:#463E34; --magi-ref-warn:#FFD479;
     /* The three council members' colours. Declared and unused HERE: the palette is the terminal's
        and a test requires this page to carry every role of it, so that retuning one surface can
        never leave the two disagreeing. The console shows no council, so nothing paints with them —
        which is a contract kept, not a leftover. */
-    --melchior:#FFB454; --balthasar:#5CD8E6; --casper:#FF8A8A;
-    --bg:#14110d; --fg:#E8E2D8;
-    --shadow:#000000; --scrim:#000000;
+    --magi-ref-melchior:#FFB454; --magi-ref-balthasar:#5CD8E6; --magi-ref-casper:#FF8A8A;
+    --magi-ref-bg:#14110d; --magi-ref-fg:#E8E2D8;
+    --magi-ref-shadow:#000000; --magi-ref-scrim:#000000;
 
     /* ── M3, dark ─────────────────────────────────────────────────────────── */
     /* The roles above are the terminal's, verbatim (a test pins them). These are the Material 3
@@ -93,59 +93,59 @@ const indexHTML = `<!doctype html>
        cannot have tonal surfaces, and it never needed an on- pair because it draws text on one
        background. A browser has both, and without them "Material 3" would be a set of borrowed
        names — which is exactly what this page was until it was measured. */
-    --md-on-primary:#2A1500;              /* on #FF7A1A */
-    --md-on-primary-container:#FFD9B8;    /* on #4A2E0B */
-    --md-on-error:#3A0A08;
-    --md-on-surface:#E8E2D8;
-    --md-on-surface-variant:#C9C2B8;
+    --magi-ref-on-primary:#2A1500;              /* on #FF7A1A */
+    --magi-ref-on-primary-container:#FFD9B8;    /* on #4A2E0B */
+    --magi-ref-on-error:#3A0A08;
+    --magi-ref-on-surface:#E8E2D8;
+    --magi-ref-on-surface-variant:#C9C2B8;
     /* Tonal layers, low → high. Dark themes get LIGHTER as they rise. */
-    --md-surface-dim:#14110d;
-    --md-surface-container-lowest:#0F0D0A;
-    --md-surface-container-low:#1B1712;
-    --md-surface-container:#211B14;
-    --md-surface-container-high:#2B251C;
-    --md-surface-container-highest:#352E24;
+    --magi-ref-surface-dim:#14110d;
+    --magi-ref-surface-container-lowest:#0F0D0A;
+    --magi-ref-surface-container-low:#1B1712;
+    --magi-ref-surface-container:#211B14;
+    --magi-ref-surface-container-high:#2B251C;
+    --magi-ref-surface-container-highest:#352E24;
 
     /* ── the same roles under the names Material Web reads ────────────────── */
     /* The components are themed by these and nothing else. Setting a few of them per component —
        which is what this page did first — leaves every role it did not mention drawn in the
        library's baseline purple, which is what "the colours are the default ones" looks like.
        Declared once, at the root, so a component added later is magi-coloured by existing. */
-    --md-sys-color-primary:var(--primary);
-    --md-sys-color-on-primary:var(--md-on-primary);
-    --md-sys-color-primary-container:var(--primaryContainer);
-    --md-sys-color-on-primary-container:var(--md-on-primary-container);
-    --md-sys-color-secondary:var(--secondary);
-    --md-sys-color-on-secondary:var(--md-on-primary);
-    --md-sys-color-secondary-container:var(--md-surface-container-high);
-    --md-sys-color-on-secondary-container:var(--md-on-surface);
-    --md-sys-color-tertiary:var(--accent);
-    --md-sys-color-on-tertiary:var(--md-on-primary);
-    --md-sys-color-error:var(--error);
-    --md-sys-color-on-error:var(--md-on-error);
-    --md-sys-color-error-container:var(--md-surface-container-high);
-    --md-sys-color-on-error-container:var(--error);
-    --md-sys-color-background:var(--bg);
-    --md-sys-color-on-background:var(--fg);
-    --md-sys-color-surface:var(--bg);
-    --md-sys-color-on-surface:var(--md-on-surface);
-    --md-sys-color-surface-variant:var(--surface);
-    --md-sys-color-on-surface-variant:var(--md-on-surface-variant);
-    --md-sys-color-surface-container-lowest:var(--md-surface-container-lowest);
-    --md-sys-color-surface-container-low:var(--md-surface-container-low);
-    --md-sys-color-surface-container:var(--md-surface-container);
-    --md-sys-color-surface-container-high:var(--md-surface-container-high);
-    --md-sys-color-surface-container-highest:var(--md-surface-container-highest);
-    --md-sys-color-outline:var(--outline);
-    --md-sys-color-outline-variant:var(--outlineVariant);
-    --md-sys-color-inverse-surface:var(--fg);
-    --md-sys-color-inverse-on-surface:var(--bg);
+    --md-sys-color-primary:var(--magi-ref-primary);
+    --md-sys-color-on-primary:var(--magi-ref-on-primary);
+    --md-sys-color-primary-container:var(--magi-ref-primaryContainer);
+    --md-sys-color-on-primary-container:var(--magi-ref-on-primary-container);
+    --md-sys-color-secondary:var(--magi-ref-secondary);
+    --md-sys-color-on-secondary:var(--magi-ref-on-primary);
+    --md-sys-color-secondary-container:var(--magi-ref-surface-container-high);
+    --md-sys-color-on-secondary-container:var(--magi-ref-on-surface);
+    --md-sys-color-tertiary:var(--magi-ref-accent);
+    --md-sys-color-on-tertiary:var(--magi-ref-on-primary);
+    --md-sys-color-error:var(--magi-ref-error);
+    --md-sys-color-on-error:var(--magi-ref-on-error);
+    --md-sys-color-error-container:var(--magi-ref-surface-container-high);
+    --md-sys-color-on-error-container:var(--magi-ref-error);
+    --md-sys-color-background:var(--magi-ref-bg);
+    --md-sys-color-on-background:var(--magi-ref-fg);
+    --md-sys-color-surface:var(--magi-ref-bg);
+    --md-sys-color-on-surface:var(--magi-ref-on-surface);
+    --md-sys-color-surface-variant:var(--magi-ref-surface);
+    --md-sys-color-on-surface-variant:var(--magi-ref-on-surface-variant);
+    --md-sys-color-surface-container-lowest:var(--magi-ref-surface-container-lowest);
+    --md-sys-color-surface-container-low:var(--magi-ref-surface-container-low);
+    --md-sys-color-surface-container:var(--magi-ref-surface-container);
+    --md-sys-color-surface-container-high:var(--magi-ref-surface-container-high);
+    --md-sys-color-surface-container-highest:var(--magi-ref-surface-container-highest);
+    --md-sys-color-outline:var(--magi-ref-outline);
+    --md-sys-color-outline-variant:var(--magi-ref-outlineVariant);
+    --md-sys-color-inverse-surface:var(--magi-ref-fg);
+    --md-sys-color-inverse-on-surface:var(--magi-ref-bg);
     /* Through the palette layer like every other colour role, rather than as two hex values
        sitting among twenty var()s. The guide's rule for a system token is that it point at a
        reference rather than hold a value, and these two were the only colours here not doing it —
        which also meant styles.go could retune them and this page would not follow. */
-    --md-sys-color-shadow:var(--shadow);
-    --md-sys-color-scrim:var(--scrim);
+    --md-sys-color-shadow:var(--magi-ref-shadow);
+    --md-sys-color-scrim:var(--magi-ref-scrim);
 
     /* ── and the type, under the names Material Web reads ─────────────────── */
     /* A component takes its font from --md-sys-typescale-<role>-font, not from the ref typeface
@@ -154,36 +154,36 @@ const indexHTML = `<!doctype html>
        component added later is already in magi's face.
        Sizes are the M3 scale (see the type tokens above); the faces are ours, which M3 allows —
        the scale is what it asks you to keep. */
-    --md-ref-typeface-plain:var(--mono);
-    --md-ref-typeface-brand:var(--display);
-    --md-sys-typescale-label-small-font:var(--mono);
+    --md-ref-typeface-plain:var(--magi-ref-mono);
+    --md-ref-typeface-brand:var(--magi-ref-display);
+    --md-sys-typescale-label-small-font:var(--magi-ref-mono);
     --md-sys-typescale-label-small-size:0.6875rem;
     --md-sys-typescale-label-small-line-height:1rem;
-    --md-sys-typescale-label-medium-font:var(--mono);
+    --md-sys-typescale-label-medium-font:var(--magi-ref-mono);
     --md-sys-typescale-label-medium-size:0.75rem;
     --md-sys-typescale-label-medium-line-height:1rem;
-    --md-sys-typescale-label-large-font:var(--mono);
+    --md-sys-typescale-label-large-font:var(--magi-ref-mono);
     --md-sys-typescale-label-large-size:0.875rem;
     --md-sys-typescale-label-large-line-height:1.25rem;
-    --md-sys-typescale-body-small-font:var(--mono);
+    --md-sys-typescale-body-small-font:var(--magi-ref-mono);
     --md-sys-typescale-body-small-size:0.75rem;
     --md-sys-typescale-body-small-line-height:1rem;
-    --md-sys-typescale-body-medium-font:var(--mono);
+    --md-sys-typescale-body-medium-font:var(--magi-ref-mono);
     --md-sys-typescale-body-medium-size:0.875rem;
     --md-sys-typescale-body-medium-line-height:1.25rem;
-    --md-sys-typescale-body-large-font:var(--mono);
+    --md-sys-typescale-body-large-font:var(--magi-ref-mono);
     --md-sys-typescale-body-large-size:1rem;
     --md-sys-typescale-body-large-line-height:1.5rem;
-    --md-sys-typescale-title-small-font:var(--mono);
+    --md-sys-typescale-title-small-font:var(--magi-ref-mono);
     --md-sys-typescale-title-small-size:0.875rem;
     --md-sys-typescale-title-small-line-height:1.25rem;
-    --md-sys-typescale-title-medium-font:var(--mono);
+    --md-sys-typescale-title-medium-font:var(--magi-ref-mono);
     --md-sys-typescale-title-medium-size:1rem;
     --md-sys-typescale-title-medium-line-height:1.5rem;
-    --md-sys-typescale-title-large-font:var(--display);
+    --md-sys-typescale-title-large-font:var(--magi-ref-display);
     --md-sys-typescale-title-large-size:1.375rem;
     --md-sys-typescale-title-large-line-height:1.75rem;
-    --md-sys-typescale-headline-small-font:var(--display);
+    --md-sys-typescale-headline-small-font:var(--magi-ref-display);
     --md-sys-typescale-headline-small-size:1.5rem;
     --md-sys-typescale-headline-small-line-height:2rem;
   }
@@ -202,53 +202,53 @@ const indexHTML = `<!doctype html>
      a chosen theme does not flash the other one first. */
   @media (prefers-color-scheme: light) {
     :root:not([color-theme]) {
-      --primary:#B45309; --accent:#0E7490; --muted:#4A453C; --outline:#8A7E6E;
-      --secondary:#82604F;
-      --error:#B3261E; --success:#15803D; --surface:#F5EEE3;
-      --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
-      --melchior:#B45309; --balthasar:#0E7490; --casper:#B3261E;
-      --bg:#FBF8F3; --fg:#221D16;
+      --magi-ref-primary:#B45309; --magi-ref-accent:#0E7490; --magi-ref-muted:#4A453C; --magi-ref-outline:#8A7E6E;
+      --magi-ref-secondary:#82604F;
+      --magi-ref-error:#B3261E; --magi-ref-success:#15803D; --magi-ref-surface:#F5EEE3;
+      --magi-ref-primaryContainer:#F8D9A8; --magi-ref-outlineVariant:#D8CFC0; --magi-ref-warn:#92600A;
+      --magi-ref-melchior:#B45309; --magi-ref-balthasar:#0E7490; --magi-ref-casper:#B3261E;
+      --magi-ref-bg:#FBF8F3; --magi-ref-fg:#221D16;
 
       /* ── M3, light ─────────────────────────────────────────────────────── */
       /* The layers invert: a light theme gets DARKER as it rises. Built as its own ramp rather
          than by dimming the dark one — a light theme has less headroom, and this page has been
          caught before with eight of thirteen dimmed pairs under AA, the worst at 2.47:1. */
-      --md-on-primary:#FFFFFF;
-      --md-on-primary-container:#3A1B00;
-      --md-on-error:#FFFFFF;
-      --md-on-surface:#221D16;
-      --md-on-surface-variant:#4A453C;
-      --md-surface-dim:#EFE9DF;
-      --md-surface-container-lowest:#FFFFFF;
-      --md-surface-container-low:#F7F3EC;
-      --md-surface-container:#F2ECE2;
-      --md-surface-container-high:#ECE5D9;
-      --md-surface-container-highest:#E6DED1;
+      --magi-ref-on-primary:#FFFFFF;
+      --magi-ref-on-primary-container:#3A1B00;
+      --magi-ref-on-error:#FFFFFF;
+      --magi-ref-on-surface:#221D16;
+      --magi-ref-on-surface-variant:#4A453C;
+      --magi-ref-surface-dim:#EFE9DF;
+      --magi-ref-surface-container-lowest:#FFFFFF;
+      --magi-ref-surface-container-low:#F7F3EC;
+      --magi-ref-surface-container:#F2ECE2;
+      --magi-ref-surface-container-high:#ECE5D9;
+      --magi-ref-surface-container-highest:#E6DED1;
     }
   }
   :root[color-theme="light"] {
-    --primary:#B45309; --accent:#0E7490; --muted:#4A453C; --outline:#8A7E6E;
-    --secondary:#82604F;
-    --error:#B3261E; --success:#15803D; --surface:#F5EEE3;
-    --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
-    --melchior:#B45309; --balthasar:#0E7490; --casper:#B3261E;
-    --bg:#FBF8F3; --fg:#221D16;
+    --magi-ref-primary:#B45309; --magi-ref-accent:#0E7490; --magi-ref-muted:#4A453C; --magi-ref-outline:#8A7E6E;
+    --magi-ref-secondary:#82604F;
+    --magi-ref-error:#B3261E; --magi-ref-success:#15803D; --magi-ref-surface:#F5EEE3;
+    --magi-ref-primaryContainer:#F8D9A8; --magi-ref-outlineVariant:#D8CFC0; --magi-ref-warn:#92600A;
+    --magi-ref-melchior:#B45309; --magi-ref-balthasar:#0E7490; --magi-ref-casper:#B3261E;
+    --magi-ref-bg:#FBF8F3; --magi-ref-fg:#221D16;
 
     /* ── M3, light ─────────────────────────────────────────────────────── */
     /* The layers invert: a light theme gets DARKER as it rises. Built as its own ramp rather
        than by dimming the dark one — a light theme has less headroom, and this page has been
        caught before with eight of thirteen dimmed pairs under AA, the worst at 2.47:1. */
-    --md-on-primary:#FFFFFF;
-    --md-on-primary-container:#3A1B00;
-    --md-on-error:#FFFFFF;
-    --md-on-surface:#221D16;
-    --md-on-surface-variant:#4A453C;
-    --md-surface-dim:#EFE9DF;
-    --md-surface-container-lowest:#FFFFFF;
-    --md-surface-container-low:#F7F3EC;
-    --md-surface-container:#F2ECE2;
-    --md-surface-container-high:#ECE5D9;
-    --md-surface-container-highest:#E6DED1;
+    --magi-ref-on-primary:#FFFFFF;
+    --magi-ref-on-primary-container:#3A1B00;
+    --magi-ref-on-error:#FFFFFF;
+    --magi-ref-on-surface:#221D16;
+    --magi-ref-on-surface-variant:#4A453C;
+    --magi-ref-surface-dim:#EFE9DF;
+    --magi-ref-surface-container-lowest:#FFFFFF;
+    --magi-ref-surface-container-low:#F7F3EC;
+    --magi-ref-surface-container:#F2ECE2;
+    --magi-ref-surface-container-high:#ECE5D9;
+    --magi-ref-surface-container-highest:#E6DED1;
   }
 
   /* Newsreader, an editorial serif drawn for reading on screens, served from this binary — see
@@ -273,8 +273,8 @@ const indexHTML = `<!doctype html>
      system stack behind Newsreader is not decoration: it carries every script the subset does not,
      so a Korean workspace name renders in the platform's serif rather than in tofu. */
   :root {
-    --display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --magi-ref-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --magi-ref-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     /* ── state layers ───────────────────────────────────────────────────────── */
   /* M3 does not recolour text on hover; it lays the on- colour over the surface at a fixed
      opacity — 8% hover, 12% focus and press. One recipe, applied by adding the state class to
@@ -285,15 +285,15 @@ const indexHTML = `<!doctype html>
     /* 4 · 8 · 12 · 16 · 28 · full. Every radius on this page is one of these; the page used to be
        2px everywhere, which is not a value the scale has. The scale has no 24 — it steps 20 then 28,
        and this page said 24 until it was measured against the token table. */
-    --shape-xs:4px; --shape-s:8px; --shape-m:12px; --shape-l:16px; --shape-xl:28px;
-    --shape-full:9999px;
+    --magi-sys-shape-xs:4px; --magi-sys-shape-s:8px; --magi-sys-shape-m:12px; --magi-sys-shape-l:16px; --magi-sys-shape-xl:28px;
+    --magi-sys-shape-full:9999px;
 
     /* ── M3 motion ────────────────────────────────────────────────────────── */
     /* Verified against material-components-android's Motion.md. The .12s ease this page used was a
        number somebody typed; these are the system's, and using them is what makes two surfaces
        feel like one. */
-    --ease-standard:cubic-bezier(0.2, 0, 0, 1);
-    --ease-decelerate:cubic-bezier(0.05, 0.7, 0.1, 1);
+    --magi-sys-ease-standard:cubic-bezier(0.2, 0, 0, 1);
+    --magi-sys-ease-decelerate:cubic-bezier(0.05, 0.7, 0.1, 1);
     /* Read out of the shipped bundle rather than a document, and the two disagree. The guide says
        emphasized has NO css form ("N/A — use standard as a fallback"), because the real curve is a
        two-segment path a single cubic-bezier cannot draw. Material Web resolved that its own way:
@@ -301,7 +301,7 @@ const indexHTML = `<!doctype html>
        bundle over the guide is deliberate — the components on this page move on the library's
        curve whatever we declare, and a container opening beside them has to match what they
        actually do, not what the document wishes they did. */
-    --ease-emphasized:cubic-bezier(0.3, 0, 0, 1);
+    --magi-sys-ease-emphasized:cubic-bezier(0.3, 0, 0, 1);
 
     /* How much room the rail takes. Declared HERE and not only on #rail, because the page's own
        left offset is computed from it — and a var() that resolves to nothing does not fall back to
@@ -311,8 +311,8 @@ const indexHTML = `<!doctype html>
     /* 80px, which is the narrow collapsed rail in the spec. It was 4.5rem — 72px — which is under
        both numbers the spec gives (96dp standard, 80dp narrow), and under the 88dp a vertical item
        needs for a 56dp indicator between two 16dp insets. */
-    --rail-w:5rem;
-    --dur-short2:100ms; --dur-short4:200ms; --dur-medium2:300ms;
+    --magi-comp-rail-w:5rem;
+    --magi-sys-dur-short2:100ms; --magi-sys-dur-short4:200ms; --magi-sys-dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
     /* size/line-height pairs, taken as pairs: matching a size and inventing a line height is how
@@ -323,16 +323,16 @@ const indexHTML = `<!doctype html>
        --md-sys-typescale-* tokens the components read, so the scale is stated once and a change
        to it reaches the hand-written CSS and the library together. They were px, which is the
        one thing a size may not be: px does not answer the reader who sets a larger default. */
-    --headline-s:var(--md-sys-typescale-headline-small-size)/var(--md-sys-typescale-headline-small-line-height);
-    --title-l:var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height);
-    --title-m:var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height);
-    --title-s:var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height);
-    --body-l:var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height);
-    --body-m:var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height);
-    --body-s:var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height);
-    --label-l:var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height);
-    --label-m:var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height);
-    --label-s:var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height);
+    --magi-sys-headline-s:var(--md-sys-typescale-headline-small-size)/var(--md-sys-typescale-headline-small-line-height);
+    --magi-sys-title-l:var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height);
+    --magi-sys-title-m:var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height);
+    --magi-sys-title-s:var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height);
+    --magi-sys-body-l:var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height);
+    --magi-sys-body-m:var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height);
+    --magi-sys-body-s:var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height);
+    --magi-sys-label-l:var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height);
+    --magi-sys-label-m:var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height);
+    --magi-sys-label-s:var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height);
 
     /* ── the spacing scale ────────────────────────────────────────────────
        8dp, where space100 = 8dp, with the 4dp half step the dense parts of a terminal need.
@@ -341,10 +341,10 @@ const indexHTML = `<!doctype html>
        which is not a rhythm but the absence of one: each was chosen against its neighbour and
        none against a scale. Eight remain, and nothing moved more than 3.2dp getting here.
        Written as tokens so a value off the scale reads as a literal and a test can say so. */
-    --space-50:0.25rem;  --space-100:0.5rem; --space-150:0.75rem; --space-200:1rem;
-    --space-300:1.5rem;  --space-400:2rem;   --space-500:2.5rem;  --space-600:3rem;
-    --space-700:3.5rem;  --space-800:4rem;   --space-1000:5rem;   --space-1200:6rem;
-    --space-1600:8rem;
+    --magi-sys-space-50:0.25rem;  --magi-sys-space-100:0.5rem; --magi-sys-space-150:0.75rem; --magi-sys-space-200:1rem;
+    --magi-sys-space-300:1.5rem;  --magi-sys-space-400:2rem;   --magi-sys-space-500:2.5rem;  --magi-sys-space-600:3rem;
+    --magi-sys-space-700:3.5rem;  --magi-sys-space-800:4rem;   --magi-sys-space-1000:5rem;   --magi-sys-space-1200:6rem;
+    --magi-sys-space-1600:8rem;
 
     /* ── the widths where the layout changes ──────────────────────────────
        Written in em, and the em in a media query is the reader's default font size — not this
@@ -357,12 +357,12 @@ const indexHTML = `<!doctype html>
        breakpoints sat still while the text grew and the row scrolled off the side. In em the
        window reads as half as wide, the narrow layout arrives, and the table becomes a list —
        which is what "reflow" asks for. Page zoom was never the broken case; it scales px too. */
-    --measure: 74ch;   /* prose */
-    --wide: 108ch;     /* transcript, where lines are code and wrapping costs more than width */
+    --magi-sys-measure: 74ch;   /* prose */
+    --magi-sys-wide: 108ch;     /* transcript, where lines are code and wrapping costs more than width */
     /* What a whole screen of console may take. Wider than the transcript's measure on purpose: the
-       fleet is a table and a table uses room, while prose inside it keeps --measure. Capped rather
+       fleet is a table and a table uses room, while prose inside it keeps --magi-sys-measure. Capped rather
        than unbounded so an ultrawide monitor does not stretch a row to a metre. */
-    --page: 170ch;
+    --magi-sys-page: 170ch;
   }
 
   * { box-sizing:border-box; }
@@ -374,7 +374,7 @@ const indexHTML = `<!doctype html>
      not leave a ring behind it, and an offset so the ring is not mistaken for the element's own
      rule. The outline:none below applies to :focus, which this then overrides for the keyboard. */
   :focus-visible {
-    outline:2px solid var(--primary); outline-offset:3px; border-radius:var(--shape-xs);
+    outline:2px solid var(--magi-ref-primary); outline-offset:3px; border-radius:var(--magi-sys-shape-xs);
   }
   html { scrollbar-gutter:stable; -webkit-text-size-adjust:100%; }
   body {
@@ -383,8 +383,8 @@ const indexHTML = `<!doctype html>
        reason is gone. It cost something while it lasted: an auto margin on a flex item's cross axis
        sizes it to its CONTENT, which is why centring the page silently pinned it to 720px. */
     min-height:100vh;
-    margin:0; background:var(--bg); color:var(--fg);
-    font:var(--md-sys-typescale-body-medium-size)/1.65 var(--mono);
+    margin:0; background:var(--magi-ref-bg); color:var(--magi-ref-fg);
+    font:var(--md-sys-typescale-body-medium-size)/1.65 var(--magi-ref-mono);
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
     font-variant-numeric:tabular-nums;  /* ages and step counts line up down the column */
   }
@@ -407,10 +407,10 @@ const indexHTML = `<!doctype html>
   #tip {
     position:fixed; z-index:9; pointer-events:none;
     min-height:24px; padding:4px 8px; box-sizing:border-box;
-    border-radius:var(--shape-xs); max-width:20rem;
-    background:var(--md-sys-color-inverse-surface, var(--fg));
-    color:var(--md-sys-color-inverse-on-surface, var(--bg));
-    font:var(--md-sys-typescale-body-small-size, .75rem)/var(--md-sys-typescale-body-small-line-height, 1rem) var(--mono);
+    border-radius:var(--magi-sys-shape-xs); max-width:20rem;
+    background:var(--md-sys-color-inverse-surface, var(--magi-ref-fg));
+    color:var(--md-sys-color-inverse-on-surface, var(--magi-ref-bg));
+    font:var(--md-sys-typescale-body-small-size, .75rem)/var(--md-sys-typescale-body-small-line-height, 1rem) var(--magi-ref-mono);
     letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
   .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden;
@@ -445,12 +445,12 @@ const indexHTML = `<!doctype html>
     from { opacity:0; transform:translateY(10px); }
     to   { opacity:1; transform:none; }
   }
-  .enter { animation:fadeThrough 200ms var(--ease-emphasized) both; }
+  .enter { animation:fadeThrough 200ms var(--magi-sys-ease-emphasized) both; }
   /* No opacity in these: grouped elements moving in unison is the whole pattern, and a fade on top
      of the slide is the thing being avoided. */
-  .slideL { animation:slideFromRight 200ms var(--ease-emphasized) both; }
-  .slideR { animation:slideFromLeft 200ms var(--ease-emphasized) both; }
-  .rise  { animation:riseIn 250ms var(--ease-emphasized) both; }
+  .slideL { animation:slideFromRight 200ms var(--magi-sys-ease-emphasized) both; }
+  .slideR { animation:slideFromLeft 200ms var(--magi-sys-ease-emphasized) both; }
+  .rise  { animation:riseIn 250ms var(--magi-sys-ease-emphasized) both; }
 
   /* Somebody who asked their machine to stop moving things gets a page that does not MOVE.
      Not a page that stops answering. The guide asks for "subtle fades instead of intense sliding
@@ -472,44 +472,44 @@ const indexHTML = `<!doctype html>
     /* The four the page animates itself. A class beats the universal selector, so these keep a
        duration where everything else loses one — the same fade for all four, because what made
        them different was the direction they moved and none of them moves now. */
-    .enter, .rise, .slideL, .slideR { animation:stillFade 120ms var(--ease-standard) both !important; }
+    .enter, .rise, .slideL, .slideR { animation:stillFade 120ms var(--magi-sys-ease-standard) both !important; }
   }
 
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
-    position:sticky; top:0; z-index:2; background:var(--bg);
-    border-bottom:1px solid var(--fg);
-    box-shadow:0 3px 0 -2px var(--outlineVariant);   /* the hairline under the rule */
-    padding:var(--space-150) var(--space-300) var(--space-100);
-    padding-top:calc(var(--space-150) + env(safe-area-inset-top));
-    display:flex; gap:var(--space-200); align-items:baseline; flex-wrap:wrap;
-    max-width:var(--page); margin-inline:auto; padding-right:var(--space-500);
+    position:sticky; top:0; z-index:2; background:var(--magi-ref-bg);
+    border-bottom:1px solid var(--magi-ref-fg);
+    box-shadow:0 3px 0 -2px var(--magi-ref-outlineVariant);   /* the hairline under the rule */
+    padding:var(--magi-sys-space-150) var(--magi-sys-space-300) var(--magi-sys-space-100);
+    padding-top:calc(var(--magi-sys-space-150) + env(safe-area-inset-top));
+    display:flex; gap:var(--magi-sys-space-200); align-items:baseline; flex-wrap:wrap;
+    max-width:var(--magi-sys-page); margin-inline:auto; padding-right:var(--magi-sys-space-500);
   }
   .mark {
-    font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
+    font:600 var(--magi-sys-headline-s) var(--magi-ref-display); letter-spacing:.01em; color:var(--magi-ref-primary);
     font-feature-settings:"liga" 1;
   }
   /* The session's own id, in the muted role — a nameplate's standing line. It is NOT the three
      councillors in their hues: this console shows no council, and the comment that said it did
      described a thing forty lines above, where those colours are declared and deliberately unused. */
-  .sid { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
+  .sid { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
-    margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0533em;
-    color:var(--muted); display:flex; align-items:center; gap:var(--space-100);
+    margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0533em;
+    color:var(--magi-ref-muted); display:flex; align-items:center; gap:var(--magi-sys-space-100);
   }
-  #state::before { content:""; width:6px; height:6px; border-radius:var(--shape-full); background:var(--outline); }
+  #state::before { content:""; width:6px; height:6px; border-radius:var(--magi-sys-shape-full); background:var(--magi-ref-outline); }
   /* The count is a readout; this part of it is a control, and it says so by being one. */
   #state .jump {
-    --md-text-button-label-text-color:var(--warn);
-    --md-text-button-hover-label-text-color:var(--warn);
-    margin-left:calc(-1 * var(--space-50));
+    --md-text-button-label-text-color:var(--magi-ref-warn);
+    --md-text-button-hover-label-text-color:var(--magi-ref-warn);
+    margin-left:calc(-1 * var(--magi-sys-space-50));
   }
-  #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
-  #state.lost::before { background:var(--error); }
+  #state.live::before { background:var(--magi-ref-success); box-shadow:0 0 0 3px color-mix(in srgb, var(--magi-ref-success) 20%, transparent); }
+  #state.lost::before { background:var(--magi-ref-error); }
   #back {
-    color:var(--muted); text-decoration:none; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:0.04em; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
+    color:var(--magi-ref-muted); text-decoration:none; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:0.04em; border-bottom:1px solid var(--magi-ref-outlineVariant); padding-bottom:2px;
   }
-  #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
+  #back:hover { color:var(--magi-ref-primary); border-bottom-color:var(--magi-ref-primary); }
 
   /* A press must find 48dp even where the control is drawn smaller.
      The library does this inside its own shadow root with a .touch span; these are hand-built, so
@@ -559,25 +559,25 @@ const indexHTML = `<!doctype html>
   }
   #rail {
     position:fixed; top:0; bottom:0; left:0; z-index:3;
-    width:var(--rail-now, var(--rail-w)); box-sizing:border-box;
+    width:var(--magi-comp-rail-now, var(--magi-comp-rail-w)); box-sizing:border-box;
     /* Over the page, not beside it: a floating drawer is the one that can open without moving
        anything. It says that it overlaps with a TONAL difference and an edge, not a shadow — a
        container role one step off the body's, plus a hairline. That is the guide's default way to
        separate two surfaces, and it is the one that survives when the scrim below it does the rest
        of the work. The shadow this comment used to promise went out with the box-shadow scrim. */
     z-index:4;
-    padding:calc(var(--space-150) + env(safe-area-inset-top)) var(--space-100) var(--space-200);
-    background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
-    display:flex; flex-direction:column; gap:var(--space-200); overflow:hidden auto;
+    padding:calc(var(--magi-sys-space-150) + env(safe-area-inset-top)) var(--magi-sys-space-100) var(--magi-sys-space-200);
+    background:var(--magi-ref-surface-container-low); border-right:1px solid var(--magi-ref-outlineVariant);
+    display:flex; flex-direction:column; gap:var(--magi-sys-space-200); overflow:hidden auto;
     /* Same curve and duration as the components use for a container that changes size, so the rail
        and the page's own margin arrive together rather than one chasing the other. */
-    transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized);
+    transition:width 250ms var(--magi-sys-ease-emphasized), transform 250ms var(--magi-sys-ease-emphasized);
   }
-  /* Two numbers, not one. --rail-w is the gutter the PAGE reserves and it never changes; --rail-now
+  /* Two numbers, not one. --magi-comp-rail-w is the gutter the PAGE reserves and it never changes; --magi-comp-rail-now
      is how wide the rail is drawing itself right now. Widening the rail used to widen the gutter,
      so the table shifted 184px right and lost 184px of width every time the drawer opened. The
      drawer floats over the gutter instead, and nothing on the page moves. */
-  body[nav="open"] { --rail-now:16rem; }
+  body[nav="open"] { --magi-comp-rail-now:16rem; }
   /* Collapsed, the rail is 4.5rem and a word like "connections" is not — so collapsed shows the
      icon and nothing else. Clipping the label instead would put half a word on screen, which reads
      as a bug rather than as a choice. The label still exists for a screen reader: it is the
@@ -596,21 +596,21 @@ const indexHTML = `<!doctype html>
      custom property and a custom property does not transition — the icon would arrive at its new
      column between two frames while the rail beside it took 250ms to get there. Same curve and
      length as the rail's own width, so the two are one movement. */
-  #rail [slot="start"], #railMenu { transition:transform 250ms var(--ease-emphasized); }
+  #rail [slot="start"], #railMenu { transition:transform 250ms var(--magi-sys-ease-emphasized); }
   body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:16px; }
   body:not([nav="open"]) #rail [slot="start"] { transform:translateX(4px); }
   body:not([nav="open"]) #railMenu { transform:translateX(8px); }
   #rail .ic { flex:none; display:block; }
   #rail md-list {
     --md-list-container-color:transparent;
-    --md-list-item-label-text-font:var(--mono);
+    --md-list-item-label-text-font:var(--magi-ref-mono);
     --md-list-item-label-text-size:var(--md-sys-typescale-label-medium-size);
     --md-list-item-label-text-weight:600;
-    --md-list-item-label-text-color:var(--muted);
-    --md-list-item-container-shape:var(--shape-full);
-    --md-sys-color-primary:var(--primary);
-    --md-sys-color-on-surface:var(--md-on-surface);
-    --md-sys-color-on-surface-variant:var(--md-on-surface-variant);
+    --md-list-item-label-text-color:var(--magi-ref-muted);
+    --md-list-item-container-shape:var(--magi-sys-shape-full);
+    --md-sys-color-primary:var(--magi-ref-primary);
+    --md-sys-color-on-surface:var(--magi-ref-on-surface);
+    --md-sys-color-on-surface-variant:var(--magi-ref-on-surface-variant);
     letter-spacing:0.05em;
   }
   /* Where you are, in the colour the rest of the page uses for it. A list item has no selected
@@ -628,15 +628,15 @@ const indexHTML = `<!doctype html>
      carries none. The focus ring drew 8px, a third shape again — and setting the token on the item
      did nothing, because the component assigns --md-focus-ring-shape:8px INSIDE its shadow root,
      where an inherited value loses. Both are exposed as parts, which is the one way in. */
-  #rail md-list-item::part(ripple) { border-radius:var(--shape-full); }
-  #rail md-list-item::part(focus-ring) { --md-focus-ring-shape:var(--shape-full); }
+  #rail md-list-item::part(ripple) { border-radius:var(--magi-sys-shape-full); }
+  #rail md-list-item::part(focus-ring) { --md-focus-ring-shape:var(--magi-sys-shape-full); }
   #rail md-list-item[selected] {
-    background:color-mix(in srgb, var(--primary) 14%, transparent);
-    border-radius:var(--shape-full);
-    --md-list-item-label-text-color:var(--primary);
+    background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent);
+    border-radius:var(--magi-sys-shape-full);
+    --md-list-item-label-text-color:var(--magi-ref-primary);
   }
   #rail md-list-item[selected] .lbl,
-  #rail md-list-item[selected] [slot="start"] { color:var(--primary); }
+  #rail md-list-item[selected] [slot="start"] { color:var(--magi-ref-primary); }
   /* Three things change, not one. The guide asks a selected destination for an active indicator, a
      FILLED icon, and a heavier label — colour alone is the case it names as insufficient. These
      icons are drawn as strokes and have no filled twin, which is the case the guide answers too:
@@ -652,10 +652,10 @@ const indexHTML = `<!doctype html>
   md-badge {
     position:relative; display:inline-block; vertical-align:middle;
     width:18px; height:18px; flex:none;
-    --md-badge-color:var(--warn);
-    --md-badge-large-color:var(--warn);
-    --md-badge-large-label-text-color:var(--bg);
-    --md-badge-large-label-text-font:var(--mono);
+    --md-badge-color:var(--magi-ref-warn);
+    --md-badge-large-color:var(--magi-ref-warn);
+    --md-badge-large-label-text-color:var(--magi-ref-bg);
+    --md-badge-large-label-text-font:var(--magi-ref-mono);
   }
   /* On a tab the badge sits beside the word rather than over it: these labels are words, not icons,
      and a count parked on top of "companions" lands on a letter. */
@@ -666,7 +666,7 @@ const indexHTML = `<!doctype html>
      it clipped the word it was counting for — "컴패니⓶" — and a count that eats its own label is
      worse than no count. */
   .tablbl { display:inline-flex; align-items:center; }
-  .badgewrap { width:16px; height:16px; margin-left:var(--space-50); }
+  .badgewrap { width:16px; height:16px; margin-left:var(--magi-sys-space-50); }
   .badgewrap md-badge { position:absolute; inset:0; width:16px; height:16px; }
   .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
@@ -681,34 +681,34 @@ const indexHTML = `<!doctype html>
   /* Expanded, the badge is a child of the list item and lays itself out beside the label; the
      move is placeRailBadge()'s, and this rule only says what it looks like once it is there. */
   body[nav="open"] #rail md-list-item > md-badge { position:static; align-self:center; }
-  #prefsForm { display:flex; flex-direction:column; gap:var(--space-200); min-width:16rem; }
+  #prefsForm { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:16rem; }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
      screen's controls" looked like until somebody measured it. */
-  .skfind { display:flex; margin:0 0 var(--space-300); }
+  .skfind { display:flex; margin:0 0 var(--magi-sys-space-300); }
   .skfind md-outlined-text-field { flex:1 1 22rem; max-width:34rem; }
   .skwrite {
-    display:flex; flex-wrap:wrap; gap:var(--space-200); align-items:flex-end;
-    margin:var(--space-400) 0 0; padding-top:var(--space-300); border-top:1px solid var(--outlineVariant);
+    display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200); align-items:flex-end;
+    margin:var(--magi-sys-space-400) 0 0; padding-top:var(--magi-sys-space-300); border-top:1px solid var(--magi-ref-outlineVariant);
   }
   .skwrite md-outlined-select { flex:0 0 14rem; }
   .skwrite md-outlined-text-field { flex:1 1 22rem; }
   .skwrite .skmodel {
-    flex:1 1 100%; font:var(--body-s) var(--mono); color:var(--muted); overflow-wrap:anywhere;
+    flex:1 1 100%; font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere;
   }
-  #notify { display:flex; flex-direction:column; align-items:flex-start; gap:var(--space-50); }
-  #notifyWhy { font:var(--body-s) var(--mono); color:var(--muted); max-width:26rem; overflow-wrap:anywhere; }
+  #notify { display:flex; flex-direction:column; align-items:flex-start; gap:var(--magi-sys-space-50); }
+  #notifyWhy { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); max-width:26rem; overflow-wrap:anywhere; }
   #prefsForm .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
   }
-  #console { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
-  #console b { color:var(--fg); font-weight:600; }
+  #console { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
+  #console b { color:var(--magi-ref-fg); font-weight:600; }
   #railMenu, #themeToggle, #prefs {
-    --md-icon-button-icon-color:var(--muted); color:var(--muted);
+    --md-icon-button-icon-color:var(--magi-ref-muted); color:var(--magi-ref-muted);
   }
   /* Where the icons are, not centred on whatever width the rail happens to be. Centred, it slid
      sideways every time the rail widened — the one control that should not move when you press it. */
-  #railMenu { align-self:start; margin-left:var(--space-50); }
+  #railMenu { align-self:start; margin-left:var(--magi-sys-space-50); }
   #railMenu .ic-close { display:none; }
   body[nav="open"] #railMenu .ic-open { display:none; }
   body[nav="open"] #railMenu .ic-close { display:block; }
@@ -742,8 +742,8 @@ const indexHTML = `<!doctype html>
      re-wrap this was avoiding only happens when the drawer opening takes the available width BELOW
      the cap, and there it still fills and still does not move. */
   main {
-    padding:var(--space-300) var(--space-500) calc(var(--dock, var(--space-1600)) + var(--space-400));
-    max-width:var(--page); margin-inline:auto;
+    padding:var(--magi-sys-space-300) var(--magi-sys-space-500) calc(var(--dock, var(--magi-sys-space-1600)) + var(--magi-sys-space-400));
+    max-width:var(--magi-sys-page); margin-inline:auto;
   }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
@@ -753,8 +753,8 @@ const indexHTML = `<!doctype html>
   /* The divider under the strip. The spec draws it as part of the tab container — 1dp of
      outline-variant, separating the tabs from what they switch — and neither the bundle nor this
      page had it. Without it the strip and the content below read as one block. */
-  #tabs { display:flex; flex-wrap:wrap; gap:var(--space-100) var(--space-300); padding:var(--space-200) 0 0;
-          border-bottom:1px solid var(--outlineVariant); }
+  #tabs { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100) var(--magi-sys-space-300); padding:var(--magi-sys-space-200) 0 0;
+          border-bottom:1px solid var(--magi-ref-outlineVariant); }
 
   /* ── what I had to say ───────────────────────────────────────────────────── */
   /* Grouped by what was said, because the repetition IS the finding: one correction is a remark,
@@ -779,32 +779,32 @@ const indexHTML = `<!doctype html>
      the system mentions it again. */
   /* Wider than the prose measure: a rule's description reads like prose but the line under it
      carries a name, a date range and sometimes a file path, and 74ch put those on three lines. */
-  #skills { display:block; max-width:var(--page); }
-  .sk { border-bottom:1px solid var(--outlineVariant); padding:var(--space-200) 0; }
-  .sk .top { display:flex; gap:var(--space-150); align-items:baseline; flex-wrap:wrap; }
+  #skills { display:block; max-width:var(--magi-sys-page); }
+  .sk { border-bottom:1px solid var(--magi-ref-outlineVariant); padding:var(--magi-sys-space-200) 0; }
+  .sk .top { display:flex; gap:var(--magi-sys-space-150); align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
     flex-basis:100%; order:-1;
   }
-  .sk.global .tier { color:var(--warn); }
+  .sk.global .tier { color:var(--magi-ref-warn); }
   /* A team's reach sits between the other two, and it gets the third colour rather than sharing
-     one: painted --accent it was indistinguishable from a project skill, which is the one thing the
+     one: painted --magi-ref-accent it was indistinguishable from a project skill, which is the one thing the
      tier word is on the row to tell you. */
-  .sk.team .tier { color:var(--primary); }
-  .sk.project .tier { color:var(--accent); }
-  .sk .what { font:600 var(--md-sys-typescale-body-large-size)/1.35 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .sk.team .tier { color:var(--magi-ref-primary); }
+  .sk.project .tier { color:var(--magi-ref-accent); }
+  .sk .what { font:600 var(--md-sys-typescale-body-large-size)/1.35 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   /* A fact is quoted, not instructed: it reads as something the companion believes rather than
      something it was told to do, which is the difference a person is judging on this page. */
-  .sk.fact .what { font:italic 400 var(--md-sys-typescale-body-large-size)/1.4 var(--display); }
-  .sk .meta { margin-top:var(--space-50); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--muted); }
+  .sk.fact .what { font:italic 400 var(--md-sys-typescale-body-large-size)/1.4 var(--magi-ref-display); }
+  .sk .meta { margin-top:var(--magi-sys-space-50); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--magi-ref-muted); }
   .sk .drop { margin-left:auto; }
   .sk .fold { margin-left:auto; }
   .sk .fold + .drop { margin-left:0; }
   /* The rule as written. A reading measure, because it is prose and the row is not. */
   .sk .body {
-    margin:var(--space-100) 0 var(--space-50); padding:var(--space-100) 0 0; max-width:var(--measure);
-    border-top:1px solid var(--outlineVariant);
-    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
+    margin:var(--magi-sys-space-100) 0 var(--magi-sys-space-50); padding:var(--magi-sys-space-100) 0 0; max-width:var(--magi-sys-measure);
+    border-top:1px solid var(--magi-ref-outlineVariant);
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-fg); white-space:pre-wrap; overflow-wrap:anywhere;
   }
 
   /* ── what they can reach ────────────────────────────────────────────────── */
@@ -813,40 +813,40 @@ const indexHTML = `<!doctype html>
      monospace and complete rather than tidied. */
   /* Not prose at all: the transport line is a command with arguments and the line under it is an
      absolute path. Clipping either to a reading measure hides the part being read for. */
-  #mcp { display:block; max-width:var(--page); }
-  .srv { border-bottom:1px solid var(--outlineVariant); padding:var(--space-200) 0; }
-  .srv .top { display:flex; gap:var(--space-150); align-items:baseline; flex-wrap:wrap; }
+  #mcp { display:block; max-width:var(--magi-sys-page); }
+  .srv { border-bottom:1px solid var(--magi-ref-outlineVariant); padding:var(--magi-sys-space-200) 0; }
+  .srv .top { display:flex; gap:var(--magi-sys-space-150); align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
     flex-basis:100%; order:-1;
   }
-  .srv.global .tier { color:var(--warn); }
-  .srv.project .tier { color:var(--accent); }
-  .srv .what { font:600 var(--body-l) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
-  .srv .how { margin-top:var(--space-50); font:var(--md-sys-typescale-label-medium-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
-  .srv .where { margin-top:var(--space-50); font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
+  .srv.global .tier { color:var(--magi-ref-warn); }
+  .srv.project .tier { color:var(--magi-ref-accent); }
+  .srv .what { font:600 var(--magi-sys-body-l) var(--magi-ref-mono); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
+  .srv .how { margin-top:var(--magi-sys-space-50); font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
+  .srv .where { margin-top:var(--magi-sys-space-50); font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); opacity:.85; overflow-wrap:anywhere; }
   .srv .drop { margin-left:auto; }
   /* Nothing here draws a box or a border: the field and the select bring their own outline, their
      own shape and their own 48dp target, and a second set drawn over them was two descriptions of
      one control that could only ever agree by accident. The form says how the controls are
      arranged and stops. */
-  #mcpAdd { display:grid; gap:var(--space-200); margin:var(--space-300) 0; max-width:var(--measure); }
+  #mcpAdd { display:grid; gap:var(--magi-sys-space-200); margin:var(--magi-sys-space-300) 0; max-width:var(--magi-sys-measure); }
   #mcpAdd md-filled-button { justify-self:start; }
-  #mcpAdd .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); }
+  #mcpAdd .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); }
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
      is inert to the pointer so it can cover the whole control without eating its clicks. */
   .state { position:relative; }
   .state::after {
     content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
-    background:currentColor; opacity:0; transition:opacity var(--dur-short2) var(--ease-standard);
+    background:currentColor; opacity:0; transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
   }
   .state:hover::after { opacity:.08; }
   .state:focus-visible::after, .state:active::after { opacity:.12; }
   /* A ring, not only a wash. The state layer is the focus STATE; the guide asks separately for a
      "ring-like keyboard focus indicator" so a keyboard user can see where they are — the library's
      own components draw one with md-focus-ring, and the elements built here had nothing. */
-  .state:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--accent)); outline-offset:2px; }
+  .state:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--magi-ref-accent)); outline-offset:2px; }
   /* Material's minimum touch target is 48dp, with 8dp between targets. */
   .state { min-height:48px; }
 
@@ -865,12 +865,12 @@ const indexHTML = `<!doctype html>
      slot when it has no label attribute, so the count and the word stay ours. */
   /* Clear of whatever is above it. The chips sat straight under the tab row with nothing between,
      so the row of filters read as part of the tabs — two different kinds of control touching. */
-  #summary { display:flex; flex-wrap:wrap; gap:var(--space-100); padding-bottom:var(--space-200);
-             margin:var(--space-300) 0 var(--space-50); border-bottom:1px solid var(--outlineVariant); }
+  #summary { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-200);
+             margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-50); border-bottom:1px solid var(--magi-ref-outlineVariant); }
   /* Height left to the component. It was 40px, which is neither the 32dp the token asks for nor
      the 48dp target the same page asks for — the target is the bundle's job and it draws a 48px
      .touch regardless of how tall the container is. */
-  .tile { --md-filter-chip-label-text-font:var(--mono); }
+  .tile { --md-filter-chip-label-text-font:var(--magi-ref-mono); }
   /* Label large, which is the chip's own type role — it was title-medium, a heading size inside a
      chip. At 24px of line box in a 32dp container it left 4px above and below and read as cramped;
      the count is still the loud thing here because it is 600 against an 11px word. */
@@ -881,22 +881,22 @@ const indexHTML = `<!doctype html>
      type role; it was title-medium, a heading size, which made the same overflow worse. */
   .tile .n {
     display:inline-flex; align-items:center;
-    font:600 var(--md-sys-typescale-label-large-size, .875rem)/var(--md-sys-typescale-label-large-line-height, 1.25rem) var(--display);
-    color:var(--fg); margin-right:var(--space-100);
+    font:600 var(--md-sys-typescale-label-large-size, .875rem)/var(--md-sys-typescale-label-large-line-height, 1.25rem) var(--magi-ref-display);
+    color:var(--magi-ref-fg); margin-right:var(--magi-sys-space-100);
   }
   .tile .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
-    display:inline-flex; align-items:center; gap:var(--space-50);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
+    display:inline-flex; align-items:center; gap:var(--magi-sys-space-50);
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
-  .tile .k::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; }
-  .tile.waiting .k { color:var(--warn); }
-  .tile.working .k { color:var(--success); }
-  .tile.idle    .k { color:var(--accent); }
-  .tile.gone    .k { color:var(--error); }
+  .tile .k::before { content:""; width:7px; height:7px; border-radius:var(--magi-sys-shape-full); background:currentColor; }
+  .tile.waiting .k { color:var(--magi-ref-warn); }
+  .tile.working .k { color:var(--magi-ref-success); }
+  .tile.idle    .k { color:var(--magi-ref-accent); }
+  .tile.gone    .k { color:var(--magi-ref-error); }
   /* A count of zero reads as zero; it does not need to be faint as well, and dimming it put the
      label under AA in both themes (2.25:1 in light — measured by the contrast check). */
-  .tile[disabled] .n, .tile[disabled] .k { color:var(--muted); }
+  .tile[disabled] .n, .tile[disabled] .k { color:var(--magi-ref-muted); }
 
   #fleet { display:block; }
   /* One grid for the header and every row, so the columns line up without a table element and
@@ -914,11 +914,11 @@ const indexHTML = `<!doctype html>
        sideways, including a narrow desktop. Sizing each column to what it holds is only half the
        job; the other half is checking the total against the space there is. */
     grid-template-columns: 7rem minmax(8rem, 1fr) minmax(12rem, 2.6fr) 3.5rem 4rem 7rem 6rem;
-    gap:var(--space-200);
+    gap:var(--magi-sys-space-200);
   }
   .thead {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
-    padding:var(--space-200) 0 var(--space-100); border-bottom:1px solid var(--fg);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
+    padding:var(--magi-sys-space-200) 0 var(--magi-sys-space-100); border-bottom:1px solid var(--magi-ref-fg);
   }
   .thead .r, .card .r { text-align:right; }
 
@@ -928,28 +928,28 @@ const indexHTML = `<!doctype html>
      Having both, with no gap, asked the reader to see cards that had been stacked without margins.
      The state is already said in the badge, twice over, as a word and a coloured dot. */
   .card {
-    text-decoration:none; color:var(--md-on-surface); border-bottom:1px solid var(--outlineVariant);
-    padding:var(--space-150) var(--space-150) var(--space-150); margin-left:calc(-1 * var(--space-150)); position:relative;
+    text-decoration:none; color:var(--magi-ref-on-surface); border-bottom:1px solid var(--magi-ref-outlineVariant);
+    padding:var(--magi-sys-space-150) var(--magi-sys-space-150) var(--magi-sys-space-150); margin-left:calc(-1 * var(--magi-sys-space-150)); position:relative;
   }
-  .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
+  .card:hover { background:color-mix(in srgb, var(--magi-ref-primary) 5%, transparent); }
   .card.stopped { opacity:.8; }
 
   /* A team's heading. Set as a rule with a name on it rather than as a bar: this page separates
      with lines, and a filled band per team would turn a table into a stack of boxes. */
   .teamhead {
-    display:flex; align-items:baseline; gap:var(--space-150); flex-wrap:wrap;
-    margin:var(--space-300) 0 var(--space-50); padding:0 0 var(--space-50);
-    border-bottom:1px solid var(--fg);
+    display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap;
+    margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-50); padding:0 0 var(--magi-sys-space-50);
+    border-bottom:1px solid var(--magi-ref-fg);
   }
   /* The first team sits closer to the table head above it. Written :first-of-type it matched
      nothing — the table head is a div too, and it is the first one — so all three headers carried
      the same 1.6rem and the list opened with a gap that looked like a missing row. */
-  .thead + .teamhead { margin-top:var(--space-100); }
+  .thead + .teamhead { margin-top:var(--magi-sys-space-100); }
   .teamhead .tname {
-    font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--fg);
+    font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-fg);
   }
-  .teamhead .thub { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); }
-  .teamhead .tn { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
+  .teamhead .thub { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-accent); }
+  .teamhead .tn { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   /* NOT position:static. The general md-badge rule above makes the host the thing the component's
      absolutely-positioned inner box anchors to, and that is the whole reason it exists — "dropped
      into a flow it anchors to whatever ancestor happens to be positioned and lands somewhere
@@ -963,54 +963,54 @@ const indexHTML = `<!doctype html>
   .colk { display:none; }
   @media (max-width:62.5em) {
     .colk {
-      display:inline; margin-left:var(--space-50);
-      font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0467em; color:var(--muted);
+      display:inline; margin-left:var(--magi-sys-space-50);
+      font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0467em; color:var(--magi-ref-muted);
     }
   }
   .card .badge {
-    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:0.0467em; color:var(--muted);
-    display:flex; align-items:center; gap:var(--space-100); flex-wrap:wrap;
+    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); letter-spacing:0.0467em; color:var(--magi-ref-muted);
+    display:flex; align-items:center; gap:var(--magi-sys-space-100); flex-wrap:wrap;
   }
-  .card .badge::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; flex:none; }
-  .card.working .badge { color:var(--success); }
-  .card.waiting .badge { color:var(--warn); }
-  .card.idle .badge { color:var(--accent); }
-  .card.abandoned .badge, .card.stopped .badge { color:var(--error); }
+  .card .badge::before { content:""; width:7px; height:7px; border-radius:var(--magi-sys-shape-full); background:currentColor; flex:none; }
+  .card.working .badge { color:var(--magi-ref-success); }
+  .card.waiting .badge { color:var(--magi-ref-warn); }
+  .card.idle .badge { color:var(--magi-ref-accent); }
+  .card.abandoned .badge, .card.stopped .badge { color:var(--magi-ref-error); }
 
   /* name + workspace, the way a console stacks a resource over its namespace */
-  .card .name { font:600 var(--md-sys-typescale-body-large-size)/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
-  .card:hover .name { color:var(--primary); }
+  .card .name { font:600 var(--md-sys-typescale-body-large-size)/1.3 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
+  .card:hover .name { color:var(--magi-ref-primary); }
   .card .plan {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.05em; color:var(--muted); align-self:center;
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.05em; color:var(--magi-ref-muted); align-self:center;
   }
   .card .role {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
-    overflow-wrap:anywhere; margin-top:var(--space-50);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:.04em; color:var(--magi-ref-accent);
+    overflow-wrap:anywhere; margin-top:var(--magi-sys-space-50);
   }
-  .card .path { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
+  .card .path { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); opacity:.9; overflow-wrap:anywhere; }
 
   /* what it is doing: one line, clipped — the detail view is one click away for the rest */
   .card .last {
-    font:italic var(--md-sys-typescale-body-medium-size)/1.45 var(--display); color:var(--fg);
+    font:italic var(--md-sys-typescale-body-medium-size)/1.45 var(--magi-ref-display); color:var(--magi-ref-fg);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
-  .card .asking { font:600 var(--md-sys-typescale-label-medium-size)/1.45 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
-  .card .num { font-size:var(--md-sys-typescale-label-medium-size); color:var(--muted); }
-  .card .host { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); overflow-wrap:anywhere; }
-  .card .host b { font-weight:400; color:var(--fg); opacity:.85; }
+  .card .asking { font:600 var(--md-sys-typescale-label-medium-size)/1.45 var(--magi-ref-mono); color:var(--magi-ref-warn); overflow-wrap:anywhere; }
+  .card .num { font-size:var(--md-sys-typescale-label-medium-size); color:var(--magi-ref-muted); }
+  .card .host { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
+  .card .host b { font-weight:400; color:var(--magi-ref-fg); opacity:.85; }
 
   /* Row actions. Open is the row itself as well, but a named control is what makes it discoverable
      — and stopping must never require entering first, which is the whole point of a console. */
   /* One icon, inside the column. "open" was a word for something the whole row already does — the
      row is a link — and the pair of labelled buttons was wider than the 6rem column they sat in, so
      they hung off the right edge of the table. */
-  .actions { display:flex; gap:var(--space-50); justify-content:flex-end; align-items:center; }
+  .actions { display:flex; gap:var(--magi-sys-space-50); justify-content:flex-end; align-items:center; }
   .actions md-icon-button {
-    --md-icon-button-icon-color:var(--muted);
+    --md-icon-button-icon-color:var(--magi-ref-muted);
     --md-icon-button-state-layer-width:40px; --md-icon-button-state-layer-height:40px;
-    color:var(--muted);
+    color:var(--magi-ref-muted);
   }
-  .actions md-icon-button:hover { --md-icon-button-icon-color:var(--error); color:var(--error); }
+  .actions md-icon-button:hover { --md-icon-button-icon-color:var(--magi-ref-error); color:var(--magi-ref-error); }
 
   /* The grounds a decision is put on: a key-and-value block, set like the rest of this page's
      labelled readings. Two columns on anything but a phone, because the keys are short words and
@@ -1022,35 +1022,35 @@ const indexHTML = `<!doctype html>
      small-caps labels. */
   .grounds {
     grid-column:1 / -1;
-    display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--space-50) var(--space-200);
-    margin:var(--space-150) 0 var(--space-50); padding:var(--space-150) 0 0; max-width:var(--measure);
-    border-top:1px solid var(--outlineVariant);
+    display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--magi-sys-space-50) var(--magi-sys-space-200);
+    margin:var(--magi-sys-space-150) 0 var(--magi-sys-space-50); padding:var(--magi-sys-space-150) 0 0; max-width:var(--magi-sys-measure);
+    border-top:1px solid var(--magi-ref-outlineVariant);
   }
   .grounds .gk {
-    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:0.0533em;
-    color:var(--muted); text-align:right;
+    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); letter-spacing:0.0533em;
+    color:var(--magi-ref-muted); text-align:right;
   }
-  .grounds .gv { font:var(--md-sys-typescale-label-medium-size)/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  .grounds .gv { font:var(--md-sys-typescale-label-medium-size)/1.55 var(--magi-ref-mono); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   @media (max-width:40em) {
-    .grounds { grid-template-columns:1fr; gap:var(--space-50); }
-    .grounds .gk { text-align:left; margin-top:var(--space-100); }
+    .grounds { grid-template-columns:1fr; gap:var(--magi-sys-space-50); }
+    .grounds .gk { text-align:left; margin-top:var(--magi-sys-space-100); }
   }
 
   /* answering, inline in the row that is asking */
   /* Answering is the one place on the fleet where a person types, so it is the library's field and
      the library's buttons: focus ring, state layers and a 48dp target all come with them. What is
      said here is that the choice is the warning colour, because the agent is stopped until it. */
-  .answer { display:flex; gap:var(--space-100); margin-top:var(--space-100); flex-wrap:wrap; align-items:center; }
+  .answer { display:flex; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); flex-wrap:wrap; align-items:center; }
   .answer md-filled-tonal-button {
-    --md-filled-tonal-button-container-color:var(--md-surface-container-high);
-    --md-filled-tonal-button-label-text-color:var(--fg);
-    --md-filled-tonal-button-label-text-font:var(--mono);
+    --md-filled-tonal-button-container-color:var(--magi-ref-surface-container-high);
+    --md-filled-tonal-button-label-text-color:var(--magi-ref-fg);
+    --md-filled-tonal-button-label-text-font:var(--magi-ref-mono);
     letter-spacing:0.05em;
   }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
 
-  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--display); color:var(--muted); padding:var(--space-500) 0; max-width:52ch; }
-  .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--mono); color:var(--accent); }
+  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-500) 0; max-width:52ch; }
+  .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--magi-ref-mono); color:var(--magi-ref-accent); }
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
   /* The three panels on a companion's page are md-outlined-card: each one groups what is true
@@ -1065,8 +1065,8 @@ const indexHTML = `<!doctype html>
      that gap twice — 48px below the detail card where 24 was asked for — and #side already
      carried a margin-bottom:0 to undo it in the one place somebody noticed. The container
      spaces its children; the child does not space itself. */
-  md-outlined-card { padding:var(--space-200) var(--space-200); }
-  #detail { display:flex; flex-direction:column; gap:var(--space-200); }
+  md-outlined-card { padding:var(--magi-sys-space-200) var(--magi-sys-space-200); }
+  #detail { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
   #detail .grid {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
        step count. 14rem is the width of the longest SHORT field (the context reading), so the long
@@ -1076,21 +1076,21 @@ const indexHTML = `<!doctype html>
        pixel it saves on another column, so narrowing this one from 25.6dp to 24dp fitted a
        fourth column, took 119px off each cell and wrapped the long fields it was drawn to keep
        whole. Snapping to the scale is not the same as snapping to the nearest value. */
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:var(--space-200) var(--space-400);
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:var(--magi-sys-space-200) var(--magi-sys-space-400);
   }
-  #detail .f { display:flex; flex-direction:column; gap:var(--space-50); }
+  #detail .f { display:flex; flex-direction:column; gap:var(--magi-sys-space-50); }
   #detail .f .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
   }
-  #detail .f .v { font:var(--body-m) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  #detail .f .v { font:var(--magi-sys-body-m) var(--magi-ref-mono); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   #detail .f .v.state { font-weight:600; letter-spacing:0.05em; font-size:var(--md-sys-typescale-label-small-size); }
   /* The window, as a rule under the number rather than a gauge beside it: this is a fill level and
      the page already spends its colour on state. Unknown windows draw no bar at all — an empty
      track reads as "nearly empty", which is the opposite of "we do not know". */
-  #detail .f .bar { height:2px; background:var(--outlineVariant); margin-top:var(--space-50); }
-  #detail .f .bar i { display:block; height:100%; background:var(--primary); }
-  #detail .f .bar.tight i { background:var(--warn); }
-  #detail .f .v small { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); }
+  #detail .f .bar { height:2px; background:var(--magi-ref-outlineVariant); margin-top:var(--magi-sys-space-50); }
+  #detail .f .bar i { display:block; height:100%; background:var(--magi-ref-primary); }
+  #detail .f .bar.tight i { background:var(--magi-ref-warn); }
+  #detail .f .v small { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); }
   /* Disabled is the component's own fade now, not a rule here. The contrast check reads this
      stylesheet and cannot see into a shadow root, so that opacity is not covered — which is the
      right answer rather than a gap: WCAG exempts inactive controls, and the repo's own rule
@@ -1100,19 +1100,19 @@ const indexHTML = `<!doctype html>
   /* The conversation and the facts about it, side by side where there is room. The transcript is
      the wider of the two because its lines are code; the aside is a reading column of short
      labelled facts and does not want more than it needs. */
-  #agentview { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--space-300); }
+  #agentview { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--magi-sys-space-300); }
   /* The facts fold away. On this page they answer "what am I looking at" once, and after that they
      are 380px of masthead between the reader and the conversation they came for — measured at
      430px wide, the transcript began 1073px down a 900px screen. Folded, the summary line still
      carries the state and the workspace, which is what somebody glancing back actually wants. */
   #detail .foldbar {
-    display:flex; align-items:baseline; gap:var(--space-150); width:100%; cursor:pointer;
+    display:flex; align-items:baseline; gap:var(--magi-sys-space-150); width:100%; cursor:pointer;
     background:none; border:0; padding:0; color:inherit; text-align:left; font:inherit;
   }
-  #detail .foldbar .caret { color:var(--muted); transition:transform 200ms var(--ease-standard); }
+  #detail .foldbar .caret { color:var(--magi-ref-muted); transition:transform 200ms var(--magi-sys-ease-standard); }
   #detail[folded] .foldbar .caret { transform:rotate(-90deg); }
   #detail .foldbar .sum {
-    font:var(--body-s) var(--mono); color:var(--muted); margin-left:auto;
+    font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); margin-left:auto;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   #detail[folded] .grid { display:none; }
@@ -1129,14 +1129,14 @@ const indexHTML = `<!doctype html>
      label and icon instead of primary. The one part no token reaches is the indicator spanning the
      whole tab rather than hugging the label; that is set as a property in paint(). */
   #ptabs {
-    margin:0 0 var(--space-200); border-bottom:1px solid var(--outlineVariant);
+    margin:0 0 var(--magi-sys-space-200); border-bottom:1px solid var(--magi-ref-outlineVariant);
     --md-primary-tab-active-indicator-height:2px;
-    --md-primary-tab-active-label-text-color:var(--md-on-surface);
-    --md-primary-tab-active-icon-color:var(--md-on-surface);
-    --md-primary-tab-active-hover-label-text-color:var(--md-on-surface);
-    --md-primary-tab-active-hover-state-layer-color:var(--md-on-surface);
-    --md-primary-tab-active-pressed-label-text-color:var(--md-on-surface);
-    --md-primary-tab-active-pressed-state-layer-color:var(--md-on-surface);
+    --md-primary-tab-active-label-text-color:var(--magi-ref-on-surface);
+    --md-primary-tab-active-icon-color:var(--magi-ref-on-surface);
+    --md-primary-tab-active-hover-label-text-color:var(--magi-ref-on-surface);
+    --md-primary-tab-active-hover-state-layer-color:var(--magi-ref-on-surface);
+    --md-primary-tab-active-pressed-label-text-color:var(--magi-ref-on-surface);
+    --md-primary-tab-active-pressed-state-layer-color:var(--magi-ref-on-surface);
   }
   /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
      1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
@@ -1157,50 +1157,50 @@ const indexHTML = `<!doctype html>
     body[side="shut"] #side { display:none; }
     #sideToggle { display:inline-flex; }
   }
-  #sideToggle { display:none; align-self:flex-end; margin-bottom:calc(-1 * var(--space-150)); }
-  #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--space-300); }
+  #sideToggle { display:none; align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
+  #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
-  #plan { max-width:var(--measure); }
+  #plan { max-width:var(--magi-sys-measure); }
   /* The plan's own progress. Linear, at the top edge of the card it belongs to, spanning its
      width — where the guide puts a bar for the container that is progressing. The track is
      outline-variant, which is under 3:1 against the surface, so the spec makes the end stop
      mandatory rather than decorative. */
   #plan .planbar {
-    display:block; margin:var(--space-50) 0 var(--space-50);
+    display:block; margin:var(--magi-sys-space-50) 0 var(--magi-sys-space-50);
     /* The spec's numbers, which are also the component's defaults — set here so a change to either
        is visible as a change to this line rather than a silent drift. */
     --md-linear-progress-track-height:4px;
     --md-linear-progress-active-indicator-height:4px;
-    --md-linear-progress-active-indicator-color:var(--primary);
-    --md-linear-progress-track-color:var(--outlineVariant);
+    --md-linear-progress-active-indicator-color:var(--magi-ref-primary);
+    --md-linear-progress-track-color:var(--magi-ref-outlineVariant);
   }
-  #plan .plancount { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); margin-bottom:var(--space-100); }
+  #plan .plancount { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100); }
   #plan .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:var(--space-100);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
+    color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
   }
-  .td { display:grid; grid-template-columns:1.2rem 1fr; gap:var(--space-100); padding:var(--space-50) 0; }
-  .td .mark { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--mono); color:var(--muted); text-align:center; }
-  .td .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--fg); overflow-wrap:anywhere; }
-  .td.completed .what { color:var(--muted); text-decoration:line-through; }
-  .td.in_progress .mark { color:var(--primary); }
-  .td.in_progress .what { color:var(--primary); }
+  .td { display:grid; grid-template-columns:1.2rem 1fr; gap:var(--magi-sys-space-100); padding:var(--magi-sys-space-50) 0; }
+  .td .mark { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); text-align:center; }
+  .td .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
+  .td.completed .what { color:var(--magi-ref-muted); text-decoration:line-through; }
+  .td.in_progress .mark { color:var(--magi-ref-primary); }
+  .td.in_progress .what { color:var(--magi-ref-primary); }
 
   /* ── work handed to other companions ────────────────────────────────────── */
-  #handoffs { max-width:var(--measure); }
+  #handoffs { max-width:var(--magi-sys-measure); }
 
   /* ── the board: a column per companion, a card per piece of work ────────── */
-  #board { display:block; max-width:var(--page); }
-  .boardhead { display:flex; gap:var(--space-200); align-items:center; margin:0 0 var(--space-200); flex-wrap:wrap; }
-  .lanehead .lrole { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
-  .lanehead .lteam { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); }
+  #board { display:block; max-width:var(--magi-sys-page); }
+  .boardhead { display:flex; gap:var(--magi-sys-space-200); align-items:center; margin:0 0 var(--magi-sys-space-200); flex-wrap:wrap; }
+  .lanehead .lrole { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
+  .lanehead .lteam { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-accent); }
   .wcard .wwhat { color:inherit; text-decoration:none; cursor:pointer; }
   .wcard .wwhat:hover { text-decoration:underline; }
-  .wcard .wlong { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
+  .wcard .wlong { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   .wcard .wmodel {
-    font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); overflow-wrap:anywhere;
+    font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-accent); overflow-wrap:anywhere;
   }
   /* A label is pressable, so it is drawn as something that can be pressed — a chip's shape, at the
      size of the line it sits on rather than the size of a control, because a card carrying three
@@ -1215,18 +1215,18 @@ const indexHTML = `<!doctype html>
     /* 16dp between rows, not 8: the press target is 48dp on a 32dp chip, and at the 8dp
        the guide gives as a minimum the targets of two wrapped rows overlap by 8dp — the
        lower one takes presses aimed at the upper. Measured, not assumed. */
-    margin:var(--space-200) var(--space-100) 0 0;
-    font:600 var(--md-sys-typescale-label-large-size)/1.25rem var(--mono); letter-spacing:.06em;
-    color:var(--primary); background:color-mix(in srgb, var(--primary) 12%, transparent);
-    border-radius:var(--shape-full); padding:0 var(--space-150);
+    margin:var(--magi-sys-space-200) var(--magi-sys-space-100) 0 0;
+    font:600 var(--md-sys-typescale-label-large-size)/1.25rem var(--magi-ref-mono); letter-spacing:.06em;
+    color:var(--magi-ref-primary); background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent);
+    border-radius:var(--magi-sys-shape-full); padding:0 var(--magi-sys-space-150);
   }
-  .wcard .wlabel:hover { background:color-mix(in srgb, var(--primary) 22%, transparent); }
+  .wcard .wlabel:hover { background:color-mix(in srgb, var(--magi-ref-primary) 22%, transparent); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
   .boardhead md-icon-button { align-self:end; }
   /* Scrolls sideways, and ONLY here. The page must never do it, but a board of lanes is the one
      shape where sideways is the reading direction, and clipping a lane would hide a companion. */
-  .lanes { display:flex; gap:var(--space-300); align-items:flex-start; overflow-x:auto; padding-bottom:var(--space-100); }
+  .lanes { display:flex; gap:var(--magi-sys-space-300); align-items:flex-start; overflow-x:auto; padding-bottom:var(--magi-sys-space-100); }
   /* A fixed lane width, and it has to be spelled out three ways: flex-basis alone loses to the
      content's own minimum, so a long title widened its lane and a short one narrowed it, and the
      columns stopped lining up — which is the one thing a board is for. */
@@ -1241,74 +1241,74 @@ const indexHTML = `<!doctype html>
   /* Set apart from the chips it sits beside: they filter this list and it leaves it. */
   .lanes::after { content:""; flex:0 0 1.4rem; }   /* the last lane gets a right edge too */
   .lanehead {
-    display:flex; gap:var(--space-100); align-items:baseline;
-    border-bottom:1px solid var(--fg); padding-bottom:var(--space-50); margin-bottom:var(--space-100);
+    display:flex; gap:var(--magi-sys-space-100); align-items:baseline;
+    border-bottom:1px solid var(--magi-ref-fg); padding-bottom:var(--magi-sys-space-50); margin-bottom:var(--magi-sys-space-100);
   }
   .lanehead .lname {
-    font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--mono); letter-spacing:0.0467em; color:var(--fg);
+    font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0467em; color:var(--magi-ref-fg);
   }
-  .lanehead .lcount { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
+  .lanehead .lcount { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   .wcard {
-    border:1px solid var(--outlineVariant); border-radius:var(--shape-s);
-    padding:var(--space-100) var(--space-150); margin-bottom:var(--space-100); background:var(--md-surface-container-low);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-s);
+    padding:var(--magi-sys-space-100) var(--magi-sys-space-150); margin-bottom:var(--magi-sys-space-100); background:var(--magi-ref-surface-container-low);
   }
-  .wcard .wwhen { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
-  .wcard .wwhat { font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
+  .wcard .wwhen { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  .wcard .wwhat { font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   /* The one running now, in the colour the rest of the page uses for that. */
-  .wcard.now { border-color:var(--success); }
-  .wcard.now .wwhen { color:var(--success); font-weight:600; }
+  .wcard.now { border-color:var(--magi-ref-success); }
+  .wcard.now .wwhen { color:var(--magi-ref-success); font-weight:600; }
 
   /* ── what this companion did before now ─────────────────────────────────── */
-  #history { max-width:var(--measure); }
+  #history { max-width:var(--magi-sys-measure); }
   #history .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:var(--space-100);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
+    color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
   }
-  .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:var(--space-50) var(--space-200); padding:var(--space-50) 0; }
-  .hs + .hs { border-top:1px solid var(--outlineVariant); }
-  .hs .when { font:var(--md-sys-typescale-label-small-size)/1.6 var(--mono); color:var(--muted); text-align:right; }
-  .hs .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--fg); overflow-wrap:anywhere; }
+  .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-50) 0; }
+  .hs + .hs { border-top:1px solid var(--magi-ref-outlineVariant); }
+  .hs .when { font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); text-align:right; }
+  .hs .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   /* The one it is in now is work too, and it is the newest row. Marked rather than left off. */
-  .hs.now .when { color:var(--success); font-weight:600; }
+  .hs.now .when { color:var(--magi-ref-success); font-weight:600; }
   #handoffs .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
-    color:var(--muted); margin-bottom:var(--space-100);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
+    color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
   }
-    .ho { display:grid; grid-template-columns:8rem 1fr; gap:var(--space-50) var(--space-200); padding:var(--space-100) 0; }
-  .ho .to { font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
-  .ho .req { font:var(--body-l) var(--display); color:var(--fg); overflow-wrap:anywhere; }
-  .ho .ans { grid-column:2; font-size:var(--md-sys-typescale-label-medium-size); color:var(--muted); overflow-wrap:anywhere; }
-  .ho.working .to { color:var(--primary); }
+    .ho { display:grid; grid-template-columns:8rem 1fr; gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-100) 0; }
+  .ho .to { font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); letter-spacing:.08em; color:var(--magi-ref-accent); text-align:right; }
+  .ho .req { font:var(--magi-sys-body-l) var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
+  .ho .ans { grid-column:2; font-size:var(--md-sys-typescale-label-medium-size); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
+  .ho.working .to { color:var(--magi-ref-primary); }
 
   /* ── transcript ─────────────────────────────────────────────────────────── */
   /* Monospace throughout: every line here is something the machine said or did, and a serif would
      be dressing up evidence. The editorial part is the rhythm — a wide gutter of small-caps labels
      against a single column of text. */
-  #log { max-width:var(--wide); }
-  .row { display:grid; grid-template-columns:6.5rem 1fr; gap:var(--space-200); align-items:start; padding:var(--space-50) 0; }
+  #log { max-width:var(--magi-sys-wide); }
+  .row { display:grid; grid-template-columns:6.5rem 1fr; gap:var(--magi-sys-space-200); align-items:start; padding:var(--magi-sys-space-50) 0; }
   .who {
-    font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--mono); letter-spacing:0.0533em;
-    color:var(--muted); text-align:right; user-select:none; opacity:.8;
+    font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono); letter-spacing:0.0533em;
+    color:var(--magi-ref-muted); text-align:right; user-select:none; opacity:.8;
   }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
 
   /* A user turn is the anchor you scan for: set as a lead, with the rule an editorial layout uses
      for a pull quote. */
-  .row.user { margin:var(--space-300) 0 var(--space-150); }
+  .row.user { margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-150); }
   .row.user .txt {
-    font:var(--md-sys-typescale-body-large-size)/1.55 var(--display); color:var(--primary);
-    border-left:2px solid var(--primary); padding-left:var(--space-200); margin-left:calc(-1 * var(--space-200));
+    font:var(--md-sys-typescale-body-large-size)/1.55 var(--magi-ref-display); color:var(--magi-ref-primary);
+    border-left:2px solid var(--magi-ref-primary); padding-left:var(--magi-sys-space-200); margin-left:calc(-1 * var(--magi-sys-space-200));
   }
-  .row.user .who { color:var(--primary); }
-  .row.assistant .txt { color:var(--fg); }
-  .row.thinking .txt { color:var(--muted); font-style:italic; opacity:.8; }
-  .row.tool .txt { color:var(--accent); }
-  .row.tool .who { color:var(--accent); }
+  .row.user .who { color:var(--magi-ref-primary); }
+  .row.assistant .txt { color:var(--magi-ref-fg); }
+  .row.thinking .txt { color:var(--magi-ref-muted); font-style:italic; opacity:.8; }
+  .row.tool .txt { color:var(--magi-ref-accent); }
+  .row.tool .who { color:var(--magi-ref-accent); }
   .row.result .txt, .row.failed .txt {
-    color:var(--muted); border-left:1px solid var(--outlineVariant);
-    padding:var(--space-50) 0 var(--space-50) var(--space-150); max-height:11rem; overflow:auto;
+    color:var(--magi-ref-muted); border-left:1px solid var(--magi-ref-outlineVariant);
+    padding:var(--magi-sys-space-50) 0 var(--magi-sys-space-50) var(--magi-sys-space-150); max-height:11rem; overflow:auto;
   }
-  .row.failed .who, .row.failed .txt { color:var(--error); border-left-color:var(--error); }
+  .row.failed .who, .row.failed .txt { color:var(--magi-ref-error); border-left-color:var(--magi-ref-error); }
 
   /* ── the prompt an agent is blocked on, on that agent's own page ─────────── */
   /* Without this, opening an agent is the one place you CANNOT see that it is waiting for you: the
@@ -1321,17 +1321,17 @@ const indexHTML = `<!doctype html>
      something else instead" is a legitimate reply to being asked. */
   #dock {
     position:fixed; left:0; right:0; bottom:0; z-index:2;
-    background:linear-gradient(to top, var(--bg) 88%, transparent);
+    background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
     padding-bottom:env(safe-area-inset-bottom);
   }
   #prompt {
-    background:var(--bg);
-    padding:var(--space-200) 0 var(--space-150);
+    background:var(--magi-ref-bg);
+    padding:var(--magi-sys-space-200) 0 var(--magi-sys-space-150);
   }
   /* The rule belongs to the column, not to the window. Drawn on #prompt it ran the full width of
      the viewport while the words under it started 514px in, which reads as a divider for the whole
      page rather than the top of one bar. */
-  #prompt .inner { border-top:2px solid var(--warn); padding-top:var(--space-200); }
+  #prompt .inner { border-top:2px solid var(--magi-ref-warn); padding-top:var(--magi-sys-space-200); }
   /* The dock stands in the same column as the page. It used to centre its own narrower measure in
      whatever space was left, which put the composer 235px to the right of the text it answers — the
      footer read as belonging to a different page. Same max-width and same centring as main, and the
@@ -1341,26 +1341,26 @@ const indexHTML = `<!doctype html>
      which put the composer 235px right of the text it answers, and matching only the OUTER box
      left it 25px off — the padding is part of where a column starts. */
   #prompt .inner, form {
-    max-width:var(--page); margin-inline:auto; width:100%; box-sizing:border-box;
-    padding-left:var(--space-300); padding-right:var(--space-300);
+    max-width:var(--magi-sys-page); margin-inline:auto; width:100%; box-sizing:border-box;
+    padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300);
   }
-  #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
+  #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
-    padding-top:var(--space-200); padding-bottom:var(--space-200); display:block;
+    padding-top:var(--magi-sys-space-200); padding-bottom:var(--magi-sys-space-200); display:block;
   }
   /* Under the row, not inside the field. As the field's own supporting text it added 20px to the
      field's height, and the buttons — bottom-aligned so they stay put as the box grows — sat 20px
      below the box they belong to. It also reads better here: the note is about what pressing send
      will do, which is the row's business and not the box's. */
   #cnote {
-    font:var(--body-s) var(--mono); color:var(--muted); margin-top:var(--space-100);
-    padding-left:var(--space-50); overflow-wrap:anywhere;
+    font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); margin-top:var(--magi-sys-space-100);
+    padding-left:var(--magi-sys-space-50); overflow-wrap:anywhere;
   }
   .composer {
-    display:flex; gap:var(--space-200); align-items:flex-end;
-    border-top:1px solid var(--fg); padding-top:var(--space-150);
+    display:flex; gap:var(--magi-sys-space-200); align-items:flex-end;
+    border-top:1px solid var(--magi-ref-fg); padding-top:var(--magi-sys-space-150);
   }
   /* The composer's field is an M3 outlined text field. Its outline, focus behaviour, floating
      label slot and 56dp height are the component's; what is said here is that it takes the row and
@@ -1377,12 +1377,12 @@ const indexHTML = `<!doctype html>
      error colour was on :hover, which a touch screen does not have — so the surface where a
      misplaced thumb is likeliest carried no signal at all. */
   md-text-button.armed {
-    --md-text-button-label-text-color:var(--error);
-    --md-text-button-hover-label-text-color:var(--error);
-    --md-text-button-hover-state-layer-color:var(--error);
+    --md-text-button-label-text-color:var(--magi-ref-error);
+    --md-text-button-hover-label-text-color:var(--magi-ref-error);
+    --md-text-button-hover-state-layer-color:var(--magi-ref-error);
   }
   md-text-button {
-    --md-text-button-label-text-font: var(--mono);
+    --md-text-button-label-text-font: var(--magi-ref-mono);
     /* label-large, the role M3 assigns to a button. It was 11px — label-SMALL, a scale value in the
        wrong role — on eight of the page's twelve buttons. The editorial identity is the face and
        the letterspacing, both of which stay; M3 asks for a different typeface to keep the scale,
@@ -1390,56 +1390,56 @@ const indexHTML = `<!doctype html>
     --md-text-button-label-text-size: var(--md-sys-typescale-label-large-size);
     --md-text-button-label-text-line-height: var(--md-sys-typescale-label-large-line-height);
     --md-text-button-label-text-weight: 500;
-    --md-text-button-label-text-color: var(--muted);
-    --md-text-button-hover-label-text-color: var(--primary);
-    --md-text-button-focus-label-text-color: var(--primary);
-    --md-text-button-pressed-label-text-color: var(--primary);
-    --md-text-button-hover-state-layer-color: var(--primary);
-    --md-text-button-pressed-state-layer-color: var(--primary);
+    --md-text-button-label-text-color: var(--magi-ref-muted);
+    --md-text-button-hover-label-text-color: var(--magi-ref-primary);
+    --md-text-button-focus-label-text-color: var(--magi-ref-primary);
+    --md-text-button-pressed-label-text-color: var(--magi-ref-primary);
+    --md-text-button-hover-state-layer-color: var(--magi-ref-primary);
+    --md-text-button-pressed-state-layer-color: var(--magi-ref-primary);
     letter-spacing:0.0467em;
   }
   /* Removing something reads in the error colour on the way to being pressed, and only there: a
      control that is red at rest is a warning, and these are ordinary. */
   md-text-button.drop {
-    --md-text-button-hover-label-text-color: var(--error);
-    --md-text-button-focus-label-text-color: var(--error);
-    --md-text-button-pressed-label-text-color: var(--error);
-    --md-text-button-hover-state-layer-color: var(--error);
-    --md-text-button-pressed-state-layer-color: var(--error);
+    --md-text-button-hover-label-text-color: var(--magi-ref-error);
+    --md-text-button-focus-label-text-color: var(--magi-ref-error);
+    --md-text-button-pressed-label-text-color: var(--magi-ref-error);
+    --md-text-button-hover-state-layer-color: var(--magi-ref-error);
+    --md-text-button-pressed-state-layer-color: var(--magi-ref-error);
   }
   /* Interrupting reads the same way, and it is an ICON button — named md-text-button.stop it was
      styling nothing, so the one control on the fleet that halts a running turn was the only
      destructive-feeling thing on the page that stayed grey under the cursor. */
   md-icon-button.stop {
-    --md-icon-button-hover-icon-color: var(--error);
-    --md-icon-button-focus-icon-color: var(--error);
-    --md-icon-button-pressed-icon-color: var(--error);
-    --md-icon-button-hover-state-layer-color: var(--error);
-    --md-icon-button-pressed-state-layer-color: var(--error);
+    --md-icon-button-hover-icon-color: var(--magi-ref-error);
+    --md-icon-button-focus-icon-color: var(--magi-ref-error);
+    --md-icon-button-pressed-icon-color: var(--magi-ref-error);
+    --md-icon-button-hover-state-layer-color: var(--magi-ref-error);
+    --md-icon-button-pressed-state-layer-color: var(--magi-ref-error);
   }
   md-outlined-text-field#t { flex:1; }
   md-outlined-text-field {
-    --md-sys-color-primary: var(--primary);
-    --md-sys-color-on-surface: var(--md-on-surface);
-    --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
-    --md-sys-color-outline: var(--outline);
+    --md-sys-color-primary: var(--magi-ref-primary);
+    --md-sys-color-on-surface: var(--magi-ref-on-surface);
+    --md-sys-color-on-surface-variant: var(--magi-ref-on-surface-variant);
+    --md-sys-color-outline: var(--magi-ref-outline);
     --md-sys-color-surface: transparent;
-    --md-outlined-text-field-input-text-font: var(--mono);
+    --md-outlined-text-field-input-text-font: var(--magi-ref-mono);
     /* 16px, and not because the scale says so: under 16 iOS Safari zooms the page when a field
        takes focus and does not zoom back. The component's own default is smaller. */
     --md-outlined-text-field-input-text-size: 16px;
-    --md-outlined-text-field-label-text-font: var(--mono);
+    --md-outlined-text-field-label-text-font: var(--magi-ref-mono);
   }
   /* The select is a text field wearing a menu, and it reads its own copy of these. */
   md-outlined-select {
-    --md-sys-color-primary: var(--primary);
-    --md-sys-color-on-surface: var(--md-on-surface);
-    --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
-    --md-sys-color-outline: var(--outline);
-    --md-sys-color-surface-container: var(--md-surface-container);
-    --md-outlined-select-text-field-input-text-font: var(--mono);
+    --md-sys-color-primary: var(--magi-ref-primary);
+    --md-sys-color-on-surface: var(--magi-ref-on-surface);
+    --md-sys-color-on-surface-variant: var(--magi-ref-on-surface-variant);
+    --md-sys-color-outline: var(--magi-ref-outline);
+    --md-sys-color-surface-container: var(--magi-ref-surface-container);
+    --md-outlined-select-text-field-input-text-font: var(--magi-ref-mono);
     --md-outlined-select-text-field-input-text-size: 16px;
-    --md-outlined-select-text-field-label-text-font: var(--mono);
+    --md-outlined-select-text-field-label-text-font: var(--magi-ref-mono);
   }
   /* The composer's two are Material Web buttons. Their shape, state layers, ripple and touch
      target come from the component — this page only tells them which colours magi uses, through
@@ -1463,7 +1463,7 @@ const indexHTML = `<!doctype html>
     .thead { display:none; }   /* no columns left to label */
     .card {
       grid-template-columns:auto auto 1fr;
-      gap:var(--space-50) var(--space-200); padding:var(--space-200) var(--space-150) var(--space-200);
+      gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-200) var(--magi-sys-space-150) var(--magi-sys-space-200);
     }
     /* Everything takes the full width unless it is placed. The cells stay exactly as they are —
        a row still has as many cells as the head has columns — and only where they sit changes. */
@@ -1493,16 +1493,16 @@ const indexHTML = `<!doctype html>
        host rules that could not reach a label: a migration that leaves the old CSS behind leaves
        it pointing at nothing. */
     .composer md-outlined-text-field#t { flex:1 0 100%; }
-    header { padding-left:var(--space-200); padding-right:var(--space-200); }
-    main { padding:var(--space-200) var(--space-200) calc(var(--dock, var(--space-1600)) + var(--space-300)); }
-    .card .name { font:600 var(--title-l) var(--display); }
-    .row { grid-template-columns:1fr; gap:var(--space-50); }
+    header { padding-left:var(--magi-sys-space-200); padding-right:var(--magi-sys-space-200); }
+    main { padding:var(--magi-sys-space-200) var(--magi-sys-space-200) calc(var(--dock, var(--magi-sys-space-1600)) + var(--magi-sys-space-300)); }
+    .card .name { font:600 var(--magi-sys-title-l) var(--magi-ref-display); }
+    .row { grid-template-columns:1fr; gap:var(--magi-sys-space-50); }
     .who { text-align:left; }
     .row.user .txt { font-size:var(--md-sys-typescale-body-large-size); }
     /* The prompt's inner column narrows with the rest of them. Left out, it kept the 1.4rem the
        wide layout gives it and the question sat 6px right of the transcript it is about — which is
        the same misalignment the dock had, one breakpoint down. */
-    form, #prompt .inner { padding-left:var(--space-200); padding-right:var(--space-200); }
+    form, #prompt .inner { padding-left:var(--magi-sys-space-200); padding-right:var(--magi-sys-space-200); }
     /* A phone's rail is a section at the foot of the page rather than a drawer, so there is nothing
        to open and nothing to dim behind. */
     #scrim { display:none; }
@@ -1528,9 +1528,9 @@ const indexHTML = `<!doctype html>
     /* The rail's room is taken from the BODY, not from the page's own padding. Taken from the
        padding it came out of the CONTENT box, which is why the masthead's rule ran 102px further
        left than the words above it — a border is drawn on the box and padding sits inside it. */
-    body { padding-left:var(--rail-w); }
-    header, main, #prompt .inner, form { padding-left:var(--space-300); padding-right:var(--space-300); }
-    #dock { padding-left:var(--rail-w); }
+    body { padding-left:var(--magi-comp-rail-w); }
+    header, main, #prompt .inner, form { padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300); }
+    #dock { padding-left:var(--magi-comp-rail-w); }
     /* Open, it is a floating panel. Closed, it is part of the furniture. */
 
     #tabs, #themeToggle { display:none; }
@@ -1548,7 +1548,7 @@ const indexHTML = `<!doctype html>
      one you glance at. Everything below is that 455 coming down. */
   @media (max-width:37.4375em) {
     /* The masthead on one line. It wrapped, so the brand and the count each took a row. */
-    header { padding-top:calc(var(--space-100) + env(safe-area-inset-top)); padding-bottom:var(--space-100); gap:var(--space-100); }
+    header { padding-top:calc(var(--magi-sys-space-100) + env(safe-area-inset-top)); padding-bottom:var(--magi-sys-space-100); gap:var(--magi-sys-space-100); }
     header .mark { font-size:var(--md-sys-typescale-title-large-size); }
     /* The count on the SAME line as the brand. Given its own row it cost 40px of the first screen
        to say something that fits beside a five-letter word. It is allowed to shrink and to clip:
@@ -1583,7 +1583,7 @@ const indexHTML = `<!doctype html>
        reachable, which stacking also did but at three times the cost. */
     #summary {
       flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none;
-      margin:var(--space-200) 0 var(--space-50); padding-bottom:var(--space-150);
+      margin:var(--magi-sys-space-200) 0 var(--magi-sys-space-50); padding-bottom:var(--magi-sys-space-150);
     }
     #summary::-webkit-scrollbar { display:none; }
     .tile { flex:0 0 auto; }
@@ -1592,16 +1592,16 @@ const indexHTML = `<!doctype html>
   @media (max-width:37.4375em) {
     #rail {
       position:static; transform:none; width:auto; overflow:visible;
-      border-right:0; border-top:1px solid var(--outlineVariant);
-      background:none; padding:var(--space-300) var(--space-300) var(--space-400); margin-top:var(--space-300);
+      border-right:0; border-top:1px solid var(--magi-ref-outlineVariant);
+      background:none; padding:var(--magi-sys-space-300) var(--magi-sys-space-300) var(--magi-sys-space-400); margin-top:var(--magi-sys-space-300);
     }
     /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
        all. The preferences it used to carry are in the dialog now. */
     #rail { display:none; }
     /* The aside is four cards of context under a conversation, which is a long way to scroll for
        something you glance at. Tighter, so the transcript keeps the screen. */
-    #side { gap:var(--space-150); }
-    #side md-outlined-card { padding:var(--space-200) var(--space-200); }
+    #side { gap:var(--magi-sys-space-150); }
+    #side md-outlined-card { padding:var(--magi-sys-space-200) var(--magi-sys-space-200); }
     #history .hs, .ho { grid-template-columns:4.5rem 1fr; }
     }
 

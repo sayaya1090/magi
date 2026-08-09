@@ -71,8 +71,26 @@ const sheets = await page.evaluate(() => {
     })(0, src.length);
     for (let i = 0; i < src.length; i++) { const k = skip(src, i); if (k > 0) { i = k - 1; continue; }
       if (src[i] === '{') balance++; else if (src[i] === '}') balance--; }
+    // A var() that resolves to nothing and has no fallback. The value is syntactically fine, so
+    // CSS.supports says yes and the declaration is kept — and then it computes to nothing and the
+    // element takes whatever it inherits. A rename that missed one file left a banner without a
+    // font this way: valid, parsed, and 29px taller than it had been.
+    const dangling = [];
+    const rootStyle = getComputedStyle(document.documentElement);
+    for (const m of src.matchAll(/var\(\s*(--[a-zA-Z0-9-]+)\s*([,)])/g)) {
+      const [, name, next] = m;
+      if (next === ',') continue;                       // has a fallback, so nothing is lost
+      if (rootStyle.getPropertyValue(name).trim()) continue;
+      // It may be defined on a subtree rather than the root; ask the elements that use it.
+      let found = false;
+      for (const el of document.querySelectorAll('*')) {
+        if (getComputedStyle(el).getPropertyValue(name).trim()) { found = true; break; }
+      }
+      if (!found) dangling.push(name);
+    }
     out.push({ balance, rules: el.sheet ? el.sheet.cssRules.length : -1,
-               unknown: [...new Set(unknown)], bogus: [...new Set(bogus)] });
+               unknown: [...new Set(unknown)], bogus: [...new Set(bogus)],
+               dangling: [...new Set(dangling)] });
   }
   return out;
 });
@@ -89,7 +107,12 @@ sheets.forEach((s, i) => {
     console.log(`⚠ ${tag}브라우저가 버리는 값 ${s.bogus.length}개:`);
     s.bogus.forEach(n => console.log('   ', n));
   }
-  if (!s.unknown.length && !s.bogus.length) console.log(`${tag}규칙 ${s.rules}개 · 모든 선언이 유효`);
+  if (s.dangling && s.dangling.length) { bad++;
+    console.log(`⚠ ${tag}정의되지 않은 var() ${s.dangling.length}개 (폴백도 없음):`);
+    s.dangling.forEach(n => console.log('   ', n));
+  }
+  if (!s.unknown.length && !s.bogus.length && !(s.dangling || []).length)
+    console.log(`${tag}규칙 ${s.rules}개 · 모든 선언이 유효`);
 });
 process.exitCode = bad ? 1 : 0;
 await browser.close();

@@ -117,7 +117,9 @@ func themeRoles(t *testing.T) (dark, light map[string]string) {
 	if lightAt < 0 || endAt < 0 {
 		t.Fatal("the page's palette blocks are not where this check expects them")
 	}
-	pair := regexp.MustCompile(`--([A-Za-z]+):(#[0-9A-Fa-f]{6})`)
+	// The reference layer wears its namespace now, and the role is what follows it — the pattern
+	// that read a bare name found none and reported every role missing from both themes.
+	pair := regexp.MustCompile(`--magi-ref-([A-Za-z]+):(#[0-9A-Fa-f]{6})`)
 	read := func(s string) map[string]string {
 		out := map[string]string{}
 		for _, m := range pair.FindAllStringSubmatch(s, -1) {

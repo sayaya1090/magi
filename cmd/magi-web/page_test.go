@@ -478,24 +478,24 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 //
 // The rail's width and the gutter the page reserves were one number, so widening the rail widened
 // the gutter: main and the header stayed put while everything inside them shifted 184px right and
-// lost 184px of width, which is the reflow that kept being reported. Two names now — --rail-w for
-// the gutter, --rail-now for how wide the rail is drawing itself — and the page must only ever read
+// lost 184px of width, which is the reflow that kept being reported. Two names now — --magi-comp-rail-w for
+// the gutter, --magi-comp-rail-now for how wide the rail is drawing itself — and the page must only ever read
 // the first. Checked as a rule about which name appears where, because the effect is a layout in a
 // browser and this is the thing that can be asserted about the text.
 func TestTheDrawerDoesNotTakeWidthFromThePage(t *testing.T) {
 	css := indexHTML
-	// --rail-w is declared once, at :root, and never redefined. A second declaration anywhere is a
+	// --magi-comp-rail-w is declared once, at :root, and never redefined. A second declaration anywhere is a
 	// gutter that changes with something, which is the defect.
-	if n := strings.Count(css, "--rail-w:"); n != 1 {
-		t.Errorf("--rail-w is declared %d times; the gutter the page reserves is one constant", n)
+	if n := strings.Count(css, "--magi-comp-rail-w:"); n != 1 {
+		t.Errorf("--magi-comp-rail-w is declared %d times; the gutter the page reserves is one constant", n)
 	}
-	if !strings.Contains(css, "--rail-now:16rem") {
+	if !strings.Contains(css, "--magi-comp-rail-now:16rem") {
 		t.Error("nothing widens the rail; the drawer cannot open")
 	}
-	// Whatever reads the live width, it must be the rail itself. Anything else reading --rail-now
+	// Whatever reads the live width, it must be the rail itself. Anything else reading --magi-comp-rail-now
 	// is a part of the page that moves when the drawer does.
 	for _, line := range strings.Split(css, "\n") {
-		if !strings.Contains(line, "var(--rail-now") {
+		if !strings.Contains(line, "var(--magi-comp-rail-now") {
 			continue
 		}
 		if !strings.Contains(line, "width:") {
@@ -646,10 +646,10 @@ func TestTheShapeAndTypeScalesHaveNothingOffThem(t *testing.T) {
 	css = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
 
 	// Radii come from the scale tokens or are zero. A literal percentage is the same circle a
-	// --shape-full gives on a 7px box, and it is off the list a reader is told everything is on.
+	// --magi-sys-shape-full gives on a 7px box, and it is off the list a reader is told everything is on.
 	for _, m := range regexp.MustCompile(`border-radius:\s*([^;}]+)`).FindAllStringSubmatch(css, -1) {
 		v := strings.TrimSpace(m[1])
-		if strings.HasPrefix(v, "var(--shape-") || v == "0" || v == "inherit" {
+		if strings.HasPrefix(v, "var(--magi-sys-shape-") || v == "0" || v == "inherit" {
 			continue
 		}
 		t.Errorf("border-radius:%s is not on the shape scale", v)

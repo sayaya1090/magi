@@ -290,8 +290,8 @@ const demoScript = `
 <style>
   .demo-banner {
     position:sticky; top:0; z-index:50; padding:.55rem 1.2rem;
-    background:var(--primaryContainer); color:var(--fg);
-    font:600 11px/1.5 var(--mono); letter-spacing:.06em; border-bottom:1px solid var(--outlineVariant);
+    background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);
+    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); letter-spacing:.06em; border-bottom:1px solid var(--magi-ref-outlineVariant);
   }
 </style>
 `
