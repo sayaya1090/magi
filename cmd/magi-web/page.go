@@ -658,11 +658,10 @@ const indexHTML = `<!doctype html>
   }
   /* Where the icons are, not centred on whatever width the rail happens to be. Centred, it slid
      sideways every time the rail widened — the one control that should not move when you press it. */
-  #railMenu { align-self:start; margin:0 0 var(--space-50) var(--space-50); }
+  #railMenu { align-self:start; margin-left:var(--space-50); }
   #railMenu .ic-close { display:none; }
   body[nav="open"] #railMenu .ic-open { display:none; }
   body[nav="open"] #railMenu .ic-close { display:block; }
-  #themeToggle { margin-left:var(--space-50); }
   /* One of the two is always hidden, and which one follows the theme in force — including when that
      theme is the machine's, so the query appears here as well as the attribute. Same pairing the
      palette uses, for the same reason: a reader can override the machine in both directions. */
@@ -1012,7 +1011,11 @@ const indexHTML = `<!doctype html>
 
      A card lays its slotted children out itself (:host is flex, and a slot is display:contents),
      so a display of ours on the host wins and the children stay grid items. */
-  md-outlined-card { padding:var(--space-200) var(--space-200); margin-bottom:var(--space-300); }
+  /* No margin. Every place a card is put is a flex column with a gap, so a margin under it was
+     that gap twice — 48px below the detail card where 24 was asked for — and #side already
+     carried a margin-bottom:0 to undo it in the one place somebody noticed. The container
+     spaces its children; the child does not space itself. */
+  md-outlined-card { padding:var(--space-200) var(--space-200); }
   #detail { display:flex; flex-direction:column; gap:var(--space-200); }
   #detail .grid {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
@@ -1042,7 +1045,7 @@ const indexHTML = `<!doctype html>
      stylesheet and cannot see into a shadow root, so that opacity is not covered — which is the
      right answer rather than a gap: WCAG exempts inactive controls, and the repo's own rule
      against dimming was about text somebody still has to read. */
-  #detail .f .fold { justify-self:start; margin-top:var(--space-100); }
+  #detail .f .fold { justify-self:start; }
 
   /* The conversation and the facts about it, side by side where there is room. The transcript is
      the wider of the two because its lines are code; the aside is a reading column of short
@@ -1106,7 +1109,6 @@ const indexHTML = `<!doctype html>
   }
   #sideToggle { display:none; align-self:flex-end; margin-bottom:calc(-1 * var(--space-150)); }
   #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--space-300); }
-  #side md-outlined-card { margin-bottom:0; }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
@@ -1163,7 +1165,7 @@ const indexHTML = `<!doctype html>
   .wcard .wlabel:hover { background:color-mix(in srgb, var(--primary) 22%, transparent); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
-  .boardhead md-icon-button { align-self:end; margin-bottom:var(--space-100); }
+  .boardhead md-icon-button { align-self:end; }
   /* Scrolls sideways, and ONLY here. The page must never do it, but a board of lanes is the one
      shape where sideways is the reading direction, and clipping a lane would hide a companion. */
   .lanes { display:flex; gap:var(--space-300); align-items:flex-start; overflow-x:auto; padding-bottom:var(--space-100); }
@@ -1179,7 +1181,6 @@ const indexHTML = `<!doctype html>
   .lanes { scrollbar-width:thin; }
   #board { padding-right:0; }
   /* Set apart from the chips it sits beside: they filter this list and it leaves it. */
-  #summary .toboard { margin-left:var(--space-100); }
   .lanes::after { content:""; flex:0 0 1.4rem; }   /* the last lane gets a right edge too */
   .lanehead {
     display:flex; gap:var(--space-100); align-items:baseline;
