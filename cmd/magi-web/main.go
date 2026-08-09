@@ -357,6 +357,44 @@ func (s *server) session(w http.ResponseWriter, r *http.Request) (session.Sessio
 	return session.SessionID(in.Session), true
 }
 
+// sameSiteOnly rejects a state-changing request that another site sent.
+//
+// Binding to loopback keeps the network out and does nothing about the browser. Any page the
+// operator visits can POST to 127.0.0.1: a form-urlencoded body is a CORS "simple request", so it
+// goes without a preflight, and the attacker never needs to read the reply — the side effect has
+// already happened. Measured before this existed: a page on an unrelated origin wrote
+// [mcp.pwned] command = "/bin/sh" into the global config, and a daemon runs its configured MCP
+// servers at startup. Visiting a web page was arbitrary code execution.
+//
+// Two headers settle it, and script cannot forge either. Sec-Fetch-Site says where the request
+// came from; Origin is set by the browser on every POST and is on the forbidden-header list. A
+// request with NEITHER is not from a browser at all — curl, a script, the operator's own shell —
+// and that is allowed, because this server is loopback-only and those are the operator.
+//
+// Applied by wrapping the mux rather than by calling it in each handler: a route added later is
+// covered by existing, which is the difference between a rule and a list somebody maintains.
+func sameSiteOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			h(w, r) // a cross-origin read cannot see the reply; the browser blocks that itself
+			return
+		}
+		switch r.Header.Get("Sec-Fetch-Site") {
+		case "", "same-origin", "none":
+			// same-origin, or a client that sends no fetch metadata
+		default:
+			http.Error(w, "cross-site requests are refused", http.StatusForbidden)
+			return
+		}
+		if o := r.Header.Get("Origin"); o != "" &&
+			o != "http://"+r.Host && o != "https://"+r.Host {
+			http.Error(w, "cross-origin requests are refused", http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	}
+}
+
 // postOnly rejects a read method on a handler that changes something.
 func postOnly(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodPost {
@@ -461,10 +499,23 @@ func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
 
 // routes is every path this server answers, in one place.
 //
+// Wrapped where the table is built, not where the server is started: a guard applied at the call
+// site is one a later route can be added beside, and a test that calls the wrapper directly passes
+// either way — measured, by removing the wrapping and watching the check stay green.
+//
 // A list rather than a run of mux.HandleFunc calls because the page links to some of these, and a
 // test checks that everything the page references is a path this binary serves — which is the real
 // meaning of "self-contained", and cannot be checked against a list that exists only as statements.
 func (s *server) routes() map[string]http.HandlerFunc {
+	out := map[string]http.HandlerFunc{}
+	for path, h := range s.handlers() {
+		out[path] = sameSiteOnly(h)
+	}
+	return out
+}
+
+// handlers is the table itself. routes() is what anything outside gets, and it is the wrapped one.
+func (s *server) handlers() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
 		"/":                     s.page,
 		"/fleet":                s.fleet,

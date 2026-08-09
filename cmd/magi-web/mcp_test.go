@@ -174,3 +174,85 @@ func TestAnUnusableServerDefinitionIsRefused(t *testing.T) {
 		t.Errorf("GET /mcp answered %d", w.Code)
 	}
 }
+
+// A page on another site cannot change anything here.
+//
+// Loopback keeps the network out and does nothing about the browser: any page the operator visits
+// can POST to 127.0.0.1, a form-urlencoded body is a CORS simple request so it goes without a
+// preflight, and the attacker never needs to read the reply. Measured before the guard existed —
+// a page served from a different port wrote [mcp.pwned] command = "/bin/sh" into the global
+// config, and a daemon runs its configured MCP servers at startup. That is arbitrary code
+// execution from visiting a web page.
+//
+// The headers here are the ones a browser sets and script cannot: Origin is on the forbidden list,
+// and Sec-Fetch-Site is fetch metadata. A request carrying neither is not a browser — curl, a
+// script, the operator's own shell — and is allowed, because this server is loopback-only.
+// guardsEverything asks the table whether every route refuses a cross-site POST. It is the wiring
+// half of the check: the guard existing and the guard being ON every route are two facts.
+func guardsEverything(s *server) bool {
+	for path, h := range s.routes() {
+		r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777"+path, nil)
+		r.Host = "127.0.0.1:7777"
+		r.Header.Set("Origin", "http://evil.example")
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		w := httptest.NewRecorder()
+		h(w, r)
+		if w.Code != http.StatusForbidden {
+			return false
+		}
+	}
+	return true
+}
+
+func TestAnotherSiteCannotChangeAnything(t *testing.T) {
+	// Through routes(), which is what the server mounts — not through sameSiteOnly directly. A test
+	// that calls the wrapper by hand passes whether or not anything uses it, and this one was that
+	// test until removing the wrapping left it green.
+	var reached bool
+	srv := &server{}
+	table := srv.routes()
+	inner := srv.handlers()["/mcp"]
+	if inner == nil || table["/mcp"] == nil {
+		t.Fatal("no /mcp route to guard")
+	}
+	// Stand a counter in for the real handler, wrapped the way routes() wraps.
+	h := sameSiteOnly(func(w http.ResponseWriter, r *http.Request) { reached = true })
+	if !guardsEverything(srv) {
+		t.Error("some route reaches its handler without the cross-site guard")
+	}
+
+	for _, c := range []struct {
+		what   string
+		method string
+		hdr    map[string]string
+		want   int
+	}{
+		{"a page on another site", "POST", map[string]string{
+			"Origin": "http://evil.example", "Sec-Fetch-Site": "cross-site"}, http.StatusForbidden},
+		{"another port on this machine", "POST", map[string]string{
+			"Origin": "http://localhost:8899", "Sec-Fetch-Site": "cross-site"}, http.StatusForbidden},
+		{"a sibling site with no fetch metadata", "POST", map[string]string{
+			"Origin": "http://evil.example"}, http.StatusForbidden},
+		{"the console itself", "POST", map[string]string{
+			"Origin": "http://127.0.0.1:7777", "Sec-Fetch-Site": "same-origin"}, http.StatusOK},
+		{"curl, which sends neither", "POST", nil, http.StatusOK},
+		// A cross-origin READ is the browser's problem and it already refuses to hand over the
+		// reply; blocking it here would break nothing an attacker has and the page's own polling.
+		{"a cross-site GET", "GET", map[string]string{"Sec-Fetch-Site": "cross-site"}, http.StatusOK},
+	} {
+		reached = false
+		r := httptest.NewRequest(c.method, "http://127.0.0.1:7777/mcp", nil)
+		r.Host = "127.0.0.1:7777"
+		for k, v := range c.hdr {
+			r.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		h(w, r)
+		if w.Code != c.want {
+			t.Errorf("%s: got %d, want %d", c.what, w.Code, c.want)
+		}
+		if got := reached; got != (c.want == http.StatusOK) {
+			t.Errorf("%s: the handler was %sreached", c.what, map[bool]string{true: "", false: "not "}[got])
+		}
+	}
+}
