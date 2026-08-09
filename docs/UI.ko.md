@@ -233,10 +233,13 @@ magi는 산문을 믿지 않고 섹션을 **검사한다.** "해본 것을 적�
 | | |
 |---|---|
 | 셰이프 | 반경 8개, **스케일 밖 0**(4·8·12·16·24·full + 이유를 적은 0) |
-| 타이포 | 리터럴은 11·12·14·16px, 나머지는 토큰. **스케일 밖 0** |
+| 타이포 | **px 리터럴 0**. 크기는 전부 `--md-sys-typescale-*`에서 온다 |
 | 색 | `on-` 롤 10개, 표면 컨테이너 5개, 양쪽 테마 |
 | 상호작용 | 컴포넌트 11종이 각자 자기 것을 가져온다. 우리 스테이트 레이어 한 벌은 컴포넌트가 아닌 표면 7곳에만 |
-| 모션 | `cubic-bezier(0.2, 0, 0, 1)` / 100ms — material-components-android Motion.md 확인값 |
+| 모션 | 키프레임이 있고 `prefers-reduced-motion` 탈출구가 있다; 그 블록이 살려두는 transition에 **`transform`이 들어가면 안 된다** — 들어가면 페이지는 여전히 움직인다 |
+| 타이포 | px 폰트 크기가 한 곳도 없다. 크기는 `--md-sys-typescale-*`에서 오고, 그래야 리더가 키운 기본 글꼴이 닿는다 |
+| 여백 | `padding`·`gap`·`margin`에 rem 리터럴이 없다. 스케일은 `--magi-sys-space-*` 여덟 개 |
+| 입력 | 사람이 타이핑하는 것은 16px 미만이 없다 — iOS Safari가 확대하고 되돌리지 않는 경계 |
 | 타깃 | 최소 48px(Material 기준). 우리 `:focus-visible` 규칙 4개, 나머지는 컴포넌트의 것 |
 
 ### 3.1b 컴포넌트, 그리고 우리에게 남은 것
@@ -434,11 +437,48 @@ WCAG AA를 넘긴다. 모든 대화형 요소에 `:focus-visible` 윤곽이 있�
 정도)을 두고, 테스트가 node로 페이지의 진짜 JS를 돌린다. 이 가짜가 표현하지 못하는 것을 페이지가
 하려 들면 그건 페이지가 과한 것이라는 신호다(jsdom을 쓰지 않는 이유).
 
-⚠ **이 가짜가 세 번 틀렸고, 세 번 다 버그를 감추는 방향이었다.** 각각의 교정이 그것이 풀어준 테스트
-보다 값이 나간다: `textContent`가 자식을 안 지워서 문자열+버튼으로 재조립한 표시가 옛 버튼을 남겼고,
-`matchMedia`가 `min-width` 질의에 좁은 화면 플래그를 그대로 답해서 좁은 화면이 "아니오"라고 답해야
-할 질문에 "예"라고 했고, `addEventListener`가 no-op이라 md-tabs의 `change`(그 컴포넌트가 전환을
-알리는 유일한 방법)를 듣는 페이지가 아무 일도 안 하면서 통과했다.
+⚠ **이 가짜가 일곱 번 틀렸고, 일곱 번 다 버그를 감추는 방향이었다.** 각각의 교정이 그것이 풀어준
+테스트보다 값이 나간다: `textContent`가 자식을 안 지웠고, `matchMedia`가 `min-width` 질의에 좁은
+화면 플래그를 그대로 답했고, `addEventListener`가 no-op이었고, `children`이 배열이라 `indexOf`가
+여기선 통과하고 브라우저에선 던졌고, id 목록을 손으로 유지했고, `dataset`이 없었고, `classList`에
+add·remove·contains는 있는데 **`toggle`이 없었다**.
+
+**그리고 레이아웃이 아예 없다** — 넘침·기하·손가락이 닿는 범위·색이 실제로 계산되는 값은 이 가짜가
+볼 수 없는 부류다. 그것들은 진짜 브라우저에서 잰다.
+
+### 5.1 브라우저에서 재는 것
+
+`scratchpad/`에 프로브 다섯. 방출된 데모를 헤드리스 크로미움에서 돌린다. 목서버가 이제 **움직이기**
+때문에 살아 있는 부분을 볼 수 있다 — 상태가 순환하고, 플랜이 바뀌고, 컨텍스트 게이지가 찼다 접히고,
+연결이 끊겼다 돌아온다.
+
+| | |
+|---|---|
+| `measure.mjs` | 헤딩·라이브영역·포커스 가능 요소·`div`+onclick·부모를 벗어난 자식 |
+| `contrast.mjs` | 양 테마 WCAG 1.4.3, **섀도우 루트 관통** |
+| `geom.mjs` | 4화면 전 상자 스냅샷 — 빌드 간 diff용 |
+| `cssvalid.mjs` | 모르는 프로퍼티 이름·브라우저가 버리는 값·정의 안 된 `var()` |
+| `verify.mjs` | 터치 타겟·키보드 포커스 지시자·말줄임·320px과 기본글꼴 32px에서의 리플로우 |
+
+⚠ **일부러 깨뜨려 잡히는 것을 본 뒤에만 프로브를 믿는다.** 한 세션에 나온 지적 여섯 건이 페이지가
+아니라 **프로브 자신의 결함**이었다:
+
+- `document.querySelectorAll` 기반 대비 검사는 `md-*` 컴포넌트의 텍스트를 하나도 못 읽는다 —
+  읽지도 않은 페이지를 깨끗하다고 보고했다;
+- 배경 탐색도 섀도우 경계를 넘어야 한다. 안 넘기면 배경을 못 찾아 검정으로 가정하고 라이트 테마
+  라벨 10개를 가짜 위반으로 만든다;
+- CSS 원문 대 CSSOM 비교는 **파서와 똑같은 실수를 재현**해 둘이 합의한다. 살아남는 신호는
+  **이름**이다 — 산문은 프로퍼티 이름이 될 수 없다;
+- 이름이 진짜여도 값이 죽을 수 있다(`-var(--x)`). 값도 따로 물어야 하고, `!important`는 떼야 한다;
+- 상자를 재는 프로브는 **히트 영역을 못 본다**(섀도우 `.touch`도 `::after`도 트리의 상자가 아님) —
+  문서에게 그 점의 주인을 물어야 한다;
+- 0크기 요소는 화면에 없고, `disabled` 컨트롤은 타겟이 아니다. Material은 disabled를 touch span을
+  끄는 것으로 표시하므로, 안 거르면 **라이브러리의 방어를 결함으로 보고**한다.
+
+⚠ **게이트 자체도 한 세션에 두 번 거짓말했다.** 출력에서 `--- FAIL`을 grep하던 래퍼가 Go 구문
+오류를 초록으로 보고했다 — 빌드 실패는 그 문자열도, 그 필터가 남기는 어떤 것도 찍지 않는다.
+**종료 코드로 판정할 것.** 두 오류 다 같은 실수였다: 주석 안의 백틱이 페이지 전체가 들어 있는
+원시 문자열을 거기서 끝낸다.
 
 상시 가드 — 각각 지키는 대상을 지워보고 깨지는 것을 확인했다:
 
@@ -451,7 +491,6 @@ WCAG AA를 넘긴다. 모든 대화형 요소에 `:focus-visible` 윤곽이 있�
 | 마이그레이션 | `button`·`textarea`·`select`·`input`을 이름 대는 규칙이 없다. 마크업에 그게 다시 생기면 검사가 먼저 깨진다 |
 | 언어 | 팩의 모든 문구를 페이지가 요청한다(접두사로 조립하는 키 포함). 자기 번역 키 옆에 영어 라벨이 없다 |
 | 드로어 | 레일 자신의 width 말고는 아무것도 살아있는 레일 폭을 읽지 않는다 |
-| 모션 | 키프레임이 있고 **그리고** 그걸 범용으로 덮는 `prefers-reduced-motion` 탈출구가 있다 |
 
 **데모가 죽은 콘솔을 감췄다.** 실제 magi-web에서 `import '/vendor/material.js'`가 404였다 —
 `asset`은 작성돼 있고 라우트에 등록된 적이 없었다 — 그리고 임포트가 실패한 모듈은 **아예 실행되지
@@ -617,7 +656,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 > ⚠ **이 표가 정본이다.** 상세 근거는 `.claude/skills/material-3/`(16파일)에 있으나 그 디렉토리는
 > **버전관리 밖**이라 항목 전량을 여기 옮겨 둔다.
 >
-> **45건 고침 · 9건 남음 · 4건 철회.** 남은 것은 A4(플릿→컴패니언 list-detail 재설계) · A6(MCP 폼→다이얼로그) · A9(자식 margin 25곳) · A15(배지 자릿수) · A41·A42(토큰) · A48(붉은색 둘). 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
+> **51건 고침 · 2건 남음 · 5건 철회.** 남은 것은 **A4**(플릿→컴패니언 list-detail 재설계)와 **A6**(MCP 폼→다이얼로그) 둘뿐이다. 읽기는 끝났다 — Styles 21경로 · Foundations 18경로
 > · 컴포넌트 **specs 36/36 · `/overview` 36/36 · accessibility 30/36 · guidelines 36/36**.
 > ⚠ 더 읽으면 항목이 **줄 수도** 있다: **A2·A3·A7이 철회**됐고 A12는 심각도가 두 번 바뀌었다.
 
@@ -629,9 +668,9 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | ~~A5~~ ✅ | 컴패니언 보조 판을 **닫을 수도 접을 수도 없다**(⚠ **폭은 결함이 아니다** — side sheet 범위가 **256~400dp**이고 22rem=**352px**는 그 안이다. 남은 것은 어포던스뿐) | ★★ **분류가 갈려도 결함 확정**: **side sheet면 닫기 아이콘 버튼이 필수**("Material requires… always present"), **fixed pane이면 드래그 핸들로 접고 펴기**. 선결 질문은 **고치는 모양**만 정한다. 원래 정리: 가이드는 판을 **flexible**(드래그 핸들로 **폭 조절**) 또는 **fixed**(드래그 핸들로 **접고 펴기** — 1판↔2판 전환) 둘 중 하나로 본다. **fixed 자체는 정상**이고, 빠진 것은 **어포던스**다. supporting pane 비율(주 영역 **약 2/3**)은 flexible을 고를 때 적용 | foundations §4.2 | **고침** — `#sideToggle`로 접기/펼치기, 선택은 컴패니언 사이를 넘어 기억된다 (4ae642f6) |
 | A6 | MCP 추가 폼 6필드가 목록 아래 **인라인**, 액션은 폼 안의 버튼 하나 | 다이얼로그로. **compact는 full-screen, 그 위는 basic**. 액션은 다이얼로그 슬롯에 `추가`+`취소`, 후행 정렬, 확정이 모서리에 가장 가깝게 | components §1 | 중간 |
 | ~~A8~~ ✅ | 여백 값이 **8dp 스케일 밖** — .35/.7/.9/1.1/1.2/1.4/1.6/2.4rem = 5.6/11.2/14.4/17.6/19.2/22.4/25.6/38.4dp | 여백은 **8dp 배수**(space100=8dp) | foundations §6.2 | **고침** — 26개 값 → 8개 `--space-*` 토큰(4dp 격자), 최대 이동 3.2dp. 테스트로 고정 (d53bf827) |
-| A9 | 자식 요소에 `margin`을 직접 거는 자리가 여럿(`.wlabel`, `.toboard`, `.skwrite` 등) | ❌ 자식에 margin 금지. **부모에 padding+gap** | foundations §6.1 | 중간 |
+| ~~A9~~ ✅ | 자식 요소에 `margin`을 직접 거는 자리가 여럿(`.wlabel`, `.toboard`, `.skwrite` 등) | ❌ 자식에 margin 금지. **부모에 padding+gap** | foundations §6.1 | **고침** — 부모가 이미 `gap`을 주는데 자식이 `margin`을 덧대던 6곳 제거(상세 카드 아래 48px→24px 등). `#side md-outlined-card{margin-bottom:0}`이라는 **없는 마진을 되돌리던 죽은 규칙**도 함께. 나머지 19곳은 `margin-left:auto`(정렬)와 음수 블리드라 이 규칙의 대상이 아니다 (67e67e56) |
 | ~~A13~~ ⊘ | `font-variation-settings` **0건** — 가변 폰트 축을 아예 안 쓴다 | 다크 배경 아이콘 **grade −25**, 밀집 데스크톱 **opsz 20**, 24dp 최소 **wght 200** | styles §11.1 | ⚠ **철회** — magi는 가변 폰트 축을 쓰는 Material Symbols를 아예 안 쓴다 |
-| A15 | 배지가 접힘/펼침에 상관없이 **한 자리** | 접힘=**아이콘 우상단**, 펼침=**라벨 옆** | components/nav-rail | 작다 |
+| ~~A15~~ ✅ | 배지가 접힘/펼침에 상관없이 **한 자리** | 접힘=**아이콘 우상단**, 펼침=**라벨 옆** | components/nav-rail | **고침** — 접힘=아이콘 우상단 / 펼침=라벨 뒤 8px. ⚠ 기전이 **둘이었고 하나는 죽어 있었다**: CSS가 `calc(100% + 9.2rem)`으로 밀고 `paint()`가 재부모화를 했는데 `paint()`는 내비 토글에 안 걸려 한 번도 안 돌았다. 고정 오프셋이라 **영어 라벨 뒤 52px · 한국어 뒤 87px** — 언어 의존의 정체. 이제 흐름이 자리를 정하므로 계산이 없다 (a748aa5c, 621cbcaa) |
 | ~~A16~~ ✅ | 이미 선택된 목적지를 **다시 눌러도 맨 위로 안 간다**(확인 필요) | 재선택 = 스크롤 top | components/nav-bar | **고침** — 같은 목적지를 다시 누르면 맨 위로 (3b40835e) |
 | ~~A17~~ ✅ | `#ptabs`(대화/상태)가 **`md-primary-tab`** | 콘텐츠 영역 **안**의 두 번째 층은 **secondary tab**. secondary는 primary 아래에 | components/tabs | **고침** — 2단 탭은 `md-secondary-tab` (d830126b) |
 | ~~A32~~ ✅ | 탭 패널 전환(`#ptabs`)이 **fadeThrough + scale(.96)** | **Lateral**은 ⚠ **"does not use a fade or parallax effect… slide in unison"**. 이유까지 있다: ⚠ **"Fading content as it slides makes the peer relationship and swipe gesture less obvious"** + forward/backward로 **오해된다** | styles/motion/transitions(패턴·적용 **두 장**) | **고침** — 동급 전환은 옆으로 미끄러진다 (917c14cb) |
@@ -639,8 +678,8 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | ~~A36~~ ✅ | `text-transform:uppercase` **21곳** — ⚠ 머리글만이 아니다: **버튼 라벨 2곳**(전역 `md-text-button`, `.answer md-filled-tonal-button`), **내비 라벨**(`#rail md-list`), **링크**(`#back`), **상태 값** 포함 | ❌ "**Avoid using caps blocks altogether; they're not accessible.**" / "**Use sentence case for all product text.**" ★ **예외 조항이 존재하지 않는다**(h3 13개 전수 확인). 대체 수단도 지정한다: "**use bold weight instead**" | style-guide/grammar-and-punctuation | **고침** — `text-transform:uppercase` 0곳 (7208bac7) |
 | ~~A37~~ ✅ | 영어 라벨 **143개 중 102개가 소문자 시작**(`nav.board:"board"`) | sentence case = "only the first letter of the first word **is capitalized**" | content-design/style-guide | **고침** — 문장 대소문자 (69e220e8) |
 | ~~A40~~ ✅ | `#state`(page.go:1329-1333)와 `.foldbar .sum`(935)이 **말줄임으로 자르는데 툴팁·링크가 없다** | ❌ "**Don't cut off text without providing a way for users to view it**" / "Truncated text can be replaced with an ellipsis **if the text is available through a tooltip or link**" | writing/text-truncation | **고침** — 잘린 것은 툴팁으로 읽히고, 포커스는 링을 그린다 (bac3f4cd) |
-| A41 | **sys 토큰 ~22개가 정적 값을 직접 보유** — 타입스케일 px 20개(148-176) + `shadow`·`scrim` hex(135-136) | "Whenever possible, **system tokens should point to reference tokens rather than static values**" | design-tokens | **중간** — ⚠ 색은 계층을 지켰는데 **타이포만 안 지켰다** |
-| A42 | 자체 토큰에 **시스템명·클래스 접두사 없음**(`--shape-*`·`--ease-*`·`--measure`·`--melchior` 등) | "All token names **start with the system name**" + "an abbreviation for the token class: **ref / sys / comp**" | design-tokens | **작다** — ⚠ 한 파일에 두 규약이 공존. 다만 **어떤 이름으로 바꿀지는 이 페이지에 근거가 없다** |
+| ~~A41~~ ✅ | **sys 토큰 ~22개가 정적 값을 직접 보유** — 타입스케일 px 20개(148-176) + `shadow`·`scrim` hex(135-136) | "Whenever possible, **system tokens should point to reference tokens rather than static values**" | design-tokens | **고침(색)** — `--md-sys-color-shadow`·`scrim`이 유일하게 팔레트 층을 안 거치고 hex를 직접 들고 있었다. ⚠ 타입스케일은 M3 자신도 sys에 값을 두므로(ref 층 없음) 대상이 아니다 (0d83c3ef) |
+| ~~A42~~ ✅ | 자체 토큰에 **시스템명·클래스 접두사 없음**(`--shape-*`·`--ease-*`·`--measure`·`--melchior` 등) | "All token names **start with the system name**" + "an abbreviation for the token class: **ref / sys / comp**" | design-tokens | **고침** — 3층으로: `magi-ref-`(값) · `magi-sys-`(결정) · `magi-comp-`(레일). ⚠ **11개가 `md-` 접두사를 달았지만 Material 토큰이 아니었다**(번들이 선언도 참조도 안 함) — 규칙이 막으려는 최악의 경우. 646곳 치환, 4화면 기하 **0px** (eba653e6) |
 | ~~A46~~ ✅ | `--md-sys-color-secondary`가 **시안**(#5CD8E6, hue≈187°)인데 primary는 **주황**(#FF7A1A, hue≈27°) | "**Secondary, neutral variant, and neutral colors match primary in hue but are progressively less chromatic**" | styles/color/advanced/adjust-existing-colors | **고침** — `--secondary` 신설(primary 색조 49°, 채도 1/3): 다크 `#E8B89F` · 라이트 `#82604F`. tertiary는 시안 그대로. 대비 10.57:1 다크 / 5.31:1 라이트 |
 | ~~A47~~ ⊘ | `--success`·`--warn`에 **4-롤 조가 없다**(단일 값) | 정적 색을 정의하면 "**the main color, on-main color, container color, and on-container color**" 넷이 나와야 | styles/color/advanced/define-new-colors | ⚠ **철회(실측)** — `--bg` on `--warn` = **13.40:1 다크 / 5.08:1 라이트**로 통과. 소비자 없는 토큰 3개를 만드는 것은 이 저장소가 반복해 고쳐온 결함 |
 | ~~A48~~ ⊘ | 다크 `--casper:#FF8A8A`가 `--error:#F2B8B5`와 **별개의 붉은색** | "Material provides the red Error color out of the box… **you do not need to define your own static color for a semantic red**" | styles/color/advanced/define-new-colors | ⚠ **철회(실측)** — 라이트 배경에서 **4.5:1을 지키면서 `--error`와 구별되는 두 번째 빨강이 없다**: coral 색조(OKLCh 21°)를 라이트 밝기로 옮기면 error와의 대비가 최선 **1.46**이고, 구별될 만큼 밝히면 배경 대비가 **4.24**로 무너진다. 다크는 헤드룸이 있어 `#FF8A8A`와 `#F2B8B5`가 갈라지고 라이트는 못 갈라지는 것 — 부주의가 아니라 매체가 강제한 것이다. 가이드도 같은 쪽을 가리킨다("you do not need to define your own static color for a semantic red") |
@@ -673,8 +712,8 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | ~~A38~~ ✅ | `hint.mcp_command`에 **`e.g.`** | ⚠ "Avoid Latin abbreviations in UI text **such as e.g. or etc.** Instead, use full phrases like **"for example,"**" | content-design/style-guide | **고침** — `for example` (d881c27d) |
 | ~~A39~~ ✅ | **단문에 마침표 9건**(`board.nothing`·`notify.unsupported`·`empty.*` 등) | "Avoid using periods to end **single** sentences" — 라벨·툴팁·다이얼로그 본문·목록에서. ⚠ `notify.insecure`는 2문장이라 **정상** | content-design/style-guide | **고침** — 단문 9건 — 긴 문장 3건은 규칙대로 유지 (d881c27d) |
 | ~~A43~~ ✅ | `showNotification(m.title \|\| 'magi', …)`(push.go:399) 폴백이 **앱 이름** | "An app's name or logo is **already included** in a notification's design. Use the limited space for other information" | content-design/notifications | **고침** — 폴백을 앱 이름 대신 상황 문구로 (d881c27d) |
-| A44 | ~~sys 타입스케일 20개 토큰이 **px**~~ **✅ 고침** | 웹의 폰트 단위는 **rem** — "**Web: rem**", "the conversion is **SP_SIZE/16 = rem**" | styles/typography/type-scale-tokens | **절반 고침**(752519c5) — ★ 숫자는 M3 표와 **10/10 일치**했고 틀린 건 단위뿐이었다. ⚠ **컴포넌트는 이제 사용자 글꼴 설정을 따르지만 손으로 쓴 36곳은 안 따른다** — 200% 리사이즈 요구가 절반만 충족된다 |
-| A45 | ~~`title-small`·`title-medium` 서체가 **brand**(`--display`)~~ **✅ 고침** | M3 표는 둘 다 **plain**(brand는 title-large부터). "**The plain typeface is used for smaller type styles**" | styles/typography/type-scale-tokens | ✅ `--mono`로 |
+| ~~A44~~ ✅ | ~~sys 타입스케일 20개 토큰이 **px**~~ **✅ 고침** | 웹의 폰트 단위는 **rem** — "**Web: rem**", "the conversion is **SP_SIZE/16 = rem**" | styles/typography/type-scale-tokens | **절반 고침**(752519c5) — ★ 숫자는 M3 표와 **10/10 일치**했고 틀린 건 단위뿐이었다. ⚠ **컴포넌트는 이제 사용자 글꼴 설정을 따르지만 손으로 쓴 36곳은 안 따른다** — 200% 리사이즈 요구가 절반만 충족된다 |
+| ~~A45~~ ✅ | ~~`title-small`·`title-medium` 서체가 **brand**(`--display`)~~ **✅ 고침** | M3 표는 둘 다 **plain**(brand는 title-large부터). "**The plain typeface is used for smaller type styles**" | styles/typography/type-scale-tokens | ✅ `--mono`로 |
 | ~~A49~~ ✅ | 접힌 레일 폭 **72px**(`--rail-w:4.5rem`) | **96dp**(표준) / **80dp**(narrow 변형) — 둘 다 못 미친다. vertical 항목 산식(16+56+16=**88dp**)도 72px에 안 들어간다 | components/navigation-rail/specs | **고침** — `--rail-w:5rem`(80px) — narrow 최소치 (14430866) |
 | ~~A50~~ ✅ | ~~레일 아이콘 20px~~ **24px로 고침**(page.go:1452·1462) | **24dp** — lists("leading icon size 24dp")와 nav-rail("item icon size 24dp") 양쪽 | components/{lists,navigation-rail}/specs | **작다** — ⚠ 파일 전체 아이콘: 20px×5·21px×3·22px×2, **24px는 0개** |
 | ~~A51~~ ✅ | ~~leading-space 14px~~ **16px로 고침**(page.go:472) | **16dp** — lists·nav-rail 둘 다 | components/{lists,navigation-rail}/specs | **아주 작다** |
