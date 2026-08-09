@@ -420,10 +420,10 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 		}
 		return i
 	}
-	nav := at("@media (min-width:600px)")
+	nav := at("@media (min-width:37.5em)")
 	for _, earlier := range []string{
-		"@media (max-width:1000px)", // the table's own collapse
-		"@media (max-width:640px)",  // the composer's
+		"@media (max-width:62.5em)", // the table's own collapse
+		"@media (max-width:40em)",  // the composer's
 	} {
 		// The LAST occurrence, since a query may appear more than once.
 		if last := strings.LastIndex(sheet, earlier); last > nav {
@@ -431,7 +431,7 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 				"in the widths where both apply — the padding shorthand resets padding-left", earlier)
 		}
 	}
-	if compact := at("@media (max-width:599px)"); compact < nav {
+	if compact := at("@media (max-width:37.4375em)"); compact < nav {
 		t.Error("the compact rules come before the rail's; they must be able to undo them")
 	}
 }

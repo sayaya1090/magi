@@ -303,12 +303,34 @@ const indexHTML = `<!doctype html>
     /* ── the M3 type scale ────────────────────────────────────────────────── */
     /* size/line-height pairs, taken as pairs: matching a size and inventing a line height is how
        the rhythm goes. The page used to carry 9.5 · 10.5 · 11.5 · 12.5 · 13.5 · 15.5 · 17px, none
-       of which is on the scale. The typeface is ours — M3 allows that; the scale is not. */
-    --headline-s:24px/32px;
-    --title-l:22px/28px; --title-m:16px/24px; --title-s:14px/20px;
-    --body-l:16px/24px;  --body-m:14px/20px;  --body-s:12px/16px;
-    --label-l:14px/20px; --label-m:12px/16px; --label-s:11px/16px;
+       of which is on the scale. The typeface is ours — M3 allows that; the scale is not.
 
+       These are shorthands for the font property, not a second scale. They read the same
+       --md-sys-typescale-* tokens the components read, so the scale is stated once and a change
+       to it reaches the hand-written CSS and the library together. They were px, which is the
+       one thing a size may not be: px does not answer the reader who sets a larger default. */
+    --headline-s:var(--md-sys-typescale-headline-small-size)/var(--md-sys-typescale-headline-small-line-height);
+    --title-l:var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height);
+    --title-m:var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height);
+    --title-s:var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height);
+    --body-l:var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height);
+    --body-m:var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height);
+    --body-s:var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height);
+    --label-l:var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height);
+    --label-m:var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height);
+    --label-s:var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height);
+
+    /* ── the widths where the layout changes ──────────────────────────────
+       Written in em, and the em in a media query is the reader's default font size — not this
+       page's, which is why it is the one unit that answers them. M3's breakpoints are dp
+       (600 · 840 · 1000), and these are those numbers at the 16px default: 37.5 · 52.5 · 62.5.
+
+       A reader who sets their browser default to 32px is asking for text at twice the size, and
+       the fleet table cannot honour that and stay a table: its seven columns have rem minima
+       summing to 52.9rem, which at that setting wants 1693px of a 1265px window. In px the
+       breakpoints sat still while the text grew and the row scrolled off the side. In em the
+       window reads as half as wide, the narrow layout arrives, and the table becomes a list —
+       which is what "reflow" asks for. Page zoom was never the broken case; it scales px too. */
     --measure: 74ch;   /* prose */
     --wide: 108ch;     /* transcript, where lines are code and wrapping costs more than width */
     /* What a whole screen of console may take. Wider than the transcript's measure on purpose: the
@@ -336,7 +358,7 @@ const indexHTML = `<!doctype html>
        sizes it to its CONTENT, which is why centring the page silently pinned it to 720px. */
     min-height:100vh;
     margin:0; background:var(--bg); color:var(--fg);
-    font:14px/1.65 var(--mono);
+    font:var(--md-sys-typescale-body-medium-size)/1.65 var(--mono);
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
     font-variant-numeric:tabular-nums;  /* ages and step counts line up down the column */
   }
@@ -430,9 +452,9 @@ const indexHTML = `<!doctype html>
   }
   /* The three councillors, in their own hues — the signature the terminal wears, set as a
      nameplate's standing line. */
-  .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
+  .sid { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
-    margin-left:auto; font:600 11px/1.4 var(--mono); letter-spacing:0.0533em;
+    margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); display:flex; align-items:center; gap:.45rem;
   }
   #state::before { content:""; width:6px; height:6px; border-radius:var(--shape-full); background:var(--outline); }
@@ -445,7 +467,7 @@ const indexHTML = `<!doctype html>
   #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
   #state.lost::before { background:var(--error); }
   #back {
-    color:var(--muted); text-decoration:none; font-size:11px; letter-spacing:0.04em; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
+    color:var(--muted); text-decoration:none; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:0.04em; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
   }
   #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
 
@@ -606,9 +628,9 @@ const indexHTML = `<!doctype html>
   #notify { display:flex; flex-direction:column; align-items:flex-start; gap:.3rem; }
   #notifyWhy { font:var(--body-s) var(--mono); color:var(--muted); max-width:26rem; overflow-wrap:anywhere; }
   #prefsForm .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
   }
-  #console { font:12px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  #console { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   #console b { color:var(--fg); font-weight:600; }
   #railMenu, #themeToggle, #prefs {
     --md-icon-button-icon-color:var(--muted); color:var(--muted);
@@ -691,7 +713,7 @@ const indexHTML = `<!doctype html>
   .sk { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     flex-basis:100%; order:-1;
   }
   .sk.global .tier { color:var(--warn); }
@@ -700,11 +722,11 @@ const indexHTML = `<!doctype html>
      tier word is on the row to tell you. */
   .sk.team .tier { color:var(--primary); }
   .sk.project .tier { color:var(--accent); }
-  .sk .what { font:600 16px/1.35 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .sk .what { font:600 var(--md-sys-typescale-body-large-size)/1.35 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   /* A fact is quoted, not instructed: it reads as something the companion believes rather than
      something it was told to do, which is the difference a person is judging on this page. */
-  .sk.fact .what { font:italic 400 16px/1.4 var(--display); }
-  .sk .meta { margin-top:.3rem; font-size:11px; letter-spacing:.05em; color:var(--muted); }
+  .sk.fact .what { font:italic 400 var(--md-sys-typescale-body-large-size)/1.4 var(--display); }
+  .sk .meta { margin-top:.3rem; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--muted); }
   .sk .drop { margin-left:auto; }
   .sk .fold { margin-left:auto; }
   .sk .fold + .drop { margin-left:0; }
@@ -712,7 +734,7 @@ const indexHTML = `<!doctype html>
   .sk .body {
     margin:.5rem 0 .1rem; padding:.6rem 0 0; max-width:var(--measure);
     border-top:1px solid var(--outlineVariant);
-    font:14px/1.6 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--mono); color:var(--fg); white-space:pre-wrap; overflow-wrap:anywhere;
   }
 
   /* ── what they can reach ────────────────────────────────────────────────── */
@@ -725,14 +747,14 @@ const indexHTML = `<!doctype html>
   .srv { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     flex-basis:100%; order:-1;
   }
   .srv.global .tier { color:var(--warn); }
   .srv.project .tier { color:var(--accent); }
   .srv .what { font:600 var(--body-l) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
-  .srv .how { margin-top:.3rem; font:12px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
-  .srv .where { margin-top:.2rem; font-size:11px; color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
+  .srv .how { margin-top:.3rem; font:var(--md-sys-typescale-label-medium-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  .srv .where { margin-top:.2rem; font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
   .srv .drop { margin-left:auto; }
   /* Nothing here draws a box or a border: the field and the select bring their own outline, their
      own shape and their own 48dp target, and a second set drawn over them was two descriptions of
@@ -740,7 +762,7 @@ const indexHTML = `<!doctype html>
      arranged and stops. */
   #mcpAdd { display:grid; gap:.9rem; margin:1.4rem 0; max-width:var(--measure); }
   #mcpAdd md-filled-button { justify-self:start; }
-  #mcpAdd .note { font-size:11px; color:var(--muted); }
+  #mcpAdd .note { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); }
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
      is inert to the pointer so it can cover the whole control without eating its clicks. */
@@ -793,7 +815,7 @@ const indexHTML = `<!doctype html>
     color:var(--fg); margin-right:.45rem;
   }
   .tile .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     display:inline-flex; align-items:center; gap:.35rem;
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
@@ -825,7 +847,7 @@ const indexHTML = `<!doctype html>
     gap:.9rem;
   }
   .thead {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
     padding:.9rem 0 .5rem; border-bottom:1px solid var(--fg);
   }
   .thead .r, .card .r { text-align:right; }
@@ -854,10 +876,10 @@ const indexHTML = `<!doctype html>
      the same 1.6rem and the list opened with a gap that looked like a missing row. */
   .thead + .teamhead { margin-top:.6rem; }
   .teamhead .tname {
-    font:600 12px/1.4 var(--mono); letter-spacing:0.06em; color:var(--fg);
+    font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--fg);
   }
-  .teamhead .thub { font:11px/1.5 var(--mono); color:var(--accent); }
-  .teamhead .tn { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
+  .teamhead .thub { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); }
+  .teamhead .tn { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
   /* NOT position:static. The general md-badge rule above makes the host the thing the component's
      absolutely-positioned inner box anchors to, and that is the whole reason it exists — "dropped
      into a flow it anchors to whatever ancestor happens to be positioned and lands somewhere
@@ -869,14 +891,14 @@ const indexHTML = `<!doctype html>
   /* status */
   /* The column's word, for the width where the column heads are not drawn. */
   .colk { display:none; }
-  @media (max-width:1000px) {
+  @media (max-width:62.5em) {
     .colk {
       display:inline; margin-left:.35rem;
-      font:600 11px/1.4 var(--mono); letter-spacing:0.0467em; color:var(--muted);
+      font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.0467em; color:var(--muted);
     }
   }
   .card .badge {
-    font:600 11px/1.6 var(--mono); letter-spacing:0.0467em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:0.0467em; color:var(--muted);
     display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
   }
   .card .badge::before { content:""; width:7px; height:7px; border-radius:var(--shape-full); background:currentColor; flex:none; }
@@ -886,25 +908,25 @@ const indexHTML = `<!doctype html>
   .card.abandoned .badge, .card.stopped .badge { color:var(--error); }
 
   /* name + workspace, the way a console stacks a resource over its namespace */
-  .card .name { font:600 16px/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .card .name { font:600 var(--md-sys-typescale-body-large-size)/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .card:hover .name { color:var(--primary); }
   .card .plan {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.05em; color:var(--muted); align-self:center;
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.05em; color:var(--muted); align-self:center;
   }
   .card .role {
-    font:600 11px/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
     overflow-wrap:anywhere; margin-top:.15rem;
   }
-  .card .path { font-size:11px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
+  .card .path { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
 
   /* what it is doing: one line, clipped — the detail view is one click away for the rest */
   .card .last {
-    font:italic 14px/1.45 var(--display); color:var(--fg);
+    font:italic var(--md-sys-typescale-body-medium-size)/1.45 var(--display); color:var(--fg);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
-  .card .asking { font:600 12px/1.45 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
-  .card .num { font-size:12px; color:var(--muted); }
-  .card .host { font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
+  .card .asking { font:600 var(--md-sys-typescale-label-medium-size)/1.45 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
+  .card .num { font-size:var(--md-sys-typescale-label-medium-size); color:var(--muted); }
+  .card .host { font-size:var(--md-sys-typescale-label-small-size); color:var(--muted); overflow-wrap:anywhere; }
   .card .host b { font-weight:400; color:var(--fg); opacity:.85; }
 
   /* Row actions. Open is the row itself as well, but a named control is what makes it discoverable
@@ -935,11 +957,11 @@ const indexHTML = `<!doctype html>
     border-top:1px solid var(--outlineVariant);
   }
   .grounds .gk {
-    font:600 11px/1.6 var(--mono); letter-spacing:0.0533em;
+    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); text-align:right;
   }
-  .grounds .gv { font:12px/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
-  @media (max-width:640px) {
+  .grounds .gv { font:var(--md-sys-typescale-label-medium-size)/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  @media (max-width:40em) {
     .grounds { grid-template-columns:1fr; gap:.1rem; }
     .grounds .gk { text-align:left; margin-top:.4rem; }
   }
@@ -957,8 +979,8 @@ const indexHTML = `<!doctype html>
   }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
 
-  .empty { font:16px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
-  .empty code { font:14px/1 var(--mono); color:var(--accent); }
+  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
+  .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--mono); color:var(--accent); }
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
   /* The three panels on a companion's page are md-outlined-card: each one groups what is true
@@ -979,17 +1001,17 @@ const indexHTML = `<!doctype html>
   }
   #detail .f { display:flex; flex-direction:column; gap:.2rem; }
   #detail .f .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em; color:var(--muted);
   }
   #detail .f .v { font:var(--body-m) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
-  #detail .f .v.state { font-weight:600; letter-spacing:0.05em; font-size:11px; }
+  #detail .f .v.state { font-weight:600; letter-spacing:0.05em; font-size:var(--md-sys-typescale-label-small-size); }
   /* The window, as a rule under the number rather than a gauge beside it: this is a fill level and
      the page already spends its colour on state. Unknown windows draw no bar at all — an empty
      track reads as "nearly empty", which is the opposite of "we do not know". */
   #detail .f .bar { height:2px; background:var(--outlineVariant); margin-top:.35rem; }
   #detail .f .bar i { display:block; height:100%; background:var(--primary); }
   #detail .f .bar.tight i { background:var(--warn); }
-  #detail .f .v small { color:var(--muted); font-size:11px; }
+  #detail .f .v small { color:var(--muted); font-size:var(--md-sys-typescale-label-small-size); }
   /* Disabled is the component's own fade now, not a rule here. The contrast check reads this
      stylesheet and cannot see into a shadow root, so that opacity is not covered — which is the
      right answer rather than a gap: WCAG exempts inactive controls, and the repo's own rule
@@ -1040,10 +1062,10 @@ const indexHTML = `<!doctype html>
   /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
      1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
      840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
-  @media (min-width:840px) {
+  @media (min-width:52.5em) {
     #ptabs { display:none !important; }
   }
-  @media (min-width:840px) {
+  @media (min-width:52.5em) {
     #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
     /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
        glancing back at, and a plan that scrolls away is one you re-find rather than read. */
@@ -1076,14 +1098,14 @@ const indexHTML = `<!doctype html>
     --md-linear-progress-active-indicator-color:var(--primary);
     --md-linear-progress-track-color:var(--outlineVariant);
   }
-  #plan .plancount { font:11px/1.5 var(--mono); color:var(--muted); margin-bottom:.4rem; }
+  #plan .plancount { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); margin-bottom:.4rem; }
   #plan .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em;
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
     color:var(--muted); margin-bottom:.4rem;
   }
   .td { display:grid; grid-template-columns:1.2rem 1fr; gap:.6rem; padding:.15rem 0; }
-  .td .mark { font:12px/1.6 var(--mono); color:var(--muted); text-align:center; }
-  .td .what { font-size:14px; color:var(--fg); overflow-wrap:anywhere; }
+  .td .mark { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--mono); color:var(--muted); text-align:center; }
+  .td .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--fg); overflow-wrap:anywhere; }
   .td.completed .what { color:var(--muted); text-decoration:line-through; }
   .td.in_progress .mark { color:var(--primary); }
   .td.in_progress .what { color:var(--primary); }
@@ -1094,13 +1116,13 @@ const indexHTML = `<!doctype html>
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--page); }
   .boardhead { display:flex; gap:.9rem; align-items:center; margin:0 0 1.2rem; flex-wrap:wrap; }
-  .lanehead .lrole { font:11px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
-  .lanehead .lteam { font:11px/1.5 var(--mono); color:var(--accent); }
+  .lanehead .lrole { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  .lanehead .lteam { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); }
   .wcard .wwhat { color:inherit; text-decoration:none; cursor:pointer; }
   .wcard .wwhat:hover { text-decoration:underline; }
-  .wcard .wlong { font:11px/1.5 var(--mono); color:var(--muted); }
+  .wcard .wlong { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
   .wcard .wmodel {
-    font:11px/1.5 var(--mono); color:var(--accent); overflow-wrap:anywhere;
+    font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--accent); overflow-wrap:anywhere;
   }
   /* A label is pressable, so it is drawn as something that can be pressed — a chip's shape, at the
      size of the line it sits on rather than the size of a control, because a card carrying three
@@ -1108,7 +1130,7 @@ const indexHTML = `<!doctype html>
   .wcard .wlabel { font:inherit; border:0; cursor:pointer; }
   .wcard .wlabel {
     display:inline-block; cursor:pointer; margin:.3rem .3rem 0 0;
-    font:600 11px/1.4 var(--mono); letter-spacing:.06em;
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:.06em;
     color:var(--primary); background:color-mix(in srgb, var(--primary) 12%, transparent);
     border-radius:var(--shape-full); padding:.15rem .5rem;
   }
@@ -1138,15 +1160,15 @@ const indexHTML = `<!doctype html>
     border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin-bottom:.6rem;
   }
   .lanehead .lname {
-    font:600 12px/1.4 var(--mono); letter-spacing:0.0467em; color:var(--fg);
+    font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--mono); letter-spacing:0.0467em; color:var(--fg);
   }
-  .lanehead .lcount { margin-left:auto; font:11px/1.5 var(--mono); color:var(--muted); }
+  .lanehead .lcount { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
   .wcard {
     border:1px solid var(--outlineVariant); border-radius:var(--shape-s);
     padding:.6rem .7rem; margin-bottom:.6rem; background:var(--md-surface-container-low);
   }
-  .wcard .wwhen { font:11px/1.5 var(--mono); color:var(--muted); }
-  .wcard .wwhat { font-size:14px; line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
+  .wcard .wwhen { font:var(--md-sys-typescale-label-small-size)/1.5 var(--mono); color:var(--muted); }
+  .wcard .wwhat { font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
   /* The one running now, in the colour the rest of the page uses for that. */
   .wcard.now { border-color:var(--success); }
   .wcard.now .wwhen { color:var(--success); font-weight:600; }
@@ -1154,23 +1176,23 @@ const indexHTML = `<!doctype html>
   /* ── what this companion did before now ─────────────────────────────────── */
   #history { max-width:var(--measure); }
   #history .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em;
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
     color:var(--muted); margin-bottom:.5rem;
   }
   .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:.3rem 1.2rem; padding:.35rem 0; }
   .hs + .hs { border-top:1px solid var(--outlineVariant); }
-  .hs .when { font:11px/1.6 var(--mono); color:var(--muted); text-align:right; }
-  .hs .what { font-size:14px; color:var(--fg); overflow-wrap:anywhere; }
+  .hs .when { font:var(--md-sys-typescale-label-small-size)/1.6 var(--mono); color:var(--muted); text-align:right; }
+  .hs .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--fg); overflow-wrap:anywhere; }
   /* The one it is in now is work too, and it is the newest row. Marked rather than left off. */
   .hs.now .when { color:var(--success); font-weight:600; }
   #handoffs .k {
-    font:600 11px/1.4 var(--mono); letter-spacing:0.06em;
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--mono); letter-spacing:0.06em;
     color:var(--muted); margin-bottom:.5rem;
   }
     .ho { display:grid; grid-template-columns:8rem 1fr; gap:.3rem 1.2rem; padding:.6rem 0; }
-  .ho .to { font:600 11px/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
+  .ho .to { font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
   .ho .req { font:var(--body-l) var(--display); color:var(--fg); overflow-wrap:anywhere; }
-  .ho .ans { grid-column:2; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+  .ho .ans { grid-column:2; font-size:var(--md-sys-typescale-label-medium-size); color:var(--muted); overflow-wrap:anywhere; }
   .ho.working .to { color:var(--primary); }
 
   /* ── transcript ─────────────────────────────────────────────────────────── */
@@ -1180,7 +1202,7 @@ const indexHTML = `<!doctype html>
   #log { max-width:var(--wide); }
   .row { display:grid; grid-template-columns:6.5rem 1fr; gap:1.1rem; align-items:start; padding:.22rem 0; }
   .who {
-    font:600 11px/1.9 var(--mono); letter-spacing:0.0533em;
+    font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--mono); letter-spacing:0.0533em;
     color:var(--muted); text-align:right; user-select:none; opacity:.8;
   }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -1189,7 +1211,7 @@ const indexHTML = `<!doctype html>
      for a pull quote. */
   .row.user { margin:1.6rem 0 .7rem; }
   .row.user .txt {
-    font:16px/1.55 var(--display); color:var(--primary);
+    font:var(--md-sys-typescale-body-large-size)/1.55 var(--display); color:var(--primary);
     border-left:2px solid var(--primary); padding-left:.9rem; margin-left:-.9rem;
   }
   .row.user .who { color:var(--primary); }
@@ -1237,7 +1259,7 @@ const indexHTML = `<!doctype html>
     max-width:var(--page); margin-inline:auto; width:100%; box-sizing:border-box;
     padding-left:1.4rem; padding-right:1.4rem;
   }
-  #prompt .asking { font:600 14px/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
+  #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
@@ -1352,7 +1374,7 @@ const indexHTML = `<!doctype html>
      The row's own comment used to say it "collapses to two lines on a phone". Nothing collapsed it
      — the comment described a mechanism that was never written, and the page scrolled sideways at
      every width instead. */
-  @media (max-width:1000px) {
+  @media (max-width:62.5em) {
     .thead { display:none; }   /* no columns left to label */
     .card {
       grid-template-columns:auto auto 1fr;
@@ -1368,7 +1390,7 @@ const indexHTML = `<!doctype html>
     .card .num.r { text-align:left; }
   }
 
-  @media (max-width:640px) {
+  @media (max-width:40em) {
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
        which also puts them under the thumb rather than beside it. */
@@ -1391,7 +1413,7 @@ const indexHTML = `<!doctype html>
     .card .name { font:600 var(--title-l) var(--display); }
     .row { grid-template-columns:1fr; gap:.2rem; }
     .who { text-align:left; }
-    .row.user .txt { font-size:16px; }
+    .row.user .txt { font-size:var(--md-sys-typescale-body-large-size); }
     /* The prompt's inner column narrows with the rest of them. Left out, it kept the 1.4rem the
        wide layout gives it and the question sat 6px right of the transcript it is about — which is
        the same misalignment the dock had, one breakpoint down. */
@@ -1417,7 +1439,7 @@ const indexHTML = `<!doctype html>
 
   /* Wide: the rail IS the navigation, so the tabs go — two of them for one set of four sections is
      one too many. The page starts to the right of the rail, by exactly its width. */
-  @media (min-width:600px) {
+  @media (min-width:37.5em) {
     /* The rail's room is taken from the BODY, not from the page's own padding. Taken from the
        padding it came out of the CONTENT box, which is why the masthead's rule ran 102px further
        left than the words above it — a border is drawn on the box and padding sits inside it. */
@@ -1439,17 +1461,17 @@ const indexHTML = `<!doctype html>
      Measured on a 730px screen: the masthead, the tabs and the filters took 455px before the first
      agent, and a fleet page that shows one and a half rows is a list you scroll to read rather than
      one you glance at. Everything below is that 455 coming down. */
-  @media (max-width:599px) {
+  @media (max-width:37.4375em) {
     /* The masthead on one line. It wrapped, so the brand and the count each took a row. */
     header { padding-top:calc(.5rem + env(safe-area-inset-top)); padding-bottom:.4rem; gap:.6rem; }
-    header .mark { font-size:20px; }
+    header .mark { font-size:var(--md-sys-typescale-title-large-size); }
     /* The count on the SAME line as the brand. Given its own row it cost 40px of the first screen
        to say something that fits beside a five-letter word. It is allowed to shrink and to clip:
        "5 agents · 2 waiting" is legible at any truncation that keeps the number. */
     /* One line, clipped at the end rather than wrapped. Squeezed between the brand and two icons it
        broke "5 AGENTS ·" across three rows, which is taller than the two-row masthead it replaced. */
     #state {
-      font-size:11px; letter-spacing:.08em; margin-left:auto; min-width:0;
+      font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.08em; margin-left:auto; min-width:0;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     /* The two icon buttons sit at the end of the same line, not on one of their own. Adding the
@@ -1464,7 +1486,7 @@ const indexHTML = `<!doctype html>
        companion's page there are no tabs, and hiding it left a masthead reading "magi" with no
        word anywhere for WHICH companion — the one question that page exists to answer. */
     body:not([at="agent"]) #crumbs { display:none; }
-    #crumbs { font-size:11px; }
+    #crumbs { font-size:var(--md-sys-typescale-label-small-size); }
     /* The filters as one scrolling row rather than three stacked ones. Four chips do not fit across
        390px and never will; a row that scrolls keeps them one line high and keeps the fourth
        reachable, which stacking also did but at three times the cost. */
@@ -1476,7 +1498,7 @@ const indexHTML = `<!doctype html>
     .tile { flex:0 0 auto; }
     /* The tab strip is a navigation, not a heading: it does not need the room a heading takes. */
   }
-  @media (max-width:599px) {
+  @media (max-width:37.4375em) {
     #rail {
       position:static; transform:none; width:auto; overflow:visible;
       border-right:0; border-top:1px solid var(--outlineVariant);
@@ -1953,7 +1975,7 @@ const detailEl = document.getElementById('detail');
 let panel = 'talk';
 // A media query object rather than a width read: it fires on the change, so a window dragged past
 // the breakpoint re-lays out without waiting for anything else to happen.
-const wide = matchMedia('(min-width:840px)');
+const wide = matchMedia('(min-width:52.5em)');
 function drawPanels() {
   const s = sock();
   ptabs.hidden = !s || wide.matches;
