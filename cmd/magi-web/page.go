@@ -1830,9 +1830,12 @@ const indexHTML = `<!doctype html>
 <md-dialog id="mcpDialog">
   <div slot="headline" id="mcpDialogK"></div>
   <form slot="content" id="mcpForm" method="dialog"></form>
+  <!-- Text buttons, which is what the guide gives a dialog, trailing-aligned with the confirming
+       action nearest the corner. A filled button here would be the page's highest emphasis spent
+       inside a box that is already the only thing the reader can touch. -->
   <div slot="actions">
     <md-text-button id="mcpCancel" form="mcpForm" value="cancel"></md-text-button>
-    <md-filled-button id="mcpGo" form="mcpForm" value="add"></md-filled-button>
+    <md-text-button id="mcpGo" form="mcpForm" value="add"></md-text-button>
   </div>
 </md-dialog>
 
@@ -3691,18 +3694,22 @@ async function loadMCP() {
   // label exists in both packs reads them out of this file, and a key built at runtime is one it
   // cannot see — which is how a label ends up rendering as its own dotted name on somebody's
   // screen. Same reason the preferences list their keys.
+  // The asterisk is part of the LABEL, not a decoration beside it: the guide asks for it at the
+  // end of the label and says the accessibility label must include it. The server refuses a
+  // nameless server, so this is the one field that has it.
   const MCP_FIELDS = [
-    ['name', 'label.mcp_name', 'hint.mcp_name'],
+    ['name', 'label.mcp_name', 'hint.mcp_name', true],
     ['command', 'label.mcp_command', 'hint.mcp_command'],
     ['args', 'label.mcp_args', 'hint.mcp_args'],
     ['url', 'label.mcp_url', 'hint.mcp_url'],
     ['env', 'label.mcp_env', 'hint.mcp_env'],
   ];
-  const mcpField = ([name, labelKey, hintKey]) => {
+  const mcpField = ([name, labelKey, hintKey, must]) => {
     const i = document.createElement('md-outlined-text-field');
     i.name = name;
-    i.setAttribute('label', tr(labelKey));
+    i.setAttribute('label', tr(labelKey) + (must ? ' *' : ''));
     i.setAttribute('supporting-text', tr(hintKey));
+    if (must) i.setAttribute('required', '');
     return i;
   };
   const who = document.createElement('md-outlined-select');
@@ -3727,16 +3734,31 @@ async function loadMCP() {
     if (mcpDialog.returnValue === 'cancel') return;
     e.preventDefault();
     const body = new URLSearchParams();
-    for (const el of [...form.find('md-outlined-text-field')]) {
+    for (const el of form.querySelectorAll('md-outlined-text-field')) {
       if (el.value.trim()) body.set(el.name, el.value.trim());
     }
     if (!who.value) body.set('tier', 'global');
-    await post('/mcp', body, who.value || null);
+    const fields = [...form.querySelectorAll('md-outlined-text-field')];
+    for (const f of fields) { f.removeAttribute('error'); f.removeAttribute('error-text'); }
+    const why = await post('/mcp', body, who.value || null, true);
+    if (why) {
+      // On the field the refusal is about, which is the only place a person can act on it. The
+      // guide is explicit that an error goes to the field's own label with the alert role, and the
+      // component does both once error-text is set. What the server refuses names its own field.
+      const at = fields.find(f => why.includes(f.name)) ||
+        fields.find(f => f.name === 'url' && /url|command/.test(why)) || null;
+      if (at) { at.setAttribute('error', ''); at.setAttribute('error-text', why.slice(0, 120)); at.focus(); }
+      else says(why.slice(0, 80));
+      return;                                   // the dialog stays open, with the reason showing
+    }
     mcpDialog.close('add');
     loadMCP();
   };
   // What the page shows in the form's place: one button that opens it.
-  const open = document.createElement('md-filled-button');
+  // Tonal, not filled. This screen already carries the filled button for writing something down,
+  // and the guide asks for one per page — filled is the action that ENDS a flow, and there cannot
+  // be two of those on one screen. Adding a server is the lower-emphasis of the two.
+  const open = document.createElement('md-filled-tonal-button');
   open.className = 'mcpopen';
   open.textContent = tr('action.add_server');
   open.onclick = () => mcpDialog.show();
@@ -4145,7 +4167,7 @@ for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills']]) {
 }
 addEventListener('popstate', render);
 
-async function post(path, body, socket, peer) {
+async function post(path, body, socket, peer, quiet) {
   // Either half can stand alone: a companion is named by its socket, a console by its peer name,
   // and a global rule on another console has only the second. With neither, the action is about
   // whatever the page is already looking at.
@@ -4154,7 +4176,14 @@ async function post(path, body, socket, peer) {
   if (peer) parts.push('p=' + encodeURIComponent(peer));
   const target = parts.length ? '?' + parts.join('&') : q();
   const r = await fetch(path + target, {method:'POST', body});
-  if (!r.ok) { reach(false); says((await r.text()).trim().slice(0, 80)); }
+  if (r.ok) return '';
+  // A refusal is not a disconnection. The daemon answered — it answered NO — and painting the
+  // connection dot red for that says the console cannot hear a machine it is talking to.
+  const why = (await r.text()).trim();
+  // Returned so the caller can put it where it belongs. Said out loud only when nobody takes it:
+  // a form has a field to hang this on and a fleet action does not.
+  if (!quiet) says(why.slice(0, 80));
+  return why;
 }
 
 const t = document.getElementById('t');

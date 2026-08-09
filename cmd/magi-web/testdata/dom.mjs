@@ -156,8 +156,21 @@ function element(tag) {
     // The plural, for the same one shape — and for a compound class like ".card.waiting", which is
     // how the page finds "a row that is a card AND is waiting". Returns an array, which is a NodeList
     // in a browser; the page only ever iterates it, and a test guards against it doing more.
+    // ⚠ And a bare TAG, which is the other shape the page uses and the one this did not have. It
+    // answered a tag selector by splitting on "." into a single class name, matching nothing, and
+    // returning an empty array — so a form that reads its own fields with querySelectorAll found
+    // none and posted an empty body, silently. A selector engine this small has to say which
+    // shapes it knows.
     querySelectorAll(sel) {
-      const want = String(sel).split('.').filter(Boolean);
+      const s = String(sel).trim();
+      if (!s.startsWith('.')) {
+        if (/[.#\[\s>]/.test(s)) throw new Error('the fake only does a bare tag or a class chain, not ' + s);
+        const out = [];
+        const walk = (n) => { for (const k of n.children) { if (k.tag === s) out.push(k); walk(k); } };
+        walk(this);
+        return out;
+      }
+      const want = s.split('.').filter(Boolean);
       const hit = (n) => {
         const have = String(n.className || '').split(/\s+/);
         return want.every((w) => have.includes(w));

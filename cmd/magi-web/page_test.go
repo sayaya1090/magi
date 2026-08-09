@@ -692,6 +692,31 @@ func TestTheShapeAndTypeScalesHaveNothingOffThem(t *testing.T) {
 	}
 }
 
+// The page must not call the fake DOM's own conveniences.
+//
+// testdata/dom.mjs gives its elements a find(tag) helper so a TEST can reach into a subtree without
+// a selector engine. A browser has no such method, and the page called it: the MCP form read its
+// fields with form.find('md-outlined-text-field'), which passed every test here and threw
+// "form.find is not a function" the moment somebody pressed the button on a real console — so
+// adding a server has never once worked outside this suite.
+//
+// This is the same class as the array-methods check below and the worse half of it: there the fake
+// was missing something a browser has, here it OFFERS something a browser does not.
+func TestThePageDoesNotUseTheFakeDOMsOwnHelpers(t *testing.T) {
+	js := indexHTML[strings.Index(indexHTML, "</style>"):]
+	js = regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(js, "")
+	// Whatever the fake defines on an element and a browser does not.
+	for _, name := range []string{"find"} {
+		// A quoted string, not a raw one: the pattern has to contain a backtick (the third way to
+		// quote a JS argument) and a raw string ends at the first one.
+		re := regexp.MustCompile("\\." + name + "\\([\"'`]")
+		if m := re.FindAllString(js, -1); m != nil {
+			t.Errorf("the page calls .%s(...) %d time(s) — that is testdata/dom.mjs's helper, not a "+
+				"DOM method, so it throws in a browser and passes here", name, len(m))
+		}
+	}
+}
+
 // The page must not use array methods on a DOM collection.
 //
 // This is the one mistake the fake DOM cannot catch, because its collections ARE arrays. It has
