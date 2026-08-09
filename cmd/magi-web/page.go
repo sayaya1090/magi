@@ -294,7 +294,10 @@ const indexHTML = `<!doctype html>
        the shorthand underneath it. The declaration becomes invalid at computed-value time and the
        property takes its initial value, which for padding is 0: the offset silently vanished and
        the rail stood on top of the page at every width. */
-    --rail-w:4.5rem;
+    /* 80px, which is the narrow collapsed rail in the spec. It was 4.5rem — 72px — which is under
+       both numbers the spec gives (96dp standard, 80dp narrow), and under the 88dp a vertical item
+       needs for a 56dp indicator between two 16dp insets. */
+    --rail-w:5rem;
     --dur-short2:100ms; --dur-short4:200ms; --dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
