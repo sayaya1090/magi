@@ -52,6 +52,19 @@ const IN_PAGE = {
         y < 0 || y > innerHeight || owns(e, x, y));
       const wide = r.width >= 47.5 || [[cx - half, cy], [cx + half, cy]].every(([x, y]) =>
         x < 0 || x > innerWidth || owns(e, x, y));
+      // A fixed dock covers whatever is under it at the current scroll, and scrolling reveals it —
+      // that is what a fixed dock IS, not a target somebody cannot reach. So a failure is asked
+      // again with the element brought to the middle of the screen, and only then believed.
+      if (!reach || !wide) {
+        e.scrollIntoView({ block: 'center' });
+        const r2 = e.getBoundingClientRect();
+        const cx2 = r2.x + r2.width / 2, cy2 = r2.y + r2.height / 2;
+        const reach2 = [[cx2, cy2 - half], [cx2, cy2 + half]].every(([x, y]) =>
+          y < 0 || y > innerHeight || owns(e, x, y));
+        const wide2 = r2.width >= 47.5 || [[cx2 - half, cy2], [cx2 + half, cy2]].every(([x, y]) =>
+          x < 0 || x > innerWidth || owns(e, x, y));
+        if (reach2 && wide2) continue;
+      }
       if (!reach || !wide) bad.push(`${tag}${e.id ? '#' + e.id : ''}${typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/)[0] : ''} ${Math.round(r.width)}x${Math.round(r.height)}${!reach ? ' 세로' : ''}${!wide ? ' 가로' : ''}`);
     }
     return [...new Set(bad)];

@@ -311,7 +311,11 @@ const indexHTML = `<!doctype html>
     /* 80px, which is the narrow collapsed rail in the spec. It was 4.5rem — 72px — which is under
        both numbers the spec gives (96dp standard, 80dp narrow), and under the 88dp a vertical item
        needs for a 56dp indicator between two 16dp insets. */
-    --magi-comp-rail-w:5rem;
+    /* 96dp, the standard collapsed width — not the 80dp narrow variant it was.
+       The narrow one leaves a 64px item, and the longest destination is 73px at Label Medium: the
+       guide forbids truncating a rail label, forbids an ellipsis and forbids shrinking the type to
+       make one fit, so the only lever left is the rail. At 96 the item is 80 and the word fits. */
+    --magi-comp-rail-w:6rem;
     --magi-sys-dur-short2:100ms; --magi-sys-dur-short4:200ms; --magi-sys-dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -624,7 +628,11 @@ const indexHTML = `<!doctype html>
      So the width goes first and the word follows it: the rail sets nav=open, its width transition
      runs, and only then does the body say the labels may be drawn. Closing is the reverse and
      immediate — a word cannot be left standing in a lane that is being taken away. */
-  body:not([rail="labels"]) #rail .lbl { display:none; }
+  /* The label is drawn in both states now. It used to be hidden while the rail was narrow because
+     the word had nowhere to go beside a 24dp icon in 64px — the item swelled to 66px and came back
+     to 56 as the rail widened, which is the flinch that machinery existed to prevent. With the
+     rail at its standard 96dp and the word UNDER the icon, it has a row of its own and there is
+     nothing to flinch. The guide asks for the label; this is what it costs. */
   #rail .lbl { animation:noticedWord 150ms var(--magi-sys-ease-standard); }
   /* Collapsed, the icon belongs on the rail's centre line, and it was 4px to the left of it: the
      item is 63px inside an 80px rail and its leading space put the 24px icon at the item's leading
@@ -634,54 +642,47 @@ const indexHTML = `<!doctype html>
      custom property and a custom property does not transition — the icon would arrive at its new
      column between two frames while the rail beside it took 250ms to get there. Same curve and
      length as the rail's own width, so the two are one movement. */
-  #rail [slot="start"], #railMenu { transition:transform 250ms var(--magi-sys-ease-emphasized); }
-  body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:16px; }
-  body:not([nav="open"]) #rail [slot="start"] { transform:translateX(4px); }
+  /* The icon is centred by the indicator it sits in — 56px wide in a 96px rail with 8px of padding
+     and 24px of item inset comes out on the centre line — so the transform that used to nudge it
+     there is gone with the component that needed it. The menu button still wants one. */
+  #railMenu { transition:transform 250ms var(--magi-sys-ease-emphasized); }
   body:not([nav="open"]) #railMenu { transform:translateX(8px); }
   #rail .ic { flex:none; display:block; }
-  #rail md-list {
-    --md-list-container-color:transparent;
-    --md-list-item-label-text-font:var(--magi-ref-mono);
-    --md-list-item-label-text-size:var(--md-sys-typescale-label-medium-size);
-    --md-list-item-label-text-weight:600;
-    --md-list-item-label-text-color:var(--magi-ref-muted);
-    --md-list-item-container-shape:var(--magi-sys-shape-full);
-    --md-sys-color-primary:var(--magi-ref-primary);
-    --md-sys-color-on-surface:var(--magi-ref-on-surface);
-    --md-sys-color-on-surface-variant:var(--magi-ref-on-surface-variant);
-    letter-spacing:0.05em;
+  #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }
+  /* A destination. Expanded it is a row — icon, then the word — and collapsed it is the word UNDER
+     the icon, which is the shape the spec draws and the shape md-list-item could not make.
+     The active indicator is a pill behind the ICON at 56x32, not behind the whole item: that is
+     what the collapsed anatomy shows, and the label sits below it rather than inside it. */
+  .raili {
+    display:flex; align-items:center; gap:var(--magi-sys-space-150);
+    text-decoration:none; color:var(--magi-ref-muted);
+    font:600 var(--md-sys-typescale-label-medium-size)/1rem var(--magi-ref-mono);
+    letter-spacing:0.05em; border-radius:var(--magi-sys-shape-full);
+    padding-inline:var(--magi-sys-space-200);
   }
-  /* Where you are, in the colour the rest of the page uses for it. A list item has no selected
-     state of its own — it is a list, not a set of choices — so this is ours.
-
-     Painted on the HOST, not through the component's tokens. --md-list-item-container-color does
-     nothing in the shipped build (measured: the container stays transparent with the token set to
-     an opaque colour), so the "filled shape" this comment used to claim was never drawn. And the
-     icon is in the leading slot, which the label token does not reach — so with the rail collapsed
-     to icons, which is how it stands most of the time, the page gave no sign at all of which
-     destination you were on. Slotted content is styled from out here, so the icon takes the colour
-     the same way the label does. */
-  /* The two layers drawn over the item, which were two other shapes. A press painted a RECTANGLE
-     across the pill: md-ripple is border-radius:inherit inside its own shadow root and its host
-     carries none. The focus ring drew 8px, a third shape again — and setting the token on the item
-     did nothing, because the component assigns --md-focus-ring-shape:8px INSIDE its shadow root,
-     where an inherited value loses. Both are exposed as parts, which is the one way in. */
-  #rail md-list-item::part(ripple) { border-radius:var(--magi-sys-shape-full); }
-  #rail md-list-item::part(focus-ring) { --md-focus-ring-shape:var(--magi-sys-shape-full); }
-  #rail md-list-item[selected] {
-    background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent);
-    border-radius:var(--magi-sys-shape-full);
-    --md-list-item-label-text-color:var(--magi-ref-primary);
+  /* 56dp expanded, 64dp with the word under the icon — the two the spec gives a rail item.
+     Named through #railNav because .raili also carries .state, and .state sets the 48dp floor for
+     every hand-built control on the page; equal specificity, and the later one was winning. */
+  #railNav .raili { min-height:56px; }
+  body:not([nav="open"]) #railNav .raili { min-height:64px; }
+  .raili .icwrap {
+    display:grid; place-items:center; position:relative;
+    width:56px; height:32px; border-radius:var(--magi-sys-shape-full); flex:none;
   }
-  #rail md-list-item[selected] .lbl,
-  #rail md-list-item[selected] [slot="start"] { color:var(--magi-ref-primary); }
-  /* Three things change, not one. The guide asks a selected destination for an active indicator, a
-     FILLED icon, and a heavier label — colour alone is the case it names as insufficient. These
-     icons are drawn as strokes and have no filled twin, which is the case the guide answers too:
-     "if an icon doesn't have a filled style, use a thicker or heavier version of the icon". */
-  #rail md-list-item .lbl { font-weight:500; }
-  #rail md-list-item[selected] .lbl { font-weight:700; }
-  #rail md-list-item[selected] .ic path { stroke-width:2.4; }
+  body:not([nav="open"]) .raili {
+    flex-direction:column; gap:var(--magi-sys-space-50); padding-inline:0;
+    min-height:64px; justify-content:center;
+  }
+  /* Where you are, in three properties rather than one: the indicator, a heavier stroke on the
+     icon, and a bold label. The guide names colour alone as the case that is not enough, and its
+     answer for an icon with no filled twin is a thicker one. */
+  .raili[selected] { color:var(--magi-ref-primary); }
+  .raili[selected] .icwrap { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
+  body[nav="open"] .raili[selected] { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
+  body[nav="open"] .raili[selected] .icwrap { background:transparent; }
+  .raili .lbl { font-weight:500; }
+  .raili[selected] .lbl { font-weight:700; }
+  .raili[selected] .ic path { stroke-width:2.4; }
   /* The badge, corrected. Its inner box is position:absolute at top / 50% across, which is right
      when the badge is laid over an icon and wrong everywhere else — dropped into a flow it anchors
      to whatever ancestor happens to be positioned and lands somewhere unrelated. Giving the host a
@@ -714,11 +715,11 @@ const indexHTML = `<!doctype html>
   /* Widened, the row has a word in it and the count belongs after the word — riding the icon is
      what a badge does when the icon is all there is. Anchored to the ITEM rather than to the icon,
      so it lands at the end of the row. */
-  body[nav="open"] #rail md-list-item { position:relative; }
+  body[nav="open"] .raili { position:relative; }
   body[nav="open"] #rail .icwrap { overflow:visible; }
   /* Expanded, the badge is a child of the list item and lays itself out beside the label; the
      move is placeRailBadge()'s, and this rule only says what it looks like once it is there. */
-  body[nav="open"] #rail md-list-item > md-badge { position:static; align-self:center; }
+  body[nav="open"] .raili > md-badge { position:static; align-self:center; }
   #prefsForm { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:16rem; }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
@@ -1204,7 +1205,18 @@ const indexHTML = `<!doctype html>
     #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
     /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
        glancing back at, and a plan that scrolls away is one you re-find rather than read. */
-    #side { position:sticky; top:5.5rem; }
+    /* Stuck, and bounded. A sticky pane does not take main's bottom padding — that space is
+       reserved for the composer and the pane sat over it, so the last control in the facts was
+       three pixels under the dock and the bottom of its 48dp reach was not pressable. It ends
+       where the dock begins and scrolls inside itself if there is more than fits. */
+    #side {
+      position:sticky; top:5.5rem;
+      /* The 5.5rem is where it STICKS; unstuck it starts lower — below the masthead's own block —
+         so a cap measured from the stuck position is short by that difference at the top of the
+         page, which is exactly where somebody reads it. The extra 3rem covers it. */
+      max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
+      overflow:auto; overscroll-behavior:contain;
+    }
     /* A way out. Whichever it is — a fixed pane or a side sheet — the guide asks for one: a fixed
        pane gets a handle that collapses it, a side sheet "requires that a close affordance is
        always present". Without it nobody can tell whether the pane is transient or permanent, and
@@ -1807,26 +1819,38 @@ const indexHTML = `<!doctype html>
   <!-- The icons are drawn here rather than pulled from Material Symbols: that is a whole font to
        embed for four glyphs, and this page already refuses a font CDN for the typeface it reads
        with. Stroked in currentColor, so the selected state colours the shape with its label. -->
-  <md-list id="railNav">
-    <md-list-item id="railFleet" type="link">
+  <!-- Two anchors, not a list.
+       A navigation rail is not a list and Material Web ships no rail, so these were md-list-item
+       wearing the job — and the job kept showing. That component writes role="listitem" onto the
+       anchor it renders, which cost the link semantics and name-from-content both, and had to be
+       undone from JS by reaching into its shadow root. It lays its slots out in a row, so the icon
+       could never sit ABOVE the word, which is the shape the collapsed rail is drawn in and the
+       reason this page hid its labels. And its ripple and focus ring each needed a ::part rule to
+       be told what shape the item was.
+       An anchor is a link by being one. The page already draws its own tooltips, focus rings and
+       state layers for the controls it builds; this is one more, and it is smaller than the
+       workarounds it replaces. -->
+  <div id="railNav">
+    <a id="railFleet" class="raili state">
       <!-- The badge rides the icon, which is what a badge is for and the only place it can be when
-           the rail is collapsed to icons. In the end slot it sat at the right edge of the item,
-           46px from the shape it was counting for. -->
-      <span slot="start" class="icwrap">
+           the rail is collapsed to icons. -->
+      <span class="icwrap">
         <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
           d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
           fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <md-badge id="railBadge" hidden></md-badge>
       </span>
       <span class="lbl"></span>
-    </md-list-item>
-    <md-list-item id="railSkills" type="link">
-      <svg slot="start" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
-        d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
-        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <a id="railSkills" class="raili state">
+      <span class="icwrap">
+        <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+          d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
       <span class="lbl"></span>
-    </md-list-item>
-  </md-list>
+    </a>
+  </div>
 
 </nav>
 
@@ -4258,22 +4282,7 @@ function placeRailBadge() {
   railBadge.removeAttribute('slot');
   if (home && railBadge.parentNode !== home) home.append(railBadge);
 }
-// The labels come in after the rail has finished widening, and go the moment it starts closing.
-// Driven by the transition rather than a matching timer: two numbers that have to agree are one
-// number in two places, and the rail's duration is already written in the stylesheet.
-let labelsSoon = 0;
-function showRailLabels() {
-  clearTimeout(labelsSoon);
-  const done = e => { if (e.propertyName !== 'width') return;
-    railEl.removeEventListener('transitionend', done);
-    if (document.body.getAttribute('nav') === 'open') document.body.setAttribute('rail', 'labels'); };
-  railEl.addEventListener('transitionend', done);
-  // A transition that never runs — reduced motion, or a rail already at width — fires no event.
-  labelsSoon = setTimeout(() => { if (document.body.getAttribute('nav') === 'open') document.body.setAttribute('rail', 'labels'); }, 400);
-}
 const closeNav = () => {
-  clearTimeout(labelsSoon);
-  document.body.removeAttribute('rail');
   document.body.removeAttribute('nav');
   railMenu.setAttribute('aria-expanded', 'false');
   placeRailBadge();
@@ -4284,7 +4293,6 @@ railMenu.onclick = () => {
   document.body.setAttribute('nav', 'open');
   railMenu.setAttribute('aria-expanded', 'true');
   placeRailBadge();
-  showRailLabels();
 };
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
