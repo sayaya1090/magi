@@ -1022,7 +1022,15 @@ const indexHTML = `<!doctype html>
     /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
        glancing back at, and a plan that scrolls away is one you re-find rather than read. */
     #side { position:sticky; top:5.5rem; }
+    /* A way out. Whichever it is — a fixed pane or a side sheet — the guide asks for one: a fixed
+       pane gets a handle that collapses it, a side sheet "requires that a close affordance is
+       always present". Without it nobody can tell whether the pane is transient or permanent, and
+       the conversation cannot have the width back. */
+    body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr); }
+    body[side="shut"] #side { display:none; }
+    #sideToggle { display:inline-flex; }
   }
+  #sideToggle { display:none; align-self:flex-end; margin-bottom:-.8rem; }
   #stream, #side { min-width:0; display:flex; flex-direction:column; gap:1.4rem; }
   #side md-outlined-card { margin-bottom:0; }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
@@ -1593,6 +1601,11 @@ const indexHTML = `<!doctype html>
       <md-outlined-card id="detail" hidden></md-outlined-card>
       <div id="log"></div>
     </div>
+    <md-icon-button id="sideToggle" aria-expanded="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+        <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </md-icon-button>
     <aside id="side">
       <md-outlined-card id="plan" hidden></md-outlined-card>
       <md-outlined-card id="handoffs" hidden></md-outlined-card>
@@ -3518,6 +3531,8 @@ function paint() {
   for (const id of ['ptabTalk', 'ptabState']) document.getElementById(id).fullWidthIndicator = true;
   // The waiting badge changes parent with the rail, per the spec: on the icon while collapsed,
   // beside the label once there is one.
+  sideToggle.setAttribute('aria-label', tr(document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide'));
+  tip(sideToggle, tr(document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide'));
   const openNav = document.body.getAttribute('nav') === 'open';
   const home = openNav ? railFleet : railFleet.querySelector('.icwrap');
   if (home && railBadge.parentNode !== home) home.append(railBadge);
@@ -3742,6 +3757,18 @@ for (const [el, key] of RAILS) {
 
 // Widening the rail is a wide-screen idea only. On a phone the rail is not a drawer — it is a
 // section at the foot of the page — so there is nothing to open and nothing to close.
+// The side pane's own control. Remembered, because a pane you shut should stay shut when you open
+// the next companion — reopening it every time would make the button feel like it did nothing.
+const sideToggle = document.getElementById('sideToggle');
+if (localStorage.getItem('side') === 'shut') document.body.setAttribute('side', 'shut');
+sideToggle.onclick = () => {
+  const shut = document.body.getAttribute('side') !== 'shut';
+  document.body.setAttribute('side', shut ? 'shut' : '');
+  localStorage.setItem('side', shut ? 'shut' : '');
+  sideToggle.setAttribute('aria-expanded', String(!shut));
+  paint();
+};
+
 const scrimEl = document.getElementById('scrim');
 const closeNav = () => {
   document.body.removeAttribute('nav');

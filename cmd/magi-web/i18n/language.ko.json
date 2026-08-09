@@ -132,6 +132,8 @@
   "reach.on_peer": " ({peer})",
   "reach.only": "{name}만",
   "reach.team": "{team} 팀",
+  "side.hide": "정보 숨기기",
+  "side.show": "정보 보기",
   "skill.learned_from": "출처 {src}",
   "state.abandoned": "중단됨",
   "state.gone": "떠남",
