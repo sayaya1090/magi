@@ -469,7 +469,7 @@ const indexHTML = `<!doctype html>
      decision. */
   #rail .lbl { overflow-wrap:anywhere; }
   body:not([nav="open"]) #rail .lbl { display:none; }
-  body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:14px; }
+  body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:16px; }
   #rail .ic { flex:none; display:block; }
   #rail md-list {
     --md-list-container-color:transparent;
@@ -1450,7 +1450,7 @@ const indexHTML = `<!doctype html>
            the rail is collapsed to icons. In the end slot it sat at the right edge of the item,
            46px from the shape it was counting for. -->
       <span slot="start" class="icwrap">
-        <svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+        <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
           d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
           fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <md-badge id="railBadge" hidden></md-badge>
@@ -1458,7 +1458,7 @@ const indexHTML = `<!doctype html>
       <span class="lbl"></span>
     </md-list-item>
     <md-list-item id="railSkills" type="link">
-      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+      <svg slot="start" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
         d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
         fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="lbl"></span>
