@@ -27,7 +27,7 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## material.js — Material Web 2.5.0, 264KB
+## material.js — Material Web 2.5.0, 265KB
 
 The M3 components themselves, so the design comes from the system rather than from CSS written here
 a second time. Only the ones the page uses are imported: `all.js` would register every component
@@ -54,6 +54,7 @@ the library ships.
     import '@material/web/chips/filter-chip.js';
     import '@material/web/tabs/tabs.js';
     import '@material/web/tabs/primary-tab.js';
+    import '@material/web/progress/linear-progress.js';
     ENTRY
     npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
     #   sha256 d861057ffcf1d6e3836b1c3c701514c6403c95217c082004a25b8a1ace52b558

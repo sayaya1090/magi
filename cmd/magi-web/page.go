@@ -1005,16 +1005,13 @@ const indexHTML = `<!doctype html>
      outline-variant, which is under 3:1 against the surface, so the spec makes the end stop
      mandatory rather than decorative. */
   #plan .planbar {
-    position:relative; height:4px; border-radius:var(--shape-full);
-    background:var(--outlineVariant); margin:.35rem 0 .1rem; overflow:hidden;
-  }
-  #plan .planfill {
-    position:absolute; inset:0 auto 0 0; border-radius:var(--shape-full);
-    background:var(--primary); transition:width var(--dur-medium2) var(--ease-standard);
-  }
-  #plan .planstop {
-    position:absolute; right:0; top:0; width:4px; height:4px;
-    border-radius:var(--shape-full); background:var(--primary);
+    display:block; margin:.35rem 0 .1rem;
+    /* The spec's numbers, which are also the component's defaults — set here so a change to either
+       is visible as a change to this line rather than a silent drift. */
+    --md-linear-progress-track-height:4px;
+    --md-linear-progress-active-indicator-height:4px;
+    --md-linear-progress-active-indicator-color:var(--primary);
+    --md-linear-progress-track-color:var(--outlineVariant);
   }
   #plan .plancount { font:11px/1.5 var(--mono); color:var(--muted); margin-bottom:.4rem; }
   #plan .k {
@@ -2802,20 +2799,15 @@ async function drawPlan(a) {
   // exactly what is happening in the list below it.
   const done = todos.filter(t => t.status === 'completed').length;
   const pct = Math.round(done / todos.length * 100);
-  const bar = cell('planbar');
-  bar.setAttribute('role', 'progressbar');
-  bar.setAttribute('aria-valuemin', '0');
-  bar.setAttribute('aria-valuemax', String(todos.length));
-  bar.setAttribute('aria-valuenow', String(done));
+  // The library's own, not one drawn here. It was a div with a width — which meant reimplementing
+  // the stop indicator, the role, and every state by hand. md-linear-progress is in the stable half
+  // of Material Web and ships all three.
+  const bar = document.createElement('md-linear-progress');
+  bar.value = done / todos.length;
   // Named for what it is measuring, not "loading": a progress bar that only says "progress" tells
   // a screen reader nothing the number did not already say.
   bar.setAttribute('aria-label', tr('plan.progress', {done: done, total: todos.length}));
-  const fill = cell('planfill');
-  fill.style.width = pct + '%';
-  // The 4dp dot at the end of the track. Required when the track itself is under 3:1 against what
-  // is behind it — outline-variant is 1.53:1 here — because otherwise there is nothing to say
-  // where the track ends, and a bar at 95% reads as a bar at 100%.
-  bar.append(fill, cell('planstop'));
+  bar.className = 'planbar';
   box.replaceChildren(cell('k', tr('field.plan')), bar,
     cell('plancount', tr('plan.progress', {done: done, total: todos.length})),
     ...todos.map(t => {
