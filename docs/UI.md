@@ -707,6 +707,8 @@ Listed with what each would actually take, so none of them reads as a wish.
 | A22 | `#rail .lbl { white-space:nowrap }` — **라벨이 줄바꿈되지 못한다** | 텍스트 확대 시 항목이 **세로로 자라고 줄바꿈해도 된다**. **2배까지 라벨 전체가 보여야** | components/nav-rail(accessibility) | **작다** — 한 줄. ⚠ 접힘 상태의 `display:none`과는 별개 문제 |
 | A25 | 폼 제출 실패가 **필드가 아니라 전역 `#state` 줄**로 가고(page.go:3586, 80자 절단), 그 줄에 **`role="alert"`도 `aria-live`도 없다** | 오류에는 **`alert` 역할**을 부여하고 메시지를 라벨로. 필드 오류는 **그 필드 자리에** | components/text-fields(accessibility), components/dialogs | **중간** — 두 결함이 겹쳐 **스크린리더는 오류를 전혀 못 듣는다**. ⚠ `post()`는 공유 헬퍼라 **폼 제출에 한정**해 고칠 것 |
 | A26 | `<md-dialog id="prefsDialog">`에 **`type` 속성이 없다** → 역할이 `dialog`(기본) | 웹의 **basic 다이얼로그는 `alertdialog` 역할**. 번들이 `type="alert"`일 때만 붙인다 | components/dialogs(accessibility) | **아주 작다** — 속성 하나. ⚠ 단, 이 다이얼로그는 **폼**을 담아 ARIA 관행과 갈릴 수 있다. 고칠 때 확인 |
+| A27 | 보드 카드가 **directly actionable인데 그 안에 동작하는 칩**이 있다(`e.stopPropagation()`이 증거) | 카드는 **동작하는 표면**이거나 **동작을 담는 컨테이너**, **둘 중 하나**. "An action shouldn't be placed on an actionable surface" | components/cards(accessibility) | **중간** — ⚠ guidelines 탭만 보고 "허용"이라 적었던 것을 **뒤집음** |
+| A28 | 보드 카드의 라벨 칩이 **`<div>` + `onclick`** — 탭 스톱도 역할도 없다 | "**모든 동작 요소는 탭 스톱**이어야", "**스크린리더 포커스와 키보드 포커스를 둘 다**" | components/cards(accessibility) | **중간** — **키보드로 라벨 필터를 쓸 방법이 없다** |
 
 **철회된 항목**: A2(compact `md-tabs`) — 목적지가 셋 미만이면 가이드가 탭을 지시한다.
 A3(74ch) — 큰 화면 천장은 120자다. 둘 다 **고쳤다면 위반을 만들었을 것**이다.
