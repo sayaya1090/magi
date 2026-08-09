@@ -498,7 +498,7 @@ finger reaches, what a colour computes to. Those are measured in a real browser 
 
 ### 5.1 Measured in a browser
 
-`scratchpad/` carries five probes that run the emitted demo in headless Chromium. They exist because
+`scratchpad/` carries six probes that run the emitted demo in headless Chromium. They exist because
 the fake DOM cannot answer any question about layout, and because the mock now MOVES: the fleet's
 states cycle, plans change, the context gauge fills and folds, the connection drops and recovers.
 
@@ -508,7 +508,8 @@ states cycle, plans change, the context gauge fills and folds, the connection dr
 | `contrast.mjs` | WCAG 1.4.3 in both themes, **piercing shadow roots** |
 | `geom.mjs` | every box on four screens, for diffing one build against another |
 | `cssvalid.mjs` | unknown property names, values the browser drops, `var()` that resolves to nothing |
-| `verify.mjs` | touch targets, keyboard focus indicators, truncation, reflow at 320px and at a 32px default font |
+| `spec.mjs` | the fourteen dimensions the guide states outright, on the elements as drawn |
+| `verify.mjs` | touch targets, keyboard focus, truncation, reflow, the **accessibility tree**, and that every `md-*` is a component the bundle defines |
 
 ⚠ **A probe is not trusted until breaking something on purpose makes it speak.** Six findings in one
 session were the probe's own, not the page's:
