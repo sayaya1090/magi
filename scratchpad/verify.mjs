@@ -159,15 +159,28 @@ for (const [label, opts] of [['320px 폭', { viewport: { width: 320, height: 800
   }
 }
 
-// Reduced motion must actually reduce it.
+// Reduced motion must reduce MOVEMENT, and still let the page say something changed.
+//
+// The old form of this check asked for no duration at all, which is a different rule — the guide
+// asks for subtle fades in place of sliding and scaling, not for a page that swaps its contents
+// between two frames. So: nothing may be displaced, and the fades that remain must be short.
 {
   const page = await browser.newPage({ reducedMotion: 'reduce' });
-  await page.goto(URL, { waitUntil: 'networkidle' }); await page.waitForTimeout(800);
-  const moving = await page.evaluate(() => [...document.querySelectorAll('*')]
-    .filter(e => { const c = getComputedStyle(e);
-      return (parseFloat(c.transitionDuration) > 0.05 || parseFloat(c.animationDuration) > 0.05) && e.getClientRects().length; })
-    .map(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')).slice(0, 6));
-  if (moving.length) note('reduced-motion', 'stillMoving', [...new Set(moving)]);
+  await page.goto(URL, { waitUntil: 'networkidle' }); await page.waitForTimeout(900);
+  const bad = await page.evaluate(() => {
+    const out = [];
+    for (const e of document.querySelectorAll('*')) {
+      if (!e.getClientRects().length) continue;
+      const c = getComputedStyle(e);
+      const name = e.tagName.toLowerCase() + (e.id ? '#' + e.id : '');
+      if (/transform|left|top|inset|margin|translate/.test(c.transitionProperty) &&
+          parseFloat(c.transitionDuration) > 0.05) out.push(name + ' 이동 transition:' + c.transitionProperty);
+      const dur = parseFloat(c.animationDuration);
+      if (dur > 0.05 && dur > 0.2) out.push(name + ' 애니메이션 ' + c.animationDuration);
+    }
+    return [...new Set(out)].slice(0, 6);
+  });
+  if (bad.length) note('reduced-motion', 'stillMoving', bad);
   await page.close();
 }
 await browser.close();

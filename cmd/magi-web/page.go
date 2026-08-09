@@ -447,14 +447,27 @@ const indexHTML = `<!doctype html>
   .slideR { animation:slideFromLeft 200ms var(--ease-emphasized) both; }
   .rise  { animation:riseIn 250ms var(--ease-emphasized) both; }
 
-  /* Somebody who asked their machine to stop moving things gets a page that does not move. Not a
-     shorter animation — none. The 0.01ms rather than 0 is the standard trick: it still FIRES, so an
-     animationend that something waits on still arrives. */
+  /* Somebody who asked their machine to stop moving things gets a page that does not MOVE.
+     Not a page that stops answering. The guide asks for "subtle fades instead of intense sliding
+     or scaling", which is a swap and not a deletion, and the blanket 0.01ms was the deletion: a
+     panel replaced its contents between two frames with nothing to say it had, which is the
+     change a reader most needs told about and the one least likely to make anybody ill. What
+     goes is displacement — translate, scale, and any transition that would carry a box across
+     the screen. Opacity and colour stay, at a length short enough not to be a performance.
+     0.01ms rather than 0 where a duration is still killed: it FIRES, so an animationend that
+     something waits on still arrives. */
+  @keyframes stillFade { from { opacity:0; } to { opacity:1; } }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration:0.01ms !important; animation-iteration-count:1 !important;
-      transition-duration:0.01ms !important; scroll-behavior:auto !important;
+      transition-property:opacity, color, background-color, border-color, fill, stroke, box-shadow !important;
+      transition-duration:120ms !important;
+      scroll-behavior:auto !important;
     }
+    /* The four the page animates itself. A class beats the universal selector, so these keep a
+       duration where everything else loses one — the same fade for all four, because what made
+       them different was the direction they moved and none of them moves now. */
+    .enter, .rise, .slideL, .slideR { animation:stillFade 120ms var(--ease-standard) both !important; }
   }
 
   /* ── masthead ───────────────────────────────────────────────────────────── */

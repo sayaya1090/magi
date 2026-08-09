@@ -539,6 +539,19 @@ func TestMotionCanBeTurnedOffByThePersonReadingIt(t *testing.T) {
 	if !strings.Contains(block, "*") {
 		t.Errorf("the override names specific selectors, so a component's own motion escapes it:\n%s", block)
 	}
+	// What is being turned off is MOVEMENT, not the page's ability to say something changed: the
+	// guide asks for subtle fades in place of sliding and scaling rather than for stillness, and a
+	// panel that swaps its contents between two frames tells a reader nothing. So the transitions
+	// that survive must not include one that carries a box across the screen.
+	if at := strings.Index(block, "transition-property"); at >= 0 {
+		if list := block[at:min(at+200, len(block))]; strings.Contains(list[:min(120, len(list))], "transform") ||
+			strings.Contains(list[:min(120, len(list))], "all") {
+			t.Errorf("reduced motion still allows a transform to be transitioned:\n%s", list)
+		}
+	} else {
+		t.Error("the block kills durations without saying which properties may still transition, " +
+			"so a transform keeps its 120ms and the page still moves")
+	}
 }
 
 // Every phrase in the pack reaches a screen, and every phrase on a screen comes from the pack.
