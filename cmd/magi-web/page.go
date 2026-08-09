@@ -350,7 +350,7 @@ const indexHTML = `<!doctype html>
   /* Headings carry the structure, not the styling. Each of these already had its own size, weight
      and colour as a div; becoming h1/h2/h3 must not also drag in the browser's default type scale
      and margins, or the page would resize itself for a change that is meant to be invisible. */
-  h1, h2, h3 { font:inherit; margin:0; }
+  h1, h2 { font:inherit; margin:0; }
   /* Read, not seen. A live region has to be in the accessibility tree, so it cannot be display:none
      or visibility:hidden — it is clipped to nothing instead. */
   /* Plain tooltip, at the spec's numbers: 24dp tall, 8dp of padding, a 4dp corner, and the
@@ -1485,8 +1485,10 @@ const indexHTML = `<!doctype html>
        a phone navigates with the tabs. -->
   <!-- The page's one h1. Assistive tech navigates by heading and this page had none — every
        section head was a styled div, so there was nothing to jump between. Levels follow the
-       CONTENT hierarchy, not the type size: the product, then each destination's sections, then
-       the groups inside them. -->
+       CONTENT hierarchy, not the type size: the product, then the groups inside each destination.
+       h2 for those groups and not h3 — measured in a browser, the fleet and the board have no
+       section head above them, so h3 there skipped a level from this h1, which the guide forbids
+       outright. Two levels is all this page has. -->
   <h1 class="mark">magi</h1>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
@@ -2581,7 +2583,7 @@ async function loadBoard() {
     if (!work.length) return;
     anything = true;
     const lane = cell('lane');
-    const title = document.createElement('h3');
+    const title = document.createElement('h2');
     title.className = 'lanehead';
     title.append(cell('lname', a.name));
     // Who did it is the column, so the label that is missing from a card is what it was FOR. The
@@ -2770,7 +2772,7 @@ function grouped(rows) {
 // The hub is on the header rather than on its own row: which companion speaks for a team is a fact
 // about the team, and a badge buried in one row is a fact somebody has to go looking for.
 function teamHead(name, members) {
-  const h = document.createElement('h3');
+  const h = document.createElement('h2');
   h.className = 'teamhead';
   h.append(cell('tname', name || tr('team.none')));
   // Every companion claiming to speak for the team, not the first one found. Two is a
