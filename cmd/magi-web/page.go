@@ -2460,6 +2460,51 @@ function markWaiting(n) {
     b.value = n ? (n > 999 ? '999+' : String(n)) : '';
     b.hidden = !n;
   }
+  // A badge is a number with its meaning in its POSITION, and position is the one thing a screen
+  // reader does not have. Measured in the accessibility tree: the rail's destination read out as
+  // "Companions" with the count nowhere in it, so somebody listening was never told anybody was
+  // waiting.
+  //
+  // As CONTENT, not as a label on the host. A list item of type link renders its own anchor in a
+  // shadow root and the name comes from what is slotted into it — an aria-label on the host is set,
+  // is visible in the DOM, and does not reach the link. Measured both ways: the attribute stood
+  // there reading "Companions, 2 waiting on you" while the tree still said "Companions".
+  const said = n ? ', ' + tr('state.waiting_on_you', {n}) : '';
+  let note = tabFleet.querySelector('.srcount');
+  if (!note) { note = srOnly(''); note.classList.add('srcount'); tabFleet.append(note); }
+  note.textContent = said;
+  nameRail(said);
+}
+
+// The rail's destinations, named — and made links again.
+//
+// A navigation rail is not a list, and Material Web does not ship one, so this rail is built out
+// of md-list-item. That component puts role="listitem" on the anchor it renders, which costs two
+// things at once: the link semantics, and name-from-content — listitem takes a name from the
+// author and not from what is inside it. Measured in the accessibility tree: the whole rail came
+// out as two unnamed listitems with every child IGNORED. A screen reader was told nothing about
+// the navigation at all, never mind how many companions were waiting.
+//
+// Reaching into the shadow root is not something to do lightly and is the only lever there is: the
+// role is written by the component on an element no selector of ours can name. Both attributes are
+// set every time the count changes, because the component re-renders and takes them with it.
+function nameRail(said) {
+  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared']]) {
+    const a = el.shadowRoot && el.shadowRoot.querySelector('a');
+    if (!a) continue;
+    a.setAttribute('role', 'link');
+    a.setAttribute('aria-label', tr(key) + (el === railFleet ? said : ''));
+  }
+}
+
+// srOnly is a phrase for the reader who is listening and not looking. Used where a number is
+// drawn as a badge or a bare count: the digit carries its meaning in where it sits, and where it
+// sits is exactly what does not survive into a screen reader.
+function srOnly(text) {
+  const s = document.createElement('span');
+  s.className = 'sr-only';
+  s.textContent = text;
+  return s;
 }
 
 // arm makes a destructive control ask once before it acts.
@@ -3015,9 +3060,14 @@ function teamHead(name, members) {
   if (waiting) {
     const b = document.createElement('md-badge');
     b.value = String(waiting);
-    h.append(b);
+    // Same reason as the rail's: in the accessibility tree this heading read "backend 1 1", two
+    // bare numbers with nothing to tell them apart. The digits stay drawn and the words are said.
+    b.setAttribute('aria-hidden', 'true');
+    h.append(b, srOnly(tr('state.waiting_on_you', {n: waiting})));
   }
-  h.append(cell('tn', members.length + ''));
+  const tn = cell('tn', members.length + '');
+  tn.setAttribute('aria-hidden', 'true');
+  h.append(tn, srOnly(tr(members.length === 1 ? 'count.agent' : 'count.agents', {n: members.length})));
   return h;
 }
 
@@ -3851,6 +3901,7 @@ function paint() {
     // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
+    nameRail(railBadge.hidden ? '' : ', ' + tr('state.waiting_on_you', {n: railBadge.value}));
   }
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');

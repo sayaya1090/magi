@@ -142,6 +142,52 @@ for (const scheme of ['dark', 'light']) {
   await page.close();
 }
 
+// What a screen reader is actually told.
+//
+// Not what the DOM says — what the accessibility tree says, which is a different document and the
+// only one that matters here. The rail was built out of md-list-item because Material Web ships no
+// navigation rail, and that component writes role="listitem" on the anchor it renders: link
+// semantics gone, name-from-content gone, and the whole navigation exposed as two unnamed nodes
+// with every child ignored. Nothing in the DOM looked wrong. The tree is where it showed.
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  await page.goto(URL, { waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Accessibility.enable');
+  const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+  const by = new Map(nodes.map(n => [n.nodeId, n]));
+  const nameOf = n => (n.name && n.name.value) || '';
+  const roleOf = n => (n.role && n.role.value) || '';
+  // How many things a person can reach with the keyboard inside each navigation, from the DOM.
+  const canFocus = await page.evaluate(() => {
+    const out = {};
+    for (const nav of document.querySelectorAll('nav')) {
+      const label = nav.getAttribute('aria-label') || nav.id || 'nav';
+      out[label] = [...nav.querySelectorAll('a[href],button,md-icon-button,md-list-item,md-primary-tab,md-secondary-tab')]
+        .filter(e => e.getClientRects().length).length;
+    }
+    return out;
+  });
+  const bad = [];
+  for (const nav of nodes.filter(n => roleOf(n) === 'navigation' && !n.ignored)) {
+    let named = 0;
+    const walk = id => { const n = by.get(id); if (!n) return;
+      if (!n.ignored && /^(link|button|tab|menuitem)$/.test(roleOf(n))) {
+        if (nameOf(n).trim()) named++;
+        else bad.push(`${nameOf(nav) || 'nav'}: a ${roleOf(n)} with no name`);
+      }
+      (n.childIds || []).forEach(walk); };
+    walk(nav.nodeId);
+    // The tree has to account for every one of them. A component that names itself listitem takes
+    // its whole subtree out of the tree while leaving the DOM looking correct, and counting is the
+    // only way to see that from here.
+    const want = canFocus[nameOf(nav)] ?? canFocus[Object.keys(canFocus)[0]] ?? 0;
+    if (named < want) bad.push(`${nameOf(nav) || 'nav'}: ${want} things to reach, ${named} named in the tree`);
+  }
+  if (bad.length) note('a11y-tree', 'namelessDestinations', [...new Set(bad)]);
+  await page.close();
+}
+
 // Reflow: a narrow window, and a doubled default font size. Neither may need sideways scrolling.
 for (const [label, opts] of [['320px 폭', { viewport: { width: 320, height: 800 } }],
                              ['기본글꼴 32px', { viewport: { width: 1280, height: 900 }, font: 32 }]]) {
