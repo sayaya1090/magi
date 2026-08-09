@@ -218,6 +218,24 @@ for (const [label, opts] of [['320px 폭', { viewport: { width: 320, height: 800
   }
 }
 
+// Every md-* element on the page is a component the bundle actually defines.
+//
+// An undefined custom element is not an error. It renders as an inert box, inherits whatever CSS
+// names it, and looks very nearly right — a progress bar with no fill, a tab strip with no
+// indicator, a dialog that never opens. The page imports one bundle and asks for whatever it asks
+// for; nothing in between checks that the two agree.
+{
+  const page = await browser.newPage();
+  await page.goto(URL, { waitUntil: 'networkidle' }); await page.waitForTimeout(1200);
+  const missing = await page.evaluate(() => {
+    const walk = (r, a) => { r.querySelectorAll('*').forEach(e => { a.push(e); if (e.shadowRoot) walk(e.shadowRoot, a); }); return a; };
+    const want = new Set(walk(document, []).map(e => e.tagName.toLowerCase()).filter(t => t.startsWith('md-')));
+    return [...want].filter(t => !customElements.get(t));
+  });
+  if (missing.length) note('bundle', 'undefinedComponents', missing);
+  await page.close();
+}
+
 // Reduced motion must reduce MOVEMENT, and still let the page say something changed.
 //
 // The old form of this check asked for no duration at all, which is a different rule — the guide
