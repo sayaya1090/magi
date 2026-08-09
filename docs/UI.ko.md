@@ -630,7 +630,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | A9 | 자식 요소에 `margin`을 직접 거는 자리가 여럿(`.wlabel`, `.toboard`, `.skwrite` 등) | ❌ 자식에 margin 금지. **부모에 padding+gap** | foundations §6.1 | 중간 |
 | A10 | 애니메이션 **210ms·240ms**(`.enter`, `.rise`)가 duration 스케일 밖 | short4=**200**, medium1=**250** | styles §9.2 | **작다** — 두 값 반올림. A8과 같은 커밋에 묶을 것 |
 | A11 | `--shape-xl:24px` — **셰이프 스케일에 24가 없다**(20 다음 28) | **28dp** | styles §10.4 | **아주 작다** — 사용처 1곳. 가이드·번들 둘 다 28이라 방어 논거 없음 |
-| A12 | 선택된 내비 항목이 **액티브 인디케이터 + 색** 둘까지만 — **채워진 아이콘이 없다** | 선택 항목은 **indicator + filled icon + 두드러진 색** 셋 | styles §11.5, foundations §7.4 | **작다, 심각도 낮음** — ⚠ 처음에 "색만 바뀐다"고 적었으나 **틀렸다**(page.go:491에 pill 인디케이터가 있다). 접근성 바닥선인 "두 속성"은 이미 충족 → 결함이 아니라 완결성 부족 |
+| A12 | 선택된 내비 항목에 **채워진 아이콘이 없다**(인디케이터+색까지만) | ❌ **"Avoid using the same unfilled icon style for both selected and unselected items"** — **아이콘이 내비 상태의 지배적 단서**다. 채운 버전이 없으면 **semibold** | components/nav-rail(accessibility), styles §11.5 | **중간** — ⚠ 두 번 바뀐 항목: "색만 바뀜"(틀림) → "완결성 부족"(약함) → **명시적 Don't**(accessibility 탭). 접근성 탭을 안 읽어서 과소평가했다 |
 | A13 | `font-variation-settings` **0건** — 가변 폰트 축을 아예 안 쓴다 | 다크 배경 아이콘 **grade −25**, 밀집 데스크톱 **opsz 20**, 24dp 최소 **wght 200** | styles §11.1 | 작다 — 한 줄로 A12까지 열린다 |
 | A14 | 메뉴 아이콘이 **펼쳐져도 안 바뀐다**(고정 햄버거). `aria-expanded`만 바뀜 | 펼치면 아이콘이 **"접을 수 있다"**를 나타내야 | components/nav-rail | 작다 — 아이콘 하나 토글 |
 | A15 | 배지가 접힘/펼침에 상관없이 **한 자리** | 접힘=**아이콘 우상단**, 펼침=**라벨 옆** | components/nav-rail | 작다 |
@@ -640,6 +640,7 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | A19 | 접힌 레일의 아이콘 전용 목적지에 **`.title` 툴팁이 없다**(`aria-label`만) | **"아이콘 전용 버튼에는 plain 툴팁으로 이름을 단다"** | components/tooltips | **작다** — 다른 아이콘 버튼 7개가 이미 `.title`을 쓴다. 레일만 빠졌다. B(라벨 숨김)를 지탱하는 조각이기도 하다 |
 | A20 | **헤딩 요소가 하나도 없다** — `<h1>`~`<h6>` 마크업 0건, JS 생성 0건. 시각적 섹션 머리글(`.lanehead`·`.teamhead`·`#state`)은 대문자 스타일일 뿐 | **내용 위계대로 H1~H6**, 레벨 건너뛰기 금지, **페이지 제목 H1 하나** | foundations §8.3.2 | **중간** — 보조기술 사용자는 헤딩으로 페이지를 훑는다. 훑을 것이 없다 |
 | A21 | `<nav>` **둘**(`#crumbs`·`#rail`)에 **`aria-label`이 없다** | 같은 랜드마크가 여럿이면 **라벨로 구별**. ⚠ 라벨에 역할 이름을 반복하지 말 것 | foundations §8.3.1 | **아주 작다** — 속성 두 개 |
+| A22 | `#rail .lbl { white-space:nowrap }` — **라벨이 줄바꿈되지 못한다** | 텍스트 확대 시 항목이 **세로로 자라고 줄바꿈해도 된다**. **2배까지 라벨 전체가 보여야** | components/nav-rail(accessibility) | **작다** — 한 줄. ⚠ 접힘 상태의 `display:none`과는 별개 문제 |
 
 **철회된 항목**: A2(compact `md-tabs`) — 목적지가 셋 미만이면 가이드가 탭을 지시한다.
 A3(74ch) — 큰 화면 천장은 120자다. 둘 다 **고쳤다면 위반을 만들었을 것**이다.
