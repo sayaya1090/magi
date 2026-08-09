@@ -618,7 +618,11 @@ const indexHTML = `<!doctype html>
   /* Wrapping, because these are sentences and there are three of them now: at 390px the three
      labels are wider than the column, and a nav that overflows takes the whole page sideways with
      it — the one scroll direction a phone should never get. */
-  #tabs { display:flex; flex-wrap:wrap; gap:.4rem 1.6rem; padding:.9rem 0 0; }
+  /* The divider under the strip. The spec draws it as part of the tab container — 1dp of
+     outline-variant, separating the tabs from what they switch — and neither the bundle nor this
+     page had it. Without it the strip and the content below read as one block. */
+  #tabs { display:flex; flex-wrap:wrap; gap:.4rem 1.6rem; padding:.9rem 0 0;
+          border-bottom:1px solid var(--outlineVariant); }
 
   /* ── what I had to say ───────────────────────────────────────────────────── */
   /* Grouped by what was said, because the repetition IS the finding: one correction is a remark,
@@ -961,7 +965,7 @@ const indexHTML = `<!doctype html>
      at the foot, was nowhere near the words it answers. The tabs put the conversation on its own
      screen and everything else on the other. Above it, both columns are visible and there is
      nothing to switch between. */
-  #ptabs { margin:0 0 1.2rem; }
+  #ptabs { margin:0 0 1.2rem; border-bottom:1px solid var(--outlineVariant); }
   @media (min-width:1100px) {
     #ptabs { display:none !important; }
   }
@@ -1392,7 +1396,6 @@ const indexHTML = `<!doctype html>
     #summary::-webkit-scrollbar { display:none; }
     .tile { flex:0 0 auto; }
     /* The tab strip is a navigation, not a heading: it does not need the room a heading takes. */
-    #tabs { --md-primary-tab-container-height:44px; }
   }
   @media (max-width:599px) {
     #rail {
