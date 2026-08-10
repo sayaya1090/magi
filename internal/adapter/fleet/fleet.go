@@ -387,24 +387,71 @@ func Resolve(list []Agent, to string) []Agent {
 	if len(byName) > 0 {
 		return byName
 	}
-	// A team name reaches its hub. Which one that is has been ELECTED by the time this runs (see
-	// electHubs), so a team with living members always has exactly one — a team stops being
-	// addressable because everybody in it stopped, never because nobody typed a word in a config
-	// file. When that does happen the members come back for the caller to choose between, and that
+	// A team name reaches whichever member has the least on it, and the hub when they are level.
+	//
+	// It used to reach the hub, always, and that made a team of five work like a queue of one: a
+	// companion cannot pass handed-over work on — the no-chaining rule stops it — so everything
+	// addressed to the team piled up behind whoever had been elected. Which is the opposite of what
+	// somebody who starts a second copy because the first keeps refusing is trying to buy.
+	//
+	// The hub still wins a tie, so a team that is doing nothing behaves exactly as it did: one
+	// stable address, elected rather than declared (see electHubs), so a team stops being
+	// addressable when everybody in it stops and never because nobody typed a word in a config file.
+	// When nobody is running the members come back for the caller to choose between, and that
 	// refusal is the honest answer: there is nobody to hand it to.
 	if len(byTeam) > 0 {
-		var hubs []Agent
-		for _, a := range byTeam {
-			if a.Hub {
-				hubs = append(hubs, a)
-			}
-		}
-		if len(hubs) == 1 {
-			return hubs
+		if free := lightest(byTeam); len(free) == 1 {
+			return free
 		}
 		return byTeam
 	}
 	return byRole
+}
+
+// lightest is the running member with the least handed over to it, or nothing if none is running.
+//
+// Load is counted as pieces, in hand and behind: a companion doing one thing with nothing queued is
+// ahead of one doing one thing with two queued, and both are behind one doing nothing. Sorting on
+// the same numbers the roster shows is deliberate — a person who reads that list and picks the
+// emptiest name should get what the fleet would have picked for them.
+//
+// The hub breaks a tie, which is what keeps an idle team behaving exactly as it always has: one
+// address, and the same one every time. Name breaks the rest, so the choice does not depend on
+// which order the sockets happened to be read in.
+func lightest(team []Agent) []Agent {
+	var best Agent
+	found := false
+	for _, a := range team {
+		if !a.Live {
+			continue // load 0 because it is not there, which would win every time
+		}
+		if !found || lighter(a, best) {
+			best, found = a, true
+		}
+	}
+	if !found {
+		return nil
+	}
+	return []Agent{best}
+}
+
+func lighter(a, b Agent) bool {
+	if la, lb := load(a), load(b); la != lb {
+		return la < lb
+	}
+	if a.Hub != b.Hub {
+		return a.Hub
+	}
+	return a.Name < b.Name
+}
+
+// load is how many pieces of handed-over work a companion has on it.
+func load(a Agent) int {
+	n := a.Waiting
+	if a.Handling {
+		n++
+	}
+	return n
 }
 
 // Carrying is what a companion has in hand and behind it, in the words an asker needs.
@@ -539,17 +586,37 @@ func Roster(list []Agent) string {
 
 // Names is who matched, for the message when several did. Peer-qualified, because two machines can
 // each have a "design" and the whole point of the refusal is that the difference matters.
+//
+// Anything still spelled the same as something else gets its workspace, which is the one thing that
+// is never shared. A refusal saying "design and design — name one of them" asks for a distinction
+// it has just declined to make, and there is nothing the reader can do with it.
 func Names(list []Agent) string {
 	out := make([]string, 0, len(list))
 	for _, a := range list {
-		if a.Peer != "" {
-			out = append(out, a.Peer+"/"+a.Name)
-			continue
+		out = append(out, qualified(a))
+	}
+	seen := map[string]int{}
+	for _, n := range out {
+		seen[n]++
+	}
+	for i, a := range list {
+		if seen[out[i]] > 1 && a.Workdir != "" {
+			out[i] += " (" + a.Workdir + ")"
 		}
-		out = append(out, a.Name)
 	}
 	sort.Strings(out)
 	return strings.Join(out, " and ")
+}
+
+// qualified is a name with the machine in front of it, when it is on another one.
+func qualified(a Agent) string {
+	if a.Peer != "" {
+		return a.Peer + "/" + a.Name
+	}
+	if a.Host != "" && a.State == Remote {
+		return a.Host + "/" + a.Name
+	}
+	return a.Name
 }
 
 // nameOf is what a person calls this companion: what it declared, or failing that its directory.

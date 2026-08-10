@@ -1014,3 +1014,94 @@ func TestACompanionInTheMiddleOfHandedOverWorkDoesNotReadAsFree(t *testing.T) {
 		t.Errorf("the roster offers it as free:\n%s", line)
 	}
 }
+
+// A team address goes to whoever in it has the least on them.
+//
+// The point of starting a second copy of a companion that keeps refusing is that the second one
+// takes some of the work. Sending everything to the elected hub made a team of three work like a
+// queue of one, because a companion cannot pass handed-over work on — the no-chaining rule stops
+// it — so it all piled up behind whoever had been elected.
+func TestATeamAddressGoesToWhoeverHasTheLeastOnThem(t *testing.T) {
+	// Named so that the answer cannot come out right by alphabet: the free one sorts last, and the
+	// hub sorts first among the idle.
+	team := []fleet.Agent{
+		{Name: "alpha", Team: "design", Hub: true, Live: true, Waiting: 2},
+		{Name: "mike", Team: "design", Live: true, Handling: true},
+		{Name: "zulu", Team: "design", Live: true},
+	}
+	got := fleet.Resolve(team, "design")
+	if len(got) != 1 {
+		t.Fatalf("a team with three live members resolved to %d of them", len(got))
+	}
+	// zulu has nothing. mike is holding one piece, which is work in progress and not free capacity
+	// — a member mid-turn will not start anything else until it is done.
+	if got[0].Name != "zulu" {
+		t.Errorf("the work went to %q rather than the member with nothing on it", got[0].Name)
+	}
+
+	// An idle team behaves exactly as it always did: one address, the elected one, every time —
+	// here the hub is the one that sorts LAST, so nothing but the election can produce it.
+	idle := []fleet.Agent{
+		{Name: "alpha", Team: "design", Live: true},
+		{Name: "zulu", Team: "design", Hub: true, Live: true},
+	}
+	if got := fleet.Resolve(idle, "design"); len(got) != 1 || !got[0].Hub {
+		t.Errorf("a team with nothing to do no longer has one stable address: %+v", got)
+	}
+}
+
+// A member that is not running has nothing on it, and that must not make it the best candidate.
+func TestAStoppedTeamMemberIsNotTheLightestOne(t *testing.T) {
+	team := []fleet.Agent{
+		{Name: "design-a", Team: "design", Hub: true, Live: true, Waiting: 3},
+		{Name: "design-b", Team: "design", Live: false},
+	}
+	got := fleet.Resolve(team, "design")
+	if len(got) != 1 || got[0].Name != "design-a" {
+		t.Fatalf("work was addressed to a companion that is not running: %+v", got)
+	}
+	// And a team where everybody stopped comes back whole, so the caller is told there is nobody
+	// rather than being handed one of them.
+	gone := []fleet.Agent{
+		{Name: "design-a", Team: "design", Hub: true},
+		{Name: "design-b", Team: "design"},
+	}
+	if got := fleet.Resolve(gone, "design"); len(got) != 2 {
+		t.Errorf("a team that is all stopped resolved to %+v", got)
+	}
+}
+
+// A refusal that names two companions has to tell them apart.
+//
+// "design and design — name one of them" asks for a distinction it has just declined to make, and
+// the reader has nothing to do with it. Copies of one companion are exactly the case that produces
+// it, and starting copies is what somebody does when one keeps refusing work.
+func TestARefusalThatListsTwoCompanionsTellsThemApart(t *testing.T) {
+	got := fleet.Names([]fleet.Agent{
+		{Name: "design", Workdir: "/w/one", Live: true},
+		{Name: "design", Workdir: "/w/two", Live: true},
+	})
+	for _, want := range []string{"/w/one", "/w/two"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("two companions with one name are listed as %q", got)
+		}
+	}
+	// A name that is already unique is left alone: a workspace path on every entry is noise in the
+	// common case, which is two DIFFERENT companions matching one role.
+	plain := fleet.Names([]fleet.Agent{
+		{Name: "design", Workdir: "/w/one", Live: true},
+		{Name: "build", Workdir: "/w/two", Live: true},
+	})
+	if strings.Contains(plain, "/w/") {
+		t.Errorf("names that were already distinct were qualified anyway: %q", plain)
+	}
+	// A companion on another machine carries it, because the same name on two hosts is two
+	// companions and the difference is which machine the work lands on.
+	far := fleet.Names([]fleet.Agent{
+		{Name: "design", Host: "buildbox", State: fleet.Remote},
+		{Name: "design", Workdir: "/w/here", Live: true},
+	})
+	if !strings.Contains(far, "buildbox/design") {
+		t.Errorf("a companion on another machine is not told from one here: %q", far)
+	}
+}
