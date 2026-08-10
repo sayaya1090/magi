@@ -109,6 +109,9 @@ type Member struct {
 	// carried onto a fresh record would be a number nobody ever observed together with the rest of
 	// the row.
 	Waiting int `json:"waiting,omitempty"`
+	// Handling is whether it was in the middle of a piece of handed-over work when last seen.
+	// Never borrowed either, and for the same reason.
+	Handling bool `json:"handling,omitempty"`
 	// Seen is when somebody last had it answer. Not when this entry was written: an entry copied
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.

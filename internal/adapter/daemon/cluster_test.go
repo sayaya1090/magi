@@ -153,15 +153,15 @@ func TestWhatIsWaitingIsPublishedAsItChanges(t *testing.T) {
 	}
 	t.Cleanup(unpub)
 
-	if err := Announce(sock, 3); err != nil {
+	if err := Announce(sock, 3, true); err != nil {
 		t.Fatal(err)
 	}
 	in, err := Published(sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in.Waiting != 3 {
-		t.Fatalf("the record says %d waiting", in.Waiting)
+	if in.Waiting != 3 || !in.Handling {
+		t.Fatalf("the record says %d waiting, handling=%v", in.Waiting, in.Handling)
 	}
 	// And nothing else on the record was lost rewriting it.
 	if in.Name != "design" || in.Can != 2 || in.Session != "s_a" {
@@ -169,12 +169,12 @@ func TestWhatIsWaitingIsPublishedAsItChanges(t *testing.T) {
 	}
 	// It reaches a member, which is how it crosses a machine.
 	got := Mine(cfg, time.Now())
-	if len(got) != 1 || got[0].Waiting != 3 {
+	if len(got) != 1 || got[0].Waiting != 3 || !got[0].Handling {
 		t.Fatalf("the sighting does not carry it: %+v", got)
 	}
 	// A daemon on its way out is not resurrected by a number about nothing.
 	unpub()
-	if err := Announce(sock, 9); err != nil {
+	if err := Announce(sock, 9, false); err != nil {
 		t.Fatalf("announcing to a record that is gone errored: %v", err)
 	}
 	if _, err := Published(sock); err == nil {

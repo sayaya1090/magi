@@ -1117,9 +1117,20 @@ type Info struct {
 	// is a minute old, and a reader choosing between companions should treat it as what it is —
 	// advisory. The authority is the refusal: a companion that is full says so when asked, and
 	// that answer is never stale.
-	Waiting int    `json:"waiting,omitempty"`
-	PID     int    `json:"pid"`
-	Started string `json:"started"` // RFC3339
+	Waiting int `json:"waiting,omitempty"`
+	// Handling is whether a piece of handed-over work is running right now.
+	//
+	// Separate from Waiting because they are separate facts, and separate from the state a
+	// dashboard derives because that is read off the session a person attaches to — and handed-over
+	// work runs in conversations of its own. Without this a companion in the middle of somebody
+	// else's request is indistinguishable from one with nothing to do.
+	//
+	// Wrong in one direction only, by construction: a daemon that loses track of a piece clears
+	// this rather than leaving it set. Saying "free" when busy costs an asker a wait it did not
+	// expect; saying "busy" forever would push every asker away from a companion that is fine.
+	Handling bool   `json:"handling,omitempty"`
+	PID      int    `json:"pid"`
+	Started  string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
 	// machine, so on a laptop they are the same for every entry and read as noise — until you are
 	// looking at three browser tabs forwarded from three hosts over ssh, which is the arrangement
@@ -1175,15 +1186,15 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 //
 // A missing record is not an error. The daemon is either not published yet or on its way out, and
 // in both cases the number describes nothing anybody can act on.
-func Announce(socketPath string, waiting int) error {
+func Announce(socketPath string, waiting int, handling bool) error {
 	in, err := Published(socketPath)
 	if err != nil {
 		return nil
 	}
-	if in.Waiting == waiting {
+	if in.Waiting == waiting && in.Handling == handling {
 		return nil // nothing changed; do not rewrite a file readers are polling
 	}
-	in.Waiting = waiting
+	in.Waiting, in.Handling = waiting, handling
 	b, err := json.Marshal(in)
 	if err != nil {
 		return err
