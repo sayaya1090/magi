@@ -260,6 +260,12 @@ func run() int {
 			"print the companions this machine knows about, as JSON; a member list on stdin is merged in first")
 		joinCluster = flag.String("join-cluster", "",
 			"trade member lists with a companion's machine over ssh and join its cluster. Not --join, which reads one workspace's shared settings as a proposal")
+		// The two doors work crosses a machine by. Run over ssh by another magi, not by a person:
+		// both read a JSON request on stdin and print a JSON answer, the same shape --members uses.
+		takeHand = flag.Bool("hand", false,
+			"take work handed to a companion here from another machine; reads the request as JSON on stdin")
+		handState = flag.Bool("handoff-state", false,
+			"say what became of work handed here: whether its turn finished, and what was said")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -465,6 +471,16 @@ func run() int {
 	}
 	if *joinCluster != "" {
 		return joinTheCluster(os.Stdout, os.Stderr, plat.ConfigDir(), *joinCluster)
+	}
+	// Work arriving from another machine, and questions about work that arrived earlier. A reader
+	// over the same store every other listing reads: these two answer about companions running
+	// here, and start nothing of their own.
+	if *takeHand || *handState {
+		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+		if *takeHand {
+			return handHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
+		}
+		return handoffStateHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
 	}
 
 	if *mcpTo != "" {
@@ -784,6 +800,8 @@ func run() int {
 		Hub:       cfg.Companion.Hub,
 		Cache:     companionCache,
 		Roster:    handRoster,
+		Machine:   daemon.Host(),
+		Cross:     sshCross,
 	})
 	dangerTools := app.DefaultDangerTools()
 
