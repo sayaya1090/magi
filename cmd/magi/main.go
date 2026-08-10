@@ -1102,7 +1102,19 @@ func run() int {
 				if aerr := daemon.Announce(sockPath, n); aerr != nil {
 					fmt.Fprintln(os.Stderr, "magi:", aerr)
 				}
-			})}
+			}),
+			// Kept beside the socket and outliving the process, unlike the record above: the week
+			// after a companion was killed is when somebody asks whether it was overloaded.
+			note: func(full bool, ahead int) {
+				if nerr := daemon.NoteLoad(sockPath, cfg.Companion.Name, full, ahead); nerr != nil {
+					fmt.Fprintln(os.Stderr, "magi:", nerr)
+				}
+			}}
+		// Older than the window is history, and history that outlives its relevance gets read as
+		// current. Once at startup is often enough for a file that grows by a line per request.
+		if perr := daemon.PruneLoad(sockPath, time.Now().Add(-daemon.LoadKept)); perr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", perr)
+		}
 		// Starting queued work as the workspace frees up, on the same lifetime as the schedule and
 		// the gossip: a companion that has been stopped should not pick up somebody's next piece.
 		go taking.run(cronCtx)

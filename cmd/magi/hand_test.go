@@ -46,6 +46,27 @@ type arrival struct {
 		sync.Mutex
 		prompts []string
 	}
+	// load is what the companion wrote down about the work arriving, in order.
+	load struct {
+		sync.Mutex
+		at []struct {
+			full  bool
+			ahead int
+		}
+	}
+}
+
+// noted is what this companion recorded about arriving work.
+func (ar *arrival) noted() []struct {
+	full  bool
+	ahead int
+} {
+	ar.load.Lock()
+	defer ar.load.Unlock()
+	return append([]struct {
+		full  bool
+		ahead int
+	}(nil), ar.load.at...)
 }
 
 func newArrival(t *testing.T) *arrival {
@@ -160,6 +181,14 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 		work: ar.work,
 		sid:  session.SessionID(sid), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
 		mine: newSideSessions(), queued: newWaiting(nil),
+		note: func(full bool, ahead int) {
+			ar.load.Lock()
+			defer ar.load.Unlock()
+			ar.load.at = append(ar.load.at, struct {
+				full  bool
+				ahead int
+			}{full, ahead})
+		},
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	ar.t.Cleanup(cancel)
@@ -803,5 +832,47 @@ func TestAQueuedPieceGetsItsOwnAnswer(t *testing.T) {
 	}
 	if !two.Done || two.Answer != "eight characters" {
 		t.Fatalf("the second piece answered %+v", two)
+	}
+}
+
+// Every arrival is written down, taken or turned away, with how much was already in front of it.
+//
+// The live depth beside it is what an asker reads; this is what is left afterwards. They answer
+// different questions and neither substitutes: "how busy is it right now" is an instant, and
+// "is one of these enough" is a pattern that no instant contains.
+func TestEveryArrivalIsWrittenDownWithHowMuchWasAlreadyThere(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	ar.work.busy = "the-person-is-working" // so nothing drains and the queue fills
+
+	for i := 0; i < maxWaiting; i++ {
+		if _, err := cl.Hand("— asked by master", "do it"); err != nil {
+			t.Fatalf("piece %d was refused before the queue was full: %v", i, err)
+		}
+	}
+	if _, err := cl.Hand("— asked by master", "one too many"); err == nil {
+		t.Fatal("a full companion took more work")
+	}
+
+	got := ar.noted()
+	if len(got) != maxWaiting+1 {
+		t.Fatalf("%d arrivals of %d were written down: %+v", len(got), maxWaiting+1, got)
+	}
+	for i := 0; i < maxWaiting; i++ {
+		if got[i].full {
+			t.Errorf("arrival %d was taken and recorded as turned away", i)
+		}
+		// How many were in front of it. A count of arrivals cannot tell a companion that was
+		// briefly busy from one that runs at its limit; this can.
+		if got[i].ahead != i {
+			t.Errorf("arrival %d says %d were already waiting", i, got[i].ahead)
+		}
+	}
+	last := got[len(got)-1]
+	if !last.full {
+		t.Error("the refusal was written down as work taken")
+	}
+	if last.ahead != maxWaiting {
+		t.Errorf("the refusal says the queue was %d deep", last.ahead)
 	}
 }

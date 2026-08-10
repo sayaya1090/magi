@@ -85,6 +85,13 @@ type handover struct {
 	sid       session.SessionID
 	workdir   string
 	configDir string
+	// note writes down that work arrived and what happened to it — taken behind N others, or
+	// refused because there was no room. A function rather than a path so a test can watch it, and
+	// so a partly-built engine simply does not keep the record instead of writing to nowhere.
+	//
+	// It is the case for running a second copy of this companion, which cannot be read off the live
+	// depth beside it: that is one instant, and being under-provisioned is a pattern.
+	note func(full bool, ahead int)
 	// mine is one side session per ASKER, keyed by the label they send.
 	mine *sideSessions
 	// queued is work taken and not started. See queue.go.
@@ -136,6 +143,12 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 		receipt: id, session: sid,
 		text: companion.Labelled(label, request),
 	})
+	if h.note != nil {
+		// After the decision and never before it: what is recorded is what happened, and a note
+		// written on the way in would count arrivals this companion went on to reject for some
+		// other reason.
+		h.note(!took, ahead)
+	}
 	if !took {
 		return "", fmt.Errorf("this companion already has %d pieces of work waiting and does one "+
 			"at a time. Ask somebody else — a queue this long is not an answer coming later, it "+
