@@ -51,6 +51,9 @@ type takes interface {
 	// differ on one.
 	AnswerSince(ctx context.Context, sid session.SessionID, since int64) (bool, string)
 	Submit(ctx context.Context, cmd command.SubmitPrompt) error
+	// Subscribe is how a watch learns that something happened without asking. The alternative was
+	// the far side asking across a network on a three-second timer, which is what this replaces.
+	Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error)
 }
 
 // handover is the part of a daemon that takes work from other companions.
@@ -157,17 +160,97 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 		return daemon.Handover{}, errors.New("no handover here with that receipt — it was never " +
 			"made here, or this companion has restarted since, or it has expired")
 	}
+	return h.state(ctx, since), nil
+}
+
+// state is what became of the work, from the position its receipt stands for.
+//
+// One definition and two clocks: Handed says it when asked, Watch says it when something happens.
+// Written twice, a companion blocked on a person would be reported by one of them and not the
+// other, and which you got would depend on how old the magi asking was.
+func (h handover) state(ctx context.Context, since int64) daemon.Handover {
 	if done, answer := h.work.AnswerSince(ctx, h.sid, since); done {
-		return daemon.Handover{Done: true, Answer: answer}, nil
+		return daemon.Handover{Done: true, Answer: answer}
 	}
 	// Not finished. Then the other question: is anybody still doing it, or is this silence
 	// permanent — which is the whole reason the waiting side asks at all.
 	list, lerr := fleet.List(ctx, h.work, h.configDir, "")
 	if lerr != nil {
-		return daemon.Handover{}, nil
+		return daemon.Handover{}
 	}
 	news, over := companion.StateOf(list, string(h.sid))
-	return daemon.Handover{News: news, Over: over}, nil
+	return daemon.Handover{News: news, Over: over}
+}
+
+// Watch satisfies daemon.Taker: the same answer, pushed when it changes.
+//
+// What this replaces is the asking side spawning a process across a network every three seconds for
+// up to two hours — a tick sized for reading a log file two microseconds away, left driving an ssh.
+//
+// It looks BEFORE it waits, every time round. A turn that ended between the subscription and the
+// first look would otherwise be an event nobody is listening for yet and a state nobody has read.
+func (h handover) Watch(ctx context.Context, receipt string, say func(daemon.Handover) error) error {
+	if h.receipts == nil || h.work == nil {
+		return errors.New("this companion has taken no work from anybody")
+	}
+	since, ok := h.receipts.Since(receipt)
+	if !ok {
+		return errors.New("no handover here with that receipt — it was never made here, or this " +
+			"companion has restarted since, or it has expired")
+	}
+	events, stop, err := h.work.Subscribe(ctx, h.sid, since)
+	if err != nil {
+		return fmt.Errorf("this companion cannot follow its own work: %w", err)
+	}
+	defer stop()
+
+	var said daemon.Handover
+	for {
+		now := h.state(ctx, since)
+		if now != said {
+			said = now
+			// Nothing to say is not a thing to send. A companion that was blocked and is now
+			// working again goes back to the zero state, and a frame carrying it would arrive as
+			// news with no words in it.
+			if now != (daemon.Handover{}) {
+				if say(now) != nil {
+					return nil // the peer is gone; the work is unaffected and stays theirs
+				}
+			}
+		}
+		if now.Done || now.Over {
+			return nil
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case e, open := <-events:
+				if !open {
+					return nil
+				}
+				if !worthLooking(e.Type) {
+					continue
+				}
+			}
+			break
+		}
+	}
+}
+
+// worthLooking is the events that can change what became of handed-over work.
+//
+// Everything else — a token, a tool call, a plan edit — is the companion working, which is the
+// state the watcher is already in and does not need telling about. It matters that this is a short
+// list: a look costs rebuilding the transcript and probing the fleet, and doing that per token
+// would make a watched companion slower than an unwatched one.
+func worthLooking(t event.Type) bool {
+	switch t {
+	case event.TypeTurnFinished, event.TypePermissionRequested, event.TypeQuestionRequested,
+		event.TypePermissionDecided, event.TypeError:
+		return true
+	}
+	return false
 }
 
 // reachCompanion opens the daemon protocol to a companion, here or on another machine.

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,8 +35,13 @@ type arrival struct {
 	cfgDir string
 	store  *jsonl.Store
 	reader *app.App
-	said   int
-	got    struct {
+	// bus is the companion's own, held so a test can announce what it wrote to the store. The
+	// engine does both; appending here and staying silent would leave a watch listening to
+	// nothing, which is a test of the fixture and not of the door.
+	bus  *bus.Bus
+	said int
+	live int32 // watches running inside this companion right now
+	got  struct {
 		sync.Mutex
 		prompts []string
 	}
@@ -47,8 +53,9 @@ func newArrival(t *testing.T) *arrival {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &arrival{t: t, cfgDir: shortSockDir(t), store: st,
-		reader: app.New(st, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})}
+	b := bus.New()
+	return &arrival{t: t, cfgDir: shortSockDir(t), store: st, bus: b,
+		reader: app.New(st, nil, builtin.NewRegistry(), b, nil, app.Config{})}
 }
 
 // shortSockDir is a directory a unix socket can be bound in: the OS limit is about 104 bytes and a
@@ -86,8 +93,19 @@ func (w *recordingWork) Submit(_ context.Context, c command.SubmitPrompt) error 
 
 // takingEngine is a daemon that can be handed work: the ordinary engine surface, plus the handover
 // that production wires in.
+//
+// live counts the watches currently running inside it. A watch that nobody is listening to writes
+// nothing, so a dead connection cannot announce itself by a failing write — which makes "the watch
+// noticed and stopped" invisible from outside the process, and untestable without this.
 type takingEngine struct {
 	handover
+	live *int32
+}
+
+func (e takingEngine) Watch(ctx context.Context, receipt string, say func(daemon.Handover) error) error {
+	atomic.AddInt32(e.live, 1)
+	defer atomic.AddInt32(e.live, -1)
+	return e.handover.Watch(ctx, receipt, say)
 }
 
 func (takingEngine) Submit(context.Context, command.SubmitPrompt) error             { return nil }
@@ -107,7 +125,7 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	wd := ar.t.TempDir()
 	sock := filepath.Join(ar.cfgDir, "daemon-"+sid+".sock")
 	receipts := daemon.NewReceipts()
-	eng := takingEngine{handover: handover{
+	eng := takingEngine{live: &ar.live, handover: handover{
 		work: &recordingWork{App: ar.reader, ar: ar}, sid: session.SessionID(sid),
 		configDir: ar.cfgDir, receipts: receipts,
 	}}
@@ -146,9 +164,15 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 func (ar *arrival) append(sid string, evs ...event.Event) {
 	ar.t.Helper()
 	for _, e := range evs {
-		if _, err := ar.store.Append(context.Background(), session.SessionID(sid), e); err != nil {
+		seqs, err := ar.store.Append(context.Background(), session.SessionID(sid), e)
+		if err != nil {
 			ar.t.Fatal(err)
 		}
+		e.SessionID = session.SessionID(sid)
+		if len(seqs) > 0 {
+			e.Seq = seqs[0]
+		}
+		ar.bus.Publish(e)
 	}
 }
 
@@ -367,6 +391,110 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 	if _, err := after.Handed(context.Background(), receipt); err == nil {
 		t.Fatal("a restarted companion answered about work it has no record of taking")
 	}
+}
+
+// The answer is pushed when the turn ends, without anybody asking again.
+//
+// What this replaces is the waiting side spawning a process across a network every three seconds
+// for up to two hours — a tick sized for reading a log file two microseconds away, left driving an
+// ssh. The socket was already open both ways; only the protocol was one-way.
+func TestTheAnswerIsPushedWhenTheTurnEnds(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	receipt, err := cl.Hand("— asked by master", "do it")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A connection of its own: a watch gives its connection over to the stream, so a caller that
+	// watched on the one it does everything else with would be unable to do anything else.
+	sock := filepath.Join(ar.cfgDir, "daemon-s_design.sock")
+	watcher, derr := daemon.Dial(sock)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	defer watcher.Close()
+
+	got := make(chan daemon.Handover, 4)
+	done := make(chan error, 1)
+	go func() {
+		done <- watcher.Watch(receipt, func(h daemon.Handover) bool {
+			got <- h
+			return !(h.Done || h.Over)
+		})
+	}()
+
+	// Nothing yet: an unfinished turn has nothing to say, and a frame saying so would be the poll
+	// this replaces, dressed as a push.
+	select {
+	case h := <-got:
+		t.Fatalf("an unfinished turn pushed %+v", h)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	ar.finishes("s_design", "the screen is rewritten")
+	select {
+	case h := <-got:
+		if !h.Done || h.Answer != "the screen is rewritten" {
+			t.Fatalf("the pushed frame was %+v", h)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn ended and nothing was pushed")
+	}
+	// And the stream ends itself, rather than leaving a connection open on both machines for
+	// however long the asker takes to notice.
+	select {
+	case werr := <-done:
+		if werr != nil {
+			t.Fatalf("the stream ended with %v", werr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream did not end after its last word")
+	}
+}
+
+// A watch whose peer walks away ends, instead of holding a goroutine until the daemon stops.
+//
+// Nothing is written to a watch that has nothing to report, so a dead connection cannot be noticed
+// by a failing write — there is no write. It is noticed by reading for the hang-up.
+func TestAWatchEndsWhenThePeerHangsUp(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	receipt, err := cl.Hand("— asked by master", "do it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(ar.cfgDir, "daemon-s_design.sock")
+	watcher, derr := daemon.Dial(sock)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	go func() { _ = watcher.Watch(receipt, func(daemon.Handover) bool { return true }) }()
+	until(t, "the watch to start", func() bool { return atomic.LoadInt32(&ar.live) == 1 })
+
+	watcher.Close()
+	until(t, "the watch to notice nobody is listening", func() bool {
+		return atomic.LoadInt32(&ar.live) == 0
+	})
+
+	// And the work is unaffected: it is the companion's own, and its answer is in its own
+	// transcript whether or not anybody was watching.
+	ar.finishes("s_design", "done anyway")
+	if got, err := cl.Handed(receipt); err != nil || !got.Done || got.Answer != "done anyway" {
+		t.Fatalf("the work was affected by nobody listening: %+v %v", got, err)
+	}
+}
+
+func until(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for " + what)
 }
 
 // A companion here is dialled; a companion elsewhere is never dialled by its path.
