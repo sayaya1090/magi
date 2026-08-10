@@ -54,18 +54,22 @@ func (a *App) buildStepSystem(agent AgentSpec, workdir string, evs []event.Event
 	return sys
 }
 
-// loopAction is what the step loop does after a no-tool-call finish attempt
-// (finishTurn), which has several exits: keep looping (feedback injected, parked,
-// or stuck-recovered), re-enter without spending a step, finish the turn, or
-// unwind a cancellation. Returning an action keeps the branch decision with the
-// step loop that owns step/lastText, so finishTurn stays a pure decision.
+// loopAction is what the step loop does after a no-tool-call finish attempt (finishTurn): keep
+// looping, because something was injected that the agent should answer, or finish the turn.
+// Returning an action keeps the branch decision with the step loop that owns step/lastText, so
+// finishTurn stays a pure decision.
+//
+// Two more used to be declared — re-enter without spending a step, and unwind a cancellation — and
+// the step loop had a branch for each. finishTurn never returned either, so both were unreachable,
+// and each carried a comment describing when it would happen ("re-woken by a background subagent
+// result", "cancelled while parked in the bg-wait"). A reader had no way to tell that from the two
+// that do fire, which is the cost: dead code is quiet, and dead code that explains itself is a
+// mechanism somebody will reason about and then look for.
 type loopAction int
 
 const (
-	loopContinue  loopAction = iota // re-enter the step loop (feedback injected / parked / recovered)
-	loopRetryStep                   // re-enter WITHOUT consuming a step (step--)
-	loopFinish                      // the turn is done → return the result
-	loopAbort                       // context cancelled → return ctx.Err()
+	loopContinue loopAction = iota // re-enter the step loop (feedback injected / nudged / recovered)
+	loopFinish                     // the turn is done → return the result
 )
 
 // turnState is the per-turn mutable bookkeeping the step loop carries across steps and hands
@@ -334,13 +338,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
 			switch a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) {
-			case loopRetryStep:
-				step-- // re-woken by a background subagent result: re-enter WITHOUT spending a step
-				continue
 			case loopContinue:
 				continue // feedback injected / nudged / stuck-recovered — keep working
-			case loopAbort:
-				return lastText, ctx.Err() // cancelled while parked in the bg-wait
 			case loopFinish:
 				finished = true // the turn is over (approved done, or an honest UNVERIFIED landing)
 				return lastText, nil
