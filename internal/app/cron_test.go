@@ -418,3 +418,37 @@ func TestABrokenJobIsReportedOnceNotForever(t *testing.T) {
 		t.Errorf("complained about the same broken job %d times, want 1:\n%s", n, rec.all())
 	}
 }
+
+// A job does not fire while anything else is running in the workspace.
+//
+// The overlap check used to ask only whether that job's OWN last run was still going, which left
+// the two cases that actually happen: two jobs due in the same minute, and a job due while
+// somebody is attached and working. This is an agent that edits files — two turns at once in one
+// tree are two writers with nothing coordinating them.
+func TestAJobDoesNotFireWhileAnythingElseIsRunning(t *testing.T) {
+	a, _ := newApp(t, &fakeLLM{}, Config{Model: session.ModelRef{Provider: "test", Model: "m"}})
+	if sid, busy := a.somethingRunning(); busy {
+		t.Fatalf("an idle app reported %s running", sid)
+	}
+	// A session with a turn in flight is what startRun leaves behind.
+	a.mu.Lock()
+	st := a.stateLocked("somebody-elses-work")
+	st.cancel = func() {}
+	a.mu.Unlock()
+
+	sid, busy := a.somethingRunning()
+	if !busy {
+		t.Fatal("a running turn was invisible, so a job would have fired on top of it")
+	}
+	if sid != "somebody-elses-work" {
+		t.Errorf("it named %q — the skip is only diagnosable if it says which session", sid)
+	}
+	// And it is ANY session, not one the caller has to name: the previous check took a session id
+	// and so could only ever see the job asking.
+	a.mu.Lock()
+	a.stateLocked("somebody-elses-work").cancel = nil
+	a.mu.Unlock()
+	if sid, busy := a.somethingRunning(); busy {
+		t.Errorf("a finished turn still reads as running: %s", sid)
+	}
+}

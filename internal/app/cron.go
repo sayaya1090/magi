@@ -207,8 +207,13 @@ func (s *cronScheduler) tickOnce(ctx context.Context) {
 		// instead of being retried on every tick forever.
 		j.Due = j.Schedule.Next(at)
 
-		if prev, ok := s.last[j.Name]; ok && s.app.sessionRunning(prev) {
-			s.report(fmt.Sprintf("cron %q: skipped, its last run (%s) is still going", j.Name, prev))
+		if busy, ok := s.app.somethingRunning(); ok {
+			// Anything, not just this job's own last run. Two jobs due in the same minute, or one
+			// due while somebody is attached and working, are both ordinary — and this is a coding
+			// agent, so two turns at once in one workspace are two writers to the same files with
+			// nothing coordinating them. Naming the session is what makes the skip diagnosable.
+			s.report(fmt.Sprintf("cron %q: skipped, %s is still going in this workspace",
+				j.Name, busy))
 			continue
 		}
 		sid, err := s.fire(ctx, *j)
@@ -244,19 +249,28 @@ func (s *cronScheduler) fire(ctx context.Context, j scheduledJob) (session.Sessi
 	return sid, nil
 }
 
-// sessionRunning reports whether a turn is in flight for sid.
+// somethingRunning names a session with a turn in flight, if there is one.
 //
-// This is the overlap check, and it reads the App's own state rather than a flag the scheduler
-// keeps: startRun sets cancel before it returns and the teardown clears it, so the answer is
-// already maintained by the thing that knows. A second copy would be a second thing to keep true.
-func (a *App) sessionRunning(sid session.SessionID) bool {
-	if sid == "" {
-		return false
-	}
+// The overlap check, and it is about the WORKSPACE rather than about one job. It used to ask only
+// whether that job's own last run was still going, which left the two cases that actually happen:
+// two jobs due in the same minute, and a job due while somebody is attached and working. An agent
+// that edits files cannot have two turns at once in one tree — there is nothing coordinating them.
+//
+// It reads the App's own state rather than a flag a caller keeps: startRun sets cancel before it
+// returns and the teardown clears it, so the answer is already maintained by the thing that knows.
+// A second copy would be a second thing to keep true.
+//
+// Every session this App holds is in its workspace — a daemon serves one — so "any" and "in this
+// workspace" are the same set.
+func (a *App) somethingRunning() (session.SessionID, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	st, ok := a.stateIf(sid)
-	return ok && st.cancel != nil
+	for sid, st := range a.states {
+		if st != nil && st.cancel != nil {
+			return sid, true
+		}
+	}
+	return "", false
 }
 
 // ReloadCron tells a running scheduler that the job definitions have changed.
