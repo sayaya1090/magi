@@ -17,6 +17,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/cluster"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -654,5 +655,169 @@ func TestTheToolSaysWhenThereIsNobodyToHandWorkTo(t *testing.T) {
 	got := companion.Hand{Roster: fleet.RosterLines(nil, "")}.Description()
 	if !strings.Contains(got, "nobody else is running") {
 		t.Errorf("an empty roster reads as:\n%s", got)
+	}
+}
+
+// Work handed to another machine crosses instead of dialling, and what crosses is intact.
+//
+// The label is the part that must be right. A request arriving unattributed is indistinguishable
+// from something a person typed, and the no-chaining rule is read off exactly that mark — so it has
+// to carry who asked AND that they are not reachable from over there, which is the one thing the
+// local label says that is false across a machine.
+func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design",
+		Role: "screens", Seen: time.Now()})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	var gotHost string
+	var gotArgs []string
+	var gotBody map[string]string
+	cross := func(_ context.Context, host string, args []string, stdin []byte) ([]byte, error) {
+		gotHost, gotArgs = host, args
+		if err := json.Unmarshal(stdin, &gotBody); err != nil {
+			t.Error(err)
+		}
+		return []byte(`{"name":"design","workdir":"/w/design","session":"s_far","since":41}`), nil
+	}
+	res, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		"m", "design", "rewrite the settings screen")
+
+	if res.IsError {
+		t.Fatalf("handing across answered %q", text(t, res))
+	}
+	if gotHost != "buildbox" || strings.Join(gotArgs, " ") != "--hand" {
+		t.Errorf("it went to %q %v", gotHost, gotArgs)
+	}
+	if gotBody["request"] != "rewrite the settings screen" {
+		t.Errorf("the request was altered on the way: %q", gotBody["request"])
+	}
+	if !strings.HasPrefix(gotBody["label"], fleet.DispatchMark) {
+		t.Errorf("the label does not carry the mark the receiver reads: %q", gotBody["label"])
+	}
+	for _, want := range []string{"master", "mini", "cannot reach them"} {
+		if !strings.Contains(gotBody["label"], want) {
+			t.Errorf("the label does not say %q: %q", want, gotBody["label"])
+		}
+	}
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered for one crossing", len(watched))
+	}
+	if watched[0].Session != "s_far" {
+		t.Errorf("the wait watches %q, not the session the far side named", watched[0].Session)
+	}
+	if watched[0].Answer == nil {
+		t.Fatal("the wait would read a local log for a transcript on another machine")
+	}
+}
+
+// The far side's refusal is what the model reads, in the far side's words.
+func TestARefusalFromAnotherMachineComesBackAsItWasWritten(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	cross := func(context.Context, string, []string, []byte) ([]byte, error) {
+		return []byte(`{"refused":"design is mid-turn (rebuilding the index)"}`), nil
+	}
+	res, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		"m", "design", "something")
+	if !res.IsError {
+		t.Fatal("a refusal from the far side read as success")
+	}
+	if !strings.Contains(text(t, res), "mid-turn") {
+		t.Errorf("the far side's reason was lost: %q", text(t, res))
+	}
+	if len(watched) != 0 {
+		t.Error("a wait was registered for work that was refused")
+	}
+}
+
+// The answer is fetched from the machine that has it, and only once it is finished.
+func TestTheAnswerIsFetchedFromTheMachineThatHasIt(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	finished := false
+	cross := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
+		if args[0] == "--hand" {
+			return []byte(`{"name":"design","session":"s_far","since":41}`), nil
+		}
+		if !finished {
+			return []byte(`{}`), nil
+		}
+		return []byte(`{"done":true,"answer":"the screen is rewritten"}`), nil
+	}
+	_, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		"m", "design", "something")
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered", len(watched))
+	}
+	if _, done := watched[0].Answer(); done {
+		t.Fatal("an unfinished turn on another machine reported an answer")
+	}
+	finished = true
+	got, done := watched[0].Answer()
+	if !done || got != "the screen is rewritten" {
+		t.Fatalf("the finished answer came back as (%q, %v)", got, done)
+	}
+}
+
+// A magi with no way to cross says so rather than dialling a path that means something else here.
+func TestWithNoWayAcrossItRefusesInsteadOfDiallingLocally(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	res, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini"}, "m", "design", "something")
+	if !res.IsError {
+		t.Fatal("work was handed somewhere with no way to reach it")
+	}
+	if len(watched) != 0 {
+		t.Error("a wait was registered for work that never left")
+	}
+}
+
+// A machine that does not answer is not a machine that lost the work.
+//
+// An ssh fails for a dropped connection far more often than for a companion that has died, and a
+// probe that read a failed call as "nothing will come back" would end the wait on a bad wifi hop.
+func TestAMachineThatDoesNotAnswerDoesNotEndTheWait(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	handed := false
+	cross := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
+		if args[0] == "--hand" {
+			handed = true
+			return []byte(`{"name":"design","session":"s_far","since":1}`), nil
+		}
+		return nil, errors.New("ssh: connect to host buildbox port 22: Network is unreachable")
+	}
+	_, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		"m", "design", "something")
+	if !handed || len(watched) != 1 {
+		t.Fatalf("handed=%v waits=%d", handed, len(watched))
+	}
+	if news, over := watched[0].Probe(); over || news != "" {
+		t.Errorf("an unreachable machine ended the wait: %q over=%v", news, over)
+	}
+	if _, done := watched[0].Answer(); done {
+		t.Error("an unreachable machine produced a finished answer")
+	}
+}
+
+// elsewhere records a sighting of a companion on another machine, the way an exchange would.
+func (tm *team) elsewhere(ms ...cluster.Member) {
+	tm.t.Helper()
+	if _, err := daemon.LearnMembers(tm.cfgDir, ms, time.Now()); err != nil {
+		tm.t.Fatal(err)
 	}
 }

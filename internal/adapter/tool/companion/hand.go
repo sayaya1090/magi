@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
-	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -72,6 +70,13 @@ type Hand struct {
 	Team      string // the group it belongs to; a hub may hand work to this team and no other
 	Hub       bool   // whether it answers for its team, which is what lets it hand work on at all
 	Cache     *fleet.Cache
+	// Machine is what this companion's host is called, for the label a receiver on another machine
+	// reads. Empty on a machine that cannot say its own name, which reads as "somewhere else" —
+	// vague, and still better than a label claiming they are neighbours.
+	Machine string
+	// Cross reaches another machine. nil on a magi with no way to, and hand_off then refuses a
+	// target elsewhere rather than pretending the cluster is one filesystem.
+	Cross Cross
 	// Roster is who was published when this magi started, one line each, for the description.
 	// A snapshot, like every other peer list built at startup: a companion that appears later is
 	// not in it, and the refusal path reads the LIVE list, so a stale description costs a turn
@@ -137,56 +142,18 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 			"do and who you think should — the one who asked will read it."), nil
 	}
 
-	list, err := fleet.ListCached(ctx, h.Reader(), h.ConfigDir, h.Self, h.Cache)
-	if err != nil {
-		return errText("cannot read the published companions: " + err.Error()), nil
+	target, refused := Target(ctx, h.Reader(), h.Cache, h.ConfigDir, h.Self, in.To)
+	if refused != "" {
+		return errText(refused), nil
 	}
-	found := fleet.Resolve(list, in.To)
-	switch len(found) {
-	case 0:
-		return errText(fmt.Sprintf("nobody here is called %q or does that. There is: %s",
-			in.To, fleet.Roster(list))), nil
-	case 1:
-	default:
-		return errText(fmt.Sprintf("%q matches %s — name one of them. Sending work to the wrong "+
-			"workspace is not something to guess at", in.To, fleet.Names(found))), nil
-	}
-	target := found[0]
-	switch {
-	case relaying && (h.Team == "" || !strings.EqualFold(target.Team, h.Team)):
+	if relaying && (h.Team == "" || !strings.EqualFold(target.Team, h.Team)) {
 		return errText(fmt.Sprintf("this was asked of you by somebody else, so you can only pass "+
 			"parts of it to your own team (%s). %s is not in it — answer with what you could do and "+
 			"say who should do the rest", orNone(h.Team), target.Name)), nil
-	case target.Here:
-		return errText("that is you. Do it yourself, or name somebody else"), nil
-	case target.State == fleet.Remote:
-		// Refused BEFORE the dial, and this is not caution. A socket is a path, and two machines
-		// belonging to one person keep their checkouts in the same places — so dialling a remote
-		// companion's socket path here does not fail, it opens whichever local companion happens
-		// to sit at that path. The work would arrive, in the wrong workspace, looking delivered.
-		return errText(fmt.Sprintf("%s is on %s, another machine. Work is handed over a socket on "+
-			"this filesystem and there is no way across yet, so this cannot be sent. Name somebody "+
-			"here, or do it yourself", target.Name, target.Host)), nil
-	case !target.Live:
-		return errText(fmt.Sprintf("%s is not running, so there is nothing to hand the work to",
-			target.Name)), nil
-	case target.State == fleet.Working || target.State == fleet.Waiting:
-		// Not a queue. A prompt sent to a running turn is re-read BY that turn — it would arrive
-		// inside the work they are already doing rather than after it, which is a steer and not a
-		// request. It is also what makes the way back readable: the answer is the next turn that
-		// finishes over there, and that is only unambiguous if there was no turn open when this
-		// arrived.
-		return errText(fmt.Sprintf("%s is mid-turn (%s). A request sent now would land inside that "+
-			"work rather than after it, so it is not sent — and its answer could not be told apart "+
-			"from the answer to what they are already doing. Try them later, or ask somebody else",
-			target.Name, fleet.Clip(firstLine(target.Task), 80))), nil
 	}
-
-	cl, derr := daemon.Dial(target.Socket)
-	if derr != nil {
-		return errText("cannot reach " + target.Name + ": " + derr.Error()), nil
+	if target.State == fleet.Remote {
+		return h.handAcross(ctx, target, in.Request, env), nil
 	}
-	defer cl.Close()
 
 	// The watch is registered BEFORE the work is sent. The other way round, a peer quick enough to
 	// finish in the gap would have its turn already closed by the time anybody looked, and the
@@ -199,10 +166,7 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 		return errText("nothing was sent: the answer could not be waited for (" + xerr.Error() +
 			"), and handing work over without that loses it"), nil
 	}
-	if serr := cl.Submit(ctx, command.SubmitPrompt{
-		SessionID: session.SessionID(target.Session),
-		Parts:     []session.Part{{Kind: session.PartText, Text: DispatchedBy(h.who()) + "\n\n" + in.Request}},
-	}); serr != nil {
+	if serr := Send(ctx, target, DispatchedBy(h.who()), in.Request); serr != nil {
 		// The watch is left in place. It costs one goroutine that will time out, and the
 		// alternative — a way to cancel it — is a second mechanism for the sake of a failed dial.
 		return errText("could not hand it to " + target.Name + ": " + serr.Error()), nil
@@ -248,13 +212,6 @@ func wasDispatched(ctx context.Context, r fleet.Reader, sid session.SessionID) b
 		return false // the most recent request is this session's own
 	}
 	return false
-}
-
-func orNone(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "you are not in a team"
-	}
-	return s
 }
 
 func firstLine(s string) string {
