@@ -353,8 +353,14 @@ func TestTranscriptRowsKeepWhatWasAsked(t *testing.T) {
 	if strings.Join(kinds, ",") != "thinking,tool,failed" {
 		t.Fatalf("rows came out as %v", kinds)
 	}
-	if !strings.Contains(rows[1].Text, "go test ./...") {
-		t.Errorf("the tool row lost its arguments: %q", rows[1].Text)
+	// The arguments moved from Text to their own field. Carried apart so the page can fold a call
+	// behind a summary naming the tool without taking the name back out of a string this file has
+	// just put it into — the assertion is the same one, on the field that now holds it.
+	if rows[1].Tool != "bash" {
+		t.Errorf("the tool row does not name the tool: %q", rows[1].Tool)
+	}
+	if !strings.Contains(rows[1].Args, "go test ./...") {
+		t.Errorf("the tool row lost its arguments: %q", rows[1].Args)
 	}
 	if !strings.Contains(rows[2].Text, "FAIL") {
 		t.Errorf("the failed result lost its output: %q", rows[2].Text)
@@ -439,5 +445,46 @@ func TestTheConsoleCanFoldACompanionsHistory(t *testing.T) {
 	}
 	if got := eng.seen(); len(got) != 1 {
 		t.Errorf("a GET reached the daemon: %v", got)
+	}
+}
+
+// The two part kinds that were being dropped on the floor.
+//
+// renderMessages named four of them and fell through the rest, and a part kind a switch does not
+// name is not an empty row — it is a row that never existed, with nothing anywhere saying so. An
+// image the agent produced and an error that ended a turn both reached the log and neither ever
+// reached the page.
+func TestNoPartKindIsSilentlyDropped(t *testing.T) {
+	rows := renderMessages([]session.Message{{
+		Role: session.RoleAssistant,
+		Parts: []session.Part{
+			{Kind: session.PartImage, Image: &session.ImageRef{Path: "/tmp/plot.png", MIME: "image/png"}},
+			{Kind: session.PartError, Err: "the provider closed the stream"},
+		},
+	}})
+	var kinds []string
+	for _, r := range rows {
+		kinds = append(kinds, r.Who)
+	}
+	if strings.Join(kinds, ",") != "image,error" {
+		t.Fatalf("rows came out as %v — a part reached the log and not the page", kinds)
+	}
+	if !strings.Contains(rows[0].Text, "plot.png") {
+		t.Errorf("the image row does not say which image: %q", rows[0].Text)
+	}
+	if !strings.Contains(rows[1].Text, "closed the stream") {
+		t.Errorf("the error row lost the reason: %q", rows[1].Text)
+	}
+}
+
+// Every kind renderMessages can emit has somewhere to be drawn.
+//
+// A row with a class the stylesheet has never heard of is not a visible bug — it renders, in the
+// default colour, looking like an assistant reply. Both new kinds arrived that way.
+func TestEveryRowKindHasAStyle(t *testing.T) {
+	for _, kind := range []string{"user", "assistant", "thinking", "tool", "result", "failed", "image", "error"} {
+		if !strings.Contains(indexHTML, ".row."+kind+" ") {
+			t.Errorf("a %q row has no style; it draws as an assistant reply", kind)
+		}
 	}
 }

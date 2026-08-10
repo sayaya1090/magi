@@ -1544,6 +1544,14 @@ const indexHTML = `<!doctype html>
     padding:var(--magi-sys-space-50) 0 var(--magi-sys-space-50) var(--magi-sys-space-150); max-height:11rem; overflow:auto;
   }
   .row.failed .who, .row.failed .txt { color:var(--magi-ref-error); border-left-color:var(--magi-ref-error); }
+  /* A turn that ended in an error, and an image the agent produced. Both reached the log and
+     neither reached this page until now, so neither had anywhere to be drawn. */
+  .row.error .who, .row.error .txt { color:var(--magi-ref-error); }
+  .row.error .txt { font:var(--magi-sys-body-s) var(--magi-ref-mono); }
+  /* The path, not the picture. Serving image bytes means a route that reads a file named by the
+     log, and the transcript is the least trustworthy source of a filename on this machine — that
+     is its own decision, not one to make by adding an img tag here. */
+  .row.image .txt { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
 
   /* ── the prompt an agent is blocked on, on that agent's own page ─────────── */
   /* Without this, opening an agent is the one place you CANNOT see that it is waiting for you: the

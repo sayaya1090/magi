@@ -741,9 +741,14 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 }
 
 // line is one row of the transcript as the page draws it.
+//
+// Tool and Args are carried apart from Text so the page can fold a call behind a summary that names
+// what was run without having to take the name back out of a string this file just put it into.
 type line struct {
 	Who  string `json:"who"`
 	Text string `json:"text"`
+	Tool string `json:"tool,omitempty"`
+	Args string `json:"args,omitempty"`
 }
 
 // renderMessages flattens the session into rows. Tool calls keep their arguments: what a tool was
@@ -764,7 +769,12 @@ func renderMessages(msgs []session.Message) []line {
 				}
 			case session.PartToolCall:
 				if p.ToolCall != nil {
-					out = append(out, line{Who: "tool", Text: p.ToolCall.Name + " " + fleet.Clip(string(p.ToolCall.Args), 300)})
+					// Arguments are no longer clipped at 300 bytes. They were, because the row was
+					// always open and a long call pushed the conversation off the screen; the row
+					// folds now, and what a tool was asked is most of what a watcher wants when
+					// they open it.
+					out = append(out, line{Who: "tool", Text: p.ToolCall.Name,
+						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args)})
 				}
 			case session.PartToolResult:
 				if p.ToolResult != nil {
@@ -772,7 +782,22 @@ func renderMessages(msgs []session.Message) []line {
 					if p.ToolResult.IsError {
 						who = "failed"
 					}
-					out = append(out, line{Who: who, Text: fleet.Clip(string(p.ToolResult.Content), 600)})
+					// Still clipped, and by much more than before. A result can be a whole build
+					// log, and the transcript is rebuilt and re-sent on every change — this bound
+					// is about what crosses the wire two and a half times a second, not about what
+					// fits on the screen.
+					out = append(out, line{Who: who, Text: fleet.Clip(string(p.ToolResult.Content), 8000)})
+				}
+			// The two that were being dropped on the floor. A part kind this switch does not name
+			// is not an empty row — it is a row that never existed, with nothing anywhere saying
+			// so. An image and an error both reached the log and neither reached the page.
+			case session.PartImage:
+				if p.Image != nil {
+					out = append(out, line{Who: "image", Text: p.Image.Path})
+				}
+			case session.PartError:
+				if t := strings.TrimSpace(p.Err); t != "" {
+					out = append(out, line{Who: "error", Text: t})
 				}
 			}
 		}
