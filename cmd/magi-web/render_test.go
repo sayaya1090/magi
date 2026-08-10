@@ -2277,12 +2277,13 @@ console.log(JSON.stringify({rows: byId.log.children.map(r => ({cls: r.className,
 	}
 }
 
-// Opening one folded row of a kind opens the rest of that kind.
+// Opening one folded row opens that row, and nothing else on the screen moves.
 //
-// The preference was already remembered per kind, so it applied to the NEXT rows and left the ones
-// on screen shut — which reads as the control having half worked. The terminal opens them all with
-// one key.
-func TestOpeningOneReasoningRowOpensThemAll(t *testing.T) {
+// It used to open every row of the same kind. In use that is not a convenience: you click a tool
+// call to see what it ran, everything above and below expands, and the row you clicked is
+// somewhere else by the time the page settles. The preference is still remembered per kind and
+// still decides how the NEXT rows arrive — this is about the ones already in front of you.
+func TestOpeningOneRowLeavesTheRestWhereTheyWere(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 draw([{who:'thinking',text:'first'},{who:'assistant',text:'a reply'},{who:'thinking',text:'second'}]);
 const folds = [];
@@ -2297,10 +2298,11 @@ console.log(JSON.stringify({open: folds.map(f => !!f.open), count: folds.length}
 		t.Fatalf("found %v folded rows, want 2", got["count"])
 	}
 	open, _ := got["open"].([]any)
-	for i, v := range open {
-		if v != true {
-			t.Errorf("reasoning row %d stayed shut after another was opened", i)
-		}
+	if len(open) != 2 || open[0] != true {
+		t.Fatalf("the row that was pressed did not open: %v", open)
+	}
+	if open[1] == true {
+		t.Error("opening one row opened another one that nobody pressed")
 	}
 }
 
@@ -2424,5 +2426,41 @@ console.log(JSON.stringify({
 	}
 	if strings.Join(tiles, "|") != "0 Waiting|1 Working|0 Idle|0 Gone|1 Elsewhere" {
 		t.Errorf("the summary reads %v — elsewhere is not counted apart from gone", tiles)
+	}
+}
+
+// The three councillors keep the hues they have in the terminal.
+//
+// Three voices in one colour is a wall of identical rows, and which of them said the thing you are
+// reading is most of what a council transcript is for. The tokens were declared in this page from
+// the beginning and nothing used them.
+func TestEachCouncillorIsDrawnInTheirOwnColour(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'council',member:'Melchior',decision:'done',text:'Melchior: accept'},
+      {who:'council',member:'Balthasar',decision:'continue',text:'Balthasar: reject'},
+      {who:'council',member:'Casper',decision:'continue',text:'Casper: reject'},
+      {who:'council',member:'Rei',decision:'done',text:'Rei: accept'}]);
+const cls = [];
+const walk = n => { for (const k of n.children || []) { if (String(k.className).startsWith('row ')) cls.push(k.className); walk(k); } };
+walk(byId.log);
+console.log(JSON.stringify({cls: cls}));`)
+
+	cls, _ := got["cls"].([]any)
+	if len(cls) != 4 {
+		t.Fatalf("drew %d council rows, want 4: %v", len(cls), cls)
+	}
+	for i, want := range []string{"m-melchior", "m-balthasar", "m-casper"} {
+		if s, _ := cls[i].(string); !strings.Contains(s, want) {
+			t.Errorf("council row %d is %q, without %q", i, s, want)
+		}
+	}
+	// A member the palette has no seat for falls back to the council colour rather than becoming
+	// a class named after whatever the log happened to say.
+	if s, _ := cls[3].(string); strings.Contains(s, "m-rei") || strings.Contains(s, "m-Rei") {
+		t.Errorf("a name out of the log became a selector: %q", s)
+	}
+	// The verdict still owns the summary: what a row SAYS is done or continue, whoever said it.
+	if s, _ := cls[1].(string); !strings.Contains(s, "v-continue") {
+		t.Errorf("the verdict class was lost when the member class arrived: %q", s)
 	}
 }

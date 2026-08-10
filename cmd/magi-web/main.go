@@ -775,6 +775,10 @@ type line struct {
 	Tally string `json:"tally,omitempty"`
 	// Decision is the council vocabulary as the log spells it, so the page can colour by it.
 	Decision string `json:"decision,omitempty"`
+	// Member is which councillor said it, so the page can give each their own hue — the same three
+	// the terminal uses. It is in the text too, and reading it back out of a rendered sentence is
+	// how the two surfaces come to disagree about who spoke.
+	Member string `json:"member,omitempty"`
 	// msg is the message this row came out of, and never crosses the wire. It is how council marks
 	// find the place they belong: they carry the same id, out of the same log.
 	msg string `json:"-"`
@@ -917,7 +921,7 @@ func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
 	var orphans []line
 	for _, m := range marks {
 		row := line{Who: "council", Text: councilText(m), Round: m.Round, Tally: m.Tally,
-			Decision: m.Decision}
+			Decision: m.Decision, Member: m.Member}
 		at, ok := after[m.After]
 		if !ok {
 			orphans = append(orphans, row)

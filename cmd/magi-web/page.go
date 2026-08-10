@@ -79,10 +79,10 @@ const indexHTML = `<!doctype html>
     --magi-ref-secondary:#E8B89F;
     --magi-ref-error:#F2B8B5; --magi-ref-success:#86EFAC; --magi-ref-surface:#211B14;
     --magi-ref-primaryContainer:#4A2E0B; --magi-ref-outlineVariant:#463E34; --magi-ref-warn:#FFD479;
-    /* The three council members' colours. Declared and unused HERE: the palette is the terminal's
-       and a test requires this page to carry every role of it, so that retuning one surface can
-       never leave the two disagreeing. The console shows no council, so nothing paints with them —
-       which is a contract kept, not a leftover. */
+    /* The three council members' colours — one palette, two surfaces. A test requires this page to
+       carry every role of the terminal's, so retuning one can never leave the two disagreeing.
+       These were declared and unused for a long time under a comment saying this console showed no
+       council; it does, and now they paint it (see .row.m-*). */
     --magi-ref-melchior:#FFB454; --magi-ref-balthasar:#5CD8E6; --magi-ref-casper:#FF8A8A;
     --magi-ref-bg:#14110d; --magi-ref-fg:#E8E2D8;
     --magi-ref-shadow:#000000; --magi-ref-scrim:#000000;
@@ -493,9 +493,8 @@ const indexHTML = `<!doctype html>
     font:600 var(--magi-sys-headline-s) var(--magi-ref-display); letter-spacing:.01em; color:var(--magi-ref-primary);
     font-feature-settings:"liga" 1;
   }
-  /* The session's own id, in the muted role — a nameplate's standing line. It is NOT the three
-     councillors in their hues: this console shows no council, and the comment that said it did
-     described a thing forty lines above, where those colours are declared and deliberately unused. */
+  /* The session's own id, in the muted role — a nameplate's standing line. Not a councillor hue:
+     those belong to the three who vote, and this is a serial number. */
   .sid { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   /* The message sits after the count, in the same quiet role, and is allowed to be cut — it is the
      one thing on this line that has a tooltip carrying the rest. Empty it takes no room at all,
@@ -1449,7 +1448,11 @@ const indexHTML = `<!doctype html>
      produced the measurement that started this: at a 1000px window the text column was six
      characters wide. A container query asks the only question that matters. */
   #log { max-width:var(--magi-sys-wide); container-type:inline-size; container-name:transcript; }
-  .row { display:grid; grid-template-columns:6.5rem 1fr; gap:var(--magi-sys-space-200); align-items:start; padding:var(--magi-sys-space-50) 0; }
+  /* minmax(0, 1fr), not 1fr. A grid track's automatic minimum is its content, so one unbreakable
+     line — a tool result naming forty tools, a path with no spaces in it — widened the column past
+     the page and put a horizontal scrollbar under the whole console. The transcript scrolls
+     vertically; anything too wide scrolls inside its own box (below), never by moving the page. */
+  .row { display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--magi-sys-space-200); align-items:start; padding:var(--magi-sys-space-50) 0; }
   /* 34rem: the gutter and its gap cost 7.5rem, and below this there is not enough left for a line
      of prose to be worth reading. The label goes above the text instead of beside it — still
      present, no longer paid for on every line. */
@@ -1536,8 +1539,16 @@ const indexHTML = `<!doctype html>
   .fold[open] > summary::before { transform:rotate(90deg); }
   .fold > summary:hover { background:color-mix(in srgb, var(--magi-ref-fg) 6%, transparent); }
   .fold > summary:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
-  .foldbody { padding-left:1em; }
-  .foldbody > pre { margin-top:var(--magi-sys-space-50); }
+  /* min-width:0 for the same reason as the row above: this is a grid item, and without it the
+     preformatted block inside decides how wide the transcript is. */
+  .foldbody { padding-left:1em; min-width:0; }
+  /* What a tool was asked and what it answered is preformatted and frequently one very long line.
+     It keeps its shape and takes its own scrollbar — the alternative is wrapping JSON at arbitrary
+     characters, which makes an argument list unreadable in a different way. */
+  .foldbody > pre {
+    margin-top:var(--magi-sys-space-50); max-width:100%;
+    overflow-x:auto; overscroll-behavior-x:contain;
+  }
   /* Under the call it belongs to, spanning it — where the guide puts a bar for the container that
      is progressing. Thin, because it is a heartbeat and not a measurement. */
   .runbar { display:block; margin-top:var(--magi-sys-space-100); --md-linear-progress-track-height:2px; --md-linear-progress-active-indicator-height:2px; }
@@ -1559,7 +1570,8 @@ const indexHTML = `<!doctype html>
   .row.tool .who { color:var(--magi-ref-accent); }
   .row.result .txt, .row.failed .txt {
     color:var(--magi-ref-muted); border-left:1px solid var(--magi-ref-outlineVariant);
-    padding:var(--magi-sys-space-50) 0 var(--magi-sys-space-50) var(--magi-sys-space-150); max-height:11rem; overflow:auto;
+    padding:var(--magi-sys-space-50) 0 var(--magi-sys-space-50) var(--magi-sys-space-150);
+    max-height:11rem; overflow:auto; max-width:100%; overscroll-behavior:contain;
   }
   .row.failed .who, .row.failed .txt { color:var(--magi-ref-error); border-left-color:var(--magi-ref-error); }
   /* A turn that ended in an error, and an image the agent produced. Both reached the log and
@@ -1574,6 +1586,15 @@ const indexHTML = `<!doctype html>
      so it belongs where the turn it judged is — the terminal has always put it there. */
   .row.council .who { color:var(--magi-ref-secondary); }
   .row.council .fold > summary { color:var(--magi-ref-secondary); font-weight:600; }
+  /* Each councillor in their own hue, the same three the terminal paints them in. Three voices in
+     one colour is a wall of identical rows, and which of them said the thing you are reading is
+     most of what a council transcript is for. The tokens were declared here from the beginning and
+     nothing used them, under a comment saying this console shows no council — it does. */
+  .row.m-melchior .who { color:var(--magi-ref-melchior); }
+  .row.m-balthasar .who { color:var(--magi-ref-balthasar); }
+  .row.m-casper .who { color:var(--magi-ref-casper); }
+  /* The verdict still owns the summary line: done or continue is what the row SAYS, and it stays
+     green or red whoever said it. The name in the gutter is who. */
   /* A call that ended, on the line you can see with the row shut. */
   .row.toolok .fold > summary { color:var(--magi-ref-success); }
   .row.toolfail .fold > summary { color:var(--magi-ref-error); }
@@ -4582,6 +4603,9 @@ function summaryFor(r) {
   return oneLine(r.text, 90);
 }
 
+// The three named seats. A map rather than a template so nothing from the log reaches a class name.
+const COUNCIL_SEATS = {melchior: 'm-melchior', balthasar: 'm-balthasar', casper: 'm-casper'};
+
 function oneLine(s, n) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
   return t.length > n ? t.slice(0, n) + '…' : t;
@@ -4591,7 +4615,12 @@ function oneLine(s, n) {
 function rowNode(r) {
   // The decision joins the class list, so a vote is coloured by what it says rather than all
   // council rows sharing one colour. A "continue" is a rejection and has to look like one.
+  // …and who said it, so the three councillors keep the hues they have in the terminal. Lowercased
+  // and matched against the three known names: a custom member falls through to the council
+  // colour rather than into an undefined class, and a name out of the log never becomes a selector.
+  const seat = COUNCIL_SEATS[String(r.member || '').toLowerCase()] || '';
   const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '')
+    + (seat ? ' ' + seat : '')
     + (r.who === 'tool' && r.ok === false ? ' toolfail' : '')
     + (r.who === 'tool' && r.ok === true ? ' toolok' : '')
     + (r.pending ? ' pending' : '');
@@ -4604,15 +4633,18 @@ function rowNode(r) {
     // A failure is the row somebody came to read, whether it arrived as its own row or folded
     // into the call that produced it.
     det.open = r.who === 'failed' || r.ok === false || localStorage.getItem('fold.' + r.who) === 'open';
+    // One click opens ONE row.
+    //
+    // It used to open every row of the same kind that was on screen, on the theory that the
+    // per-kind preference should apply to what you are looking at and not only to what arrives
+    // next. In use that is not what it reads as: you click a tool call to see what it ran and the
+    // page moves under you — everything above and below expands, the row you clicked is somewhere
+    // else now, and the thing you wanted to read has scrolled away. A disclosure control discloses
+    // the thing it is attached to.
+    //
+    // The preference is still remembered per kind, and still decides how the NEXT rows arrive.
     det.addEventListener('toggle', () => {
       localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut');
-      // Every row of the same kind follows. The preference was already remembered per kind, so it
-      // applied to the NEXT ones and left the ones on screen as they were — which reads as the
-      // control having half worked. The terminal opens them all with one key; this is the same
-      // idea reached through the affordance that is already there.
-      for (const other of log.querySelectorAll('.fold')) {
-        if (other !== det && other.dataset.kind === r.who) other.open = det.open;
-      }
     });
     det.dataset.kind = r.who;
     det.append(el('summary', summaryFor(r)));
