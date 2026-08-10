@@ -2246,3 +2246,60 @@ console.log(JSON.stringify({
 		t.Errorf("a list with dashes in it was coloured as a diff: %v", classes)
 	}
 }
+
+// How a thing ended is a glyph, not only a colour.
+//
+// A state told only in ink is a state some readers are not told, and these three rows each carried
+// their outcome in the colour alone: an orphaned result, a failed one, and an error that ended a
+// turn.
+func TestAnOutcomeIsAGlyphAndNotOnlyAColour(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'result',text:'it worked'},{who:'failed',text:'it did not'},
+      {who:'error',text:'the provider closed the stream'}]);
+const textOf = n => (n.textContent || '') + (n.children || []).map(textOf).join('');
+console.log(JSON.stringify({rows: byId.log.children.map(r => ({cls: r.className, text: textOf(r)}))}));`)
+
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 3 {
+		t.Fatalf("drew %d rows, want 3", len(rows))
+	}
+	want := []struct{ cls, glyph string }{{"result", "✓"}, {"failed", "✗"}, {"error", "✗"}}
+	for i, w := range want {
+		m, _ := rows[i].(map[string]any)
+		cls, _ := m["cls"].(string)
+		text, _ := m["text"].(string)
+		if !strings.Contains(cls, w.cls) {
+			t.Errorf("row %d is %q, want a %s row", i, cls, w.cls)
+		}
+		if !strings.Contains(text, w.glyph) {
+			t.Errorf("a %s row says %q, with no %s in it", w.cls, text, w.glyph)
+		}
+	}
+}
+
+// Opening one folded row of a kind opens the rest of that kind.
+//
+// The preference was already remembered per kind, so it applied to the NEXT rows and left the ones
+// on screen shut — which reads as the control having half worked. The terminal opens them all with
+// one key.
+func TestOpeningOneReasoningRowOpensThemAll(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'thinking',text:'first'},{who:'assistant',text:'a reply'},{who:'thinking',text:'second'}]);
+const folds = [];
+const walk = n => { for (const k of n.children || []) { if (k.className === 'txt fold') folds.push(k); walk(k); } };
+walk(byId.log);
+// Open the first one the way a press does.
+folds[0].open = true;
+folds[0].dispatchEvent({type: 'toggle'});
+console.log(JSON.stringify({open: folds.map(f => !!f.open), count: folds.length}));`)
+
+	if n, _ := got["count"].(float64); n != 2 {
+		t.Fatalf("found %v folded rows, want 2", got["count"])
+	}
+	open, _ := got["open"].([]any)
+	for i, v := range open {
+		if v != true {
+			t.Errorf("reasoning row %d stayed shut after another was opened", i)
+		}
+	}
+}

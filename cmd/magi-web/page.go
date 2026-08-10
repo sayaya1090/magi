@@ -4517,6 +4517,10 @@ function summaryFor(r) {
   // where one line per member sits in the transcript and a press opens the whole thing.
   if (r.who === 'council') return String(r.text || '').split('\n')[0];
   if (r.who === 'shell') return '! ' + r.text + (r.exit === undefined ? '' : '  → ' + r.exit);
+  // A result that arrived without its call — a compaction took the call away — still says how it
+  // ended. The glyph is the fact; the colour repeats it for whoever reads colour.
+  if (r.who === 'result') return '✓ ' + oneLine(r.text, 88);
+  if (r.who === 'failed') return '✗ ' + oneLine(r.text, 88);
   // The label is a different word from the kind on purpose. 'thinking' is what the server calls
   // this row; the word a person reads is a translated label, and spelling them the same is how one
   // of them ends up hard-coded in English on every other locale.
@@ -4546,7 +4550,17 @@ function rowNode(r) {
     // A failure is the row somebody came to read, whether it arrived as its own row or folded
     // into the call that produced it.
     det.open = r.who === 'failed' || r.ok === false || localStorage.getItem('fold.' + r.who) === 'open';
-    det.addEventListener('toggle', () => localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut'));
+    det.addEventListener('toggle', () => {
+      localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut');
+      // Every row of the same kind follows. The preference was already remembered per kind, so it
+      // applied to the NEXT ones and left the ones on screen as they were — which reads as the
+      // control having half worked. The terminal opens them all with one key; this is the same
+      // idea reached through the affordance that is already there.
+      for (const other of log.querySelectorAll('.fold')) {
+        if (other !== det && other.dataset.kind === r.who) other.open = det.open;
+      }
+    });
+    det.dataset.kind = r.who;
     det.append(el('summary', summaryFor(r)));
     const body = el('div'); body.className = 'foldbody';
     // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
@@ -4582,7 +4596,10 @@ function rowNode(r) {
   const t = el('div'); t.className = 'txt';
   // The user's own words are shown as written. Rendering them would mean a prompt containing a
   // pipe table came back looking like something they did not type.
-  if (r.who === 'user') t.textContent = r.text; else md(t, r.text);
+  // An error leads with the mark, not with the colour. Red alone is a state told only in ink.
+  if (r.who === 'error') t.textContent = '✗ ' + r.text;
+  else if (r.who === 'user') t.textContent = r.text;
+  else md(t, r.text);
   d.append(w, t);
   return d;
 }
