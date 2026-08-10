@@ -395,6 +395,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			}
 			return formatExperienceFull(mems, skills), nil
 		},
+		SearchSessions: func(query, open string) (string, error) {
+			if open != "" {
+				return a.OpenTurn(ctx, open)
+			}
+			return a.SearchSessions(ctx, s.Workdir, query)
+		},
 		// AllowNet ties network egress to the APPROVAL axis: permission=allow means full trust
 		// (the headless/bench posture), so the OS sandbox must not hard-block the network — a
 		// confined mode still confines the FILESYSTEM, but ssh/curl/apt/pip work. Without this a

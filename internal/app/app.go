@@ -54,6 +54,9 @@ type App struct {
 	skillCache    map[string][]port.Skill // workdir -> loaded skills
 	skillCacheSig map[string]string       // workdir -> source-dir mtime signature (invalidates skillCache)
 
+	searchMu    sync.Mutex
+	searchCache map[session.SessionID]cachedTurns // session -> its turns, keyed by last activity
+
 	permPolicy string  // runtime-adjustable permission policy (guarded by mu)
 	policy     *Policy // guardrail rules engine (deny floor, allow rules, bash scan)
 

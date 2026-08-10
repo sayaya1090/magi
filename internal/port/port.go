@@ -293,7 +293,15 @@ type ToolEnv struct {
 	// nothing is spent on context until it actually wants them. nil when the
 	// experience store is not configured. (recall_memory)
 	RecallMemory func(query string) (string, error)
-	Platform     Platform
+	// SearchSessions ranks past TURNS in this workspace against a query, and with a non-empty open
+	// ("<session>#<seq>", as printed beside every hit) returns that turn whole and verbatim.
+	//
+	// The third of three recall routes, and the boundaries between them are the whole point: Recall
+	// reaches this session's compacted-out detail, RecallMemory reaches the curated store that
+	// `remember` writes, and this one reaches the raw sessions of other days — the only one of the
+	// three that can find something nobody thought to save. nil when unavailable. (search_sessions)
+	SearchSessions func(query, open string) (string, error)
+	Platform       Platform
 	// Sandbox requests OS-level confinement for commands (bash). Zero value
 	// (empty Mode) means unconfined.
 	Sandbox SandboxSpec
