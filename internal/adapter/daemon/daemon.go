@@ -75,6 +75,12 @@ type Engine interface {
 	// indistinguishable from one running a slow build — the single most important difference for
 	// somebody watching a fleet.
 	Waiting(sid session.SessionID) (app.Ask, bool)
+	// Doing is the other half of that answer, and is here rather than behind an optional
+	// interface because it is the same KIND of fact: a long-running tool's progress note rides a
+	// transient event, which is delivered to the engine's own bus and never written to the log.
+	// Split from Waiting it would be a second mechanism answering one question — "what is this
+	// daemon on right now" — and the two would drift the first time one of them was fixed.
+	Doing(sid session.SessionID) (string, bool)
 }
 
 // Controller is the part of an engine that CHANGES HOW IT RUNS, rather than what it is doing now.
@@ -150,6 +156,11 @@ type Response struct {
 	Err string `json:"error,omitempty"`
 	// Waiting answers the status method: absent when the engine is not blocked on anybody.
 	Waiting *Waiting `json:"waiting,omitempty"`
+	// Doing answers the same method with the opposite news: the latest progress note from a tool
+	// that is still running. Empty when nothing has reported, which is most of the time — a turn
+	// making ordinary steady progress has nothing to say beyond the log, and only the tools that
+	// spend minutes inside one call (a wait, a compaction, a stalled stream) speak up.
+	Doing string `json:"doing,omitempty"`
 	// Out and Exit answer the shell method. Exit is a pointer so that a zero — which is the answer
 	// a caller most wants to be able to trust — is distinguishable from a reply that carried no
 	// exit code at all.
@@ -464,6 +475,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 					Since: ask.Since.UTC().Format(time.RFC3339),
 				}
 			}
+			resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
 			if enc.Encode(resp) != nil {
 				return
 			}
@@ -643,13 +655,17 @@ func dial(path string, connectTimeout, deadline time.Duration) (*Client, error) 
 
 func (c *Client) Close() error { return c.conn.Close() }
 
-// Status asks what the daemon is blocked on, if anything. nil means nothing.
-func (c *Client) Status(sid string) (*Waiting, error) {
+// Status asks what the daemon is blocked on and what it is on, if anything. A nil Waiting means it
+// is blocked on nobody; an empty note means no running tool has reported.
+//
+// Both in one exchange because they are one question asked at one moment. Two calls could return a
+// prompt and a progress note taken half a second apart, which is a state the daemon was never in.
+func (c *Client) Status(sid string) (*Waiting, string, error) {
 	resp, err := c.exchange(Request{Method: "status", Session: sid})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return resp.Waiting, nil
+	return resp.Waiting, resp.Doing, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
@@ -844,6 +860,10 @@ type Info struct {
 	// reason: it is in the daemon's memory, so the dial that proves it alive asks while it is
 	// there. nil when nothing is pending or the daemon is not answering.
 	Asking *Waiting `json:"-"`
+	// Doing is what a still-running tool last reported, and comes back on the same dial as Asking.
+	// The pair is the whole of "what is happening in there right now": one says it has stopped and
+	// needs a person, the other says it has not.
+	Doing string `json:"-"`
 }
 
 // SessionFile is where a daemon records what it is driving.
@@ -1009,8 +1029,8 @@ func List(configDir string) ([]Info, error) {
 			if sid == "" {
 				return
 			}
-			if ask, serr := cl.Status(sid); serr == nil {
-				out[i].Asking = ask
+			if ask, doing, serr := cl.Status(sid); serr == nil {
+				out[i].Asking, out[i].Doing = ask, doing
 			}
 			// A daemon too old to know the method answers with an error naming what it does
 			// accept. That is a version skew, not a fault: it is alive, and everything else about

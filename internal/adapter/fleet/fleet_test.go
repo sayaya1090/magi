@@ -242,7 +242,12 @@ func TestFleetMarksTheLocalDaemon(t *testing.T) {
 }
 
 // askingEngine is a daemon blocked on whatever it is told to be blocked on.
-type askingEngine struct{ ask *app.Ask }
+type askingEngine struct {
+	ask   *app.Ask
+	doing string
+}
+
+func (e *askingEngine) Doing(session.SessionID) (string, bool) { return e.doing, e.doing != "" }
 
 func (e *askingEngine) Waiting(session.SessionID) (app.Ask, bool) {
 	if e.ask == nil {
@@ -261,11 +266,20 @@ func (e *askingEngine) RespondQuestion(context.Context, command.RespondQuestion)
 // serveAsking runs a real daemon behind a published socket, because the fifth state is the one that
 // cannot be faked from files: it is asked for over the wire.
 func (f *fleetFixture) serveAsking(workdir, sid string, ask *app.Ask) string {
+	return f.serveEngine(workdir, sid, &askingEngine{ask: ask})
+}
+
+// serveDoing is the same, for a daemon that is not blocked on anybody and is inside a long call.
+func (f *fleetFixture) serveDoing(workdir, sid, doing string) string {
+	return f.serveEngine(workdir, sid, &askingEngine{doing: doing})
+}
+
+func (f *fleetFixture) serveEngine(workdir, sid string, eng daemon.Engine) string {
 	f.t.Helper()
 	sock := filepath.Join(f.cfgDir, "daemon-"+sid+".sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	f.t.Cleanup(cancel)
-	go func() { _ = daemon.Serve(ctx, &askingEngine{ask: ask}, sock) }()
+	go func() { _ = daemon.Serve(ctx, eng, sock) }()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if c, err := net.Dial("unix", sock); err == nil {
@@ -596,5 +610,47 @@ func TestAnIdlePlanIsNotReReadEveryRefresh(t *testing.T) {
 	}
 	if r.plans != after {
 		t.Errorf("three refreshes of an idle agent re-read its plan %d more times", r.plans-after)
+	}
+}
+
+// "working" is not an answer to "is it stuck".
+//
+// Steps says how much a turn has done, and says nothing at all about a turn that has been inside
+// ONE call for ten minutes — which is exactly the shape somebody is looking at when they start
+// wondering whether to interrupt. The tool knows (it is polling), it says so on a transient event,
+// and that event never leaves the daemon's process. So the listing asks, on the dial it was making
+// anyway, and carries the answer.
+func TestAWorkingDaemonSaysWhatItIsInsideOf(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.serveDoing(wd, "busy", "check 6, 4m12s elapsed, still running")
+	f.session("busy", wd, "wait for the build", 2, false) // an open turn
+
+	a := find(t, f.get(), "busy")
+	if a.State != fleet.Working {
+		t.Fatalf("state %q, want working", a.State)
+	}
+	if a.Doing != "check 6, 4m12s elapsed, still running" {
+		t.Errorf("the live note did not reach the listing: %q", a.Doing)
+	}
+}
+
+// And a daemon that is not working does not carry one.
+//
+// The note is a live fact. On a finished turn the last thing a tool said before it returned is not
+// news — dressed up as a status line it would read as "still running" beside an agent that stopped
+// an hour ago, which is worse than saying nothing.
+func TestAFinishedTurnCarriesNoLiveNote(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.serveDoing(wd, "done", "check 6, 4m12s elapsed, still running")
+	f.session("done", wd, "wait for the build", 2, true) // the turn finished
+
+	a := find(t, f.get(), "done")
+	if a.State != fleet.Idle {
+		t.Fatalf("state %q, want idle", a.State)
+	}
+	if a.Doing != "" {
+		t.Errorf("an idle agent is reported as being inside %q", a.Doing)
 	}
 }

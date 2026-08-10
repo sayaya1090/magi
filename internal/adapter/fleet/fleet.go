@@ -155,6 +155,14 @@ type Agent struct {
 	Report []report.Filled `json:"report,omitempty"`
 	Task   string          `json:"task"`  // what the open turn asked for, or the last thing said
 	Steps  int             `json:"steps"` // tool calls the open turn has made — what a crash would cost
+	// Doing is what a long-running tool inside the open turn last reported: "check 6, 4m elapsed,
+	// still running". Only ever set on a WORKING agent — the note is a live one, and on an idle or
+	// stopped agent it would be the last thing said before the turn ended, dressed up as news.
+	//
+	// This is the difference between "working" and knowing whether to intervene. Steps answers it
+	// for a turn making calls; it answers nothing for a turn that has been inside one call for ten
+	// minutes, which is exactly when somebody starts wondering if it is stuck.
+	Doing string `json:"doing,omitempty"`
 	// PlanDone and PlanTotal are the agent's own todo list, counted. "working" says it is alive;
 	// "working · 3/7" says whether it is getting anywhere, which is the question somebody has when
 	// they look twice in ten minutes.
@@ -211,6 +219,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			a.Task = Clip(open.Text, 160)
 		case in.Live && isOpen:
 			a.State, a.Steps, a.Task = Working, open.Steps, Clip(open.Text, 160)
+			a.Doing = Clip(in.Doing, 160)
 		case in.Live:
 			a.State = Idle
 		case isOpen:

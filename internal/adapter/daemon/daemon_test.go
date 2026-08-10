@@ -21,6 +21,13 @@ type fakeEngine struct {
 	got     []string
 	fail    error
 	waiting *app.Ask // what this engine claims to be blocked on, if anything
+	doing   string   // what this engine claims a running tool last reported
+}
+
+func (f *fakeEngine) Doing(session.SessionID) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.doing, f.doing != ""
 }
 
 func (f *fakeEngine) Waiting(session.SessionID) (app.Ask, bool) {
@@ -310,7 +317,7 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 	c := start(t, eng)
 
 	// Nothing pending: the answer is "nothing", not an error and not a guess.
-	w, err := c.Status("s_1")
+	w, _, err := c.Status("s_1")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -323,7 +330,7 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 	eng.waiting = &app.Ask{Kind: "permission", What: "bash", Since: since}
 	eng.mu.Unlock()
 
-	w, err = c.Status("s_1")
+	w, _, err = c.Status("s_1")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}

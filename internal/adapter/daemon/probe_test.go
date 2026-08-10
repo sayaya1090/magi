@@ -196,7 +196,7 @@ func TestAViewersConnectionHasNoDeadline(t *testing.T) {
 	// Several calls spread past any plausible bound: a deadline that was set on the connection
 	// (rather than per exchange) would fire on one of these.
 	for i := 0; i < 3; i++ {
-		if _, err := cl.Status("s_1"); err != nil {
+		if _, _, err := cl.Status("s_1"); err != nil {
 			t.Fatalf("call %d failed: %v", i, err)
 		}
 		time.Sleep(probeTimeout / 2)
