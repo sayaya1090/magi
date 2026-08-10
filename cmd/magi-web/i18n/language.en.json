@@ -163,6 +163,7 @@
   "state.idle": "Idle",
   "state.live": "Live",
   "state.reconnecting": "Reconnecting…",
+  "state.remote": "Elsewhere",
   "state.stopped": "Stopped",
   "state.waiting": "Waiting",
   "state.waiting_on_you": "{n} waiting on you",

@@ -978,6 +978,7 @@ const indexHTML = `<!doctype html>
   .tile.working .k { color:var(--magi-ref-success); }
   .tile.idle    .k { color:var(--magi-ref-accent); }
   .tile.gone    .k { color:var(--magi-ref-error); }
+  .tile.remote  .k { color:var(--magi-ref-muted); }
   /* A count of zero reads as zero; it does not need to be faint as well, and dimming it put the
      label under AA in both themes (2.25:1 in light — measured by the contrast check). */
   .tile[disabled] .n, .tile[disabled] .k { color:var(--magi-ref-muted); }
@@ -1060,6 +1061,9 @@ const indexHTML = `<!doctype html>
   .card.waiting .badge { color:var(--magi-ref-warn); }
   .card.idle .badge { color:var(--magi-ref-accent); }
   .card.abandoned .badge, .card.stopped .badge { color:var(--magi-ref-error); }
+  /* Elsewhere: muted, because there is nothing here to act on — no colour claiming a state
+     nothing observed, and none claiming trouble either. */
+  .card.remote .badge { color:var(--magi-ref-muted); }
 
   /* name + workspace, the way a console stacks a resource over its namespace */
   .card .name { font:600 var(--md-sys-typescale-body-large-size)/1.3 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
@@ -2525,8 +2529,12 @@ const ago = s => s < 0 ? '' : tr('time.ago', {d: dur(s)});
 // The order the eye should travel: what needs somebody, what is moving, what is asleep, what is
 // gone. Kubernetes consoles sort trouble to the top for the same reason — a list you have to read
 // to find the problem is a list that hides it.
-const ORDER = {waiting: 0, working: 1, idle: 2, abandoned: 3, stopped: 4};
-const GROUP = {waiting: 'waiting', working: 'working', idle: 'idle', abandoned: 'gone', stopped: 'gone'};
+const ORDER = {waiting: 0, working: 1, idle: 2, abandoned: 3, stopped: 4, remote: 5};
+// Elsewhere is its own group and not part of 'gone'. A companion on another machine has not
+// stopped — nothing here dialled it, so nothing here knows either way — and putting it under the
+// heading for crashes would be a claim the row itself refuses to make.
+const GROUP = {waiting: 'waiting', working: 'working', idle: 'idle', abandoned: 'gone', stopped: 'gone',
+  remote: 'remote'};
 let filter = null;   // one of the summary keys, or null for everything
 
 // href is where a companion lives in this console's URL space.
@@ -2557,8 +2565,14 @@ function card(a) {
   wasState.set(a.socket, a.state);
   el.className = 'card ' + a.state + ' state' + (a.here ? ' here' : '') + (news ? ' noticed' : '')
     + (a.socket === sock() ? ' open' : '');
-  el.href = href(a);
-  el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
+  // A companion on another machine is not opened from here. Its socket is a path on ITS
+  // filesystem, and this console would resolve that path against its own — which on two machines
+  // set up by one person is frequently a real companion, the wrong one. So the row is shown and
+  // does not link, which is the honest shape of "we know it exists and cannot reach into it".
+  if (a.state !== 'remote') {
+    el.href = href(a);
+    el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
+  }
 
   const badge = cell('badge', stateWord(a.state));
   // How far through its own plan, INSIDE the status cell. Not a progress bar: a todo list is not a
@@ -2669,9 +2683,15 @@ function tableHead() {
 // the work this removes, and it is the first thing a console shows.
 function summarise(list) {
   const box = document.getElementById('summary');
-  const counts = {waiting: 0, working: 0, idle: 0, gone: 0};
+  const counts = {waiting: 0, working: 0, idle: 0, gone: 0, remote: 0};
   for (const a of list) counts[GROUP[a.state] || 'idle']++;
-  box.replaceChildren(...Object.entries(counts).map(([k, n]) => {
+  box.replaceChildren(...Object.entries(counts)
+    // A zero is informative for the four states a local companion moves between — "nothing is
+    // waiting" is worth reading. It is not informative for a cluster: somebody with one machine
+    // has no companions elsewhere and never will, and a chip permanently reading zero is a box
+    // that has to be looked at every time to learn nothing.
+    .filter(([k, n]) => k !== 'remote' || n > 0)
+    .map(([k, n]) => {
     const b = document.createElement('md-filter-chip');
     b.className = 'tile ' + k;
     b.disabled = n === 0;

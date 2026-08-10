@@ -2382,3 +2382,47 @@ console.log(JSON.stringify({notes, bars: byId.log.find('md-linear-progress').len
 		t.Errorf("%v progress bars on a running call with no note", n)
 	}
 }
+
+const withACompanionElsewhere = `[
+  {"socket":"/s/b.sock","name":"docs","workdir":"/w/docs","state":"working","live":true,
+   "task":"rewrite the page","steps":12,"idle":2,"host":"mini","addr":"10.0.0.12"},
+  {"socket":"/s/far.sock","name":"design","workdir":"/w/design","state":"remote","live":true,
+   "role":"screens","idle":40,"host":"buildbox"}
+]`
+
+// A companion on another machine is shown, counted apart from the dead, and not opened from here.
+//
+// The link is the part that matters. Its socket is a path on ITS filesystem, and this console
+// resolves paths against its own — which on two machines set up by one person is frequently a real
+// companion, the wrong one. A row that quietly opened somebody else is worse than no row.
+func TestACompanionElsewhereIsShownAndNotOpenedFromHere(t *testing.T) {
+	got := runPage(t, withACompanionElsewhere, "", rowsHelper+`
+await loadFleet();
+const far = rows().find(r => (r.className || '').split(' ').includes('remote'));
+// attrs.href, not .href: the fake DOM stores what was assigned and has no getter for it, so
+// reading the property answers undefined whether or not the page set one. Found by mutation —
+// the first version of this asserted on .href and passed with the guard removed.
+console.log(JSON.stringify({
+  found: !!far,
+  href: far ? (far.attrs.href || '') : 'no row',
+  clickable: far ? !!far.onclick : true,
+  tiles: byId.summary.children.filter(t => t.className !== 'toboard').map(t => t.text),
+}));
+`)
+	if got["found"] != true {
+		t.Fatal("the companion on buildbox is not in the list")
+	}
+	if h := got["href"].(string); h != "" {
+		t.Errorf("the row links to %q — this console cannot open a companion on another machine", h)
+	}
+	if got["clickable"] == true {
+		t.Error("clicking the row opens a socket path that belongs to another machine")
+	}
+	var tiles []string
+	for _, tl := range got["tiles"].([]any) {
+		tiles = append(tiles, tl.(string))
+	}
+	if strings.Join(tiles, "|") != "0 Waiting|1 Working|0 Idle|0 Gone|1 Elsewhere" {
+		t.Errorf("the summary reads %v — elsewhere is not counted apart from gone", tiles)
+	}
+}

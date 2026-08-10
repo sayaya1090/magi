@@ -148,3 +148,21 @@ func TestTheAgentListCarriesRoleTeamAndPlan(t *testing.T) {
 		}
 	}
 }
+
+// A companion on another machine is listed and is not counted among the dead.
+//
+// It is !Live for the same reason it has no task: nothing here dialled it. Folding that into the
+// dead count put it under a sentence saying it stopped and left work in a log — two claims about a
+// machine this process cannot see.
+func TestACompanionElsewhereIsNotCountedAsNotRunning(t *testing.T) {
+	out := render([]fleet.Agent{
+		{Name: "a", Workdir: "/w/a", State: fleet.Idle, Live: true},
+		{Name: "design", Workdir: "/w/d", State: fleet.Remote, Host: "buildbox", Idle: 40},
+	})
+	if strings.Contains(out, "not running") {
+		t.Errorf("a companion on another machine is being reported as stopped here:\n%s", out)
+	}
+	if !strings.Contains(out, "design") {
+		t.Errorf("the companion on buildbox is missing from the listing:\n%s", out)
+	}
+}

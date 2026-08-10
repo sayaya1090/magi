@@ -163,6 +163,7 @@
   "state.idle": "유휴",
   "state.live": "연결됨",
   "state.reconnecting": "재연결 중…",
+  "state.remote": "다른 머신",
   "state.stopped": "정지",
   "state.waiting": "대기 중",
   "state.waiting_on_you": "{n}건이 당신을 기다립니다",

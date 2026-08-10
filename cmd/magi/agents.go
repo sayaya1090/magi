@@ -66,10 +66,15 @@ func printAgents(w io.Writer, list []fleet.Agent, configDir string) {
 	}
 }
 
+// deadCount is how many companions HERE are not running.
+//
+// Remote rows are excluded, and the exclusion is the point: a companion on another machine that
+// nobody has sighted lately is also !Live, and counting it here would have put it under a legend
+// saying it stopped and left work in a log — neither of which this machine established.
 func deadCount(list []fleet.Agent) int {
 	n := 0
 	for _, a := range list {
-		if !a.Live {
+		if !a.Live && a.State != fleet.Remote {
 			n++
 		}
 	}
