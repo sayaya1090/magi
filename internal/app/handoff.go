@@ -85,9 +85,23 @@ func (a *App) Expect(sid session.SessionID, actor event.Actor, e port.Elsewhere)
 	// were idle when the work was handed over (the tool refuses otherwise), so the next finish is
 	// this request's. Taken before the goroutine starts, or a fast peer could finish between the
 	// spawn and the first read and the watch would sit through the turn after it instead.
-	since, _, err := a.NewSince(ctx, their, 0)
-	if err != nil {
-		return fmt.Errorf("cannot read %s's transcript, so nothing would come back: %w", e.Who, err)
+	//
+	// Skipped when the answer is fetched rather than read: their session id indexes a store on
+	// another machine, and the position that matters came back from THEIR store when the work
+	// landed. There is nothing here to take a position in.
+	//
+	// Honest about what this is: belt, not mechanism. Removing it changes no observable behaviour
+	// today, because asking this store about a session it has never seen answers zero rather than
+	// failing, and because the fetched answer never consults the position anyway. It stays because
+	// the day that read DOES fail — a store error, a session id that collides with a local one —
+	// is the day a remote hand-off would be refused after the work had already been sent.
+	var since int64
+	if e.Answer == nil {
+		var err error
+		since, _, err = a.NewSince(ctx, their, 0)
+		if err != nil {
+			return fmt.Errorf("cannot read %s's transcript, so nothing would come back: %w", e.Who, err)
+		}
 	}
 
 	a.mu.Lock()
@@ -134,7 +148,7 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 		case <-probe.C:
 			// Their log first, always. A peer that finished and then exited is finished — asking
 			// about the process would report it gone and lose an answer that is written down.
-			if done, answer := a.handoffAnswer(ctx, their, since); done {
+			if done, answer := a.answerOf(ctx, e, their, since); done {
 				if err := a.deliverHandoff(ctx, sid, actor, e, answer); err == nil {
 					return
 				}
@@ -159,7 +173,7 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 			return
 		case <-tick.C:
 		}
-		done, answer := a.handoffAnswer(ctx, their, since)
+		done, answer := a.answerOf(ctx, e, their, since)
 		if !done {
 			continue
 		}
@@ -171,6 +185,19 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 		}
 		return
 	}
+}
+
+// answerOf is the finished answer, read from the peer's log or asked for across a machine.
+//
+// One question with two ways of putting it, and the choice is made in exactly one place. The far
+// side answers it by running handoffAnswer over there, so there is no second idea of what counts
+// as an answer — only a second way of reaching the code that decides.
+func (a *App) answerOf(ctx context.Context, e port.Elsewhere, their session.SessionID, since int64) (bool, string) {
+	if e.Answer != nil {
+		text, done := e.Answer()
+		return done, text
+	}
+	return a.handoffAnswer(ctx, their, since)
 }
 
 // handoffAnswer reports whether the peer's turn has ended, and what it said.
@@ -267,6 +294,17 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 	d, _ := json.Marshal(event.ToolProgressData{Name: "hand_off", Text: e.Who + " answered"})
 	a.publishTransient(sid, event.TypeToolProgress, actor, d)
 	return nil
+}
+
+// AnswerSince is handoffAnswer for a caller outside this package: `magi --handoff-state`, run over
+// ssh by the machine that handed the work here.
+//
+// Exported rather than reimplemented over there. "Their turn has ended and this is what they said"
+// is one definition — a turn.finished past a point, then the last assistant text, with a finished
+// turn that said nothing reported as such — and a second copy of it on the far side of a wire is
+// how a remote answer comes to mean something slightly different from a local one.
+func (a *App) AnswerSince(ctx context.Context, their session.SessionID, since int64) (bool, string) {
+	return a.handoffAnswer(ctx, their, since)
 }
 
 // PendingHandoffs names the work this session has out with other companions, oldest first.

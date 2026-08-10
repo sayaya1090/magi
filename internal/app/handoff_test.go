@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -336,4 +337,57 @@ func countContaining(msgs []session.Message, want string) int {
 		}
 	}
 	return n
+}
+
+// An answer from a machine whose log is not on this disk is fetched, not read.
+//
+// The whole local design rests on never being told anything: the answer is written where every
+// answer is written and the wait goes and reads it. That stops at the machine boundary, and the
+// substitution has to happen HERE — a wait that fell back to reading a local session for a remote
+// hand-off would either find nothing forever or, if a session id happened to collide, deliver
+// somebody else's words as the answer.
+func TestAnAnswerFromAnotherMachineIsAskedForRatherThanRead(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+
+	var mu sync.Mutex
+	finished := false
+	// A session id this store has never heard of: their log is on their disk, and nothing here
+	// should be trying to read it.
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design on buildbox", Session: "s_over_there", Request: "name the tokens",
+		Answer: func() (string, bool) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !finished {
+				return "", false
+			}
+			return "surface-container-low, and the label is on-surface-variant.", true
+		},
+	})
+	if err != nil {
+		t.Fatalf("Expect refused work whose transcript is elsewhere: %v", err)
+	}
+	time.Sleep(handoffPoll + 500*time.Millisecond)
+	for _, m := range f.myMessages() {
+		for _, p := range m.Parts {
+			if strings.Contains(p.Text, "answered") {
+				t.Fatal("an answer arrived before the far side had one")
+			}
+		}
+	}
+	mu.Lock()
+	finished = true
+	mu.Unlock()
+
+	waitFor(t, "the fetched answer to arrive", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "surface-container-low") {
+					return true
+				}
+			}
+		}
+		return false
+	})
 }

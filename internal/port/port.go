@@ -186,6 +186,16 @@ type Elsewhere struct {
 	//
 	// nil is allowed and means exactly that: no way to tell, wait it out.
 	Probe func() (news string, over bool)
+	// Answer fetches the finished answer, for work whose transcript is not on this disk.
+	//
+	// Normally there is nothing to fetch: the answer is written where every answer is written and
+	// the wait simply reads the doer's log. That is what makes a local hand-off survivable, and it
+	// stops at the machine boundary — their log is a directory on their disk.
+	//
+	// So the same question is asked over the wire instead, and the far side answers it with the
+	// same code the local read uses. One question; the way of putting it is chosen by where the
+	// log is. nil means the log is here, which is the ordinary case.
+	Answer func() (text string, done bool)
 }
 
 // ScheduleChange is one edit to a workspace's unattended work, or a request to see it.
