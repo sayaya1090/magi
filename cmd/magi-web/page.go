@@ -1435,6 +1435,14 @@ const indexHTML = `<!doctype html>
 
   /* ── what this companion did before now ─────────────────────────────────── */
   #history { max-width:var(--magi-sys-measure); }
+  #history .find { display:flex; align-items:center; gap:var(--magi-sys-space-150); margin:var(--magi-sys-space-150) 0; }
+  #history .findin { flex:1 1 auto; min-width:0; }
+  #history .findn { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  #history .findnone { font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-150) 0; }
+  #history .snip {
+    font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted);
+    padding:0 0 var(--magi-sys-space-50) var(--magi-sys-space-400); overflow-wrap:anywhere;
+  }
   #history .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
     color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
@@ -2989,20 +2997,93 @@ let wasAnswering = false;
 //
 // The request as it was made, not a summary of it. A summary would be this page deciding what the
 // work was about, which quietly rewrites what somebody asked for.
+// findQuery is what has been typed into the history card's search. Kept outside the draw so a
+// fleet poll redrawing this panel does not throw away what somebody is in the middle of typing.
+let findQuery = '';
+
 async function loadHistory() {
   const list = await fetchList('/history' + q());
   if (!list || !list.length) { historyEl.hidden = true; historyEl.replaceChildren(); return; }
   const box = cell('');
   box.append(cell('k', tr('field.history')));
-  for (const h of list) {
-    const row = cell('hs' + (h.current ? ' now' : ''));
-    row.append(cell('when', h.current ? tr('state.working') : ago(h.ago)));
-    row.append(cell('what', h.title || tr('history.untitled')));
-    box.append(row);
+  box.append(findField(list.length));
+  if (findQuery) { await drawFound(box); }
+  else {
+    for (const h of list) {
+      const row = cell('hs' + (h.current ? ' now' : ''));
+      row.append(cell('when', h.current ? tr('state.working') : ago(h.ago)));
+      row.append(cell('what', h.title || tr('history.untitled')));
+      box.append(row);
+    }
   }
   historyEl.replaceChildren(box);
   historyEl.hidden = false;
   measureDock();
+}
+
+// findField is the search box over this companion's past work.
+//
+// In the card rather than in a destination of its own: the history card already IS the list of past
+// sessions, and a search that lived elsewhere would be a second list of the same things. The
+// terminal made the same call about its resume picker.
+function findField(total) {
+  const wrap = cell('find');
+  // The Material field, not a bare input. A bare one has no text size of its own, inherits the
+  // body's 14px, and iOS Safari zooms the page on focus and does not zoom back — there is a test
+  // over the whole page for exactly this, and it caught this field.
+  const input = document.createElement('md-outlined-text-field');
+  input.className = 'findin';
+  input.value = findQuery;
+  input.setAttribute('type', 'search');
+  input.setAttribute('label', tr('find.placeholder'));
+  // Debounced: every keystroke would otherwise read every log in the workspace.
+  let timer;
+  input.addEventListener('input', () => {
+    findQuery = input.value;
+    clearTimeout(timer);
+    timer = setTimeout(() => loadHistory().then(() => {
+      // Redrawing replaces the field, so the caret goes back where it was — a search box that
+      // loses focus mid-word is a search box you cannot type into.
+      const again = historyEl.querySelector('.findin');
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    }), 220);
+  });
+  wrap.append(input);
+  if (!findQuery) wrap.append(cell('findn', String(total)));
+  return wrap;
+}
+
+// drawFound puts the ranked sessions, and the turns that matched, into the card.
+async function drawFound(box) {
+  const hits = await fetchList('/search?q=' + encodeURIComponent(findQuery) + qMore());
+  if (!hits) return;
+  if (!hits.length) {
+    // Said, rather than an empty card. A list that silently empties under the keystrokes is one
+    // somebody cannot tell from a broken one.
+    box.append(cell('findnone', tr('find.none')));
+    return;
+  }
+  for (const h of hits) {
+    const row = cell('hs found');
+    row.append(cell('when', new Date(h.when).toLocaleDateString()));
+    let what = h.title || tr('history.untitled');
+    if (h.scheduled) what += ' · ' + tr('find.scheduled');
+    row.append(cell('what', what));
+    box.append(row);
+    // WHY it matched. With a search typed the titles no longer explain the list — the words were
+    // matched somewhere in the middle of the conversation, which is the whole reason for searching
+    // turns rather than titles.
+    for (const sn of h.snippets || []) box.append(cell('snip', sn.prompt));
+    if (h.turns > (h.snippets || []).length) {
+      box.append(cell('snip more', tr('find.more').replace('{n}', h.turns - (h.snippets || []).length)));
+    }
+  }
+}
+
+// qMore appends the companion selector to a query string that already has one.
+function qMore() {
+  const s = sock();
+  return s ? '&d=' + encodeURIComponent(s) : '';
 }
 
 // ── the board ────────────────────────────────────────────────────────────────

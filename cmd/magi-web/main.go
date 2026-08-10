@@ -524,6 +524,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/interrupt":            s.interrupt,
 		"/shell":                s.shell,
 		"/cron":                 s.cron,
+		"/search":               s.search,
 		"/answer":               s.answer,
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,

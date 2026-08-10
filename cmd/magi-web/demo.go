@@ -114,6 +114,15 @@ const demoScript = `
 
   const answers = {
     '/fleet': fleet,
+    // A search over what was said. Two hits, one of them a scheduled run, because unattended work
+    // reads very differently from something a person asked for and a demo should show both.
+    '/search': [
+      {id: 's_7f2a', title: 'spec the empty state for the fleet table', when: '2026-08-03T10:12:00Z',
+       turns: 3, snippets: [{ref: 's_7f2a#12', prompt: 'the empty state should sit on surface-container-low'},
+                            {ref: 's_7f2a#31', prompt: 'name the exact tokens for it'}]},
+      {id: 's_31bd', title: 'nightly audit', when: '2026-08-02T03:00:00Z', scheduled: 'nightly-audit',
+       turns: 1, snippets: [{ref: 's_31bd#4', prompt: 'the empty state changed and nothing said so'}]},
+    ],
     // The scheduled work. Two jobs, and one of them broken on purpose: a schedule that can never
     // run is the state the list exists to mark, and a demo where everything is fine never shows it.
     '/cron': [

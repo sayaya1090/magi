@@ -35,6 +35,9 @@ type Reader interface {
 	// the same log, for a surface that assembles its transcript from messages and would otherwise
 	// have no way to learn that a vote happened at all.
 	CouncilMarks(ctx context.Context, sid session.SessionID) ([]app.CouncilMark, error)
+	// RankSessions searches this workspace's past turns. The same call the terminal's picker makes,
+	// so the two surfaces cannot come to disagree about what matched.
+	RankSessions(ctx context.Context, workdir, query string) ([]app.SessionHit, error)
 	NewSince(ctx context.Context, sid session.SessionID, seq int64) (int64, bool, error)
 }
 
