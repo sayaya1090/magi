@@ -523,6 +523,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/submit":               s.submit,
 		"/interrupt":            s.interrupt,
 		"/shell":                s.shell,
+		"/cron":                 s.cron,
 		"/answer":               s.answer,
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,

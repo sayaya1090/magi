@@ -1339,6 +1339,26 @@ const indexHTML = `<!doctype html>
   /* ── work handed to other companions ────────────────────────────────────── */
   #handoffs { max-width:var(--magi-sys-measure); }
 
+  /* ── the schedule ────────────────────────────────────────────────────────── */
+  #cron { max-width:var(--magi-sys-measure); }
+  #cron .job {
+    display:grid; grid-template-columns:1fr auto; gap:0 var(--magi-sys-space-200);
+    padding:var(--magi-sys-space-150) 0; border-top:1px solid var(--magi-ref-outlineVariant);
+  }
+  #cron .jname { font-weight:600; }
+  #cron .jwhen { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); text-align:right; }
+  #cron .jnext, #cron .jask, #cron .jfile { grid-column:1 / -1; }
+  #cron .jnext { font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted); }
+  #cron .jask { color:var(--magi-ref-fg); margin-top:var(--magi-sys-space-50); }
+  #cron .jfile {
+    font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted);
+    margin-top:var(--magi-sys-space-50); overflow-wrap:anywhere;
+  }
+  /* Switched off reads as switched off, and never-runs reads as wrong — by more than colour, since
+     a state told only in colour is a state some readers are not told. */
+  #cron .job.off .jname { color:var(--magi-ref-muted); text-decoration:line-through; }
+  #cron .job.broken .jnext { color:var(--magi-ref-error); }
+
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--magi-sys-page); }
   .boardhead { display:flex; gap:var(--magi-sys-space-200); align-items:center; margin:0 0 var(--magi-sys-space-200); flex-wrap:wrap; }
@@ -2030,6 +2050,7 @@ const indexHTML = `<!doctype html>
     <aside id="side">
       <md-outlined-card id="plan" hidden></md-outlined-card>
       <md-outlined-card id="handoffs" hidden></md-outlined-card>
+      <md-outlined-card id="cron" hidden></md-outlined-card>
       <md-outlined-card id="intervened" hidden></md-outlined-card>
       <md-outlined-card id="history" hidden></md-outlined-card>
     </aside>
@@ -3437,6 +3458,7 @@ function drawDetail(a) {
   if (sock()) drawPanels();
   drawPlan(a);
   drawHandoffs(a);
+  drawCron(a);
   // Returned rather than dropped: the caller does not wait for it, but a caller that WANTS to —
   // a test, or a later screen that needs the whole panel settled — has no other way to know when
   // the slow half landed, and a promise nobody can await is a promise nobody can check.
@@ -3496,6 +3518,40 @@ async function drawHandoffs(a) {
     return el;
   });
   box.replaceChildren(cell('k', tr('field.handed_out')), ...rows);
+  box.hidden = false;
+}
+
+// ── what it does when nobody is watching ─────────────────────────────────────
+//
+// A job belongs to one workspace: the daemon holding it is the only thing that runs it. So it sits
+// with this companion's other standing facts rather than in a destination of its own — and past
+// 840px there are no tabs, both panes are drawn, so a third tab would have been invisible on every
+// desktop anyway.
+//
+// The agent can schedule its own work now. That makes this the answer to "what did you leave
+// running?", which is a question with no answer at all until it is on a screen.
+async function drawCron(a) {
+  const box = document.getElementById('cron');
+  const list = await fetchList('/cron' + qFor(a));
+  if (!list || !list.length) { box.hidden = true; box.replaceChildren(); return; }
+  const rows = list.map(j => {
+    const el = cell('job' + (j.enabled ? '' : ' off') + (j.problem ? ' broken' : ''));
+    el.append(cell('jname', j.name), cell('jwhen', j.schedule));
+    // When it next runs, or why it never will. A job that can never run is the one this list MUST
+    // mark: it is switched on, it looks ordinary, and nothing else will ever mention it again.
+    let state;
+    if (j.problem) state = tr('cron.never') + ' — ' + j.problem;
+    else if (!j.enabled) state = tr('cron.off');
+    else if (j.next) state = tr('cron.next') + ' ' + new Date(j.next).toLocaleString();
+    else state = tr('cron.never');
+    el.append(cell('jnext', state));
+    el.append(cell('jask', j.prompt));
+    // Where it is written, so somebody can go and look — and which file, because an edit here
+    // always writes the workspace's and a machine-wide job cannot be removed from this page.
+    el.append(cell('jfile', j.file + (j.global ? ' · ' + tr('cron.machine') : '')));
+    return el;
+  });
+  box.replaceChildren(cell('k', tr('field.scheduled')), ...rows);
   box.hidden = false;
 }
 

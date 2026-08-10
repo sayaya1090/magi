@@ -201,7 +201,15 @@ type ScheduledJobInfo struct {
 
 // ScheduledJobs returns this workspace's jobs, machine-wide ones included, in name order.
 func (a *App) ScheduledJobs(workdir string) []ScheduledJobInfo {
-	jobs := a.scheduleJobs(workdir)
+	return DescribeJobs(a.scheduleJobs(workdir))
+}
+
+// DescribeJobs answers "when does each of these run next, and which of them never will".
+//
+// A function rather than a method, because the browser console is a different process with no App
+// in it and asked the same question — and the answer being computed twice is how one of the two
+// ends up saying a job runs tomorrow that in fact never runs at all.
+func DescribeJobs(jobs map[string]config.CronJob) []ScheduledJobInfo {
 	names := make([]string, 0, len(jobs))
 	for n := range jobs {
 		names = append(names, n)

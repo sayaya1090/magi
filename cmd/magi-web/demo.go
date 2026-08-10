@@ -114,6 +114,21 @@ const demoScript = `
 
   const answers = {
     '/fleet': fleet,
+    // The scheduled work. Two jobs, and one of them broken on purpose: a schedule that can never
+    // run is the state the list exists to mark, and a demo where everything is fine never shows it.
+    '/cron': [
+      {name: 'nightly-audit', schedule: '0 3 * * *', enabled: true,
+       next: new Date(Date.now() + 7 * 3600e3).toISOString(),
+       prompt: 'walk yesterday\'s commits and report anything that looks like a regression',
+       file: '/Users/you/work/design-system/.magi/config.toml'},
+      {name: 'weekly-report', schedule: '0 9 * * 1', enabled: false,
+       prompt: 'summarise what changed in the design system this week',
+       file: '/Users/you/.config/magi/config.toml', global: true},
+      {name: 'leap-day', schedule: '0 0 30 2 *', enabled: true,
+       problem: 'this schedule never comes round',
+       prompt: 'the one nobody noticed had stopped',
+       file: '/Users/you/work/design-system/.magi/config.toml'},
+    ],
     // Which machine this console is. A demo that left it blank would be showing the drawer with a
     // hole in it, and the hole is the part that answers "am I looking at the right one".
     '/console': {host: 'studio', configDir: '/Users/you/.config/magi',
