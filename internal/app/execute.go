@@ -483,6 +483,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		changePath: changePath, changeBefore: changeBefore, bashChanges: bashChanges,
 	})
 
+	// This call is no longer the thing being waited on, so its last progress note stops being true
+	// here — before the result lands, so nobody reads a finished call's heartbeat off a
+	// transcript that already shows its answer.
+	a.clearDoing(sid, tc.CallID)
+
 	resultEmitted = true
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,

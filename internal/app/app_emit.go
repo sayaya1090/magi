@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -50,6 +51,52 @@ func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor even
 // transient (bus-only, droppable) event so the TUI and headless stream can show
 // what is being waited on. No-op when the bus is absent.
 func (a *App) emitToolProgress(sid session.SessionID, actor event.Actor, callID, name, text string) {
+	a.noteDoing(sid, callID, text)
 	d, _ := json.Marshal(event.ToolProgressData{CallID: callID, Name: name, Text: text})
 	a.publishTransient(sid, event.TypeToolProgress, actor, d)
+}
+
+// noteDoing keeps the latest progress note where a reader OUTSIDE this process can be told it.
+//
+// The bus reaches subscribers in this process — the terminal drawing its own daemon, the headless
+// stream. A browser console is a different process reading the shared log, and a transient event
+// is never written to the log, so from there a turn making steady progress and a turn wedged on a
+// dead socket look the same. This is the only copy anybody else can ask for.
+func (a *App) noteDoing(sid session.SessionID, callID, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.doing, st.doingCall = text, callID
+	a.mu.Unlock()
+}
+
+// clearDoing drops the note once the call that was reporting it has returned.
+//
+// Only that call's. A later call's note arriving first is not something to undo — the note names
+// what is happening NOW, and a finished call clearing a running one's would blank the line at the
+// moment it started being true.
+func (a *App) clearDoing(sid session.SessionID, callID string) {
+	a.mu.Lock()
+	if st, ok := a.stateIf(sid); ok && st.doingCall == callID {
+		st.doing, st.doingCall = "", ""
+	}
+	a.mu.Unlock()
+}
+
+// Doing is what a long-running tool last said it was waiting on, or "" when nothing has said.
+//
+// Read across the daemon socket beside Waiting, and for the same reason: both are live facts that
+// exist only in the memory of the process holding the run. Waiting says a turn has stopped and
+// needs a person; this says it has not stopped and what it is on.
+func (a *App) Doing(sid session.SessionID) (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok || st.doing == "" {
+		return "", false
+	}
+	return st.doing, true
 }

@@ -46,7 +46,14 @@ type sessionState struct {
 	// different process cannot see the transient event that announced it, because a transient
 	// event is delivered to this process's bus and nowhere else. Keyed the same way (call id /
 	// question id) so a resolved prompt leaves with its channel.
-	asking    map[string]Ask
+	asking map[string]Ask
+	// doing is the latest live progress note a long-running tool published, and the call it came
+	// out of. Kept for exactly the reason `asking` is: it rides a TRANSIENT event, delivered to
+	// this process's bus and nowhere else, so a viewer in another process cannot see it at all —
+	// and "what is it actually doing" is the question somebody has about a turn that has been open
+	// for five minutes. Turn-scoped: last turn's note is not news about this one.
+	doing     string
+	doingCall string
 	grants    map[string]bool // "always" grants per tool
 	userLabel string          // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
@@ -205,6 +212,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.interjectSeen = keep
 	st.expPtrQ, st.expPtr = "", ""
 	st.turnNotes = nil
+	st.doing, st.doingCall = "", ""
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	a.mu.Unlock()
 }
