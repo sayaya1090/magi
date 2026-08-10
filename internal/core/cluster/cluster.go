@@ -182,3 +182,71 @@ func Reach(m Member, local, self, magi string) (string, []string) {
 	}
 	return magi, args
 }
+
+// Speaker returns the companion that answers for a team right now.
+//
+// # Why a team needs one at all
+//
+// Addressing a team is addressing whoever speaks for it, and a hub is also the only companion
+// allowed to split work it was given across its own team. Both stop working the moment the declared
+// hub is not there, and until now that was the end of it: the team became unaddressable and its
+// members lost the one thing that let them share work out.
+//
+// # Elected by everybody, agreed by nobody
+//
+// There is no vote and no message. Every companion computes this from its own membership list, so
+// they agree exactly as far as their lists agree — which after a round of merging is usually all
+// the way. Nothing is stored, so nothing has to be un-stored when the declared hub returns: it is
+// recomputed each time it is asked, and the original resumes the moment it is seen again.
+//
+// That is deliberately not consensus. Two halves of a partition would each elect their own, and
+// this does nothing about it — split brain is out of scope, and pretending otherwise with a quorum
+// nobody can reach would be worse than the honest gap.
+//
+// # What it will not do
+//
+// If a PERSON declared two hubs and both are there, this does not choose between them. That is a
+// configuration mistake, the answer is in a file somebody can edit, and picking one quietly would
+// hide it. Election is for the case where nobody is speaking, not for the case where two are.
+//
+// acting says the answer is an election rather than a declaration. It matters to the one elected —
+// it is what lets it hand work on — and to anybody reading a roster, because "acting" is the word
+// that says the companion somebody expected is missing.
+func Speaker(ms []Member, team string, now time.Time) (who Member, acting, ok bool) {
+	team = strings.TrimSpace(team)
+	if team == "" {
+		return Member{}, false, false
+	}
+	var fresh, declared []Member
+	for _, m := range ms {
+		if !strings.EqualFold(m.Team, team) || !m.Fresh(now) {
+			continue
+		}
+		fresh = append(fresh, m)
+		if m.Hub {
+			declared = append(declared, m)
+		}
+	}
+	switch len(declared) {
+	case 1:
+		return declared[0], false, true
+	case 0:
+	default:
+		return Member{}, false, false // two people's decision, not this function's
+	}
+	if len(fresh) == 0 {
+		return Member{}, false, false
+	}
+	// Lowest key. Arbitrary, and deliberately so: what matters is that every companion computing
+	// this from the same list reaches the same answer without talking to anyone. Anything
+	// cleverer — longest running, least busy — is a value that moves, and a hub that changes
+	// because somebody started a build is worse than one chosen by a rule nobody has to think
+	// about.
+	best := fresh[0]
+	for _, m := range fresh[1:] {
+		if m.Key() < best.Key() {
+			best = m
+		}
+	}
+	return best, true, true
+}

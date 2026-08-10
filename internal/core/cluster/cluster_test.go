@@ -181,3 +181,72 @@ func TestAMemberSaysWhereNotWhatToRun(t *testing.T) {
 		t.Errorf("ssh crept into a local reach: %v", args)
 	}
 }
+
+// A team keeps a speaker when the one who declared itself hub goes quiet.
+//
+// Addressing a team is addressing its hub, and a hub is the only companion allowed to split work
+// it was given across its own team. Both stopped dead when the declared hub went away, so a team
+// whose lead was restarting was a team nobody could reach and whose members could not share out
+// what they had been handed.
+func TestATeamKeepsASpeakerWhenTheHubGoesQuiet(t *testing.T) {
+	hub := Member{Host: "studio", Socket: "/s/a.sock", Name: "lead", Team: "frontend", Hub: true, Seen: at(-time.Minute)}
+	one := Member{Host: "mini", Socket: "/s/b.sock", Name: "api", Team: "frontend", Seen: at(-time.Minute)}
+	two := Member{Host: "buildbox", Socket: "/s/c.sock", Name: "design", Team: "frontend", Seen: at(-time.Minute)}
+
+	// While it is there, the declaration wins and nothing is "acting".
+	who, acting, ok := Speaker([]Member{hub, one, two}, "frontend", now)
+	if !ok || acting || who.Name != "lead" {
+		t.Fatalf("with the hub present: who=%q acting=%v ok=%v", who.Name, acting, ok)
+	}
+
+	// Gone quiet: somebody else speaks, and is marked as standing in.
+	hub.Seen = at(-10 * time.Minute)
+	who, acting, ok = Speaker([]Member{hub, one, two}, "frontend", now)
+	if !ok || !acting {
+		t.Fatalf("nobody speaks for the team: who=%q acting=%v ok=%v", who.Name, acting, ok)
+	}
+	if who.Name != "design" { // lowest key: buildbox < mini
+		t.Errorf("elected %q", who.Name)
+	}
+
+	// Every companion works this out from its own list with no message passing, so the answer must
+	// not depend on the order the list happens to be in.
+	for _, order := range [][]Member{{two, one, hub}, {one, hub, two}, {hub, two, one}} {
+		if got, _, _ := Speaker(order, "frontend", now); got.Name != who.Name {
+			t.Errorf("a different order elected %q instead of %q", got.Name, who.Name)
+		}
+	}
+
+	// And it goes back the moment the declared hub is seen again. Nothing was stored, so nothing
+	// has to be undone.
+	hub.Seen = at(-time.Second)
+	if got, acting, _ := Speaker([]Member{hub, one, two}, "frontend", now); got.Name != "lead" || acting {
+		t.Errorf("the hub came back and %q is still speaking (acting=%v)", got.Name, acting)
+	}
+}
+
+// Two declared hubs is a person's mistake, and this does not paper over it.
+//
+// Election is for the case where nobody is speaking. Quietly choosing between two that somebody
+// declared would hide a conflict whose fix is one line in a file they can edit.
+func TestTwoDeclaredHubsAreNotElectedBetween(t *testing.T) {
+	a := Member{Host: "studio", Socket: "/s/a.sock", Name: "lead", Team: "frontend", Hub: true, Seen: at(0)}
+	b := Member{Host: "mini", Socket: "/s/b.sock", Name: "other", Team: "frontend", Hub: true, Seen: at(0)}
+	if who, _, ok := Speaker([]Member{a, b}, "frontend", now); ok {
+		t.Errorf("picked %q between two declared hubs", who.Name)
+	}
+}
+
+// A team whose members have all gone has no speaker — an election among nobody is not an answer.
+func TestATeamWithNobodyLeftHasNoSpeaker(t *testing.T) {
+	stale := Member{Host: "studio", Socket: "/s/a.sock", Name: "lead", Team: "frontend", Seen: at(-30 * time.Minute)}
+	if _, _, ok := Speaker([]Member{stale}, "frontend", now); ok {
+		t.Error("a team of one unseen member still has a speaker")
+	}
+	if _, _, ok := Speaker(nil, "frontend", now); ok {
+		t.Error("an empty cluster has a speaker")
+	}
+	if _, _, ok := Speaker([]Member{stale}, "", now); ok {
+		t.Error("the empty team name resolved to somebody")
+	}
+}
