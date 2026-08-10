@@ -1,8 +1,9 @@
 {
-  "total": 120,
+  "total": 122,
   "files": {
     "cmd/magi/autoupdate.go": 1,
     "cmd/magi/main.go": 2,
+    "cmd/magi/relay.go": 2,
     "internal/adapter/experience/git/store.go": 2,
     "internal/adapter/mcp/manager.go": 1,
     "internal/adapter/plugin/lua/bridge_config.go": 1,
