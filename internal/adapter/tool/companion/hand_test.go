@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -951,13 +953,15 @@ func (f *farSide) forgets() {
 	f.forgot = true
 }
 
-// nudged waits for the far side to push something. A push has a connection to set up, so a test
-// that read the state on the next line would be testing its own timing.
+// nudged waits for the far side to push something.
+//
+// Generous, because a push has a connection to set up and, where a link was cut, a backoff to sit
+// through first. A test that read the state on the next line would be testing its own timing.
 func nudged(t *testing.T, e port.Elsewhere) {
 	t.Helper()
 	select {
 	case <-e.Ready:
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("nothing was pushed: the wait would have had to poll for it")
 	}
 }
@@ -1008,6 +1012,14 @@ type crossing struct {
 	// test is what happens to the one after it.
 	goneAfter int
 }
+
+// cut is a crossing whose stream closes with nothing said — what a daemon dying mid-watch leaves
+// behind, and what a daemon that has finished leaves behind, which is the whole problem.
+type cut struct{ n int32 }
+
+func (c *cut) Read([]byte) (int, error)    { return 0, io.EOF }
+func (c *cut) Write(b []byte) (int, error) { atomic.AddInt32(&c.n, 1); return len(b), nil }
+func (c *cut) Close() error                { return nil }
 
 func (c *crossing) reach() companion.Reach {
 	return func(_ context.Context, host, socket string) (*daemon.Client, error) {
@@ -1149,6 +1161,64 @@ func TestAMachineThatAnswersWithNoCompanionEndsTheWait(t *testing.T) {
 	}
 	if !strings.Contains(news, "design on buildbox") || !strings.Contains(news, "no longer running") {
 		t.Errorf("the news does not say who, where, or what happened: %q", news)
+	}
+}
+
+// A stream that was cut is not a stream that finished.
+//
+// A daemon that dies with a watch open closes the socket, and from the asking side that is byte for
+// byte what a daemon looks like when it has said its last word and hung up. Read as finished, the
+// watch stops and nobody is ever told anything — the wait sits for its full two hours. Observed by
+// killing a companion mid-work across two containers.
+//
+// The last word is the only thing that separates them, so a close without one has to reconnect, and
+// the reconnect is what establishes which happened.
+func TestAStreamThatWasCutIsNotAStreamThatFinished(t *testing.T) {
+	tm := newTeam(t)
+	tm.abroad("design", &farSide{})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	// The handing over is real; the watch after it is cut with nothing said; everything after that
+	// reaches the machine and finds no companion, which is what a dead daemon answers.
+	x := &cutting{goneAfter: 2}
+	_, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
+		"m", "design", "something")
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered", len(watched))
+	}
+	defer watched[0].Done()
+	nudged(t, watched[0])
+	news, over := watched[0].Probe()
+	if !over {
+		t.Fatalf("a cut stream was read as a finished one, so nothing was ever said: %q", news)
+	}
+	if !strings.Contains(news, "no longer running") {
+		t.Errorf("the news does not say what happened: %q", news)
+	}
+}
+
+// cutting reaches for real once, then hands back a stream that closes saying nothing, then reports
+// a machine with no companion on it.
+type cutting struct {
+	mu        sync.Mutex
+	n         int
+	goneAfter int
+}
+
+func (c *cutting) reach() companion.Reach {
+	return func(_ context.Context, _, socket string) (*daemon.Client, error) {
+		c.mu.Lock()
+		c.n++
+		n := c.n
+		c.mu.Unlock()
+		switch {
+		case n == 1:
+			return daemon.Dial(socket)
+		case n <= c.goneAfter:
+			return daemon.Over(&cut{}), nil
+		}
+		return daemon.Over(noCompanion{}), nil
 	}
 }
 

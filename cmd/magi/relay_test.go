@@ -184,3 +184,47 @@ func TestTheEndOfACrossingCarriesTheReasonForIt(t *testing.T) {
 		t.Errorf("the stream itself did not come through: %q", said)
 	}
 }
+
+// The relay ends when the daemon does, even with a caller still holding stdin open.
+//
+// This is how ssh runs it: the session keeps stdin open for as long as the process lives, so the
+// copy carrying requests INTO the daemon never sees an end of its own. Waiting for it after the
+// daemon has closed the socket is waiting for something that cannot happen — and both the relay
+// and the ssh carrying it stayed up with nothing behind them, while the wait on the other machine
+// ran to its two-hour cap. Found by killing a daemon mid-work across two containers.
+func TestTheRelayEndsWhenTheDaemonDoesEvenWithStdinStillOpen(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A daemon that says one thing and then dies, which is what a killed one looks like.
+	go func() {
+		c, aerr := ln.Accept()
+		if aerr != nil {
+			return
+		}
+		_, _ = io.WriteString(c, "{\"ok\":true}\n")
+		c.Close()
+		ln.Close()
+	}()
+
+	// stdin that never ends, the way ssh holds it.
+	held, w := io.Pipe()
+	defer w.Close()
+
+	done := make(chan int, 1)
+	var out, errOut bytes.Buffer
+	go func() { done <- relayHere(held, &out, &errOut, sock) }()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("it ended with %d: %s", code, errOut.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the relay outlived the daemon, holding an ssh open with nothing behind it")
+	}
+	if !strings.Contains(out.String(), `"ok":true`) {
+		t.Errorf("what the daemon said did not come through: %q", out.String())
+	}
+}

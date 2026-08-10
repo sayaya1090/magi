@@ -242,14 +242,23 @@ func (l *listening) follow(ctx context.Context, reach Reach, target fleet.Agent,
 	}
 	defer cl.Close()
 
-	heard := false
+	heard, lastWord := false, false
 	werr := cl.Watch(receipt, func(got daemon.Handover) bool {
 		heard = true
+		lastWord = got.Done || got.Over
 		l.heard(rename(got, target.Name, name))
-		return !(got.Done || got.Over)
+		return !lastWord
 	})
 	if werr == nil {
-		return true // the stream ended cleanly: the far side has nothing more to say
+		// A stream that closed is not the same as a stream that finished. A daemon that dies with
+		// a watch open closes the socket, and from here that reads exactly like one that said its
+		// last word and hung up — so ending here left the wait silent for two hours whenever a
+		// companion died mid-work. Observed by killing one across two containers.
+		//
+		// The last word is the only thing that tells them apart. Without it this reconnects, and
+		// the reconnect is what learns which happened: a companion still there re-watches, and one
+		// that is gone answers with the exit code that says so.
+		return lastWord
 	}
 	if errors.Is(werr, daemon.ErrGone) {
 		// Reached the machine and found no companion. The one failure that is a fact rather than a

@@ -101,9 +101,24 @@ func relayHere(in io.Reader, out io.Writer, errOut io.Writer, socket string) int
 		fmt.Fprintf(errOut, "magi: the connection to %s broke while reading: %v\n", socket, err)
 		return 1
 	}
-	if err := <-sent; err != nil {
-		fmt.Fprintf(errOut, "magi: the connection to %s broke while sending: %v\n", socket, err)
-		return 1
+	// The daemon has finished with us, so whether the sending half also finished is no longer a
+	// question worth waiting for — there is nobody left to send to.
+	//
+	// Waited for, it hangs, and it hung in exactly the case this whole path exists to handle: a
+	// daemon that dies with a watch open closes the socket, the copy above returns, and the copy
+	// BELOW is still blocked reading an stdin that ssh holds open for as long as this process
+	// lives. Relay and ssh both stayed up with nothing behind them, and the wait on the other
+	// machine ran to its two-hour cap. Found by killing a daemon mid-work across two containers.
+	//
+	// Nothing is lost by not waiting. A send that had failed would have broken this same
+	// connection, and the read above would have said so first.
+	select {
+	case err := <-sent:
+		if err != nil {
+			fmt.Fprintf(errOut, "magi: the connection to %s broke while sending: %v\n", socket, err)
+			return 1
+		}
+	default:
 	}
 	return 0
 }
