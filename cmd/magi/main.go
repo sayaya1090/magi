@@ -260,17 +260,12 @@ func run() int {
 			"print the companions this machine knows about, as JSON; a member list on stdin is merged in first")
 		joinCluster = flag.String("join-cluster", "",
 			"trade member lists with a companion's machine over ssh and join its cluster. Not --join, which reads one workspace's shared settings as a proposal")
-		// The two doors work crosses a machine by. Run over ssh by another magi, not by a person:
-		// both read a JSON request on stdin and print a JSON answer, the same shape --members uses.
-		takeHand = flag.Bool("hand", false,
-			"take work handed to a companion here from another machine; reads the request as JSON on stdin")
-		handState = flag.Bool("handoff-state", false,
-			"say what became of work handed here: whether its turn finished, and what was said")
+		// The one door work crosses a machine by. Run over ssh by another magi, not by a person: it
+		// carries the daemon's own protocol and nothing else, so taking work, asking what became of
+		// it and asking what a companion can do are three methods rather than three subcommands.
 		relaySock = flag.String("relay", "",
 			"pipe stdin and stdout to a daemon socket here, so a magi on another machine can speak "+
 				"the daemon protocol to it; run over ssh, not by hand")
-		aboutWho = flag.String("about", "",
-			"describe a companion published here — what it is for and what it can be asked to do")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -477,25 +472,11 @@ func run() int {
 	if *joinCluster != "" {
 		return joinTheCluster(os.Stdout, os.Stderr, plat.ConfigDir(), *joinCluster)
 	}
-	// Work arriving from another machine, and questions about work that arrived earlier. A reader
-	// over the same store every other listing reads: these two answer about companions running
-	// here, and start nothing of their own.
 	// A byte pipe to one daemon, and nothing more. Before anything that reads config or a store:
 	// this deliberately knows nothing except the socket it was given, so there is nothing for a
 	// wrong account or an empty container filesystem to make it get wrong.
 	if *relaySock != "" {
 		return relayHere(os.Stdin, os.Stdout, os.Stderr, *relaySock)
-	}
-	if *takeHand || *handState || *aboutWho != "" {
-		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-		switch {
-		case *takeHand:
-			return handHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
-		case *handState:
-			return handoffStateHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
-		}
-		return aboutHere(os.Stdout, os.Stderr, reader, reader.Skills, reachableServers,
-			plat.ConfigDir(), *aboutWho)
 	}
 
 	if *mcpTo != "" {
@@ -816,15 +797,14 @@ func run() int {
 		Cache:     companionCache,
 		Roster:    handRoster,
 		Machine:   daemon.Host(),
-		Cross:     sshCross,
+		Reach:     reachCompanion,
 	})
 	reg.Register(companion.About{
 		Reader:    func() fleet.Reader { return a },
 		ConfigDir: plat.ConfigDir(),
 		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
 		Cache:     companionCache,
-		Ask: describeCompanion(app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{}),
-			func(w string) []port.Skill { return a.Skills(w) }, reachableServers, plat.ConfigDir()),
+		Ask:       describeCompanion,
 	})
 	dangerTools := app.DefaultDangerTools()
 
@@ -1095,11 +1075,15 @@ func run() int {
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.
-		serveErr := serving.Serve(dctx, daemonEngine{App: a, workdir: wd, card: mcpserve.Card{
-			Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
-			Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Workdir: wd,
-			Skills: a.Skills(wd), Reach: reachableServers(wd),
-		}})
+		serveErr := serving.Serve(dctx, daemonEngine{
+			App: a, workdir: wd,
+			handover: handover{work: a, sid: sid, configDir: plat.ConfigDir(),
+				receipts: daemon.NewReceipts()},
+			card: mcpserve.Card{
+				Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
+				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Workdir: wd,
+				Skills: a.Skills(wd), Reach: reachableServers(wd),
+			}})
 		stopCron() // whichever way Serve ended, the schedule ends with it
 		if serveErr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", serveErr)
@@ -1915,6 +1899,10 @@ type daemonEngine struct {
 	// relay. Built once at startup from the same pieces the MCP `about` tool uses, and rendered by
 	// the same function — one description, whichever door it came through.
 	card mcpserve.Card
+	// handover is work taken from other companions. Its own type, in hand.go, because what it
+	// needs from this process is narrow — a store to read and a way to start a turn — and a
+	// daemon's whole self is not a thing a test of it should have to build.
+	handover
 }
 
 // About satisfies daemon.Describer: the process that knows answers about itself, instead of a

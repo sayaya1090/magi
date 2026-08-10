@@ -74,9 +74,10 @@ type Hand struct {
 	// reads. Empty on a machine that cannot say its own name, which reads as "somewhere else" —
 	// vague, and still better than a label claiming they are neighbours.
 	Machine string
-	// Cross reaches another machine. nil on a magi with no way to, and hand_off then refuses a
-	// target elsewhere rather than pretending the cluster is one filesystem.
-	Cross Cross
+	// Reach opens the daemon protocol to a companion on another machine. nil on a magi with no way
+	// to, and hand_off then refuses a target elsewhere rather than pretending the cluster is one
+	// filesystem.
+	Reach Reach
 	// Roster is who was published when this magi started, one line each, for the description.
 	// A snapshot, like every other peer list built at startup: a companion that appears later is
 	// not in it, and the refusal path reads the LIVE list, so a stale description costs a turn

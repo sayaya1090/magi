@@ -666,69 +666,69 @@ func TestTheToolSaysWhenThereIsNobodyToHandWorkTo(t *testing.T) {
 // local label says that is false across a machine.
 func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
 	tm := newTeam(t)
-	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design",
-		Role: "screens", Seen: time.Now()})
+	far := &farSide{}
+	there := tm.abroad("design", far)
 	master := tm.member("m", "master", "coordinating", &heard{})
 
-	var gotHost string
-	var gotArgs []string
-	var gotBody map[string]string
-	cross := func(_ context.Context, host string, args []string, stdin []byte) ([]byte, error) {
-		gotHost, gotArgs = host, args
-		if err := json.Unmarshal(stdin, &gotBody); err != nil {
-			t.Error(err)
-		}
-		return []byte(`{"name":"design","workdir":"/w/design","session":"s_far","receipt":"r1"}`), nil
-	}
+	x := &crossing{}
 	res, watched := tm.askWatching(
-		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
 		"m", "design", "rewrite the settings screen")
 
 	if res.IsError {
 		t.Fatalf("handing across answered %q", text(t, res))
 	}
-	if gotHost != "buildbox" || strings.Join(gotArgs, " ") != "--hand" {
-		t.Errorf("it went to %q %v", gotHost, gotArgs)
+	hosts, socks := x.asked()
+	if len(hosts) != 1 || hosts[0] != "buildbox" || socks[0] != there.Socket {
+		t.Errorf("it reached %v %v", hosts, socks)
 	}
-	if gotBody["request"] != "rewrite the settings screen" {
-		t.Errorf("the request was altered on the way: %q", gotBody["request"])
+	labels, requests, _ := far.took()
+	if len(requests) != 1 || requests[0] != "rewrite the settings screen" {
+		t.Errorf("the request was altered on the way: %q", requests)
 	}
-	if !strings.HasPrefix(gotBody["label"], fleet.DispatchMark) {
-		t.Errorf("the label does not carry the mark the receiver reads: %q", gotBody["label"])
+	if !strings.HasPrefix(labels[0], fleet.DispatchMark) {
+		t.Errorf("the label does not carry the mark the receiver reads: %q", labels[0])
 	}
 	for _, want := range []string{"master", "mini", "cannot reach them"} {
-		if !strings.Contains(gotBody["label"], want) {
-			t.Errorf("the label does not say %q: %q", want, gotBody["label"])
+		if !strings.Contains(labels[0], want) {
+			t.Errorf("the label does not say %q: %q", want, labels[0])
 		}
 	}
 	if len(watched) != 1 {
 		t.Fatalf("%d waits registered for one crossing", len(watched))
 	}
-	if watched[0].Session != "s_far" {
-		t.Errorf("the wait watches %q, not the session the far side named", watched[0].Session)
+	if watched[0].Session != "rcpt-9" {
+		t.Errorf("the wait is keyed on %q, not the receipt the far side minted", watched[0].Session)
 	}
 	if watched[0].Answer == nil {
 		t.Fatal("the wait would read a local log for a transcript on another machine")
 	}
 }
 
-// The far side's refusal is what the model reads, in the far side's words.
+// The far side's refusal is what the model reads, in the far side's words — and it does not read as
+// a machine that could not be reached.
+//
+// The two arrive as one error now that the crossing speaks the protocol, and they want opposite
+// reactions: a refusal is somebody to ask later, a broken link is a machine to go and fix. Dressing
+// a refusal with "it needs magi on its PATH" would send the reader after the wrong thing.
 func TestARefusalFromAnotherMachineComesBackAsItWasWritten(t *testing.T) {
 	tm := newTeam(t)
-	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	tm.abroad("design", &farSide{refuse: "design is mid-turn (rebuilding the index)"})
 	master := tm.member("m", "master", "coordinating", &heard{})
 
-	cross := func(context.Context, string, []string, []byte) ([]byte, error) {
-		return []byte(`{"refused":"design is mid-turn (rebuilding the index)"}`), nil
-	}
+	x := &crossing{}
 	res, watched := tm.askWatching(
-		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
 		"m", "design", "something")
 	if !res.IsError {
 		t.Fatal("a refusal from the far side read as success")
 	}
-	if !strings.Contains(text(t, res), "mid-turn") {
-		t.Errorf("the far side's reason was lost: %q", text(t, res))
+	said := text(t, res)
+	if !strings.Contains(said, "mid-turn") {
+		t.Errorf("the far side's reason was lost: %q", said)
+	}
+	if strings.Contains(said, "PATH") || strings.Contains(said, "ssh") {
+		t.Errorf("a companion that answered was reported as a machine that could not be reached: %q", said)
 	}
 	if len(watched) != 0 {
 		t.Error("a wait was registered for work that was refused")
@@ -738,21 +738,13 @@ func TestARefusalFromAnotherMachineComesBackAsItWasWritten(t *testing.T) {
 // The answer is fetched from the machine that has it, and only once it is finished.
 func TestTheAnswerIsFetchedFromTheMachineThatHasIt(t *testing.T) {
 	tm := newTeam(t)
-	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	far := &farSide{}
+	tm.abroad("design", far)
 	master := tm.member("m", "master", "coordinating", &heard{})
 
-	finished := false
-	cross := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
-		if args[0] == "--hand" {
-			return []byte(`{"name":"design","session":"s_far","receipt":"r1"}`), nil
-		}
-		if !finished {
-			return []byte(`{}`), nil
-		}
-		return []byte(`{"done":true,"answer":"the screen is rewritten"}`), nil
-	}
+	x := &crossing{}
 	_, watched := tm.askWatching(
-		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
 		"m", "design", "something")
 	if len(watched) != 1 {
 		t.Fatalf("%d waits registered", len(watched))
@@ -760,10 +752,43 @@ func TestTheAnswerIsFetchedFromTheMachineThatHasIt(t *testing.T) {
 	if _, done := watched[0].Answer(); done {
 		t.Fatal("an unfinished turn on another machine reported an answer")
 	}
-	finished = true
+	far.says(daemon.Handover{Done: true, Answer: "the screen is rewritten"})
 	got, done := watched[0].Answer()
 	if !done || got != "the screen is rewritten" {
 		t.Fatalf("the finished answer came back as (%q, %v)", got, done)
+	}
+}
+
+// A companion that restarted with the work unfinished ends the wait rather than leaving it silent.
+//
+// A running daemon cannot report this about itself, so it arrives as the one answer a restarted one
+// can give: it does not know the receipt. That is only reachable because it ANSWERED — a link that
+// is merely down looks entirely different and must not end anything.
+func TestACompanionThatRestartedMidWorkEndsTheWait(t *testing.T) {
+	tm := newTeam(t)
+	far := &farSide{}
+	tm.abroad("design", far)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	x := &crossing{}
+	_, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
+		"m", "design", "something")
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered", len(watched))
+	}
+	if news, over := watched[0].Probe(); over {
+		t.Fatalf("the wait ended before anything went wrong: %q", news)
+	}
+	far.fmu.Lock()
+	far.forgot = true
+	far.fmu.Unlock()
+	news, over := watched[0].Probe()
+	if !over {
+		t.Fatalf("a companion that forgot the work left the wait running: %q", news)
+	}
+	if !strings.Contains(news, "design on buildbox") {
+		t.Errorf("the news does not say who or where: %q", news)
 	}
 }
 
@@ -789,23 +814,18 @@ func TestWithNoWayAcrossItRefusesInsteadOfDiallingLocally(t *testing.T) {
 // probe that read a failed call as "nothing will come back" would end the wait on a bad wifi hop.
 func TestAMachineThatDoesNotAnswerDoesNotEndTheWait(t *testing.T) {
 	tm := newTeam(t)
-	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	far := &farSide{}
+	tm.abroad("design", far)
 	master := tm.member("m", "master", "coordinating", &heard{})
 
-	handed := false
-	cross := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
-		if args[0] == "--hand" {
-			handed = true
-			return []byte(`{"name":"design","session":"s_far","receipt":"r1"}`), nil
-		}
-		return nil, errors.New("ssh: connect to host buildbox port 22: Network is unreachable")
-	}
+	x := &crossing{}
 	_, watched := tm.askWatching(
-		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
 		"m", "design", "something")
-	if !handed || len(watched) != 1 {
-		t.Fatalf("handed=%v waits=%d", handed, len(watched))
+	if labels, _, _ := far.took(); len(labels) != 1 || len(watched) != 1 {
+		t.Fatalf("labels=%v waits=%d", labels, len(watched))
 	}
+	x.breaks(errors.New("ssh: connect to host buildbox port 22: Network is unreachable"))
 	if news, over := watched[0].Probe(); over || news != "" {
 		t.Errorf("an unreachable machine ended the wait: %q over=%v", news, over)
 	}
@@ -820,6 +840,107 @@ func (tm *team) elsewhere(ms ...cluster.Member) {
 	if _, err := daemon.LearnMembers(tm.cfgDir, ms, time.Now()); err != nil {
 		tm.t.Fatal(err)
 	}
+}
+
+// farSide is a companion "on another machine": a real daemon, behind a real socket, answering the
+// real protocol. Only the pipe is different — a dial instead of an ssh — so what these tests
+// exercise is the wire, the client and the receipt rather than a mock of them.
+type farSide struct {
+	heard
+	fmu      sync.Mutex
+	refuse   string
+	state    daemon.Handover
+	forgot   bool // answers as a daemon that has restarted: it does not know the receipt
+	labels   []string
+	requests []string
+	shown    []string // the receipts presented to it on the way back
+}
+
+func (f *farSide) Hand(_ context.Context, label, request string) (string, error) {
+	f.fmu.Lock()
+	defer f.fmu.Unlock()
+	if f.refuse != "" {
+		return "", errors.New(f.refuse)
+	}
+	f.labels, f.requests = append(f.labels, label), append(f.requests, request)
+	return "rcpt-9", nil
+}
+
+func (f *farSide) Handed(_ context.Context, receipt string) (daemon.Handover, error) {
+	f.fmu.Lock()
+	defer f.fmu.Unlock()
+	f.shown = append(f.shown, receipt)
+	if f.forgot {
+		return daemon.Handover{}, errors.New("no handover here with that receipt")
+	}
+	return f.state, nil
+}
+
+func (f *farSide) took() (labels, requests, shown []string) {
+	f.fmu.Lock()
+	defer f.fmu.Unlock()
+	return append([]string(nil), f.labels...), append([]string(nil), f.requests...),
+		append([]string(nil), f.shown...)
+}
+
+func (f *farSide) says(h daemon.Handover) {
+	f.fmu.Lock()
+	defer f.fmu.Unlock()
+	f.state = h
+}
+
+// abroad starts a companion whose socket is NOT in this machine's config directory — so it is
+// reachable only by being sighted, which is what makes it remote — and records the sighting.
+func (tm *team) abroad(name string, eng daemon.Engine) cluster.Member {
+	tm.t.Helper()
+	sock := shortDir(tm.t) + "/d.sock"
+	ctx, cancel := context.WithCancel(context.Background())
+	tm.t.Cleanup(cancel)
+	go func() { _ = daemon.Serve(ctx, eng, sock) }()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if cl, err := daemon.Dial(sock); err == nil {
+			cl.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	m := cluster.Member{Host: "buildbox", Socket: sock, Name: name, Role: "screens", Seen: time.Now()}
+	tm.elsewhere(m)
+	return m
+}
+
+// crossing is a Reach that dials instead of spawning ssh, and remembers what it was asked to reach.
+type crossing struct {
+	mu     sync.Mutex
+	hosts  []string
+	socks  []string
+	broken error
+}
+
+func (c *crossing) reach() companion.Reach {
+	return func(_ context.Context, host, socket string) (*daemon.Client, error) {
+		c.mu.Lock()
+		c.hosts, c.socks = append(c.hosts, host), append(c.socks, socket)
+		broken := c.broken
+		c.mu.Unlock()
+		if broken != nil {
+			return nil, broken
+		}
+		return daemon.Dial(socket)
+	}
+}
+
+func (c *crossing) asked() (hosts, socks []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.hosts...), append([]string(nil), c.socks...)
+}
+
+func (c *crossing) breaks(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.broken = err
 }
 
 // The roster names what each companion can do, so a model can choose without asking anybody.
@@ -851,11 +972,11 @@ func TestAskingWhatACompanionCanDoReachesTheMachineThatHasThem(t *testing.T) {
 	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design",
 		Can: 1, Does: []string{"tokens"}, Seen: time.Now()})
 
-	var askedHost, askedName string
+	var askedHost, askedSocket string
 	tool := companion.About{
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
-		Ask: func(_ context.Context, host, _, name string) (string, error) {
-			askedHost, askedName = host, name
+		Ask: func(_ context.Context, host, socket string) (string, error) {
+			askedHost, askedSocket = host, socket
 			return "design — screens\n\nWhat it has written procedures for:\n  tokens — names the colour roles\n", nil
 		},
 	}
@@ -867,8 +988,10 @@ func TestAskingWhatACompanionCanDoReachesTheMachineThatHasThem(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("asking answered %q", text(t, res))
 	}
-	if askedHost != "buildbox" || askedName != "design" {
-		t.Errorf("it asked %q about %q", askedHost, askedName)
+	// An address and nothing else. A name would have to be resolved on the far side, against a
+	// config directory that login may not be able to read — which is what this stopped doing.
+	if askedHost != "buildbox" || askedSocket != "/far/d.sock" {
+		t.Errorf("it asked %q at %q", askedHost, askedSocket)
 	}
 	if !strings.Contains(text(t, res), "names the colour roles") {
 		t.Errorf("the description did not come back: %q", text(t, res))
@@ -881,7 +1004,7 @@ func TestAMachineThatCannotDescribeSaysWhichOne(t *testing.T) {
 	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
 	tool := companion.About{
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
-		Ask: func(context.Context, string, string, string) (string, error) {
+		Ask: func(context.Context, string, string) (string, error) {
 			return "", errors.New("Network is unreachable")
 		},
 	}
@@ -897,38 +1020,31 @@ func TestAMachineThatCannotDescribeSaysWhichOne(t *testing.T) {
 
 // Work handed across is asked about by its receipt and by nothing else.
 //
-// The session and the position it stands for stay on the machine that has them, so this side can
-// name the work it handed over and has no way to name anybody else's — not by design of a check,
-// but because it holds nothing that would let it.
+// The position it stands for stays on the machine that has it, so this side can name the work it
+// handed over and has no way to name anybody else's — not by design of a check, but because it
+// holds nothing that would let it. This side never learns the far session at all: the wait is keyed
+// on the receipt, which is the only handle that ever crossed.
 func TestTheAnswerIsAskedForByReceiptAndNothingElse(t *testing.T) {
 	tm := newTeam(t)
-	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	far := &farSide{state: daemon.Handover{Done: true, Answer: "ok"}}
+	tm.abroad("design", far)
 	master := tm.member("m", "master", "coordinating", &heard{})
 
-	var asked []byte
-	cross := func(_ context.Context, _ string, args []string, stdin []byte) ([]byte, error) {
-		if args[0] == "--hand" {
-			return []byte(`{"name":"design","session":"s_far","receipt":"rcpt-9"}`), nil
-		}
-		asked = append([]byte(nil), stdin...)
-		return []byte(`{"done":true,"answer":"ok"}`), nil
-	}
+	x := &crossing{}
 	_, watched := tm.askWatching(
-		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
 		"m", "design", "something")
 	if len(watched) != 1 {
 		t.Fatalf("%d waits registered", len(watched))
 	}
 	watched[0].Answer()
 
-	var sent map[string]any
-	if err := json.Unmarshal(asked, &sent); err != nil {
-		t.Fatalf("%v: %s", err, asked)
+	_, _, shown := far.took()
+	if len(shown) != 1 || shown[0] != "rcpt-9" {
+		t.Errorf("the question presented %v, not the receipt the far side minted", shown)
 	}
-	if sent["receipt"] != "rcpt-9" {
-		t.Errorf("the question did not carry the receipt: %s", asked)
-	}
-	if _, named := sent["session"]; named {
-		t.Errorf("the question names a session, which lets a caller ask about work it never handed over: %s", asked)
+	if watched[0].Session != "rcpt-9" {
+		t.Errorf("this side is holding %q, which is something other than the receipt it was given",
+			watched[0].Session)
 	}
 }

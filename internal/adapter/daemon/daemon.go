@@ -143,8 +143,9 @@ type Request struct {
 	Decision string `json:"decision,omitempty"`
 	Answer   string `json:"answer,omitempty"`
 	// Name and N carry the control methods' one argument each: a model id, a permission policy, a
-	// number of turns to rewind. Named generically because the alternative is a field per method
-	// and a wire format that grows a column every time the engine gains a knob.
+	// number of turns to rewind, the label above a handed-over request, the receipt for one.
+	// Named generically because the alternative is a field per method and a wire format that grows
+	// a column every time the engine gains a knob.
 	Name string `json:"name,omitempty"`
 	N    int    `json:"n,omitempty"`
 }
@@ -166,6 +167,10 @@ type Response struct {
 	// exit code at all.
 	Out  string `json:"out,omitempty"`
 	Exit *int   `json:"exit,omitempty"`
+	// Handover answers hand-state. Its own object rather than four more columns here, because
+	// "not finished, and here is why not" is one fact with parts and reading it out of flat
+	// fields would let a caller act on half of it.
+	Handover *Handover `json:"handover,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -523,6 +528,36 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		// hand and hand-state are answered here for the same reason about is, and they are the
+		// reason the relay exists at all. Whoever is asking has connected to THIS companion, so
+		// there is no name to resolve against a config directory that may belong to another
+		// account and may not exist at all inside a container. The process doing the work says
+		// what became of it.
+		if req.Method == "hand" || req.Method == "hand-state" {
+			taker, ok := eng.(Taker)
+			switch {
+			case !ok:
+				resp = Response{Err: "this daemon cannot be handed work"}
+			case req.Method == "hand":
+				id, herr := taker.Hand(ctx, req.Name, req.Text)
+				if herr != nil {
+					resp = Response{Err: herr.Error()}
+				} else {
+					resp = Response{OK: true, Out: id}
+				}
+			default:
+				h, herr := taker.Handed(ctx, req.Name)
+				if herr != nil {
+					resp = Response{Err: herr.Error()}
+				} else {
+					resp = Response{OK: true, Handover: &h}
+				}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -579,6 +614,63 @@ func (c *Client) About() (string, error) {
 	return resp.Out, nil
 }
 
+// Handover is what became of one piece of work handed to a companion.
+//
+// Done and Over are both endings and they are not the same one: Done means a turn finished and
+// Answer is what was said, Over means nothing is coming and News says why. A caller that collapsed
+// them would report a crash as an empty answer.
+type Handover struct {
+	Done   bool   `json:"done,omitempty"`
+	Answer string `json:"answer,omitempty"`
+	News   string `json:"news,omitempty"`
+	Over   bool   `json:"over,omitempty"`
+}
+
+// Taker is an engine that can be handed work by a companion somewhere else.
+//
+// Optional, like Describer and ShellRunner, for the reason those are: Engine is what every fake in
+// every package must satisfy, and a test double has no workspace to take work into.
+type Taker interface {
+	// Hand takes one piece of work under a label naming who asked, and returns the receipt it is
+	// asked about with. A refusal is an error — this companion is mid-turn, or not published —
+	// because a refusal is an answer and the wire has one place for sentences a caller reads.
+	Hand(ctx context.Context, label, request string) (receipt string, err error)
+	// Handed says what became of the work a receipt stands for. Read-only, and called on a timer
+	// by whoever is waiting, so it must stay cheap and must never make something happen.
+	Handed(ctx context.Context, receipt string) (Handover, error)
+}
+
+// Refused is a daemon's own answer that it will not do the thing.
+//
+// Distinguished from a transport failure on purpose. Both arrive as an error and they want opposite
+// reactions: a refusal is a sentence to show whoever asked, so they can pick somebody else, while a
+// broken link is a machine to go and fix. Collapsed into one, the advice for the second ("it needs
+// magi on its PATH") ends up printed under a companion that answered perfectly clearly.
+type Refused struct{ Why string }
+
+func (r Refused) Error() string { return r.Why }
+
+// Hand gives a companion a piece of work and takes the receipt for it.
+func (c *Client) Hand(label, request string) (string, error) {
+	resp, err := c.exchange(Request{Method: "hand", Name: label, Text: request})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// Handed asks what became of work handed over under a receipt.
+func (c *Client) Handed(receipt string) (Handover, error) {
+	resp, err := c.exchange(Request{Method: "hand-state", Name: receipt})
+	if err != nil {
+		return Handover{}, err
+	}
+	if resp.Handover == nil {
+		return Handover{}, nil
+	}
+	return *resp.Handover, nil
+}
+
 func dispatch(ctx context.Context, eng Engine, r Request) error {
 	sid := session.SessionID(r.Session)
 	parts := []session.Part{{Kind: session.PartText, Text: r.Text}}
@@ -613,7 +705,7 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shell, shutdown", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, shutdown", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
@@ -811,8 +903,15 @@ func (c *Client) exchange(r Request) (Response, error) {
 	if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
 		return Response{}, fmt.Errorf("daemon: malformed reply: %w", err)
 	}
+	// Typed, so a caller can tell "it answered, and said no" from "it never answered". Every error
+	// above this line is the second kind and every one below is the first; collapsing them is how a
+	// companion that refused perfectly clearly gets reported as an unreachable machine.
 	if !resp.OK {
-		return resp, errors.New(resp.Err)
+		why := resp.Err
+		if why == "" {
+			why = "the daemon refused without saying why"
+		}
+		return resp, Refused{Why: why}
 	}
 	return resp, nil
 }

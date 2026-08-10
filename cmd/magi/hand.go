@@ -1,309 +1,201 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
-	"github.com/sayaya1090/magi/internal/adapter/mcpserve"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
-	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
-	"github.com/sayaya1090/magi/internal/port"
 )
 
-// The two doors work arrives and answers leave by, when the companions are on different machines.
+// Reaching another companion's daemon, wherever it is.
 //
-// # Same shape as --members, and for the same reason
+// # One function, because there is one question
 //
-// A subcommand reading JSON on stdin and writing JSON on stdout, run over ssh. No port, no
-// listener, no token: the far side needs magi on its PATH and a shell, which is the boundary the
-// whole cluster already rests on. Nothing here decides who may ask — ssh did that.
+// "What can you do", "take this work" and "what became of it" are all things a companion knows
+// about ITSELF. Each used to be a subcommand run over ssh, and each was a fresh process that read a
+// config directory, listed the daemons in it, resolved a name and dialled a socket — to work out
+// what the daemon it finally reached already knew.
 //
-// # What is trusted from over there
+// So there is no separate remote path any more. There is a client, and two ways of getting a pipe
+// to hold it: a direct dial when the companion is here, a relay when it is not. Everything above
+// this line speaks the same protocol either way.
 //
-// Words, and a name. The request is text that ends up in a prompt, and the target is resolved
-// against companions published HERE — an arriving message cannot name a socket, a workspace or a
-// command. The label above the request is the asker's, and it is the one field this accepts
-// verbatim, because a paraphrase of "who sent this" is the failure this tree has recorded most.
+// # The host comparison is a shortcut, not the rule
 //
-// # Read-only on the way back
+// Local is preferred where it applies because spawning ssh to a socket in the next directory is a
+// process per call for an identical answer. It is not a permission decision: the socket is
+// owner-only, so who may speak to a daemon is the operating system's answer at connect time, on
+// either path.
 //
-// --handoff-state answers questions about a session and changes nothing. It is called on a timer by
-// whoever is waiting, so it has to be cheap and it must never be a way to make something happen.
+// It is also the wrong discriminator in one known case — containers on one host sharing a socket
+// directory can dial each other directly, and a hostname says they cannot. The real question is
+// whether that socket answers HERE. Left as it is for now, because being wrong costs one ssh hop
+// and not a wrong answer.
 
-// handRequest is work arriving from another machine.
-type handRequest struct {
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Request string `json:"request"`
-	Label   string `json:"label"`
+// takes is what a handover needs from the companion it is part of.
+//
+// Narrow on purpose. The daemon that answers is the whole agent, and a test of "did the work land
+// and can it be asked about" should not have to build one — nor should it start a real turn to find
+// out that a receipt was minted.
+type takes interface {
+	fleet.Reader
+	// AnswerSince is "they finished, and this is what they said". The same call a local wait makes
+	// on a peer's log: that phrase has three edge cases in it, and two implementations of it would
+	// differ on one.
+	AnswerSince(ctx context.Context, sid session.SessionID, since int64) (bool, string)
+	Submit(ctx context.Context, cmd command.SubmitPrompt) error
 }
 
-type handReply struct {
-	Refused string `json:"refused,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Workdir string `json:"workdir,omitempty"`
-	Session string `json:"session,omitempty"`
-	// Receipt is how this piece of work is asked about later, and the only way. The session and
-	// position it stands for are recorded here rather than sent back, so a caller can name the work
-	// it handed over and cannot name anything else.
-	Receipt string `json:"receipt,omitempty"`
-}
-
-// handHere takes work handed to a companion on this machine.
-func handHere(in io.Reader, out, errOut io.Writer, r fleet.Reader, configDir string) int {
-	var req handRequest
-	if err := readJSON(in, &req); err != nil {
-		fmt.Fprintln(errOut, "magi:", err)
-		return 1
-	}
-	if req.To == "" || req.Request == "" {
-		return writeJSON(out, errOut, handReply{Refused: "a request needs somebody to do it and something to do"})
-	}
-	ctx := context.Background()
-	// here is empty: nothing published on this machine is "the caller", because the caller is on
-	// another one. Passing our own socket would be inventing an identity for a stranger.
-	target, refused := companion.Target(ctx, r, nil, configDir, "", req.To)
-	if refused != "" {
-		return writeJSON(out, errOut, handReply{Refused: refused})
-	}
-	// Where their log stands BEFORE the work goes in. The answer is the first turn that finishes
-	// past this point, and taken afterwards it would already include the turn being started.
-	since, _, err := r.NewSince(ctx, session.SessionID(target.Session), 0)
-	if err != nil {
-		return writeJSON(out, errOut, handReply{Refused: fmt.Sprintf(
-			"%s's transcript cannot be read here, so an answer could not be found again: %v",
-			target.Name, err)})
-	}
-	label := req.Label
-	if label == "" {
-		// An arrival with no label still gets one. A request with no attribution is indistinguishable
-		// from something the person typed, and the no-chaining rule is read off exactly this mark.
-		label = fleet.DispatchedFrom(orSomebody(req.From), "")
-	}
-	// Recorded BEFORE the work goes in. The other way round, a failure to write the receipt would
-	// leave work being done that nobody can ever ask about — and the receipt costs nothing if the
-	// send then fails, because an unused one simply expires.
-	rec, rerr := daemon.Give(configDir, daemon.Receipt{
-		Session: target.Session, Since: since, Who: req.From, To: target.Name})
-	if rerr != nil {
-		return writeJSON(out, errOut, handReply{Refused: fmt.Sprintf(
-			"this machine could not record the handover, so its answer could never be collected: %v",
-			rerr)})
-	}
-	if serr := companion.Send(ctx, target, label, req.Request); serr != nil {
-		return writeJSON(out, errOut, handReply{Refused: serr.Error()})
-	}
-	return writeJSON(out, errOut, handReply{
-		Name: target.Name, Workdir: target.Workdir, Session: target.Session, Receipt: rec.ID,
-	})
-}
-
-type stateRequest struct {
-	Receipt string `json:"receipt"`
-}
-
-type stateReply struct {
-	Done   bool   `json:"done,omitempty"`
-	Answer string `json:"answer,omitempty"`
-	News   string `json:"news,omitempty"`
-	Over   bool   `json:"over,omitempty"`
-}
-
-// handoffStateHere answers what became of work handed to this machine.
+// handover is the part of a daemon that takes work from other companions.
 //
-// The finished answer comes from app.AnswerSince — the same code a local wait reads a peer's log
-// with. Not a second definition of "they finished and this is what they said": that phrase has
-// three edge cases in it (a turn that ended, the LAST assistant text, and a turn that finished
-// saying nothing), and two implementations of it would differ on one of them.
-func handoffStateHere(in io.Reader, out, errOut io.Writer, a *app.App, configDir string) int {
-	var req stateRequest
-	if err := readJSON(in, &req); err != nil {
-		fmt.Fprintln(errOut, "magi:", err)
-		return 1
-	}
-	rec, ok := daemon.Claim(configDir, req.Receipt)
-	if !ok {
-		// One answer for unknown and for expired, and none for "which session was that". A door
-		// that distinguishes them is a door that answers questions about work the caller did not
-		// hand over, which is the whole reason there is a receipt.
-		fmt.Fprintln(errOut, "magi: no handover here with that receipt — it was never made here, "+
-			"or it has expired")
-		return 1
-	}
-	ctx := context.Background()
-	if done, answer := a.AnswerSince(ctx, session.SessionID(rec.Session), rec.Since); done {
-		return writeJSON(out, errOut, stateReply{Done: true, Answer: answer})
-	}
-	// Not finished. Then the other question: is anybody still doing it, or is this silence
-	// permanent — which is the whole reason the waiting side asks at all.
-	list, err := fleet.List(ctx, a, configDir, "")
-	if err != nil {
-		return writeJSON(out, errOut, stateReply{})
-	}
-	news, over := companion.StateOf(list, rec.Session)
-	return writeJSON(out, errOut, stateReply{News: news, Over: over})
+// There is no session argument anywhere in it, and that is the whole shape of the thing: whoever is
+// asking connected to THIS companion, and a companion is one conversation. What used to be a name
+// resolved on arrival, against a config directory belonging to whichever account the login landed
+// as, is now the socket the caller already reached.
+type handover struct {
+	work      takes
+	sid       session.SessionID
+	configDir string
+	// receipts is what this daemon has taken, and the only way to ask about any of it. nil is
+	// possible in a partly-built engine; the methods say so rather than crash.
+	receipts *daemon.Receipts
 }
 
-// aboutHere describes a companion published on this machine, for somebody who cannot see it.
+// Hand satisfies daemon.Taker: work handed in from another machine, taken by the companion doing it.
 //
-// The third door, and the read-only one. It answers the question a roster line raises and does not
-// answer: the line names what a companion can do, and this says what each of those names means.
-//
-// Names travel on the wire with every sighting because a roster has to be readable without asking
-// anybody. Descriptions do not, because they would be a hundred bytes per skill per member on
-// every exchange, every minute, to fill a line that shows names. So they are fetched, once, by
-// whoever actually wants to know — which is this.
-func aboutHere(out, errOut io.Writer, r fleet.Reader, skills func(string) []port.Skill,
-	reach func(string) []string, configDir, who string) int {
-
-	if strings.TrimSpace(who) == "" {
-		fmt.Fprintln(errOut, "magi: --about needs the name of a companion here")
-		return 1
+// Every refusal here is an error, and every error is a refusal — the caller reached this daemon and
+// this daemon answered. A link that broke fails earlier, in the client, and reads differently there
+// on purpose: one is a companion to ask later, the other is a machine to go and fix.
+func (h handover) Hand(ctx context.Context, label, request string) (string, error) {
+	if strings.TrimSpace(request) == "" {
+		return "", errors.New("a request needs something to do")
 	}
-	list, err := fleet.List(context.Background(), r, configDir, "")
-	if err != nil {
-		fmt.Fprintln(errOut, "magi:", err)
-		return 1
+	if h.receipts == nil || h.work == nil {
+		return "", errors.New("this companion cannot record a handover, so its answer could never " +
+			"be collected")
 	}
-	var found *fleet.Agent
-	for i, a := range list {
-		// By name only, and exactly. Resolve's role and team matching is for a person or a model
-		// choosing somebody; this is a machine asking about one it has already chosen, and a
-		// near-match would answer about the wrong companion without anybody noticing.
-		if strings.EqualFold(a.Name, who) && a.State != fleet.Remote {
-			found = &list[i]
+	// Whether it can take anything right now, decided by the same predicate that guards a handoff
+	// between neighbours. Asked about ITSELF: nothing was addressed by name, so there is nothing to
+	// resolve — only whether the process that was reached is in a state to take work. Its own
+	// record, read from its own store, as its own user.
+	list, lerr := fleet.List(ctx, h.work, h.configDir, "")
+	if lerr != nil {
+		return "", fmt.Errorf("this companion cannot read its own record, so it will not take work "+
+			"it may be in no state to do: %w", lerr)
+	}
+	me, found := fleet.Agent{}, false
+	for _, a := range list {
+		if a.Session == string(h.sid) {
+			me, found = a, true
 			break
 		}
 	}
-	if found == nil {
-		fmt.Fprintf(errOut, "magi: nothing called %q is published here\n", who)
-		return 1
+	if !found {
+		return "", errors.New("this companion is not published, so nothing can be handed to it")
 	}
-	card := mcpserve.Card{Name: found.Name, Role: found.Role, Team: found.Team, Hub: found.Hub,
-		Workdir: found.Workdir}
-	if skills != nil {
-		card.Skills = skills(found.Workdir)
+	if refused := companion.Ready(me); refused != "" {
+		return "", errors.New(refused)
 	}
-	if reach != nil {
-		card.Reach = reach(found.Workdir)
+	// Where the log stands before the work goes in. This is the whole definition of the answer —
+	// the first turn that finishes past this point — and it is what keeps the hour of finished
+	// turns behind it from being handed back as a reply.
+	//
+	// Before rather than after because that is what the sentence says. Submit returns before the
+	// turn it starts has ended, so after would usually give the same number; usually is not a
+	// property, and the day it is not, the way back returns the answer to something else.
+	since, _, nerr := h.work.NewSince(ctx, h.sid, 0)
+	if nerr != nil {
+		return "", fmt.Errorf("this companion's transcript cannot be read, so an answer could not "+
+			"be found again: %w", nerr)
 	}
-	if _, werr := io.WriteString(out, mcpserve.Describe(card)); werr != nil {
-		fmt.Fprintln(errOut, "magi:", werr)
-		return 1
+	// Minted BEFORE the work goes in. The other way round, a failure to mint would leave work being
+	// done that nobody can ever ask about — and an unused receipt costs nothing, because it expires.
+	id, gerr := h.receipts.Give(since)
+	if gerr != nil {
+		return "", gerr
 	}
-	return 0
+	if strings.TrimSpace(label) == "" {
+		// An arrival with no label still gets one. A request with no attribution is
+		// indistinguishable from something the person typed, and the no-chaining rule is read off
+		// exactly this mark.
+		label = fleet.DispatchedFrom("another companion", "")
+	}
+	// The same actor a handoff between neighbours produces. That one arrives through this daemon's
+	// own socket and is recorded as an attached caller; this one arrives through a pipe to the same
+	// socket. Who actually asked is in the label, verbatim, which is where every reader looks.
+	if serr := h.work.Submit(ctx, command.SubmitPrompt{
+		SessionID: h.sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: companion.Labelled(label, request)}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "attach"},
+	}); serr != nil {
+		return "", serr
+	}
+	return id, nil
+}
+
+// Handed satisfies daemon.Taker: what became of work this companion was handed.
+//
+// Two of the endings StateOf can report — killed, and stopped — cannot come from here, because a
+// daemon that answers this is running by construction. The caller learns about a companion that
+// died from the crossing failing, or from this daemon coming back not knowing the receipt.
+func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, error) {
+	if h.receipts == nil || h.work == nil {
+		return daemon.Handover{}, errors.New("this companion has taken no work from anybody")
+	}
+	since, ok := h.receipts.Since(receipt)
+	if !ok {
+		// One answer for unknown and for expired, and none for "which piece of work was that". A
+		// door that distinguishes them answers questions about work the caller did not hand over,
+		// which is the whole reason there is a receipt.
+		return daemon.Handover{}, errors.New("no handover here with that receipt — it was never " +
+			"made here, or this companion has restarted since, or it has expired")
+	}
+	if done, answer := h.work.AnswerSince(ctx, h.sid, since); done {
+		return daemon.Handover{Done: true, Answer: answer}, nil
+	}
+	// Not finished. Then the other question: is anybody still doing it, or is this silence
+	// permanent — which is the whole reason the waiting side asks at all.
+	list, lerr := fleet.List(ctx, h.work, h.configDir, "")
+	if lerr != nil {
+		return daemon.Handover{}, nil
+	}
+	news, over := companion.StateOf(list, string(h.sid))
+	return daemon.Handover{News: news, Over: over}, nil
+}
+
+// reachCompanion opens the daemon protocol to a companion, here or on another machine.
+//
+// The context bounds a remote crossing by killing the process that carries it. A local dial ignores
+// it, the way every other local dial in this tree does: a unix socket either answers or does not.
+func reachCompanion(ctx context.Context, host, socket string) (*daemon.Client, error) {
+	if here := daemon.Host(); host == "" || (here != "" && strings.EqualFold(host, here)) {
+		return daemon.Dial(socket)
+	}
+	p, err := relayTo(ctx, host, socket)
+	if err != nil {
+		return nil, err
+	}
+	return daemon.Over(p), nil
 }
 
 // describeCompanion answers "what can X do" for a companion anywhere in the cluster.
 //
-// Local is in-process: it is the same call the daemon's own about method makes, and spawning a copy
-// of this binary to ask a question this one can answer would be a process per call for an identical
-// string.
-//
-// Remote goes through a relay to that companion's daemon and asks IT. Not a subcommand over there
-// reading a config directory to work out what the daemon already knows — which is what this used to
-// do, and why the answer depended on which account ssh landed as.
-func describeCompanion(r fleet.Reader, skills func(string) []port.Skill, reach func(string) []string,
-	configDir string) func(context.Context, string, string, string) (string, error) {
-
-	here := daemon.Host()
-	return func(ctx context.Context, host, socket, name string) (string, error) {
-		if host == "" || (here != "" && strings.EqualFold(host, here)) {
-			var out, errOut bytes.Buffer
-			if code := aboutHere(&out, &errOut, r, skills, reach, configDir, name); code != 0 {
-				return "", fmt.Errorf("%s", firstLineOf(strings.TrimSpace(errOut.String())))
-			}
-			return out.String(), nil
-		}
-		// Ask the companion itself, through a pipe to its daemon. It knows what it is for and what
-		// it can do; the alternative was a process over there working that out from files, and
-		// which files it found depended on which account the connection landed as.
-		p, perr := relayTo(host, socket)
-		if perr != nil {
-			return "", perr
-		}
-		defer p.Close()
-		return daemon.Over(p).About()
-	}
-}
-
-// crossAsk bounds one description fetch. Shorter than a hand-off crossing: this runs while a model
-// waits on a tool call, and a question about what somebody can do is not worth half a minute.
-const crossAsk = 15 * time.Second
-
-// sshCross runs a magi subcommand on another machine.
-//
-// BatchMode, always: every caller of this is a tool call or a timer, and neither has a terminal for
-// ssh to ask a passphrase on. Without it the call hangs until its context kills it.
-func sshCross(ctx context.Context, host string, args []string, stdin []byte) ([]byte, error) {
-	argv := append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "magi"}, args...)
-	cmd := exec.CommandContext(ctx, "ssh", argv...)
-	cmd.Stdin = bytes.NewReader(stdin)
-	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-	said, err := cmd.Output()
+// Asked of the companion rather than worked out about it. A stopped companion therefore cannot be
+// described, where the version that read a workspace could describe one — which is the right way
+// round: this exists to be read before handing somebody work, and a companion that cannot be
+// reached cannot be handed any.
+func describeCompanion(ctx context.Context, host, socket string) (string, error) {
+	cl, err := reachCompanion(ctx, host, socket)
 	if err != nil {
-		if msg := firstLineOf(errBuf.String()); msg != "" {
-			return nil, fmt.Errorf("%w: %s", err, msg)
-		}
-		return nil, err
+		return "", err
 	}
-	return said, nil
-}
-
-func readJSON(in io.Reader, v any) error {
-	if in == nil {
-		return fmt.Errorf("nothing on stdin")
-	}
-	b, err := io.ReadAll(in)
-	if err != nil {
-		return err
-	}
-	if len(bytes.TrimSpace(b)) == 0 {
-		return fmt.Errorf("nothing on stdin")
-	}
-	return json.Unmarshal(b, v)
-}
-
-// writeJSON prints one reply and reports the exit code.
-//
-// A refusal exits 0. It is an answer to the question that was asked — this companion cannot take
-// the work, and here is why — and a non-zero exit would make ssh look like it failed, which is a
-// different thing the caller must be able to tell apart.
-func writeJSON(out, errOut io.Writer, v any) int {
-	b, err := json.Marshal(v)
-	if err != nil {
-		fmt.Fprintln(errOut, "magi:", err)
-		return 1
-	}
-	if _, err := out.Write(append(b, '\n')); err != nil {
-		fmt.Fprintln(errOut, "magi:", err)
-		return 1
-	}
-	return 0
-}
-
-func orSomebody(s string) string {
-	if s == "" {
-		return "another companion"
-	}
-	return s
-}
-
-func firstLineOf(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			return s[:i]
-		}
-	}
-	return s
+	defer cl.Close()
+	return cl.About()
 }

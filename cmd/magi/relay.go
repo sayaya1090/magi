@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -160,13 +161,20 @@ func nameOr(declared, workdir string) string {
 // member entry but a hostname and the socket path it answers on. That is the rule the whole cluster
 // keeps and the reason a member cannot make anybody run anything it chose.
 //
+// The context is the only bound on the crossing. A pipe has no deadline to set, unlike a socket, so
+// what stops a wedged link from holding a wait open is the process being killed — which is what
+// CommandContext does when the caller's timeout expires.
+//
+// BatchMode, always: every caller is a tool call or a timer, and neither has a terminal for ssh to
+// ask a passphrase on. Without it the call hangs until the context kills it.
+//
 // ssh only, for now. A container or a jump host is a different template and the same pipe — which
 // is the point of the relay being dumb; see the note at the top of this file.
-func relayTo(host, socket string) (*pipe, error) {
+func relayTo(ctx context.Context, host, socket string) (*pipe, error) {
 	if host == "" || socket == "" {
 		return nil, errNoRelay
 	}
-	return pipeTo(exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+	return pipeTo(exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
 		host, "magi", "--relay", socket))
 }
 
