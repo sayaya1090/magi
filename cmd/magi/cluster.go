@@ -21,7 +21,6 @@ import (
 	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/cluster"
-	"github.com/sayaya1090/magi/internal/port"
 )
 
 // Joining a cluster, and keeping one.
@@ -45,35 +44,37 @@ import (
 // that reaches a member is assembled here from this machine's own template (cluster.Reach). A
 // member entry can say where a companion is and can never say what to run.
 
-// canFor counts what a workspace advertises being able to do: its written procedures plus the tool
-// servers it can reach.
+// countCan counts what a workspace advertises being able to do: its written procedures plus the
+// tool servers it can reach.
 //
 // The same two things `about` shows a companion asking what somebody else does, counted rather than
 // listed — so the number a hub election turns on is the number a reader would arrive at from the
 // advertisement. Two derivations of "how much can it do" would disagree the first time one changed.
-func canFor(store *jsonl.Store, plat port.Platform) func(string) int {
-	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-	return func(workdir string) int {
-		if workdir == "" {
-			return 0
-		}
-		n := len(reader.Skills(workdir))
-		if c, err := config.Load(filepath.Join(workdir, ".magi")); err == nil {
-			n += len(c.MCP)
-		}
-		return n
+//
+// Called once, where a daemon publishes itself. Nobody else counts: the number travels on the
+// record and then over the wire, so every reader on every machine has the one this process worked
+// out, rather than a second answer derived from files it cannot see.
+func countCan(store *jsonl.Store, workdir string) int {
+	if workdir == "" {
+		return 0
 	}
+	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+	n := len(reader.Skills(workdir))
+	if c, err := config.Load(filepath.Join(workdir, ".magi")); err == nil {
+		n += len(c.MCP)
+	}
+	return n
 }
 
 // exchangeMembers is the `--members` half: read theirs, write ours.
-func exchangeMembers(in io.Reader, out, errOut io.Writer, configDir string, can func(string) int) int {
+func exchangeMembers(in io.Reader, out, errOut io.Writer, configDir string) int {
 	heard := readMemberList(in, errOut)
-	known, err := daemon.LearnMembers(configDir, heard, time.Now(), can)
+	known, err := daemon.LearnMembers(configDir, heard, time.Now())
 	if err != nil {
 		// Say it, and still answer. The caller asked who is out there; failing to record what they
 		// told us is not a reason to leave them knowing nothing.
 		fmt.Fprintln(errOut, "magi: could not record what was heard:", err)
-		known = daemon.Known(configDir, time.Now(), can)
+		known = daemon.Known(configDir, time.Now())
 	}
 	b, err := json.Marshal(known)
 	if err != nil {
@@ -113,15 +114,15 @@ func readMemberList(in io.Reader, errOut io.Writer) []cluster.Member {
 // The seed is named once, by a person, at the moment a companion is created. Nothing about it is
 // written down afterwards — which is the point: a seed recorded in config would be a dependency,
 // and a cluster whose members depend on one machine has a machine that cannot be turned off.
-func joinTheCluster(out, errOut io.Writer, configDir, host string, can func(string) int) int {
-	heard, err := sshMembers(context.Background(), host, daemon.Known(configDir, time.Now(), can), false)
+func joinTheCluster(out, errOut io.Writer, configDir, host string) int {
+	heard, err := sshMembers(context.Background(), host, daemon.Known(configDir, time.Now()), false)
 	if err != nil {
 		fmt.Fprintf(errOut, "magi: %s did not answer: %v\n", host, err)
 		fmt.Fprintf(errOut, "      It needs magi on its PATH and this machine needs to be able to "+
 			"`ssh %s`.\n", host)
 		return 1
 	}
-	known, err := daemon.LearnMembers(configDir, heard, time.Now(), can)
+	known, err := daemon.LearnMembers(configDir, heard, time.Now())
 	if err != nil {
 		fmt.Fprintln(errOut, "magi:", err)
 		return 1
@@ -217,7 +218,7 @@ func sshTrade(ctx context.Context, host string, mine []cluster.Member) ([]cluste
 //
 // Daemon-only, for the reason the scheduler is: three terminals open in one repo would be three
 // processes reaching out to the same hosts on the same clock, saying the same thing.
-func gossipCluster(ctx context.Context, configDir string, can func(string) int, trade tradeFunc, warn func(string)) {
+func gossipCluster(ctx context.Context, configDir string, trade tradeFunc, warn func(string)) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	// Complained-about hosts, so an unreachable machine is reported once rather than every minute
 	// for as long as it is down. A log line a minute is a log nobody reads.
@@ -228,7 +229,7 @@ func gossipCluster(ctx context.Context, configDir string, can func(string) int, 
 			return
 		case <-time.After(jitter(rng, gossipEvery)):
 		}
-		gossipRound(ctx, configDir, can, trade, warn, rng, quiet)
+		gossipRound(ctx, configDir, trade, warn, rng, quiet)
 	}
 }
 
@@ -238,9 +239,9 @@ func jitter(rng *rand.Rand, d time.Duration) time.Duration {
 	return time.Duration(int64(d)-quarter) + time.Duration(rng.Int63n(2*quarter+1))
 }
 
-func gossipRound(ctx context.Context, configDir string, can func(string) int, trade tradeFunc,
+func gossipRound(ctx context.Context, configDir string, trade tradeFunc,
 	warn func(string), rng *rand.Rand, quiet map[string]bool) {
-	mine := daemon.Known(configDir, time.Now(), can)
+	mine := daemon.Known(configDir, time.Now())
 	for _, host := range pickHosts(otherHosts(mine, daemon.Host()), gossipFanout, rng) {
 		rctx, cancel := context.WithTimeout(ctx, gossipTimeout)
 		heard, err := trade(rctx, host, mine)
@@ -256,7 +257,7 @@ func gossipRound(ctx context.Context, configDir string, can func(string) int, tr
 			warn(host + " is answering again")
 		}
 		delete(quiet, host)
-		if _, lerr := daemon.LearnMembers(configDir, heard, time.Now(), can); lerr != nil && warn != nil {
+		if _, lerr := daemon.LearnMembers(configDir, heard, time.Now()); lerr != nil && warn != nil {
 			warn("could not record what " + host + " said: " + lerr.Error())
 		}
 	}

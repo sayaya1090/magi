@@ -461,10 +461,10 @@ func run() int {
 	// joining and refreshing are the same call — and so the far side of an ssh needs nothing but a
 	// magi binary and the shell access somebody already granted.
 	if *showMembers {
-		return exchangeMembers(os.Stdin, os.Stdout, os.Stderr, plat.ConfigDir(), canFor(store, plat))
+		return exchangeMembers(os.Stdin, os.Stdout, os.Stderr, plat.ConfigDir())
 	}
 	if *joinCluster != "" {
-		return joinTheCluster(os.Stdout, os.Stderr, plat.ConfigDir(), *joinCluster, canFor(store, plat))
+		return joinTheCluster(os.Stdout, os.Stderr, plat.ConfigDir(), *joinCluster)
 	}
 
 	if *mcpTo != "" {
@@ -996,7 +996,7 @@ func run() int {
 	if *daemonMode {
 		unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
 			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role,
-				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub})
+				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Can: countCan(store, wd)})
 		if perr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", perr)
 			return 1
@@ -1045,7 +1045,7 @@ func run() int {
 		//
 		// Started after Publish, which matters — a round sends what this machine knows about
 		// itself, and before publishing that does not include this daemon.
-		go gossipCluster(cronCtx, plat.ConfigDir(), canFor(store, plat), sshTrade, func(line string) {
+		go gossipCluster(cronCtx, plat.ConfigDir(), sshTrade, func(line string) {
 			fmt.Fprintln(os.Stderr, "magi: cluster:", line)
 		})
 		serving := bound

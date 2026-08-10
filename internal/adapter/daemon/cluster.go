@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
@@ -47,11 +48,9 @@ func Host() string {
 // gossip's worst failure, because it takes an hour to expire and cannot be corrected by anybody
 // who is further away than the process that could see the truth.
 //
-// can counts what a workspace advertises being able to do, and may be nil — the count is a
-// tie-break in an election, so a caller that has no way to work it out passes nothing and the
-// election falls back to its stable ordering. Injected rather than computed here because counting
-// means reading skills and config, and this package cannot reach either without closing a cycle.
-func Mine(configDir string, now time.Time, can func(workdir string) int) []cluster.Member {
+// The capability count comes off the record rather than being worked out here: it is counted by
+// the daemon that owns the workspace, which is the only process that can see both halves of it.
+func Mine(configDir string, now time.Time) []cluster.Member {
 	found, err := List(configDir)
 	if err != nil {
 		return nil
@@ -64,10 +63,7 @@ func Mine(configDir string, now time.Time, can func(workdir string) int) []clust
 		}
 		m := cluster.Member{
 			Host: host, Socket: in.Socket, Name: in.Name, Role: in.Role,
-			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Seen: now,
-		}
-		if can != nil {
-			m.Can = can(in.Workdir)
+			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Can: in.Can, Seen: now,
 		}
 		out = append(out, m)
 	}
@@ -76,8 +72,27 @@ func Mine(configDir string, now time.Time, can func(workdir string) int) []clust
 
 // Known is everything this machine can say about who is out there: its own live companions, and the
 // sightings of other machines' that it has been told about.
-func Known(configDir string, now time.Time, can func(workdir string) int) []cluster.Member {
-	return cluster.Merge(Mine(configDir, now, can), readMembers(configDir), now)
+func Known(configDir string, now time.Time) []cluster.Member {
+	return cluster.Merge(Mine(configDir, now), readMembers(configDir), now)
+}
+
+// Elsewhere is the half that is NOT on this machine: companions somebody told us about.
+//
+// Split out because the two halves are read differently by anything that lists agents — this
+// machine's are rows built from a log and a dial, and these are rows built from a sighting. A
+// caller that took Known and tried to tell them apart by hostname would be doing this again,
+// slightly differently, in a place where getting it wrong shows a remote companion as stopped.
+func Elsewhere(configDir string, now time.Time) []cluster.Member {
+	host := Host()
+	all := cluster.Merge(readMembers(configDir), nil, now)
+	out := make([]cluster.Member, 0, len(all))
+	for _, m := range all {
+		if host != "" && strings.EqualFold(m.Host, host) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // LearnMembers folds what somebody else knows into what this machine has written down, and returns
@@ -86,7 +101,7 @@ func Known(configDir string, now time.Time, can func(workdir string) int) []clus
 // Only the FILE is written, and this machine's own companions are never put in it: they are read
 // from the published records every time, so a copy here could only ever be a second answer that
 // goes stale the moment a daemon stops.
-func LearnMembers(configDir string, heard []cluster.Member, now time.Time, can func(workdir string) int) ([]cluster.Member, error) {
+func LearnMembers(configDir string, heard []cluster.Member, now time.Time) ([]cluster.Member, error) {
 	host := Host()
 	var theirs []cluster.Member
 	for _, m := range heard {
@@ -99,7 +114,7 @@ func LearnMembers(configDir string, heard []cluster.Member, now time.Time, can f
 	if err := writeMembers(configDir, merged); err != nil {
 		return nil, err
 	}
-	return cluster.Merge(Mine(configDir, now, can), merged, now), nil
+	return cluster.Merge(Mine(configDir, now), merged, now), nil
 }
 
 func readMembers(configDir string) []cluster.Member {

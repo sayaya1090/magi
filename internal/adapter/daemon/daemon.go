@@ -843,8 +843,17 @@ type Info struct {
 	Role string `json:"role,omitempty"`
 	// Team is the group of companions doing related work, and Hub marks the one that answers for
 	// it. Addressing, not topology: nothing routes through a hub and nothing is hidden behind one.
-	Team    string `json:"team,omitempty"`
-	Hub     bool   `json:"hub,omitempty"`
+	Team string `json:"team,omitempty"`
+	Hub  bool   `json:"hub,omitempty"`
+	// Can is how many things this companion advertises being able to do, counted by the process
+	// that knows: its own skills and its own tool servers. Published rather than worked out by
+	// whoever is reading, because a reader on another machine cannot see either.
+	//
+	// Counted once, when the daemon starts. A skill written this afternoon does not raise it until
+	// the companion is next restarted, and that is the right trade: the number decides a tie in a
+	// hub election, and an election every companion has to agree on is better served by a value
+	// that changes on the scale of days than by one that changes while they are comparing it.
+	Can     int    `json:"can,omitempty"`
 	PID     int    `json:"pid"`
 	Started string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
@@ -874,7 +883,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	host, _ := os.Hostname()
 	b, err := json.Marshal(Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
-		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub,
+		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
 		Host: host, Addr: primaryAddr(),
 	})
@@ -898,6 +907,7 @@ type Identity struct {
 	Role string // one line: what it is for, in the words of whoever set it up
 	Team string // the group of companions doing related work, if any
 	Hub  bool   // whether this one answers for its team
+	Can  int    // how many things it can do — skills plus tool servers; a tie-break in an election
 }
 
 // primaryAddr is the address another machine would reach this one at, best effort.

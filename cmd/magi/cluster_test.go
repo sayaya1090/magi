@@ -29,7 +29,7 @@ func memberJSON(t *testing.T, ms []cluster.Member) string {
 func exchanged(t *testing.T, cfgDir, stdin string) []cluster.Member {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	if code := exchangeMembers(strings.NewReader(stdin), &out, &errOut, cfgDir, nil); code != 0 {
+	if code := exchangeMembers(strings.NewReader(stdin), &out, &errOut, cfgDir); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
 	var ms []cluster.Member
@@ -122,7 +122,7 @@ func TestAForgottenMemberLeavesByItself(t *testing.T) {
 func TestSomethingUnreadableOnStdinStillGetsAnAnswer(t *testing.T) {
 	cfg := t.TempDir()
 	var out, errOut bytes.Buffer
-	if code := exchangeMembers(strings.NewReader("not json at all"), &out, &errOut, cfg, nil); code != 0 {
+	if code := exchangeMembers(strings.NewReader("not json at all"), &out, &errOut, cfg); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if !json.Valid(out.Bytes()) {
@@ -149,8 +149,8 @@ func TestARoundTeachesThisMachineSomebodyItHadNeverMet(t *testing.T) {
 			{Host: "mini", Socket: "/s/c.sock", Name: "third", Seen: time.Now()},
 		}, nil
 	}
-	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
-	if !hasName(daemon.Known(cfg, time.Now(), nil), "third") {
+	gossipRound(context.Background(), cfg, trade, nil, testRand(), map[string]bool{})
+	if !hasName(daemon.Known(cfg, time.Now()), "third") {
 		t.Fatal("a round with buildbox did not leave this machine knowing the companion it named")
 	}
 }
@@ -171,7 +171,7 @@ func TestOneMachineIsAskedOnceHoweverManyCompanionsItRuns(t *testing.T) {
 		asked = append(asked, host)
 		return nil, nil
 	}
-	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	gossipRound(context.Background(), cfg, trade, nil, testRand(), map[string]bool{})
 	if len(asked) != 1 {
 		t.Fatalf("three companions on one machine caused %d exchanges: %v", len(asked), asked)
 	}
@@ -193,7 +193,7 @@ func TestThisMachineIsNotOneOfTheHostsItReachesOutTo(t *testing.T) {
 		asked = append(asked, host)
 		return nil, nil
 	}
-	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	gossipRound(context.Background(), cfg, trade, nil, testRand(), map[string]bool{})
 	if len(asked) != 0 {
 		t.Fatalf("reached out to itself: %v", asked)
 	}
@@ -221,7 +221,7 @@ func TestAnUnreachableMachineIsSaidOnceAndDoesNotStopTheRound(t *testing.T) {
 	warn := func(line string) { said = append(said, line) }
 	quiet := map[string]bool{}
 	for i := 0; i < 3; i++ {
-		gossipRound(context.Background(), cfg, nil, trade, warn, testRand(), quiet)
+		gossipRound(context.Background(), cfg, trade, warn, testRand(), quiet)
 	}
 	if reached != 3 {
 		t.Fatalf("the reachable machine was traded with %d times out of 3", reached)
@@ -250,7 +250,7 @@ func TestARoundTalksToAFewMachinesHoweverManyThereAre(t *testing.T) {
 		asked = append(asked, host)
 		return nil, nil
 	}
-	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	gossipRound(context.Background(), cfg, trade, nil, testRand(), map[string]bool{})
 	if len(asked) != gossipFanout {
 		t.Fatalf("twenty machines caused %d exchanges, want %d: %v", len(asked), gossipFanout, asked)
 	}
@@ -276,7 +276,7 @@ func TestEveryMachineComesUpInTheDrawSoonEnough(t *testing.T) {
 	}
 	rng := testRand()
 	for i := 0; i < 40; i++ { // forty minutes of rounds, against a one-hour memory
-		gossipRound(context.Background(), cfg, nil, trade, nil, rng, map[string]bool{})
+		gossipRound(context.Background(), cfg, trade, nil, rng, map[string]bool{})
 	}
 	if len(got) != 8 {
 		t.Fatalf("only %d of 8 machines were ever reached: %v", len(got), got)

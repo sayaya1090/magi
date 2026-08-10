@@ -54,7 +54,7 @@ func TestADeadCompanionIsNotGossiped(t *testing.T) {
 	}
 	t.Cleanup(unpubDead)
 
-	mine := Mine(cfg, time.Now(), nil)
+	mine := Mine(cfg, time.Now())
 	for _, m := range mine {
 		if m.Name == "ghost" {
 			t.Errorf("a companion with nobody behind its socket was offered to the cluster: %+v", m)
@@ -71,9 +71,12 @@ func TestADeadCompanionIsNotGossiped(t *testing.T) {
 	}
 }
 
-// What a workspace can do is counted by whoever wired this up, and a caller with no way to work it
-// out passes nothing rather than a wrong number.
-func TestTheCapabilityCountComesFromTheCaller(t *testing.T) {
+// What a workspace can do is counted once, by the daemon that owns it, and travels on the record.
+//
+// It used to be handed in by every reader, which put the count in the hands of processes that
+// cannot see a remote workspace's skills — so the same companion would be worth seven to itself and
+// nothing to anybody else, and a hub election would come out differently depending on who ran it.
+func TestTheCapabilityCountTravelsOnTheRecord(t *testing.T) {
 	cfg, err := os.MkdirTemp("/tmp", "magiclu2")
 	if err != nil {
 		t.Fatal(err)
@@ -94,24 +97,14 @@ func TestTheCapabilityCountComesFromTheCaller(t *testing.T) {
 			c.Close()
 		}
 	}()
-	unpub, err := Publish(sock, "/w/a", "s_a", Identity{Name: "a"})
+	unpub, err := Publish(sock, "/w/a", "s_a", Identity{Name: "a", Can: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(unpub)
 
-	got := Mine(cfg, time.Now(), func(workdir string) int {
-		if workdir != "/w/a" {
-			t.Errorf("counted for %q", workdir)
-		}
-		return 7
-	})
+	got := Mine(cfg, time.Now())
 	if len(got) != 1 || got[0].Can != 7 {
-		t.Fatalf("the count did not reach the member: %+v", got)
-	}
-	// nil is a caller that cannot count, and zero is the honest answer — an election falls back to
-	// its stable ordering rather than acting on a number nobody supplied.
-	if got := Mine(cfg, time.Now(), nil); len(got) != 1 || got[0].Can != 0 {
-		t.Errorf("a nil counter produced %+v", got)
+		t.Fatalf("the count the daemon published did not reach the member: %+v", got)
 	}
 }
