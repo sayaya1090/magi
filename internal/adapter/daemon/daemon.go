@@ -507,6 +507,22 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		// about is answered here rather than in dispatch, like status and shell, because it has a
+		// payload. It is also the whole point of the relay: whoever is asking connected to THIS
+		// companion, so there is no name to resolve and no config directory to read — the process
+		// that knows answers about itself.
+		if req.Method == "about" {
+			d, ok := eng.(Describer)
+			if !ok {
+				resp = Response{Err: "this daemon cannot describe its companion"}
+			} else {
+				resp = Response{OK: true, Out: d.About()}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -539,6 +555,28 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			return // the peer is gone
 		}
 	}
+}
+
+// Describer is an engine that can say what its companion is for and what it can be asked to do.
+//
+// Optional, like CronController and ShellRunner, for the reason those are: Engine is what every
+// fake in every package must satisfy, and a test double has no workspace to describe.
+type Describer interface {
+	// About renders the same description the MCP `about` tool gives — one renderer, so the answer
+	// does not depend on which door it came through.
+	About() string
+}
+
+// About asks a companion to describe itself.
+func (c *Client) About() (string, error) {
+	resp, err := c.exchange(Request{Method: "about"})
+	if err != nil {
+		return "", err
+	}
+	if !resp.OK {
+		return "", errors.New(resp.Err)
+	}
+	return resp.Out, nil
 }
 
 func dispatch(ctx context.Context, eng Engine, r Request) error {
@@ -603,10 +641,16 @@ func control(ctx context.Context, eng Engine, r Request, sid session.SessionID) 
 // Client talks to a daemon. One connection, one request at a time: these are user actions, and the
 // serialisation is what keeps a steer from overtaking the submit it belongs to.
 type Client struct {
-	mu   sync.Mutex
-	conn net.Conn
-	enc  *json.Encoder
-	sc   *bufio.Scanner
+	mu sync.Mutex
+	// rw carries the protocol. Usually a unix socket; also a pipe to a process that is relaying to
+	// one on another machine, which is why this is not a net.Conn. The protocol is the same either
+	// way — that is the point of a relay being a byte pipe and nothing more.
+	rw io.ReadWriteCloser
+	// nc is rw when it happens to be a network connection, for deadlines. A pipe has none to set,
+	// and the caller that wanted one gets its bound from the process it spawned instead.
+	nc  net.Conn
+	enc *json.Encoder
+	sc  *bufio.Scanner
 	// deadline bounds one exchange. Zero for a UI's connection: the person on the other end
 	// decides how long a thing takes. Non-zero for a probe, where the caller is asking about a
 	// process that may be wedged and must not be dragged down with it.
@@ -650,10 +694,24 @@ func dial(path string, connectTimeout, deadline time.Duration) (*Client, error) 
 	}
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
-	return &Client{conn: conn, enc: json.NewEncoder(conn), sc: sc, deadline: deadline}, nil
+	return &Client{rw: conn, nc: conn, enc: json.NewEncoder(conn), sc: sc, deadline: deadline}, nil
 }
 
-func (c *Client) Close() error { return c.conn.Close() }
+// Over speaks the daemon protocol across an already-open pipe.
+//
+// The pipe reaches a daemon somewhere — over ssh, into a container, through anything that carries
+// bytes both ways. Nothing here knows or cares which: a relay is deliberately dumb, so a new kind
+// of machine boundary is a new way to make a pipe and not a new way to ask a question.
+//
+// This is what replaced spawning a subcommand on the far side to re-derive, from that user's config
+// directory, what the running daemon already knew about itself.
+func Over(rw io.ReadWriteCloser) *Client {
+	sc := bufio.NewScanner(rw)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	return &Client{rw: rw, enc: json.NewEncoder(rw), sc: sc}
+}
+
+func (c *Client) Close() error { return c.rw.Close() }
 
 // Status asks what the daemon is blocked on and what it is on, if anything. A nil Waiting means it
 // is blocked on nobody; an empty note means no running tool has reported.
@@ -731,13 +789,14 @@ func (c *Client) call(r Request) error {
 func (c *Client) exchange(r Request) (Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.deadline > 0 {
-		// Covers the write AND the read: a peer that stops reading blocks the write once the
-		// socket buffer fills, which is the same hang one step earlier.
-		if err := c.conn.SetDeadline(time.Now().Add(c.deadline)); err != nil {
+	// Covers the write AND the read: a peer that stops reading blocks the write once the socket
+	// buffer fills, which is the same hang one step earlier. A pipe has no deadline to set; the
+	// caller bounds it by killing the process at the other end.
+	if c.deadline > 0 && c.nc != nil {
+		if err := c.nc.SetDeadline(time.Now().Add(c.deadline)); err != nil {
 			return Response{}, fmt.Errorf("daemon: %w", err)
 		}
-		defer c.conn.SetDeadline(time.Time{})
+		defer c.nc.SetDeadline(time.Time{})
 	}
 	if err := c.enc.Encode(r); err != nil {
 		return Response{}, fmt.Errorf("daemon: send: %w", err)
