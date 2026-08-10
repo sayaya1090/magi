@@ -289,6 +289,35 @@ func Resolve(list []Agent, to string) []Agent {
 
 // Roster is who is here, for the message when an address matched nobody: the next thing anybody
 // does is address one of them, and they cannot if they do not know who there is.
+// RosterLines is the roster as a list, one companion per line, for a tool DESCRIPTION.
+//
+// Separate from Roster because the two are read in different places and one shape does not serve
+// both. Roster's comma-run is a sentence inside a refusal, where it is one clause of an answer.
+// This goes into a description a model reads while deciding, where a run of five names and five
+// parenthesised roles is a wall — and being a list is what makes it read as "these are the
+// options" rather than as prose about companions.
+//
+// here is this companion's own socket, and it is left OUT: a list that offers you yourself is an
+// invitation to a refusal. A companion that is not running is left out for the same reason.
+func RosterLines(list []Agent, here string) string {
+	out := make([]string, 0, len(list))
+	for _, a := range list {
+		if a.Name == "" || !a.Live || (here != "" && a.Socket == here) {
+			continue
+		}
+		line := "  " + a.Name
+		if a.Team != "" {
+			line += " [" + a.Team + "]"
+		}
+		if a.Role != "" {
+			line += " — " + Clip(a.Role, 100)
+		}
+		out = append(out, line)
+	}
+	sort.Strings(out)
+	return strings.Join(out, "\n")
+}
+
 func Roster(list []Agent) string {
 	if len(list) == 0 {
 		return "(nobody — no companion is published here)"
