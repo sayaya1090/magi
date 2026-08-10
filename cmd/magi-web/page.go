@@ -1045,7 +1045,7 @@ const indexHTML = `<!doctype html>
   /* status */
   /* The column's word, for the width where the column heads are not drawn. */
   .colk { display:none; }
-  @media (max-width:62.5em) {
+  @media (max-width:74.9375em) {
     .colk {
       display:inline; margin-left:var(--magi-sys-space-50);
       font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0467em; color:var(--magi-ref-muted);
@@ -1262,11 +1262,17 @@ const indexHTML = `<!doctype html>
      Only main's two panes are placed; everything else in main keeps the full width, because a grid
      put on a container lays out every child it has and the masthead is one of them.
 
+     1200px, the start of the large breakpoint, which is where a THIRD pane belongs. It was 1000
+     (62.5em), a number the scale does not have — the same mistake as the 1100 this file already
+     corrected once. The cost was measurable and severe: at 1000 the list took 288px and the facts
+     pane 352, leaving the conversation 160px, of which the speaker gutter took 104. Six characters
+     of text per line. The two halves also overlapped at exactly 62.5em, both rule sets matching.
+
      The list gives up its columns here. Seven of them in 18rem is not a table, it is seven things
      clipped, so what is left is the state and the name — which is what the list is FOR at this
      width: seeing who else there is and moving between them. The whole table is one press away at
      the top of it. */
-  @media (min-width:62.5em) {
+  @media (min-width:75em) {
     body[list-detail] main {
       display:grid; grid-template-columns:18rem minmax(0, 1fr);
       gap:var(--magi-sys-space-400); align-items:start;
@@ -1433,8 +1439,21 @@ const indexHTML = `<!doctype html>
   /* Monospace throughout: every line here is something the machine said or did, and a serif would
      be dressing up evidence. The editorial part is the rhythm — a wide gutter of small-caps labels
      against a single column of text. */
-  #log { max-width:var(--magi-sys-wide); }
+  /* A container, so the rows inside can be asked how much room THEY have.
+     The speaker gutter is a fixed 6.5rem on every row, which reads well beside a wide column and
+     is ruinous beside a narrow one — and how narrow this column is has never been a function of
+     the window. It depends on which other panes are open, and judging it by the viewport is what
+     produced the measurement that started this: at a 1000px window the text column was six
+     characters wide. A container query asks the only question that matters. */
+  #log { max-width:var(--magi-sys-wide); container-type:inline-size; container-name:transcript; }
   .row { display:grid; grid-template-columns:6.5rem 1fr; gap:var(--magi-sys-space-200); align-items:start; padding:var(--magi-sys-space-50) 0; }
+  /* 34rem: the gutter and its gap cost 7.5rem, and below this there is not enough left for a line
+     of prose to be worth reading. The label goes above the text instead of beside it — still
+     present, no longer paid for on every line. */
+  @container transcript (max-width:34rem) {
+    .row { grid-template-columns:minmax(0, 1fr); gap:0; }
+    .who { text-align:left; }
+  }
   .who {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono); letter-spacing:0.0533em;
     color:var(--magi-ref-muted); text-align:right; user-select:none; opacity:.8;
@@ -1608,7 +1627,7 @@ const indexHTML = `<!doctype html>
      The row's own comment used to say it "collapses to two lines on a phone". Nothing collapsed it
      — the comment described a mechanism that was never written, and the page scrolled sideways at
      every width instead. */
-  @media (max-width:62.5em) {
+  @media (max-width:74.9375em) {
     .thead { display:none; }   /* no columns left to label */
     .card {
       grid-template-columns:auto auto 1fr;
@@ -1919,7 +1938,7 @@ const indexHTML = `<!doctype html>
       <md-outlined-card id="detail" hidden></md-outlined-card>
       <div id="log"></div>
     </div>
-    <md-icon-button id="sideToggle" aria-expanded="true">
+    <md-icon-button id="sideToggle" aria-expanded="false">
       <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
         <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
           stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -2270,7 +2289,7 @@ const wide = matchMedia('(min-width:52.5em)');
 // two panes of its own (the conversation and the facts beside it), and a third at that width gives
 // the conversation about 350px. The facts pane folds by hand and is remembered, so somebody who
 // wants the list at 840 can have it by folding the other.
-const roomForList = matchMedia('(min-width:62.5em)');
+const roomForList = matchMedia('(min-width:75em)');
 function drawPanels() {
   const s = sock();
   ptabs.hidden = !s || wide.matches;
@@ -4414,12 +4433,26 @@ for (const [el, key] of RAILS) {
 // section at the foot of the page — so there is nothing to open and nothing to close.
 // The side pane's own control. Remembered, because a pane you shut should stay shut when you open
 // the next companion — reopening it every time would make the button feel like it did nothing.
+//
+// SHUT unless somebody opened it. It used to be the other way round, and the pane took 352px of the
+// best place on the page from the moment there was room for it — at a 900px window that left the
+// conversation 44 characters a line, and at 840 it left 37. What is in there is reference: the
+// plan, the handoffs, what was intervened in. Things you go and look at, not things you read. The
+// conversation is what the page is for.
+//
+// Stored as the word "open" rather than as an empty string, so the default can be read off the
+// absence of a value. An empty string and "never chosen" were the same thing before, which is why
+// the default could not be changed without also forgetting everybody's choice.
 const sideToggle = document.getElementById('sideToggle');
-if (localStorage.getItem('side') === 'shut') document.body.setAttribute('side', 'shut');
+if (localStorage.getItem('side') !== 'open') document.body.setAttribute('side', 'shut');
+// Said once, from the state, rather than written into the markup and hoped to stay true. The
+// attribute in the markup is what a screen reader reads before any of this runs, and it was
+// "expanded" while the pane was shut — a control announcing the opposite of what it does.
+sideToggle.setAttribute('aria-expanded', String(document.body.getAttribute('side') !== 'shut'));
 sideToggle.onclick = () => {
   const shut = document.body.getAttribute('side') !== 'shut';
   document.body.setAttribute('side', shut ? 'shut' : '');
-  localStorage.setItem('side', shut ? 'shut' : '');
+  localStorage.setItem('side', shut ? 'shut' : 'open');
   sideToggle.setAttribute('aria-expanded', String(!shut));
   paint();
 };
