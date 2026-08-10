@@ -538,6 +538,14 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					if s.m.running && s.m.turnReqID != "" && b.kind == blockUser && b.reqID == s.m.turnReqID {
 						continue
 					}
+					// And the call that is running, for the same reason: it too is re-rendered
+					// fresh so its glyph can turn. Its head is the same WIDTH as the cached one
+					// (the frame carries its own trailing space where ⚙ has a separator), so the
+					// wrapping and the row count are unchanged — which is what the line numbers
+					// underneath actually depend on.
+					if s.m.running && b.kind == blockToolCall && !b.done && liveToolAt(&s.m, i) {
+						continue
+					}
 					head := ansi.Strip(strings.SplitN(s.m.cache[i], "\n", 2)[0])
 					if got := s.m.contentPlain[start]; got != head {
 						t.Fatalf("%s: block %d is recorded at line %d, which holds\n  %q\nbut the block starts with\n  %q",
@@ -791,4 +799,17 @@ func lipglossHeightOrZero(up bool, render func() string) int {
 		return 0
 	}
 	return lipgloss.Height(render())
+}
+
+// liveToolAt reports whether block i is a tool call belonging to the turn that is running — the
+// same question transcript() asks before it re-renders one with a spinner. Written here rather
+// than exported so the check tracks the renderer instead of restating it loosely.
+func liveToolAt(m *Model, i int) bool {
+	live := -1
+	for j, b := range m.blocks {
+		if b.kind == blockUser && b.reqID == m.turnReqID {
+			live = j
+		}
+	}
+	return live >= 0 && i > live
 }

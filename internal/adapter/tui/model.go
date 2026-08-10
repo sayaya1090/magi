@@ -138,7 +138,12 @@ type Model struct {
 	// user block shows the in-flight spinner. awaitingTurnReqID marks the window between a
 	// fresh submit and its prompt.submitted arriving, so only that prompt (not a queued
 	// interjection landing mid-turn) claims turnReqID. Cleared when the turn finishes.
-	turnReqID         string
+	turnReqID string
+	// spinTool is set for the one render of a tool call that is running right now, so its glyph
+	// can be the spinner instead of the still ⚙. A render flag rather than a field on the block:
+	// which call is live is a property of the frame, not of the record, and writing it into the
+	// block would leave a spinner frame in the cache for a call that has long since ended.
+	spinTool          bool
 	awaitingTurnReqID bool
 	quitting          bool
 	isDark            bool

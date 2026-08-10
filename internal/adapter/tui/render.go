@@ -200,6 +200,17 @@ func (m *Model) transcript() string {
 	for i := len(m.cache); i < len(m.blocks); i++ {
 		m.cache = append(m.cache, m.renderBlock(m.blocks[i]))
 	}
+	// Where the running turn's own output begins: the request bubble that owns it. A tool call
+	// with no result BEFORE that point is one that never came back — a fact, not activity — and
+	// animating it would say the opposite of what happened.
+	live := -1
+	if m.running && m.turnReqID != "" {
+		for i, b := range m.blocks {
+			if b.kind == blockUser && b.reqID == m.turnReqID {
+				live = i
+			}
+		}
+	}
 
 	var b strings.Builder
 	m.blockLineStart = m.blockLineStart[:0]
@@ -219,6 +230,15 @@ func (m *Model) transcript() string {
 		// keeps its ▌ version, which becomes correct again the moment the turn finishes.
 		if m.running && m.turnReqID != "" && m.blocks[i].kind == blockUser && m.blocks[i].reqID == m.turnReqID {
 			r = m.renderBlock(m.blocks[i])
+		}
+		// A tool call of this turn that has no result yet: the same treatment, for the same
+		// reason. Its glyph was a static ⚙ whether the call had been running for a second or for
+		// four minutes, which is exactly the case somebody watches the screen for. Rendered fresh
+		// here and left out of the cache, so the resting version is the one that gets stored.
+		if live >= 0 && i > live && m.blocks[i].kind == blockToolCall && !m.blocks[i].done {
+			m.spinTool = true
+			r = m.renderBlock(m.blocks[i])
+			m.spinTool = false
 		}
 		b.WriteString(r)
 		nl += strings.Count(r, "\n")
@@ -461,7 +481,19 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 				glyph = styleToolErr.Render("✗")
 			}
 		}
-		head := glyph + " " + styleToolName.Render(blk.name)
+		// Two cells either way. spinner.Dot's frames already carry their trailing space, which is
+		// why this replaces the separator instead of sitting in front of one: a third cell would
+		// shift the tool name one column right of every settled row above it, and the random walk
+		// checks exactly that alignment.
+		//
+		// Set only for a call belonging to the turn that is running (see transcript), so a call
+		// abandoned by an earlier turn keeps the still glyph rather than freezing on whichever
+		// frame the cache happened to catch.
+		lead := glyph + " "
+		if m.spinTool && !blk.done {
+			lead = m.sp.View()
+		}
+		head := lead + styleToolName.Render(blk.name)
 		// A plan is a list of statuses, and the raw arguments are the worst way to read one: the
 		// same JSON the right panel turns into ticked lines arrives here as one flattened preview,
 		// clipped mid-item. Render it the way the panel does — same glyphs, same strikethrough —
