@@ -59,6 +59,13 @@ func printAgents(w io.Writer, list []fleet.Agent, configDir string) {
 		if line != "" {
 			fmt.Fprintf(tw, "\t%s\t\t\t\n", fleet.Clip(line, 72))
 		}
+		// Work handed over by other companions, which the state column cannot show: that is read
+		// from the session this listing offers to attach to, and handed-over work runs in
+		// conversations of its own. Without this line a companion working through somebody else's
+		// request reads as idle, which is true of the conversation and false of the machine.
+		if load := fleet.Carrying(a); load != "" {
+			fmt.Fprintf(tw, "\t↪ %s (handed over)\t\t\t\n", load)
+		}
 	}
 	tw.Flush()
 	// Only when it is worth saying. A single live daemon needs no legend.

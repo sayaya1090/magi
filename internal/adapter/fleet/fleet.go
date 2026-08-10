@@ -173,7 +173,10 @@ type Agent struct {
 	// with three people's requests reads as Idle, correctly, and this is the number that says
 	// otherwise. From a sighting it is as old as the sighting.
 	Waiting int `json:"waiting,omitempty"`
-	Steps   int `json:"steps"` // tool calls the open turn has made — what a crash would cost
+	// Handling is whether it is in the middle of a piece of handed-over work. State cannot say so:
+	// that is read from the session a person attaches to, and this runs elsewhere.
+	Handling bool `json:"handling,omitempty"`
+	Steps    int  `json:"steps"` // tool calls the open turn has made — what a crash would cost
 	// Doing is what a long-running tool inside the open turn last reported: "check 6, 4m elapsed,
 	// still running". Only ever set on a WORKING agent — the note is a live one, and on an idle or
 	// stopped agent it would be the last thing said before the turn ended, dressed up as news.
@@ -216,7 +219,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
-			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting,
+			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}
@@ -282,7 +285,7 @@ func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
 			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
-			Does: m.Does, Can: m.Can, Waiting: m.Waiting,
+			Does: m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
 			// Live is "believed reachable", and for a companion on another machine the evidence
 			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
 			// anything acting on this has to look at State too, and Remote is not a state anything
@@ -406,6 +409,26 @@ func Resolve(list []Agent, to string) []Agent {
 
 // Roster is who is here, for the message when an address matched nobody: the next thing anybody
 // does is address one of them, and they cannot if they do not know who there is.
+// Carrying is what a companion has in hand and behind it, in the words an asker needs.
+//
+// Exported because the shell listing says the same thing, and two spellings of one fact is how a
+// person comes to think they are two facts.
+//
+// Both halves or neither: one piece in hand and nothing queued means the next request waits for one
+// turn, while three queued behind it means something else entirely, and a reader given only one of
+// the two numbers cannot tell those apart. Silent when there is nothing, because "0 waiting" on
+// every idle companion is a column of noise.
+func Carrying(a Agent) string {
+	var parts []string
+	if a.Handling {
+		parts = append(parts, "1 in hand")
+	}
+	if a.Waiting > 0 {
+		parts = append(parts, fmt.Sprintf("%d waiting", a.Waiting))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // RosterLines is the roster as a list, one companion per line, for a tool DESCRIPTION.
 //
 // Separate from Roster because the two are read in different places and one shape does not serve
@@ -440,8 +463,8 @@ func RosterLines(list []Agent, here string) string {
 		}
 		// Shown, never sorted on. A list in load order is a recommendation, and choosing who does
 		// the work is the model's. Absent when nothing is waiting, which is most of the time.
-		if a.Waiting > 0 {
-			line += fmt.Sprintf(" · %d waiting", a.Waiting)
+		if load := Carrying(a); load != "" {
+			line += " · " + load
 		}
 		out = append(out, line)
 	}

@@ -210,3 +210,24 @@ func TestAnUnnamedCompanionIsListedBySocket(t *testing.T) {
 		t.Errorf("an unnamed companion under pressure cannot be told from any other:\n%s", b.String())
 	}
 }
+
+// The shell listing says what a companion is carrying for other companions.
+//
+// In the same words the roster uses, because two spellings of one fact is how a person comes to
+// think they are two facts — and on its own line rather than in the state column, which is about
+// the conversation this listing offers to attach to.
+func TestTheListingSaysWhatIsBeingCarriedForOthers(t *testing.T) {
+	out := render([]fleet.Agent{{
+		Name: "design", State: fleet.Idle, Live: true, Session: "s1",
+		Workdir: "/w/design", Handling: true, Waiting: 2, Idle: -1,
+	}})
+	if !strings.Contains(out, "in hand") || !strings.Contains(out, "2 waiting") {
+		t.Errorf("an idle-looking companion working for somebody else says nothing about it:\n%s", out)
+	}
+	quiet := render([]fleet.Agent{{
+		Name: "calm", State: fleet.Idle, Live: true, Session: "s2", Workdir: "/w/calm", Idle: -1,
+	}})
+	if strings.Contains(quiet, "handed over") {
+		t.Errorf("a companion with nothing handed to it gets a line about it:\n%s", quiet)
+	}
+}

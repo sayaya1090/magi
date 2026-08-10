@@ -971,22 +971,46 @@ func TestARowCarriesHowMuchWorkIsQueued(t *testing.T) {
 	f := newFleetFixture(t)
 	sock := f.daemonAt(t.TempDir(), "s_busy", true)
 	f.session("s_busy", "/w", "hello", 0, true)
-	if err := daemon.Announce(sock, 2); err != nil {
+	if err := daemon.Announce(sock, 2, true); err != nil {
 		t.Fatal(err)
 	}
 	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far.sock", Name: "far",
-		Waiting: 5, Seen: time.Now()})
+		Waiting: 5, Handling: true, Seen: time.Now()})
 
 	list := f.get()
-	if got := find(t, list, "s_busy").Waiting; got != 2 {
-		t.Errorf("the local row says %d waiting", got)
+	if got := find(t, list, "s_busy"); got.Waiting != 2 || !got.Handling {
+		t.Errorf("the local row says %d waiting, handling=%v", got.Waiting, got.Handling)
 	}
-	if got := f.byName("far").Waiting; got != 5 {
-		t.Errorf("the row for another machine says %d waiting", got)
+	if got := f.byName("far"); got.Waiting != 5 || !got.Handling {
+		t.Errorf("the row for another machine says %d waiting, handling=%v", got.Waiting, got.Handling)
 	}
 	// And it is not the same fact as what the person's own session is doing: that turn finished,
 	// so this companion reads as idle while holding two pieces of somebody else's work.
 	if find(t, list, "s_busy").State == fleet.Working {
 		t.Error("queued work was mistaken for the attached session being busy")
+	}
+}
+
+// A companion in the middle of somebody's request is not shown as having nothing to do.
+//
+// Its state is read from the session a person attaches to, and handed-over work runs in
+// conversations of its own — so the state is right, says Idle, and is not the whole truth.
+func TestACompanionInTheMiddleOfHandedOverWorkDoesNotReadAsFree(t *testing.T) {
+	busy := fleet.Agent{Name: "design", Live: true, State: fleet.Idle, Handling: true}
+	if got := fleet.Carrying(busy); !strings.Contains(got, "in hand") {
+		t.Errorf("a companion working through a request carries %q", got)
+	}
+	// Both halves or neither. One piece in hand and nothing behind it means the next request waits
+	// one turn; three behind it is a different answer, and one number cannot tell them apart.
+	both := fleet.Carrying(fleet.Agent{Live: true, Handling: true, Waiting: 3})
+	if !strings.Contains(both, "in hand") || !strings.Contains(both, "3 waiting") {
+		t.Errorf("what it is carrying reads as %q", both)
+	}
+	if got := fleet.Carrying(fleet.Agent{Name: "calm", Live: true}); got != "" {
+		t.Errorf("a companion with nothing handed to it carries %q", got)
+	}
+	line := fleet.RosterLines([]fleet.Agent{busy}, "")
+	if !strings.Contains(line, "in hand") {
+		t.Errorf("the roster offers it as free:\n%s", line)
 	}
 }
