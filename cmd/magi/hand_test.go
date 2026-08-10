@@ -159,7 +159,7 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	eng := takingEngine{live: &ar.live, handover: handover{
 		work: ar.work,
 		sid:  session.SessionID(sid), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
-		mine: newSideSessions(), queued: newWaiting(),
+		mine: newSideSessions(), queued: newWaiting(nil),
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	ar.t.Cleanup(cancel)
@@ -428,7 +428,7 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 	}
 	after := handover{work: &recordingWork{App: ar.reader, ar: ar, side: "s_design_side"},
 		sid: "s_design", workdir: ar.t.TempDir(), configDir: ar.cfgDir, receipts: fresh,
-		mine: newSideSessions(), queued: newWaiting()}
+		mine: newSideSessions(), queued: newWaiting(nil)}
 	if _, err := after.Handed(context.Background(), receipt); err == nil {
 		t.Fatal("a restarted companion answered about work it has no record of taking")
 	}
@@ -680,7 +680,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	}
 	// A different asker does not.
 	other := handover{work: ar.work, sid: "s_design", workdir: ar.t.TempDir(),
-		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions(), queued: newWaiting()}
+		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions(), queued: newWaiting(nil)}
 	mine, merr := other.sessionFor(context.Background(), "— asked by master")
 	if merr != nil {
 		t.Fatal(merr)

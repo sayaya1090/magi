@@ -1095,7 +1095,14 @@ func run() int {
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.
 		taking := handover{work: a, sid: sid, workdir: wd, configDir: plat.ConfigDir(),
-			receipts: daemon.NewReceipts(), mine: newSideSessions(), queued: newWaiting()}
+			receipts: daemon.NewReceipts(), mine: newSideSessions(),
+			// How much is waiting goes into this companion's own published record, which is where
+			// every roster reads it from — including one on another machine, a gossip round later.
+			queued: newWaiting(func(n int) {
+				if aerr := daemon.Announce(sockPath, n); aerr != nil {
+					fmt.Fprintln(os.Stderr, "magi:", aerr)
+				}
+			})}
 		// Starting queued work as the workspace frees up, on the same lifetime as the schedule and
 		// the gossip: a companion that has been stopped should not pick up somebody's next piece.
 		go taking.run(cronCtx)

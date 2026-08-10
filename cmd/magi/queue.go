@@ -65,10 +65,22 @@ type waiting struct {
 	// which the asking side cannot tell from a companion still thinking.
 	stopped map[string]string
 	nudge   chan struct{}
+	// changed says how much is waiting, whenever that changes. It is how the number reaches the
+	// published record and from there the roster somebody chooses from — pushed, because nothing
+	// outside this process can see a queue held in memory.
+	changed func(int)
 }
 
-func newWaiting() *waiting {
-	return &waiting{stopped: map[string]string{}, nudge: make(chan struct{}, 1)}
+func newWaiting(changed func(int)) *waiting {
+	return &waiting{stopped: map[string]string{}, nudge: make(chan struct{}, 1), changed: changed}
+}
+
+// announce says the new depth, outside the lock: whatever it reaches writes a file, and holding a
+// mutex across that would put the disk between one asker and the next.
+func (w *waiting) announce(n int) {
+	if w.changed != nil {
+		w.changed(n)
+	}
 }
 
 // take puts work in the queue, or says the queue is full.
@@ -79,8 +91,9 @@ func (w *waiting) take(p pending) (ahead int, ok bool) {
 		return len(w.items), false
 	}
 	w.items = append(w.items, p)
-	ahead = len(w.items) - 1
+	ahead, depth := len(w.items)-1, len(w.items)
 	w.mu.Unlock()
+	w.announce(depth)
 	w.wake()
 	return ahead, true
 }
@@ -88,12 +101,15 @@ func (w *waiting) take(p pending) (ahead int, ok bool) {
 // next takes the head of the queue, if there is one.
 func (w *waiting) next() (pending, bool) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if len(w.items) == 0 {
+		w.mu.Unlock()
 		return pending{}, false
 	}
 	p := w.items[0]
 	w.items = w.items[1:]
+	depth := len(w.items)
+	w.mu.Unlock()
+	w.announce(depth)
 	return p, true
 }
 
