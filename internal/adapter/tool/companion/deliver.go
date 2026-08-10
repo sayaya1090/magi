@@ -56,24 +56,37 @@ func Target(ctx context.Context, r fleet.Reader, cache *fleet.Cache, configDir, 
 			"wrong workspace is not something to guess at", to, fleet.Names(found))
 	}
 	target := found[0]
-	switch {
-	case target.Here:
+	if target.Here {
 		return target, "that is you. Do it yourself, or name somebody else"
-	case !target.Live:
-		return target, fmt.Sprintf("%s is not running, so there is nothing to hand the work to",
-			target.Name)
-	case target.State == fleet.Working || target.State == fleet.Waiting:
+	}
+	return target, Ready(target)
+}
+
+// Ready says whether a companion can take work right now, and why not if it cannot.
+//
+// Split out from Target because the answer is needed from two sides. Somebody choosing a companion
+// asks it about them; a companion asked directly, over the relay from another machine, asks it
+// about ITSELF — there is no address to resolve in that case, only the question of whether the
+// process that was reached is in a state to take anything.
+//
+// One predicate, so the two cannot come to differ on what "busy" means. Two of them, and work
+// crossing a machine would land in a running turn on exactly the days the local path refused it.
+func Ready(a fleet.Agent) string {
+	switch {
+	case !a.Live:
+		return fmt.Sprintf("%s is not running, so there is nothing to hand the work to", a.Name)
+	case a.State == fleet.Working || a.State == fleet.Waiting:
 		// Not a queue. A prompt sent to a running turn is re-read BY that turn — it would arrive
 		// inside the work they are already doing rather than after it, which is a steer and not a
 		// request. It is also what makes the way back readable: the answer is the next turn that
 		// finishes over there, and that is only unambiguous if there was no turn open when this
 		// arrived.
-		return target, fmt.Sprintf("%s is mid-turn (%s). A request sent now would land inside that "+
-			"work rather than after it, so it is not sent — and its answer could not be told apart "+
-			"from the answer to what they are already doing. Try them later, or ask somebody else",
-			target.Name, fleet.Clip(firstLine(target.Task), 80))
+		return fmt.Sprintf("%s is mid-turn (%s). A request sent now would land inside that work "+
+			"rather than after it, so it is not sent — and its answer could not be told apart from "+
+			"the answer to what they are already doing. Try them later, or ask somebody else",
+			a.Name, fleet.Clip(firstLine(a.Task), 80))
 	}
-	return target, ""
+	return ""
 }
 
 // Send puts the request into the target's session, under a label saying who it came from.
@@ -101,9 +114,17 @@ func Send(ctx context.Context, target fleet.Agent, label, request string) error 
 	defer cl.Close()
 	return cl.Submit(ctx, command.SubmitPrompt{
 		SessionID: session.SessionID(target.Session),
-		Parts:     []session.Part{{Kind: session.PartText, Text: label + "\n\n" + request}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: Labelled(label, request)}},
 	})
 }
+
+// Labelled is the one shape a handed-over request takes.
+//
+// Written down once because there are two senders — this one, dialling a neighbour's socket, and a
+// daemon putting into its own session work that arrived over a relay. Both must produce the same
+// bytes: the marker the no-chaining rule is read off is in the label, and a receiver whose label
+// arrived glued to the first word of the request is a receiver that can pass work on for ever.
+func Labelled(label, request string) string { return label + "\n\n" + request }
 
 // StateOf is what can be said about a companion mid-work, for somebody who cannot see it.
 //
