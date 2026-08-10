@@ -267,8 +267,10 @@ role = "the design system: component specs and visual review"
 
 Declared this way, a companion can be addressed by what it is for. Others see it with the
 `companions` tool — including what that workspace has learned, which is how a specialist becomes
-visible — and hand it work with `ask_companion`. No registry and no gateway: the companions on a
-machine already publish into one directory, and that is the membership. [MANUAL §13](docs/MANUAL.md).
+visible. Handing work across workspaces was a tool and is gone: it named its recipient as free text
+with no list of them given anywhere, so a model asked to reach one simply guessed. No registry and
+no gateway either — the companions on a machine already publish into one directory, and that is the
+membership. [MANUAL §13](docs/MANUAL.md).
 
 ### Headless (scripts & CI)
 

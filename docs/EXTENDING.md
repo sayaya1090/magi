@@ -680,12 +680,15 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 - Shell **lifecycle hooks** (test/format gates) → MANUAL §harness, `[[hooks]]`
 - Implement a new backend through the **ports and adapters** structure → ARCHITECTURE §3, §11
 
-### 3.11 The companion tools (`companions`, `ask_companion`)
+### 3.11 The companion tool (`companions`)
 
 Not plugin tools — `cmd/magi` registers them — but they are the seam a plugin author is most likely
 to build beside, so: `companions` lists the other magi on this machine (name, role, team, what each
-is doing, what each has learned) and `ask_companion` hands one of them a piece of work, byte for
-byte, labelled with who sent it. Both read the daemon records the fleet view reads.
+is doing, what each has learned). It reads the daemon records the fleet view reads.
+
+Handing work to one of them was a second tool, `ask_companion`, and it is gone: it named its
+recipient as free text with no list of them given anywhere, so a model asked to reach a companion
+guessed at one. See MANUAL §13.3.
 
 They cannot live in `builtin`: `internal/app` imports builtin and `internal/adapter/daemon` imports
 app, so a built-in reading daemon records closes an import cycle. Anything of yours that needs the

@@ -625,26 +625,24 @@ into the model on every dispatch and two hundred put ~15,000. A narrowed answer 
 many it left out** — otherwise it reads as the whole team, and the reader concludes nobody else
 could have done the work. The caller is always in its own answer.
 
-### 13.3 Handing work over — the `ask_companion` tool
+### 13.3 Handing work over — removed
 
-An address (a name, words from a role, or a team) and a request. The request travels **byte for
-byte**; the line saying who sent it goes above it, so the receiving supervisor can see the turn was
-not started by them.
+There was a tool, `ask_companion`, that handed a piece of work to another companion on this machine.
+It has been taken out.
 
-Refusing is half of what it does:
+It named its recipient as free text, and the list of who exists was never given to the model
+anywhere — the tool's description told it to run `companions` first, which is advice and not a
+mechanism. Asked to "ssh in and do something", a model addressed a companion called "ssh", which
+does not exist, and the request failed. A set the model is expected to look up rather than be shown
+is a set it will guess at.
 
-| Situation | Why it refuses |
-|---|---|
-| Nobody matched | it answers with the roster — the next thing anybody does is name one of them |
-| Several matched | both are named. Guessing means **a turn running in somebody else's workspace**, which nobody can undo by noticing later |
-| They are mid-turn | Submit is not a queue: a running turn **re-reads** the prompt, so it lands inside the work rather than after it |
-| Itself | a loop with one node in it |
-| Asked by somebody else, and not a hub | work is not passed along. Do what you can; say what you could not and who should |
-| A hub, outside its own team | this is where a chain of hubs would start |
+It is not coming back as a better-worded tool. What should replace it is a companion advertising
+what it can do, and companions exchanging that when they meet, so the question stops being "who
+might there be" and becomes a list.
 
-`ask_companion` is a danger tool, so `permission = "ask"` asks first. It is further outside the
-blast radius than anything else on that list: it does not touch this workspace at all, it starts a
-turn in somebody else's.
+Until then nothing hands work across workspaces. `companions` still shows who there is and what each
+is doing, `/dispatch` still routes by role, and the handoffs already in the logs are still readable
+on the console — nothing new will appear there.
 
 ### 13.4 Teams and hubs
 
@@ -705,7 +703,7 @@ Same machine only. Across machines there is no join: that is the operator's peer
   person's decision, and an `[mcp]` command is why.
 - **A blocking wait.** The receiver answers in its own transcript; the caller reads it with
   `companions`, and the console collects it under the asker's page (UI §2.2). Nothing notifies the
-  asker, and `ask_companion` does not wait.
+  asker, and nothing waits on it.
 
 ---
 
