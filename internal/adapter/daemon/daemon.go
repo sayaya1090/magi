@@ -882,7 +882,11 @@ func SessionFile(socketPath string) string { return socketPath + ".session" }
 
 // Publish records the daemon and returns a function that removes the record.
 func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
-	host, _ := os.Hostname()
+	// Host(), not os.Hostname(): one spelling of this machine's name enters the system here and
+	// nothing downstream has to normalise. A record written with the raw name and a member built
+	// from the lowercased one compare unequal, and an election over the two decides that the
+	// companion it just elected is not on any row it can see.
+	host := Host()
 	b, err := json.Marshal(Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,

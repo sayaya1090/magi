@@ -108,3 +108,28 @@ func TestTheCapabilityCountTravelsOnTheRecord(t *testing.T) {
 		t.Fatalf("the count the daemon published did not reach the member: %+v", got)
 	}
 }
+
+// A record says this machine's name the one way the rest of the system says it.
+//
+// Stated directly rather than left to a test that happens to run on a machine with a capital in its
+// hostname — which is how the second spelling survived: everything agreed on the developer's laptop
+// and an election elsewhere decided the companion it had just elected was on no row it could see.
+func TestAPublishedRecordSaysThisMachineTheSameWayEverythingElseDoes(t *testing.T) {
+	cfg := shortDir(t)
+	sock := filepath.Join(cfg, "daemon-h.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unpub, err := Publish(sock, "/w/a", "s_a", Identity{Name: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unpub)
+	in, err := Published(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Host != Host() {
+		t.Fatalf("the record says %q and everything else says %q", in.Host, Host())
+	}
+}

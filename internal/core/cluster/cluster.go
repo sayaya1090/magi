@@ -126,6 +126,17 @@ func Merge(have, heard []Member, now time.Time) []Member {
 		if m.Host == "" || m.Socket == "" {
 			continue // no identity: there is nothing to merge it against, and nothing to reach
 		}
+		// One spelling of a hostname, established here because this is the one place every member
+		// passes through — Mine, what arrives over the wire, and what was on disk all come through
+		// Merge. Fixing it at the funnel rather than at each comparison is what makes Key work:
+		// key is host plus socket, so "buildbox" and "BuildBox" were two companions, both offered
+		// in every roster, with work going to whichever the model happened to pick.
+		//
+		// Reachable without anybody doing anything odd. os.Hostname() reports different casing on
+		// macOS depending on which of its several host names was last set, so one reboot did it —
+		// and this file already asked "is this us" two different ways, one case-sensitive and one
+		// not, which is how a member could be recorded and then never displayed.
+		m.Host = strings.ToLower(m.Host)
 		// A sighting from the future is a clock running fast, not news. Clamped rather than
 		// dropped: the entry is still evidence the companion exists, and the worst this can do is
 		// age it early — which the next direct sighting corrects.

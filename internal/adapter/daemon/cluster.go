@@ -38,7 +38,9 @@ func Host() string {
 	if err != nil {
 		return ""
 	}
-	return h
+	// Lowercased, the same way cluster.Merge lowercases everything it stores, so "is this us" is
+	// one comparison against one spelling wherever it is asked.
+	return strings.ToLower(h)
 }
 
 // Mine is the companions published on THIS machine, as members, seen just now.
@@ -106,7 +108,7 @@ func LearnMembers(configDir string, heard []cluster.Member, now time.Time) ([]cl
 	host := Host()
 	var theirs []cluster.Member
 	for _, m := range heard {
-		if host != "" && m.Host == host {
+		if host != "" && strings.EqualFold(m.Host, host) {
 			continue // ours, and the directory is the authority on ours
 		}
 		theirs = append(theirs, m)

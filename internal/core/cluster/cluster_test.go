@@ -338,3 +338,20 @@ func TestACompanionThatGoesQuietKeepsWhatItCanDo(t *testing.T) {
 		t.Fatalf("a bare sighting erased what it can do: can=%d does=%v", got[0].Can, got[0].Does)
 	}
 }
+
+// One machine is one member, however its name happens to be capitalised.
+//
+// Key is host plus socket, so two spellings of a hostname are two companions: the cluster carries
+// both, every roster offers both, and work goes to whichever the model picked. Reachable without
+// anybody doing anything odd — os.Hostname() reports different casing on macOS depending on which
+// of its several host names was last set, so one reboot is enough.
+func TestOneMachineIsOneMemberHoweverItIsCapitalised(t *testing.T) {
+	now := time.Now()
+	got := Merge(
+		[]Member{{Host: "buildbox", Socket: "/s/d.sock", Name: "design", Seen: now}},
+		[]Member{{Host: "BuildBox", Socket: "/s/d.sock", Name: "design", Seen: now}},
+		now)
+	if len(got) != 1 {
+		t.Fatalf("one companion became %d: %+v", len(got), got)
+	}
+}
