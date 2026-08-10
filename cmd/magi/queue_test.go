@@ -11,7 +11,7 @@ import (
 // on another machine a gossip round away and the sampling interval would be added to the staleness.
 func TestTheQueueSaysHowDeepItIsWheneverThatChanges(t *testing.T) {
 	var said []int
-	w := newWaiting(func(n int) { said = append(said, n) })
+	w := newWaiting(func(n int, _ bool) { said = append(said, n) })
 
 	for i := 0; i < 3; i++ {
 		if _, ok := w.take(pending{receipt: "r"}); !ok {
@@ -53,7 +53,7 @@ func TestTheQueueSaysHowDeepItIsWheneverThatChanges(t *testing.T) {
 // of the roster opens.
 func TestNothingIsAnnouncedWhenTheDepthDidNotMove(t *testing.T) {
 	var count int
-	w := newWaiting(func(int) { count++ })
+	w := newWaiting(func(int, bool) { count++ })
 	for i := 0; i < maxWaiting; i++ {
 		w.take(pending{receipt: "r"})
 	}
@@ -74,7 +74,7 @@ func TestNothingIsAnnouncedWhenTheDepthDidNotMove(t *testing.T) {
 func TestSayingTheDepthDoesNotHoldTheQueueShut(t *testing.T) {
 	done := make(chan struct{})
 	var w *waiting
-	w = newWaiting(func(int) {
+	w = newWaiting(func(int, bool) {
 		w.where("r")
 		w.givenUp("r")
 	})

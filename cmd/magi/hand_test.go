@@ -46,6 +46,12 @@ type arrival struct {
 		sync.Mutex
 		prompts []string
 	}
+	// carried is what the companion last said it was carrying: queued, and in hand.
+	carried struct {
+		sync.Mutex
+		waiting  int
+		handling bool
+	}
 	// load is what the companion wrote down about the work arriving, in order.
 	load struct {
 		sync.Mutex
@@ -180,7 +186,11 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	eng := takingEngine{live: &ar.live, handover: handover{
 		work: ar.work,
 		sid:  session.SessionID(sid), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
-		mine: newSideSessions(), queued: newWaiting(nil),
+		mine: newSideSessions(), queued: newWaiting(func(n int, handling bool) {
+			ar.carried.Lock()
+			defer ar.carried.Unlock()
+			ar.carried.waiting, ar.carried.handling = n, handling
+		}),
 		note: func(full bool, ahead int) {
 			ar.load.Lock()
 			defer ar.load.Unlock()
@@ -267,6 +277,13 @@ func ev(t *testing.T, typ event.Type, d any) event.Event {
 
 // side is the conversation handed-over work runs in, which is never the published one.
 func (ar *arrival) side(sid string) string { return sid + "_side" }
+
+// carrying is what this companion last announced about its load.
+func (ar *arrival) carrying() (int, bool) {
+	ar.carried.Lock()
+	defer ar.carried.Unlock()
+	return ar.carried.waiting, ar.carried.handling
+}
 
 func (ar *arrival) prompts() []string {
 	ar.got.Lock()
@@ -875,4 +892,23 @@ func TestEveryArrivalIsWrittenDownWithHowMuchWasAlreadyThere(t *testing.T) {
 	if last.ahead != maxWaiting {
 		t.Errorf("the refusal says the queue was %d deep", last.ahead)
 	}
+}
+
+// A companion says when it picks a piece up and when it puts it down.
+//
+// Its state says nothing about this: that is read from the session a person attaches to, and this
+// runs in a conversation of its own. An asker reading only the state would see "idle" and hand work
+// to a companion that is mid-turn.
+func TestACompanionSaysWhenItIsInTheMiddleOfSomething(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	if _, err := cl.Hand("— asked by master", "do it"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the piece to start", func() bool { _, h := ar.carrying(); return h })
+
+	ar.finishes(ar.side("s_design"), "done")
+	// Put down when the turn ends. Left set, this companion would be avoided by every asker for as
+	// long as it ran, with nothing able to correct it.
+	until(t, "the piece to be put down", func() bool { _, h := ar.carrying(); return !h })
 }

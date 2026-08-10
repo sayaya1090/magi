@@ -196,7 +196,11 @@ func (h handover) startNext(ctx context.Context) {
 		h.queued.giveUp(p.receipt, "this companion could not start the work: "+err.Error())
 		return
 	}
-	// It is running now, so the next piece waits for it to end. Watching the session it went into
+	// It is running now — said out loud, because a companion in the middle of somebody's request
+	// is otherwise indistinguishable from an idle one: what a dashboard calls its state is read
+	// from the conversation a person attaches to, and this is not that conversation.
+	h.queued.began()
+	// The next piece waits for it to end. Watching the session it went into
 	// is how that is noticed without polling — the tick in run() is only for the turn this did not
 	// start, which is the person's own.
 	go h.wakeWhenDone(ctx, p.session)
@@ -204,6 +208,11 @@ func (h handover) startNext(ctx context.Context) {
 
 // wakeWhenDone nudges the drain when the turn just started has ended.
 func (h handover) wakeWhenDone(ctx context.Context, sid session.SessionID) {
+	// Every way out of here, including the ones that mean this daemon has lost sight of the piece
+	// rather than seen it finish. A flag left set would say "busy" forever with nothing to clear
+	// it; a flag cleared early costs an asker one wait, and the workspace is still protected by
+	// the check that refuses to start two turns at once.
+	defer h.queued.ended()
 	events, stop, err := h.work.Subscribe(ctx, sid, 0)
 	if err != nil {
 		return // the tick will find it

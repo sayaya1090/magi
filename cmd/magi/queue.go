@@ -65,22 +65,50 @@ type waiting struct {
 	// which the asking side cannot tell from a companion still thinking.
 	stopped map[string]string
 	nudge   chan struct{}
-	// changed says how much is waiting, whenever that changes. It is how the number reaches the
-	// published record and from there the roster somebody chooses from — pushed, because nothing
-	// outside this process can see a queue held in memory.
-	changed func(int)
+	// inHand is whether a piece taken from here is running right now.
+	//
+	// Not derivable from the queue, which this piece has already left, and not from the state a
+	// dashboard shows, which is read off the session a person attaches to. Without it a companion
+	// working through somebody's request looks exactly like one with nothing to do.
+	inHand bool
+	// changed says what this companion is carrying, whenever that changes. It is how both numbers
+	// reach the published record and from there the roster somebody chooses from — pushed, because
+	// nothing outside this process can see a queue held in memory.
+	changed func(waiting int, handling bool)
 }
 
-func newWaiting(changed func(int)) *waiting {
+func newWaiting(changed func(int, bool)) *waiting {
 	return &waiting{stopped: map[string]string{}, nudge: make(chan struct{}, 1), changed: changed}
 }
 
-// announce says the new depth, outside the lock: whatever it reaches writes a file, and holding a
-// mutex across that would put the disk between one asker and the next.
-func (w *waiting) announce(n int) {
+// announce says what is being carried, outside the lock: whatever it reaches writes a file, and
+// holding a mutex across that would put the disk between one asker and the next.
+func (w *waiting) announce(n int, handling bool) {
 	if w.changed != nil {
-		w.changed(n)
+		w.changed(n, handling)
 	}
+}
+
+// began and ended bracket a piece actually running.
+//
+// ended is called on every way out of watching a piece, including the ways that mean this daemon
+// has LOST track of it. That is deliberate: saying "free" while busy costs an asker one wait, and
+// the refusal still protects the workspace, whereas a flag stuck at "busy" would push every asker
+// away from a companion that is fine and nothing would ever clear it.
+func (w *waiting) began() {
+	w.mu.Lock()
+	w.inHand = true
+	depth := len(w.items)
+	w.mu.Unlock()
+	w.announce(depth, true)
+}
+
+func (w *waiting) ended() {
+	w.mu.Lock()
+	w.inHand = false
+	depth := len(w.items)
+	w.mu.Unlock()
+	w.announce(depth, false)
 }
 
 // take puts work in the queue, or says the queue is full.
@@ -91,9 +119,9 @@ func (w *waiting) take(p pending) (ahead int, ok bool) {
 		return len(w.items), false
 	}
 	w.items = append(w.items, p)
-	ahead, depth := len(w.items)-1, len(w.items)
+	ahead, depth, hand := len(w.items)-1, len(w.items), w.inHand
 	w.mu.Unlock()
-	w.announce(depth)
+	w.announce(depth, hand)
 	w.wake()
 	return ahead, true
 }
@@ -107,9 +135,9 @@ func (w *waiting) next() (pending, bool) {
 	}
 	p := w.items[0]
 	w.items = w.items[1:]
-	depth := len(w.items)
+	depth, hand := len(w.items), w.inHand
 	w.mu.Unlock()
-	w.announce(depth)
+	w.announce(depth, hand)
 	return p, true
 }
 

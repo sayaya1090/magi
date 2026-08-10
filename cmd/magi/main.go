@@ -1096,10 +1096,10 @@ func run() int {
 		// directory would be a way to run commands anywhere on this machine from a page.
 		taking := handover{work: a, sid: sid, workdir: wd, configDir: plat.ConfigDir(),
 			receipts: daemon.NewReceipts(), mine: newSideSessions(),
-			// How much is waiting goes into this companion's own published record, which is where
+			// What it is carrying goes into this companion's own published record, which is where
 			// every roster reads it from — including one on another machine, a gossip round later.
-			queued: newWaiting(func(n int) {
-				if aerr := daemon.Announce(sockPath, n); aerr != nil {
+			queued: newWaiting(func(n int, handling bool) {
+				if aerr := daemon.Announce(sockPath, n, handling); aerr != nil {
 					fmt.Fprintln(os.Stderr, "magi:", aerr)
 				}
 			}),
