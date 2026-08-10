@@ -142,19 +142,59 @@ func (h Hand) Description() string {
 func (Hand) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{
 		"to":{"type":"string","description":"which companion, by the name listed in this tool's description"},
-		"request":{"type":"string","description":"the whole instruction, standing on its own"}
-	},"required":["to","request"],"additionalProperties":false}`)
+		"request":{"type":"string","description":"the whole instruction, standing on its own"},
+		"answer_as":{"type":"string","description":"the form the answer must come back in: write out the headings or fields you want filled, in the order you will read them. They fill it in. Not how to do the work — what the finished answer looks like."}
+	},"required":["to","request","answer_as"],"additionalProperties":false}`)
+}
+
+// withForm puts the form after the request, in the asker's words, and tells the receiver what to
+// do with it.
+//
+// # A form and not a sentence about being finished
+//
+// "Done when the tokens are named" is something the asker checks afterwards, against prose, by
+// reading carefully. A form is checked by looking: the headings are either filled or they are not.
+// And it changes what a gap looks like — a part that could not be done comes back AS that part,
+// said so, instead of as a paragraph explaining why the whole thing is hard. Observed: a companion
+// asked for tokens spent a round trip answering "there are no files here, point me at them", where
+// the same gap under a heading would have named itself and left the rest of the answer standing.
+//
+// # Carried in the text, deliberately
+//
+// It has to reach a companion on another machine, where the only things that cross are a label and
+// a request. Folding it into the request means both paths carry it by construction — there is no
+// version of magi that takes the work and drops the form.
+// asked is one request as it goes out: what they were asked, the form the answer must take, and
+// the two composed into the words that actually cross. Kept apart because the quote-back beside
+// their answer shows them separately — the check is "does this fill that", and a single blob makes
+// the reader do the splitting.
+type asked struct {
+	Request string
+	Form    string
+}
+
+func (a asked) text() string { return withForm(a.Request, a.Form) }
+
+func withForm(request, form string) string {
+	if strings.TrimSpace(form) == "" {
+		return request
+	}
+	return request + "\n\nAnswer in this form, filling it in. If a part cannot be done, keep the " +
+		"part and say so under it rather than leaving it out — a gap with a name is something the " +
+		"asker can act on, and a missing section is not:\n\n" + form
 }
 
 func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var in struct {
-		To      string `json:"to"`
-		Request string `json:"request"`
+		To       string `json:"to"`
+		Request  string `json:"request"`
+		AnswerAs string `json:"answer_as"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return errText("invalid arguments: " + err.Error()), nil
 	}
 	in.To, in.Request = strings.TrimSpace(in.To), strings.TrimSpace(in.Request)
+	in.AnswerAs = strings.TrimSpace(in.AnswerAs)
 	if in.To == "" || in.Request == "" {
 		return errText("a request needs somebody to do it and something to do"), nil
 	}
@@ -184,8 +224,23 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 			"parts of it to your own team (%s). %s is not in it — answer with what you could do and "+
 			"say who should do the rest", orNone(h.Team), target.Name)), nil
 	}
+	// Last of the refusals, on purpose. The ones above are about whether this can happen at all —
+	// you may not pass work on, nobody is called that, they are mid-turn — and a model told to
+	// write a form when the real answer is "not to them" spends a turn on the wrong repair.
+	//
+	// Required, and it is the item this tree kept losing. Whether an answer ARRIVED is already
+	// known: the wait says so. Whether it was the THING is a comparison, and without a form there
+	// is nothing to compare it against — an answer comes back, every gate is satisfied, and nobody
+	// has checked. It matters more here than in an office, because a companion on another machine
+	// cannot knock on the door and ask what you meant.
+	if in.AnswerAs == "" {
+		return errText("write out the form the answer should come back in — the headings or " +
+			"fields you will read. They cannot ask you what you meant: there is no reply channel, " +
+			"so an unstated shape is one they have to guess at, and a guess that comes back " +
+			"looking like an answer is the expensive kind of wrong"), nil
+	}
 	if target.State == fleet.Remote {
-		return h.handAcross(ctx, target, in.Request, env), nil
+		return h.handAcross(ctx, target, asked{Request: in.Request, Form: in.AnswerAs}, env), nil
 	}
 
 	// The watch is registered BEFORE the work is sent. The other way round, a peer quick enough to
@@ -193,13 +248,13 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 	// watch would then sit waiting for the turn after it — an answer that never comes, about work
 	// that was done.
 	if xerr := env.Expect(port.Elsewhere{
-		Who: target.Name, Session: target.Session, Request: in.Request,
+		Who: target.Name, Session: target.Session, Request: in.Request, AnswerAs: in.AnswerAs,
 		Probe: h.probeFor(target.Socket, target.Name),
 	}); xerr != nil {
 		return errText("nothing was sent: the answer could not be waited for (" + xerr.Error() +
 			"), and handing work over without that loses it"), nil
 	}
-	if serr := Send(ctx, target, DispatchedBy(h.who()), in.Request); serr != nil {
+	if serr := Send(ctx, target, DispatchedBy(h.who()), asked{Request: in.Request, Form: in.AnswerAs}.text()); serr != nil {
 		// The watch is left in place. It costs one goroutine that will time out, and the
 		// alternative — a way to cancel it — is a second mechanism for the sake of a failed dial.
 		return errText("could not hand it to " + target.Name + ": " + serr.Error()), nil

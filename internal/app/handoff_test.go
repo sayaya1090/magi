@@ -530,3 +530,74 @@ func TestSomebodyAlreadyJudgedIsNotAskedAbout(t *testing.T) {
 		t.Errorf("%d verdicts found in a turn with no calls", n)
 	}
 }
+
+// The answer arrives beside the form it was asked to take.
+//
+// Whether it came back is known already. Whether it is the THING is a comparison, and this is the
+// one moment making it is cheap: the question, the shape asked for, and what arrived are all in
+// front of the reader at once. Delivered without it, an answer that filled none of the headings
+// reads exactly like one that filled them all.
+func TestTheDeliveredAnswerCarriesTheFormItWasAskedFor(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design on buildbox", Session: "rcpt-1", Request: "name the tokens",
+		AnswerAs: "- surface:\n- on-surface:",
+		Answer:   func() (string, bool) { return "surface: surface-container-low", true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var note string
+	waitFor(t, "the answer to arrive", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "surface-container-low") {
+					note = p.Text
+					return true
+				}
+			}
+		}
+		return false
+	})
+	for _, want := range []string{"answer in this form", "- on-surface:", "Check it against the form"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the delivered answer does not carry %q:\n%s", want, note)
+		}
+	}
+}
+
+// A hand-off with no form delivers the way it always did.
+//
+// Nothing about the note should mention a form that was never asked for — an instruction to check
+// against something that does not exist is the shape of a description naming a way to do something
+// there is no way to do.
+func TestAnAnswerWithNoFormIsDeliveredPlainly(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design", Session: "rcpt-2", Request: "name the tokens",
+		Answer: func() (string, bool) { return "surface-container-low", true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var note string
+	waitFor(t, "the answer to arrive", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "surface-container-low") {
+					note = p.Text
+					return true
+				}
+			}
+		}
+		return false
+	})
+	if strings.Contains(note, "form") {
+		t.Errorf("it tells the reader to check against a form nobody asked for:\n%s", note)
+	}
+	if !strings.Contains(note, "Fold it into what you have") {
+		t.Errorf("the plain delivery lost its closing line:\n%s", note)
+	}
+}

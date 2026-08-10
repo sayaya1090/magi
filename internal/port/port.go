@@ -170,6 +170,12 @@ type Elsewhere struct {
 	// turn that handed out three pieces gets three answers back and cannot otherwise tell which is
 	// which — they arrive in whatever order the work finishes, not the order it was asked.
 	Request string
+	// AnswerAs is the form the asker said the answer had to come back in.
+	//
+	// Carried so the note that delivers their answer can put the two side by side. Whether an
+	// answer ARRIVED is known without this; whether it is the thing is a comparison, and the only
+	// moment it is cheap to make is when the answer is read.
+	AnswerAs string
 	// Probe answers "is anybody still doing this", and it is what keeps silence from being
 	// ambiguous.
 	//

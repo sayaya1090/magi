@@ -187,7 +187,10 @@ func (tm *team) askWatching(tool companion.Hand, sid, to, request string) (sessi
 	tool.Reader = func() fleet.Reader { return tm.reader }
 	tool.ConfigDir = tm.cfgDir
 	tool.Cache = &fleet.Cache{}
-	args, err := json.Marshal(map[string]string{"to": to, "request": request})
+	// Every call carries a form: it is required, and a fixture that omitted it would be testing
+	// the refusal instead of the thing under test.
+	args, err := json.Marshal(map[string]string{"to": to, "request": request,
+		"answer_as": "- what you found:\n- anything you could not check:"})
 	if err != nil {
 		tm.t.Fatal(err)
 	}
@@ -227,11 +230,15 @@ func TestHandOffHandsTheWorkOverUntouched(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("the daemon heard %d messages: %v", len(got), got)
 	}
-	// Equality on the whole message: the label on its own line, then the request byte for byte.
-	// Every recorded failure of handing work to another agent here began with somebody's words
-	// arriving altered, so "contains" is not enough — a prefix nobody asked for is that defect
-	// starting.
-	if want := companion.DispatchedBy("master") + "\n\n" + req; got[0] != want {
+	// Equality on the whole message: the label on its own line, the request byte for byte, then
+	// the form the answer must take. Every recorded failure of handing work to another agent here
+	// began with somebody's words arriving altered, so "contains" is not enough — a prefix nobody
+	// asked for is that defect starting.
+	want := companion.DispatchedBy("master") + "\n\n" + req +
+		"\n\nAnswer in this form, filling it in. If a part cannot be done, keep the part and say " +
+		"so under it rather than leaving it out — a gap with a name is something the asker can act " +
+		"on, and a missing section is not:\n\n- what you found:\n- anything you could not check:"
+	if got[0] != want {
 		t.Errorf("the message arrived as\n%q\nwant\n%q", got[0], want)
 	}
 	// The call returns without waiting, and says so — an agent told only "handed over" polls, and
@@ -270,7 +277,8 @@ func TestHandOffSendsNothingWhenTheAnswerCannotComeBack(t *testing.T) {
 
 	tool := companion.Hand{Self: master, Called: "master",
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}}
-	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing"})
+	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing",
+		"answer_as": "- what you found:"})
 	res, err := tool.Execute(context.Background(), args, port.ToolEnv{SessionID: "m"}) // no Expect
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +305,8 @@ func TestTheWatchIsInPlaceBeforeTheWorkIsSent(t *testing.T) {
 
 	tool := companion.Hand{Self: master, Called: "master",
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}}
-	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing"})
+	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing",
+		"answer_as": "- what you found:"})
 	if _, err := tool.Execute(context.Background(), args, port.ToolEnv{
 		SessionID: "m",
 		Expect:    func(port.Elsewhere) error { order = append(order, "watching"); return nil },
@@ -688,8 +697,13 @@ func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
 		t.Errorf("it reached %v %v", hosts, socks)
 	}
 	labels, requests, _ := far.took()
-	if len(requests) != 1 || requests[0] != "rewrite the settings screen" {
+	// The request byte for byte, then the form after it — the same shape a neighbour receives, so
+	// crossing a machine does not change what a companion is asked for.
+	if len(requests) != 1 || !strings.HasPrefix(requests[0], "rewrite the settings screen\n\nAnswer in this form") {
 		t.Errorf("the request was altered on the way: %q", requests)
+	}
+	if !strings.HasSuffix(requests[0], "- anything you could not check:") {
+		t.Errorf("the form did not cross with it: %q", requests)
 	}
 	if !strings.HasPrefix(labels[0], fleet.DispatchMark) {
 		t.Errorf("the label does not carry the mark the receiver reads: %q", labels[0])

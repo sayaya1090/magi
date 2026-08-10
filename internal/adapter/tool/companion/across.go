@@ -65,7 +65,7 @@ type Reach func(ctx context.Context, host, socket string) (*daemon.Client, error
 const crossTimeout = 30 * time.Second
 
 // handAcross sends the request to another machine and arranges for the answer to be fetched.
-func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string, env port.ToolEnv) session.ToolResult {
+func (h Hand) handAcross(ctx context.Context, target fleet.Agent, a asked, env port.ToolEnv) session.ToolResult {
 	if h.Reach == nil {
 		return errText(fmt.Sprintf("%s is on %s and this magi has no way to reach another "+
 			"machine. Name somebody here, or do it yourself", target.Name, target.Host))
@@ -85,7 +85,7 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string
 	}
 	defer cl.Close()
 
-	receipt, herr := cl.Hand(fleet.DispatchedFrom(h.who(), h.Machine), request)
+	receipt, herr := cl.Hand(fleet.DispatchedFrom(h.who(), h.Machine), a.text())
 	if herr != nil {
 		var refused daemon.Refused
 		if errors.As(herr, &refused) {
@@ -108,7 +108,7 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string
 	// their log rather than by watching for an event to go past.
 	l := h.watchAcross(target, receipt)
 	if xerr := env.Expect(port.Elsewhere{
-		Who: target.Name + " on " + target.Host, Session: receipt, Request: request,
+		Who: target.Name + " on " + target.Host, Session: receipt, Request: a.Request, AnswerAs: a.Form,
 		Answer: l.answer(), Probe: l.probe(), Ready: l.ready, Done: l.stop,
 	}); xerr != nil {
 		l.stop() // nobody is going to call Done for a wait that was never registered
@@ -123,7 +123,6 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string
 		"task — their answer will arrive here when they finish, quoting what you asked. Do not "+
 		"wait for it and do not send it again.", target.Name, target.Host, where))
 }
-
 
 // listening is one pipe held open for the life of a wait, and what the far side has said down it.
 //

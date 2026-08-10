@@ -298,10 +298,19 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 	// The request is quoted back. A turn that handed out three pieces gets three answers in
 	// whatever order the work finished, and without it the agent has three replies and no way to
 	// tell which question each one settles.
-	text := fmt.Sprintf("# %s answered\n\nYou asked them:\n\n> %s\n\n---\n\n%s\n\n---\n"+
-		"This is a piece of the work you are already doing, not a new request. Fold it into what "+
-		"you have and carry on.",
-		e.Who, clipLine(oneLine(e.Request), 400), answer)
+	// And the form, beside it. Whether an answer arrived is known already; whether it is the thing
+	// is a comparison, and this is the one moment making it is cheap — the question, the shape it
+	// was asked for, and what came back are all on the screen at once.
+	form, close := "", "Fold it into what you have and carry on."
+	if strings.TrimSpace(e.AnswerAs) != "" {
+		form = fmt.Sprintf("\n\nYou asked them to answer in this form:\n\n> %s",
+			clipLine(oneLine(e.AnswerAs), 400))
+		close = "Check it against the form you asked for before you fold it in — a part that is " +
+			"missing rather than filled in is the thing to notice now, not later."
+	}
+	text := fmt.Sprintf("# %s answered\n\nYou asked them:\n\n> %s%s\n\n---\n\n%s\n\n---\n"+
+		"This is a piece of the work you are already doing, not a new request. %s",
+		e.Who, clipLine(oneLine(e.Request), 400), form, answer, close)
 
 	// context.WithoutCancel because this outlives the tool call that started it by design.
 	if err := a.appendPromptText(context.WithoutCancel(ctx), sid,

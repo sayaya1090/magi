@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -155,5 +156,66 @@ func TestThePastIsShownOnlyWhenThereIsAChoice(t *testing.T) {
 	}}.Description()
 	if !strings.Contains(several, "design — 1 of 1 useful") {
 		t.Errorf("with a choice to make the record is not in front of it:\n%s", several)
+	}
+}
+
+// A hand-off says what the answer must look like, and is refused without it.
+//
+// Whether an answer arrived is known already; whether it is the THING is a comparison, and without
+// a form there is nothing to compare it against — the answer comes back, every gate is satisfied,
+// and nobody has checked. A form also changes what a gap looks like: a part that could not be done
+// comes back AS that part, said so, instead of as a paragraph about why the whole thing was hard.
+func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
+	tm := newTeam(t)
+	design := &heard{}
+	tm.member("d", "design", "the design system", design)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	args, _ := json.Marshal(map[string]string{"to": "design", "request": "name the tokens"})
+	res, err := companion.Hand{
+		Self: master, Called: "master", Reader: func() fleet.Reader { return tm.reader },
+		ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
+	}.Execute(context.Background(), args, port.ToolEnv{
+		SessionID: "m", Expect: func(port.Elsewhere) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("work went out with no form for the answer to come back in")
+	}
+	if len(design.got()) != 0 {
+		t.Error("it was sent anyway")
+	}
+
+	// With one, the form crosses with the request and tells them what to do about a part they
+	// cannot do — which is the half that makes a gap legible.
+	args, _ = json.Marshal(map[string]string{"to": "design", "request": "name the tokens",
+		"answer_as": "- surface:\n- on-surface:"})
+	var watched []port.Elsewhere
+	if _, err := (companion.Hand{
+		Self: master, Called: "master", Reader: func() fleet.Reader { return tm.reader },
+		ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
+	}).Execute(context.Background(), args, port.ToolEnv{
+		SessionID: "m", Expect: func(e port.Elsewhere) error { watched = append(watched, e); return nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := design.got()
+	if len(got) != 1 {
+		t.Fatalf("%d messages arrived", len(got))
+	}
+	for _, want := range []string{"name the tokens", "- surface:", "keep the part and say so"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("what arrived does not carry %q:\n%s", want, got[0])
+		}
+	}
+	// And the wait holds the form apart from the request, so the note that delivers their answer
+	// can put the two side by side — which is the one moment checking is cheap.
+	if len(watched) != 1 || watched[0].AnswerAs != "- surface:\n- on-surface:" {
+		t.Errorf("the wait cannot show what was asked for: %+v", watched)
+	}
+	if strings.Contains(watched[0].Request, "Answer in this form") {
+		t.Errorf("the quote-back would repeat the form inside the request: %q", watched[0].Request)
 	}
 }
