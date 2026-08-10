@@ -328,13 +328,14 @@ console.log(JSON.stringify({
 	if got["composerHidden"].(bool) {
 		t.Error("the composer is hidden on an agent's page")
 	}
-	// Wide, the list stays BESIDE the transcript — that is list-detail, and the harness runs wide
-	// unless NARROW is set. Underneath it would be the old shape and is what this used to check.
-	if got["fleetHidden"].(bool) {
-		t.Error("the list left the screen when a companion was opened; from 1000px it stays beside it")
+	// The list is gone, at every width. It used to stay beside the companion from 1200px, which was
+	// the previous screen drawn over the current one — the roster is a monitoring view, there is a
+	// screen whose whole job is that, and it is the screen you came from.
+	if !got["fleetHidden"].(bool) {
+		t.Error("the roster is still on screen beside a companion")
 	}
-	if !strings.Contains(got["bodyAttrs"].(string), "list-detail") {
-		t.Errorf("the page is not in list-detail, so main never becomes two panes: %v", got["bodyAttrs"])
+	if strings.Contains(got["bodyAttrs"].(string), "list-detail") {
+		t.Errorf("the page is still in list-detail: %v", got["bodyAttrs"])
 	}
 }
 
