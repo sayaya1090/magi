@@ -76,24 +76,6 @@ const (
 // to finishTurn: the once-per-turn guards (stop hooks, empty-subagent nudge), the accounting
 // behind declareAskCap, and the UNVERIFIED reason a finish carries when no council ever read
 // the work.
-// onlyAskedFor keeps the tool calls the finish path asked for and drops the rest.
-//
-// The rule is "no more work on the task once it is declared done", and that is what the dropping
-// is for. A tool the finish gates asked for is not work on the task — it is bookkeeping about the
-// turn that is ending, requested by magi itself one step earlier.
-func onlyAskedFor(calls []*session.ToolCall, asked map[string]bool) []*session.ToolCall {
-	if len(asked) == 0 {
-		return nil
-	}
-	kept := calls[:0]
-	for _, c := range calls {
-		if c != nil && asked[c.Name] {
-			kept = append(kept, c)
-		}
-	}
-	return kept
-}
-
 type turnState struct {
 	stopChecked     bool // stop hooks enforced at most once per turn
 	nudgedEmpty     bool
@@ -111,7 +93,14 @@ type turnState struct {
 	// exactly what it was told and nothing happened, which is the shape of a description naming a
 	// way to do something there is no way to do. Observed live: rate_handoff called, no result,
 	// no record.
-	finishTools      map[string]bool
+	finishTools map[string]bool
+	// dropped are the tools a declared turn tried to call and did not get to run, kept until the
+	// finish path has said so. Silence here is the defect: the agent asked for something, nothing
+	// happened, and the transcript keeps the call with no result — which is what a call that DID
+	// happen and failed to record looks like.
+	dropped          []string
+	dropTold         bool
+	reasks           int    // how many times this turn asked somebody again after declaring finished
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
 }
 
@@ -374,7 +363,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// declaration left stranded instead of picked up as its own turn.
 		if ts.declared || a.finishDeclared(sid) {
 			ts.declared = true
-			toolCalls = onlyAskedFor(toolCalls, ts.finishTools)
+			toolCalls = a.callsAfterDeclaring(ctx, sid, toolCalls, &ts)
 		}
 		if len(toolCalls) == 0 {
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.

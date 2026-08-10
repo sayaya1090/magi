@@ -90,6 +90,9 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
 		return act
 	}
+	if act, done := a.sayWhatWasNotRun(ctx, tc, ts); done {
+		return act
+	}
 	if act, done := a.noteOutstandingHandoffs(ctx, tc, ts); done {
 		return act
 	}
@@ -349,6 +352,113 @@ func ratedThisTurn(evs []event.Event) map[string]bool {
 			continue
 		}
 		out[strings.ToLower(strings.TrimSpace(args.Who))] = true
+	}
+	return out
+}
+
+// maxReasks is how many times a turn may ask somebody again after declaring itself finished.
+//
+// Not zero, because the case is real and was watched: shown an answer that came back empty, the
+// agent immediately re-delegated with a sharper request. That is the right move and it was being
+// thrown away. Not unbounded, because the reason calls are dropped after a declaration is that a
+// turn has to end — two is enough for "that was not it, here is what I actually need" and few
+// enough that it cannot become a loop.
+const maxReasks = 2
+
+// callsAfterDeclaring decides what a turn that has declared itself finished may still do.
+//
+// Three answers, and each is a different fact about the call:
+//
+//   - A tool the FINISH PATH asked for runs. Rating a hand-off, saving a lesson: magi asked for it
+//     one step earlier, and asking for something and then discarding it is the defect this whole
+//     seam exists to stop.
+//   - Asking somebody AGAIN runs, up to maxReasks, and REOPENS the turn. A re-ask is an assertion
+//     that the work is not done; allowed while the turn stays closed it would be pointless, since
+//     the answer would arrive after the turn ended and land where nothing reads it.
+//   - Anything else is dropped, and said so by sayWhatWasNotRun.
+func (a *App) callsAfterDeclaring(ctx context.Context, sid session.SessionID,
+	calls []*session.ToolCall, ts *turnState) []*session.ToolCall {
+
+	kept := make([]*session.ToolCall, 0, len(calls))
+	reopened := 0
+	for _, c := range calls {
+		switch {
+		case c == nil:
+		case ts.finishTools[c.Name]:
+			kept = append(kept, c)
+		case c.Name == "hand_off" && ts.reasks < maxReasks:
+			ts.reasks++
+			ts.declared = false
+			reopened = ts.reasks
+			kept = append(kept, c)
+		default:
+			ts.dropped = append(ts.dropped, c.Name)
+		}
+	}
+	if reopened > 0 {
+		pd, _ := json.Marshal(event.PromptSubmittedData{
+			MessageID: "m_" + newID(),
+			Parts: []session.Part{{Kind: session.PartText, Text: fmt.Sprintf(
+				"You asked somebody again after declaring this turn finished, so the turn is NOT "+
+					"finished any more — it is open, which is the only way their answer can land "+
+					"in it. That is %d of %d times you may do this. Carry on until it comes back, "+
+					"then declare again: the council will read the record afresh.",
+				reopened, maxReasks)}},
+		})
+		a.appendFact(ctx, sid, event.TypePromptSubmitted,
+			event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+	}
+	return kept
+}
+
+// sayWhatWasNotRun tells a declared turn that the tools it just called were not run.
+//
+// A turn that has declared itself finished does no more work on the task, so its calls are dropped.
+// That is the rule and it stays. What was wrong was doing it in silence: the agent asked for
+// something, nothing happened, and the transcript kept the call with no result — which is exactly
+// what a call that DID happen looks like to whoever reads it next, including this agent on a
+// resumed session.
+//
+// Observed live and unprompted: shown an answer that came back empty, the agent immediately
+// re-delegated with a sharper request. It was the right move. It never left the process, and
+// nothing said so.
+//
+// Once, and it keeps the turn open so the answer can be acted on: "not finished after all" is a
+// thing an agent can still say here, and it is the only way back.
+func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState) (loopAction, bool) {
+	if ts.dropTold || len(ts.dropped) == 0 {
+		return 0, false
+	}
+	ts.dropTold = true
+	names := ts.dropped
+	ts.dropped = nil
+	var b strings.Builder
+	fmt.Fprintf(&b, "You called %s, and this turn had already declared itself finished — so it "+
+		"was not run. Once the council has accepted, a turn does no more work on the task. The "+
+		"call is in the transcript with no result, which is what a call that never happened looks "+
+		"like; nothing crossed and nobody was asked.\n\n", strings.Join(quoted(names), ", "))
+	b.WriteString("If the work is NOT finished after all, say that plainly now — it is the only " +
+		"way back, and it is a better answer than a call that goes nowhere. If it IS finished, " +
+		"ignore this and write your final answer.")
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: b.String()}},
+	})
+	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+	return loopContinue, true
+}
+
+// quoted renders tool names so a list of one does not read as prose.
+func quoted(names []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, "`"+n+"`")
 	}
 	return out
 }

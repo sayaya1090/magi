@@ -549,34 +549,3 @@ func TestTheBetweenTurnsHookRunsBeforeAStepAndNeverDuringOne(t *testing.T) {
 		t.Errorf("the hook ran at %d and the first step at %d — that is not a boundary", h, s)
 	}
 }
-
-// A tool the finish path asked for is allowed to run; anything else still is not.
-//
-// Once a turn declares itself done its tool calls are dropped — the task is over and more work on
-// it is not wanted. The gates that run AT the finish ask for tools, though, and those calls were
-// dropped with the rest: the agent did exactly what it was told and nothing happened, which is the
-// shape of a description naming a way to do something there is no way to do. Observed live —
-// rate_handoff called, no result, no record.
-func TestAToolTheFinishPathAskedForIsAllowedToRun(t *testing.T) {
-	call := func(name string) *session.ToolCall { return &session.ToolCall{Name: name} }
-	all := []*session.ToolCall{call("bash"), call("rate_handoff"), call("write")}
-
-	// Nothing asked for: a declared turn does no more work, which is the rule this sits inside.
-	if got := onlyAskedFor(all, nil); len(got) != 0 {
-		t.Errorf("a declared turn with nothing asked of it kept %d calls", len(got))
-	}
-	var ts turnState
-	ts.allowAtFinish("rate_handoff")
-	got := onlyAskedFor([]*session.ToolCall{call("bash"), call("rate_handoff"), call("write")}, ts.finishTools)
-	if len(got) != 1 || got[0].Name != "rate_handoff" {
-		t.Fatalf("kept %v, want only the tool the finish path asked for", names(got))
-	}
-}
-
-func names(cs []*session.ToolCall) []string {
-	var out []string
-	for _, c := range cs {
-		out = append(out, c.Name)
-	}
-	return out
-}

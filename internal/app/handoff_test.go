@@ -638,3 +638,101 @@ func TestTheGateThatAsksForAToolAlsoPermitsIt(t *testing.T) {
 		t.Error("nothing was asked")
 	}
 }
+
+// After declaring finished: a tool the finish path asked for runs, a re-ask runs and reopens the
+// turn, everything else is dropped and said so.
+//
+// The rule is that a declared turn does no more work, and it stays. What was wrong was the silence
+// — the agent called something, nothing happened, and the transcript kept the call with no result,
+// which is what a call that DID happen looks like to whoever reads it next.
+func TestWhatADeclaredTurnMayStillDo(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	call := func(n string) *session.ToolCall { return &session.ToolCall{Name: n} }
+	ctx := context.Background()
+
+	var ts turnState
+	ts.declared = true
+	ts.allowAtFinish("rate_handoff")
+	kept := f.a.callsAfterDeclaring(ctx, "mine", []*session.ToolCall{
+		call("bash"), call("rate_handoff"), call("write")}, &ts)
+	if len(kept) != 1 || kept[0].Name != "rate_handoff" {
+		t.Fatalf("kept %v, want only what the finish path asked for", calledNames(kept))
+	}
+	if !ts.declared {
+		t.Error("an ordinary call reopened a finished turn")
+	}
+	if len(ts.dropped) != 2 {
+		t.Errorf("it dropped %v in silence", ts.dropped)
+	}
+	// And says so, keeping the turn open long enough to be told.
+	act, done := f.a.sayWhatWasNotRun(ctx, turnCtx{s: session.Session{ID: "mine"}}, &ts)
+	if !done || act != loopContinue {
+		t.Fatalf("the drop was not reported: %v %v", act, done)
+	}
+	told := lastMessage(t, f)
+	for _, want := range []string{"`bash`", "`write`", "NOT finished after all"} {
+		if !strings.Contains(told, want) {
+			t.Errorf("what it was told does not carry %q:\n%s", want, told)
+		}
+	}
+	// Asked once, never again — the same turn must not be nagged about it every step.
+	if _, again := f.a.sayWhatWasNotRun(ctx, turnCtx{s: session.Session{ID: "mine"}}, &ts); again {
+		t.Error("it said the same thing twice")
+	}
+}
+
+// A re-ask is an assertion that the work is not done, so it reopens the turn — and only twice.
+//
+// Allowed while the turn stayed closed it would be pointless: the answer arrives after the turn
+// has ended and lands where nothing reads it. Unbounded it would be a turn that never finishes.
+func TestAReAskReopensTheTurnAndOnlyTwice(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	call := func(n string) *session.ToolCall { return &session.ToolCall{Name: n} }
+	ctx := context.Background()
+
+	var ts turnState
+	for i := 1; i <= maxReasks; i++ {
+		ts.declared = true
+		kept := f.a.callsAfterDeclaring(ctx, "mine", []*session.ToolCall{call("hand_off")}, &ts)
+		if len(kept) != 1 {
+			t.Fatalf("re-ask %d was thrown away", i)
+		}
+		if ts.declared {
+			t.Fatalf("re-ask %d left the turn closed, so the answer would land in a dead turn", i)
+		}
+		if told := lastMessage(t, f); !strings.Contains(told, "NOT finished any more") {
+			t.Errorf("re-ask %d was allowed without saying the turn had reopened: %s", i, told)
+		}
+	}
+	// Past the cap it is dropped like anything else.
+	ts.declared = true
+	if kept := f.a.callsAfterDeclaring(ctx, "mine", []*session.ToolCall{call("hand_off")}, &ts); len(kept) != 0 {
+		t.Error("a third re-ask was allowed, so the turn need never end")
+	}
+	if !ts.declared {
+		t.Error("a refused re-ask reopened the turn anyway")
+	}
+}
+
+func calledNames(cs []*session.ToolCall) []string {
+	var out []string
+	for _, c := range cs {
+		out = append(out, c.Name)
+	}
+	return out
+}
+
+func lastMessage(t *testing.T, f *handoffFixture) string {
+	t.Helper()
+	msgs := f.myMessages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		for j := len(msgs[i].Parts) - 1; j >= 0; j-- {
+			if s := msgs[i].Parts[j].Text; strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
