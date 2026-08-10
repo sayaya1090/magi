@@ -909,6 +909,18 @@ func run() int {
 		defer stop()
 		fmt.Fprintf(os.Stderr, "magi: daemon on %s (session %s) — attach with `magi --attach` in this directory\n",
 			sockPath, sid)
+		// Scheduled work starts here and nowhere else.
+		//
+		// This is the only call to RunCron in the tree, and the placement is the feature: three
+		// terminals open in one repo would otherwise be three companions all running the nightly
+		// audit, against the same files, at the same second. An interactive session reads the same
+		// jobs so its editor can show them, and fires none of them.
+		//
+		// On dctx, so Ctrl-C stops the schedule with everything else. Its own goroutine because
+		// RunCron blocks until then, and Serve is what this process is here to do.
+		go a.RunCron(dctx, wd, cfg.Cron, func(line string) {
+			fmt.Fprintln(os.Stderr, "magi:", line)
+		})
 		serving := bound
 		bound = nil // Serve owns the socket from here, including releasing the claim
 		if err := serving.Serve(dctx, a); err != nil {
