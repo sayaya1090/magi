@@ -402,8 +402,15 @@ const demoScript = `
         {who: 'user', text: 'spec the empty state for the fleet table, and name the exact tokens'},
         {who: 'thinking', text: 'Three empty states, and the tokens differ between them. Reading each before writing anything down.'},
         {who: 'assistant', text: 'Reading what the empty states do today.'},
-        {who: 'tool', text: 'grep', tool: 'grep', args: 'pattern: empty, path: cmd/magi-web/page.go'},
-        {who: 'result', text: 'page.go:612  e.innerHTML = \'Nothing learned yet.<br>\'\npage.go:988  empty state for the board\npage.go:1136 .empty { max-width:52ch }'},
+        // The call and its result as ONE row, which is what the server sends: ok says how it
+        // ended and the glyph on the summary flips with it. A second row here would be showing a
+        // shape the console does not produce.
+        {who: 'tool', tool: 'grep', args: 'pattern: empty, path: cmd/magi-web/page.go',
+         ok: true, text: 'page.go:612  e.innerHTML = \'Nothing learned yet.<br>\'\npage.go:988  empty state for the board\npage.go:1136 .empty { max-width:52ch }'},
+        // And one that failed, because the glyph and the colour only mean something against the
+        // other case — and a failed call opens by itself, which is the behaviour to be able to see.
+        {who: 'tool', tool: 'bash', args: 'go test ./cmd/magi-web/', ok: false,
+         out: '--- FAIL: TestTheEmptyStateNamesItsTokens\n    page_test.go:88: no token named for the board'},
         {who: 'assistant', text: 'Three of them, and none says what would be there.\n\n' +
           '| where | today | should be |\n|---|---|---|\n' +
           '| fleet | *Nothing learned yet.* | surface-container-low |\n' +

@@ -350,8 +350,25 @@ func TestTranscriptRowsKeepWhatWasAsked(t *testing.T) {
 	for _, r := range rows {
 		kinds = append(kinds, r.Who)
 	}
-	if strings.Join(kinds, ",") != "thinking,tool,failed" {
+	// A call and its result are ONE row now. Split across two, the question a reader has — did that
+	// work — could only be answered by finding the row below it and opening it.
+	if strings.Join(kinds, ",") != "thinking,tool" {
 		t.Fatalf("rows came out as %v", kinds)
+	}
+	if rows[1].Ok == nil {
+		t.Fatal("the call does not say how it ended")
+	}
+	if *rows[1].Ok {
+		t.Error("a failed call is reported as having worked")
+	}
+	// A failure is what somebody opens the row for, so it is what the body holds.
+	if !strings.Contains(rows[1].Out, "FAIL") {
+		t.Errorf("the failure's output is not on the row: %q", rows[1].Out)
+	}
+	// And keeping the output did not cost the arguments: what a tool was asked and what it said
+	// are two facts, and the first attempt at this overwrote one with the other.
+	if !strings.Contains(rows[1].Args, "go test ./...") {
+		t.Errorf("pairing the result lost the arguments: %q", rows[1].Args)
 	}
 	// The arguments moved from Text to their own field. Carried apart so the page can fold a call
 	// behind a summary naming the tool without taking the name back out of a string this file has
@@ -362,8 +379,46 @@ func TestTranscriptRowsKeepWhatWasAsked(t *testing.T) {
 	if !strings.Contains(rows[1].Args, "go test ./...") {
 		t.Errorf("the tool row lost its arguments: %q", rows[1].Args)
 	}
-	if !strings.Contains(rows[2].Text, "FAIL") {
-		t.Errorf("the failed result lost its output: %q", rows[2].Text)
+}
+
+// A result whose call is not in the transcript still draws. Compaction can take the call away, and
+// a result with nowhere to attach must not vanish with it.
+func TestAnOrphanedToolResultStillDraws(t *testing.T) {
+	rows := renderMessages([]session.Message{{
+		Role: session.RoleTool,
+		Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: &session.ToolResult{
+			CallID: "gone", Content: json.RawMessage(`"output"`)}}},
+	}})
+	if len(rows) != 1 || rows[0].Who != "result" {
+		t.Fatalf("an orphaned result came out as %+v", rows)
+	}
+}
+
+// The last prompt is marked while nothing has answered it.
+//
+// Whether a prompt is being worked on is a fact about that prompt, and every row looked the same
+// whether it had been answered an hour ago or was the one being thought about now.
+func TestTheUnansweredPromptIsMarked(t *testing.T) {
+	ask := session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "do it"}}}
+	reply := session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartText, Text: "done"}}}
+
+	waiting := markPending(renderMessages([]session.Message{ask}))
+	if len(waiting) != 1 || !waiting[0].Pending {
+		t.Errorf("a prompt with nothing after it is not marked: %+v", waiting)
+	}
+	answered := markPending(renderMessages([]session.Message{ask, reply}))
+	for _, r := range answered {
+		if r.Pending {
+			t.Errorf("an answered prompt is marked as pending: %+v", answered)
+		}
+	}
+	// And an earlier prompt is not marked just because a later one is.
+	two := markPending(renderMessages([]session.Message{ask, reply, ask}))
+	if two[0].Pending {
+		t.Error("an older, answered prompt was marked pending")
+	}
+	if !two[len(two)-1].Pending {
+		t.Error("the newest unanswered prompt is not marked")
 	}
 }
 

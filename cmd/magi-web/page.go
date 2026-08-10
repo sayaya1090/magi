@@ -1593,6 +1593,17 @@ const indexHTML = `<!doctype html>
      so it belongs where the turn it judged is — the terminal has always put it there. */
   .row.council .who { color:var(--magi-ref-secondary); }
   .row.council .fold > summary { color:var(--magi-ref-secondary); font-weight:600; }
+  /* A call that ended, on the line you can see with the row shut. */
+  .row.toolok .fold > summary { color:var(--magi-ref-success); }
+  .row.toolfail .fold > summary { color:var(--magi-ref-error); }
+  .row.toolfail .who { color:var(--magi-ref-error); }
+  /* The prompt nothing has answered yet. A bar down its left, the way the terminal draws one, and
+     the word beside the label — the bar alone would be a state told only in ink. */
+  .row.pending .txt {
+    border-left:2px solid var(--magi-ref-primary);
+    padding-left:var(--magi-sys-space-150); margin-left:calc(-1 * var(--magi-sys-space-150));
+  }
+  .pendtag { color:var(--magi-ref-primary); font-weight:600; }
   /* Coloured by the verdict, the way the terminal colours it: done is green, a continue is a
      rejection and is red, an abstention is muted. The icon in the summary carries the same fact,
      so a reader who cannot separate the colours is not being told less. */
@@ -4540,7 +4551,12 @@ const foldedKinds = { thinking: true, tool: true, result: true, failed: true, co
 
 // summaryFor is the one line a folded row shows. It has to say enough to decide whether to open it.
 function summaryFor(r) {
-  if (r.who === 'tool') return r.tool ? r.tool + (r.args ? ' ' + oneLine(r.args, 80) : '') : oneLine(r.text, 90);
+  if (r.who === 'tool') {
+    // The glyph says how it ended, on the line that is visible while the row is shut. Split across
+    // two rows, "did that work" could only be answered by finding the one below and opening it.
+    const g = r.ok === undefined ? '⚙' : (r.ok ? '✓' : '✗');
+    return g + ' ' + (r.tool || '') + (r.args ? ' ' + oneLine(r.args, 78) : '');
+  }
   // A council row's summary is its first line: the vote, or the outcome and the tally. What is
   // behind it is the reasoning and what the vote rested on — the same split the terminal makes,
   // where one line per member sits in the transcript and a press opens the whole thing.
@@ -4562,21 +4578,27 @@ function oneLine(s, n) {
 function rowNode(r) {
   // The decision joins the class list, so a vote is coloured by what it says rather than all
   // council rows sharing one colour. A "continue" is a rejection and has to look like one.
-  const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '');
+  const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '')
+    + (r.who === 'tool' && r.ok === false ? ' toolfail' : '')
+    + (r.who === 'tool' && r.ok === true ? ' toolok' : '')
+    + (r.pending ? ' pending' : '');
   const w = el('div', r.who); w.className = 'who';
 
   if (foldedKinds[r.who]) {
     const det = el('details'); det.className = 'txt fold';
     // Remembered per kind, so somebody who wants to watch tool calls is not re-opening them all
     // turn. A failed one starts open: it is the row you came to read.
-    det.open = r.who === 'failed' || localStorage.getItem('fold.' + r.who) === 'open';
+    // A failure is the row somebody came to read, whether it arrived as its own row or folded
+    // into the call that produced it.
+    det.open = r.who === 'failed' || r.ok === false || localStorage.getItem('fold.' + r.who) === 'open';
     det.addEventListener('toggle', () => localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut'));
     det.append(el('summary', summaryFor(r)));
     const body = el('div'); body.className = 'foldbody';
     // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
     // preformatted text rather than run through markdown that would eat their brackets.
     if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
-      const raw = r.args !== undefined && r.args !== '' ? r.args : r.text;
+      // Both, when a call failed: what it was asked, then what it said about it.
+      const raw = [r.args, r.out].filter(Boolean).join('\n\n') || r.text;
       if (looksLikeDiff(raw)) {
         const pre = el('pre'); pre.className = 'diff';
         body.append(diffInto(pre, raw));
@@ -4594,6 +4616,14 @@ function rowNode(r) {
     return d;
   }
 
+  if (r.pending) {
+    // Said in words as well as drawn. A state carried only by a bar is a state some readers are
+    // not told, and this one is the answer to "is it working on what I just asked".
+    w.textContent = r.who;
+    const tag = el('span', ' · ' + tr('row.working'));
+    tag.className = 'pendtag';
+    w.append(tag);
+  }
   const t = el('div'); t.className = 'txt';
   // The user's own words are shown as written. Rendering them would mean a prompt containing a
   // pipe table came back looking like something they did not type.

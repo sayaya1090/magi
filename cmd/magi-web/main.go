@@ -729,7 +729,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			rows := renderMessages(msgs)
+			rows := markPending(renderMessages(msgs))
 			// The council, put back where it happened. Its marks name the message they followed,
 			// so this is a splice and not a guess about ordering — and a mark whose anchor is not
 			// in the transcript (a compaction dropped it) goes at the end rather than nowhere.
@@ -759,6 +759,17 @@ type line struct {
 	Text string `json:"text"`
 	Tool string `json:"tool,omitempty"`
 	Args string `json:"args,omitempty"`
+	// Ok reports how a tool call ended, and is nil while it has not. The call and its result are
+	// ONE row: the terminal has always drawn them that way, and split across two the question a
+	// reader has — did that work — could only be answered by finding the row below and opening it.
+	Ok *bool `json:"ok,omitempty"`
+	// Out is what a failed call wrote. Its own field and not Args: what a tool was ASKED and what
+	// it then said are two different things, and the first attempt at this overwrote one with the
+	// other — so the row that told you a call had failed had stopped telling you what it ran.
+	Out string `json:"out,omitempty"`
+	// Pending marks the last user prompt when nothing has answered it yet. Whether a prompt is
+	// being worked on is a fact about it, and the page had no way to show that at all.
+	Pending bool `json:"pending,omitempty"`
 	// Round and Tally belong to a council row: which round it was, and how the round came out.
 	Round int    `json:"round,omitempty"`
 	Tally string `json:"tally,omitempty"`
@@ -773,6 +784,17 @@ type line struct {
 // asked to do is most of what a watcher wants to know, and the name alone is the progress line
 // that was not enough on the pane strip either.
 func renderMessages(msgs []session.Message) []line {
+	// Results first, by call id, so a call can be drawn as one row that already knows how it ended.
+	// Parallel calls complete out of order, so the pairing is by id and not by position.
+	results := map[string]*session.ToolResult{}
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartToolResult && p.ToolResult != nil {
+				results[p.ToolResult.CallID] = p.ToolResult
+			}
+		}
+	}
+
 	var out []line
 	for _, m := range msgs {
 		for _, p := range m.Parts {
@@ -791,11 +813,24 @@ func renderMessages(msgs []session.Message) []line {
 					// always open and a long call pushed the conversation off the screen; the row
 					// folds now, and what a tool was asked is most of what a watcher wants when
 					// they open it.
-					out = append(out, line{Who: "tool", Text: p.ToolCall.Name,
-						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args), msg: m.ID})
+					row := line{Who: "tool", Text: p.ToolCall.Name,
+						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args), msg: m.ID}
+					if res, ok := results[p.ToolCall.CallID]; ok {
+						good := !res.IsError
+						row.Ok = &good
+						// The result goes in the same row's body. A failure is what somebody opens
+						// the row for, so it is what the body holds; a success is usually noise,
+						// and the arguments are the more useful thing to have kept.
+						if res.IsError {
+							row.Out = fleet.Clip(string(res.Content), 8000)
+						}
+					}
+					out = append(out, row)
 				}
 			case session.PartToolResult:
-				if p.ToolResult != nil {
+				// Drawn on its own only when no call claimed it. A result whose call is in this
+				// transcript is already that call's row.
+				if p.ToolResult != nil && !claimed(msgs, p.ToolResult.CallID) {
 					who := "result"
 					if p.ToolResult.IsError {
 						who = "failed"
@@ -821,6 +856,38 @@ func renderMessages(msgs []session.Message) []line {
 		}
 	}
 	return out
+}
+
+// claimed reports whether a tool call with this id is in the transcript.
+func claimed(msgs []session.Message, callID string) bool {
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartToolCall && p.ToolCall != nil && p.ToolCall.CallID == callID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// markPending flags the last user prompt when nothing in the transcript answers it.
+//
+// Whether a prompt is being worked on is a fact about that prompt, and the console could not show
+// it at all: every row looked the same whether it had been answered an hour ago or was the one the
+// companion is thinking about now. The terminal has drawn a bar on it since it existed.
+//
+// Only the LAST one, and only "nothing has answered it". Queued and abandoned are states the
+// terminal knows because it watched them happen; they are not recoverable from the transcript
+// alone, and a page claiming them from a guess would be worse than a page saying less.
+func markPending(rows []line) []line {
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].Who != "user" {
+			return rows // something came after the last prompt: it has been answered
+		}
+		rows[i].Pending = true
+		return rows
+	}
+	return rows
 }
 
 // spliceCouncil puts each council mark after the last row of the message it followed.
