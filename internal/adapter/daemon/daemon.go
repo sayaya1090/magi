@@ -558,6 +558,49 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		// watch turns this connection into a stream, which no other method does.
+		//
+		// One request, then a frame every time something changes, then the end. The daemon writes
+		// without being asked again — which is the whole point: the answer to handed-over work
+		// arrives when it arrives, and the alternative was the asking side spawning a process
+		// across a network every three seconds for up to two hours to find out.
+		//
+		// It does not disturb the lockstep every other caller relies on, because a watcher gives
+		// this connection over to it and sends nothing else down it. A UI's connection, which
+		// interleaves calls under one mutex, never sees an unsolicited frame.
+		if req.Method == "watch" {
+			taker, ok := eng.(Taker)
+			if !ok {
+				// Refused before the connection is given over to anything, so it is still an
+				// ordinary exchange and stays open like any other refusal.
+				if enc.Encode(Response{Err: "this daemon cannot be handed work"}) != nil {
+					return
+				}
+				continue
+			}
+			// The peer hanging up is the only thing that ends a watch nothing is happening in.
+			// Read for it in the background: without this, a stream whose link died holds a
+			// goroutine until the daemon stops, because there is nothing to write and therefore
+			// nothing to fail. Anything actually read is discarded — a watcher has said its piece.
+			wctx, hungUp := context.WithCancel(ctx)
+			go func() {
+				for sc.Scan() { //nolint:revive // draining, not reading
+				}
+				hungUp()
+			}()
+			werr := taker.Watch(wctx, req.Name, func(h Handover) error {
+				return enc.Encode(Response{OK: true, Handover: &h})
+			})
+			hungUp()
+			if werr != nil {
+				// Said the way every other refusal is said, and the only discarded write in this
+				// file. It is discarded because this connection ends on the next line whatever
+				// happens: a write that fails means the peer left before hearing why, which is
+				// where it was going anyway. Checking it would be a check with one outcome.
+				_ = enc.Encode(Response{Err: werr.Error()})
+			}
+			return // this connection was a stream; it ends with it
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -635,9 +678,18 @@ type Taker interface {
 	// asked about with. A refusal is an error — this companion is mid-turn, or not published —
 	// because a refusal is an answer and the wire has one place for sentences a caller reads.
 	Hand(ctx context.Context, label, request string) (receipt string, err error)
-	// Handed says what became of the work a receipt stands for. Read-only, and called on a timer
-	// by whoever is waiting, so it must stay cheap and must never make something happen.
+	// Handed says what became of the work a receipt stands for. Read-only, and called by whoever
+	// is waiting, so it must stay cheap and must never make something happen.
+	//
+	// Kept alongside Watch rather than replaced by it, and not only for a daemon too old to
+	// stream: it is the one question that distinguishes "this daemon does not know that receipt"
+	// from "this daemon does not know that method", which are a wait to end and a wait to carry
+	// on polling.
 	Handed(ctx context.Context, receipt string) (Handover, error)
+	// Watch says the same thing when it happens instead of when asked, calling say for each
+	// change, and returns when there is nothing more coming. A cancelled ctx is the peer having
+	// hung up, and is not an error. An error is a refusal, said the way the other two say theirs.
+	Watch(ctx context.Context, receipt string, say func(Handover) error) error
 }
 
 // Refused is a daemon's own answer that it will not do the thing.
@@ -657,6 +709,40 @@ func (c *Client) Hand(label, request string) (string, error) {
 		return "", err
 	}
 	return resp.Out, nil
+}
+
+// Watch follows handed-over work until there is nothing more coming, calling each with what the
+// far side says as it says it. Returning false from each stops listening.
+//
+// This connection is given over to the watch: the mutex every other call takes for one exchange is
+// held here for as long as the work lasts, so a watcher must open a connection of its own. A clean
+// end is not an error — the daemon closing the stream is it saying there is no more.
+func (c *Client) Watch(receipt string, each func(Handover) bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.enc.Encode(Request{Method: "watch", Name: receipt}); err != nil {
+		return fmt.Errorf("daemon: send: %w", err)
+	}
+	for c.sc.Scan() {
+		var resp Response
+		if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
+			return fmt.Errorf("daemon: malformed reply: %w", err)
+		}
+		if !resp.OK {
+			why := resp.Err
+			if why == "" {
+				why = "the daemon refused without saying why"
+			}
+			return Refused{Why: why}
+		}
+		if resp.Handover == nil {
+			continue
+		}
+		if !each(*resp.Handover) {
+			return nil
+		}
+	}
+	return c.sc.Err()
 }
 
 // Handed asks what became of work handed over under a receipt.
@@ -705,7 +791,7 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, shutdown", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
