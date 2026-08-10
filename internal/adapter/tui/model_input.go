@@ -371,6 +371,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true // swallow the rest so a stray key does not type into the input behind it
 	}
 
+	// And /cron, the same way.
+	if m.cronning {
+		if cmd, handled := m.handleCronKey(msg); handled {
+			return cmd, true
+		}
+		return nil, true
+	}
+
 	// Interactive /route editor takes priority while open.
 	if m.routing {
 		return m.handleRouteKey(msg)
@@ -712,6 +720,8 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		m.info("tools:\n  " + joinOr(m.app.ToolNames(), "(none)"))
 	case "/subagents":
 		out = m.openSubagents()
+	case "/cron":
+		out = m.openCron()
 	case "/sessions":
 		m.info(m.sessionsList())
 	case "/permission":

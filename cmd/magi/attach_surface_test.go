@@ -38,6 +38,21 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		"CouncilMemberNames": true, "ListModels": true, "ToolNames": true, "Profiles": true,
 		"Permission": true, "Subagents": true, "SubagentJobs": true, "CreateSession": true,
 		"Fork": true, "RunShell": true, "SetTodos": true,
+		// Reading the schedule is reading a file both processes can see.
+		"ScheduledJobs": true,
+	}
+	// hybrid: done HERE, and then the daemon is told.
+	//
+	// A fourth answer, because three were not enough and the difference is real. These write
+	// something both processes can see — a config file on a shared filesystem — so doing it locally
+	// is right, and sending the edit over the socket would be asking the daemon to do a thing this
+	// process can do perfectly well. What the daemon holds is the DERIVED state it read out of that
+	// file, so it has to be told the file moved. Overridden like a forwarded method, and listed
+	// apart from them because "goes to the daemon" would be the wrong description to maintain
+	// against: it does not.
+	hybrid := map[string]string{
+		"EditSchedule": "writes the config file here, then calls reload-cron so the running " +
+			"daemon re-reads it",
 	}
 	// known-local-and-wrong: it acts on this process and that is visibly not the daemon's state.
 	// Listed rather than fixed, so the gap is a decision on the record instead of a surprise; each
@@ -56,16 +71,16 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 	for _, name := range engineMethods(t) {
 		switch {
 		case forwarded[name], local[name]:
-		case knownGap[name] != "":
+		case knownGap[name] != "", hybrid[name] != "":
 		default:
 			t.Errorf("engine method %q is not classified: it will run against this process's own "+
 				"App, which is right for a read and silently wrong for anything that changes the "+
-				"run. Add it to forwarded, local, or knownGap in this test and do what that says.",
-				name)
+				"run. Add it to forwarded, local, hybrid or knownGap in this test and do what that "+
+				"says.", name)
 		}
 	}
 
-	// And the ones marked forwarded must actually be overridden, or the label is a wish.
+	// And the ones that are supposed to be overridden must actually be, or the label is a wish.
 	overridden := overriddenByAttached(t)
 	for name := range forwarded {
 		if !overridden[name] {
@@ -73,10 +88,16 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 				"locally, against an engine with no run in it", name)
 		}
 	}
+	for name := range hybrid {
+		if !overridden[name] {
+			t.Errorf("%q is listed as hybrid (%s) and `attached` does not override it, so the "+
+				"daemon is never told", name, hybrid[name])
+		}
+	}
 	// The reverse: something overridden but not listed is a decision nobody wrote down.
 	for name := range overridden {
-		if !forwarded[name] {
-			t.Errorf("`attached` overrides %q, which is not in the forwarded set", name)
+		if !forwarded[name] && hybrid[name] == "" {
+			t.Errorf("`attached` overrides %q, which is in neither the forwarded nor the hybrid set", name)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // Engine is everything the terminal UI asks of the thing running the agent.
@@ -28,6 +29,11 @@ type Engine interface {
 	BackgroundTail(id string, max int) string
 	Compact(ctx context.Context, c command.Compact) error
 	ContextView(ctx context.Context, sid session.SessionID) (string, error)
+	// EditSchedule and ScheduledJobs are the /cron screen. Reading is local and always right — the
+	// jobs are in a config file this process can see. Writing is local too, and then has to TELL a
+	// daemon, which is why attached overrides it rather than inheriting it.
+	EditSchedule(workdir string, c port.ScheduleChange) (string, error)
+	ScheduledJobs(workdir string) []app.ScheduledJobInfo
 	CouncilMemberNames() []string
 	CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error)
 	Fork(ctx context.Context, sid session.SessionID, upToSeq int64) (session.SessionID, error)

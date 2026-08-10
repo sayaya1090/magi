@@ -14,6 +14,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -208,12 +209,27 @@ type Model struct {
 	// The list is the one /route offers, so the two screens cannot disagree about what exists.
 	subSugSel    int
 	subagentList []subagentRow
-	routeSel     int          // selected row
-	routing      bool         // the editor modal is open
-	routeEditing bool         // typing a new value for the selected (session/agent) row
-	routeBuf     string       // the value being typed
-	routePickIdx int          // profile index while cycling with ←/→ (-1 = free text)
-	profileForm  *profileForm // non-nil while adding/editing an LLM profile
+
+	// The /cron screen. Its own fields rather than reusing the subagent ones: the two are open at
+	// different times, but sharing a buffer between two editors is how a half-typed value from one
+	// screen turns up in the other.
+	cronning      bool // the /cron list is open
+	cronSel       int
+	cronList      []app.ScheduledJobInfo
+	cronEditing   bool // the two-field editor is over the list
+	cronFresh     bool // that editor is making a new job, so the name is typeable
+	cronField     cronEditField
+	cronName      string
+	cronSchedBuf  string
+	cronPromptBuf string
+	cronConfirm   bool         // a delete is waiting for y
+	cronNote      string       // what the engine said about the last change
+	routeSel      int          // selected row
+	routing       bool         // the editor modal is open
+	routeEditing  bool         // typing a new value for the selected (session/agent) row
+	routeBuf      string       // the value being typed
+	routePickIdx  int          // profile index while cycling with ←/→ (-1 = free text)
+	profileForm   *profileForm // non-nil while adding/editing an LLM profile
 
 	// Session-model suggest box (the /route session row): a merged, de-duplicated
 	// list of configured profile models + the gateway's live catalog, so a user
@@ -329,6 +345,7 @@ var slashCommands = []cmdInfo{
 	{"/route", "models & routing editor (alias: /model)"},
 	{"/tools", "list available tools"},
 	{"/subagents", "turn plugin subagents on and off"},
+	{"/cron", "see and change what this workspace runs on a schedule"},
 	{"/sessions", "list sessions in this directory"},
 	{"/resume", "resume a session (/resume to list, /resume N to switch)"},
 	{"/rewind", "roll back the last user turn(s) (/rewind [n])"},

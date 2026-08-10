@@ -180,38 +180,71 @@ func (a *App) removeScheduled(workdir string, c port.ScheduleChange) (string, er
 	return fmt.Sprintf("Removed %q from %s. It will not run again.", name, path), nil
 }
 
-// renderSchedule lists the jobs in lines, newest information first: when each next runs.
-func (a *App) renderSchedule(workdir string) string {
+// ScheduledJobInfo is one job as the screens show it.
+//
+// Next and Problem are derived here rather than by each surface, because "when does this run next"
+// is a question with one right answer and three places that ask it — the tool's listing, the
+// terminal's editor, the console's tab. Three derivations would agree until one of them was fixed.
+type ScheduledJobInfo struct {
+	Name     string
+	Schedule string
+	Prompt   string
+	Enabled  bool
+	// Next is when it runs next. Zero when it never will — because it is switched off, or because
+	// Problem says why.
+	Next time.Time
+	// Problem is why this job can never run, in words: an unparseable schedule, or one that parses
+	// and matches no instant. Empty when there is nothing wrong. A job in this state is the one a
+	// listing MUST mark, since nothing else will ever mention it again.
+	Problem string
+}
+
+// ScheduledJobs returns this workspace's jobs, machine-wide ones included, in name order.
+func (a *App) ScheduledJobs(workdir string) []ScheduledJobInfo {
 	jobs := a.scheduleJobs(workdir)
-	if len(jobs) == 0 {
-		return "Nothing is scheduled in this workspace."
-	}
 	names := make([]string, 0, len(jobs))
 	for n := range jobs {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d scheduled job(s) in this workspace:\n", len(jobs))
 	now := time.Now()
+	out := make([]ScheduledJobInfo, 0, len(names))
 	for _, n := range names {
 		j := jobs[n]
-		fmt.Fprintf(&b, "\n%s · %s", n, j.Schedule)
+		info := ScheduledJobInfo{Name: n, Schedule: j.Schedule, Prompt: j.Prompt, Enabled: j.On()}
+		sch, err := cron.Parse(j.Schedule)
 		switch {
-		case !j.On():
+		case err != nil:
+			info.Problem = err.Error()
+		case sch.Next(now).IsZero():
+			info.Problem = "this schedule never comes round"
+		case info.Enabled:
+			info.Next = sch.Next(now)
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+// renderSchedule lists the jobs in lines. Built on ScheduledJobs so the words the model reads and
+// the rows the screens draw cannot disagree about when something runs.
+func (a *App) renderSchedule(workdir string) string {
+	jobs := a.ScheduledJobs(workdir)
+	if len(jobs) == 0 {
+		return "Nothing is scheduled in this workspace."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d scheduled job(s) in this workspace:\n", len(jobs))
+	for _, j := range jobs {
+		fmt.Fprintf(&b, "\n%s · %s", j.Name, j.Schedule)
+		switch {
+		case j.Problem != "":
+			fmt.Fprintf(&b, " · BROKEN (%s) — it will never run", j.Problem)
+		case !j.Enabled:
 			b.WriteString(" · off")
 		default:
-			sch, err := cron.Parse(j.Schedule)
-			if err != nil {
-				fmt.Fprintf(&b, " · BROKEN (%v) — it will never run", err)
-				break
-			}
-			if next := sch.Next(now); next.IsZero() {
-				b.WriteString(" · never comes round — it will never run")
-			} else {
-				fmt.Fprintf(&b, " · next %s", next.Format("2006-01-02 15:04 MST"))
-			}
+			fmt.Fprintf(&b, " · next %s", j.Next.Format("2006-01-02 15:04 MST"))
 		}
 		fmt.Fprintf(&b, "\n    %s", clipLine(oneLine(j.Prompt), 120))
 	}

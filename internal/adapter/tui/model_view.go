@@ -235,6 +235,10 @@ func (m Model) View() tea.View {
 		pv := m.subagentsView()
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
+	} else if m.cronning {
+		pv := m.cronView()
+		parts = append(parts, pv)
+		aboveInput += lipgloss.Height(pv)
 	} else if m.routing {
 		pv := m.routeView()
 		parts = append(parts, pv)

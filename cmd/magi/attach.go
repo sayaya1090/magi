@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // attached is the engine an attached UI talks to: its own App for everything it can work out for
@@ -64,6 +65,27 @@ func (a attached) RespondQuestion(ctx context.Context, c command.RespondQuestion
 // to undo would keep running, because the goroutine driving it is over there.
 func (a attached) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, error) {
 	return a.c.Rewind(ctx, sid, n)
+}
+
+// EditSchedule writes here and then tells the daemon.
+//
+// Both halves are necessary and neither is the other's. The jobs live in a config file on a
+// filesystem both processes can see, so writing locally is right — sending the edit over the socket
+// would be asking the daemon to do a thing this process can do perfectly well. But the daemon holds
+// the ARMED set in memory, and it learned it by reading that file; without the second call it would
+// go on firing yesterday's schedule and the person who just changed it would watch nothing happen.
+func (a attached) EditSchedule(workdir string, c port.ScheduleChange) (string, error) {
+	out, err := a.App.EditSchedule(workdir, c)
+	if err != nil {
+		return out, err
+	}
+	// Best effort, and deliberately not an error: the file is written and correct. A daemon that
+	// went away between the write and this call is a reason to say the edit lands on its next
+	// start, not a reason to report that the edit failed.
+	if rerr := a.c.ReloadCron(); rerr != nil {
+		return out + " (the running daemon did not acknowledge it; it will pick this up when it next starts)", nil
+	}
+	return out, nil
 }
 
 func (a attached) Compact(ctx context.Context, c command.Compact) error {
