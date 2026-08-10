@@ -189,8 +189,13 @@ func TestJoiningSomebodyWhoSharesNothingSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), "share nothing beyond this") {
+	if !strings.Contains(string(b), "share nothing else") {
 		t.Errorf("an empty proposal does not say it is empty:\n%s", b)
+	}
+	// It is not a blank page even so: mcp_peers is what joining a team is usually for, and it is
+	// the one line that is a switch rather than a decision.
+	if !strings.Contains(string(b), "mcp_peers") {
+		t.Errorf("a newcomer is not told how to reach them at all:\n%s", b)
 	}
 }
 
@@ -246,5 +251,80 @@ team = "frontend"
 	// And it is a proposal like everything else here: commented out, in effect nowhere.
 	if !strings.Contains(got, "# embed_model") {
 		t.Errorf("the line is live rather than proposed:\n%s", got)
+	}
+}
+
+// The proposal is one [companion] section, not two.
+//
+// It is written to be read as the thing it would become, and two tables of one name is not TOML.
+// The mcp_peers paragraph and the team/name/role block are both about the same section, and the
+// first attempt at this emitted a header for each.
+func TestTheProposalHasOneCompanionSection(t *testing.T) {
+	cfg, err := os.MkdirTemp("/tmp", "magijoinsec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(cfg)
+	publishWorkspace(t, cfg, "s", daemon.Identity{Name: "design", Team: "frontend"},
+		"[companion]\nname = \"design\"\nteam = \"frontend\"\n")
+	mine, err := os.MkdirTemp("/tmp", "magijoinme2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(mine)
+
+	var out bytes.Buffer
+	if code := joinTeam(&out, cfg, mine, "design"); code != 0 {
+		t.Fatalf("exited %d: %s", code, out.String())
+	}
+	b, err := os.ReadFile(filepath.Join(mine, ".magi", "joined-design.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(b), "\n[companion]"); n != 1 {
+		t.Errorf("%d [companion] headers:\n%s", n, b)
+	}
+	// Both things it is about are inside it.
+	for _, want := range []string{"team = \"frontend\"", "mcp_peers = true"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("the section is missing %q:\n%s", want, b)
+		}
+	}
+}
+
+// A workspace whose only shared thing is an AGENTS.md is not "shares nothing".
+//
+// The old test for that read the LENGTH of the proposal rather than the config, so it answered
+// "did we write much" — and the first paragraph added above it would have turned every such join
+// into a page that lists their standing instructions and then says they share nothing.
+func TestAnAgentsFileCountsAsSomethingShared(t *testing.T) {
+	cfg, err := os.MkdirTemp("/tmp", "magijoinag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(cfg)
+	wd := publishWorkspace(t, cfg, "s", daemon.Identity{Name: "docs"}, "[companion]\nname = \"docs\"\n")
+	if err := os.WriteFile(filepath.Join(wd, ".magi", "AGENTS.md"), []byte("# how we work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mine, err := os.MkdirTemp("/tmp", "magijoinme3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(mine)
+
+	var out bytes.Buffer
+	if code := joinTeam(&out, cfg, mine, "docs"); code != 0 {
+		t.Fatalf("exited %d: %s", code, out.String())
+	}
+	b, err := os.ReadFile(filepath.Join(mine, ".magi", "joined-docs.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "AGENTS.md") {
+		t.Fatalf("their standing instructions are not mentioned:\n%s", b)
+	}
+	if strings.Contains(string(b), "share nothing else") {
+		t.Errorf("it lists their AGENTS.md and then says they share nothing:\n%s", b)
 	}
 }

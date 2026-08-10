@@ -108,11 +108,29 @@ func proposeJoin(source daemon.Info, c config.Config) string {
 		"# yourself — an [mcp] entry is a command this magi would run, and a hook is a shell\n" +
 		"# line, so those are decisions rather than copies.\n\n")
 
+	// ONE [companion] section. Two headers of the same name is not TOML, and this file is meant to
+	// be read as the thing it would become.
+	b.WriteString("[companion]\n")
 	if c.Companion.Team != "" {
-		fmt.Fprintf(&b, "[companion]\n# team = %q            # the group they are in\n"+
+		fmt.Fprintf(&b, "# team = %q            # the group they are in\n"+
 			"# name = \"...\"        # yours, and it must differ from theirs\n"+
-			"# role = \"...\"        # what YOUR workspace is for\n\n", c.Companion.Team)
+			"# role = \"...\"        # what YOUR workspace is for\n", c.Companion.Team)
 	}
+	// The one thing a newcomer turns on rather than copies, and the answer to what joining a team
+	// is usually FOR — everything else in this file is a decision, and this is a switch.
+	//
+	// It needs no [mcp] entry per companion. Every companion publishes to one directory and every
+	// companion reads it, so the roster is already known exactly at startup; a hand-written entry
+	// per peer per workspace is a copy of something the machine can see, and it goes stale the
+	// first time somebody starts a fifth companion.
+	b.WriteString("#\n" +
+		"# Ask them things. With this on, every companion running here is attached as a tool\n" +
+		"# server when this magi starts — about (what it is for), knows (what it has written\n" +
+		"# down) and detail. Nothing is copied for it: the roster is read from the same place\n" +
+		"# the fleet page reads it. It costs three tools per companion in every prompt, which\n" +
+		"# is why it is a choice rather than the default.\n" +
+		"# mcp_peers = true\n\n")
+
 	if c.ExperienceDir != "" {
 		b.WriteString("# The shared brain: point at the same directory and you retrieve what the\n" +
 			"# team has learned, and contribute back to it. This is the one line that makes a\n" +
@@ -164,7 +182,9 @@ func proposeJoin(source daemon.Info, c config.Config) string {
 		}
 		b.WriteString("\n")
 	}
-	if agents := filepath.Join(source.Workdir, ".magi", "AGENTS.md"); exists(agents) {
+	agents := filepath.Join(source.Workdir, ".magi", "AGENTS.md")
+	hasAgents := exists(agents)
+	if hasAgents {
 		fmt.Fprintf(&b, "# Their standing instructions are in %s.\n"+
 			"# Read it; whatever is the TEAM's rather than their workspace's belongs in yours too.\n\n",
 			agents)
@@ -173,9 +193,9 @@ func proposeJoin(source daemon.Info, c config.Config) string {
 		fmt.Fprintf(&b, "# They run %d hook(s) — shell commands on tool events. Not copied: read\n"+
 			"# their config and decide.\n\n", len(c.Hooks))
 	}
-	if b.Len() < 400 { // only the header got written
-		b.WriteString("# They share nothing beyond this: no experience directory, no MCP servers,\n" +
-			"# no hooks. Joining them is just declaring your own [companion] name and role.\n")
+	if !sharesAnything(c) && !hasAgents {
+		b.WriteString("# They share nothing else: no experience directory, no MCP servers, no hooks.\n" +
+			"# Joining them is declaring your own name and role, and turning mcp_peers on.\n")
 	}
 	return b.String()
 }
@@ -246,4 +266,15 @@ func sanitizeName(s string) string {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// sharesAnything reports whether a workspace has anything for a newcomer beyond its team name.
+//
+// A predicate rather than the length of the buffer, which is what this was. That measured the
+// proposal instead of the config, so it answered "did we write much" — and it silently became a
+// lie the moment a paragraph was added above it, telling every newcomer their team shares nothing
+// while the servers were listed further down the same file.
+func sharesAnything(c config.Config) bool {
+	return c.ExperienceDir != "" || strings.TrimSpace(c.EmbedModel) != "" ||
+		len(c.MCP) > 0 || len(c.Hooks) > 0
 }
