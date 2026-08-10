@@ -1556,6 +1556,11 @@ const indexHTML = `<!doctype html>
      so it belongs where the turn it judged is — the terminal has always put it there. */
   .row.council .who { color:var(--magi-ref-secondary); }
   .row.council .fold > summary { color:var(--magi-ref-secondary); font-weight:600; }
+  /* A command somebody ran from here. Its own colour because it is the one row on the page that
+     nobody's agent did — and it is not in the log, so it is also the one row a second console
+     watching the same session will not have. */
+  .row.shell .who, .row.shell .fold > summary { color:var(--magi-ref-warn); }
+  .row.shell .fold > summary { font:var(--magi-sys-body-s) var(--magi-ref-mono); }
 
   /* ── the prompt an agent is blocked on, on that agent's own page ─────────── */
   /* Without this, opening an agent is the one place you CANNOT see that it is waiting for you: the
@@ -4338,7 +4343,7 @@ function md(node, text) {
 // had a transcript, and the page had neither: a thousand-line tool result sat open between two
 // sentences, and reading a conversation meant scrolling past the machinery of it. What is in them
 // is the evidence for everything else on the page, so it stays one press away and never further.
-const foldedKinds = { thinking: true, tool: true, result: true, failed: true, council: true };
+const foldedKinds = { thinking: true, tool: true, result: true, failed: true, council: true, shell: true };
 
 // summaryFor is the one line a folded row shows. It has to say enough to decide whether to open it.
 function summaryFor(r) {
@@ -4347,6 +4352,7 @@ function summaryFor(r) {
   // behind it is the reasoning and what the vote rested on — the same split the terminal makes,
   // where one line per member sits in the transcript and a press opens the whole thing.
   if (r.who === 'council') return String(r.text || '').split('\n')[0];
+  if (r.who === 'shell') return '! ' + r.text + (r.exit === undefined ? '' : '  → ' + r.exit);
   // The label is a different word from the kind on purpose. 'thinking' is what the server calls
   // this row; the word a person reads is a translated label, and spelling them the same is how one
   // of them ends up hard-coded in English on every other locale.
@@ -4374,7 +4380,7 @@ function rowNode(r) {
     const body = el('div'); body.className = 'foldbody';
     // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
     // preformatted text rather than run through markdown that would eat their brackets.
-    if (r.who === 'tool' || r.who === 'result' || r.who === 'failed') {
+    if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
       body.append(el('pre', r.args !== undefined && r.args !== '' ? r.args : r.text));
     } else if (r.who === 'council') {
       // Everything after the summary line, which the summary already showed.
@@ -4395,17 +4401,54 @@ function rowNode(r) {
   return d;
 }
 
+// localRows are the shell runs this console has done, in the order it did them.
+//
+// They are not in the log. The daemon does not record a bang-command and neither does the terminal,
+// so a transcript rebuilt from the log would drop them on the next frame — which arrives two and a
+// half times a second. Kept here, appended after whatever the log says, and gone when the page is
+// reloaded, which is exactly as long as they are true for.
+const localRows = [];
+// The last thing the log said, so a shell run can redraw without waiting for the next frame.
+let lastRows = [];
+
 function draw(rows) {
   const stick = atBottom();
-  log.replaceChildren(...(rows || []).map(rowNode));
+  log.replaceChildren(...[...(rows || []), ...localRows].map(rowNode));
   if (stick) window.scrollTo(0, document.body.scrollHeight);
+}
+
+// runShell sends a command to the daemon and shows what it wrote.
+async function runShell(cmd) {
+  const pending = {who: 'shell', text: cmd, args: tr('shell.running')};
+  localRows.push(pending);
+  draw(lastRows);
+  let r;
+  try {
+    r = await fetch('/shell' + q(), {method: 'POST', body: new URLSearchParams({cmd: cmd})});
+  } catch {
+    pending.args = tr('error.unreachable');
+    draw(lastRows);
+    return;
+  }
+  if (!r.ok) {
+    pending.args = (await r.text().catch(() => '')).trim() || tr('error.unreachable');
+    draw(lastRows);
+    return;
+  }
+  const out = await r.json().catch(() => null);
+  if (!out) { pending.args = tr('error.unreachable'); draw(lastRows); return; }
+  // The exit code is on the summary because it is the answer to "did that work" and the output is
+  // the answer to "what happened" — one of those is wanted every time and the other sometimes.
+  pending.exit = out.exit;
+  pending.args = String(out.out || '').trim() || tr('shell.nooutput');
+  draw(lastRows);
 }
 
 let es, fleetTimer, boardSub;
 function connect() {
   es = new EventSource('/events' + q());
   es.onopen = () => { conn('live'); says(tr('state.live')); };
-  es.onmessage = e => draw(JSON.parse(e.data));
+  es.onmessage = e => { lastRows = JSON.parse(e.data); draw(lastRows); };
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
   es.onerror = () => { conn('lost'); says(tr('state.reconnecting'));
@@ -4825,6 +4868,16 @@ f.onsubmit = e => {
     t.value = ''; grow();
     post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text: v}), a.socket, a.peer)
       .then(loadFleet);
+    return;
+  }
+  // A leading bang runs the rest as a command, where the daemon is. The terminal has read this
+  // prefix since it existed, and a console that sent "!ls" to the model as a prompt was quietly
+  // doing something else with the same keystrokes.
+  if (v.startsWith('!')) {
+    const cmd = v.slice(1).trim();
+    if (!cmd) return;
+    t.value = ''; grow();
+    runShell(cmd);
     return;
   }
   // The composer is only on a companion's page, so there is one place the work can go.

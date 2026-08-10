@@ -325,6 +325,16 @@ const demoScript = `
   globalThis.fetch = async (path, init) => {
     const url = String(path).split('?')[0];
     if (/i18n\/language\.[a-z]{2}\.json$/.test(url)) return realFetch(path);
+    // A shell run answers with output, because the whole point of the row is what came back. The
+    // other actions say what they would have done; this one cannot, since a summary reading "would
+    // have run" beside an empty body teaches that the feature does nothing.
+    if (url === '/shell' && init && init.method === 'POST') {
+      const cmd = new URLSearchParams(String(init.body || '')).get('cmd') || '';
+      const out = 'demo — this would have run in the daemon\'s workspace, as its user:\n  ' + cmd;
+      banner.textContent = 'demo — would have run: ' + cmd;
+      return {ok: true, status: 200, json: async () => ({out: out, exit: 0}),
+              text: async () => JSON.stringify({out: out, exit: 0})};
+    }
     if (init && init.method === 'POST') {
       // Actions say what they would have done rather than pretending they did it: a demo that
       // silently accepts a delete teaches the wrong thing about the real console.

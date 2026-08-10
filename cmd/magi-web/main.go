@@ -522,6 +522,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/events":               s.events,
 		"/submit":               s.submit,
 		"/interrupt":            s.interrupt,
+		"/shell":                s.shell,
 		"/answer":               s.answer,
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,
@@ -960,6 +961,50 @@ func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// shell runs a command in the daemon's workspace and answers with what it wrote.
+//
+// # What this is, said plainly
+//
+// It runs as the user who started the daemon, in that daemon's workspace, and it does NOT go
+// through the permission policy the bash TOOL goes through. That gate exists to put a human in
+// front of what a model wants to run; a person typing a command at a console is already that human,
+// and asking them to approve their own keystroke would be a dialog that only ever gets one answer.
+//
+// So the protection is where it has always been for this console: it is bound to loopback, it
+// refuses to start anywhere else, and every state-changing route including this one is behind the
+// same-site check. Whoever can reach this page can already reach the agent that runs commands for a
+// living.
+//
+// # Not recorded, like the terminal's
+//
+// The terminal's own bang-commands are display-only — a block in that process's transcript and
+// nothing in the log — and this matches, because the two should not disagree about what a shell run
+// is. The output comes back to the caller and is drawn by the page; nothing is appended to the
+// session. A second console watching does not see it, which is a real limitation and the same one
+// the terminal has.
+func (s *server) shell(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+		return
+	}
+	cmd := strings.TrimSpace(r.FormValue("cmd"))
+	if cmd == "" {
+		http.Error(w, "no command", http.StatusBadRequest)
+		return
+	}
+	var out string
+	var exit int
+	err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		var e error
+		out, exit, e = cl.Shell(cmd)
+		return e
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, "shell", map[string]any{"out": out, "exit": exit})
 }
 
 func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {

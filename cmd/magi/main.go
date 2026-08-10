@@ -965,7 +965,10 @@ func run() int {
 		})
 		serving := bound
 		bound = nil // Serve owns the socket from here, including releasing the claim
-		serveErr := serving.Serve(dctx, a)
+		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
+		// closed over rather than taken from the request: a method that let a caller name the
+		// directory would be a way to run commands anywhere on this machine from a page.
+		serveErr := serving.Serve(dctx, daemonEngine{App: a, workdir: wd})
 		stopCron() // whichever way Serve ended, the schedule ends with it
 		if serveErr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", serveErr)
@@ -1688,4 +1691,25 @@ func sanitizeTeam(name string) string {
 		return "team"
 	}
 	return out
+}
+
+// daemonEngine is the App as the socket sees it: everything it already does, plus the two things
+// that only make sense for the process that IS the daemon.
+//
+// RunShellHere is the reason it exists. App.RunShell takes a directory, which is right for a
+// terminal running beside its own files and wrong over a socket — the caller is somewhere else, and
+// the answer it wants is what the command does in this workspace, as this user, beside the files
+// the agent is editing.
+type daemonEngine struct {
+	*app.App
+	workdir string
+}
+
+func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
+	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
+	// command that will not finish, so an unbounded one would hold a daemon goroutine for as long
+	// as the machine is up.
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return d.App.RunShell(rctx, d.workdir, cmd)
 }

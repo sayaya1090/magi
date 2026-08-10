@@ -143,6 +143,8 @@
   "reach.only": "Only {name}",
   "reach.team": "The {team} team",
   "row.reasoning": "Reasoning",
+  "shell.nooutput": "(no output)",
+  "shell.running": "running…",
   "side.hide": "Hide the facts",
   "side.show": "Show the facts",
   "skill.learned_from": "From {src}",

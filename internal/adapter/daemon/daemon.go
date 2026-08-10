@@ -97,6 +97,21 @@ type Controller interface {
 	SetPermission(p string)
 }
 
+// ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
+//
+// The distinction is the whole reason this crosses the socket. Everything else a viewer does
+// locally is a READ of a shared log, and reading it twice gives the same answer. A command is not:
+// run in the viewer it would execute on whichever machine and account happens to be looking, in
+// whatever directory that process started in — and the answer somebody wants is what the command
+// does in the daemon's workspace, as the daemon's user, beside the files the agent is editing.
+//
+// It carries no workdir argument for the same reason. The workspace is the daemon's, and a method
+// that let the caller name a directory would be a way to run commands anywhere on that machine
+// from a page.
+type ShellRunner interface {
+	RunShellHere(ctx context.Context, cmd string) (out string, exit int, err error)
+}
+
 // CronController is the part of an engine that holds scheduled work.
 //
 // Optional and asserted at dispatch, like Controller, and separate from it for the reason Controller
@@ -135,6 +150,11 @@ type Response struct {
 	Err string `json:"error,omitempty"`
 	// Waiting answers the status method: absent when the engine is not blocked on anybody.
 	Waiting *Waiting `json:"waiting,omitempty"`
+	// Out and Exit answer the shell method. Exit is a pointer so that a zero — which is the answer
+	// a caller most wants to be able to trust — is distinguishable from a reply that carried no
+	// exit code at all.
+	Out  string `json:"out,omitempty"`
+	Exit *int   `json:"exit,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -475,6 +495,29 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		// shell is answered here rather than in dispatch, like status, because it has a payload:
+		// dispatch returns only an error, and giving it a return value for one caller would make
+		// every other write site pretend to produce something.
+		if req.Method == "shell" {
+			runner, ok := eng.(ShellRunner)
+			switch {
+			case !ok:
+				resp = Response{Err: "this daemon cannot run commands"}
+			case strings.TrimSpace(req.Text) == "":
+				resp = Response{Err: "no command"}
+			default:
+				out, code, rerr := runner.RunShellHere(ctx, req.Text)
+				if rerr != nil {
+					resp = Response{Err: rerr.Error()}
+				} else {
+					resp = Response{OK: true, Out: out, Exit: &code}
+				}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		err := dispatch(ctx, eng, req)
 		resp = Response{OK: err == nil}
 		if err != nil {
@@ -520,7 +563,7 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shutdown", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shell, shutdown", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
@@ -635,6 +678,22 @@ func (c *Client) SetPermission(p string) error {
 // For an editor in another process — the console, an attached terminal. The schedule tool runs
 // inside the daemon and calls the engine directly instead.
 func (c *Client) ReloadCron() error { return c.call(Request{Method: "reload-cron"}) }
+
+// Shell runs a command in the daemon's workspace, as the daemon's user, and returns what it wrote
+// and what it exited with.
+//
+// A viewer running it locally would run it on whichever machine is looking, in whatever directory
+// that process started in. That is a different question with the same spelling.
+func (c *Client) Shell(cmd string) (out string, exit int, err error) {
+	resp, err := c.exchange(Request{Method: "shell", Text: cmd})
+	if err != nil {
+		return "", -1, err
+	}
+	if resp.Exit == nil {
+		return resp.Out, -1, nil
+	}
+	return resp.Out, *resp.Exit, nil
+}
 
 // Shutdown asks the daemon to stop.
 //
