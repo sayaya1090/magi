@@ -375,17 +375,20 @@ func Resolve(list []Agent, to string) []Agent {
 // here is this companion's own socket, and it is left OUT: a list that offers you yourself is an
 // invitation to a refusal. A companion that is not running is left out for the same reason.
 //
-// So is one on another machine, for now. Work is handed over by dialling a unix socket, which is a
-// path on the filesystem it names — there is no transport across machines yet, and a roster that
-// offered one would be advertising what the tool then refuses. When the way over exists this line
-// goes; until then the cluster is something the listings show and hand_off cannot use.
+// A companion on another machine IS offered, and its host is on the line. Both halves matter: work
+// crosses now, so leaving it out would hide a companion that can do the job — and the machine has
+// to be visible because it is the difference between a name that is unique here and one that is
+// unique in the cluster. Two hosts can each have a "design".
 func RosterLines(list []Agent, here string) string {
 	out := make([]string, 0, len(list))
 	for _, a := range list {
-		if a.Name == "" || !a.Live || a.State == Remote || (here != "" && a.Socket == here) {
+		if a.Name == "" || !a.Live || (here != "" && a.Socket == here) {
 			continue
 		}
 		line := "  " + a.Name
+		if a.State == Remote {
+			line += " (on " + a.Host + ")"
+		}
 		if a.Team != "" {
 			line += " [" + a.Team + "]"
 		}
@@ -567,6 +570,28 @@ func DispatchedBy(who string) string {
 	return DispatchMark + who + ", another companion on this machine. Answer it here; they will " +
 		"read what you say from your transcript, and you can reach them with mcp__" + who +
 		"__ask if you need something from them to do it."
+}
+
+// DispatchedFrom is the label on work handed over from another MACHINE.
+//
+// The same mark, so the handoff view and the no-chaining rule keep reading one spelling — and a
+// different sentence after it, because both halves of the local one are false here. They are not
+// "on this machine", and there is no mcp__<who>__ask to reply through: the ear is a peer attached
+// at startup from this machine's own config, and a companion two hosts away is not in it.
+//
+// Saying so is the point. The failure this tree has written down is a description that names a way
+// to do something that does not exist — a model told to reach somebody it cannot will spend a turn
+// finding that out. So the label says plainly that the asker cannot be reached, and what to do
+// instead: answer in the transcript, and if the work cannot proceed, say what is missing and stop.
+func DispatchedFrom(who, host string) string {
+	where := "another machine"
+	if strings.TrimSpace(host) != "" {
+		where = host
+	}
+	return DispatchMark + who + " on " + where + ", another companion in this cluster. They are " +
+		"reading your transcript for the answer and you cannot reach them from here — there is no " +
+		"reply channel across machines. Answer it here. If you cannot proceed without something " +
+		"only they know, say exactly what is missing and stop; they will read that."
 }
 
 // WordMark opens a message a companion put straight into this one's conversation, rather than a

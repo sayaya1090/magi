@@ -697,17 +697,29 @@ func TestASightingIsWhatMakesARemoteCompanionCountAsThere(t *testing.T) {
 	}
 }
 
-// Work is handed over a socket path on THIS filesystem, so the roster must not offer a companion
-// that is not on it.
+// A companion on another machine is offered, and the machine is named on the line.
 //
-// Two machines belonging to one person keep their checkouts in the same places, so a remote
-// companion's socket path frequently exists here too — belonging to somebody else. A roster that
-// offered it would be advertising a name that resolves to the wrong workspace.
-func TestTheRosterDoesNotOfferCompanionsOnOtherMachines(t *testing.T) {
+// Both halves. Work crosses now, so leaving it out would hide somebody who can do the job — and
+// two hosts can each have a "design", so a bare name is not an address in a cluster.
+func TestTheRosterNamesTheMachineACompanionIsOn(t *testing.T) {
 	f := newFleetFixture(t)
 	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far/away.sock", Name: "design", Seen: time.Now()})
-	if lines := fleet.RosterLines(f.get(), ""); strings.Contains(lines, "design") {
-		t.Fatalf("the roster offers a companion on another machine:\n%s", lines)
+	lines := fleet.RosterLines(f.get(), "")
+	if !strings.Contains(lines, "design") {
+		t.Fatalf("the roster hides a companion that work can be handed to:\n%s", lines)
+	}
+	if !strings.Contains(lines, "buildbox") {
+		t.Fatalf("the roster offers a name without saying which machine it is on:\n%s", lines)
+	}
+}
+
+// One nobody has sighted lately is not offered: it is shown in the listings and is not a candidate.
+func TestTheRosterDoesNotOfferACompanionNobodyHasSeen(t *testing.T) {
+	f := newFleetFixture(t)
+	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far/away.sock", Name: "ghost",
+		Seen: time.Now().Add(-30 * time.Minute)})
+	if lines := fleet.RosterLines(f.get(), ""); strings.Contains(lines, "ghost") {
+		t.Fatalf("the roster offers a companion nobody has seen for half an hour:\n%s", lines)
 	}
 }
 
