@@ -778,3 +778,70 @@ func TestOnVerdictFiresPerMemberBeforeTheBatch(t *testing.T) {
 		t.Errorf("every member must be announced once, got %v", announced)
 	}
 }
+
+// A member that never answers is an abstention, not a hang.
+//
+// Deliberate waited on its wait group with no bound anywhere, so one member's request going quiet —
+// a backend that accepted the connection and then said nothing — held it open forever. The tool
+// call that convened the council sat in the transcript with no result and the turn stopped, which
+// is what was reported.
+func TestASilentMemberAbstainsInsteadOfHangingTheTurn(t *testing.T) {
+	was := memberDeadline
+	memberDeadline = 200 * time.Millisecond
+	defer func() { memberDeadline = was }()
+
+	// Casper's request is accepted and then never answered — the shape a wedged backend has.
+	// Casper's request is accepted and then never answered — the shape a wedged backend has. The
+	// stream is what blocks, so the fake blocks in StreamChat rather than returning an error.
+	llm := hangFor{name: "Casper", ok: `{"decision":"done","confidence":0.9,"rationale":"the build passes"}`}
+	c := New(func(string) port.LLMProvider { return llm }, "m")
+
+	done := make(chan council.Deliberation, 1)
+	go func() {
+		d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+			Members: []council.Member{{Name: "Melchior"}, {Name: "Casper"}},
+			Rule:    council.DefaultRule,
+		})
+		done <- d
+	}()
+
+	select {
+	case d := <-done:
+		var abstained bool
+		for _, v := range d.Verdicts {
+			if v.Member == "Casper" && v.Decision == "abstain" {
+				abstained = true
+				if !strings.Contains(v.Rationale, "did not answer") {
+					t.Errorf("the abstention does not say why: %q", v.Rationale)
+				}
+			}
+		}
+		if !abstained {
+			t.Errorf("the silent member did not abstain: %+v", d.Verdicts)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Deliberate never returned; one silent member still stops the turn")
+	}
+}
+
+// hangFor answers every member but one, and for that one accepts the request and says nothing
+// until its context ends — which is what a wedged backend does and what an error return is not.
+type hangFor struct {
+	name string
+	ok   string
+}
+
+func (h hangFor) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent, 2)
+	if memberIn(r, h.name) {
+		go func() {
+			<-ctx.Done()
+			close(ch)
+		}()
+		return ch, nil
+	}
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: h.ok}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/lang"
@@ -37,6 +38,14 @@ func New(resolve func(provider string) port.LLMProvider, defaultModel string) *C
 // that errors or returns an unparseable reply abstains (excluded from the
 // denominator) rather than blocking the gate forever; if every member abstains,
 // the pure tally resolves to Continue (the safe default).
+// memberDeadline bounds one member's vote.
+//
+// Generous, because a council member is a model reading a turn's whole evidence and the cost of
+// cutting a slow one off is a worse verdict. It is here to stop a turn dying, not to hurry anybody.
+// A var and not a const so a test can lower it: the thing being tested is that a silent member is
+// survived, and waiting three real minutes to see that is not a test anybody runs.
+var memberDeadline = 3 * time.Minute
+
 func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
 	members := req.Members
 	if len(members) == 0 {
@@ -47,6 +56,20 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		rule = council.DefaultRule
 	}
 
+	// A member that never answers is an abstention, not a hang.
+	//
+	// This waited on wg with no bound anywhere: one member's request going quiet — a backend that
+	// accepted the connection and then said nothing — held Deliberate open forever. The tool call
+	// that convened the council sat in the transcript with no result and the turn stopped, which is
+	// exactly what was reported. The main stream got a stall guard for this shape; the council's
+	// side calls never did.
+	//
+	// The council already knows what to do with a member that did not vote: abstain is a decision,
+	// the breakdown counts it, and the rule reaches a verdict on the rest. So the bound turns a
+	// stopped turn into a recorded abstention with a reason on it.
+	pollCtx, cancelPoll := context.WithTimeout(ctx, memberDeadline)
+	defer cancelPoll()
+
 	verdicts := make([]council.Verdict, len(members))
 	var wg sync.WaitGroup
 	var notify sync.Mutex // OnVerdict does I/O; serialize it rather than require callers to
@@ -54,7 +77,16 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		wg.Add(1)
 		go func(i int, m council.Member) {
 			defer wg.Done()
-			v := c.poll(ctx, req, m)
+			v := c.poll(pollCtx, req, m)
+			// Overwritten, not filled in. A member cut off by the deadline came back through the
+			// ordinary failure path with "unparseable council reply" on it — which is a claim
+			// about what it said, and it never said anything. "Did not answer" and "could not be
+			// understood" are different facts about a round, and a tally read back later has to be
+			// able to tell them apart.
+			if pollCtx.Err() != nil {
+				v.Decision = "abstain"
+				v.Rationale = "did not answer within " + memberDeadline.String()
+			}
 			verdicts[i] = v
 			if req.OnVerdict != nil {
 				notify.Lock()
