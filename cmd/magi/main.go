@@ -250,7 +250,16 @@ func run() int {
 		// by a model: it is the name the receiving companion sees on anything said through the ear,
 		// and a name that came out of an argument a model wrote would be a companion able to sign
 		// somebody else's messages. Without it the ear is not offered at all.
-		mcpAs           = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
+		mcpAs = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
+		// The cluster's whole transport, and its whole join.
+		//
+		// --members is ONE exchange: a member list on stdin is folded in, and what this machine
+		// knows comes back on stdout. Symmetric on purpose — joining and refreshing are the same
+		// act, so there is one thing to get right instead of two that drift apart.
+		showMembers = flag.Bool("members", false,
+			"print the companions this machine knows about, as JSON; a member list on stdin is merged in first")
+		joinCluster = flag.String("join-cluster", "",
+			"trade member lists with a companion's machine over ssh and join its cluster. Not --join, which reads one workspace's shared settings as a proposal")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -446,6 +455,18 @@ func run() int {
 	// their files — the permission that already governs those files. Crossing a machine is ssh's
 	// job, which an operator already knows how to reason about, and it is why there is no listener
 	// here to secure.
+	// One exchange, and the whole of the cluster's transport.
+	//
+	// Anything on stdin is folded in; what this machine knows comes back on stdout. Symmetric, so
+	// joining and refreshing are the same call — and so the far side of an ssh needs nothing but a
+	// magi binary and the shell access somebody already granted.
+	if *showMembers {
+		return exchangeMembers(os.Stdin, os.Stdout, os.Stderr, plat.ConfigDir(), canFor(store, plat))
+	}
+	if *joinCluster != "" {
+		return joinTheCluster(os.Stdout, os.Stderr, plat.ConfigDir(), *joinCluster, canFor(store, plat))
+	}
+
 	if *mcpTo != "" {
 		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))

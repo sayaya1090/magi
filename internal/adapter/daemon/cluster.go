@@ -46,7 +46,12 @@ func Host() string {
 // would put a companion into other machines' lists that this one already knows is not there —
 // gossip's worst failure, because it takes an hour to expire and cannot be corrected by anybody
 // who is further away than the process that could see the truth.
-func Mine(configDir string, now time.Time) []cluster.Member {
+//
+// can counts what a workspace advertises being able to do, and may be nil — the count is a
+// tie-break in an election, so a caller that has no way to work it out passes nothing and the
+// election falls back to its stable ordering. Injected rather than computed here because counting
+// means reading skills and config, and this package cannot reach either without closing a cycle.
+func Mine(configDir string, now time.Time, can func(workdir string) int) []cluster.Member {
 	found, err := List(configDir)
 	if err != nil {
 		return nil
@@ -57,18 +62,22 @@ func Mine(configDir string, now time.Time) []cluster.Member {
 		if !in.Live {
 			continue
 		}
-		out = append(out, cluster.Member{
+		m := cluster.Member{
 			Host: host, Socket: in.Socket, Name: in.Name, Role: in.Role,
 			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Seen: now,
-		})
+		}
+		if can != nil {
+			m.Can = can(in.Workdir)
+		}
+		out = append(out, m)
 	}
 	return out
 }
 
 // Known is everything this machine can say about who is out there: its own live companions, and the
 // sightings of other machines' that it has been told about.
-func Known(configDir string, now time.Time) []cluster.Member {
-	return cluster.Merge(Mine(configDir, now), readMembers(configDir), now)
+func Known(configDir string, now time.Time, can func(workdir string) int) []cluster.Member {
+	return cluster.Merge(Mine(configDir, now, can), readMembers(configDir), now)
 }
 
 // LearnMembers folds what somebody else knows into what this machine has written down, and returns
@@ -77,7 +86,7 @@ func Known(configDir string, now time.Time) []cluster.Member {
 // Only the FILE is written, and this machine's own companions are never put in it: they are read
 // from the published records every time, so a copy here could only ever be a second answer that
 // goes stale the moment a daemon stops.
-func LearnMembers(configDir string, heard []cluster.Member, now time.Time) ([]cluster.Member, error) {
+func LearnMembers(configDir string, heard []cluster.Member, now time.Time, can func(workdir string) int) ([]cluster.Member, error) {
 	host := Host()
 	var theirs []cluster.Member
 	for _, m := range heard {
@@ -90,7 +99,7 @@ func LearnMembers(configDir string, heard []cluster.Member, now time.Time) ([]cl
 	if err := writeMembers(configDir, merged); err != nil {
 		return nil, err
 	}
-	return cluster.Merge(Mine(configDir, now), merged, now), nil
+	return cluster.Merge(Mine(configDir, now, can), merged, now), nil
 }
 
 func readMembers(configDir string) []cluster.Member {
