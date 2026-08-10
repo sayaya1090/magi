@@ -97,6 +97,18 @@ type Controller interface {
 	SetPermission(p string)
 }
 
+// CronController is the part of an engine that holds scheduled work.
+//
+// Optional and asserted at dispatch, like Controller, and separate from it for the reason Controller
+// gives about its own size: an editor in another process writes a job to the config file and then
+// has to tell the daemon, and that one call is not worth a method on the interface every test
+// double implements.
+type CronController interface {
+	// ReloadCron re-reads the job definitions. Called after something outside this process has
+	// changed them — the console or an attached terminal writing config.toml.
+	ReloadCron()
+}
+
 // Request is one line on the wire. One object per line, so a reader needs no framing beyond what
 // bufio already does and a person can watch the socket with `nc` and read it.
 type Request struct {
@@ -239,6 +251,17 @@ type Daemon struct {
 	ln      net.Listener
 	path    string
 	release func()
+	// stop is closed when a client asks the daemon to shut down. It ends Serve by the same route a
+	// cancelled context does — the listener closes, in-flight requests finish, the socket and the
+	// claim go — so there is one way a daemon stops and not two.
+	stop     chan struct{}
+	stopOnce sync.Once
+	// conns are the connections currently being served. Stop closes them as well as the listener:
+	// closing a listener does not touch what has already been accepted, and Serve waits for its
+	// handlers — so a client that asked to shut down and then sat there holding the connection open
+	// would keep the daemon alive by doing nothing at all.
+	connMu sync.Mutex
+	conns  map[net.Conn]struct{}
 }
 
 // Listen claims a workspace's socket path and binds it, or says who has it.
@@ -301,40 +324,99 @@ func (d *Daemon) Close() error {
 	return err
 }
 
-// Serve accepts connections until ctx is done, then removes the socket and gives up the claim.
+// Serve accepts connections until ctx is done or a client asks it to stop, then removes the socket
+// and gives up the claim.
 func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 	defer func() {
 		d.ln.Close()
 		os.Remove(d.path)
 		d.release()
 	}()
+	if d.stop == nil {
+		d.stop = make(chan struct{})
+	}
 
 	var wg sync.WaitGroup
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-d.stop:
+		}
 		d.ln.Close() // unblocks Accept
 	}()
 	for {
 		conn, err := d.ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || d.stopped() {
 				wg.Wait() // let in-flight requests finish before the socket goes
 				return nil
 			}
 			return fmt.Errorf("daemon: accept: %w", err)
 		}
+		d.track(conn)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer d.untrack(conn)
 			defer conn.Close()
-			serveConn(ctx, eng, conn)
+			serveConn(ctx, eng, conn, d.Stop)
 		}()
+	}
+}
+
+// Stop ends Serve. Safe to call more than once and from any goroutine: two clients asking at the
+// same moment is a normal thing for a console with two tabs open.
+//
+// Open connections are closed too. A request in flight on another one loses its reply, which is the
+// right trade for a shutdown somebody asked for — the alternative is a daemon that stays up because
+// a console in a background tab never hung up.
+func (d *Daemon) Stop() {
+	d.stopOnce.Do(func() {
+		if d.stop != nil {
+			close(d.stop)
+		}
+		d.connMu.Lock()
+		for c := range d.conns {
+			c.Close()
+		}
+		d.connMu.Unlock()
+	})
+}
+
+func (d *Daemon) track(c net.Conn) {
+	d.connMu.Lock()
+	defer d.connMu.Unlock()
+	if d.conns == nil {
+		d.conns = map[net.Conn]struct{}{}
+	}
+	d.conns[c] = struct{}{}
+	// Stop may have run between Accept and here, in which case nothing is coming to close this one.
+	if d.stopped() {
+		c.Close()
+	}
+}
+
+func (d *Daemon) untrack(c net.Conn) {
+	d.connMu.Lock()
+	defer d.connMu.Unlock()
+	delete(d.conns, c)
+}
+
+func (d *Daemon) stopped() bool {
+	if d.stop == nil {
+		return false
+	}
+	select {
+	case <-d.stop:
+		return true
+	default:
+		return false
 	}
 }
 
 // serveConn reads requests until the peer hangs up. One bad request answers with an error and the
 // connection stays open: a UI that mistypes a method should get told, not disconnected.
-func serveConn(ctx context.Context, eng Engine, conn net.Conn) {
+func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20) // a steer can be long; the default 64K is not enough
 	enc := json.NewEncoder(conn)
@@ -363,6 +445,32 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn) {
 				}
 			}
 			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
+		// shutdown is answered here, like status, and the reply goes out BEFORE the stop.
+		//
+		// Not because the reply would otherwise be lost — closing a listener does not touch
+		// connections already accepted, and Serve waits for in-flight handlers before it returns,
+		// so the write is safe either way. It is the order that is honest: OK means "accepted",
+		// and answering after unwinding had begun would be claiming rather more than that.
+		//
+		// The stop itself must NOT be deferred to the end of this function. Deferring it waits for
+		// the peer to hang up, so a client that asked to shut down and then kept its connection
+		// open would leave the daemon running — which is precisely the state this call exists to
+		// get out of.
+		if req.Method == "shutdown" {
+			if stop == nil {
+				resp = Response{Err: "this daemon cannot be stopped remotely"}
+				if enc.Encode(resp) != nil {
+					return
+				}
+				continue
+			}
+			wrote := enc.Encode(Response{OK: true}) == nil
+			stop()
+			if !wrote {
 				return
 			}
 			continue
@@ -399,10 +507,20 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	// "change the policy for every call" would be a wire that means two things.
 	case "rewind", "compact", "set-model", "set-permission":
 		return control(ctx, eng, r, sid)
+	case "reload-cron":
+		// Its own optional interface rather than another method on Controller. Controller is what
+		// every fake in every package must satisfy, and this file already says that a control
+		// surface which grows is not a reason to touch four test doubles.
+		c, ok := eng.(CronController)
+		if !ok {
+			return fmt.Errorf("this daemon holds no scheduled work")
+		}
+		c.ReloadCron()
+		return nil
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shutdown", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
@@ -511,6 +629,22 @@ func (c *Client) SetModel(sid session.SessionID, modelID string) error {
 func (c *Client) SetPermission(p string) error {
 	return c.call(Request{Method: "set-permission", Name: p})
 }
+
+// ReloadCron tells the daemon its scheduled work has changed on disk.
+//
+// For an editor in another process — the console, an attached terminal. The schedule tool runs
+// inside the daemon and calls the engine directly instead.
+func (c *Client) ReloadCron() error { return c.call(Request{Method: "reload-cron"}) }
+
+// Shutdown asks the daemon to stop.
+//
+// The daemon answers before it acts, so a nil error means it accepted — not that it has finished
+// unwinding. What follows on its side is the ordinary teardown: in-flight requests finish, the
+// socket goes, the published record is removed, and the scheduled work stops with the process that
+// was running it. That last part is why removing a companion is one call and not two: a record
+// deleted while its daemon kept running would leave work happening that nothing on screen could
+// account for.
+func (c *Client) Shutdown() error { return c.call(Request{Method: "shutdown"}) }
 
 func (c *Client) call(r Request) error {
 	_, err := c.exchange(r)

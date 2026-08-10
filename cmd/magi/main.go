@@ -243,6 +243,7 @@ func run() int {
 		attachMode      = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		joinTo          = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
 		listAgents      = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
+		stopDaemon      = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
 		mcpTo           = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion's recorded knowledge: its name, or words from its role. Reach another machine's with ssh")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
@@ -494,6 +495,27 @@ func run() int {
 			fmt.Fprintln(os.Stderr, "magi:", err)
 			return 1
 		}
+		return 0
+	}
+
+	// Stopping a companion, which is the same act as stopping the daemon that IS the companion.
+	//
+	// One call, not two. Removing the published record while its daemon kept running would leave a
+	// companion doing work — including scheduled work — that nothing on any screen could account
+	// for. So this asks the daemon to go, and the record, the socket and the schedule go with it.
+	if *stopDaemon {
+		sock := daemon.SocketPath(plat.ConfigDir(), wd)
+		cl, derr := daemon.Dial(sock)
+		if derr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", derr)
+			return 1
+		}
+		defer cl.Close()
+		if err := cl.Shutdown(); err != nil {
+			fmt.Fprintln(os.Stderr, "magi: stopping the daemon:", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "magi: asked the daemon at %s to stop\n", sock)
 		return 0
 	}
 
@@ -931,13 +953,22 @@ func run() int {
 			}
 			return g.Cron
 		}
-		go a.RunCron(dctx, wd, loadJobs, func(line string) {
+		// Its own cancel, tripped after Serve returns. dctx alone would not do it: a shutdown asked
+		// for over the socket ends Serve without cancelling anything, and the schedule would go on
+		// firing until the process happened to exit. "Stopping a companion stops its unattended
+		// work" is the whole point of the socket call, so it is made to happen here rather than
+		// left to process teardown.
+		cronCtx, stopCron := context.WithCancel(dctx)
+		defer stopCron()
+		go a.RunCron(cronCtx, wd, loadJobs, func(line string) {
 			fmt.Fprintln(os.Stderr, "magi:", line)
 		})
 		serving := bound
 		bound = nil // Serve owns the socket from here, including releasing the claim
-		if err := serving.Serve(dctx, a); err != nil {
-			fmt.Fprintln(os.Stderr, "magi:", err)
+		serveErr := serving.Serve(dctx, a)
+		stopCron() // whichever way Serve ended, the schedule ends with it
+		if serveErr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", serveErr)
 			return 1
 		}
 		// Its own background commands and language servers are this process's to reap, unlike an

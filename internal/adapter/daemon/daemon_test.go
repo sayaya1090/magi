@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -427,5 +428,158 @@ func TestADaemonWithoutAControllerRefusesTheseCalls(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cannot be controlled") {
 		t.Errorf("the refusal does not say why: %v", err)
+	}
+}
+
+// cronEngine is an engine that also holds scheduled work.
+type cronEngine struct {
+	Engine
+	mu      sync.Mutex
+	reloads int
+}
+
+func (c *cronEngine) ReloadCron() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reloads++
+}
+
+func (c *cronEngine) seenReloads() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reloads
+}
+
+// serveOn runs a daemon the test can watch stop, which start() cannot: it owns the cancel and the
+// assertions about how Serve ended, and that is exactly what these tests are about.
+func serveOn(t *testing.T, eng Engine) (path string, served <-chan error) {
+	t.Helper()
+	path = filepath.Join(shortDir(t), "d.sock")
+	d, err := Listen(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan error, 1)
+	go func() { ch <- d.Serve(context.Background(), eng) }()
+	return path, ch
+}
+
+func dialWhenUp(t *testing.T, path string) *Client {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if c, err := Dial(path); err == nil {
+			return c
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the daemon never came up")
+	return nil
+}
+
+// Stopping a companion is stopping the daemon that IS the companion. The record, the socket and the
+// schedule go together: a record removed while its daemon kept running would leave work happening
+// that nothing on any screen could account for.
+func TestADaemonAskedToStopStopsAndAnswersFirst(t *testing.T) {
+	path, served := serveOn(t, &fakeEngine{})
+	cl := dialWhenUp(t, path)
+
+	// The reply has to arrive. Stopping before answering would close the listener with this write
+	// still pending, and the client would see a dropped connection — which is also what a daemon
+	// that crashed on being asked looks like.
+	if err := cl.Shutdown(); err != nil {
+		t.Fatalf("shutdown was not acknowledged: %v", err)
+	}
+	cl.Close()
+
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Errorf("Serve returned %v, want nil — an asked-for stop is not a failure", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve kept running after being asked to stop")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the socket is still at %s, advertising a daemon that is gone", path)
+	}
+}
+
+func TestAnEditorInAnotherProcessCanSayTheScheduleChanged(t *testing.T) {
+	eng := &cronEngine{Engine: &fakeEngine{}}
+	path, served := serveOn(t, eng)
+	cl := dialWhenUp(t, path)
+
+	if err := cl.ReloadCron(); err != nil {
+		t.Fatalf("reload-cron: %v", err)
+	}
+	if got := eng.seenReloads(); got != 1 {
+		t.Errorf("the engine was told %d times, want 1", got)
+	}
+	_ = cl.Shutdown()
+	cl.Close()
+	<-served
+}
+
+// An engine holding no scheduled work refuses rather than answering OK to something it did not do.
+func TestADaemonWithoutSchedulingSaysSo(t *testing.T) {
+	path, served := serveOn(t, &fakeEngine{})
+	cl := dialWhenUp(t, path)
+
+	if err := cl.ReloadCron(); err == nil {
+		t.Error("an engine holding no scheduled work answered OK to reload-cron")
+	}
+	_ = cl.Shutdown()
+	cl.Close()
+	<-served
+}
+
+// A client that asks to stop and then holds its connection open must not keep the daemon alive.
+//
+// It did. The stop was deferred to the end of the connection handler, so it waited for the peer to
+// hang up — and the test that was meant to cover shutdown closed the client, so it passed. The
+// mutation that should have broken it (stopping before answering) changed nothing, which is how the
+// real fault surfaced: the ordering the code claimed to care about was not the thing holding it up.
+func TestShutdownDoesNotWaitForTheClientToHangUp(t *testing.T) {
+	path, served := serveOn(t, &fakeEngine{})
+	cl := dialWhenUp(t, path)
+	defer cl.Close() // deliberately AFTER the assertion below
+
+	if err := cl.Shutdown(); err != nil {
+		t.Fatalf("shutdown was not acknowledged: %v", err)
+	}
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Errorf("Serve returned %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the daemon is still running while the client that stopped it holds the connection")
+	}
+}
+
+// A connection accepted in the instant before Stop ran still gets closed.
+//
+// The window is real and cannot be scheduled from outside: Accept returns, Stop closes the listener
+// and walks the connections it knows about, and only then does the new one get added — with nothing
+// left to close it. Serve would wait on that handler forever. So the interleaving is called
+// directly rather than raced for, which is the only way to make it deterministic.
+func TestAConnectionAcceptedJustAsItStopsIsClosedAnyway(t *testing.T) {
+	d := &Daemon{stop: make(chan struct{})}
+	d.Stop() // the walk happens here, over an empty set
+
+	server, client := net.Pipe()
+	defer client.Close()
+	d.track(server) // the late arrival
+
+	// Distinguished by WHICH error, not by whether there was one. A closed pipe end fails its write
+	// at once; a live one blocks on the unread pipe and fails on the deadline — both non-nil, so an
+	// "err != nil" assertion here passes either way and proves nothing. It did, until this was
+	// deliberately broken and stayed green.
+	_ = server.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+	_, err := server.Write([]byte("x"))
+	if err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("a connection accepted as the daemon stopped was left open (write gave %v); "+
+			"Serve would wait on its handler forever", err)
 	}
 }
