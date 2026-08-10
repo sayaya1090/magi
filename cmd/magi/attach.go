@@ -167,6 +167,7 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 		tick := time.NewTicker(pollInterval)
 		defer tick.Stop()
 		asked := ""   // the prompt already put on screen, so it is drawn once and not every tick
+		note := ""    // the live note already on screen, so an unchanged one is not re-sent each tick
 		lost := false // whether the screen has already been told the daemon stopped answering
 		for {
 			select {
@@ -178,7 +179,7 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 			// should happen, not a record of what did, and the event announcing it went to the
 			// daemon's bus. Without this the attached screen shows a run that simply stopped, with
 			// the answer it is waiting for one keystroke away and no way to know.
-			ev, id, drawing, cleared, reachable := a.pendingPrompt(sid, asked)
+			ev, id, doing, drawing, cleared, reachable := a.pendingPrompt(sid, asked)
 			// A daemon that dies leaves this view looking alive: the log is still readable, so the
 			// transcript keeps rendering the last thing that happened and nothing says the engine
 			// is gone. The only way to find out was to type something and watch it fail. Say it
@@ -204,6 +205,18 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 				}
 			case cleared:
 				asked = "" // answered, or resolved by policy — the next prompt gets through
+			}
+			// Only on a change, and an empty one counts: the note going away is what takes the
+			// line off the screen when the call it described returns. Sending the same text every
+			// poll would work and would also mean the transcript's live region announced itself to
+			// a screen reader twice a second for as long as a wait lasted.
+			if reachable && doing != note {
+				note = doing
+				select {
+				case out <- progressEvent(sid, doing):
+				case <-pctx.Done():
+					return
+				}
 			}
 			ch, stop, err := a.App.Subscribe(pctx, sid, seq)
 			if err != nil {
@@ -274,22 +287,38 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 // A FAILED status is none of those. Treating it as "nothing pending" would clear the marker, and
 // the next poll would redraw a prompt that is already on screen — one dropped packet turning into
 // two stacked modals over the same question.
-func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id string, drawing, cleared, reachable bool) {
-	w, err := a.c.Status(string(sid))
+func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id, doing string, drawing, cleared, reachable bool) {
+	w, doing, err := a.c.Status(string(sid))
 	if err != nil {
-		return event.Event{}, drawn, false, false, false // unknown: change nothing
+		return event.Event{}, drawn, "", false, false, false // unknown: change nothing
 	}
 	if w == nil {
-		return event.Event{}, "", false, true, true
+		return event.Event{}, "", doing, false, true, true
 	}
 	if w.ID == drawn {
-		return event.Event{}, w.ID, false, false, true
+		return event.Event{}, w.ID, doing, false, false, true
 	}
 	ev, err = w.Event(sid)
 	if err != nil {
-		return event.Event{}, drawn, false, false, true
+		return event.Event{}, drawn, doing, false, false, true
 	}
-	return ev, w.ID, true, false, true
+	return ev, w.ID, doing, true, false, true
+}
+
+// progressEvent rebuilds a running tool's live note as the transient event the screen already
+// draws — the same synthesis pendingPrompt does, for the same reason and out of the same reply.
+//
+// The `⏳` line has been in the renderer since wait_for was written, and in an ATTACHED view it
+// could never once have appeared: it is fed by a transient event, transient events go to the
+// engine's bus, and the engine is in the other process. So the one view most likely to be watching
+// a twenty-minute wait — a viewer opened precisely because something is taking a long time — was
+// the view that showed nothing about it.
+func progressEvent(sid session.SessionID, text string) event.Event {
+	d, _ := json.Marshal(event.ToolProgressData{Text: text})
+	return event.Event{
+		SessionID: sid, Type: event.TypeToolProgress, Data: d,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "attach"},
+	}
 }
 
 // daemonLostEvent is what the screen shows when the engine it is watching stops answering.

@@ -20,9 +20,22 @@ import (
 
 // promptEngine is a daemon whose only interesting property is what it claims to be blocked on.
 type promptEngine struct {
-	mu   sync.Mutex
-	ask  *app.Ask
-	answ []string
+	mu    sync.Mutex
+	ask   *app.Ask
+	doing string
+	answ  []string
+}
+
+func (p *promptEngine) Doing(session.SessionID) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.doing, p.doing != ""
+}
+
+func (p *promptEngine) setDoing(s string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.doing = s
 }
 
 func (p *promptEngine) set(a *app.Ask) {
@@ -98,7 +111,7 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	sid := session.SessionID("s_1")
 
 	// Nothing pending: nothing is drawn, and the state is "cleared" rather than "unknown".
-	if _, _, drawing, cleared, _ := a.pendingPrompt(sid, ""); drawing || !cleared {
+	if _, _, _, drawing, cleared, _ := a.pendingPrompt(sid, ""); drawing || !cleared {
 		t.Errorf("with no prompt pending: drawing=%v cleared=%v, want false/true", drawing, cleared)
 	}
 
@@ -106,7 +119,7 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Args: args,
 		Reason: "destructive command detected", Since: time.Now()})
 
-	ev, id, drawing, _, _ := a.pendingPrompt(sid, "")
+	ev, id, _, drawing, _, _ := a.pendingPrompt(sid, "")
 	if !drawing {
 		t.Fatal("a pending permission prompt was not drawn")
 	}
@@ -131,14 +144,14 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	}
 
 	// Drawn once. Polling four times a second must not stack four modals over one question.
-	if _, gotID, drawing, cleared, _ := a.pendingPrompt(sid, "call_7"); drawing || cleared || gotID != "call_7" {
+	if _, gotID, _, drawing, cleared, _ := a.pendingPrompt(sid, "call_7"); drawing || cleared || gotID != "call_7" {
 		t.Errorf("the same prompt was drawn again (drawing=%v cleared=%v id=%q)", drawing, cleared, gotID)
 	}
 
 	// A question carries its picks, or the modal offers nothing to pick.
 	eng.set(&app.Ask{ID: "q1#1", Kind: "question", What: "which branch?",
 		Options: []string{"main", "release"}, Since: time.Now()})
-	ev, _, drawing, _, _ = a.pendingPrompt(sid, "call_7")
+	ev, _, _, drawing, _, _ = a.pendingPrompt(sid, "call_7")
 	if !drawing || ev.Type != event.TypeQuestionRequested {
 		t.Fatalf("a question came through as %v (drawing=%v)", ev.Type, drawing)
 	}
@@ -162,12 +175,12 @@ func TestAFailedStatusChangesNothingOnScreen(t *testing.T) {
 	a := attached{c: cl}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
+	if _, _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
 		t.Fatal("the prompt was not drawn to begin with")
 	}
 
 	cl.Close() // the daemon is gone, or the connection dropped
-	_, id, drawing, cleared, reachable := a.pendingPrompt(sid, "call_7")
+	_, id, _, drawing, cleared, reachable := a.pendingPrompt(sid, "call_7")
 	if drawing {
 		t.Error("a failed status redrew the prompt")
 	}
@@ -190,19 +203,19 @@ func TestAnAnsweredPromptClearsTheMarker(t *testing.T) {
 	a := attached{c: serveEngine(t, eng)}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
+	if _, _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
 		t.Fatal("not drawn")
 	}
 	if err := a.RespondPermission(context.Background(), command.RespondPermission{
 		SessionID: sid, CallID: "call_7", Decision: "allow"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, cleared, _ := a.pendingPrompt(sid, "call_7"); !cleared {
+	if _, _, _, _, cleared, _ := a.pendingPrompt(sid, "call_7"); !cleared {
 		t.Fatal("the marker did not clear after the prompt was answered")
 	}
 	// Same id again — a fresh prompt, and it must reach the screen.
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
+	if _, _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
 		t.Error("a new prompt reusing the id was swallowed")
 	}
 }
@@ -219,11 +232,11 @@ func TestTheScreenIsToldWhenTheDaemonGoesAway(t *testing.T) {
 	a := attached{c: cl}
 	sid := session.SessionID("s_1")
 
-	if _, _, _, _, reachable := a.pendingPrompt(sid, ""); !reachable {
+	if _, _, _, _, _, reachable := a.pendingPrompt(sid, ""); !reachable {
 		t.Fatal("a live daemon was reported unreachable")
 	}
 	cl.Close()
-	_, _, _, _, reachable := a.pendingPrompt(sid, "")
+	_, _, _, _, _, reachable := a.pendingPrompt(sid, "")
 	if reachable {
 		t.Fatal("a dead daemon was reported reachable — nothing would tell the user")
 	}
@@ -243,5 +256,65 @@ func TestTheScreenIsToldWhenTheDaemonGoesAway(t *testing.T) {
 	}
 	if ev.Seq != 0 {
 		t.Error("the notice carries a sequence number, as though it came from the log")
+	}
+}
+
+// The live note crosses too, and on the same reply.
+//
+// `⏳ …` has been in the renderer since wait_for was written, fed by a transient event — which goes
+// to the engine's bus, in the engine's process. An ATTACHED terminal is a different process, so in
+// that view the line could never once have appeared: the one view most likely to be open on a
+// twenty-minute wait was the one that showed nothing about it.
+func TestTheAttachedTerminalIsToldWhatIsBeingWaitedOn(t *testing.T) {
+	eng := &promptEngine{}
+	a := attached{c: serveEngine(t, eng)}
+	sid := session.SessionID("s_1")
+
+	if _, _, doing, _, _, _ := a.pendingPrompt(sid, ""); doing != "" {
+		t.Fatalf("a quiet daemon reported %q", doing)
+	}
+
+	eng.setDoing("check 6, 4m12s elapsed, still running")
+	_, _, doing, _, _, reachable := a.pendingPrompt(sid, "")
+	if !reachable {
+		t.Fatal("the daemon went unreachable")
+	}
+	if doing != "check 6, 4m12s elapsed, still running" {
+		t.Fatalf("the note did not cross: %q", doing)
+	}
+
+	// And it arrives as the event the screen already knows how to draw — the same synthesis the
+	// prompt gets, so there is one renderer and not two.
+	ev := progressEvent(sid, doing)
+	if ev.Type != event.TypeToolProgress {
+		t.Fatalf("event type %q, want %q", ev.Type, event.TypeToolProgress)
+	}
+	var d event.ToolProgressData
+	if err := json.Unmarshal(ev.Data, &d); err != nil {
+		t.Fatalf("the synthesised event does not parse as the real one: %v", err)
+	}
+	if d.Text != doing {
+		t.Errorf("the note lost its words: %q", d.Text)
+	}
+}
+
+// A prompt and a note arrive together, because they are one question asked at one moment.
+//
+// Two exchanges could return a permission prompt and a progress note taken half a second apart —
+// a state the daemon was never in. The specific wrong picture: a screen showing "waiting for you"
+// and "still running" at once, which are contradictory answers to "should I do something".
+func TestThePromptAndTheNoteComeFromOneAnswer(t *testing.T) {
+	eng := &promptEngine{}
+	a := attached{c: serveEngine(t, eng)}
+	sid := session.SessionID("s_1")
+	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
+	eng.setDoing("still running")
+
+	ev, id, doing, drawing, _, _ := a.pendingPrompt(sid, "")
+	if !drawing || id != "call_7" || ev.Type != event.TypePermissionRequested {
+		t.Fatalf("the prompt did not come through: drawing=%v id=%q type=%q", drawing, id, ev.Type)
+	}
+	if doing != "still running" {
+		t.Errorf("the note was dropped when a prompt was pending: %q", doing)
 	}
 }
