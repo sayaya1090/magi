@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -123,6 +124,15 @@ func (m *Model) statusPanel(panelTop int) string {
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
+	}
+
+	// How full the window is, as a bar. The footer has said this in words since it existed, and
+	// words are what you read when you go looking; a bar is what you see without looking, which is
+	// the thing that matters about a number you want to notice BEFORE it forces a compaction. The
+	// console's facts card has drawn one all along — this is the panel catching up to it.
+	if bar := m.ctxBar(inner); bar != "" {
+		sep()
+		lines = append(lines, panelHead("Context"), bar)
 	}
 
 	if todos := m.app.Todos(m.panelSID()); len(todos) > 0 {
@@ -307,6 +317,40 @@ func (m *Model) handlePanelClick(x, y int) bool {
 	// Inside the box but not on a subagent row — consume it so it doesn't fall through
 	// to the transcript and toggle a thought block that shares the clicked screen line.
 	return true
+}
+
+// ctxBar is the context window as a filled bar with the numbers under it, or "" before the first
+// usage event has said anything.
+//
+// Determinate only when the window is known. With an unknown window there is no denominator and a
+// bar would have to invent one — so that case says the tokens and draws nothing, which is the same
+// choice the footer makes with the same numbers.
+func (m *Model) ctxBar(width int) string {
+	gauge := m.ctxGauge()
+	if gauge == "" {
+		return ""
+	}
+	if m.ctxWindow <= 0 || width < 8 {
+		return styleFooter.Render(gauge)
+	}
+	filled := int(math.Round(m.ctxPct / 100 * float64(width)))
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > width {
+		filled = width
+	}
+	// Amber as it fills, red once compaction is close: the colour is the part read at a glance, and
+	// "nearly full" is the only reading that asks for anything to be done about it.
+	hue := colPrimary
+	if m.ctxPct >= 85 {
+		hue = colError
+	} else if m.ctxPct >= 65 {
+		hue = colWarn
+	}
+	bar := lipgloss.NewStyle().Foreground(hue).Render(strings.Repeat("━", filled)) +
+		lipgloss.NewStyle().Foreground(colOutlVar).Render(strings.Repeat("━", width-filled))
+	return bar + "\n" + styleFooter.Render(gauge)
 }
 
 // panelHead renders a post-it section header.
