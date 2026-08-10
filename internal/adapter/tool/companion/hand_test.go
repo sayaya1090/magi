@@ -679,7 +679,7 @@ func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
 		t.Fatalf("handing across answered %q", text(t, res))
 	}
 	hosts, socks := x.asked()
-	if len(hosts) != 1 || hosts[0] != "buildbox" || socks[0] != there.Socket {
+	if len(hosts) == 0 || hosts[0] != "buildbox" || socks[0] != there.Socket {
 		t.Errorf("it reached %v %v", hosts, socks)
 	}
 	labels, requests, _ := far.took()
@@ -703,6 +703,12 @@ func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
 	if watched[0].Answer == nil {
 		t.Fatal("the wait would read a local log for a transcript on another machine")
 	}
+	// The two halves of being told instead of asking. Without Ready the wait is pushed to and
+	// then polls anyway; without Done the connection holding the stream is never released.
+	if watched[0].Ready == nil || watched[0].Done == nil {
+		t.Error("the wait has no way to be woken, or no way to let go")
+	}
+	watched[0].Done()
 }
 
 // The far side's refusal is what the model reads, in the far side's words — and it does not read as
@@ -749,10 +755,16 @@ func TestTheAnswerIsFetchedFromTheMachineThatHasIt(t *testing.T) {
 	if len(watched) != 1 {
 		t.Fatalf("%d waits registered", len(watched))
 	}
+	defer watched[0].Done()
 	if _, done := watched[0].Answer(); done {
 		t.Fatal("an unfinished turn on another machine reported an answer")
 	}
 	far.says(daemon.Handover{Done: true, Answer: "the screen is rewritten"})
+
+	// Pushed, not polled. The wait is woken by the far side rather than by its own clock — which
+	// is the whole change: that clock is three seconds because it was written for reading a log
+	// file on this disk, and across a machine every tick of it was a process.
+	nudged(t, watched[0])
 	got, done := watched[0].Answer()
 	if !done || got != "the screen is rewritten" {
 		t.Fatalf("the finished answer came back as (%q, %v)", got, done)
@@ -777,12 +789,12 @@ func TestACompanionThatRestartedMidWorkEndsTheWait(t *testing.T) {
 	if len(watched) != 1 {
 		t.Fatalf("%d waits registered", len(watched))
 	}
+	defer watched[0].Done()
 	if news, over := watched[0].Probe(); over {
 		t.Fatalf("the wait ended before anything went wrong: %q", news)
 	}
-	far.fmu.Lock()
-	far.forgot = true
-	far.fmu.Unlock()
+	far.forgets()
+	nudged(t, watched[0])
 	news, over := watched[0].Probe()
 	if !over {
 		t.Fatalf("a companion that forgot the work left the wait running: %q", news)
@@ -825,7 +837,16 @@ func TestAMachineThatDoesNotAnswerDoesNotEndTheWait(t *testing.T) {
 	if labels, _, _ := far.took(); len(labels) != 1 || len(watched) != 1 {
 		t.Fatalf("labels=%v waits=%d", labels, len(watched))
 	}
+	defer watched[0].Done()
+	// The stream is up; now take the machine away under it. The reconnect that follows must not
+	// be read as news, because a link drops for a closed laptop lid far more often than for a
+	// companion that has died.
+	settles(t, "the stream never reached the far side", func() bool {
+		_, _, shown := far.took()
+		return len(shown) > 0
+	})
 	x.breaks(errors.New("ssh: connect to host buildbox port 22: Network is unreachable"))
+	time.Sleep(100 * time.Millisecond)
 	if news, over := watched[0].Probe(); over || news != "" {
 		t.Errorf("an unreachable machine ended the wait: %q over=%v", news, over)
 	}
@@ -876,6 +897,38 @@ func (f *farSide) Handed(_ context.Context, receipt string) (daemon.Handover, er
 	return f.state, nil
 }
 
+// Watch is the fake's half of the stream: it says the current state, then says it again whenever
+// the test changes it, and ends when the state is an ending. The 10ms loop stands in for a bus.
+func (f *farSide) Watch(ctx context.Context, receipt string, say func(daemon.Handover) error) error {
+	f.fmu.Lock()
+	f.shown = append(f.shown, receipt)
+	f.fmu.Unlock()
+
+	var said daemon.Handover
+	for {
+		f.fmu.Lock()
+		forgot, now := f.forgot, f.state
+		f.fmu.Unlock()
+		if forgot {
+			return errors.New("no handover here with that receipt")
+		}
+		if now != said && now != (daemon.Handover{}) {
+			said = now
+			if say(now) != nil {
+				return nil
+			}
+		}
+		if now.Done || now.Over {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 func (f *farSide) took() (labels, requests, shown []string) {
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
@@ -887,6 +940,39 @@ func (f *farSide) says(h daemon.Handover) {
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
 	f.state = h
+}
+
+// forgets is what a restart looks like from outside: the same companion, the same log, no memory
+// of having taken anything.
+func (f *farSide) forgets() {
+	f.fmu.Lock()
+	defer f.fmu.Unlock()
+	f.forgot = true
+}
+
+// nudged waits for the far side to push something. A push has a connection to set up, so a test
+// that read the state on the next line would be testing its own timing.
+func nudged(t *testing.T, e port.Elsewhere) {
+	t.Helper()
+	select {
+	case <-e.Ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing was pushed: the wait would have had to poll for it")
+	}
+}
+
+// settles waits for a condition the far side pushes towards, for the cases where the nudge itself
+// is not the thing under test.
+func settles(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal(what)
 }
 
 // abroad starts a companion whose socket is NOT in this machine's config directory — so it is
@@ -1037,6 +1123,8 @@ func TestTheAnswerIsAskedForByReceiptAndNothingElse(t *testing.T) {
 	if len(watched) != 1 {
 		t.Fatalf("%d waits registered", len(watched))
 	}
+	defer watched[0].Done()
+	nudged(t, watched[0])
 	watched[0].Answer()
 
 	_, _, shown := far.took()

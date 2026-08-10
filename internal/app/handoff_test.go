@@ -391,3 +391,80 @@ func TestAnAnswerFromAnotherMachineIsAskedForRatherThanRead(t *testing.T) {
 		return false
 	})
 }
+
+// A push wakes the wait, instead of the wait having to reach its next tick.
+//
+// The clock here is three seconds, which is right for reading a log file on this disk and is what
+// a hand-off across a machine used to spawn a process for. Now the far daemon holds a connection
+// and says when something happens — and if the news then sat here until a tick, the wait would be
+// pushed to and poll anyway.
+//
+// A deliberately long poll makes the difference observable: with the nudge ignored, nothing can
+// arrive inside it.
+func TestAPushWakesTheWaitWithoutWaitingForItsClock(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+
+	was, wasProbe := handoffPoll, handoffProbe
+	handoffPoll, handoffProbe = time.Hour, time.Hour
+	t.Cleanup(func() { handoffPoll, handoffProbe = was, wasProbe })
+
+	var mu sync.Mutex
+	finished := false
+	ready := make(chan struct{}, 1)
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design on buildbox", Session: "rcpt-9", Request: "name the tokens",
+		Answer: func() (string, bool) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !finished {
+				return "", false
+			}
+			return "surface-container-low, and the label is on-surface-variant.", true
+		},
+		Ready: ready,
+	})
+	if err != nil {
+		t.Fatalf("Expect refused work whose transcript is elsewhere: %v", err)
+	}
+	mu.Lock()
+	finished = true
+	mu.Unlock()
+	ready <- struct{}{}
+
+	waitFor(t, "the pushed answer to arrive without a tick to carry it", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "surface-container-low") {
+					return true
+				}
+			}
+		}
+		return false
+	})
+}
+
+// The wait lets go of whatever was holding the answer open, however it ended.
+//
+// Across a machine that is a process and a connection per outstanding hand-off. The wait is the
+// only thing that knows it has stopped listening — by an answer arriving, by its deadline, or by
+// this daemon going away — so it is the only thing that can say so.
+func TestTheWaitReleasesWhatWasHoldingTheAnswerOpen(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+
+	released := make(chan struct{})
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design on buildbox", Session: "rcpt-9", Request: "name the tokens",
+		Answer: func() (string, bool) { return "all done", true },
+		Done:   func() { close(released) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait ended and left a connection held open on two machines")
+	}
+}

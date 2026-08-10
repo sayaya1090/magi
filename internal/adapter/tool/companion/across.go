@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -37,12 +38,17 @@ import (
 // point the work landed, and what did they say. One question, two ways of putting it, chosen by
 // where the log is. The far side computes the answer with the same code the local watch does.
 //
-// # Nothing is pushed back, deliberately
+// # The far side pushes, down the pipe this side opened
 //
-// The receiver does not send anything and does not know it is being waited on. A reply channel
-// would need the far machine to reach THIS one, and a laptop that can ssh to a build box is
-// routinely not reachable from it. Polling from the side that already proved it can cross is the
-// only direction that is always available.
+// It used to poll, on the reasoning that a reply channel would need the far machine to reach THIS
+// one and a laptop that can ssh to a build box is routinely not reachable from it. That reasoning
+// describes a different design. The pipe is already open and already carries bytes both ways, so
+// the far daemon writes down the connection its caller made — no reverse reachability, nothing
+// listening here, nothing for a firewall to be asymmetric about.
+//
+// What polling cost was not latency. The wait's clock is three seconds, which is right for reading
+// a log file on this disk and is a process spawned across a network otherwise: roughly two and a
+// half thousand of them per two-hour wait, all but the last learning nothing.
 
 // Reach opens the daemon protocol to a companion on another machine.
 //
@@ -100,11 +106,12 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string
 	// far side has answered. The gap this opens is a receiver that finishes between their submit
 	// and this line — which cannot lose the answer, because the answer is fetched by position in
 	// their log rather than by watching for an event to go past.
+	l := h.watchAcross(target, receipt)
 	if xerr := env.Expect(port.Elsewhere{
 		Who: target.Name + " on " + target.Host, Session: receipt, Request: request,
-		Answer: h.answerFrom(target, receipt),
-		Probe:  h.probeAcross(target, receipt),
+		Answer: l.answer(), Probe: l.probe(), Ready: l.ready, Done: l.stop,
 	}); xerr != nil {
+		l.stop() // nobody is going to call Done for a wait that was never registered
 		return errText(fmt.Sprintf("%s has the work, but the answer cannot be waited for here "+
 			"(%v) — read their transcript on %s", target.Name, xerr, target.Host))
 	}
@@ -117,60 +124,165 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string
 		"wait for it and do not send it again.", target.Name, target.Host, where))
 }
 
-// answerFrom asks the far machine whether the work is finished, and for what was said.
-func (h Hand) answerFrom(target fleet.Agent, receipt string) func() (string, bool) {
-	reach := h.Reach
-	return func() (string, bool) {
-		a, err := askAcross(reach, target, receipt)
-		if err != nil || !a.Done {
-			return "", false
-		}
-		return a.Answer, true
-	}
-}
 
-// probeAcross asks the far machine whether anybody is still doing the work.
-func (h Hand) probeAcross(target fleet.Agent, receipt string) func() (string, bool) {
-	reach := h.Reach
-	name := target.Name + " on " + target.Host
-	return func() (string, bool) {
-		a, err := askAcross(reach, target, receipt)
-		if err != nil {
-			var refused daemon.Refused
-			if errors.As(err, &refused) {
-				// It answered, and does not know this receipt. Its memory of taking the work is
-				// gone, which means it restarted — and a restart did not finish the turn it was
-				// in. An ending, and the one ending a running daemon cannot report about itself.
-				return name + " restarted without finishing what you handed over. Nothing will " +
-					"come back. What it had done is in its transcript; the rest was not done.", true
-			}
-			// A machine that did not answer is not a machine that lost the work. Saying nothing
-			// leaves the wait running, which is right: a link fails for a dropped wifi connection
-			// far more often than for a companion that has died.
-			//
-			// The gap this leaves is a daemon that died and stayed dead: the crossing fails, and
-			// that is indistinguishable from a link that is down, so the wait runs to its timeout.
-			// Reported honestly rather than guessed at.
-			return "", false
-		}
-		if a.News == "" {
-			return "", false
-		}
-		return strings.Replace(a.News, target.Name, name, 1), a.Over
-	}
-}
-
-// askAcross opens a crossing, asks the one question, and hangs up.
+// listening is one pipe held open for the life of a wait, and what the far side has said down it.
 //
-// One pipe per question rather than one held open for the life of the wait. A held connection is a
-// process per outstanding handoff that dies with the first dropped link and has to be rebuilt
-// anyway — and the answer to "are you done" is not worth keeping an ssh alive for two hours.
-func askAcross(reach Reach, target fleet.Agent, receipt string) (daemon.Handover, error) {
-	if reach == nil {
-		return daemon.Handover{}, errNoReach
+// The wait used to ask. Its tick is three seconds — sized for reading a log file two microseconds
+// away — and across a machine every one of those ticks spawned a process: some two and a half
+// thousand of them over a two-hour wait, learning nothing on all but the last.
+//
+// The socket was already open in both directions; only the protocol was one-way. So the far daemon
+// pushes, and this holds what it pushed for the two closures the wait already reads. The wait keeps
+// its own clock and its own idea of what an answer is. It is simply told when to look.
+type listening struct {
+	mu    sync.Mutex
+	got   daemon.Handover
+	ended bool // the far side said there is nothing more coming
+
+	// ready nudges the wait. Buffered one, and a full buffer is dropped on the floor: a nudge
+	// carries no news, so a second one before the first was read would say nothing new.
+	ready chan struct{}
+	stop  context.CancelFunc
+}
+
+func (l *listening) heard(h daemon.Handover) {
+	if h == (daemon.Handover{}) {
+		return // nothing to say is not a thing to wake anybody for
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), crossTimeout)
-	defer cancel()
+	l.mu.Lock()
+	l.got = h
+	if h.Done || h.Over {
+		l.ended = true
+	}
+	l.mu.Unlock()
+	select {
+	case l.ready <- struct{}{}:
+	default:
+	}
+}
+
+func (l *listening) state() daemon.Handover {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.got
+}
+
+func (l *listening) over() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ended
+}
+
+// answer and probe are the two questions the wait asks, answered from what was pushed rather than
+// by crossing a machine to find out. Both are non-blocking reads of a struct.
+func (l *listening) answer() func() (string, bool) {
+	return func() (string, bool) {
+		s := l.state()
+		if !s.Done {
+			return "", false
+		}
+		return s.Answer, true
+	}
+}
+
+func (l *listening) probe() func() (string, bool) {
+	return func() (string, bool) {
+		s := l.state()
+		return s.News, s.Over
+	}
+}
+
+// firstRetry and slowestRetry bound how hard a dropped link is chased.
+//
+// Backing off matters because the commonest cause is a machine that has gone away for hours, and
+// the cost of trying is a process. The slowest is also the rate an older magi — one that took the
+// work but cannot stream — is polled at, which is late but is not the storm this replaced.
+const (
+	firstRetry   = 5 * time.Second
+	slowestRetry = 2 * time.Minute
+)
+
+// watchAcross holds a connection to the far companion, and keeps holding one.
+//
+// Reconnection is why the receipt is the handle rather than a session and a number: a link that
+// drops is re-watched with the same receipt, and the far side answers from where the work actually
+// is rather than from where this side last thought it was.
+func (h Hand) watchAcross(target fleet.Agent, receipt string) *listening {
+	ctx, stop := context.WithCancel(context.Background())
+	l := &listening{ready: make(chan struct{}, 1), stop: stop}
+	reach, name := h.Reach, target.Name+" on "+target.Host
+	go func() {
+		wait := firstRetry
+		for ctx.Err() == nil && !l.over() {
+			if l.follow(ctx, reach, target, receipt, name) {
+				return
+			}
+			// The link went, or the far side is too old to stream. Neither is a companion that
+			// lost the work, so nothing is said and the wait carries on — a connection drops for a
+			// closed laptop lid far more often than for a daemon that died.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			if wait *= 2; wait > slowestRetry {
+				wait = slowestRetry
+			}
+		}
+	}()
+	return l
+}
+
+// follow runs one connection until it ends, and reports whether there is anything left to listen
+// for.
+func (l *listening) follow(ctx context.Context, reach Reach, target fleet.Agent, receipt, name string) (done bool) {
+	cl, err := reach(ctx, target.Host, target.Socket)
+	if err != nil {
+		return false
+	}
+	defer cl.Close()
+
+	heard := false
+	werr := cl.Watch(receipt, func(got daemon.Handover) bool {
+		heard = true
+		l.heard(rename(got, target.Name, name))
+		return !(got.Done || got.Over)
+	})
+	if werr == nil {
+		return true // the stream ended cleanly: the far side has nothing more to say
+	}
+	var refused daemon.Refused
+	if !errors.As(werr, &refused) || heard {
+		return false // a broken link, or one that broke mid-stream
+	}
+	// It refused the watch. Two very different things say that and only one of them ends a wait: a
+	// daemon that does not know this receipt, and a daemon too old to know this method. They are
+	// told apart by asking the older question, which every version that could have taken the work
+	// answers — which is why that question is still on the interface.
+	//
+	// On a connection of its own, because a watch gives its connection over to the stream and the
+	// far side ends it along with the stream. Asking down this one would ask nothing and report a
+	// closed pipe, which is the third answer and the wrong one.
+	got, herr := ask(ctx, reach, target, receipt)
+	switch {
+	case herr == nil:
+		// It knows the receipt and not the method: an older magi. There is nothing to stream, so
+		// what it said now is all there is until the next attempt, on the backoff's clock.
+		l.heard(rename(got, target.Name, name))
+		return l.over()
+	case errors.As(herr, &refused):
+		// Its memory of taking the work is gone, so it restarted — and a restart did not finish
+		// the turn it was in. An ending, and the one a running daemon cannot report about itself.
+		l.heard(daemon.Handover{Over: true, News: name + " restarted without finishing what you " +
+			"handed over. Nothing will come back. What it had done is in its transcript; the rest " +
+			"was not done."})
+		return true
+	}
+	return false // could not reach it to ask, so nothing has been established
+}
+
+// ask puts the one question on a connection of its own and hangs up.
+func ask(ctx context.Context, reach Reach, target fleet.Agent, receipt string) (daemon.Handover, error) {
 	cl, err := reach(ctx, target.Host, target.Socket)
 	if err != nil {
 		return daemon.Handover{}, err
@@ -179,4 +291,11 @@ func askAcross(reach Reach, target fleet.Agent, receipt string) (daemon.Handover
 	return cl.Handed(receipt)
 }
 
-var errNoReach = errors.New("this magi has no way to reach another machine")
+// rename says who and where in news written by a companion about itself. It says "design"; the
+// asker may be waiting on several and needs "design on buildbox".
+func rename(h daemon.Handover, was, now string) daemon.Handover {
+	if h.News != "" {
+		h.News = strings.Replace(h.News, was, now, 1)
+	}
+	return h
+}

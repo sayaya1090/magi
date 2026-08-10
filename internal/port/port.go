@@ -196,6 +196,23 @@ type Elsewhere struct {
 	// same code the local read uses. One question; the way of putting it is chosen by where the
 	// log is. nil means the log is here, which is the ordinary case.
 	Answer func() (text string, done bool)
+	// Ready is closed-or-signalled when Probe and Answer have something new to say.
+	//
+	// The wait has a clock of its own, sized for reading a log file on this disk. A hand-off
+	// across a machine does not read anything: whoever supplies Answer holds a connection to the
+	// doer and is TOLD. Without this the news would sit until the next tick — the wait would be
+	// pushed to and then poll anyway.
+	//
+	// A nudge, not the news. What happened is still read through Probe and Answer, so there is one
+	// place that decides what an answer is. nil means "no news channel; the clock is all there
+	// is", which is the ordinary local case.
+	Ready <-chan struct{}
+	// Done is called once when the wait is over, however it ended.
+	//
+	// Whoever supplied Answer may be holding a process open to do it, and the wait is the only
+	// thing that knows it has stopped caring — by deadline, by an answer arriving, or by this
+	// daemon shutting down. nil means there is nothing to release.
+	Done func()
 }
 
 // ScheduleChange is one edit to a workspace's unattended work, or a request to see it.

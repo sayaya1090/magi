@@ -46,7 +46,12 @@ import (
 // The check is a read of the tail of an append-only file that the store answers from its own cache
 // with a binary search, so it is cheap; what it must not be is chatty, because the answer to "has
 // a companion finished a piece of work" changes on the scale of minutes.
-const handoffPoll = 3 * time.Second
+//
+// It is also the floor on how late an answer can be when nothing wakes the wait, which is why work
+// on another machine supplies a Ready channel: this clock is a fallback there, not the mechanism.
+// A var rather than a const so a test can make it long enough that anything arriving inside it
+// must have been pushed — the same reason handoffProbe is one.
+var handoffPoll = 3 * time.Second
 
 // handoffCap bounds the wait. Not a deadline on the work — the peer keeps going and its answer
 // stays in its transcript — but on this goroutine and on the asker's expectation. An agent told
@@ -124,9 +129,18 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 	defer tick.Stop()
 	probe := time.NewTicker(handoffProbe)
 	defer probe.Stop()
+	// Released however this ends — answered, given up on, or this daemon going away. Whoever
+	// supplied the answer may be holding a process open to hear it, and this loop is the only
+	// thing that knows it has stopped listening.
+	if e.Done != nil {
+		defer e.Done()
+	}
 	told := "" // the last thing said about the peer, so one stuck state is reported once
 
 	for {
+		// asking separates the two clocks. A tick reads their log, which is a file on this disk;
+		// the slower clock also puts a question to another process, which is not.
+		asking := false
 		select {
 		case <-ctx.Done():
 			// This daemon is going away. Nothing is written: the work is still theirs and its
@@ -146,41 +160,51 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 			}
 			return
 		case <-probe.C:
-			// Their log first, always. A peer that finished and then exited is finished — asking
-			// about the process would report it gone and lose an answer that is written down.
-			if done, answer := a.answerOf(ctx, e, their, since); done {
-				if err := a.deliverHandoff(ctx, sid, actor, e, answer); err == nil {
-					return
-				}
-				continue
-			}
-			news, over := a.probeHandoff(e)
-			if news == "" || news == told {
-				continue
-			}
-			told = news
-			if !over {
-				// Still possible, and worth knowing now: a companion blocked on a permission
-				// prompt is waiting for a PERSON, and the asker is the only thing in a position to
-				// say so to one.
-				a.noteHandoff(ctx, sid, e, news)
-				continue
-			}
-			if err := a.deliverHandoff(ctx, sid, actor, e, news); err != nil {
-				told = "" // unwritten is untold; say it again next time round
+			asking = true
+		case <-e.Ready:
+			// Told rather than timed. Whoever supplies the answer for work on another machine
+			// holds a connection to the doer and hears about it; without this the news would sit
+			// here until a tick, and the wait would be pushed to and then poll anyway.
+			//
+			// A nil channel blocks for ever, so a local hand-off — which has nobody to tell it
+			// anything — never reaches this and behaves exactly as before.
+			//
+			// It is a nudge saying "look now", not the news: what happened is still read through
+			// the same two calls a tick reads it through. A payload here would be a second idea of
+			// what counts as an answer.
+			asking = true
+		case <-tick.C:
+		}
+		// Their log first, always. A peer that finished and then exited is finished — asking about
+		// the process would report it gone and lose an answer that is written down.
+		//
+		// A failed write is not a delivered answer. Their transcript still holds it and this loop
+		// still has the deadline it started with, so the next look tries again — where returning
+		// here would mean the peer did the work, this process knew, and nobody was ever told.
+		if done, answer := a.answerOf(ctx, e, their, since); done {
+			if err := a.deliverHandoff(ctx, sid, actor, e, answer); err != nil {
 				continue
 			}
 			return
-		case <-tick.C:
 		}
-		done, answer := a.answerOf(ctx, e, their, since)
-		if !done {
+		// Only then the other question, and only on the slower clock: whether anybody is still
+		// doing it. A tick is a cheap read of a log; this is a question put to another process.
+		if !asking {
 			continue
 		}
-		// A failed write is not a delivered answer. Their transcript still holds it and this loop
-		// still has the deadline it started with, so the next tick tries again — where returning
-		// here would mean the peer did the work, this process knew, and nobody was ever told.
-		if err := a.deliverHandoff(ctx, sid, actor, e, answer); err != nil {
+		news, over := a.probeHandoff(e)
+		if news == "" || news == told {
+			continue
+		}
+		told = news
+		if !over {
+			// Still possible, and worth knowing now: a companion blocked on a permission prompt is
+			// waiting for a PERSON, and the asker is the only thing in a position to say so to one.
+			a.noteHandoff(ctx, sid, e, news)
+			continue
+		}
+		if err := a.deliverHandoff(ctx, sid, actor, e, news); err != nil {
+			told = "" // unwritten is untold; say it again next time round
 			continue
 		}
 		return
