@@ -537,6 +537,45 @@ func TestACompanionElsewhereIsNeverReachedByDiallingAPathHere(t *testing.T) {
 
 func errOf(_ daemon.Handover, err error) error { return err }
 
+// A companion whose socket is right here is dialled, whatever it calls its machine.
+//
+// Sockets live in the config directory, so a shared one — two containers with a mount in common,
+// two workstations with a network home — puts a companion that calls itself something else on this
+// disk, answering. "Is that hostname mine" said no and sent the work out through ssh to reach a
+// path in the next directory; on a container with no sshd it did not reach it at all.
+//
+// The record beside the socket is what settles it, and the test above is the other half: a record
+// naming a machine the caller did not ask about is somebody else's path and must not be dialled.
+func TestACompanionUnderAnotherMachinesNameIsStillDialledWhenItIsHere(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	sock := filepath.Join(ar.cfgDir, "daemon-s_design.sock")
+	cl.Close()
+
+	// Republished as a companion belonging to "sidecar", the way another container writing into
+	// this directory would leave it.
+	b, err := json.Marshal(daemon.Info{
+		Socket: sock, Workdir: ar.t.TempDir(), Session: "s_design", Name: "design", Host: "sidecar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.SessionFile(sock), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, rerr := reachCompanion(ctx, "sidecar", sock)
+	if rerr != nil {
+		t.Fatalf("a companion answering on this disk could not be reached: %v", rerr)
+	}
+	defer c.Close()
+	var refused daemon.Refused
+	if !errors.As(errOf(c.Handed("nope")), &refused) {
+		t.Fatal("it did not reach the daemon that is right there — it went the long way round")
+	}
+}
+
 // A workspace with a lot of skills sends a sample and the true count, not one or the other.
 //
 // The list is bounded because it rides on every member of every exchange, every minute, from every

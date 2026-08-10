@@ -27,17 +27,24 @@ import (
 // to hold it: a direct dial when the companion is here, a relay when it is not. Everything above
 // this line speaks the same protocol either way.
 //
-// # The host comparison is a shortcut, not the rule
+// # Which one is decided by what is at the path, not by what this process is called
 //
-// Local is preferred where it applies because spawning ssh to a socket in the next directory is a
-// process per call for an identical answer. It is not a permission decision: the socket is
+// Local is preferred where it applies because spawning ssh to reach a socket in the next directory
+// is a process per call for an identical answer. It is not a permission decision: the socket is
 // owner-only, so who may speak to a daemon is the operating system's answer at connect time, on
 // either path.
 //
-// It is also the wrong discriminator in one known case — containers on one host sharing a socket
-// directory can dial each other directly, and a hostname says they cannot. The real question is
-// whether that socket answers HERE. Left as it is for now, because being wrong costs one ssh hop
-// and not a wrong answer.
+// "Is that hostname mine" was the wrong question. A config directory can be shared — two containers
+// with a mount in common, two workstations with one network home — and sockets live in the config
+// directory, so a companion calling itself something else can have its socket sitting right here,
+// dialable, while a comparison against this machine's name sends the work out through ssh to reach
+// a path in the next directory.
+//
+// The record published beside the socket is asked instead, because it is what is actually there. A
+// record naming the machine the caller was told about is that companion. A record naming a
+// different one is somebody else's path and must not be dialled: two machines belonging to one
+// person keep their checkouts in the same places, so the dial would not fail — it would open the
+// wrong workspace, and the work would arrive looking delivered.
 
 // takes is what a handover needs from the companion it is part of.
 //
@@ -258,7 +265,7 @@ func worthLooking(t event.Type) bool {
 // The context bounds a remote crossing by killing the process that carries it. A local dial ignores
 // it, the way every other local dial in this tree does: a unix socket either answers or does not.
 func reachCompanion(ctx context.Context, host, socket string) (*daemon.Client, error) {
-	if here := daemon.Host(); host == "" || (here != "" && strings.EqualFold(host, here)) {
+	if answersHere(host, socket) {
 		return daemon.Dial(socket)
 	}
 	p, err := relayTo(ctx, host, socket)
@@ -266,6 +273,24 @@ func reachCompanion(ctx context.Context, host, socket string) (*daemon.Client, e
 		return nil, err
 	}
 	return daemon.Over(p), nil
+}
+
+// answersHere reports whether that socket is that companion, on this machine.
+//
+// A record is published beside every socket, so the question is answerable without dialling and
+// without trusting this process's idea of its own name. No record at that path means nothing of
+// ours is there; a record naming a different machine means the path is somebody else's.
+func answersHere(host, socket string) bool {
+	if strings.TrimSpace(host) == "" {
+		// Nothing said where it is, so here is the only place to look. A sighting always carries a
+		// host; this is an address assembled locally, which by definition is about this machine.
+		return true
+	}
+	in, err := daemon.Published(socket)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(in.Host, host)
 }
 
 // describeCompanion answers "what can X do" for a companion anywhere in the cluster.
