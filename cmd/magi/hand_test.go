@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/cluster"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -289,5 +291,34 @@ func TestAStoppedCompanionEndsTheWaitAcrossTheWire(t *testing.T) {
 	}
 	if !got.Over || got.News == "" {
 		t.Fatalf("a daemon that died mid-work left the wait with %+v", got)
+	}
+}
+
+// A workspace with a lot of skills sends a sample and the true count, not one or the other.
+//
+// The list is bounded because it rides on every member of every exchange, every minute, from every
+// machine. The count is not bounded, because it decides hub elections and a capped one would make
+// a companion with two hundred skills tie with one that has twelve.
+func TestAWorkspaceWithManySkillsSendsASampleAndTheRealCount(t *testing.T) {
+	st, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wd, ".magi", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		f := filepath.Join(wd, ".magi", "skills", fmt.Sprintf("s%02d.md", i))
+		if err := os.WriteFile(f, []byte("does a thing\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, names := countCan(st, wd)
+	if n != 20 {
+		t.Errorf("the count is %d, not the twenty things it can do", n)
+	}
+	if len(names) != cluster.MaxDoes {
+		t.Errorf("%d names would travel with every sighting, want at most %d", len(names), cluster.MaxDoes)
 	}
 }

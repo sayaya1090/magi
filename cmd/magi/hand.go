@@ -7,11 +7,16 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
+	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
+	"github.com/sayaya1090/magi/internal/adapter/mcpserve"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // The two doors work arrives and answers leave by, when the companions are on different machines.
@@ -130,6 +135,91 @@ func handoffStateHere(in io.Reader, out, errOut io.Writer, a *app.App, configDir
 	news, over := companion.StateOf(list, req.Session)
 	return writeJSON(out, errOut, stateReply{News: news, Over: over})
 }
+
+// aboutHere describes a companion published on this machine, for somebody who cannot see it.
+//
+// The third door, and the read-only one. It answers the question a roster line raises and does not
+// answer: the line names what a companion can do, and this says what each of those names means.
+//
+// Names travel on the wire with every sighting because a roster has to be readable without asking
+// anybody. Descriptions do not, because they would be a hundred bytes per skill per member on
+// every exchange, every minute, to fill a line that shows names. So they are fetched, once, by
+// whoever actually wants to know — which is this.
+func aboutHere(in io.Reader, out, errOut io.Writer, r fleet.Reader, skills func(string) []port.Skill,
+	reach func(string) []string, configDir, who string) int {
+
+	if strings.TrimSpace(who) == "" {
+		fmt.Fprintln(errOut, "magi: --about needs the name of a companion here")
+		return 1
+	}
+	list, err := fleet.List(context.Background(), r, configDir, "")
+	if err != nil {
+		fmt.Fprintln(errOut, "magi:", err)
+		return 1
+	}
+	var found *fleet.Agent
+	for i, a := range list {
+		// By name only, and exactly. Resolve's role and team matching is for a person or a model
+		// choosing somebody; this is a machine asking about one it has already chosen, and a
+		// near-match would answer about the wrong companion without anybody noticing.
+		if strings.EqualFold(a.Name, who) && a.State != fleet.Remote {
+			found = &list[i]
+			break
+		}
+	}
+	if found == nil {
+		fmt.Fprintf(errOut, "magi: nothing called %q is published here\n", who)
+		return 1
+	}
+	card := mcpserve.Card{Name: found.Name, Role: found.Role, Team: found.Team, Hub: found.Hub,
+		Workdir: found.Workdir}
+	if skills != nil {
+		card.Skills = skills(found.Workdir)
+	}
+	if reach != nil {
+		card.Reach = reach(found.Workdir)
+	}
+	if _, werr := io.WriteString(out, mcpserve.Describe(card)); werr != nil {
+		fmt.Fprintln(errOut, "magi:", werr)
+		return 1
+	}
+	return 0
+}
+
+// describeCompanion answers "what can X do" for a companion anywhere in the cluster.
+//
+// The local branch is in-process and not a subprocess of ourselves: it is the same call --about
+// makes, and spawning a copy of this binary to ask a question this one can answer would be a
+// process per call to arrive at the identical string.
+//
+// One decision about where a companion is, made here, the way cluster.Reach makes it for a peer
+// command — a hostname that is this machine is not a network hop, and going through ssh to reach
+// yourself fails on most hosts.
+func describeCompanion(r fleet.Reader, skills func(string) []port.Skill, reach func(string) []string,
+	configDir string) func(context.Context, string, string) (string, error) {
+
+	here := daemon.Host()
+	return func(ctx context.Context, host, name string) (string, error) {
+		if host == "" || (here != "" && strings.EqualFold(host, here)) {
+			var out, errOut bytes.Buffer
+			if code := aboutHere(nil, &out, &errOut, r, skills, reach, configDir, name); code != 0 {
+				return "", fmt.Errorf("%s", firstLineOf(strings.TrimSpace(errOut.String())))
+			}
+			return out.String(), nil
+		}
+		cctx, cancel := context.WithTimeout(ctx, crossAsk)
+		defer cancel()
+		said, err := sshCross(cctx, host, []string{"--about", name}, nil)
+		if err != nil {
+			return "", err
+		}
+		return string(said), nil
+	}
+}
+
+// crossAsk bounds one description fetch. Shorter than a hand-off crossing: this runs while a model
+// waits on a tool call, and a question about what somebody can do is not worth half a minute.
+const crossAsk = 15 * time.Second
 
 // sshCross runs a magi subcommand on another machine.
 //

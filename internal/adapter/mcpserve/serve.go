@@ -303,27 +303,50 @@ func (s *Server) detail(ctx context.Context, id string) string {
 // The same reasoning covers a URL, which is not obviously executable and is worse in one way: it
 // can carry an internal host, and often a token in a query string.
 func (s *Server) about() string {
+	return Describe(Card{Name: s.Name, Role: s.Role, Team: s.Team, Hub: s.Hub,
+		Workdir: s.Workdir, Skills: s.Skills, Reach: s.Reach})
+}
+
+// Card is everything a companion says about itself when somebody asks.
+type Card struct {
+	Name    string       `json:"name"`
+	Role    string       `json:"role,omitempty"`
+	Team    string       `json:"team,omitempty"`
+	Hub     bool         `json:"hub,omitempty"`
+	Workdir string       `json:"workdir,omitempty"`
+	Skills  []port.Skill `json:"skills,omitempty"`
+	Reach   []string     `json:"reach,omitempty"`
+}
+
+// Describe renders it.
+//
+// Exported and taking a Card rather than reading a Server, because the same description is asked
+// for from two places now: over MCP by a companion on this machine, and over ssh by one on another
+// (`magi --about`). One renderer, so "what design can do" does not read differently depending on
+// which side of a network the reader is on — and so the rule about what is public, argued through
+// at length above, is applied in exactly one function.
+func Describe(c Card) string {
 	var b strings.Builder
-	b.WriteString(s.Name)
-	if s.Role != "" {
-		b.WriteString(" — " + s.Role)
+	b.WriteString(c.Name)
+	if c.Role != "" {
+		b.WriteString(" — " + c.Role)
 	}
 	b.WriteString("\n")
-	if s.Team != "" {
-		b.WriteString("team: " + s.Team)
-		if s.Hub {
+	if c.Team != "" {
+		b.WriteString("team: " + c.Team)
+		if c.Hub {
 			// Worth saying: addressing the team reaches the hub, so a caller that has this one has
 			// already reached whoever answers for the rest.
 			b.WriteString(" (answers for the team)")
 		}
 		b.WriteString("\n")
 	}
-	if s.Workdir != "" {
-		b.WriteString("workspace: " + s.Workdir + "\n")
+	if c.Workdir != "" {
+		b.WriteString("workspace: " + c.Workdir + "\n")
 	}
-	if len(s.Skills) > 0 {
+	if len(c.Skills) > 0 {
 		b.WriteString("\nWhat it has written procedures for:\n")
-		for _, sk := range s.Skills {
+		for _, sk := range c.Skills {
 			b.WriteString("  " + sk.Name)
 			if d := strings.TrimSpace(sk.Description); d != "" {
 				b.WriteString(" — " + text.Clip(oneLine(d), 160))
@@ -331,12 +354,12 @@ func (s *Server) about() string {
 			b.WriteString("\n")
 		}
 	}
-	if len(s.Reach) > 0 {
-		b.WriteString("\nExternal tool servers it can reach: " + strings.Join(s.Reach, ", ") + "\n" +
+	if len(c.Reach) > 0 {
+		b.WriteString("\nExternal tool servers it can reach: " + strings.Join(c.Reach, ", ") + "\n" +
 			"Names only. That says what it can be asked to do, not what you can run — to use one\n" +
 			"of those yourself you configure it in your own workspace, on purpose.\n")
 	}
-	if len(s.Skills) == 0 && len(s.Reach) == 0 {
+	if len(c.Skills) == 0 && len(c.Reach) == 0 {
 		b.WriteString("\nIt declares no skills and no external tool servers. What it has is what it\n" +
 			"has written down — ask `knows`.\n")
 	}

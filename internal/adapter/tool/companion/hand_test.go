@@ -821,3 +821,76 @@ func (tm *team) elsewhere(ms ...cluster.Member) {
 		tm.t.Fatal(err)
 	}
 }
+
+// The roster names what each companion can do, so a model can choose without asking anybody.
+func TestTheRosterLineNamesWhatACompanionCanDo(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design",
+		Role: "screens", Can: 5, Does: []string{"tokens", "layout", "contrast"}, Seen: time.Now()})
+	tm.member("m", "master", "coordinating", &heard{})
+
+	list, err := fleet.List(context.Background(), tm.reader, tm.cfgDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := fleet.RosterLines(list, "")
+	for _, want := range []string{"tokens", "layout", "contrast"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the roster does not say the companion can %q:\n%s", want, line)
+		}
+	}
+	// Five things, three named: the line must not imply the list is the whole answer.
+	if !strings.Contains(line, "(+2)") {
+		t.Errorf("the roster hides that there are more:\n%s", line)
+	}
+}
+
+// Asking what somebody can do reaches the machine that has them, and answers in their words.
+func TestAskingWhatACompanionCanDoReachesTheMachineThatHasThem(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design",
+		Can: 1, Does: []string{"tokens"}, Seen: time.Now()})
+
+	var askedHost, askedName string
+	tool := companion.About{
+		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
+		Ask: func(_ context.Context, host, name string) (string, error) {
+			askedHost, askedName = host, name
+			return "design — screens\n\nWhat it has written procedures for:\n  tokens — names the colour roles\n", nil
+		},
+	}
+	args, _ := json.Marshal(map[string]string{"who": "design"})
+	res, err := tool.Execute(context.Background(), args, port.ToolEnv{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("asking answered %q", text(t, res))
+	}
+	if askedHost != "buildbox" || askedName != "design" {
+		t.Errorf("it asked %q about %q", askedHost, askedName)
+	}
+	if !strings.Contains(text(t, res), "names the colour roles") {
+		t.Errorf("the description did not come back: %q", text(t, res))
+	}
+}
+
+// A machine that cannot be asked says which one, rather than answering nothing.
+func TestAMachineThatCannotDescribeSaysWhichOne(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	tool := companion.About{
+		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
+		Ask: func(context.Context, string, string) (string, error) {
+			return "", errors.New("Network is unreachable")
+		},
+	}
+	args, _ := json.Marshal(map[string]string{"who": "design"})
+	res, _ := tool.Execute(context.Background(), args, port.ToolEnv{})
+	if !res.IsError {
+		t.Fatal("an unreachable machine read as a description")
+	}
+	if !strings.Contains(text(t, res), "buildbox") {
+		t.Errorf("the failure does not name the machine: %q", text(t, res))
+	}
+}
