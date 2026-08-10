@@ -114,6 +114,10 @@ func (w *recordingWork) Submit(_ context.Context, c command.SubmitPrompt) error 
 	w.ar.got.Unlock()
 	w.ar.append(string(c.SessionID), ev(w.ar.t, event.TypePromptSubmitted,
 		event.PromptSubmittedData{MessageID: "m_handed", Parts: c.Parts}))
+	w.busy = c.SessionID
+	// A submitted prompt starts a turn, and a turn running is what the next piece waits for. A
+	// fake that skipped this would drain the whole queue at once and call it serialised.
+
 	return nil
 }
 
@@ -155,10 +159,11 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	eng := takingEngine{live: &ar.live, handover: handover{
 		work: ar.work,
 		sid:  session.SessionID(sid), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
-		mine: newSideSessions(),
+		mine: newSideSessions(), queued: newWaiting(),
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	ar.t.Cleanup(cancel)
+	go eng.handover.run(ctx) // the daemon starts this; without it nothing leaves the queue
 	go func() { _ = daemon.Serve(ctx, eng, sock) }()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -211,6 +216,9 @@ func (ar *arrival) append(sid string, evs ...event.Event) {
 func (ar *arrival) finishes(sid, said string) {
 	ar.t.Helper()
 	ar.said++
+	if ar.work != nil && string(ar.work.busy) == sid {
+		ar.work.busy = "" // the turn ended; the workspace is free again
+	}
 	ar.append(sid,
 		ev(ar.t, event.TypePartAppended, event.PartAppendedData{
 			MessageID: fmt.Sprintf("m%d", ar.said),
@@ -254,10 +262,8 @@ func TestWorkArrivingFromAnotherMachineLandsInTheCompanionReached(t *testing.T) 
 	if receipt == "" {
 		t.Fatal("no receipt came back, so the answer could never be collected")
 	}
+	until(t, "the work to be started", func() bool { return len(ar.prompts()) == 1 })
 	got := ar.prompts()
-	if len(got) != 1 {
-		t.Fatalf("%d prompts arrived", len(got))
-	}
 	// Byte for byte, separator included. Prefix-and-suffix would pass on a label glued to the first
 	// word of the request, which is exactly what happened the last time this was two message parts.
 	if want := "— asked by master on mini, ...\n\nrewrite the settings screen"; got[0] != want {
@@ -276,8 +282,8 @@ func TestAnArrivalWithNoLabelIsStillMarkedAsHandedOver(t *testing.T) {
 	if _, err := cl.Hand("", "do it"); err != nil {
 		t.Fatalf("it was refused: %v", err)
 	}
-	got := ar.prompts()
-	if len(got) != 1 || !strings.Contains(got[0], "asked by") {
+	until(t, "the work to be started", func() bool { return len(ar.prompts()) == 1 })
+	if got := ar.prompts(); !strings.Contains(got[0], "asked by") {
 		t.Fatalf("an unlabelled arrival reads as something a person typed: %q", got)
 	}
 }
@@ -349,28 +355,30 @@ func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
 // The two used to be told apart by an exit code, because the door was a subcommand over ssh. Over
 // the protocol they are told apart by which of them produced the error: a daemon that answered and
 // said no, or a link that never reached one. A caller that cannot tell will send somebody to fix a
-// network because a companion was busy.
+// network because a companion was full.
 func TestARefusalIsAnAnswerAndNotAFailedCall(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	// Busy: something has a turn in flight here. Conversations are isolated now, so what refuses
-	// is not "your session is mid-turn" but "this workspace is in use" — one at a time, because
-	// two turns in one tree are two agents editing the same files.
-	ar.work.busy = "rebuilding-the-index"
+	ar.work.busy = "the-person-is-working" // so nothing drains and the queue fills
 
-	_, err := cl.Hand("— asked by master", "do it")
+	for i := 0; i < maxWaiting; i++ {
+		if _, err := cl.Hand("— asked by master", "do it"); err != nil {
+			t.Fatalf("piece %d was refused before the queue was full: %v", i, err)
+		}
+	}
+	_, err := cl.Hand("— asked by master", "one too many")
 	if err == nil {
-		t.Fatal("a companion mid-turn took the work anyway")
+		t.Fatal("a full companion took more work")
 	}
 	var refused daemon.Refused
 	if !errors.As(err, &refused) {
 		t.Fatalf("a companion that answered reads as one that could not be reached: %#v", err)
 	}
-	if !strings.Contains(refused.Why, "one thing at a time") {
-		t.Errorf("the refusal does not say why: %q", refused.Why)
+	if !strings.Contains(refused.Why, "Ask somebody else") {
+		t.Errorf("the refusal does not say what to do instead: %q", refused.Why)
 	}
 	if len(ar.prompts()) != 0 {
-		t.Error("it was sent anyway")
+		t.Error("something was started while the workspace was in use")
 	}
 }
 
@@ -420,7 +428,7 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 	}
 	after := handover{work: &recordingWork{App: ar.reader, ar: ar, side: "s_design_side"},
 		sid: "s_design", workdir: ar.t.TempDir(), configDir: ar.cfgDir, receipts: fresh,
-		mine: newSideSessions()}
+		mine: newSideSessions(), queued: newWaiting()}
 	if _, err := after.Handed(context.Background(), receipt); err == nil {
 		t.Fatal("a restarted companion answered about work it has no record of taking")
 	}
@@ -672,7 +680,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	}
 	// A different asker does not.
 	other := handover{work: ar.work, sid: "s_design", workdir: ar.t.TempDir(),
-		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions()}
+		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions(), queued: newWaiting()}
 	mine, merr := other.sessionFor(context.Background(), "— asked by master")
 	if merr != nil {
 		t.Fatal(merr)
@@ -686,34 +694,72 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	}
 }
 
-// One at a time, whoever is running and whatever they are running.
+// One at a time, and busy means queued rather than refused.
 //
 // The conversations are isolated; the WORK is not, and must not be. This is an agent that edits
-// files — two turns at once in one tree are two writers with nothing between them. The person's
-// own session counts: a request borrows the workspace, and borrowing it while somebody is using it
-// is the same collision.
-func TestWorkIsOneAtATimeEvenThoughTheConversationsAreNot(t *testing.T) {
+// files — two turns at once in one tree are two writers with nothing between them, the person's
+// own turn included. But bouncing the request off a companion who happens to be mid-turn puts the
+// retry on the asker, which is either a model that gives up on the right companion or one that
+// polls. So it goes in the inbox, and says so until it starts.
+func TestWorkIsQueuedWhileTheWorkspaceIsInUse(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
 	ar.work.busy = "the-person-is-working"
-	_, err := cl.Hand("— asked by master", "name the tokens")
-	if err == nil {
-		t.Fatal("work was taken on top of a turn already running in this workspace")
+	receipt, err := cl.Hand("— asked by master", "name the tokens")
+	if err != nil {
+		t.Fatalf("work was refused instead of taken: %v", err)
 	}
-	var refused daemon.Refused
-	if !errors.As(err, &refused) {
-		t.Fatalf("a companion that answered reads as one that could not be reached: %#v", err)
+	// Taken, not started: nothing may run on top of the turn already going.
+	time.Sleep(200 * time.Millisecond)
+	if n := len(ar.prompts()); n != 0 {
+		t.Fatalf("%d pieces started on top of a turn already running", n)
 	}
-	if !strings.Contains(refused.Why, "the-person-is-working") {
-		t.Errorf("the refusal does not say what it is busy with: %q", refused.Why)
+	// And asking says so, rather than the silence of a companion that is thinking.
+	got, herr := cl.Handed(receipt)
+	if herr != nil {
+		t.Fatal(herr)
 	}
-	if len(ar.prompts()) != 0 {
-		t.Error("it was sent anyway")
+	if !strings.Contains(got.News, "not started yet") || got.Over || got.Done {
+		t.Fatalf("a queued piece reads as %+v", got)
 	}
-	// And when the workspace frees up it is taken.
+	// When the workspace frees up it starts, without anybody asking again.
 	ar.work.busy = ""
-	if _, err := cl.Hand("— asked by master", "name the tokens"); err != nil {
-		t.Fatalf("an idle companion refused: %v", err)
+	until(t, "the queue to drain", func() bool { return len(ar.prompts()) == 1 })
+	if got, _ := cl.Handed(receipt); strings.Contains(got.News, "not started") {
+		t.Errorf("it started but still reads as queued: %+v", got)
+	}
+}
+
+// The next piece starts when the turn before it ends, not when a timer next looks.
+//
+// The drain has a backstop tick for the one thing it cannot observe — the person's own turn ending
+// in their own session — and if that were the only trigger every queued piece would wait out the
+// tick for no reason. Watching the session it just started is how the common case is noticed
+// without polling for what this process already knows.
+func TestTheNextPieceStartsWhenTheOneBeforeItEnds(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+
+	if _, err := cl.Hand("— asked by master", "first"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the first piece to start", func() bool { return len(ar.prompts()) == 1 })
+	if _, err := cl.Hand("— asked by scribe", "second"); err != nil {
+		t.Fatal(err)
+	}
+	// Held: one at a time.
+	time.Sleep(150 * time.Millisecond)
+	if n := len(ar.prompts()); n != 1 {
+		t.Fatalf("%d pieces running at once", n)
+	}
+
+	started := time.Now()
+	ar.finishes(ar.side("s_design"), "the first one is done")
+	until(t, "the next piece to start", func() bool { return len(ar.prompts()) == 2 })
+	// Well inside the backstop: with only the tick this waits it out, which is the difference the
+	// turn-finish watch makes.
+	if waited := time.Since(started); waited > drainEvery/2 {
+		t.Errorf("the next piece waited %s — the tick found it, nothing noticed the turn ending", waited)
 	}
 }

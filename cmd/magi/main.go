@@ -1094,10 +1094,13 @@ func run() int {
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.
+		taking := handover{work: a, sid: sid, workdir: wd, configDir: plat.ConfigDir(),
+			receipts: daemon.NewReceipts(), mine: newSideSessions(), queued: newWaiting()}
+		// Starting queued work as the workspace frees up, on the same lifetime as the schedule and
+		// the gossip: a companion that has been stopped should not pick up somebody's next piece.
+		go taking.run(cronCtx)
 		serveErr := serving.Serve(dctx, daemonEngine{
-			App: a, workdir: wd,
-			handover: handover{work: a, sid: sid, workdir: wd, configDir: plat.ConfigDir(),
-				receipts: daemon.NewReceipts(), mine: newSideSessions()},
+			App: a, workdir: wd, handover: taking,
 			card: func() mcpserve.Card {
 				return mcpserve.Card{
 					Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
@@ -86,6 +87,8 @@ type handover struct {
 	configDir string
 	// mine is one side session per ASKER, keyed by the label they send.
 	mine *sideSessions
+	// queued is work taken and not started. See queue.go.
+	queued *waiting
 	// receipts is what this daemon has taken, and the only way to ask about any of it. nil is
 	// possible in a partly-built engine; the methods say so rather than crash.
 	receipts *daemon.Receipts
@@ -104,20 +107,14 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 		return "", errors.New("this companion cannot record a handover, so its answer could never " +
 			"be collected")
 	}
-	// One at a time, whoever is running and whatever they are running. Conversations are isolated;
-	// the WORK is not, because this is an agent that edits files and two turns at once in one tree
-	// are two writers with nothing between them. The person's own session counts: a request
-	// borrows the workspace, and borrowing it while somebody is using it is the same collision.
-	if busy, yes := h.work.Running(); yes {
-		return "", fmt.Errorf("this companion is working on something else (%s) and does one thing "+
-			"at a time — the workspace is shared even when the conversations are not. Try it "+
-			"later, or ask somebody else", busy)
+	if h.queued == nil {
+		return "", errors.New("this companion cannot hold work, so it cannot take any")
 	}
 	if strings.TrimSpace(label) == "" {
 		// An arrival with no label still gets one. A request with no attribution is
 		// indistinguishable from something the person typed, and the no-chaining rule is read off
-		// exactly this mark. It is also the key below, so an unlabelled asker gets one shared
-		// side session rather than a new one every time.
+		// exactly this mark. It is also the key below, so an unlabelled asker gets one shared side
+		// session rather than a new one every time.
 		label = fleet.DispatchedFrom("another companion", "")
 	}
 	sid, serr := h.sessionFor(ctx, label)
@@ -132,22 +129,100 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 		return "", fmt.Errorf("this companion's transcript cannot be read, so an answer could not "+
 			"be found again: %w", nerr)
 	}
-	// Minted BEFORE the work goes in. The other way round, a failure to mint would leave work being
-	// done that nobody can ever ask about — and an unused receipt costs nothing, because it expires.
+	// Minted when the work is TAKEN, not when it starts. The asker gets a handle immediately, and
+	// nothing can be lost between accepting a piece and getting to it.
 	id, gerr := h.receipts.Give(string(sid), since)
 	if gerr != nil {
 		return "", gerr
 	}
+	// Queued, always — even when nothing is running. One path rather than two, and "start it now"
+	// falls out of the nudge below: the drain wakes, finds the workspace free, and takes it. Two
+	// paths would be two places for "what happens to a piece of work" to differ.
+	ahead, took := h.queued.take(pending{
+		receipt: id, session: sid,
+		text: companion.Labelled(label, request),
+	})
+	if !took {
+		return "", fmt.Errorf("this companion already has %d pieces of work waiting and does one "+
+			"at a time. Ask somebody else — a queue this long is not an answer coming later, it "+
+			"is an answer that would come too late to be one", ahead)
+	}
+	return id, nil
+}
+
+// startNext puts the head of the queue into its session, if the workspace is free.
+//
+// One at a time, whoever is running and whatever they are running. The conversations are isolated;
+// the WORK is not, and must not be. This is an agent that edits files, and two turns at once in
+// one tree are two writers with nothing between them — the person's own turn included, because a
+// request borrows the workspace and borrowing it while somebody is using it is the same collision.
+func (h handover) startNext(ctx context.Context) {
+	if h.work == nil || h.queued == nil {
+		return
+	}
+	if _, busy := h.work.Running(); busy {
+		return
+	}
+	p, ok := h.queued.next()
+	if !ok {
+		return
+	}
 	// The same actor a person's own prompt gets. Who actually asked is in the label, verbatim,
 	// which is where every reader looks.
 	if err := h.work.Submit(ctx, command.SubmitPrompt{
-		SessionID: sid,
-		Parts:     []session.Part{{Kind: session.PartText, Text: companion.Labelled(label, request)}},
+		SessionID: p.session,
+		Parts:     []session.Part{{Kind: session.PartText, Text: p.text}},
 		Actor:     event.Actor{Kind: event.ActorUser, ID: "handoff"},
 	}); err != nil {
-		return "", err
+		// Not put back. A start that fails is recorded against the receipt so the asker is told
+		// nothing is coming, which is the one thing worse to withhold: a receipt pointing at a
+		// session where nothing ever happens looks exactly like a companion still thinking.
+		h.queued.giveUp(p.receipt, "this companion could not start the work: "+err.Error())
+		return
 	}
-	return id, nil
+	// It is running now, so the next piece waits for it to end. Watching the session it went into
+	// is how that is noticed without polling — the tick in run() is only for the turn this did not
+	// start, which is the person's own.
+	go h.wakeWhenDone(ctx, p.session)
+}
+
+// wakeWhenDone nudges the drain when the turn just started has ended.
+func (h handover) wakeWhenDone(ctx context.Context, sid session.SessionID) {
+	events, stop, err := h.work.Subscribe(ctx, sid, 0)
+	if err != nil {
+		return // the tick will find it
+	}
+	defer stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e, open := <-events:
+			if !open {
+				return
+			}
+			if e.Type == event.TypeTurnFinished {
+				h.queued.wake()
+				return
+			}
+		}
+	}
+}
+
+// run starts queued work as the workspace frees up. Ends with the daemon.
+func (h handover) run(ctx context.Context) {
+	if h.queued == nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-h.queued.nudge:
+		case <-time.After(drainEvery):
+		}
+		h.startNext(ctx)
+	}
 }
 
 // sessionFor is the side session belonging to one asker, opened the first time they ask.
@@ -202,7 +277,7 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 		return daemon.Handover{}, errors.New("no handover here with that receipt — it was never " +
 			"made here, or this companion has restarted since, or it has expired")
 	}
-	return h.state(ctx, session.SessionID(sid), since), nil
+	return h.state(ctx, receipt, session.SessionID(sid), since), nil
 }
 
 // state is what became of the work, from the position its receipt stands for.
@@ -210,7 +285,20 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 // One definition and two clocks: Handed says it when asked, Watch says it when something happens.
 // Written twice, a companion blocked on a person would be reported by one of them and not the
 // other, and which you got would depend on how old the magi asking was.
-func (h handover) state(ctx context.Context, sid session.SessionID, since int64) daemon.Handover {
+func (h handover) state(ctx context.Context, receipt string, sid session.SessionID, since int64) daemon.Handover {
+	if h.queued != nil {
+		// Taken and not started is its own answer. An asker told only silence cannot tell a
+		// companion that is thinking from one that has not begun, and the two want different
+		// patience.
+		if why, gone := h.queued.givenUp(receipt); gone {
+			return daemon.Handover{Over: true, News: why}
+		}
+		if place, total, yes := h.queued.where(receipt); yes {
+			return daemon.Handover{News: fmt.Sprintf(
+				"not started yet — it is %d of %d waiting, and this companion does one at a time",
+				place, total)}
+		}
+	}
 	if done, answer := h.work.AnswerSince(ctx, sid, since); done {
 		return daemon.Handover{Done: true, Answer: answer}
 	}
@@ -250,7 +338,7 @@ func (h handover) Watch(ctx context.Context, receipt string, say func(daemon.Han
 
 	var said daemon.Handover
 	for {
-		now := h.state(ctx, session.SessionID(sid), since)
+		now := h.state(ctx, receipt, session.SessionID(sid), since)
 		if now != said {
 			said = now
 			// Nothing to say is not a thing to send. A companion that was blocked and is now
