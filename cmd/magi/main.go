@@ -701,21 +701,41 @@ func run() int {
 		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
 		Cache:     companionCache,
 	})
-	// Nothing hands work to another workspace any more. ask_companion is gone.
+	// Handing a piece of work to another workspace.
 	//
-	// It let one companion start a turn in another's, and it named that companion as free text
-	// with no list of them given anywhere. Its description told the model to run `companions`
-	// first, which is advice and not a mechanism — so "ssh in and do something" was delivered to a
-	// companion called "ssh", which does not exist, and failed. This tree has written that shape
-	// down before: a set the model is expected to look up rather than be shown is a set it guesses
-	// at.
+	// This is ask_companion returned, with the defect that removed it fixed by a mechanism rather
+	// than by wording. That tool named its recipient as free text with no list given anywhere and
+	// told the model to run `companions` first, which is advice: asked to "ssh in and do
+	// something", a model addressed a companion called "ssh", which does not exist. Now the roster
+	// is IN the tool's description, built from what is published right here, and a name matching
+	// nobody is refused with the list.
 	//
-	// What replaces it is not another tool with a better description. A companion should advertise
-	// what it can do and companions should exchange that when they meet, so the question stops
-	// being "who might there be" and becomes a list.
+	// The second thing that was wrong with it is what makes this worth having at all: there was no
+	// way back. Its own answer ended "they do not report back, so read their transcript later",
+	// which leaves an agent stopping to poll a screen it cannot see, or carrying on and losing the
+	// work. The answer now arrives in the asker's conversation when the other side finishes.
 	//
-	// fleet.Handoffs stays. The handoffs already in the logs are still readable, and removing the
-	// reader would delete the record rather than the mechanism — nothing new will appear in it.
+	// Registered here for the same reason `companions` is: app imports builtin and daemon imports
+	// app, so a built-in that reads daemon records would close a cycle — and whether a companion
+	// may hand work to its neighbours is a wiring decision that belongs somewhere a person can see
+	// it, not a default buried in a registry.
+	handRoster := ""
+	if reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{}); reader != nil {
+		if list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(),
+			daemon.SocketPath(plat.ConfigDir(), wd)); lerr == nil {
+			handRoster = fleet.RosterLines(list, daemon.SocketPath(plat.ConfigDir(), wd))
+		}
+	}
+	reg.Register(companion.Hand{
+		Reader:    func() fleet.Reader { return a },
+		ConfigDir: plat.ConfigDir(),
+		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
+		Called:    cfg.Companion.Name,
+		Team:      cfg.Companion.Team,
+		Hub:       cfg.Companion.Hub,
+		Cache:     companionCache,
+		Roster:    handRoster,
+	})
 	dangerTools := app.DefaultDangerTools()
 
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
