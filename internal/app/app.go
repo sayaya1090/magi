@@ -399,6 +399,12 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		// below owes a terminal event. A cancelled context is not that answer: see the emit.
 		var lastErr error
 		for {
+			// The one instant the tool set may change. Nothing is stepping, so nothing can call a
+			// tool that goes away underneath it — which is the objection that kept the companion
+			// attachments frozen at startup. See Config.BetweenTurns.
+			if a.cfg.BetweenTurns != nil {
+				a.cfg.BetweenTurns(runCtx)
+			}
 			err := a.run(runCtx, sid)
 			lastErr = err
 			a.observeTurnFinished(runCtx, sid)

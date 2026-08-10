@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -477,5 +478,74 @@ func TestShellSegmentsHonorQuotes(t *testing.T) {
 	// An escaped quote inside a double-quoted run does not close it.
 	if got := splitShellSegments(`echo "a \" | b" && ls`); len(got) != 2 {
 		t.Errorf("escaped quote handling: got %d segments %q, want 2", len(got), got)
+	}
+}
+
+// betweenTurnsLLM watches, from inside the first thing a turn does, whether the hook is still in
+// the middle of changing the tool set.
+type betweenTurnsLLM struct {
+	fakeLLM
+	inHook *atomic.Bool
+	caught *atomic.Bool
+	order  *atomic.Int32
+	stepAt *atomic.Int32
+}
+
+func (b *betweenTurnsLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	if b.inHook.Load() {
+		b.caught.Store(true)
+	}
+	if b.stepAt.Load() == 0 {
+		b.stepAt.Store(b.order.Add(1))
+	}
+	return b.fakeLLM.StreamChat(ctx, r)
+}
+
+// The between-turns hook runs before a turn, and never while one is stepping.
+//
+// That is the whole reason it exists rather than a clock. What it is wired to changes the tool
+// list — which companions this magi has attached — and a list that changes between one step and
+// the next lets a model call something that has just gone, which is a failure nobody can read
+// afterwards. Here nothing is stepping, so nothing can notice.
+func TestTheBetweenTurnsHookRunsBeforeAStepAndNeverDuringOne(t *testing.T) {
+	var inHook, caught, ran atomic.Bool
+	var order, hookAt, stepAt atomic.Int32
+
+	llm := &betweenTurnsLLM{
+		fakeLLM: fakeLLM{steps: [][]port.ProviderEvent{textStep("done")}},
+		inHook:  &inHook, caught: &caught, order: &order, stepAt: &stepAt,
+	}
+	a, wd := newApp(t, llm, Config{
+		Model: session.ModelRef{Provider: "test", Model: "m"},
+		BetweenTurns: func(context.Context) {
+			ran.Store(true)
+			inHook.Store(true)
+			if hookAt.Load() == 0 {
+				hookAt.Store(order.Add(1))
+			}
+			time.Sleep(20 * time.Millisecond) // long enough for a step to overlap if one could
+			inHook.Store(false)
+		},
+	})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(context.Background(), command.SubmitPrompt{
+		SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "hello"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForTerminal(t, a, sid)
+
+	if !ran.Load() {
+		t.Fatal("a turn ran without the hook, so nothing can ever change the tool set")
+	}
+	if caught.Load() {
+		t.Error("a step ran while the hook was in the middle of changing the tool set")
+	}
+	if h, s := hookAt.Load(), stepAt.Load(); s == 0 || h == 0 || h > s {
+		t.Errorf("the hook ran at %d and the first step at %d — that is not a boundary", h, s)
 	}
 }

@@ -316,6 +316,22 @@ type Config struct {
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
 	// app never imports an LLM adapter. nil = no probing; the registry default is used.
 	ContextWindowProber func(context.Context, string) (int, bool)
+
+	// BetweenTurns runs before a turn starts and never while one is running.
+	//
+	// It exists because the tool set is not fixed. Which companions are running here changes while
+	// this process lives, and each of them is two tools; attached once at startup, a companion
+	// that came up later could be handed work and not spoken to, and one that stopped left tools
+	// in the list that could only fail.
+	//
+	// Doing that on a clock was refused, with a reason: a tool list that changes between one step
+	// and the next lets a model call something that has just gone, and that failure is unreadable
+	// afterwards. This is the answer to it — the one instant where no step is in flight, so the
+	// set can change without anything being able to notice mid-thought.
+	//
+	// It runs on the turn's own context, before the first step, and again before each re-run. It
+	// must be quick: the turn waits for it.
+	BetweenTurns func(context.Context)
 	// SubagentPrefs is the user's own settings per subagent, from config. An absent entry (or a
 	// nil Enabled) means "no choice made", which falls back to what the tool declared — so a
 	// subagent that ships off stays off until someone says otherwise.
