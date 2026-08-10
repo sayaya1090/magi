@@ -559,7 +559,7 @@ func run() int {
 			// loadSkills reads only <workspace>/.magi/skills and .claude/skills and leaves out the
 			// machine-wide directory — which is the right set: a shared skill is not something
 			// THIS companion can do that the asker cannot.
-			Skills: reader.Skills(who.Workdir),
+			Skills: func() []port.Skill { return reader.Skills(who.Workdir) },
 			Reach:  reachableServers(who.Workdir),
 		}
 		if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
@@ -780,13 +780,20 @@ func run() int {
 	// app, so a built-in that reads daemon records would close a cycle — and whether a companion
 	// may hand work to its neighbours is a wiring decision that belongs somewhere a person can see
 	// it, not a default buried in a registry.
-	handRoster := ""
-	if reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{}); reader != nil {
-		if list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(),
-			daemon.SocketPath(plat.ConfigDir(), wd)); lerr == nil {
-			handRoster = fleet.RosterLines(list, daemon.SocketPath(plat.ConfigDir(), wd))
+	// Its own reader, built once and reused by every refresh: `a` does not exist yet here, and the
+	// first list is taken before it does. One throwaway App rather than one per refresh.
+	self := daemon.SocketPath(plat.ConfigDir(), wd)
+	rosterReader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+	handRoster := newLiveRoster(func() (string, error) {
+		if rosterReader == nil {
+			return "", errNoReader
 		}
-	}
+		list, lerr := fleet.List(context.Background(), rosterReader, plat.ConfigDir(), self)
+		if lerr != nil {
+			return "", lerr
+		}
+		return fleet.RosterLines(list, self), nil
+	})
 	reg.Register(companion.Hand{
 		Reader:    func() fleet.Reader { return a },
 		ConfigDir: plat.ConfigDir(),
@@ -795,7 +802,7 @@ func run() int {
 		Team:      cfg.Companion.Team,
 		Hub:       cfg.Companion.Hub,
 		Cache:     companionCache,
-		Roster:    handRoster,
+		Roster:    handRoster.get,
 		Machine:   daemon.Host(),
 		Reach:     reachCompanion,
 	})
@@ -1079,10 +1086,12 @@ func run() int {
 			App: a, workdir: wd,
 			handover: handover{work: a, sid: sid, configDir: plat.ConfigDir(),
 				receipts: daemon.NewReceipts()},
-			card: mcpserve.Card{
-				Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
-				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Workdir: wd,
-				Skills: a.Skills(wd), Reach: reachableServers(wd),
+			card: func() mcpserve.Card {
+				return mcpserve.Card{
+					Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
+					Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Workdir: wd,
+					Skills: a.Skills(wd), Reach: reachableServers(wd),
+				}
 			}})
 		stopCron() // whichever way Serve ended, the schedule ends with it
 		if serveErr != nil {
@@ -1896,9 +1905,15 @@ type daemonEngine struct {
 	*app.App
 	workdir string
 	// card is what this companion says about itself when somebody on another machine asks over the
-	// relay. Built once at startup from the same pieces the MCP `about` tool uses, and rendered by
-	// the same function — one description, whichever door it came through.
-	card mcpserve.Card
+	// relay, from the same pieces the MCP `about` tool uses and rendered by the same function —
+	// one description, whichever door it came through.
+	//
+	// A function, because a companion's skills are files in its workspace and files get written.
+	// Taken once, this advertised the workspace as it was the moment the daemon booted, for as
+	// long as the daemon ran — the same defect the roster had, in the other direction: that one
+	// froze who there is, this one froze what they can do. Cheap to rebuild: the skill loader is
+	// cached against the directories' signature, so an unchanged workspace costs a few stats.
+	card func() mcpserve.Card
 	// handover is work taken from other companions. Its own type, in hand.go, because what it
 	// needs from this process is narrow — a store to read and a way to start a turn — and a
 	// daemon's whole self is not a thing a test of it should have to build.
@@ -1908,7 +1923,12 @@ type daemonEngine struct {
 // About satisfies daemon.Describer: the process that knows answers about itself, instead of a
 // process somewhere else re-deriving it from a config directory that may not even be the right
 // account's.
-func (d daemonEngine) About() string { return mcpserve.Describe(d.card) }
+func (d daemonEngine) About() string {
+	if d.card == nil {
+		return ""
+	}
+	return mcpserve.Describe(d.card())
+}
 
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a

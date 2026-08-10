@@ -636,7 +636,7 @@ func TestTheToolShowsWhoThereIsRatherThanTellingTheModelToLook(t *testing.T) {
 		{Name: "me", Role: "coordinating", Live: true, Socket: "/s/m.sock"},
 		{Name: "gone", Role: "was here", Live: false, Socket: "/s/g.sock"},
 	}
-	got := companion.Hand{Roster: fleet.RosterLines(list, "/s/m.sock")}.Description()
+	got := companion.Hand{Roster: func() string { return fleet.RosterLines(list, "/s/m.sock") }}.Description()
 
 	for _, want := range []string{"design", "the design system", "[frontend]", "api", "the billing API"} {
 		if !strings.Contains(got, want) {
@@ -655,7 +655,7 @@ func TestTheToolShowsWhoThereIsRatherThanTellingTheModelToLook(t *testing.T) {
 // And with nobody there it says so, rather than showing an empty heading that reads as a list
 // still loading.
 func TestTheToolSaysWhenThereIsNobodyToHandWorkTo(t *testing.T) {
-	got := companion.Hand{Roster: fleet.RosterLines(nil, "")}.Description()
+	got := companion.Hand{Roster: func() string { return fleet.RosterLines(nil, "") }}.Description()
 	if !strings.Contains(got, "nobody else is running") {
 		t.Errorf("an empty roster reads as:\n%s", got)
 	}
@@ -1252,5 +1252,34 @@ func TestTheAnswerIsAskedForByReceiptAndNothingElse(t *testing.T) {
 	if watched[0].Session != "rcpt-9" {
 		t.Errorf("this side is holding %q, which is something other than the receipt it was given",
 			watched[0].Session)
+	}
+}
+
+// A companion that comes up after this one does is advertised.
+//
+// The list used to be taken once, at startup, and a daemon that came up before its cluster had
+// converged advertised nobody for the life of the process. Asked to hand work over, the model
+// answered that no such companion exists — it had never been shown one. The refusal path reads the
+// live list, so this was supposed to cost a turn; but a model shown nobody does not guess, it
+// declines, and the turn is never spent. Observed across five machines.
+func TestACompanionThatAppearsLaterIsAdvertised(t *testing.T) {
+	tm := newTeam(t)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	// Built the way production builds it: a function over the live listing, not a string.
+	tool := companion.Hand{Self: master, Called: "master", Roster: func() string {
+		list, err := fleet.List(context.Background(), tm.reader, tm.cfgDir, master)
+		if err != nil {
+			return ""
+		}
+		return fleet.RosterLines(list, master)
+	}}
+	if got := tool.Description(); strings.Contains(got, "design") {
+		t.Fatalf("a companion that does not exist yet is already offered:\n%s", got)
+	}
+
+	tm.member("d", "design", "the design system", &heard{})
+	if got := tool.Description(); !strings.Contains(got, "design") {
+		t.Errorf("a companion that came up later is not offered, so nothing can address it:\n%s", got)
 	}
 }

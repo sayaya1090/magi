@@ -78,11 +78,20 @@ type Hand struct {
 	// to, and hand_off then refuses a target elsewhere rather than pretending the cluster is one
 	// filesystem.
 	Reach Reach
-	// Roster is who was published when this magi started, one line each, for the description.
-	// A snapshot, like every other peer list built at startup: a companion that appears later is
-	// not in it, and the refusal path reads the LIVE list, so a stale description costs a turn
-	// rather than an unreachable companion.
-	Roster string
+	// Roster is who there is, one line each, asked for every time the description is built.
+	//
+	// A function and not a string, because a description is rebuilt on every step and this list
+	// was taken once at startup. A daemon that came up before its cluster had converged advertised
+	// an empty list and went on advertising it: asked to hand work to a companion that joined a
+	// minute later, the model answered that no such companion exists. It had never been shown one
+	// — and a set a model is expected to look up rather than be SHOWN is a set it guesses at,
+	// which is the entire reason this description carries a list.
+	//
+	// Observed across five machines, not reasoned about.
+	//
+	// It must not block: whatever supplies it decides how fresh is fresh, and reading the fleet
+	// means dialling every published socket. See cmd/magi/roster.go.
+	Roster func() string
 }
 
 // DispatchedBy renders the label that opens a handed-over request. It lives in fleet because the
@@ -93,7 +102,10 @@ func DispatchedBy(who string) string { return fleet.DispatchedBy(who) }
 func (Hand) Name() string { return "hand_off" }
 
 func (h Hand) Description() string {
-	who := strings.TrimSpace(h.Roster)
+	who := ""
+	if h.Roster != nil {
+		who = strings.TrimSpace(h.Roster())
+	}
 	if who == "" {
 		who = "(nobody else is running here right now, so this will refuse)"
 	}
