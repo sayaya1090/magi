@@ -79,6 +79,9 @@ type Member struct {
 	Hub  bool   `json:"hub,omitempty"`
 	// Workdir is where it works, which is what tells two checkouts of one repo apart.
 	Workdir string `json:"workdir,omitempty"`
+	// Can is how many things it advertises being able to do: its written procedures plus the tool
+	// servers it can reach. A crude number, and it is used for exactly one thing — see Speaker.
+	Can int `json:"can,omitempty"`
 	// Seen is when somebody last had it answer. Not when this entry was written: an entry copied
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.
@@ -243,14 +246,28 @@ func Speaker(ms []Member, team string, now time.Time) (who Member, acting, ok bo
 	if len(fresh) == 0 {
 		return Member{}, false, false
 	}
-	// Lowest key. Arbitrary, and deliberately so: what matters is that every companion computing
-	// this from the same list reaches the same answer without talking to anyone. Anything
-	// cleverer — longest running, least busy — is a value that moves, and a hub that changes
-	// because somebody started a build is worse than one chosen by a rule nobody has to think
-	// about.
+	// Then the one that can do the most, and only then the lowest key.
+	//
+	// The hub is where team-addressed work lands and the only companion allowed to split it up. A
+	// hub that can do little does little: it forwards, which costs a hop, a second paraphrase of
+	// the request, and the roundtrip — for nothing. The one already able to do the work should be
+	// the one holding it.
+	//
+	// This is a value that MOVES, which the first version of this comment argued against. The
+	// argument was about values that move by the SECOND — least busy, longest running — where a
+	// hub changes because somebody started a build. A capability count changes when a skill is
+	// written, which is days apart, so companions computing this alone still agree; and when their
+	// counts disagree, one merge settles it, exactly like every other field here.
+	//
+	// Crude, and knowingly: thirty small skills outrank three deep ones. It is a tie-break, not a
+	// decision — a declared preference still beats it — and the alternative it replaces carried no
+	// signal at all.
 	best := fresh[0]
 	for _, m := range fresh[1:] {
-		if m.Key() < best.Key() {
+		switch {
+		case m.Can > best.Can:
+			best = m
+		case m.Can == best.Can && m.Key() < best.Key():
 			best = m
 		}
 	}

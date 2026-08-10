@@ -278,3 +278,40 @@ func TestATeamWithNobodyLeftHasNoSpeaker(t *testing.T) {
 		t.Errorf("the empty team name elected %q", who.Name)
 	}
 }
+
+// Among equals, the one that can do the most speaks.
+//
+// The hub is where team-addressed work lands and the only companion allowed to split it up. Give it
+// to one that can do little and it forwards everything: a hop, a second paraphrase of the request —
+// which this tree has confirmed loses the identifiers a task is graded on — and a roundtrip, for
+// nothing.
+func TestTheCompanionThatCanDoMostSpeaks(t *testing.T) {
+	// deep sorts LAST by key (studio > buildbox > mini), so a key-only rule would never pick it.
+	deep := Member{Host: "studio", Socket: "/s/a.sock", Name: "deep", Team: "frontend", Can: 21, Seen: at(0)}
+	thin := Member{Host: "buildbox", Socket: "/s/b.sock", Name: "thin", Team: "frontend", Can: 2, Seen: at(0)}
+	none := Member{Host: "mini", Socket: "/s/c.sock", Name: "none", Team: "frontend", Seen: at(0)}
+
+	who, acting, ok := Speaker([]Member{thin, none, deep}, "frontend", now)
+	if !ok || !acting {
+		t.Fatalf("who=%q acting=%v ok=%v", who.Name, acting, ok)
+	}
+	if who.Name != "deep" {
+		t.Errorf("elected %q; the one that can do the most should hold the work", who.Name)
+	}
+
+	// A person's declaration still beats the count. The number is a tie-break for when nobody has
+	// said anything, not a vote against somebody who has.
+	thin.Hub = true
+	if got, acting, _ := Speaker([]Member{thin, none, deep}, "frontend", now); got.Name != "thin" || acting {
+		t.Errorf("a capability count overrode a declaration: %q (acting=%v)", got.Name, acting)
+	}
+
+	// Equal counts fall back to the stable key, so companions computing this alone still agree.
+	deep.Hub, thin.Hub = false, false
+	deep.Can, thin.Can = 5, 5
+	first, _, _ := Speaker([]Member{deep, thin}, "frontend", now)
+	second, _, _ := Speaker([]Member{thin, deep}, "frontend", now)
+	if first.Name != second.Name {
+		t.Errorf("equal counts elected %q and %q depending on order", first.Name, second.Name)
+	}
+}
