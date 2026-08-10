@@ -74,6 +74,10 @@ func (a *App) askToDistil(ctx context.Context, tc turnCtx, ts *turnState) bool {
 		return false
 	}
 	ts.distilAsked = true
+	// Same reason the rating gate does it: this prompt asks for `remember` (or `skill`), and a
+	// turn that has declared itself finished drops its tool calls. Off by default, which is why
+	// nobody had seen this one fail.
+	ts.allowAtFinish("remember", "skill")
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: distilPrompt}},

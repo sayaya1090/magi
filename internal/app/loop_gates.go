@@ -294,6 +294,10 @@ func (a *App) askWhatTheAnswersWereWorth(ctx context.Context, tc turnCtx, evs []
 		return 0, false
 	}
 	ts.ratingAsked = true
+	// The finish path is about to ask for a tool, so the finish path must let that tool run. Its
+	// calls are dropped once a turn declares itself done, and without this the agent did exactly
+	// what it was told and nothing happened.
+	ts.allowAtFinish("rate_handoff")
 	rated := ratedThisTurn(evs)
 	var ask []answeredHandoff
 	for _, h := range got {

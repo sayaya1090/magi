@@ -601,3 +601,40 @@ func TestAnAnswerWithNoFormIsDeliveredPlainly(t *testing.T) {
 		t.Errorf("the plain delivery lost its closing line:\n%s", note)
 	}
 }
+
+// The gate that asks for a tool is the gate that permits it.
+//
+// A turn that has declared itself finished drops its tool calls, so a prompt asking for one is a
+// prompt asking for nothing unless the same gate says the tool may run. Live, it did not: the
+// agent called rate_handoff, there was no result, and no record was written. Asking and permitting
+// are set together here so they cannot come apart again.
+func TestTheGateThatAsksForAToolAlsoPermitsIt(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	f.a.mu.Lock()
+	st := f.a.stateLocked("mine")
+	st.answered = append(st.answered, answeredHandoff{Who: "design", Request: "name the tokens"})
+	f.a.mu.Unlock()
+
+	var ts turnState
+	tc := turnCtx{s: session.Session{ID: "mine"}}
+	act, done := f.a.askWhatTheAnswersWereWorth(context.Background(), tc, nil, &ts)
+	if !done || act != loopContinue {
+		t.Fatalf("the gate did not keep the turn open to be answered: %v %v", act, done)
+	}
+	if !ts.finishTools["rate_handoff"] {
+		t.Error("it asked for a tool the declared turn will throw away")
+	}
+	// And the question is in the conversation, naming who is waiting on a verdict.
+	found := false
+	for _, m := range f.myMessages() {
+		for _, p := range m.Parts {
+			if strings.Contains(p.Text, "rate_handoff") && strings.Contains(p.Text, "design") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("nothing was asked")
+	}
+}

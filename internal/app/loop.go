@@ -76,16 +76,57 @@ const (
 // to finishTurn: the once-per-turn guards (stop hooks, empty-subagent nudge), the accounting
 // behind declareAskCap, and the UNVERIFIED reason a finish carries when no council ever read
 // the work.
+// onlyAskedFor keeps the tool calls the finish path asked for and drops the rest.
+//
+// The rule is "no more work on the task once it is declared done", and that is what the dropping
+// is for. A tool the finish gates asked for is not work on the task — it is bookkeeping about the
+// turn that is ending, requested by magi itself one step earlier.
+func onlyAskedFor(calls []*session.ToolCall, asked map[string]bool) []*session.ToolCall {
+	if len(asked) == 0 {
+		return nil
+	}
+	kept := calls[:0]
+	for _, c := range calls {
+		if c != nil && asked[c.Name] {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
 type turnState struct {
-	stopChecked      bool // stop hooks enforced at most once per turn
-	nudgedEmpty      bool
-	declareAsks      int    // how many times this turn was told to declare completion (declareAskCap)
-	declareAskEpoch  int    // guard.mutationEpoch() at the last such ask; a later epoch resets the count
-	declared         bool   // the agent declared the task finished and the council accepted
-	distilAsked      bool   // the finish seam already asked what was worth keeping (once per turn)
-	handoffTold      bool   // the turn was told once that a companion has not answered yet
-	ratingAsked      bool   // the turn was asked once what the answers it got were worth
+	stopChecked     bool // stop hooks enforced at most once per turn
+	nudgedEmpty     bool
+	declareAsks     int  // how many times this turn was told to declare completion (declareAskCap)
+	declareAskEpoch int  // guard.mutationEpoch() at the last such ask; a later epoch resets the count
+	declared        bool // the agent declared the task finished and the council accepted
+	distilAsked     bool // the finish seam already asked what was worth keeping (once per turn)
+	handoffTold     bool // the turn was told once that a companion has not answered yet
+	ratingAsked     bool // the turn was asked once what the answers it got were worth
+	// finishTools are the tools the FINISH path itself asked for.
+	//
+	// Once a turn declares itself finished, its tool calls are dropped: the task is over and more
+	// work on it is not wanted. But the gates that run at the finish ask for tools — rate this
+	// hand-off, save that lesson — and without this those calls were dropped too. The agent did
+	// exactly what it was told and nothing happened, which is the shape of a description naming a
+	// way to do something there is no way to do. Observed live: rate_handoff called, no result,
+	// no record.
+	finishTools      map[string]bool
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
+}
+
+// allowAtFinish lets a tool run in the steps after a turn has declared itself done.
+//
+// Called by the gate that asks for it, right next to the asking, so the request and the permission
+// cannot come apart — which is the whole defect: a prompt asking for a tool call, and a loop that
+// throws that call away.
+func (ts *turnState) allowAtFinish(names ...string) {
+	if ts.finishTools == nil {
+		ts.finishTools = map[string]bool{}
+	}
+	for _, n := range names {
+		ts.finishTools[n] = true
+	}
 }
 
 // turnCtx bundles the values that are fixed for the whole turn — the session, the
@@ -333,7 +374,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// declaration left stranded instead of picked up as its own turn.
 		if ts.declared || a.finishDeclared(sid) {
 			ts.declared = true
-			toolCalls = nil
+			toolCalls = onlyAskedFor(toolCalls, ts.finishTools)
 		}
 		if len(toolCalls) == 0 {
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
