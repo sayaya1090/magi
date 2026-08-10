@@ -233,14 +233,14 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			a.State, a.Steps, a.Asking = Waiting, open.Steps, describeAsk(in.Asking)
 			a.AskID, a.AskKind = in.Asking.ID, in.Asking.Kind
 			a.Report = in.Asking.Report
-			a.Task = Clip(open.Text, 160)
+			a.Task = Clip(theWork(open.Text), 160)
 		case in.Live && isOpen:
-			a.State, a.Steps, a.Task = Working, open.Steps, Clip(open.Text, 160)
+			a.State, a.Steps, a.Task = Working, open.Steps, Clip(theWork(open.Text), 160)
 			a.Doing = Clip(in.Doing, 160)
 		case in.Live:
 			a.State = Idle
 		case isOpen:
-			a.State, a.Steps, a.Task = Abandoned, open.Steps, Clip(open.Text, 160)
+			a.State, a.Steps, a.Task = Abandoned, open.Steps, Clip(theWork(open.Text), 160)
 		default:
 			a.State = Stopped
 		}
@@ -605,6 +605,26 @@ func Interventions(ctx context.Context, r Reader, configDir string, since time.D
 // marker with no meaning to a human is one that gets "cleaned up" by somebody who does not know
 // what it is for; a marker with three readers must have exactly one spelling.
 const DispatchMark = "— asked by "
+
+// theWork is what a companion is doing, with the attribution line taken off the front.
+//
+// A handed-over request is a label saying who asked, a blank line, and then the request. The label
+// is for a person reading the transcript; it is not the work. Left on, every companion busy with
+// handed-over work described itself with the same sentence — "design is mid-turn (— asked by master
+// on mini, whose companions you cannot reach)" — which says everything except what is being done,
+// in the refusal whose whole job is to tell you whether to wait or ask somebody else.
+//
+// Only the mark is stripped, never a general first line: an ordinary request whose first paragraph
+// happened to be short would otherwise be reported by its second.
+func theWork(text string) string {
+	if !strings.HasPrefix(text, DispatchMark) {
+		return text
+	}
+	if _, rest, ok := strings.Cut(text, "\n\n"); ok && strings.TrimSpace(rest) != "" {
+		return rest
+	}
+	return text
+}
 
 // DispatchedBy renders the label.
 func DispatchedBy(who string) string {

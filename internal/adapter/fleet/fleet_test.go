@@ -332,6 +332,39 @@ func TestABlockedDaemonIsWaitingAndSaysOnWhat(t *testing.T) {
 	}
 }
 
+// A companion busy with handed-over work says what the work is, not who asked for it.
+//
+// The label goes on its own line above the request, so the first line of the open turn is the
+// attribution. Reported as the task it is the one line that is not the work — and the reader who
+// most needs it is the refusal that has to say whether to wait or ask somebody else.
+func TestACompanionBusyWithHandedOverWorkNamesTheWorkAndNotTheAsker(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.serveAsking(wd, "design", nil)
+	f.session("design", wd,
+		fleet.DispatchedFrom("master", "mini")+"\n\nrebuild the index from scratch", 2, false)
+
+	a := find(t, f.get(), "design")
+	if strings.Contains(a.Task, "asked by master") {
+		t.Errorf("the attribution is being reported as the work: %q", a.Task)
+	}
+	if !strings.Contains(a.Task, "rebuild the index") {
+		t.Errorf("the work is not in what it says it is doing: %q", a.Task)
+	}
+}
+
+// An ordinary request keeps every word of it, including a short opening line.
+func TestAnOrdinaryRequestIsReportedFromItsFirstWord(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.serveAsking(wd, "solo", nil)
+	f.session("solo", wd, "two things.\n\nfirst, the index", 2, false)
+
+	if a := find(t, f.get(), "solo"); !strings.HasPrefix(a.Task, "two things.") {
+		t.Errorf("a request with a short opening paragraph lost it: %q", a.Task)
+	}
+}
+
 // A daemon that is NOT blocked must not be reported as waiting — the state exists to mean "somebody
 // is needed", and a badge that is always on is a badge nobody reads.
 func TestAnUnblockedDaemonIsNotWaiting(t *testing.T) {
