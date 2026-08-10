@@ -65,3 +65,29 @@ focus ring and no role — so an unstable API here can only change how a box is 
 rows are NOT cards for the same reason: they are links, and this component would take the link away.
 
 Licence: Apache-2.0, same as this repository.
+
+## marked.js — marked 18.0.9, 41.3KB, **lexer only**
+
+    npm pack marked@18                  # marked-18.0.9.tgz
+    #   sha256 3017275f02c3bb33d668a892566f47c129da751292f29cfcaf45bded787d0dc6
+    mkdir -p node_modules && tar xzf marked-18.0.9.tgz && mv package node_modules/marked
+    cat > entry.mjs <<'ENTRY'
+    export { lexer } from 'marked';
+    ENTRY
+    npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=marked.js
+    #   sha256 991cb97e6124dd65bec8acc26d85a4f7d23557779e0ec8b12d351565e8325c3a
+
+Only `lexer` is exported, and that is the whole point rather than a size optimisation.
+
+The transcript is arbitrary output from a model and from tools. marked's HTML generation would turn
+that into a string this page then has to trust, and the usual answer — a sanitiser — makes safety
+depend on the sanitiser being right about every case. Taking tokens instead and building DOM nodes
+from them means no HTML is ever produced from that output, so there is nothing to sanitise and no
+case for a sanitiser to be wrong about.
+
+One token type carries the hazard across: markdown allows raw HTML, and the lexer reports it as a
+token of type "html" with the source in `raw`. The renderer draws that as TEXT. A tool result
+containing an img tag with an onerror handler appears in the transcript as those characters, which
+is what somebody reading a transcript wants to see anyway.
+
+Licence: MIT.

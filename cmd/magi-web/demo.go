@@ -356,12 +356,27 @@ const demoScript = `
     constructor() {
       // Delivered a turn at a time, the way the real stream does — the page re-renders the whole
       // transcript per frame, and a demo that hands it the finished conversation never shows that.
+      // The reply carries a table, a fenced block and an inline mention of a tag, because those are
+      // what the transcript renderer does and a demo that never shows them is a demo of the old
+      // page. The tag is deliberate too: raw HTML in a transcript must appear as characters, and
+      // this is where somebody can see for themselves that it does.
+      //
+      // The fence is built from char codes because this whole file is a Go raw string, and three
+      // backticks written literally would end it. It has ended it twice.
+      const FENCE = String.fromCharCode(96, 96, 96);
       const turns = [
         {who: 'user', text: 'spec the empty state for the fleet table, and name the exact tokens'},
+        {who: 'thinking', text: 'Three empty states, and the tokens differ between them. Reading each before writing anything down.'},
         {who: 'assistant', text: 'Reading what the empty states do today.'},
-        {who: 'tool', text: 'grep "empty" cmd/magi-web/page.go'},
-        {who: 'result', text: 'page.go:612  e.innerHTML = \'Nothing learned yet.<br>\''},
-        {who: 'assistant', text: 'Three of them, and none says what would be there. Writing the spec.'},
+        {who: 'tool', text: 'grep', tool: 'grep', args: 'pattern: empty, path: cmd/magi-web/page.go'},
+        {who: 'result', text: 'page.go:612  e.innerHTML = \'Nothing learned yet.<br>\'\npage.go:988  empty state for the board\npage.go:1136 .empty { max-width:52ch }'},
+        {who: 'assistant', text: 'Three of them, and none says what would be there.\n\n' +
+          '| where | today | should be |\n|---|---|---|\n' +
+          '| fleet | *Nothing learned yet.* | surface-container-low |\n' +
+          '| board | (blank) | surface |\n| shared | (blank) | surface |\n\n' +
+          'The rule, as one line:\n\n' +
+          FENCE + 'css\n.empty { background: var(--magi-ref-surfaceContainerLow); max-width: 52ch; }\n' + FENCE + '\n\n' +
+          'Note the current markup writes a literal <br> into innerHTML — that is the third defect, not a fourth.'},
       ];
       let n = 0;
       const step = () => {

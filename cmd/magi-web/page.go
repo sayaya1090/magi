@@ -1459,6 +1459,73 @@ const indexHTML = `<!doctype html>
     color:var(--magi-ref-muted); text-align:right; user-select:none; opacity:.8;
   }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
+  /* Rendered markdown sets its own blocks, so the pre-wrap that keeps plain text's newlines would
+     add a blank line after every paragraph. Only the rows that are still plain text keep it. */
+  .txt:has(> p), .txt:has(> pre), .txt:has(> ul), .txt:has(> ol),
+  .txt:has(> .tablewrap), .txt:has(> blockquote), .txt:has(> h3),
+  .txt:has(> h4), .txt:has(> h5), .txt:has(> h6) { white-space:normal; }
+  .txt > :first-child { margin-top:0; }
+  .txt > :last-child { margin-bottom:0; }
+  .txt p { margin:0 0 var(--magi-sys-space-150); }
+  .txt h3, .txt h4, .txt h5, .txt h6 {
+    margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-100);
+    font:var(--magi-sys-title-s) var(--magi-ref-display); color:var(--magi-ref-on-surface);
+  }
+  .txt ul, .txt ol { margin:0 0 var(--magi-sys-space-150); padding-left:var(--magi-sys-space-400); }
+  .txt li { margin:var(--magi-sys-space-50) 0; }
+  .txt li > p { margin:0; }
+  .txt blockquote {
+    margin:0 0 var(--magi-sys-space-150); padding-left:var(--magi-sys-space-200);
+    border-left:2px solid var(--magi-ref-outlineVariant); color:var(--magi-ref-muted);
+  }
+  /* A tint of the foreground rather than a surface token: this page's palette has one surface, and
+     a code span has to read as raised against whatever it happens to be sitting on — a card, the
+     page, or a folded body. color-mix is the idiom the rest of the file already uses for that. */
+  .txt code {
+    font:var(--magi-sys-body-s) var(--magi-ref-mono);
+    background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent);
+    border-radius:var(--magi-sys-shape-xs);
+    padding:0 var(--magi-sys-space-50);
+  }
+  .txt pre {
+    margin:0 0 var(--magi-sys-space-150); padding:var(--magi-sys-space-200);
+    background:color-mix(in srgb, var(--magi-ref-fg) 5%, transparent);
+    border-radius:var(--magi-sys-shape-s);
+    /* Its own scroller. A long line of code is the one thing on this page allowed to be wider than
+       the column, and letting it push the column is how the whole page ends up scrolling sideways. */
+    overflow-x:auto; overscroll-behavior-x:contain;
+  }
+  .txt pre code { background:none; padding:0; white-space:pre; }
+  /* Tables scroll inside themselves, for the same reason. */
+  .tablewrap { overflow-x:auto; overscroll-behavior-x:contain; margin:0 0 var(--magi-sys-space-150); }
+  .txt table { border-collapse:collapse; font:var(--magi-sys-body-s) var(--magi-ref-display); }
+  .txt th, .txt td {
+    border:1px solid var(--magi-ref-outlineVariant);
+    padding:var(--magi-sys-space-50) var(--magi-sys-space-150); text-align:left; vertical-align:top;
+  }
+  .txt th { background:color-mix(in srgb, var(--magi-ref-fg) 5%, transparent); font-weight:600; }
+  .txt hr { border:0; border-top:1px solid var(--magi-ref-outlineVariant); margin:var(--magi-sys-space-200) 0; }
+  .txt a { color:var(--magi-ref-primary); }
+
+  /* A folded row: reasoning, and what a tool was asked and answered. */
+  .fold > summary {
+    cursor:pointer; list-style:none; color:var(--magi-ref-muted);
+    font:var(--magi-sys-body-s) var(--magi-ref-mono);
+    padding:var(--magi-sys-space-50) 0; border-radius:var(--magi-sys-shape-xs);
+    /* 48dp of hit area without 48dp of ink: the row is one line and the guide asks for the target,
+       not for the height. */
+    min-height:var(--magi-sys-space-300);
+  }
+  .fold > summary::-webkit-details-marker { display:none; }
+  .fold > summary::before {
+    content:"›"; display:inline-block; width:1em;
+    transition:transform var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
+  }
+  .fold[open] > summary::before { transform:rotate(90deg); }
+  .fold > summary:hover { background:color-mix(in srgb, var(--magi-ref-fg) 6%, transparent); }
+  .fold > summary:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
+  .foldbody { padding-left:1em; }
+  .foldbody > pre { margin-top:var(--magi-sys-space-50); }
 
   /* A user turn is the anchor you scan for: set as a lead, with the rule an editorial layout uses
      for a pull quote. */
@@ -2013,6 +2080,9 @@ import '/vendor/material.js';   // buttons, text fields, tabs
 import { BehaviorSubject, timer, from, of, EMPTY,
          switchMap, catchError, map, distinctUntilChanged, shareReplay,
          filter as onlyWhen } from '/vendor/rxjs.js';
+// The markdown LEXER, and nothing else it can do. See vendor/README.md: the transcript is arbitrary
+// output from a model and from tools, so no HTML is ever built from it. Tokens in, DOM nodes out.
+import { lexer as mdLex } from '/vendor/marked.js';
 
 // ── labels ───────────────────────────────────────────────────────────────────
 // The same shape the handbook uses: a flat dot-keyed pack per locale, chosen by localStorage then
@@ -4130,14 +4200,185 @@ async function loadMCP() {
 // somebody reads the middle of a long run is how a live page becomes unreadable.
 const atBottom = () => window.innerHeight + window.scrollY >= document.body.offsetHeight - 48;
 
+// ── markdown, as nodes ───────────────────────────────────────────────────────
+//
+// The terminal has rendered markdown since it existed; this page showed the source. A table arrived
+// as a wall of pipes, a fenced block as three backticks and its contents run together, and the
+// thing the model wrote to be read was the one thing that could not be.
+//
+// Every node here is built with createElement and filled with textContent. No HTML string is
+// produced from a transcript, at any point, so there is nothing for a sanitiser to be right or
+// wrong about. The one place the hazard reaches is markdown's raw-HTML token, which the lexer hands
+// over as source text in its raw field — drawn as TEXT below, on purpose and with a test on it.
+
+function el(tag, text) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+// inline draws marked's inline tokens into parent.
+function inline(parent, toks) {
+  for (const t of toks || []) {
+    switch (t.type) {
+      case 'strong':   { const n = el('strong'); inline(n, t.tokens); parent.append(n); break; }
+      case 'em':       { const n = el('em'); inline(n, t.tokens); parent.append(n); break; }
+      case 'del':      { const n = el('del'); inline(n, t.tokens); parent.append(n); break; }
+      case 'codespan': parent.append(el('code', t.text)); break;
+      case 'br':       parent.append(el('br')); break;
+      case 'link': {
+        // The href is checked here rather than trusted. A transcript can carry javascript: and
+        // data: urls, and an anchor is the one node that would act on one.
+        const a = el('a');
+        inline(a, t.tokens);
+        if (/^(https?:|mailto:)/i.test(t.href || '')) {
+          a.href = t.href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        }
+        parent.append(a);
+        break;
+      }
+      // Raw HTML in the source is shown as what it is. This is the line that keeps a tool result
+      // full of markup from becoming markup.
+      case 'html':     parent.append(document.createTextNode(t.raw)); break;
+      default:         parent.append(document.createTextNode(t.raw !== undefined ? t.raw : (t.text || '')));
+    }
+  }
+}
+
+// blocks draws marked's block tokens into parent.
+function blocks(parent, toks) {
+  for (const t of toks || []) {
+    switch (t.type) {
+      case 'heading': {
+        // Clamped to h3..h6: the page has its own heading order and a transcript must not open a
+        // level above the section it sits in.
+        const n = el('h' + Math.min(6, Math.max(3, (t.depth || 1) + 2)));
+        inline(n, t.tokens); parent.append(n); break;
+      }
+      case 'paragraph': { const n = el('p'); inline(n, t.tokens); parent.append(n); break; }
+      case 'text':      { const n = el('p'); if (t.tokens) inline(n, t.tokens); else n.textContent = t.text; parent.append(n); break; }
+      case 'code': {
+        const pre = el('pre'), code = el('code', t.text);
+        if (t.lang) code.setAttribute('data-lang', String(t.lang).split(/\s+/)[0]);
+        pre.append(code); parent.append(pre); break;
+      }
+      case 'blockquote': { const n = el('blockquote'); blocks(n, t.tokens); parent.append(n); break; }
+      case 'hr':        parent.append(el('hr')); break;
+      case 'list': {
+        const list = el(t.ordered ? 'ol' : 'ul');
+        if (t.ordered && t.start !== '' && t.start !== 1) list.start = t.start;
+        for (const item of t.items || []) {
+          const li = el('li');
+          if (item.task) {
+            // Drawn, not interactive: nothing here can change what a transcript recorded.
+            const box = el('input'); box.type = 'checkbox'; box.checked = !!item.checked;
+            box.disabled = true; li.append(box, document.createTextNode(' '));
+          }
+          blocks(li, item.tokens);
+          list.append(li);
+        }
+        parent.append(list); break;
+      }
+      case 'table': {
+        const wrap = el('div'); wrap.className = 'tablewrap';
+        const table = el('table'), thead = el('thead'), hr2 = el('tr');
+        (t.header || []).forEach((c, i) => {
+          const th = el('th'); inline(th, c.tokens);
+          if (t.align && t.align[i]) th.style.textAlign = t.align[i];
+          hr2.append(th);
+        });
+        thead.append(hr2); table.append(thead);
+        const tb = el('tbody');
+        for (const row of t.rows || []) {
+          const tr = el('tr');
+          row.forEach((c, i) => {
+            const td = el('td'); inline(td, c.tokens);
+            if (t.align && t.align[i]) td.style.textAlign = t.align[i];
+            tr.append(td);
+          });
+          tb.append(tr);
+        }
+        table.append(tb); wrap.append(table); parent.append(wrap); break;
+      }
+      case 'space':     break;
+      case 'html':      parent.append(el('p', t.raw)); break;
+      default:          parent.append(el('p', t.raw !== undefined ? t.raw : (t.text || '')));
+    }
+  }
+}
+
+// md fills a node with rendered markdown, falling back to plain text if the lexer throws.
+//
+// The fallback is what the page did everywhere before this, so a token stream the lexer cannot
+// make sense of costs the formatting and never the content.
+function md(node, text) {
+  let toks;
+  try { toks = mdLex(text || ''); }
+  catch { node.textContent = text || ''; return node; }
+  blocks(node, toks);
+  return node;
+}
+
+// foldedKinds are the rows that arrive folded: the model's own reasoning, and what a tool was
+// asked and answered.
+//
+// Not hidden — folded, with a summary that says what is inside. The terminal has had this since it
+// had a transcript, and the page had neither: a thousand-line tool result sat open between two
+// sentences, and reading a conversation meant scrolling past the machinery of it. What is in them
+// is the evidence for everything else on the page, so it stays one press away and never further.
+const foldedKinds = { thinking: true, tool: true, result: true, failed: true };
+
+// summaryFor is the one line a folded row shows. It has to say enough to decide whether to open it.
+function summaryFor(r) {
+  if (r.who === 'tool') return r.tool ? r.tool + (r.args ? ' ' + oneLine(r.args, 80) : '') : oneLine(r.text, 90);
+  // The label is a different word from the kind on purpose. 'thinking' is what the server calls
+  // this row; the word a person reads is a translated label, and spelling them the same is how one
+  // of them ends up hard-coded in English on every other locale.
+  if (r.who === 'thinking') return tr('row.reasoning') + ' · ' + oneLine(r.text, 80);
+  return oneLine(r.text, 90);
+}
+
+function oneLine(s, n) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? t.slice(0, n) + '…' : t;
+}
+
+// rowNode builds one transcript row.
+function rowNode(r) {
+  const d = el('div'); d.className = 'row ' + r.who;
+  const w = el('div', r.who); w.className = 'who';
+
+  if (foldedKinds[r.who]) {
+    const det = el('details'); det.className = 'txt fold';
+    // Remembered per kind, so somebody who wants to watch tool calls is not re-opening them all
+    // turn. A failed one starts open: it is the row you came to read.
+    det.open = r.who === 'failed' || localStorage.getItem('fold.' + r.who) === 'open';
+    det.addEventListener('toggle', () => localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut'));
+    det.append(el('summary', summaryFor(r)));
+    const body = el('div'); body.className = 'foldbody';
+    // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
+    // preformatted text rather than run through markdown that would eat their brackets.
+    if (r.who === 'tool' || r.who === 'result' || r.who === 'failed') {
+      body.append(el('pre', r.args !== undefined && r.args !== '' ? r.args : r.text));
+    } else {
+      md(body, r.text);
+    }
+    det.append(body);
+    d.append(w, det);
+    return d;
+  }
+
+  const t = el('div'); t.className = 'txt';
+  // The user's own words are shown as written. Rendering them would mean a prompt containing a
+  // pipe table came back looking like something they did not type.
+  if (r.who === 'user') t.textContent = r.text; else md(t, r.text);
+  d.append(w, t);
+  return d;
+}
+
 function draw(rows) {
   const stick = atBottom();
-  log.replaceChildren(...(rows || []).map(r => {
-    const d = document.createElement('div'); d.className = 'row ' + r.who;
-    const w = document.createElement('div'); w.className = 'who'; w.textContent = r.who;
-    const t = document.createElement('div'); t.className = 'txt'; t.textContent = r.text;
-    d.append(w, t); return d;
-  }));
+  log.replaceChildren(...(rows || []).map(rowNode));
   if (stick) window.scrollTo(0, document.body.scrollHeight);
 }
 

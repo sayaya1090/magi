@@ -142,6 +142,7 @@
   "reach.on_peer": " ({peer})",
   "reach.only": "{name}만",
   "reach.team": "{team} 팀",
+  "row.reasoning": "추론",
   "side.hide": "정보 숨기기",
   "side.show": "정보 보기",
   "skill.learned_from": "출처 {src}",

@@ -78,6 +78,18 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	}
 	body = strings.ReplaceAll(body, "'/vendor/rxjs.js'", "'./rxjs.js'")
 
+	// marked is the real bundle too, and for the same reason: only its lexer is imported, and a
+	// lexer is a string in and objects out. Stubbing it would leave the one part of the transcript
+	// these tests most need to see — what the renderer builds from those tokens — untested.
+	mk, err := assetFS.ReadFile("vendor/marked.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "marked.js"), mk, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body = strings.ReplaceAll(body, "'/vendor/marked.js'", "'./marked.js'")
+
 	// Material Web is STUBBED here, and that is a statement about what these tests check. The
 	// library builds on custom elements, shadow roots and constructable stylesheets — a browser —
 	// and giving the fake DOM enough of those to load it would mean writing a browser to test a
@@ -2065,5 +2077,114 @@ console.log(JSON.stringify({tabHref, home: back.attrs.href, pushed}));
 		if got["pushed"] != "?v=skills" {
 			t.Errorf("mounted at %s the pushed query is %q", tc.base, got["pushed"])
 		}
+	}
+}
+
+// The transcript renders markdown, and renders raw HTML in it as text.
+//
+// The terminal has rendered markdown since it existed and this page showed the source: a table
+// arrived as a wall of pipes and a fenced block as its delimiters run together with its contents.
+//
+// The second half of this is the security property the whole approach rests on. Markdown permits
+// raw HTML; the lexer reports it as a token rather than refusing it; and a transcript is arbitrary
+// output from a model and from tools. Because the renderer builds nodes instead of a string, that
+// token is drawn as characters — so the assertion here is not "it was escaped" (which would mean a
+// string was built and then cleaned) but "no such element exists".
+func TestTheTranscriptRendersMarkdownAndNeverBuildsHTMLFromIt(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'assistant',text:"| head | two |\n|---|---|\n| a | b |\n\n`+"```"+`go\nfunc main() {}\n`+"```"+`\n\nsee <img src=x onerror=alert(1)> and **bold**"}]);
+// Walk the tree the renderer built.
+const walk = (n, out) => { out.push(n); for (const k of n.children || []) if (k && k.children) walk(k, out); return out; };
+const nodes = walk(byId.log, []);
+const tags = nodes.map(n => n.tag);
+const textOf = n => (n.textContent || '') + (n.children || []).map(textOf).join('');
+console.log(JSON.stringify({
+  tags: tags,
+  tableText: nodes.filter(n => n.tag === 'table').map(textOf).join(''),
+  codeText: nodes.filter(n => n.tag === 'pre').map(textOf).join(''),
+  strongText: nodes.filter(n => n.tag === 'strong').map(textOf).join(''),
+  allText: textOf(byId.log),
+}));`)
+
+	tags, _ := got["tags"].([]any)
+	has := func(tag string) bool {
+		for _, v := range tags {
+			if s, _ := v.(string); s == tag {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{"table", "th", "td", "pre", "code", "strong"} {
+		if !has(want) {
+			t.Errorf("markdown produced no <%s>; the transcript is still showing source. tags=%v", want, tags)
+		}
+	}
+	if s, _ := got["tableText"].(string); !strings.Contains(s, "head") || !strings.Contains(s, "b") {
+		t.Errorf("the table has no cells: %q", s)
+	}
+	if s, _ := got["codeText"].(string); !strings.Contains(s, "func main()") {
+		t.Errorf("the fenced block lost its contents: %q", s)
+	}
+
+	// The whole point: an img tag in the source is characters, not an element.
+	if has("img") {
+		t.Error("raw HTML in a transcript became an element — a tool result can now run script in the console")
+	}
+	if s, _ := got["allText"].(string); !strings.Contains(s, "<img src=x onerror=alert(1)>") {
+		t.Errorf("the raw HTML was neither drawn as text nor kept: %q", s)
+	}
+}
+
+// Reasoning and tool rows arrive folded, with a summary that says what is inside.
+//
+// Not hidden — folded. A thousand-line tool result used to sit open between two sentences, so
+// reading a conversation meant scrolling past the machinery of it. A failed one starts open: it is
+// the row somebody came to read.
+func TestReasoningAndToolRowsFold(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'assistant',text:'plain'},{who:'thinking',text:'considering the options'},
+      {who:'tool',text:'bash',tool:'bash',args:'go build ./...'},
+      {who:'failed',text:'exit 1'}]);
+const textOf = n => (n.textContent || '') + (n.children || []).map(textOf).join('');
+const rows = byId.log.children.map(r => {
+  const f = (r.children || []).find(c => c.tag === 'details');
+  return { cls: r.className, folded: !!f, open: f ? !!f.open : false,
+           summary: f ? textOf((f.children || [])[0] || {}) : '' };
+});
+console.log(JSON.stringify({rows: rows}));`)
+
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 4 {
+		t.Fatalf("drew %d rows, want 4", len(rows))
+	}
+	at := func(i int) map[string]any { m, _ := rows[i].(map[string]any); return m }
+
+	// What was said stays where it can be read.
+	if at(0)["folded"] == true {
+		t.Error("an assistant reply was folded away; that is the thing the page is for")
+	}
+	// The machinery folds.
+	for _, i := range []int{1, 2, 3} {
+		if at(i)["folded"] != true {
+			t.Errorf("row %d (%v) is not folded", i, at(i)["cls"])
+		}
+	}
+	// And says enough to decide whether to open it.
+	if s, _ := at(1)["summary"].(string); !strings.Contains(s, "considering the options") {
+		t.Errorf("the reasoning summary says %q, which does not say what is inside", s)
+	}
+	if s, _ := at(1)["summary"].(string); !strings.Contains(s, "Reasoning") {
+		t.Errorf("the reasoning row is not labelled: %q", s)
+	}
+	if s, _ := at(2)["summary"].(string); !strings.Contains(s, "bash") || !strings.Contains(s, "go build") {
+		t.Errorf("a tool call's summary is %q — it should name the tool and what it was asked", s)
+	}
+	// A failure is the row somebody came to read, so it is not behind a press.
+	if at(3)["open"] != true {
+		t.Error("a failed tool call arrived folded shut")
+	}
+	if at(1)["open"] == true || at(2)["open"] == true {
+		t.Error("reasoning or a successful tool call arrived open; they are the noise this folds")
 	}
 }
