@@ -189,6 +189,24 @@ func (m *Model) applyEvent(e event.Event) {
 			m.turnOut = d.OutTokens // ↓ cumulative output so far
 		}
 
+	case event.TypeTodosChanged:
+		// The plan the agent keeps, which the panel is mostly made of.
+		//
+		// In one process this changes nothing: the engine writing the plan and the engine this
+		// asks are the same object. Attached to a daemon they are not, and nothing else closed the
+		// gap — the plan is read from session state held in memory, filled once when a session is
+		// opened and never again, so a plan made after attaching was invisible for as long as the
+		// viewer stayed attached. The panel is hidden when there is no plan, so what a person saw
+		// was a companion working through a plan it appeared not to have.
+		//
+		// Written INTO the engine rather than kept beside it, because everything that draws the
+		// plan asks the engine for it — the panel, the transcript's step marks, /plan. A copy here
+		// would be a second answer that the three of them would drift between.
+		var d event.TodosChangedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.app.SetTodos(m.sid, d.Todos)
+		}
+
 	case event.TypeModelChanged:
 		// The session's active model changed at runtime (plugin set_model, /route
 		// edit, reload_config) — refresh the cached header chip and, if the routing
