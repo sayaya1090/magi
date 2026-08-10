@@ -102,6 +102,13 @@ type Member struct {
 	// than being len(Does). Both are worked out in one place at one moment, so they cannot come to
 	// disagree about a workspace.
 	Does []string `json:"does,omitempty"`
+	// Waiting is how much handed-over work that companion had not started when it was last seen.
+	//
+	// Never borrowed from an older sighting, unlike the capabilities beside it: those describe what
+	// a companion IS and survive being seen twice, and this describes a moment. An old queue depth
+	// carried onto a fresh record would be a number nobody ever observed together with the rest of
+	// the row.
+	Waiting int `json:"waiting,omitempty"`
 	// Seen is when somebody last had it answer. Not when this entry was written: an entry copied
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.

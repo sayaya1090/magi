@@ -1109,9 +1109,17 @@ type Info struct {
 	// that changes on the scale of days than by one that changes while they are comparing it.
 	Can int `json:"can,omitempty"`
 	// Does names them, capped. See cluster.Member.Does: names travel, descriptions are fetched.
-	Does    []string `json:"does,omitempty"`
-	PID     int      `json:"pid"`
-	Started string   `json:"started"` // RFC3339
+	Does []string `json:"does,omitempty"`
+	// Waiting is how many pieces of handed-over work this companion has taken and not started.
+	//
+	// The one number here that changes on the scale of SECONDS, where everything around it changes
+	// on the scale of days. Read from the file it is current; read from a sighting a minute old it
+	// is a minute old, and a reader choosing between companions should treat it as what it is —
+	// advisory. The authority is the refusal: a companion that is full says so when asked, and
+	// that answer is never stale.
+	Waiting int    `json:"waiting,omitempty"`
+	PID     int    `json:"pid"`
+	Started string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
 	// machine, so on a laptop they are the same for every entry and read as noise — until you are
 	// looking at three browser tabs forwarded from three hosts over ssh, which is the arrangement
@@ -1155,6 +1163,32 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
 	}
 	return func() { os.Remove(f) }, nil
+}
+
+// Announce updates the one part of a published record that changes while the daemon runs: how much
+// work is waiting.
+//
+// Read-modify-write on the daemon's own record, which only it writes. Not a second publishing path:
+// everything else in there is fixed when the daemon starts, and threading a number that changes
+// every few seconds through the call that writes the fixed parts would make every caller of it
+// pass something it does not know.
+//
+// A missing record is not an error. The daemon is either not published yet or on its way out, and
+// in both cases the number describes nothing anybody can act on.
+func Announce(socketPath string, waiting int) error {
+	in, err := Published(socketPath)
+	if err != nil {
+		return nil
+	}
+	if in.Waiting == waiting {
+		return nil // nothing changed; do not rewrite a file readers are polling
+	}
+	in.Waiting = waiting
+	b, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(SessionFile(socketPath), b, 0o600)
 }
 
 // Identity is what this companion calls itself and what it is for.
