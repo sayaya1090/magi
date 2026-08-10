@@ -57,6 +57,10 @@ A turn can take twenty minutes. Closing the terminal used to end it.
 ./magi --agents        # every magi daemon on this machine, and what each is doing
 ```
 
+A daemon is also what makes a companion addressable: only a resident one can be handed work, keep a
+schedule, or be seen by another machine. The rest of that surface — `--join-cluster`, `--members`,
+`--relay`, `--mcp` — is §13.
+
 - **One daemon per workspace.** The socket is named from the workspace's real path
   (`<config>/daemon-<dir>-<hash>.sock`, symlinks resolved), so `--attach` in a directory finds the
   daemon of that directory and nothing else. Two daemons cannot claim one workspace: the second one
@@ -394,8 +398,8 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 | `bash_output` | fetch new output from a background command since the last read | — |
 | `bash_input` | send a line to the **stdin of a background command** — drives a REPL/line-debugger (`python3`, `psql`, `gdb`); `eof=true` closes stdin. A pipe, not a TTY (curses/password prompts won't work) | — |
 | `bash_kill` | terminate a background command | — |
-| `wait_for` | block until a condition holds (a file appears, a port answers, a background job exits) instead of spinning on `sleep` + re-check | — |
-| `port_owner` | what is listening on a port, and which process owns it — portable, where `ss`/`lsof`/`netstat` may not be installed | — |
+| `wait_for` | block until a condition holds (a file appears, a port answers, a background job exits) instead of spinning on `sleep` + re-check | ask |
+| `port_owner` | what is listening on a port, and which process owns it — portable, where `ss`/`lsof`/`netstat` may not be installed | ask |
 
 ### Web
 | Tool | Description | Permission |
@@ -420,6 +424,25 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 | `recall_memory` | pull saved team memories/skills from the shared experience store by keyword | — |
 | `remember` | contribute a lesson to shared memory (lands in `pending/` for review) | — |
 | `skill` | load a named skill's body to follow it | — |
+| `search_sessions` | search **this workspace's earlier sessions** by keyword — conversations from other days, with the matching turns restorable verbatim | — |
+
+The three recall tools are deliberately different questions: `recall_context` is detail compaction
+shed from **this** conversation, `recall_memory` is the **curated** experience store, and
+`search_sessions` is **another day's raw session**.
+
+### Other companions
+| Tool | Description | Permission |
+|---|---|---|
+| `companions` | who else is running — name, role, team, state, and up to three lessons each has learned. `matching` narrows it and always says how many it left out | — |
+| `companion_can` | ask one of them what it can actually do, answered by that companion rather than worked out about it | — |
+| `hand_off` | give a piece of this task to another companion and keep working (§13.3) | — |
+| `rate_handoff` | say what an answer was worth once it has been used (§13.4) | — |
+
+### The workspace's own clock and label
+| Tool | Description | Permission |
+|---|---|---|
+| `schedule` | see or change what this workspace does on a timer, unattended (§14) | — |
+| `label` | say in a word or two what the current piece of work is about, so the board can group it | — |
 
 ### User interaction (interactive runs only)
 | Tool | Description | Permission |
@@ -555,159 +578,428 @@ auto-registered. When the server shuts down, those tools are removed.
 > The screens, the design rules and why each is the way it is: [`UI.md`](UI.md).
 > A clickable demo of the page (mocked data, no server): <https://sayaya1090.github.io/magi/>.
 
-A read-mostly web view of every magi on the machine — and, if you point it at others, on other
-machines. It is a **second surface on the same daemons**, not a service of its own: it derives what
-it shows from the event logs already on disk and sends actions over the same sockets `--attach` uses.
+A web view of every magi on the machine — and, if you point it at others, on other machines. It is
+a **second surface on the same daemons**, not a service of its own: it derives what it shows from
+the event logs already on disk, and everything it *does* goes over the same sockets `--attach` uses.
+Stop the console and nothing stops working.
+
+### 12.1 Running it
 
 ```sh
 ./magi-web                                   # http://127.0.0.1:7777
 ./magi-web -addr 127.0.0.1:7788
-./magi-web -peer laptop=http://127.0.0.1:7778 -peer ci=http://127.0.0.1:7779
+./magi-web -config-dir /path/to/config       # which daemons it can see
+./magi-web -workdir /path/to/repo            # the workspace it defaults to
+./magi-web -peer laptop=http://10.0.0.4:7777 -peer ci=http://10.0.0.9:7777
+./magi-web -emit-demo ./out                  # write the page as static files and exit
 ```
 
 - **Loopback by default, and no login of its own.** It is reached however your organisation allows —
   an `ssh -L` tunnel, or your own proxy with your own SSO in front of it. Building accounts into it
   would be a second door beside the company's, and the second door is always the weaker one.
+- **Every route is same-site only.** Each handler is wrapped, so a page on another origin cannot
+  POST to it — the console has no tokens to steal, and its buttons stop daemons.
 - **`-peer name=url` federates another console.** A peer's companions merge into the list stamped
-  with its name; actions on them are forwarded to the console that owns them. A peer that does not
-  answer becomes a **row saying so**, because a machine that went quiet is the thing most worth
-  seeing. Peer URLs come from the operator only — never from a page or another peer's answer.
+  with its name; actions on them are forwarded to the console that owns them, because that machine's
+  sockets are not this one's to dial. A peer that does not answer becomes a **row saying so**, since
+  a machine that went quiet is the thing most worth seeing. Peer URLs come from the operator only —
+  never from a page or from another peer's answer.
+- **`-peer` and the cluster (§13.7) are different things.** A peer is a console the operator listed,
+  for a person to look at. A cluster is companions telling each other who exists, for work to be
+  handed across. Neither reads the other's list.
 
-**What it shows**
+### 12.2 What is on the screen
 
-| Screen | What it is for |
+The rail on the left has two destinations, and a companion's page lives inside the first.
+
+| Destination | What it holds |
 |---|---|
-| companions | every agent, its state, what it is doing, which host and IP, how long it has been idle. Tiles at the top filter the table; a row's actions interrupt it or answer what it is asking |
-| the board | work as cards, a column per companion, and a day you can move. The column is who did it rather than a state, because there is no such thing as the state a companion was in last Tuesday |
-| experience | all three tiers of the store — global, team, project — rules and remembered facts, each row saying what it reaches ("every companion" / "the frontend team" / "only api"), what the agent was doing when it learned it, and the body itself. A wrong one can be forgotten |
-| what they can reach | every MCP server, which companion has it and what it actually runs. Add, change or remove one — it is written to that companion's config and attaches when its daemon next starts |
-| a companion's page | the transcript live, what it is blocked on, what it handed to other companions and what came back, and what fills its context — including what share of the prompt the backend served from its cache, when it reports one: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
+| **Companions** | every daemon this console can see: state, what it is doing, host and IP, how long it has been idle, how far through its plan (`3/7`), and what it is carrying for other companions. Tiles at the top filter by state and carry the count of who is waiting on a person. A row opens that companion |
+| **Shared** | the experience store and the MCP servers, together, in the order they happen: what has been said often enough to become a rule, then the rules, then what the companions can reach. Each experience row says what it reaches ("every companion" / "the frontend team" / "only api"), what the agent was doing when it learned it, and the body — and a wrong one can be forgotten. MCP servers can be added, changed or removed; the change is written to that companion's config and attaches when its daemon next starts |
+| **Board** | work as cards, a column per companion, and a day you can move. The column is who did it rather than a state, because there is no such thing as the state a companion was in last Tuesday. Cards are grouped by the `label` the agent gave the work |
+
+### 12.3 A companion's page
+
+Opened from a row, addressed as `/?d=<socket path>`. Two things happen here — watching, and saying
+something — so the page is the conversation with everything else beside it.
+
+**The conversation.** The transcript live over an event stream (`/events`), rendered the way the TUI
+renders it: folded tool calls that open, thinking blocks, council rounds with each member's verdict,
+diffs, and a bar under a call that is still running. A tool call says how it ended with a glyph, and
+opening one fold opens that kind.
+
+**The composer.** Typing and sending goes in as a **steer**, not a new turn — the daemon may already
+be working, and the engine is the one that decides which it is. `중단` / Stop interrupts. When the
+companion is blocked on a permission or a question, the prompt appears here with its buttons, and
+answering it from the page resolves the same call an attached terminal would have answered.
+
+**The facts pane, on the right.** Its handle is the icon at the top right of the pane; it remembers
+whether you left it open. It holds, top to bottom:
+
+| Card | What it is |
+|---|---|
+| What this is | state, workspace, role, team (and whether it speaks for the team), host · IP · pid, steps, last activity, session id — folded to one line until you want it |
+| Plan | the agent's own todo list as it last recorded it, with a progress bar. Read out of the log, so it is right for a companion that is stopped, resumed elsewhere, or was working while you were not watching |
+| Handed out | what this companion gave to others and what came back |
+| Scheduled | its unattended jobs (§14): the line, when each next fires, and whether it is on |
+| What you had to say | the interjections a person made, over the last week by default — the record of where it needed steering |
+| What it has done | earlier sessions, searchable by word (`/search?q=`), each opening to its transcript |
+
+Below 840px there is no room for two panes, so the two become tabs and the conversation is the one
+you land on.
+
+### 12.4 The routes, if you are automating
+
+`GET` unless marked. Everything takes `?socket=` (or `?d=`) to name a companion, and `?peer=` to
+name a federated console.
+
+| Route | What it does |
+|---|---|
+| `/fleet` | the whole list as JSON — the same rows the table draws |
+| `/events` | one companion's event stream (server-sent events) |
+| `/plan` · `/handoffs` · `/context` · `/history` · `/interventions` · `/cron` | the cards above, as JSON |
+| `/search?q=` | earlier sessions of that workspace by keyword |
+| `/skills` · `/remember` (POST) · `/forget` (POST) | the experience store |
+| `/mcp` (GET/POST) | the MCP servers of one companion |
+| `/submit` (POST) | steer text into the running session |
+| `/interrupt` (POST) · `/compact` (POST) | stop the turn · summarise the history now |
+| `/answer` (POST) | resolve the permission or question it is blocked on, by call id |
+| `/shell` (POST) | run a command in that workspace |
+| `/dispatch` (POST) | address work by name, role or team, resolved by §13's rules |
+| `/console` | what this console is: its config dir, its host, its embedding model |
+| `/push` (POST) | subscribe this browser to notifications, when the console was started with keys for them |
 
 **Vocabulary.** One magi bound to one workspace is a **companion**. A person supervising several of
 them is not each companion's operator but its supervisor — the reasoning, and what that means for
 the interface, is in [`proposals/companions-and-supervision-2026-08-07.md`](proposals/companions-and-supervision-2026-08-07.md).
 
-## 13. Teams (companion · team · hub)
+## 13. Companions, teams and clusters
 
-Several companions handing work to each other. **No registry, no gateway, no broker** — the
-companions on a machine already publish their records into one directory, and that directory is the
-membership.
+Several magi handing work to each other. **No registry, no gateway, no broker** — every daemon
+publishes a small record beside its socket, and that directory is the membership. Across machines
+the same records travel by companions telling each other what they have seen.
 
 ### 13.1 Saying who you are
 
-`.magi/config.toml` — the project file, so it travels with the repo:
+In the workspace's `.magi/config.toml`:
 
 ```toml
 [companion]
 name = "design"                                          # what others address it as
 role = "the design system: component specs and review"   # one line: what it is for
 team = "frontend"                                        # optional: companions doing related work
-hub  = false                                             # optional: the one that answers for the team
+hub  = false                                             # optional: a preference, not a claim (13.6)
+mcp_peers = false                                        # optional: the ear (13.5)
 ```
 
 It rides in the daemon's record, so `magi --agents`, the console and the tools all read one source.
 A companion that declares nothing is exactly what companions were before: a workspace.
 
-### 13.2 Seeing each other — the `companions` tool
+### 13.2 Seeing each other
 
-Read-only, called by the agent. Each one's name, role, team, what it is doing, whether it is blocked
-on a person, and **what that workspace has learned** — up to three lessons from its own experience
-tier, most-observed first.
+`companions` is read-only and gives each one's name, role, team, state, whether it is blocked on a
+person, and **what that workspace has learned** — up to three lessons from its own experience tier,
+most-observed first. `matching` narrows it, and a narrowed answer **always says how many it left
+out**, because otherwise it reads as the whole team.
 
 > That last part is what makes a specialist. The one that keeps getting the design work accumulates
 > design lessons, whoever is choosing sees the record, and picks it again. **magi does not rank
-> them** — it shows the evidence and the caller chooses. A ranker that is wrong sends the work
-> silently; a list that is unhelpful is visibly unhelpful.
+> them** — it shows the evidence and the caller chooses.
 
-Pass `matching` with a few words from the work and only the plausible candidates come back. This is
-a context budget, not a speed problem: a row is ~75 tokens, so fifty companions put ~3,800 tokens
-into the model on every dispatch and two hundred put ~15,000. A narrowed answer **always says how
-many it left out** — otherwise it reads as the whole team, and the reader concludes nobody else
-could have done the work. The caller is always in its own answer.
+`companion_can` asks one of them what it can actually do, and the answer comes from **that
+companion** rather than being worked out about it: its role, its skills, the MCP servers it can
+reach. A companion that is not running therefore cannot be described — which is the right way
+round, since it cannot be handed anything either.
 
-### 13.3 Handing work over — removed
+### 13.3 Handing a piece over — `hand_off`
 
-There was a tool, `ask_companion`, that handed a piece of work to another companion on this machine.
-It has been taken out.
+```
+hand_off(to, request, so_that, answer_as)
+```
 
-It named its recipient as free text, and the list of who exists was never given to the model
-anywhere — the tool's description told it to run `companions` first, which is advice and not a
-mechanism. Asked to "ssh in and do something", a model addressed a companion called "ssh", which
-does not exist, and the request failed. A set the model is expected to look up rather than be shown
-is a set it will guess at.
+It **returns at once** with a receipt. The asker keeps working; the answer arrives in its
+conversation when the other finishes, and is folded in there. It does not wait and does not ask
+twice.
 
-It is not coming back as a better-worded tool. What should replace it is a companion advertising
-what it can do, and companions exchanging that when they meet, so the question stops being "who
-might there be" and becomes a list.
+All four fields are required, and the last two are the ones that make the difference:
 
-Until then nothing hands work across workspaces. `companions` still shows who there is and what each
-is doing, `/dispatch` still routes by role, and the handoffs already in the logs are still readable
-on the console — nothing new will appear there.
+| Field | What it is for |
+|---|---|
+| `to` | a name from the roster in the tool's own description — which is rebuilt every step, so it names who is running **now** |
+| `request` | the whole instruction, standing on its own. They cannot see your conversation, your files or your reasoning |
+| `so_that` | what the answer is for, in one clause. It is what lets them adapt when they hit something you did not foresee — **and they cannot ask you**, which is the asymmetry that makes this worth a field |
+| `answer_as` | the **form** the answer comes back in: the headings you will read, in order. They fill it in |
 
-### 13.4 Teams and hubs
+`answer_as` is a form and not a sentence about being finished. "Done when the tokens are named" is
+checked afterwards by reading carefully; a form is checked by looking. It also changes what a gap
+looks like — a part that could not be done comes back **as that part**, marked, instead of as a
+paragraph about why the whole thing was hard. magi rejects a form that is one word (observed: a
+model filling the field with `"text"`), and goes no further: whether a form is a *good* one is a
+judgement about the task.
 
-Addressing a team reaches its **hub**. A hub that was asked something may split it across **its own
-team** — a team lead doing that is the reason to have one. Nobody else may pass anything on.
+**No chaining.** Work handed to you cannot be handed on. The rule is read off the label left in the
+transcript, so it survives a restart, an attach from elsewhere, and a resumed session.
 
-That bounds the depth at two hops without a counter: a member is not a hub, a hub cannot reach
-outside its team, and `team` is one field, so no chain of hubs can form. The rule reads off the
-label left in the transcript, so it survives a restart, an attach from elsewhere and a resumed
-session — three things a counter in one process gets wrong. An unreadable log refuses rather than
-assumes.
+### 13.4 What comes back, and what it was worth
 
-A team nobody speaks for is not addressable as a group: it resolves to every member and the caller
-picks.
+The answer arrives quoted next to the form that was asked for and the receipt that names it — a
+companion can be given two pieces, and the only thing telling two answers apart is which request
+they answer.
 
-### 13.5 Dispatching by role (`/dispatch`)
+Afterwards the asker is asked `rate_handoff(who, verdict, why, asked)`, which appends to
+`<workspace>/.magi/handoffs.jsonl`. It is a **record, not a score**: nothing sorts, filters or
+ranks by it. It comes back into the next `hand_off` description as a plain tally ("2 of 3 useful"),
+name-sorted, and **only when there are at least two candidates** — with one companion there is
+nothing to choose between and it would be weight in every prompt for nothing.
+
+### 13.5 The ear — talking while you both work
+
+`hand_off` gives a piece away. The ear is for the exchange that happens while two of them are
+already working: a question one needs answered to carry on, or the answer to something the other
+asked.
+
+Set `mcp_peers = true` and every companion running here attaches as an MCP server with one tool
+each, named after them: `ask`. **The recipient is the tool name**, deliberately — a name in a field
+is a name a model can invent, and this tree has a recorded failure of exactly that (a request
+addressed to a companion called "ssh", which does not exist).
+
+It is off by default and that is not an oversight: two tools per peer in the tool list of every
+prompt, and a subprocess per peer held open for the life of the daemon. Peers are attached and
+detached at **turn boundaries** — the only instant the tool set may change — so a companion that
+starts up later is heard at the next turn rather than at the next restart.
+
+### 13.6 One at a time, a queue, and how busy it is
+
+A companion's conversations are isolated but its **work is not**. Each asker gets a side session of
+its own, so nobody's request lands in the conversation a person is having and two askers never
+share a history — but only one turn runs in a workspace at a time, the person's included. Two turns
+in one tree are two agents editing the same files with nothing between them.
+
+So a busy companion **queues** rather than refuses. Work is taken immediately (that is what the
+receipt is for), and asked about before it starts it says so — "not started yet, 2 of 3 waiting".
+The queue holds four. Past that it refuses, in a sentence that tells the asker to go elsewhere,
+because a queue longer than that is not an answer coming later.
+
+Two numbers ride in the published record and travel with it, so an asker choosing between
+companions can see how busy each is:
+
+```
+worker (writes short files) · can: 3 · 1 in hand, 2 waiting
+```
+
+Neither can be derived from the state beside it: **state is read from the session a person attaches
+to**, and handed-over work runs in conversations of its own — so a companion busy with three
+people's requests correctly reads as `idle`, and these are the numbers that say otherwise. From a
+sighting they are as old as the sighting. The authority is still the refusal, which is never stale.
+
+**And it is kept.** Every arrival is written to `<socket>.load` — taken, with how many were already
+in front of it, or turned away because there was no room. `magi --agents` sums the last week under
+the table:
+
+```
+Handed-over work over the last 7 days:
+  worker  31 taken, up to 4 already waiting, 12 turned away
+  Turned away means the queue was full when somebody asked. Repeatedly, and one copy of
+  that companion is not enough for what is being asked of it.
+```
+
+That is the whole point of writing it down: how busy a companion is right now is an instant, and
+whether one of it is enough is a **pattern**. The file decays after a month, and is **not** removed
+when the daemon stops — the week after a companion was killed is exactly when somebody asks whether
+it was overloaded. It is deliberately not kept with the delegation record above: a verdict is a
+judgement about a companion's work and belongs in the repository, this is operational and belongs
+beside the socket.
+
+### 13.7 Teams and hubs
+
+`team` groups companions doing related work. Addressing the team reaches **whichever member has the
+least on it**, with the elected hub breaking a tie — so an idle team has one stable address, and a
+loaded one spreads. It used to always reach the hub, which made a team of three work like a queue
+of one: nobody can pass handed-over work on (13.3), so everything piled up behind whoever had been
+elected. Which is the opposite of what somebody who starts a second copy is trying to buy.
+
+The hub is **elected, not declared**. `hub = true` is a preference; among companions that are
+actually there, the one that can do the most speaks for the team, ties broken deterministically so
+every machine elects the same one. A team whose members have all gone quiet elects nobody and is
+not addressable as a group — it resolves to every member, and the caller is told to pick.
+
+### 13.8 Across machines
+
+Companions on other machines are reached over **ssh**, and the only thing that crosses is the
+daemon's own protocol:
+
+```sh
+ssh buildbox magi --relay /path/to/their/daemon-....sock
+```
+
+You do not run that; magi does, when the companion it is addressing is not here. `--relay` pipes
+stdin and stdout to that socket, so taking work, asking what became of it and asking what a
+companion can do are three **methods** of one protocol rather than three subcommands that each
+re-derive what the daemon already knows. The answer is **pushed** back down the same pipe as it
+changes, rather than polled.
+
+Whether a companion is here or elsewhere is decided by the record published beside the socket, not
+by comparing hostnames: a config directory can be shared (two containers with a mount in common,
+two workstations with one network home), and a record naming a different machine is somebody else's
+path — dialling it would open the wrong workspace and the work would arrive looking delivered.
+
+**Joining a cluster:**
+
+```sh
+magi --join-cluster buildbox      # trade member lists with that machine, over ssh
+```
+
+One exchange is the whole transport and the whole join: this machine sends what it knows, the other
+merges it, answers with what it knows, and both write the result. After that the daemons keep it
+current themselves — every minute (jittered), each picks two hosts and trades again, so a third
+machine hears about the first from the second without anybody being told twice.
+
+What is written is `<config>/cluster.json`, and it **decays**: a companion nobody has sighted for
+**5 minutes** is shown but not offered work, and one nobody has sighted for **an hour** is dropped.
+That is why it is a runtime file and not configuration — configuration does not go out of date on
+its own. This machine's own companions are never written into it: they are read from the published
+records every time, and a copy would be a second answer that goes stale the moment a daemon stops.
+
+Requirements: `ssh` with key auth (magi uses `BatchMode=yes` — it will not prompt), and `magi` on
+the remote `PATH`. The remote binary is named plainly, not by this machine's path to it.
+
+### 13.9 A cluster, end to end
+
+Two machines, three companions. `mac` runs the design work, `buildbox` runs a builder and a
+reviewer.
+
+**On each workspace, say who it is:**
+
+```sh
+# mac:~/work/design/.magi/config.toml
+[companion]
+name = "design"
+role = "the design system: component specs, tokens and review"
+team = "frontend"
+```
+
+```sh
+# buildbox:~/work/api/.magi/config.toml
+[companion]
+name = "api"
+role = "the Go service: handlers, storage and its tests"
+team = "backend"
+hub  = true
+```
+
+**Start a daemon in each** (one per workspace — the socket is named from the workspace's real path,
+so this is enforced by a lock rather than by convention):
+
+```sh
+cd ~/work/design && magi --daemon &
+```
+
+**Join them, once, from either side:**
+
+```sh
+mac$ magi --join-cluster buildbox
+```
+
+**Check what each machine believes:**
+
+```sh
+$ magi --agents
+STATE  AGENT                                       IDLE  STEPS  WORKSPACE
+idle   design  — the design system: …              12s   -      /Users/me/work/design
+idle   api *  — the Go service: …          [backend*]  4s   -   /home/me/work/api
+```
+
+From here the model does the rest: `hand_off`'s description already lists who is out there, with
+each one's host, what it can do, and what it is carrying. Nothing else has to be configured.
+
+**Watch it:** `magi-web` on either machine shows that machine's companions, and `-peer` puts the
+other console's rows in the same table (§12.1).
+
+**When one keeps refusing,** start another copy of it — a second workspace with the same `team` —
+and the team address starts spreading work between them (13.7). `magi --agents` is where the case
+for doing that is (13.6).
+
+### 13.10 Two other things that share the word "join"
+
+`magi --join <name>` is **not** `--join-cluster`. It reads one companion's project config and
+writes `.magi/joined-<name>.toml` beside your own — **a proposal, applied to nothing**. What it
+carries: their team, their `experience_dir` (the one line that makes a newcomer start knowing
+things), the MCP servers they use, and a pointer to their `AGENTS.md`. What it does not carry:
+their model, permission posture or sandbox — those are their workspace's choices, not the team's.
+
+Everything in it is commented out, deliberately. An `[mcp]` entry is a **command with arguments
+that this process would start**, and a hook is a shell line; "the companion I joined to told me to"
+is not a sentence anybody should find in an incident report. Environment variables are named and
+never valued — a token copied into a second workspace is a token in two places.
 
 `POST /dispatch` takes `to=` — a name, words from a role, or a team — and resolves it through the
 same rules and down the same path as somebody typing into that companion's page, so both reach the
 daemon by exactly one route. Two matches are an error, never a choice.
 
-⚠ **The console no longer has a field for it.** Naming a companion by typing, from a list where it
-is already on screen and one click away, was a second way to do what the list does — and the harder
-one, since it asks somebody to spell a name they can see. The endpoint stays for anything that
-addresses work by role rather than by socket.
+### 13.11 What this deliberately is not
 
-### 13.6 Joining a team (`magi --join`)
+- **A scheduler.** Nothing balances the fleet or decides who should do what. A model picks from a
+  list that says who is there, what each can do and how loaded each is, and every refusal is a
+  sentence it can act on.
+- **A message bus.** There is no broker to run, nothing to keep alive, and no state that outlives
+  the daemons. Stop them all and the cluster is a few files that expire within the hour.
+- **Authentication.** A unix socket is owner-only, and across machines the security boundary is
+  ssh — whoever can `ssh` to that host as that user can already do everything magi could.
+- **Consensus.** The membership is gossip and it decays; two machines can briefly disagree about a
+  third. Everything downstream is written to treat a sighting as advisory and the refusal as
+  authoritative.
 
-A companion set up this morning knows nothing its team has agreed on: which experience store they
-share, which MCP servers they all talk to, what their standing instructions say. Somebody copies
-those by hand today, or more likely does not.
+### 13.12 What is encrypted, and what is not
 
-```sh
-cd ~/work/new-thing
-magi --join design          # or a team name, if only one of them is running
+Worth stating plainly, because "agents talking to each other" sounds like a network protocol and is
+not one.
+
+| Path | Transport | Encrypted |
+|---|---|---|
+| companion → companion, same machine | unix domain socket, `0600` | **No, and it does not leave the kernel.** The file is owner-only, so who may speak to a daemon is the operating system's answer at connect time |
+| companion → companion, across machines | `ssh <host> magi --relay <socket>` | **Yes — ssh.** magi opens no port of its own between machines and speaks no protocol of its own over the wire |
+| gossip (`--join-cluster`, and the minute loop) | `ssh <host> magi --members` | **Yes — ssh**, the same way |
+| the ear (`mcp_peers`) | a local subprocess over stdio | **No, and it does not leave the machine** |
+| you → the console | plain HTTP on loopback | **No.** Put it behind your own tunnel or proxy — that is the documented way to reach it (§12.1) |
+| console → console (`-peer`) | plain HTTP to the URL you gave | **Only if you gave an `https://` URL or a tunnel.** This is the one hop that can cross a network in the clear, and it carries transcripts |
+
+So magi has **no keys of its own and no certificate of its own**, deliberately: the security
+boundary across machines is ssh, and whoever can `ssh` to that host as that user can already do
+everything magi could do there. Adding a second credential system beside it would be one more thing
+to rotate, leak, and get wrong — without narrowing what an attacker who had the first one could do.
+
+The one place to be careful is `-peer`: it is the only magi-to-magi link that is not ssh, it is
+console-to-console rather than agent-to-agent, and it carries what people read. Give it a tunnelled
+or `https://` URL on anything that is not loopback.
+
+## 14. Unattended work (`schedule`, `[cron]`)
+
+A daemon that is already resident can do work on a timer. The jobs live in config, as a named
+table so they can be edited by name:
+
+```toml
+[cron.nightly-audit]
+schedule = "0 3 * * *"        # five fields, local time; or @hourly @daily @weekly @monthly
+prompt   = "Read yesterday's commits and report anything that looks like a regression risk."
+enabled  = true               # optional; absent means on
 ```
 
-It reads that companion's project config and writes `.magi/joined-design.toml` beside your own —
-**a proposal, applied to nothing**. What it carries: their team, their `experience_dir` (the one
-line that makes a newcomer start knowing things), the MCP servers they use, and a pointer to their
-`AGENTS.md`. What it does not carry: their model, permission posture or sandbox — those are their
-workspace's choices, not the team's.
+- **Daemon only.** An interactive `magi` never schedules anything — otherwise every open terminal
+  in a repo would fire the same job.
+- **One firing is one new session.** It is submitted as a fresh conversation, not steered into a
+  live one, and it shows up in `/resume` and in the console's history like any other.
+- **It does not catch up.** A daemon started at noon does not run the 3 a.m. job. A week away should
+  not produce a storm.
+- **It does not overlap itself.** A firing whose previous run has not finished is skipped, with the
+  reason recorded.
+- **Local time**, with the daylight-saving consequence that implies: an hour that repeats can fire
+  twice and an hour that is skipped does not fire. It is written down rather than pretended away.
+- The config is re-read every tick, so editing the file takes effect without a restart.
 
-Everything is commented out, deliberately. An `[mcp]` entry is a **command with arguments that this
-process would start**, and a hook is a shell line; "the companion I joined to told me to" is not a
-sentence anybody should find in an incident report. Environment variables are named and never
-valued — a token copied into a second workspace is a token in two places.
+The agent can see and change its own schedule with the `schedule` tool, the TUI has `/cron`, and
+the console shows the same jobs on a companion's page (§12.3).
 
-Same machine only. Across machines there is no join: that is the operator's peer list.
-
-### 13.7 What this deliberately is not
-
-- **Cross-machine teams.** Companions elsewhere are visible because a console reads other consoles
-  (`-peer`), and that list belongs to the operator. A daemon holds no peer list — a node that
-  accepts "here are my friends" from the network becomes a relay for whoever answers first.
-- **Gossip or propagation.** On one machine the directory is already complete membership.
-- **Applying what a join proposes.** §13.6 writes a file; moving any of it into your config is a
-  person's decision, and an `[mcp]` command is why.
-- **A blocking wait.** The receiver answers in its own transcript; the caller reads it with
-  `companions`, and the console collects it under the asker's page (UI §2.2). Nothing notifies the
-  asker, and nothing waits on it.
-
----
-
-## 14. Status & scope
+## 15. Status & scope
 
 The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **post-edit LSP diagnostics** (§5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
