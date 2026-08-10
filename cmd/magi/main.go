@@ -815,6 +815,9 @@ func run() int {
 	})
 	dangerTools := app.DefaultDangerTools()
 
+	// Declared here and built once the MCP manager exists, the same way `a` is captured by the
+	// closures above: the engine has to be told how to reach it before either of them is real.
+	var ears *companionEars
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
@@ -823,6 +826,7 @@ func run() int {
 		AnswerWait:          answerWait(answerable),  // 0 for the TUI: the person is sitting in front of it
 		Profile:             orStr(*profile, cfg.Profile),
 		Sandbox:             cfg.Sandbox,
+		BetweenTurns:        func(ctx context.Context) { ears.reconcile(ctx) },
 		DangerTools:         dangerTools,
 		Allow:               cfg.Allow,
 		Deny:                cfg.Deny,
@@ -932,7 +936,12 @@ func run() int {
 			fmt.Fprintf(os.Stderr, "magi: mcp %q: %v\n", name, err)
 		}
 	}
-	attachCompanionMCP(mcpMgr, cfg, store, plat.ConfigDir(), wd)
+	// Attached now, and again between turns for as long as this process lives. The engine's
+	// config already carries the hook; this is where the thing it calls comes into existence.
+	ears = newCompanionEars(mcpMgr, func(ctx context.Context) ([]fleet.Agent, error) {
+		return fleet.List(ctx, rosterReader, plat.ConfigDir(), self)
+	}, cfg, selfBinary(), meCalled(cfg, wd), os.Stderr)
+	ears.reconcile(context.Background())
 
 	ctx := context.Background()
 	sockPath := daemon.SocketPath(plat.ConfigDir(), wd)
@@ -1734,73 +1743,6 @@ var systemPrompt = "You are magi, an AI coding agent working in the user's proje
 	"LANGUAGE (important): always write your replies to the user in the SAME language they used in their latest " +
 	"message — if they wrote Korean, answer in Korean; Japanese, answer in Japanese. This overrides the language of " +
 	"these instructions or of any file/tool output. Keep code, identifiers, and file paths unchanged."
-
-// attachCompanionMCP gives this magi one MCP server per companion already running here.
-//
-// # Why it is not written in a config file
-//
-// Every companion publishes to one directory and every companion reads it — that is how the roster
-// and the fleet page work. So the list of peers is already known, exactly, at startup, and asking
-// an operator to hand-write `command = "magi --mcp --to design"` once per peer per workspace is
-// asking them to maintain a copy of something the machine can see. The copy goes stale the first
-// time somebody starts a fifth companion.
-//
-// # What it costs, and why it is off unless asked for
-//
-// Two tools per peer, in the tool list of every prompt. Four companions is eight extra tools, and
-// the weight of a tool list is a real cost this tree has measured before — a weak model given
-// thirty tools chooses worse among the ten that matter. It is also a subprocess per peer, held open
-// for the life of the daemon.
-//
-// So it is a choice: `[companion] mcp_peers = true`. The operator who wants their companions able
-// to ask each other things turns it on for the workspaces where that is true, which is usually the
-// ones in a team.
-//
-// # What it does NOT do
-//
-// It attaches what is running WHEN THIS STARTS. A companion started afterwards is not picked up —
-// there is no watch here, deliberately: a manager that added and removed tools underneath a running
-// turn would change the tool list between one step and the next, and a model that called something
-// that has just gone is a failure nobody can read afterwards. Restarting is the way to pick up a
-// new peer, and it is one line to say so.
-func attachCompanionMCP(mgr *mcp.Manager, cfg config.Config, store *jsonl.Store, cfgDir, wd string) {
-	if !cfg.Companion.MCPPeers {
-		return
-	}
-	// What the peers will see on anything this companion says through their ear. Taken from the
-	// declared name, falling back to the workspace, because "a message from somebody" with no way
-	// to tell which somebody is worse than a long path.
-	meCalled := strings.TrimSpace(cfg.Companion.Name)
-	if meCalled == "" {
-		meCalled = filepath.Base(wd)
-	}
-	self, err := os.Executable()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi: mcp peers: cannot find this binary:", err)
-		return
-	}
-	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-	list, lerr := fleet.List(context.Background(), reader, cfgDir, daemon.SocketPath(cfgDir, wd))
-	if lerr != nil {
-		fmt.Fprintln(os.Stderr, "magi: mcp peers:", lerr)
-		return
-	}
-	peers, clashed := companionPeers(list, cfg)
-	for _, name := range clashed {
-		fmt.Fprintf(os.Stderr, "magi: mcp peers: not attaching the companion %q — an [mcp.%s] in "+
-			"this workspace's config already has that name. Rename one of them.\n", name, name)
-	}
-	for _, a := range peers {
-		// Named after the companion, so the tools arrive as design__knows rather than as a number.
-		// A model with four of these attached decides which to ask by that name.
-		if err := mgr.AddStdio(context.Background(), a.Name, self,
-			[]string{"--mcp", a.Name, "--mcp-as", meCalled}, nil); err != nil {
-			// One peer that will not start is not a reason to withhold the others, and it is worth
-			// saying: a silent failure here looks like a companion that knows nothing.
-			fmt.Fprintf(os.Stderr, "magi: mcp peer %q: %v\n", a.Name, err)
-		}
-	}
-}
 
 // companionPeers picks which companions this magi attaches as MCP servers.
 //
