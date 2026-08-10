@@ -225,15 +225,38 @@ func TestATeamKeepsASpeakerWhenTheHubGoesQuiet(t *testing.T) {
 	}
 }
 
-// Two declared hubs is a person's mistake, and this does not paper over it.
+// Two companions preferring themselves is a field of two candidates, not a conflict.
 //
-// Election is for the case where nobody is speaking. Quietly choosing between two that somebody
-// declared would hide a conflict whose fix is one line in a file they can edit.
-func TestTwoDeclaredHubsAreNotElectedBetween(t *testing.T) {
+// Declaring `hub = true` is a preference, the way MongoDB's replica-set priority is: it moves a
+// member to the front of the queue, and two members may share it because the election still
+// returns one. An earlier version treated it as a claim and refused — which made a team
+// unaddressable because somebody typed one word twice, and left its members unable to share out
+// work they had been handed. The worse outcome, for the sake of surfacing a smaller mistake.
+func TestTwoPreferredHubsAreElectedBetween(t *testing.T) {
 	a := Member{Host: "studio", Socket: "/s/a.sock", Name: "lead", Team: "frontend", Hub: true, Seen: at(0)}
 	b := Member{Host: "mini", Socket: "/s/b.sock", Name: "other", Team: "frontend", Hub: true, Seen: at(0)}
-	if who, _, ok := Speaker([]Member{a, b}, "frontend", now); ok {
-		t.Errorf("picked %q between two declared hubs", who.Name)
+	plain := Member{Host: "buildbox", Socket: "/s/c.sock", Name: "worker", Team: "frontend", Seen: at(0)}
+
+	who, acting, ok := Speaker([]Member{a, b, plain}, "frontend", now)
+	if !ok {
+		t.Fatal("a team with two willing hubs has nobody to speak for it")
+	}
+	// One of the two who asked for it, never the one who did not — a preference that loses to a
+	// bare member is not a preference.
+	// mini < studio: the key leads with the HOST, so the tie-break is by machine first. Arbitrary
+	// and stable, which is the whole requirement.
+	if who.Name != "other" {
+		t.Errorf("elected %q; want other (lowest key among the preferred)", who.Name)
+	}
+	if acting {
+		t.Error("a companion that declared itself hub is not standing in for anybody")
+	}
+	// And it does not depend on the order the list arrived in, because every companion computes
+	// this alone and they have to agree.
+	for _, order := range [][]Member{{b, plain, a}, {plain, a, b}} {
+		if got, _, _ := Speaker(order, "frontend", now); got.Name != who.Name {
+			t.Errorf("a different order elected %q", got.Name)
+		}
 	}
 }
 
@@ -246,7 +269,12 @@ func TestATeamWithNobodyLeftHasNoSpeaker(t *testing.T) {
 	if _, _, ok := Speaker(nil, "frontend", now); ok {
 		t.Error("an empty cluster has a speaker")
 	}
-	if _, _, ok := Speaker([]Member{stale}, "", now); ok {
-		t.Error("the empty team name resolved to somebody")
+	// The empty team name is not a team. Companions that declared none would otherwise all be
+	// swept into one — and the first of them elected to speak for a group that does not exist.
+	// The fixture is FRESH and teamless on purpose: a stale one is filtered before the question
+	// is even reached, which is how this check passed while meaning nothing.
+	loner := Member{Host: "studio", Socket: "/s/z.sock", Name: "solo", Seen: at(0)}
+	if who, _, ok := Speaker([]Member{loner}, "", now); ok {
+		t.Errorf("the empty team name elected %q", who.Name)
 	}
 }

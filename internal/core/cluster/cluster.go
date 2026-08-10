@@ -203,13 +203,20 @@ func Reach(m Member, local, self, magi string) (string, []string) {
 // this does nothing about it — split brain is out of scope, and pretending otherwise with a quorum
 // nobody can reach would be worse than the honest gap.
 //
-// # What it will not do
+// # Declaring is a preference, not a claim
 //
-// If a PERSON declared two hubs and both are there, this does not choose between them. That is a
-// configuration mistake, the answer is in a file somebody can edit, and picking one quietly would
-// hide it. Election is for the case where nobody is speaking, not for the case where two are.
+// An earlier version treated `hub = true` as a claim and refused when two companions made it: a
+// person's mistake, said the comment, with a one-line fix in a file. It was the wrong shape, and
+// the systems that solve this say so. MongoDB never lets anybody DECLARE primary — a primary is
+// always elected, and what config carries is a `priority` that makes a member preferred, which two
+// members may share without conflicting because the election still returns one. Cassandra sidesteps
+// the question by having no leader at all.
 //
-// acting says the answer is an election rather than a declaration. It matters to the one elected —
+// So this always elects, and a declaration only moves a companion to the front of the queue. Two
+// declarations are then two candidates rather than a conflict, and the outcome nobody wants — a
+// team that cannot be addressed because somebody typed one word twice — cannot happen.
+//
+// acting says the answer is an election among equals rather than a declared preference. It matters to the one elected —
 // it is what lets it hand work on — and to anybody reading a roster, because "acting" is the word
 // that says the companion somebody expected is missing.
 func Speaker(ms []Member, team string, now time.Time) (who Member, acting, ok bool) {
@@ -217,22 +224,21 @@ func Speaker(ms []Member, team string, now time.Time) (who Member, acting, ok bo
 	if team == "" {
 		return Member{}, false, false
 	}
-	var fresh, declared []Member
+	var fresh, preferred []Member
 	for _, m := range ms {
 		if !strings.EqualFold(m.Team, team) || !m.Fresh(now) {
 			continue
 		}
 		fresh = append(fresh, m)
 		if m.Hub {
-			declared = append(declared, m)
+			preferred = append(preferred, m)
 		}
 	}
-	switch len(declared) {
-	case 1:
-		return declared[0], false, true
-	case 0:
-	default:
-		return Member{}, false, false // two people's decision, not this function's
+	// The preferred, when there are any. Two of them is a field of two candidates, not a conflict:
+	// the election below returns one either way.
+	acting = len(preferred) == 0
+	if !acting {
+		fresh = preferred
 	}
 	if len(fresh) == 0 {
 		return Member{}, false, false
@@ -248,5 +254,5 @@ func Speaker(ms []Member, team string, now time.Time) (who Member, acting, ok bo
 			best = m
 		}
 	}
-	return best, true, true
+	return best, acting, true
 }
