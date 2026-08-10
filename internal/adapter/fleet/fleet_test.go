@@ -937,3 +937,56 @@ func overwritePublishedHost(t *testing.T, sock, workdir, sid, host, name string)
 		t.Fatal(err)
 	}
 }
+
+// How much a companion has waiting is on its line, and does not reorder it.
+//
+// It cannot be derived from the state beside it: State is read from the session a person attaches
+// to, and handed-over work runs in conversations of its own — so a companion busy with three
+// people's requests reads as Idle, correctly, and this is the number that says otherwise.
+func TestTheRosterSaysHowMuchIsWaitingWithoutRankingByIt(t *testing.T) {
+	list := []fleet.Agent{
+		{Name: "zulu", Live: true, Role: "screens", Waiting: 0},
+		{Name: "alpha", Live: true, Role: "builds", Waiting: 3},
+	}
+	line := fleet.RosterLines(list, "")
+	if !strings.Contains(line, "3 waiting") {
+		t.Errorf("the roster does not say what is queued:\n%s", line)
+	}
+	// Nothing waiting says nothing — a "0 waiting" on every idle companion is a column of noise.
+	if strings.Contains(line, "0 waiting") {
+		t.Errorf("an empty queue is announced:\n%s", line)
+	}
+	// And the busiest is not moved. A list in load order is a recommendation; choosing is the
+	// model's, and this is one more fact in front of it.
+	if strings.Index(line, "alpha") > strings.Index(line, "zulu") {
+		t.Errorf("the roster is ordered by load:\n%s", line)
+	}
+}
+
+// How much is queued reaches a row from the record, here and from a sighting.
+//
+// Both halves, because an asker choosing between companions reads one list: a number that only
+// survived the local hop would make every companion on another machine look free.
+func TestARowCarriesHowMuchWorkIsQueued(t *testing.T) {
+	f := newFleetFixture(t)
+	sock := f.daemonAt(t.TempDir(), "s_busy", true)
+	f.session("s_busy", "/w", "hello", 0, true)
+	if err := daemon.Announce(sock, 2); err != nil {
+		t.Fatal(err)
+	}
+	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far.sock", Name: "far",
+		Waiting: 5, Seen: time.Now()})
+
+	list := f.get()
+	if got := find(t, list, "s_busy").Waiting; got != 2 {
+		t.Errorf("the local row says %d waiting", got)
+	}
+	if got := f.byName("far").Waiting; got != 5 {
+		t.Errorf("the row for another machine says %d waiting", got)
+	}
+	// And it is not the same fact as what the person's own session is doing: that turn finished,
+	// so this companion reads as idle while holding two pieces of somebody else's work.
+	if find(t, list, "s_busy").State == fleet.Working {
+		t.Error("queued work was mistaken for the attached session being busy")
+	}
+}

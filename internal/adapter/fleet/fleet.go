@@ -165,8 +165,15 @@ type Agent struct {
 	// question, and nothing else — clipping it here would clip the grounds, which is the one part
 	// that must arrive intact.
 	Report []report.Filled `json:"report,omitempty"`
-	Task   string          `json:"task"`  // what the open turn asked for, or the last thing said
-	Steps  int             `json:"steps"` // tool calls the open turn has made — what a crash would cost
+	Task   string          `json:"task"` // what the open turn asked for, or the last thing said
+	// Waiting is how much handed-over work it has taken and not started.
+	//
+	// It is not derived from State, and cannot be: State is read from the session a person
+	// attaches to, and handed-over work runs in conversations of its own — so a companion busy
+	// with three people's requests reads as Idle, correctly, and this is the number that says
+	// otherwise. From a sighting it is as old as the sighting.
+	Waiting int `json:"waiting,omitempty"`
+	Steps   int `json:"steps"` // tool calls the open turn has made — what a crash would cost
 	// Doing is what a long-running tool inside the open turn last reported: "check 6, 4m elapsed,
 	// still running". Only ever set on a WORKING agent — the note is a live one, and on an idle or
 	// stopped agent it would be the last thing said before the turn ended, dressed up as news.
@@ -209,7 +216,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
-			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can,
+			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}
@@ -275,7 +282,7 @@ func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
 			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
-			Does: m.Does, Can: m.Can,
+			Does: m.Does, Can: m.Can, Waiting: m.Waiting,
 			// Live is "believed reachable", and for a companion on another machine the evidence
 			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
 			// anything acting on this has to look at State too, and Remote is not a state anything
@@ -430,6 +437,11 @@ func RosterLines(list []Agent, here string) string {
 		}
 		if can := abilities(a); can != "" {
 			line += " · can: " + can
+		}
+		// Shown, never sorted on. A list in load order is a recommendation, and choosing who does
+		// the work is the model's. Absent when nothing is waiting, which is most of the time.
+		if a.Waiting > 0 {
+			line += fmt.Sprintf(" · %d waiting", a.Waiting)
 		}
 		out = append(out, line)
 	}
