@@ -16,19 +16,48 @@
 //	command = "magi --mcp --to design"                 # another companion on this machine
 //	command = "ssh buildbox magi --mcp --to design"    # …or on another one
 //
-// So reaching a companion's knowledge requires being able to run a program as somebody who can read
-// their files — which is exactly the permission that already governs it. Nothing new is exposed,
-// there is no port, and crossing a machine boundary is ssh's job, which is a thing operators
+// So reaching a companion requires being able to run a program as somebody who can read their
+// files. There is no port, and crossing a machine boundary is ssh's job, which is a thing operators
 // already know how to reason about.
 //
-// # Three tools, because three different questions get asked
+// # This is no longer read-only, and that is worth saying out loud
 //
-// `about` answers "what are you for, and what can you be asked to do". `knows` answers "what have
-// you got on X" with one line each. `detail` returns one entry whole.
+// For most of its life this package only READ: it answered questions about a companion out of its
+// experience store, and the sentence above could end "nothing new is exposed". The ear changes
+// that. A caller can now put a message into another companion's conversation, which makes that
+// daemon do something.
+//
+// It is not a new privilege. Anything that can start `magi --mcp` can dial the same daemon socket
+// directly, and the socket is owner-only — so the boundary is unchanged and it is the same boundary
+// as before: the user who owns these files. What changed is what this package's own claim is worth,
+// so the claim is rewritten rather than left standing while the code walked out from under it.
+//
+// The delivery itself is NOT written here. Server takes an Ear closure from whoever wired it up:
+// dialling a daemon belongs to a package this one does not import, and a server constructed without
+// one does not advertise the tool at all.
+//
+// # Four tools, because four different things get asked
+//
+// `ask` says something to the companion, now, while both are working. `about` answers "what are you
+// for, and what can you be asked to do". `knows` answers "what have you got on X" with one line
+// each. `detail` returns one entry whole.
 //
 // The last two are one question split in half deliberately: a search that returned full bodies
 // would put four pages of somebody else's notes into the asker's context to answer something a
 // title might have settled, and the caller cannot know which until it has seen the titles.
+//
+// `ask` is the one that makes a companion something you can work WITH rather than only read from.
+// Its recipient is the tool name — `mcp__design__ask` — which is not a convenience: a name in an
+// argument is a name a model can invent, and the recorded failure here is a request addressed to a
+// companion called "ssh", which does not exist. A name that is part of the tool being called cannot
+// be got wrong.
+//
+// What it deliberately does NOT do is wait. The reply is not this call's result; it is the other
+// companion saying something back through the ear on this side. So the same door carries the
+// question, the answer, and whatever follows, in both directions, and nothing blocks for the
+// minutes that answer takes. Starting a piece of work is a different act with different rules, and
+// stays in hand_off — that one refuses a chain, refuses to land inside a running turn, and knows
+// when the other side finishes.
 //
 // `about` is the one that was missing, and its absence had a shape. A companion advertised a store
 // and nothing else — so a model deciding whether to ask design or api had a role clause buried in
@@ -80,6 +109,15 @@ type Server struct {
 	// Reach names the external tool servers this companion is configured to talk to. NAMES ONLY,
 	// and that is a rule rather than a convenience — see about().
 	Reach []string
+
+	// Ear puts a message into this companion's conversation, and Caller is who is putting it there.
+	//
+	// Supplied rather than built here: delivering means dialling a daemon, which belongs to a
+	// package this one does not import. Both nil/empty on a server that only answers questions
+	// about a companion, and then the ear is not advertised at all — a tool in the list that
+	// always refuses is worse than one that is not there.
+	Ear    func(from, text string) error
+	Caller string
 }
 
 // entry is one thing this companion wrote down, flattened out of the store's two kinds.
@@ -316,7 +354,27 @@ func (s *Server) tools() []map[string]any {
 	if s.Role != "" {
 		who += " (" + s.Role + ")"
 	}
-	return []map[string]any{
+	out := []map[string]any{}
+	if s.Ear != nil {
+		// The recipient is the TOOL NAME. That is the whole reason this is a tool per companion
+		// rather than one tool with a `to` field: a name in a field is a name a model can invent,
+		// and this tree has a recorded failure of exactly that — a request addressed to a
+		// companion called "ssh", which does not exist. A name that is part of the tool it is
+		// calling cannot be got wrong.
+		out = append(out, map[string]any{
+			"name": "ask",
+			"description": "Say something to " + who + " right now, while you are both working: a " +
+				"question you need answered to carry on, the answer to something they asked you, or " +
+				"anything else in an exchange already under way. It goes into their conversation " +
+				"and returns at once — they answer by saying something back to you the same way, " +
+				"so do not wait here for a reply. To START a piece of work with them, use hand_off " +
+				"instead: that one waits for their result and knows when they finish.",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{
+				"ask":{"type":"string","description":"what to say, standing on its own — they cannot see your conversation"}
+			},"required":["ask"],"additionalProperties":false}`),
+		})
+	}
+	return append(out, []map[string]any{
 		{
 			// A third tool per peer is not free — the tool list is paid on every prompt, and four
 			// companions make this twelve entries rather than eight. It is here rather than folded
@@ -345,7 +403,7 @@ func (s *Server) tools() []map[string]any {
 				"id":{"type":"string","description":"the id from a knows result"}
 			},"required":["id"],"additionalProperties":false}`),
 		},
-	}
+	}...)
 }
 
 // defaultLimit is how many lines come back when the caller does not say. Enough to see a topic's
@@ -425,6 +483,24 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 // whether to try a different argument or a different tool.
 func (s *Server) call(ctx context.Context, name string, args json.RawMessage) map[string]any {
 	switch name {
+	case "ask":
+		if s.Ear == nil {
+			return errResult(s.Name + " cannot be reached this way from here")
+		}
+		var p struct {
+			Ask string `json:"ask"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil {
+			return errResult("could not read the arguments: " + err.Error())
+		}
+		if strings.TrimSpace(p.Ask) == "" {
+			return errResult("say something. An empty message is a turn spent on nothing at both ends")
+		}
+		if err := s.Ear(s.Caller, p.Ask); err != nil {
+			return errResult("could not reach " + s.Name + ": " + err.Error())
+		}
+		return okResult("Said to " + s.Name + ". They will see it at their next step and answer the " +
+			"same way if it needs one — carry on; nothing arrives as the result of this call.")
 	case "about":
 		return okResult(s.about())
 	case "knows":
@@ -455,7 +531,7 @@ func (s *Server) call(ctx context.Context, name string, args json.RawMessage) ma
 		}
 		return okResult(s.detail(ctx, a.ID))
 	default:
-		return errResult("no such tool: " + name + ". This server has about, knows and detail")
+		return errResult("no such tool: " + name + ". This server has " + strings.Join(s.toolNames(), ", "))
 	}
 }
 
@@ -465,4 +541,17 @@ func okResult(s string) map[string]any {
 
 func errResult(s string) map[string]any {
 	return map[string]any{"isError": true, "content": []map[string]any{{"type": "text", "text": s}}}
+}
+
+// toolNames is what this server actually advertises, for the refusal that names them. Read off
+// tools() rather than written beside it: a list kept by hand is one that goes on naming a tool
+// after it is gone, which sends a caller to try it again.
+func (s *Server) toolNames() []string {
+	out := make([]string, 0, 4)
+	for _, t := range s.tools() {
+		if n, _ := t["name"].(string); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }

@@ -387,3 +387,87 @@ func TestACompanionWithNothingToAdvertiseSaysThat(t *testing.T) {
 		t.Errorf("an empty heading was printed:\n%s", got)
 	}
 }
+
+// A companion can be spoken to while it is working, and the recipient is the tool name.
+//
+// This is the route that was missing. Handing a piece of work over was one-way: the doer could not
+// come back with the question that would let it finish, and the asker could not answer one. Both
+// now go through the same door in opposite directions, and neither waits — a reply is the other
+// side speaking through the ear on this side, not the result of this call.
+func TestACompanionCanBeSpokenToWhileItWorks(t *testing.T) {
+	var gotFrom, gotText string
+	s := &Server{
+		Name: "design", Dir: store(t), Caller: "master",
+		Ear: func(from, text string) error { gotFrom, gotText = from, text; return nil },
+	}
+	// One line: the server reads one JSON-RPC message per line, which is what the client on the
+	// other side writes.
+	got := textOf(t, call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask","arguments":{"ask":"which surface should the empty state sit on?"}}}`+"\n"))
+
+	if gotText != "which surface should the empty state sit on?" {
+		t.Errorf("the message arrived as %q", gotText)
+	}
+	// Who is speaking comes from how this process was STARTED, never from the arguments. A name in
+	// an argument is a name a model can write, which would be one companion signing another's
+	// messages.
+	if gotFrom != "master" {
+		t.Errorf("the message is attributed to %q, want master", gotFrom)
+	}
+	// And the caller is told not to wait here, because the answer does not come back this way.
+	if !strings.Contains(got, "carry on") && !strings.Contains(got, "Carry on") {
+		t.Errorf("the result does not say the reply arrives elsewhere: %q", got)
+	}
+	// It is in the list, with no `to` field to get wrong.
+	list := call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n")
+	if !strings.Contains(list, `"ask"`) {
+		t.Fatalf("the ear is not advertised: %s", list)
+	}
+	if strings.Contains(list, `"to"`) {
+		t.Errorf("the ear takes a recipient as an argument, which is the thing it exists to avoid: %s", list)
+	}
+}
+
+// A server wired without a way to deliver does not advertise the ear.
+//
+// A tool in the list that always refuses is worse than one that is not there: it is paid for in
+// every prompt, and a model that calls it has spent a step learning something the list could have
+// told it.
+func TestAServerThatCannotDeliverDoesNotOfferTheEar(t *testing.T) {
+	s := &Server{Name: "design", Dir: store(t)}
+	list := call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n")
+	if strings.Contains(list, `"ask"`) {
+		t.Errorf("an ear was offered with nothing behind it: %s", list)
+	}
+	// And calling it anyway is refused as a failed call, not as a protocol error: the call reached
+	// the server and was understood.
+	var r struct {
+		Error  any `json:"error"`
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask","arguments":{"ask":"hi"}}}`+"\n")), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Error != nil || !r.Result.IsError {
+		t.Errorf("calling an absent ear came back as %v / isError=%v", r.Error, r.Result.IsError)
+	}
+}
+
+// An empty message is refused. It costs a turn at both ends and says nothing at either.
+func TestAnEmptyMessageIsNotDelivered(t *testing.T) {
+	sent := false
+	s := &Server{Name: "design", Dir: store(t), Caller: "master",
+		Ear: func(string, string) error { sent = true; return nil }}
+	var r struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask","arguments":{"ask":"   "}}}`+"\n")), &r); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Result.IsError || sent {
+		t.Errorf("an empty message was delivered (isError=%v sent=%v)", r.Result.IsError, sent)
+	}
+}

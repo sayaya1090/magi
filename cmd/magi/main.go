@@ -226,26 +226,31 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 //coverage:ignore calling run is running magi, not testing it
 func run() int {
 	var (
-		prompt          = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
-		output          = flag.String("output", "text", "output format: text|json")
-		model           = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
-		baseURL         = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
-		apiKey          = flag.String("api-key", env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), "API key for the backend (or set MAGI_API_KEY; note a CLI value is visible in the process list)")
-		permission      = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
-		profile         = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
-		workflow        = flag.Bool("workflow", envflag.Enabled("MAGI_WORKFLOW", false), "drive the task through the deterministic localize→implement→verify→review pipeline")
-		verifyCmd       = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
-		noCache         = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
-		httpTimeout     = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
-		pluginsDir      = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
-		listModels      = flag.Bool("list-models", false, "list the backend's available models and exit")
-		doctor          = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
-		daemonMode      = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
-		attachMode      = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
-		joinTo          = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
-		listAgents      = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
-		stopDaemon      = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
-		mcpTo           = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion's recorded knowledge: its name, or words from its role. Reach another machine's with ssh")
+		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
+		output      = flag.String("output", "text", "output format: text|json")
+		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
+		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
+		apiKey      = flag.String("api-key", env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), "API key for the backend (or set MAGI_API_KEY; note a CLI value is visible in the process list)")
+		permission  = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
+		profile     = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
+		workflow    = flag.Bool("workflow", envflag.Enabled("MAGI_WORKFLOW", false), "drive the task through the deterministic localize→implement→verify→review pipeline")
+		verifyCmd   = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
+		noCache     = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
+		httpTimeout = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
+		pluginsDir  = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
+		listModels  = flag.Bool("list-models", false, "list the backend's available models and exit")
+		doctor      = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
+		daemonMode  = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
+		attachMode  = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
+		joinTo      = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
+		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
+		stopDaemon  = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
+		mcpTo       = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion: its name, or words from its role. Reach another machine's with ssh")
+		// Who is on the other end of that pipe. Given by the magi that started this process, never
+		// by a model: it is the name the receiving companion sees on anything said through the ear,
+		// and a name that came out of an argument a model wrote would be a companion able to sign
+		// somebody else's messages. Without it the ear is not offered at all.
+		mcpAs           = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -487,8 +492,31 @@ func run() int {
 			// a line the client cannot parse.
 			Warn: func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) },
 		}
+		// The ear: putting a message into that companion's conversation.
+		//
+		// Steer rather than Submit, the same choice the console makes. They may be mid-turn — that
+		// is the ordinary case for this, since the whole point is talking WHILE both are working —
+		// and a Submit would queue a fresh turn behind the one the message is about. Which of the
+		// two it is, is the engine's decision on the far side, and making it twice is how the two
+		// come to disagree.
+		var ear func(from, text string) error
+		if strings.TrimSpace(*mcpAs) != "" && who.Socket != "" && who.Session != "" {
+			ear = func(from, text string) error {
+				cl, derr := daemon.Dial(who.Socket)
+				if derr != nil {
+					return derr
+				}
+				defer cl.Close()
+				return cl.Steer(context.Background(), command.SubmitPrompt{
+					SessionID: session.SessionID(who.Session),
+					Parts:     []session.Part{{Kind: session.PartText, Text: fleet.WordFrom(from) + "\n\n" + text}},
+				})
+			}
+		}
 		srv := &mcpserve.Server{
 			Name: who.Name, Role: who.Role,
+			Ear:     ear,
+			Caller:  strings.TrimSpace(*mcpAs),
 			Dir:     filepath.Join(who.Workdir, ".magi", "experience"),
 			Embed:   emb,
 			Team:    who.Team,
@@ -1670,6 +1698,13 @@ func attachCompanionMCP(mgr *mcp.Manager, cfg config.Config, store *jsonl.Store,
 	if !cfg.Companion.MCPPeers {
 		return
 	}
+	// What the peers will see on anything this companion says through their ear. Taken from the
+	// declared name, falling back to the workspace, because "a message from somebody" with no way
+	// to tell which somebody is worse than a long path.
+	meCalled := strings.TrimSpace(cfg.Companion.Name)
+	if meCalled == "" {
+		meCalled = filepath.Base(wd)
+	}
 	self, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: mcp peers: cannot find this binary:", err)
@@ -1689,7 +1724,8 @@ func attachCompanionMCP(mgr *mcp.Manager, cfg config.Config, store *jsonl.Store,
 	for _, a := range peers {
 		// Named after the companion, so the tools arrive as design__knows rather than as a number.
 		// A model with four of these attached decides which to ask by that name.
-		if err := mgr.AddStdio(context.Background(), a.Name, self, []string{"--mcp", a.Name}, nil); err != nil {
+		if err := mgr.AddStdio(context.Background(), a.Name, self,
+			[]string{"--mcp", a.Name, "--mcp-as", meCalled}, nil); err != nil {
 			// One peer that will not start is not a reason to withhold the others, and it is worth
 			// saying: a silent failure here looks like a companion that knows nothing.
 			fmt.Fprintf(os.Stderr, "magi: mcp peer %q: %v\n", a.Name, err)

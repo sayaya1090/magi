@@ -485,7 +485,24 @@ const DispatchMark = "— asked by "
 // DispatchedBy renders the label.
 func DispatchedBy(who string) string {
 	return DispatchMark + who + ", another companion on this machine. Answer it here; they will " +
-		"read what you say from your transcript."
+		"read what you say from your transcript, and you can reach them with mcp__" + who +
+		"__ask if you need something from them to do it."
+}
+
+// WordMark opens a message a companion put straight into this one's conversation, rather than a
+// piece of work it handed over.
+//
+// A DIFFERENT marker on purpose, and not a variation of the one above. The no-chaining rule and the
+// handoff view both read DispatchMark to mean "this turn was started by somebody else", and a
+// mid-exchange question carrying that meaning would freeze the receiver out of handing anything on
+// for the rest of its turn — because of a sentence, not because of anything it did.
+const WordMark = "— from "
+
+// WordFrom renders the label on a message that arrived through this companion's ear.
+func WordFrom(who string) string {
+	return WordMark + who + ", another companion on this machine, while you are both working. " +
+		"It is part of an exchange already under way, not a new request: fold it into what you are " +
+		"doing. Reply with mcp__" + who + "__ask if it wants an answer."
 }
 
 // Handoff is one piece of work a companion handed to another, and what became of it.
