@@ -1803,6 +1803,19 @@ func companionPeers(list []fleet.Agent, cfg config.Config) (peers []fleet.Agent,
 		if a.Here || !a.Live || a.Name == "" {
 			continue
 		}
+		if a.State == fleet.Remote {
+			// Attaching spawns THIS machine's binary with `--mcp <name>`, which resolves the name
+			// against companions published HERE. For one on another machine that is a peer that
+			// fails to start — or, on two machines set up by one person where the same names and
+			// the same checkout paths recur, a door onto a different companion under the remote
+			// one's name.
+			//
+			// Live is what the line above reads, and a remote row is Live when somebody sighted it
+			// recently. True, and not the fact this needs; the state beside it is the fact. There
+			// is no ear across machines yet, and DispatchedFrom already tells a remote receiver so
+			// rather than naming a tool that would not be there.
+			continue
+		}
 		if _, taken := cfg.MCP[a.Name]; taken {
 			clashed = append(clashed, a.Name)
 			continue

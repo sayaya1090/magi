@@ -74,3 +74,28 @@ func names(as []fleet.Agent) string {
 	}
 	return strings.Join(out, " ")
 }
+
+// A companion on another machine is NOT attached as a peer here.
+//
+// The attach spawns THIS machine's binary with `--mcp <name>`, which resolves the name against
+// companions published HERE. For a companion on buildbox that is either a peer that fails to start
+// or — on two machines set up by one person, where the same names and the same checkout paths
+// recur — a door onto an entirely different companion, opened under the remote one's name.
+//
+// Live is what this filter reads, and a remote row is Live when somebody sighted it recently: true,
+// and not the fact this filter needs. The state beside it is.
+func TestACompanionOnAnotherMachineIsNotAttachedAsALocalPeer(t *testing.T) {
+	list := []fleet.Agent{
+		{Name: "here", Socket: "/s/a.sock", Live: true, State: fleet.Idle},
+		{Name: "design", Socket: "/far/d.sock", Host: "buildbox", Live: true, State: fleet.Remote},
+	}
+	peers, _ := companionPeers(list, config.Config{})
+	for _, p := range peers {
+		if p.Name == "design" {
+			t.Fatal("a companion on buildbox would be started as a local MCP peer, under its name")
+		}
+	}
+	if len(peers) != 1 {
+		t.Fatalf("%d peers, want just the local one: %+v", len(peers), peers)
+	}
+}
