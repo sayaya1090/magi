@@ -196,9 +196,18 @@ type Model struct {
 	subCancel  func()
 	subID      int                   // monotonic id assigned to every subscription (main + panes)
 	mainSub    int                   // the primary session's subscription id (pane subs must not clobber it)
-	resumeList []session.SessionMeta // sessions shown by the last /resume
-	resumeSel  int                   // selected row in the interactive resume picker
-	resuming   bool                  // the resume picker modal is open
+	resumeList []session.SessionMeta // sessions shown by the last /resume, after the filter
+	// resumeAll is every session in the workspace; resumeList is what survives resumeQuery. Kept
+	// apart because a filter has to be able to widen again, and re-listing the store on every
+	// keystroke would read every log in the directory per character typed.
+	resumeAll   []session.SessionMeta
+	resumeQuery string
+	// resumeWhy is the best matching turn per session, so a row can say WHY it matched. A list of
+	// titles answers "which of these is it" only when the words are in the titles, and the reason
+	// somebody is searching is usually that they are not.
+	resumeWhy map[session.SessionID]string
+	resumeSel int  // selected row in the interactive resume picker
+	resuming  bool // the resume picker modal is open
 
 	routeList   []routeRow // rows shown by the models & routing editor
 	subagenting bool       // the /subagents list is open

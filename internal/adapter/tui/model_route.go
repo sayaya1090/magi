@@ -660,10 +660,19 @@ func (m *Model) resumeView() string {
 		if m.width > 2 {
 			line = ansi.Truncate(line, m.width-2, "")
 		}
+		out := "  " + styleToolResult.Render(line)
 		if i == m.resumeSel {
-			return stylePalSelRow.Render("› " + line)
+			out = stylePalSelRow.Render("› " + line)
 		}
-		return "  " + styleToolResult.Render(line)
+		// Why this one is in the list. With a filter typed, the titles no longer explain the
+		// selection — the words were matched somewhere in the middle of the conversation, which is
+		// the whole reason for searching turns instead of titles — so the matching turn goes under
+		// the row rather than leaving somebody to guess.
+		if why := m.resumeWhy[s.ID]; why != "" {
+			w := max(20, m.width-16)
+			out += "\n" + styleFooter.Render("            "+oneLine(why, w))
+		}
+		return out
 	}
 	// The window follows the cursor: the session being chosen is the one that has to be on
 	// screen, whatever it costs at the other end of the list.
@@ -674,12 +683,22 @@ func (m *Model) resumeView() string {
 		// clipped line, it is the whole screen going wider than the terminal and the shell
 		// wrapping it. The hint is decoration and goes first; the title says which picker this
 		// is. (The routing editor next door was fixed for exactly this; the picker was not.)
-		head := stylePermTitle.Render("resume a session") + "  " +
-			styleFooter.Render("↑/↓ select · enter resume · esc cancel")
+		hint := "type to search · ↑/↓ select · enter resume · esc cancel"
+		if m.resumeQuery != "" {
+			hint = "esc clears the search · enter resume"
+		}
+		head := stylePermTitle.Render("resume a session") + "  " + styleFooter.Render(hint)
 		if m.width > 0 && lipgloss.Width(head) > m.width {
 			head = ansi.Truncate(stylePermTitle.Render("resume a session"), m.width, "")
 		}
 		b.WriteString(head + "\n")
+		// The query, always shown once anything is typed. A list that silently reorders under the
+		// keystrokes is a list somebody cannot tell from a broken one.
+		if m.resumeQuery != "" {
+			found := fmt.Sprintf("  %d of %d", len(m.resumeList), len(m.resumeAll))
+			b.WriteString(clipRow(styleToolName.Render("  search ")+
+				styleToolArgs.Render(m.resumeQuery)+"▌"+styleFooter.Render(found), m.width) + "\n")
+		}
 		start := 0
 		if keep < len(m.resumeList) {
 			start = min(max(0, m.resumeSel-keep/2), len(m.resumeList)-keep)
@@ -703,6 +722,14 @@ func (m *Model) resumeView() string {
 	// Nothing fits: the selected session alone, which is the one being chosen.
 	if len(m.resumeList) == 0 {
 		t := stylePermTitle.Render("resume a session")
+		// A search that matched nothing has to say so. Without this the list simply emptied under
+		// the keystrokes and the screen went back to its title — which is what a picker with no
+		// sessions at all looks like, and the two are very different situations.
+		if m.resumeQuery != "" {
+			t += "  " + styleFooter.Render(fmt.Sprintf(
+				"nothing in %d sessions matches %q · backspace to widen · esc clears it",
+				len(m.resumeAll), m.resumeQuery))
+		}
 		if m.width > 0 {
 			t = ansi.Truncate(t, m.width, "")
 		}

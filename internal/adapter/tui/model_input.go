@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // mouseDebug (MAGI_MOUSE_DEBUG) surfaces the click→cell mapping as a toast, for
@@ -351,12 +352,42 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.refresh()
 			return nil, true
 		case "enter":
+			// A filter that matched nothing leaves this list empty, and enter on it used to index
+			// past the end and take the whole program with it. Nothing to resume is not an error
+			// and not a crash: it is a keypress with nothing to do.
+			if len(m.resumeList) == 0 {
+				return nil, true
+			}
 			m.resuming = false
-			sid := m.resumeList[m.resumeSel].ID
+			sid := m.resumeList[min(m.resumeSel, len(m.resumeList)-1)].ID
 			m.refresh()
 			return m.switchSession(sid), true
 		case "esc":
+			// Backing out of a filter first, and out of the picker only when there is none. Esc
+			// with a query typed most likely means "not those" rather than "not this screen".
+			if m.resumeQuery != "" {
+				m.resumeQuery = ""
+				m.applyResumeFilter()
+				m.refresh()
+				return nil, true
+			}
 			m.resuming = false
+			m.refresh()
+			return nil, true
+		case "backspace":
+			if r := []rune(m.resumeQuery); len(r) > 0 {
+				m.resumeQuery = string(r[:len(r)-1])
+				m.applyResumeFilter()
+			}
+			m.refresh()
+			return nil, true
+		}
+		// Anything that produced a character narrows the list. Key().Text and not the key NAME:
+		// the name of the space bar is "space", and a picker that cannot take a space cannot be
+		// given two words.
+		if t := msg.Key().Text; t != "" {
+			m.resumeQuery += t
+			m.applyResumeFilter()
 			m.refresh()
 			return nil, true
 		}
@@ -1019,7 +1050,8 @@ func (m *Model) handleResume(args []string) tea.Cmd {
 	if err != nil || len(metas) == 0 {
 		return m.snack("no sessions to resume")
 	}
-	m.resumeList = metas
+	m.resumeAll, m.resumeList = metas, metas
+	m.resumeQuery, m.resumeWhy = "", nil
 	if len(args) == 0 {
 		m.resuming = true
 		m.resumeSel = 0
@@ -1031,4 +1063,35 @@ func (m *Model) handleResume(args []string) tea.Cmd {
 		return m.snack("usage: /resume <n> (run /resume to pick)")
 	}
 	return m.switchSession(m.resumeList[n-1].ID)
+}
+
+// applyResumeFilter narrows the picker to what the typed words match.
+//
+// It searches the TURNS, not the titles. A title is the first thing that was asked, and the reason
+// somebody is searching a week later is usually that what they are looking for was said in the
+// middle — the picker that could only match titles was answering an easier question than the one
+// being put to it.
+//
+// Ranked by the same code the search tool uses, so the order here and the order there cannot come
+// to disagree.
+func (m *Model) applyResumeFilter() {
+	if strings.TrimSpace(m.resumeQuery) == "" {
+		m.resumeList, m.resumeWhy = m.resumeAll, nil
+		m.resumeSel = 0
+		return
+	}
+	hits, err := m.app.RankSessions(m.ctx, m.workdir, m.resumeQuery)
+	if err != nil {
+		return // keep showing what is there rather than emptying the list on a read error
+	}
+	list := make([]session.SessionMeta, 0, len(hits))
+	why := make(map[session.SessionID]string, len(hits))
+	for _, h := range hits {
+		list = append(list, h.Meta)
+		if len(h.Snippets) > 0 {
+			why[h.Meta.ID] = h.Snippets[0].Prompt
+		}
+	}
+	m.resumeList, m.resumeWhy = list, why
+	m.resumeSel = 0
 }

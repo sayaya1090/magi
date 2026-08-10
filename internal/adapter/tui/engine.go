@@ -34,6 +34,9 @@ type Engine interface {
 	// daemon, which is why attached overrides it rather than inheriting it.
 	EditSchedule(workdir string, c port.ScheduleChange) (string, error)
 	ScheduledJobs(workdir string) []app.ScheduledJobInfo
+	// RankSessions is the resume picker's filter: it searches past TURNS, not titles, and it is the
+	// same call the search tool makes so the two cannot come to disagree about what matched.
+	RankSessions(ctx context.Context, workdir, query string) ([]app.SessionHit, error)
 	CouncilMemberNames() []string
 	CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error)
 	Fork(ctx context.Context, sid session.SessionID, upToSeq int64) (session.SessionID, error)

@@ -73,12 +73,24 @@ func TestHandleKeyResumePickerNav(t *testing.T) {
 		t.Errorf("up past the top should clamp at 0, got %d", m.resumeSel)
 	}
 
-	// A random key is swallowed (handled) without leaving the picker.
+	// A character now NARROWS the list rather than being swallowed. It used to be swallowed, and
+	// the picker could only be read top to bottom — which is fine for the three sessions you had
+	// yesterday and useless for the three hundred you have after a month.
 	if _, h := m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"}); !h || !m.resuming {
-		t.Errorf("picker should swallow other keys; handled=%v resuming=%v", h, m.resuming)
+		t.Errorf("picker should stay open while typing; handled=%v resuming=%v", h, m.resuming)
+	}
+	if m.resumeQuery != "x" {
+		t.Errorf("typing did not reach the filter: %q", m.resumeQuery)
 	}
 
-	// esc dismisses the picker.
+	// So esc has two jobs, nearest first: it clears the search, and only then closes the picker.
+	// Esc with something typed most likely means "not those" rather than "not this screen".
+	if _, h := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape}); !h || !m.resuming {
+		t.Errorf("esc with a search typed should clear it, not close; handled=%v resuming=%v", h, m.resuming)
+	}
+	if m.resumeQuery != "" {
+		t.Errorf("esc left the search as %q", m.resumeQuery)
+	}
 	if _, h := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape}); !h || m.resuming {
 		t.Errorf("esc should close the picker; handled=%v resuming=%v", h, m.resuming)
 	}

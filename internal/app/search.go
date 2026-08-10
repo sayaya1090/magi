@@ -66,21 +66,42 @@ type cachedTurns struct {
 	turns []turnDoc
 }
 
-// SearchSessions ranks past turns in this workspace against a query and answers in lines.
+// SessionHit is one session a search matched, with the turns that matched in it.
+type SessionHit struct {
+	Meta  session.SessionMeta
+	Score float64
+	// Turns is how many turns matched, which can be more than the snippets shown.
+	Turns    int
+	Snippets []TurnHit
+}
+
+// TurnHit is one matching turn: where it is, when it was, and what was asked.
+type TurnHit struct {
+	Seq    int64
+	At     time.Time
+	Prompt string
+}
+
+// Ref is the address the search prints and OpenTurn reads back.
+func (t TurnHit) Ref(sid session.SessionID) string { return fmt.Sprintf("%s#%d", sid, t.Seq) }
+
+// RankSessions ranks this workspace's past turns against a query and groups them by session.
 //
-// Lines rather than JSON, and grouped by session, because the reader is deciding which day to go
-// back to — that decision is made on when it was, what the session was called, and a few words of
-// the turn, not on a schema.
-func (a *App) SearchSessions(ctx context.Context, workdir, query string) (string, error) {
+// Structured, because three surfaces ask: the tool renders it as lines for a model, the terminal
+// draws it as a filter over the resume picker, and the console draws it as a list. A search
+// computed three times is three searches that will eventually disagree about what matched.
+func (a *App) RankSessions(ctx context.Context, workdir, query string) ([]SessionHit, error) {
 	if strings.TrimSpace(query) == "" {
-		return "Say what to look for.", nil
+		return nil, nil
 	}
 	metas, err := a.store.ListSessions(ctx, workdir)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var docs []turnDoc
+	metaOf := map[session.SessionID]session.SessionMeta{}
 	for _, m := range metas {
+		metaOf[m.ID] = m
 		turns, terr := a.turnsOf(ctx, m)
 		if terr != nil {
 			continue // one unreadable log should not take the search down with it
@@ -88,74 +109,88 @@ func (a *App) SearchSessions(ctx context.Context, workdir, query string) (string
 		docs = append(docs, turns...)
 	}
 	if len(docs) == 0 {
-		return "There is no earlier work in this workspace to search.", nil
+		return nil, nil
 	}
-
 	texts := make([]string, len(docs))
 	for i, d := range docs {
 		texts[i] = d.Text
 	}
-	hits := rank.ByIDF(query, texts)
-	if len(hits) == 0 {
-		// Named counts, so "nothing on this" can be told apart from "the search is broken".
-		return fmt.Sprintf("Nothing in %d turns across %d sessions mentions %q.",
-			len(docs), len(metas), query), nil
-	}
 
-	// Group by session, keeping each session's best rank and its best few turns.
-	type group struct {
-		meta  session.SessionMeta
-		best  float64
-		turns []turnDoc
-		total int
-	}
-	byID := map[session.SessionID]*group{}
-	metaOf := map[session.SessionID]session.SessionMeta{}
-	for _, m := range metas {
-		metaOf[m.ID] = m
-	}
-	var order []*group
-	for _, h := range hits {
+	byID := map[session.SessionID]*SessionHit{}
+	var order []*SessionHit
+	for _, h := range rank.ByIDF(query, texts) {
 		d := docs[h.Index]
 		g := byID[d.Session]
 		if g == nil {
-			g = &group{meta: metaOf[d.Session], best: h.Score}
+			g = &SessionHit{Meta: metaOf[d.Session], Score: h.Score}
 			byID[d.Session] = g
 			order = append(order, g)
 		}
-		g.total++
-		if len(g.turns) < snippetsPerSession {
-			g.turns = append(g.turns, d)
+		g.Turns++
+		if len(g.Snippets) < snippetsPerSession {
+			g.Snippets = append(g.Snippets, TurnHit{Seq: d.Seq, At: d.At, Prompt: d.Prompt})
 		}
 	}
-	// hits is already best-first and groups were appended in that order, so order is by best turn.
+	// hits arrive best-first and groups were appended in that order, so this is already sorted.
 	// Made explicit rather than relied on, because "it happens to come out sorted" is how a sort
 	// stops being true.
-	sort.SliceStable(order, func(i, j int) bool { return order[i].best > order[j].best })
+	sort.SliceStable(order, func(i, j int) bool { return order[i].Score > order[j].Score })
+
+	out := make([]SessionHit, 0, len(order))
+	for _, g := range order {
+		out = append(out, *g)
+	}
+	return out, nil
+}
+
+// SearchSessions is RankSessions, in lines.
+//
+// Lines rather than JSON, and grouped by session, because the reader is a model deciding which day
+// to go back to — that decision is made on when it was, what the session was called, and a few
+// words of the turn, not on a schema.
+func (a *App) SearchSessions(ctx context.Context, workdir, query string) (string, error) {
+	if strings.TrimSpace(query) == "" {
+		return "Say what to look for.", nil
+	}
+	hits, err := a.RankSessions(ctx, workdir, query)
+	if err != nil {
+		return "", err
+	}
+	metas, err := a.store.ListSessions(ctx, workdir)
+	if err != nil {
+		return "", err
+	}
+	if len(metas) == 0 {
+		return "There is no earlier work in this workspace to search.", nil
+	}
+	if len(hits) == 0 {
+		// Named counts, so "nothing on this" can be told apart from "the search is broken".
+		return fmt.Sprintf("Nothing in %d sessions mentions %q.", len(metas), query), nil
+	}
 
 	var b strings.Builder
-	shown := min(len(order), searchLimit)
+	shown := min(len(hits), searchLimit)
 	fmt.Fprintf(&b, "%q — %d of %d sessions, by wording, best first. "+
 		"Read one whole with open (the id after each turn).\n", query, shown, len(metas))
-	for i, g := range order {
+	for i, g := range hits {
 		if i == searchLimit {
-			fmt.Fprintf(&b, "\n(+%d more sessions — narrow the words)\n", len(order)-searchLimit)
+			fmt.Fprintf(&b, "\n(+%d more sessions — narrow the words)\n", len(hits)-searchLimit)
 			break
 		}
-		title := g.meta.Title
+		title := g.Meta.Title
 		if title == "" {
 			title = "(untitled)"
 		}
-		fmt.Fprintf(&b, "\n%s · %s · %s", g.meta.Created.Format("2006-01-02"), g.meta.ID, title)
-		if origin, ok := CronOriginName(g.meta.Origin); ok {
+		fmt.Fprintf(&b, "\n%s · %s · %s", g.Meta.Created.Format("2006-01-02"), g.Meta.ID, title)
+		if origin, ok := CronOriginName(g.Meta.Origin); ok {
 			// Worth saying: unattended work reads very differently from something a person asked for.
 			fmt.Fprintf(&b, " · scheduled (%s)", origin)
 		}
-		if g.total > len(g.turns) {
-			fmt.Fprintf(&b, " · %d matching turns", g.total)
+		if g.Turns > len(g.Snippets) {
+			fmt.Fprintf(&b, " · %d matching turns", g.Turns)
 		}
-		for _, d := range g.turns {
-			fmt.Fprintf(&b, "\n    %s#%d  %s", d.Session, d.Seq, clipLine(oneLine(d.Prompt), 100))
+		for _, t := range g.Snippets {
+			fmt.Fprintf(&b, "\n    %s  %s", t.Ref(g.Meta.ID), clipLine(oneLine(t.Prompt), 100))
 		}
 	}
 	b.WriteString("\n")
@@ -333,3 +368,19 @@ func buildTurns(sid session.SessionID, evs []event.Event) []turnDoc {
 // oneLine collapses a prompt's whitespace so a multi-line ask fits on a snippet row. The cutting
 // is clipLine's job (council_evidence.go), which is already the rune-safe one.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// SeedForTest writes one prompt and one reply into a session.
+//
+// Exported because the terminal's tests live in another package and need a session with something
+// in it to search. It builds the same two events the real path builds — a user prompt and an
+// assistant part — rather than a shape invented for testing, so a test that passes here is a test
+// about the thing that runs.
+func (a *App) SeedForTest(ctx context.Context, sid session.SessionID, prompt, reply string) error {
+	actor := event.Actor{Kind: event.ActorUser, ID: "test"}
+	if err := a.appendPromptText(ctx, sid, actor, prompt); err != nil {
+		return err
+	}
+	a.appendPart(ctx, sid, event.Actor{Kind: event.ActorAgent, ID: "test"}, "m_"+newID(),
+		session.RoleAssistant, session.Part{Kind: session.PartText, Text: reply})
+	return nil
+}

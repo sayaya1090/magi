@@ -40,6 +40,8 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		"Fork": true, "RunShell": true, "SetTodos": true,
 		// Reading the schedule is reading a file both processes can see.
 		"ScheduledJobs": true,
+		// Searching past sessions reads the same append-only logs, and reads them the same way.
+		"RankSessions": true,
 	}
 	// hybrid: done HERE, and then the daemon is told.
 	//
