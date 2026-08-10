@@ -627,3 +627,41 @@ func TestAContinueVoteReadsAsTheRejectionItIs(t *testing.T) {
 		t.Errorf("an approval reads as %q", ok)
 	}
 }
+
+// The call at the end with no result is the one running now.
+//
+// Ok is nil for a call that is in flight and also for one whose result never came — an interrupted
+// turn, a compaction that took the result away. Only the trailing one is marked, because a
+// heartbeat on a call that stopped hours ago is a lie about what the machine is doing.
+func TestOnlyTheTrailingUnfinishedCallIsMarkedRunning(t *testing.T) {
+	call := func(id string) session.Part {
+		return session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: id, Name: "bash"}}
+	}
+	result := func(id string) session.Part {
+		return session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: id, Content: json.RawMessage(`"ok"`)}}
+	}
+	// One finished call, then one still open.
+	rows := markPending(renderMessages([]session.Message{{
+		Role: session.RoleAssistant, Parts: []session.Part{call("a"), result("a"), call("b")},
+	}}))
+	if len(rows) != 2 {
+		t.Fatalf("drew %d rows, want 2 (each call is one row)", len(rows))
+	}
+	if rows[0].Pending {
+		t.Error("a finished call is marked as running")
+	}
+	if !rows[1].Pending {
+		t.Error("the open call at the end is not marked as running")
+	}
+
+	// An open call with something after it is over, however it ended.
+	stranded := markPending(renderMessages([]session.Message{
+		{Role: session.RoleAssistant, Parts: []session.Part{call("a")}},
+		{Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartText, Text: "moving on"}}},
+	}))
+	for _, r := range stranded {
+		if r.Pending {
+			t.Errorf("a call with work after it is still marked running: %+v", stranded)
+		}
+	}
+}

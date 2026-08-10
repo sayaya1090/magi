@@ -411,6 +411,9 @@ const demoScript = `
         // other case — and a failed call opens by itself, which is the behaviour to be able to see.
         {who: 'tool', tool: 'bash', args: 'go test ./cmd/magi-web/', ok: false,
          out: '--- FAIL: TestTheEmptyStateNamesItsTokens\n    page_test.go:88: no token named for the board'},
+        // Left open, with no ok: the call running right now. The bar under it is the only place
+        // this page says WHICH call it is waiting on.
+        {who: 'tool', tool: 'write', args: 'path: docs/UI.md', pending: true},
         {who: 'assistant', text: 'Three of them, and none says what would be there.\n\n' +
           '| where | today | should be |\n|---|---|---|\n' +
           '| fleet | *Nothing learned yet.* | surface-container-low |\n' +

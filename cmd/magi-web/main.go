@@ -880,12 +880,19 @@ func claimed(msgs []session.Message, callID string) bool {
 // terminal knows because it watched them happen; they are not recoverable from the transcript
 // alone, and a page claiming them from a guess would be worse than a page saying less.
 func markPending(rows []line) []line {
-	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].Who != "user" {
-			return rows // something came after the last prompt: it has been answered
-		}
-		rows[i].Pending = true
+	if len(rows) == 0 {
 		return rows
+	}
+	last := &rows[len(rows)-1]
+	switch {
+	case last.Who == "user":
+		last.Pending = true
+	// A tool call at the very end with no result yet is the call running right now. Only at the
+	// end: Ok is also nil for a call whose result never came — an interrupted turn, or a
+	// compaction that took the result — and a spinner on one of those would be claiming work that
+	// stopped hours ago. If anything follows it, it is over however it ended.
+	case last.Who == "tool" && last.Ok == nil:
+		last.Pending = true
 	}
 	return rows
 }

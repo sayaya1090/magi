@@ -1519,6 +1519,9 @@ const indexHTML = `<!doctype html>
   .fold > summary:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
   .foldbody { padding-left:1em; }
   .foldbody > pre { margin-top:var(--magi-sys-space-50); }
+  /* Under the call it belongs to, spanning it — where the guide puts a bar for the container that
+     is progressing. Thin, because it is a heartbeat and not a measurement. */
+  .runbar { display:block; margin-top:var(--magi-sys-space-100); --md-linear-progress-track-height:2px; --md-linear-progress-active-indicator-height:2px; }
 
   /* A user turn is the anchor you scan for: set as a lead, with the rule an editorial layout uses
      for a pull quote. */
@@ -4581,6 +4584,18 @@ function rowNode(r) {
       md(body, r.text);
     }
     det.append(body);
+    // The call that is running, said on the call itself. Indeterminate because there is no
+    // denominator — a tool does not report how far through it is — and that is honest here in a
+    // way a page-level bar would not be: this one names WHICH call, which is a fact the page has
+    // and was not showing. It is only ever on the last row (see markPending), so nothing spins for
+    // a call that ended without a result.
+    if (r.pending) {
+      const bar = document.createElement('md-linear-progress');
+      bar.indeterminate = true;
+      bar.className = 'runbar';
+      bar.setAttribute('aria-label', tr('row.working'));
+      det.append(bar);
+    }
     d.append(w, det);
     return d;
   }
