@@ -17,6 +17,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/cluster"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -653,4 +654,156 @@ func TestAFinishedTurnCarriesNoLiveNote(t *testing.T) {
 	if a.Doing != "" {
 		t.Errorf("an idle agent is reported as being inside %q", a.Doing)
 	}
+}
+
+// A companion on another machine appears, and is not described as anything it was not observed to be.
+//
+// The dangerous version of this row is the one that falls through to "stopped": nothing here dialled
+// anything, so "nobody is listening" is a claim about a machine this process cannot see — and every
+// surface that greys out a stopped agent would grey out the whole rest of the cluster.
+func TestACompanionOnAnotherMachineIsListedAsBeingElsewhere(t *testing.T) {
+	f := newFleetFixture(t)
+	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far/away.sock", Name: "design",
+		Role: "screens", Seen: time.Now()})
+
+	got := f.byName("design")
+	if got.State != fleet.Remote {
+		t.Fatalf("a companion on buildbox reads as %q", got.State)
+	}
+	if got.Host != "buildbox" {
+		t.Errorf("the machine it is on was lost: %q", got.Host)
+	}
+	if got.Task != "" || got.Steps != 0 || got.Session != "" {
+		t.Errorf("a row was filled in with things nothing here could know: %+v", got)
+	}
+}
+
+// Recently seen means it can be offered work; a while ago means it is shown and not offered.
+func TestASightingIsWhatMakesARemoteCompanionCountAsThere(t *testing.T) {
+	f := newFleetFixture(t)
+	f.knowOf(
+		cluster.Member{Host: "buildbox", Socket: "/a.sock", Name: "fresh", Seen: time.Now()},
+		cluster.Member{Host: "buildbox", Socket: "/b.sock", Name: "quiet",
+			Seen: time.Now().Add(-30 * time.Minute)},
+	)
+	if !f.byName("fresh").Live {
+		t.Error("a companion seen a moment ago is not counted as there")
+	}
+	if f.byName("quiet").Live {
+		t.Error("a companion nobody has seen for half an hour is counted as there")
+	}
+	if f.byName("quiet").State != fleet.Remote {
+		t.Error("a quiet remote companion stopped being listed as remote")
+	}
+}
+
+// Work is handed over a socket path on THIS filesystem, so the roster must not offer a companion
+// that is not on it.
+//
+// Two machines belonging to one person keep their checkouts in the same places, so a remote
+// companion's socket path frequently exists here too — belonging to somebody else. A roster that
+// offered it would be advertising a name that resolves to the wrong workspace.
+func TestTheRosterDoesNotOfferCompanionsOnOtherMachines(t *testing.T) {
+	f := newFleetFixture(t)
+	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far/away.sock", Name: "design", Seen: time.Now()})
+	if lines := fleet.RosterLines(f.get(), ""); strings.Contains(lines, "design") {
+		t.Fatalf("the roster offers a companion on another machine:\n%s", lines)
+	}
+}
+
+// The hub is worked out, not read off what somebody declared once.
+//
+// The declared hub going down used to take the team's addressability with it: every reader went on
+// looking for a companion that was not there. Now the team keeps a speaker.
+func TestATeamWhoseDeclaredHubIsGoneElectsAnother(t *testing.T) {
+	f := newFleetFixture(t)
+	f.teamDaemon("lead", "s_lead", "core", true, false) // declared, and not running
+	f.teamDaemon("second", "s_second", "core", false, true)
+
+	if f.byName("lead").Hub {
+		t.Error("a companion that is not running is still being called the hub")
+	}
+	if !f.byName("second").Hub {
+		t.Fatalf("the team lost its speaker when the declared one went down")
+	}
+}
+
+// A declaration is a preference, and two of them are two candidates rather than a conflict.
+func TestTwoDeclaredHubsStillLeaveExactlyOne(t *testing.T) {
+	f := newFleetFixture(t)
+	f.teamDaemon("one", "s_one", "core", true, true)
+	f.teamDaemon("two", "s_two", "core", true, true)
+
+	hubs := 0
+	for _, a := range f.get() {
+		if a.Hub {
+			hubs++
+		}
+	}
+	if hubs != 1 {
+		t.Fatalf("two companions declaring hub produced %d of them", hubs)
+	}
+}
+
+// A team whose companions have all stopped has no speaker, and none of them goes on claiming it.
+func TestATeamThatIsAllStoppedHasNoHub(t *testing.T) {
+	f := newFleetFixture(t)
+	f.teamDaemon("one", "s_one", "core", true, false)
+	f.teamDaemon("two", "s_two", "core", false, false)
+
+	for _, a := range f.get() {
+		if a.Hub {
+			t.Fatalf("%s answers for a team in which nothing is running", a.Name)
+		}
+	}
+}
+
+// knowOf writes the sightings this machine has been told about, the way an exchange would.
+func (f *fleetFixture) knowOf(ms ...cluster.Member) {
+	f.t.Helper()
+	if _, err := daemon.LearnMembers(f.cfgDir, ms, time.Now()); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// teamDaemon publishes a companion that belongs to a team, optionally declaring it speaks for it.
+func (f *fleetFixture) teamDaemon(name, sid, team string, hub, live bool) {
+	f.t.Helper()
+	wd := filepath.Join(f.t.TempDir(), name)
+	sock := filepath.Join(f.cfgDir, "daemon-"+sid+".sock")
+	if live {
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		f.t.Cleanup(func() { ln.Close() })
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				c.Close()
+			}
+		}()
+	} else if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	unpublish, err := daemon.Publish(sock, wd, sid, daemon.Identity{Name: name, Team: team, Hub: hub})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Cleanup(unpublish)
+	f.session(sid, wd, "something", 0, true)
+}
+
+func (f *fleetFixture) byName(name string) fleet.Agent {
+	f.t.Helper()
+	for _, a := range f.get() {
+		if a.Name == name {
+			return a
+		}
+	}
+	f.t.Fatalf("no companion called %q in the listing", name)
+	return fleet.Agent{}
 }

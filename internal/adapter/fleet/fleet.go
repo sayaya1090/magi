@@ -17,6 +17,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/cluster"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 
@@ -112,6 +113,16 @@ const (
 	Abandoned State = "abandoned"
 	// Stopped: nobody is listening and the last turn finished.
 	Stopped State = "stopped"
+	// Remote: on another machine, known from a sighting somebody passed along.
+	//
+	// Its own state cannot be read from here — the socket is a path on their filesystem and the
+	// log is a directory on their disk — so this is not one of the four dressed up as a guess. It
+	// is the honest fifth thing: it exists, this is when it was last seen, and that is all.
+	//
+	// A separate state rather than reusing Stopped, which is what it would have fallen through to.
+	// "Stopped" asserts nobody is listening, which nothing here established, and the surfaces that
+	// grey out a stopped agent would have greyed out every companion on every other machine.
+	Remote State = "remote"
 )
 
 // Four of the five come from the log and the socket, which outlive the process that made them, so a
@@ -232,7 +243,70 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		}
 		out = append(out, a)
 	}
+	now := time.Now()
+	out = append(out, elsewhere(configDir, now)...)
+	electHubs(out, daemon.Known(configDir, now), now)
 	return out, nil
+}
+
+// elsewhere turns the companions on other machines into rows.
+//
+// Everything a local row gets from a log or a dial is absent here and stays absent: no task, no
+// step count, no plan, no last thing said. All of those live on their machine. Inventing any of
+// them — "idle", "0 steps" — would put a claim on the screen that nothing established, and the
+// reader has no way to tell it from a claim that was.
+func elsewhere(configDir string, now time.Time) []Agent {
+	ms := daemon.Elsewhere(configDir, now)
+	out := make([]Agent, 0, len(ms))
+	for _, m := range ms {
+		name := m.Name
+		if name == "" {
+			name = filepath.Base(m.Workdir)
+		}
+		out = append(out, Agent{
+			Socket: m.Socket, Workdir: m.Workdir, Name: name,
+			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
+			// Live is "believed reachable", and for a companion on another machine the evidence
+			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
+			// anything acting on this has to look at State too, and Remote is not a state anything
+			// treats as ordinary.
+			Live:  m.Fresh(now),
+			State: Remote,
+			Idle:  int(now.Sub(m.Seen).Seconds()),
+		})
+	}
+	return out
+}
+
+// electHubs replaces what each companion DECLARED about being a hub with who actually answers for
+// its team right now.
+//
+// Read from config, Hub was a claim that outlived the process making it: the declared hub goes
+// down and its team stops being addressable, because every reader is still looking for a companion
+// that is not there. Computed, the team keeps a speaker — and the moment the declared one is seen
+// again it takes the role back, because nothing was stored to un-store.
+//
+// Over the whole cluster and not just this machine, which is the point of having one: a team split
+// across two hosts has one hub between them, not one each.
+func electHubs(rows []Agent, members []cluster.Member, now time.Time) {
+	teams := map[string]bool{}
+	for _, a := range rows {
+		if a.Team != "" {
+			teams[strings.ToLower(a.Team)] = true
+		}
+	}
+	for team := range teams {
+		who, _, ok := cluster.Speaker(members, team, now)
+		for i := range rows {
+			if !strings.EqualFold(rows[i].Team, team) {
+				continue
+			}
+			// A team whose members have all gone quiet elects nobody, and every one of them stops
+			// claiming the role. Leaving the declaration standing would be the old failure with an
+			// election bolted on: a hub that is not there, still being addressed.
+			rows[i].Hub = ok && rows[i].Host == who.Host && rows[i].Socket == who.Socket
+		}
+	}
 }
 
 // Resolve finds the companions an address names: an exact name, or a role that contains it.
@@ -268,10 +342,11 @@ func Resolve(list []Agent, to string) []Agent {
 	if len(byName) > 0 {
 		return byName
 	}
-	// A team name reaches its hub, if it has one. The hub is the companion that answers for the
-	// rest, so addressing the team is addressing it — and a team with no hub resolves to all its
-	// members, which the caller then has to choose between. That refusal is the honest answer: a
-	// group nobody speaks for is not addressable as a group.
+	// A team name reaches its hub. Which one that is has been ELECTED by the time this runs (see
+	// electHubs), so a team with living members always has exactly one — a team stops being
+	// addressable because everybody in it stopped, never because nobody typed a word in a config
+	// file. When that does happen the members come back for the caller to choose between, and that
+	// refusal is the honest answer: there is nobody to hand it to.
 	if len(byTeam) > 0 {
 		var hubs []Agent
 		for _, a := range byTeam {
@@ -299,10 +374,15 @@ func Resolve(list []Agent, to string) []Agent {
 //
 // here is this companion's own socket, and it is left OUT: a list that offers you yourself is an
 // invitation to a refusal. A companion that is not running is left out for the same reason.
+//
+// So is one on another machine, for now. Work is handed over by dialling a unix socket, which is a
+// path on the filesystem it names — there is no transport across machines yet, and a roster that
+// offered one would be advertising what the tool then refuses. When the way over exists this line
+// goes; until then the cluster is something the listings show and hand_off cannot use.
 func RosterLines(list []Agent, here string) string {
 	out := make([]string, 0, len(list))
 	for _, a := range list {
-		if a.Name == "" || !a.Live || (here != "" && a.Socket == here) {
+		if a.Name == "" || !a.Live || a.State == Remote || (here != "" && a.Socket == here) {
 			continue
 		}
 		line := "  " + a.Name

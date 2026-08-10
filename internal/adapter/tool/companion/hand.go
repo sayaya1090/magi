@@ -159,6 +159,14 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 			"say who should do the rest", orNone(h.Team), target.Name)), nil
 	case target.Here:
 		return errText("that is you. Do it yourself, or name somebody else"), nil
+	case target.State == fleet.Remote:
+		// Refused BEFORE the dial, and this is not caution. A socket is a path, and two machines
+		// belonging to one person keep their checkouts in the same places — so dialling a remote
+		// companion's socket path here does not fail, it opens whichever local companion happens
+		// to sit at that path. The work would arrive, in the wrong workspace, looking delivered.
+		return errText(fmt.Sprintf("%s is on %s, another machine. Work is handed over a socket on "+
+			"this filesystem and there is no way across yet, so this cannot be sent. Name somebody "+
+			"here, or do it yourself", target.Name, target.Host)), nil
 	case !target.Live:
 		return errText(fmt.Sprintf("%s is not running, so there is nothing to hand the work to",
 			target.Name)), nil

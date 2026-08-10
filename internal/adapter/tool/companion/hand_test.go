@@ -116,6 +116,26 @@ func (tm *team) memberOf(sid, name, role string, id daemon.Identity, eng daemon.
 	return sock
 }
 
+// stoppedMemberOf publishes a companion with nothing listening on its socket — what a daemon that
+// has been killed leaves behind, and the state a listing reads as stopped.
+func (tm *team) stoppedMemberOf(sid string, id daemon.Identity, _ daemon.Engine) string {
+	tm.t.Helper()
+	wd := shortDir(tm.t)
+	sock := tm.cfgDir + "/daemon-" + sid + ".sock"
+	unpublish, err := daemon.Publish(sock, wd, sid, id)
+	if err != nil {
+		tm.t.Fatal(err)
+	}
+	tm.t.Cleanup(unpublish)
+	tm.write(sid, wd, []event.Event{
+		tm.ev(event.TypeSessionCreated, event.SessionCreatedData{Workdir: wd}),
+		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m1",
+			Parts: []session.Part{{Kind: session.PartText, Text: "get set up"}}}),
+		tm.ev(event.TypeTurnFinished, event.TurnFinishedData{}),
+	})
+	return sock
+}
+
 // workdirOf is the workspace a member published, read back the way anything else would read it.
 func (tm *team) workdirOf(sock string) string {
 	tm.t.Helper()
@@ -532,22 +552,47 @@ func TestATeamNameReachesItsHub(t *testing.T) {
 	}
 }
 
-// A team nobody speaks for is not addressable as a group, and saying so beats picking a member.
-func TestATeamWithNoHubIsNotAddressableAsAGroup(t *testing.T) {
+// A team nobody DECLARED a hub for still has one, and it is the member that can do the most.
+//
+// This used to refuse, and the refusal was written before there was an election. It is the same
+// failure the election exists to remove — a group that cannot be addressed because of what somebody
+// did or did not type in a config file — and the answer is now the one MongoDB gives: always elect,
+// and let a declaration be a preference rather than the only way to have a speaker.
+//
+// The one that can do the most, because a hub that can do little forwards: the team lead is where
+// team-addressed work lands and the only companion allowed to split it up.
+func TestATeamWithNoDeclaredHubStillElectsOne(t *testing.T) {
+	tm := newTeam(t)
+	few, many := &heard{}, &heard{}
+	tm.memberOf("x", "one", "bits",
+		daemon.Identity{Name: "one", Role: "bits", Team: "loose", Can: 1}, few)
+	tm.memberOf("y", "two", "pieces",
+		daemon.Identity{Name: "two", Role: "pieces", Team: "loose", Can: 9}, many)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	if res := tm.ask(master, "master", "m", "loose", "something"); res.IsError {
+		t.Fatalf("a team with no declared hub answered %q", text(t, res))
+	}
+	if len(many.got()) != 1 || len(few.got()) != 0 {
+		t.Errorf("the elected speaker was not the one that can do the most: many=%v few=%v",
+			many.got(), few.got())
+	}
+}
+
+// A team whose companions have all stopped is not addressable, and saying so beats picking one.
+//
+// The election is over who is THERE. Nobody being there is not a tie to be broken — it is the
+// answer, and delivering to a dead companion's socket would be work that looks handed over.
+func TestATeamThatIsAllStoppedIsNotAddressableAsAGroup(t *testing.T) {
 	tm := newTeam(t)
 	a, b := &heard{}, &heard{}
-	tm.memberOf("x", "one", "bits", daemon.Identity{Name: "one", Role: "bits", Team: "loose"}, a)
-	tm.memberOf("y", "two", "pieces", daemon.Identity{Name: "two", Role: "pieces", Team: "loose"}, b)
+	tm.stoppedMemberOf("x", daemon.Identity{Name: "one", Role: "bits", Team: "loose"}, a)
+	tm.stoppedMemberOf("y", daemon.Identity{Name: "two", Role: "pieces", Team: "loose"}, b)
 	master := tm.member("m", "master", "coordinating", &heard{})
 
 	res := tm.ask(master, "master", "m", "loose", "something")
 	if !res.IsError {
-		t.Fatal("a team with no hub swallowed the work")
-	}
-	for _, want := range []string{"one", "two"} {
-		if !strings.Contains(text(t, res), want) {
-			t.Errorf("the refusal does not name %q: %q", want, text(t, res))
-		}
+		t.Fatal("a team of stopped companions swallowed the work")
 	}
 	if len(a.got())+len(b.got()) != 0 {
 		t.Error("it was sent anyway")
