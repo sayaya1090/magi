@@ -488,3 +488,65 @@ func TestEveryRowKindHasAStyle(t *testing.T) {
 		}
 	}
 }
+
+// The council goes back where it happened, not at the end.
+//
+// Appending is right until a session has a second turn, which is every session anybody keeps —
+// and then round one's votes appear after round two's work, saying the members approved something
+// they never saw. Each mark names the message it followed, so this is a splice.
+func TestTheCouncilIsSplicedWhereItVoted(t *testing.T) {
+	rows := []line{
+		{Who: "user", Text: "first ask", msg: "m1"},
+		{Who: "assistant", Text: "first answer", msg: "m2"},
+		{Who: "user", Text: "second ask", msg: "m3"},
+		{Who: "assistant", Text: "second answer", msg: "m4"},
+	}
+	marks := []app.CouncilMark{
+		{After: "m2", Round: 1, Member: "Melchior", Decision: "done"},
+		{After: "m2", Round: 1, Decision: "done", Tally: "3 done, 0 continue of 3"},
+		{After: "m4", Round: 1, Member: "Casper", Decision: "continue"},
+	}
+	got := spliceCouncil(rows, marks)
+
+	var order []string
+	for _, r := range got {
+		order = append(order, r.Who+":"+strings.SplitN(r.Text, "\n", 2)[0])
+	}
+	want := []string{
+		"user:first ask", "assistant:first answer",
+		"council:Melchior: done", "council:the council says done — 3 done, 0 continue of 3",
+		"user:second ask", "assistant:second answer",
+		"council:Casper: continue",
+	}
+	if strings.Join(order, " | ") != strings.Join(want, " | ") {
+		t.Errorf("spliced as:\n  %s\nwant:\n  %s", strings.Join(order, "\n  "), strings.Join(want, "\n  "))
+	}
+}
+
+// A mark whose anchor is not in the transcript still shows. A compaction can drop the message a
+// vote followed, and a vote that silently vanishes is the state this whole change exists to end.
+func TestACouncilMarkWithNoAnchorStillShows(t *testing.T) {
+	rows := []line{{Who: "user", Text: "ask", msg: "m1"}}
+	got := spliceCouncil(rows, []app.CouncilMark{{After: "gone", Round: 1, Member: "Balthasar", Decision: "abstain"}})
+	if len(got) != 2 || got[1].Who != "council" {
+		t.Fatalf("the orphaned vote was dropped: %+v", got)
+	}
+}
+
+// A "done" that cited nothing says so. An empty citation on an approval is the thing somebody
+// auditing a run most needs to see, and an absent line is not a statement.
+func TestADoneVoteSaysWhenItCitedNothing(t *testing.T) {
+	with := councilText(app.CouncilMark{Member: "Melchior", Decision: "done", Cite: "the build passed"})
+	if !strings.Contains(with, "rests on: the build passed") {
+		t.Errorf("a citation is not shown: %q", with)
+	}
+	without := councilText(app.CouncilMark{Member: "Melchior", Decision: "done"})
+	if !strings.Contains(without, "nothing cited") {
+		t.Errorf("an approval resting on nothing does not say so: %q", without)
+	}
+	// A "continue" carries no such claim, so it is not annotated either way.
+	cont := councilText(app.CouncilMark{Member: "Casper", Decision: "continue"})
+	if strings.Contains(cont, "rests on") {
+		t.Errorf("a continue was annotated with a citation line: %q", cont)
+	}
+}

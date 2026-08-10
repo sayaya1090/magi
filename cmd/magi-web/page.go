@@ -1552,6 +1552,10 @@ const indexHTML = `<!doctype html>
      log, and the transcript is the least trustworthy source of a filename on this machine — that
      is its own decision, not one to make by adding an img tag here. */
   .row.image .txt { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  /* The council, in the transcript rather than beside it. It votes on whether a turn is finished,
+     so it belongs where the turn it judged is — the terminal has always put it there. */
+  .row.council .who { color:var(--magi-ref-secondary); }
+  .row.council .fold > summary { color:var(--magi-ref-secondary); font-weight:600; }
 
   /* ── the prompt an agent is blocked on, on that agent's own page ─────────── */
   /* Without this, opening an agent is the one place you CANNOT see that it is waiting for you: the
@@ -4334,11 +4338,15 @@ function md(node, text) {
 // had a transcript, and the page had neither: a thousand-line tool result sat open between two
 // sentences, and reading a conversation meant scrolling past the machinery of it. What is in them
 // is the evidence for everything else on the page, so it stays one press away and never further.
-const foldedKinds = { thinking: true, tool: true, result: true, failed: true };
+const foldedKinds = { thinking: true, tool: true, result: true, failed: true, council: true };
 
 // summaryFor is the one line a folded row shows. It has to say enough to decide whether to open it.
 function summaryFor(r) {
   if (r.who === 'tool') return r.tool ? r.tool + (r.args ? ' ' + oneLine(r.args, 80) : '') : oneLine(r.text, 90);
+  // A council row's summary is its first line: the vote, or the outcome and the tally. What is
+  // behind it is the reasoning and what the vote rested on — the same split the terminal makes,
+  // where one line per member sits in the transcript and a press opens the whole thing.
+  if (r.who === 'council') return String(r.text || '').split('\n')[0];
   // The label is a different word from the kind on purpose. 'thinking' is what the server calls
   // this row; the word a person reads is a translated label, and spelling them the same is how one
   // of them ends up hard-coded in English on every other locale.
@@ -4368,6 +4376,9 @@ function rowNode(r) {
     // preformatted text rather than run through markdown that would eat their brackets.
     if (r.who === 'tool' || r.who === 'result' || r.who === 'failed') {
       body.append(el('pre', r.args !== undefined && r.args !== '' ? r.args : r.text));
+    } else if (r.who === 'council') {
+      // Everything after the summary line, which the summary already showed.
+      md(body, String(r.text || '').split('\n').slice(1).join('\n').trim());
     } else {
       md(body, r.text);
     }

@@ -31,6 +31,10 @@ type Reader interface {
 	PlanOf(ctx context.Context, sid session.SessionID) ([]session.Todo, error)
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
 	ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error)
+	// CouncilMarks is what the council said, anchored to the messages it said it after. A read of
+	// the same log, for a surface that assembles its transcript from messages and would otherwise
+	// have no way to learn that a vote happened at all.
+	CouncilMarks(ctx context.Context, sid session.SessionID) ([]app.CouncilMark, error)
 	NewSince(ctx context.Context, sid session.SessionID, seq int64) (int64, bool, error)
 }
 

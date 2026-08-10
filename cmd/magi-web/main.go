@@ -726,7 +726,14 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			b, _ := json.Marshal(renderMessages(msgs))
+			rows := renderMessages(msgs)
+			// The council, put back where it happened. Its marks name the message they followed,
+			// so this is a splice and not a guess about ordering — and a mark whose anchor is not
+			// in the transcript (a compaction dropped it) goes at the end rather than nowhere.
+			if marks, cerr := s.reader.CouncilMarks(r.Context(), sid); cerr == nil {
+				rows = spliceCouncil(rows, marks)
+			}
+			b, _ := json.Marshal(rows)
 			// One SSE frame, one whole transcript. A diff protocol would be smaller and would also
 			// be a second thing that can drift from the log; at these sizes it is not worth it.
 			fmt.Fprintf(w, "data: %s\n\n", b)
@@ -749,6 +756,12 @@ type line struct {
 	Text string `json:"text"`
 	Tool string `json:"tool,omitempty"`
 	Args string `json:"args,omitempty"`
+	// Round and Tally belong to a council row: which round it was, and how the round came out.
+	Round int    `json:"round,omitempty"`
+	Tally string `json:"tally,omitempty"`
+	// msg is the message this row came out of, and never crosses the wire. It is how council marks
+	// find the place they belong: they carry the same id, out of the same log.
+	msg string `json:"-"`
 }
 
 // renderMessages flattens the session into rows. Tool calls keep their arguments: what a tool was
@@ -761,11 +774,11 @@ func renderMessages(msgs []session.Message) []line {
 			switch p.Kind {
 			case session.PartText:
 				if t := strings.TrimSpace(p.Text); t != "" {
-					out = append(out, line{Who: string(m.Role), Text: t})
+					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID})
 				}
 			case session.PartReasoning:
 				if t := strings.TrimSpace(p.Text); t != "" {
-					out = append(out, line{Who: "thinking", Text: t})
+					out = append(out, line{Who: "thinking", Text: t, msg: m.ID})
 				}
 			case session.PartToolCall:
 				if p.ToolCall != nil {
@@ -774,7 +787,7 @@ func renderMessages(msgs []session.Message) []line {
 					// folds now, and what a tool was asked is most of what a watcher wants when
 					// they open it.
 					out = append(out, line{Who: "tool", Text: p.ToolCall.Name,
-						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args)})
+						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args), msg: m.ID})
 				}
 			case session.PartToolResult:
 				if p.ToolResult != nil {
@@ -786,23 +799,94 @@ func renderMessages(msgs []session.Message) []line {
 					// log, and the transcript is rebuilt and re-sent on every change — this bound
 					// is about what crosses the wire two and a half times a second, not about what
 					// fits on the screen.
-					out = append(out, line{Who: who, Text: fleet.Clip(string(p.ToolResult.Content), 8000)})
+					out = append(out, line{Who: who, Text: fleet.Clip(string(p.ToolResult.Content), 8000), msg: m.ID})
 				}
 			// The two that were being dropped on the floor. A part kind this switch does not name
 			// is not an empty row — it is a row that never existed, with nothing anywhere saying
 			// so. An image and an error both reached the log and neither reached the page.
 			case session.PartImage:
 				if p.Image != nil {
-					out = append(out, line{Who: "image", Text: p.Image.Path})
+					out = append(out, line{Who: "image", Text: p.Image.Path, msg: m.ID})
 				}
 			case session.PartError:
 				if t := strings.TrimSpace(p.Err); t != "" {
-					out = append(out, line{Who: "error", Text: t})
+					out = append(out, line{Who: "error", Text: t, msg: m.ID})
 				}
 			}
 		}
 	}
 	return out
+}
+
+// spliceCouncil puts each council mark after the last row of the message it followed.
+//
+// Anchored rather than appended. Appending is right until a session has a second turn, which is
+// every session anybody keeps — and then round one's votes appear after round two's work, saying
+// the members approved something they never saw.
+func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
+	if len(marks) == 0 {
+		return rows
+	}
+	// Where each message's rows end, so several marks on one message keep their own order.
+	after := map[string]int{}
+	for i, r := range rows {
+		if r.msg != "" {
+			after[r.msg] = i
+		}
+	}
+	pending := map[int][]line{}
+	var orphans []line
+	for _, m := range marks {
+		row := line{Who: "council", Text: councilText(m), Round: m.Round, Tally: m.Tally}
+		at, ok := after[m.After]
+		if !ok {
+			orphans = append(orphans, row)
+			continue
+		}
+		pending[at] = append(pending[at], row)
+	}
+	out := make([]line, 0, len(rows)+len(marks))
+	for i, r := range rows {
+		out = append(out, r)
+		out = append(out, pending[i]...)
+	}
+	return append(out, orphans...)
+}
+
+// councilText is what a council row says: the vote, then the reasoning behind it.
+//
+// One string rather than fields, because the page folds it the same way it folds reasoning — a
+// summary line and the rest behind it — and the summary is the first line of this.
+func councilText(m app.CouncilMark) string {
+	if m.IsOutcome() {
+		head := "the council says " + m.Decision
+		if m.Tally != "" {
+			head += " — " + m.Tally
+		}
+		if m.Why != "" {
+			return head + "\n\n" + m.Why
+		}
+		return head
+	}
+	head := m.Member + ": " + m.Decision
+	if m.Lens != "" {
+		head += " (" + m.Lens + ")"
+	}
+	var body []string
+	if m.Why != "" {
+		body = append(body, m.Why)
+	}
+	// The fragment a vote rests on, named. An empty one on a "done" is itself worth seeing, which
+	// is why the absence is written out rather than left as a missing line.
+	if m.Cite != "" {
+		body = append(body, "rests on: "+m.Cite)
+	} else if m.Decision == "done" {
+		body = append(body, "rests on: nothing cited")
+	}
+	if len(body) == 0 {
+		return head
+	}
+	return head + "\n\n" + strings.Join(body, "\n\n")
 }
 
 func (s *server) submit(w http.ResponseWriter, r *http.Request) {
