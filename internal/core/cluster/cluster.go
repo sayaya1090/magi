@@ -64,6 +64,14 @@ const (
 	Forget = time.Hour
 )
 
+// MaxDoes bounds how many capability names travel with one member.
+//
+// A member list is exchanged by every daemon every minute and it grows with the cluster, so
+// anything per-member is paid N times by N machines. Twelve names is enough for a roster line to
+// be worth reading and small enough that a workspace with two hundred skills cannot make the
+// exchange expensive for everybody else.
+const MaxDoes = 12
+
 // Member is one companion somebody has seen.
 type Member struct {
 	// Host is the machine it runs on, and Socket is the path it answers on THERE. The pair is the
@@ -82,6 +90,18 @@ type Member struct {
 	// Can is how many things it advertises being able to do: its written procedures plus the tool
 	// servers it can reach. A crude number, and it is used for exactly one thing — see Speaker.
 	Can int `json:"can,omitempty"`
+	// Does NAMES those things, up to MaxDoes of them. Not descriptions: a name is enough to pick a
+	// companion out of a roster, and what each one actually means is fetched from the machine that
+	// has it when somebody wants to know (`magi --about`).
+	//
+	// The same split the whole package keeps — what a companion can be ASKED to do travels, and
+	// everything heavier stays where it is. Descriptions on the wire would be a hundred bytes per
+	// skill per member on every exchange, every minute, to fill a roster line that shows names.
+	//
+	// A SAMPLE when there are more than MaxDoes, which is why Can is carried separately rather
+	// than being len(Does). Both are worked out in one place at one moment, so they cannot come to
+	// disagree about a workspace.
+	Does []string `json:"does,omitempty"`
 	// Seen is when somebody last had it answer. Not when this entry was written: an entry copied
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.
@@ -156,6 +176,12 @@ func fillFrom(keep, other Member) Member {
 	}
 	if keep.Workdir == "" {
 		keep.Workdir = other.Workdir
+	}
+	// Capabilities are borrowed as a pair or not at all. The names from one sighting and the count
+	// from another would give a member advertising three things out of nine when nobody ever saw
+	// it that way.
+	if len(keep.Does) == 0 && keep.Can == 0 {
+		keep.Does, keep.Can = other.Does, other.Can
 	}
 	// Hub is a declaration, and a companion that has stopped declaring it has stopped being one.
 	// Only borrowed onto an entry that carries no identity at all, which is what a bare sighting

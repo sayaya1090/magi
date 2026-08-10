@@ -63,7 +63,8 @@ func Mine(configDir string, now time.Time) []cluster.Member {
 		}
 		m := cluster.Member{
 			Host: host, Socket: in.Socket, Name: in.Name, Role: in.Role,
-			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Can: in.Can, Seen: now,
+			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir,
+			Can: in.Can, Does: in.Does, Seen: now,
 		}
 		out = append(out, m)
 	}

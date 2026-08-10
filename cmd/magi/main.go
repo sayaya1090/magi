@@ -266,6 +266,8 @@ func run() int {
 			"take work handed to a companion here from another machine; reads the request as JSON on stdin")
 		handState = flag.Bool("handoff-state", false,
 			"say what became of work handed here: whether its turn finished, and what was said")
+		aboutWho = flag.String("about", "",
+			"describe a companion published here — what it is for and what it can be asked to do")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -475,12 +477,16 @@ func run() int {
 	// Work arriving from another machine, and questions about work that arrived earlier. A reader
 	// over the same store every other listing reads: these two answer about companions running
 	// here, and start nothing of their own.
-	if *takeHand || *handState {
+	if *takeHand || *handState || *aboutWho != "" {
 		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-		if *takeHand {
+		switch {
+		case *takeHand:
 			return handHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
+		case *handState:
+			return handoffStateHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
 		}
-		return handoffStateHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
+		return aboutHere(os.Stdin, os.Stdout, os.Stderr, reader, reader.Skills, reachableServers,
+			plat.ConfigDir(), *aboutWho)
 	}
 
 	if *mcpTo != "" {
@@ -803,6 +809,14 @@ func run() int {
 		Machine:   daemon.Host(),
 		Cross:     sshCross,
 	})
+	reg.Register(companion.About{
+		Reader:    func() fleet.Reader { return a },
+		ConfigDir: plat.ConfigDir(),
+		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
+		Cache:     companionCache,
+		Ask: describeCompanion(app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{}),
+			func(w string) []port.Skill { return a.Skills(w) }, reachableServers, plat.ConfigDir()),
+	})
 	dangerTools := app.DefaultDangerTools()
 
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
@@ -1012,9 +1026,10 @@ func run() int {
 	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
+		howMany, whatOf := countCan(store, wd)
 		unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
 			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role,
-				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Can: countCan(store, wd)})
+				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Can: howMany, Does: whatOf})
 		if perr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", perr)
 			return 1

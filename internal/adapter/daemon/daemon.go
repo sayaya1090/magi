@@ -853,9 +853,11 @@ type Info struct {
 	// the companion is next restarted, and that is the right trade: the number decides a tie in a
 	// hub election, and an election every companion has to agree on is better served by a value
 	// that changes on the scale of days than by one that changes while they are comparing it.
-	Can     int    `json:"can,omitempty"`
-	PID     int    `json:"pid"`
-	Started string `json:"started"` // RFC3339
+	Can int `json:"can,omitempty"`
+	// Does names them, capped. See cluster.Member.Does: names travel, descriptions are fetched.
+	Does    []string `json:"does,omitempty"`
+	PID     int      `json:"pid"`
+	Started string   `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
 	// machine, so on a laptop they are the same for every entry and read as noise — until you are
 	// looking at three browser tabs forwarded from three hosts over ssh, which is the arrangement
@@ -883,7 +885,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	host, _ := os.Hostname()
 	b, err := json.Marshal(Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
-		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can,
+		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
 		Host: host, Addr: primaryAddr(),
 	})
@@ -903,11 +905,12 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 // workspace keeps its config, and a second config reader is a second place for the two to disagree
 // about which file wins.
 type Identity struct {
-	Name string // "design", "api" — how somebody addresses it
-	Role string // one line: what it is for, in the words of whoever set it up
-	Team string // the group of companions doing related work, if any
-	Hub  bool   // whether this one answers for its team
-	Can  int    // how many things it can do — skills plus tool servers; a tie-break in an election
+	Name string   // "design", "api" — how somebody addresses it
+	Role string   // one line: what it is for, in the words of whoever set it up
+	Team string   // the group of companions doing related work, if any
+	Hub  bool     // whether this one answers for its team
+	Can  int      // how many things it can do — skills plus tool servers; a tie-break in an election
+	Does []string // and what they are called, capped at cluster.MaxDoes
 }
 
 // primaryAddr is the address another machine would reach this one at, best effort.

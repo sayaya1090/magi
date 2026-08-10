@@ -315,3 +315,26 @@ func TestTheCompanionThatCanDoMostSpeaks(t *testing.T) {
 		t.Errorf("equal counts elected %q and %q depending on order", first.Name, second.Name)
 	}
 }
+
+// A companion that has gone quiet keeps what it could do, and keeps the count with it.
+//
+// A later sighting is often a bare one — somebody passing along "this exists at this address" with
+// no capabilities attached. Letting that blank the names would make a companion look useless
+// precisely when it went quiet, which is when somebody is deciding whether to wait for it.
+//
+// Names and count together or neither: three names beside a count of nine, taken from two different
+// sightings, would advertise a companion nobody ever saw.
+func TestACompanionThatGoesQuietKeepsWhatItCanDo(t *testing.T) {
+	now := time.Now()
+	known := []Member{{Host: "buildbox", Socket: "/s/d.sock", Name: "design",
+		Can: 9, Does: []string{"tokens", "layout", "contrast"}, Seen: now.Add(-10 * time.Minute)}}
+	bare := []Member{{Host: "buildbox", Socket: "/s/d.sock", Seen: now}}
+
+	got := Merge(known, bare, now)
+	if len(got) != 1 {
+		t.Fatalf("%d members after a merge of one", len(got))
+	}
+	if len(got[0].Does) != 3 || got[0].Can != 9 {
+		t.Fatalf("a bare sighting erased what it can do: can=%d does=%v", got[0].Can, got[0].Does)
+	}
+}
