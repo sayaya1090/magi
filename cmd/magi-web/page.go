@@ -1227,6 +1227,12 @@ const indexHTML = `<!doctype html>
     --md-primary-tab-active-pressed-label-text-color:var(--magi-ref-on-surface);
     --md-primary-tab-active-pressed-state-layer-color:var(--magi-ref-on-surface);
   }
+  /* Hidden until there is room for a pane to toggle, and declared HERE — before the width rule
+     that shows it. It used to sit below, and two rules of one id each are decided by source order,
+     so the later "none" won at every width: the pane defaults to shut and the only control that
+     opens it was invisible, which made the plan, the handoffs and the history unreachable on this
+     page. Nothing said so — a control that is not drawn asks no questions. */
+  #sideToggle { display:none; }
   /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
      1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
      840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
@@ -1235,13 +1241,20 @@ const indexHTML = `<!doctype html>
   }
   @media (min-width:52.5em) {
     #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
+    /* The handle travels WITH the pane it opens, in a column of their own.
+       It used to be a sibling of the two panes, and a grid places children in order: the handle
+       took the second column's first row and the pane it opens was pushed onto the next row, under
+       the conversation, at full width. Which is not a side pane at all — it was the conversation
+       with its reference material dumped underneath, and the plan somebody opened the pane to see
+       was off the bottom of the page. Shut, the handle stays where the pane was, which is the one
+       place somebody looks for the way back. */
     /* The facts stay put while the conversation scrolls: on this page they are the thing you keep
        glancing back at, and a plan that scrolls away is one you re-find rather than read. */
     /* Stuck, and bounded. A sticky pane does not take main's bottom padding — that space is
        reserved for the composer and the pane sat over it, so the last control in the facts was
        three pixels under the dock and the bottom of its 48dp reach was not pressable. It ends
        where the dock begins and scrolls inside itself if there is more than fits. */
-    #side {
+    #sidecol {
       position:sticky; top:5.5rem;
       /* The 5.5rem is where it STICKS; unstuck it starts lower — below the masthead's own block —
          so a cap measured from the stuck position is short by that difference at the top of the
@@ -1253,7 +1266,8 @@ const indexHTML = `<!doctype html>
        pane gets a handle that collapses it, a side sheet "requires that a close affordance is
        always present". Without it nobody can tell whether the pane is transient or permanent, and
        the conversation cannot have the width back. */
-    body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr); }
+    /* Shut, the second column is only as wide as the handle. */
+    body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr) auto; }
     body[side="shut"] #side { display:none; }
     #sideToggle { display:inline-flex; }
   }
@@ -1266,8 +1280,8 @@ const indexHTML = `<!doctype html>
      came from: reproducing it in a column beside the thing it led you to is drawing the previous
      step over the current one. The way back is the way in. */
 
-  #sideToggle { display:none; align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
-  #stream, #side { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
+  #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
+  #stream, #side, #sidecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
@@ -2045,18 +2059,22 @@ const indexHTML = `<!doctype html>
       <md-outlined-card id="detail" hidden></md-outlined-card>
       <div id="log"></div>
     </div>
-    <md-icon-button id="sideToggle" aria-expanded="false">
-      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-        <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
-          stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </md-icon-button>
-    <aside id="side">
-      <md-outlined-card id="plan" hidden></md-outlined-card>
-      <md-outlined-card id="handoffs" hidden></md-outlined-card>
-      <md-outlined-card id="cron" hidden></md-outlined-card>
-      <md-outlined-card id="intervened" hidden></md-outlined-card>
-      <md-outlined-card id="history" hidden></md-outlined-card>
-    </aside>
+    <!-- The handle and the pane it opens are one column: siblings of #stream, a grid would place
+         them in reading order and put the pane on a row of its own beneath the conversation. -->
+    <div id="sidecol">
+      <md-icon-button id="sideToggle" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
+            stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </md-icon-button>
+      <aside id="side">
+        <md-outlined-card id="plan" hidden></md-outlined-card>
+        <md-outlined-card id="handoffs" hidden></md-outlined-card>
+        <md-outlined-card id="cron" hidden></md-outlined-card>
+        <md-outlined-card id="intervened" hidden></md-outlined-card>
+        <md-outlined-card id="history" hidden></md-outlined-card>
+      </aside>
+    </div>
   </div>
 </main>
 
