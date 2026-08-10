@@ -51,16 +51,16 @@ type Config struct {
 	// Anthropic has none at all and points at Voyage, and vLLM answers only when it is serving an
 	// embedding model. MAGI_EMBED_BASE_URL and MAGI_EMBED_API_KEY point it elsewhere; unset, they
 	// follow the chat backend, which is right for Ollama and for a LiteLLM proxy.
-	EmbedModel    string               `toml:"embed_model"`
-	APIKey        string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
-	Permission    string               `toml:"permission"`
-	MCP           map[string]MCPServer `toml:"mcp"`            // name -> server
+	EmbedModel string               `toml:"embed_model"`
+	APIKey     string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
+	Permission string               `toml:"permission"`
+	MCP        map[string]MCPServer `toml:"mcp"` // name -> server
 	// Cron is the unattended work this workspace does on a schedule, name -> job. Only a daemon
 	// runs them; an interactive session reads them so its editor can show them, and fires nothing.
-	Cron map[string]CronJob `toml:"cron"`
-	Routing       map[string]string    `toml:"routing"`        // agent name -> model (M6 routing)
-	ExperienceDir string               `toml:"experience_dir"` // shared experience store path (D13)
-	Hooks         []Hook               `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
+	Cron          map[string]CronJob `toml:"cron"`
+	Routing       map[string]string  `toml:"routing"`        // agent name -> model (M6 routing)
+	ExperienceDir string             `toml:"experience_dir"` // shared experience store path (D13)
+	Hooks         []Hook             `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
 	// Subagents records the user's own settings per plugin-declared subagent, written by
 	// /subagents. Only entries a user actually touched are here — anything absent falls back to
 	// what the tool declared, which is how a subagent can ship switched off and still be turned on
@@ -292,6 +292,26 @@ type CronJob struct {
 
 // On reports whether the job should run. Absent means yes.
 func (j CronJob) On() bool { return j.Enabled == nil || *j.Enabled }
+
+// MergeCron overlays a project's jobs onto the machine's, project winning on a shared name.
+//
+// Here rather than inline at the two call sites that need it. The daemon's overlay assembles a
+// whole Config, and the schedule tool needs only this one map; written twice, the two agree the day
+// they are written and disagree the first time one of them learns something. Neither input is
+// modified — the caller may be holding a config it did not load.
+func MergeCron(global, project map[string]CronJob) map[string]CronJob {
+	if len(global) == 0 && len(project) == 0 {
+		return nil
+	}
+	out := make(map[string]CronJob, len(global)+len(project))
+	for k, v := range global {
+		out[k] = v
+	}
+	for k, v := range project {
+		out[k] = v
+	}
+	return out
+}
 
 // defaultConfigTemplate is the commented, self-documenting config.toml written
 // on first run so users can see and edit the available settings. Defaults are

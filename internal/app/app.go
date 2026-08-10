@@ -57,6 +57,10 @@ type App struct {
 	searchMu    sync.Mutex
 	searchCache map[session.SessionID]cachedTurns // session -> its turns, keyed by last activity
 
+	// cronReload wakes the scheduler when the job definitions change. Non-nil only while a daemon
+	// is running one. Guarded by mu.
+	cronReload chan struct{}
+
 	permPolicy string  // runtime-adjustable permission policy (guarded by mu)
 	policy     *Policy // guardrail rules engine (deny floor, allow rules, bash scan)
 

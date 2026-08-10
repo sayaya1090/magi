@@ -77,57 +77,114 @@ type cronScheduler struct {
 	workdir string
 	now     func() time.Time
 	report  func(string)
-	jobs    []scheduledJob
+	// load reads the job definitions afresh. A function and not a snapshot: jobs are written to
+	// config.toml, by a person or by the agent, while the daemon is running — and a daemon that
+	// only read them at startup would need restarting before anything it was asked to schedule
+	// could happen.
+	load func() map[string]config.CronJob
+	jobs []scheduledJob
 	// last is the session each job most recently started, and the whole of the overlap check. There
 	// is no separate "running" flag to keep in step with reality: whether that session is still
 	// going is a question the App can already answer.
 	last map[string]session.SessionID
+	// said remembers which complaints have already been made, so a job with a typo in its schedule
+	// is reported once rather than every minute for as long as the daemon lives.
+	said map[string]string
 }
 
-// newCronScheduler parses the jobs and arms each one.
-//
-// A job that cannot be used is reported and dropped, never silently kept as a thing that will never
-// fire: an unparseable schedule and a schedule of "never" look identical from the outside, and the
-// person who mistyped one needs to hear about it at startup rather than wonder in a week.
-func newCronScheduler(a *App, workdir string, jobs map[string]config.CronJob,
+// newCronScheduler builds a scheduler over a source of job definitions and arms what it finds.
+func newCronScheduler(a *App, workdir string, load func() map[string]config.CronJob,
 	now func() time.Time, report func(string)) *cronScheduler {
 
-	s := &cronScheduler{app: a, workdir: workdir, now: now, report: report,
-		last: map[string]session.SessionID{}}
+	s := &cronScheduler{app: a, workdir: workdir, now: now, report: report, load: load,
+		last: map[string]session.SessionID{}, said: map[string]string{}}
 	if report == nil {
 		s.report = func(string) {}
 	}
-	// Sorted, so startup messages and the order of firing within one minute are the same on every
-	// run. Map order would make two identical daemons disagree about which job went first.
-	names := make([]string, 0, len(jobs))
-	for name := range jobs {
+	s.reload()
+	return s
+}
+
+// reload re-reads the definitions and brings the armed set into line with them.
+//
+// Called on every tick, which is how a job written while the daemon is running — by a person
+// editing the file or by the agent scheduling its own follow-up — starts happening without a
+// restart. Re-parsing a small TOML file once a minute costs nothing, and it means the FILE is the
+// truth: there is no in-memory copy of the schedule that can drift away from what is on disk.
+//
+// What survives a reload is the arming. A job that is still there with the same schedule keeps the
+// instant it is next owed, so editing one job does not silently push every other job's next run
+// forward. A job whose schedule changed is re-armed against the new one, and a new job is armed
+// from now — never from a slot in the past, for the same reason nothing catches up at startup.
+func (s *cronScheduler) reload() {
+	defs := map[string]config.CronJob{}
+	if s.load != nil {
+		defs = s.load()
+	}
+	prev := map[string]scheduledJob{}
+	for _, j := range s.jobs {
+		prev[j.Name] = j
+	}
+
+	// Sorted, so the order of firing within one minute is the same on every run and on every
+	// daemon. Map order would make two identical companions disagree about which job went first.
+	names := make([]string, 0, len(defs))
+	for name := range defs {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
 	at := s.now()
+	armed := make([]scheduledJob, 0, len(names))
+	live := map[string]bool{}
 	for _, name := range names {
-		j := jobs[name]
+		j := defs[name]
 		if !j.On() {
 			continue
 		}
+		// A job that cannot be used is reported and dropped, never silently kept as something that
+		// will never fire: an unparseable schedule and a schedule of "never" look identical from
+		// outside, and whoever mistyped one needs to hear about it rather than wonder in a week.
+		// Reported once per distinct complaint — this runs every minute.
 		if strings.TrimSpace(j.Prompt) == "" {
-			s.report(fmt.Sprintf("cron %q has no prompt — nothing to ask, so it is not scheduled", name))
+			s.complain(name, "has no prompt — nothing to ask, so it is not scheduled")
 			continue
 		}
 		sch, err := cron.Parse(j.Schedule)
 		if err != nil {
-			s.report(fmt.Sprintf("cron %q: %v — not scheduled", name, err))
+			s.complain(name, fmt.Sprintf("%v — not scheduled", err))
+			continue
+		}
+		live[name] = true
+		if p, ok := prev[name]; ok && p.Schedule.String() == sch.String() && !p.Due.IsZero() {
+			p.Prompt = j.Prompt // the words may have been edited; when it runs has not changed
+			armed = append(armed, p)
 			continue
 		}
 		due := sch.Next(at)
 		if due.IsZero() {
-			s.report(fmt.Sprintf("cron %q: %q never comes round — not scheduled", name, j.Schedule))
+			s.complain(name, fmt.Sprintf("%q never comes round — not scheduled", j.Schedule))
 			continue
 		}
-		s.jobs = append(s.jobs, scheduledJob{Name: name, Schedule: sch, Prompt: j.Prompt, Due: due})
+		armed = append(armed, scheduledJob{Name: name, Schedule: sch, Prompt: j.Prompt, Due: due})
 	}
-	return s
+	s.jobs = armed
+	// Forget complaints about jobs that are no longer here, so fixing one and breaking it again
+	// later says so again.
+	for name := range s.said {
+		if !live[name] && defs[name].Schedule == "" {
+			delete(s.said, name)
+		}
+	}
+}
+
+// complain reports a problem with a job once, and again only if the problem changes.
+func (s *cronScheduler) complain(name, what string) {
+	if s.said[name] == what {
+		return
+	}
+	s.said[name] = what
+	s.report(fmt.Sprintf("cron %q: %s", name, what))
 }
 
 // Jobs returns what is armed, in name order. For the daemon's startup line and for tests.
@@ -202,13 +259,46 @@ func (a *App) sessionRunning(sid session.SessionID) bool {
 	return ok && st.cancel != nil
 }
 
-// RunCron fires this workspace's scheduled jobs until ctx is done. It blocks; the daemon runs it in
-// a goroutine. Returns immediately when nothing is armed, so a workspace with no jobs pays nothing.
-func (a *App) RunCron(ctx context.Context, workdir string, jobs map[string]config.CronJob, report func(string)) {
-	s := newCronScheduler(a, workdir, jobs, time.Now, report)
-	if len(s.jobs) == 0 {
+// ReloadCron tells a running scheduler that the job definitions have changed.
+//
+// Push, not poll. Jobs are written by the schedule tool, which runs inside this process, so the
+// thing that changed the file can simply say so — and a daemon that instead re-read config.toml
+// every minute would be burning a parse a minute to discover a change it already knew about, and
+// would still take up to a minute to act on it.
+//
+// A no-op when no scheduler is running (not a daemon), and non-blocking: the caller is a tool call
+// answering a model, and it must not wait on a scheduler that is mid-fire.
+func (a *App) ReloadCron() {
+	a.mu.Lock()
+	ch := a.cronReload
+	a.mu.Unlock()
+	if ch == nil {
 		return
 	}
+	select {
+	case ch <- struct{}{}:
+	default: // a reload is already pending; it will pick up this change too
+	}
+}
+
+// RunCron fires this workspace's scheduled jobs until ctx is done. It blocks; the daemon runs it in
+// a goroutine.
+//
+// It keeps running even with nothing armed, because the schedule tool can arm something later and a
+// loop that had already returned would leave that job never firing. The cost of waiting is one
+// timer.
+func (a *App) RunCron(ctx context.Context, workdir string, load func() map[string]config.CronJob, report func(string)) {
+	reload := make(chan struct{}, 1)
+	a.mu.Lock()
+	a.cronReload = reload
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.cronReload = nil
+		a.mu.Unlock()
+	}()
+
+	s := newCronScheduler(a, workdir, load, time.Now, report)
 	for _, j := range s.jobs {
 		s.report(fmt.Sprintf("cron %q: %s, next at %s", j.Name, j.Schedule, j.Due.Format(time.RFC3339)))
 	}
@@ -222,6 +312,9 @@ func (a *App) RunCron(ctx context.Context, workdir string, jobs map[string]confi
 		case <-ctx.Done():
 			timer.Stop()
 			return
+		case <-reload:
+			timer.Stop()
+			s.reload()
 		case <-timer.C:
 			s.tickOnce(ctx)
 		}

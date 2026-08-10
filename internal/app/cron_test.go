@@ -63,6 +63,12 @@ func job(schedule, prompt string) config.CronJob {
 	return config.CronJob{Schedule: schedule, Prompt: prompt}
 }
 
+// jobsOf turns a fixed set into the source the scheduler reads. Most tests do not change the
+// definitions mid-run, so a constant source is the honest fixture for them.
+func jobsOf(m map[string]config.CronJob) func() map[string]config.CronJob {
+	return func() map[string]config.CronJob { return m }
+}
+
 func off(j config.CronJob) config.CronJob {
 	no := false
 	j.Enabled = &no
@@ -103,9 +109,9 @@ func TestAJobDoesNotFireForATimeThatAlreadyPassed(t *testing.T) {
 	clk := &fakeClock{t: time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)} // noon
 	rec := &recorder{}
 
-	s := newCronScheduler(a, wd, map[string]config.CronJob{
+	s := newCronScheduler(a, wd, jobsOf(map[string]config.CronJob{
 		"nightly": job("0 3 * * *", "audit"), // three in the morning, nine hours ago
-	}, clk.now, rec.log)
+	}), clk.now, rec.log)
 
 	if len(s.Jobs()) != 1 {
 		t.Fatalf("armed %d jobs, want 1", len(s.Jobs()))
@@ -124,7 +130,7 @@ func TestSleepingThroughFourSlotsFiresOnce(t *testing.T) {
 	// is one run — not four in the same second, all editing the same files.
 	a, wd := newApp(t, &fakeLLM{}, Config{})
 	clk := &fakeClock{t: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
-	s := newCronScheduler(a, wd, map[string]config.CronJob{"hourly": job("@hourly", "check")},
+	s := newCronScheduler(a, wd, jobsOf(map[string]config.CronJob{"hourly": job("@hourly", "check")}),
 		clk.now, nil)
 
 	clk.set(time.Date(2026, 8, 10, 5, 30, 0, 0, time.UTC)) // woke up four hours later
@@ -153,7 +159,7 @@ func TestAFireOpensItsOwnSessionAndAsksThePromptVerbatim(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{})
 	clk := &fakeClock{t: time.Date(2026, 8, 10, 2, 59, 0, 0, time.UTC)}
 	const prompt = "walk yesterday's commits and report regression risk"
-	s := newCronScheduler(a, wd, map[string]config.CronJob{"nightly": job("0 3 * * *", prompt)},
+	s := newCronScheduler(a, wd, jobsOf(map[string]config.CronJob{"nightly": job("0 3 * * *", prompt)}),
 		clk.now, nil)
 
 	clk.advance(time.Minute) // 03:00
@@ -204,7 +210,7 @@ func TestAJobDoesNotStartAgainWhileItsLastRunIsStillGoing(t *testing.T) {
 
 	clk := &fakeClock{t: time.Date(2026, 8, 10, 0, 59, 0, 0, time.UTC)}
 	rec := &recorder{}
-	s := newCronScheduler(a, wd, map[string]config.CronJob{"slow": job("@hourly", "takes a while")},
+	s := newCronScheduler(a, wd, jobsOf(map[string]config.CronJob{"slow": job("@hourly", "takes a while")}),
 		clk.now, rec.log)
 
 	clk.advance(time.Minute) // 01:00 — first fire
@@ -231,14 +237,14 @@ func TestAJobThatCannotRunIsDroppedOutLoud(t *testing.T) {
 	clk := &fakeClock{t: time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)}
 	rec := &recorder{}
 
-	s := newCronScheduler(a, wd, map[string]config.CronJob{
+	s := newCronScheduler(a, wd, jobsOf(map[string]config.CronJob{
 		"good":       job("@daily", "fine"),
 		"bad-spec":   job("0 3 * *", "four fields"),
 		"no-prompt":  job("@daily", "   "),
 		"never":      job("0 0 30 2 *", "the 30th of February"),
 		"switched":   off(job("@daily", "off for now")),
 		"unknown-at": job("@fortnightly", "not a shorthand"),
-	}, clk.now, rec.log)
+	}), clk.now, rec.log)
 
 	if len(s.Jobs()) != 1 || s.Jobs()[0].Name != "good" {
 		var names []string
@@ -270,7 +276,7 @@ func TestJobsAreArmedInTheSameOrderEveryRun(t *testing.T) {
 	}
 	want := []string{"alpha", "mike", "zulu"}
 	for range 5 {
-		s := newCronScheduler(a, wd, jobs, clk.now, nil)
+		s := newCronScheduler(a, wd, jobsOf(jobs), clk.now, nil)
 		var got []string
 		for _, j := range s.Jobs() {
 			got = append(got, j.Name)
@@ -287,7 +293,7 @@ func TestRunCronStopsWhenTheDaemonDoes(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		a.RunCron(ctx, wd, map[string]config.CronJob{"x": job("@daily", "x")}, nil)
+		a.RunCron(ctx, wd, jobsOf(map[string]config.CronJob{"x": job("@daily", "x")}), nil)
 	}()
 	cancel()
 	select {
@@ -297,17 +303,118 @@ func TestRunCronStopsWhenTheDaemonDoes(t *testing.T) {
 	}
 }
 
-func TestRunCronWithNothingArmedReturnsAtOnce(t *testing.T) {
-	// A workspace with no jobs — the overwhelming majority — should not be left holding a timer.
+// A workspace with nothing armed still keeps the loop, because the schedule tool can arm something
+// later and a loop that had already returned would leave that job never firing. This used to return
+// at once, which was right when jobs could only come from a file read at startup.
+func TestAnEmptyScheduleStillWaitsForOneToBeAdded(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		a.RunCron(context.Background(), wd, nil, nil)
+		a.RunCron(ctx, wd, jobsOf(nil), nil)
 	}()
 	select {
 	case <-done:
+		t.Fatal("RunCron returned with no jobs armed; a job added later would never fire")
+	case <-time.After(150 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("RunCron blocked with no jobs armed")
+		t.Fatal("RunCron did not stop when cancelled")
+	}
+}
+
+// A job written while the daemon is running starts happening without a restart. Push, not poll: the
+// schedule tool writes the definitions and then says so.
+func TestAJobAddedWhileRunningIsPickedUp(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	clk := &fakeClock{t: time.Date(2026, 8, 10, 0, 59, 0, 0, time.UTC)}
+
+	defs := map[string]config.CronJob{}
+	var mu sync.Mutex
+	load := func() map[string]config.CronJob {
+		mu.Lock()
+		defer mu.Unlock()
+		out := map[string]config.CronJob{}
+		for k, v := range defs {
+			out[k] = v
+		}
+		return out
+	}
+	s := newCronScheduler(a, wd, load, clk.now, nil)
+	if len(s.Jobs()) != 0 {
+		t.Fatalf("armed %d jobs from an empty set", len(s.Jobs()))
+	}
+
+	mu.Lock()
+	defs["fresh"] = job("@hourly", "the newly scheduled thing")
+	mu.Unlock()
+	s.reload()
+
+	if len(s.Jobs()) != 1 {
+		t.Fatalf("armed %d jobs after reload, want 1", len(s.Jobs()))
+	}
+	clk.advance(time.Minute) // 01:00
+	s.tickOnce(context.Background())
+	if got := cronSessions(t, a, wd, "fresh"); len(got) != 1 {
+		t.Errorf("the added job fired %d times, want 1", len(got))
+	}
+
+	// And removing it stops it.
+	mu.Lock()
+	delete(defs, "fresh")
+	mu.Unlock()
+	s.reload()
+	if len(s.Jobs()) != 0 {
+		t.Errorf("a removed job is still armed: %+v", s.Jobs())
+	}
+}
+
+// Editing one job must not push every other job's next run forward. The arming survives a reload.
+func TestReloadKeepsWhenTheUntouchedJobsAreNextDue(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	clk := &fakeClock{t: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)}
+	defs := map[string]config.CronJob{"steady": job("@hourly", "unchanged")}
+	s := newCronScheduler(a, wd, func() map[string]config.CronJob { return defs }, clk.now, nil)
+	firstDue := s.Jobs()[0].Due
+
+	// Half an hour later somebody adds a second job. The first one is still due on the hour.
+	clk.advance(30 * time.Minute)
+	defs["other"] = job("@daily", "new")
+	s.reload()
+
+	for _, j := range s.Jobs() {
+		if j.Name == "steady" && !j.Due.Equal(firstDue) {
+			t.Errorf("an untouched job was re-armed from %s to %s by an unrelated edit", firstDue, j.Due)
+		}
+	}
+	// But a job whose schedule changed IS re-armed against the new one.
+	defs["steady"] = job("@daily", "unchanged")
+	s.reload()
+	for _, j := range s.Jobs() {
+		if j.Name == "steady" && j.Due.Equal(firstDue) {
+			t.Error("a job whose schedule changed kept its old next run")
+		}
+	}
+}
+
+// A broken job is reported once, not once a minute for as long as the daemon lives.
+func TestABrokenJobIsReportedOnceNotForever(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	clk := &fakeClock{t: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)}
+	rec := &recorder{}
+	s := newCronScheduler(a, wd, jobsOf(map[string]config.CronJob{
+		"typo": job("0 3 * *", "four fields"),
+	}), clk.now, rec.log)
+
+	for range 10 {
+		s.reload()
+	}
+	if n := strings.Count(rec.all(), "typo"); n != 1 {
+		t.Errorf("complained about the same broken job %d times, want 1:\n%s", n, rec.all())
 	}
 }

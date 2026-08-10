@@ -918,7 +918,20 @@ func run() int {
 		//
 		// On dctx, so Ctrl-C stops the schedule with everything else. Its own goroutine because
 		// RunCron blocks until then, and Serve is what this process is here to do.
-		go a.RunCron(dctx, wd, cfg.Cron, func(line string) {
+		// Re-read from disk rather than closing over the config loaded at startup: the schedule
+		// tool writes config.toml and then calls ReloadCron, and a closure over a snapshot would
+		// hand the scheduler the jobs as they were when the daemon booted.
+		loadJobs := func() map[string]config.CronJob {
+			g, lerr := config.Load(plat.ConfigDir())
+			if lerr != nil {
+				return nil
+			}
+			if proj, perr := config.Load(filepath.Join(wd, ".magi")); perr == nil {
+				g = mergeProjectConfig(g, proj)
+			}
+			return g.Cron
+		}
+		go a.RunCron(dctx, wd, loadJobs, func(line string) {
 			fmt.Fprintln(os.Stderr, "magi:", line)
 		})
 		serving := bound
@@ -1012,13 +1025,10 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 	}
 	// Scheduled work merges by name like the servers above, so a repo can carry its own nightly
 	// job and still inherit whatever the machine schedules everywhere. Same-named, the project
-	// wins: the file next to the code is the more specific statement about that code.
-	for k, v := range proj.Cron {
-		if cfg.Cron == nil {
-			cfg.Cron = map[string]config.CronJob{}
-		}
-		cfg.Cron[k] = v
-	}
+	// wins: the file next to the code is the more specific statement about that code. The rule
+	// lives in config because the schedule tool applies the same one and two spellings of it would
+	// eventually disagree.
+	cfg.Cron = config.MergeCron(cfg.Cron, proj.Cron)
 	for k, v := range proj.LLM.Headers {
 		if cfg.LLM.Headers == nil {
 			cfg.LLM.Headers = map[string]string{}

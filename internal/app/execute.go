@@ -395,6 +395,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			}
 			return formatExperienceFull(mems, skills), nil
 		},
+		Schedule: func(c port.ScheduleChange) (string, error) {
+			return a.EditSchedule(s.Workdir, c)
+		},
 		SearchSessions: func(query, open string) (string, error) {
 			if open != "" {
 				return a.OpenTurn(ctx, open)

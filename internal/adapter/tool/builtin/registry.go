@@ -78,6 +78,7 @@ func Default() *Registry {
 	r.Register(RecallContext{})
 	r.Register(RecallMemory{})
 	r.Register(SearchSessions{})
+	r.Register(Schedule{})
 	return r
 }
 

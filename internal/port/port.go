@@ -154,6 +154,19 @@ type Store interface {
 	Truncate(ctx context.Context, s session.SessionID, upToSeq int64) error
 }
 
+// ScheduleChange is one edit to a workspace's unattended work, or a request to see it.
+//
+// Action is "list", "set" or "remove". On "set", an empty Schedule or Prompt means "leave that part
+// of the existing job alone", so the words can be rewritten without restating the time. Enabled is
+// a pointer because absent means "do not touch it" — distinct from switching a job off.
+type ScheduleChange struct {
+	Action   string
+	Name     string
+	Schedule string
+	Prompt   string
+	Enabled  *bool
+}
+
 // ChildStep is one tool call a child made: what it ran, with what arguments, and whether it worked.
 //
 // Output carries the tool's result VERBATIM for a FAILED call and is empty for one that succeeded.
@@ -301,7 +314,14 @@ type ToolEnv struct {
 	// `remember` writes, and this one reaches the raw sessions of other days — the only one of the
 	// three that can find something nobody thought to save. nil when unavailable. (search_sessions)
 	SearchSessions func(query, open string) (string, error)
-	Platform       Platform
+	// Schedule lists or changes the unattended work this workspace does. nil when unavailable.
+	//
+	// The one tool whose effect outlives the turn that called it: a job set here runs every morning
+	// until somebody stops it. Nothing about that is hidden — the job is a named table in the
+	// project's committable config, every surface lists it, and the daemon names them all at
+	// startup. (schedule)
+	Schedule func(ScheduleChange) (string, error)
+	Platform Platform
 	// Sandbox requests OS-level confinement for commands (bash). Zero value
 	// (empty Mode) means unconfined.
 	Sandbox SandboxSpec
