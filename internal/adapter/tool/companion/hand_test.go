@@ -854,7 +854,7 @@ func TestAskingWhatACompanionCanDoReachesTheMachineThatHasThem(t *testing.T) {
 	var askedHost, askedName string
 	tool := companion.About{
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
-		Ask: func(_ context.Context, host, name string) (string, error) {
+		Ask: func(_ context.Context, host, _, name string) (string, error) {
 			askedHost, askedName = host, name
 			return "design — screens\n\nWhat it has written procedures for:\n  tokens — names the colour roles\n", nil
 		},
@@ -881,7 +881,7 @@ func TestAMachineThatCannotDescribeSaysWhichOne(t *testing.T) {
 	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
 	tool := companion.About{
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
-		Ask: func(context.Context, string, string) (string, error) {
+		Ask: func(context.Context, string, string, string) (string, error) {
 			return "", errors.New("Network is unreachable")
 		},
 	}

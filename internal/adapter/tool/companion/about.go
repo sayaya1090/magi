@@ -41,7 +41,7 @@ type About struct {
 	Cache     *fleet.Cache
 	// Ask renders a companion's description, wherever it is. Injected because reaching another
 	// machine means running a process, which this package does not do.
-	Ask func(ctx context.Context, host, name string) (string, error)
+	Ask func(ctx context.Context, host, socket, name string) (string, error)
 }
 
 func (About) Name() string { return "companion_can" }
@@ -91,7 +91,7 @@ func (a About) Execute(ctx context.Context, args json.RawMessage, _ port.ToolEnv
 			in.Who, fleet.Names(found))), nil
 	}
 	target := found[0]
-	said, aerr := a.Ask(ctx, target.Host, target.Name)
+	said, aerr := a.Ask(ctx, target.Host, target.Socket, target.Name)
 	if aerr != nil {
 		// Named rather than swallowed. A companion that cannot be described is one that probably
 		// cannot be handed work either, and saying which machine did not answer is what lets the

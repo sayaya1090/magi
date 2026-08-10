@@ -162,7 +162,7 @@ func handoffStateHere(in io.Reader, out, errOut io.Writer, a *app.App, configDir
 // anybody. Descriptions do not, because they would be a hundred bytes per skill per member on
 // every exchange, every minute, to fill a line that shows names. So they are fetched, once, by
 // whoever actually wants to know — which is this.
-func aboutHere(in io.Reader, out, errOut io.Writer, r fleet.Reader, skills func(string) []port.Skill,
+func aboutHere(out, errOut io.Writer, r fleet.Reader, skills func(string) []port.Skill,
 	reach func(string) []string, configDir, who string) int {
 
 	if strings.TrimSpace(who) == "" {
@@ -205,32 +205,34 @@ func aboutHere(in io.Reader, out, errOut io.Writer, r fleet.Reader, skills func(
 
 // describeCompanion answers "what can X do" for a companion anywhere in the cluster.
 //
-// The local branch is in-process and not a subprocess of ourselves: it is the same call --about
-// makes, and spawning a copy of this binary to ask a question this one can answer would be a
-// process per call to arrive at the identical string.
+// Local is in-process: it is the same call the daemon's own about method makes, and spawning a copy
+// of this binary to ask a question this one can answer would be a process per call for an identical
+// string.
 //
-// One decision about where a companion is, made here, the way cluster.Reach makes it for a peer
-// command — a hostname that is this machine is not a network hop, and going through ssh to reach
-// yourself fails on most hosts.
+// Remote goes through a relay to that companion's daemon and asks IT. Not a subcommand over there
+// reading a config directory to work out what the daemon already knows — which is what this used to
+// do, and why the answer depended on which account ssh landed as.
 func describeCompanion(r fleet.Reader, skills func(string) []port.Skill, reach func(string) []string,
-	configDir string) func(context.Context, string, string) (string, error) {
+	configDir string) func(context.Context, string, string, string) (string, error) {
 
 	here := daemon.Host()
-	return func(ctx context.Context, host, name string) (string, error) {
+	return func(ctx context.Context, host, socket, name string) (string, error) {
 		if host == "" || (here != "" && strings.EqualFold(host, here)) {
 			var out, errOut bytes.Buffer
-			if code := aboutHere(nil, &out, &errOut, r, skills, reach, configDir, name); code != 0 {
+			if code := aboutHere(&out, &errOut, r, skills, reach, configDir, name); code != 0 {
 				return "", fmt.Errorf("%s", firstLineOf(strings.TrimSpace(errOut.String())))
 			}
 			return out.String(), nil
 		}
-		cctx, cancel := context.WithTimeout(ctx, crossAsk)
-		defer cancel()
-		said, err := sshCross(cctx, host, []string{"--about", name}, nil)
-		if err != nil {
-			return "", err
+		// Ask the companion itself, through a pipe to its daemon. It knows what it is for and what
+		// it can do; the alternative was a process over there working that out from files, and
+		// which files it found depended on which account the connection landed as.
+		p, perr := relayTo(host, socket)
+		if perr != nil {
+			return "", perr
 		}
-		return string(said), nil
+		defer p.Close()
+		return daemon.Over(p).About()
 	}
 }
 

@@ -266,6 +266,9 @@ func run() int {
 			"take work handed to a companion here from another machine; reads the request as JSON on stdin")
 		handState = flag.Bool("handoff-state", false,
 			"say what became of work handed here: whether its turn finished, and what was said")
+		relaySock = flag.String("relay", "",
+			"pipe stdin and stdout to a daemon socket here, so a magi on another machine can speak "+
+				"the daemon protocol to it; run over ssh, not by hand")
 		aboutWho = flag.String("about", "",
 			"describe a companion published here — what it is for and what it can be asked to do")
 		showVersion     = flag.Bool("version", false, "print version and exit")
@@ -477,6 +480,12 @@ func run() int {
 	// Work arriving from another machine, and questions about work that arrived earlier. A reader
 	// over the same store every other listing reads: these two answer about companions running
 	// here, and start nothing of their own.
+	// A byte pipe to one daemon, and nothing more. Before anything that reads config or a store:
+	// this deliberately knows nothing except the socket it was given, so there is nothing for a
+	// wrong account or an empty container filesystem to make it get wrong.
+	if *relaySock != "" {
+		return relayHere(os.Stdin, os.Stdout, os.Stderr, *relaySock)
+	}
 	if *takeHand || *handState || *aboutWho != "" {
 		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 		switch {
@@ -485,7 +494,7 @@ func run() int {
 		case *handState:
 			return handoffStateHere(os.Stdin, os.Stdout, os.Stderr, reader, plat.ConfigDir())
 		}
-		return aboutHere(os.Stdin, os.Stdout, os.Stderr, reader, reader.Skills, reachableServers,
+		return aboutHere(os.Stdout, os.Stderr, reader, reader.Skills, reachableServers,
 			plat.ConfigDir(), *aboutWho)
 	}
 
@@ -1086,7 +1095,11 @@ func run() int {
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.
-		serveErr := serving.Serve(dctx, daemonEngine{App: a, workdir: wd})
+		serveErr := serving.Serve(dctx, daemonEngine{App: a, workdir: wd, card: mcpserve.Card{
+			Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
+			Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Workdir: wd,
+			Skills: a.Skills(wd), Reach: reachableServers(wd),
+		}})
 		stopCron() // whichever way Serve ended, the schedule ends with it
 		if serveErr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", serveErr)
@@ -1898,7 +1911,16 @@ func sanitizeTeam(name string) string {
 type daemonEngine struct {
 	*app.App
 	workdir string
+	// card is what this companion says about itself when somebody on another machine asks over the
+	// relay. Built once at startup from the same pieces the MCP `about` tool uses, and rendered by
+	// the same function — one description, whichever door it came through.
+	card mcpserve.Card
 }
+
+// About satisfies daemon.Describer: the process that knows answers about itself, instead of a
+// process somewhere else re-deriving it from a config directory that may not even be the right
+// account's.
+func (d daemonEngine) About() string { return mcpserve.Describe(d.card) }
 
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
