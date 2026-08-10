@@ -184,6 +184,14 @@ func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("work went out with no form for the answer to come back in")
 	}
+	// Both missing, said once: two refusals in a row for one badly-formed request is two turns
+	// spent learning what one sentence could have said.
+	said := text(t, res)
+	// Distinct phrases, not "FOR" and "FORM": one is a substring of the other, and the check
+	// passed with the purpose requirement removed entirely.
+	if !strings.Contains(said, "what this is FOR") || !strings.Contains(said, "the FORM the answer") {
+		t.Errorf("it named only one of the two things missing: %q", said)
+	}
 	if len(design.got()) != 0 {
 		t.Error("it was sent anyway")
 	}
@@ -191,7 +199,7 @@ func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
 	// With one, the form crosses with the request and tells them what to do about a part they
 	// cannot do — which is the half that makes a gap legible.
 	args, _ = json.Marshal(map[string]string{"to": "design", "request": "name the tokens",
-		"answer_as": "- surface:\n- on-surface:"})
+		"so_that": "I can write the empty state", "answer_as": "- surface:\n- on-surface:"})
 	var watched []port.Elsewhere
 	if _, err := (companion.Hand{
 		Self: master, Called: "master", Reader: func() fleet.Reader { return tm.reader },
@@ -205,7 +213,8 @@ func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("%d messages arrived", len(got))
 	}
-	for _, want := range []string{"name the tokens", "- surface:", "keep the part and say so"} {
+	for _, want := range []string{"name the tokens", "In order to: I can write the empty state",
+		"- surface:", "keep the part and say so"} {
 		if !strings.Contains(got[0], want) {
 			t.Errorf("what arrived does not carry %q:\n%s", want, got[0])
 		}

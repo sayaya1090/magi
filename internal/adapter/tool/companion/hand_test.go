@@ -190,6 +190,7 @@ func (tm *team) askWatching(tool companion.Hand, sid, to, request string) (sessi
 	// Every call carries a form: it is required, and a fixture that omitted it would be testing
 	// the refusal instead of the thing under test.
 	args, err := json.Marshal(map[string]string{"to": to, "request": request,
+		"so_that":   "I can finish the part I am on",
 		"answer_as": "- what you found:\n- anything you could not check:"})
 	if err != nil {
 		tm.t.Fatal(err)
@@ -235,6 +236,7 @@ func TestHandOffHandsTheWorkOverUntouched(t *testing.T) {
 	// began with somebody's words arriving altered, so "contains" is not enough — a prefix nobody
 	// asked for is that defect starting.
 	want := companion.DispatchedBy("master") + "\n\n" + req +
+		"\n\nIn order to: I can finish the part I am on" +
 		"\n\nAnswer in this form, filling it in. If a part cannot be done, keep the part and say " +
 		"so under it rather than leaving it out — a gap with a name is something the asker can act " +
 		"on, and a missing section is not:\n\n- what you found:\n- anything you could not check:"
@@ -278,7 +280,7 @@ func TestHandOffSendsNothingWhenTheAnswerCannotComeBack(t *testing.T) {
 	tool := companion.Hand{Self: master, Called: "master",
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}}
 	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing",
-		"answer_as": "- what you found:"})
+		"so_that": "I can carry on", "answer_as": "- what you found:"})
 	res, err := tool.Execute(context.Background(), args, port.ToolEnv{SessionID: "m"}) // no Expect
 	if err != nil {
 		t.Fatal(err)
@@ -306,7 +308,7 @@ func TestTheWatchIsInPlaceBeforeTheWorkIsSent(t *testing.T) {
 	tool := companion.Hand{Self: master, Called: "master",
 		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}}
 	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing",
-		"answer_as": "- what you found:"})
+		"so_that": "I can carry on", "answer_as": "- what you found:"})
 	if _, err := tool.Execute(context.Background(), args, port.ToolEnv{
 		SessionID: "m",
 		Expect:    func(port.Elsewhere) error { order = append(order, "watching"); return nil },
@@ -699,7 +701,7 @@ func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
 	labels, requests, _ := far.took()
 	// The request byte for byte, then the form after it — the same shape a neighbour receives, so
 	// crossing a machine does not change what a companion is asked for.
-	if len(requests) != 1 || !strings.HasPrefix(requests[0], "rewrite the settings screen\n\nAnswer in this form") {
+	if len(requests) != 1 || !strings.HasPrefix(requests[0], "rewrite the settings screen\n\nIn order to: ") {
 		t.Errorf("the request was altered on the way: %q", requests)
 	}
 	if !strings.HasSuffix(requests[0], "- anything you could not check:") {

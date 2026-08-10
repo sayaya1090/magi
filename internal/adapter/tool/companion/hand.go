@@ -143,8 +143,9 @@ func (Hand) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{
 		"to":{"type":"string","description":"which companion, by the name listed in this tool's description"},
 		"request":{"type":"string","description":"the whole instruction, standing on its own"},
+		"so_that":{"type":"string","description":"what this is for — the thing you will do with their answer. One clause. It is what lets them adapt when they hit something you did not foresee, which they cannot ask you about."},
 		"answer_as":{"type":"string","description":"the form the answer must come back in: write out the headings or fields you want filled, in the order you will read them. They fill it in. Not how to do the work — what the finished answer looks like."}
-	},"required":["to","request","answer_as"],"additionalProperties":false}`)
+	},"required":["to","request","so_that","answer_as"],"additionalProperties":false}`)
 }
 
 // withForm puts the form after the request, in the asker's words, and tells the receiver what to
@@ -170,10 +171,24 @@ func (Hand) Schema() json.RawMessage {
 // the reader do the splitting.
 type asked struct {
 	Request string
+	Purpose string
 	Form    string
 }
 
-func (a asked) text() string { return withForm(a.Request, a.Form) }
+// text is the words that cross: the task, then what it is for, then the form.
+//
+// That order is the mission-statement convention — the task and its purpose together, end state
+// after — and it is not decoration. A doer who knows what the answer is FOR can substitute
+// something sensible when the ground turns out not to match the request; one who does not can only
+// stop. It matters here more than in an office for the reason everything else here does: there is
+// no reply channel, so "I would have asked" is not available to them.
+func (a asked) text() string {
+	out := a.Request
+	if p := strings.TrimSpace(a.Purpose); p != "" {
+		out += "\n\nIn order to: " + p
+	}
+	return withForm(out, a.Form)
+}
 
 func withForm(request, form string) string {
 	if strings.TrimSpace(form) == "" {
@@ -188,13 +203,14 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 	var in struct {
 		To       string `json:"to"`
 		Request  string `json:"request"`
+		SoThat   string `json:"so_that"`
 		AnswerAs string `json:"answer_as"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return errText("invalid arguments: " + err.Error()), nil
 	}
 	in.To, in.Request = strings.TrimSpace(in.To), strings.TrimSpace(in.Request)
-	in.AnswerAs = strings.TrimSpace(in.AnswerAs)
+	in.SoThat, in.AnswerAs = strings.TrimSpace(in.SoThat), strings.TrimSpace(in.AnswerAs)
 	if in.To == "" || in.Request == "" {
 		return errText("a request needs somebody to do it and something to do"), nil
 	}
@@ -233,14 +249,25 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 	// is nothing to compare it against — an answer comes back, every gate is satisfied, and nobody
 	// has checked. It matters more here than in an office, because a companion on another machine
 	// cannot knock on the door and ask what you meant.
+	// Both at once when both are missing. Two refusals in a row for one badly-formed request is
+	// two turns spent learning what one sentence could have said.
+	var missing []string
+	if in.SoThat == "" {
+		missing = append(missing, "what this is FOR — the thing you will do with their answer. It "+
+			"is what lets them adapt if the ground turns out not to match your request, and they "+
+			"cannot ask you")
+	}
 	if in.AnswerAs == "" {
-		return errText("write out the form the answer should come back in — the headings or " +
-			"fields you will read. They cannot ask you what you meant: there is no reply channel, " +
-			"so an unstated shape is one they have to guess at, and a guess that comes back " +
-			"looking like an answer is the expensive kind of wrong"), nil
+		missing = append(missing, "the FORM the answer should come back in — the headings or "+
+			"fields you will read. An unstated shape is one they have to guess at, and a guess "+
+			"that comes back looking like an answer is the expensive kind of wrong")
+	}
+	if len(missing) > 0 {
+		return errText("nothing was sent. They cannot ask you what you meant — there is no reply " +
+			"channel — so this needs " + strings.Join(missing, "; and ")), nil
 	}
 	if target.State == fleet.Remote {
-		return h.handAcross(ctx, target, asked{Request: in.Request, Form: in.AnswerAs}, env), nil
+		return h.handAcross(ctx, target, asked{Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs}, env), nil
 	}
 
 	// The watch is registered BEFORE the work is sent. The other way round, a peer quick enough to
@@ -254,7 +281,7 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 		return errText("nothing was sent: the answer could not be waited for (" + xerr.Error() +
 			"), and handing work over without that loses it"), nil
 	}
-	if serr := Send(ctx, target, DispatchedBy(h.who()), asked{Request: in.Request, Form: in.AnswerAs}.text()); serr != nil {
+	if serr := Send(ctx, target, DispatchedBy(h.who()), asked{Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs}.text()); serr != nil {
 		// The watch is left in place. It costs one goroutine that will time out, and the
 		// alternative — a way to cancel it — is a second mechanism for the sake of a failed dial.
 		return errText("could not hand it to " + target.Name + ": " + serr.Error()), nil
