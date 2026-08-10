@@ -54,6 +54,10 @@ type sessionState struct {
 	// for five minutes. Turn-scoped: last turn's note is not news about this one.
 	doing     string
 	doingCall string
+	// handoffs is the work this session has out with other companions and has not heard back on.
+	// Whole-session rather than turn-scoped: a peer can answer after the turn that asked ends, and
+	// clearing the record at a turn boundary would make the watch still running invisible.
+	handoffs  []pendingHandoff
 	grants    map[string]bool // "always" grants per tool
 	userLabel string          // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a

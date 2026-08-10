@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -86,6 +88,9 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 		return act
 	}
 	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
+		return act
+	}
+	if act, done := a.noteOutstandingHandoffs(ctx, tc, ts); done {
 		return act
 	}
 	// Accepted. Before the turn closes, ask what was worth keeping — the one moment where the
@@ -250,4 +255,42 @@ func (a *App) finishDeclared(sid session.SessionID) bool {
 		tc.finish = false
 	})
 	return declared
+}
+
+// noteOutstandingHandoffs tells a finishing turn that a companion it asked has not answered.
+//
+// Once, and it is a note rather than a gate: the agent decides. Handing work over is asynchronous
+// precisely so the asker can carry on, and forcing it to sit here until every peer answers would
+// turn it back into the blocking call it exists to avoid. But finishing with a piece still out
+// throws that piece away — the watch delivers into a turn that has ended, where nothing reads it —
+// and the agent is the only thing that can weigh whether the answer was load-bearing.
+//
+// Top level only. A child has no Expect (see execute.go), so it can have nothing outstanding, and
+// asking would be a question with one possible answer.
+func (a *App) noteOutstandingHandoffs(ctx context.Context, tc turnCtx, ts *turnState) (loopAction, bool) {
+	if ts.handoffTold || tc.depth != 0 {
+		return 0, false
+	}
+	out := a.PendingHandoffs(tc.s.ID)
+	if len(out) == 0 {
+		return 0, false
+	}
+	ts.handoffTold = true
+	var b strings.Builder
+	b.WriteString("You handed work to another companion and it has not come back yet:\n")
+	for _, h := range out {
+		fmt.Fprintf(&b, "\n  %s — %s (asked %s ago)",
+			h.Who, clipLine(oneLine(h.Request), 160), time.Since(h.Since).Round(time.Second))
+	}
+	b.WriteString("\n\nIf that answer is part of what you were asked for, keep working until it " +
+		"arrives — it lands in this conversation on its own and you do not need to ask again, or " +
+		"to poll anything. If it is not, finish and say plainly in your answer what is still out " +
+		"with whom, so whoever reads this knows a piece is missing.")
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: b.String()}},
+	})
+	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "handoff"}, pd)
+	return loopContinue, true
 }

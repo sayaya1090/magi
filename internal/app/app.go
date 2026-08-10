@@ -46,6 +46,10 @@ type App struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
 	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)
+	// bg is the lifetime of work that must outlive the turn that started it, and bgStop ends it.
+	// See bgContext.
+	bg     context.Context
+	bgStop context.CancelFunc
 
 	liveness sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
 
@@ -80,6 +84,7 @@ type App struct {
 func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus.Bus, plat port.Platform, cfg Config) *App {
 	c := cfg.withDefaults()
 	c.ProfileModels = cloneStringMap(c.ProfileModels) // runtime edits must not mutate the caller's map
+	bg, stop := context.WithCancel(context.Background())
 	return &App{
 		store:          store,
 		llm:            llm,
@@ -94,7 +99,24 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		policy:         newPolicy(c.Allow, c.Deny, c.AllowDomains),
 		probingWindows: map[string]struct{}{},
 		states:         map[session.SessionID]*sessionState{},
+		bg:             bg,
+		bgStop:         stop,
 	}
+}
+
+// bgContext is the lifetime of work that must outlive the turn that started it.
+//
+// The one thing it is not is a session's context. A watch on a companion's answer exists precisely
+// because the tool call returned — tied to that call it would be cancelled at the moment it became
+// useful, and tied to the turn it would be cancelled when the turn it was going to feed ends.
+//
+// Background for a zero-value App: the test literals in this package build one directly, and a nil
+// context is a panic in a place that has nothing to do with what is being tested.
+func (a *App) bgContext() context.Context {
+	if a.bg == nil {
+		return context.Background()
+	}
+	return a.bg
 }
 
 // ToolNames returns the names of all registered tools, sorted.
@@ -636,7 +658,11 @@ func (a *App) Close(ctx context.Context) error {
 			st.cancel()
 		}
 	}
+	stop := a.bgStop
 	a.mu.Unlock()
+	if stop != nil {
+		stop() // and the watches that deliberately outlive a turn
+	}
 	done := make(chan struct{})
 	go func() {
 		a.wg.Wait()

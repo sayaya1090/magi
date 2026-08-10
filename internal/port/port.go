@@ -154,6 +154,24 @@ type Store interface {
 	Truncate(ctx context.Context, s session.SessionID, upToSeq int64) error
 }
 
+// Elsewhere is work being done in another session, whose answer belongs back in this one.
+//
+// It carries no channel and no callback. The answer is written where every answer is written — the
+// doer's own transcript — and what is registered here is only the intention to go and read it. So
+// nothing is lost if this process dies: the work is still being done, the answer is still written
+// down, and `companions` still shows it. What is lost is the delivery, which is the right thing to
+// be the fragile half.
+type Elsewhere struct {
+	// Who is doing it, as the note coming back should name them.
+	Who string
+	// Session is theirs, which is where the answer will appear.
+	Session string
+	// Request is what they were asked, so the note that arrives says what it is an answer TO. A
+	// turn that handed out three pieces gets three answers back and cannot otherwise tell which is
+	// which — they arrive in whatever order the work finishes, not the order it was asked.
+	Request string
+}
+
 // ScheduleChange is one edit to a workspace's unattended work, or a request to see it.
 //
 // Action is "list", "set" or "remove". On "set", an empty Schedule or Prompt means "leave that part
@@ -321,6 +339,15 @@ type ToolEnv struct {
 	// project's committable config, every surface lists it, and the daemon names them all at
 	// startup. (schedule)
 	Schedule func(ScheduleChange) (string, error)
+	// Expect says a piece of this task is now being done in ANOTHER session, and its answer is to
+	// be brought into this conversation when it lands. nil when unavailable. (hand_off)
+	//
+	// It is what makes handing work over asynchronous instead of a dead end. Before it, a request
+	// crossed to another companion and the tool's own answer said "they do not report back, so
+	// read their transcript later" — so the asker either stopped and waited on a screen it could
+	// not see, or carried on and forgot. Registering the wait here means the asker keeps working
+	// and the reply arrives in its conversation the way a steer does.
+	Expect   func(Elsewhere) error
 	Platform Platform
 	// Sandbox requests OS-level confinement for commands (bash). Zero value
 	// (empty Mode) means unconfined.

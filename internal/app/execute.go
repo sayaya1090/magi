@@ -201,8 +201,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
 	spawnFn, childStepsFn, restoreChildFn, mergeChildFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	var expectFn func(port.Elsewhere) error
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
+		expectFn = func(e port.Elsewhere) error { return a.Expect(sid, actor, e) }
 		routeInterjectionFn = func(action, reason, requestID string) error {
 			if !a.hasPendingInterject(sid) {
 				return fmt.Errorf("there is no queued interjection to route right now")
@@ -398,6 +400,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Schedule: func(c port.ScheduleChange) (string, error) {
 			return a.EditSchedule(s.Workdir, c)
 		},
+		// Only at depth 0, and for the same reason Spawn is. A child handing work to a companion
+		// would put the answer into the CHILD's conversation, which ends when the child does — so
+		// the reply would be written into a transcript nobody reads again.
+		Expect: expectFn,
 		SearchSessions: func(query, open string) (string, error) {
 			if open != "" {
 				return a.OpenTurn(ctx, open)
