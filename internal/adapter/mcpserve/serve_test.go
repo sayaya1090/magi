@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/embed"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // A store with three things written in it, one of which is about the topic under test.
@@ -102,7 +103,7 @@ func TestAClientCanConnectAskAndReadTheAnswer(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Result.Tools) != 2 {
+	if len(listed.Result.Tools) != 3 {
 		t.Fatalf("%d tools", len(listed.Result.Tools))
 	}
 	for _, tl := range listed.Result.Tools {
@@ -305,5 +306,84 @@ func TestASemanticSearchFindsWhatTheWordsDoNot(t *testing.T) {
 	}
 	if !strings.Contains(got, "no embeddings") {
 		t.Errorf("the search quietly became worse and did not say so:\n%s", got)
+	}
+}
+
+// A companion says what it can be asked to do, not only what it has written down.
+//
+// The question a model has FIRST is which companion to ask, and `knows` cannot answer it: it
+// searches a store, and a store that comes back empty says nothing about whether this was the right
+// door. Before `about`, all a peer advertised was a name and a role clause inside two tool
+// descriptions — so three written procedures and a connection to the design tooling were invisible
+// from outside, and the choice of who to ask was a guess.
+func TestACompanionAdvertisesWhatItCanBeAskedToDo(t *testing.T) {
+	s := &Server{
+		Name: "design", Role: "the design system", Dir: store(t),
+		Team: "frontend", Hub: true, Workdir: "/w/design-system",
+		Skills: []port.Skill{
+			{Name: "spec-review", Description: "how a component spec is checked\nbefore it ships"},
+			{Name: "token-audit", Description: "find hardcoded colours"},
+		},
+		Reach: []string{"figma", "storybook"},
+	}
+	got := textOf(t, call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"about","arguments":{}}}`+"\n"))
+
+	for _, want := range []string{
+		"design", "the design system", "frontend", "/w/design-system",
+		"spec-review", "how a component spec is checked before it ships", // flattened onto one line
+		"token-audit", "figma", "storybook",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("about does not mention %q:\n%s", want, got)
+		}
+	}
+	// Being the hub is worth saying: addressing the team reaches this one, so a caller that has it
+	// has already reached whoever answers for the rest.
+	if !strings.Contains(got, "answers for the team") {
+		t.Errorf("the hub does not say so:\n%s", got)
+	}
+	// And it is in the tool list, or nothing would ever call it.
+	list := call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n")
+	if !strings.Contains(list, `"about"`) {
+		t.Errorf("about is not advertised: %s", list)
+	}
+}
+
+// What a companion can be ASKED to do travels. What it would RUN to do it does not.
+//
+// join.go refuses to copy an [mcp] entry between workspaces because the entry is a command this
+// process would later start, and "the companion I joined told me to" is not a sentence anybody
+// should find in an incident report. Advertising is that same act done at a distance and over a
+// pipe, so the same rule holds — and a URL is covered too, being the one that does not look
+// executable and can carry an internal host and a token in a query string.
+func TestAdvertisingCarriesNamesAndNeverCommands(t *testing.T) {
+	s := &Server{
+		Name: "design", Dir: store(t),
+		Reach: []string{"figma", "storybook"},
+	}
+	got := textOf(t, call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"about","arguments":{}}}`+"\n"))
+
+	// The Server is not even GIVEN a command or a token to leak — which is the point, and is why
+	// this asserts on the type as well as on the text: a later field carrying one would have to be
+	// added here first.
+	for _, forbidden := range []string{"npx", "command", "http://", "https://", "TOKEN", "API_KEY"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("about leaked %q:\n%s", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, "figma") {
+		t.Errorf("the name did not travel either:\n%s", got)
+	}
+}
+
+// A companion with nothing declared says so rather than printing an empty heading.
+func TestACompanionWithNothingToAdvertiseSaysThat(t *testing.T) {
+	s := &Server{Name: "scratch", Dir: store(t)}
+	got := textOf(t, call(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"about","arguments":{}}}`+"\n"))
+	if !strings.Contains(got, "no skills and no external tool servers") {
+		t.Errorf("a bare companion printed:\n%s", got)
+	}
+	if strings.Contains(got, "written procedures for") {
+		t.Errorf("an empty heading was printed:\n%s", got)
 	}
 }

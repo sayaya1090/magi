@@ -218,3 +218,11 @@ func (a *App) skillBody(workdir, name string) (string, bool) {
 	}
 	return "", false
 }
+
+// Skills is what a workspace has written procedures for.
+//
+// Exported for the companion MCP server, which answers "what can you be asked to do" for a
+// NEIGHBOUR's workspace and must find its skills by the same rules this magi finds its own. A
+// second walk would have its own idea of where a skill lives — this one already knows about the
+// .claude layout and the machine-wide directory — and the two would agree until one was fixed.
+func (a *App) Skills(workdir string) []port.Skill { return a.loadSkills(workdir) }

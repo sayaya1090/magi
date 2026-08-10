@@ -21,12 +21,20 @@
 // there is no port, and crossing a machine boundary is ssh's job, which is a thing operators
 // already know how to reason about.
 //
-// # Two tools, because asking and reading are different
+// # Three tools, because three different questions get asked
 //
-// `knows` answers "what have you got on X" with one line each. `detail` returns one entry whole.
-// A search that returned full bodies would put four pages of somebody else's notes into the asker's
-// context to answer a question that might be settled by a title — and the caller cannot know which
-// until it has seen the titles.
+// `about` answers "what are you for, and what can you be asked to do". `knows` answers "what have
+// you got on X" with one line each. `detail` returns one entry whole.
+//
+// The last two are one question split in half deliberately: a search that returned full bodies
+// would put four pages of somebody else's notes into the asker's context to answer something a
+// title might have settled, and the caller cannot know which until it has seen the titles.
+//
+// `about` is the one that was missing, and its absence had a shape. A companion advertised a store
+// and nothing else — so a model deciding whether to ask design or api had a role clause buried in
+// a tool description and no way to learn that design has three written procedures and can reach the
+// design tooling. What it can be asked to do is public; the COMMAND it would run to do it is not
+// (see about()).
 package mcpserve
 
 import (
@@ -42,6 +50,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/rank"
 	"github.com/sayaya1090/magi/internal/core/text"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // Server answers for one companion.
@@ -60,6 +69,17 @@ type Server struct {
 	// about billing; without it, the search is lexical and says so. Never fatal: an endpoint that
 	// is absent, refusing or slow costs the semantic half and nothing else.
 	Embed *embed.Client
+
+	// What this companion is, beyond its notes — see the `about` tool.
+	Team    string
+	Hub     bool
+	Workdir string
+	// Skills are the named procedures written down in this companion's workspace: the closest
+	// thing there is to a list of what it can be asked to do.
+	Skills []port.Skill
+	// Reach names the external tool servers this companion is configured to talk to. NAMES ONLY,
+	// and that is a rule rather than a convenience — see about().
+	Reach []string
 }
 
 // entry is one thing this companion wrote down, flattened out of the store's two kinds.
@@ -223,6 +243,73 @@ func (s *Server) detail(ctx context.Context, id string) string {
 		s.Name, id, text.Clip(strings.Join(ids, ", "), 600))
 }
 
+// about says what this companion is for and what it can be asked to do.
+//
+// # Why this is not the same question as `knows`
+//
+// `knows` answers "what have you written down about X" — a search of a store. It cannot answer
+// "should I be asking you at all", and that is the question a model has first. Before this, the
+// only trace of it was the role clause inside the other two tools' descriptions, so a companion
+// with three skills and a connection to the билling database advertised none of it: from outside it
+// was a name with a store behind it.
+//
+// # Names only, and that is the boundary
+//
+// The reachable servers are listed by NAME. Not the command, not the arguments, not a URL, and
+// never an environment value. An [mcp] entry is a command this process would run, and join.go
+// refuses to copy one across for exactly that reason — "the companion I joined told me to" is not
+// a sentence anybody should find in an incident report. Advertising is the same act at a distance,
+// so it obeys the same rule: what design can be ASKED to do is public; what design would RUN to do
+// it is design's own.
+//
+// The same reasoning covers a URL, which is not obviously executable and is worse in one way: it
+// can carry an internal host, and often a token in a query string.
+func (s *Server) about() string {
+	var b strings.Builder
+	b.WriteString(s.Name)
+	if s.Role != "" {
+		b.WriteString(" — " + s.Role)
+	}
+	b.WriteString("\n")
+	if s.Team != "" {
+		b.WriteString("team: " + s.Team)
+		if s.Hub {
+			// Worth saying: addressing the team reaches the hub, so a caller that has this one has
+			// already reached whoever answers for the rest.
+			b.WriteString(" (answers for the team)")
+		}
+		b.WriteString("\n")
+	}
+	if s.Workdir != "" {
+		b.WriteString("workspace: " + s.Workdir + "\n")
+	}
+	if len(s.Skills) > 0 {
+		b.WriteString("\nWhat it has written procedures for:\n")
+		for _, sk := range s.Skills {
+			b.WriteString("  " + sk.Name)
+			if d := strings.TrimSpace(sk.Description); d != "" {
+				b.WriteString(" — " + text.Clip(oneLine(d), 160))
+			}
+			b.WriteString("\n")
+		}
+	}
+	if len(s.Reach) > 0 {
+		b.WriteString("\nExternal tool servers it can reach: " + strings.Join(s.Reach, ", ") + "\n" +
+			"Names only. That says what it can be asked to do, not what you can run — to use one\n" +
+			"of those yourself you configure it in your own workspace, on purpose.\n")
+	}
+	if len(s.Skills) == 0 && len(s.Reach) == 0 {
+		b.WriteString("\nIt declares no skills and no external tool servers. What it has is what it\n" +
+			"has written down — ask `knows`.\n")
+	}
+	return b.String()
+}
+
+// oneLine flattens a description so a multi-line first paragraph cannot break the list's shape.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // tools is what this server advertises.
 func (s *Server) tools() []map[string]any {
 	who := s.Name
@@ -230,6 +317,17 @@ func (s *Server) tools() []map[string]any {
 		who += " (" + s.Role + ")"
 	}
 	return []map[string]any{
+		{
+			// A third tool per peer is not free — the tool list is paid on every prompt, and four
+			// companions make this twelve entries rather than eight. It is here rather than folded
+			// into the other two descriptions because a DESCRIPTION is paid every prompt while an
+			// ANSWER is paid when somebody asks, and this answer is several lines long.
+			"name": "about",
+			"description": "What " + s.Name + " is for, and what it can be asked to do: its role, " +
+				"its skills, and the external tool servers it can reach. Read this before asking " +
+				"it for work.",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		},
 		{
 			"name": "knows",
 			"description": "Search what " + who + " has written down — its lessons and remembered " +
@@ -327,6 +425,8 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 // whether to try a different argument or a different tool.
 func (s *Server) call(ctx context.Context, name string, args json.RawMessage) map[string]any {
 	switch name {
+	case "about":
+		return okResult(s.about())
 	case "knows":
 		var a struct {
 			About string `json:"about"`
@@ -355,7 +455,7 @@ func (s *Server) call(ctx context.Context, name string, args json.RawMessage) ma
 		}
 		return okResult(s.detail(ctx, a.ID))
 	default:
-		return errResult("no such tool: " + name + ". This server has knows and detail")
+		return errResult("no such tool: " + name + ". This server has about, knows and detail")
 	}
 }
 
