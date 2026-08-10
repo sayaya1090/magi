@@ -194,3 +194,111 @@ func TestMergeProjectConfig_TheWorkspaceSaysWhoTheCompanionIs(t *testing.T) {
 		t.Errorf("an empty [companion] block wiped the machine's: %+v", got)
 	}
 }
+
+// TestEveryConfigFieldIsEitherMergedOrKnowinglyNotMerged is the guard the tests above cannot be.
+//
+// Each of them names a field. That works until somebody adds a field — and then the overlay is
+// silently missing it, a project sets it in .magi/config.toml, and nothing happens. The failure is
+// invisible: no error, no warning, the value simply does not arrive. That shape (a mechanism whose
+// counterpart was never written) is the most common defect in this tree, and enumerating fields by
+// hand is what lets it in.
+//
+// So this walks Config by reflection: set exactly one field to a non-zero value, overlay it onto an
+// empty global config, and require the result to differ. A field that changes nothing is either
+// merged and broken, or never merged at all.
+//
+// It compares at top-level granularity. A struct field whose sub-fields are merged one by one (LLM,
+// Council) passes as long as ANY of them lands, so it cannot catch a missing sub-field — the named
+// tests above cover those.
+func TestEveryConfigFieldIsEitherMergedOrKnowinglyNotMerged(t *testing.T) {
+	// Fields that do not cross from a project file, with the reason. A new entry here should be a
+	// decision somebody made, not a place to put a field to make this test quiet.
+	//
+	// Everything below was already unmerged when this guard was written. None of it has been
+	// reviewed: the guard's job today is to stop the list GROWING by accident, and the list itself
+	// is the record of what to look at. Several look like plain omissions — a repo that pins its
+	// model cannot pin the sampling that model needs.
+	notMerged := map[string]string{
+		"APIKey":          "a key in a committed file is a leaked key — plausibly deliberate, unreviewed",
+		"EmbedModel":      "unreviewed",
+		"Subagents":       "written by /subagents for this user, not for the repo — plausibly deliberate",
+		"Limits":          "unreviewed",
+		"Sampling":        "unreviewed",
+		"MaxOutputTokens": "unreviewed",
+		"ContextTokens":   "unreviewed",
+		"CompactRatio":    "unreviewed",
+		"Temperature":     "unreviewed",
+		"TopP":            "unreviewed",
+		"TopK":            "unreviewed",
+	}
+
+	base := config.Config{}
+	ct := reflect.TypeOf(config.Config{})
+	for i := range ct.NumField() {
+		f := ct.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		proj := config.Config{}
+		reflect.ValueOf(&proj).Elem().Field(i).Set(nonZeroValue(t, f.Type))
+
+		got := mergeProjectConfig(base, proj)
+		landed := !reflect.DeepEqual(got, base)
+
+		if why, exempt := notMerged[f.Name]; exempt {
+			if landed {
+				t.Errorf("%s is listed as not merged (%s) but mergeProjectConfig does merge it — "+
+					"delete the entry", f.Name, why)
+			}
+			continue
+		}
+		if !landed {
+			t.Errorf("a project config setting %s changes nothing: mergeProjectConfig has no case "+
+				"for it. Add one, or add it to notMerged with the reason.", f.Name)
+		}
+	}
+}
+
+// nonZeroValue builds a value of t that is distinguishable from t's zero value, deeply enough that
+// a struct with only merged sub-fields still comes out non-zero.
+func nonZeroValue(t *testing.T, typ reflect.Type) reflect.Value {
+	t.Helper()
+	switch typ.Kind() {
+	case reflect.Bool:
+		return reflect.ValueOf(true).Convert(typ)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return reflect.ValueOf(int64(7)).Convert(typ)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return reflect.ValueOf(uint64(7)).Convert(typ)
+	case reflect.Float32, reflect.Float64:
+		return reflect.ValueOf(0.75).Convert(typ)
+	case reflect.String:
+		return reflect.ValueOf("probe").Convert(typ)
+	case reflect.Pointer:
+		p := reflect.New(typ.Elem())
+		p.Elem().Set(nonZeroValue(t, typ.Elem()))
+		return p
+	case reflect.Slice:
+		s := reflect.MakeSlice(typ, 1, 1)
+		s.Index(0).Set(nonZeroValue(t, typ.Elem()))
+		return s
+	case reflect.Map:
+		m := reflect.MakeMap(typ)
+		m.SetMapIndex(nonZeroValue(t, typ.Key()), nonZeroValue(t, typ.Elem()))
+		return m
+	case reflect.Interface:
+		// Only reached for map[string]any plugin settings.
+		return reflect.ValueOf("probe")
+	case reflect.Struct:
+		v := reflect.New(typ).Elem()
+		for i := range typ.NumField() {
+			if typ.Field(i).IsExported() {
+				v.Field(i).Set(nonZeroValue(t, typ.Field(i).Type))
+			}
+		}
+		return v
+	default:
+		t.Fatalf("nonZeroValue: no case for %s (%s)", typ, typ.Kind())
+		return reflect.Value{}
+	}
+}

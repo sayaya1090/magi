@@ -55,6 +55,9 @@ type Config struct {
 	APIKey        string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
 	Permission    string               `toml:"permission"`
 	MCP           map[string]MCPServer `toml:"mcp"`            // name -> server
+	// Cron is the unattended work this workspace does on a schedule, name -> job. Only a daemon
+	// runs them; an interactive session reads them so its editor can show them, and fires nothing.
+	Cron map[string]CronJob `toml:"cron"`
 	Routing       map[string]string    `toml:"routing"`        // agent name -> model (M6 routing)
 	ExperienceDir string               `toml:"experience_dir"` // shared experience store path (D13)
 	Hooks         []Hook               `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
@@ -255,6 +258,40 @@ type MCPServer struct {
 	Args    []string `toml:"args"`
 	Env     []string `toml:"env"`
 }
+
+// CronJob is one unattended task: when to run, and what to ask for.
+//
+// # Why a named table and not a list
+//
+// Written as [cron.nightly-audit] rather than [[cron]], so a job has a name that is stable across
+// edits. Two things follow from that and both are the reason: the editors in the TUI and the web
+// console can change one job with SetKey and remove one with RemoveSection — the primitives that
+// already exist in edit.go — and a person reading a diff sees which job changed rather than that
+// the third element of an array did. It is also the shape MCP servers already use, so there is one
+// idea here and not two.
+//
+// # What it does not carry
+//
+// No workdir: the daemon that runs a job is the one holding this workspace, and a job that could
+// name another directory would be a way to make a companion work somewhere nobody was watching.
+// No "last run" either — that is derived from the sessions the job created (see SessionMeta.Origin)
+// rather than written back here, because a second record of when something happened is a second
+// record that can disagree with the first.
+type CronJob struct {
+	// Schedule is a crontab line ("0 3 * * *") or a shorthand ("@daily"), read in local time.
+	// Parsed by internal/core/cron; an unparseable one is reported at startup and skipped, never
+	// silently treated as "never".
+	Schedule string `toml:"schedule"`
+	// Prompt is what the companion is asked, verbatim, in a session of its own.
+	Prompt string `toml:"prompt"`
+	// Enabled defaults to true when the key is absent, which is why it is a pointer: a job written
+	// into the file is meant to run, and a plain bool would make every hand-written job start
+	// switched off. Off is something a person says explicitly.
+	Enabled *bool `toml:"enabled"`
+}
+
+// On reports whether the job should run. Absent means yes.
+func (j CronJob) On() bool { return j.Enabled == nil || *j.Enabled }
 
 // defaultConfigTemplate is the commented, self-documenting config.toml written
 // on first run so users can see and edit the available settings. Defaults are

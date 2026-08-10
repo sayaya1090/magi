@@ -998,6 +998,15 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 		}
 		cfg.MCP[k] = v
 	}
+	// Scheduled work merges by name like the servers above, so a repo can carry its own nightly
+	// job and still inherit whatever the machine schedules everywhere. Same-named, the project
+	// wins: the file next to the code is the more specific statement about that code.
+	for k, v := range proj.Cron {
+		if cfg.Cron == nil {
+			cfg.Cron = map[string]config.CronJob{}
+		}
+		cfg.Cron[k] = v
+	}
 	for k, v := range proj.LLM.Headers {
 		if cfg.LLM.Headers == nil {
 			cfg.LLM.Headers = map[string]string{}
