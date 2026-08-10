@@ -678,7 +678,7 @@ func TestWorkForAnotherMachineCrossesWithTheRequestIntact(t *testing.T) {
 		if err := json.Unmarshal(stdin, &gotBody); err != nil {
 			t.Error(err)
 		}
-		return []byte(`{"name":"design","workdir":"/w/design","session":"s_far","since":41}`), nil
+		return []byte(`{"name":"design","workdir":"/w/design","session":"s_far","receipt":"r1"}`), nil
 	}
 	res, watched := tm.askWatching(
 		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
@@ -744,7 +744,7 @@ func TestTheAnswerIsFetchedFromTheMachineThatHasIt(t *testing.T) {
 	finished := false
 	cross := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
 		if args[0] == "--hand" {
-			return []byte(`{"name":"design","session":"s_far","since":41}`), nil
+			return []byte(`{"name":"design","session":"s_far","receipt":"r1"}`), nil
 		}
 		if !finished {
 			return []byte(`{}`), nil
@@ -796,7 +796,7 @@ func TestAMachineThatDoesNotAnswerDoesNotEndTheWait(t *testing.T) {
 	cross := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
 		if args[0] == "--hand" {
 			handed = true
-			return []byte(`{"name":"design","session":"s_far","since":1}`), nil
+			return []byte(`{"name":"design","session":"s_far","receipt":"r1"}`), nil
 		}
 		return nil, errors.New("ssh: connect to host buildbox port 22: Network is unreachable")
 	}
@@ -892,5 +892,43 @@ func TestAMachineThatCannotDescribeSaysWhichOne(t *testing.T) {
 	}
 	if !strings.Contains(text(t, res), "buildbox") {
 		t.Errorf("the failure does not name the machine: %q", text(t, res))
+	}
+}
+
+// Work handed across is asked about by its receipt and by nothing else.
+//
+// The session and the position it stands for stay on the machine that has them, so this side can
+// name the work it handed over and has no way to name anybody else's — not by design of a check,
+// but because it holds nothing that would let it.
+func TestTheAnswerIsAskedForByReceiptAndNothingElse(t *testing.T) {
+	tm := newTeam(t)
+	tm.elsewhere(cluster.Member{Host: "buildbox", Socket: "/far/d.sock", Name: "design", Seen: time.Now()})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	var asked []byte
+	cross := func(_ context.Context, _ string, args []string, stdin []byte) ([]byte, error) {
+		if args[0] == "--hand" {
+			return []byte(`{"name":"design","session":"s_far","receipt":"rcpt-9"}`), nil
+		}
+		asked = append([]byte(nil), stdin...)
+		return []byte(`{"done":true,"answer":"ok"}`), nil
+	}
+	_, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Cross: cross},
+		"m", "design", "something")
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered", len(watched))
+	}
+	watched[0].Answer()
+
+	var sent map[string]any
+	if err := json.Unmarshal(asked, &sent); err != nil {
+		t.Fatalf("%v: %s", err, asked)
+	}
+	if sent["receipt"] != "rcpt-9" {
+		t.Errorf("the question did not carry the receipt: %s", asked)
+	}
+	if _, named := sent["session"]; named {
+		t.Errorf("the question names a session, which lets a caller ask about work it never handed over: %s", asked)
 	}
 }

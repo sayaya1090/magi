@@ -207,16 +207,57 @@ func TestThePositionIsTakenBeforeTheWorkGoesIn(t *testing.T) {
 	ar.publish("design", "s_design")
 
 	rep, _, _ := ar.hand(handRequest{From: "master", To: "design", Request: "do it"})
-	if rep.Since == 0 {
-		t.Fatal("no position came back, so an answer could never be found again")
+	if rep.Receipt == "" {
+		t.Fatal("no receipt came back, so the answer could never be collected")
 	}
-	done, _ := ar.reader.AnswerSince(context.Background(), "s_design", rep.Since)
-	if done {
-		t.Fatal("the position already includes a finished turn — the answer would be the previous one")
+	if got, _ := ar.state(stateRequest{Receipt: rep.Receipt}); got.Done {
+		t.Fatal("the recorded position already includes a finished turn — the answer would be the previous one")
 	}
-	ar.append("s_design", ev(t, event.TypeTurnFinished, event.TurnFinishedData{}))
-	if done, _ := ar.reader.AnswerSince(context.Background(), "s_design", rep.Since); !done {
-		t.Fatal("a turn finishing after the work landed was not seen as its answer")
+	ar.append("s_design",
+		ev(t, event.TypePartAppended, event.PartAppendedData{MessageID: "m9",
+			Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartText, Text: "done it"}}),
+		ev(t, event.TypeTurnFinished, event.TurnFinishedData{}))
+	if got, _ := ar.state(stateRequest{Receipt: rep.Receipt}); !got.Done || got.Answer != "done it" {
+		t.Fatalf("a turn finishing after the work landed was not seen as its answer: %+v", got)
+	}
+}
+
+// A caller that did not hand the work over cannot read its answer.
+//
+// The door used to take a session and a position, which are two numbers with nothing about WHO. So
+// naming somebody else's session — by mistake far more likely than by malice, since a caller
+// holding several of these can use the wrong one — came back with their answer, attributed to your
+// request and looking entirely normal.
+//
+// A receipt is the handle and the permission at once. There is nothing else to present, so a caller
+// cannot name work it did not hand over even by accident.
+func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
+	ar := newArrival(t)
+	ar.publish("design", "s_design")
+	rep, _, _ := ar.hand(handRequest{From: "master", To: "design", Request: "do it"})
+	ar.append("s_design",
+		ev(t, event.TypePartAppended, event.PartAppendedData{MessageID: "m9",
+			Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartText, Text: "somebody else's answer"}}),
+		ev(t, event.TypeTurnFinished, event.TurnFinishedData{}))
+
+	// The session id alone, which is what the door used to accept.
+	var out, errOut bytes.Buffer
+	body, _ := json.Marshal(map[string]any{"session": "s_design", "since": 0})
+	if code := handoffStateHere(bytes.NewReader(body), &out, &errOut, ar.reader, ar.cfgDir); code == 0 {
+		t.Fatalf("naming a session with no receipt was answered: %s", out.String())
+	}
+	if strings.Contains(out.String(), "somebody else") {
+		t.Fatalf("an answer came back to a caller that handed nothing over: %s", out.String())
+	}
+	// A made-up receipt is no better than none.
+	if got, code := ar.state(stateRequest{Receipt: "00000000000000000000000000000000"}); code == 0 || got.Done {
+		t.Fatalf("an invented receipt was answered: %+v", got)
+	}
+	// And the real one still works, so this is a lock and not a wall.
+	if got, code := ar.state(stateRequest{Receipt: rep.Receipt}); code != 0 || !got.Done {
+		t.Fatalf("the receipt that was issued did not open it: %+v", got)
 	}
 }
 
@@ -250,7 +291,7 @@ func TestTheFarSideAnswersOnlyOnceTheTurnHasFinished(t *testing.T) {
 	ar.publish("design", "s_design")
 	rep, _, _ := ar.hand(handRequest{From: "master", To: "design", Request: "do it"})
 
-	if got, code := ar.state(stateRequest{Session: "s_design", Since: rep.Since}); code != 0 || got.Done {
+	if got, code := ar.state(stateRequest{Receipt: rep.Receipt}); code != 0 || got.Done {
 		t.Fatalf("an unfinished turn answered %+v", got)
 	}
 	ar.append("s_design",
@@ -259,7 +300,7 @@ func TestTheFarSideAnswersOnlyOnceTheTurnHasFinished(t *testing.T) {
 			Part: session.Part{Kind: session.PartText, Text: "the screen is rewritten"}}),
 		ev(t, event.TypeTurnFinished, event.TurnFinishedData{}))
 
-	got, code := ar.state(stateRequest{Session: "s_design", Since: rep.Since})
+	got, code := ar.state(stateRequest{Receipt: rep.Receipt})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -285,7 +326,11 @@ func TestAStoppedCompanionEndsTheWaitAcrossTheWire(t *testing.T) {
 		ev(t, event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m0",
 			Parts: []session.Part{{Kind: session.PartText, Text: "do it"}}}))
 
-	got, code := ar.state(stateRequest{Session: "s_gone", Since: 0})
+	rec, err := daemon.Give(ar.cfgDir, daemon.Receipt{Session: "s_gone", Who: "master", To: "gone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, code := ar.state(stateRequest{Receipt: rec.ID})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}

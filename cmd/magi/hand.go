@@ -52,7 +52,10 @@ type handReply struct {
 	Name    string `json:"name,omitempty"`
 	Workdir string `json:"workdir,omitempty"`
 	Session string `json:"session,omitempty"`
-	Since   int64  `json:"since,omitempty"`
+	// Receipt is how this piece of work is asked about later, and the only way. The session and
+	// position it stands for are recorded here rather than sent back, so a caller can name the work
+	// it handed over and cannot name anything else.
+	Receipt string `json:"receipt,omitempty"`
 }
 
 // handHere takes work handed to a companion on this machine.
@@ -86,17 +89,26 @@ func handHere(in io.Reader, out, errOut io.Writer, r fleet.Reader, configDir str
 		// from something the person typed, and the no-chaining rule is read off exactly this mark.
 		label = fleet.DispatchedFrom(orSomebody(req.From), "")
 	}
+	// Recorded BEFORE the work goes in. The other way round, a failure to write the receipt would
+	// leave work being done that nobody can ever ask about — and the receipt costs nothing if the
+	// send then fails, because an unused one simply expires.
+	rec, rerr := daemon.Give(configDir, daemon.Receipt{
+		Session: target.Session, Since: since, Who: req.From, To: target.Name})
+	if rerr != nil {
+		return writeJSON(out, errOut, handReply{Refused: fmt.Sprintf(
+			"this machine could not record the handover, so its answer could never be collected: %v",
+			rerr)})
+	}
 	if serr := companion.Send(ctx, target, label, req.Request); serr != nil {
 		return writeJSON(out, errOut, handReply{Refused: serr.Error()})
 	}
 	return writeJSON(out, errOut, handReply{
-		Name: target.Name, Workdir: target.Workdir, Session: target.Session, Since: since,
+		Name: target.Name, Workdir: target.Workdir, Session: target.Session, Receipt: rec.ID,
 	})
 }
 
 type stateRequest struct {
-	Session string `json:"session"`
-	Since   int64  `json:"since"`
+	Receipt string `json:"receipt"`
 }
 
 type stateReply struct {
@@ -118,12 +130,17 @@ func handoffStateHere(in io.Reader, out, errOut io.Writer, a *app.App, configDir
 		fmt.Fprintln(errOut, "magi:", err)
 		return 1
 	}
-	if req.Session == "" {
-		fmt.Fprintln(errOut, "magi: no session named")
+	rec, ok := daemon.Claim(configDir, req.Receipt)
+	if !ok {
+		// One answer for unknown and for expired, and none for "which session was that". A door
+		// that distinguishes them is a door that answers questions about work the caller did not
+		// hand over, which is the whole reason there is a receipt.
+		fmt.Fprintln(errOut, "magi: no handover here with that receipt — it was never made here, "+
+			"or it has expired")
 		return 1
 	}
 	ctx := context.Background()
-	if done, answer := a.AnswerSince(ctx, session.SessionID(req.Session), req.Since); done {
+	if done, answer := a.AnswerSince(ctx, session.SessionID(rec.Session), rec.Since); done {
 		return writeJSON(out, errOut, stateReply{Done: true, Answer: answer})
 	}
 	// Not finished. Then the other question: is anybody still doing it, or is this silence
@@ -132,7 +149,7 @@ func handoffStateHere(in io.Reader, out, errOut io.Writer, a *app.App, configDir
 	if err != nil {
 		return writeJSON(out, errOut, stateReply{})
 	}
-	news, over := companion.StateOf(list, req.Session)
+	news, over := companion.StateOf(list, rec.Session)
 	return writeJSON(out, errOut, stateReply{News: news, Over: over})
 }
 

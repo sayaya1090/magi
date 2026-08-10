@@ -56,10 +56,10 @@ type handedThere struct {
 	Name    string `json:"name,omitempty"`
 	Workdir string `json:"workdir,omitempty"`
 	Session string `json:"session,omitempty"`
-	// Since is where their log stood when the work landed. Their number, from their store, because
-	// it is their log it indexes — deriving it here would be inventing a position in a file this
-	// machine has never read.
-	Since int64 `json:"since,omitempty"`
+	// Receipt is the handle for this piece of work, minted over there. It is the only thing that
+	// asks about it: the session and the position it stands for stay on that machine, so this side
+	// can name what it handed over and has no way to name anybody else's.
+	Receipt string `json:"receipt,omitempty"`
 }
 
 // answerThere is what the far side says about the work now.
@@ -109,9 +109,12 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, request string
 		// vocabulary for one set of facts.
 		return errText(got.Refused)
 	}
+	if got.Receipt == "" {
+		return errText(target.Host + " took the work but gave no receipt for it, so there would be " +
+			"no way to bring an answer back. Treat it as not sent")
+	}
 	if got.Session == "" {
-		return errText(target.Host + " took the work but did not say into which session, so there " +
-			"would be no way to bring an answer back. Treat it as not sent")
+		got.Session = got.Receipt // something non-empty to record the wait against
 	}
 
 	// Registered AFTER the crossing, unlike the local path, and for the reason the local path
@@ -172,9 +175,8 @@ func askAcross(cross Cross, host string, got handedThere) (answerThere, bool) {
 		return answerThere{}, false
 	}
 	body, err := json.Marshal(struct {
-		Session string `json:"session"`
-		Since   int64  `json:"since"`
-	}{Session: got.Session, Since: got.Since})
+		Receipt string `json:"receipt"`
+	}{Receipt: got.Receipt})
 	if err != nil {
 		return answerThere{}, false
 	}
