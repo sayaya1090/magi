@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -488,8 +489,17 @@ func run() int {
 		}
 		srv := &mcpserve.Server{
 			Name: who.Name, Role: who.Role,
-			Dir:   filepath.Join(who.Workdir, ".magi", "experience"),
-			Embed: emb,
+			Dir:     filepath.Join(who.Workdir, ".magi", "experience"),
+			Embed:   emb,
+			Team:    who.Team,
+			Hub:     who.Hub,
+			Workdir: who.Workdir,
+			// Their skills, not this machine's. `reader` was built with a nil platform, so
+			// loadSkills reads only <workspace>/.magi/skills and .claude/skills and leaves out the
+			// machine-wide directory — which is the right set: a shared skill is not something
+			// THIS companion can do that the asker cannot.
+			Skills: reader.Skills(who.Workdir),
+			Reach:  reachableServers(who.Workdir),
 		}
 		if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "magi:", err)
@@ -1651,12 +1661,12 @@ func attachCompanionMCP(mgr *mcp.Manager, cfg config.Config, store *jsonl.Store,
 		fmt.Fprintln(os.Stderr, "magi: mcp peers:", lerr)
 		return
 	}
-	for _, a := range list {
-		// Not itself: a companion asking itself what it knows gets what retrieval already put in
-		// front of it, through a subprocess and a round trip.
-		if a.Here || !a.Live || a.Name == "" {
-			continue
-		}
+	peers, clashed := companionPeers(list, cfg)
+	for _, name := range clashed {
+		fmt.Fprintf(os.Stderr, "magi: mcp peers: not attaching the companion %q — an [mcp.%s] in "+
+			"this workspace's config already has that name. Rename one of them.\n", name, name)
+	}
+	for _, a := range peers {
 		// Named after the companion, so the tools arrive as design__knows rather than as a number.
 		// A model with four of these attached decides which to ask by that name.
 		if err := mgr.AddStdio(context.Background(), a.Name, self, []string{"--mcp", a.Name}, nil); err != nil {
@@ -1665,6 +1675,62 @@ func attachCompanionMCP(mgr *mcp.Manager, cfg config.Config, store *jsonl.Store,
 			fmt.Fprintf(os.Stderr, "magi: mcp peer %q: %v\n", a.Name, err)
 		}
 	}
+}
+
+// companionPeers picks which companions this magi attaches as MCP servers.
+//
+// A function of its own because "not itself" is the invariant here, and an invariant living inside
+// a loop that also spawns subprocesses is one nothing can check. Four rules, and each names a way
+// the attach goes wrong rather than merely being unhelpful:
+//
+//   - NOT ITSELF. A companion asking itself what it knows gets, through a subprocess and a round
+//     trip, what retrieval already put in front of it. Worse, the child resolves the name over the
+//     same roster, so a magi that reached itself would keep reaching itself.
+//   - Not a dead one. Its socket is a file with nobody behind it; `magi --mcp` there answers
+//     nothing and the subprocess is held open for the life of the daemon anyway.
+//   - Not a nameless one. The name is how the tools are namespaced AND what the child resolves by:
+//     with none there is nothing to pass and nothing for a model to choose by.
+//   - Not a name the operator has already used for an [mcp] server. The config's meaning wins —
+//     it is the one a person typed on purpose — and the companion is returned separately as
+//     `clashed` rather than dropped, because a companion silently missing from the tool list is
+//     indistinguishable from one that is not running.
+func companionPeers(list []fleet.Agent, cfg config.Config) (peers []fleet.Agent, clashed []string) {
+	for _, a := range list {
+		if a.Here || !a.Live || a.Name == "" {
+			continue
+		}
+		if _, taken := cfg.MCP[a.Name]; taken {
+			clashed = append(clashed, a.Name)
+			continue
+		}
+		peers = append(peers, a)
+	}
+	return peers, clashed
+}
+
+// reachableServers names the external tool servers a workspace is configured to talk to.
+//
+// Names, sorted, and nothing else. The config entry beside each of these is a COMMAND with
+// arguments, or a URL that may carry an internal host and a token — and join.go already refuses to
+// copy one of those between workspaces, on the grounds that "the companion I joined told me to" is
+// not a sentence anybody should find in an incident report. Advertising is that same act done at a
+// distance and over a pipe, so it obeys the same rule: what a companion can be ASKED to do travels;
+// what it would RUN to do it stays where it is.
+//
+// A config that cannot be read is no servers rather than an error: this is a description of a
+// neighbour, and a neighbour whose config is unreadable is one whose reach is unknown — which is
+// what an empty list says.
+func reachableServers(workdir string) []string {
+	c, err := config.Load(filepath.Join(workdir, ".magi"))
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(c.MCP))
+	for name := range c.MCP {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // sanitizeTeam turns a team name into one path segment.
