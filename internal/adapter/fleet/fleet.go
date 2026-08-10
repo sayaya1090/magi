@@ -407,8 +407,6 @@ func Resolve(list []Agent, to string) []Agent {
 	return byRole
 }
 
-// Roster is who is here, for the message when an address matched nobody: the next thing anybody
-// does is address one of them, and they cannot if they do not know who there is.
 // Carrying is what a companion has in hand and behind it, in the words an asker needs.
 //
 // Exported because the shell listing says the same thing, and two spellings of one fact is how a
@@ -521,6 +519,8 @@ func abilities(a Agent) string {
 	return out
 }
 
+// Roster is who is here, for the message when an address matched nobody: the next thing anybody
+// does is address one of them, and they cannot if they do not know who there is.
 func Roster(list []Agent) string {
 	if len(list) == 0 {
 		return "(nobody — no companion is published here)"
