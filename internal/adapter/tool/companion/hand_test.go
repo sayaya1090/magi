@@ -37,9 +37,58 @@ type team struct {
 }
 
 // heard is a daemon that remembers what it was handed.
+//
+// It takes work the way a real one does — through the protocol, minting a receipt — because that
+// is now the only way in. What it records is the composed message, so a test can still assert on
+// the exact bytes a companion receives.
 type heard struct {
 	mu    sync.Mutex
 	parts []string
+	state daemon.Handover
+	given int
+}
+
+func (h *heard) Hand(_ context.Context, label, request string) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.parts = append(h.parts, companion.Labelled(label, request))
+	h.given++
+	return fmt.Sprintf("rcpt-%d", h.given), nil
+}
+
+func (h *heard) Handed(context.Context, string) (daemon.Handover, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.state, nil
+}
+
+func (h *heard) Watch(ctx context.Context, _ string, say func(daemon.Handover) error) error {
+	var said daemon.Handover
+	for {
+		h.mu.Lock()
+		now := h.state
+		h.mu.Unlock()
+		if now != said && now != (daemon.Handover{}) {
+			said = now
+			if say(now) != nil {
+				return nil
+			}
+		}
+		if now.Done || now.Over {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func (h *heard) says(v daemon.Handover) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.state = v
 }
 
 func (h *heard) Submit(_ context.Context, c command.SubmitPrompt) error {
@@ -187,6 +236,14 @@ func (tm *team) askWatching(tool companion.Hand, sid, to, request string) (sessi
 	tool.Reader = func() fleet.Reader { return tm.reader }
 	tool.ConfigDir = tm.cfgDir
 	tool.Cache = &fleet.Cache{}
+	if tool.Machine == "" {
+		tool.Machine = daemon.Host() // production sets it; without it nobody reads as a neighbour
+	}
+	if tool.Reach == nil {
+		// The same door production uses. reachCompanion dials a socket published here and relays
+		// otherwise; a test that skipped it would be testing a path nothing runs.
+		tool.Reach = (&crossing{}).reach()
+	}
 	// Every call carries a form: it is required, and a fixture that omitted it would be testing
 	// the refusal instead of the thing under test.
 	args, err := json.Marshal(map[string]string{"to": to, "request": request,
@@ -250,8 +307,9 @@ func TestHandOffHandsTheWorkOverUntouched(t *testing.T) {
 			t.Errorf("the result does not say the answer comes back on its own (%q): %q", want, text(t, res))
 		}
 	}
-	// And a watch was registered, on THEIR session. Reading the wrong log means either an answer
-	// that never comes or somebody else's answer delivered as this one.
+	// And a watch was registered, keyed on the receipt the receiver minted. Not on a session this
+	// side guessed at: which session the work landed in is the receiver's business, and asking
+	// about one it did not give out is how somebody else's answer gets delivered as this one.
 	if len(watched) != 1 {
 		t.Fatalf("%d watches registered for one hand-off: %+v", len(watched), watched)
 	}
@@ -260,8 +318,8 @@ func TestHandOffHandsTheWorkOverUntouched(t *testing.T) {
 	}
 	if in, err := daemon.Published(tm.socketOf("design")); err != nil {
 		t.Fatal(err)
-	} else if watched[0].Session != in.Session {
-		t.Errorf("the watch reads session %q; design is running %q", watched[0].Session, in.Session)
+	} else if watched[0].Session == in.Session {
+		t.Errorf("the watch names their published session (%q) rather than a receipt", in.Session)
 	}
 }
 
@@ -293,30 +351,31 @@ func TestHandOffSendsNothingWhenTheAnswerCannotComeBack(t *testing.T) {
 	}
 }
 
-// The watch is registered BEFORE the work is sent.
+// The wait is registered AFTER the work is handed over, and that cannot lose an answer.
 //
-// The other way round, a companion quick enough to finish in the gap has its turn already closed
-// when the watch starts looking — so the watch waits for the turn AFTER it, and the answer to the
-// question actually asked is never delivered.
-func TestTheWatchIsInPlaceBeforeTheWorkIsSent(t *testing.T) {
+// It used to be the other way round, and the reason was real: a companion quick enough to finish
+// in the gap had its turn already closed when the watch started looking, so the watch waited for
+// the turn AFTER it. That gap does not exist any more. The receiving daemon takes the position its
+// log stands at BEFORE it starts, and mints the receipt from it — so the answer is found by where
+// it is in their log rather than by having been watched for since before it happened.
+//
+// Registered after because it has to be: the receipt does not exist until the far side has taken
+// the work. The property that used to depend on the ordering is now tested where it lives, against
+// a real daemon — see cmd/magi's TestAnEarlierAnswerIsNotMistakenForThisOne.
+func TestTheWaitIsKeyedOnTheReceiptTheReceiverMinted(t *testing.T) {
 	tm := newTeam(t)
-	order := []string{}
-	design := &recordingOrder{on: func() { order = append(order, "sent") }}
+	design := &recordingOrder{on: func() {}}
 	tm.member("d", "design", "component specs", design)
 	master := tm.member("m", "master", "coordinating", &heard{})
 
-	tool := companion.Hand{Self: master, Called: "master",
-		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}}
-	args, _ := json.Marshal(map[string]string{"to": "design", "request": "do the thing",
-		"so_that": "I can carry on", "answer_as": "- what you found:"})
-	if _, err := tool.Execute(context.Background(), args, port.ToolEnv{
-		SessionID: "m",
-		Expect:    func(port.Elsewhere) error { order = append(order, "watching"); return nil },
-	}); err != nil {
-		t.Fatal(err)
+	_, watched := tm.askWatching(companion.Hand{Self: master, Called: "master"},
+		"m", "design", "do the thing")
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered", len(watched))
 	}
-	if len(order) != 2 || order[0] != "watching" || order[1] != "sent" {
-		t.Errorf("order was %v, want [watching sent]", order)
+	if watched[0].Session == "" || watched[0].Session == "d" {
+		t.Errorf("the wait is keyed on %q — it should be the receipt, not a session it guessed",
+			watched[0].Session)
 	}
 }
 
@@ -1301,3 +1360,6 @@ func TestACompanionThatAppearsLaterIsAdvertised(t *testing.T) {
 		t.Errorf("a companion that came up later is not offered, so nothing can address it:\n%s", got)
 	}
 }
+
+// dialing is the door as production opens it for a companion on this machine.
+func dialing() companion.Reach { return (&crossing{}).reach() }

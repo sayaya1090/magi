@@ -266,29 +266,21 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 		return errText("nothing was sent. They cannot ask you what you meant — there is no reply " +
 			"channel — so this needs " + strings.Join(missing, "; and ")), nil
 	}
-	if target.State == fleet.Remote {
-		return h.handAcross(ctx, target, asked{Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs}, env), nil
-	}
-
-	// The watch is registered BEFORE the work is sent. The other way round, a peer quick enough to
-	// finish in the gap would have its turn already closed by the time anybody looked, and the
-	// watch would then sit waiting for the turn after it — an answer that never comes, about work
-	// that was done.
-	if xerr := env.Expect(port.Elsewhere{
-		Who: target.Name, Session: target.Session, Request: in.Request, AnswerAs: in.AnswerAs,
-		Probe: h.probeFor(target.Socket, target.Name),
-	}); xerr != nil {
-		return errText("nothing was sent: the answer could not be waited for (" + xerr.Error() +
-			"), and handing work over without that loses it"), nil
-	}
-	if serr := Send(ctx, target, DispatchedBy(h.who()), asked{Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs}.text()); serr != nil {
-		// The watch is left in place. It costs one goroutine that will time out, and the
-		// alternative — a way to cancel it — is a second mechanism for the sake of a failed dial.
-		return errText("could not hand it to " + target.Name + ": " + serr.Error()), nil
-	}
-	return okText(fmt.Sprintf("Handed to %s, working in %s. Carry on with the rest of your task — "+
-		"their answer will arrive here when they finish, quoting what you asked. Do not wait for "+
-		"it and do not send it again.", target.Name, target.Workdir)), nil
+	// One door, whoever is on the other side of it.
+	//
+	// There used to be two: a neighbour was dialled and its session submitted to directly, while a
+	// companion on another machine went through the daemon protocol. The second one is the one
+	// that was right — the daemon decides what happens to work handed to it, because it is the
+	// only thing that knows what it is already doing — and dial-or-relay is settled beneath this
+	// by what is published at the socket, not here by a state on a row. See cmd/magi/hand.go.
+	//
+	// What went with the local path: a Send that put a prompt straight into somebody else's
+	// session, a probe that inferred their liveness from a fleet listing, and a watch registered
+	// before the work was sent because a fast peer could finish in the gap. None of them have a
+	// job any more. The receipt is minted inside the receiving daemon, from a position it takes
+	// before it starts, so there is no gap to lose an answer in.
+	return h.handAcross(ctx, target, asked{
+		Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs}, env), nil
 }
 
 // who is what the label says. A companion that declared no name is identified by its workspace,
@@ -338,57 +330,4 @@ func firstLine(s string) string {
 
 func okText(msg string) session.ToolResult {
 	return session.ToolResult{Content: mustJSON(msg)}
-}
-
-// probeFor answers, later and from another goroutine, whether anybody is still doing the work.
-//
-// The engine that waits cannot ask this itself: whether a process is alive and whether it is
-// blocked on a person are a dial and a question over a socket, and internal/app cannot import the
-// packages that own those without closing a cycle. So the answer is supplied from here, where they
-// are already in hand, as a closure the wait calls on its own clock.
-//
-// Two states end the wait and they are not the same news:
-//
-//   - The daemon is gone with the turn unfinished. Nobody is coming, and saying so beats two hours
-//     of silence followed by "not finished", which is equally true of a peer still working.
-//   - It finished a turn but not one this could be. Only reachable if the peer restarted onto a
-//     different session; the request went to a log nothing is driving any more.
-//
-// Being BLOCKED is news and not an ending: a person may still answer it. It is worth saying at once
-// because the asker is the only thing in a position to tell one.
-//
-// Never guesses. A probe that cannot reach the roster says nothing, and the wait continues — a
-// companion reported dead because a listing failed is worse than one reported late.
-func (h Hand) probeFor(socket, name string) func() (string, bool) {
-	reader, cfgDir, self, cache := h.Reader, h.ConfigDir, h.Self, h.Cache
-	return func() (string, bool) {
-		if reader == nil || reader() == nil {
-			return "", false
-		}
-		list, err := fleet.ListCached(context.Background(), reader(), cfgDir, self, cache)
-		if err != nil {
-			return "", false
-		}
-		for _, a := range list {
-			if a.Socket != socket {
-				continue
-			}
-			switch a.State {
-			case fleet.Abandoned:
-				return name + "'s daemon stopped answering with the work unfinished — it was " +
-					"killed, crashed, or its machine went away. Nothing will come back. What it " +
-					"had done is in its transcript; the rest was not done.", true
-			case fleet.Stopped:
-				return name + " is no longer running, and it stopped without finishing what you " +
-					"handed over. Nothing will come back.", true
-			case fleet.Waiting:
-				return name + " is blocked waiting for a person: " + a.Asking +
-					" — it will not get any further until somebody answers that.", false
-			}
-			return "", false
-		}
-		// Not in the listing at all: its record is gone, which is what stopping a companion does.
-		return name + " is no longer published here, so nothing will come back. If it finished " +
-			"before it went, the answer is in its transcript.", true
-	}
 }

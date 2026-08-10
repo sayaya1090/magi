@@ -174,7 +174,7 @@ func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
 	args, _ := json.Marshal(map[string]string{"to": "design", "request": "name the tokens"})
 	res, err := companion.Hand{
 		Self: master, Called: "master", Reader: func() fleet.Reader { return tm.reader },
-		ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
+		ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}, Reach: dialing(),
 	}.Execute(context.Background(), args, port.ToolEnv{
 		SessionID: "m", Expect: func(port.Elsewhere) error { return nil },
 	})
@@ -203,7 +203,7 @@ func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
 	var watched []port.Elsewhere
 	if _, err := (companion.Hand{
 		Self: master, Called: "master", Reader: func() fleet.Reader { return tm.reader },
-		ConfigDir: tm.cfgDir, Cache: &fleet.Cache{},
+		ConfigDir: tm.cfgDir, Cache: &fleet.Cache{}, Reach: dialing(),
 	}).Execute(context.Background(), args, port.ToolEnv{
 		SessionID: "m", Expect: func(e port.Elsewhere) error { watched = append(watched, e); return nil },
 	}); err != nil {

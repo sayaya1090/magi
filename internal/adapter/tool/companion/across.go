@@ -85,7 +85,7 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, a asked, env p
 	}
 	defer cl.Close()
 
-	receipt, herr := cl.Hand(fleet.DispatchedFrom(h.who(), h.Machine), a.text())
+	receipt, herr := cl.Hand(h.label(target), a.text())
 	if herr != nil {
 		var refused daemon.Refused
 		if errors.As(herr, &refused) {
@@ -108,7 +108,7 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, a asked, env p
 	// their log rather than by watching for an event to go past.
 	l := h.watchAcross(target, receipt)
 	if xerr := env.Expect(port.Elsewhere{
-		Who: target.Name + " on " + target.Host, Session: receipt, Request: a.Request, AnswerAs: a.Form,
+		Who: h.naming(target), Session: receipt, Request: a.Request, AnswerAs: a.Form,
 		Answer: l.answer(), Probe: l.probe(), Ready: l.ready, Done: l.stop,
 	}); xerr != nil {
 		l.stop() // nobody is going to call Done for a wait that was never registered
@@ -122,6 +122,35 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, a asked, env p
 	return okText(fmt.Sprintf("Handed to %s on %s, working in %s. Carry on with the rest of your "+
 		"task — their answer will arrive here when they finish, quoting what you asked. Do not "+
 		"wait for it and do not send it again.", target.Name, target.Host, where))
+}
+
+// beside reports whether a companion is on this machine.
+//
+// It survives the consolidation of the two hand-off paths because it is the one thing that still
+// differs, and it is not cosmetic: a companion next door CAN be reached mid-work through its ear,
+// and one on another machine cannot. A label telling a neighbour there is no reply channel would
+// take away a way to do something that exists — the failure shape this tree writes down most.
+// A magi that cannot say its own machine's name cannot tell, and answers no — understating the
+// reply channel rather than promising one that may not be there.
+func (h Hand) beside(target fleet.Agent) bool {
+	return target.Host == "" || (h.Machine != "" && strings.EqualFold(target.Host, h.Machine))
+}
+
+// label is what the receiver reads above the request.
+func (h Hand) label(target fleet.Agent) string {
+	if h.beside(target) {
+		return fleet.DispatchedBy(h.who())
+	}
+	return fleet.DispatchedFrom(h.who(), h.Machine)
+}
+
+// naming is how the asker's own conversation refers to them. "design on buildbox" tells an asker
+// waiting on several which one it is; "design on the machine you are already on" is noise.
+func (h Hand) naming(target fleet.Agent) string {
+	if h.beside(target) {
+		return target.Name
+	}
+	return target.Name + " on " + target.Host
 }
 
 // listening is one pipe held open for the life of a wait, and what the far side has said down it.
@@ -209,7 +238,7 @@ const (
 func (h Hand) watchAcross(target fleet.Agent, receipt string) *listening {
 	ctx, stop := context.WithCancel(context.Background())
 	l := &listening{ready: make(chan struct{}, 1), stop: stop}
-	reach, name := h.Reach, target.Name+" on "+target.Host
+	reach, name := h.Reach, h.naming(target)
 	go func() {
 		wait := firstRetry
 		for ctx.Err() == nil && !l.over() {

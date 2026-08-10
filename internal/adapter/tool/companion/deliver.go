@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
-	"github.com/sayaya1090/magi/internal/core/command"
-	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // Handing work to a companion published on THIS machine, as two steps anybody can take.
@@ -89,35 +86,6 @@ func Ready(a fleet.Agent) string {
 	return ""
 }
 
-// Send puts the request into the target's session, under a label saying who it came from.
-//
-// The label goes on its own line ABOVE the request and the request is copied byte for byte. It was
-// two message parts until the wire was checked: the daemon protocol carries one text field and
-// joins parts without a separator, so "its own part" would have arrived glued to the first word.
-// Every recorded failure of handing work to another agent in this tree began with somebody's words
-// arriving altered.
-func Send(ctx context.Context, target fleet.Agent, label, request string) error {
-	if target.State == fleet.Remote {
-		// The guard is at the DIAL and not at the choosing, because choosing a companion on
-		// another machine is a legitimate thing to do — it is how work crosses. What must never
-		// happen is dialling its socket from here: a socket is a path, and two machines belonging
-		// to one person keep their checkouts in the same places, so the path does not fail, it
-		// opens whichever LOCAL companion sits at it. The work would arrive in the wrong
-		// workspace, looking delivered.
-		return fmt.Errorf("%s is on %s; work does not reach another machine through a socket here",
-			target.Name, target.Host)
-	}
-	cl, err := daemon.Dial(target.Socket)
-	if err != nil {
-		return fmt.Errorf("cannot reach %s: %w", target.Name, err)
-	}
-	defer cl.Close()
-	return cl.Submit(ctx, command.SubmitPrompt{
-		SessionID: session.SessionID(target.Session),
-		Parts:     []session.Part{{Kind: session.PartText, Text: Labelled(label, request)}},
-	})
-}
-
 // Labelled is the one shape a handed-over request takes.
 //
 // Written down once because there are two senders — this one, dialling a neighbour's socket, and a
@@ -128,8 +96,9 @@ func Labelled(label, request string) string { return label + "\n\n" + request }
 
 // StateOf is what can be said about a companion mid-work, for somebody who cannot see it.
 //
-// The same three answers probeFor gives a local wait, packaged so they can be sent over a wire: is
-// the work over with nothing coming, is there news worth passing on, and what is the news.
+// The three answers a waiting asker needs about a companion mid-work: is the work over with
+// nothing coming, is there news worth passing on, and what is the news. Answered by the daemon
+// doing the work, which is the only thing that knows.
 func StateOf(list []fleet.Agent, sid string) (news string, over bool) {
 	for _, a := range list {
 		if a.Session != sid {
