@@ -119,9 +119,10 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, a asked, env p
 	if where == "" {
 		where = "their workspace"
 	}
-	return okText(fmt.Sprintf("Handed to %s on %s, working in %s. Carry on with the rest of your "+
-		"task — their answer will arrive here when they finish, quoting what you asked. Do not "+
-		"wait for it and do not send it again.", target.Name, target.Host, where))
+	return okText(fmt.Sprintf("Handed to %s, working in %s. Its receipt is %s, which is how their "+
+		"answer will be named when it arrives. Carry on with the rest of your task — it comes back "+
+		"here on its own, quoting what you asked. Do not wait for it and do not send it again.",
+		h.naming(target), where, receipt))
 }
 
 // beside reports whether a companion is on this machine.

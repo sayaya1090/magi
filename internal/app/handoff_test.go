@@ -736,3 +736,35 @@ func lastMessage(t *testing.T, f *handoffFixture) string {
 	}
 	return ""
 }
+
+// An answer is named by its receipt, so two from one companion are told apart.
+//
+// A companion can be doing several pieces for you now, one after another in the same conversation.
+// "design answered" twice with two answers is two notes nothing can tell apart — not the reader,
+// and not rate_handoff, which is asked which piece it is judging.
+func TestAnAnswerIsNamedByItsReceipt(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design", Session: "rcpt-2f9c", Request: "count the characters",
+		Answer: func() (string, bool) { return "eight", true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the answer to arrive", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "rcpt-2f9c") {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	// And it is waiting to be judged under that name, so the question at the finish can say which.
+	got := f.a.takeAnsweredHandoffs("mine")
+	if len(got) != 1 || got[0].Receipt != "rcpt-2f9c" {
+		t.Fatalf("the piece waiting for a verdict cannot be named: %+v", got)
+	}
+}

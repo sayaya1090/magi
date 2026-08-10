@@ -81,6 +81,7 @@ type pendingHandoff struct {
 // question, the answer and the work they were both for is the turn that asked.
 type answeredHandoff struct {
 	Who     string
+	Receipt string
 	Request string
 }
 
@@ -321,9 +322,13 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 		close = "Check it against the form you asked for before you fold it in — a part that is " +
 			"missing rather than filled in is the thing to notice now, not later."
 	}
-	text := fmt.Sprintf("# %s answered\n\nYou asked them:\n\n> %s%s\n\n---\n\n%s\n\n---\n"+
+	// Named by its receipt as well as by them. One companion can be doing several pieces for you
+	// now, one after another in the same conversation, and "design answered" twice with two
+	// answers is two notes you cannot tell apart — nor can rate_handoff, which is asked which
+	// piece it is judging.
+	text := fmt.Sprintf("# %s answered (%s)\n\nYou asked them:\n\n> %s%s\n\n---\n\n%s\n\n---\n"+
 		"This is a piece of the work you are already doing, not a new request. %s",
-		e.Who, clipLine(oneLine(e.Request), 400), form, answer, close)
+		e.Who, e.Session, clipLine(oneLine(e.Request), 400), form, answer, close)
 
 	// context.WithoutCancel because this outlives the tool call that started it by design.
 	if err := a.appendPromptText(context.WithoutCancel(ctx), sid,
@@ -342,7 +347,8 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 			}
 		}
 		st.handoffs = kept
-		st.answered = append(st.answered, answeredHandoff{Who: e.Who, Request: e.Request})
+		st.answered = append(st.answered, answeredHandoff{
+			Who: e.Who, Receipt: e.Session, Request: e.Request})
 	}
 	a.mu.Unlock()
 

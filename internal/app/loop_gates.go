@@ -315,9 +315,11 @@ func (a *App) askWhatTheAnswersWereWorth(ctx context.Context, tc turnCtx, evs []
 	b.WriteString("Before you finish: you got an answer back from somebody, and nothing but this " +
 		"turn knows whether it was the answer you needed.\n")
 	for _, h := range ask {
-		fmt.Fprintf(&b, "\n  %s — you asked: %s", h.Who, clipLine(oneLine(h.Request), 160))
+		fmt.Fprintf(&b, "\n  %s (%s) — you asked: %s",
+			h.Who, h.Receipt, clipLine(oneLine(h.Request), 160))
 	}
-	b.WriteString("\n\nCall `rate_handoff` once for each, judging the ANSWER and not whether it " +
+	b.WriteString("\n\nCall `rate_handoff` once for each, naming it by the receipt in brackets so " +
+		"two answers from one companion are told apart, and judging the ANSWER and not whether it " +
 		"arrived. It is a record for whoever chooses next, changes nothing about who work goes " +
 		"to, and ranks nobody. If you would rather not judge it, say so and finish — an unrated " +
 		"hand-off is not a bad one, and you will not be asked again.")

@@ -308,7 +308,7 @@ func TestHandOffHandsTheWorkOverUntouched(t *testing.T) {
 	}
 	// The call returns without waiting, and says so — an agent told only "handed over" polls, and
 	// polling for something that takes minutes is the blocking call this exists to avoid.
-	for _, want := range []string{"Carry on", "arrive here", "Do not wait"} {
+	for _, want := range []string{"Carry on", "comes back here", "Do not wait", "receipt is"} {
 		if !strings.Contains(text(t, res), want) {
 			t.Errorf("the result does not say the answer comes back on its own (%q): %q", want, text(t, res))
 		}
