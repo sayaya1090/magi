@@ -58,6 +58,11 @@ type sessionState struct {
 	// Whole-session rather than turn-scoped: a peer can answer after the turn that asked ends, and
 	// clearing the record at a turn boundary would make the watch still running invisible.
 	handoffs  []pendingHandoff
+	// answered is what came back and has not been judged yet. Kept apart from handoffs, which is
+	// what is still OUT: one drives a note about an unfinished piece, the other a question about
+	// a finished one, and folding them together would make a turn that is waiting look like a
+	// turn that owes an opinion.
+	answered []answeredHandoff
 	grants    map[string]bool // "always" grants per tool
 	userLabel string          // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a

@@ -74,6 +74,16 @@ type pendingHandoff struct {
 	Since   time.Time
 }
 
+// answeredHandoff is one that came back, waiting to be judged.
+//
+// Whether an answer arrived is something this process knows; whether it was the answer needed is
+// not, and never will be — it is a judgement about content, and the only reader that had the
+// question, the answer and the work they were both for is the turn that asked.
+type answeredHandoff struct {
+	Who     string
+	Request string
+}
+
 // Expect registers work being done in another session and starts watching for its answer.
 //
 // The watch is a goroutine on a context this App's Close cancels, NOT on the tool call's context:
@@ -310,6 +320,7 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 			}
 		}
 		st.handoffs = kept
+		st.answered = append(st.answered, answeredHandoff{Who: e.Who, Request: e.Request})
 	}
 	a.mu.Unlock()
 
@@ -343,6 +354,23 @@ func (a *App) PendingHandoffs(sid session.SessionID) []pendingHandoff {
 		return nil
 	}
 	return append([]pendingHandoff(nil), st.handoffs...)
+}
+
+// takeAnsweredHandoffs is what came back and has not been judged, emptied as it is read.
+//
+// Emptied, because the question is asked once. A turn that did not answer it is not asked again at
+// the end of the next one: no verdict is not a bad verdict, and a nag that repeats until it gets a
+// rating would collect ratings given to make it stop.
+func (a *App) takeAnsweredHandoffs(sid session.SessionID) []answeredHandoff {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok || len(st.answered) == 0 {
+		return nil
+	}
+	out := st.answered
+	st.answered = nil
+	return out
 }
 
 // probeHandoff asks whoever wired this up whether anybody is still doing the work.

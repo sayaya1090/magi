@@ -84,6 +84,7 @@ type turnState struct {
 	declared         bool   // the agent declared the task finished and the council accepted
 	distilAsked      bool   // the finish seam already asked what was worth keeping (once per turn)
 	handoffTold      bool   // the turn was told once that a companion has not answered yet
+	ratingAsked      bool   // the turn was asked once what the answers it got were worth
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
 }
 

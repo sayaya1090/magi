@@ -468,3 +468,65 @@ func TestTheWaitReleasesWhatWasHoldingTheAnswerOpen(t *testing.T) {
 		t.Fatal("the wait ended and left a connection held open on two machines")
 	}
 }
+
+// A finishing turn is asked what the answer it got was worth.
+//
+// It is the only reader in a position to say. Whether an answer arrived is known here already;
+// whether it was the answer needed is a judgement about content, and it needs the question, the
+// answer, and the work they were both for — which is what a turn has and a later reader does not.
+func TestAFinishingTurnIsAskedWhatTheAnswerWasWorth(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+	err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design on buildbox", Session: "rcpt-1", Request: "name the tokens",
+		Answer: func() (string, bool) { return "surface-container-low", true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the answer to arrive", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "surface-container-low") {
+					return true
+				}
+			}
+		}
+		return false
+	})
+
+	got := f.a.takeAnsweredHandoffs("mine")
+	if len(got) != 1 || got[0].Who != "design on buildbox" {
+		t.Fatalf("an answer arrived and nothing knows it is waiting to be judged: %+v", got)
+	}
+	// Emptied as it is read: the question is asked once. A nag that repeats until it gets a
+	// verdict would collect verdicts written to make it stop.
+	if again := f.a.takeAnsweredHandoffs("mine"); len(again) != 0 {
+		t.Errorf("it would be asked a second time: %+v", again)
+	}
+}
+
+// A companion the turn has already judged is not asked about.
+//
+// The turn's own tool calls are the evidence. Told to do what it just did, an agent learns that
+// the thing asking is not reading what it does.
+func TestSomebodyAlreadyJudgedIsNotAskedAbout(t *testing.T) {
+	call := func(who string) event.Event {
+		args, _ := json.Marshal(map[string]string{"who": who, "verdict": "good", "why": "it landed"})
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{
+				CallID: "c1", Name: "rate_handoff", Args: args}}})
+		return event.Event{Type: event.TypePartAppended, Data: d}
+	}
+	rated := ratedThisTurn([]event.Event{call("Design"), call("builder")})
+	if !rated["design"] || !rated["builder"] {
+		t.Fatalf("the turn's own verdicts were not read off its calls: %+v", rated)
+	}
+	if rated["scribe"] {
+		t.Error("somebody who was never rated came back as rated")
+	}
+	// A turn that rated nobody leaves nothing behind.
+	if n := len(ratedThisTurn(nil)); n != 0 {
+		t.Errorf("%d verdicts found in a turn with no calls", n)
+	}
+}

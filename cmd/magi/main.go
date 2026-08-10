@@ -804,9 +804,11 @@ func run() int {
 		Hub:       cfg.Companion.Hub,
 		Cache:     companionCache,
 		Roster:    handRoster.get,
+		Record:    func() string { return companion.Tally(wd) },
 		Machine:   daemon.Host(),
 		Reach:     reachCompanion,
 	})
+	reg.Register(companion.Rate{})
 	reg.Register(companion.About{
 		Reader:    func() fleet.Reader { return a },
 		ConfigDir: plat.ConfigDir(),

@@ -93,6 +93,9 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.noteOutstandingHandoffs(ctx, tc, ts); done {
 		return act
 	}
+	if act, done := a.askWhatTheAnswersWereWorth(ctx, tc, evs, ts); done {
+		return act
+	}
 	// Accepted. Before the turn closes, ask what was worth keeping — the one moment where the
 	// answer is both knowable and cheap, because the whole turn is still in context. Off by
 	// default; see distil.go.
@@ -255,6 +258,95 @@ func (a *App) finishDeclared(sid session.SessionID) bool {
 		tc.finish = false
 	})
 	return declared
+}
+
+// askWhatTheAnswersWereWorth asks a finishing turn to judge the answers other companions gave it.
+//
+// # Here, because here is the only place it can be answered
+//
+// Whether an answer was the one needed is a judgement about content, and it needs the question,
+// the answer, and the work they were both for. That is exactly what a turn has and nothing else
+// does — not the wait that delivered it, not a later turn reading the log, not a person. The same
+// argument the distil gate makes about what was worth keeping, at the same moment and for the same
+// reason: the whole turn is still in context, so the answer is both knowable and cheap.
+//
+// # A note, not a gate
+//
+// Asked once and never again. A turn that ignores it finishes; no verdict is not a bad verdict,
+// and a nag that repeats until it gets one would collect ratings written to make it stop, which is
+// worse than no record at all.
+//
+// # Already judged is not asked about
+//
+// The turn's own tool calls are the evidence. A companion the agent has already rated in this turn
+// is dropped, so an agent that does this unprompted is never told to do what it just did — the
+// shape of a system that asks for something it cannot see it already has.
+//
+// Top level only, like the note above it: a child has no Expect, so nothing can have come back.
+func (a *App) askWhatTheAnswersWereWorth(ctx context.Context, tc turnCtx, evs []event.Event,
+	ts *turnState) (loopAction, bool) {
+
+	if ts.ratingAsked || tc.depth != 0 {
+		return 0, false
+	}
+	got := a.takeAnsweredHandoffs(tc.s.ID)
+	if len(got) == 0 {
+		return 0, false
+	}
+	ts.ratingAsked = true
+	rated := ratedThisTurn(evs)
+	var ask []answeredHandoff
+	for _, h := range got {
+		if !rated[strings.ToLower(strings.TrimSpace(h.Who))] {
+			ask = append(ask, h)
+		}
+	}
+	if len(ask) == 0 {
+		return 0, false
+	}
+	var b strings.Builder
+	b.WriteString("Before you finish: you got an answer back from somebody, and nothing but this " +
+		"turn knows whether it was the answer you needed.\n")
+	for _, h := range ask {
+		fmt.Fprintf(&b, "\n  %s — you asked: %s", h.Who, clipLine(oneLine(h.Request), 160))
+	}
+	b.WriteString("\n\nCall `rate_handoff` once for each, judging the ANSWER and not whether it " +
+		"arrived. It is a record for whoever chooses next, changes nothing about who work goes " +
+		"to, and ranks nobody. If you would rather not judge it, say so and finish — an unrated " +
+		"hand-off is not a bad one, and you will not be asked again.")
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: b.String()}},
+	})
+	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "handoff"}, pd)
+	return loopContinue, true
+}
+
+// ratedThisTurn is who the agent has already judged, read off its own tool calls.
+func ratedThisTurn(evs []event.Event) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		tc := d.Part.ToolCall
+		if d.Part.Kind != session.PartToolCall || tc == nil || tc.Name != "rate_handoff" {
+			continue
+		}
+		var args struct {
+			Who string `json:"who"`
+		}
+		if json.Unmarshal(tc.Args, &args) != nil {
+			continue
+		}
+		out[strings.ToLower(strings.TrimSpace(args.Who))] = true
+	}
+	return out
 }
 
 // noteOutstandingHandoffs tells a finishing turn that a companion it asked has not answered.

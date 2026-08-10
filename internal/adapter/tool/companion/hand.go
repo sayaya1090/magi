@@ -92,6 +92,13 @@ type Hand struct {
 	// It must not block: whatever supplies it decides how fresh is fresh, and reading the fleet
 	// means dialling every published socket. See cmd/magi/roster.go.
 	Roster func() string
+	// Record is how work handed over before turned out, as this workspace judged it.
+	//
+	// Shown, never applied. It is a block of its own below the roster rather than a column inside
+	// it, because a line that carries a score reads as an ordering however it is worded — and
+	// nothing here reorders or filters anybody. The model picks; this is one more fact in front
+	// of it, which is the same relationship the roster has to the choice.
+	Record func() string
 }
 
 // DispatchedBy renders the label that opens a handed-over request. It lives in fleet because the
@@ -109,10 +116,16 @@ func (h Hand) Description() string {
 	if who == "" {
 		who = "(nobody else is running here right now, so this will refuse)"
 	}
+	past := ""
+	if h.Record != nil {
+		if r := strings.TrimSpace(h.Record()); r != "" {
+			past = "\n" + r + "\n"
+		}
+	}
 	return "Hand a piece of THIS task to another companion and keep working. It returns at once; " +
 		"their answer arrives in this conversation when they finish, and you fold it into what you " +
 		"have. Do not wait for it and do not ask twice.\n\n" +
-		"Who there is:\n" + who + "\n\n" +
+		"Who there is:\n" + who + "\n" + past + "\n" +
 		"They do not see your conversation, your files or your reasoning — only the words you " +
 		"write here and their own workspace — so write a complete instruction that stands on its " +
 		"own. Refused if the name matches nobody or several, if they are mid-turn, or if this turn " +
