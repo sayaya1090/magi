@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -109,27 +114,11 @@ func readMemberList(in io.Reader, errOut io.Writer) []cluster.Member {
 // written down afterwards — which is the point: a seed recorded in config would be a dependency,
 // and a cluster whose members depend on one machine has a machine that cannot be turned off.
 func joinTheCluster(out, errOut io.Writer, configDir, host string, can func(string) int) int {
-	mine, err := json.Marshal(daemon.Known(configDir, time.Now(), can))
-	if err != nil {
-		fmt.Fprintln(errOut, "magi:", err)
-		return 1
-	}
-	// The remote binary is named as plain `magi`, found on their PATH. Not this machine's path to
-	// it: the two are the same program and rarely the same install, and sending an absolute path
-	// from here is how a join fails on a host where it happens to live somewhere else.
-	cmd := exec.Command("ssh", host, "magi", "--members")
-	cmd.Stdin = bytes.NewReader(mine)
-	cmd.Stderr = errOut
-	said, err := cmd.Output()
+	heard, err := sshMembers(context.Background(), host, daemon.Known(configDir, time.Now(), can), false)
 	if err != nil {
 		fmt.Fprintf(errOut, "magi: %s did not answer: %v\n", host, err)
 		fmt.Fprintf(errOut, "      It needs magi on its PATH and this machine needs to be able to "+
 			"`ssh %s`.\n", host)
-		return 1
-	}
-	var heard []cluster.Member
-	if err := json.Unmarshal(said, &heard); err != nil {
-		fmt.Fprintf(errOut, "magi: %s answered with something that is not a member list: %v\n", host, err)
 		return 1
 	}
 	known, err := daemon.LearnMembers(configDir, heard, time.Now(), can)
@@ -144,6 +133,164 @@ func joinTheCluster(out, errOut io.Writer, configDir, host string, can func(stri
 	fmt.Fprintln(out, "\nNothing was written to any config. The list is kept beside the daemon "+
 		"records and members drop out of it when nobody has seen them for an hour.")
 	return 0
+}
+
+// sshMembers runs one exchange against another machine: our list goes over, theirs comes back.
+//
+// batch says nobody is at a keyboard. It matters more than it looks: without BatchMode ssh asks for
+// a passphrase on the terminal, and a daemon has no terminal — the process would sit there holding
+// the round open until the context killed it, every minute, forever. With it, a host that cannot be
+// reached without a person says so immediately, which is a thing that can be reported. A person
+// running --join-cluster by hand gets the prompt, because there is somebody to answer it.
+func sshMembers(ctx context.Context, host string, mine []cluster.Member, batch bool) ([]cluster.Member, error) {
+	body, err := json.Marshal(mine)
+	if err != nil {
+		return nil, err
+	}
+	// The remote binary is named as plain `magi`, found on their PATH. Not this machine's path to
+	// it: the two are the same program and rarely the same install, and sending an absolute path
+	// from here is how a join fails on a host where it happens to live somewhere else.
+	var args []string
+	if batch {
+		args = append(args, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
+	}
+	args = append(args, host, "magi", "--members")
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	cmd.Stdin = bytes.NewReader(body)
+	if !batch {
+		cmd.Stderr = os.Stderr
+	}
+	said, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	var heard []cluster.Member
+	if err := json.Unmarshal(said, &heard); err != nil {
+		return nil, fmt.Errorf("answered with something that is not a member list: %w", err)
+	}
+	return heard, nil
+}
+
+// How a daemon keeps its picture of the cluster current.
+//
+// # Why a pull at all, when joining already told everybody
+//
+// It did not. A join is one exchange between two machines: C reaching A leaves A and C knowing each
+// other and B — already in the cluster — knowing nothing about C. Nothing else in the design ever
+// closes that gap. This is the piece that does, and without it a cluster is a set of pairs rather
+// than a cluster.
+//
+// # Everybody pulls, so nothing has to push
+//
+// A round takes what this machine knows to somebody and brings back what they know. Both sides
+// learn, because the exchange is symmetric — the same call a join makes. So there is no announcer,
+// no registry, and nothing whose being down stops the rest from converging.
+//
+// # A few at a time, not everybody
+//
+// A round talks to gossipFanout hosts chosen at random rather than to all of them. That is what
+// makes the cost independent of how big the cluster is: sixty machines would otherwise be sixty ssh
+// handshakes a minute from each of sixty daemons. Random choice still reaches everyone quickly —
+// what one machine learns is carried on by whoever it spoke to — and news crosses the cluster in
+// rounds proportional to its logarithm, not its size.
+//
+// # The clock, against the thresholds
+//
+// A round a minute against five minutes before a member reads as out of touch: five chances to
+// hear about somebody before anybody is told they are missing, and sixty before they are dropped.
+// Jittered, because a rack of daemons started by one script would otherwise all reach out on the
+// same second and go on doing it forever.
+const (
+	gossipEvery   = time.Minute
+	gossipFanout  = 2
+	gossipTimeout = 20 * time.Second
+)
+
+// tradeFunc is one exchange with one host. Injected so the loop can be tested without ssh.
+type tradeFunc func(ctx context.Context, host string, mine []cluster.Member) ([]cluster.Member, error)
+
+func sshTrade(ctx context.Context, host string, mine []cluster.Member) ([]cluster.Member, error) {
+	return sshMembers(ctx, host, mine, true)
+}
+
+// gossipCluster keeps this machine's membership current until ctx ends.
+//
+// Daemon-only, for the reason the scheduler is: three terminals open in one repo would be three
+// processes reaching out to the same hosts on the same clock, saying the same thing.
+func gossipCluster(ctx context.Context, configDir string, can func(string) int, trade tradeFunc, warn func(string)) {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	// Complained-about hosts, so an unreachable machine is reported once rather than every minute
+	// for as long as it is down. A log line a minute is a log nobody reads.
+	quiet := map[string]bool{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(jitter(rng, gossipEvery)):
+		}
+		gossipRound(ctx, configDir, can, trade, warn, rng, quiet)
+	}
+}
+
+// jitter spreads a fixed period by ±25%.
+func jitter(rng *rand.Rand, d time.Duration) time.Duration {
+	quarter := int64(d) / 4
+	return time.Duration(int64(d)-quarter) + time.Duration(rng.Int63n(2*quarter+1))
+}
+
+func gossipRound(ctx context.Context, configDir string, can func(string) int, trade tradeFunc,
+	warn func(string), rng *rand.Rand, quiet map[string]bool) {
+	mine := daemon.Known(configDir, time.Now(), can)
+	for _, host := range pickHosts(otherHosts(mine, daemon.Host()), gossipFanout, rng) {
+		rctx, cancel := context.WithTimeout(ctx, gossipTimeout)
+		heard, err := trade(rctx, host, mine)
+		cancel()
+		if err != nil {
+			if !quiet[host] && warn != nil {
+				warn("cannot reach " + host + " to trade member lists: " + err.Error())
+			}
+			quiet[host] = true
+			continue
+		}
+		if quiet[host] && warn != nil {
+			warn(host + " is answering again")
+		}
+		delete(quiet, host)
+		if _, lerr := daemon.LearnMembers(configDir, heard, time.Now(), can); lerr != nil && warn != nil {
+			warn("could not record what " + host + " said: " + lerr.Error())
+		}
+	}
+}
+
+// otherHosts is the distinct machines in a member list, this one excluded.
+//
+// By host and not by member: several companions on one machine answer from one membership file, so
+// asking it once per companion would be the same answer two or three times over one ssh each.
+func otherHosts(ms []cluster.Member, local string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range ms {
+		if m.Host == "" || (local != "" && strings.EqualFold(m.Host, local)) || seen[m.Host] {
+			continue
+		}
+		seen[m.Host] = true
+		out = append(out, m.Host)
+	}
+	sort.Strings(out) // a stable starting order, so the shuffle below is the only randomness
+	return out
+}
+
+// pickHosts takes at most n of them, chosen without favour.
+//
+// Stale hosts are in the draw with the rest, deliberately. A machine nobody has heard from is the
+// one worth reaching, and skipping it is how a cluster would fail to notice a companion coming
+// back: it went quiet, so nobody asked, so it stayed quiet until it was forgotten.
+func pickHosts(hosts []string, n int, rng *rand.Rand) []string {
+	if len(hosts) <= n {
+		return hosts
+	}
+	rng.Shuffle(len(hosts), func(i, j int) { hosts[i], hosts[j] = hosts[j], hosts[i] })
+	return hosts[:n]
 }
 
 func describeMember(m cluster.Member, now time.Time) string {

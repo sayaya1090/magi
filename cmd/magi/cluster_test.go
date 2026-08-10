@@ -2,13 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/core/cluster"
 )
 
@@ -127,3 +132,187 @@ func TestSomethingUnreadableOnStdinStillGetsAnAnswer(t *testing.T) {
 		t.Errorf("nothing was said about the unreadable input: %q", errOut.String())
 	}
 }
+
+// A round records what came back, which is the only way the third companion is ever heard of.
+//
+// This is the gap the pull exists to close, and it is worth stating as the scenario rather than as
+// a property: A and B are in a cluster, C joins through A, and NOTHING in the join told B. Without
+// a round, a cluster of three is two pairs — and the member missing from B's list is the newest
+// one, which is the one somebody is most likely to be looking for.
+func TestARoundTeachesThisMachineSomebodyItHadNeverMet(t *testing.T) {
+	cfg := t.TempDir()
+	seedMembers(t, cfg, []cluster.Member{
+		{Host: "buildbox", Socket: "/s/b.sock", Name: "build", Seen: time.Now()},
+	})
+	trade := func(_ context.Context, host string, mine []cluster.Member) ([]cluster.Member, error) {
+		return []cluster.Member{
+			{Host: "mini", Socket: "/s/c.sock", Name: "third", Seen: time.Now()},
+		}, nil
+	}
+	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	if !hasName(daemon.Known(cfg, time.Now(), nil), "third") {
+		t.Fatal("a round with buildbox did not leave this machine knowing the companion it named")
+	}
+}
+
+// One ssh per machine, not per companion.
+//
+// Several companions on one host answer out of one membership file, so asking it three times is the
+// same answer twice over at two extra ssh handshakes — every minute, forever.
+func TestOneMachineIsAskedOnceHoweverManyCompanionsItRuns(t *testing.T) {
+	cfg := t.TempDir()
+	seedMembers(t, cfg, []cluster.Member{
+		{Host: "buildbox", Socket: "/s/a.sock", Name: "one", Seen: time.Now()},
+		{Host: "buildbox", Socket: "/s/b.sock", Name: "two", Seen: time.Now()},
+		{Host: "buildbox", Socket: "/s/c.sock", Name: "three", Seen: time.Now()},
+	})
+	var asked []string
+	trade := func(_ context.Context, host string, _ []cluster.Member) ([]cluster.Member, error) {
+		asked = append(asked, host)
+		return nil, nil
+	}
+	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	if len(asked) != 1 {
+		t.Fatalf("three companions on one machine caused %d exchanges: %v", len(asked), asked)
+	}
+}
+
+// A round never ssh's to the machine it is running on.
+//
+// It would be pointless at best — the answer is a file this process can read — and on most hosts it
+// fails outright, because a machine that can ssh to itself is the exception.
+func TestThisMachineIsNotOneOfTheHostsItReachesOutTo(t *testing.T) {
+	here := daemon.Host()
+	if here == "" {
+		t.Skip("this machine cannot say its own name")
+	}
+	cfg := t.TempDir()
+	seedMembers(t, cfg, []cluster.Member{{Host: here, Socket: "/s/x.sock", Name: "mine", Seen: time.Now()}})
+	var asked []string
+	trade := func(_ context.Context, host string, _ []cluster.Member) ([]cluster.Member, error) {
+		asked = append(asked, host)
+		return nil, nil
+	}
+	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	if len(asked) != 0 {
+		t.Fatalf("reached out to itself: %v", asked)
+	}
+}
+
+// A machine that is down costs one log line, not one a minute.
+//
+// And the round goes on to the next host: one unreachable machine must not be able to stop this
+// one from hearing about anybody else.
+func TestAnUnreachableMachineIsSaidOnceAndDoesNotStopTheRound(t *testing.T) {
+	cfg := t.TempDir()
+	seedMembers(t, cfg, []cluster.Member{
+		{Host: "gone", Socket: "/s/a.sock", Name: "one", Seen: time.Now()},
+		{Host: "here2", Socket: "/s/b.sock", Name: "two", Seen: time.Now()},
+	})
+	reached := 0
+	trade := func(_ context.Context, host string, _ []cluster.Member) ([]cluster.Member, error) {
+		if host == "gone" {
+			return nil, errors.New("connection refused")
+		}
+		reached++
+		return nil, nil
+	}
+	var said []string
+	warn := func(line string) { said = append(said, line) }
+	quiet := map[string]bool{}
+	for i := 0; i < 3; i++ {
+		gossipRound(context.Background(), cfg, nil, trade, warn, testRand(), quiet)
+	}
+	if reached != 3 {
+		t.Fatalf("the reachable machine was traded with %d times out of 3", reached)
+	}
+	if len(said) != 1 {
+		t.Fatalf("three rounds against a dead machine said %d things: %v", len(said), said)
+	}
+	if !strings.Contains(said[0], "gone") {
+		t.Fatalf("the complaint does not name the machine: %q", said[0])
+	}
+}
+
+// A big cluster costs the same round as a small one.
+func TestARoundTalksToAFewMachinesHoweverManyThereAre(t *testing.T) {
+	cfg := t.TempDir()
+	var ms []cluster.Member
+	for i := 0; i < 20; i++ {
+		ms = append(ms, cluster.Member{
+			Host:   fmt.Sprintf("host%02d", i),
+			Socket: "/s/a.sock", Name: fmt.Sprintf("c%02d", i), Seen: time.Now(),
+		})
+	}
+	seedMembers(t, cfg, ms)
+	var asked []string
+	trade := func(_ context.Context, host string, _ []cluster.Member) ([]cluster.Member, error) {
+		asked = append(asked, host)
+		return nil, nil
+	}
+	gossipRound(context.Background(), cfg, nil, trade, nil, testRand(), map[string]bool{})
+	if len(asked) != gossipFanout {
+		t.Fatalf("twenty machines caused %d exchanges, want %d: %v", len(asked), gossipFanout, asked)
+	}
+}
+
+// Every machine is eventually reached, which is what makes a fanout safe.
+//
+// Picking a few at random is only cheap if it is not also blind: a host that never comes up in the
+// draw is a companion this machine would never hear from again.
+func TestEveryMachineComesUpInTheDrawSoonEnough(t *testing.T) {
+	cfg := t.TempDir()
+	var ms []cluster.Member
+	for i := 0; i < 8; i++ {
+		ms = append(ms, cluster.Member{
+			Host: fmt.Sprintf("host%d", i), Socket: "/s/a.sock", Seen: time.Now(),
+		})
+	}
+	seedMembers(t, cfg, ms)
+	got := map[string]bool{}
+	trade := func(_ context.Context, host string, _ []cluster.Member) ([]cluster.Member, error) {
+		got[host] = true
+		return nil, nil
+	}
+	rng := testRand()
+	for i := 0; i < 40; i++ { // forty minutes of rounds, against a one-hour memory
+		gossipRound(context.Background(), cfg, nil, trade, nil, rng, map[string]bool{})
+	}
+	if len(got) != 8 {
+		t.Fatalf("only %d of 8 machines were ever reached: %v", len(got), got)
+	}
+}
+
+// The spread is a spread, not a fixed offset dressed up as one.
+func TestRoundsAreSpreadOutRatherThanInStep(t *testing.T) {
+	rng := testRand()
+	seen := map[time.Duration]bool{}
+	for i := 0; i < 50; i++ {
+		d := jitter(rng, gossipEvery)
+		if d <= 0 || d > gossipEvery*2 {
+			t.Fatalf("a wait of %v is not a jittered minute", d)
+		}
+		seen[d] = true
+	}
+	if len(seen) < 10 {
+		t.Fatalf("fifty waits took %d distinct values — daemons started together would stay in step", len(seen))
+	}
+}
+
+func seedMembers(t *testing.T, cfgDir string, ms []cluster.Member) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(cfgDir, "cluster.json"), []byte(memberJSON(t, ms)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func hasName(ms []cluster.Member, name string) bool {
+	for _, m := range ms {
+		if m.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func testRand() *rand.Rand { return rand.New(rand.NewSource(1)) }

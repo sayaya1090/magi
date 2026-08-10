@@ -1039,6 +1039,15 @@ func run() int {
 		go a.RunCron(cronCtx, wd, loadJobs, func(line string) {
 			fmt.Fprintln(os.Stderr, "magi:", line)
 		})
+		// Staying in the cluster, on the same lifetime as the schedule and for the same reasons: a
+		// companion that has been stopped should not go on reaching out to other machines, and an
+		// interactive magi should never reach out at all.
+		//
+		// Started after Publish, which matters — a round sends what this machine knows about
+		// itself, and before publishing that does not include this daemon.
+		go gossipCluster(cronCtx, plat.ConfigDir(), canFor(store, plat), sshTrade, func(line string) {
+			fmt.Fprintln(os.Stderr, "magi: cluster:", line)
+		})
 		serving := bound
 		bound = nil // Serve owns the socket from here, including releasing the claim
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
