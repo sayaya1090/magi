@@ -608,6 +608,9 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 			break
 		}
 		if evs[0].Type == event.TypeSessionCreated {
+			// Who opened it, off the envelope the loop below is already reading. Carried because a
+			// list of past work should say which of it a person asked for and which ran unattended.
+			m.Origin = evs[0].Actor.ID
 			var d event.SessionCreatedData
 			if json.Unmarshal(evs[0].Data, &d) == nil {
 				m.Agent = d.Agent

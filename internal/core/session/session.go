@@ -56,8 +56,17 @@ type SessionMeta struct {
 	Model string `json:"model,omitempty"`
 	// Labels is what the agent said this work was about, as of the last time it said so. Free to
 	// carry: the scan that builds this already reads every event to find the title.
-	Labels       []string  `json:"labels,omitempty"`
-	Parent       string    `json:"parent,omitempty"` // spawning session id (child sessions)
+	Labels []string `json:"labels,omitempty"`
+	Parent string   `json:"parent,omitempty"` // spawning session id (child sessions)
+	// Origin is the actor id that opened the session — "cli", "tui", "cron:<name>". It answers a
+	// question a list of past work cannot otherwise answer: whether a person asked for this or
+	// something did it unattended. The scheduled-work editors read it to show a job's last run,
+	// which is why no separate run ledger exists — a second record of when something happened is a
+	// second record that can disagree with the first.
+	//
+	// Free to carry: the scan that builds this already unmarshals the created event to find the
+	// parent, and the actor is on the same envelope.
+	Origin       string    `json:"origin,omitempty"`
 	Created      time.Time `json:"created"`
 	LastActivity time.Time `json:"lastActivity"`
 }
