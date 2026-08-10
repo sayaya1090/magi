@@ -418,12 +418,12 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := before.Where(receipt); !ok {
+	if _, _, _, ok := before.Where(receipt); !ok {
 		t.Fatal("the receipt it issued was not recorded")
 	}
 	// What a restart leaves: the same companion, the same log, no memory of taking anything.
 	fresh := daemon.NewReceipts()
-	if _, _, ok := fresh.Where(receipt); ok {
+	if _, _, _, ok := fresh.Where(receipt); ok {
 		t.Fatal("a restarted daemon recognised a receipt it never issued")
 	}
 	after := handover{work: &recordingWork{App: ar.reader, ar: ar, side: "s_design_side"},
@@ -660,7 +660,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	where, _, ok := receipts.Where(first)
+	where, _, _, ok := receipts.Where(first)
 	if !ok {
 		t.Fatal("the receipt names nowhere")
 	}
@@ -673,7 +673,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, _, _ := receipts.Where(second)
+	again, _, _, _ := receipts.Where(second)
 	if again != where {
 		t.Errorf("a second request from the same asker opened a new conversation (%s then %s)",
 			where, again)
@@ -761,5 +761,47 @@ func TestTheNextPieceStartsWhenTheOneBeforeItEnds(t *testing.T) {
 	// turn-finish watch makes.
 	if waited := time.Since(started); waited > drainEvery/2 {
 		t.Errorf("the next piece waited %s — the tick found it, nothing noticed the turn ending", waited)
+	}
+}
+
+// A piece that waited in a queue gets its own answer, not the one in front of it.
+//
+// The position a receipt stands for used to be taken when the work was TAKEN. A piece that then
+// waited had turns finishing in front of it, so "the first turn that finishes past here" was
+// somebody else's — and the asker got that answer, attributed to its own request, looking entirely
+// plausible. Observed live: two pieces handed back to back came back with the same answer, twice.
+func TestAQueuedPieceGetsItsOwnAnswer(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+
+	first, err := cl.Hand("— asked by master", "count the lines")
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the first piece to start", func() bool { return len(ar.prompts()) == 1 })
+	second, err := cl.Hand("— asked by master", "count the characters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both live in one side session, so nothing but the position tells their answers apart.
+	side := ar.side("s_design")
+	ar.finishes(side, "four lines")
+	until(t, "the second piece to start", func() bool { return len(ar.prompts()) == 2 })
+	ar.finishes(side, "eight characters")
+
+	one, err := cl.Handed(first)
+	if err != nil || !one.Done || one.Answer != "four lines" {
+		t.Fatalf("the first piece answered %+v %v", one, err)
+	}
+	two, err := cl.Handed(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if two.Answer == "four lines" {
+		t.Fatal("the second piece was handed the answer to the first, which is what a wrong " +
+			"answer that looks right is made of")
+	}
+	if !two.Done || two.Answer != "eight characters" {
+		t.Fatalf("the second piece answered %+v", two)
 	}
 }

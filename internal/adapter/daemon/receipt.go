@@ -58,17 +58,24 @@ type receipt struct {
 	// session is where the work went. One per asker, not one per daemon: a request must not land
 	// in the conversation somebody is attached to, and two askers must not read each other's.
 	session string
-	// since is where that session's log stood when the work arrived. The answer is the first turn
-	// that finishes past it — which is why the position is taken before the work goes in, and why
-	// it is kept here instead of being handed back to the caller to send again.
+	// since is where that session's log stood when the work STARTED.
+	//
+	// Not when it was taken. A receipt is minted on arrival so the asker has a handle at once, but
+	// a piece that waits in a queue has turns finishing in front of it — and "the first turn that
+	// finishes past here" would then be somebody else's. Observed live: two pieces handed back to
+	// back came back with the same answer, and it was the first one's, twice, looking entirely
+	// plausible.
 	since int64
-	at    time.Time
+	// started is false while the work is still waiting, so nothing reads a position that does not
+	// mean anything yet.
+	started bool
+	at      time.Time
 }
 
 func NewReceipts() *Receipts { return &Receipts{kept: map[string]receipt{}} }
 
 // Give records a piece of handed-over work and returns the receipt for it.
-func (r *Receipts) Give(sid string, since int64) (string, error) {
+func (r *Receipts) Give(sid string) (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		// Refused rather than handed over unrecorded. A receipt nobody can present is work that
@@ -86,22 +93,38 @@ func (r *Receipts) Give(sid string, since int64) (string, error) {
 			delete(r.kept, old)
 		}
 	}
-	r.kept[id] = receipt{session: sid, since: since, at: now}
+	r.kept[id] = receipt{session: sid, at: now}
 	return id, nil
 }
 
-// Where looks up the session a receipt stands for and the position its log stood at. An unknown or
-// expired one is simply not found: there is no distinction worth drawing for the caller, and
+// Started records where the log stood as the work begins, which is the position its answer is
+// found after. Called once, by whatever takes it off the queue.
+func (r *Receipts) Started(id string, since int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.kept[id]
+	if !ok {
+		return
+	}
+	rec.since, rec.started = since, true
+	r.kept[id] = rec
+}
+
+// Where looks up the session a receipt stands for and the position its log stood at when the work
+// started. started is false while it is still waiting — the position is not meaningful yet, and a
+// caller that read it anyway would be asking about turns that are not this piece's.
+//
+// An unknown or expired receipt is simply not found: there is no distinction worth drawing for the caller, and
 // drawing it would say whether a piece of work exists.
-func (r *Receipts) Where(id string) (sid string, since int64, ok bool) {
+func (r *Receipts) Where(id string) (sid string, since int64, started bool, ok bool) {
 	if id == "" {
-		return "", 0, false
+		return "", 0, false, false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec, found := r.kept[id]
 	if !found || time.Since(rec.at) >= receiptLife {
-		return "", 0, false
+		return "", 0, false, false
 	}
-	return rec.session, rec.since, true
+	return rec.session, rec.since, rec.started, true
 }

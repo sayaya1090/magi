@@ -121,17 +121,11 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 	if serr != nil {
 		return "", serr
 	}
-	// Where that session's log stands before the work goes in. The answer is the first turn that
-	// finishes past this point, and it is a position in THEIR session — which is why the receipt
-	// carries both.
-	since, _, nerr := h.work.NewSince(ctx, sid, 0)
-	if nerr != nil {
-		return "", fmt.Errorf("this companion's transcript cannot be read, so an answer could not "+
-			"be found again: %w", nerr)
-	}
-	// Minted when the work is TAKEN, not when it starts. The asker gets a handle immediately, and
-	// nothing can be lost between accepting a piece and getting to it.
-	id, gerr := h.receipts.Give(string(sid), since)
+	// Minted when the work is TAKEN, so the asker gets a handle immediately and nothing is lost
+	// between accepting a piece and getting to it. Where the log stands is NOT taken here: this
+	// piece may sit behind others, and a position from now would make somebody else's turn look
+	// like its answer. startNext takes it as the work begins.
+	id, gerr := h.receipts.Give(string(sid))
 	if gerr != nil {
 		return "", gerr
 	}
@@ -167,6 +161,15 @@ func (h handover) startNext(ctx context.Context) {
 	if !ok {
 		return
 	}
+	// Where the log stands NOW, as this piece begins — not where it stood when the piece was
+	// taken. Anything that finished while it waited belongs to whoever was in front of it.
+	since, _, nerr := h.work.NewSince(ctx, p.session, 0)
+	if nerr != nil {
+		h.queued.giveUp(p.receipt, "this companion cannot read its own transcript, so an answer "+
+			"could not be found again: "+nerr.Error())
+		return
+	}
+	h.receipts.Started(p.receipt, since)
 	// The same actor a person's own prompt gets. Who actually asked is in the label, verbatim,
 	// which is where every reader looks.
 	if err := h.work.Submit(ctx, command.SubmitPrompt{
@@ -269,7 +272,7 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 	if h.receipts == nil || h.work == nil {
 		return daemon.Handover{}, errors.New("this companion has taken no work from anybody")
 	}
-	sid, since, ok := h.receipts.Where(receipt)
+	sid, since, _, ok := h.receipts.Where(receipt)
 	if !ok {
 		// One answer for unknown and for expired, and none for "which piece of work was that". A
 		// door that distinguishes them answers questions about work the caller did not hand over,
@@ -323,7 +326,7 @@ func (h handover) Watch(ctx context.Context, receipt string, say func(daemon.Han
 	if h.receipts == nil || h.work == nil {
 		return errors.New("this companion has taken no work from anybody")
 	}
-	sid, since, ok := h.receipts.Where(receipt)
+	sid, since, _, ok := h.receipts.Where(receipt)
 	if !ok {
 		return errors.New("no handover here with that receipt — it was never made here, or this " +
 			"companion has restarted since, or it has expired")

@@ -254,11 +254,7 @@ func (a *App) handoffAnswer(ctx context.Context, their session.SessionID, since 
 	if !finished {
 		return false, ""
 	}
-	msgs, _, err := a.SessionState(ctx, their)
-	if err != nil {
-		return true, "They finished, but their transcript could not be read: " + err.Error()
-	}
-	if said := lastAssistantText(msgs); said != "" {
+	if said := answerInFirstTurn(evs); said != "" {
 		return true, said
 	}
 	// Finished and said nothing. Reported rather than papered over as an empty answer: a blank
@@ -266,26 +262,43 @@ func (a *App) handoffAnswer(ctx context.Context, their session.SessionID, since 
 	return true, "They finished without writing an answer."
 }
 
-// lastAssistantText is the final thing an agent said in a transcript.
-func lastAssistantText(msgs []session.Message) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role != session.RoleAssistant {
+// answerInFirstTurn is the last thing said in the FIRST turn that finishes in these events.
+//
+// Not the last thing said in the session, which is what this used to read. One session can hold
+// several pieces of handed-over work now, one after another, and the whole-transcript reading gave
+// every one of them the newest answer — so a piece that waited its turn came back with a later
+// piece's words, attributed to it and looking entirely right. Observed live: two counts handed to
+// one companion back to back, and both came back as the first one's number.
+//
+// Assembled from the events rather than from the rebuilt transcript, because the rebuilt one has
+// no notion of "this turn": it is a list of messages, and the boundary this needs is an event.
+func answerInFirstTurn(evs []event.Event) string {
+	byMsg := map[string][]string{}
+	var order []string
+	for _, ev := range evs {
+		if ev.Type == event.TypeTurnFinished {
+			break
+		}
+		if ev.Type != event.TypePartAppended {
 			continue
 		}
-		var b strings.Builder
-		for _, p := range msgs[i].Parts {
-			if p.Kind == session.PartText && strings.TrimSpace(p.Text) != "" {
-				if b.Len() > 0 {
-					b.WriteString("\n")
-				}
-				b.WriteString(p.Text)
-			}
+		var d event.PartAppendedData
+		if json.Unmarshal(ev.Data, &d) != nil {
+			continue
 		}
-		if out := strings.TrimSpace(b.String()); out != "" {
-			return out
+		if d.Role != session.RoleAssistant || d.Part.Kind != session.PartText {
+			continue
 		}
+		if _, seen := byMsg[d.MessageID]; !seen {
+			order = append(order, d.MessageID)
+		}
+		byMsg[d.MessageID] = append(byMsg[d.MessageID], d.Part.Text)
 	}
-	return ""
+	if len(order) == 0 {
+		return ""
+	}
+	// The LAST message of that turn, with its parts joined the way they were streamed.
+	return strings.TrimSpace(strings.Join(byMsg[order[len(order)-1]], ""))
 }
 
 // deliverHandoff writes the answer into the asker's conversation and clears the pending record.
