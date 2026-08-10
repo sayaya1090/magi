@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 )
 
@@ -164,5 +166,47 @@ func TestACompanionElsewhereIsNotCountedAsNotRunning(t *testing.T) {
 	}
 	if !strings.Contains(out, "design") {
 		t.Errorf("the companion on buildbox is missing from the listing:\n%s", out)
+	}
+}
+
+// The footer answers a different question from the table, and only when there is one to answer.
+//
+// The table is "which one do I attach to". This is "is one of these enough", which no instant can
+// show — so it is quiet about a companion that kept up, and states counts rather than a verdict
+// about a companion that did not.
+func TestTheFleetSaysWhichCompanionsWereAskedForMoreThanTheyCouldTake(t *testing.T) {
+	var quiet bytes.Buffer
+	printPressure(&quiet, []daemon.Pressure{{Name: "calm", Taken: 40}})
+	if quiet.Len() != 0 {
+		t.Errorf("a companion that started everything immediately is reported as under pressure:\n%s", quiet.String())
+	}
+
+	var b bytes.Buffer
+	printPressure(&b, []daemon.Pressure{
+		{Name: "calm", Taken: 40},
+		{Name: "design", Taken: 31, Refused: 12, Deepest: 4},
+	})
+	out := b.String()
+	if strings.Contains(out, "calm") {
+		t.Errorf("the one companion that is coping is listed among those that are not:\n%s", out)
+	}
+	for _, want := range []string{"design", "12", "31", "4"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the footer does not say %q:\n%s", want, out)
+		}
+	}
+	// The counts are the evidence; whether to run three of something depends on what else that
+	// machine is doing, which nothing here can see.
+	if strings.Contains(out, "Start ") || strings.Contains(out, "should run") {
+		t.Errorf("the footer decides on the person's behalf:\n%s", out)
+	}
+}
+
+// A companion whose name was never set is still identifiable.
+func TestAnUnnamedCompanionIsListedBySocket(t *testing.T) {
+	var b bytes.Buffer
+	printPressure(&b, []daemon.Pressure{{Socket: "/cfg/daemon-3f2a.sock", Taken: 2, Refused: 1}})
+	if !strings.Contains(b.String(), "daemon-3f2a.sock") {
+		t.Errorf("an unnamed companion under pressure cannot be told from any other:\n%s", b.String())
 	}
 }

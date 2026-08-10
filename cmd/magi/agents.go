@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 )
 
@@ -64,6 +66,54 @@ func printAgents(w io.Writer, list []fleet.Agent, configDir string) {
 		fmt.Fprintf(w, "\n%d not running (`stopped`/`abandoned`) — abandoned means a turn was cut off "+
 			"and its work is still in the log.\n", n)
 	}
+	printPressure(w, daemon.LoadSince(configDir, time.Now().Add(-pressureWindow)))
+}
+
+// pressureWindow is how far back the load footer looks.
+//
+// A week, because the thing it is evidence for takes about that long to be believable and because
+// a working week is the unit the person reading it plans in. The file keeps a month, so a longer
+// look is a matter of reading it.
+const pressureWindow = 7 * 24 * time.Hour
+
+// printPressure says which companions were asked for more than they could take.
+//
+// Separate from the table above and shaped nothing like it, because it answers a different
+// question. The table is "which one do I attach to, right now". This is "is one of these enough" —
+// which cannot be read off any instant, and is the reason the moments are written down at all.
+//
+// The counts are stated and the conclusion is not drawn. Whether a companion that refused a dozen
+// requests should be run in triplicate depends on what else that machine is doing, which nothing
+// here can see.
+func printPressure(w io.Writer, load []daemon.Pressure) {
+	var busy []daemon.Pressure
+	for _, p := range load {
+		if p.Busy() {
+			busy = append(busy, p)
+		}
+	}
+	if len(busy) == 0 {
+		return // work that arrived and started straight away, every time, is a companion doing its job
+	}
+	fmt.Fprintf(w, "\nHanded-over work over the last %d days:\n", int(pressureWindow/(24*time.Hour)))
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, p := range busy {
+		name := p.Name
+		if name == "" {
+			name = filepath.Base(p.Socket)
+		}
+		line := fmt.Sprintf("%d taken", p.Taken)
+		if p.Deepest > 0 {
+			line += fmt.Sprintf(", up to %d already waiting", p.Deepest)
+		}
+		if p.Refused > 0 {
+			line += fmt.Sprintf(", %d turned away", p.Refused)
+		}
+		fmt.Fprintf(tw, "  %s\t%s\n", name, line)
+	}
+	tw.Flush()
+	fmt.Fprintln(w, "  Turned away means the queue was full when somebody asked. Repeatedly, and one "+
+		"copy of that companion is not enough for what is being asked of it.")
 }
 
 // deadCount is how many companions HERE are not running.
