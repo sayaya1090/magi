@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,5 +163,39 @@ func TestMCPToolDoesNotShadowBuiltin(t *testing.T) {
 	}
 	if _, ok := reg.Get("mcp__fake__echo"); !ok {
 		t.Error("the MCP echo should be reachable under its namespaced name")
+	}
+}
+
+// Two servers cannot share one name.
+//
+// The map used to take the second silently. The first connection then sat outside it: never
+// closed, its subprocess held for the life of the daemon, its tools still registered under names
+// the second now also claimed — and Remove(name) later unregistered only the second's half.
+//
+// Unreachable while every name came out of a config map, which cannot repeat a key. Reachable the
+// moment companions began attaching under names nobody typed: an operator with an [mcp.design] and
+// a companion called design is one ordinary coincidence.
+func TestTwoServersCannotShareOneName(t *testing.T) {
+	reg := builtin.NewRegistry()
+	mgr := NewManager(reg)
+	defer mgr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := mgr.AddStdio(ctx, "fake", os.Args[0], nil, []string{"MAGI_FAKE_MCP=1"}); err != nil {
+		t.Fatalf("the first AddStdio failed: %v", err)
+	}
+	err := mgr.AddStdio(ctx, "fake", os.Args[0], nil, []string{"MAGI_FAKE_MCP=1"})
+	if err == nil {
+		t.Fatal("a second server took a name that was already attached")
+	}
+	if !strings.Contains(err.Error(), "fake") {
+		t.Errorf("the refusal does not name the collision: %v", err)
+	}
+	// And the first is untouched — a refusal that took the first one's tools down with it would be
+	// worse than the silent overwrite it replaced.
+	if _, ok := reg.Get("mcp__fake__echo"); !ok {
+		t.Error("the refused second attach unregistered the first one's tools")
 	}
 }

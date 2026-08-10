@@ -73,7 +73,7 @@ The idempotency key has to come from the request, not from a timestamp.
 			t.Errorf("%s arrived with no input schema", tl.Name)
 		}
 	}
-	if got := strings.Join(names, ","); got != "knows,detail" {
+	if got := strings.Join(names, ","); got != "about,knows,detail" {
 		t.Fatalf("the client sees %q", got)
 	}
 

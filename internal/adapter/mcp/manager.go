@@ -84,6 +84,18 @@ const mcpRegisterTimeout = 30 * time.Second
 
 // registerClient is the common logic for registering a client (stdio or HTTP).
 func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd) error {
+	// One name, one server. The map used to take the second silently: the first connection stayed
+	// out of it — never closed, its subprocess held for the life of the daemon — while its tools
+	// stayed registered under names the second now also claimed, and Remove(name) then unregistered
+	// only half of them. Unreachable while every name came from a config map, which cannot repeat a
+	// key; reachable the moment companions began attaching under names nobody typed.
+	m.mu.Lock()
+	_, taken := m.servers[name]
+	m.mu.Unlock()
+	if taken {
+		client.Close()
+		return fmt.Errorf("mcp: %q is already attached; two servers cannot share one name", name)
+	}
 	ctx, cancel := context.WithTimeout(ctx, mcpRegisterTimeout)
 	defer cancel()
 	if err := client.Initialize(ctx); err != nil {
