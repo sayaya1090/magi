@@ -175,6 +175,12 @@ func (tm *team) stoppedMemberOf(sid string, id daemon.Identity, _ daemon.Engine)
 	tm.t.Helper()
 	wd := shortDir(tm.t)
 	sock := tm.cfgDir + "/daemon-" + sid + ".sock"
+	// The socket FILE, with nobody behind it — which is what a killed daemon leaves and what a
+	// listing reads as stopped. Without it the record is not found at all, and a test asserting
+	// that a stopped companion is refused passes because it was never seen.
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		tm.t.Fatal(err)
+	}
 	unpublish, err := daemon.Publish(sock, wd, sid, id)
 	if err != nil {
 		tm.t.Fatal(err)
@@ -448,9 +454,18 @@ func TestHandOffRefusesAnAmbiguousAddress(t *testing.T) {
 	}
 }
 
-// A companion mid-turn is not handed anything: a prompt sent to a running turn is re-read BY that
-// turn, so it would land inside the work they are already doing rather than after it.
-func TestHandOffWillNotLandInsideSomebodyElsesTurn(t *testing.T) {
+// A companion mid-turn is not refused any more — it takes the work and queues it.
+//
+// It used to be refused here, before anything crossed, and the reasons were real while there was
+// one conversation: a request put into a running turn is re-read BY that turn, and "the answer is
+// the next turn that finishes" needed no turn to be open. Handed-over work has its own
+// conversation now, so neither holds — and bouncing the request off the right companion because
+// they happen to be busy puts the retry on the asker.
+//
+// Whether they are busy is the daemon's answer, not a row's: it is the only thing that knows what
+// it is already doing. What is still refused here is a companion with nobody behind its socket,
+// which the asker can see for itself and which would waste a crossing.
+func TestACompanionMidTurnTakesTheWorkRatherThanRefusingIt(t *testing.T) {
 	tm := newTeam(t)
 	busy := &heard{}
 	tm.member("b", "design", "component specs", busy)
@@ -463,14 +478,24 @@ func TestHandOffWillNotLandInsideSomebodyElsesTurn(t *testing.T) {
 	})
 
 	res := tm.ask(master, "master", "m", "design", "another spec")
-	if !res.IsError {
-		t.Fatal("work was pushed into a running turn")
+	if res.IsError {
+		t.Fatalf("a busy companion was refused rather than asked: %q", text(t, res))
 	}
-	if !strings.Contains(text(t, res), "mid-turn") || !strings.Contains(text(t, res), "rewriting the tokens") {
-		t.Errorf("the refusal does not say what they are busy with: %q", text(t, res))
+	if got := busy.got(); len(got) != 1 {
+		t.Errorf("%d pieces reached them", len(got))
 	}
-	if got := busy.got(); len(got) != 0 {
-		t.Errorf("it was sent anyway: %v", got)
+}
+
+// A companion with nobody behind its socket is still refused, and here rather than after a
+// crossing that could only fail.
+func TestACompanionThatIsNotRunningIsRefusedBeforeAnythingCrosses(t *testing.T) {
+	tm := newTeam(t)
+	tm.stoppedMemberOf("g", daemon.Identity{Name: "gone", Role: "screens"}, nil)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	res := tm.ask(master, "master", "m", "gone", "do it")
+	if !res.IsError || !strings.Contains(text(t, res), "not running") {
+		t.Errorf("a stopped companion answered %q", text(t, res))
 	}
 }
 

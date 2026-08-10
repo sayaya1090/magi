@@ -59,29 +59,19 @@ func Target(ctx context.Context, r fleet.Reader, cache *fleet.Cache, configDir, 
 	return target, Ready(target)
 }
 
-// Ready says whether a companion can take work right now, and why not if it cannot.
+// Ready says whether a companion can take work at all, and why not if it cannot.
 //
-// Split out from Target because the answer is needed from two sides. Somebody choosing a companion
-// asks it about them; a companion asked directly, over the relay from another machine, asks it
-// about ITSELF — there is no address to resolve in that case, only the question of whether the
-// process that was reached is in a state to take anything.
+// Whether it is BUSY is deliberately not asked here any more. It used to be: a companion mid-turn
+// was refused, because a request put into a running turn is re-read by that turn and because "the
+// answer is the next turn that finishes" needed no turn to be open. Both were about there being
+// one conversation, and handed-over work has its own now — so a busy companion takes the work and
+// queues it, which is decided by the daemon, the only thing that knows what it is already doing.
 //
-// One predicate, so the two cannot come to differ on what "busy" means. Two of them, and work
-// crossing a machine would land in a running turn on exactly the days the local path refused it.
+// What is left is the one thing an asker can see for itself and the daemon cannot be asked about:
+// a companion with nobody behind its socket. Refusing that here saves a crossing that would fail.
 func Ready(a fleet.Agent) string {
-	switch {
-	case !a.Live:
+	if !a.Live {
 		return fmt.Sprintf("%s is not running, so there is nothing to hand the work to", a.Name)
-	case a.State == fleet.Working || a.State == fleet.Waiting:
-		// Not a queue. A prompt sent to a running turn is re-read BY that turn — it would arrive
-		// inside the work they are already doing rather than after it, which is a steer and not a
-		// request. It is also what makes the way back readable: the answer is the next turn that
-		// finishes over there, and that is only unambiguous if there was no turn open when this
-		// arrived.
-		return fmt.Sprintf("%s is mid-turn (%s). A request sent now would land inside that work "+
-			"rather than after it, so it is not sent — and its answer could not be told apart from "+
-			"the answer to what they are already doing. Try them later, or ask somebody else",
-			a.Name, fleet.Clip(firstLine(a.Task), 80))
 	}
 	return ""
 }
