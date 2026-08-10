@@ -2303,3 +2303,82 @@ console.log(JSON.stringify({open: folds.map(f => !!f.open), count: folds.length}
 		}
 	}
 }
+
+// A working row says what it is inside of, when the tool inside it is saying anything.
+//
+// "working · 7 steps" answers how much has been done and answers nothing about a turn that has
+// spent ten minutes in ONE call — which is the row somebody is squinting at wondering whether to
+// interrupt. The tool knows, and its note reaches the browser on this poll and by no other route:
+// it rides a transient event that never leaves the daemon's process and is never written to the log.
+func TestAWorkingRowShowsWhatTheCallIsSaying(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+       "task":"make the tests pass","doing":"check 6, 4m12s elapsed, still running","steps":7,"idle":12},
+      {"socket":"/s/b.sock","name":"docs","workdir":"/w/docs","state":"idle","live":true,
+       "task":"done here","steps":0,"idle":30}
+    ]`, "", dumpFleet)
+
+	cards := got["cards"].([]any)
+	if len(cards) != 2 {
+		t.Fatalf("drew %d cards for two agents", len(cards))
+	}
+	busy := cards[0].(map[string]any)["text"].(string)
+	if !strings.Contains(busy, "check 6, 4m12s elapsed") {
+		t.Errorf("the working row does not say what the call reported: %q", busy)
+	}
+	// Still says what was ASKED. The note is the detail under it, not a replacement — a row that
+	// showed only "check 6" would have lost which agent is doing what.
+	if !strings.Contains(busy, "make the tests pass") {
+		t.Errorf("the note displaced the request: %q", busy)
+	}
+	// And the hourglass, because a line of tool output dropped into a row with no mark on it reads
+	// as part of the request.
+	if !strings.Contains(busy, "⏳") {
+		t.Errorf("the note is not marked as one: %q", busy)
+	}
+}
+
+// On a companion's own page it goes under the bar, on the call it belongs to.
+//
+// The bar says "still going", which after four minutes is the part you already believe. This is the
+// part that decides whether to wait — and it comes from the fleet poll rather than the transcript
+// stream, so this also checks the two are joined up at all.
+func TestTheRunningCallSaysWhatItIsWaitingOn(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working",
+       "live":true,"task":"make the tests pass","doing":"check 6, 4m12s elapsed, still running",
+       "steps":7,"idle":12}]`, "?d=%2Fs%2Fa.sock", `
+await loadFleet();
+draw([{who:'user',text:'wait for the build'},{who:'tool',tool:'wait_for',args:'for: build',pending:true}]);
+const notes = byId.log.find('div').filter(d => d.className === 'note').map(d => d.textContent);
+console.log(JSON.stringify({notes, bars: byId.log.find('md-linear-progress').length}));
+`)
+	notes, _ := got["notes"].([]any)
+	if len(notes) != 1 {
+		t.Fatalf("%d notes on a transcript with one running call: %v", len(notes), notes)
+	}
+	if !strings.Contains(notes[0].(string), "check 6, 4m12s elapsed") {
+		t.Errorf("the note says %q", notes[0])
+	}
+	if n := got["bars"].(float64); n != 1 {
+		t.Errorf("%v progress bars beside it", n)
+	}
+}
+
+// And when nothing is reporting, nothing is drawn. An empty note rendered as "⏳" would be a
+// heartbeat with no pulse behind it.
+func TestAQuietCallDrawsNoNote(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working",
+       "live":true,"task":"make the tests pass","steps":7,"idle":12}]`, "?d=%2Fs%2Fa.sock", `
+await loadFleet();
+draw([{who:'user',text:'wait for the build'},{who:'tool',tool:'wait_for',args:'for: build',pending:true}]);
+const notes = byId.log.find('div').filter(d => d.className === 'note').map(d => d.textContent);
+console.log(JSON.stringify({notes, bars: byId.log.find('md-linear-progress').length}));
+`)
+	if notes, _ := got["notes"].([]any); len(notes) != 0 {
+		t.Errorf("a quiet call drew %v", notes)
+	}
+	// The bar is still there: the call IS running, which is what the bar says.
+	if n := got["bars"].(float64); n != 1 {
+		t.Errorf("%v progress bars on a running call with no note", n)
+	}
+}

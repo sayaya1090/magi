@@ -49,6 +49,7 @@ const demoScript = `
     {socket: '/demo/design.sock', name: 'design', role: 'the design system: component specs and visual review',
      team: 'frontend', hub: true, workdir: '/Users/you/work/design-system', session: 'd1',
      state: 'working', live: true, task: 'spec the empty state for the fleet table, and name the exact tokens',
+     doing: 'check 6, 4m12s elapsed, not met yet (exit 1)',
      steps: 7, planDone: 2, planTotal: 5, idle: 12, host: 'studio', addr: '10.0.0.4', pid: 4127},
     {socket: '/demo/api.sock', name: 'api', role: 'the billing API and its contracts',
      team: 'backend', workdir: '/Users/you/work/billing', session: 'a1',

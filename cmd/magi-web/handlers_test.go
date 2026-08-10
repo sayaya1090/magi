@@ -21,10 +21,11 @@ import (
 
 // recordingEngine is a daemon that remembers what the browser told it to do.
 type recordingEngine struct {
-	mu   sync.Mutex
-	got  []string
-	ask  *app.Ask
-	fail error
+	mu    sync.Mutex
+	got   []string
+	ask   *app.Ask
+	doing string
+	fail  error
 }
 
 func (r *recordingEngine) note(s string) error {
@@ -66,6 +67,11 @@ func (r *recordingEngine) RespondPermission(_ context.Context, c command.Respond
 }
 func (r *recordingEngine) RespondQuestion(_ context.Context, c command.RespondQuestion) error {
 	return r.note("answer:" + c.CallID + ":" + c.Answer)
+}
+func (r *recordingEngine) Doing(session.SessionID) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.doing, r.doing != ""
 }
 func (r *recordingEngine) Waiting(session.SessionID) (app.Ask, bool) {
 	r.mu.Lock()

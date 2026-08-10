@@ -1079,6 +1079,7 @@ const indexHTML = `<!doctype html>
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
   .card .asking { font:600 var(--md-sys-typescale-label-medium-size)/1.45 var(--magi-ref-mono); color:var(--magi-ref-warn); overflow-wrap:anywhere; }
+  .card .note { margin-top:var(--magi-sys-space-50); font:var(--md-sys-typescale-label-small-size)/1.45 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
   .card .num { font-size:var(--md-sys-typescale-label-medium-size); color:var(--magi-ref-muted); }
   .card .host { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
   .card .host b { font-weight:400; color:var(--magi-ref-fg); opacity:.85; }
@@ -1522,6 +1523,9 @@ const indexHTML = `<!doctype html>
   /* Under the call it belongs to, spanning it — where the guide puts a bar for the container that
      is progressing. Thin, because it is a heartbeat and not a measurement. */
   .runbar { display:block; margin-top:var(--magi-sys-space-100); --md-linear-progress-track-height:2px; --md-linear-progress-active-indicator-height:2px; }
+  /* What the running call last said. Monospace because it is the tool's own words, and muted
+     because it sits under a bar that has already claimed the eye. */
+  .note { margin-top:var(--magi-sys-space-50); font:var(--md-sys-typescale-label-medium-size)/1.45 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
 
   /* A user turn is the anchor you scan for: set as a lead, with the rule an editorial layout uses
      for a pull quote. */
@@ -2587,6 +2591,11 @@ function card(a) {
     doing.append(cell('asking', '⏸ ' + a.asking), answerBox(a));
   } else if (a.task) {
     doing.append(cell('last', a.task));
+    // Under the request, when a tool inside it is reporting. The task says what was asked and the
+    // step count says how much has been done; neither says anything about a turn that has been
+    // inside one call for ten minutes, which is the row somebody is squinting at wondering whether
+    // it is stuck. Only ever set on a working agent (see fleet.Agent.Doing).
+    if (a.doing) doing.append(cell('note', '⏳ ' + a.doing));
   }
   el.append(doing);
 
@@ -3340,6 +3349,10 @@ async function loadFleet() {
   const here = sock();
   if (here) {
     const mine = list.find(a => a.socket === here && (a.peer || '') === peerOf());
+    // Redrawn only when it CHANGED. The transcript is rebuilt whole by draw(), and doing that
+    // every three seconds under somebody reading a folded tool result would close what they opened.
+    const note = (mine && mine.doing) || '';
+    if (note !== liveNote) { liveNote = note; draw(lastRows); }
     drawPrompt(mine);
     drawDetail(mine);
     // Once per visit, not on every poll: a list of finished work does not change while you read it,
@@ -4595,6 +4608,15 @@ function rowNode(r) {
       bar.className = 'runbar';
       bar.setAttribute('aria-label', tr('row.working'));
       det.append(bar);
+      // And what the call last said about itself, when it says anything. The bar means "still
+      // going", which after four minutes is the part you already believe; this is the part that
+      // decides whether to wait or interrupt. It reaches the browser on the fleet poll rather than
+      // with this row — the note is not in the log — so it is read from there at draw time.
+      if (liveNote) {
+        const n = el('div', '⏳ ' + liveNote);
+        n.className = 'note';
+        det.append(n);
+      }
     }
     d.append(w, det);
     return d;
@@ -4628,6 +4650,14 @@ function rowNode(r) {
 const localRows = [];
 // The last thing the log said, so a shell run can redraw without waiting for the next frame.
 let lastRows = [];
+// liveNote is what a still-running tool last reported on this companion, or ''.
+//
+// It arrives on the fleet poll and not on the transcript stream, because it is not in the log: a
+// progress note is a transient event on the daemon's own bus, and this process reads files. So it
+// is kept here and picked up by the next draw rather than threaded through the frame — a frame
+// carrying it would have to be re-sent every three seconds to keep it current, which is a rebuild
+// of the whole transcript for one line of text.
+let liveNote = '';
 
 function draw(rows) {
   const stick = atBottom();
