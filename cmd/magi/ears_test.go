@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
@@ -215,4 +216,55 @@ func sorted(s []string) []string {
 	out := append([]string(nil), s...)
 	sort.Strings(out)
 	return out
+}
+
+// What a companion can reach is read from the file once, and again when the file changes.
+//
+// It is asked every time the companion describes itself, and describing itself is no longer a
+// startup-only act — the card is rebuilt per request so a workspace that gains a skill says so.
+// Without this, the other half of the same card was a file read and a TOML parse per question:
+// one card, two freshness policies, and a cost nobody decided to pay.
+//
+// Proving a read did NOT happen needs content that changed while the signature did not, which is
+// why the second write is the same length and the timestamp is put back. Anything less — a
+// re-read of an untouched file — gives the same answer either way and proves nothing.
+func TestWhatACompanionCanReachIsReadAgainOnlyWhenItChanges(t *testing.T) {
+	wd := t.TempDir()
+	dir := filepath.Join(wd, ".magi")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("[mcp.figma]\nurl = \"http://x/mcp\"\n")
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reachableServers(wd); len(got) != 1 || got[0] != "figma" {
+		t.Fatalf("the first read said %v", got)
+	}
+
+	// Same length, same timestamp, different content.
+	write("[mcp.figmb]\nurl = \"http://x/mcp\"\n")
+	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := reachableServers(wd); len(got) != 1 || got[0] != "figma" {
+		t.Fatalf("it parsed the file again for an answer it already had: %v", got)
+	}
+
+	// And a file that really did change is read again, or a companion goes on advertising a reach
+	// it no longer has.
+	if err := os.Chtimes(path, fi.ModTime().Add(time.Second), fi.ModTime().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got := reachableServers(wd); len(got) != 1 || got[0] != "figmb" {
+		t.Errorf("a changed config was answered from the old read: %v", got)
+	}
 }

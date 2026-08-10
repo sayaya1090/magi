@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -1800,18 +1801,56 @@ func companionPeers(list []fleet.Agent, cfg config.Config) (peers []fleet.Agent,
 // A config that cannot be read is no servers rather than an error: this is a description of a
 // neighbour, and a neighbour whose config is unreadable is one whose reach is unknown — which is
 // what an empty list says.
+//
+// # Answered from the last read while the file has not changed
+//
+// It is asked every time a companion describes itself, and describing itself stopped being a
+// startup-only act — the card is built per request now so a workspace that gains a skill says so.
+// Left as it was, that made the other half of the same card a file read and a TOML parse per
+// question, which is one card with two freshness policies and a cost nobody had decided to pay.
+//
+// The same shape the skills beside it already use: a signature of what would change the answer,
+// and the previous answer when it has not. Cheaper than parsing, and correct for the case that
+// actually happens — a file that is not being edited.
 func reachableServers(workdir string) []string {
-	c, err := config.Load(filepath.Join(workdir, ".magi"))
-	if err != nil {
-		return nil
+	path := filepath.Join(workdir, ".magi", "config.toml")
+	sig := ""
+	if fi, err := os.Stat(path); err == nil {
+		sig = fmt.Sprintf("%d/%d", fi.ModTime().UnixNano(), fi.Size())
 	}
-	out := make([]string, 0, len(c.MCP))
-	for name := range c.MCP {
-		out = append(out, name)
+	reachMu.Lock()
+	if got, ok := reachCache[workdir]; ok && got.sig == sig {
+		reachMu.Unlock()
+		return got.names
 	}
-	sort.Strings(out)
+	reachMu.Unlock()
+
+	var out []string
+	if c, err := config.Load(filepath.Join(workdir, ".magi")); err == nil {
+		out = make([]string, 0, len(c.MCP))
+		for name := range c.MCP {
+			out = append(out, name)
+		}
+		sort.Strings(out)
+	}
+	reachMu.Lock()
+	reachCache[workdir] = reachEntry{sig: sig, names: out}
+	reachMu.Unlock()
 	return out
 }
+
+// reachEntry is one workspace's answer and the file state it was read from. A missing file has an
+// empty signature, which is a state like any other: it stops the parse from being attempted again
+// and again for a workspace that simply has no config.
+type reachEntry struct {
+	sig   string
+	names []string
+}
+
+var (
+	reachMu    sync.Mutex
+	reachCache = map[string]reachEntry{}
+)
 
 // sanitizeTeam turns a team name into one path segment.
 //
