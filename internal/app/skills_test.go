@@ -46,3 +46,45 @@ func TestLoadSkills(t *testing.T) {
 		t.Error("an unknown skill must not be found")
 	}
 }
+
+// A skill written the usual way — with frontmatter — describes itself, not "---".
+//
+// The same function already parses frontmatter for the directory form, and read only the first line
+// for the flat one. So a file written the way every skill in every other tool is written advertised
+// itself as three dashes: in the model's prompt, in `about`, and across the network into what other
+// machines believe this companion can do. Seen live on five companions, every one of them.
+func TestAFlatSkillWithFrontmatterDescribesItself(t *testing.T) {
+	wd := t.TempDir()
+	dir := filepath.Join(wd, ".magi", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: bisect\ndescription: walks history to the commit that broke it\n---\n\nSteps.\n"
+	if err := os.WriteFile(filepath.Join(dir, "bisect.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := New(nil, nil, nil, nil, nil, Config{})
+	got := a.Skills(wd)
+	if len(got) != 1 {
+		t.Fatalf("%d skills found", len(got))
+	}
+	if got[0].Description != "walks history to the commit that broke it" {
+		t.Fatalf("it describes itself as %q", got[0].Description)
+	}
+}
+
+// A plain file with no frontmatter still uses its first line.
+func TestAFlatSkillWithoutFrontmatterStillUsesItsFirstLine(t *testing.T) {
+	wd := t.TempDir()
+	dir := filepath.Join(wd, ".magi", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tidy.md"), []byte("tidies the tree\n\nSteps.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := New(nil, nil, nil, nil, nil, Config{}).Skills(wd)
+	if len(got) != 1 || got[0].Description != "tidies the tree" {
+		t.Fatalf("got %+v", got)
+	}
+}

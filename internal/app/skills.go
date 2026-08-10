@@ -62,9 +62,23 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 			if text == "" {
 				continue
 			}
-			desc := text
-			if i := strings.IndexByte(text, '\n'); i >= 0 {
-				desc = strings.TrimSpace(text[:i])
+			// Frontmatter if it has any, first line otherwise.
+			//
+			// Both shapes are written by people and the same function already parses frontmatter
+			// for the .claude/skills/<slug>/SKILL.md form twenty lines down. Reading only the
+			// first line here meant a flat file written the usual way — which is with
+			// frontmatter, because that is what every other skill in every other tool looks like
+			// — advertised itself as "---".
+			//
+			// Silently, and further than it looks: that description goes into the model's prompt,
+			// into `about`, and now across the network into what other machines think this
+			// companion can do. Seen live, on five companions at once, every one of them.
+			desc := frontmatterDescription(text)
+			if desc == "" {
+				desc = text
+				if i := strings.IndexByte(text, '\n'); i >= 0 {
+					desc = strings.TrimSpace(text[:i])
+				}
 			}
 			seen[name] = true
 			skills = append(skills, port.Skill{Name: name, Description: desc, Body: text})
