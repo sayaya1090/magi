@@ -257,8 +257,11 @@ const demoScript = `
     [2, () => Object.assign(of('buttons'), {state: 'working', live: true, steps: 0, idle: 0,
       task: 'give the switch a disabled state and the tokens for it', planDone: 0, planTotal: 3})],
     // working → waiting. The one thing a person watches this page for.
-    [4, () => Object.assign(of('design'), {state: 'waiting',
-      asking: 'the empty state needs a word for "nothing yet" — pick one', askKind: 'question', askId: 'call_77'})],
+    // The live note goes with it. Only a WORKING companion carries one (fleet.Agent.Doing), so a
+    // demo that left it on a waiting row would be showing a frame the server never sends.
+    [4, () => { const d = of('design'); delete d.doing;
+      Object.assign(d, {state: 'waiting',
+        asking: 'the empty state needs a word for "nothing yet" — pick one', askKind: 'question', askId: 'call_77'}); }],
     // waiting → working: an answer arrives and the question clears. The asking line must go with it
     // or the row keeps showing a question nobody is being asked.
     [6, () => { const a = of('api'); a.state = 'working'; a.planDone = Math.max(a.planDone, 2);
@@ -271,13 +274,18 @@ const demoScript = `
     [8, () => Object.assign(of('ops'), {state: 'idle', live: true, idle: 0,
       task: 'rotated the staging certificates'})],
     [10, () => { const d = of('design'); d.state = 'working'; d.planDone = Math.max(d.planDone, 4);
+      d.doing = 'check 11, 7m30s elapsed, still running';
       delete d.asking; delete d.askId; delete d.askKind; }],
     [12, () => { const p = of('palette'); p.state = 'working'; p.planTotal = 3; p.planDone = Math.max(p.planDone || 0, 1);
+      // palette is the companion the detail page opens, so this is where the note under the
+      // running call's bar can be seen.
+      p.doing = 'check 3, 1m40s elapsed, not met yet (exit 1)';
       delete p.asking; delete p.askId; delete p.askKind; delete p.report; }],
     [14, () => { const a = of('api'); a.planDone = Math.max(a.planDone, 3); }],
     // working → idle. The plan is spent and the companion is waiting for the next thing.
     [16, () => Object.assign(of('buttons'), {state: 'idle', planDone: 3, idle: 1})],
-    [18, () => Object.assign(of('design'), {state: 'idle', planDone: 5, idle: 1})],
+    [18, () => { const d = of('design'); delete d.doing;
+      Object.assign(d, {state: 'idle', planDone: 5, idle: 1}); }],
     // live → stopped, so the row that started stopped is reached from the other direction too.
     [20, () => Object.assign(of('ops'), {state: 'stopped', live: false, idle: 90000})],
     // A companion JOINS. The fleet's length changes, which is the case a list that only ever
