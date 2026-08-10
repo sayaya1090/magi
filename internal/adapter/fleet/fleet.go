@@ -9,6 +9,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -181,6 +182,11 @@ type Agent struct {
 	PlanTotal int  `json:"planTotal,omitempty"`
 	Idle      int  `json:"idle"` // seconds since the last event in the log; -1 if unknown
 	Here      bool `json:"here"` // the daemon in the directory the caller is standing in
+	// Does names what this companion advertises being able to do, and Can is how many there are —
+	// more than Does lists when it has a lot. A sample and a count, not a list and its length: the
+	// names are capped for the wire (see cluster.MaxDoes) and the count is not.
+	Does []string `json:"does,omitempty"`
+	Can  int      `json:"can,omitempty"`
 }
 
 // List describes every daemon published under configDir, newest first. here is the socket the
@@ -203,7 +209,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
-			Host: in.Host, Addr: in.Addr,
+			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}
@@ -266,6 +272,7 @@ func elsewhere(configDir string, now time.Time) []Agent {
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
 			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
+			Does: m.Does, Can: m.Can,
 			// Live is "believed reachable", and for a companion on another machine the evidence
 			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
 			// anything acting on this has to look at State too, and Remote is not a state anything
@@ -395,10 +402,44 @@ func RosterLines(list []Agent, here string) string {
 		if a.Role != "" {
 			line += " — " + Clip(a.Role, 100)
 		}
+		if can := abilities(a); can != "" {
+			line += " · can: " + can
+		}
 		out = append(out, line)
 	}
 	sort.Strings(out)
 	return strings.Join(out, "\n")
+}
+
+// abilities is the capability names on a roster line, as much of them as a line can hold.
+//
+// Names and no descriptions, because that is all that crosses a machine — and because this goes
+// into a tool description a model reads while deciding, where twelve one-line descriptions per
+// companion would be a wall rather than a list of options. What each one means is fetched from the
+// companion that has it, when somebody wants to know.
+//
+// The count is shown when it is larger than the sample, so "+4" says the list is not the whole
+// answer rather than quietly implying it is.
+func abilities(a Agent) string {
+	if len(a.Does) == 0 {
+		return ""
+	}
+	shown, width := make([]string, 0, len(a.Does)), 0
+	for _, d := range a.Does {
+		if width+len(d) > 90 {
+			break
+		}
+		width += len(d) + 2
+		shown = append(shown, d)
+	}
+	if len(shown) == 0 {
+		return ""
+	}
+	out := strings.Join(shown, ", ")
+	if more := a.Can - len(shown); more > 0 {
+		out += fmt.Sprintf(" (+%d)", more)
+	}
+	return out
 }
 
 func Roster(list []Agent) string {
