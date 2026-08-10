@@ -144,8 +144,26 @@ func (Hand) Schema() json.RawMessage {
 		"to":{"type":"string","description":"which companion, by the name listed in this tool's description"},
 		"request":{"type":"string","description":"the whole instruction, standing on its own"},
 		"so_that":{"type":"string","description":"what this is for — the thing you will do with their answer. One clause. It is what lets them adapt when they hit something you did not foresee, which they cannot ask you about."},
-		"answer_as":{"type":"string","description":"the form the answer must come back in: write out the headings or fields you want filled, in the order you will read them. They fill it in. Not how to do the work — what the finished answer looks like."}
+		"answer_as":{"type":"string","description":"the form the answer must come back in: write out the headings or fields you want filled, in the order you will read them. They fill it in. Not how to do the work — what the finished answer looks like. For example: \"- token name:\\n- hex value:\\n- contrast ratio, or why you could not measure it:\""}
 	},"required":["to","request","so_that","answer_as"],"additionalProperties":false}`)
+}
+
+// fillable reports whether a form has anywhere to put an answer.
+//
+// It catches a TOKEN, not a bad form. Live, twice out of two, a model satisfied this field with
+// the word "text" — the requirement was met and nothing was said. A single word cannot be filled
+// in, and it cannot be checked against either: the note that delivers the answer quotes the form
+// and tells the reader to compare, which pointed at "text".
+//
+// Deliberately no further than that. Whether a form is a GOOD one — the right headings, in the
+// right order, for this piece of work — is a judgement about the task, and magi making it would be
+// one more thing to be wrong about while looking authoritative. What it can say is that one word
+// is not a form.
+func fillable(form string) bool {
+	if strings.ContainsAny(form, "\n\r") {
+		return true
+	}
+	return len(strings.Fields(form)) > 1
 }
 
 // withForm puts the form after the request, in the asker's words, and tells the receiver what to
@@ -257,10 +275,16 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 			"is what lets them adapt if the ground turns out not to match your request, and they "+
 			"cannot ask you")
 	}
-	if in.AnswerAs == "" {
+	switch {
+	case in.AnswerAs == "":
 		missing = append(missing, "the FORM the answer should come back in — the headings or "+
 			"fields you will read. An unstated shape is one they have to guess at, and a guess "+
 			"that comes back looking like an answer is the expensive kind of wrong")
+	case !fillable(in.AnswerAs):
+		missing = append(missing, fmt.Sprintf("a FORM rather than the word %q — something with "+
+			"places in it for the answer to go, like \"- token name:\\n- hex value:\\n- contrast "+
+			"ratio, or why you could not measure it:\". A single word is not something anybody can "+
+			"fill in, and it is not something you can check an answer against either", in.AnswerAs))
 	}
 	if len(missing) > 0 {
 		return errText("nothing was sent. They cannot ask you what you meant — there is no reply " +

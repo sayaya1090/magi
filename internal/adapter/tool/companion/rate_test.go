@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -226,5 +228,61 @@ func TestAHandOffCarriesTheFormTheAnswerMustTake(t *testing.T) {
 	}
 	if strings.Contains(watched[0].Request, "Answer in this form") {
 		t.Errorf("the quote-back would repeat the form inside the request: %q", watched[0].Request)
+	}
+}
+
+// A single word is not a form, and is refused with one.
+//
+// Live, twice out of two, a model satisfied the requirement with the word "text": the field was
+// there and nothing was said. A token cannot be filled in — and it cannot be checked against
+// either, because the note that delivers the answer quotes the form and tells the reader to
+// compare, which pointed at "text".
+//
+// Only a token. Whether a form is a GOOD one is a judgement about the task, and magi making it
+// would be one more thing to be wrong about while sounding authoritative.
+func TestASingleWordIsNotAForm(t *testing.T) {
+	tm := newTeam(t)
+	design := &heard{}
+	tm.member("d", "design", "the design system", design)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	ask := func(form string) session.ToolResult {
+		args, _ := json.Marshal(map[string]string{"to": "design", "request": "name the tokens",
+			"so_that": "I can write the empty state", "answer_as": form})
+		res, err := (companion.Hand{
+			Self: master, Called: "master", Machine: daemon.Host(),
+			Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir,
+			Cache: &fleet.Cache{}, Reach: dialing(),
+		}).Execute(context.Background(), args, port.ToolEnv{
+			SessionID: "m", Expect: func(port.Elsewhere) error { return nil },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	res := ask("text")
+	if !res.IsError {
+		t.Fatal("a one-word form was accepted, which is what happened live")
+	}
+	// The refusal shows one, rather than only saying the word was wrong.
+	if said := text(t, res); !strings.Contains(said, "token name:") {
+		t.Errorf("the refusal does not show what a form looks like: %q", said)
+	}
+	if len(design.got()) != 0 {
+		t.Error("it was sent anyway")
+	}
+
+	// A real one goes. So does a one-LINE one — "a number and nothing else" is a shape, and
+	// refusing it would be magi deciding what a form has to look like.
+	if res := ask("- surface:\n- on-surface:"); res.IsError {
+		t.Errorf("a form with fields was refused: %q", text(t, res))
+	}
+	if res := ask("a single number and nothing else"); res.IsError {
+		t.Errorf("a one-line form was refused: %q", text(t, res))
+	}
+	if n := len(design.got()); n != 2 {
+		t.Errorf("%d of the two real forms went through", n)
 	}
 }
