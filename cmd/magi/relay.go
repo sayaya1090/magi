@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
 
 // Carrying the daemon's own protocol across a machine, and nothing more.
@@ -43,6 +47,16 @@ import (
 // system's own words, before a byte of protocol is exchanged. That is the right authority: magi
 // deciding would be magi deciding to trust its own reading of who somebody is.
 
+// relayNoDaemon is the exit code for "this machine was reached and the companion is not there".
+//
+// Its own code because that is the one thing the far side knows and the near side cannot work out.
+// A crossing that fails looks identical from over here whether the network went or the daemon died,
+// and those are a wait to keep running and a wait to end — so the far side, which can tell, says
+// which by the only channel a process has that survives ssh.
+//
+// Distinct from 1 (anything else went wrong here) and from ssh's own 255 (it never got this far).
+const relayNoDaemon = 7
+
 // relayHere pipes stdin and stdout to a daemon socket on this machine.
 func relayHere(in io.Reader, out io.Writer, errOut io.Writer, socket string) int {
 	if socket == "" {
@@ -54,7 +68,7 @@ func relayHere(in io.Reader, out io.Writer, errOut io.Writer, socket string) int
 		// Said plainly and not translated. "permission denied" is the answer when the daemon
 		// belongs to another account, and it is more useful than anything magi could say instead.
 		fmt.Fprintf(errOut, "magi: cannot reach the daemon at %s: %v\n", socket, err)
-		return 1
+		return relayNoDaemon
 	}
 	defer conn.Close()
 
@@ -103,6 +117,14 @@ type pipe struct {
 	cmd *exec.Cmd
 	w   io.WriteCloser
 	r   io.ReadCloser
+	// said is the far side's stderr. Kept rather than passed through to this process's, because
+	// what it holds is the far side explaining why it could not connect — the answer to the one
+	// question a broken crossing cannot otherwise be asked.
+	said *bytes.Buffer
+	// reaped guards Wait, which may be called from the read path and from Close and is an error
+	// the second time.
+	reaped sync.Once
+	code   int
 }
 
 func pipeTo(cmd *exec.Cmd) (*pipe, error) {
@@ -115,16 +137,59 @@ func pipeTo(cmd *exec.Cmd) (*pipe, error) {
 		w.Close()
 		return nil, err
 	}
+	var said bytes.Buffer
+	cmd.Stderr = &said
 	if err := cmd.Start(); err != nil {
 		w.Close()
 		r.Close()
 		return nil, err
 	}
-	return &pipe{cmd: cmd, w: w, r: r}, nil
+	return &pipe{cmd: cmd, w: w, r: r, said: &said}, nil
 }
 
-func (p *pipe) Read(b []byte) (int, error)  { return p.r.Read(b) }
+// Read turns the end of the stream into the reason for it.
+//
+// EOF is where a crossing stops being legible: the far side is gone and this side has no idea
+// whether the network went, the login failed, or the companion died. The process that just exited
+// knows, and says so in its exit code — so the read that sees the end asks it, and hands back a
+// reason rather than a silence. A caller can then tell a wait to end from a link to retry.
+func (p *pipe) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if err == nil || !errors.Is(err, io.EOF) {
+		return n, err
+	}
+	p.reap()
+	if p.code == relayNoDaemon {
+		return n, fmt.Errorf("%w: %s", daemon.ErrGone, firstLine(p.said.String()))
+	}
+	return n, err
+}
+
 func (p *pipe) Write(b []byte) (int, error) { return p.w.Write(b) }
+
+// reap collects the exit status once. Wait also waits for the stderr copy, so said is complete
+// after it and must not be read before.
+func (p *pipe) reap() {
+	p.reaped.Do(func() {
+		werr := p.cmd.Wait()
+		var exit *exec.ExitError
+		switch {
+		case werr == nil:
+			p.code = 0
+		case errors.As(werr, &exit):
+			p.code = exit.ExitCode()
+		default:
+			p.code = -1
+		}
+	})
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
 
 // Close ends the conversation and the process with it.
 //
@@ -142,8 +207,9 @@ func (p *pipe) Close() error {
 		}
 	}
 	// Wait's error is not reported and that is deliberate: it is "signal: killed" every time,
-	// because the line above is what ended it. Called for the reaping, not the answer.
-	_ = p.cmd.Wait()
+	// because the line above is what ended it. Called for the reaping, not the answer — and only
+	// if the read path did not already do it.
+	p.reap()
 	return err
 }
 

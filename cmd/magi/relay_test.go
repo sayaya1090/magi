@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,3 +122,65 @@ func waitForSocket(t *testing.T, sock string) {
 
 var _ = os.Getenv
 var _ = json.Marshal
+
+// A machine that answers and has no companion says so, and says it differently from a machine that
+// did not answer at all.
+//
+// This is the only place the difference can be drawn. From the asking side both are missing bytes,
+// and they are opposite instructions: one is a wait to end because nothing is coming, the other is
+// a link to try again. The far side is the only process that knows which, and an exit code is the
+// only channel it has that survives ssh.
+func TestAMachineWithNoCompanionAtThatSocketSaysSoDistinctly(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := relayHere(strings.NewReader(""), &out, &errOut, filepath.Join(t.TempDir(), "nobody.sock"))
+	if code != relayNoDaemon {
+		t.Fatalf("a socket with nobody behind it exited %d, which reads as any other failure", code)
+	}
+	if code == 1 || code == 255 {
+		t.Fatal("it collides with 'something else went wrong' or with ssh's own failure")
+	}
+	if !strings.Contains(errOut.String(), "cannot reach the daemon") {
+		t.Errorf("it does not say what was wrong: %q", errOut.String())
+	}
+	// And the ordinary bad-argument failure keeps the ordinary code, or the two become one answer.
+	if code := relayHere(strings.NewReader(""), &out, &errOut, ""); code != 1 {
+		t.Errorf("a missing socket argument exited %d, want 1", code)
+	}
+}
+
+// The end of a crossing carries the reason for it, when the far side gave one.
+//
+// This is the join between the two halves, and without it they never meet: the far side can exit
+// with a code that means "there is no companion here" and the asking side can act on that fact,
+// and if the read in between hands back a plain EOF the fact never crosses. A wait that should
+// have ended in a second runs for two hours.
+func TestTheEndOfACrossingCarriesTheReasonForIt(t *testing.T) {
+	gone, err := pipeTo(exec.Command("sh", "-c",
+		"echo 'magi: cannot reach the daemon at /x/y.sock: connect: connection refused' 1>&2; exit 7"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gone.Close()
+	_, rerr := io.ReadAll(gone)
+	if !errors.Is(rerr, daemon.ErrGone) {
+		t.Fatalf("a far side that said the companion is gone read as %v", rerr)
+	}
+	if !strings.Contains(rerr.Error(), "cannot reach the daemon") {
+		t.Errorf("its words did not come with it: %v", rerr)
+	}
+
+	// And an ordinary end stays an ordinary end. A stream that finished normally reporting a dead
+	// companion would end every wait the moment it got its answer, which looks like working.
+	fine, err := pipeTo(exec.Command("sh", "-c", "echo hello; exit 0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fine.Close()
+	said, rerr := io.ReadAll(fine)
+	if rerr != nil {
+		t.Fatalf("a clean end read as %v", rerr)
+	}
+	if strings.TrimSpace(string(said)) != "hello" {
+		t.Errorf("the stream itself did not come through: %q", said)
+	}
+}

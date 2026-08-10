@@ -702,6 +702,16 @@ type Refused struct{ Why string }
 
 func (r Refused) Error() string { return r.Why }
 
+// ErrGone is a companion whose daemon is not running — as distinct from one that could not be
+// reached at all.
+//
+// The distinction can only be drawn on the far machine. From here a crossing that fails looks the
+// same whether the network went, the login failed, or the process died, and those are a wait to
+// keep running and a wait to end. So whatever carries the protocol across is expected to report
+// this when it learns it, and the wire itself never carries it: a daemon that is not there cannot
+// say so.
+var ErrGone = errors.New("that companion is not running")
+
 // Hand gives a companion a piece of work and takes the receipt for it.
 func (c *Client) Hand(label, request string) (string, error) {
 	resp, err := c.exchange(Request{Method: "hand", Name: label, Text: request})

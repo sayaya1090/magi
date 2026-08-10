@@ -251,6 +251,14 @@ func (l *listening) follow(ctx context.Context, reach Reach, target fleet.Agent,
 	if werr == nil {
 		return true // the stream ended cleanly: the far side has nothing more to say
 	}
+	if errors.Is(werr, daemon.ErrGone) {
+		// Reached the machine and found no companion. The one failure that is a fact rather than a
+		// silence, and it can only come from over there — from here a died daemon and a dropped
+		// link are the same missing bytes.
+		l.heard(daemon.Handover{Over: true, News: name + " is no longer running, and it stopped " +
+			"without finishing what you handed over. Nothing will come back."})
+		return true
+	}
 	var refused daemon.Refused
 	if !errors.As(werr, &refused) || heard {
 		return false // a broken link, or one that broke mid-stream

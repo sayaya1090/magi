@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -1002,20 +1003,38 @@ type crossing struct {
 	hosts  []string
 	socks  []string
 	broken error
+	// goneAfter makes every crossing past the nth reach the machine and find no companion. A
+	// count rather than a flag because the handing over is itself a crossing, and the thing under
+	// test is what happens to the one after it.
+	goneAfter int
 }
 
 func (c *crossing) reach() companion.Reach {
 	return func(_ context.Context, host, socket string) (*daemon.Client, error) {
 		c.mu.Lock()
 		c.hosts, c.socks = append(c.hosts, host), append(c.socks, socket)
-		broken := c.broken
+		broken, n, gone := c.broken, len(c.hosts), c.goneAfter
 		c.mu.Unlock()
 		if broken != nil {
 			return nil, broken
 		}
+		if gone > 0 && n > gone {
+			return daemon.Over(noCompanion{}), nil
+		}
 		return daemon.Dial(socket)
 	}
 }
+
+// noCompanion is a crossing that got to the far machine and found nothing behind the socket — what
+// the relay over there reports by its exit code, and the one failure a caller on this side could
+// never work out for itself.
+type noCompanion struct{}
+
+func (noCompanion) Read([]byte) (int, error) {
+	return 0, fmt.Errorf("%w: nothing is listening at that socket", daemon.ErrGone)
+}
+func (noCompanion) Write(b []byte) (int, error) { return len(b), nil }
+func (noCompanion) Close() error                { return nil }
 
 func (c *crossing) asked() (hosts, socks []string) {
 	c.mu.Lock()
@@ -1101,6 +1120,35 @@ func TestAMachineThatCannotDescribeSaysWhichOne(t *testing.T) {
 	}
 	if !strings.Contains(text(t, res), "buildbox") {
 		t.Errorf("the failure does not name the machine: %q", text(t, res))
+	}
+}
+
+// A machine that answers and has no companion ends the wait, where a machine that does not answer
+// does not.
+//
+// The two are the same missing bytes from here and opposite instructions: one is nothing coming
+// ever, the other is a link to try again. Only the far side can tell them apart, so this is really
+// a test that its answer is carried rather than flattened into "the crossing failed".
+func TestAMachineThatAnswersWithNoCompanionEndsTheWait(t *testing.T) {
+	tm := newTeam(t)
+	tm.abroad("design", &farSide{})
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	x := &crossing{goneAfter: 1} // the handing over is real; everything after finds nobody
+	_, watched := tm.askWatching(
+		companion.Hand{Self: master, Called: "master", Machine: "mini", Reach: x.reach()},
+		"m", "design", "something")
+	if len(watched) != 1 {
+		t.Fatalf("%d waits registered", len(watched))
+	}
+	defer watched[0].Done()
+	nudged(t, watched[0])
+	news, over := watched[0].Probe()
+	if !over {
+		t.Fatalf("a machine that said the companion is gone left the wait running: %q", news)
+	}
+	if !strings.Contains(news, "design on buildbox") || !strings.Contains(news, "no longer running") {
+		t.Errorf("the news does not say who, where, or what happened: %q", news)
 	}
 }
 
