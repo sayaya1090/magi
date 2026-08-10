@@ -320,9 +320,11 @@ func TestACompanionAdvertisesWhatItCanBeAskedToDo(t *testing.T) {
 	s := &Server{
 		Name: "design", Role: "the design system", Dir: store(t),
 		Team: "frontend", Hub: true, Workdir: "/w/design-system",
-		Skills: []port.Skill{
-			{Name: "spec-review", Description: "how a component spec is checked\nbefore it ships"},
-			{Name: "token-audit", Description: "find hardcoded colours"},
+		Skills: func() []port.Skill {
+			return []port.Skill{
+				{Name: "spec-review", Description: "how a component spec is checked\nbefore it ships"},
+				{Name: "token-audit", Description: "find hardcoded colours"},
+			}
 		},
 		Reach: []string{"figma", "storybook"},
 	}
@@ -469,5 +471,27 @@ func TestAnEmptyMessageIsNotDelivered(t *testing.T) {
 	}
 	if !r.Result.IsError || sent {
 		t.Errorf("an empty message was delivered (isError=%v sent=%v)", r.Result.IsError, sent)
+	}
+}
+
+// A companion advertises the skills it has now, not the ones it had when the process started.
+//
+// They are files in a workspace, and files get written — by a person, or by the companion itself
+// learning to do something during a session. Handed in once, the answer to "what can you be asked
+// to do" was fixed for as long as anybody stayed attached, which for an MCP peer is the whole
+// session of whoever attached it.
+func TestACompanionAdvertisesTheSkillsItHasNow(t *testing.T) {
+	var skills []port.Skill
+	s := &Server{
+		Name: "design", Role: "the design system", Dir: store(t),
+		Skills: func() []port.Skill { return skills },
+	}
+	ask := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"about","arguments":{}}}` + "\n"
+	if got := textOf(t, call(t, s, ask)); strings.Contains(got, "token-audit") {
+		t.Fatalf("a skill that does not exist yet is advertised:\n%s", got)
+	}
+	skills = append(skills, port.Skill{Name: "token-audit", Description: "find hardcoded colours"})
+	if got := textOf(t, call(t, s, ask)); !strings.Contains(got, "token-audit") {
+		t.Errorf("a skill written after the process started is never advertised:\n%s", got)
 	}
 }

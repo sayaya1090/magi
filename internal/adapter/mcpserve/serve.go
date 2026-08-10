@@ -105,7 +105,12 @@ type Server struct {
 	Workdir string
 	// Skills are the named procedures written down in this companion's workspace: the closest
 	// thing there is to a list of what it can be asked to do.
-	Skills []port.Skill
+	//
+	// Asked for each time somebody asks, not handed in once. They are files, and files get
+	// written — a companion that learned to do something during a session advertised the workspace
+	// as it was when this process started, for as long as anybody stayed attached. nil answers
+	// with no skills, which is what a companion that has written none says.
+	Skills func() []port.Skill
 	// Reach names the external tool servers this companion is configured to talk to. NAMES ONLY,
 	// and that is a rule rather than a convenience — see about().
 	Reach []string
@@ -303,8 +308,12 @@ func (s *Server) detail(ctx context.Context, id string) string {
 // The same reasoning covers a URL, which is not obviously executable and is worse in one way: it
 // can carry an internal host, and often a token in a query string.
 func (s *Server) about() string {
+	var skills []port.Skill
+	if s.Skills != nil {
+		skills = s.Skills()
+	}
 	return Describe(Card{Name: s.Name, Role: s.Role, Team: s.Team, Hub: s.Hub,
-		Workdir: s.Workdir, Skills: s.Skills, Reach: s.Reach})
+		Workdir: s.Workdir, Skills: skills, Reach: s.Reach})
 }
 
 // Card is everything a companion says about itself when somebody asks.
