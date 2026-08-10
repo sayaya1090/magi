@@ -74,10 +74,6 @@ type Config struct {
 	// living in one laptop's global config where a second machine would have to be told again.
 	Companion CompanionConfig `toml:"companion"`
 
-	// Reach is per-host, keyed by hostname: how this machine opens a pipe to a companion there.
-	// See Reach — local only, never gossiped, never copied by --join.
-	Reach map[string]Reach `toml:"reach"`
-
 	// Guardrail policy (two-axis posture). Profile is a posture preset
 	// (safe|standard|yolo); Sandbox is the OS-confinement axis
 	// (read-only|workspace-write|full). Allow/Deny are "Tool(spec)" pattern rules
@@ -252,35 +248,6 @@ type Hook struct {
 
 // MCPServer declares an MCP server connection. Either URL (for HTTP transport)
 // or Command (for stdio transport) must be specified, but not both.
-// Reach is how THIS machine opens a pipe to a companion on another one, per host.
-//
-// # Why this is config and membership is not
-//
-// A companion written into config is a dependency — "I need this to exist" — which is why the
-// cluster refuses to record members there. This is the other thing: it does not say anybody exists,
-// it says how to get bytes to a host IF one turns up there. Nothing depends on it, nothing goes
-// stale, and a host that never appears costs an unused table entry.
-//
-// # And why it can only be local
-//
-// A reach is a command line, and a command line arriving over the network is arbitrary code this
-// process would run. So it is never gossiped, never copied by --join, and never derived from
-// anything a member said — the member supplies a hostname and a socket path, both data, and this
-// supplies the shape they go into.
-//
-// {{host}} and {{socket}} are replaced. Anything else is passed through untouched, so an argument
-// that happens to contain braces is not mangled.
-//
-//	[reach.agent-b]
-//	command = "docker"
-//	args    = ["exec", "-i", "agent-b", "magi", "--relay", "{{socket}}"]
-//
-// A host with no entry falls back to ssh, which is what the cluster assumes everywhere else.
-type Reach struct {
-	Command string   `toml:"command"`
-	Args    []string `toml:"args"`
-}
-
 type MCPServer struct {
 	// HTTP transport (Streamable HTTP)
 	URL     string            `toml:"url"`     // e.g. "http://localhost:3000/mcp"

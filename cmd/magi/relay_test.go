@@ -8,12 +8,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
-	"github.com/sayaya1090/magi/internal/config"
 )
 
 // A daemon answers about itself, and a relay carries that answer without understanding it.
@@ -121,46 +119,3 @@ func waitForSocket(t *testing.T, sock string) {
 
 var _ = os.Getenv
 var _ = json.Marshal
-
-// ssh is the default and a person can say otherwise, per host.
-//
-// A container has no sshd and its hostname is an id nothing resolves, so the cluster is unreachable
-// from there however clever this gets. What makes it reachable is somebody saying once how to get
-// in — and that saying stays HERE. A command line arriving over the network is code this process
-// would run, so a reach is never gossiped and never copied by --join.
-func TestHowToReachAMachineIsSaidHereOrItIsSsh(t *testing.T) {
-	none := config.Config{}
-	name, args := reachFor(none, "buildbox", "/run/d.sock")
-	if name != "ssh" {
-		t.Fatalf("the default is %q, not ssh", name)
-	}
-	if !strings.Contains(strings.Join(args, " "), "--relay /run/d.sock") {
-		t.Errorf("the default does not relay to the socket: %v", args)
-	}
-
-	told := config.Config{Reach: map[string]config.Reach{
-		"agent-b": {Command: "docker", Args: []string{"exec", "-i", "{{host}}", "magi", "--relay", "{{socket}}"}},
-	}}
-	name, args = reachFor(told, "agent-b", "/run/x.sock")
-	if name != "docker" {
-		t.Fatalf("what this machine was told was ignored: %q", name)
-	}
-	if strings.Join(args, " ") != "exec -i agent-b magi --relay /run/x.sock" {
-		t.Errorf("the template was not filled in: %v", args)
-	}
-	// A host it was told nothing about is still ssh, so one container does not change the rest.
-	if n, _ := reachFor(told, "buildbox", "/run/d.sock"); n != "ssh" {
-		t.Errorf("a host with no entry became %q", n)
-	}
-}
-
-// Only the two names are substituted, by exact spelling.
-//
-// A general expansion over a command line is how a socket path that happens to contain a brace
-// becomes something else — and this builds a command that then runs.
-func TestOnlyTheTwoNamesAreFilledIn(t *testing.T) {
-	got := fillReach("a{{host}}b{{socket}}c{{whatever}}d", "H", "S")
-	if want := "aHbSc{{whatever}}d"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
