@@ -54,6 +54,14 @@ const handoffPoll = 3 * time.Second
 // and a note arriving after that would land in whatever it happens to be doing next.
 const handoffCap = 2 * time.Hour
 
+// handoffProbe is how often the peer is ASKED about, as opposed to read about.
+//
+// Slower than the log poll on purpose: reading their log is a cached tail read, and asking about
+// them means dialling their daemon. The questions it answers — is that process still there, is it
+// blocked on a person — change on the scale of minutes, and a dial every three seconds against
+// every companion somebody has work out with is a cost paid to learn nothing.
+var handoffProbe = 30 * time.Second
+
 // pendingHandoff is one piece of work out with somebody else.
 type pendingHandoff struct {
 	Who     string
@@ -100,6 +108,9 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 	defer deadline.Stop()
 	tick := time.NewTicker(handoffPoll)
 	defer tick.Stop()
+	probe := time.NewTicker(handoffProbe)
+	defer probe.Stop()
+	told := "" // the last thing said about the peer, so one stuck state is reported once
 
 	for {
 		select {
@@ -118,6 +129,32 @@ func (a *App) watchHandoff(ctx context.Context, sid session.SessionID, actor eve
 				// still available — better than the silence of a discarded error.
 				a.emitToolProgress(sid, actor, "", "hand_off",
 					"could not record that "+e.Who+" never answered: "+err.Error())
+			}
+			return
+		case <-probe.C:
+			// Their log first, always. A peer that finished and then exited is finished — asking
+			// about the process would report it gone and lose an answer that is written down.
+			if done, answer := a.handoffAnswer(ctx, their, since); done {
+				if err := a.deliverHandoff(ctx, sid, actor, e, answer); err == nil {
+					return
+				}
+				continue
+			}
+			news, over := a.probeHandoff(e)
+			if news == "" || news == told {
+				continue
+			}
+			told = news
+			if !over {
+				// Still possible, and worth knowing now: a companion blocked on a permission
+				// prompt is waiting for a PERSON, and the asker is the only thing in a position to
+				// say so to one.
+				a.noteHandoff(ctx, sid, e, news)
+				continue
+			}
+			if err := a.deliverHandoff(ctx, sid, actor, e, news); err != nil {
+				told = "" // unwritten is untold; say it again next time round
+				continue
 			}
 			return
 		case <-tick.C:
@@ -244,4 +281,36 @@ func (a *App) PendingHandoffs(sid session.SessionID) []pendingHandoff {
 		return nil
 	}
 	return append([]pendingHandoff(nil), st.handoffs...)
+}
+
+// probeHandoff asks whoever wired this up whether anybody is still doing the work.
+//
+// The engine cannot answer it alone. Whether a process is alive, and whether it is blocked on a
+// person, are not in any log — they are a dial and a question over a socket, which belong to the
+// packages that own those and which this one cannot import without closing a cycle. So the caller
+// that had them supplies the answer, and a hand-off registered without one simply waits.
+func (a *App) probeHandoff(e port.Elsewhere) (string, bool) {
+	if e.Probe == nil {
+		return "", false
+	}
+	return e.Probe()
+}
+
+// noteHandoff says something about work still out, without ending the wait.
+//
+// Separate from deliverHandoff because it must NOT clear the pending record: the piece is still
+// out, the watch is still running, and clearing it would make the finish gate say a turn has
+// everything it asked for while it is still waiting.
+func (a *App) noteHandoff(ctx context.Context, sid session.SessionID, e port.Elsewhere, news string) {
+	text := fmt.Sprintf("# About %s\n\nYou asked them:\n\n> %s\n\n---\n\n%s\n\n---\n"+
+		"They have not answered yet and this is not their answer. Nothing more is needed from you "+
+		"to receive it — it still arrives here on its own if it comes.",
+		e.Who, clipLine(oneLine(e.Request), 400), news)
+	if err := a.appendPromptText(context.WithoutCancel(ctx), sid,
+		event.Actor{Kind: event.ActorSystem, ID: "handoff:" + e.Who}, text); err != nil {
+		// Said on the bus instead. This is news rather than the answer, so a failure to record it
+		// costs a screen a line — losing it silently is what must not happen.
+		a.emitToolProgress(sid, event.Actor{Kind: event.ActorSystem, ID: "handoff"}, "", "hand_off",
+			e.Who+": "+news)
+	}
 }

@@ -26,6 +26,11 @@ type handoffFixture struct {
 
 func newHandoffFixture(t *testing.T) *handoffFixture {
 	t.Helper()
+	// The probe's real cadence is half a minute — right for dialling a neighbour, impossible to
+	// wait out in a test. Only the clock is changed; every rule under test is the shipped one.
+	was := handoffProbe
+	handoffProbe = 60 * time.Millisecond
+	t.Cleanup(func() { handoffProbe = was })
 	st, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -239,4 +244,96 @@ func TestATurnWithNothingOutIsNotStopped(t *testing.T) {
 	if done {
 		t.Error("a turn that handed out nothing was stopped anyway")
 	}
+}
+
+// Silence is not one thing, and the wait has to say which.
+//
+// A transcript that stopped growing may be a peer inside a ten-minute build, one blocked on a
+// permission prompt nobody is at the keyboard for, or a daemon killed with the turn half done. All
+// three look identical from the log, which is all the waiting side can read — so without a probe
+// the wait runs its full two hours and then reports "not finished", which is true of every one of
+// them and useful for none.
+func TestAPeerThatWillNeverAnswerIsReportedRatherThanWaitedOut(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("theirs", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/them"}))
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+
+	if err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design", Session: "theirs", Request: "name the tokens",
+		Probe: func() (string, bool) {
+			return "design's daemon stopped answering with the work unfinished", true
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the death to be reported", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "stopped answering") {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	// Over means over: it is no longer outstanding, so the finish gate stops holding a turn open
+	// for an answer that cannot arrive.
+	waitFor(t, "the pending record to clear", func() bool {
+		return len(f.a.PendingHandoffs("mine")) == 0
+	})
+}
+
+// Blocked is news, not an ending.
+//
+// A companion waiting on a permission prompt can still be answered — by a person, who has to be
+// told, and the asker is the only thing in a position to tell one. So it is passed on and the wait
+// continues, and the piece stays outstanding because it still is.
+func TestABlockedPeerIsReportedAndStillWaitedFor(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("theirs", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/them"}))
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
+
+	var probes int
+	if err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
+		Who: "design", Session: "theirs", Request: "name the tokens",
+		Probe: func() (string, bool) {
+			probes++
+			return "design is blocked waiting for a person: permission for bash", false
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the block to be reported", func() bool {
+		for _, m := range f.myMessages() {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "blocked waiting for a person") {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	// Still out: the answer may yet come, and a cleared record would tell the finish gate this
+	// turn has everything it asked for.
+	if out := f.a.PendingHandoffs("mine"); len(out) != 1 {
+		t.Errorf("a blocked peer's work is no longer outstanding: %+v", out)
+	}
+	// Said once. The same state reported every half minute is a conversation filling with one fact.
+	before := countContaining(f.myMessages(), "blocked waiting for a person")
+	waitFor(t, "a second probe", func() bool { return probes >= 2 })
+	if after := countContaining(f.myMessages(), "blocked waiting for a person"); after != before {
+		t.Errorf("one stuck state was reported %d times, was %d", after, before)
+	}
+}
+
+func countContaining(msgs []session.Message, want string) int {
+	n := 0
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if strings.Contains(p.Text, want) {
+				n++
+			}
+		}
+	}
+	return n
 }

@@ -170,6 +170,22 @@ type Elsewhere struct {
 	// turn that handed out three pieces gets three answers back and cannot otherwise tell which is
 	// which — they arrive in whatever order the work finishes, not the order it was asked.
 	Request string
+	// Probe answers "is anybody still doing this", and it is what keeps silence from being
+	// ambiguous.
+	//
+	// A transcript that has stopped growing says nothing about why. The peer may be inside a
+	// ten-minute build, or blocked on a permission prompt nobody is at the keyboard for, or its
+	// daemon may have been killed with the turn half done — and all three look identical from the
+	// log, which is the only thing the waiting side can read. Without this the wait runs to its
+	// full two hours and then reports "not finished", which is true of every one of those and
+	// useful for none.
+	//
+	// news is worth passing on now; over says nothing more will ever come, so the wait should
+	// stop. Both empty/false means carry on waiting, which is also what an unanswerable probe
+	// returns — a probe that cannot tell must not guess that the work is dead.
+	//
+	// nil is allowed and means exactly that: no way to tell, wait it out.
+	Probe func() (news string, over bool)
 }
 
 // ScheduleChange is one edit to a workspace's unattended work, or a request to see it.

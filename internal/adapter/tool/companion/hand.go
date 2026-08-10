@@ -186,6 +186,7 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 	// that was done.
 	if xerr := env.Expect(port.Elsewhere{
 		Who: target.Name, Session: target.Session, Request: in.Request,
+		Probe: h.probeFor(target.Socket, target.Name),
 	}); xerr != nil {
 		return errText("nothing was sent: the answer could not be waited for (" + xerr.Error() +
 			"), and handing work over without that loses it"), nil
@@ -257,4 +258,57 @@ func firstLine(s string) string {
 
 func okText(msg string) session.ToolResult {
 	return session.ToolResult{Content: mustJSON(msg)}
+}
+
+// probeFor answers, later and from another goroutine, whether anybody is still doing the work.
+//
+// The engine that waits cannot ask this itself: whether a process is alive and whether it is
+// blocked on a person are a dial and a question over a socket, and internal/app cannot import the
+// packages that own those without closing a cycle. So the answer is supplied from here, where they
+// are already in hand, as a closure the wait calls on its own clock.
+//
+// Two states end the wait and they are not the same news:
+//
+//   - The daemon is gone with the turn unfinished. Nobody is coming, and saying so beats two hours
+//     of silence followed by "not finished", which is equally true of a peer still working.
+//   - It finished a turn but not one this could be. Only reachable if the peer restarted onto a
+//     different session; the request went to a log nothing is driving any more.
+//
+// Being BLOCKED is news and not an ending: a person may still answer it. It is worth saying at once
+// because the asker is the only thing in a position to tell one.
+//
+// Never guesses. A probe that cannot reach the roster says nothing, and the wait continues — a
+// companion reported dead because a listing failed is worse than one reported late.
+func (h Hand) probeFor(socket, name string) func() (string, bool) {
+	reader, cfgDir, self, cache := h.Reader, h.ConfigDir, h.Self, h.Cache
+	return func() (string, bool) {
+		if reader == nil || reader() == nil {
+			return "", false
+		}
+		list, err := fleet.ListCached(context.Background(), reader(), cfgDir, self, cache)
+		if err != nil {
+			return "", false
+		}
+		for _, a := range list {
+			if a.Socket != socket {
+				continue
+			}
+			switch a.State {
+			case fleet.Abandoned:
+				return name + "'s daemon stopped answering with the work unfinished — it was " +
+					"killed, crashed, or its machine went away. Nothing will come back. What it " +
+					"had done is in its transcript; the rest was not done.", true
+			case fleet.Stopped:
+				return name + " is no longer running, and it stopped without finishing what you " +
+					"handed over. Nothing will come back.", true
+			case fleet.Waiting:
+				return name + " is blocked waiting for a person: " + a.Asking +
+					" — it will not get any further until somebody answers that.", false
+			}
+			return "", false
+		}
+		// Not in the listing at all: its record is gone, which is what stopping a companion does.
+		return name + " is no longer published here, so nothing will come back. If it finished " +
+			"before it went, the answer is in its transcript.", true
+	}
 }
