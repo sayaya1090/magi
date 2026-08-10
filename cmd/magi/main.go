@@ -1096,8 +1096,8 @@ func run() int {
 		// directory would be a way to run commands anywhere on this machine from a page.
 		serveErr := serving.Serve(dctx, daemonEngine{
 			App: a, workdir: wd,
-			handover: handover{work: a, sid: sid, configDir: plat.ConfigDir(),
-				receipts: daemon.NewReceipts()},
+			handover: handover{work: a, sid: sid, workdir: wd, configDir: plat.ConfigDir(),
+				receipts: daemon.NewReceipts(), mine: newSideSessions()},
 			card: func() mcpserve.Card {
 				return mcpserve.Card{
 					Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,

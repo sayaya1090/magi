@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
@@ -58,6 +59,12 @@ type takes interface {
 	// differ on one.
 	AnswerSince(ctx context.Context, sid session.SessionID, since int64) (bool, string)
 	Submit(ctx context.Context, cmd command.SubmitPrompt) error
+	// CreateSession opens the side conversation a piece of handed-over work runs in.
+	CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error)
+	// Running names a session with a turn in flight here, if there is one. Isolation is of the
+	// CONVERSATION; the work is still one at a time, because two turns at once in one workspace
+	// are two agents editing the same files with nothing between them.
+	Running() (session.SessionID, bool)
 	// Subscribe is how a watch learns that something happened without asking. The alternative was
 	// the far side asking across a network on a three-second timer, which is what this replaces.
 	Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error)
@@ -70,9 +77,15 @@ type takes interface {
 // resolved on arrival, against a config directory belonging to whichever account the login landed
 // as, is now the socket the caller already reached.
 type handover struct {
-	work      takes
+	work takes
+	// sid is the session this companion IS — the one a person attaches to. Handed-over work never
+	// goes here: somebody watching their own conversation must not have another agent's request
+	// appear in it, and a request borrows the workspace and the skills, not the conversation.
 	sid       session.SessionID
+	workdir   string
 	configDir string
+	// mine is one side session per ASKER, keyed by the label they send.
+	mine *sideSessions
 	// receipts is what this daemon has taken, and the only way to ask about any of it. nil is
 	// possible in a partly-built engine; the methods say so rather than crash.
 	receipts *daemon.Receipts
@@ -87,68 +100,90 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 	if strings.TrimSpace(request) == "" {
 		return "", errors.New("a request needs something to do")
 	}
-	if h.receipts == nil || h.work == nil {
+	if h.receipts == nil || h.work == nil || h.mine == nil {
 		return "", errors.New("this companion cannot record a handover, so its answer could never " +
 			"be collected")
 	}
-	// Whether it can take anything right now, decided by the same predicate that guards a handoff
-	// between neighbours. Asked about ITSELF: nothing was addressed by name, so there is nothing to
-	// resolve — only whether the process that was reached is in a state to take work. Its own
-	// record, read from its own store, as its own user.
-	list, lerr := fleet.List(ctx, h.work, h.configDir, "")
-	if lerr != nil {
-		return "", fmt.Errorf("this companion cannot read its own record, so it will not take work "+
-			"it may be in no state to do: %w", lerr)
+	// One at a time, whoever is running and whatever they are running. Conversations are isolated;
+	// the WORK is not, because this is an agent that edits files and two turns at once in one tree
+	// are two writers with nothing between them. The person's own session counts: a request
+	// borrows the workspace, and borrowing it while somebody is using it is the same collision.
+	if busy, yes := h.work.Running(); yes {
+		return "", fmt.Errorf("this companion is working on something else (%s) and does one thing "+
+			"at a time — the workspace is shared even when the conversations are not. Try it "+
+			"later, or ask somebody else", busy)
 	}
-	me, found := fleet.Agent{}, false
-	for _, a := range list {
-		if a.Session == string(h.sid) {
-			me, found = a, true
-			break
-		}
+	if strings.TrimSpace(label) == "" {
+		// An arrival with no label still gets one. A request with no attribution is
+		// indistinguishable from something the person typed, and the no-chaining rule is read off
+		// exactly this mark. It is also the key below, so an unlabelled asker gets one shared
+		// side session rather than a new one every time.
+		label = fleet.DispatchedFrom("another companion", "")
 	}
-	if !found {
-		return "", errors.New("this companion is not published, so nothing can be handed to it")
+	sid, serr := h.sessionFor(ctx, label)
+	if serr != nil {
+		return "", serr
 	}
-	if refused := companion.Ready(me); refused != "" {
-		return "", errors.New(refused)
-	}
-	// Where the log stands before the work goes in. This is the whole definition of the answer —
-	// the first turn that finishes past this point — and it is what keeps the hour of finished
-	// turns behind it from being handed back as a reply.
-	//
-	// Before rather than after because that is what the sentence says. Submit returns before the
-	// turn it starts has ended, so after would usually give the same number; usually is not a
-	// property, and the day it is not, the way back returns the answer to something else.
-	since, _, nerr := h.work.NewSince(ctx, h.sid, 0)
+	// Where that session's log stands before the work goes in. The answer is the first turn that
+	// finishes past this point, and it is a position in THEIR session — which is why the receipt
+	// carries both.
+	since, _, nerr := h.work.NewSince(ctx, sid, 0)
 	if nerr != nil {
 		return "", fmt.Errorf("this companion's transcript cannot be read, so an answer could not "+
 			"be found again: %w", nerr)
 	}
 	// Minted BEFORE the work goes in. The other way round, a failure to mint would leave work being
 	// done that nobody can ever ask about — and an unused receipt costs nothing, because it expires.
-	id, gerr := h.receipts.Give(since)
+	id, gerr := h.receipts.Give(string(sid), since)
 	if gerr != nil {
 		return "", gerr
 	}
-	if strings.TrimSpace(label) == "" {
-		// An arrival with no label still gets one. A request with no attribution is
-		// indistinguishable from something the person typed, and the no-chaining rule is read off
-		// exactly this mark.
-		label = fleet.DispatchedFrom("another companion", "")
-	}
-	// The same actor a handoff between neighbours produces. That one arrives through this daemon's
-	// own socket and is recorded as an attached caller; this one arrives through a pipe to the same
-	// socket. Who actually asked is in the label, verbatim, which is where every reader looks.
-	if serr := h.work.Submit(ctx, command.SubmitPrompt{
-		SessionID: h.sid,
+	// The same actor a person's own prompt gets. Who actually asked is in the label, verbatim,
+	// which is where every reader looks.
+	if err := h.work.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: companion.Labelled(label, request)}},
-		Actor:     event.Actor{Kind: event.ActorUser, ID: "attach"},
-	}); serr != nil {
-		return "", serr
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "handoff"},
+	}); err != nil {
+		return "", err
 	}
 	return id, nil
 }
+
+// sessionFor is the side session belonging to one asker, opened the first time they ask.
+//
+// Same workspace, so the skills, the experience store and the memory are all there — a request
+// borrows the capability. Only the conversation is its own.
+func (h handover) sessionFor(ctx context.Context, label string) (session.SessionID, error) {
+	h.mine.mu.Lock()
+	defer h.mine.mu.Unlock()
+	if sid, ok := h.mine.by[label]; ok {
+		return sid, nil
+	}
+	sid, err := h.work.CreateSession(ctx, command.CreateSession{Workdir: h.workdir})
+	if err != nil {
+		return "", fmt.Errorf("this companion could not open a conversation for the work: %w", err)
+	}
+	h.mine.by[label] = sid
+	return sid, nil
+}
+
+// sideSessions is one conversation per asker.
+//
+// Per asker and not per request, which settles two things at once: work from different askers
+// never shares a history, and a second request from the same asker continues where the first left
+// off — which is what a re-ask needs to be worth anything. The label is the key because it is
+// derived from who is asking, is stable for them, and already crosses verbatim.
+//
+// A pointer, like the receipts beside it: the engine that holds this is copied by value into the
+// socket's serve loop, and a map two copies disagreed about would be two askers sharing a session
+// or one asker getting a new one every time.
+type sideSessions struct {
+	mu sync.Mutex
+	by map[string]session.SessionID
+}
+
+func newSideSessions() *sideSessions { return &sideSessions{by: map[string]session.SessionID{}} }
 
 // Handed satisfies daemon.Taker: what became of work this companion was handed.
 //
@@ -159,7 +194,7 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 	if h.receipts == nil || h.work == nil {
 		return daemon.Handover{}, errors.New("this companion has taken no work from anybody")
 	}
-	since, ok := h.receipts.Since(receipt)
+	sid, since, ok := h.receipts.Where(receipt)
 	if !ok {
 		// One answer for unknown and for expired, and none for "which piece of work was that". A
 		// door that distinguishes them answers questions about work the caller did not hand over,
@@ -167,7 +202,7 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 		return daemon.Handover{}, errors.New("no handover here with that receipt — it was never " +
 			"made here, or this companion has restarted since, or it has expired")
 	}
-	return h.state(ctx, since), nil
+	return h.state(ctx, session.SessionID(sid), since), nil
 }
 
 // state is what became of the work, from the position its receipt stands for.
@@ -175,8 +210,8 @@ func (h handover) Handed(ctx context.Context, receipt string) (daemon.Handover, 
 // One definition and two clocks: Handed says it when asked, Watch says it when something happens.
 // Written twice, a companion blocked on a person would be reported by one of them and not the
 // other, and which you got would depend on how old the magi asking was.
-func (h handover) state(ctx context.Context, since int64) daemon.Handover {
-	if done, answer := h.work.AnswerSince(ctx, h.sid, since); done {
+func (h handover) state(ctx context.Context, sid session.SessionID, since int64) daemon.Handover {
+	if done, answer := h.work.AnswerSince(ctx, sid, since); done {
 		return daemon.Handover{Done: true, Answer: answer}
 	}
 	// Not finished. Then the other question: is anybody still doing it, or is this silence
@@ -200,12 +235,14 @@ func (h handover) Watch(ctx context.Context, receipt string, say func(daemon.Han
 	if h.receipts == nil || h.work == nil {
 		return errors.New("this companion has taken no work from anybody")
 	}
-	since, ok := h.receipts.Since(receipt)
+	sid, since, ok := h.receipts.Where(receipt)
 	if !ok {
 		return errors.New("no handover here with that receipt — it was never made here, or this " +
 			"companion has restarted since, or it has expired")
 	}
-	events, stop, err := h.work.Subscribe(ctx, h.sid, since)
+	// The session the RECEIPT names, not this companion's own. Subscribing to the published one
+	// would listen to the conversation a person is having and push when THAT moved.
+	events, stop, err := h.work.Subscribe(ctx, session.SessionID(sid), since)
 	if err != nil {
 		return fmt.Errorf("this companion cannot follow its own work: %w", err)
 	}
@@ -213,7 +250,7 @@ func (h handover) Watch(ctx context.Context, receipt string, say func(daemon.Han
 
 	var said daemon.Handover
 	for {
-		now := h.state(ctx, since)
+		now := h.state(ctx, session.SessionID(sid), since)
 		if now != said {
 			said = now
 			// Nothing to say is not a thing to send. A companion that was blocked and is now

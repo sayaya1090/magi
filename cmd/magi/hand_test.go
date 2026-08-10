@@ -41,6 +41,7 @@ type arrival struct {
 	bus  *bus.Bus
 	said int
 	live int32 // watches running inside this companion right now
+	work *recordingWork
 	got  struct {
 		sync.Mutex
 		prompts []string
@@ -77,17 +78,42 @@ func shortSockDir(t *testing.T) string {
 // is a test of the door.
 type recordingWork struct {
 	*app.App
-	ar *arrival
+	ar     *arrival
+	side   session.SessionID
+	busy   session.SessionID
+	opened int
 }
 
+// CreateSession opens a real one in the store, a fresh id each time — the first is <sid>_side, so
+// a test can name it. A stub handing back one fixed id would have made two askers look like one,
+// which is the thing under test.
+func (w *recordingWork) CreateSession(_ context.Context, c command.CreateSession) (session.SessionID, error) {
+	w.opened++
+	id := w.side
+	if w.opened > 1 {
+		id = session.SessionID(fmt.Sprintf("%s%d", w.side, w.opened))
+	}
+	w.ar.append(string(id), ev(w.ar.t, event.TypeSessionCreated,
+		event.SessionCreatedData{Workdir: c.Workdir}))
+	return id, nil
+}
+
+// Running is what serialises the work. Nothing is running in these tests unless one says so.
+func (w *recordingWork) Running() (session.SessionID, bool) { return w.busy, w.busy != "" }
+
+// Submit records the prompt AND writes it to the log, which is what a real one does before it
+// starts a turn. Recording only in memory left the log with a turn that finished without ever
+// having been asked for — and "the first turn that finishes past here" does not recognise that.
 func (w *recordingWork) Submit(_ context.Context, c command.SubmitPrompt) error {
-	w.ar.got.Lock()
-	defer w.ar.got.Unlock()
 	var b strings.Builder
 	for _, p := range c.Parts {
 		b.WriteString(p.Text)
 	}
+	w.ar.got.Lock()
 	w.ar.got.prompts = append(w.ar.got.prompts, b.String())
+	w.ar.got.Unlock()
+	w.ar.append(string(c.SessionID), ev(w.ar.t, event.TypePromptSubmitted,
+		event.PromptSubmittedData{MessageID: "m_handed", Parts: c.Parts}))
 	return nil
 }
 
@@ -125,9 +151,11 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	wd := ar.t.TempDir()
 	sock := filepath.Join(ar.cfgDir, "daemon-"+sid+".sock")
 	receipts := daemon.NewReceipts()
+	ar.work = &recordingWork{App: ar.reader, ar: ar, side: session.SessionID(sid + "_side")}
 	eng := takingEngine{live: &ar.live, handover: handover{
-		work: &recordingWork{App: ar.reader, ar: ar}, sid: session.SessionID(sid),
-		configDir: ar.cfgDir, receipts: receipts,
+		work: ar.work,
+		sid:  session.SessionID(sid), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
+		mine: newSideSessions(),
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	ar.t.Cleanup(cancel)
@@ -199,6 +227,9 @@ func ev(t *testing.T, typ event.Type, d any) event.Event {
 	}
 	return event.Event{Type: typ, Data: b, TS: time.Now()}
 }
+
+// side is the conversation handed-over work runs in, which is never the published one.
+func (ar *arrival) side(sid string) string { return sid + "_side" }
 
 func (ar *arrival) prompts() []string {
 	ar.got.Lock()
@@ -272,7 +303,7 @@ func TestAnEarlierAnswerIsNotMistakenForThisOne(t *testing.T) {
 	if got.Done {
 		t.Fatalf("a turn that finished before the work arrived was reported as its answer: %+v", got)
 	}
-	ar.finishes("s_design", "done it")
+	ar.finishes(ar.side("s_design"), "done it")
 	got, err = cl.Handed(receipt)
 	if err != nil || !got.Done || got.Answer != "done it" {
 		t.Fatalf("a turn finishing after the work landed was not seen as its answer: %+v %v", got, err)
@@ -296,7 +327,7 @@ func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ar.finishes("s_design", "somebody else's answer")
+	ar.finishes(ar.side("s_design"), "somebody else's answer")
 
 	// A made-up receipt is no better than none.
 	if got, err := cl.Handed("00000000000000000000000000000000"); err == nil || got.Done {
@@ -322,9 +353,10 @@ func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
 func TestARefusalIsAnAnswerAndNotAFailedCall(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	// Mid-turn: a prompt with no finish after it, which is what a companion at work looks like.
-	ar.append("s_design", ev(t, event.TypePromptSubmitted, event.PromptSubmittedData{
-		MessageID: "m1", Parts: []session.Part{{Kind: session.PartText, Text: "rebuilding the index"}}}))
+	// Busy: something has a turn in flight here. Conversations are isolated now, so what refuses
+	// is not "your session is mid-turn" but "this workspace is in use" — one at a time, because
+	// two turns in one tree are two agents editing the same files.
+	ar.work.busy = "rebuilding-the-index"
 
 	_, err := cl.Hand("— asked by master", "do it")
 	if err == nil {
@@ -334,7 +366,7 @@ func TestARefusalIsAnAnswerAndNotAFailedCall(t *testing.T) {
 	if !errors.As(err, &refused) {
 		t.Fatalf("a companion that answered reads as one that could not be reached: %#v", err)
 	}
-	if !strings.Contains(refused.Why, "mid-turn") {
+	if !strings.Contains(refused.Why, "one thing at a time") {
 		t.Errorf("the refusal does not say why: %q", refused.Why)
 	}
 	if len(ar.prompts()) != 0 {
@@ -353,7 +385,7 @@ func TestTheFarSideAnswersOnlyOnceTheTurnHasFinished(t *testing.T) {
 	if got, err := cl.Handed(receipt); err != nil || got.Done {
 		t.Fatalf("an unfinished turn answered %+v %v", got, err)
 	}
-	ar.finishes("s_design", "the screen is rewritten")
+	ar.finishes(ar.side("s_design"), "the screen is rewritten")
 
 	got, err := cl.Handed(receipt)
 	if err != nil {
@@ -378,16 +410,17 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := before.Since(receipt); !ok {
+	if _, _, ok := before.Where(receipt); !ok {
 		t.Fatal("the receipt it issued was not recorded")
 	}
 	// What a restart leaves: the same companion, the same log, no memory of taking anything.
 	fresh := daemon.NewReceipts()
-	if _, ok := fresh.Since(receipt); ok {
+	if _, _, ok := fresh.Where(receipt); ok {
 		t.Fatal("a restarted daemon recognised a receipt it never issued")
 	}
-	after := handover{work: &recordingWork{App: ar.reader, ar: ar},
-		sid: "s_design", configDir: ar.cfgDir, receipts: fresh}
+	after := handover{work: &recordingWork{App: ar.reader, ar: ar, side: "s_design_side"},
+		sid: "s_design", workdir: ar.t.TempDir(), configDir: ar.cfgDir, receipts: fresh,
+		mine: newSideSessions()}
 	if _, err := after.Handed(context.Background(), receipt); err == nil {
 		t.Fatal("a restarted companion answered about work it has no record of taking")
 	}
@@ -432,7 +465,7 @@ func TestTheAnswerIsPushedWhenTheTurnEnds(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 
-	ar.finishes("s_design", "the screen is rewritten")
+	ar.finishes(ar.side("s_design"), "the screen is rewritten")
 	select {
 	case h := <-got:
 		if !h.Done || h.Answer != "the screen is rewritten" {
@@ -479,7 +512,7 @@ func TestAWatchEndsWhenThePeerHangsUp(t *testing.T) {
 
 	// And the work is unaffected: it is the companion's own, and its answer is in its own
 	// transcript whether or not anybody was watching.
-	ar.finishes("s_design", "done anyway")
+	ar.finishes(ar.side("s_design"), "done anyway")
 	if got, err := cl.Handed(receipt); err != nil || !got.Done || got.Answer != "done anyway" {
 		t.Fatalf("the work was affected by nobody listening: %+v %v", got, err)
 	}
@@ -602,5 +635,85 @@ func TestAWorkspaceWithManySkillsSendsASampleAndTheRealCount(t *testing.T) {
 	}
 	if len(names) != cluster.MaxDoes {
 		t.Errorf("%d names would travel with every sighting, want at most %d", len(names), cluster.MaxDoes)
+	}
+}
+
+// Handed-over work never lands in the conversation a person is attached to, and two askers never
+// share one.
+//
+// A request borrows the workspace and the skills — the capability — not the conversation. Somebody
+// watching their own session must not have another agent's request appear in it, and an answer
+// written for one asker must not be sitting in the history the next one is answered from.
+func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
+	ar := newArrival(t)
+	cl, receipts := ar.publish("design", "s_design")
+
+	first, err := cl.Hand("— asked by master", "name the tokens")
+	if err != nil {
+		t.Fatal(err)
+	}
+	where, _, ok := receipts.Where(first)
+	if !ok {
+		t.Fatal("the receipt names nowhere")
+	}
+	if where == "s_design" {
+		t.Fatal("the work landed in the session a person is attached to")
+	}
+	// The same asker again continues where it left off — that is what makes a re-ask worth
+	// anything, and it is the same mechanism as the isolation rather than a second one.
+	second, err := cl.Hand("— asked by master", "and the contrast ratios")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _, _ := receipts.Where(second)
+	if again != where {
+		t.Errorf("a second request from the same asker opened a new conversation (%s then %s)",
+			where, again)
+	}
+	// A different asker does not.
+	other := handover{work: ar.work, sid: "s_design", workdir: ar.t.TempDir(),
+		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions()}
+	mine, merr := other.sessionFor(context.Background(), "— asked by master")
+	if merr != nil {
+		t.Fatal(merr)
+	}
+	theirs, terr := other.sessionFor(context.Background(), "— asked by scribe")
+	if terr != nil {
+		t.Fatal(terr)
+	}
+	if mine == theirs {
+		t.Errorf("two askers were given one conversation (%s)", mine)
+	}
+}
+
+// One at a time, whoever is running and whatever they are running.
+//
+// The conversations are isolated; the WORK is not, and must not be. This is an agent that edits
+// files — two turns at once in one tree are two writers with nothing between them. The person's
+// own session counts: a request borrows the workspace, and borrowing it while somebody is using it
+// is the same collision.
+func TestWorkIsOneAtATimeEvenThoughTheConversationsAreNot(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+
+	ar.work.busy = "the-person-is-working"
+	_, err := cl.Hand("— asked by master", "name the tokens")
+	if err == nil {
+		t.Fatal("work was taken on top of a turn already running in this workspace")
+	}
+	var refused daemon.Refused
+	if !errors.As(err, &refused) {
+		t.Fatalf("a companion that answered reads as one that could not be reached: %#v", err)
+	}
+	if !strings.Contains(refused.Why, "the-person-is-working") {
+		t.Errorf("the refusal does not say what it is busy with: %q", refused.Why)
+	}
+	if len(ar.prompts()) != 0 {
+		t.Error("it was sent anyway")
+	}
+	// And when the workspace frees up it is taken.
+	ar.work.busy = ""
+	if _, err := cl.Hand("— asked by master", "name the tokens"); err != nil {
+		t.Fatalf("an idle companion refused: %v", err)
 	}
 }

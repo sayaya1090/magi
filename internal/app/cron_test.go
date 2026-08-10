@@ -427,7 +427,7 @@ func TestABrokenJobIsReportedOnceNotForever(t *testing.T) {
 // tree are two writers with nothing coordinating them.
 func TestAJobDoesNotFireWhileAnythingElseIsRunning(t *testing.T) {
 	a, _ := newApp(t, &fakeLLM{}, Config{Model: session.ModelRef{Provider: "test", Model: "m"}})
-	if sid, busy := a.somethingRunning(); busy {
+	if sid, busy := a.Running(); busy {
 		t.Fatalf("an idle app reported %s running", sid)
 	}
 	// A session with a turn in flight is what startRun leaves behind.
@@ -436,7 +436,7 @@ func TestAJobDoesNotFireWhileAnythingElseIsRunning(t *testing.T) {
 	st.cancel = func() {}
 	a.mu.Unlock()
 
-	sid, busy := a.somethingRunning()
+	sid, busy := a.Running()
 	if !busy {
 		t.Fatal("a running turn was invisible, so a job would have fired on top of it")
 	}
@@ -448,7 +448,7 @@ func TestAJobDoesNotFireWhileAnythingElseIsRunning(t *testing.T) {
 	a.mu.Lock()
 	a.stateLocked("somebody-elses-work").cancel = nil
 	a.mu.Unlock()
-	if sid, busy := a.somethingRunning(); busy {
+	if sid, busy := a.Running(); busy {
 		t.Errorf("a finished turn still reads as running: %s", sid)
 	}
 }

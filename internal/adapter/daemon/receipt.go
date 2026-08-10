@@ -55,7 +55,10 @@ type Receipts struct {
 }
 
 type receipt struct {
-	// since is where this daemon's log stood when the work arrived. The answer is the first turn
+	// session is where the work went. One per asker, not one per daemon: a request must not land
+	// in the conversation somebody is attached to, and two askers must not read each other's.
+	session string
+	// since is where that session's log stood when the work arrived. The answer is the first turn
 	// that finishes past it — which is why the position is taken before the work goes in, and why
 	// it is kept here instead of being handed back to the caller to send again.
 	since int64
@@ -65,7 +68,7 @@ type receipt struct {
 func NewReceipts() *Receipts { return &Receipts{kept: map[string]receipt{}} }
 
 // Give records a piece of handed-over work and returns the receipt for it.
-func (r *Receipts) Give(since int64) (string, error) {
+func (r *Receipts) Give(sid string, since int64) (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		// Refused rather than handed over unrecorded. A receipt nobody can present is work that
@@ -83,22 +86,22 @@ func (r *Receipts) Give(since int64) (string, error) {
 			delete(r.kept, old)
 		}
 	}
-	r.kept[id] = receipt{since: since, at: now}
+	r.kept[id] = receipt{session: sid, since: since, at: now}
 	return id, nil
 }
 
-// Since looks up where the log stood when a receipt was issued. An unknown or expired one is simply
-// not found: there is no distinction worth drawing for the caller, and drawing it would say whether
-// a piece of work exists.
-func (r *Receipts) Since(id string) (int64, bool) {
+// Where looks up the session a receipt stands for and the position its log stood at. An unknown or
+// expired one is simply not found: there is no distinction worth drawing for the caller, and
+// drawing it would say whether a piece of work exists.
+func (r *Receipts) Where(id string) (sid string, since int64, ok bool) {
 	if id == "" {
-		return 0, false
+		return "", 0, false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rec, ok := r.kept[id]
-	if !ok || time.Since(rec.at) >= receiptLife {
-		return 0, false
+	rec, found := r.kept[id]
+	if !found || time.Since(rec.at) >= receiptLife {
+		return "", 0, false
 	}
-	return rec.since, true
+	return rec.session, rec.since, true
 }

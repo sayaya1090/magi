@@ -207,7 +207,7 @@ func (s *cronScheduler) tickOnce(ctx context.Context) {
 		// instead of being retried on every tick forever.
 		j.Due = j.Schedule.Next(at)
 
-		if busy, ok := s.app.somethingRunning(); ok {
+		if busy, ok := s.app.Running(); ok {
 			// Anything, not just this job's own last run. Two jobs due in the same minute, or one
 			// due while somebody is attached and working, are both ordinary — and this is a coding
 			// agent, so two turns at once in one workspace are two writers to the same files with
@@ -249,7 +249,7 @@ func (s *cronScheduler) fire(ctx context.Context, j scheduledJob) (session.Sessi
 	return sid, nil
 }
 
-// somethingRunning names a session with a turn in flight, if there is one.
+// Running names a session with a turn in flight, if there is one.
 //
 // The overlap check, and it is about the WORKSPACE rather than about one job. It used to ask only
 // whether that job's own last run was still going, which left the two cases that actually happen:
@@ -262,7 +262,7 @@ func (s *cronScheduler) fire(ctx context.Context, j scheduledJob) (session.Sessi
 //
 // Every session this App holds is in its workspace — a daemon serves one — so "any" and "in this
 // workspace" are the same set.
-func (a *App) somethingRunning() (session.SessionID, bool) {
+func (a *App) Running() (session.SessionID, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for sid, st := range a.states {
