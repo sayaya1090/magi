@@ -91,7 +91,10 @@ type Hand struct {
 	//
 	// It must not block: whatever supplies it decides how fresh is fresh, and reading the fleet
 	// means dialling every published socket. See cmd/magi/roster.go.
-	Roster func() string
+	//
+	// It reports how many companions the lines name as well as the lines. The count is what says
+	// whether there is a CHOICE here, and it cannot be recovered from the text.
+	Roster func() (lines string, n int)
 	// Record is how work handed over before turned out, as this workspace judged it.
 	//
 	// Shown, never applied. It is a block of its own below the roster rather than a column inside
@@ -109,15 +112,19 @@ func DispatchedBy(who string) string { return fleet.DispatchedBy(who) }
 func (Hand) Name() string { return "hand_off" }
 
 func (h Hand) Description() string {
-	who := ""
+	who, n := "", 0
 	if h.Roster != nil {
-		who = strings.TrimSpace(h.Roster())
+		lines, count := h.Roster()
+		who, n = strings.TrimSpace(lines), count
 	}
 	if who == "" {
 		who = "(nobody else is running here right now, so this will refuse)"
 	}
+	// Only where there is something to choose BETWEEN. With one companion the record informs
+	// nothing and is a paragraph in every prompt of every step; the weight of what a model reads
+	// while deciding is a cost this tree has measured.
 	past := ""
-	if h.Record != nil {
+	if n > 1 && h.Record != nil {
 		if r := strings.TrimSpace(h.Record()); r != "" {
 			past = "\n" + r + "\n"
 		}

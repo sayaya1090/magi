@@ -129,3 +129,31 @@ func TestOneUnreadableLineDoesNotLoseTheRest(t *testing.T) {
 		t.Errorf("a bad line took the good ones with it:\n%s", got)
 	}
 }
+
+// The record is shown only where there is something to choose between.
+//
+// It exists to inform a choice. With one companion there is no choice, and the paragraph is weight
+// in every prompt of every step — the tool description is rebuilt each one, and what a model reads
+// while deciding is a cost this tree has measured before.
+func TestThePastIsShownOnlyWhenThereIsAChoice(t *testing.T) {
+	wd := t.TempDir()
+	rate(t, wd, map[string]string{"who": "design", "verdict": "good", "why": "landed"})
+	record := func() string { return companion.Tally(wd) }
+
+	alone := companion.Hand{Record: record, Roster: func() (string, int) {
+		return "  design [core] — screens", 1
+	}}.Description()
+	if strings.Contains(alone, "useful") {
+		t.Errorf("with one companion the record is carried for nothing:\n%s", alone)
+	}
+	if !strings.Contains(alone, "design") {
+		t.Errorf("the one companion there is went missing:\n%s", alone)
+	}
+
+	several := companion.Hand{Record: record, Roster: func() (string, int) {
+		return "  builder [core] — builds\n  design [core] — screens", 2
+	}}.Description()
+	if !strings.Contains(several, "design — 1 of 1 useful") {
+		t.Errorf("with a choice to make the record is not in front of it:\n%s", several)
+	}
+}

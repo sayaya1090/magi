@@ -415,11 +415,9 @@ func Resolve(list []Agent, to string) []Agent {
 // to be visible because it is the difference between a name that is unique here and one that is
 // unique in the cluster. Two hosts can each have a "design".
 func RosterLines(list []Agent, here string) string {
-	out := make([]string, 0, len(list))
-	for _, a := range list {
-		if a.Name == "" || !a.Live || (here != "" && a.Socket == here) {
-			continue
-		}
+	found := Addressable(list, here)
+	out := make([]string, 0, len(found))
+	for _, a := range found {
 		line := "  " + a.Name
 		if a.State == Remote {
 			line += " (on " + a.Host + ")"
@@ -437,6 +435,24 @@ func RosterLines(list []Agent, here string) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, "\n")
+}
+
+// Addressable is who a roster offers: named, running, and not the caller.
+//
+// Its own function because the count matters as much as the lines do. A description that lists one
+// companion is a list with no choice in it, and anything that exists to inform a choice — how past
+// hand-offs went, most obviously — is pure weight in every prompt of every step when there is only
+// one candidate. The weight of what a model is shown while deciding is a cost this tree has
+// measured; a caller cannot weigh it against a number it has to guess by counting lines.
+func Addressable(list []Agent, here string) []Agent {
+	out := make([]Agent, 0, len(list))
+	for _, a := range list {
+		if a.Name == "" || !a.Live || (here != "" && a.Socket == here) {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // abilities is the capability names on a roster line, as much of them as a line can hold.

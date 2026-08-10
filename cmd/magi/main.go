@@ -785,15 +785,15 @@ func run() int {
 	// first list is taken before it does. One throwaway App rather than one per refresh.
 	self := daemon.SocketPath(plat.ConfigDir(), wd)
 	rosterReader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-	handRoster := newLiveRoster(func() (string, error) {
+	handRoster := newLiveRoster(func() (string, int, error) {
 		if rosterReader == nil {
-			return "", errNoReader
+			return "", 0, errNoReader
 		}
 		list, lerr := fleet.List(context.Background(), rosterReader, plat.ConfigDir(), self)
 		if lerr != nil {
-			return "", lerr
+			return "", 0, lerr
 		}
-		return fleet.RosterLines(list, self), nil
+		return fleet.RosterLines(list, self), len(fleet.Addressable(list, self)), nil
 	})
 	reg.Register(companion.Hand{
 		Reader:    func() fleet.Reader { return a },

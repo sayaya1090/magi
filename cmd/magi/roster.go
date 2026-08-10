@@ -37,29 +37,35 @@ import (
 const rosterLife = 15 * time.Second
 
 type liveRoster struct {
-	// build reports the list, or why it could not. The error matters: a listing that failed is
-	// this machine having a bad moment, and "nobody else is running" is a real answer — told
-	// apart, a failed read keeps the last list; collapsed, it advertises an empty cluster, which
-	// is the frozen-empty failure again in miniature.
-	build func() (string, error)
+	// build reports the list and how many companions it names, or why it could not. The error
+	// matters: a listing that failed is this machine having a bad moment, and "nobody else is
+	// running" is a real answer — told apart, a failed read keeps the last list; collapsed, it
+	// advertises an empty cluster, which is the frozen-empty failure again in miniature.
+	//
+	// The count travels with the lines because a caller cannot get it back out of them, and what
+	// it decides is whether anything that exists to inform a CHOICE is worth the tokens: with one
+	// candidate there is no choice, and the extra paragraph is weight in every prompt of every
+	// step for nothing.
+	build func() (string, int, error)
 
 	mu   sync.Mutex
 	text string
+	n    int
 	at   time.Time
 	busy bool // one refresh at a time: a slow fleet must not become a pile of goroutines
 }
 
 // newLiveRoster takes the first list synchronously, because startup is the one moment there is
 // nothing to serve and nobody waiting on a step.
-func newLiveRoster(build func() (string, error)) *liveRoster {
+func newLiveRoster(build func() (string, int, error)) *liveRoster {
 	l := &liveRoster{build: build, at: time.Now()}
-	l.text, _ = build()
+	l.text, l.n, _ = build()
 	return l
 }
 
-func (l *liveRoster) get() string {
+func (l *liveRoster) get() (string, int) {
 	l.mu.Lock()
-	text, stale := l.text, !l.busy && time.Since(l.at) >= rosterLife
+	text, n, stale := l.text, l.n, !l.busy && time.Since(l.at) >= rosterLife
 	if stale {
 		l.busy = true
 	}
@@ -67,14 +73,14 @@ func (l *liveRoster) get() string {
 	if stale {
 		go l.redo()
 	}
-	return text
+	return text, n
 }
 
 func (l *liveRoster) redo() {
-	text, err := l.build()
+	text, n, err := l.build()
 	l.mu.Lock()
 	if err == nil {
-		l.text = text
+		l.text, l.n = text, n
 	}
 	// at moves either way: a read that failed should be tried again on the next window, not
 	// retried on every step until it succeeds.

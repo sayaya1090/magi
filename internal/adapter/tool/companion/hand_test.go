@@ -636,7 +636,9 @@ func TestTheToolShowsWhoThereIsRatherThanTellingTheModelToLook(t *testing.T) {
 		{Name: "me", Role: "coordinating", Live: true, Socket: "/s/m.sock"},
 		{Name: "gone", Role: "was here", Live: false, Socket: "/s/g.sock"},
 	}
-	got := companion.Hand{Roster: func() string { return fleet.RosterLines(list, "/s/m.sock") }}.Description()
+	got := companion.Hand{Roster: func() (string, int) {
+		return fleet.RosterLines(list, "/s/m.sock"), len(fleet.Addressable(list, "/s/m.sock"))
+	}}.Description()
 
 	for _, want := range []string{"design", "the design system", "[frontend]", "api", "the billing API"} {
 		if !strings.Contains(got, want) {
@@ -655,7 +657,7 @@ func TestTheToolShowsWhoThereIsRatherThanTellingTheModelToLook(t *testing.T) {
 // And with nobody there it says so, rather than showing an empty heading that reads as a list
 // still loading.
 func TestTheToolSaysWhenThereIsNobodyToHandWorkTo(t *testing.T) {
-	got := companion.Hand{Roster: func() string { return fleet.RosterLines(nil, "") }}.Description()
+	got := companion.Hand{Roster: func() (string, int) { return fleet.RosterLines(nil, ""), 0 }}.Description()
 	if !strings.Contains(got, "nobody else is running") {
 		t.Errorf("an empty roster reads as:\n%s", got)
 	}
@@ -1267,12 +1269,12 @@ func TestACompanionThatAppearsLaterIsAdvertised(t *testing.T) {
 	master := tm.member("m", "master", "coordinating", &heard{})
 
 	// Built the way production builds it: a function over the live listing, not a string.
-	tool := companion.Hand{Self: master, Called: "master", Roster: func() string {
+	tool := companion.Hand{Self: master, Called: "master", Roster: func() (string, int) {
 		list, err := fleet.List(context.Background(), tm.reader, tm.cfgDir, master)
 		if err != nil {
-			return ""
+			return "", 0
 		}
-		return fleet.RosterLines(list, master)
+		return fleet.RosterLines(list, master), len(fleet.Addressable(list, master))
 	}}
 	if got := tool.Description(); strings.Contains(got, "design") {
 		t.Fatalf("a companion that does not exist yet is already offered:\n%s", got)

@@ -17,17 +17,17 @@ import (
 func TestReadingTheRosterNeverWaitsForIt(t *testing.T) {
 	release := make(chan struct{})
 	var built int32
-	l := newLiveRoster(func() (string, error) {
+	l := newLiveRoster(func() (string, int, error) {
 		if atomic.AddInt32(&built, 1) == 1 {
-			return "first", nil // startup, where waiting is free
+			return "first", 1, nil // startup, where waiting is free
 		}
 		<-release
-		return "second", nil
+		return "second", 1, nil
 	})
 	l.at = time.Now().Add(-2 * rosterLife) // stale, so the next read starts a refresh
 
 	done := make(chan string, 1)
-	go func() { done <- l.get() }()
+	go func() { text, _ := l.get(); done <- text }()
 	select {
 	case got := <-done:
 		if got != "first" {
@@ -38,7 +38,7 @@ func TestReadingTheRosterNeverWaitsForIt(t *testing.T) {
 		t.Fatal("a read waited for the fleet to be dialled, on the path of every step")
 	}
 	close(release)
-	waitUntil(t, "the refreshed list to land", func() bool { return l.get() == "second" })
+	waitUntil(t, "the refreshed list to land", func() bool { return first(l.get()) == "second" })
 }
 
 // Many reads in one window start one refresh, not one each.
@@ -49,12 +49,12 @@ func TestManyReadsStartOneRefresh(t *testing.T) {
 	started := make(chan struct{}, 64)
 	release := make(chan struct{})
 	var n int32
-	l := newLiveRoster(func() (string, error) {
+	l := newLiveRoster(func() (string, int, error) {
 		if atomic.AddInt32(&n, 1) > 1 { // the first build is startup's, and synchronous
 			started <- struct{}{}
 			<-release
 		}
-		return "list", nil
+		return "list", 1, nil
 	})
 	l.at = time.Now().Add(-2 * rosterLife)
 	for i := 0; i < 20; i++ {
@@ -82,11 +82,11 @@ func TestManyReadsStartOneRefresh(t *testing.T) {
 // arriving later.
 func TestAFailedReadKeepsTheLastList(t *testing.T) {
 	var fail atomic.Bool
-	l := newLiveRoster(func() (string, error) {
+	l := newLiveRoster(func() (string, int, error) {
 		if fail.Load() {
-			return "", errors.New("the store is having a moment")
+			return "", 0, errors.New("the store is having a moment")
 		}
-		return "design [core]", nil
+		return "design [core]", 1, nil
 	})
 	fail.Store(true)
 	l.at = time.Now().Add(-2 * rosterLife)
@@ -96,10 +96,13 @@ func TestAFailedReadKeepsTheLastList(t *testing.T) {
 		defer l.mu.Unlock()
 		return !l.busy
 	})
-	if got := l.get(); !strings.Contains(got, "design") {
+	if got, _ := l.get(); !strings.Contains(got, "design") {
 		t.Fatalf("a failed listing emptied the roster: %q", got)
 	}
 }
+
+// first is the text half of a read, for the places a test only cares about that.
+func first(s string, _ int) string { return s }
 
 func waitUntil(t *testing.T, what string, ok func() bool) {
 	t.Helper()
