@@ -2188,3 +2188,60 @@ console.log(JSON.stringify({rows: rows}));`)
 		t.Error("reasoning or a successful tool call arrived open; they are the noise this folds")
 	}
 }
+
+// A diff is coloured by what each line does, and a list with dashes in it is not.
+//
+// The terminal has coloured these since it had a transcript; here they arrived as a wall in which
+// the one thing a diff is for — which lines went and which arrived — was what you had to work out
+// by reading the first character of every row.
+//
+// The second half matters as much. Deciding "diff" from a leading plus or minus would paint every
+// bulleted list half green and half red, which is worse than not colouring it: it would be saying
+// something untrue about what changed. A hunk header is required.
+func TestADiffIsColouredAndAListIsNot(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([
+  {who:'result',text:"diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-gone\n+arrived\n stays"},
+  {who:'result',text:"- one\n- two\n+ not a diff"},
+]);
+const walk = (n, out) => { out.push(n); for (const k of n.children || []) if (k && k.children) walk(k, out); return out; };
+const nodes = walk(byId.log, []);
+const cls = nodes.map(n => n.className).filter(Boolean);
+const textOf = n => (n.textContent || '') + (n.children || []).map(textOf).join('');
+console.log(JSON.stringify({
+  classes: cls,
+  added: nodes.filter(n => n.className === 'dadd').map(textOf),
+  deleted: nodes.filter(n => n.className === 'ddel').map(textOf),
+}));`)
+
+	classes, _ := got["classes"].([]any)
+	count := func(want string) int {
+		n := 0
+		for _, c := range classes {
+			if s, _ := c.(string); s == want {
+				n++
+			}
+		}
+		return n
+	}
+	if count("dadd") != 1 || count("ddel") != 1 {
+		t.Errorf("the diff has %d added and %d deleted lines, want 1 each: %v", count("dadd"), count("ddel"), classes)
+	}
+	if count("dhunk") != 1 {
+		t.Errorf("the hunk header is not marked: %v", classes)
+	}
+	// Three file lines: the "diff --git", the ---, and the +++. None of them is an add or a delete.
+	if count("dfile") != 3 {
+		t.Errorf("the file headers are %d, want 3 — one of them was taken for a change: %v", count("dfile"), classes)
+	}
+	added, _ := got["added"].([]any)
+	if len(added) != 1 || !strings.Contains(added[0].(string), "arrived") {
+		t.Errorf("the added line is %v", added)
+	}
+	// And the bulleted list is untouched. It is a TOOL RESULT here on purpose: an assistant reply
+	// goes through markdown and never reaches the diff path at all, so putting the list there made
+	// this half of the test vacuous — it passed with the hunk-header requirement removed.
+	if count("dadd") != 1 || count("ddel") != 1 {
+		t.Errorf("a list with dashes in it was coloured as a diff: %v", classes)
+	}
+}

@@ -1524,6 +1524,15 @@ const indexHTML = `<!doctype html>
     overflow-x:auto; overscroll-behavior-x:contain;
   }
   .txt pre code { background:none; padding:0; white-space:pre; }
+  /* A diff, coloured the way the terminal colours it. The background tint carries the same fact as
+     the sign at the start of the line, so somebody who cannot separate the two colours still has
+     the character — and somebody scanning has the block. */
+  pre.diff { font:var(--magi-sys-body-s) var(--magi-ref-mono); white-space:pre; }
+  pre.diff .dadd { color:var(--magi-ref-success); background:color-mix(in srgb, var(--magi-ref-success) 12%, transparent); }
+  pre.diff .ddel { color:var(--magi-ref-error); background:color-mix(in srgb, var(--magi-ref-error) 12%, transparent); }
+  pre.diff .dhunk { color:var(--magi-ref-accent); }
+  pre.diff .dfile { color:var(--magi-ref-muted); font-weight:600; }
+  pre.diff .dctx { color:var(--magi-ref-fg); }
   /* Tables scroll inside themselves, for the same reason. */
   .tablewrap { overflow-x:auto; overscroll-behavior-x:contain; margin:0 0 var(--magi-sys-space-150); }
   .txt table { border-collapse:collapse; font:var(--magi-sys-body-s) var(--magi-ref-display); }
@@ -4412,9 +4421,17 @@ function blocks(parent, toks) {
       case 'paragraph': { const n = el('p'); inline(n, t.tokens); parent.append(n); break; }
       case 'text':      { const n = el('p'); if (t.tokens) inline(n, t.tokens); else n.textContent = t.text; parent.append(n); break; }
       case 'code': {
-        const pre = el('pre'), code = el('code', t.text);
-        if (t.lang) code.setAttribute('data-lang', String(t.lang).split(/\s+/)[0]);
-        pre.append(code); parent.append(pre); break;
+        const lang = t.lang ? String(t.lang).split(/\s+/)[0] : '';
+        const pre = el('pre');
+        if (lang === 'diff' || lang === 'patch' || looksLikeDiff(t.text)) {
+          pre.className = 'diff';
+          diffInto(pre, t.text);
+        } else {
+          const code = el('code', t.text);
+          if (lang) code.setAttribute('data-lang', lang);
+          pre.append(code);
+        }
+        parent.append(pre); break;
       }
       case 'blockquote': { const n = el('blockquote'); blocks(n, t.tokens); parent.append(n); break; }
       case 'hr':        parent.append(el('hr')); break;
@@ -4465,6 +4482,37 @@ function blocks(parent, toks) {
 //
 // The fallback is what the page did everywhere before this, so a token stream the lexer cannot
 // make sense of costs the formatting and never the content.
+// hunkHeader is what makes a blob of text a unified diff rather than a list with dashes in it.
+//
+// Required, and not merely "starts with a plus or a minus". A tool result full of bullet points
+// would otherwise come back half green and half red, which is worse than not colouring it: it
+// would be saying something untrue about what changed.
+const hunkHeader = /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/m;
+
+function looksLikeDiff(text) {
+  const t = String(text || '');
+  return hunkHeader.test(t) || /^diff --git /m.test(t);
+}
+
+// diffInto fills a <pre> with a unified diff, a line at a time, classed by what the line does.
+//
+// The terminal has coloured these since it had a transcript. Here they arrived as an undifferen-
+// tiated wall in which the one thing a diff is for — which lines went and which arrived — was the
+// thing you had to work out by reading the first character of every row.
+function diffInto(pre, text) {
+  for (const line of String(text || '').replace(/\n$/, '').split('\n')) {
+    let cls = 'dctx';
+    if (/^\+\+\+/.test(line) || /^---/.test(line) || /^diff /.test(line)) cls = 'dfile';
+    else if (/^@@/.test(line)) cls = 'dhunk';
+    else if (line.startsWith('+')) cls = 'dadd';
+    else if (line.startsWith('-')) cls = 'ddel';
+    const row = el('span', line + '\n');
+    row.className = cls;
+    pre.append(row);
+  }
+  return pre;
+}
+
 function md(node, text) {
   let toks;
   try { toks = mdLex(text || ''); }
@@ -4518,7 +4566,13 @@ function rowNode(r) {
     // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
     // preformatted text rather than run through markdown that would eat their brackets.
     if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
-      body.append(el('pre', r.args !== undefined && r.args !== '' ? r.args : r.text));
+      const raw = r.args !== undefined && r.args !== '' ? r.args : r.text;
+      if (looksLikeDiff(raw)) {
+        const pre = el('pre'); pre.className = 'diff';
+        body.append(diffInto(pre, raw));
+      } else {
+        body.append(el('pre', raw));
+      }
     } else if (r.who === 'council') {
       // Everything after the summary line, which the summary already showed.
       md(body, String(r.text || '').split('\n').slice(1).join('\n').trim());
