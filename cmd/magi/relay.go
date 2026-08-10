@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/sayaya1090/magi/internal/config"
 	"strings"
 )
 
@@ -162,12 +164,37 @@ func nameOr(declared, workdir string) string {
 //
 // ssh only, for now. A container or a jump host is a different template and the same pipe — which
 // is the point of the relay being dumb; see the note at the top of this file.
-func relayTo(host, socket string) (*pipe, error) {
+func relayTo(cfg config.Config, host, socket string) (*pipe, error) {
 	if host == "" || socket == "" {
 		return nil, errNoRelay
 	}
-	return pipeTo(exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-		host, "magi", "--relay", socket))
+	name, args := reachFor(cfg, host, socket)
+	return pipeTo(exec.Command(name, args...))
+}
+
+// reachFor picks the command that carries a pipe to host, and fills in what it is carrying to.
+//
+// ssh unless this machine has been told otherwise. A container has no sshd and its hostname is an
+// id nothing resolves, so the whole cluster is unreachable there by default and no amount of
+// cleverness here would change that — what changes it is a person saying, once, how to get in.
+func reachFor(cfg config.Config, host, socket string) (string, []string) {
+	if r, ok := cfg.Reach[host]; ok && strings.TrimSpace(r.Command) != "" {
+		args := make([]string, 0, len(r.Args))
+		for _, a := range r.Args {
+			args = append(args, fillReach(a, host, socket))
+		}
+		return fillReach(r.Command, host, socket), args
+	}
+	return "ssh", []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+		host, "magi", "--relay", socket}
+}
+
+// fillReach substitutes the two things a template may need. Only these two, and by exact spelling:
+// a general expansion over a command line is a place for a socket path with a brace in it to become
+// something else.
+func fillReach(s, host, socket string) string {
+	s = strings.ReplaceAll(s, "{{host}}", host)
+	return strings.ReplaceAll(s, "{{socket}}", socket)
 }
 
 var errNoRelay = errors.New("no way to reach that machine")

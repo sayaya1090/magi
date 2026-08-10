@@ -824,7 +824,7 @@ func run() int {
 		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
 		Cache:     companionCache,
 		Ask: describeCompanion(app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{}),
-			func(w string) []port.Skill { return a.Skills(w) }, reachableServers, plat.ConfigDir()),
+			func(w string) []port.Skill { return a.Skills(w) }, reachableServers, plat.ConfigDir(), cfg),
 	})
 	dangerTools := app.DefaultDangerTools()
 

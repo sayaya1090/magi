@@ -15,6 +15,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/mcpserve"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -213,7 +214,7 @@ func aboutHere(out, errOut io.Writer, r fleet.Reader, skills func(string) []port
 // reading a config directory to work out what the daemon already knows — which is what this used to
 // do, and why the answer depended on which account ssh landed as.
 func describeCompanion(r fleet.Reader, skills func(string) []port.Skill, reach func(string) []string,
-	configDir string) func(context.Context, string, string, string) (string, error) {
+	configDir string, cfg config.Config) func(context.Context, string, string, string) (string, error) {
 
 	here := daemon.Host()
 	return func(ctx context.Context, host, socket, name string) (string, error) {
@@ -227,7 +228,7 @@ func describeCompanion(r fleet.Reader, skills func(string) []port.Skill, reach f
 		// Ask the companion itself, through a pipe to its daemon. It knows what it is for and what
 		// it can do; the alternative was a process over there working that out from files, and
 		// which files it found depended on which account the connection landed as.
-		p, perr := relayTo(host, socket)
+		p, perr := relayTo(cfg, host, socket)
 		if perr != nil {
 			return "", perr
 		}

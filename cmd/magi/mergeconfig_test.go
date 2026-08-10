@@ -219,7 +219,13 @@ func TestEveryConfigFieldIsEitherMergedOrKnowinglyNotMerged(t *testing.T) {
 	// is the record of what to look at. Several look like plain omissions — a repo that pins its
 	// model cannot pin the sampling that model needs.
 	notMerged := map[string]string{
-		"APIKey":          "a key in a committed file is a leaked key — plausibly deliberate, unreviewed",
+		"APIKey": "a key in a committed file is a leaked key — plausibly deliberate, unreviewed",
+		// Deliberate, and the one entry here that would be a security hole rather than a surprise.
+		// A reach is a COMMAND LINE this machine runs to open a pipe. A project config is committed
+		// and shared, so merging it would let a cloned repo choose what its reader executes — the
+		// same thing --join refuses for [mcp] and gossip refuses for reaches. How this machine gets
+		// to another one is this machine's business, said in its own global config.
+		"Reach":           "a command line this machine runs; a shared file must not choose it",
 		"EmbedModel":      "unreviewed",
 		"Subagents":       "written by /subagents for this user, not for the repo — plausibly deliberate",
 		"Limits":          "unreviewed",
