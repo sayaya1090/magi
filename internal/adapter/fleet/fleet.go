@@ -250,7 +250,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		out = append(out, a)
 	}
 	now := time.Now()
-	out = append(out, elsewhere(configDir, now)...)
+	out = append(out, elsewhere(configDir, now, out)...)
 	electHubs(out, daemon.Known(configDir, now), now)
 	return out, nil
 }
@@ -261,10 +261,13 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 // step count, no plan, no last thing said. All of those live on their machine. Inventing any of
 // them — "idle", "0 steps" — would put a claim on the screen that nothing established, and the
 // reader has no way to tell it from a claim that was.
-func elsewhere(configDir string, now time.Time) []Agent {
+func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 	ms := daemon.Elsewhere(configDir, now)
 	out := make([]Agent, 0, len(ms))
 	for _, m := range ms {
+		if amongst(seen, m) {
+			continue
+		}
 		name := m.Name
 		if name == "" {
 			name = filepath.Base(m.Workdir)
@@ -283,6 +286,31 @@ func elsewhere(configDir string, now time.Time) []Agent {
 		})
 	}
 	return out
+}
+
+// amongst reports whether a sighting describes a companion this machine has already listed by
+// reading it directly.
+//
+// It happens wherever a config directory is shared — two containers with a mount in common, two
+// workstations with one network home. Sockets live in the config directory, so each of them reads
+// the other's published record straight out of the directory AND hears about it round the cluster,
+// and the same companion comes back twice.
+//
+// Not a cosmetic problem. An address matching two rows is refused as ambiguous, and both rows
+// answer to the same name — so the refusal offers two identical candidates and there is nothing
+// the reader can do with it. A companion becomes unaddressable by being seen too well.
+//
+// The socket alone is not identity: the same path on two machines is two different companions,
+// which is the whole reason work never travels to a path. The socket AND the machine the record
+// names is. Matched, this is the record read directly rather than heard about, which is strictly
+// better evidence; unmatched, the path here belongs to somebody else and both rows are real.
+func amongst(seen []Agent, m cluster.Member) bool {
+	for _, a := range seen {
+		if a.Socket == m.Socket && strings.EqualFold(a.Host, m.Host) {
+			return true
+		}
+	}
+	return false
 }
 
 // electHubs replaces what each companion DECLARED about being a hub with who actually answers for

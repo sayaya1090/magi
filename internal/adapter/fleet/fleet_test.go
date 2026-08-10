@@ -852,3 +852,88 @@ func (f *fleetFixture) byName(name string) fleet.Agent {
 	f.t.Fatalf("no companion called %q in the listing", name)
 	return fleet.Agent{}
 }
+
+// A companion this machine can see for itself is listed once, not once for the sight and once for
+// the hearsay.
+//
+// Sockets live in the config directory, so a shared one — two containers with a mount in common,
+// two workstations with a network home — puts another machine's companion right here on disk. It is
+// then read out of the directory AND heard about round the cluster, and it comes back twice.
+//
+// Not cosmetic. An address that matches two rows is refused as ambiguous, and both rows answer to
+// the same name — so the refusal offers two identical candidates and there is nothing the reader
+// can do with it. The companion becomes unaddressable by being seen too well.
+func TestACompanionSeenDirectlyAndHeardAboutIsOneCompanion(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.serveAsking(wd, "shared", nil)
+	f.session("shared", wd, "building", 1, true)
+	// Republished as a companion that calls its machine something else, which is what a container
+	// or a second workstation writing into this directory looks like from here.
+	overwritePublishedHost(t, sock, wd, "shared", "buildbox", "design")
+	// And heard about, the way an exchange with a third machine would deliver it.
+	if _, err := daemon.LearnMembers(f.cfgDir, []cluster.Member{{
+		Host: "buildbox", Socket: sock, Name: "design", Workdir: wd, Seen: time.Now(),
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	var named []fleet.Agent
+	for _, a := range f.get() {
+		if strings.EqualFold(a.Name, "design") {
+			named = append(named, a)
+		}
+	}
+	if len(named) != 1 {
+		t.Fatalf("one companion came back as %d rows, which is an address nothing can resolve", len(named))
+	}
+	// And the row kept is the one read directly, not the sighting: it is strictly better evidence.
+	if named[0].State == fleet.Remote {
+		t.Errorf("the hearsay won over the record on this disk: %+v", named[0])
+	}
+}
+
+// A path that exists here but belongs to another machine's companion is still two companions.
+//
+// The complement of the test above, and the reason the socket alone cannot be the identity: two
+// machines belonging to one person keep their checkouts in the same places, so the same path means
+// different things on each. Folding them together would hide a real companion behind a local one.
+func TestTheSamePathOnTwoMachinesIsTwoCompanions(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.serveAsking(wd, "mine", nil)
+	f.session("mine", wd, "building", 1, true)
+	overwritePublishedHost(t, sock, wd, "mine", "thishost", "here")
+	if _, err := daemon.LearnMembers(f.cfgDir, []cluster.Member{{
+		Host: "otherbox", Socket: sock, Name: "there", Workdir: wd, Seen: time.Now(),
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var here, there bool
+	for _, a := range f.get() {
+		switch {
+		case strings.EqualFold(a.Name, "here"):
+			here = true
+		case strings.EqualFold(a.Name, "there"):
+			there = true
+		}
+	}
+	if !here || !there {
+		t.Fatalf("one of them was folded away: here=%v there=%v", here, there)
+	}
+}
+
+// overwritePublishedHost rewrites the record beside a socket so it names a different machine —
+// which is what another container or workstation publishing into a shared directory leaves here.
+func overwritePublishedHost(t *testing.T, sock, workdir, sid, host, name string) {
+	t.Helper()
+	b, err := json.Marshal(daemon.Info{
+		Socket: sock, Workdir: workdir, Session: sid, Name: name, Host: host,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.SessionFile(sock), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
