@@ -762,6 +762,8 @@ type line struct {
 	// Round and Tally belong to a council row: which round it was, and how the round came out.
 	Round int    `json:"round,omitempty"`
 	Tally string `json:"tally,omitempty"`
+	// Decision is the council vocabulary as the log spells it, so the page can colour by it.
+	Decision string `json:"decision,omitempty"`
 	// msg is the message this row came out of, and never crosses the wire. It is how council marks
 	// find the place they belong: they carry the same id, out of the same log.
 	msg string `json:"-"`
@@ -840,7 +842,8 @@ func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
 	pending := map[int][]line{}
 	var orphans []line
 	for _, m := range marks {
-		row := line{Who: "council", Text: councilText(m), Round: m.Round, Tally: m.Tally}
+		row := line{Who: "council", Text: councilText(m), Round: m.Round, Tally: m.Tally,
+			Decision: m.Decision}
 		at, ok := after[m.After]
 		if !ok {
 			orphans = append(orphans, row)
@@ -856,13 +859,43 @@ func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
 	return append(out, orphans...)
 }
 
+// councilWord and councilIcon are the council's vocabulary as a reader should see it.
+//
+// "continue" is the important one: from this council it is a REJECTION — the gate on ending the
+// turn, which the work cannot proceed past — and the page showed the raw word in a neutral colour,
+// which reads as progress. The terminal has said "reject" since it drew its first verdict.
+//
+// The same mapping is in internal/adapter/tui/render.go. Two spellings of one vocabulary, in two
+// languages; noted here rather than left for somebody to find when they diverge.
+func councilWord(decision string) string {
+	switch decision {
+	case "continue":
+		return "reject"
+	case "done", "abstain":
+		return decision
+	}
+	return decision
+}
+
+func councilIcon(decision string) string {
+	switch decision {
+	case "done":
+		return "✓"
+	case "continue":
+		return "✗"
+	case "abstain":
+		return "∅"
+	}
+	return "·"
+}
+
 // councilText is what a council row says: the vote, then the reasoning behind it.
 //
 // One string rather than fields, because the page folds it the same way it folds reasoning — a
 // summary line and the rest behind it — and the summary is the first line of this.
 func councilText(m app.CouncilMark) string {
 	if m.IsOutcome() {
-		head := "the council says " + m.Decision
+		head := "the council says " + councilWord(m.Decision)
 		if m.Tally != "" {
 			head += " — " + m.Tally
 		}
@@ -871,7 +904,7 @@ func councilText(m app.CouncilMark) string {
 		}
 		return head
 	}
-	head := m.Member + ": " + m.Decision
+	head := councilIcon(m.Decision) + " " + m.Member + ": " + councilWord(m.Decision)
 	if m.Lens != "" {
 		head += " (" + m.Lens + ")"
 	}

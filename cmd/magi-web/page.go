@@ -1593,6 +1593,14 @@ const indexHTML = `<!doctype html>
      so it belongs where the turn it judged is — the terminal has always put it there. */
   .row.council .who { color:var(--magi-ref-secondary); }
   .row.council .fold > summary { color:var(--magi-ref-secondary); font-weight:600; }
+  /* Coloured by the verdict, the way the terminal colours it: done is green, a continue is a
+     rejection and is red, an abstention is muted. The icon in the summary carries the same fact,
+     so a reader who cannot separate the colours is not being told less. */
+  .row.v-done .fold > summary { color:var(--magi-ref-success); }
+  .row.v-continue .fold > summary { color:var(--magi-ref-error); }
+  .row.v-abstain .fold > summary { color:var(--magi-ref-muted); }
+  .row.v-done .who { color:var(--magi-ref-success); }
+  .row.v-continue .who { color:var(--magi-ref-error); }
   /* A command somebody ran from here. Its own colour because it is the one row on the page that
      nobody's agent did — and it is not in the log, so it is also the one row a second console
      watching the same session will not have. */
@@ -4552,7 +4560,9 @@ function oneLine(s, n) {
 
 // rowNode builds one transcript row.
 function rowNode(r) {
-  const d = el('div'); d.className = 'row ' + r.who;
+  // The decision joins the class list, so a vote is coloured by what it says rather than all
+  // council rows sharing one colour. A "continue" is a rejection and has to look like one.
+  const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '');
   const w = el('div', r.who); w.className = 'who';
 
   if (foldedKinds[r.who]) {

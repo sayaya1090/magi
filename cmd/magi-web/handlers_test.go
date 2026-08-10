@@ -514,9 +514,11 @@ func TestTheCouncilIsSplicedWhereItVoted(t *testing.T) {
 	}
 	want := []string{
 		"user:first ask", "assistant:first answer",
-		"council:Melchior: done", "council:the council says done — 3 done, 0 continue of 3",
+		"council:✓ Melchior: done", "council:the council says done — 3 done, 0 continue of 3",
 		"user:second ask", "assistant:second answer",
-		"council:Casper: continue",
+		// "reject", not "continue": from this council a continue is a rejection, and the raw word
+		// read as progress.
+		"council:✗ Casper: reject",
 	}
 	if strings.Join(order, " | ") != strings.Join(want, " | ") {
 		t.Errorf("spliced as:\n  %s\nwant:\n  %s", strings.Join(order, "\n  "), strings.Join(want, "\n  "))
@@ -548,5 +550,25 @@ func TestADoneVoteSaysWhenItCitedNothing(t *testing.T) {
 	cont := councilText(app.CouncilMark{Member: "Casper", Decision: "continue"})
 	if strings.Contains(cont, "rests on") {
 		t.Errorf("a continue was annotated with a citation line: %q", cont)
+	}
+}
+
+// A council "continue" is a rejection, and says so.
+//
+// It is the gate on ending the turn: the work cannot proceed past it. The page printed the raw word
+// in a neutral colour, which reads as progress — the opposite of what the vote means. The terminal
+// has said "reject" since it drew its first verdict.
+func TestAContinueVoteReadsAsTheRejectionItIs(t *testing.T) {
+	got := councilText(app.CouncilMark{Member: "Casper", Decision: "continue", Why: "the tests do not run"})
+	if strings.Contains(got, "continue") {
+		t.Errorf("a rejection is still worded as %q", got)
+	}
+	if !strings.Contains(got, "reject") || !strings.Contains(got, "✗") {
+		t.Errorf("a rejection does not read as one: %q", got)
+	}
+	// And an approval is not dressed up as one.
+	ok := councilText(app.CouncilMark{Member: "Melchior", Decision: "done"})
+	if !strings.Contains(ok, "✓") || strings.Contains(ok, "reject") {
+		t.Errorf("an approval reads as %q", ok)
 	}
 }

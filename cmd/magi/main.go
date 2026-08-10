@@ -691,25 +691,22 @@ func run() int {
 		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
 		Cache:     companionCache,
 	})
-	// Handing work to one of them. Separate from seeing them on purpose: reading the roster is
-	// harmless and this starts a turn in somebody else's workspace, so it asks first (it is in
-	// DangerTools) and refuses everything it cannot be sure of.
-	// Declared dangerous where it is registered, not in the engine's default set: the engine
-	// cannot see a tool cmd wires in, and a policy naming a tool that does not exist is a
-	// guardrail that quietly covers nothing. This one is the furthest outside the blast radius of
-	// anything on that list — it does not touch this workspace at all, it starts a turn in
-	// somebody else's, whose supervisor did not ask for it.
+	// Nothing hands work to another workspace any more. ask_companion is gone.
+	//
+	// It let one companion start a turn in another's, and it named that companion as free text
+	// with no list of them given anywhere. Its description told the model to run `companions`
+	// first, which is advice and not a mechanism — so "ssh in and do something" was delivered to a
+	// companion called "ssh", which does not exist, and failed. This tree has written that shape
+	// down before: a set the model is expected to look up rather than be shown is a set it guesses
+	// at.
+	//
+	// What replaces it is not another tool with a better description. A companion should advertise
+	// what it can do and companions should exchange that when they meet, so the question stops
+	// being "who might there be" and becomes a list.
+	//
+	// fleet.Handoffs stays. The handoffs already in the logs are still readable, and removing the
+	// reader would delete the record rather than the mechanism — nothing new will appear in it.
 	dangerTools := app.DefaultDangerTools()
-	dangerTools[companion.Ask{}.Name()] = true
-	reg.Register(companion.Ask{
-		Reader:    func() fleet.Reader { return a },
-		ConfigDir: plat.ConfigDir(),
-		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
-		Called:    cfg.Companion.Name,
-		Team:      cfg.Companion.Team,
-		Hub:       cfg.Companion.Hub,
-		Cache:     companionCache,
-	})
 
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
