@@ -64,6 +64,11 @@ func run() int {
 	// Each is another magi-web, usually a loopback port an ssh tunnel ends at. They come from the
 	// operator and nowhere else — see peer.go for why that is the rule this file must not bend.
 	flag.Var(&peerSpecs, "peer", "another magi-web to federate, as name=url; repeatable")
+	// Said by the operator, because nothing here can find it out: a request that arrived through a
+	// reverse proxy is a loopback connection like any other.
+	exposed := flag.Bool("exposed", false,
+		"more people than the operator can reach this console (through a proxy or gateway that "+
+			"authenticates); refuses the routes that run something chosen by the caller")
 	// Writing the page out as a static site, answered by a mock in the browser. Here rather than in
 	// its own command because it must emit the string THIS binary serves — a generator with its own
 	// copy of the page is a demo that drifts, which is worse than none.
@@ -73,6 +78,10 @@ func run() int {
 	peers, perr := parsePeers(peerSpecs)
 	if perr != nil {
 		fmt.Fprintln(os.Stderr, "magi-web:", perr)
+		return 1
+	}
+	if err := exposedAllows(*exposed, peers); err != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
 	}
 	if *showVer {
@@ -98,8 +107,6 @@ func run() int {
 		cd = plat.ConfigDir()
 	}
 
-	// The daemon in THIS directory, if there is one, is what the viewer opens on. There need not
-	// be: a dashboard over other people's daemons is a legitimate thing to want from a directory
 	if *emit != "" {
 		if err := emitDemo(*emit); err != nil {
 			fmt.Fprintln(os.Stderr, "magi-web:", err)
@@ -109,6 +116,8 @@ func run() int {
 		return 0
 	}
 
+	// The daemon in THIS directory, if there is one, is what the viewer opens on. There need not
+	// be: a dashboard over other people's daemons is a legitimate thing to want from a directory
 	// that has none of its own.
 	here := daemon.SocketPath(cd, wd)
 
@@ -123,7 +132,7 @@ func run() int {
 
 	srv := &server{
 		reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{},
-		peers: peers,
+		peers: peers, exposed: *exposed,
 		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
 		// one must not, because an event stream is supposed to stay open and a timeout there would
 		// cut the transcript every few seconds.
@@ -161,12 +170,39 @@ func run() int {
 		}
 		fmt.Fprintf(os.Stderr, ", federating %s", strings.Join(names, ", "))
 	}
+	// Said at startup, every time, because an operator who meant to share this console and did not
+	// pass the flag has no other way to notice: the page looks identical either way.
+	if *exposed {
+		fmt.Fprint(os.Stderr, " — shared: no shell, no MCP writes")
+	}
 	fmt.Fprintln(os.Stderr)
 	if err := (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln); err != nil {
 		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
 	}
 	return 0
+}
+
+// exposedAllows refuses the combination of a shared console and federation.
+//
+// A peer is another machine's console, reached through a tunnel the OPERATOR set up with their own
+// keys — magi-web has no credential of its own to present, so every request this console forwards
+// travels on the operator's authority. Shared, that turns "somebody the gateway let in" into
+// somebody acting as the operator on a second machine, and the audit record on the far side would
+// say the request came from here. There is no way to narrow it from this end, so the two are
+// refused together rather than half-supported.
+func exposedAllows(exposed bool, peers []peer) error {
+	if !exposed || len(peers) == 0 {
+		return nil
+	}
+	names := make([]string, len(peers))
+	for i, p := range peers {
+		names[i] = p.Name
+	}
+	return fmt.Errorf("-exposed and -peer cannot be used together (%s): a peer is reached on the "+
+		"operator's own tunnel, so a shared console would let anybody it admits act as the operator "+
+		"on another machine — run a second console for the federated view, or drop -exposed",
+		strings.Join(names, ", "))
 }
 
 // listenLoopback binds, and hands back nothing the network can reach.
@@ -223,6 +259,22 @@ type server struct {
 	reader *app.App
 	cfgDir string
 	here   string // the socket for the directory magi-web was started in, if any
+
+	// exposed says somebody other than the operator can reach this console — a proxy, an SSO
+	// gateway, a tunnel the team shares. The bind guard still holds (this process serves loopback
+	// and nothing else); what changes is what a request is allowed to ask for once something in
+	// front has let it through.
+	//
+	// It is the operator's declaration, not a discovery. Nothing this process can measure tells it
+	// who is on the other end of a loopback connection that a reverse proxy made, so guessing
+	// would be a guess that gets the safe answer wrong in both directions.
+	//
+	// What it turns off is the two routes that make this MACHINE run something chosen by whoever
+	// sent the request, outside the permission policy the agent's own tools go through — see
+	// shell() and mcpWrite(). Everything else stays: submitting a prompt, answering a permission,
+	// scheduling a job all go through the agent, and refusing them would leave a console that
+	// cannot be used for the thing it is for.
+	exposed bool
 
 	// Other consoles this one reads, from the operator's flags. Empty is the ordinary case: one
 	// machine, no federation, nothing on the network.
@@ -416,6 +468,26 @@ func sameSiteOnly(h http.HandlerFunc) http.HandlerFunc {
 		}
 		h(w, r)
 	}
+}
+
+// refuseWhenShared turns down what only the operator should have, and says which console this is.
+//
+// The two callers are the routes that make this machine run something the CALLER chose, outside
+// the permission policy every tool call goes through: a shell command, and an MCP server's command
+// line written into config (a daemon spawns those at startup — the same-site guard exists because
+// a page on another origin once wrote one). Everything else the console can do goes through the
+// agent, which is the thing the console is for.
+//
+// The refusal names the flag. Somebody hitting a wall they did not put up needs to know it was put
+// up on purpose and by whom, or the next step is to go looking for the bug.
+func (s *server) refuseWhenShared(w http.ResponseWriter, what string) bool {
+	if !s.exposed {
+		return false
+	}
+	http.Error(w, what+" is off on this console: it was started with -exposed, which means more "+
+		"people than the operator can reach it. Do it from a terminal on that machine.",
+		http.StatusForbidden)
+	return true
 }
 
 // postOnly rejects a read method on a handler that changes something.
@@ -1262,6 +1334,11 @@ func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 // session. A second console watching does not see it, which is a real limitation and the same one
 // the terminal has.
 func (s *server) shell(w http.ResponseWriter, r *http.Request) {
+	// First, and before the forward: a shared console must not run a command for anybody, and it
+	// must not carry one to another machine either.
+	if s.refuseWhenShared(w, "running a command") {
+		return
+	}
 	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
 		return
 	}

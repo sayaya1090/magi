@@ -100,6 +100,13 @@ func serversOf(c config.Config, tier, companion, socket, file string) []mcpServe
 
 // mcpWrite adds, changes or removes one server definition.
 func (s *server) mcpWrite(w http.ResponseWriter, r *http.Request) {
+	// A server entry is a command line this machine will spawn at the next daemon start. On a
+	// console more people than the operator can reach, that is the shell route wearing a config
+	// screen — see refuseWhenShared. Reading the list stays allowed: it is what the daemons are
+	// already running, and a page that cannot show it invites somebody to add a duplicate.
+	if s.refuseWhenShared(w, "changing which MCP servers this machine runs") {
+		return
+	}
 	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
 		return
 	}
