@@ -496,6 +496,14 @@
   #state.lost::before {
     background:transparent; border:2px solid var(--magi-ref-error); width:10px; height:10px;
   }
+  /* The crumbs sit apart from each other and from their separators.
+     The markup has no whitespace between them — it cannot, or the underline under a crumb would
+     run through the space beside it — so the room comes from a gap. Two reasons for it: the line
+     read as one word broken by slashes, and each crumb now carries a 48dp press target that is
+     wider than the word it belongs to. Touching, those targets overlapped, and the crumb you
+     pressed was decided by which came later in the markup rather than by where you pressed. */
+  #crumbs { display:flex; align-items:baseline; gap:var(--magi-sys-space-100); }
+  #crumbs > span { color:var(--magi-ref-outlineVariant); }
   #back {
     color:var(--magi-ref-muted); text-decoration:none; font-size:var(--md-sys-typescale-label-small-size); letter-spacing:0.04em; border-bottom:1px solid var(--magi-ref-outlineVariant); padding-bottom:2px;
   }
@@ -1510,7 +1518,23 @@
   #handoffs { max-width:var(--magi-sys-measure); }
 
   /* ── the shape of a report ───────────────────────────────────────────────── */
-  #reportfmt { max-width:var(--magi-sys-measure); }
+  /* The contract, as pairs: what a section is called, and the sentence the agent has to answer
+     there. Both were the same size, the same weight and the same colour — the .f/.k/.v rules the
+     card is built from are scoped to #detail and never reached this pane, so the card arrived
+     unstyled and read as one paragraph of six half-sentences.
+     The pair is the guide's overline-and-body: the name is a label in the variant colour, small
+     and spaced, and the sentence is body text in the plain one. Two roles, so the eye can take
+     the names alone down the left and stop at the one it wants. */
+  #reportfmt { max-width:var(--magi-sys-measure); display:grid; gap:var(--magi-sys-space-150); }
+  #reportfmt > .k {
+    font:600 var(--magi-sys-title-s) var(--magi-ref-display); color:var(--magi-ref-fg);
+  }
+  #reportfmt .f { display:grid; gap:var(--magi-sys-space-50); }
+  #reportfmt .f .k {
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
+    letter-spacing:0.06em; color:var(--magi-ref-on-surface-variant);
+  }
+  #reportfmt .f .v { font:var(--magi-sys-body-m) var(--magi-ref-display); color:var(--magi-ref-fg); }
   /* One row per section: the name, what belongs in it, and a way to take it out. The name is short
      by nature and the sentence is not, so they are not given equal room. Aligned to the TOP, not
      the middle: the prompt is a two-line field and centring left its label floating beside the
@@ -1687,7 +1711,14 @@
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
     color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
   }
-    .ho { display:grid; grid-template-columns:8rem 1fr; gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-100) 0; }
+  /* The name takes what the name needs, and the work takes the rest.
+     A fixed 8rem column gave a five-letter companion the same room as the sentence describing what
+     it was asked to do — half the card, in a pane 22rem wide, holding one short word. fit-content
+     keeps the cap for the rare long name while letting the common short one give its room back. */
+  .ho {
+    display:grid; grid-template-columns:fit-content(8rem) minmax(0, 1fr);
+    gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-100) 0;
+  }
   .ho .to { font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); letter-spacing:.08em; color:var(--magi-ref-accent); text-align:right; }
   .ho .req { font:var(--magi-sys-body-l) var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   .ho .ans { grid-column:2; font-size:var(--md-sys-typescale-label-medium-size); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
