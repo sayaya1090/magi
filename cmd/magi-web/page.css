@@ -1673,6 +1673,9 @@
   }
   .who .copy:hover, .who .copy:focus-visible { color:var(--magi-ref-primary); }
   .who .copy.done { color:var(--magi-ref-success); }
+  /* The stand-in for what is not in the page. It has no content and is not read out; its only job
+     is to be as tall as the rows it replaces, so the scrollbar means what it says. */
+  #log .above { flex:none; }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
   /* Rendered markdown sets its own blocks, so the pre-wrap that keeps plain text's newlines would
      add a blank line after every paragraph. Only the rows that are still plain text keep it. */
@@ -1753,6 +1756,14 @@
   /* min-width:0 for the same reason as the row above: this is a grid item, and without it the
      preformatted block inside decides how wide the transcript is. */
   .foldbody { padding-left:1em; min-width:0; }
+  /* The word above a block of a folded row: what it was asked, what changed, what it answered.
+     Quiet and small — it is a label on evidence, not a heading — and it takes the muted role at
+     full strength because it is the only thing naming the block under it. */
+  .foldk {
+    font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
+    letter-spacing:0.05em; color:var(--magi-ref-muted); margin-top:var(--magi-sys-space-150);
+  }
+  .foldbody > .foldk:first-child { margin-top:0; }
   /* What a tool was asked and what it answered is preformatted and frequently one very long line.
      It keeps its shape and takes its own scrollbar — the alternative is wrapping JSON at arbitrary
      characters, which makes an argument list unreadable in a different way. */

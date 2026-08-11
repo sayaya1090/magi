@@ -3077,22 +3077,36 @@ function rowNode(r) {
       // the panel agree about what the plan says.
       body.append(planRows(plan));
     } else if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
-      // An edit is shown as the change it makes.
+      // What it was asked, and what it answered — each said in words above its own block.
       //
-      // Its arguments are the old and the new text escaped into one JSON line, which is the least
-      // readable form of the most important thing an agent does — the terminal has drawn the diff
-      // since it had a transcript. The path stays (it is what the arguments were otherwise for),
-      // then the change, then whatever the call answered.
-      const raw = r.diff
-        ? [pathOf(r.args), r.diff, r.out].filter(Boolean).join('\n\n── ⟶ ──\n\n')
-        : [r.args, r.out].filter(Boolean).join('\n\n── ⟶ ──\n\n') || r.text;
-      // A built diff is a diff whether or not it looks like one: a one-line change has no @@ header
-      // and looksLikeDiff would send it to the plain renderer, uncoloured.
-      if (r.diff || looksLikeDiff(raw)) {
-        const pre = el('pre'); pre.className = 'diff';
-        body.append(diffInto(pre, raw));
-      } else {
-        body.append(el('pre', raw));
+      // These were one blob with a rule drawn between them: "args ── ⟶ ── output". A line of box
+      // characters is not a label; it tells a reader that something changed there and leaves them
+      // to work out what, which for a failed call is the difference between the command and the
+      // reason. Two labelled blocks say it.
+      //
+      // An edit is shown as the change it makes. Its arguments are the old and new text escaped
+      // into one JSON line, which is the least readable form of the most important thing an agent
+      // does; the path stays, because that is what the rest of the arguments were for.
+      const parts = [];
+      if (r.diff) {
+        if (pathOf(r.args)) parts.push(['fold.asked', pathOf(r.args), false]);
+        parts.push(['fold.changed', r.diff, true]);
+      } else if (r.args) {
+        parts.push(['fold.asked', r.args, looksLikeDiff(r.args)]);
+      }
+      if (r.out) parts.push(['fold.answered', r.out, looksLikeDiff(r.out)]);
+      // A row with neither — a result whose call was compacted away — is just its text.
+      if (!parts.length) parts.push(['', r.text, looksLikeDiff(r.text)]);
+      for (const [key, text, asDiff] of parts) {
+        // One block needs no label: with nothing to tell it apart from, a word above it is noise.
+        if (key && parts.length > 1) body.append(cell('foldk', tr(key)));
+        if (asDiff) {
+          const pre = el('pre');
+          pre.className = 'diff';
+          body.append(diffInto(pre, text));
+        } else {
+          body.append(el('pre', text));
+        }
       }
     } else if (r.who === 'council') {
       // Everything after the summary line, which the summary already showed.
@@ -3277,6 +3291,50 @@ function whoWord(r) {
 // row of that kind — the thing the disclosure comment above says explicitly does not happen.
 const shown = {rows: [], nodes: []};
 
+// ── the window ───────────────────────────────────────────────────────────────
+// Only the tail of a long transcript is in the page. Everything above it is one empty box as tall
+// as the rows it stands in for.
+//
+// The frame-by-frame rebuild went first (rows are reused now) and offscreen rows stopped costing
+// layout and paint (content-visibility), but every row a session ever produced was still a subtree
+// in the document — reported from a console after a long day, and it is the count itself that
+// hurts: memory, the cost of every query that walks the log, and the browser's own bookkeeping.
+//
+// The trim happens in CHUNKS, not per row. Sliding the window by one on every arrival would break
+// the reuse match at the first row and rebuild the whole window each time, which is worse than
+// what it replaces — so it is allowed to grow past the cap by rowSlack and then drops back to it.
+const rowCap = 150;   // rows kept in the page at rest
+const rowSlack = 50;  // how far past the cap it may grow before trimming, so this is amortised
+const rowReach = 100; // rows brought back when the reader arrives at the top of the window
+// What a row is assumed to be worth in pixels when it has never been rendered. The first frame of a
+// long session drops hundreds of rows that were never in the page, so there is nothing to measure
+// and the box above them would be flat — a scrollbar claiming the conversation is one screen long.
+// It is the same number the stylesheet gives content-visibility for the same reason, and a row that
+// HAS been rendered is remembered at its real height instead.
+const rowGuess = 56;
+// winFrom is the index (in the transcript) of the oldest row that is in the page, and above is the
+// height of everything before it. droppedH remembers each dropped row's height by index so
+// bringing rows back subtracts exactly what removing them added.
+let winFrom = 0, above = 0;
+// keepRows is how many the window is currently willing to hold. It GROWS when the reader asks for
+// more and never shrinks while they are on the same companion — without that the next frame's trim
+// took back what scrolling up had just brought, and the window snapped shut under the reader.
+let keepRows = rowCap;
+const droppedH = [];
+// The box that stands in for what is not there. Its height is the only thing keeping the scrollbar
+// honest, and a reader who drags the scrollbar to the middle of a long session lands in it.
+const spacer = document.createElement('div');
+spacer.className = 'above';
+spacer.setAttribute('aria-hidden', 'true');
+
+// reachUp brings the next chunk of older rows back. Called when the top of the window comes near
+// the viewport, which is what "scrolling up" means here.
+function reachUp() {
+  if (winFrom === 0) return false;
+  keepRows += rowReach;
+  return true;
+}
+
 // same reports whether a row can keep the node it already has. Field by field rather than by
 // stringifying: a tool result is eight kilobytes and this runs on every row of every frame.
 function same(a, b) {
@@ -3289,20 +3347,89 @@ function same(a, b) {
 function draw(rows) {
   const stick = atBottom();
   const want = [...(rows || []), ...localRows];
+  // Where the window wants to start, and the two ways it moves.
+  //
+  // Trimming happens in chunks — allowed to grow rowSlack past the cap and then dropped back to it
+  // — because sliding by one on every arrival would break the reuse match at the first row and
+  // rebuild the whole window each time, which is worse than what this replaces. Reaching up is the
+  // reader asking, so it is honoured immediately.
+  const target = Math.max(0, want.length - keepRows);
+  if (target > winFrom) {
+    if (want.length - winFrom > keepRows + rowSlack) {
+      for (let i = winFrom; i < target; i++) {
+        const n = shown.nodes[i - winFrom];
+        const h = (n && n.offsetHeight) || droppedH[i] || rowGuess;
+        droppedH[i] = h;
+        above += h;
+      }
+      winFrom = target;
+    }
+  }
+  // How many rows are coming back this frame. Their height is taken off the box above AFTER they
+  // are in the page and can be measured — subtracting what was recorded when they left leaves the
+  // estimate's error in the scroll position, and for rows that were never rendered the record is
+  // only a guess. Measured: a reader was moved 2,500 pixels by one reach.
+  let recovered = 0;
+  if (target < winFrom) {
+    recovered = winFrom - target;
+    winFrom = target;
+  }
+  const win = want.slice(winFrom);
   // A transcript grows at the end. So the unchanged head is kept as it is, and everything from the
   // first difference on is rebuilt — which for the usual frame is the last row and nothing else.
   // A compaction rewrites history and breaks the match early; that rebuild is correct and rare.
+  // Measured before anything moves, for the anchoring at the end.
+  const wasAt = window.scrollY, wasTall = document.body.scrollHeight;
   let i = 0;
-  while (i < want.length && i < shown.rows.length && same(want[i], shown.rows[i])) i++;
+  while (i < win.length && i < shown.rows.length && same(win[i], shown.rows[i])) i++;
   while (shown.nodes.length > i) log.removeChild(shown.nodes.pop());
-  for (let j = i; j < want.length; j++) {
-    const n = rowNode(want[j]);
+  for (let j = i; j < win.length; j++) {
+    const n = rowNode(win[j]);
     shown.nodes.push(n);
     log.append(n);
   }
-  shown.rows = want;
+  shown.rows = win;
+  if (recovered) {
+    let back = 0;
+    for (let k = 0; k < recovered && k < shown.nodes.length; k++) {
+      back += shown.nodes[k].offsetHeight || droppedH[winFrom + k] || rowGuess;
+    }
+    above = Math.max(0, above - back);
+  }
+  // The box above is resized BEFORE the page is measured again. Sized after, the rows brought back
+  // had already made the document taller while the box still claimed their old space, and the
+  // anchor below then scrolled by that phantom growth — measured, and it threw the reader to the
+  // bottom in three frames.
+  spacer.style.height = above ? above + 'px' : '';
+  if (above && spacer.parentNode !== log) log.prepend(spacer);
+  else if (!above && spacer.parentNode === log) log.removeChild(spacer);
+  // Anchored: anything that changes height ABOVE the viewport moves everything under it, and a
+  // reader mid-sentence would be somewhere else.
+  //
+  // Not to the pixel, and it cannot be. A row that comes back is offscreen, and an offscreen row
+  // under content-visibility reports the intrinsic size the stylesheet gives it rather than what it
+  // will actually be — the browser has not laid it out and measuring is what this avoids. Measured
+  // over one reach of a hundred rows: 2,500 pixels of drift when the box above was shrunk by what
+  // was recorded on the way out, ~600 when it is shrunk by what the recovered rows report now.
+  // The rest is what Chrome's own scroll anchoring absorbs as they come into view.
   if (stick) window.scrollTo(0, document.body.scrollHeight);
+  else if (i === 0 && document.body.scrollHeight !== wasTall) {
+    window.scrollTo(0, wasAt + (document.body.scrollHeight - wasTall));
+  }
 }
+
+// The reader arriving at the top of the window is the ask for more of it.
+//
+// On scroll rather than on a control: what is above is not a page of results, it is the same
+// conversation, and a button saying "earlier" in the middle of it would be furniture explaining a
+// mechanism nobody asked about. The margin is a screen and a half, so the rows are there before the
+// empty box is.
+addEventListener('scroll', () => {
+  if (!above || !spacer.parentNode) return;
+  if (spacer.getBoundingClientRect().bottom > -window.innerHeight * 1.5) {
+    if (reachUp()) draw(lastRows);
+  }
+}, {passive: true});
 
 // runShell sends a command to the daemon and shows what it wrote.
 async function runShell(cmd) {
@@ -3501,6 +3628,10 @@ function clearCompanionView() {
   log.replaceChildren();
   shown.rows = [];
   shown.nodes = [];
+  winFrom = 0;
+  above = 0;
+  keepRows = rowCap;
+  droppedH.length = 0;
   lastRows = [];
   localRows.length = 0;
   liveNote = '';

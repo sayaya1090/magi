@@ -56,6 +56,11 @@ function element(tag) {
     set type(v) { this.attrs.type = v; },
     set title(v) { this.attrs.title = v; },
     get hidden() { return !!this.attrs.hidden; },
+    // A height, because there is no layout here and code that measures one has to be exercisable.
+    // A constant rather than 0: zero is a number the page treats as "nothing to stand in for", so
+    // a fake reporting it would quietly turn every height calculation into a no-op and pass.
+    // Writable, because the body's is set to a page-sized number where this fake is assembled.
+    offsetHeight: 24,
     // parentNode is set on append, because the page asks a CHILD which box it is in. A fake that
     // answered undefined would let a guard pass that a browser fails — and this fake already did
     // the mirror of that: children is an array here and an HTMLCollection there, so a page written
@@ -72,6 +77,11 @@ function element(tag) {
       if (i >= 0) this.children.splice(i, 1);
       if (kid && typeof kid === 'object') kid.parentNode = null;
       return kid;
+    },
+    // Inserting at the FRONT, which is how the transcript puts the stand-in for what is above it.
+    prepend(...kids) {
+      for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
+      this.children.unshift(...kids);
     },
     replaceChildren(...kids) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }

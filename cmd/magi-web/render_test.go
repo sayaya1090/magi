@@ -2655,29 +2655,32 @@ func TestASuccessfulToolCallCarriesWhatItAnswered(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 draw([{who:'tool',tool:'grep',args:'{"pattern":"empty-state"}',ok:true,
        out:'src/list.tsx\nsrc/table.tsx'}]);
-const pre = [];
-const walk = n => { for (const k of n.children || []) { if (k.tag === 'pre') pre.push(k.textContent); walk(k); } };
+const pre = [], labels = [];
+const walk = n => { for (const k of n.children || []) {
+  if (k.tag === 'pre') pre.push(k.textContent);
+  if ((k.className || '') === 'foldk') labels.push(k.textContent);
+  walk(k); } };
 walk(byId.log);
-console.log(JSON.stringify({pre: pre}));`)
+console.log(JSON.stringify({pre: pre, labels: labels}));`)
 
+	// Two blocks, in the order the call happened: what it was asked, then what it said. They were
+	// one blob with a rule of box characters between them, which tells a reader that something
+	// changed there and leaves them to work out what.
 	pre, _ := got["pre"].([]any)
-	if len(pre) != 1 {
-		t.Fatalf("drew %d bodies, want 1: %v", len(pre), pre)
+	if len(pre) != 2 {
+		t.Fatalf("drew %d blocks, want the question and the answer: %v", len(pre), pre)
 	}
-	body, _ := pre[0].(string)
-	if !strings.Contains(body, "src/list.tsx") {
-		t.Errorf("the output is missing:\n%s", body)
+	asked, _ := pre[0].(string)
+	answered, _ := pre[1].(string)
+	if !strings.Contains(answered, "src/list.tsx") {
+		t.Errorf("the output is missing:\n%s", answered)
 	}
-	if !strings.Contains(body, "empty-state") {
-		t.Errorf("what it was asked is missing:\n%s", body)
+	if !strings.Contains(asked, "empty-state") {
+		t.Errorf("what it was asked is missing:\n%s", asked)
 	}
-	// With something between them: joined by a blank line they read as one blob and the reader has
-	// to work out where the arguments stopped.
-	if strings.Index(body, "empty-state") > strings.Index(body, "src/list.tsx") {
-		t.Errorf("the answer comes before the question:\n%s", body)
-	}
-	if !strings.Contains(body, "⟶") {
-		t.Errorf("nothing separates what was asked from what came back:\n%s", body)
+	labels, _ := got["labels"].([]any)
+	if len(labels) != 2 {
+		t.Errorf("the two blocks are not named: %v", labels)
 	}
 }
 
@@ -3144,5 +3147,53 @@ console.log(JSON.stringify({before, strip: byId.strip.children.length, stripHidd
 	}
 	if n, _ := got["cards"].(float64); n != 0 {
 		t.Errorf("%v pane cards are still showing", n)
+	}
+}
+
+// A long transcript keeps only its tail in the page.
+//
+// The frame-by-frame rebuild went first and offscreen rows stopped costing layout, but every row a
+// session ever produced was still a subtree in the document — which is the thing that was actually
+// reported: the count itself, after a long day on one companion.
+func TestOnlyTheTailOfALongTranscriptIsInThePage(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const many = [];
+for (let i = 0; i < 600; i++) many.push({who:'assistant', text:'line ' + i});
+draw(many);
+const rows = () => byId.log.children.filter(c => (c.className||'') !== 'above');
+const gap = () => byId.log.children.filter(c => (c.className||'') === 'above');
+const windowed = rows().length;
+const last = rows()[rows().length - 1];
+const hasSpacer = gap().length;
+// One more arrives: the window does NOT re-slice for a single row, or the reuse it sits on would
+// rebuild every row of the window on every arrival.
+const before = rows()[0];
+draw([...many, {who:'assistant', text:'the new one'}]);
+const heldStill = rows()[0] === before;
+// Scrolling up asks for more of it.
+const grew = reachUp();
+draw([...many, {who:'assistant', text:'the new one'}]);
+console.log(JSON.stringify({windowed, hasSpacer, heldStill, grew,
+  last: (function deep(n) { return (n.textContent || '') + (n.children || []).map(deep).join(' '); })(last),
+  after: rows().length}));`)
+	num := func(k string) int { f, _ := got[k].(float64); return int(f) }
+	if n := num("windowed"); n == 0 || n > 220 {
+		t.Errorf("600 rows put %d in the page", n)
+	}
+	if num("hasSpacer") != 1 {
+		t.Error("nothing stands in for the rows that are not there — the scrollbar is a lie")
+	}
+	// The tail is what is kept: the end of a conversation is where the reader is.
+	if s, _ := got["last"].(string); !strings.Contains(s, "line 599") {
+		t.Errorf("the window kept the wrong end: it ends at %q", s)
+	}
+	if got["heldStill"] != true {
+		t.Error("one new row re-sliced the window, which rebuilds every row in it")
+	}
+	// A chunk, not a row: "more" has to be worth the scroll that asked for it, and one extra row
+	// arriving in the same frame would satisfy a looser assertion than this without any reaching
+	// having happened at all.
+	if got["grew"] != true || num("after") < num("windowed")+50 {
+		t.Errorf("scrolling up brought nothing back: %d then %d", num("windowed"), num("after"))
 	}
 }
