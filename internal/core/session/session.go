@@ -140,6 +140,16 @@ type ToolResult struct {
 	CallID  string          `json:"callId"`
 	Content json.RawMessage `json:"content"`
 	IsError bool            `json:"isError,omitempty"`
+	// Advisory marks a call that DID what it was asked and has something attached the agent must
+	// read: a post-edit hook's output, or a language server's complaint about the file it just
+	// wrote. Those set IsError, deliberately — that is what makes the model stop and act on them
+	// instead of moving on — and IsError is also what every screen draws its outcome glyph from,
+	// so a file that was written and then linted showed up as a write that FAILED. Reported from a
+	// live run: the file was on disk, the model treated it as done, and both windows said ✗.
+	//
+	// So the two questions are separated. IsError still steers the agent; this says the work
+	// happened, and a surface can draw "done, with something to read" instead of "failed".
+	Advisory bool `json:"advisory,omitempty"`
 }
 
 // ImageRef references image data stored outside the event log (file path or

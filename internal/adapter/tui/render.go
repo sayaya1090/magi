@@ -60,7 +60,12 @@ type block struct {
 	callID string // tool call id (toolCall) — pairs a result to its EXACT call, so parallel
 	// tool results (which complete out of order) attach to the right call, not the latest one
 	ts time.Time // when a user/assistant message was created — shown as HH:MM on its label line
-	ok bool      // tool success (toolResult, or a toolCall's attached result)
+	// advisory marks a call that DID what it was asked and has something attached to read — a
+	// post-edit hook, a language server's complaint about the file just written. Those come back
+	// marked as errors on purpose (that is what makes the agent read them), so without this the
+	// glyph said a write that landed on disk had failed.
+	advisory bool
+	ok       bool // tool success (toolResult, or a toolCall's attached result)
 	// A tool result is folded into its toolCall block so the call renders as one
 	// line whose leading glyph flips ⚙ → ✓/✗ on completion.
 	done     bool   // the toolCall's result has arrived
@@ -373,7 +378,7 @@ func balanceFences(s string) string {
 // still pending, so the call renders as a single line with a flipped glyph. If no
 // such call exists (e.g. a result without a recorded call), it falls back to a
 // standalone result block. It invalidates the affected cache entries.
-func (m *Model) foldToolResult(callID, text string, ok bool) {
+func (m *Model) foldToolResult(callID, text string, ok, advisory bool) {
 	// Prefer an EXACT callID match: parallel tool results complete out of order, so
 	// folding into "the latest unfinished call" mispairs path↔result (a read of A
 	// showing B's content). Fall back to the latest-unfinished scan only when the
@@ -382,7 +387,7 @@ func (m *Model) foldToolResult(callID, text string, ok bool) {
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			b := &m.blocks[i]
 			if b.kind == blockToolCall && b.callID == callID && !b.done {
-				b.done, b.ok, b.result = true, ok, text
+				b.done, b.ok, b.result, b.advisory = true, ok, text, advisory
 				if len(m.cache) > i {
 					m.cache = m.cache[:i]
 				}
@@ -399,6 +404,7 @@ func (m *Model) foldToolResult(callID, text string, ok bool) {
 			b.done = true
 			b.ok = ok
 			b.result = text
+			b.advisory = advisory
 			if len(m.cache) > i {
 				m.cache = m.cache[:i] // re-render this (now-completed) call line
 			}
@@ -410,7 +416,7 @@ func (m *Model) foldToolResult(callID, text string, ok bool) {
 			break
 		}
 	}
-	m.blocks = append(m.blocks, block{kind: blockToolResult, text: text, ok: ok})
+	m.blocks = append(m.blocks, block{kind: blockToolResult, text: text, ok: ok, advisory: advisory})
 }
 
 func (m *Model) renderBlock(blk block) string { return m.renderBlockAs(blk, "magi", nil) }
@@ -475,9 +481,15 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// (the result is folded onto this same line — no separate result line).
 		glyph := styleToolName.Render("⚙")
 		if blk.done {
-			if blk.ok {
+			switch {
+			case blk.ok:
 				glyph = styleToolOK.Render("✓")
-			} else {
+			// It did the thing and left something to read. Drawn apart from a failure because it
+			// is not one: the file is on disk, and a ✗ over it is the screen contradicting the
+			// filesystem.
+			case blk.advisory:
+				glyph = styleToolNote.Render("⚠")
+			default:
 				glyph = styleToolErr.Render("✗")
 			}
 		}
@@ -1042,7 +1054,8 @@ func rebuildBlocks(msgs []session.Message) []block {
 		case session.RoleTool:
 			for _, p := range msg.Parts {
 				if p.Kind == session.PartToolResult && p.ToolResult != nil {
-					out = foldToolResultInto(out, p.ToolResult.CallID, toolResultText(p.ToolResult), !p.ToolResult.IsError)
+					out = foldToolResultInto(out, p.ToolResult.CallID, toolResultText(p.ToolResult),
+						!p.ToolResult.IsError, p.ToolResult.Advisory)
 				}
 			}
 		}
@@ -1054,11 +1067,11 @@ func rebuildBlocks(msgs []session.Message) []block {
 // Model.foldToolResult for the resume/rebuild and subagent-pane paths). Matching by
 // callID keeps parallel results — which complete out of order — paired to the right
 // call; the latest-unfinished scan is the fallback for callID-less events.
-func foldToolResultInto(out []block, callID, text string, ok bool) []block {
+func foldToolResultInto(out []block, callID, text string, ok, advisory bool) []block {
 	if callID != "" {
 		for i := len(out) - 1; i >= 0; i-- {
 			if out[i].kind == blockToolCall && out[i].callID == callID && !out[i].done {
-				out[i].done, out[i].ok, out[i].result = true, ok, text
+				out[i].done, out[i].ok, out[i].result, out[i].advisory = true, ok, text, advisory
 				return out
 			}
 			if out[i].kind == blockAssistant || out[i].kind == blockUser {

@@ -57,16 +57,19 @@ var (
 )
 
 var (
-	styleHeader     lipgloss.Style
-	styleBrand      lipgloss.Style
-	styleUserLabel  lipgloss.Style
-	styleAsstLabel  lipgloss.Style
-	styleBar        lipgloss.Style
-	styleQueuedBar  lipgloss.Style // a mid-turn queued user bubble's bar (distinct from ▌)
-	styleToolName   lipgloss.Style
-	styleToolArgs   lipgloss.Style
-	styleToolOK     lipgloss.Style
-	styleToolErr    lipgloss.Style
+	styleHeader    lipgloss.Style
+	styleBrand     lipgloss.Style
+	styleUserLabel lipgloss.Style
+	styleAsstLabel lipgloss.Style
+	styleBar       lipgloss.Style
+	styleQueuedBar lipgloss.Style // a mid-turn queued user bubble's bar (distinct from ▌)
+	styleToolName  lipgloss.Style
+	styleToolArgs  lipgloss.Style
+	styleToolOK    lipgloss.Style
+	styleToolErr   lipgloss.Style
+	// styleToolNote is a call that DID what it was asked and left something to read — a post-edit
+	// hook, a language server. Caution, not error: the file is on disk.
+	styleToolNote   lipgloss.Style
 	styleToolResult lipgloss.Style
 	styleError      lipgloss.Style
 	styleInput      lipgloss.Style
@@ -247,6 +250,7 @@ func applyTheme(isDark bool) {
 	styleToolArgs = n().Foreground(colMuted)
 	styleToolOK = n().Foreground(colSuccess)
 	styleToolErr = n().Foreground(colError)
+	styleToolNote = n().Foreground(colWarn)
 	styleToolResult = n().Foreground(colMuted)
 	styleError = n().Foreground(colError).Bold(true)
 	// ⚠ Focus here is told by colour alone, and it stays that way on purpose.

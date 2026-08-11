@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -52,5 +53,32 @@ func TestAnotherCallsDecisionDoesNotCloseThisPrompt(t *testing.T) {
 		CallID: "call_9", Decision: "deny"}))
 	if m.perm == nil {
 		t.Error("a decision about another call took this prompt away")
+	}
+}
+
+// The terminal draws the same distinction: done-with-something-to-read is not failed.
+func TestALintedWriteDoesNotDrawAsFailed(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 120, 40
+	m.blocks = []block{{kind: blockToolCall, name: "write", callID: "c1",
+		args: `{"path":"hello.py","content":"print(1)"}`}}
+
+	// What the engine produces for a file that was written and then diagnosed: an error, so the
+	// agent reads it, and advisory, because the write happened.
+	m.foldToolResult("c1", "wrote 22 bytes to hello.py\n\n[diagnostics]\nPython: unused import", false, true)
+	out := m.transcript()
+	if strings.Contains(out, "✗") {
+		t.Errorf("a write that landed on disk is drawn as a failure:\n%s", out)
+	}
+	if !strings.Contains(out, "⚠") {
+		t.Errorf("nothing says there is something to read:\n%s", out)
+	}
+
+	// A real failure still says so.
+	m.blocks = []block{{kind: blockToolCall, name: "write", callID: "c2", args: `{"path":"x"}`}}
+	m.cache = m.cache[:0]
+	m.foldToolResult("c2", "refused: you said no", false, false)
+	if out := m.transcript(); !strings.Contains(out, "✗") {
+		t.Errorf("a refused call lost its mark:\n%s", out)
 	}
 }

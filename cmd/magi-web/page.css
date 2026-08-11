@@ -1868,6 +1868,10 @@
   /* A call that ended, on the line you can see with the row shut. */
   .row.toolok .fold > summary { color:var(--magi-ref-success); }
   .row.toolfail .fold > summary { color:var(--magi-ref-error); }
+  /* Done, with something attached to read. The caution role, not the error one: the file is on
+     disk and the row must not say otherwise. */
+  .row.toolnote .fold > summary { color:var(--magi-ref-warn); }
+  .row.toolnote .who { color:var(--magi-ref-warn); }
   .row.toolfail .who { color:var(--magi-ref-error); }
   /* The prompt nothing has answered yet. A bar down its left, the way the terminal draws one, and
      the word beside the label — the bar alone would be a state told only in ink. */

@@ -968,3 +968,50 @@ func TestAnAbandonedPromptSaysSoAndDoesNotSpin(t *testing.T) {
 		t.Error("an unanswered live prompt lost its mark")
 	}
 }
+
+// A file that was written and then linted is not a write that failed.
+//
+// A post-edit hook or a language server attaches its complaint to the result and marks it an
+// error, deliberately: that is what makes the agent read it instead of moving on. Every screen
+// drew its outcome glyph from the same field, so the row said ✗ over a file that was on disk —
+// reported live, with the model treating it as done and both windows saying it had failed.
+func TestAFileWrittenAndThenLintedIsNotAFailedWrite(t *testing.T) {
+	row := func(res *session.ToolResult) line {
+		rows := renderMessages([]session.Message{{
+			ID: "m1", Role: session.RoleAssistant,
+			Parts: []session.Part{{Kind: session.PartToolCall, ToolCall: &session.ToolCall{
+				Name: "write", CallID: "c1", Args: []byte(`{"path":"hello.py","content":"print(1)"}`)}}},
+		}, {
+			ID: "m2", Role: session.RoleTool,
+			Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: res}},
+		}})
+		if len(rows) != 1 {
+			t.Fatalf("rendered %d rows", len(rows))
+		}
+		return rows[0]
+	}
+
+	noted := row(&session.ToolResult{CallID: "c1", IsError: true, Advisory: true,
+		Content: []byte(`"wrote 22 bytes to hello.py\n\n[diagnostics]\nPython: unused import"`)})
+	if !noted.Note {
+		t.Error("the row does not carry that the work happened")
+	}
+	if noted.Ok == nil || *noted.Ok {
+		t.Error("it is still an error for the agent, which is what makes it read the diagnostic")
+	}
+	// And the change it made is worth drawing, because it was made.
+	if noted.Diff == "" {
+		t.Error("a write that landed shows no diff")
+	}
+
+	// A refusal is a different thing and keeps saying so: nothing was written, so there is nothing
+	// to draw and nothing to soften.
+	refused := row(&session.ToolResult{CallID: "c1", IsError: true,
+		Content: []byte(`"refused: you said no"`)})
+	if refused.Note {
+		t.Error("a refusal came through as work that happened")
+	}
+	if refused.Diff != "" {
+		t.Errorf("a refused write drew a change that never happened: %q", refused.Diff)
+	}
+}

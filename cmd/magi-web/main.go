@@ -794,6 +794,12 @@ type line struct {
 	Text string `json:"text"`
 	Tool string `json:"tool,omitempty"`
 	Args string `json:"args,omitempty"`
+	// Note marks a call that DID what it was asked and left something to read: a post-edit hook,
+	// or a language server's complaint about the file just written. Those come back marked as
+	// errors on purpose — that is what makes the agent read them instead of moving on — and Ok is
+	// drawn from the same field, so a file that was written and then linted appeared as a write
+	// that FAILED. Reported live, with the file on disk and the model carrying on.
+	Note bool `json:"note,omitempty"`
 	// Ok reports how a tool call ended, and is nil while it has not. The call and its result are
 	// ONE row: the terminal has always drawn them that way, and split across two the question a
 	// reader has — did that work — could only be answered by finding the row below and opening it.
@@ -884,12 +890,14 @@ func renderMessages(msgs []session.Message) []line {
 					// What the edit actually does, when the call is one. Only for a call that has
 					// not failed: the arguments of a rejected edit describe a change that never
 					// happened, and drawing it as a diff would show the file as it is not.
-					if res, ok := results[p.ToolCall.CallID]; !ok || !res.IsError {
+					// A refused edit describes a change that never happened. One that landed and
+					// then got a diagnostic did happen, and its diff is the thing to look at.
+					if res, ok := results[p.ToolCall.CallID]; !ok || !res.IsError || res.Advisory {
 						row.Diff = change.EditDiff(p.ToolCall.Name, string(p.ToolCall.Args))
 					}
 					if res, ok := results[p.ToolCall.CallID]; ok {
 						good := !res.IsError
-						row.Ok = &good
+						row.Ok, row.Note = &good, res.Advisory
 						// What it ANSWERED, whether or not it failed.
 						//
 						// Only failures used to travel, on the reasoning that a success is noise

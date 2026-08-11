@@ -126,8 +126,8 @@ func TestModelFoldPairsByCallID(t *testing.T) {
 		{kind: blockToolCall, name: "read", args: `{"path":"a"}`, callID: "c1"},
 		{kind: blockToolCall, name: "read", args: `{"path":"b"}`, callID: "c2"},
 	}
-	m.foldToolResult("c2", "content-B", true)
-	m.foldToolResult("c1", "content-A", true)
+	m.foldToolResult("c2", "content-B", true, false)
+	m.foldToolResult("c1", "content-A", true, false)
 	if m.blocks[0].result != "content-A" || m.blocks[1].result != "content-B" {
 		t.Fatalf("mispaired: c1=%q c2=%q", m.blocks[0].result, m.blocks[1].result)
 	}

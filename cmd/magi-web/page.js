@@ -2920,7 +2920,11 @@ function summaryFor(r) {
   if (r.who === 'tool') {
     // The glyph says how it ended, on the line that is visible while the row is shut. Split across
     // two rows, "did that work" could only be answered by finding the one below and opening it.
-    const g = r.ok === undefined ? '⚙' : (r.ok ? '✓' : '✗');
+    // ⚠ is not a failure: the call did what it was asked and left something to read — a post-edit
+    // hook, a language server on the file it just wrote. Those arrive marked as errors so the
+    // agent reads them, and drawing that as ✗ told somebody their file had not been written while
+    // it sat on disk.
+    const g = r.ok === undefined ? '⚙' : (r.ok ? '✓' : (r.note ? '⚠' : '✗'));
     // A plan is a list of statuses, and its raw arguments are the worst way to read one — the same
     // JSON the panel turns into ticked lines, flattened and clipped mid-item. The count goes where
     // the argument preview would have been, exactly as the terminal does it.
@@ -3007,7 +3011,8 @@ function rowNode(r) {
   const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '')
     + (r.abandoned ? ' abandoned' : '')
     + (seat ? ' ' + seat : '')
-    + (r.who === 'tool' && r.ok === false ? ' toolfail' : '')
+    + (r.who === 'tool' && r.ok === false && !r.note ? ' toolfail' : '')
+    + (r.who === 'tool' && r.note ? ' toolnote' : '')
     + (r.who === 'tool' && r.ok === true ? ' toolok' : '')
     + (r.pending ? ' pending' : '');
   // What magi itself said to the agent is a distinct voice, and calling it "system" in the gutter
@@ -3057,6 +3062,7 @@ function rowNode(r) {
     // A failure is the row somebody came to read, whether it arrived as its own row or folded
     // into the call that produced it.
     det.open = r.who === 'failed' || r.ok === false || localStorage.getItem('fold.' + r.who) === 'open';
+    // A note is worth opening too: the whole point of it is that something wants reading.
     // One click opens ONE row.
     //
     // It used to open every row of the same kind that was on screen, on the theory that the

@@ -493,7 +493,8 @@ func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 	case session.PartToolResult:
 		m.liveProgress = "" // the tool that was reporting progress has now returned
 		if d.Part.ToolResult != nil {
-			m.foldToolResult(d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
+			m.foldToolResult(d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult),
+				!d.Part.ToolResult.IsError, d.Part.ToolResult.Advisory)
 		}
 	}
 }

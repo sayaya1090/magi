@@ -466,14 +466,18 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// self-corrects (built-in autoformat runs here too).
 	if !res.IsError && fileModifiers[tc.Name] {
 		path := pathArg(tc.Args)
+		// IsError, because that is what makes the agent stop and read it rather than move on. And
+		// Advisory beside it, because the edit HAPPENED: without the second flag every screen drew
+		// a file that was written and then linted as a write that failed — the file on disk, the
+		// model carrying on, and both windows saying ✗.
 		if h := a.runPostToolHooks(ctx, workdir, tc.Name, path); h != "" {
 			res.Content = appendToContent(res.Content, "\n\n"+h)
-			res.IsError = true
+			res.IsError, res.Advisory = true, true
 		}
 		diag, advice := a.diagnose(ctx, workdir, path)
 		if diag != "" {
 			res.Content = appendToContent(res.Content, "\n\n[diagnostics]\n"+diag)
-			res.IsError = true
+			res.IsError, res.Advisory = true, true
 		}
 		// A missing language server is an environment note, not an edit failure: the
 		// edit succeeded, so attach the install hint without flipping IsError.
