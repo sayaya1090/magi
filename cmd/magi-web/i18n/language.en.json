@@ -152,6 +152,7 @@
   "reach.only": "Only {name}",
   "reach.team": "The {team} team",
   "row.reasoning": "Reasoning",
+  "row.system": "magi",
   "row.working": "working on this",
   "shell.nooutput": "(no output)",
   "shell.running": "running…",

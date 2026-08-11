@@ -152,6 +152,7 @@
   "reach.only": "{name}만",
   "reach.team": "{team} 팀",
   "row.reasoning": "추론",
+  "row.system": "magi",
   "row.working": "처리 중",
   "shell.nooutput": "(출력 없음)",
   "shell.running": "실행 중…",

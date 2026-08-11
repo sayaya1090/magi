@@ -2464,3 +2464,32 @@ console.log(JSON.stringify({cls: cls}));`)
 		t.Errorf("the verdict class was lost when the member class arrived: %q", s)
 	}
 }
+
+// magi's own voice is a voice, not an unstyled fallthrough.
+//
+// Prompts written by magi rather than by the person reconstruct as system messages, and this page
+// draws a row per role — so these landed as `.row.system`, for which there was no rule at all and
+// a gutter that said the word "system". That has been true of every compaction summary since
+// compaction existed; the orchestrator's nudges joined them.
+func TestMagisOwnVoiceIsDrawnAsItsOwn(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'user',text:'rename a.txt'},
+      {who:'system',text:'You stopped without saying you are finished.'}]);
+const rows = [];
+const walk = n => { for (const k of n.children || []) { if (String(k.className).startsWith('row ')) rows.push({cls:k.className, who:(k.children[0]||{}).textContent}); walk(k); } };
+walk(byId.log);
+console.log(JSON.stringify({rows: rows}));`)
+
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("drew %d rows, want 2: %v", len(rows), rows)
+	}
+	sys, _ := rows[1].(map[string]any)
+	if cls, _ := sys["cls"].(string); !strings.Contains(cls, "row system") {
+		t.Errorf("magi's own prompt is not classed as its own: %q", cls)
+	}
+	// The gutter names the speaker, not the mechanism that carried it.
+	if who, _ := sys["who"].(string); who == "system" || who == "" {
+		t.Errorf("the gutter says %q", who)
+	}
+}

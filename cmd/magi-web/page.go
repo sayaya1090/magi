@@ -1584,6 +1584,16 @@ const indexHTML = `<!doctype html>
   .row.image .txt { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
   /* The council, in the transcript rather than beside it. It votes on whether a turn is finished,
      so it belongs where the turn it judged is — the terminal has always put it there. */
+  /* magi's own voice, addressed to the agent. Set apart from the person's turn, which is the lead
+     the page is scanned for, and quieter than the answer — it is neither the question nor the work.
+     Until now these rows fell through to the default with no rule at all, which is what a
+     compaction summary has looked like since compaction existed. */
+  .row.system .who { color:var(--magi-ref-accent); }
+  .row.system .txt {
+    color:var(--magi-ref-muted); font:var(--magi-sys-body-s) var(--magi-ref-mono);
+    border-left:1px solid var(--magi-ref-accent);
+    padding-left:var(--magi-sys-space-150); margin-left:calc(-1 * var(--magi-sys-space-150));
+  }
   .row.council .who { color:var(--magi-ref-secondary); }
   .row.council .fold > summary { color:var(--magi-ref-secondary); font-weight:600; }
   /* Each councillor in their own hue, the same three the terminal paints them in. Three voices in
@@ -4624,7 +4634,10 @@ function rowNode(r) {
     + (r.who === 'tool' && r.ok === false ? ' toolfail' : '')
     + (r.who === 'tool' && r.ok === true ? ' toolok' : '')
     + (r.pending ? ' pending' : '');
-  const w = el('div', r.who); w.className = 'who';
+  // What magi itself said to the agent is a distinct voice, and calling it "system" in the gutter
+  // names the mechanism rather than the speaker. The rows are the orchestrator's nudges, the
+  // compaction summaries and the hook output — magi talking to the agent about the work.
+  const w = el('div', r.who === 'system' ? tr('row.system') : r.who); w.className = 'who';
 
   if (foldedKinds[r.who]) {
     const det = el('details'); det.className = 'txt fold';
