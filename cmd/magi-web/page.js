@@ -1870,14 +1870,30 @@ async function drawPast(a) {
 // The agent's own todo list, as it last recorded it. Shown as it is: an item it dropped is gone,
 // because the record is the whole plan each time and merging would resurrect what it decided
 // against.
+// planRows draws a plan as ticked lines. Shared by the panel and by the transcript row that
+// WROTE the plan, so the two cannot come to disagree about what it says.
+//
+// completed | in_progress | pending, which is the todo tool's whole enum. A branch for 'done' sat
+// here and a .td.done rule sat in the stylesheet, both waiting on a value the schema forbids.
+function planMark(t) {
+  return t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '·';
+}
+
+function planRows(todos) {
+  const box = cell('plan');
+  box.append(...todos.map(t => {
+    const row = cell('td ' + (t.status || ''));
+    row.append(cell('mark', planMark(t)), cell('what', t.content));
+    return row;
+  }));
+  return box;
+}
+
 async function drawPlan(a) {
   const box = document.getElementById('plan');
   const todos = await fetchList('/plan' + qFor(a));
   if (!todos || !todos.length) { box.hidden = true; box.replaceChildren(); return; }
-  // completed | in_progress | pending, which is the todo tool's whole enum. A branch for 'done'
-  // sat here and a .td.done rule sat in the stylesheet, both waiting on a value the schema forbids.
-  const mark = t => t.status === 'completed' ? '✓'
-                  : t.status === 'in_progress' ? '▸' : '·';
+  const mark = planMark;
   // How much of the plan is behind it. Determinate, because the counts are known — an
   // indeterminate bar here would say "something is happening" to somebody who can already see
   // exactly what is happening in the list below it.
@@ -2820,6 +2836,14 @@ function looksLikeDiff(text) {
 // The terminal has coloured these since it had a transcript. Here they arrived as an undifferen-
 // tiated wall in which the one thing a diff is for — which lines went and which arrived — was the
 // thing you had to work out by reading the first character of every row.
+// pathOf is the file a call names, for the line above its diff.
+function pathOf(args) {
+  try {
+    const a = JSON.parse(args || '{}');
+    return a && typeof a.path === 'string' ? a.path : '';
+  } catch { return ''; }
+}
+
 function diffInto(pre, text) {
   for (const line of String(text || '').replace(/\n$/, '').split('\n')) {
     let cls = 'dctx';
@@ -2852,12 +2876,42 @@ function md(node, text) {
 const foldedKinds = { thinking: true, tool: true, result: true, failed: true, council: true, shell: true };
 
 // summaryFor is the one line a folded row shows. It has to say enough to decide whether to open it.
+// todosOf reads the plan out of a todo call's arguments, or null when the call is not one.
+function todosOf(args) {
+  try {
+    const a = JSON.parse(args || '{}');
+    return Array.isArray(a && a.todos) ? a.todos : null;
+  } catch { return null; }
+}
+
+// answerLine is the one line of a result that fits beside the call that produced it: the first
+// thing it said, which for a build is the headline and for a grep is the first hit.
+function answerLine(out) {
+  const t = String(out || '').replace(/^"|"$/g, '').trim();
+  if (!t) return '';
+  const first = t.split('\n').find(l => l.trim()) || '';
+  return oneLine(first, 44);
+}
+
 function summaryFor(r) {
   if (r.who === 'tool') {
     // The glyph says how it ended, on the line that is visible while the row is shut. Split across
     // two rows, "did that work" could only be answered by finding the one below and opening it.
     const g = r.ok === undefined ? '⚙' : (r.ok ? '✓' : '✗');
-    return g + ' ' + (r.tool || '') + (r.args ? ' ' + oneLine(r.args, 78) : '');
+    // A plan is a list of statuses, and its raw arguments are the worst way to read one — the same
+    // JSON the panel turns into ticked lines, flattened and clipped mid-item. The count goes where
+    // the argument preview would have been, exactly as the terminal does it.
+    const todos = todosOf(r.args);
+    if (todos) {
+      const done = todos.filter(t => t.status === 'completed').length;
+      return g + ' ' + (r.tool || '') + '  ' + done + '/' + todos.length;
+    }
+    // What it was asked, and then what came back. The terminal has put the outcome on this line
+    // since it had one, and "did that work" is only half the question — the other half is what it
+    // found, which was behind a fold on a row somebody had no reason to open.
+    const asked = r.diff ? pathOf(r.args) : (r.args ? oneLine(r.args, 60) : '');
+    const said = r.ok === undefined ? '' : answerLine(r.out);
+    return g + ' ' + (r.tool || '') + (asked ? ' ' + asked : '') + (said ? '  ⟶ ' + said : '');
   }
   // A council row's summary is its first line: the vote, or the outcome and the tally. What is
   // behind it is the reasoning and what the vote rested on — the same split the terminal makes,
@@ -2951,12 +3005,24 @@ function rowNode(r) {
     const body = el('div'); body.className = 'foldbody';
     // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
     // preformatted text rather than run through markdown that would eat their brackets.
-    if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
-      // Both, when a call failed: what it was asked, then what it said about it.
-      // What it was asked, then what it answered, with a rule between them. Joined by a blank line
-      // they read as one blob and a reader has to work out where the arguments stopped.
-      const raw = [r.args, r.out].filter(Boolean).join('\n\n── ⟶ ──\n\n') || r.text;
-      if (looksLikeDiff(raw)) {
+    const plan = r.who === 'tool' ? todosOf(r.args) : null;
+    if (plan) {
+      // Drawn the way the panel draws it — same glyphs, same strikethrough — so the transcript and
+      // the panel agree about what the plan says.
+      body.append(planRows(plan));
+    } else if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
+      // An edit is shown as the change it makes.
+      //
+      // Its arguments are the old and the new text escaped into one JSON line, which is the least
+      // readable form of the most important thing an agent does — the terminal has drawn the diff
+      // since it had a transcript. The path stays (it is what the arguments were otherwise for),
+      // then the change, then whatever the call answered.
+      const raw = r.diff
+        ? [pathOf(r.args), r.diff, r.out].filter(Boolean).join('\n\n── ⟶ ──\n\n')
+        : [r.args, r.out].filter(Boolean).join('\n\n── ⟶ ──\n\n') || r.text;
+      // A built diff is a diff whether or not it looks like one: a one-line change has no @@ header
+      // and looksLikeDiff would send it to the plain renderer, uncoloured.
+      if (r.diff || looksLikeDiff(raw)) {
         const pre = el('pre'); pre.className = 'diff';
         body.append(diffInto(pre, raw));
       } else {

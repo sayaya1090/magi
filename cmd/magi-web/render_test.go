@@ -2977,3 +2977,57 @@ console.log(JSON.stringify({hidden: byId.strip.hidden, chips, url: location.sear
 		t.Errorf("pressing the child went to %q", u)
 	}
 }
+
+// An edit shows the change it makes, and a plan shows the plan.
+//
+// Both arrived as the call's raw arguments: an edit as its old and new text escaped into one JSON
+// line — the least readable form of the most important thing an agent does — and a plan as the
+// same JSON the panel three inches away turns into ticked lines. The terminal has drawn both
+// properly since it had a transcript.
+func TestAnEditShowsItsChangeAndAPlanShowsItsPlan(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([
+  {who:'tool', tool:'edit', ok:true, args:'{"path":"cmd/main.go","old":"a","new":"b"}',
+   diff:'-a\n+b', out:'"edited"'},
+  {who:'tool', tool:'todo_write', ok:true,
+   args:JSON.stringify({todos:[{content:'read the failing test',status:'completed'},
+                               {content:'fix the parser',status:'in_progress'},
+                               {content:'ship it',status:'pending'}]})},
+  {who:'tool', tool:'grep', ok:true, args:'{"pattern":"empty"}', out:'"src/list.tsx\\nsrc/table.tsx"'},
+]);
+const rows = byId.log.children;
+const sum = r => (r.children.find(c => (c.className||'').includes('fold')) || {children:[]})
+  .children.filter(c => c.tag === 'summary').map(c => c.textContent)[0] || '';
+const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
+const body = r => { const f = r.children.find(c => (c.className||'').includes('fold')); return f ? words(f) : ''; };
+const cls = n => { const out=[]; const walk=k=>{ out.push(k.className||''); (k.children||[]).forEach(walk); }; walk(n); return out; };
+console.log(JSON.stringify({
+  editSum: sum(rows[0]), editBody: body(rows[0]), editCls: cls(rows[0]).filter(c => c === 'dadd' || c === 'ddel'),
+  planSum: sum(rows[1]), planCls: cls(rows[1]).filter(c => c.startsWith('td ')), planBody: body(rows[1]),
+  grepSum: sum(rows[2])}));`)
+	str := func(k string) string { s, _ := got[k].(string); return s }
+	// The edit: the path on the line you can see, the change coloured behind it, and no JSON.
+	if !strings.Contains(str("editSum"), "cmd/main.go") {
+		t.Errorf("the edit's summary reads %q", str("editSum"))
+	}
+	if strings.Contains(str("editBody"), `"old"`) {
+		t.Errorf("the edit is still shown as its arguments:\n%s", str("editBody"))
+	}
+	if n := len(got["editCls"].([]any)); n != 2 {
+		t.Errorf("the diff was drawn with %d coloured lines, want an added and a removed one", n)
+	}
+	// The plan: a count where the argument preview was, and ticked lines instead of JSON.
+	if !strings.Contains(str("planSum"), "1/3") {
+		t.Errorf("the plan's summary reads %q", str("planSum"))
+	}
+	if rows, _ := got["planCls"].([]any); len(rows) != 3 {
+		t.Errorf("the plan drew %d rows", len(rows))
+	}
+	if !strings.Contains(str("planBody"), "fix the parser") || strings.Contains(str("planBody"), "status") {
+		t.Errorf("the plan body reads %q", str("planBody"))
+	}
+	// And an ordinary call says what came back, on the line that is visible while it is shut.
+	if !strings.Contains(str("grepSum"), "⟶") || !strings.Contains(str("grepSum"), "src/list.tsx") {
+		t.Errorf("a finished call's summary does not say what it found: %q", str("grepSum"))
+	}
+}

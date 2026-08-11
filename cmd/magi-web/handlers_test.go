@@ -899,3 +899,42 @@ func TestASystemRowSaysWhichPartOfMagiWroteIt(t *testing.T) {
 		t.Errorf("what the person said is attributed to %q", rows[1].By)
 	}
 }
+
+// An edit crosses as the change it makes, built where the terminal's diff is built.
+//
+// The page could not do this for itself without a second implementation of a thing that already
+// exists and is tested — and the page already knows how to colour a diff, so what was missing was
+// the diff, not the drawing.
+func TestAnEditCrossesAsItsDiff(t *testing.T) {
+	call := func(name, args string, failed bool) []line {
+		res := &session.ToolResult{CallID: "c1", Content: []byte("done"), IsError: failed}
+		return renderMessages([]session.Message{{
+			ID: "m1", Role: session.RoleAssistant,
+			Parts: []session.Part{{Kind: session.PartToolCall, ToolCall: &session.ToolCall{
+				Name: name, CallID: "c1", Args: []byte(args)}}},
+		}, {
+			ID: "m2", Role: session.RoleTool,
+			Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: res}},
+		}})
+	}
+	rows := call("edit", `{"path":"a.go","old":"one\ntwo","new":"one\nthree"}`, false)
+	if len(rows) != 1 {
+		t.Fatalf("rendered %d rows", len(rows))
+	}
+	if !strings.Contains(rows[0].Diff, "-two") || !strings.Contains(rows[0].Diff, "+three") {
+		t.Errorf("the change reads %q", rows[0].Diff)
+	}
+	// A write is its content, added.
+	if got := call("write", `{"path":"a.go","content":"hello"}`, false); !strings.Contains(got[0].Diff, "+hello") {
+		t.Errorf("a write's change reads %q", got[0].Diff)
+	}
+	// A call that FAILED describes a change that never happened, and drawing it would show the
+	// file as it is not.
+	if got := call("edit", `{"path":"a.go","old":"one","new":"two"}`, true); got[0].Diff != "" {
+		t.Errorf("a refused edit still came through as a diff: %q", got[0].Diff)
+	}
+	// Anything else is not an edit and has no diff to show.
+	if got := call("bash", `{"command":"ls"}`, false); got[0].Diff != "" {
+		t.Errorf("a command came through with a diff: %q", got[0].Diff)
+	}
+}

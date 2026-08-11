@@ -42,6 +42,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/change"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -818,6 +819,14 @@ type line struct {
 	// showed a conversation with no times in it anywhere, which is the first thing somebody
 	// returning to a companion after lunch wants to know about what they are reading.
 	At string `json:"at,omitempty"`
+	// Diff is an edit or a write drawn as the change it makes, built from the call's OWN arguments.
+	//
+	// The terminal has shown this since it had a transcript, and the console showed the arguments:
+	// a JSON blob with the old and new text escaped into one line, which is the least readable form
+	// of the most important thing an agent does. Built here rather than in the page because the
+	// terminal's diff is Go and there is no second implementation worth having — the page already
+	// knows how to colour one.
+	Diff string `json:"diff,omitempty"`
 	// By is which of magi's own parts wrote a system row — the orchestrator, the planner. The
 	// terminal has named it since these notes existed; the console called all of them magi.
 	By string `json:"by,omitempty"`
@@ -868,6 +877,12 @@ func renderMessages(msgs []session.Message) []line {
 					// they open it.
 					row := line{Who: "tool", Text: p.ToolCall.Name,
 						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args), msg: m.ID, At: at}
+					// What the edit actually does, when the call is one. Only for a call that has
+					// not failed: the arguments of a rejected edit describe a change that never
+					// happened, and drawing it as a diff would show the file as it is not.
+					if res, ok := results[p.ToolCall.CallID]; !ok || !res.IsError {
+						row.Diff = change.EditDiff(p.ToolCall.Name, string(p.ToolCall.Args))
+					}
 					if res, ok := results[p.ToolCall.CallID]; ok {
 						good := !res.IsError
 						row.Ok = &good

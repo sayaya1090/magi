@@ -1315,7 +1315,10 @@
      the elements inside one, 16dp at the ends — 8dp on the end that has the leading dot, which is
      what the guide calls "left/right padding with icon". */
   #strip:not([hidden]) { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150); }
-  .job {
+  /* Scoped to the strip. A scheduled job in the pane is also .job — an unscoped rule here gave
+     every row of the schedule a chip's height and border, which is a list turned into a row of
+     pills by a name collision. */
+  #strip .job {
     display:inline-flex; align-items:center; gap:var(--magi-sys-space-100);
     height:2rem; box-sizing:border-box;
     padding-inline:var(--magi-sys-space-200);
@@ -1324,7 +1327,7 @@
     background:transparent; max-width:100%; min-width:0;
   }
   /* The leading dot is this chip's icon, and the guide narrows the padding on that side for one. */
-  .job:has(.jdot) { padding-inline-start:var(--magi-sys-space-100); }
+  #strip .job:has(.jdot) { padding-inline-start:var(--magi-sys-space-100); }
   /* The pressable one is the page's own button component, so it brings its own shape, ripple and
      focus ring; what it takes from here is the size, because a strip of full-size buttons would be
      a toolbar and this is a status line. */
@@ -1333,9 +1336,9 @@
      the other chips have, so the two sit together instead of one looking like a stray link. */
   /* Running, on a chip that cannot hold the dot: the outline is the signal, and it breathes the
      same way. */
-  md-text-button.job.live { border-color:var(--magi-ref-primary); animation:jpulse 1.6s ease-in-out infinite; }
-  @media (prefers-reduced-motion:reduce) { md-text-button.job.live { animation:none; } }
-  md-text-button.job {
+  #strip md-text-button.job.live { border-color:var(--magi-ref-primary); animation:jpulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion:reduce) { #strip md-text-button.job.live { animation:none; } }
+  #strip md-text-button.job {
     --md-text-button-label-text-size: var(--md-sys-typescale-label-small-size);
     /* The same 32dp box and 8dp corner as the chips beside it: the component's own default is a
        pill, which is right for a button standing alone and wrong for one standing in a row of
@@ -1346,20 +1349,20 @@
     --md-text-button-trailing-space: var(--magi-sys-space-200);
     padding:0;
   }
-  .job .jname { color:var(--magi-ref-fg); font-weight:600; }
-  .job .jsay { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  #strip .job .jname { color:var(--magi-ref-fg); font-weight:600; }
+  #strip .job .jsay { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   /* Finished, and quieter for it — but not below what the muted role can carry: this text is the
      only thing saying which command it was. */
-  .job.done { opacity:.75; }
-  .job.bad { border-color:var(--magi-ref-error); color:var(--magi-ref-error); }
+  #strip .job.done { opacity:.75; }
+  #strip .job.bad { border-color:var(--magi-ref-error); color:var(--magi-ref-error); }
   /* Running, said by something that moves: a strip of still chips does not distinguish the build
      that is going from the one that ended four minutes ago. */
-  .job .jdot {
+  #strip .job .jdot {
     width:.5rem; height:.5rem; border-radius:var(--magi-sys-shape-full); background:var(--magi-ref-primary); flex:none;
     animation:jpulse 1.6s ease-in-out infinite;
   }
   @keyframes jpulse { 0%, 100% { opacity:.35; } 50% { opacity:1; } }
-  @media (prefers-reduced-motion:reduce) { .job .jdot { animation:none; opacity:.8; } }
+  @media (prefers-reduced-motion:reduce) { #strip .job .jdot { animation:none; opacity:.8; } }
 
   #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
   #stream, #side, #sidecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }

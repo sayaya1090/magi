@@ -224,6 +224,16 @@ const demoScript = `
       {who: 'thinking', text: 'Start with a grep for the empty-state class, then read the ones that match.'},
       {who: 'tool', tool: 'grep', args: '{"pattern":"empty-state","path":"src"}', ok: true,
        out: 'src/list.tsx\nsrc/table.tsx\nsrc/inbox.tsx'},
+      // An edit and a plan, because both are drawn as themselves now and neither could be seen
+      // here — the demo showed a JSON blob where the console shows a change.
+      {who: 'tool', tool: 'edit', ok: true,
+       args: '{"path":"src/inbox.tsx","old":"  color: #8a8a8a;","new":"  color: var(--surface-dim);"}',
+       diff: '-  color: #8a8a8a;\n+  color: var(--surface-dim);', out: '"edited src/inbox.tsx"'},
+      {who: 'tool', tool: 'todo_write', ok: true, args: JSON.stringify({todos: [
+        {content: 'read what the empty states do now', status: 'completed'},
+        {content: 'write the spec', status: 'completed'},
+        {content: 'name the tokens it uses', status: 'in_progress'},
+        {content: 'get it reviewed by buttons', status: 'pending'}]})},
       {who: 'assistant', text: 'Three: list, table and inbox. list and table use --surface-dim; ' +
        'inbox draws its own grey and does not use a token at all.'},
     ],
@@ -459,6 +469,18 @@ const demoScript = `
         // other case — and a failed call opens by itself, which is the behaviour to be able to see.
         {who: 'tool', tool: 'bash', args: 'go test ./cmd/magi-web/', ok: false,
          out: '--- FAIL: TestTheEmptyStateNamesItsTokens\n    page_test.go:88: no token named for the board'},
+        // An edit, drawn as the change it makes rather than as its arguments — the console builds
+        // this from the call itself, and it is the most important thing an agent does.
+        {who: 'tool', tool: 'edit', ok: true,
+         args: '{"path":"src/inbox.tsx","old":"  color: #8a8a8a;","new":"  color: var(--surface-dim);"}',
+         diff: '-  color: #8a8a8a;\n+  color: var(--surface-dim);', out: '"edited src/inbox.tsx"'},
+        // And a plan, drawn the way the panel draws it. As raw arguments this was the same JSON
+        // the panel three inches away turns into ticked lines.
+        {who: 'tool', tool: 'todo_write', ok: true, args: JSON.stringify({todos: [
+          {content: 'read what the empty states do now', status: 'completed'},
+          {content: 'write the spec', status: 'completed'},
+          {content: 'name the tokens it uses', status: 'in_progress'},
+          {content: 'get it reviewed by buttons', status: 'pending'}]})},
         // Left open, with no ok: the call running right now. The bar under it is the only place
         // this page says WHICH call it is waiting on.
         {who: 'tool', tool: 'write', args: 'path: docs/UI.md', pending: true},
