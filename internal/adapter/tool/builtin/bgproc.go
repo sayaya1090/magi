@@ -105,9 +105,8 @@ type bgProc struct {
 	// psPath is where the wrapped shell writes the last pipeline's per-stage statuses, and
 	// stages is what it held once the job finished — so the status line can say which stage
 	// really failed instead of reporting the pipeline's last exit alone.
-	psPath  string
-	stages  []int
-	claimed bool // this job's finished outcome has already been handed to ClaimBackgroundOutcome
+	psPath string
+	stages []int
 }
 
 // bgManager is the process-global registry of background commands. Tools are
@@ -290,32 +289,6 @@ func (m *bgManager) get(id string) *bgProc {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.procs[id]
-}
-
-// ClaimBackgroundOutcome hands back a finished background job's own command text and exit code,
-// exactly once per job, so the orchestrator can record what that command actually did.
-//
-// It exists because a background job's START and its RESULT arrive as two different tool calls. The
-// start returns "started background command bg_N" — a success that says only that a process now
-// exists — and everything that judges whether a build/test converged was reading THAT as the
-// command's outcome, so a build was booked as a pass before it had run a single rule, while its
-// real exit arrived later through bash_output and was recorded nowhere at all. The one-shot claim is
-// what keeps a repeated poll of the same finished job from counting its failure again and again.
-//
-// A KILLED job reports nothing: the agent stopped it, so its exit says nothing about the work. A job
-// the agent never polls after it exits is likewise never claimed — silence is the safe direction.
-func ClaimBackgroundOutcome(id string) (command string, exit int, ok bool) {
-	p := bg.get(id)
-	if p == nil {
-		return "", 0, false
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if !p.done || p.killed || p.claimed {
-		return "", 0, false
-	}
-	p.claimed = true
-	return p.command, p.exit, true
 }
 
 // KillAll terminates every still-running background command and its process group.
