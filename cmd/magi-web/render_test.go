@@ -944,7 +944,7 @@ globalThis.ORDER.length = 0;
 byId.notifyBtn.onclick();
 // Drained with microtasks: this harness's setTimeout is a stub that never fires, deliberately —
 // a test that waited on a real timer would wait for the page's three-second poll.
-for (let i = 0; i < 20; i++) await Promise.resolve();
+for (let i = 0; i < 80; i++) await Promise.resolve();
 console.log(JSON.stringify({order: globalThis.ORDER, why: byId.notifyWhy.textContent}));
 `)
 	var order []string
@@ -1319,7 +1319,7 @@ byId.detail.replaceChildren(cell('', 'a thing somebody was reading'));
 labels$.next({'action.forget': '잊기', 'nav.shared': '공유'});
 // Drain the microtasks the repaint's own fetch runs on. NOT a second loadSkills() by hand — that
 // would be the test doing the thing it is checking for, and it would pass with the fix removed.
-for (let i = 0; i < 20; i++) await Promise.resolve();
+for (let i = 0; i < 80; i++) await Promise.resolve();
 console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.text, title: document.title}));
 `)
 	if strings.Contains(got["before"].(string), "잊기") {
@@ -3409,7 +3409,7 @@ const grid = byId.detail;
 await drawDetail({socket: '/s/a.sock', state: 'working', workdir: '/w', session: 's_1'});
 // The roster is fetched without being awaited by the draw — it fills the menu when it lands, the
 // same way it does in a browser — so the test drains the microtask queue rather than assuming.
-for (let i = 0; i < 20; i++) await Promise.resolve();
+for (let i = 0; i < 80; i++) await Promise.resolve();
 // The model's menu, found by what is IN it rather than by a label: the field carries no floating
 // label any more — the row it sits in already says the word — so the label was no longer a way to
 // tell it from the approval menu beside it.
@@ -3502,5 +3502,41 @@ console.log(JSON.stringify({
 	// which has fallen behind what the row draws.
 	if s, _ := got["saidLater"].(string); !strings.Contains(s, "reading what it wrote") {
 		t.Errorf("only the task changed and the row kept the old one: %q", s)
+	}
+}
+
+// A language that lands late reaches the screen somebody is standing on.
+//
+// A deep screen is drawn once, by render(), and the pack arrives a moment after the first paint —
+// so the decision screen, whose whole job is to be read, sat in the seeded English under a Korean
+// crumb and beside a Korean rail. paint() redraws it now, unless there is something typed into it:
+// a late pack must never take away what a person is in the middle of.
+func TestALateLanguageReachesTheScreenYouAreOn(t *testing.T) {
+	fleet := `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"which branch?","askId":"q1","askKind":"question","session":"s_1",
+       "report":[{"key":"tried","text":"built both"}],"task":"land it","steps":1,"idle":3}]`
+
+	got := runPage(t, fleet, "?d=%2Fs%2Fa.sock&ask=q1", `
+await loadFleet();
+labels$.next({...L, 'ask.deciding': '결정', 'ask.your_answer': '당신의 답', 'action.answer': '응답'});
+for (let i = 0; i < 80; i++) await Promise.resolve();
+const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
+const before = words(byId.agentdetail);
+// And with something typed, the same pack change leaves the screen alone.
+const field = byId.agentdetail.find('md-outlined-text-field')[0];
+if (field) field.value = '반쯤 쓴 답';
+labels$.next({...L, 'ask.your_answer': 'CHANGED-AGAIN'});
+for (let i = 0; i < 80; i++) await Promise.resolve();
+console.log(JSON.stringify({after: words(byId.agentdetail), kept: field ? field.value : ''}));`)
+
+	after, _ := got["after"].(string)
+	if !strings.Contains(after, "당신의 답") {
+		t.Errorf("the screen kept the seeded wording after the pack landed:\n%s", after)
+	}
+	if strings.Contains(after, "CHANGED-AGAIN") {
+		t.Error("a pack landing while somebody was typing redrew the screen under them")
+	}
+	if got["kept"] != "반쯤 쓴 답" {
+		t.Errorf("what was typed did not survive: %q", got["kept"])
 	}
 }

@@ -4255,6 +4255,24 @@ function paint() {
   // a language they did not pick.
   back.textContent = sock() ? SECTION.fleet : (SECTION[view()] || tr('nav.companions'));
   paintDeepCrumb();
+  // And the screen under the crumb, when there is one and nothing is being typed into it.
+  //
+  // A deep screen is drawn once, by render(), and a pack landing a moment later left it in the
+  // seeded English while the crumb above it and the rail beside it were Korean — measured on the
+  // decision screen, whose whole job is to be read. Redrawn here, once the words exist.
+  //
+  // Not while somebody is writing. The rule the transcript follows is that a late pack must never
+  // take away what a person is in the middle of; the answer field is the only thing on these
+  // screens that can hold work, so an empty one is the licence to redraw.
+  if (deepIn()) {
+    const box = document.getElementById('agentdetail');
+    const typed = [...box.querySelectorAll('md-outlined-text-field')].some(f => String(f.value || '').trim());
+    if (!typed) {
+      const s2 = sock();
+      const known = (fleetSeen || []).find(x => x.socket === s2 && (x.peer || '') === peerOf());
+      drawDeep(known || {socket: s2, peer: peerOf()});
+    }
+  }
   retitle(lastWaiting);
 }
 // True once the page has drawn itself at least once. paint() runs before that on the first pass,
