@@ -3579,3 +3579,108 @@ console.log(JSON.stringify({after: words(byId.agentdetail), kept: field ? field.
 		t.Errorf("what was typed did not survive: %q", got["kept"])
 	}
 }
+
+// The composer reaches the conversation on screen, or it does not reach at all.
+//
+// One predicate covers three situations that used to be three behaviours, one of them silent: the
+// companion's own page (send), a session it is not in (ask, move, then send), and — the quiet one
+// — a page whose companion moved away while somebody was reading it, where the box looked live and
+// typed into a conversation that was no longer on screen.
+func TestTheComposerSaysWhichConversationItWouldReach(t *testing.T) {
+	fleet := `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,
+       "session":"s_now","idle":9}]`
+	probe := `
+// Delegating rather than replacing: the harness's own fetch is what serves the fleet this test was
+// given, and an override that answered everything left the page with no companions at all.
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  if (String(p).split('?')[0] === '/transcript') {
+    return {ok: true, json: async () => [{who: 'user', text: 'last week'}]};
+  }
+  return base(p, o);
+};
+await loadFleet();
+render();
+console.log(JSON.stringify({
+  moving: movingTo(), composerHidden: byId.f.hidden,
+  fieldOff: byId.t.attrs['disabled'] !== undefined,
+  label: byId.t.attrs['label'] || '',
+}));
+`
+	// On the conversation the companion IS in: nothing to move, and the ordinary label.
+	same := runPage(t, fleet, "?d=%2Fs%2Fa.sock&past=s_now", probe)
+	if same["moving"] != "" {
+		t.Errorf("it offered to move to the conversation the companion is already in: %v", same["moving"])
+	}
+	if same["composerHidden"] == true {
+		t.Error("the composer is hidden on the conversation the companion is in")
+	}
+
+	// On another of its conversations: the composer stays, and says where it would go.
+	other := runPage(t, fleet, "?d=%2Fs%2Fa.sock&past=s_older", probe)
+	if other["moving"] != "s_older" {
+		t.Errorf("moving to %v — a session screen must offer the move", other["moving"])
+	}
+	if other["composerHidden"] == true {
+		t.Error("the composer was taken away on a session screen — the conversation IS on screen there")
+	}
+	if other["fieldOff"] == true {
+		t.Error("the field is disabled while the companion is idle, which is when a move is allowed")
+	}
+	if !strings.Contains(other["label"].(string), "s_older") {
+		t.Errorf("the field does not name the conversation it would reach: %q", other["label"])
+	}
+}
+
+// A companion mid-turn cannot be moved, so the box does not take a sentence it cannot deliver.
+func TestTheComposerRefusesToMoveACompanionMidTurn(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+       "session":"s_now","task":"building","idle":0}]`,
+		"?d=%2Fs%2Fa.sock&past=s_older", `
+await loadFleet();
+render();
+console.log(JSON.stringify({
+  fieldOff: byId.t.attrs['disabled'] !== undefined,
+  sendOff: byId.send.attrs['disabled'] !== undefined,
+  why: byId.cnote.textContent || '',
+}));
+`)
+	if got["fieldOff"] != true || got["sendOff"] != true {
+		t.Error("the composer accepts work for a companion that cannot be moved yet")
+	}
+	if got["why"] == "" {
+		t.Error("it refuses without saying why, which reads as a broken page")
+	}
+}
+
+// A board card is one conversation, and pressing it opens that one.
+//
+// The card knows its session — it has an id, a title, a start and an end — and the link used to
+// throw it away and land on whatever that companion is doing now.
+func TestABoardCardOpensTheConversationItDraws(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,"session":"s1","idle":9}]`,
+		"?v=board", `
+const now = new Date();
+globalThis.fetch = async (p) => {
+  const u = String(p).split('?')[0];
+  if (u === '/history') return {ok: true, json: async () => [
+    {id: 's_older', title: 'the billing refactor', started: now.toISOString(), ended: now.toISOString(), ago: 60},
+  ]};
+  if (u === '/fleet') return {ok: true, json: async () => [
+    {socket: '/s/a.sock', name: 'api', workdir: '/w/api', state: 'idle', live: true, session: 's1', idle: 9},
+  ]};
+  return {ok: true, json: async () => []};
+};
+await loadBoard();
+const links = byId.board.find('a').filter(a => String(a.className).includes('wwhat'));
+console.log(JSON.stringify({n: links.length, href: links.length ? links[0].attrs['href'] : ''}));
+`)
+	if got["n"].(float64) == 0 {
+		t.Fatal("no card was drawn")
+	}
+	href, _ := got["href"].(string)
+	if !strings.Contains(href, "past=s_older") {
+		t.Errorf("the card links to %q — it drops the one conversation it knows about, so a middle "+
+			"click and a copied url land somewhere else", href)
+	}
+}

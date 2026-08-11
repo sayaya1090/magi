@@ -432,6 +432,31 @@ const crOf = () => new URLSearchParams(location.search).get('cr') || '';
 // means "the list" and one that means "not here" are different addresses.
 const pastOn = () => new URLSearchParams(location.search).has('past');
 const pastOf = () => new URLSearchParams(location.search).get('past') || '';
+
+// shownAgent is the fleet row for the companion on screen, or nothing when the poll has not
+// answered yet. The record it carries is where the CURRENT session comes from — the page never
+// decides that for itself.
+function shownAgent() {
+  const s = sock();
+  if (!s) return null;
+  return (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf()) || null;
+}
+
+// movingTo is the conversation the composer would have to move the companion to before it could
+// send, or empty when sending needs no move.
+//
+// One predicate for the whole question, because there is one rule: a composer is live when the
+// session on screen IS the one the record names. It covers the ordinary page (which shows the
+// current session and needs no move), a session opened from the board or the dropdown (which
+// needs one), and a page whose companion moved away while somebody was reading it — that last one
+// used to be the quiet failure, a screen showing one conversation and a box that typed into
+// another.
+function movingTo() {
+  if (!(pastOn() && pastOf())) return '';
+  const a = shownAgent();
+  if (a && a.session === pastOf()) return '';
+  return pastOf();
+}
 // ask is the decision itself, opened at full width. The bar above the composer stays — it is the
 // right shape for "allow this one command" — but a report is three sections of prose and a strip
 // under a transcript is not where anybody reads three sections of prose.
@@ -789,14 +814,34 @@ function card(a) {
 function confirmStop(who, go) {
   // The headline names the companion when there is a name to use, and asks the same question
   // without one rather than leaving a hole where a name should be.
-  stopK.textContent = who ? tr('stop.headline', {name: who}) : tr('stop.headline_plain');
-  stopBody.textContent = tr('stop.body');
-  stopCancel.textContent = tr('action.keep_running');
-  withMark(stopCancel, '#i-sl-play');
-  stopGo.textContent = tr('action.interrupt');
-  withMark(stopGo, '#i-ss-circle-stop');
+  confirmThis({
+    head: who ? tr('stop.headline', {name: who}) : tr('stop.headline_plain'),
+    body: tr('stop.body'),
+    keep: tr('action.keep_running'), keepMark: '#i-sl-play',
+    doIt: tr('action.interrupt'), doMark: '#i-ss-circle-stop',
+    go: go,
+  });
+}
+
+// confirmThis is the dialog itself, whichever question is being asked in it.
+//
+// One element for both, because it is a MODAL: two of them could never be on screen at once, and a
+// second copy of the markup is a second place for the dismissive action to drift to the wrong side
+// of the confirming one. What differs between the questions is words and two marks, which is
+// exactly what this takes.
+//
+// The shape is the guide's and does not vary: a headline that poses the question concretely rather
+// than "Are you sure?", the dismissive action on the LEFT, and a confirming label that says what
+// will happen instead of "OK".
+function confirmThis(q) {
+  stopK.textContent = q.head;
+  stopBody.textContent = q.body;
+  stopCancel.textContent = q.keep;
+  withMark(stopCancel, q.keepMark);
+  stopGo.textContent = q.doIt;
+  withMark(stopGo, q.doMark);
   stopCancel.onclick = () => stopDialog.close('cancel');
-  stopGo.onclick = () => { stopDialog.close('stop'); go(); };
+  stopGo.onclick = () => { stopDialog.close('go'); q.go(); };
   stopDialog.show();
 }
 
@@ -1224,6 +1269,32 @@ function answerMode(a) {
   // over would put a half-written request in front of somebody as though it were their answer.
   if (!!a !== wasAnswering) { t.value = ''; }
   wasAnswering = !!a;
+  composerReach();
+}
+
+// composerReach says which conversation the box in front of somebody would reach, and takes it
+// away when it would reach none.
+//
+// Two states beyond the ordinary one, and both were failures before this existed. Standing in a
+// session the companion is not in, the field looked exactly like the live one and typing into it
+// sent the words to whichever conversation the companion happened to be in — off screen. And a
+// companion mid-turn cannot be moved at all, so a box that accepted a sentence there was taking
+// something it could not deliver.
+function composerReach() {
+  const to = movingTo();
+  const a = shownAgent();
+  // Idle is the daemon's state, not the session's: a session that is not current is never running,
+  // and what has to be still is the companion. The same predicate the dropdown greys itself with.
+  const idle = !a || a.state === 'idle' || a.state === 'stopped';
+  const blocked = !!to && !idle;
+  const sendBtn = document.getElementById('send');
+  t.toggleAttribute('disabled', blocked);
+  sendBtn.toggleAttribute('disabled', blocked);
+  if (!to) return;                       // the ordinary page: answerMode has already said its part
+  t.setAttribute('label', blocked ? tr('move.busy') : tr('move.into', {to: to}));
+  const note = document.getElementById('cnote');
+  note.textContent = blocked ? tr('move.busy_why') : tr('move.will_ask');
+  note.hidden = false;
 }
 let wasAnswering = false;
 
@@ -1486,11 +1557,19 @@ async function loadBoard() {
       // click and a copied url, the same as the fleet row.
       const mine = members.find(([m]) => m.name === h.who);
       const owner = mine ? mine[0] : a;
+      // Into the SESSION, not just the companion. A card on this board IS one conversation — it
+      // has an id, a title, a start and an end — and pressing it used to land on whatever that
+      // companion is doing now, throwing away the one thing the card knew. The address carries the
+      // session too, so a middle click and a copied url open the same conversation.
       const what = document.createElement('a');
       what.className = 'wwhat';
-      what.href = href(owner);
+      what.href = href(owner) + (h.id ? '&past=' + encodeURIComponent(h.id) : '');
       what.textContent = h.title || tr('history.untitled');
-      what.onclick = e => { e.preventDefault(); go(owner.socket, owner.peer); };
+      what.onclick = e => {
+        e.preventDefault();
+        go(owner.socket, owner.peer);
+        if (h.id) goDeep('past', h.id);
+      };
       card.append(what);
       // Which companion did it. It was the column heading and is now a fact about the card, which
       // is the right place for it: the column is the team, and a team is several of them.
@@ -4493,9 +4572,18 @@ function render() {
   // screen about one piece of what happened there. Standing in a verdict, "send" would put a
   // message into a conversation that is not on screen.
   const deepNow = deepIn();
+  // One deep screen keeps the composer: a session's own transcript. The rule the others fail is
+  // that the conversation is not on screen — standing in a verdict, "send" would put a message
+  // into a conversation you cannot see. Standing in a session, you are looking at the conversation
+  // the message would go to; it is simply not the one the companion is in yet, and that is a
+  // question the composer asks before it sends rather than a reason to take the box away.
+  const onSession = pastOn() && !!pastOf();
   document.getElementById('agentdetail').hidden = !deepNow;
   streamEl.hidden = !!deepNow;
-  f.hidden = !s || deepNow;
+  f.hidden = !s || (deepNow && !onSession);
+  // Navigation changes which conversation the box would reach, and arriving at a session screen
+  // does not draw a prompt — so the composer is told here as well as when a question appears.
+  composerReach();
   document.getElementById('stop').hidden = !s || deepNow; // nothing to interrupt from the fleet view
   // And the strip under it, when the screen you are on IS the decision. Standing on the decision
   // screen the same question was drawn twice — its report in full above, its report again in the
@@ -4775,6 +4863,35 @@ f.onsubmit = e => {
     if (!cmd) return;
     t.value = ''; grow();
     runShell(cmd);
+    return;
+  }
+  // A conversation the companion is not in. Ask, then move, then send — in that order, and only
+  // that order: sending first would put the words in the session it is in now, which is the one on
+  // nobody's screen, and moving without asking would take somebody who opened last Tuesday's work
+  // to read it and quietly make it the live conversation.
+  const to = movingTo();
+  if (to) {
+    const a = shownAgent();
+    confirmThis({
+      head: tr('move.headline', {to: to}),
+      body: tr('move.body', {from: (a && a.session) || tr('move.somewhere'), to: to}),
+      keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+      doIt: tr('action.move_and_send'), doMark: '#i-ss-paper-plane',
+      go: () => {
+        t.value = ''; grow();
+        // Sequential on purpose: the send is only correct once the move has happened, and the move
+        // can be refused — mid-turn, or a conversation this companion does not own. post() reports
+        // the refusal itself, and returning here leaves what was typed unsent rather than sending
+        // it somewhere nobody was looking.
+        post('/resume', new URLSearchParams({session: to})).then(ok => {
+          if (ok === false) { t.value = v; grow(); return; }
+          post('/submit', new URLSearchParams({text: v}));
+          // Back to the companion's own page: the conversation just became the current one, and
+          // standing in the session view would leave the reply arriving on a screen behind this.
+          goDeep('past', null);
+        });
+      },
+    });
     return;
   }
   // The composer is only on a companion's page, so there is one place the work can go.
