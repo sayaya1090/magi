@@ -460,6 +460,19 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Cached and revalidated, like the assets under it. The document carries the whole front end,
+	// so a browser holding yesterday's copy is a person looking at yesterday's console — reporting
+	// bugs that were fixed and not seeing controls that exist. With no Cache-Control at all a
+	// browser applies its own heuristic, which is the worst of both: sometimes stale, never
+	// predictably. The ETag makes the check a round trip with no body.
+	sum := sha256.Sum256([]byte(indexHTML))
+	etag := "\"" + hex.EncodeToString(sum[:8]) + "\""
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	// The English pack, inlined ahead of the page's own script. The page fetches the reader's
 	// locale after it loads, but the FIRST paint happens before any fetch answers — without a seed
 	// every label would show its dotted key for a moment, which is debug output on somebody's

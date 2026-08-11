@@ -815,3 +815,31 @@ func TestTheApprovalModeIsReadAndSetOverTheSocket(t *testing.T) {
 		t.Errorf("the daemon was told about it anyway: %v", got)
 	}
 }
+
+// The document is revalidated too, not only the assets under it.
+//
+// It carries the whole front end, so a browser holding yesterday's copy is a person looking at
+// yesterday's console — reporting bugs that were fixed and not seeing controls that exist. With no
+// Cache-Control at all a browser applies its own heuristic, which is the worst of both: sometimes
+// stale, never predictably.
+func TestThePageIsRevalidatedRatherThanHeuristicallyCached(t *testing.T) {
+	f := newFleetFixture(t)
+	w := get(t, f.srv.page, "/")
+	if w.Code != 200 {
+		t.Fatalf("the page answered %d", w.Code)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc == "" || strings.Contains(cc, "max-age=") {
+		t.Errorf("the document's freshness is left to the browser to guess: %q", cc)
+	}
+	tag := w.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("nothing to revalidate against — no ETag")
+	}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("If-None-Match", tag)
+	again := httptest.NewRecorder()
+	f.srv.page(again, r)
+	if again.Code != http.StatusNotModified || again.Body.Len() != 0 {
+		t.Errorf("an unchanged page answered %d with %d bytes", again.Code, again.Body.Len())
+	}
+}
