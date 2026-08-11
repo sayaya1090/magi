@@ -293,6 +293,9 @@ const demoScript = `
     const h = Math.ceil(banner.getBoundingClientRect().height);
     if (!h) return;   // not laid out yet; the caller tries again
     document.documentElement.style.setProperty('--demo-banner', h + 'px');
+    // Out of the flow, so the space it used to take has to be given back — to the page, and to the
+    // rail, which is fixed to the top of the window and knows nothing about a notice above it.
+    document.body.style.paddingTop = h + 'px';
     const rail = document.getElementById('rail');
     if (rail) rail.style.paddingTop = 'calc(' + h + 'px + .7rem)';
   };
@@ -536,8 +539,13 @@ const demoScript = `
 })();
 </script>
 <style>
+  /* Across the whole window, above everything, and out of the flow.
+     In the flow it began where the page's content begins — after the rail's gutter — so it sat at
+     x=96 and stayed there while the drawer widened to 256 and slid underneath it. A notice about
+     the whole page belongs across the whole page; the rail then starts below it, which is what the
+     padding the script sets is for. */
   .demo-banner {
-    position:sticky; top:0; z-index:50; padding:.55rem 1.2rem;
+    position:fixed; inset:0 0 auto 0; z-index:60; padding:.55rem 1.2rem;
     background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); letter-spacing:.06em; border-bottom:1px solid var(--magi-ref-outlineVariant);
   }

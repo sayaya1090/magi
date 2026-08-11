@@ -1525,6 +1525,15 @@
   }
   #agentdetail .grounds .gv { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
   #agentdetail .dlog { container-type:inline-size; container-name:transcript; min-width:0; }
+  /* A mark in a gutter: the tick beside a finished step, the caret beside the one in hand. Sized
+     to the line it labels rather than to the icon's own idea of a size. */
+  .mk { width:.9em; height:.9em; }
+  /* The one icon that turns, and only while something is actually running — a spinner on a still
+     screen is a screen pretending to work. Reduced motion is handled globally: the rule there
+     restricts transitions and animations to a hair, which stops this without a second switch. */
+  .spin { animation:spin 1.1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
   /* An icon from the sprite. Sized by the text it sits in rather than in pixels, so it grows with
      a reader who raised their default, and coloured by the line — every symbol is drawn with
      fill:currentColor, which is the whole reason a two-tone icon was not worth a third file. */

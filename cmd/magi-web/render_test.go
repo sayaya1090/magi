@@ -137,9 +137,12 @@ const rows = () => byId.fleet.children.filter(c => c.className.startsWith('card'
 
 const dumpFleet = rowsHelper + `
 await loadFleet();
+// An icon is a shape and contributes no text, so the marks are collected as what they point at.
+// Without this a row whose mark became a drawing reads, to a test, as a row with no mark.
+const refsOf = n => (n.find('use') || []).map(u => u.attrs.href || '').join(' ');
 const cards = rows().map(c => ({
   cls: c.className,
-  text: c.text,
+  text: c.text + ' ' + refsOf(c),
   buttons: (c.find('div').find(d => d.className === 'answer') || {find: () => []}).find(clicky).map(b => b.textContent),
   actions: (c.find('div').find(d => d.className === 'actions') || {find: () => []}).find(clicky).map(b => b.textContent),
   inputs: c.find('md-outlined-text-field').length,
@@ -1628,7 +1631,10 @@ const box = byId.detail;
 const bars = box.find('div').filter(d => (d.className || '').split(' ').includes('bar') || (d.className || '') === 'bar tight');
 console.log(JSON.stringify({text: box.text, fields: box.children.length,
   fill: bars.length ? bars[0].children[0].style.width : '',
-  handed: byId.handoffs.text, plan: byId.plan.text}));
+  handed: byId.handoffs.text,
+  // Text and marks: a tick that became a drawing is invisible to a reader of text alone.
+  // Text and marks: a tick that became a drawing is invisible to a reader of text alone.
+  plan: byId.plan.text + ' ' + (byId.plan.find('use') || []).map(u => u.attrs.href || '').join(' ')}));
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"82,000 / 100,000 tokens", "Measured", "41 messages", "2 folds",
@@ -1661,8 +1667,14 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 			t.Errorf("the plan is missing %q:\n%s", want, plan)
 		}
 	}
-	if !strings.Contains(plan, "✓") || !strings.Contains(plan, "▸") {
-		t.Errorf("the plan does not distinguish done from in-flight:\n%s", plan)
+	// Done and in-flight are told apart, by whatever this build has to tell them apart with: the
+	// characters where there are no icons, and the drawn marks where there are. Asserting on the
+	// character alone made a build WITH icons look like a plan that had stopped distinguishing.
+	if !strings.Contains(plan, "✓") && !strings.Contains(plan, "i-sl-check") {
+		t.Errorf("nothing marks a finished step:\n%s", plan)
+	}
+	if !strings.Contains(plan, "▸") && !strings.Contains(plan, "i-sl-chevron-right") {
+		t.Errorf("nothing marks the step in hand:\n%s", plan)
 	}
 
 	// What it handed to the others, and what came back. A companion answers in its own transcript,
@@ -2353,9 +2365,10 @@ func TestAWorkingRowShowsWhatTheCallIsSaying(t *testing.T) {
 	if !strings.Contains(busy, "make the tests pass") {
 		t.Errorf("the note displaced the request: %q", busy)
 	}
-	// And the hourglass, because a line of tool output dropped into a row with no mark on it reads
-	// as part of the request.
-	if !strings.Contains(busy, "⏳") {
+	// And the mark, because a line of tool output dropped into a row with nothing in front of it
+	// reads as part of the request. The hourglass where this build has no icons, the turning
+	// spinner where it has.
+	if !strings.Contains(busy, "⏳") && !strings.Contains(busy, "i-sl-spinner-third") {
 		t.Errorf("the note is not marked as one: %q", busy)
 	}
 }

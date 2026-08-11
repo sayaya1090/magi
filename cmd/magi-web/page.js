@@ -650,7 +650,11 @@ function card(a) {
     // step count says how much has been done; neither says anything about a turn that has been
     // inside one call for ten minutes, which is the row somebody is squinting at wondering whether
     // it is stuck. Only ever set on a working agent (see fleet.Agent.Doing).
-    if (a.doing) doing.append(cell('note', '⏳ ' + a.doing));
+    if (a.doing) {
+      const n = cell('note');
+      n.append(iconOr('#i-sl-spinner-third', '\u23F3', 'spin'), document.createTextNode(' ' + a.doing));
+      doing.append(n);
+    }
   }
   el.append(doing);
 
@@ -2183,17 +2187,30 @@ async function drawPast(a) {
 //
 // completed | in_progress | pending, which is the todo tool's whole enum. A branch for 'done' sat
 // here and a .td.done rule sat in the stylesheet, both waiting on a value the schema forbids.
+// The mark for a plan step: done, doing, not yet. A node rather than a character, so the tick can
+// be the drawn one where this build has icons — and the same character it always was where it does
+// not. Pending stays a middle dot in both: there is no drawing for "nothing has happened here" that
+// beats a dot, and a circle outline reads as a control somebody could press.
 function planMark(t) {
-  return t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '·';
+  if (t.status === 'completed') return iconOr('#i-sl-check', '\u2713', 'mk');
+  if (t.status === 'in_progress') return iconOr('#i-sl-chevron-right', '\u25B8', 'mk');
+  return el('span', '\u00B7');
+}
+
+// One step, one row. Written once and used by both the card and the transcript's own copy of the
+// plan: the card had its own second copy of these four lines, and the day the mark became a node
+// that copy kept passing it where a string goes and drew "[object Object]" three times.
+function planRow(t) {
+  const row = cell('td ' + (t.status || ''));
+  const mk = cell('mark');
+  mk.append(planMark(t));
+  row.append(mk, cell('what', t.content));
+  return row;
 }
 
 function planRows(todos) {
   const box = cell('plan');
-  box.append(...todos.map(t => {
-    const row = cell('td ' + (t.status || ''));
-    row.append(cell('mark', planMark(t)), cell('what', t.content));
-    return row;
-  }));
+  box.append(...todos.map(planRow));
   return box;
 }
 
@@ -2201,7 +2218,6 @@ async function drawPlan(a) {
   const box = document.getElementById('plan');
   const todos = await fetchList('/plan' + qFor(a));
   if (!todos || !todos.length) { box.hidden = true; box.replaceChildren(); return; }
-  const mark = planMark;
   // How much of the plan is behind it. Determinate, because the counts are known — an
   // indeterminate bar here would say "something is happening" to somebody who can already see
   // exactly what is happening in the list below it.
@@ -2218,11 +2234,7 @@ async function drawPlan(a) {
   bar.className = 'planbar';
   box.replaceChildren(cell('k', tr('field.plan')), bar,
     cell('plancount', tr('plan.progress', {done: done, total: todos.length})),
-    ...todos.map(t => {
-    const el = cell('td ' + (t.status || ''));
-    el.append(cell('mark', mark(t)), cell('what', t.content));
-    return el;
-  }));
+    ...todos.map(planRow));
   box.hidden = false;
 }
 
