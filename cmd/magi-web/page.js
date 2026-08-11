@@ -97,7 +97,15 @@ const locale = () => {
 // The locale's pack, then English, then the keys. The last step is not really reachable — the pack
 // is served by the same process as the page — but a screen full of dotted keys is a better failure
 // than a screen full of blanks, because it says what went wrong.
-const pack$ = url => from(fetch(url)).pipe(
+// Asked for with a revalidation the browser cannot skip.
+//
+// The pack is served no-cache with an ETag, which is the right answer for every copy stored from
+// now on — and no answer at all for the copies already stored under the max-age this used to send.
+// A browser holding one of those reuses it for a day without asking, so a console that had been
+// open before an upgrade went on rendering every new label as its own dotted key. Measured: a
+// default fetch answered from the cache with the old pack while the same URL fetched no-store
+// carried the new one.
+const pack$ = url => from(fetch(url, {cache: 'no-cache'})).pipe(
   switchMap(r => r.ok ? from(r.json()) : EMPTY),
   // A pack is an object of strings. Anything else — a list, a null, an error page that happened to
   // parse — is not one, and letting it through would blank every label on the page and repaint the
@@ -1454,6 +1462,27 @@ function setFolded(want) {
 // concatenation is a key the pack check cannot see, and the label it names is the one that ships
 // missing.
 const PERM_MODES = [['ask', 'perm.ask'], ['auto', 'perm.auto'], ['allow', 'perm.allow'], ['deny', 'perm.deny']];
+// The options, in the language that is loaded NOW.
+//
+// Split out because the select is built once and the pack arrives whenever it arrives: measured
+// with a live daemon, the card drew before the fetch landed and every option read as its own key —
+// "perm.allow" — for the rest of the session, because nothing came back to rewrite an element that
+// is deliberately never rebuilt. So paint() calls this on a pack change, the way it repaints every
+// other select whose labels are words.
+function paintPerm(sel) {
+  const want = sel.value;
+  sel.replaceChildren(...PERM_MODES.map(([m, key]) => {
+    const o = document.createElement('md-select-option');
+    o.value = m;
+    o.append(cell('', tr(key)));
+    return o;
+  }));
+  if (want) {
+    sel.value = want;
+    if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = want; });
+  }
+}
+
 function permField(a) {
   const f = cell('f');
   f.append(cell('k', tr('field.permission')));
@@ -1462,12 +1491,7 @@ function permField(a) {
   if (!sel) {
     sel = permField.el = document.createElement('md-outlined-select');
     sel.className = 'permsel';
-    for (const [m, key] of PERM_MODES) {
-      const o = document.createElement('md-select-option');
-      o.value = m;
-      o.append(cell('', tr(key)));
-      sel.append(o);
-    }
+    paintPerm(sel);
     sel.addEventListener('change', async () => {
       const want = sel.value;
       // Said by the daemon, not assumed by the page: the next poll paints whatever it reports, so
@@ -2995,6 +3019,8 @@ function connect() {
 // by a function. Called once at startup and again whenever the pack changes.
 function paint() {
   painted = true;
+  // Built once and kept, so it is not redrawn by the thing that redraws the rest of that card.
+  if (permField.el) paintPerm(permField.el);
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
   tabSkills.textContent = tr('nav.shared');
   document.getElementById('ptabTalk').textContent = tr('panel.talk');
