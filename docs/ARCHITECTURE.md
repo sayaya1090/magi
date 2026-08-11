@@ -630,6 +630,13 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   would tell it when you look at your agents. A test walks every path the page references and
   requires the static demo to carry each one — added after a deploy went out blank because the
   page had become an ES module and the demo still copied only the fonts.
+- **Which conversation a companion is in is the DAEMON's answer.** It publishes one session in its
+  record and every reader believes it — the fleet row, the console resolving where a prompt goes, a
+  terminal attaching. So moving is `daemon.SessionMover`: refuse mid-turn, refuse a session outside
+  this workspace, mark the conversation being left with `session.moved`, then republish. The mark
+  is how other screens find out, through the log they are already reading. The record is written
+  temp-and-rename under one lock, because its readers poll it and two goroutines write it (the
+  queue depth, and this).
 - **No authentication of magi's own**, by decision: loopback, and reached through whatever the
   organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
   supervision model this exists to serve, and

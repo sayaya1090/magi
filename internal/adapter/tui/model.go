@@ -127,6 +127,13 @@ type Model struct {
 	workdir string
 
 	forkOrigin session.SessionID // the session this one was forked from (for /loopdiff)
+	// movedTo is where the companion went when it left THIS conversation, or empty.
+	//
+	// A viewer is not dragged after it. Somebody attached to a conversation is reading that
+	// conversation, and having the screen swap under the cursor because a console elsewhere picked
+	// another one is the same rudeness as a page that scrolls itself. So the fact is stated, the
+	// offer is one key, and the decision stays with whoever is looking.
+	movedTo session.SessionID
 
 	history []string // submitted prompts (↑/↓ recall)
 	histIdx int      // current position when browsing history
@@ -638,6 +645,8 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	// own switchSession call, so the fork flow is unaffected.
 	if sid != m.sid {
 		m.forkOrigin = ""
+		// The offer belonged to the conversation being left, and following it is what this is.
+		m.movedTo = ""
 	}
 	m.sid = sid
 	m.blocks = rebuildBlocks(msgs)

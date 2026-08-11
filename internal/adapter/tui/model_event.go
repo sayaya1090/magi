@@ -389,6 +389,19 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 		}
 
+	case event.TypeSessionMoved:
+		// The companion left this conversation for another one, from a console or a phone. Said
+		// here rather than swapped: the transcript on screen is still the truth about what
+		// happened in it, and what changed is that the agent is answering somewhere else now.
+		//
+		// Without this line the conversation simply stopped — indistinguishable from a daemon that
+		// died, which is the reading somebody would act on.
+		var d event.SessionMovedData
+		if json.Unmarshal(e.Data, &d) == nil && d.To != "" {
+			m.movedTo = d.To
+			m.info("⇢ this companion moved to " + string(d.To) + " — ctrl+g to follow it, or stay here")
+		}
+
 	case event.TypeTurnFinished:
 		m.onTurnFinished(e)
 

@@ -680,6 +680,7 @@ fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(�
 | `/skills` · `/remember`(POST) · `/forget`(POST) | 경험 저장소 |
 | `/mcp`(GET/POST) | 한 컴패니언의 MCP 서버 |
 | `/submit`(POST) | 도는 세션에 텍스트를 steer |
+| `/resume`(POST) | 그 컴패니언의 다른 대화를 이어간다(`session=`) |
 | `/interrupt`(POST) · `/compact`(POST) | 턴 중단 · 지금 요약 |
 | `/answer`(POST) | 막혀 있는 권한/질문을 호출 id로 해소 |
 | `/shell`(POST) | 그 워크스페이스에서 명령 실행 |

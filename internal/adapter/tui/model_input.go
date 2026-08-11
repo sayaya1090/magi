@@ -469,6 +469,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.searchQuery, m.searchHits = "", nil
 		m.refresh()
 		return nil, true
+	case "ctrl+g":
+		// Only while there is somewhere to go. A key that does nothing most of the time is a key
+		// somebody presses and learns nothing from, so it falls through to the composer instead —
+		// and the offer that arms it is written in the transcript at the moment it becomes true.
+		if m.movedTo == "" {
+			return nil, false
+		}
+		return m.switchSession(m.movedTo), true
 	case "ctrl+t":
 		m.showThink = !m.showThink
 		m.cache = m.cache[:0] // reasoning blocks render differently now

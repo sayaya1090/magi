@@ -558,13 +558,22 @@ phone for months.
    round the permission policy every tool call goes through. `-peer` is refused with it: a peer is
    reached on the operator's own tunnel, so a shared console would let whoever the gateway admits
    act as the operator on another machine.
-7. **Changes are written down.** Every request that changes something appends a line to
+7. **What is on screen is what a control reaches.** A companion can be pointed at another of its
+   own conversations — from the session dropdown, or by pressing a card on the board, since a card
+   IS a conversation. The composer is live only when the session on screen is the one the
+   companion's record names; on any other it offers to move first, asks before it does, and is
+   disabled outright while a turn is running, because a companion cannot leave a conversation it
+   is still speaking in. A page addressed by COMPANION follows the move; one addressed by SESSION
+   does not — somebody reading last Tuesday's work keeps reading it. The conversation being left
+   gets a line saying where the companion went, so a transcript that stops does not read as a
+   daemon that died.
+8. **Changes are written down.** Every request that changes something appends a line to
    `console-audit.jsonl` beside the session store: method, path, the companion it named, where it
    came from, and what was answered — refusals included, since the cross-site guard turns those
    away before a handler sees them. Never the body: the session log already holds every word. Who
    comes from the gateway, through the header `-user-header` names; unset, the record says where
    and not who rather than leaving a blank to be misread as a name.
-8. **A demo is not the product.** `-emit-demo` writes a static copy answered by a mock in the
+9. **A demo is not the product.** `-emit-demo` writes a static copy answered by a mock in the
    browser. It hid a dead console for weeks (§5), so a change to this page is confirmed against a
    running `magi-web` before it is believed.
 

@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -83,4 +84,41 @@ func TestResumeWithNoSessionsSaysSo(t *testing.T) {
 	if !strings.Contains(s.m.snackbar, "no sessions") {
 		t.Errorf("snackbar says %q", s.m.snackbar)
 	}
+}
+
+// A companion that leaves this conversation says so, and offers to be followed.
+//
+// The attached terminal joined one session at startup and never re-read the record, so a companion
+// moved from a console elsewhere simply went quiet here — indistinguishable from a daemon that
+// died, which is the reading somebody would act on.
+//
+// It does NOT follow by itself. Being attached to a conversation means reading that conversation,
+// and swapping the screen under the cursor because somebody else picked another one is the same
+// rudeness as a page that scrolls itself.
+func TestACompanionLeavingSaysSoAndOffersToBeFollowed(t *testing.T) {
+	s := newScript(t)
+	made := makeSessions(t, s, 1)
+	was := s.m.sid
+
+	s.emit(event.TypeSessionMoved, event.SessionMovedData{To: made[0]})
+	if s.m.sid != was {
+		t.Fatalf("the terminal followed on its own — it is now in %s", s.m.sid)
+	}
+	if !strings.Contains(s.view(), string(made[0])) {
+		t.Errorf("the transcript does not say where it went:\n%s", s.view())
+	}
+
+	// One key, and only while there is somewhere to go.
+	s.send(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	if s.m.sid != made[0] {
+		t.Errorf("ctrl+g left the terminal in %s, not the conversation it was told about", s.m.sid)
+	}
+	// Having followed, the offer is spent: pressing it again must not take a key the composer
+	// wants. The same press with nothing to follow falls through to the text area.
+	before := s.m.ta.Value()
+	s.send(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	if s.m.sid != made[0] {
+		t.Errorf("a second press moved somewhere: %s", s.m.sid)
+	}
+	_ = before
 }

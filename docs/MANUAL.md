@@ -710,6 +710,7 @@ name a federated console.
 | `/skills` · `/remember` (POST) · `/forget` (POST) | the experience store |
 | `/mcp` (GET/POST) | the MCP servers of one companion |
 | `/submit` (POST) | steer text into the running session |
+| `/resume` (POST) | continue another of that companion's conversations (`session=`) |
 | `/interrupt` (POST) · `/compact` (POST) | stop the turn · summarise the history now |
 | `/answer` (POST) | resolve the permission or question it is blocked on, by call id |
 | `/shell` (POST) | run a command in that workspace |
