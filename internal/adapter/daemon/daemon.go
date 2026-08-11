@@ -239,6 +239,24 @@ type ShellRunner interface {
 	RunShellHere(ctx context.Context, cmd string) (out string, exit int, err error)
 }
 
+// SessionMover is an engine that can be pointed at a different conversation.
+//
+// Optional and asserted at dispatch, like CronController and for the same reason: Controller is
+// what every fake in every package must satisfy, and this is one call.
+//
+// Why it has to cross the socket at all. A console does not name a session — it names a companion,
+// and reads the session out of the published record (see withClient in the web console). So
+// "continue that conversation instead" cannot be a thing the caller decides per request: the
+// daemon has to move, republish, and let every reader find out the way they already find things
+// out. A viewer that pointed itself somewhere else would be a screen disagreeing with the process
+// that owns the log.
+type SessionMover interface {
+	// Resume points this companion at sid. It refuses while a turn is in flight — a companion
+	// cannot leave a conversation it is still speaking in — and refuses a session that is not in
+	// its own workspace, which would be this daemon writing into somebody else's log.
+	Resume(ctx context.Context, sid session.SessionID) error
+}
+
 // CronController is the part of an engine that holds scheduled work.
 //
 // Optional and asserted at dispatch, like Controller, and separate from it for the reason Controller
@@ -977,7 +995,33 @@ func (c *Client) Handed(receipt string) (Handover, error) {
 	return *resp.Handover, nil
 }
 
+// controlMu puts the state-changing controls in a queue of one.
+//
+// Each of them is read-decide-write against state two goroutines can reach — two consoles, a
+// console and a phone, a terminal and either. Left to overlap they lose each other's changes in
+// ways that are invisible: set-model writes the new id under the App's lock and persists it
+// OUTSIDE that lock, so two of them landing together can leave the running process on one model
+// and the file that survives a restart on the other, with both callers told they succeeded.
+//
+// Only the fast ones. `compact` is a model round trip and holding a gate across it would stop
+// every other control for as long as a summarisation takes; it also touches nothing these do.
+// Submitting, steering, interrupting and answering are not here either: each one carries the
+// session it means, and the App is already the one arbiter of running a turn at a time.
+var controlMu sync.Mutex
+
+var serialControls = map[string]bool{
+	"resume": true, "rewind": true, "set-model": true, "set-permission": true, "reload-cron": true,
+}
+
 func dispatch(ctx context.Context, eng Engine, r Request) error {
+	if serialControls[r.Method] {
+		controlMu.Lock()
+		defer controlMu.Unlock()
+	}
+	return dispatchNow(ctx, eng, r)
+}
+
+func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 	sid := session.SessionID(r.Session)
 	parts := []session.Part{{Kind: session.PartText, Text: r.Text}}
 	actor := event.Actor{Kind: event.ActorUser, ID: "attach"}
@@ -998,6 +1042,12 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	// "change the policy for every call" would be a wire that means two things.
 	case "rewind", "compact", "set-model", "set-permission":
 		return control(ctx, eng, r, sid)
+	case "resume":
+		m, ok := eng.(SessionMover)
+		if !ok {
+			return fmt.Errorf("this companion cannot be moved to another conversation")
+		}
+		return m.Resume(ctx, sid)
 	case "reload-cron":
 		// Its own optional interface rather than another method on Controller. Controller is what
 		// every fake in every package must satisfy, and this file already says that a control
@@ -1288,6 +1338,11 @@ func (c *Client) Interrupt(_ context.Context, cmd command.Interrupt) error {
 	return c.call(Request{Method: "interrupt", Session: string(cmd.SessionID)})
 }
 
+// Resume asks the daemon to continue a different conversation of its own.
+func (c *Client) Resume(sid session.SessionID) error {
+	return c.call(Request{Method: "resume", Session: string(sid)})
+}
+
 func (c *Client) RespondPermission(_ context.Context, cmd command.RespondPermission) error {
 	return c.call(Request{Method: "permission", Session: string(cmd.SessionID),
 		CallID: cmd.CallID, Decision: cmd.Decision})
@@ -1424,26 +1479,58 @@ type Info struct {
 func SessionFile(socketPath string) string { return socketPath + ".session" }
 
 // Publish records the daemon and returns a function that removes the record.
+// recordMu serialises read-modify-write on a daemon's own record.
+//
+// Three writers reach it from three goroutines of the same process: the queue's depth (Announce,
+// from the drain), the session (Moved, from a serve goroutine), and the initial write. Each reads
+// the whole record, changes one field and writes it back, so two of them overlapping loses one of
+// the changes — and the losing field is whichever finished first, silently.
+//
+// Package-level rather than per-daemon: one process serves one socket, the sections it guards are
+// microseconds long, and a test running several daemons at once loses nothing by taking turns.
+var recordMu sync.Mutex
+
+// writeRecord replaces a daemon's record in one step.
+//
+// Written to a temporary file and renamed, because the readers are POLLING it: os.WriteFile
+// truncates and then writes, so a reader that lands in between gets an empty or half-written file
+// and reports the companion as unreadable — a console blinking a daemon out of existence every
+// time its queue depth changed. Rename is atomic on both platforms this ships to.
+func writeRecord(socketPath string, in Info) error {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	f := SessionFile(socketPath)
+	tmp := f + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, f); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	// Host(), not os.Hostname(): one spelling of this machine's name enters the system here and
 	// nothing downstream has to normalise. A record written with the raw name and a member built
 	// from the lowercased one compare unequal, and an election over the two decides that the
 	// companion it just elected is not on any row it can see.
 	host := Host()
-	b, err := json.Marshal(Info{
+	recordMu.Lock()
+	err := writeRecord(socketPath, Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
 		Host: host, Addr: primaryAddr(),
 	})
+	recordMu.Unlock()
 	if err != nil {
 		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
 	}
-	f := SessionFile(socketPath)
-	if err := os.WriteFile(f, b, 0o600); err != nil {
-		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
-	}
-	return func() { os.Remove(f) }, nil
+	return func() { os.Remove(SessionFile(socketPath)) }, nil
 }
 
 // Announce updates the one part of a published record that changes while the daemon runs: how much
@@ -1457,6 +1544,8 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 // A missing record is not an error. The daemon is either not published yet or on its way out, and
 // in both cases the number describes nothing anybody can act on.
 func Announce(socketPath string, waiting int, handling bool) error {
+	recordMu.Lock()
+	defer recordMu.Unlock()
 	in, err := Published(socketPath)
 	if err != nil {
 		return nil
@@ -1465,11 +1554,27 @@ func Announce(socketPath string, waiting int, handling bool) error {
 		return nil // nothing changed; do not rewrite a file readers are polling
 	}
 	in.Waiting, in.Handling = waiting, handling
-	b, err := json.Marshal(in)
+	return writeRecord(socketPath, in)
+}
+
+// Moved rewrites which conversation the published record names.
+//
+// Read-modify-write on the daemon's own record, exactly like Announce: everything else in there is
+// fixed at startup, and the session is now the second thing that is not. It is the record, and not
+// a message, that every reader believes — the fleet row, the console's withClient, an attaching
+// terminal — so this write IS the move as far as anything outside the process is concerned.
+func Moved(socketPath string, sid session.SessionID) error {
+	recordMu.Lock()
+	defer recordMu.Unlock()
+	in, err := Published(socketPath)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(SessionFile(socketPath), b, 0o600)
+	if in.Session == string(sid) {
+		return nil // do not rewrite a file readers are polling to say what it already says
+	}
+	in.Session = string(sid)
+	return writeRecord(socketPath, in)
 }
 
 // Identity is what this companion calls itself and what it is for.

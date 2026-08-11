@@ -241,7 +241,7 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	ar.work = &recordingWork{App: ar.reader, ar: ar, side: session.SessionID(sid + "_side")}
 	eng := takingEngine{live: &ar.live, handover: handover{
 		work: ar.work,
-		sid:  session.SessionID(sid), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
+		at:   newWhere(session.SessionID(sid)), workdir: wd, configDir: ar.cfgDir, receipts: receipts,
 		mine: newSideSessions(), queued: newWaiting(func(n int, handling bool) {
 			ar.carried.Lock()
 			defer ar.carried.Unlock()
@@ -539,7 +539,7 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 		t.Fatal("a restarted daemon recognised a receipt it never issued")
 	}
 	after := handover{work: &recordingWork{App: ar.reader, ar: ar, side: "s_design_side"},
-		sid: "s_design", workdir: ar.t.TempDir(), configDir: ar.cfgDir, receipts: fresh,
+		at: newWhere("s_design"), workdir: ar.t.TempDir(), configDir: ar.cfgDir, receipts: fresh,
 		mine: newSideSessions(), queued: newWaiting(nil)}
 	if _, err := after.Handed(context.Background(), receipt); err == nil {
 		t.Fatal("a restarted companion answered about work it has no record of taking")
@@ -791,7 +791,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 			where, again)
 	}
 	// A different asker does not.
-	other := handover{work: ar.work, sid: "s_design", workdir: ar.t.TempDir(),
+	other := handover{work: ar.work, at: newWhere("s_design"), workdir: ar.t.TempDir(),
 		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions(), queued: newWaiting(nil)}
 	mine, merr := other.sessionFor(context.Background(), "— asked by master")
 	if merr != nil {

@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1127,7 +1129,7 @@ func run() int {
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.
-		taking := handover{work: a, sid: sid, workdir: wd, configDir: plat.ConfigDir(),
+		taking := handover{work: a, at: newWhere(sid), workdir: wd, configDir: plat.ConfigDir(),
 			receipts: daemon.NewReceipts(), mine: newSideSessions(),
 			// What it is carrying goes into this companion's own published record, which is where
 			// every roster reads it from — including one on another machine, a gossip round later.
@@ -1153,6 +1155,7 @@ func run() int {
 		go taking.run(cronCtx)
 		serveErr := serving.Serve(dctx, daemonEngine{
 			App: a, workdir: wd, handover: taking,
+			republish: func(to session.SessionID) error { return daemon.Moved(sockPath, to) },
 			card: func() mcpserve.Card {
 				return mcpserve.Card{
 					Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
@@ -1956,6 +1959,62 @@ type daemonEngine struct {
 	// needs from this process is narrow — a store to read and a way to start a turn — and a
 	// daemon's whole self is not a thing a test of it should have to build.
 	handover
+	// republish rewrites the record readers poll, which is where the move actually happens as far
+	// as anything outside this process is concerned. A function rather than the socket path,
+	// because this type is otherwise about the workspace and not about where its door is.
+	republish func(session.SessionID) error
+}
+
+// Resume satisfies daemon.SessionMover: continue a different conversation of this companion's own.
+//
+// Three refusals before anything changes, and each is a way the move would be a lie:
+//
+//   - mid-turn. A companion cannot leave a conversation it is still speaking in, and the console
+//     already greys the control — this is the same rule where it can be enforced rather than drawn.
+//   - a session that is not in this workspace. The console names it by id, and an id from another
+//     workspace would point this daemon at somebody else's log.
+//   - the one it is already in, which is not an error and is not a write either: rewriting the
+//     record readers poll to say what it already says wakes every one of them for nothing.
+//
+// The order matters. The mark goes into the old conversation BEFORE the record moves, so a reader
+// that notices the record change and comes back to read the old log finds the reason already
+// written; the other order leaves a window where the transcript simply stops.
+func (d daemonEngine) Resume(ctx context.Context, sid session.SessionID) error {
+	if sid == "" {
+		return errors.New("no conversation named")
+	}
+	return d.handover.at.move(func(from session.SessionID) (session.SessionID, error) {
+		// Inside the lock, against the session this move is actually starting from — the console
+		// may have decided against a record that has since changed.
+		if sid == from {
+			return "", nil
+		}
+		if busy, running := d.App.Running(); running {
+			return "", fmt.Errorf("this companion is mid-turn in %s — interrupt it or wait for it "+
+				"to finish", busy)
+		}
+		known, err := d.App.ListSessions(ctx, d.workdir)
+		if err != nil {
+			return "", fmt.Errorf("this companion cannot read its own conversations: %w", err)
+		}
+		if !slices.ContainsFunc(known, func(m session.SessionMeta) bool { return m.ID == sid }) {
+			return "", fmt.Errorf("%s is not a conversation of this workspace", sid)
+		}
+		if nerr := d.App.NoteSessionMoved(ctx, from, sid); nerr != nil {
+			// Said, not swallowed, and the move still happens: a reader left without the reason
+			// its transcript stopped is a smaller wrong than a console whose button did nothing.
+			fmt.Fprintln(os.Stderr, "magi: could not mark the conversation it left:", nerr)
+		}
+		if d.republish != nil {
+			if rerr := d.republish(sid); rerr != nil {
+				// The record is what every reader believes. Unwritten, the move did not happen as
+				// far as anything outside this process is concerned, so it must not happen inside
+				// it either — the mark above stays, which is true: it was left.
+				return "", fmt.Errorf("this companion could not say where it went: %w", rerr)
+			}
+		}
+		return sid, nil
+	})
 }
 
 // QueuedWork is everything waiting for this workspace, in the order it will run.

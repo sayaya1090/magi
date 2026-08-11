@@ -82,10 +82,14 @@ type takes interface {
 // as, is now the socket the caller already reached.
 type handover struct {
 	work takes
-	// sid is the session this companion IS — the one a person attaches to. Handed-over work never
+	// at is the session this companion IS — the one a person attaches to. Handed-over work never
 	// goes here: somebody watching their own conversation must not have another agent's request
 	// appear in it, and a request borrows the workspace and the skills, not the conversation.
-	sid       session.SessionID
+	//
+	// A pointer, like the receipts and the queue beside it, and for the same reason: the engine
+	// holding this is copied by value into the socket's serve loop, and a companion that moved to
+	// another conversation in one copy and not the other would be two companions.
+	at        *where
 	workdir   string
 	configDir string
 	// note writes down that work arrived and what happened to it — taken behind N others, or
@@ -356,7 +360,7 @@ func (h handover) state(ctx context.Context, receipt string, sid session.Session
 	if lerr != nil {
 		return daemon.Handover{}
 	}
-	news, over := companion.StateOf(list, string(h.sid))
+	news, over := companion.StateOf(list, string(h.at.now()))
 	return daemon.Handover{News: news, Over: over}
 }
 
@@ -479,4 +483,49 @@ func describeCompanion(ctx context.Context, host, socket string) (string, error)
 	}
 	defer cl.Close()
 	return cl.About()
+}
+
+// where is the conversation this companion is in, and the only place that answers it.
+//
+// It used to be a value copied into the engine at startup and never changed, because a daemon
+// could not leave the session it opened with. Now it can — a person picks another one from the
+// console — and every copy of the engine has to agree about which one that is: the record readers
+// poll, the roster this companion appears on, and the handover that must not put somebody else's
+// work in a person's own conversation all read it.
+type where struct {
+	mu  sync.Mutex
+	sid session.SessionID
+}
+
+func newWhere(sid session.SessionID) *where { return &where{sid: sid} }
+
+func (w *where) now() session.SessionID {
+	if w == nil {
+		return ""
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sid
+}
+
+// move runs one relocation at a time, and hands the decision the session it is starting from.
+//
+// A move is read-decide-write: it reads where the companion is, refuses several ways, writes a
+// mark into the conversation being left, and only then points the record somewhere else. Two of
+// those overlapping — two consoles, or a console and a phone — leaves two marks that disagree
+// about where the companion went and a record written by whichever finished last. So the whole
+// sequence takes the lock, and `from` is passed in rather than read again inside: a decision made
+// against a value that can change under it is the shape of the defect, not a detail of it.
+//
+// The lock is held across the log append. That is deliberate and it is cheap — one line into a
+// file — and the alternative is the window this exists to close.
+func (w *where) move(do func(from session.SessionID) (session.SessionID, error)) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	to, err := do(w.sid)
+	if err != nil || to == "" {
+		return err
+	}
+	w.sid = to
+	return nil
 }

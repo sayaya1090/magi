@@ -66,6 +66,17 @@ const (
 	// is visible to seedPromptIdx, which reads the log; ignored by reconstruct, so the
 	// cancelled prompt's text stays in context (a follow-up that augments it still works).
 	TypePromptAbandoned Type = "prompt.abandoned"
+
+	// TypeSessionMoved — the companion left this conversation for another one.
+	//
+	// A fact about the session it is written INTO, which is why it is written there and not into
+	// the one being moved to: what happened to this conversation is that the agent driving it went
+	// somewhere else, and a transcript that simply stops says nothing about why.
+	//
+	// It is also how every other screen finds out. A console streaming this session and a terminal
+	// attached to it both learn from the log they are already reading, rather than from a channel
+	// invented for the purpose — and a viewer that opens the session tomorrow learns the same way.
+	TypeSessionMoved Type = "session.moved"
 )
 
 // Transient events — bus only, not persisted.

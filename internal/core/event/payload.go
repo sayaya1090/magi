@@ -145,6 +145,11 @@ type ContextShard struct {
 	MessageIDs []string `json:"messageIds"`
 }
 
+// SessionMovedData — TypeSessionMoved. Where the companion went, so a reader can follow it.
+type SessionMovedData struct {
+	To session.SessionID `json:"to"`
+}
+
 // TurnFinishedData — TypeTurnFinished.
 type TurnFinishedData struct {
 	Usage Usage `json:"usage"`

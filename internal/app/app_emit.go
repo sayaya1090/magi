@@ -100,3 +100,21 @@ func (a *App) Doing(sid session.SessionID) (string, bool) {
 	}
 	return st.doing, true
 }
+
+// NoteSessionMoved writes into a conversation that the companion has left it for another.
+//
+// Into the OLD session, deliberately: it is a fact about that conversation, and what a reader of
+// it needs is the reason its transcript stops. The new one needs no mark — what happened there is
+// that work carried on, which is what every event in it already says.
+//
+// Persisted AND on the bus, which is the whole mechanism by which other screens find out: a
+// console streaming this session and a terminal attached to it are both already reading it, and a
+// viewer who opens it next week reads the same line from the log.
+func (a *App) NoteSessionMoved(ctx context.Context, from, to session.SessionID) error {
+	d, err := json.Marshal(event.SessionMovedData{To: to})
+	if err != nil {
+		return err
+	}
+	return a.appendFact(ctx, from, event.TypeSessionMoved,
+		event.Actor{Kind: event.ActorUser, ID: "console"}, d)
+}
