@@ -1500,13 +1500,36 @@
   /* ── the shape of a report ───────────────────────────────────────────────── */
   #reportfmt { max-width:var(--magi-sys-measure); }
   /* One row per section: the name, what belongs in it, and a way to take it out. The name is short
-     by nature and the sentence is not, so they are not given equal room. */
+     by nature and the sentence is not, so they are not given equal room. Aligned to the TOP, not
+     the middle: the prompt is a two-line field and centring left its label floating beside the
+     name's second half.
+     The gaps are the guide's — 16dp between the things inside a dialog, 24dp between the blocks
+     of it — rather than whatever the spacing scale's smallest step happened to be. */
   .fmtrow {
-    display:grid; grid-template-columns:10rem minmax(0, 1fr) auto;
-    gap:var(--magi-sys-space-150); align-items:center;
-    padding:var(--magi-sys-space-100) 0;
+    display:grid; grid-template-columns:8rem minmax(0, 1fr) 2.5rem;
+    gap:var(--magi-sys-space-200); align-items:start;
   }
-  #fmtForm { display:grid; gap:var(--magi-sys-space-100); min-width:min(36rem, 80vw); }
+  /* Fits the dialog rather than pushing past it. A dialog is 560dp wide at most and its content
+     box does not grow with what is put in it — a form wider than that is simply cut off on the
+     right, which is where the remove control was: measured 608px of form inside 560px of dialog,
+     and the last 48 were the column nobody could see. */
+  #fmtForm {
+    display:grid; gap:var(--magi-sys-space-200);
+    width:100%; padding-top:var(--magi-sys-space-100);
+  }
+  /* The remove control sits on the field's first line rather than in the middle of a two-line row,
+     which is where the thing it removes starts. */
+  .fmtdrop { align-self:start; margin-top:var(--magi-sys-space-100); --md-icon-button-icon-color:var(--magi-ref-muted); }
+  .fmtdrop:hover { --md-icon-button-icon-color:var(--magi-ref-error); }
+  /* A dialog's supporting text: the sentence under the headline that says what this is. Body, not
+     label — it is read once, in full, by somebody deciding whether to change something. */
+  .dlgsup {
+    font:var(--md-sys-typescale-body-medium-size)/1.5 var(--magi-ref-display);
+    color:var(--magi-ref-on-surface-variant); max-width:var(--magi-sys-measure);
+  }
+  /* The add control is one action in a row of its own, at the start — where the next row would
+     begin, so it reads as "another one of these" rather than as a footer. */
+  #fmtForm > md-text-button { justify-self:start; }
 
   /* ── what has not started yet ────────────────────────────────────────────── */
   #queued { max-width:var(--magi-sys-measure); }
