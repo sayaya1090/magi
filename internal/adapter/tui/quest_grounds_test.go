@@ -114,3 +114,29 @@ func TestTheGroundsSurviveTheEventThatCarriesThem(t *testing.T) {
 		t.Error("what crossed is not what is drawn")
 	}
 }
+
+// A question says which of how many, when more are coming.
+//
+// A tool may ask several and each one blocks. Answering the first of three and being handed the
+// next without warning is a different situation from answering the only question there is —
+// "is this the whole decision" is part of the decision.
+func TestAQuestionSaysWhichOfHowMany(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 120, 40
+	m.applyEvent(ev(t, event.TypeQuestionRequested, event.QuestionRequestedData{
+		CallID: "c1#2", Question: "and the scope?", Options: []string{"small", "big"},
+		Index: 2, Total: 3,
+	}))
+	if got := m.questView(); !strings.Contains(got, "2 of 3") {
+		t.Errorf("the modal does not place the question in its run:\n%s", got)
+	}
+
+	// Silent at one, which is nearly every question: "1 of 1" answers something nobody asked and
+	// teaches the eye to skip the spot where the real one appears.
+	m.applyEvent(ev(t, event.TypeQuestionRequested, event.QuestionRequestedData{
+		CallID: "c2", Question: "go ahead?", Options: []string{"yes", "no"}, Index: 1, Total: 1,
+	}))
+	if got := m.questView(); strings.Contains(got, "1 of 1") {
+		t.Errorf("a lone question is numbered anyway:\n%s", got)
+	}
+}

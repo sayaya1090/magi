@@ -21,6 +21,7 @@
   "action.write_down": "Write it down",
   "answer.instead": "Answering the question above; to ask for something else, answer it or interrupt first",
   "ask.deciding": "Deciding",
+  "ask.of": "{i} of {n}",
   "ask.open": "Read it in full",
   "ask.permission": "a permission",
   "ask.question": "a question",

@@ -10,6 +10,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // askUserFn builds the ToolEnv.AskUser closure for one tool call: it publishes
@@ -17,15 +18,17 @@ import (
 // at a time (the seq counter keys each question's channel under the call id).
 // Only a top-level interactive session has a human to ask — everywhere else it
 // returns nil so the ask_user tool degrades to "decide for yourself".
-func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *session.ToolCall) func(string, []string, []report.Filled) (string, error) {
+func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *session.ToolCall) func(port.Question) (string, error) {
 	if depth != 0 || !a.cfg.Interactive {
 		return nil
 	}
 	sid := s.ID
-	seq := 0
-	return func(question string, options []string, grounds []report.Filled) (string, error) {
-		seq++
-		qid := fmt.Sprintf("%s#%d", tc.CallID, seq)
+	return func(q port.Question) (string, error) {
+		question, options, grounds := q.Text, q.Options, q.Grounds
+		// The id is the call plus the position, so two questions of one call are two prompts a
+		// viewer can answer separately. It was a counter kept here; the tool knows the position and
+		// now says it, which leaves one source instead of two that agree until they do not.
+		qid := fmt.Sprintf("%s#%d", tc.CallID, q.Index)
 		ch := make(chan string, 1)
 		a.mu.Lock()
 		if a.stateLocked(sid).questions == nil {
@@ -33,7 +36,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 		}
 		a.stateLocked(sid).questions[qid] = ch
 		a.noteAskingLocked(sid, qid, Ask{ID: qid, Kind: "question", What: question, Options: options,
-			Report: grounds, Since: time.Now()})
+			Report: grounds, Index: q.Index, Total: q.Total, Since: time.Now()})
 		a.mu.Unlock()
 		defer func() {
 			a.mu.Lock()
@@ -42,7 +45,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			a.mu.Unlock()
 		}()
 		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options,
-			Report: grounds, Index: seq})
+			Report: grounds, Index: q.Index, Total: q.Total})
 		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
 		var expired <-chan time.Time
 		if a.cfg.AnswerWait > 0 {
@@ -287,7 +290,11 @@ type Ask struct {
 	// prompt because a viewer in another process has no other way to reach it, and a question
 	// without it is the thing this was built to stop.
 	Report []report.Filled
-	Since  time.Time // when it was asked, so a viewer can say how long it has been waiting
+	// Index and Total place this question in the run its call is asking, counting from one. A tool
+	// may ask several and each one blocks, so a person answering the first is entitled to know
+	// that two more are coming.
+	Index, Total int
+	Since        time.Time // when it was asked, so a viewer can say how long it has been waiting
 }
 
 // noteAskingLocked records an open prompt. Caller holds a.mu.

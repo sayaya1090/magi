@@ -514,6 +514,17 @@ func colorizeChanges(changes string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// questOfHowMany says which of how many, when there is more than one coming.
+//
+// Silent for a single question, which is nearly all of them: "1 of 1" is a number that answers a
+// question nobody asked and trains the eye to skip the place the real one appears.
+func questOfHowMany(q *questReq) string {
+	if q.total <= 1 || q.index <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %d of %d", q.index, q.total)
+}
+
 // groundsBlock renders the report the agent wrote for this decision, or "" when it wrote none.
 //
 // Section keys are whatever the decision-report skill declared, so nothing here names them: they
@@ -556,7 +567,7 @@ func (m *Model) questOptionAt(y int) (int, bool) {
 func (m *Model) questView() string {
 	q := m.quest
 	var b strings.Builder
-	b.WriteString(stylePermTitle.Render("question") + "  " +
+	b.WriteString(stylePermTitle.Render("question"+questOfHowMany(q)) + "  " +
 		styleFooter.Render("↑/↓/tab or click · enter answer · esc dismiss") + "\n")
 	// The grounds, above the question. This order is the argument: read what was tried and what
 	// each way costs, then the question, then pick. Read the other way round a person answers
@@ -592,7 +603,7 @@ func (m *Model) questView() string {
 		// No grounds in the short-terminal rendering. When the box will not fit, the question and
 		// the options are what must survive — an unanswerable prompt is worse than an unexplained
 		// one — and the report is still in the transcript and on the console.
-		t.WriteString(stylePermTitle.Render("question") + "\n" + q.question + "\n")
+		t.WriteString(stylePermTitle.Render("question"+questOfHowMany(q)) + "\n" + q.question + "\n")
 		for i := start; i < start+keep; i++ {
 			line := fmt.Sprintf("%d. %s", i+1, q.options[i])
 			if i == q.sel {

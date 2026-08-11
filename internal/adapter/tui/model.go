@@ -88,6 +88,10 @@ type questReq struct {
 	// with the working thrown away. A decision put to somebody who has been away is the one place
 	// the grounds are worth the most, and it was the one place they did not arrive.
 	report []report.Filled
+	// index/total place it in the run its call is asking. A person answering the first of three
+	// and being handed the next without warning is in a different situation from one answering
+	// the only question there is.
+	index, total int
 }
 
 type permReq struct {

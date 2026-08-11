@@ -3154,7 +3154,11 @@ function drawPrompt(a) {
     box.hidden = true; box.replaceChildren(); promptWasUp = false; measureDock(); return;
   }
   const inner = document.createElement('div'); inner.className = 'inner';
-  const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
+  const k = document.createElement('div'); k.className = 'asking';
+  // Which of how many, when there is more than one coming. Silent at one, which is nearly all of
+  // them: "1 of 1" answers a question nobody asked and teaches the eye to skip the spot where the
+  // real one shows up.
+  k.textContent = '⏸ ' + a.asking + (a.askTotal > 1 ? '  ' + tr('ask.of', {i: a.askIndex, n: a.askTotal}) : '');
   inner.append(k);
   const why = grounds(a);
   if (why) {
@@ -3944,7 +3948,8 @@ async function drawAsk(a) {
   }
   box.replaceChildren();
   box.append(detailHead('⏸ ' + (mine.asking || ''), '',
-    mine.askKind === 'question' ? tr('ask.question') : tr('ask.permission')));
+    (mine.askKind === 'question' ? tr('ask.question') : tr('ask.permission'))
+    + (mine.askTotal > 1 ? ' · ' + tr('ask.of', {i: mine.askIndex, n: mine.askTotal}) : '')));
   const why = grounds(mine);
   if (why) {
     box.append(cell('dk dhero', tr('detail.evidence_decide')));

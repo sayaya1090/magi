@@ -160,6 +160,11 @@ type Agent struct {
 	Asking  string `json:"asking"`  // what it is blocked on, when State is waiting
 	AskID   string `json:"askId"`   // the call id an answer must carry
 	AskKind string `json:"askKind"` // "permission" | "question"
+	// AskIndex and AskTotal place a question in the run its call is asking, counting from one.
+	// Answering one of three and being handed the next without warning is a different experience
+	// from answering one of one, and the row is where a reader finds out which they are in.
+	AskIndex int `json:"askIndex,omitempty"`
+	AskTotal int `json:"askTotal,omitempty"`
 	// Report is what the agent wrote for the person to decide on. Carried whole rather than
 	// summarised: a supervisor deciding for a companion on another machine has this and the
 	// question, and nothing else — clipping it here would clip the grounds, which is the one part
@@ -242,6 +247,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			// is true and is not the thing that needs doing about it.
 			a.State, a.Steps, a.Asking = Waiting, open.Steps, describeAsk(in.Asking)
 			a.AskID, a.AskKind = in.Asking.ID, in.Asking.Kind
+			a.AskIndex, a.AskTotal = in.Asking.Index, in.Asking.Total
 			a.Report = in.Asking.Report
 			a.Task = Clip(theWork(open.Text), 160)
 		case in.Live && isOpen:

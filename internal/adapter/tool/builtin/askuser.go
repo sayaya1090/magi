@@ -98,7 +98,12 @@ func (AskUser) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 					"here, so every section is required:%s",
 				i+1, strings.Join(missing, " and no "), contract.Spec())), nil
 		}
-		ans, err := env.AskUser(q.Question, q.Options, contract.Fill(q.Report))
+		// Which of how many. A call may ask several and each one blocks, so the person answering
+		// the first is entitled to know that two more are coming — "is this the whole decision" is
+		// part of the decision.
+		ans, err := env.AskUser(port.Question{
+			Text: q.Question, Options: q.Options, Grounds: contract.Fill(q.Report),
+			Index: i + 1, Total: len(a.Questions)})
 		if err != nil {
 			return errResult("", err.Error()), nil
 		}

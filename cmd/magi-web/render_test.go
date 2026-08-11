@@ -2688,3 +2688,40 @@ console.log(JSON.stringify({before: t0, after: t1}));`)
 		t.Error("nothing paints the open state, so only a screen reader is told")
 	}
 }
+
+// The prompt bar places a question in the run its call is asking.
+func TestThePromptBarSaysWhichOfHowMany(t *testing.T) {
+	fleet := `[{"socket":"/s/a.sock","name":"design","workdir":"/w","state":"waiting","live":true,
+      "asking":"and the scope?","askId":"q2","askKind":"question","askIndex":2,"askTotal":3}]`
+	got := runPage(t, fleet, "?d=%2Fs%2Fa.sock", `
+drawPrompt({socket:'/s/a.sock', state:'waiting', asking:'and the scope?', askId:'q2',
+            askKind:'question', askIndex:2, askTotal:3});
+const seen = [];
+const walk = n => { if (n.textContent) seen.push(n.textContent); for (const k of n.children || []) walk(k); };
+walk(byId.prompt);
+console.log(JSON.stringify({text: seen.join(' | ')}));`)
+
+	txt, _ := got["text"].(string)
+	if !strings.Contains(txt, "2 of 3") {
+		t.Errorf("the bar does not place the question in its run:\n%s", txt)
+	}
+}
+
+// One question is not numbered: "1 of 1" answers something nobody asked.
+func TestALoneQuestionIsNotNumbered(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+drawPrompt({socket:'/s/a.sock', state:'waiting', asking:'go ahead?', askId:'q1',
+            askKind:'question', askIndex:1, askTotal:1});
+const seen = [];
+const walk = n => { if (n.textContent) seen.push(n.textContent); for (const k of n.children || []) walk(k); };
+walk(byId.prompt);
+console.log(JSON.stringify({text: seen.join(' | ')}));`)
+
+	txt, _ := got["text"].(string)
+	if strings.Contains(txt, "1 of 1") {
+		t.Errorf("a lone question is numbered anyway:\n%s", txt)
+	}
+	if !strings.Contains(txt, "go ahead?") {
+		t.Errorf("the question is missing:\n%s", txt)
+	}
+}

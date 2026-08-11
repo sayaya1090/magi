@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,10 +16,12 @@ import (
 func TestAskUser(t *testing.T) {
 	var asked []string
 	var grounds [][]report.Filled
-	env := port.ToolEnv{AskUser: func(q string, opts []string, g []report.Filled) (string, error) {
-		asked = append(asked, q)
-		grounds = append(grounds, g)
-		return opts[1], nil
+	var placed []string
+	env := port.ToolEnv{AskUser: func(q port.Question) (string, error) {
+		asked = append(asked, q.Text)
+		grounds = append(grounds, q.Grounds)
+		placed = append(placed, fmt.Sprintf("%d/%d", q.Index, q.Total))
+		return q.Options[1], nil
 	}}
 	// Every question now carries the report the person decides on. The default contract applies
 	// here: no LoadSkill is wired, so there is no decision-report skill to read.
@@ -36,9 +39,14 @@ func TestAskUser(t *testing.T) {
 	if len(asked) != 2 {
 		t.Fatalf("questions should be asked in order, got %v", asked)
 	}
+	// Each one says where it stands in the run. A person answering the first of two is entitled to
+	// know the second is coming, and only the tool knows how many it is about to ask.
+	if strings.Join(placed, " ") != "1/2 2/2" {
+		t.Errorf("questions did not say which of how many: %v", placed)
+	}
 
 	// Dismissed pick ("") is surfaced as an explicit no-pick, not an empty answer.
-	env.AskUser = func(string, []string, []report.Filled) (string, error) { return "", nil }
+	env.AskUser = func(port.Question) (string, error) { return "", nil }
 	res, _ = AskUser{}.Execute(context.Background(), json.RawMessage(
 		`{"questions":[`+full("q", "A", "B")+`]}`), env)
 	_ = json.Unmarshal(res.Content, &out)
@@ -70,7 +78,7 @@ func TestAskUser(t *testing.T) {
 // magi invented would be the worst thing to put in front of them. The message carries the whole
 // contract so one rejection is enough to learn the shape.
 func TestAskUserRefusesADecisionWithNoGrounds(t *testing.T) {
-	env := port.ToolEnv{AskUser: func(string, []string, []report.Filled) (string, error) {
+	env := port.ToolEnv{AskUser: func(port.Question) (string, error) {
 		t.Fatal("the person was asked before the report was checked")
 		return "", nil
 	}}
@@ -106,7 +114,7 @@ func TestTheReportsShapeComesFromTheSkill(t *testing.T) {
 			return "Some prose about how to write one.\n\n## sections\n" +
 				"- blast: what breaks if this is wrong\n- rollback: how to undo it\n", true
 		},
-		AskUser: func(string, []string, []report.Filled) (string, error) { return "A", nil },
+		AskUser: func(port.Question) (string, error) { return "A", nil },
 	}
 	res, _ := AskUser{}.Execute(context.Background(), json.RawMessage(
 		`{"questions":[{"question":"q","options":["A","B"],"report":{"tried":"x","stakes":"y","lean":"z"}}]}`), env)

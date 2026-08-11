@@ -177,7 +177,7 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.QuestionRequestedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.quest = &questReq{callID: d.CallID, question: d.Question, options: d.Options,
-				report: d.Report}
+				report: d.Report, index: d.Index, total: d.Total}
 		}
 
 	case event.TypeContextUsage:

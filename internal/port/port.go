@@ -272,6 +272,23 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage, env ToolEnv) (session.ToolResult, error)
 }
 
+// Question is one thing put to a person, with everything a surface needs to draw it whole.
+//
+// A struct rather than a longer parameter list: the position arrived after the text and the
+// grounds did before it, and a signature that grows by appending is one every implementation has
+// to be edited to ignore.
+type Question struct {
+	Text    string
+	Options []string
+	// Grounds is the report the person decides ON: what was tried, what each option costs, which
+	// way the agent leans. Its sections are whatever the decision-report skill declares.
+	Grounds []report.Filled
+	// Index and Total place it in the run of questions this one call is asking, counting from one.
+	// Total is 1 for the ordinary case and never 0 — a surface should not have to treat "unknown"
+	// as a third state.
+	Index, Total int
+}
+
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
 	SessionID session.SessionID
@@ -330,7 +347,11 @@ type ToolEnv struct {
 	// report contains is the operator's choice and differs per companion. A question used to arrive
 	// as a sentence and two labels, and the person was asked to choose with none of what the agent
 	// had spent an hour learning.
-	AskUser func(question string, options []string, grounds []report.Filled) (string, error)
+	//
+	// at says which question this is and how many are coming: a tool may ask several in a row, and
+	// each one blocks. Without it the person answers the first not knowing there are two more —
+	// which changes the answer, because "is this the whole decision" is part of the decision.
+	AskUser func(q Question) (string, error)
 	// Council asks the configured council for a reading of the work so far and returns their
 	// answers as text. complete marks the call as a DECLARATION that the task is finished: the
 	// council reads the record as a finish, and if it accepts, the application ends the turn.

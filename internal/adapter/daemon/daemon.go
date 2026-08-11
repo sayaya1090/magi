@@ -187,7 +187,11 @@ type Waiting struct {
 	// options do: a console in another process draws the prompt, and a prompt whose grounds stayed
 	// behind is the one this exists to stop.
 	Report []report.Filled `json:"report,omitempty"`
-	Since  string          `json:"since"` // RFC3339
+	// Index and Total place this question in the run its call is asking. A viewer on another
+	// machine has no other way to know that answering this one leads to another.
+	Index int    `json:"index,omitempty"`
+	Total int    `json:"total,omitempty"`
+	Since string `json:"since"` // RFC3339
 }
 
 // Event turns a pending prompt back into the event a UI already knows how to draw.
@@ -214,7 +218,8 @@ func (w *Waiting) Event(sid session.SessionID) (event.Event, error) {
 	case "question":
 		typ = event.TypeQuestionRequested
 		data, err = json.Marshal(event.QuestionRequestedData{
-			CallID: w.ID, Question: w.What, Options: w.Options, Report: w.Report, Index: 1, Total: 1})
+			CallID: w.ID, Question: w.What, Options: w.Options, Report: w.Report,
+			Index: w.Index, Total: w.Total})
 	default:
 		typ = event.TypePermissionRequested
 		data, err = json.Marshal(event.PermissionRequestedData{
@@ -477,6 +482,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 				resp.Waiting = &Waiting{
 					ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args,
 					Reason: ask.Reason, Options: ask.Options, Report: ask.Report,
+					Index: ask.Index, Total: ask.Total,
 					Since: ask.Since.UTC().Format(time.RFC3339),
 				}
 			}

@@ -21,6 +21,7 @@
   "action.write_down": "적어두기",
   "answer.instead": "위 질문에 답합니다. 다른 일을 시키려면 먼저 답하거나 중단하세요.",
   "ask.deciding": "결정",
+  "ask.of": "{n}개 중 {i}번째",
   "ask.open": "펼쳐서 읽기",
   "ask.permission": "권한",
   "ask.question": "질문",
