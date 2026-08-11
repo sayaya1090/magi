@@ -55,3 +55,31 @@ func TestCouncilToolWithdrawnWithoutACouncil(t *testing.T) {
 		t.Error("withdrawing the tool must not remove the name from KnownNames")
 	}
 }
+
+// Whether a question can be asked follows whether anybody can answer, not whether there is a UI.
+//
+// A daemon is headless and is the run most likely to need a person: it works while nobody watches.
+// Withholding ask_user there took the tool away from exactly the case the decision report was built
+// for — and the socket, the console and the terminal were all already able to carry the answer.
+func TestAskingIsAvailableWhereverSomebodyCanAnswer(t *testing.T) {
+	for _, c := range []struct {
+		what               string
+		headless, canReply bool
+		want               bool // want: nobody can answer, so the tools stay off
+	}{
+		{"the terminal", false, false, false},
+		{"a daemon somebody can attach to", true, true, false},
+		{"a -p run", true, false, true},
+	} {
+		if got := nobodyCanAnswer(c.headless, c.canReply); got != c.want {
+			t.Errorf("%s: nobodyCanAnswer = %v, want %v", c.what, got, c.want)
+		}
+	}
+
+	// And the flag reaches the registry, which is the half that decides anything.
+	reg := builtin.NewRegistry()
+	registerOrchestrationTools(reg, nobodyCanAnswer(true, true))
+	if _, ok := reg.Get("ask_user"); !ok {
+		t.Error("a daemon that can be answered is not offered ask_user")
+	}
+}

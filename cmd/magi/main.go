@@ -653,8 +653,6 @@ func run() int {
 		}
 	}
 
-	registerOrchestrationTools(reg, headless)
-
 	// Shared experience (D13): two tiers. The global tier defaults to
 	// <config>/experience (overridable by config.toml experience_dir) and holds
 	// cross-project knowledge. The project tier lives at <workspace>/.magi/experience
@@ -690,6 +688,19 @@ func run() int {
 	// agent that stops for a question nobody is there to hear is a stopped agent, and defaults
 	// must not depend on somebody remembering to attach.
 	answerable := *daemonMode && (perm == "ask" || perm == "auto")
+
+	// Asking a person is available wherever a person can answer, which is not the same as "not
+	// headless". A daemon counts as headless — it has no UI of its own — and that was taken as
+	// "nobody to ask", so ask_user was withheld from exactly the runs this whole surface was built
+	// for: a resident companion working while nobody watches, which is when a decision most needs
+	// putting to somebody. The socket carries the answer, the console draws the report and the
+	// terminal now draws it too; the one missing piece was the tool itself.
+	//
+	// answerable is the same flag the permission prompts use, so the two cannot disagree about
+	// whether there is anybody out there. A run with -p and no daemon still gets neither: nothing
+	// can attach to it, and an unusable tool is weight on every request.
+	registerOrchestrationTools(reg, nobodyCanAnswer(headless, answerable))
+
 	if answerable {
 		fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached, and "+
 			"resolve by policy after %s if none answers\n", perm, daemonAnswerWait)

@@ -9,6 +9,18 @@ func registerOrchestrationTools(reg *builtin.Registry, headless bool) {
 	builtin.RegisterOrchestration(reg, headless)
 }
 
+// nobodyCanAnswer reports whether this run has no way to put a question to a person.
+//
+// Not the same as headless, and the difference is a whole mode. A daemon has no UI of its own, so
+// it is headless — and it is the run most likely to need a person, because it works while nobody
+// is watching. Whoever attaches answers, over the same socket that already carries the permission
+// prompts, which is why this reads the same flag those do rather than inventing a second opinion
+// about whether anybody is out there.
+//
+// A -p run with no daemon really has nobody: nothing can attach to it, the prompt would resolve by
+// policy, and an unusable tool is weight on the model's list for every request of the run.
+func nobodyCanAnswer(headless, answerable bool) bool { return headless && !answerable }
+
 // applyCouncilAvailability withdraws the council tool when this run has no council.
 //
 // With none configured there is nobody to ask and nobody to declare completion to, so the tool can
