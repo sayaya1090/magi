@@ -91,3 +91,13 @@ func assemblePage() string {
 	}
 	return out
 }
+
+// The icons go in after the page is assembled, and they have to: the sprite is set by an init in a
+// generated file, and every package-level variable in Go — indexHTML included — is initialised
+// BEFORE any init runs. Injected inside assemblePage the sprite was always the empty string, which
+// looked exactly like a build with no licence and was not one. Measured: 6 symbols baked, 0 in the
+// page.
+//
+// This init is in page.go, which sorts after icons_gen.go, and init functions run in file order.
+// TestTheSpriteReachesThePage holds that: it fails if this ordering ever stops being true.
+func init() { indexHTML = withSprite(indexHTML) }

@@ -51,3 +51,7 @@ scratchpad/overnight_log.md
 # The agent's own work log, rendered from .magi/experience — the same three memories that are
 # ignored above, in a table. Machine output, not source.
 /SESSION_SUMMARY.md
+
+# Font Awesome Pro icons, baked in at build time by cmd/magi-web/gen_icons.go.
+# The licence permits using them in what you deploy and not republishing them as files.
+cmd/magi-web/icons_gen.go
