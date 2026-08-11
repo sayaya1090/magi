@@ -1806,6 +1806,73 @@ function paintModels(sel, names, now) {
   sel.disabled = want.length < 2;
 }
 
+// sessionField is which session this companion is in, and the way to the others.
+//
+// It was a reading and a button three rows apart: the id here, and "open history" further down
+// leading to a list. One control now — the id IS the list, which is the shape a person expects
+// from a thing that has other values.
+//
+// ⚠ Choosing one OPENS it; it does not move the companion into it. Redirecting the work would mean
+// addressing a different session on every submit, and that is a change to how this console names
+// what it is talking to rather than a change to this control. The rule that guards it is here
+// already, so the day that lands nothing else has to move: a companion that is mid-turn cannot be
+// pointed somewhere else, and the menu says so by being shut rather than by refusing afterwards.
+function sessionField(a) {
+  const f = cell('f');
+  f.append(cell('k', tr('field.session')));
+  const v = cell('v');
+  let sel = sessionField.el;
+  if (!sel || sessionField.key !== a.socket) {
+    sel = sessionField.el = document.createElement('md-outlined-select');
+    sessionField.key = a.socket;
+    sessionField.list = null;
+    sel.className = 'permsel';
+    sel.addEventListener('change', () => {
+      const want = sel.value;
+      if (want && want !== a.session) goDeep('past', want);
+    });
+  }
+  // Idle only. A turn in flight is a turn in THIS session, and a control that offers to leave it
+  // while it is running is offering something it cannot honour.
+  const idle = a.state === 'idle' || a.state === 'stopped';
+  sel.disabled = !idle;
+  tip(sel, idle ? tr('hint.session_pick') : tr('hint.session_busy'));
+  if (sessionField.list === null) {
+    sessionField.list = [];
+    fetchList('/history' + qFor(a)).then(list => {
+      sessionField.list = list || [];
+      paintSessions(sel, sessionField.list, a.session);
+    });
+  }
+  paintSessions(sel, sessionField.list || [], a.session);
+  v.append(sel);
+  f.append(v);
+  return f;
+}
+
+// paintSessions fills the menu with what this workspace has run, newest first, and always with the
+// one it is in — a session the list has not caught up with is still the session on screen.
+function paintSessions(sel, list, now) {
+  const rows = (list || []).slice();
+  if (now && !rows.some(h => h.id === now)) rows.unshift({id: now, title: '', current: true});
+  const want = rows.map(h => h.id).join(' ');
+  if (sel._painted !== want) {
+    sel._painted = want;
+    sel.replaceChildren(...rows.map(h => {
+      const o = document.createElement('md-select-option');
+      o.value = h.id;
+      // The id, then what the work was — an id alone is a menu of hashes, and a title alone puts
+      // two identical-looking lines in front of somebody choosing between them.
+      o.append(el('div', h.id + (h.title ? ' · ' + oneLine(h.title, 48) : '')));
+      return o;
+    }));
+  }
+  if (now && sel.value !== now && document.activeElement !== sel) {
+    sel.value = now;
+    if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
+  }
+}
+
 function drawDetail(a) {
   const box = document.getElementById('detail');
   if (!a) { box.hidden = true; box.replaceChildren(); return; }
@@ -1825,7 +1892,7 @@ function drawDetail(a) {
                   (a.pid ? ' · pid ' + a.pid : '')),
     field('field.steps', a.steps ? a.steps + '' : '—'),
     field('field.last_activity', ago(a.idle)),
-    field('field.session', a.session),
+    sessionField(a),
   );
   grid.append(permField(a));
   // A button, not a clickable div: this is the one control on the card and it has to be reachable
@@ -1855,21 +1922,6 @@ function drawDetail(a) {
   const wrap = drawDetail.wrap || (drawDetail.wrap = cell('foldwrap'));
   wrap.replaceChildren(grid);
   box.replaceChildren(bar, wrap);
-  // What it has done before now, reached from the facts. It used to be a card in the pane, and the
-  // pane is meant to stay open — so what is in it has to be worth the width all the time. The plan
-  // moves, the queue moves, what was handed out moves; a list of finished sessions does not.
-  {
-    const row = cell('f');
-    row.append(cell('k', tr('field.history')));
-    const v = cell('v');
-    const b = el('button', tr('action.open_history'));
-    b.type = 'button';
-    b.className = 'deeper hit48';
-    b.onclick = () => goDeep('past', '');
-    v.append(b);
-    row.append(v);
-    grid.append(row);
-  }
   // What it can do and how the run is shaped — the two things the terminal answers with /tools and
   // /loop, which had no way in here at all. Buttons in the facts card rather than rows in the
   // transcript: they are answers to a question somebody asked, not a record of what happened, and

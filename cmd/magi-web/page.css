@@ -813,14 +813,17 @@
     transform-box:view-box; transform-origin:12px 12px;
     transition:transform var(--magi-sys-dur-medium2) var(--magi-sys-ease-emphasized);
   }
-  /* Light in force: the sun is up and the moon is below the horizon, turned as it went down. */
+  /* Both wait BELOW the horizon and both rise. The one that is leaving sinks the same way it came
+     up, which is the only arrangement where the sun is seen to rise: parked above, it descended
+     into the middle of the sky on its way in — a sunrise played backwards. Same direction for both
+     bodies, so the press reads as one sky turning rather than two icons passing. */
   .sky .moon { transform:translateY(160%) rotate(-40deg); }
   @media (prefers-color-scheme: dark) {
     :root:not([color-theme]) .sky .moon { transform:none; }
-    :root:not([color-theme]) .sky .sun { transform:translateY(-160%) rotate(40deg); }
+    :root:not([color-theme]) .sky .sun { transform:translateY(160%) rotate(-40deg); }
   }
   :root[color-theme="dark"] .sky .moon { transform:none; }
-  :root[color-theme="dark"] .sky .sun { transform:translateY(-160%) rotate(40deg); }
+  :root[color-theme="dark"] .sky .sun { transform:translateY(160%) rotate(-40deg); }
   /* The row a preference sits on: what it is, and the control that changes it, at opposite ends. */
   .prefrow { display:flex; align-items:center; justify-content:space-between; gap:var(--magi-sys-space-200); }
 
