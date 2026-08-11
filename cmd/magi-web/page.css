@@ -275,6 +275,10 @@
        guide forbids truncating a rail label, forbids an ellipsis and forbids shrinking the type to
        make one fit, so the only lever left is the rail. At 96 the item is 80 and the word fits. */
     --magi-comp-rail-w:6rem;
+    /* The side pane's width, named because two places have to agree about it: the grid track it
+       sits in, and the pane itself — which is pinned to it so a narrowing track clips the pane
+       instead of reflowing its text. */
+    --magi-comp-side-w:22rem;
     --magi-sys-dur-short2:100ms; --magi-sys-dur-short4:200ms; --magi-sys-dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -1215,7 +1219,7 @@
   }
   @media (min-width:52.5em) {
     #agentview {
-      grid-template-columns:minmax(0, 1fr) 22rem; align-items:start;
+      grid-template-columns:minmax(0, 1fr) var(--magi-comp-side-w); align-items:start;
       /* The pane opens and closes rather than appearing and vanishing. Both tracks are lengths so
          the change interpolates — with auto on the shut side there is nothing to interpolate to,
          which is why this was a jump. */
@@ -1246,6 +1250,11 @@
     }
     #side {
       flex:1 1 auto; min-height:0;
+      /* Pinned to the pane's full width, so the column narrowing past it CLIPS rather than
+         reflows. Left to shrink, every line in the pane re-wrapped on the way through — the
+         content got taller as it got narrower and a scrollbar flashed in and out for the length
+         of the movement, which is the one thing an animation must not do. */
+      width:var(--magi-comp-side-w); box-sizing:border-box;
       /* Down, never sideways. A session id and a workspace path are long unbreakable strings, and
          with overflow:auto they gave this column a horizontal scrollbar — drawn across the bottom
          of the pane, scrolling content that has somewhere better to go: the cards wrap it. A
