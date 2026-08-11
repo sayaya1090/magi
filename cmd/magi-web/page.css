@@ -625,12 +625,18 @@
      told to be: it was nudged there with a translate measured against an 80px rail, and when the
      rail became 96 the nudge was 12px short — a number that has to be recomputed whenever anything
      around it moves is a number that will be wrong again. align-self does it at any width. */
-  #railMenu { transition:transform 250ms var(--magi-sys-ease-emphasized); }
-  body:not([nav="open"]) #railMenu { align-self:center; margin-left:0; }
+  /* The menu button does not move. Not by 4px, not ever: it is the one control that is in the same
+     place before and after the press, and a button that shifts under the finger that just pressed
+     it is the thing the eye follows instead of the drawer.
+     Fixed at the collapsed centre — (96 rail − 40 button) ÷ 2 — and the destinations are given a
+     leading space that puts their icons on that same line (below), so the whole icon column stands
+     still and only the words arrive. */
+  /* The menu button's position is fixed and is written once, further down, beside the other rail
+     controls it shares a colour with. */
   /* Expanded, on the same vertical line as the destinations' icons rather than 20px to the left of
      them. The item insets its content by space-200 and the icon sits centred in a 56px indicator;
      the button is 40px, so it needs that inset plus half the difference to land on the same line. */
-  body[nav="open"] #railMenu { margin-left:calc(var(--magi-sys-space-200) + (56px - 40px) / 2); }
+
   #rail .ic { flex:none; display:block; }
   #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }
   /* A destination. Expanded it is a row — icon, then the word — and collapsed it is the word UNDER
@@ -642,18 +648,26 @@
     text-decoration:none; color:var(--magi-ref-muted);
     font:600 var(--md-sys-typescale-label-medium-size)/1rem var(--magi-ref-mono);
     letter-spacing:0.05em; border-radius:var(--magi-sys-shape-full);
-    padding-inline:var(--magi-sys-space-200);
+    /* 12px, not the scale's 16: it is what puts the 56px indicator's centre on the line the
+       collapsed rail stands its icons on — 8 of rail padding + 12 + 28 = 48, and collapsed
+       8 + 80/2 = 48. Four pixels off the token buys an icon column that does not move when the
+       drawer opens, which is the difference somebody actually sees. */
+    padding-inline:12px;
   }
   /* 56dp expanded, 64dp with the word under the icon — the two the spec gives a rail item.
      Named through #railNav because .raili also carries .state, and .state sets the 48dp floor for
      every hand-built control on the page; equal specificity, and the later one was winning. */
-  #railNav .raili { min-height:56px; }
-  body:not([nav="open"]) #railNav .raili { min-height:64px; }
+  /* The one number that must not jump. Everything else about the item's shape is state and changes
+     between two frames behind the rail's clip; the height is a length, so it travels — otherwise
+     every destination below the first hops 8px at the instant of the press. Same curve and length
+     as the width it happens under, so it reads as one movement. */
+  #railNav .raili { min-height:56px; transition:min-height 250ms var(--magi-sys-ease-emphasized); }
+  body:not([nav-wide]) #railNav .raili { min-height:64px; }
   .raili .icwrap {
     display:grid; place-items:center; position:relative;
     width:56px; height:32px; border-radius:var(--magi-sys-shape-full); flex:none;
   }
-  body:not([nav="open"]) .raili {
+  body:not([nav-wide]) .raili {
     flex-direction:column; gap:var(--magi-sys-space-50); padding-inline:0;
     min-height:64px; justify-content:center;
   }
@@ -672,14 +686,14 @@
   }
   .raili:hover .icwrap::after { opacity:.08; }
   .raili:focus-visible .icwrap::after, .raili:active .icwrap::after { opacity:.12; }
-  body[nav="open"] .raili .icwrap::after { opacity:0 !important; }
-  body[nav="open"] .raili:hover::after { opacity:.08; }
-  body[nav="open"] .raili:focus-visible::after, body[nav="open"] .raili:active::after { opacity:.12; }
+  body[nav-wide] .raili .icwrap::after { opacity:0 !important; }
+  body[nav-wide] .raili:hover::after { opacity:.08; }
+  body[nav-wide] .raili:focus-visible::after, body[nav-wide] .raili:active::after { opacity:.12; }
   .raili:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--magi-ref-accent)); outline-offset:2px; }
   .raili[selected] { color:var(--magi-ref-primary); }
   .raili[selected] .icwrap { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
-  body[nav="open"] .raili[selected] { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
-  body[nav="open"] .raili[selected] .icwrap { background:transparent; }
+  body[nav-wide] .raili[selected] { background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent); }
+  body[nav-wide] .raili[selected] .icwrap { background:transparent; }
   .raili .lbl { font-weight:500; }
   .raili[selected] .lbl { font-weight:700; }
   .raili[selected] .ic path { stroke-width:2.4; }
@@ -715,11 +729,11 @@
   /* Widened, the row has a word in it and the count belongs after the word — riding the icon is
      what a badge does when the icon is all there is. Anchored to the ITEM rather than to the icon,
      so it lands at the end of the row. */
-  body[nav="open"] .raili { position:relative; }
-  body[nav="open"] #rail .icwrap { overflow:visible; }
+  body[nav-wide] .raili { position:relative; }
+  body[nav-wide] #rail .icwrap { overflow:visible; }
   /* Expanded, the badge is a child of the list item and lays itself out beside the label; the
      move is placeRailBadge()'s, and this rule only says what it looks like once it is there. */
-  body[nav="open"] .raili > md-badge { position:static; align-self:center; }
+  body[nav-wide] .raili > md-badge { position:static; align-self:center; }
   #prefsForm { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:16rem; }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
@@ -745,12 +759,46 @@
   #railMenu, #themeToggle, #prefs {
     --md-icon-button-icon-color:var(--magi-ref-muted); color:var(--magi-ref-muted);
   }
-  /* Where the icons are, not centred on whatever width the rail happens to be. Centred, it slid
-     sideways every time the rail widened — the one control that should not move when you press it. */
-  #railMenu { align-self:start; margin-left:var(--magi-sys-space-50); }
-  #railMenu .ic-close { display:none; }
-  body[nav="open"] #railMenu .ic-open { display:none; }
-  body[nav="open"] #railMenu .ic-close { display:block; }
+  /* The menu button does not move. Not by four pixels, not ever: it is the one control that is in
+     the same place before and after the press, and a button that shifts under the finger that just
+     pressed it is what the eye follows instead of the drawer.
+     20px puts its centre at 48 — 8 of rail padding, then 20, then half of a 40px button — which is
+     the line the collapsed rail stands its destination icons on. The expanded item's leading space
+     (see .raili) is chosen to land its icons on that same 48, so the whole column stands still and
+     only the words arrive. */
+  #railMenu { align-self:start; margin-left:20px; }
+  /* The lines travel; they are not swapped for a cross.
+     Each bar of the hamburger is two halves meeting in the middle. Opening, every half keeps the
+     end it shares with its twin, walks that end to the centre of the box and turns 45° — so the
+     four halves arrive as the four arms of the cross, and what you watched was the same five
+     strokes moving rather than one icon replaced by another. The middle bar has nothing to become:
+     both of its ends walk to its own centre until there is no line left.
+     Closing runs the same transitions backwards, for free, because this is a state and not an
+     animation: the attribute goes away and every stroke returns the way it came.
+
+     transform-box:view-box so an origin can be written in the coordinates the markup uses — the
+     default measures from the element's own bounding box, which for a horizontal line is a strip
+     of zero height and puts every rotation somewhere unintended.
+
+     The arithmetic, once: a half is 9 long and its shared end sits 6 above or below the centre. Walk
+     that end 6 and turn 45°, and the far end lands at 12 ∓ 6.36 in both axes — a cross a shade
+     larger than the bars were wide, centred, and symmetric in all four directions by construction
+     rather than by four hand-tuned numbers. */
+  .burger line {
+    stroke:currentColor; stroke-width:2; stroke-linecap:round;
+    transform-box:view-box;
+    transition:transform var(--magi-sys-dur-short4) var(--magi-sys-ease-emphasized);
+  }
+  .burger .bt { transform-origin:12px 6px; }
+  .burger .bb { transform-origin:12px 18px; }
+  .burger .bm { transform-origin:12px 12px; }
+  body[nav="open"] .burger .bt.bl { transform:translateY(6px)  rotate(45deg); }
+  body[nav="open"] .burger .bt.br { transform:translateY(6px)  rotate(-45deg); }
+  body[nav="open"] .burger .bb.bl { transform:translateY(-6px) rotate(-45deg); }
+  body[nav="open"] .burger .bb.br { transform:translateY(-6px) rotate(45deg); }
+  /* Both ends to the centre. scaleX rather than a fade: a line that dims is still a line crossing
+     the other four halfway through every press. */
+  body[nav="open"] .burger .bm { transform:scaleX(0); }
   /* One of the two is always hidden, and which one follows the theme in force — including when that
      theme is the machine's, so the query appears here as well as the attribute. Same pairing the
      palette uses, for the same reason: a reader can override the machine in both directions. */

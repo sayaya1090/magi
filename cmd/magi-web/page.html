@@ -104,15 +104,24 @@
 <nav id="rail">
   <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
        far corner it did not look like it belonged to the column across the page. -->
-  <!-- Two icons, one shown at a time. The guide asks that an expanded rail's menu icon say it can
-       be collapsed, and aria-expanded alone says that only to a screen reader — the sighted user
-       pressing it twice got the same three lines both times. -->
+  <!-- One icon with three lines, not two icons swapped. The guide asks that an expanded rail's menu
+       icon say it can be collapsed, and aria-expanded says that only to a screen reader — the
+       sighted user pressing it twice got the same three lines both times.
+       Drawn here rather than taken from the sprite, and this is the one place where that is the
+       better drawing: a symbol can be exchanged for another symbol, and what this control wants is
+       for the SAME three strokes to travel — the outer two rotating into a cross while the middle
+       one goes. That is three elements moving, which no single glyph can be. -->
   <md-icon-button id="railMenu" aria-expanded="false">
-    <svg data-i="#i-sl-bars" class="ic-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
-    </svg>
-    <svg data-i="#i-sl-xmark" class="ic-close" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <svg class="burger" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <!-- Five strokes, because the top and bottom bars are each two halves. Closed, the halves sit
+           end to end and read as one line; opened, each half swings about the point where it met
+           its twin and the four of them become the arms of the cross. The middle bar has no twin
+           to become, so it draws itself in to its own centre and is gone. -->
+      <line class="bt bl" x1="3"  y1="6"  x2="12" y2="6"/>
+      <line class="bt br" x1="12" y1="6"  x2="21" y2="6"/>
+      <line class="bm"    x1="3"  y1="12" x2="21" y2="12"/>
+      <line class="bb bl" x1="3"  y1="18" x2="12" y2="18"/>
+      <line class="bb br" x1="12" y1="18" x2="21" y2="18"/>
     </svg>
   </md-icon-button>
   <!-- The icons are drawn here rather than pulled from Material Symbols: that is a whole font to

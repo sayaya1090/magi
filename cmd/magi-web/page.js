@@ -4332,8 +4332,10 @@ const scrimEl = document.getElementById('scrim');
 // paint(): paint does not run on a nav toggle, so the reparent never happened and a stylesheet
 // rule was quietly doing the work with a calc(100% + 9.2rem) nobody could derive. One mechanism.
 function placeRailBadge() {
-  const open = document.body.getAttribute('nav') === 'open';
-  const home = open ? railFleet : railFleet.querySelector('.icwrap');
+  // With the shape, not with the width: the badge belongs in the row exactly while the item IS a
+  // row, which on the way out lasts a quarter second longer than the drawer does.
+  const wide = document.body.hasAttribute('nav-wide');
+  const home = wide ? railFleet : railFleet.querySelector('.icwrap');
   // Beside the label means AFTER it, in the flow, which is a thing layout already knows how to do:
   // in the item's default slot the badge follows the label's last character in any language, with
   // nothing measured and nothing to keep in step. The version this replaces pushed it with a fixed
@@ -4343,18 +4345,46 @@ function placeRailBadge() {
   railBadge.removeAttribute('slot');
   if (home && railBadge.parentNode !== home) home.append(railBadge);
 }
+// Opening and closing are not mirror images, and trying to make them one was the flinch.
+//
+// The items change SHAPE, not size over time: collapsed a destination is an icon with the word
+// beneath it, expanded it is a row, and flex-direction is state rather than motion.
+//
+// OPENING, the new shape goes on immediately. The rail hides its horizontal overflow, so the row is
+// drawn at full width behind the edge and is uncovered as the rail widens — which is the movement
+// a drawer is supposed to have.
+//
+// CLOSING, the same trick is wrong: the row would become a column while the rail is still wide, and
+// a centred column in a 235px rail puts the icon at x=117 — measured — so the icons swing right and
+// come back. The shape waits for the width instead, and changes once, at the end, in a rail that is
+// already narrow.
+//
+// So nav says how wide, nav-wide says which shape, and only the closing direction separates them.
+const RAIL_MS = 250;
+let railTimer = 0;
 const closeNav = () => {
-  document.body.removeAttribute('nav');
+  clearTimeout(railTimer);
+  document.body.removeAttribute('nav');        // the width goes now
   railMenu.setAttribute('aria-expanded', 'false');
-  placeRailBadge();
+  railTimer = setTimeout(() => {
+    // Unless it was opened again inside the quarter second, in which case the shape it is wearing
+    // is the one it wants.
+    if (document.body.getAttribute('nav') !== 'open') {
+      document.body.removeAttribute('nav-wide');
+      placeRailBadge();
+    }
+  }, RAIL_MS);
 };
 scrimEl.onclick = closeNav;
 railMenu.onclick = () => {
   if (document.body.getAttribute('nav') === 'open') { closeNav(); return; }
+  clearTimeout(railTimer);
   document.body.setAttribute('nav', 'open');
+  document.body.setAttribute('nav-wide', '');  // shape first, the clip covers it
   railMenu.setAttribute('aria-expanded', 'true');
   placeRailBadge();
 };
+
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
 prefsEl.onclick = () => prefsDialog.show();
