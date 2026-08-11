@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -30,6 +31,21 @@ import (
 // is over — or hands back what is not done, and the agent keeps working. Ending was a passive event
 // before this: the agent stopped calling tools and the turn simply stopped, with nothing asked and
 // nothing shown. Now it is an act, and the act is answered.
+// councilDoingCall is the call id the council's progress note is filed under.
+//
+// A council is not a tool call and has no id of its own, but the note is cleared BY id — a
+// mechanism built so a finished call cannot blank a running call's line. A constant of its own
+// keeps the council's note in that mechanism rather than beside it.
+const councilDoingCall = "council"
+
+// councilDoing is the line an outside reader gets while the council sits.
+func councilDoing(members, answered int) string {
+	if answered >= members {
+		return fmt.Sprintf("the council has answered (%d of %d) — reading the verdicts", answered, members)
+	}
+	return fmt.Sprintf("waiting on the council: %d of %d have answered", answered, members)
+}
+
 func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, question string, complete bool) (string, error) {
 	if a.cfg.Council == nil {
 		return "", fmt.Errorf("no council is configured for this run")
@@ -102,7 +118,19 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: 1, Member: m.Name, State: "asking"})
 		a.publishTransient(sid, event.TypeCouncilDeliberating, councilActor, ld)
 	}
+	// And where a reader outside this process can be told.
+	//
+	// The two events above are transient: they reach the terminal drawing this daemon and nobody
+	// else. A council takes a median 87 seconds — the longest single thing a turn does — and from
+	// an attached window or a console it was 87 seconds of a turn that had simply stopped saying
+	// anything. This is the same field a long-running tool writes, which is the field both of
+	// those surfaces already read.
+	a.noteDoing(sid, councilDoingCall, councilDoing(len(members), 0))
+	defer a.clearDoing(sid, councilDoingCall)
 
+	// Atomic because the members are polled CONCURRENTLY and this callback runs on whichever
+	// goroutine answers — a plain counter here is a data race, and the race detector runs in CI.
+	var answered atomic.Int64
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
 		NoChanges:    strings.TrimSpace(changes) == "",
@@ -123,6 +151,9 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		// one that should be replayable. A live preview that a later round revises is a display
 		// concern, and the surfaces that read the log keep counting three verdicts per council.
 		OnVerdict: func(v council.Verdict) {
+			// Counted as they land, so the line moves: "3 of 3 answered" for a minute and a half
+			// is indistinguishable from a line that got stuck.
+			a.noteDoing(sid, councilDoingCall, councilDoing(len(members), int(answered.Add(1))))
 			vd, _ := json.Marshal(event.CouncilVerdictData{
 				Round: 1, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
 				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,

@@ -20,9 +20,18 @@ type fakeCouncil struct {
 	calls   int
 	lastReq port.DeliberationRequest
 	reqs    []port.DeliberationRequest // every request in order, so a re-round's carried context is assertable
+	// onDeliberate runs INSIDE the call, for the tests whose subject is what is true while the
+	// council sits — a live note, a state that must be cleared afterwards. Asserting after the
+	// call returns cannot see any of it.
+	onDeliberate func(req port.DeliberationRequest)
+	app          *App
+	sid          session.SessionID
 }
 
 func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
+	if f.onDeliberate != nil {
+		f.onDeliberate(req)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastReq = req
