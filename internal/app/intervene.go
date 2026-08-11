@@ -61,6 +61,7 @@ func interventions(evs []event.Event, sid session.SessionID) []Intervention {
 	var out []Intervention
 	open := false          // a turn is running
 	var openedAt time.Time // when it started
+	answered := answeredInline(evs)
 	for _, e := range evs {
 		switch e.Type {
 		case event.TypePromptSubmitted:
@@ -79,10 +80,18 @@ func interventions(evs []event.Event, sid session.SessionID) []Intervention {
 				continue
 			}
 			if open {
-				out = append(out, Intervention{
-					Kind: "steer", Text: text, At: e.TS, Session: sid,
-					AfterSec: secondsBetween(openedAt, e.TS),
-				})
+				// Unless the reply simply answered it. Something asked mid-turn and dealt with on
+				// the spot — "what model is this on?" — did not change the work and is not a
+				// correction; counting it put ordinary questions on the list a supervisor reads to
+				// decide what should become a rule. The log says which those were: the agent
+				// routed the interjection as "answered", or its reply named the message it was
+				// answering.
+				if !answered[d.MessageID] {
+					out = append(out, Intervention{
+						Kind: "steer", Text: text, At: e.TS, Session: sid,
+						AfterSec: secondsBetween(openedAt, e.TS),
+					})
+				}
 				continue // the turn stays open; a steer does not start a new one
 			}
 			open, openedAt = true, e.TS
@@ -102,6 +111,31 @@ func interventions(evs []event.Event, sid session.SessionID) []Intervention {
 				Kind: "denied", Text: d.CallID, At: e.TS, Session: sid,
 				AfterSec: secondsBetween(openedAt, e.TS),
 			})
+		}
+	}
+	return out
+}
+
+// answeredInline is every mid-turn message the log says was simply answered.
+//
+// Two markers, because there are two ways it happens and both mean the same thing: the agent
+// routed the interjection as "answered", and an assistant part that answers one inline names it.
+// Read in a pass of its own — both markers land AFTER the prompt they are about, so a single
+// forward pass would have to decide before the evidence arrives.
+func answeredInline(evs []event.Event) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range evs {
+		switch e.Type {
+		case event.TypeInterjectionAnswered:
+			var d event.InterjectionAnsweredData
+			if json.Unmarshal(e.Data, &d) == nil && d.MessageID != "" {
+				out[d.MessageID] = true
+			}
+		case event.TypePartAppended:
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) == nil && d.InReplyTo != "" {
+				out[d.InReplyTo] = true
+			}
 		}
 	}
 	return out

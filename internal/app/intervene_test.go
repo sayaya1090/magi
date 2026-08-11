@@ -129,3 +129,42 @@ func TestEverySteerInATurnCounts(t *testing.T) {
 		t.Errorf("the last steer is timed from the TURN's start, not the previous steer: %+v", got[2])
 	}
 }
+
+// A question answered on the spot is not a correction.
+//
+// Anything a person says mid-turn counted as a steer, so "what model is this on?" — asked while
+// something ran, answered in the reply, and changing nothing about the work — landed on the list a
+// supervisor reads to decide what should become a rule. That list is only worth reading if
+// everything on it is a moment the agent had to be corrected.
+//
+// The log already tells them apart, in two places, because there are two ways it happens: the
+// agent routes the interjection as "answered", or its reply names the message it is answering.
+func TestSomethingAnsweredOnTheSpotIsNotASteer(t *testing.T) {
+	t0 := time.Date(2026, 8, 7, 9, 0, 0, 0, time.UTC)
+	ask := func(at time.Time, id, text string) event.Event {
+		return evAt(t, event.TypePromptSubmitted, event.ActorUser, at, event.PromptSubmittedData{
+			MessageID: id, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+	}
+	evs := []event.Event{
+		ask(t0, "m1", "port the rate limiter"),
+		evAt(t, event.TypePartAppended, event.ActorAgent, t0.Add(5*time.Second), event.PartAppendedData{MessageID: "a1"}),
+		// Asked mid-turn and simply answered: the agent said so through route_interjection.
+		ask(t0.Add(10*time.Second), "m2", "what model is this on?"),
+		evAt(t, event.TypeInterjectionAnswered, event.ActorSystem, t0.Add(12*time.Second),
+			event.InterjectionAnsweredData{MessageID: "m2"}),
+		// Asked mid-turn and answered inline: the reply names it instead.
+		ask(t0.Add(20*time.Second), "m3", "how many steps has this taken?"),
+		evAt(t, event.TypePartAppended, event.ActorAgent, t0.Add(22*time.Second),
+			event.PartAppendedData{MessageID: "a2", InReplyTo: "m3"}),
+		// And an actual correction, which is what the list is for.
+		ask(t0.Add(30*time.Second), "m4", "no, not that file"),
+		evAt(t, event.TypeTurnFinished, event.ActorAgent, t0.Add(time.Minute), event.TurnFinishedData{}),
+	}
+	got := interventions(evs, "s1")
+	if len(got) != 1 {
+		t.Fatalf("found %d interventions, want only the correction: %+v", len(got), got)
+	}
+	if got[0].Text != "no, not that file" {
+		t.Errorf("the one that counted was %q", got[0].Text)
+	}
+}
