@@ -2288,14 +2288,20 @@ func TestAnOutcomeIsAGlyphAndNotOnlyAColour(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 draw([{who:'result',text:'it worked'},{who:'failed',text:'it did not'},
       {who:'error',text:'the provider closed the stream'}]);
-const textOf = n => (n.textContent || '') + (n.children || []).map(textOf).join('');
+// Text and marks: an outcome that became a drawing carries no text for a walker to find, and the
+// point of this test is that the outcome is said in more than colour — a symbol counts.
+const textOf = n => (n.textContent || '') + (n.attrs && n.attrs.href ? ' ' + n.attrs.href : '') +
+                    (n.children || []).map(textOf).join('');
 console.log(JSON.stringify({rows: byId.log.children.map(r => ({cls: r.className, text: textOf(r)}))}));`)
 
 	rows, _ := got["rows"].([]any)
 	if len(rows) != 3 {
 		t.Fatalf("drew %d rows, want 3", len(rows))
 	}
-	want := []struct{ cls, glyph string }{{"result", "✓"}, {"failed", "✗"}, {"error", "✗"}}
+	// The character, or the symbol that replaced it. Both say the same thing and a build has one of
+	// the two; asserting only on the character failed a build whose marks are drawings.
+	want := []struct{ cls, glyph, drawn string }{
+		{"result", "✓", "i-sl-check"}, {"failed", "✗", "i-sl-xmark"}, {"error", "✗", "i-sl-xmark"}}
 	for i, w := range want {
 		m, _ := rows[i].(map[string]any)
 		cls, _ := m["cls"].(string)
@@ -2303,8 +2309,8 @@ console.log(JSON.stringify({rows: byId.log.children.map(r => ({cls: r.className,
 		if !strings.Contains(cls, w.cls) {
 			t.Errorf("row %d is %q, want a %s row", i, cls, w.cls)
 		}
-		if !strings.Contains(text, w.glyph) {
-			t.Errorf("a %s row says %q, with no %s in it", w.cls, text, w.glyph)
+		if !strings.Contains(text, w.glyph) && !strings.Contains(text, w.drawn) {
+			t.Errorf("a %s row says %q, with neither %s nor a drawn mark in it", w.cls, text, w.glyph)
 		}
 	}
 }
@@ -3029,8 +3035,10 @@ draw([
   {who:'tool', tool:'grep', ok:true, args:'{"pattern":"empty"}', out:'"src/list.tsx\\nsrc/table.tsx"'},
 ]);
 const rows = byId.log.children;
+// .text, not .textContent: the summary is a mark node and a text node now, and the element's own
+// string is empty. The recursive getter is what a reader of that line actually sees.
 const sum = r => (r.children.find(c => (c.className||'').includes('fold')) || {children:[]})
-  .children.filter(c => c.tag === 'summary').map(c => c.textContent)[0] || '';
+  .children.filter(c => c.tag === 'summary').map(c => c.text)[0] || '';
 const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
 const body = r => { const f = r.children.find(c => (c.className||'').includes('fold')); return f ? words(f) : ''; };
 const cls = n => { const out=[]; const walk=k=>{ out.push(k.className||''); (k.children||[]).forEach(walk); }; walk(n); return out; };

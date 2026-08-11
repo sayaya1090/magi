@@ -723,6 +723,7 @@ function confirmStop(who, go) {
   stopBody.textContent = tr('stop.body');
   stopCancel.textContent = tr('action.keep_running');
   stopGo.textContent = tr('action.interrupt');
+  withMark(stopGo, '#i-ss-circle-stop');
   stopCancel.onclick = () => stopDialog.close('cancel');
   stopGo.onclick = () => { stopDialog.close('stop'); go(); };
   stopDialog.show();
@@ -917,13 +918,22 @@ function srOnly(text) {
 // by somebody who has forgotten what it asked.
 function arm(btn, label, act) {
   let armed = false, timer = 0;
-  btn.textContent = label;
-  const reset = () => { armed = false; btn.className = btn.className.replace(' armed', ''); btn.textContent = label; };
+  // The mark survives the label changing. textContent replaces EVERYTHING a component was given —
+  // slotted icon included — so a button that had been handed one lost it on the first write and
+  // again on every disarm: the two destructive controls on the lessons page were the only ones
+  // that came out plain. The icon is taken out, the word is set, and it goes back in.
+  const say = word => {
+    const mark = [...(btn.children || [])].find(k => k.getAttribute && k.getAttribute('slot') === 'icon');
+    btn.textContent = word;
+    if (mark) btn.prepend(mark);
+  };
+  say(label);
+  const reset = () => { armed = false; btn.className = btn.className.replace(' armed', ''); say(label); };
   btn.onclick = () => {
     if (armed) { clearTimeout(timer); reset(); act(); return; }
     armed = true;
     btn.className += ' armed';
-    btn.textContent = tr('action.confirm');
+    say(tr('action.confirm'));
     timer = setTimeout(reset, 5000);
   };
 }
@@ -1009,6 +1019,7 @@ function answerBox(a) {
     const i = document.createElement('md-outlined-text-field');
     i.label = tr('label.answer');
     const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');
+  withMark(b, '#i-ss-paper-plane');
     // Disabled until there is something to send, rather than pressable and inert. The guide is
     // explicit that an action which cannot happen is DISABLED and not hidden, and the third state
     // — drawn as pressable and then doing nothing — is the one it does not offer: a press that
@@ -2427,6 +2438,7 @@ async function drawContext(a, box, grid, field) {
   // and would rather it happened now, between turns, than in the middle of the next one.
   const fold = document.createElement('md-text-button');
   fold.className = 'fold'; fold.textContent = tr('action.compact_now');
+  withMark(fold, '#i-sl-compress');
   tip(fold, tr('hint.compact'));
   // Returns its promise, for the same reason drawDetail does: a caller that wants to know when the
   // fold has landed — a test, or a later screen — has no other way, and the held reading must be
@@ -2725,6 +2737,7 @@ function skillWrite(all) {
 
   const save = document.createElement('md-filled-button');
   save.textContent = tr('action.write_down');
+  withMark(save, '#i-sl-plus');
   // Same as the answer button: disabled while there is nothing to write down, rather than
   // pressable and inert.
   const armSave = () => save.toggleAttribute('disabled', !note.value.trim());
@@ -2792,6 +2805,7 @@ async function loadSkills() {
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
     tip(drop, tr('hint.forget'));
+    withMark(drop, '#i-sl-eraser');
     arm(drop, tr('action.forget'), () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
       // peer name is how this one knows which machine to ask; a global rule has no socket and the
@@ -2892,6 +2906,7 @@ async function loadMCP() {
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
     tip(drop, tr('hint.remove_server', {file: sv.file}));
+    withMark(drop, '#i-ss-trash-can');
     arm(drop, tr('action.remove'), () => {
       const body = new URLSearchParams({name: sv.name, delete: '1'});
       if (!sv.socket) body.set('tier', 'global');
@@ -3051,6 +3066,7 @@ async function loadMCP() {
   const open = document.createElement('md-filled-tonal-button');
   open.className = 'mcpopen';
   open.textContent = tr('action.add_server');
+  withMark(open, '#i-sl-plus');
   open.onclick = () => openMCP(null);
 
   if (!list.length) {
@@ -3263,6 +3279,24 @@ function answerLine(out) {
   return oneLine(first, 44);
 }
 
+// The mark on a folded row's summary line: how the call ended, or what kind of row this is.
+//
+// Returned as a pair — the symbol to draw and the character to fall back to — because both have to
+// mean the same thing, and a build with no icons must still say it. ⚠ is not a failure: the call
+// did what it was asked and left something to read (a post-edit hook, a language server on the
+// file it just wrote), and drawing that as ✗ told somebody their file had not been written while
+// it sat on disk.
+function summaryMark(r) {
+  if (r.who === 'tool') {
+    if (r.ok === undefined) return ['#i-sl-spinner-third', '\u2699', 'spin'];
+    if (r.ok) return ['#i-sl-check', '\u2713', 'ok'];
+    return r.note ? ['#i-sl-triangle-exclamation', '\u26A0', 'note'] : ['#i-sl-xmark', '\u2717', 'bad'];
+  }
+  if (r.who === 'result') return ['#i-sl-check', '\u2713', 'ok'];
+  if (r.who === 'failed') return ['#i-sl-xmark', '\u2717', 'bad'];
+  return null;
+}
+
 function summaryFor(r) {
   if (r.who === 'tool') {
     // The glyph says how it ended, on the line that is visible while the row is shut. Split across
@@ -3271,21 +3305,24 @@ function summaryFor(r) {
     // hook, a language server on the file it just wrote. Those arrive marked as errors so the
     // agent reads them, and drawing that as ✗ told somebody their file had not been written while
     // it sat on disk.
-    const g = r.ok === undefined ? '⚙' : (r.ok ? '✓' : (r.note ? '⚠' : '✗'));
+    // The mark itself is built by summaryMark below and prepended by the caller; what stays here
+    // is the sentence. A glyph inside the string could not become a drawing without the string
+    // becoming a node, and this string is also what the fold's aria-label reads.
+    const g = '';
     // A plan is a list of statuses, and its raw arguments are the worst way to read one — the same
     // JSON the panel turns into ticked lines, flattened and clipped mid-item. The count goes where
     // the argument preview would have been, exactly as the terminal does it.
     const todos = todosOf(r.args);
     if (todos) {
       const done = todos.filter(t => t.status === 'completed').length;
-      return g + ' ' + (r.tool || '') + '  ' + done + '/' + todos.length;
+      return (r.tool || '') + '  ' + done + '/' + todos.length;
     }
     // What it was asked, and then what came back. The terminal has put the outcome on this line
     // since it had one, and "did that work" is only half the question — the other half is what it
     // found, which was behind a fold on a row somebody had no reason to open.
     const asked = r.diff ? pathOf(r.args) : (r.args ? oneLine(r.args, 60) : '');
     const said = r.ok === undefined ? '' : answerLine(r.out);
-    return g + ' ' + (r.tool || '') + (asked ? ' ' + asked : '') + (said ? '  ⟶ ' + said : '');
+    return (r.tool || '') + (asked ? ' ' + asked : '') + (said ? '  \u27F6 ' + said : '');
   }
   // A council row's summary is its first line: the vote, or the outcome and the tally. What is
   // behind it is the reasoning and what the vote rested on — the same split the terminal makes,
@@ -3294,8 +3331,8 @@ function summaryFor(r) {
   if (r.who === 'shell') return '! ' + r.text + (r.exit === undefined ? '' : '  → ' + r.exit);
   // A result that arrived without its call — a compaction took the call away — still says how it
   // ended. The glyph is the fact; the colour repeats it for whoever reads colour.
-  if (r.who === 'result') return '✓ ' + oneLine(r.text, 88);
-  if (r.who === 'failed') return '✗ ' + oneLine(r.text, 88);
+  if (r.who === 'result') return oneLine(r.text, 88);
+  if (r.who === 'failed') return oneLine(r.text, 88);
   // The label is a different word from the kind on purpose. 'thinking' is what the server calls
   // this row; the word a person reads is a translated label, and spelling them the same is how one
   // of them ends up hard-coded in English on every other locale.
@@ -3433,7 +3470,13 @@ function rowNode(r) {
       localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut');
     });
     det.dataset.kind = r.who;
-    det.append(el('summary', summaryFor(r)));
+    const head = el('summary');
+    const mk = summaryMark(r);
+    if (mk) {
+      head.append(iconOr(mk[0], mk[1], 'mk ' + mk[2]), document.createTextNode(' '));
+    }
+    head.append(document.createTextNode(summaryFor(r)));
+    det.append(head);
     const body = el('div'); body.className = 'foldbody';
     // A tool call is its arguments; a result is its output. Neither is prose, so both are drawn as
     // preformatted text rather than run through markdown that would eat their brackets.
@@ -3634,6 +3677,7 @@ function openFormat(a, f) {
   for (const sec of (f.sections || [])) add(sec.key, sec.prompt);
   fmtCancel.textContent = tr('action.cancel');
   fmtGo.textContent = tr('action.save');
+  withMark(fmtGo, '#i-sl-floppy-disk');
   fmtDialog.show();
 }
 
@@ -4008,7 +4052,9 @@ function paint() {
   // Through answerMode, so a language change does not quietly turn the answer field back into the
   // request field while the agent is still waiting on the question above it.
   answerMode(answering);
-  document.getElementById('stop').textContent = tr('action.interrupt');
+  const stopBtn = document.getElementById('stop');
+  stopBtn.textContent = tr('action.interrupt');
+  withMark(stopBtn, '#i-ss-circle-stop');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
   // A secondary tab's indicator spans the tab; a primary tab's hugs its label. The bundle keeps
   // that as a reactive @state with no attribute behind it, so it is set as a property — assigning
@@ -4050,6 +4096,7 @@ function paint() {
   fmtCancel.onclick = () => fmtDialog.close('cancel');
   fmtGo.onclick = () => { fmtDialog.close('save'); saveFormat(); };
   mcpGo.textContent = tr('action.add_or_replace');
+  withMark(mcpGo, '#i-sl-floppy-disk');
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
   paintNotify();
