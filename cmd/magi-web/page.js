@@ -561,6 +561,25 @@ function icon(ref, opts) {
   return svg;
 }
 
+// dressIcons swaps the page's own drawings for the baked ones, where there are baked ones.
+//
+// The markup cannot ask a question — it is a static document — so it carries the shape it has
+// always carried and names the symbol it would rather be in data-i. This runs once and replaces
+// the contents of the ones whose symbol arrived, keeping the element itself: the stylesheet, the
+// size and the aria-hidden are already right on it, and the component it sits inside slotted it a
+// long time before this ran.
+//
+// Full "#i-…" refs in the attribute, for the reason icon() takes them: the generator finds what to
+// bake by grepping for that string, and page.html is one of the two files it reads.
+function dressIcons(root) {
+  for (const box of (root || document).querySelectorAll('[data-i]')) {
+    const ref = box.getAttribute('data-i');
+    const drawn = icon(ref);
+    if (!drawn) continue;                       // no sprite in this build: keep what is there
+    box.replaceChildren(...drawn.children);     // the <use>, into the svg the markup already has
+  }
+}
+
 // iconOr is the common shape: an icon if there is one, else the mark the page has always drawn.
 // Returns a node either way, so callers append rather than branch.
 function iconOr(ref, glyph, cls) {
@@ -4435,6 +4454,9 @@ const touch = matchMedia('(hover: none)').matches;
 t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !touch) { e.preventDefault(); f.requestSubmit(); } };
 document.getElementById('stop').onclick = () => confirmStop(nameOf(sock()), () => post('/interrupt', null));
 
+// The markup's own drawings give way to the baked ones, once, before the first paint. Not on every
+// render: these eight elements are in the document from the start and outlive every redraw.
+dressIcons();
 paint();
 render();
 repaintable = true;

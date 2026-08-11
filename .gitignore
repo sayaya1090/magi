@@ -55,3 +55,7 @@ scratchpad/overnight_log.md
 # Font Awesome Pro icons, baked in at build time by cmd/magi-web/gen_icons.go.
 # The licence permits using them in what you deploy and not republishing them as files.
 cmd/magi-web/icons_gen.go
+
+cmd/magi-web/node_modules/
+cmd/magi-web/.npmrc
+cmd/magi-web/package-lock.json

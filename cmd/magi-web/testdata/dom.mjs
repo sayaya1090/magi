@@ -315,6 +315,28 @@ globalThis.document = {
   // Namespaced elements are the same fake element here. The page builds <svg> and <use> this way
   // because a browser demands it; nothing in these tests reads the namespace back.
   createElementNS(_ns, tag) { return element(tag); },
+  // A sweep of the document, which here finds only what this harness actually holds.
+  //
+  // The fake has no tree built from the markup — it has the ids the page looks up and whatever the
+  // page has since created — so a page-wide query returns the created nodes and none of the eight
+  // drawings that live in page.html. That is the honest answer for this environment rather than an
+  // invented one: what dressIcons() does to those eight is checked in a browser, and what it does
+  // when there is no sprite (nothing) is what these tests exercise.
+  //
+  // Only the [attribute] form, because that is the only selector the page hands it. Anything else
+  // throws rather than quietly matching nothing, which is how a fake stops flattering the page.
+  querySelectorAll(sel) {
+    const m = /^\[([a-z-]+)\]$/.exec(String(sel));
+    if (!m) throw new Error('the fake DOM only understands [attribute] selectors, not ' + sel);
+    const out = [];
+    const walk = n => {
+      if (!n || typeof n !== 'object') return;
+      if (n.attrs && n.attrs[m[1]] !== undefined) out.push(n);
+      for (const k of n.children || []) walk(k);
+    };
+    for (const k of Object.values(byId)) walk(k);
+    return out;
+  },
   getElementById(id) {
     // The icon symbols are allowed to be missing, and are missing HERE: they come from a sprite
     // baked into the binary at build time from a licensed download, and this harness runs the page

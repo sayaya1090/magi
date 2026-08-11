@@ -49,6 +49,33 @@ jobs:
       - name: test the console
         run: go test ./cmd/magi-web/ -count=1
 
+      # The icons, from the registry rather than from this repository. Font Awesome Pro's licence
+      # permits using the art in something you deploy and not republishing it as files, so nothing
+      # licensed is committed here: the page names its icons and the sprite is baked now, from the
+      # package this token opens.
+      #
+      # Not required. A run without the secret — a fork's, or this one before the token existed —
+      # skips it and publishes a demo drawing the shapes the page has always drawn, which is also
+      # exactly what a contributor's own build looks like. That is worth seeing rather than hiding.
+      - name: bake the icons, if this run may
+        env:
+          FA_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
+        working-directory: cmd/magi-web
+        run: |
+          set -euo pipefail
+          if [ -z "${FA_TOKEN:-}" ]; then
+            echo "no icon token in this run — the demo will draw the page's own shapes"
+            exit 0
+          fi
+          cat > .npmrc <<'EOF'
+          @fortawesome:registry=https://npm.fontawesome.com/
+          EOF
+          printf '//npm.fontawesome.com/:_authToken=%s\n' "${FA_TOKEN}" >> .npmrc
+          npm install --no-save --no-audit --no-fund @fortawesome/fontawesome-pro@7
+          rm -f .npmrc
+          MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./...
+          test -f icons_gen.go
+
       - name: build the demo
         run: go run ./cmd/magi-web -emit-demo ./_site
 

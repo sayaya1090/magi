@@ -74,7 +74,7 @@
   <!-- Sliders, not a cog. A cog beside the theme toggle is a circle with spokes next to a circle
        with rays: at 21px they are the same picture, and the two controls sat side by side. -->
   <md-icon-button id="prefs">
-    <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+    <svg data-i="#i-sl-sliders" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
       <path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3"
             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
       <circle cx="15" cy="7" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
@@ -108,10 +108,10 @@
        be collapsed, and aria-expanded alone says that only to a screen reader — the sighted user
        pressing it twice got the same three lines both times. -->
   <md-icon-button id="railMenu" aria-expanded="false">
-    <svg class="ic-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <svg data-i="#i-sl-bars" class="ic-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
       <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
-    <svg class="ic-close" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <svg data-i="#i-sl-xmark" class="ic-close" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
       <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
   </md-icon-button>
@@ -134,7 +134,7 @@
       <!-- The badge rides the icon, which is what a badge is for and the only place it can be when
            the rail is collapsed to icons. -->
       <span class="icwrap">
-        <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+        <svg data-i="#i-sl-users" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
           d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
           fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <md-badge id="railBadge" hidden></md-badge>
@@ -143,7 +143,7 @@
     </a>
     <a id="railSkills" class="raili">
       <span class="icwrap">
-        <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+        <svg data-i="#i-sl-lightbulb" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
           d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
           fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </span>
@@ -193,7 +193,7 @@
 
     <div id="sidecol">
       <md-icon-button id="sideToggle" aria-expanded="false">
-        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+        <svg data-i="#i-sl-table-columns" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
           <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
             stroke-linecap="round" stroke-linejoin="round"/></svg>
       </md-icon-button>
