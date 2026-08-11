@@ -716,6 +716,11 @@ func (a *App) RespondQuestion(ctx context.Context, c command.RespondQuestion) er
 			"or the prompt has expired", c.CallID)
 	}
 	ch <- c.Answer // buffered, and this is the only send that can reach it
+	// And told, so a screen that is showing this question and did not answer it can put it away.
+	// Two UIs on one daemon is the arrangement the socket exists for, and the one that did not
+	// answer was left holding a decision somebody had already made.
+	d, _ := json.Marshal(event.QuestionAnsweredData{CallID: c.CallID, Answer: c.Answer})
+	a.publishTransient(c.SessionID, event.TypeQuestionAnswered, c.Actor, d)
 	return nil
 }
 

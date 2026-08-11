@@ -79,6 +79,12 @@ const (
 	TypeCouncilDeliberating Type = "council.deliberating" // a member is being polled (live panel)
 	TypeModelChanged        Type = "model.changed"        // session's active model changed at runtime — UI re-reads it
 	TypeUserLabelChanged    Type = "user.label.changed"   // user display label changed (plugin set_user_label) — UI re-reads it
+	// TypeQuestionAnswered — somebody answered an ask_user prompt. Announced because a prompt can
+	// be answered from a DIFFERENT process than the one showing it: a browser and a terminal on one
+	// daemon is the arrangement the socket exists for, and the second screen was left holding a
+	// question that had already been decided. A permission has permission.decided for this; a
+	// question had nothing, because its answer goes straight down a channel to the waiting tool.
+	TypeQuestionAnswered Type = "question.answered"
 )
 
 // transientTypes is the set of bus-only event types.
@@ -90,6 +96,7 @@ var transientTypes = map[Type]bool{
 	TypeContextUsage:        true,
 	TypeWorkflowPhase:       true,
 	TypeCouncilDeliberating: true,
+	TypeQuestionAnswered:    true,
 }
 
 // IsTransient reports whether t is a bus-only event type (never persisted).

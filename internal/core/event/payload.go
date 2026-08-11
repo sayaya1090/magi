@@ -63,6 +63,14 @@ type InterjectionAnsweredData struct {
 	MessageID string `json:"messageId"`
 }
 
+// QuestionAnsweredData — TypeQuestionAnswered. Names the prompt that was answered, so a screen
+// showing it knows to put it away. The answer itself rides along for the surfaces that want to say
+// what was chosen rather than only that something was.
+type QuestionAnsweredData struct {
+	CallID string `json:"callId"`
+	Answer string `json:"answer,omitempty"`
+}
+
 // PartAppendedData — TypePartAppended (a single completed part).
 type PartAppendedData struct {
 	MessageID string       `json:"messageId"`

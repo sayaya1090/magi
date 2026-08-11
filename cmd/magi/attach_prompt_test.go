@@ -403,3 +403,49 @@ func (c *controllableEngine) Compact(context.Context, command.Compact) error { r
 func (c *controllableEngine) SetModel(session.SessionID, string)             {}
 func (c *controllableEngine) SetPermission(p string)                         { c.perm = p }
 func (c *controllableEngine) Permission() string                             { return c.perm }
+
+// The attached view is told when the prompt it is showing was answered somewhere else.
+//
+// A permission decision is a fact and reaches a viewer through the log by itself. A question's
+// answer is not — it goes straight down a channel to the tool that was waiting — so the only thing
+// that says the question is over is the daemon no longer reporting it. That is what this poll
+// notices, and until it said so the modal stayed up over a turn that had moved on.
+func TestTheViewIsToldWhenSomebodyElseAnswered(t *testing.T) {
+	eng := &promptEngine{}
+	a := attached{c: serveEngine(t, eng)}
+	sid := session.SessionID("s_1")
+
+	eng.set(&app.Ask{ID: "q1", Kind: "question", What: "which surface?", Since: time.Now()})
+	p := a.pendingPrompt(sid, "")
+	if !p.drawing || p.kind != "question" {
+		t.Fatalf("the question was not drawn as one: %+v", p)
+	}
+	// Answered by the other UI: the daemon stops reporting it.
+	eng.set(nil)
+	if got := a.pendingPrompt(sid, "q1"); !got.cleared {
+		t.Fatal("the poll did not notice the prompt was gone")
+	}
+	ev := answeredElsewhere(sid, "q1", "question")
+	if ev.Type != event.TypeQuestionAnswered {
+		t.Errorf("a question ending was carried as %q", ev.Type)
+	}
+	var qd event.QuestionAnsweredData
+	if err := json.Unmarshal(ev.Data, &qd); err != nil || qd.CallID != "q1" {
+		t.Errorf("it does not name the question: %+v (%v)", qd, err)
+	}
+
+	// A permission ends in the vocabulary a permission has. The decision itself is NOT guessed:
+	// this process does not know which way it went, and the transcript gets the real one from the
+	// log.
+	pv := answeredElsewhere(sid, "call_7", "permission")
+	if pv.Type != event.TypePermissionDecided {
+		t.Errorf("a permission ending was carried as %q", pv.Type)
+	}
+	var pd event.PermissionDecidedData
+	if err := json.Unmarshal(pv.Data, &pd); err != nil || pd.CallID != "call_7" {
+		t.Errorf("it does not name the call: %+v (%v)", pd, err)
+	}
+	if pd.Decision == "allow" || pd.Decision == "deny" {
+		t.Errorf("the viewer invented a decision: %q", pd.Decision)
+	}
+}

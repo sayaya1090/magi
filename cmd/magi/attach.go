@@ -279,10 +279,11 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 		}
 		tick := time.NewTicker(pollInterval)
 		defer tick.Stop()
-		asked := ""   // the prompt already put on screen, so it is drawn once and not every tick
-		note := ""    // the live note already on screen, so an unchanged one is not re-sent each tick
-		user := ""    // the label already delivered, so an unchanged one is not re-sent each tick
-		lost := false // whether the screen has already been told the daemon stopped answering
+		asked := ""     // the prompt already put on screen, so it is drawn once and not every tick
+		askedKind := "" // and which kind it was, so the right "it is over" can be sent when it goes
+		note := ""      // the live note already on screen, so an unchanged one is not re-sent each tick
+		user := ""      // the label already delivered, so an unchanged one is not re-sent each tick
+		lost := false   // whether the screen has already been told the daemon stopped answering
 		for {
 			select {
 			case <-pctx.Done():
@@ -313,14 +314,24 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 			}
 			switch {
 			case drawing:
-				asked = id
+				asked, askedKind = id, p.kind
 				select {
 				case out <- ev:
 				case <-pctx.Done():
 					return
 				}
 			case cleared:
-				asked = "" // answered, or resolved by policy — the next prompt gets through
+				// Answered — here, in a browser, or by policy — and the screen showing it has to
+				// be told. Without this the modal stayed up over a turn that had moved on, and
+				// the only way out of it was to answer a question nobody was waiting on.
+				if asked != "" {
+					select {
+					case out <- answeredElsewhere(sid, asked, askedKind):
+					case <-pctx.Done():
+						return
+					}
+				}
+				asked, askedKind = "", "" // the next prompt gets through
 			}
 			// Only on a change, and an empty one counts: the note going away is what takes the
 			// line off the screen when the call it described returns. Sending the same text every
@@ -429,6 +440,9 @@ type pulse struct {
 	id string
 	// doing is what a running tool last said about itself.
 	doing string
+	// kind is what the pending prompt is: a permission, or a question. Kept because the two are
+	// put away by different events, and the answer that ends one arrives when it is already gone.
+	kind string
 	// user is what the daemon calls the person, and perm is the mode it is on. Both are properties
 	// of that process, both can change while this view is open, and both were previously read out
 	// of this process's own empty copy.
@@ -450,6 +464,9 @@ func (a attached) pendingPrompt(sid session.SessionID, drawn string) pulse {
 		return pulse{id: drawn} // unknown: change nothing
 	}
 	p := pulse{doing: st.Doing, user: st.User, perm: st.Permission, reachable: true}
+	if st.Asking != nil {
+		p.kind = st.Asking.Kind
+	}
 	switch w := st.Asking; {
 	case w == nil:
 		p.cleared = true
@@ -464,6 +481,30 @@ func (a attached) pendingPrompt(sid session.SessionID, drawn string) pulse {
 		p.ev, p.id, p.drawing = ev, w.ID, true
 	}
 	return p
+}
+
+// answeredElsewhere is what a viewer needs when a prompt it is showing was answered somewhere else.
+//
+// A permission decision is a fact and reaches a viewer through the log by itself. A question's
+// answer is not: it goes straight down a channel to the tool that was waiting, so the only thing
+// that says the question is over is the daemon no longer reporting it — which is what the poll
+// notices. Each kind gets the event its own surface already listens for.
+func answeredElsewhere(sid session.SessionID, callID, kind string) event.Event {
+	if kind == "question" {
+		d, _ := json.Marshal(event.QuestionAnsweredData{CallID: callID})
+		return event.Event{
+			SessionID: sid, Type: event.TypeQuestionAnswered, Data: d,
+			Actor: event.Actor{Kind: event.ActorSystem, ID: "attach"},
+		}
+	}
+	// "elsewhere" rather than allow or deny: this process does not know which was chosen, and a
+	// viewer that guessed would put a decision in somebody's mouth. The screen needs only to stop
+	// asking; the transcript gets the real decision from the log.
+	d, _ := json.Marshal(event.PermissionDecidedData{CallID: callID, Decision: "elsewhere"})
+	return event.Event{
+		SessionID: sid, Type: event.TypePermissionDecided, Data: d,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "attach"},
+	}
 }
 
 // userLabelEvent carries a plugin's name for the person across to a viewer.

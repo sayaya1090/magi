@@ -173,6 +173,21 @@ func (m *Model) applyEvent(e event.Event) {
 			m.perm = &permReq{sid: m.sid, callID: d.CallID, name: d.Name, args: string(d.Args), reason: d.Reason}
 		}
 
+	case event.TypePermissionDecided:
+		// Somebody answered it — here, or in a browser on the same daemon, which is the whole
+		// point of the socket. The modal was cleared only by THIS screen answering, so the other
+		// one sat holding a decision that had already been made, over a turn that had moved on.
+		var d event.PermissionDecidedData
+		if json.Unmarshal(e.Data, &d) == nil && m.perm != nil && m.perm.callID == d.CallID {
+			m.perm = nil
+		}
+
+	case event.TypeQuestionAnswered:
+		var d event.QuestionAnsweredData
+		if json.Unmarshal(e.Data, &d) == nil && m.quest != nil && m.quest.callID == d.CallID {
+			m.quest = nil
+		}
+
 	case event.TypeQuestionRequested:
 		var d event.QuestionRequestedData
 		if json.Unmarshal(e.Data, &d) == nil {
