@@ -157,14 +157,6 @@ type HostConfig struct {
 	Logf          func(string)                 // optional: log output
 }
 
-// NewHost returns a plugin host that registers tools into sink. logf may be nil.
-func NewHost(sink ToolSink, logf func(string)) *Host {
-	if logf == nil {
-		logf = func(string) {}
-	}
-	return &Host{sink: sink, logf: logf, plugins: map[string]*plugin{}}
-}
-
 // NewHostWithConfig returns a plugin host with full configuration.
 func NewHostWithConfig(cfg HostConfig) *Host {
 	if cfg.Logf == nil {

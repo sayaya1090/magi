@@ -42,7 +42,7 @@ func TestLoadRegistersTool(t *testing.T) {
 		`magi.register_tool{name="echo", description="echo", execute=function(a) return a.msg end}`,
 	)
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 
 	info, err := h.Load(context.Background(), dir)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestPermissionEnforced(t *testing.T) {
 		 end}`,
 	)
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestPermissionGranted(t *testing.T) {
 		 end}`,
 	)
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestHotReload(t *testing.T) {
 		`magi.register_tool{name="ver", execute=function() return "v1" end}`,
 	)
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestUnload(t *testing.T) {
 		`magi.register_tool{name="temp", execute=function() return "x" end}`,
 	)
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 	h.Load(context.Background(), dir)
 	if _, ok := reg.Get("temp"); !ok {
 		t.Fatal("tool should be registered")
@@ -173,7 +173,7 @@ func TestSandboxBlocksOS(t *testing.T) {
 		 end}`,
 	)
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestExamplePlugin(t *testing.T) {
 		t.Skip("example plugin not present")
 	}
 	reg := builtin.NewRegistry()
-	h := NewHost(reg, nil)
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatalf("load example: %v", err)
 	}
