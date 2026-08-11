@@ -190,6 +190,10 @@ type Agent struct {
 	// for a turn making calls; it answers nothing for a turn that has been inside one call for ten
 	// minutes, which is exactly when somebody starts wondering if it is stuck.
 	Doing string `json:"doing,omitempty"`
+	// Permission is the approval mode this companion is on right now — ask, auto, allow or deny.
+	// It changes at runtime and decides both what gets a prompt and how long that prompt waits, so
+	// a console offering to change it has to be able to say what it is changing from.
+	Permission string `json:"permission,omitempty"`
 	// PlanDone and PlanTotal are the agent's own todo list, counted. "working" says it is alive;
 	// "working · 3/7" says whether it is getting anywhere, which is the question somebody has when
 	// they look twice in ten minutes.
@@ -225,7 +229,8 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
 			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
-			Live: in.Live, Here: here != "" && in.Socket == here,
+			Permission: in.Permission,
+			Live:       in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}
 		sid := session.SessionID(in.Session)

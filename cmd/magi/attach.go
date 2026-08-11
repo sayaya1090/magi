@@ -288,7 +288,7 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 // the next poll would redraw a prompt that is already on screen — one dropped packet turning into
 // two stacked modals over the same question.
 func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id, doing string, drawing, cleared, reachable bool) {
-	w, doing, err := a.c.Status(string(sid))
+	w, doing, _, err := a.c.Status(string(sid))
 	if err != nil {
 		return event.Event{}, drawn, "", false, false, false // unknown: change nothing
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -52,6 +53,7 @@ func (r *recordingEngine) Rewind(_ context.Context, sid session.SessionID, n int
 }
 func (r *recordingEngine) SetModel(sid session.SessionID, m string) { _ = r.note("model:" + m) }
 func (r *recordingEngine) SetPermission(p string)                   { _ = r.note("perm:" + p) }
+func (r *recordingEngine) Permission() string                       { return "auto" }
 
 func (r *recordingEngine) Submit(_ context.Context, c command.SubmitPrompt) error {
 	return r.note("submit:" + textOf(c.Parts))
@@ -764,5 +766,52 @@ func TestABigResultKeepsTheEndAndSaysWhatWentMissing(t *testing.T) {
 	}
 	if !strings.Contains(out, "bytes omitted") {
 		t.Errorf("it does not say how much it dropped")
+	}
+}
+
+// The approval mode is readable and settable from the console.
+//
+// It decides whether a companion stops for permission at all, and it could only be changed at the
+// terminal it was started from. Somebody watching a blocked companion from a phone could answer the
+// one prompt in front of them and not the rule that produced it — and the console could not even
+// say which mode was on, so "why is this asking me" had no answer on the screen that showed it.
+func TestTheApprovalModeIsReadAndSetOverTheSocket(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	eng := &recordingEngine{}
+	sock := f.liveDaemon(t, wd, "minding", eng)
+	f.session("minding", wd, "watch it", 1, false)
+
+	// Read: the mode travels with the rest of the companion's facts, so the page can show which of
+	// the four is on rather than offering four buttons and no state.
+	var seen string
+	list, err := fleet.ListCached(context.Background(), f.srv.reader, f.srv.cfgDir, f.srv.here, &f.srv.fleetCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range list {
+		if a.Socket == sock {
+			seen = a.Permission
+		}
+	}
+	if seen != "auto" {
+		t.Errorf("the fleet row says the mode is %q, want the daemon's auto", seen)
+	}
+
+	q := "?d=" + url.QueryEscape(sock)
+	if w := post(t, f.srv, f.srv.permission, "/permission"+q, url.Values{"mode": {"ask"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("/permission replied %d: %s", w.Code, w.Body.String())
+	}
+	if got := eng.seen(); len(got) != 1 || got[0] != "perm:ask" {
+		t.Errorf("the daemon received %v, want one perm:ask", got)
+	}
+
+	// A mode the core does not know is refused here rather than forwarded. SetPermission takes a
+	// string and ignores what it does not recognise, so a typo would answer 204 and change nothing.
+	if w := post(t, f.srv, f.srv.permission, "/permission"+q, url.Values{"mode": {"whenever"}}); w.Code != http.StatusBadRequest {
+		t.Errorf("an unknown mode answered %d", w.Code)
+	}
+	if got := eng.seen(); len(got) != 1 {
+		t.Errorf("the daemon was told about it anyway: %v", got)
 	}
 }

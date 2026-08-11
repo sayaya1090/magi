@@ -101,6 +101,10 @@ type Controller interface {
 	Compact(ctx context.Context, c command.Compact) error
 	SetModel(sid session.SessionID, modelID string)
 	SetPermission(p string)
+	// Permission is what SetPermission last set, or what the process started on. A setter without
+	// a getter is a control a second viewer can only fire blind: the console offers the four modes
+	// and has to be able to say which one is on.
+	Permission() string
 }
 
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
@@ -167,6 +171,10 @@ type Response struct {
 	// exit code at all.
 	Out  string `json:"out,omitempty"`
 	Exit *int   `json:"exit,omitempty"`
+	// Permission is the approval mode the engine is on RIGHT NOW, not the one it started in — it
+	// changes at runtime and a viewer that offers to change it has to show what it is changing
+	// from. Only on the status answer, where every other "what is it doing" fact lives.
+	Permission string `json:"permission,omitempty"`
 	// Handover answers hand-state. Its own object rather than four more columns here, because
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
@@ -487,6 +495,9 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 				}
 			}
 			resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
+			if c, ok := eng.(Controller); ok {
+				resp.Permission = c.Permission()
+			}
 			if enc.Encode(resp) != nil {
 				return
 			}
@@ -912,12 +923,14 @@ func (c *Client) Close() error { return c.rw.Close() }
 //
 // Both in one exchange because they are one question asked at one moment. Two calls could return a
 // prompt and a progress note taken half a second apart, which is a state the daemon was never in.
-func (c *Client) Status(sid string) (*Waiting, string, error) {
+// Status is the three things only the running process knows: what it is blocked on, what a
+// long-running tool last said, and which approval mode it is on right now.
+func (c *Client) Status(sid string) (ask *Waiting, doing, perm string, err error) {
 	resp, err := c.exchange(Request{Method: "status", Session: sid})
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	return resp.Waiting, resp.Doing, nil
+	return resp.Waiting, resp.Doing, resp.Permission, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
@@ -1154,6 +1167,9 @@ type Info struct {
 	// The pair is the whole of "what is happening in there right now": one says it has stopped and
 	// needs a person, the other says it has not.
 	Doing string `json:"-"`
+	// Permission is the approval mode it is on now. Not in the file either: the mode changes at
+	// runtime, so a record written at startup would be the mode it USED to be on.
+	Permission string `json:"-"`
 }
 
 // SessionFile is where a daemon records what it is driving.
@@ -1351,8 +1367,8 @@ func List(configDir string) ([]Info, error) {
 			if sid == "" {
 				return
 			}
-			if ask, doing, serr := cl.Status(sid); serr == nil {
-				out[i].Asking, out[i].Doing = ask, doing
+			if ask, doing, perm, serr := cl.Status(sid); serr == nil {
+				out[i].Asking, out[i].Doing, out[i].Permission = ask, doing, perm
 			}
 			// A daemon too old to know the method answers with an error naming what it does
 			// accept. That is a version skew, not a fault: it is alive, and everything else about

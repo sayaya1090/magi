@@ -551,6 +551,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/council":       s.council,
 		"/plan":          s.plan,
 		"/compact":       s.compact,
+		"/permission":    s.permission,
 		"/console":       s.console,
 		"/history":       s.history,
 		"/push":          s.push,
@@ -1052,6 +1053,37 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 			SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
 	})
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// permission changes which tool calls this companion stops for, and how long it waits when it does.
+//
+// The mode is per companion and it changes at runtime — the terminal has had Shift+Tab and
+// /permission since it had a prompt, and this is the same call over the same socket. A console that
+// can answer a prompt and cannot change what raises one leaves the person holding the wrong end:
+// they can grant the fiftieth confirmation and not the thing that stops asking for it.
+//
+// It is a bigger lever than granting one call, which is why it is a POST like every other action
+// here, same-site only, and forwarded to the console that owns the companion rather than dialled
+// across. What it cannot do is exceed what the operator already allowed: the guardrail rules in
+// config (allow/deny globs, allow_domains) are read on every call and are not reachable from here.
+func (s *server) permission(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+		return
+	}
+	mode := strings.TrimSpace(r.FormValue("mode"))
+	switch mode {
+	case "ask", "auto", "allow", "deny":
+	default:
+		http.Error(w, "mode must be ask, auto, allow or deny", http.StatusBadRequest)
+		return
+	}
+	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		return cl.SetPermission(mode)
+	}); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}

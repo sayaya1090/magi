@@ -317,7 +317,7 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 	c := start(t, eng)
 
 	// Nothing pending: the answer is "nothing", not an error and not a guess.
-	w, _, err := c.Status("s_1")
+	w, _, _, err := c.Status("s_1")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 	eng.waiting = &app.Ask{Kind: "permission", What: "bash", Since: since}
 	eng.mu.Unlock()
 
-	w, _, err = c.Status("s_1")
+	w, _, _, err = c.Status("s_1")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -386,6 +386,14 @@ func (c *controllingEngine) SetPermission(p string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.perm = p
+}
+func (c *controllingEngine) Permission() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.perm == "" {
+		return "auto"
+	}
+	return c.perm
 }
 
 // The calls that change how the daemon runs have to reach the daemon.

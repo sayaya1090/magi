@@ -1435,6 +1435,60 @@ function setFolded(want) {
 // drawDetail is the agent page's own header: what this is, where it runs, how far it has got.
 // A detail view that does not say which resource it is showing is the one place a console cannot
 // afford to be quiet, and a transcript does not say it.
+// The four approval modes, and which one this companion is on.
+//
+// # Why it is a control here and not only a word
+//
+// The mode decides whether the companion stops for permission and how long it waits when it does,
+// and it was settable in the terminal alone. Somebody watching from a phone could see a companion
+// blocked on a question and had no way to say "stop asking me" — the console could answer one
+// prompt and not change the rule that produced it.
+//
+// # Why the element outlives the redraw
+//
+// The facts are rebuilt on every fleet poll, which is every three seconds. A select rebuilt under
+// an open menu closes it, and a select rebuilt while you are choosing throws the choice away — so
+// this one is made once and kept on the card, and only its VALUE is refreshed. Not even that while
+// it has focus: writing the value under somebody mid-choice is the same bug one layer down.
+// Value and label key in pairs, the way the preference selects carry theirs: a key built by
+// concatenation is a key the pack check cannot see, and the label it names is the one that ships
+// missing.
+const PERM_MODES = [['ask', 'perm.ask'], ['auto', 'perm.auto'], ['allow', 'perm.allow'], ['deny', 'perm.deny']];
+function permField(a) {
+  const f = cell('f');
+  f.append(cell('k', tr('field.permission')));
+  const v = cell('v');
+  let sel = permField.el;
+  if (!sel) {
+    sel = permField.el = document.createElement('md-outlined-select');
+    sel.className = 'permsel';
+    for (const [m, key] of PERM_MODES) {
+      const o = document.createElement('md-select-option');
+      o.value = m;
+      o.append(cell('', tr(key)));
+      sel.append(o);
+    }
+    sel.addEventListener('change', async () => {
+      const want = sel.value;
+      // Said by the daemon, not assumed by the page: the next poll paints whatever it reports, so
+      // a refused change reverts visibly instead of leaving the console claiming a mode nobody is
+      // on. Kept as the pending value until then so the poll in between does not fight the click.
+      permField.want = want;
+      const why = await post('/permission', new URLSearchParams({mode: want}), a.socket, a.peer);
+      permField.want = '';
+      if (!why) loadFleet();
+    });
+  }
+  const now = permField.want || a.permission || '';
+  if (now && sel.value !== now && document.activeElement !== sel) {
+    sel.value = now;
+    if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
+  }
+  v.append(sel);
+  f.append(v);
+  return f;
+}
+
 function drawDetail(a) {
   const box = document.getElementById('detail');
   if (!a) { box.hidden = true; box.replaceChildren(); return; }
@@ -1456,6 +1510,7 @@ function drawDetail(a) {
     field('field.last_activity', ago(a.idle)),
     field('field.session', a.session),
   );
+  grid.append(permField(a));
   // A button, not a clickable div: this is the one control on the card and it has to be reachable
   // by keyboard and announce itself as pressed or not.
   const bar = document.createElement('button');
