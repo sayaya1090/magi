@@ -1286,7 +1286,11 @@ const indexHTML = `<!doctype html>
          so a cap measured from the stuck position is short by that difference at the top of the
          page, which is exactly where somebody reads it. The extra 3rem covers it. */
       max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
-      overflow:auto; overscroll-behavior:contain;
+      /* Down, never sideways. A session id and a workspace path are long unbreakable strings, and
+         with overflow:auto they gave this column a horizontal scrollbar — drawn across the bottom
+         of the pane, under the handle, scrolling content that has somewhere better to go: the
+         cards wrap it. A sideways scrollbar in a 22rem column is a control nobody wants. */
+      overflow:hidden auto; overscroll-behavior:contain;
     }
     /* A way out. Whichever it is — a fixed pane or a side sheet — the guide asks for one: a fixed
        pane gets a handle that collapses it, a side sheet "requires that a close affordance is
@@ -1295,7 +1299,9 @@ const indexHTML = `<!doctype html>
     /* Shut, the second column is only as wide as the handle. */
     body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr) auto; }
     body[side="shut"] #side { display:none; }
-    #sideToggle { display:inline-flex; }
+    /* Only where there is a pane to toggle. On the fleet list there is none, and a control that
+       opens nothing is a control somebody presses once and distrusts afterwards. */
+    body[at="agent"] #sideToggle { display:inline-flex; }
   }
 
   /* There is no list beside a companion.
@@ -1335,6 +1341,20 @@ const indexHTML = `<!doctype html>
   }
   #agentdetail .dnote { color:var(--magi-ref-muted); font:var(--magi-sys-body-s) var(--magi-ref-mono); }
   #agentdetail .dseen { display:flex; flex-direction:column; gap:var(--magi-sys-space-100); }
+  /* The decision's own controls, at the size a decision deserves. The bar under the transcript
+     keeps its compact ones; this is the screen somebody opened BECAUSE the compact ones were not
+     enough to answer from. */
+  #agentdetail .askact { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200); align-items:center; }
+  #agentdetail .askact .answer { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-150); align-items:center; width:100%; }
+  #agentdetail .askact md-outlined-text-field { flex:1 1 22rem; min-width:0; }
+  /* The grounds on this screen are the content, not an aside: full measure, and the section names
+     lead them rather than sitting inline. */
+  #agentdetail .grounds { display:grid; grid-template-columns:1fr; gap:var(--magi-sys-space-100); max-width:var(--magi-sys-measure); }
+  #agentdetail .grounds .gk {
+    font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
+    letter-spacing:.05em; color:var(--magi-ref-accent);
+  }
+  #agentdetail .grounds .gv { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
   #agentdetail .dlog { container-type:inline-size; container-name:transcript; min-width:0; }
   /* The way one level in. A quiet control: it is beside content, not over it, and the row it sits
      under is the thing being read. */
@@ -1346,11 +1366,26 @@ const indexHTML = `<!doctype html>
   }
   .deeper:hover { background:color-mix(in srgb, var(--magi-ref-primary) 8%, transparent); }
   .deeper:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
+  /* The handle says which way it is. It carried aria-expanded from the start, so a screen reader
+     was told and an eye was not: the same icon in the same colour whether the pane was open or
+     shut, which makes it a button you press to find out. M3 draws a selected toggle in the primary
+     colour over its container tint, which is the same treatment the rail's current destination
+     gets — one vocabulary for "this is on". */
+  #sideToggle[aria-expanded="true"] {
+    color:var(--magi-ref-primary);
+    background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent);
+    border-radius:var(--magi-sys-shape-s);
+  }
   .row .deeper { grid-column:2; justify-self:start; }
   #agentdetail .dlog .row .deeper { display:none; } /* one level in is as deep as it goes */
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
-  #plan { max-width:var(--magi-sys-measure); }
+  /* Wrapped, not scrolled. A plan step is a sentence and a progress bar is a box — neither has a
+     reason to be wider than the card, and in a 22rem column the two of them were producing a
+     horizontal scrollbar along the bottom of the pane. min-width:0 because the card lays its rows
+     out in a grid, whose tracks otherwise take their content's width as a floor. */
+  #plan { max-width:var(--magi-sys-measure); min-width:0; overflow-x:clip; }
+  #plan .td, #plan .what, #plan .plancount { min-width:0; overflow-wrap:anywhere; }
   /* The plan's own progress. Linear, at the top edge of the card it belongs to, spanning its
      width — where the guide puts a bar for the container that is progressing. The track is
      outline-variant, which is under 3:1 against the surface, so the spec makes the end stop
@@ -2649,12 +2684,16 @@ const crOf = () => new URLSearchParams(location.search).get('cr') || '';
 // means "the list" and one that means "not here" are different addresses.
 const pastOn = () => new URLSearchParams(location.search).has('past');
 const pastOf = () => new URLSearchParams(location.search).get('past') || '';
-const deepIn = () => !!(sock() && (subOf() || crOf() || pastOn()));
+// ask is the decision itself, opened at full width. The bar above the composer stays — it is the
+// right shape for "allow this one command" — but a report is three sections of prose and a strip
+// under a transcript is not where anybody reads three sections of prose.
+const askOf = () => new URLSearchParams(location.search).get('ask') || '';
+const deepIn = () => !!(sock() && (subOf() || crOf() || pastOn() || askOf()));
 // Going one level in and coming back out. Both are pushState + render, so the address bar, the
 // crumbs and what is drawn can never disagree — there is one source and it is the URL.
 function goDeep(param, value) {
   const u = new URLSearchParams(location.search);
-  u.delete('sub'); u.delete('cr'); u.delete('past');
+  u.delete('sub'); u.delete('cr'); u.delete('past'); u.delete('ask');
   // An empty value is still a value here: ?past= is the list. Only a null clears the level.
   if (value !== null && value !== undefined) u.set(param, value);
   history.pushState({}, '', '?' + u.toString());
@@ -3118,7 +3157,18 @@ function drawPrompt(a) {
   const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
   inner.append(k);
   const why = grounds(a);
-  if (why) inner.append(why);
+  if (why) {
+    // The report, folded into the width it has here, plus the way to the width it wants. A decision
+    // with grounds is one somebody has to READ before answering, and this bar is a strip under a
+    // transcript — the right shape for "run this command?" and the wrong one for three sections of
+    // prose written by an agent that worked for an hour while nobody was watching.
+    inner.append(why);
+    const open = el('button', tr('ask.open'));
+    open.type = 'button';
+    open.className = 'deeper hit48';
+    open.onclick = () => goDeep('ask', a.askId);
+    inner.append(open);
+  }
   // A question is answered in the composer, not in a second box above it. Both drawn, the page had
   // two text fields one over the other — the upper one answering the question and the lower one
   // sending a fresh request to an agent that is not listening — and no mark saying which was which.
@@ -3858,13 +3908,52 @@ async function drawDeep(a) {
   const box = detailEl2();
   box.replaceChildren(cell('dnote', tr('detail.loading')));
   try {
-    if (crOf()) await drawVerdict(a, crOf());
+    if (askOf()) await drawAsk(a);
+    else if (crOf()) await drawVerdict(a, crOf());
     else if (pastOn()) await drawPast(a);
     else await drawChild(a, subOf());
   } catch (e) {
     box.replaceChildren(cell('dnote', tr('error.unreachable')));
   }
   reveal(box);
+}
+
+// drawAsk is the decision, at the width a report needs.
+//
+// The bar above the composer is the right shape for a small one — "run this command?" is a line and
+// two buttons. It is the wrong shape for the case this exists for: an agent that worked for an hour
+// while nobody watched, and now asks something whose answer depends on what it found. That is three
+// sections of prose, and a strip at the bottom of a transcript is where prose goes to be skipped.
+//
+// The prompt is NOT in the log — it is a question about what should happen, not a record of what
+// did — so it is read from the fleet poll, the same place the bar reads it from. Which also means
+// the screen empties itself when the question is answered from anywhere: the next poll has no
+// prompt in it, and this returns to the conversation rather than showing a question nobody can
+// answer any more.
+async function drawAsk(a) {
+  const box = detailEl2();
+  const list = await fetchList('/fleet');
+  const mine = (list || []).find(x => x.socket === a.socket && (x.peer || '') === (a.peer || ''));
+  if (!mine || mine.state !== 'waiting' || mine.askId !== askOf()) {
+    // Answered, or moved on. Back to the conversation rather than a dead screen — and emptied
+    // first, because leaving the last question on screen while navigating away is a flash of a
+    // decision that is no longer anybody's to make.
+    box.replaceChildren();
+    goDeep('ask', null);
+    return;
+  }
+  box.replaceChildren();
+  box.append(detailHead('⏸ ' + (mine.asking || ''), '',
+    mine.askKind === 'question' ? tr('ask.question') : tr('ask.permission')));
+  const why = grounds(mine);
+  if (why) {
+    box.append(cell('dk dhero', tr('detail.evidence_decide')));
+    box.append(why);
+  }
+  box.append(cell('dk', tr('ask.your_answer')));
+  const act = cell('askact');
+  act.append(answerBox(mine));
+  box.append(act);
 }
 
 // render$past redraws the past screen in place, for the search field's debounce. Named apart from
@@ -4982,7 +5071,9 @@ function rowNode(r) {
     // preformatted text rather than run through markdown that would eat their brackets.
     if (r.who === 'tool' || r.who === 'result' || r.who === 'failed' || r.who === 'shell') {
       // Both, when a call failed: what it was asked, then what it said about it.
-      const raw = [r.args, r.out].filter(Boolean).join('\n\n') || r.text;
+      // What it was asked, then what it answered, with a rule between them. Joined by a blank line
+      // they read as one blob and a reader has to work out where the arguments stopped.
+      const raw = [r.args, r.out].filter(Boolean).join('\n\n── ⟶ ──\n\n') || r.text;
       if (looksLikeDiff(raw)) {
         const pre = el('pre'); pre.className = 'diff';
         body.append(diffInto(pre, raw));
@@ -5263,6 +5354,7 @@ function render() {
   crumbHere.className = deep ? '' : 'here';
   crumbSep2.hidden = !deep;
   crumbDeep.textContent = !deep ? ''
+    : askOf() ? '⏸ ' + tr('ask.deciding')
     : crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':')
     : pastOn() ? tr('field.history')
     : '◆ ' + tr('detail.subagent');

@@ -2575,3 +2575,116 @@ console.log(JSON.stringify({inPane: 'history' in byId, rows: rows}));`)
 		}
 	}
 }
+
+// A decision with grounds can be read at the width the grounds need.
+//
+// The bar above the composer is the right shape for "run this command?" — a line and two buttons.
+// It is the wrong shape for the case this exists for: an agent that worked for an hour while
+// nobody watched and now asks something whose answer depends on what it found. That is three
+// sections of prose, and a strip under a transcript is where prose goes to be skipped.
+func TestADecisionWithGroundsOpensAtFullWidth(t *testing.T) {
+	fleet := `[{"socket":"/s/a.sock","name":"design","workdir":"/w","state":"waiting","live":true,
+      "asking":"Which branch should this land on?","askId":"q1","askKind":"question",
+      "report":[{"key":"tried","text":"ran the suite on both branches"},
+                {"key":"lean","text":"engine-ui-split"}]}]`
+	got := runPage(t, fleet, "?d=%2Fs%2Fa.sock&ask=q1", `
+await drawAsk({socket:'/s/a.sock'});
+const seen = [];
+const walk = n => { if (n.textContent) seen.push(n.textContent); for (const k of n.children || []) walk(k); };
+walk(byId.agentdetail);
+const fields = [];
+const walk2 = n => { for (const k of n.children || []) { if (k.tag === 'md-outlined-text-field') fields.push(1); walk2(k); } };
+walk2(byId.agentdetail);
+console.log(JSON.stringify({text: seen.join(' | '), fields: fields.length}));`)
+
+	txt, _ := got["text"].(string)
+	for _, want := range []string{"Which branch", "tried", "ran the suite on both", "lean"} {
+		if !strings.Contains(txt, want) {
+			t.Errorf("the decision screen is missing %q:\n%s", want, txt)
+		}
+	}
+	// And it is answerable from there. A screen you have to leave to act on is a screen that has
+	// made the decision harder, not easier.
+	if n, _ := got["fields"].(float64); n < 1 {
+		t.Errorf("nothing to answer with on the screen: %v", got)
+	}
+}
+
+// A question answered from somewhere else does not leave a dead screen up.
+//
+// The prompt is not in the log — it is a question about what should happen, not a record of what
+// did — so it is read from the fleet poll. When the poll stops carrying it, there is nothing here
+// to answer and the screen returns to the conversation.
+func TestADecisionAlreadyAnsweredReturnsToTheConversation(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"design","workdir":"/w","state":"idle","live":true}]`,
+		"?d=%2Fs%2Fa.sock&ask=q1", `
+await drawAsk({socket:'/s/a.sock'});
+console.log(JSON.stringify({url: location.search.includes('ask='), kids: byId.agentdetail.children.length}));`)
+
+	if still, _ := got["url"].(bool); still {
+		t.Error("the address still points at a question nobody can answer")
+	}
+	if n, _ := got["kids"].(float64); n > 0 {
+		t.Errorf("a dead decision screen was drawn: %v children", n)
+	}
+}
+
+// A successful tool call says what it answered, not what it was asked twice.
+//
+// Only failures used to carry their output, on the reasoning that a success is noise and the
+// arguments are more useful. The row folds, so a success costs nothing until somebody opens it —
+// and when they opened it they got the arguments they had just read in the summary line, again,
+// with the answer nowhere. "What did the grep find" is most of why anybody opens a tool call.
+func TestASuccessfulToolCallCarriesWhatItAnswered(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'tool',tool:'grep',args:'{"pattern":"empty-state"}',ok:true,
+       out:'src/list.tsx\nsrc/table.tsx'}]);
+const pre = [];
+const walk = n => { for (const k of n.children || []) { if (k.tag === 'pre') pre.push(k.textContent); walk(k); } };
+walk(byId.log);
+console.log(JSON.stringify({pre: pre}));`)
+
+	pre, _ := got["pre"].([]any)
+	if len(pre) != 1 {
+		t.Fatalf("drew %d bodies, want 1: %v", len(pre), pre)
+	}
+	body, _ := pre[0].(string)
+	if !strings.Contains(body, "src/list.tsx") {
+		t.Errorf("the output is missing:\n%s", body)
+	}
+	if !strings.Contains(body, "empty-state") {
+		t.Errorf("what it was asked is missing:\n%s", body)
+	}
+	// With something between them: joined by a blank line they read as one blob and the reader has
+	// to work out where the arguments stopped.
+	if strings.Index(body, "empty-state") > strings.Index(body, "src/list.tsx") {
+		t.Errorf("the answer comes before the question:\n%s", body)
+	}
+	if !strings.Contains(body, "⟶") {
+		t.Errorf("nothing separates what was asked from what came back:\n%s", body)
+	}
+}
+
+// The pane's handle says which way it is.
+//
+// It carried aria-expanded from the start, so a screen reader was told and an eye was not — the
+// same icon in the same colour whether the pane was open or shut, which makes it a button you
+// press to find out.
+func TestThePaneHandleSaysWhetherItIsOpen(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const t0 = byId.sideToggle.attrs['aria-expanded'];
+byId.sideToggle.onclick();
+const t1 = byId.sideToggle.attrs['aria-expanded'];
+console.log(JSON.stringify({before: t0, after: t1}));`)
+
+	before, _ := got["before"].(string)
+	after, _ := got["after"].(string)
+	if before == after {
+		t.Errorf("pressing the handle did not change what it claims: %q → %q", before, after)
+	}
+	// And the claim is drawn, not only announced. The stylesheet is read out of the page itself:
+	// a rule that exists only in a test's idea of the page is a rule nobody ships.
+	if !strings.Contains(indexHTML, "#sideToggle[aria-expanded=\"true\"]") {
+		t.Error("nothing paints the open state, so only a screen reader is told")
+	}
+}
