@@ -671,3 +671,36 @@ func TestOnlyTheTrailingUnfinishedCallIsMarkedRunning(t *testing.T) {
 		}
 	}
 }
+
+// An asset is cached and revalidated, not frozen for a day.
+//
+// They were served immutable for 24h on the reasoning that they change with a release — and the
+// consequence was that they change with a release and nobody sees it. An upgraded console served
+// its new language pack to a browser that went on using yesterday's, so a label added in the same
+// build rendered as its own dotted key. Twice, while working on this page, that read as a bug in
+// the page rather than as a stale file.
+func TestAnAssetIsRevalidatedRatherThanFrozen(t *testing.T) {
+	f := newFleetFixture(t)
+	w := get(t, f.srv.asset, "/i18n/language.en.json")
+	if w.Code != 200 {
+		t.Fatalf("the pack answered %d", w.Code)
+	}
+	if cc := w.Header().Get("Cache-Control"); strings.Contains(cc, "max-age=") {
+		t.Errorf("the pack is frozen in the browser for %q", cc)
+	}
+	tag := w.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("nothing to revalidate against — no ETag")
+	}
+	// And the revalidation is cheap: the same bytes come back as a 304 with no body.
+	r := httptest.NewRequest(http.MethodGet, "/i18n/language.en.json", nil)
+	r.Header.Set("If-None-Match", tag)
+	again := httptest.NewRecorder()
+	f.srv.asset(again, r)
+	if again.Code != http.StatusNotModified {
+		t.Errorf("an unchanged asset answered %d rather than 304", again.Code)
+	}
+	if again.Body.Len() != 0 {
+		t.Errorf("a 304 carried %d bytes", again.Body.Len())
+	}
+}

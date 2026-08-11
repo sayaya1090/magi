@@ -17,7 +17,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -580,10 +582,23 @@ func (s *server) asset(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(name, ".json"):
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	}
-	// Immutable for a day: the bundle is pinned and the language packs change with a release, so a
-	// browser re-fetching them on every poll is bytes for nothing. Not forever — a build that does
-	// change them should reach a tab somebody left open overnight.
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	// Cached and REVALIDATED, which are not the same thing. These were served immutable for a day
+	// on the reasoning that they change with a release — and the consequence is that they change
+	// with a release and nobody sees it: an upgraded console served its new pack to a browser that
+	// went on using yesterday's for up to a day, so a label added in the same build rendered as its
+	// own dotted key. Observed twice while working on this page, both times read as a bug in the
+	// page rather than as a stale file.
+	//
+	// no-cache is "ask first", not "do not store". The browser keeps the bytes and gets a 304 back
+	// on every check, which costs a round trip with no body and is always right.
+	sum := sha256.Sum256(b)
+	etag := "\"" + hex.EncodeToString(sum[:8]) + "\""
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	if _, err := w.Write(b); err != nil {
 		log.Printf("magi-web: serving %s: %v", name, err)
 	}
