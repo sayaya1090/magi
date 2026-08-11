@@ -339,7 +339,6 @@ type CouncilDeliberatingData struct {
 // PartDeltaData — TypePartDelta (streaming text chunk).
 type PartDeltaData struct {
 	MessageID string           `json:"messageId"`
-	PartID    string           `json:"partId"`
 	Kind      session.PartKind `json:"kind"`
 	Text      string           `json:"text"`
 }

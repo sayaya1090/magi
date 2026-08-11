@@ -129,10 +129,10 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 						event.PromptSubmittedData{MessageID: "n", Parts: []session.Part{{Kind: session.PartText, Text: "act now"}}})
 				}},
 				{"delta", func() {
-					s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m", PartID: "p", Kind: session.PartText, Text: "tok "})
+					s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m", Kind: session.PartText, Text: "tok "})
 				}},
 				{"reasoning delta", func() {
-					s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m", PartID: "pr", Kind: session.PartReasoning, Text: "think "})
+					s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m", Kind: session.PartReasoning, Text: "think "})
 				}},
 				{"assistant text", func() { s.assistantText("a settled answer") }},
 				{"tool call", func() {

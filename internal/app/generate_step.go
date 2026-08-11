@@ -71,7 +71,7 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		textPartID = "p_" + newID()
 		reasonPartID = "p_" + newID()
 		var serr error
-		res, serr = a.consumeStream(streamCtx, sid, agentActor, stream, msgID, textPartID, reasonPartID, streamCancel)
+		res, serr = a.consumeStream(streamCtx, sid, agentActor, stream, msgID, streamCancel)
 		a.leaveGen(sid)
 		streamCancel()
 		if serr != nil {

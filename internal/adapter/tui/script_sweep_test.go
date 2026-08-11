@@ -354,7 +354,7 @@ func TestANarrowTerminalDoesNotOverflow(t *testing.T) {
 func TestInterruptStopsTheRunningIndicator(t *testing.T) {
 	s := newScript(t)
 	s.steer("r1", "grind on this")
-	s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m_a", PartID: "p1", Kind: session.PartText, Text: "thinking"})
+	s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m_a", Kind: session.PartText, Text: "thinking"})
 	if !s.m.running {
 		t.Fatal("the turn should be running before the interrupt")
 	}

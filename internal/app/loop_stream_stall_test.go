@@ -25,7 +25,7 @@ func TestConsumeStreamAbortsSilentStream(t *testing.T) {
 	cancel := func() { cancelled.Store(true) } // mirrors streamCtx cancel unblocking the provider read
 
 	start := time.Now()
-	res, err := a.consumeStream(context.Background(), session.SessionID("s_stall"), event.Actor{}, stream, "m", "pt", "pr", cancel)
+	res, err := a.consumeStream(context.Background(), session.SessionID("s_stall"), event.Actor{}, stream, "m", cancel)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -55,7 +55,7 @@ func TestConsumeStreamMidGenerationFreezeNotRetryable(t *testing.T) {
 	stream <- port.ProviderEvent{Type: port.ProviderText, Text: "partial"}
 	// then never closed and never sent again → freezes mid-generation
 
-	res, err := a.consumeStream(context.Background(), session.SessionID("s_freeze"), event.Actor{}, stream, "m", "pt", "pr", func() {})
+	res, err := a.consumeStream(context.Background(), session.SessionID("s_freeze"), event.Actor{}, stream, "m", func() {})
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}

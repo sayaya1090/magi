@@ -329,7 +329,7 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 			switch ev.Type {
 			case port.ProviderText:
 				text.WriteString(ev.Text)
-				d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: textPartID, Kind: session.PartText, Text: ev.Text})
+				d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartText, Text: ev.Text})
 				a.publishTransient(s.ID, event.TypePartDelta, actor, d)
 			case port.ProviderToolCall:
 				if ev.ToolCall != nil {

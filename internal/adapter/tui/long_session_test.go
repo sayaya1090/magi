@@ -39,7 +39,7 @@ func longSession(t *testing.T, w, h, n int) *script {
 			s.toolResult(fmt.Sprintf("c%d", i), fmt.Sprintf("output %d\nsecond line\nthird line", i))
 		default:
 			s.emit(event.TypePartDelta, event.PartDeltaData{
-				MessageID: fmt.Sprintf("m%d", i), PartID: "p", Kind: session.PartReasoning, Text: "thinking "})
+				MessageID: fmt.Sprintf("m%d", i), Kind: session.PartReasoning, Text: "thinking "})
 			s.emit(event.TypeTurnFinished, event.TurnFinishedData{})
 		}
 	}

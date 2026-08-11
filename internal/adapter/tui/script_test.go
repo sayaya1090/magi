@@ -183,7 +183,7 @@ func TestTypingWhileAnAnswerStreams(t *testing.T) {
 	s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
 		event.PromptSubmittedData{MessageID: "r1", Parts: []session.Part{{Kind: session.PartText, Text: "count the rows"}}})
 	// mid-stream: deltas are arriving…
-	s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m_a", PartID: "p1", Kind: session.PartText, Text: "readingnow"})
+	s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m_a", Kind: session.PartText, Text: "readingnow"})
 	// …and the user steers.
 	s.typeText("headercheck").enter()
 
@@ -249,7 +249,7 @@ func TestTheBlockLineMapAscendsThroughAWholeTurn(t *testing.T) {
 	s.toolCall("bash", "c1")
 	s.toolResult("c1", "305")
 	s.typeText("one more thing").enter()
-	s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m_a", PartID: "p1", Kind: session.PartText, Text: "still going"})
+	s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m_a", Kind: session.PartText, Text: "still going"})
 	_ = s.view()
 
 	if len(s.m.blockLineStart) != len(s.m.blocks) {

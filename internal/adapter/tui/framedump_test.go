@@ -162,7 +162,7 @@ func TestTheFrameReporterAgreesWithTheWalk(t *testing.T) {
 				s.send(tea.KeyPressMsg{Code: tea.KeyEscape})
 			default:
 				s.emit(event.TypePartDelta, event.PartDeltaData{
-					MessageID: "m", PartID: "p", Kind: session.PartText, Text: "tok "})
+					MessageID: "m", Kind: session.PartText, Text: "tok "})
 			}
 			_ = s.rawView() // drives View, which runs the reporter
 		}

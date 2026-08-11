@@ -25,7 +25,7 @@ func TestReasoningSpinGuard(t *testing.T) {
 		close(ch)
 		cancelled := false
 		res, err := a.consumeStream(context.Background(), session.SessionID("s_spin"), actor, ch,
-			"m", "pt", "pr", func() { cancelled = true })
+			"m", func() { cancelled = true })
 		if err != nil {
 			t.Fatalf("consumeStream: %v", err)
 		}
@@ -71,7 +71,7 @@ func TestSpinGuardSumsTextAndReasoning(t *testing.T) {
 	close(ch)
 	cancelled := false
 	res, err := a.consumeStream(context.Background(), session.SessionID("s_mix"),
-		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", "pt", "pr", func() { cancelled = true })
+		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", func() { cancelled = true })
 	if err != nil {
 		t.Fatalf("consumeStream: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestSpinGuardStillFiresUnderAnOutputCap(t *testing.T) {
 	close(ch)
 	cancelled := false
 	res, err := a.consumeStream(context.Background(), session.SessionID("s"),
-		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", "pt", "pr", func() { cancelled = true })
+		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", func() { cancelled = true })
 	if err != nil {
 		t.Fatal(err)
 	}

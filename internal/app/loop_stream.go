@@ -147,7 +147,7 @@ const reasoningSpinNudge = "You streamed a very long chain of reasoning without 
 // together in one run without affecting normal operation.
 var streamDiag = os.Getenv("MAGI_STREAM_DIAG") != ""
 
-func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentActor event.Actor, stream <-chan port.ProviderEvent, msgID, textPartID, reasonPartID string, cancel context.CancelFunc) (streamStep, error) {
+func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentActor event.Actor, stream <-chan port.ProviderEvent, msgID string, cancel context.CancelFunc) (streamStep, error) {
 	var text, reasoning strings.Builder
 	var res streamStep
 	streamErr := false
@@ -216,11 +216,11 @@ loop:
 		switch ev.Type {
 		case port.ProviderReasoning:
 			reasoning.WriteString(ev.Text)
-			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: reasonPartID, Kind: session.PartReasoning, Text: ev.Text})
+			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartReasoning, Text: ev.Text})
 			a.publishTransient(sid, event.TypePartDelta, agentActor, d)
 		case port.ProviderText:
 			text.WriteString(ev.Text)
-			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: textPartID, Kind: session.PartText, Text: ev.Text})
+			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartText, Text: ev.Text})
 			a.publishTransient(sid, event.TypePartDelta, agentActor, d)
 		case port.ProviderToolCall:
 			res.toolCalls = append(res.toolCalls, ev.ToolCall)

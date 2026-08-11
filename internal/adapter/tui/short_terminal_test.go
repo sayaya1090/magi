@@ -86,7 +86,7 @@ func TestSwitchingSessionsDropsTheOldTurnsIdentity(t *testing.T) {
 	// And once engine activity revives the spinner here, it attaches to a block on screen —
 	// the path that only adopts a reqID when turnReqID is empty.
 	s.emit(event.TypePartDelta, event.PartDeltaData{
-		MessageID: "m", PartID: "p", Kind: session.PartText, Text: "tok "})
+		MessageID: "m", Kind: session.PartText, Text: "tok "})
 	if s.m.running && s.m.turnReqID != "" {
 		found := false
 		for _, b := range s.m.blocks {
