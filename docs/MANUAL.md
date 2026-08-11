@@ -652,6 +652,49 @@ Stop the console and nothing stops working.
   is written into each line. Unset, the record says where a request came from and not who sent it.
   It is not verified and cannot be: it is worth exactly what "the gateway is the only way in" is
   worth, which is what the loopback bind protects.
+- **`auth.toml` decides what each person may do**, and until it exists nothing changes: no file
+  means one operator, which is what every console is until something authenticating is put in
+  front of it. It lives in the console's own config directory and is never read from a workspace —
+  `config.toml` merges with a project's `.magi/config.toml`, and a repository that can grant
+  itself a role owns the machine.
+
+  ```toml
+  # ~/.config/magi/auth.toml     (0600)
+  [people."kim@corp.com"]
+  role = "operator"
+
+  [people."lee@corp.com"]
+  role = "responder"
+  companions = ["docs", "palette"]   # absent = every companion
+  ```
+
+  Three roles come built in and are ordinary roles — editable, replaceable:
+
+  | Role | May |
+  |---|---|
+  | `operator` | everything, including `admin` and `shell` |
+  | `responder` | `read`, `answer` |
+  | `viewer` | `read` |
+
+  The capabilities are read off the routes rather than invented: `read` (anything that only
+  looks), `answer` (resolve a permission or question, interrupt), `prompt` (submit, steer,
+  dispatch, compact, move to another conversation), `curate` (skills, remember/forget, the report
+  format), `configure` (model, approval mode, cron, MCP servers), `admin` (people and roles),
+  `shell` (`/shell`; never on an `-exposed` console, where the route does not exist).
+
+  ```toml
+  [roles.reviewer]                    # your own, over the same seven
+  can = ["read", "answer", "curate"]
+  ```
+
+  **Who is asking comes from `-user-header`** (above), so a policy is only enforceable on a console
+  that has something in front of it naming people. On a configured console an unnamed caller is
+  nobody — not the operator — which is the hole the whole thing exists to close.
+
+  A file that is present and wrong stops the console: one that will not parse would leave nobody
+  able to do anything, one naming a capability this build does not have would leave somebody
+  believing they granted something, and one that lists people with no `admin` among them cannot be
+  fixed by anybody afterwards.
 - **`-peer` and the cluster (§13.7) are different things.** A peer is a console the operator listed,
   for a person to look at. A cluster is companions telling each other who exists, for work to be
   handed across. Neither reads the other's list.
@@ -711,6 +754,7 @@ name a federated console.
 | `/mcp` (GET/POST) | the MCP servers of one companion |
 | `/submit` (POST) | steer text into the running session |
 | `/resume` (POST) | continue another of that companion's conversations (`session=`) |
+| `/me` | who this console thinks you are and what you may do (drawn from, never trusted as the check) |
 | `/interrupt` (POST) · `/compact` (POST) | stop the turn · summarise the history now |
 | `/answer` (POST) | resolve the permission or question it is blocked on, by call id |
 | `/shell` (POST) | run a command in that workspace |

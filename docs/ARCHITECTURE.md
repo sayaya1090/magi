@@ -637,6 +637,13 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   is how other screens find out, through the log they are already reading. The record is written
   temp-and-rename under one lock, because its readers poll it and two goroutines write it (the
   queue depth, and this).
+- **What a person may do is one table and one wrapper** (`cmd/magi-web/gate.go`). Every GET needs
+  `read`; a write needs the capability the table names; a route in neither that table nor the
+  read/public sets is refused, and a test walks the handler list so the decision is made when a
+  route is written rather than when somebody is surprised by it. The policy itself is
+  `internal/core/auth` — pure, so "may a responder change the model" is three lines and no server —
+  loaded by `config.LoadAuth` from the GLOBAL config directory only. Nobody configured means one
+  operator, which is what a loopback console is.
 - **No authentication of magi's own**, by decision: loopback, and reached through whatever the
   organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
   supervision model this exists to serve, and
