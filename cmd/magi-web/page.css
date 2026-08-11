@@ -1253,6 +1253,11 @@
     display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:var(--magi-sys-space-200) var(--magi-sys-space-400);
   }
   #detail .f { display:flex; flex-direction:column; gap:var(--magi-sys-space-50); }
+  /* The long fields take a row to themselves. A session id and a workspace path are strings
+     nobody reads in a 14rem column — the id wraps mid-hash and the path ellipses at the part that
+     tells you which project it is. The grid packs everything else two or three across; these two
+     span whatever it packed. */
+  #detail .f.wide { grid-column:1 / -1; }
   #detail .f .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
   }

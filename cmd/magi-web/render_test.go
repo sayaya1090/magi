@@ -3410,8 +3410,12 @@ await drawDetail({socket: '/s/a.sock', state: 'working', workdir: '/w', session:
 // The roster is fetched without being awaited by the draw — it fills the menu when it lands, the
 // same way it does in a browser — so the test drains the microtask queue rather than assuming.
 for (let i = 0; i < 20; i++) await Promise.resolve();
+// The model's menu, found by what is IN it rather than by a label: the field carries no floating
+// label any more — the row it sits in already says the word — so the label was no longer a way to
+// tell it from the approval menu beside it.
 const sel = (function find(n) {
-  if ((n.tag || '') === 'md-outlined-select' && n.attrs.label) return n;
+  if ((n.tag || '') === 'md-outlined-select' &&
+      (n.children || []).some(o => String(o.value || '').includes('qwen3-coder-next'))) return n;
   for (const k of n.children || []) { const hit = find(k); if (hit) return hit; }
   return null;
 })(grid);

@@ -1137,7 +1137,12 @@ function answerMode(a) {
   const note = document.getElementById('cnote');
   note.textContent = a ? tr('answer.instead') : '';
   note.hidden = !a;
-  document.getElementById('send').textContent = tr(a ? 'action.answer' : 'action.send');
+  // The word AND the mark, and both change with the mode: a paper plane for sending something into
+  // the conversation, a reply arrow for answering the question above it. textContent wipes the
+  // slot, so the mark goes back on after the word — the same footgun arm() hit.
+  const send = document.getElementById('send');
+  send.textContent = tr(a ? 'action.answer' : 'action.send');
+  withMark(send, a ? '#i-sl-reply' : '#i-ss-paper-plane');
   // The old text was addressed at magi and the new question is not the same subject. Carrying it
   // over would put a half-written request in front of somebody as though it were their answer.
   if (!!a !== wasAnswering) { t.value = ''; }
@@ -1753,7 +1758,8 @@ function modelField(a, now) {
     modelField.key = key;
     modelField.list = null;
     sel.className = 'permsel';
-    sel.setAttribute('label', tr('field.model'));
+    // No label on the field. The row it sits in already says "model" in the key beside it, and a
+    // floating label repeating it is the same word twice, six pixels apart.
     sel.addEventListener('change', async () => {
       const want = sel.value;
       if (!want || want === modelField.now) return;
@@ -1818,7 +1824,7 @@ function paintModels(sel, names, now) {
 // already, so the day that lands nothing else has to move: a companion that is mid-turn cannot be
 // pointed somewhere else, and the menu says so by being shut rather than by refusing afterwards.
 function sessionField(a) {
-  const f = cell('f');
+  const f = cell('f wide');
   f.append(cell('k', tr('field.session')));
   const v = cell('v');
   let sel = sessionField.el;
@@ -1885,7 +1891,7 @@ function drawDetail(a) {
   const grid = cell('grid');
   grid.append(
     field('field.status', stateWord(a.state), 'state ' + a.state),
-    field('field.workspace', a.workdir),
+    (() => { const f = field('field.workspace', a.workdir); f.className = 'f wide'; return f; })(),
     ...(a.role ? [field('field.role', a.role)] : []),
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
     field('field.host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
