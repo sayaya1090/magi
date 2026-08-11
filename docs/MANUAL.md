@@ -168,8 +168,11 @@ none does differs:
   the decision was a default rather than somebody's. Here the prompts are the residue — edits are
   already approved and what is left is commands and the network — where "carry on without me" is
   defensible and being stopped for hours is not.
-- **`allow`** never prompts, which is why it is the daemon's default: work that runs while nobody
-  is watching, including the schedule (§14), must not stop for a person who is not there.
+- **`allow`** does not prompt on its own, which is why it is the daemon's default: work that runs
+  while nobody is watching, including the schedule (§14), must not stop for a person who is not
+  there. A guardrail can still force one over the top of it (a risky command, egress), and that one
+  is bounded like `auto`'s — it exists because of the policy rather than because somebody asked to
+  be asked.
 
 A terminal waits in every mode: the person is in front of it, and a prompt that expires while they
 are reading it is a decision taken out of their hands.

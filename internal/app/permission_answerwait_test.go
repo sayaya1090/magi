@@ -55,9 +55,12 @@ func TestAnAnsweredPromptBeatsTheDeadline(t *testing.T) {
 	}
 }
 
-// Nobody answers: the prompt must resolve by policy, and the transcript must say that is what
-// happened. A decision taken by default reads exactly like one somebody made unless the log
-// distinguishes them.
+// Nobody answers: the prompt resolves by policy, and the transcript says that is what happened. A
+// decision taken by default reads exactly like one somebody made unless the log distinguishes them.
+//
+// Not in every mode. "ask" is the one that waits — see the test below — so the modes here are the
+// two where a prompt exists for a reason other than the operator asking to be asked: auto's
+// residue, and a guardrail forcing one over the top of allow.
 func TestAnUnansweredPromptResolvesByPolicyAndSaysSo(t *testing.T) {
 	tc := &session.ToolCall{CallID: "c1", Name: "bash", Args: json.RawMessage(`{"command":"go build ./..."}`)}
 	actor := event.Actor{Kind: event.ActorUser, ID: "u"}
@@ -66,7 +69,7 @@ func TestAnUnansweredPromptResolvesByPolicyAndSaysSo(t *testing.T) {
 		want bool
 	}{
 		{"allow", true}, // the daemon's own default: nobody came, carry on
-		{"ask", false},  // no answer is not an answer
+		{"auto", false}, // edits were already approved; a command with nobody to vouch for it is not
 	} {
 		a, wd := newApp(t, &fakeLLM{}, Config{Permission: c.perm, Interactive: true, AnswerWait: 150 * time.Millisecond})
 		sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
@@ -220,5 +223,75 @@ func TestASecondAnswerIsToldItWasTooLate(t *testing.T) {
 	if err := a.RespondQuestion(context.Background(), command.RespondQuestion{
 		SessionID: qsid, CallID: "q1", Answer: "release"}); err == nil {
 		t.Error("a second answer to one question reported success")
+	}
+}
+
+// Which modes wait is read at the prompt, not frozen when the process started.
+//
+// The mode changes while a companion runs — Shift+Tab in an attached terminal, /permission, or
+// SetPermission over the socket. Frozen at startup, one switched from auto to ask would go on
+// resolving prompts by timer, which is the one thing ask exists to prevent; one switched the other
+// way would hang on a prompt it had been told to give up on.
+func TestTheWaitFollowsTheModeAsItStandsNow(t *testing.T) {
+	a := New(nil, nil, nil, nil, nil, Config{AnswerWait: 3 * time.Minute, Permission: "auto"})
+	if got := a.answerBound(); got != 3*time.Minute {
+		t.Errorf("auto on a daemon is unbounded: %v", got)
+	}
+	a.SetPermission("ask")
+	if got := a.answerBound(); got != 0 {
+		t.Errorf("switched to ask, a prompt is still answered by a timer after %v", got)
+	}
+	a.SetPermission("auto")
+	if got := a.answerBound(); got != 3*time.Minute {
+		t.Errorf("switched back to auto, the bound did not come back: %v", got)
+	}
+
+	// allow is bounded too, and that is not a contradiction: it does not prompt on its own, but a
+	// guardrail can force one over the top of it, and hanging a companion whose operator asked for
+	// "allow" on a question they never asked to be asked is the wrong way to be careful.
+	a.SetPermission("allow")
+	if got := a.answerBound(); got != 3*time.Minute {
+		t.Errorf("a policy-forced prompt under allow would hang: %v", got)
+	}
+
+	// A terminal has nobody elsewhere, so no mode is bounded there.
+	term := New(nil, nil, nil, nil, nil, Config{Permission: "auto"})
+	if got := term.answerBound(); got != 0 {
+		t.Errorf("a terminal bounded its own prompt after %v", got)
+	}
+}
+
+// Under "ask", nobody answering is not an answer — the prompt waits.
+//
+// Resolving it by default after a few minutes answers the question on the operator's behalf, which
+// is the one thing the mode exists to prevent. The companion sits in the fleet's waiting state,
+// badged on the console and pushed to a phone, until somebody comes.
+func TestUnderAskAPromptWaitsForAPerson(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "ask", Interactive: true, AnswerWait: 100 * time.Millisecond})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	tc := &session.ToolCall{CallID: "c1", Name: "bash", Args: json.RawMessage(`{"command":"rm -rf /"}`)}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan bool, 1)
+	go func() {
+		done <- a.requestPermission(ctx, sid, event.Actor{Kind: event.ActorUser, ID: "u"}, tc, true, "")
+	}()
+
+	select {
+	case g := <-done:
+		t.Fatalf("the prompt resolved itself to %v instead of waiting for a person", g)
+	case <-time.After(400 * time.Millisecond): // four times the bound it no longer has
+	}
+	// Still asking, which is what a dashboard shows and what a person answers.
+	if _, ok := a.Waiting(sid); !ok {
+		t.Error("it stopped reporting that it needs somebody")
+	}
+	// And it is a wait, not a wedge: interrupting the turn lets go of it.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelling the turn did not release the prompt")
 	}
 }

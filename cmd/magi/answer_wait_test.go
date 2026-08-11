@@ -1,34 +1,17 @@
 package main
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-// How long a prompt waits for a person follows the permission MODE, not the process.
+// This layer answers only whether an answerer is somewhere ELSE.
 //
-// Choosing "ask" is choosing to be asked. Resolving it by default after a few minutes answers the
-// question on the person's behalf, which is the one thing the mode exists to prevent — and with an
-// unanswered prompt resolving to "deny", an unattended companion on ask used to stall for three
-// minutes per dangerous call and then refuse it. Waiting instead puts it in the fleet's `waiting`
-// state, which is badged on the console and pushed to a phone, until somebody answers.
-func TestHowLongAPromptWaitsFollowsTheMode(t *testing.T) {
-	for _, c := range []struct {
-		what       string
-		answerable bool
-		perm       string
-		want       time.Duration
-	}{
-		{"a daemon told to ask", true, "ask", 0},
-		{"a daemon on auto", true, "auto", daemonAnswerWait},
-		{"a terminal", false, "ask", 0},
-		// auto in a terminal is not bounded either: the person is in front of it, and a prompt that
-		// expires while they are reading it is a decision taken out of their hands.
-		{"a terminal on auto", false, "auto", 0},
-		{"allow never prompts, so the number never applies", true, "allow", 0},
-	} {
-		if got := answerWait(c.answerable, c.perm); got != c.want {
-			t.Errorf("%s: answerWait = %v, want %v", c.what, got, c.want)
-		}
+// A terminal has the person in front of it and waits as long as they need; a daemon has whoever
+// attaches. Which MODES actually wait is app.answerBound's question, because the mode changes while
+// the process runs and a bound frozen here would outlive it.
+func TestTheWaitSaysWhetherTheAnswererIsElsewhere(t *testing.T) {
+	if got := answerWait(true); got != daemonAnswerWait {
+		t.Errorf("a daemon somebody attaches to: answerWait = %v, want %v", got, daemonAnswerWait)
+	}
+	if got := answerWait(false); got != 0 {
+		t.Errorf("a terminal waits for the person in front of it: answerWait = %v, want 0", got)
 	}
 }

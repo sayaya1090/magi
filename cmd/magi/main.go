@@ -702,9 +702,9 @@ func run() int {
 	registerOrchestrationTools(reg, nobodyCanAnswer(headless, answerable))
 
 	if answerable {
-		if wait := answerWait(answerable, perm); wait > 0 {
+		if perm == "auto" {
 			fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached, and "+
-				"resolve by policy after %s if none answers\n", perm, wait)
+				"resolve by policy after %s if none answers\n", perm, daemonAnswerWait)
 		} else {
 			fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached and "+
 				"WAIT until one answers — this companion will sit in `waiting` rather than decide for "+
@@ -843,8 +843,8 @@ func run() int {
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
 		Permission:          perm,
-		Interactive:         !headless || answerable,      // a UI can answer: the TUI, or one attached to a daemon
-		AnswerWait:          answerWait(answerable, perm), // see answerWait: ask waits, auto is bounded
+		Interactive:         !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
+		AnswerWait:          answerWait(answerable),  // whether an answerer is elsewhere; app decides which modes wait
 		Profile:             orStr(*profile, cfg.Profile),
 		Sandbox:             cfg.Sandbox,
 		BetweenTurns:        func(ctx context.Context) { ears.reconcile(ctx) },

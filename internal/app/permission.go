@@ -48,8 +48,8 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			Report: grounds, Index: q.Index, Total: q.Total})
 		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
 		var expired <-chan time.Time
-		if a.cfg.AnswerWait > 0 {
-			t := time.NewTimer(a.cfg.AnswerWait)
+		if bound := a.answerBound(); bound > 0 {
+			t := time.NewTimer(bound)
 			defer t.Stop()
 			expired = t.C
 		}
@@ -59,7 +59,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 		case <-expired:
 			// The tool degrades to "decide for yourself", which is what it does anywhere there is
 			// no human — but the agent is TOLD, so it does not treat silence as an answer.
-			return "", fmt.Errorf("nobody answered within %s; no UI is attached — decide for yourself and say which way you went", a.cfg.AnswerWait)
+			return "", fmt.Errorf("nobody answered within %s; no UI is attached — decide for yourself and say which way you went", a.answerBound())
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
@@ -126,8 +126,8 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	// only armed when one is configured, so the terminal's prompt still waits as long as the person
 	// in front of it needs.
 	var expired <-chan time.Time
-	if a.cfg.AnswerWait > 0 {
-		t := time.NewTimer(a.cfg.AnswerWait)
+	if bound := a.answerBound(); bound > 0 {
+		t := time.NewTimer(bound)
 		defer t.Stop()
 		expired = t.C
 	}
@@ -164,6 +164,34 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 }
 
+// answerBound is how long THIS prompt waits, read from the mode as it stands now.
+//
+// Config.AnswerWait says whether an answerer is somewhere else at all — a property of the process,
+// decided when it started: a terminal has the person in front of it and waits, a daemon has whoever
+// attaches and cannot wait on them forever in every mode.
+//
+// Which modes it applies to is decided HERE, per prompt, because the mode changes while the process
+// runs: Shift+Tab in an attached terminal, /permission, or SetPermission over the socket. Frozen at
+// startup, a companion switched from auto to ask would go on resolving prompts by timer — which is
+// the one thing ask exists to prevent — and one switched the other way would hang on a prompt it
+// was told to give up on.
+//
+//   - ask   — no bound. Choosing to be asked and then being answered by a timer is not being asked.
+//   - auto  — bounded, where an answerer is elsewhere. The prompts left in auto are commands and
+//     the network, where carrying on without an answer is defensible.
+//   - allow — bounded too, and this is not a contradiction. Allow does not prompt on its own, but a
+//     guardrail can force one over the top of it (a risky command, egress). That prompt exists
+//     BECAUSE of the policy rather than because of the mode, and hanging a companion whose operator
+//     asked for "allow" on a question they never asked to be asked is the wrong way to be careful.
+//     It resolves the way the mode says — allow — and is written down as a default rather than a
+//     decision.
+func (a *App) answerBound() time.Duration {
+	if a.cfg.AnswerWait > 0 && a.Permission() != "ask" {
+		return a.cfg.AnswerWait
+	}
+	return 0
+}
+
 // noteUnanswered records a prompt that timed out with no answer.
 func (a *App) noteUnanswered(ctx context.Context, sid session.SessionID, tc *session.ToolCall, allowed bool) {
 	verdict := "denied"
@@ -175,7 +203,7 @@ func (a *App) noteUnanswered(ctx context.Context, sid session.SessionID, tc *ses
 	_ = a.appendPromptText(context.WithoutCancel(ctx), sid,
 		event.Actor{Kind: event.ActorSystem, ID: "permission"}, fmt.Sprintf(
 			"no UI answered the permission prompt for %s within %s — %s by the %q policy",
-			tc.Name, a.cfg.AnswerWait, verdict, a.Permission()))
+			tc.Name, a.answerBound(), verdict, a.Permission()))
 }
 
 // notePersistOutcome carries out the "project" choice and — whenever it did NOT happen — says so.

@@ -162,22 +162,18 @@ func since(sec int) string {
 // policy and says so in the transcript, so the record shows a default rather than a decision.
 const daemonAnswerWait = 3 * time.Minute
 
-// answerWait is how long a prompt waits for a person, and it follows the PERMISSION MODE rather
-// than the process.
+// answerWait is whether an answerer is somewhere ELSE, expressed as how long to wait for them.
 //
-//   - ask   — forever. Choosing "ask" is choosing to be asked; resolving it by default after a few
-//     minutes answers the question on the person's behalf, which is the one thing the mode exists
-//     to prevent. The companion sits in the fleet's `waiting` state, badged on the console and
-//     pushed to a phone, until somebody answers it. That state is a first-class thing to be in.
-//   - auto  — bounded, on a daemon. Here the prompts are the residue: file edits are already
-//     approved and what is left is bash and the network, where "carry on without me" is a
-//     defensible default and being stopped for hours is not.
-//   - allow — never prompts, so the number never applies.
+// A property of the process, and the only half of the question this layer can answer: a terminal
+// has the person in front of it and waits as long as they need; a daemon has whoever attaches, and
+// cannot wait on them forever in every mode.
 //
-// A terminal waits forever in every mode: the person is sitting in front of it, and a prompt that
-// expires while they are reading it is a decision taken out of their hands.
-func answerWait(daemonAnswerable bool, perm string) time.Duration {
-	if daemonAnswerable && perm == "auto" {
+// WHICH modes it applies to is decided per prompt, in app.answerBound — because the mode changes
+// while the process runs (Shift+Tab, /permission, SetPermission over the socket) and a bound frozen
+// at startup would outlive the mode that justified it. Short version: ask waits, auto is bounded,
+// allow never prompts.
+func answerWait(daemonAnswerable bool) time.Duration {
+	if daemonAnswerable {
 		return daemonAnswerWait
 	}
 	return 0
