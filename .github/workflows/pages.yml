@@ -108,7 +108,14 @@ jobs:
       #
       # Whichever it was, the deploy only ever needs the newest, and it is worth more to publish
       # than to preserve evidence of a runner hiccup. The older ones go.
+      #
+      # It cannot STOP the deploy, though, and once did: a runner reached api.github.com through
+      # something presenting a certificate for no names at all, this step exited 1, and the publish
+      # was skipped over a tidy-up (run 31540871230 — the build had already succeeded and uploaded).
+      # If the duplicates it exists to remove are really there, deploy-pages refuses on its own and
+      # says so in its own words, which is a better failure than this one.
       - name: leave exactly one pages artifact
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
