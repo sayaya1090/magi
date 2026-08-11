@@ -287,8 +287,6 @@ type ToolEnv struct {
 	// outside the deliverable tree without the model knowing anything about it. Removed whole when
 	// the turn ends. Empty = the process's own TMPDIR.
 	ScratchTmp string
-	// AskPermission gates dangerous operations; returns true if allowed.
-	AskPermission func(callID, name string, args json.RawMessage) (bool, error)
 	// Spawn runs a child agent to completion and returns what it produced. nil when the host does
 	// not offer it — and it is nil inside a child, which is what makes recursion impossible rather
 	// than merely discouraged.

@@ -789,9 +789,9 @@ type line struct {
 	// Pending marks the last user prompt when nothing has answered it yet. Whether a prompt is
 	// being worked on is a fact about it, and the page had no way to show that at all.
 	Pending bool `json:"pending,omitempty"`
-	// Round and Tally belong to a council row: which round it was, and how the round came out.
-	Round int    `json:"round,omitempty"`
-	Tally string `json:"tally,omitempty"`
+	// Round is which round a council row belongs to. The tally is not a field: councilText writes
+	// it into the row's own text, and a second copy on the wire was one the page never read.
+	Round int `json:"round,omitempty"`
 	// Decision is the council vocabulary as the log spells it, so the page can colour by it.
 	Decision string `json:"decision,omitempty"`
 	// Member is which councillor said it, so the page can give each their own hue — the same three
@@ -950,7 +950,7 @@ func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
 	pending := map[int][]line{}
 	var orphans []line
 	for _, m := range marks {
-		row := line{Who: "council", Text: councilText(m), Round: m.Round, Tally: m.Tally,
+		row := line{Who: "council", Text: councilText(m), Round: m.Round,
 			Decision: m.Decision, Member: m.Member}
 		at, ok := after[m.After]
 		if !ok {

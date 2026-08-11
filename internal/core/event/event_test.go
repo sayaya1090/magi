@@ -113,43 +113,6 @@ func TestEventRoundTrip(t *testing.T) {
 	}
 }
 
-// SessionCreatedData.ParentStep survives JSON round-trip for nil / 0 / n. The
-// pointer distinguishes "no plan step" (nil, omitted) from step 0 (a valid index).
-func TestSessionCreatedParentStepRoundTrip(t *testing.T) {
-	i0, i2 := 0, 2
-	for _, tc := range []struct {
-		name string
-		step *int
-		want string // presence of the key in the JSON
-	}{
-		{"nil-omitted", nil, ""},
-		{"step-0", &i0, `"parentStep":0`},
-		{"step-n", &i2, `"parentStep":2`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			b, err := json.Marshal(SessionCreatedData{Workdir: "/w", Agent: "coder", Parent: "s_00", ParentStep: tc.step})
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
-			if tc.want == "" {
-				if strings.Contains(string(b), "parentStep") {
-					t.Errorf("nil ParentStep should be omitted, got %s", b)
-				}
-			} else if !strings.Contains(string(b), tc.want) {
-				t.Errorf("want %s in %s", tc.want, b)
-			}
-			var got SessionCreatedData
-			if err := json.Unmarshal(b, &got); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-			if (got.ParentStep == nil) != (tc.step == nil) ||
-				(tc.step != nil && *got.ParentStep != *tc.step) {
-				t.Errorf("ParentStep round-trip: got %v want %v", got.ParentStep, tc.step)
-			}
-		})
-	}
-}
-
 // TurnFinishedData carries the execution-evidence gate's UNVERIFIED label. It must be
 // omitted on a normal (verified) finish so existing consumers see the unchanged shape,
 // and round-trip faithfully when the gate could not confirm the current version was run.

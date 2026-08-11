@@ -23,14 +23,6 @@ type SessionCreatedData struct {
 	// Parent is set for subagent (child) sessions to the spawning session's id;
 	// empty for top-level user sessions. Lets the resume list hide subagents.
 	Parent string `json:"parent,omitempty"`
-	// ParentStep is the index of the parent's plan step this child was spawned to
-	// carry out (a delegate/refine write-step). It is the one missing edge that,
-	// joined with Parent, lets the live plan tree render a child's own todos indented
-	// under this step. Persisted for a future reader; the current resume path only
-	// rehydrates top-level sessions, so nothing reads it back yet. nil for children
-	// not tied to a plan step (council, scout list, stuck re-decompose). A pointer,
-	// since step 0 is valid.
-	ParentStep *int `json:"parentStep,omitempty"`
 }
 
 // PromptSubmittedData — TypePromptSubmitted (role=user).
