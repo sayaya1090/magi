@@ -579,6 +579,20 @@ function withMark(btn, ref) {
   return btn;
 }
 
+// label sets a control's word without throwing away the mark in front of it.
+//
+// textContent replaces EVERYTHING a component was given, slotted icon included. Three controls
+// learned that the hard way in one afternoon — the two armed ones on the lessons page lost their
+// mark on the first write and again on every disarm, and the composer's button lost its one every
+// time it changed between "send" and "answer". Written once here so the fourth caller does not
+// have to learn it too.
+function label(btn, word) {
+  const mark = [...(btn.children || [])].find(k => k.getAttribute && k.getAttribute('slot') === 'icon');
+  btn.textContent = word;
+  if (mark) btn.prepend(mark);
+  return btn;
+}
+
 // dressIcons swaps the page's own drawings for the baked ones, where there are baked ones.
 //
 // The markup cannot ask a question — it is a static document — so it carries the shape it has
@@ -597,6 +611,22 @@ function dressIcons(root) {
     box.replaceChildren(...drawn.children);     // the <use>, into the svg the markup already has
   }
 }
+
+// The mark each state wears, where a build has marks. Written once: the chips use it, and the row
+// that carries the same state should not be free to disagree with the chip that counts it.
+// Keyed by the GROUP the chips count, not by the raw state: stopped and abandoned are one tile
+// called "gone", and a table written against the raw states left that tile — the only one that
+// means something has ended badly — as the one with no mark on it.
+const STATE_MARK = {
+  waiting: '#i-ss-circle-pause',
+  // Still, not spinning. A turning mark in a row of counts is the only moving thing on the screen
+  // and the eye goes to it and stays — this is a tally, not a progress indicator. The place a
+  // spinner earns its keep is the row of the companion that is actually mid-call.
+  working: '#i-ss-play',
+  idle: '#i-ss-moon',
+  gone: '#i-ss-circle-stop',
+  remote: '#i-sl-satellite-dish',
+};
 
 // iconOr is the common shape: an icon if there is one, else the mark the page has always drawn.
 // Returns a node either way, so callers append rather than branch.
@@ -923,24 +953,17 @@ function srOnly(text) {
 //
 // It disarms itself after a few seconds. An armed control left sitting is one that will be pressed
 // by somebody who has forgotten what it asked.
-function arm(btn, label, act) {
+function arm(btn, word, act) {
   let armed = false, timer = 0;
-  // The mark survives the label changing. textContent replaces EVERYTHING a component was given —
-  // slotted icon included — so a button that had been handed one lost it on the first write and
-  // again on every disarm: the two destructive controls on the lessons page were the only ones
-  // that came out plain. The icon is taken out, the word is set, and it goes back in.
-  const say = word => {
-    const mark = [...(btn.children || [])].find(k => k.getAttribute && k.getAttribute('slot') === 'icon');
-    btn.textContent = word;
-    if (mark) btn.prepend(mark);
-  };
-  say(label);
-  const reset = () => { armed = false; btn.className = btn.className.replace(' armed', ''); say(label); };
+  // label(), not textContent: the word changes twice per press and the mark in front of it must
+  // survive both.
+  label(btn, word);
+  const reset = () => { armed = false; btn.className = btn.className.replace(' armed', ''); label(btn, word); };
   btn.onclick = () => {
     if (armed) { clearTimeout(timer); reset(); act(); return; }
     armed = true;
     btn.className += ' armed';
-    say(tr('action.confirm'));
+    label(btn, tr('action.confirm'));
     timer = setTimeout(reset, 5000);
   };
 }
@@ -1144,11 +1167,10 @@ function answerMode(a) {
   const note = document.getElementById('cnote');
   note.textContent = a ? tr('answer.instead') : '';
   note.hidden = !a;
-  // The word AND the mark, and both change with the mode: a paper plane for sending something into
-  // the conversation, a reply arrow for answering the question above it. textContent wipes the
-  // slot, so the mark goes back on after the word — the same footgun arm() hit.
+  // The word AND the mark, and both change with the mode: a paper plane for putting something into
+  // the conversation, a reply arrow for answering the question above it.
   const send = document.getElementById('send');
-  send.textContent = tr(a ? 'action.answer' : 'action.send');
+  label(send, tr(a ? 'action.answer' : 'action.send'));
   withMark(send, a ? '#i-sl-reply' : '#i-ss-paper-plane');
   // The old text was addressed at magi and the new question is not the same subject. Carrying it
   // over would put a half-written request in front of somebody as though it were their answer.
@@ -1591,22 +1613,6 @@ function drawFleetCount(list, waiting) {
   state.classList.toggle('asking', waiting > 0);
   summarise(list);
 }
-
-// The mark each state wears, where a build has marks. Written once: the chips use it, and the row
-// that carries the same state should not be free to disagree with the chip that counts it.
-// Keyed by the GROUP the chips count, not by the raw state: stopped and abandoned are one tile
-// called "gone", and a table written against the raw states left that tile — the only one that
-// means something has ended badly — as the one with no mark on it.
-const STATE_MARK = {
-  waiting: '#i-ss-circle-pause',
-  // Still, not spinning. A turning mark in a row of counts is the only moving thing on the screen
-  // and the eye goes to it and stays — this is a tally, not a progress indicator. The place a
-  // spinner earns its keep is the row of the companion that is actually mid-call.
-  working: '#i-ss-play',
-  idle: '#i-ss-moon',
-  gone: '#i-ss-circle-stop',
-  remote: '#i-sl-satellite-dish',
-};
 
 // grouped lays the rows out by team, when there are teams.
 //
