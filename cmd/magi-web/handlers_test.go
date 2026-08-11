@@ -580,11 +580,19 @@ func TestTheCouncilIsSplicedWhereItVoted(t *testing.T) {
 	}
 	want := []string{
 		"user:first ask", "assistant:first answer",
-		"council:✓ Melchior: done", "council:the council says done — 3 done, 0 continue of 3",
+		// The member is NOT in the text: the gutter beside the row is their name already, and
+		// having it in both read "Melchior ✓ Melchior: done".
+		"council:✓ done", "council:the council says done — 3 done, 0 continue of 3",
 		"user:second ask", "assistant:second answer",
 		// "reject", not "continue": from this council a continue is a rejection, and the raw word
 		// read as progress.
-		"council:✗ Casper: reject",
+		"council:✗ reject",
+	}
+	// …and the name is still on the row, where the gutter reads it from.
+	for _, r := range got {
+		if r.Who == "council" && r.Text == "✓ done" && r.Member != "Melchior" {
+			t.Errorf("the vote lost the member it belongs to: %+v", r)
+		}
 	}
 	if strings.Join(order, " | ") != strings.Join(want, " | ") {
 		t.Errorf("spliced as:\n  %s\nwant:\n  %s", strings.Join(order, "\n  "), strings.Join(want, "\n  "))

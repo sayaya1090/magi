@@ -41,6 +41,8 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/config"
+	"github.com/sayaya1090/magi/internal/core/auth"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/change"
 	"github.com/sayaya1090/magi/internal/core/command"
@@ -136,6 +138,16 @@ func run() int {
 	}
 	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 
+	// Read before anything is served, and a broken one stops the process. A permission file that
+	// is present and wrong ends somewhere worse either way — nobody able to do anything, or
+	// somebody believing they granted something the build does not have — and this is the moment
+	// the operator is looking at what they just wrote.
+	policy, autherr := config.LoadAuth(cd)
+	if autherr != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", autherr)
+		return 1
+	}
+
 	// Beside the store, which is where records of what happened live.
 	audit, aerr := newAudit(plat.DataDir())
 	if aerr != nil {
@@ -144,7 +156,7 @@ func run() int {
 
 	srv := &server{
 		reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{},
-		peers: peers, exposed: *exposed, userHeader: *userHeader, audit: audit,
+		peers: peers, exposed: *exposed, userHeader: *userHeader, audit: audit, policy: policy,
 		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
 		// one must not, because an event stream is supposed to stay open and a timeout there would
 		// cut the transcript every few seconds.
@@ -192,6 +204,9 @@ func run() int {
 		if *userHeader == "" {
 			fmt.Fprint(os.Stderr, ", changes recorded without a name (-user-header)")
 		}
+	}
+	if policy.Configured() {
+		fmt.Fprintf(os.Stderr, " — %d people, by role", len(policy.People))
 	}
 	fmt.Fprintln(os.Stderr)
 	if err := (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln); err != nil {
@@ -294,6 +309,9 @@ type server struct {
 	// cannot be used for the thing it is for.
 	exposed bool
 
+	// policy is who may do what. The zero value — nobody configured — is a console with one
+	// operator, which is what every console is until somebody puts a gateway in front of it.
+	policy auth.Policy
 	// audit is the record of what was asked of this console, or nil when it could not be opened.
 	// Nil records nothing rather than refusing to serve: being unable to write the record is not a
 	// reason to withhold the console from the person in front of it, and it is said at startup.
@@ -644,9 +662,12 @@ func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
 func (s *server) routes() map[string]http.HandlerFunc {
 	out := map[string]http.HandlerFunc{}
 	for path, h := range s.handlers() {
-		// Audit OUTSIDE the guard: a cross-site POST that never reaches a handler is the line in
-		// that record somebody would actually want.
-		out[path] = s.audited(sameSiteOnly(h))
+		// Three wrappers, and the order is the argument. Audit outermost, because a cross-site
+		// POST that never reaches a handler is the line in that record somebody would actually
+		// want. Then the cross-site guard, which is about the BROWSER and applies to everybody
+		// including the operator. Then may-do, which is about the person — asked last, so a
+		// forged cross-site request is turned away before anybody's permissions are consulted.
+		out[path] = s.audited(sameSiteOnly(s.mayDo(path, h)))
 	}
 	return out
 }
@@ -693,6 +714,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/compact":       s.compact,
 		"/permission":    s.permission,
 		"/console":       s.console,
+		"/me":            s.me,
 		"/history":       s.history,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,
@@ -1218,7 +1240,10 @@ func councilText(m app.CouncilMark) string {
 		}
 		return head
 	}
-	head := councilIcon(m.Decision) + " " + m.Member + ": " + councilWord(m.Decision)
+	// The mark and the word, and NOT the member: the gutter beside this row is that councillor's
+	// name already (whoWord in page.js), so putting it here read "balthasar ✗ balthasar: reject".
+	// The terminal has the same fact in the same place, and neither says it twice.
+	head := councilIcon(m.Decision) + " " + councilWord(m.Decision)
 	if m.Lens != "" {
 		head += " (" + m.Lens + ")"
 	}

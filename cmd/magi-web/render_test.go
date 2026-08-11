@@ -3684,3 +3684,50 @@ console.log(JSON.stringify({n: links.length, href: links.length ? links[0].attrs
 			"click and a copied url land somewhere else", href)
 	}
 }
+
+// A question that came with a list of answers is drawn as that list.
+//
+// The agent decided the answer is one of these, and a free-text box asks somebody to retype an
+// option they cannot see — the prompt is transient and belongs to the daemon's bus, so the console
+// only knows the options if the fleet row carries them. It did not, so the console drew a text
+// field for every multiple choice and the person had to guess the exact wording.
+func TestAQuestionWithOptionsIsAnsweredByPressingOne(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"which surface should the empty state sit on?","askId":"q1#1","askKind":"question",
+       "askOptions":["surface","surface-container-low","surface-dim"],"idle":5}]`, "", rowsHelper+`
+await loadFleet();
+const box = rows()[0].find('div').filter(d => String(d.className).includes('answer'))[0];
+const buttons = box ? box.find('md-outlined-button') : [];
+console.log(JSON.stringify({
+  buttons: buttons.map(b => b.textContent),
+  fields: box ? box.find('md-outlined-text-field').length : -1,
+}));
+`)
+	want := []any{"surface", "surface-container-low", "surface-dim"}
+	got2, _ := got["buttons"].([]any)
+	if len(got2) != len(want) {
+		t.Fatalf("drew %v, wanted a button per option (%v)", got2, want)
+	}
+	for i := range want {
+		if got2[i] != want[i] {
+			t.Errorf("option %d is %q, wanted %q — the answer travels as text, so the wording is the answer",
+				i, got2[i], want[i])
+		}
+	}
+	if got["fields"].(float64) != 0 {
+		t.Error("a text field was drawn beside the options, which asks for a fourth answer to a closed question")
+	}
+}
+
+// A question with no list keeps the box: not every question is a choice.
+func TestAnOpenQuestionStillGetsAField(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"what should the empty state say?","askId":"q1#1","askKind":"question","idle":5}]`, "", rowsHelper+`
+await loadFleet();
+const box = rows()[0].find('div').filter(d => String(d.className).includes('answer'))[0];
+console.log(JSON.stringify({fields: box ? box.find('md-outlined-text-field').length : -1}));
+`)
+	if got["fields"].(float64) != 1 {
+		t.Errorf("an open question drew %v fields", got["fields"])
+	}
+}

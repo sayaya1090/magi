@@ -1928,6 +1928,8 @@
     /* The time goes beside the name once the gutter is a line of its own, so a narrow screen does
        not spend a second row on four digits. */
     .who { text-align:left; display:flex; gap:var(--magi-sys-space-100); align-items:baseline; }
+    /* The council name is a button and carries a more specific rule, so it needs telling twice. */
+    .who.whoin { text-align:left; }
   }
   .who {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono); letter-spacing:0.0533em;
@@ -2116,7 +2118,12 @@
      it and has to be told to be the gutter it looks like. */
   .who.whoin {
     background:none; border:0; padding:0; margin:0; font:inherit; color:inherit;
-    letter-spacing:inherit; text-align:inherit; cursor:pointer; width:100%;
+    letter-spacing:inherit; cursor:pointer; width:100%;
+    /* Right, spelled out, and NOT inherit. A button's own text-align is center, so it has to be
+       overridden — but inherit takes the ROW's value, not the .who beside it, and the row is left.
+       So every council name sat at the wrong end of the gutter while every other name lined up on
+       the right. The narrow layout flips both, below. */
+    text-align:right;
   }
   .who.whoin:hover, .who.whoin:focus-visible { text-decoration:underline; text-underline-offset:2px; }
   /* Casper was #B3261E in the light theme — the error colour, to the digit — and #FF8A8A in the

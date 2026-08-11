@@ -1130,7 +1130,23 @@ function answerBox(a) {
                               a.socket, a.peer)
     .then(loadFleet)
     .then(() => jumpToNextWaiting(a.socket));
-  if (a.askKind === 'question') {
+  if (a.askKind === 'question' && (a.askOptions || []).length) {
+    // The agent offered a list, so the answer is one of these and typing a fourth thing is not an
+    // answer to what was asked. The console drew a free-text box regardless — asking somebody to
+    // retype an option they could see in the terminal and could not see here, and to guess its
+    // exact wording, since the answer travels as text.
+    //
+    // Outlined, not filled tonal: the three permission buttons are the console's highest-stakes
+    // control and are drawn at that weight, and a choice between design options is not that. They
+    // are all one weight as a group, though, for the same reason those are — a console that
+    // emphasised one option would be answering for the person.
+    for (const opt of a.askOptions) {
+      const b = document.createElement('md-outlined-button');
+      b.textContent = opt;
+      b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(opt); };
+      box.append(b);
+    }
+  } else if (a.askKind === 'question') {
     const i = document.createElement('md-outlined-text-field');
     i.label = tr('label.answer');
     const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');

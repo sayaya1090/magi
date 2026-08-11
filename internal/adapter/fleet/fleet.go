@@ -165,6 +165,14 @@ type Agent struct {
 	// from answering one of one, and the row is where a reader finds out which they are in.
 	AskIndex int `json:"askIndex,omitempty"`
 	AskTotal int `json:"askTotal,omitempty"`
+	// Options are the answers the agent offered, when it offered any.
+	//
+	// A question with a list is a different question: the agent has decided the answer is one of
+	// these, and typing a fourth thing is not an answer to what was asked. Carried here because
+	// the console has nowhere else to learn them — the prompt is transient and belongs to the
+	// daemon's bus — and without them a page drew a free-text box for a multiple choice, which
+	// asks somebody to guess the wording of an option that was on screen in the terminal.
+	AskOptions []string `json:"askOptions,omitempty"`
 	// Report is what the agent wrote for the person to decide on. Carried whole rather than
 	// summarised: a supervisor deciding for a companion on another machine has this and the
 	// question, and nothing else — clipping it here would clip the grounds, which is the one part
@@ -257,6 +265,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			a.State, a.Steps, a.Asking = Waiting, open.Steps, describeAsk(in.Asking)
 			a.AskID, a.AskKind = in.Asking.ID, in.Asking.Kind
 			a.AskIndex, a.AskTotal = in.Asking.Index, in.Asking.Total
+			a.AskOptions = in.Asking.Options
 			a.Report = in.Asking.Report
 			a.Task = Clip(theWork(open.Text), 160)
 		case in.Live && isOpen:
