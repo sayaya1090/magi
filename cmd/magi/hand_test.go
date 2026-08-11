@@ -180,6 +180,17 @@ func (w *recordingWork) Running() (session.SessionID, bool) {
 // starts a turn. Recording only in memory left the log with a turn that finished without ever
 // having been asked for — and "the first turn that finishes past here" does not recognise that.
 func (w *recordingWork) Submit(_ context.Context, c command.SubmitPrompt) error {
+	// Busy FIRST, before anything a test can watch for.
+	//
+	// A test learns the piece started by seeing its prompt, so every state this fake owes the
+	// caller has to be true by the time the prompt is visible. Recorded first and marked busy
+	// after, there is a window where the piece has visibly started and the workspace still looks
+	// free: a test that finishes the turn in that window clears nothing, the marker is set a
+	// moment later by the very call that was finishing, and the queue never moves again. Found as
+	// a one-in-eight flake in TestAQueuedPieceGetsItsOwnAnswer, whose next piece waited out the
+	// deadline. A real App has no such window — accepting the prompt and running the turn are the
+	// same act there.
+	w.setBusy(c.SessionID)
 	var b strings.Builder
 	for _, p := range c.Parts {
 		b.WriteString(p.Text)
@@ -189,9 +200,6 @@ func (w *recordingWork) Submit(_ context.Context, c command.SubmitPrompt) error 
 	w.ar.got.Unlock()
 	w.ar.append(string(c.SessionID), ev(w.ar.t, event.TypePromptSubmitted,
 		event.PromptSubmittedData{MessageID: "m_handed", Parts: c.Parts}))
-	// A submitted prompt starts a turn, and a turn running is what the next piece waits for. A
-	// fake that skipped this would drain the whole queue at once and call it serialised.
-	w.setBusy(c.SessionID)
 
 	return nil
 }
@@ -305,15 +313,23 @@ func (ar *arrival) append(sid string, evs ...event.Event) {
 func (ar *arrival) finishes(sid, said string) {
 	ar.t.Helper()
 	ar.said++
-	if ar.work != nil {
-		ar.work.freeIf(sid) // the turn ended; the workspace is free again
-	}
+	// The answer is in the log BEFORE the workspace is free, which is the order the real App ends
+	// a turn in: runLoop writes the assistant text and turn.finished, and the run goroutine drops
+	// the cancel — what Running() reads — on its way out afterwards (internal/app/app.go).
+	//
+	// Freed first, the drain could start the next piece and mark where its answer begins at a
+	// point BEFORE this answer was written, so the next piece would collect this one's words. Seen
+	// as a rare "the second piece was handed the answer to the first" — the exact confusion these
+	// tests exist to catch, arriving from the fixture rather than from the code.
 	ar.append(sid,
 		ev(ar.t, event.TypePartAppended, event.PartAppendedData{
 			MessageID: fmt.Sprintf("m%d", ar.said),
 			Role:      session.RoleAssistant,
 			Part:      session.Part{Kind: session.PartText, Text: said}}),
 		ev(ar.t, event.TypeTurnFinished, event.TurnFinishedData{}))
+	if ar.work != nil {
+		ar.work.freeIf(sid) // the turn ended; the workspace is free again
+	}
 }
 
 func ev(t *testing.T, typ event.Type, d any) event.Event {
@@ -857,6 +873,37 @@ func TestTheNextPieceStartsWhenTheOneBeforeItEnds(t *testing.T) {
 	// turn-finish watch makes.
 	if waited := time.Since(started); waited > drainEvery/2 {
 		t.Errorf("the next piece waited %s — the tick found it, nothing noticed the turn ending", waited)
+	}
+}
+
+// A wake that arrives a moment before the workspace is free still starts the piece promptly.
+//
+// The two are not one instant: the nudge rides the turn-finished event, and the flag that says a
+// turn is in flight is dropped by the goroutine retiring behind it. Lose that race — and it is a
+// race, so it is lost sometimes — and the drain looks, sees busy, and goes back to sleep until the
+// backstop, with everything the piece needed already true three seconds earlier.
+func TestAWakeThatArrivesBeforeTheWorkspaceIsFreeDoesNotCostTheBackstop(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	ar.work.setBusy("the-person-is-working")
+
+	if _, err := cl.Hand("— asked by master", "count the lines"); err != nil {
+		t.Fatal(err)
+	}
+	// The nudge for a turn that has ended, delivered while the workspace still reads busy. This is
+	// the only wake there will be: nothing else nudges when the flag is dropped afterwards.
+	ar.taking.queued.wake()
+	time.Sleep(20 * time.Millisecond)
+	if n := len(ar.prompts()); n != 0 {
+		t.Fatalf("%d pieces started while the workspace was busy, which is two turns in one workspace", n)
+	}
+
+	ar.work.freeIf("the-person-is-working")
+	freed := time.Now()
+	until(t, "the piece to start once the workspace freed", func() bool { return len(ar.prompts()) == 1 })
+	if waited := time.Since(freed); waited > drainEvery/2 {
+		t.Errorf("the piece waited %s after the workspace freed — that is the backstop finding it, "+
+			"which is what the retry after a busy wake exists to prevent", waited)
 	}
 }
 

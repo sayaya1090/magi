@@ -166,12 +166,15 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 // the WORK is not, and must not be. This is an agent that edits files, and two turns at once in
 // one tree are two writers with nothing between them — the person's own turn included, because a
 // request borrows the workspace and borrowing it while somebody is using it is the same collision.
-func (h handover) startNext(ctx context.Context) {
+// startNext starts one queued piece if it can, and reports whether trying again shortly is worth
+// anything: true only when there is work waiting and the workspace was busy, which is the one
+// reason to try again that a moment can change on its own.
+func (h handover) startNext(ctx context.Context) (soon bool) {
 	if h.work == nil || h.queued == nil {
-		return
+		return false
 	}
 	if _, busy := h.work.Running(); busy {
-		return
+		return len(h.queued.list()) > 0
 	}
 	// And behind the person, not only behind the turn.
 	//
@@ -181,11 +184,11 @@ func (h handover) startNext(ctx context.Context) {
 	// worked now waits for a request that arrived from another machine. Work asked for by a person
 	// in front of the thing outranks work handed to it.
 	if h.work.PersonWaiting() {
-		return
+		return false
 	}
 	p, ok := h.queued.next()
 	if !ok {
-		return
+		return false
 	}
 	// Where the log stands NOW, as this piece begins — not where it stood when the piece was
 	// taken. Anything that finished while it waited belongs to whoever was in front of it.
@@ -193,7 +196,7 @@ func (h handover) startNext(ctx context.Context) {
 	if nerr != nil {
 		h.queued.giveUp(p.receipt, "this companion cannot read its own transcript, so an answer "+
 			"could not be found again: "+nerr.Error())
-		return
+		return false
 	}
 	h.receipts.Started(p.receipt, since)
 	// The same actor a person's own prompt gets. Who actually asked is in the label, verbatim,
@@ -207,7 +210,7 @@ func (h handover) startNext(ctx context.Context) {
 		// nothing is coming, which is the one thing worse to withhold: a receipt pointing at a
 		// session where nothing ever happens looks exactly like a companion still thinking.
 		h.queued.giveUp(p.receipt, "this companion could not start the work: "+err.Error())
-		return
+		return false
 	}
 	// It is running now — said out loud, because a companion in the middle of somebody's request
 	// is otherwise indistinguishable from an idle one: what a dashboard calls its state is read
@@ -217,6 +220,7 @@ func (h handover) startNext(ctx context.Context) {
 	// is how that is noticed without polling — the tick in run() is only for the turn this did not
 	// start, which is the person's own.
 	go h.wakeWhenDone(ctx, p.session)
+	return false
 }
 
 // wakeWhenDone nudges the drain when the turn just started has ended.
@@ -252,14 +256,20 @@ func (h handover) run(ctx context.Context) {
 	if h.queued == nil {
 		return
 	}
+	wait, quick := drainEvery, 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-h.queued.nudge:
-		case <-time.After(drainEvery):
+			quick = 0 // something changed; the short retries are for this wake, not the last one
+		case <-time.After(wait):
 		}
-		h.startNext(ctx)
+		if h.startNext(ctx) && quick < quickTries {
+			quick, wait = quick+1, drainSoon
+			continue
+		}
+		quick, wait = 0, drainEvery
 	}
 }
 

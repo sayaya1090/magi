@@ -47,6 +47,22 @@ const maxWaiting = 4
 // person's own turn finishing in their own session.
 const drainEvery = 3 * time.Second
 
+// drainSoon is the wait after a try that found the workspace still busy with work waiting, and
+// quickTries is how many of those in a row before falling back to the backstop.
+//
+// A turn ending and the workspace being free are not the same instant. The nudge rides the bus
+// event; the flag it then reads is dropped by the run goroutine afterwards. Lose that race and the
+// piece behind it sat for the whole backstop with everything it needed already true — three
+// seconds of a companion looking like it was thinking, once per handover, for no reason.
+//
+// Bounded on purpose: a person's own turn can hold the workspace for an hour, and a retry that
+// never gave up would be a poll for the length of it. A second of trying is far more than state
+// cleanup needs, and the backstop is still there for everything else.
+const (
+	drainSoon  = 100 * time.Millisecond
+	quickTries = 10
+)
+
 // pending is one piece of taken work, waiting for the workspace.
 type pending struct {
 	receipt string
