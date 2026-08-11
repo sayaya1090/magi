@@ -69,6 +69,12 @@ func run() int {
 	exposed := flag.Bool("exposed", false,
 		"more people than the operator can reach this console (through a proxy or gateway that "+
 			"authenticates); refuses the routes that run something chosen by the caller")
+	// Named rather than sniffed. Every gateway spells it differently (X-Forwarded-User,
+	// X-Auth-Request-Email, Cf-Access-Authenticated-User-Email, Tailscale-User-Login), and a list
+	// of headers this trusts by default is a list of headers anybody can set.
+	userHeader := flag.String("user-header", "",
+		"header the authenticating proxy in front puts the person's name in, recorded with each "+
+			"change (e.g. X-Forwarded-User); unset records where a request came from and not who")
 	// Writing the page out as a static site, answered by a mock in the browser. Here rather than in
 	// its own command because it must emit the string THIS binary serves — a generator with its own
 	// copy of the page is a demo that drifts, which is worse than none.
@@ -130,9 +136,15 @@ func run() int {
 	}
 	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 
+	// Beside the store, which is where records of what happened live.
+	audit, aerr := newAudit(plat.DataDir())
+	if aerr != nil {
+		fmt.Fprintln(os.Stderr, "magi-web: changes are not being recorded:", aerr)
+	}
+
 	srv := &server{
 		reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{},
-		peers: peers, exposed: *exposed,
+		peers: peers, exposed: *exposed, userHeader: *userHeader, audit: audit,
 		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
 		// one must not, because an event stream is supposed to stay open and a timeout there would
 		// cut the transcript every few seconds.
@@ -141,6 +153,7 @@ func run() int {
 		embedModel: os.Getenv("MAGI_EMBED_MODEL"),
 	}
 	defer srv.closeAll()
+	defer audit.Close()
 	if p, err := newPush(cd); err != nil {
 		fmt.Fprintln(os.Stderr, "magi-web: notifications are off:", err)
 	} else {
@@ -174,6 +187,11 @@ func run() int {
 	// pass the flag has no other way to notice: the page looks identical either way.
 	if *exposed {
 		fmt.Fprint(os.Stderr, " — shared: no shell, no MCP writes")
+		// Worth saying once, at the moment somebody is setting this up: a shared console whose
+		// record cannot name anybody is a record of a door with no faces in it.
+		if *userHeader == "" {
+			fmt.Fprint(os.Stderr, ", changes recorded without a name (-user-header)")
+		}
 	}
 	fmt.Fprintln(os.Stderr)
 	if err := (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln); err != nil {
@@ -275,6 +293,15 @@ type server struct {
 	// scheduling a job all go through the agent, and refusing them would leave a console that
 	// cannot be used for the thing it is for.
 	exposed bool
+
+	// audit is the record of what was asked of this console, or nil when it could not be opened.
+	// Nil records nothing rather than refusing to serve: being unable to write the record is not a
+	// reason to withhold the console from the person in front of it, and it is said at startup.
+	audit *auditLog
+	// userHeader is the header a gateway in front puts the authenticated person in, named by the
+	// operator because only they know what is in front. Empty means the record says where a
+	// request came from and not who sent it. See audit.go.
+	userHeader string
 
 	// Other consoles this one reads, from the operator's flags. Empty is the ordinary case: one
 	// machine, no federation, nothing on the network.
@@ -617,7 +644,9 @@ func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
 func (s *server) routes() map[string]http.HandlerFunc {
 	out := map[string]http.HandlerFunc{}
 	for path, h := range s.handlers() {
-		out[path] = sameSiteOnly(h)
+		// Audit OUTSIDE the guard: a cross-site POST that never reaches a handler is the line in
+		// that record somebody would actually want.
+		out[path] = s.audited(sameSiteOnly(h))
 	}
 	return out
 }
