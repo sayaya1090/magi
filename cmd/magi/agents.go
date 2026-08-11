@@ -155,18 +155,29 @@ func since(sec int) string {
 	return fmt.Sprintf("%dd", sec/86400)
 }
 
-// daemonAnswerWait is how long a daemon holds a prompt open for an attached UI.
+// daemonAnswerWait is how long a daemon holds an AUTO-mode prompt open for an attached UI.
 //
-// Long enough to walk back to the desk or pick up a phone; short enough that a viewer closed
-// hours ago does not leave the agent stopped in front of one question. On expiry the prompt
-// resolves by policy and says so in the transcript, so the record shows a default rather than a
-// decision.
+// Long enough to walk back to the desk or pick up a phone; short enough that a viewer closed hours
+// ago does not leave the agent stopped in front of one question. On expiry the prompt resolves by
+// policy and says so in the transcript, so the record shows a default rather than a decision.
 const daemonAnswerWait = 3 * time.Minute
 
-// answerWait is the bound for this run: none for a terminal, where the human is present and the
-// prompt is on their screen.
-func answerWait(daemonAnswerable bool) time.Duration {
-	if daemonAnswerable {
+// answerWait is how long a prompt waits for a person, and it follows the PERMISSION MODE rather
+// than the process.
+//
+//   - ask   — forever. Choosing "ask" is choosing to be asked; resolving it by default after a few
+//     minutes answers the question on the person's behalf, which is the one thing the mode exists
+//     to prevent. The companion sits in the fleet's `waiting` state, badged on the console and
+//     pushed to a phone, until somebody answers it. That state is a first-class thing to be in.
+//   - auto  — bounded, on a daemon. Here the prompts are the residue: file edits are already
+//     approved and what is left is bash and the network, where "carry on without me" is a
+//     defensible default and being stopped for hours is not.
+//   - allow — never prompts, so the number never applies.
+//
+// A terminal waits forever in every mode: the person is sitting in front of it, and a prompt that
+// expires while they are reading it is a decision taken out of their hands.
+func answerWait(daemonAnswerable bool, perm string) time.Duration {
+	if daemonAnswerable && perm == "auto" {
 		return daemonAnswerWait
 	}
 	return 0

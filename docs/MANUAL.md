@@ -157,6 +157,23 @@ Flags / environment variables (precedence: flag > env > default):
 
 Permission modes: `ask` = confirm every time · `auto` = **edits auto-approved, only commands (bash)/network confirmed** · `allow` = everything auto · `deny` = blocked. Cycle in the TUI with `Shift+Tab` (or `/permission`).
 
+**On a daemon, the mode also decides how long a prompt waits.** A resident companion started with
+`--permission ask` or `auto` puts its prompts to whatever UI attaches (§13), and what happens when
+none does differs:
+
+- **`ask` waits.** Indefinitely. Choosing to be asked and then being answered by a timer is the one
+  thing the mode exists to prevent, so the companion sits in the fleet's `waiting` state — badged on
+  the console, pushed to a phone — until somebody answers.
+- **`auto` gives up after three minutes** and resolves by policy, recording in the transcript that
+  the decision was a default rather than somebody's. Here the prompts are the residue — edits are
+  already approved and what is left is commands and the network — where "carry on without me" is
+  defensible and being stopped for hours is not.
+- **`allow`** never prompts, which is why it is the daemon's default: work that runs while nobody
+  is watching, including the schedule (§14), must not stop for a person who is not there.
+
+A terminal waits in every mode: the person is in front of it, and a prompt that expires while they
+are reading it is a decision taken out of their hands.
+
 Guardrail posture (`--profile`/`MAGI_PROFILE`) is a preset that sets both axes (**approval** × **OS sandbox**) at once: `safe` = `ask` + `read-only`, `standard` (recommended) = `auto` + `workspace-write` (auto-approve edits, confirm commands/network, confine writes to the workspace), `yolo` = `allow` + `full`. An explicit `--permission`/`sandbox` overrides the preset. With no profile set, the sandbox stays opt-in (unconfined) and only the permission default applies — so an existing user's network / out-of-tree writes aren't silently cut. The sandbox axis (`sandbox = "read-only"|"workspace-write"|"full"`) can also be set directly in `config.toml`.
 
 **Fine-grained rules (`config.toml`).** Beyond the mode, three list keys narrow the policy: `allow` / `deny` are glob rules over tool invocations (e.g. `Bash(git push:*)` auto-approves that command, `Read(**/.env)` blocks reading secrets) — this is what the `p` permission choice (§4) persists — and `deny` wins over `allow`. `allow_domains` restricts **WebFetch/bash network egress to a host allowlist** (e.g. `["api.github.com"]`); empty = no host restriction. All three **append** across the global and project configs rather than overriding, and are on the fixed deny-list a plugin's `set_config_key` can never touch (EXTENDING §Plugins).

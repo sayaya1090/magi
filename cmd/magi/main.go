@@ -702,8 +702,15 @@ func run() int {
 	registerOrchestrationTools(reg, nobodyCanAnswer(headless, answerable))
 
 	if answerable {
-		fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached, and "+
-			"resolve by policy after %s if none answers\n", perm, daemonAnswerWait)
+		if wait := answerWait(answerable, perm); wait > 0 {
+			fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached, and "+
+				"resolve by policy after %s if none answers\n", perm, wait)
+		} else {
+			fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached and "+
+				"WAIT until one answers — this companion will sit in `waiting` rather than decide for "+
+				"you. Use --permission auto to have unanswered prompts resolve after %s.\n",
+				perm, daemonAnswerWait)
+		}
 	} else if headless && (perm == "auto" || perm == "ask") {
 		// Nobody to ask and no way to attach one: "auto"/"ask" deny bash and webfetch outright —
 		// a footgun for benchmarks/scripts where the agent then quietly refuses every command.
@@ -836,8 +843,8 @@ func run() int {
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
 		Permission:          perm,
-		Interactive:         !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
-		AnswerWait:          answerWait(answerable),  // 0 for the TUI: the person is sitting in front of it
+		Interactive:         !headless || answerable,      // a UI can answer: the TUI, or one attached to a daemon
+		AnswerWait:          answerWait(answerable, perm), // see answerWait: ask waits, auto is bounded
 		Profile:             orStr(*profile, cfg.Profile),
 		Sandbox:             cfg.Sandbox,
 		BetweenTurns:        func(ctx context.Context) { ears.reconcile(ctx) },
