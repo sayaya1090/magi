@@ -242,6 +242,22 @@
   </div>
 </md-dialog>
 
+<!-- Interrupting is a decision, so it is asked as one.
+     The guide keeps a dialog for "critical information that requires a decision" and gives the
+     shape: a headline that states the question concretely rather than "Are you sure?", two actions
+     at most, the dismissive one to the LEFT of the confirming one, and a confirming label that
+     says what will happen rather than "OK". -->
+<md-dialog id="stopDialog" type="alert">
+  <div slot="headline" id="stopK"></div>
+  <div slot="content" id="stopBody"></div>
+  <div slot="actions">
+    <md-text-button id="stopCancel"></md-text-button>
+    <!-- armed: the page's existing vocabulary for a control that destroys something, and the
+         asking is what is red. -->
+    <md-text-button id="stopGo" class="armed"></md-text-button>
+  </div>
+</md-dialog>
+
 <footer id="dock">
   <div id="prompt" hidden></div>
   <form id="f" hidden><div class="composer">

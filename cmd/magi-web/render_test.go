@@ -578,7 +578,13 @@ func TestStoppingWorksFromTheList(t *testing.T) {
 await loadFleet();
 const stops = rows().map(r => r.find(clicky).filter(b => b.className === 'stop').length);
 rows()[0].find(clicky).filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
-console.log(JSON.stringify({stops, posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
+// Pressing it asks first: halting a turn costs whatever the agent was in the middle of, and a row
+// in a list is an easy thing to mis-hit.
+const asked = byId.stopDialog.open === true;
+const beforeConfirm = RENDERED.filter(r => r.method === 'POST').length;
+byId.stopGo.onclick();
+console.log(JSON.stringify({stops, asked, beforeConfirm,
+  posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
 `)
 	var stops []float64
 	for _, s := range got["stops"].([]any) {
@@ -587,6 +593,12 @@ console.log(JSON.stringify({stops, posts: RENDERED.filter(r => r.method === 'POS
 	// waiting, working: stoppable. idle: nothing to stop. the two dead ones: nobody to tell.
 	if len(stops) != 5 || stops[0] != 1 || stops[1] != 1 || stops[2] != 0 || stops[3] != 0 || stops[4] != 0 {
 		t.Errorf("stop controls per row: %v — want one on the two that are running", stops)
+	}
+	if got["asked"] != true {
+		t.Error("stopping a turn happened without asking")
+	}
+	if n, _ := got["beforeConfirm"].(float64); n != 0 {
+		t.Errorf("%v requests went out before the question was answered", n)
 	}
 	posts := got["posts"].([]any)
 	if len(posts) != 1 || !strings.HasPrefix(posts[0].(string), "/interrupt?d=") {
@@ -719,8 +731,12 @@ func TestARemoteRowCarriesItsConsoleEverywhere(t *testing.T) {
 await loadFleet();
 const remote = rows().find(r => r.text.includes('fuzzer'));
 const local = rows().find(r => r.text.includes('local'));
+// Each stop is asked and then confirmed, one at a time — the dialog is one element and the
+// question it is holding is about one companion.
 remote.find(clicky).filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+byId.stopGo.onclick();
 local.find(clicky).filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+byId.stopGo.onclick();
 console.log(JSON.stringify({
   remoteHref: remote.attrs.href, localHref: local.attrs.href,
   remoteText: remote.text,

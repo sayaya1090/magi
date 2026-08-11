@@ -345,6 +345,9 @@ const prefsK = document.getElementById('prefsK'), consoleK = document.getElement
 const prefsEl = document.getElementById('prefs');
 const prefsDialog = document.getElementById('prefsDialog');
 const mcpDialog = document.getElementById('mcpDialog');
+const stopDialog = document.getElementById('stopDialog');
+const stopK = document.getElementById('stopK'), stopBody = document.getElementById('stopBody');
+const stopCancel = document.getElementById('stopCancel'), stopGo = document.getElementById('stopGo');
 const mcpFormEl = document.getElementById('mcpForm');
 const mcpDialogK = document.getElementById('mcpDialogK');
 const mcpCancel = document.getElementById('mcpCancel'), mcpGo = document.getElementById('mcpGo');
@@ -563,6 +566,30 @@ function card(a) {
   return el;
 }
 
+// confirmStop asks before halting a turn, and says what halting it costs.
+//
+// A row in a list is an easy thing to mis-hit, and the cost of hitting this one is whatever the
+// agent was in the middle of. The guide keeps dialogs for exactly this — "critical information
+// that requires a decision", "confirmation of a choice before committing to it" — and is specific
+// about the shape: a headline that poses the question concretely rather than "Are you sure?", the
+// dismissive action to the LEFT of the confirming one, and a confirming label that says what will
+// happen instead of "OK".
+//
+// The same dialog guards the button beside the composer. One action, one question: two behaviours
+// for one verb would be the console teaching that stopping means different things in different
+// corners of it.
+function confirmStop(who, go) {
+  // The headline names the companion when there is a name to use, and asks the same question
+  // without one rather than leaving a hole where a name should be.
+  stopK.textContent = who ? tr('stop.headline', {name: who}) : tr('stop.headline_plain');
+  stopBody.textContent = tr('stop.body');
+  stopCancel.textContent = tr('action.keep_running');
+  stopGo.textContent = tr('action.interrupt');
+  stopCancel.onclick = () => stopDialog.close('cancel');
+  stopGo.onclick = () => { stopDialog.close('stop'); go(); };
+  stopDialog.show();
+}
+
 // rowActions: stopping, and only that.
 //
 // "open" is gone. The whole row is a link to the companion, so a button beside it saying "open" was
@@ -575,15 +602,27 @@ function card(a) {
 function rowActions(a) {
   const box = cell('actions');
   if (!(a.live && (a.state === 'working' || a.state === 'waiting'))) return box;
+  // A solid glyph, in the colour of what it does.
+  //
+  // It drew an OUTLINED square in the muted role, which is the toggle vocabulary exactly — the
+  // guide: "toggle buttons should use an outlined icon when unselected, and a filled version when
+  // selected", while "default icon buttons should use filled icons". So the one control that halts
+  // a running turn was drawn as an unticked checkbox, and it was grey until the cursor was on it:
+  // a destructive action whose meaning appeared only after you had found it.
+  //
+  // Not md-filled-icon-button, which is what the guide would give a high-emphasis action: that
+  // component is not in the vendored bundle, and a page that names an element nobody registered
+  // gets an inert span — measured, 20px with no container at all. The container is a re-vendor, and
+  // the two things that were actually wrong are the glyph and the colour.
   const stop = document.createElement('md-icon-button');
   stop.className = 'stop';
   stop.setAttribute('aria-label', tr('action.interrupt'));
   tip(stop, tr('action.interrupt'));
   stop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
-    '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+    '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>';
   stop.onclick = e => {
     e.preventDefault(); e.stopPropagation();
-    post('/interrupt', null, a.socket, a.peer).then(loadFleet);
+    confirmStop(nameOf(a.socket) || a.name, () => post('/interrupt', null, a.socket, a.peer).then(loadFleet));
   };
   box.append(stop);
   return box;
@@ -3543,7 +3582,7 @@ f.onsubmit = e => {
 // only way to break a line there, and hijacking it leaves no way to write a second paragraph.
 const touch = matchMedia('(hover: none)').matches;
 t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !touch) { e.preventDefault(); f.requestSubmit(); } };
-document.getElementById('stop').onclick = () => post('/interrupt', null);
+document.getElementById('stop').onclick = () => confirmStop(nameOf(sock()), () => post('/interrupt', null));
 
 paint();
 render();

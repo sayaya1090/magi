@@ -1058,6 +1058,10 @@
     color:var(--magi-ref-muted);
   }
   .actions md-icon-button:hover { --md-icon-button-icon-color:var(--magi-ref-error); color:var(--magi-ref-error); }
+  /* Except the one that stops a turn: it wears the error role at rest, because a destructive
+     control that is grey until the cursor reaches it is a control whose meaning is hidden until
+     after you have found it. */
+  .actions md-icon-button.stop { --md-icon-button-icon-color:var(--magi-ref-error); color:var(--magi-ref-error); }
 
   /* The grounds a decision is put on: a key-and-value block, set like the rest of this page's
      labelled readings. Two columns on anything but a phone, because the keys are short words and
@@ -1807,7 +1811,12 @@
   /* Interrupting reads the same way, and it is an ICON button — named md-text-button.stop it was
      styling nothing, so the one control on the fleet that halts a running turn was the only
      destructive-feeling thing on the page that stayed grey under the cursor. */
+  /* The error role rather than the accent: this is the one control on the page that destroys work
+     in progress, and M3 expresses a destructive action through the colour role, not through a
+     variant of its own. The container is the quiet end of that role so a list of three working
+     companions is not three red blocks; the glyph carries the colour. */
   md-icon-button.stop {
+    --md-icon-button-icon-color: var(--magi-ref-error);
     --md-icon-button-hover-icon-color: var(--magi-ref-error);
     --md-icon-button-focus-icon-color: var(--magi-ref-error);
     --md-icon-button-pressed-icon-color: var(--magi-ref-error);
