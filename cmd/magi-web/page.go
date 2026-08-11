@@ -253,7 +253,7 @@ const indexHTML = `<!doctype html>
 
   /* Newsreader, an editorial serif drawn for reading on screens, served from this binary — see
      fonts/README.md. A font CDN would make the page's appearance depend on somebody else's machine
-     and tell it when you look at your agents; embedding costs 60KB and nothing leaves the host.
+     and tell it when you look at your agents; nothing here leaves the host.
      swap, so the page is readable in the fallback before the face arrives. */
   @font-face {
     font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
@@ -267,14 +267,41 @@ const indexHTML = `<!doctype html>
     font-family:"Newsreader"; font-style:italic; font-weight:400; font-display:swap;
     src:url(/font/newsreader-italic.woff2) format("woff2");
   }
+  /* Korean, in the same two weights.
+     Chosen by looking: set beside Newsreader, Nanum Myeongjo's hangul sits a size smaller and
+     Gowun Batang's sits larger and lighter — in both cases a heading reads as two typefaces. Noto
+     Serif KR matches Newsreader's cap height and its colour closely enough that a line of mixed
+     script reads as one face, which is the whole test.
+     It carries hanja as well as hangul, so a name or a quotation with 漢字 in it does not drop out
+     of the face halfway through a word.
+     unicode-range, not a language setting. The browser fetches these only when Korean is actually
+     on the page, and a Korean workspace name on an English console still renders in the right face
+     — which a per-locale switch gets wrong in exactly the case that matters. */
+  @font-face {
+    font-family:"Noto Serif KR"; font-style:normal; font-weight:400; font-display:swap;
+    src:url(/font/notoserifkr-400.woff2) format("woff2");
+    unicode-range:U+1100-11FF, U+3000-303F, U+3130-318F, U+4E00-9FFF, U+A960-A97F,
+      U+AC00-D7A3, U+D7B0-D7FF, U+F900-FAFF, U+FF01-FF60, U+FFE0-FFE6;
+  }
+  @font-face {
+    font-family:"Noto Serif KR"; font-style:normal; font-weight:600; font-display:swap;
+    src:url(/font/notoserifkr-600.woff2) format("woff2");
+    unicode-range:U+1100-11FF, U+3000-303F, U+3130-318F, U+4E00-9FFF, U+A960-A97F,
+      U+AC00-D7A3, U+D7B0-D7FF, U+F900-FAFF, U+FF01-FF60, U+FFE0-FFE6;
+  }
 
   /* Two families. The serif for what a person READS — names, the lead line, the empty state — and
      monospace for everything that is a fact from the machine: paths, commands, transcript. The
-     system stack behind Newsreader is not decoration: it carries every script the subset does not,
-     so a Korean workspace name renders in the platform's serif rather than in tofu. */
+     system stack behind them is not decoration: it carries every script neither subset does, so a
+     Thai workspace name renders in the platform's face rather than in tofu.
+     Korean sits in BOTH, ahead of the system fallback. In the display stack for the obvious reason,
+     and in the monospace one because hangul is not monospaced by anybody: it was falling through to
+     whatever the platform happened to install, which is a different page on every machine — the
+     thing embedding a face exists to stop. A serif hangul in a line of monospace Latin is a choice,
+     and it is the one that keeps the page a single voice. */
   :root {
-    --magi-ref-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-    --magi-ref-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --magi-ref-display: "Newsreader", "Noto Serif KR", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --magi-ref-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Serif KR", monospace;
     /* ── state layers ───────────────────────────────────────────────────────── */
   /* M3 does not recolour text on hover; it lays the on- colour over the surface at a fixed
      opacity — 8% hover, 12% focus and press. One recipe, applied by adding the state class to
