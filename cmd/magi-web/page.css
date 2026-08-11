@@ -1703,13 +1703,29 @@
     display:grid; grid-template-columns:8rem minmax(0, 1fr) 2.5rem;
     gap:var(--magi-sys-space-200); align-items:stretch;
   }
-  /* Fits the dialog rather than pushing past it. A dialog is 560dp wide at most and its content
-     box does not grow with what is put in it — a form wider than that is simply cut off on the
-     right, which is where the remove control was: measured 608px of form inside 560px of dialog,
-     and the last 48 were the column nobody could see. */
+  /* Wider than a basic dialog, deliberately, and the only dialog here that is.
+     M3 caps a basic dialog at 560dp and md-dialog writes that on its own :host — reachable from
+     here because a page rule on the element beats a rule inside its shadow. The cap is written for
+     a dialog that asks one question; this one is an editor with three columns, and at 560 the
+     middle one — the sentence that tells the agent what the section is for — had about 40
+     characters to say it in. 720 gives it around 60, which is where the rest of this page's prose
+     sits (--magi-sys-measure). Still short of the viewport on a phone, where the subtraction wins.
+     ⚠ Do not widen the others to match: they ask one thing, and 560 is right for them. */
+  #fmtDialog { max-width:min(720px, 100% - 48px); }
+  /* Fits the dialog rather than pushing past it. The content box does not grow with what is put in
+     it — a form wider than the container is simply cut off on the right, which is where the remove
+     control was: measured 608px of form inside 560px of dialog, and the last 48 were the column
+     nobody could see. */
   #fmtForm {
     display:grid; gap:var(--magi-sys-space-200);
-    width:100%; padding-top:var(--magi-sys-space-100);
+    /* An asked-for width, not a percentage. The dialog's container is fit-content, so a form at
+       100% asks the container how wide it is and the container asks back — the pair settled on
+       whatever the longest sentence happened to be, and raising the container's cap moved nothing.
+       Naming the inline size here is what makes the dialog grow to it, up to the cap above; the
+       viewport subtraction is the phone, where the cap never applies. 672 + the dialog's own
+       24 either side is the 720 up there, so the two numbers stay one decision. */
+    inline-size:min(672px, calc(100vw - 96px));
+    padding-top:var(--magi-sys-space-100);
   }
   /* The remove control sits on the field's first line rather than in the middle of a two-line row,
      which is where the thing it removes starts. */
