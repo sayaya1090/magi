@@ -38,12 +38,15 @@ jobs:
           EOF
           printf '//npm.fontawesome.com/:_authToken=%s\n' "${FA_TOKEN}" >> .npmrc
 
-          # Two shapes, because a Font Awesome token is one of two things and only the registry can
-          # say which this is: a KIT token, which opens @awesome.me/kit-<id>, or a PRO token, which
-          # opens the @fortawesome/pro-* packages. The kit is the one this console wants — it is the
-          # hand-picked 113, not the whole library.
+          # Four shapes, because only the registry can say what this token opens, and the answer
+          # decides how the Pages build gets its icons:
+          #   fontawesome-pro        — ships svgs/<style>/<name>.svg, the same layout as the kit's
+          #                            own download, so ONE generator reads both. What we want.
+          #   sharp-*-svg-icons      — path data as javascript modules; usable, but a second reader.
+          #   kit-<id>               — the hand-picked 113, and needs the kit's package enabled.
           ok=0
-          for pkg in "@awesome.me/kit-fd54b971dc" "@fortawesome/pro-light-svg-icons"; do
+          for pkg in "@fortawesome/fontawesome-pro" "@fortawesome/sharp-light-svg-icons" \
+                     "@fortawesome/sharp-solid-svg-icons" "@awesome.me/kit-fd54b971dc"; do
             if v=$(npm view "$pkg" version 2>/tmp/err); then
               echo "✓ $pkg → $v"
               ok=1
