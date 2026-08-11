@@ -87,8 +87,35 @@ The facts card **folds**, at every width, remembered across companions. It answe
 looking at" once and is then 547px of masthead between a reader and the conversation; folded it is
 58px with the state and the workspace still on its summary line.
 
-Header fields: status · workspace · role · team · host, address and pid · steps · last activity ·
-session id · **model** · **context** · **what was summarised away**.
+Header fields, in the order the questions come — the grid packs in DOM order, so the list of them
+IS the layout:
+
+1. **what it is doing now**: status · steps · last activity
+2. **who and where it is**: role · team · host, address and pid · workspace
+3. **how to move around it**: session
+4. **how it runs**: approvals · model · cache · context · what was summarised away
+
+The long strings — the role, the workspace path, the session — span **two** columns rather than a
+whole row. A full-row span breaks the packing on both sides of it, and the card grew three
+near-empty rows, one of them holding a five-letter state.
+
+Three of these are controls rather than readings:
+
+- **approvals** and **model** are menus. The model list is asked of that companion's own daemon,
+  which asks its backend: a console listing from its own config would offer models that companion
+  cannot reach. What is drawn is what the daemon SAYS it is on, so a refused change reverts
+  visibly, and the model it is on is always in the menu even if the backend stopped listing it.
+- **session** is the way to the others. ⚠ Choosing one OPENS it; it does not move the companion
+  into it — that would mean addressing a different session on every submit. The menu is shut while
+  the companion is working, which is the rule that will guard the move when it lands.
+
+And two buttons — **tools** and **loop** — lead one level in. The tool roster comes over the socket
+because the registry is assembled at startup from the config, the plugins that loaded and the MCP
+servers that answered; a console listing the built-ins would describe a companion that does not
+exist, and one that cannot answer is drawn as "did not say" rather than as an empty list. The loop
+map and the comparison against the session a fork came from are readings of the log, which is why a
+console arriving later can show the comparison at all — the terminal only knows what it forked this
+run.
 
 The context line is the point of this screen:
 
@@ -119,10 +146,6 @@ Then **what I had to say to this one** — every moment somebody stepped into on
 how far in (`8s into the turn` corrects the instruction; `20m in` corrects the work, and no rule
 would have helped). Derived, not recorded: a user prompt arriving while a turn is open *is* a steer,
 so a screen written today answers for last month's logs.
-
-Then **what it has done before now** — every session it has ever run, newest first, by the request
-that opened it. The title is the request as it was made; a summary would be this process deciding
-what the work was about, which is a judgement it has no grounds for.
 
 Below that: the live transcript (SSE) and the composer.
 
@@ -279,7 +302,49 @@ containers, no state layers. Counted now, mechanically, by the audit in `.claude
 | motion | `cubic-bezier(0.2, 0, 0, 1)` / 100ms, from material-components-android's Motion.md |
 | targets | 48px, measured on the components' own touch target rather than on their visual box — every control on the page clears it |
 
-### 3.1b The components, and what is left to us
+### 3.1b The icons, and the build that is not in this repository
+
+Every mark on the page — the rail's destinations, a tick beside a finished step, the cross on a
+failed call, the paper plane on the send button — is a `<use>` into a sprite of `<symbol>`s
+inlined at the top of the document. The art is **Font Awesome Pro (Sharp Light, with Sharp Solid
+for the filled and toggled states, and two brands)**, and it is **not in this repository**: the
+licence permits using it in something you deploy and not republishing it as files.
+
+So the repository holds the NAMES and the art arrives at build time:
+
+```sh
+MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web    # from a kit download
+MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./cmd/magi-web   # in CI
+```
+
+Both layouts are `svgs/<style>/<name>.svg`, which is why there is one reader. `gen_icons.go` greps
+`page.html` and `page.js` for `#i-<style>-<icon>` — **the page is the manifest**, because a list
+kept beside it is the second place to edit and the place an icon goes missing — and writes
+`icons_gen.go`, which is git-ignored and sets the sprite in an init.
+
+Three things follow, and each is load-bearing:
+
+- **A build with no licence is a working build.** The sprite is empty, and every use site falls
+  back to the character or the hand-drawn path it had before (`icon()`, `iconOr()`, `dressIcons()`).
+  The gate is run both ways. A contributor without Pro gets a plainer console, not a broken one.
+- **A named icon with no file stops the build.** The alternative is a screen with a gap where a
+  control was.
+- **The injection is an init, not part of `assemblePage()`.** Every package-level variable is
+  initialised before any init runs, so a sprite injected during assembly was reliably the empty
+  string — six symbols baked, zero in the page, indistinguishable on screen from having no licence.
+  `TestTheSpriteReachesThePage` holds the ordering.
+
+Two icons are deliberately NOT from the sprite. The rail's menu button is five line elements that
+travel — each half of a bar keeps the end it shares with its twin, walks it to the centre and turns
+45° — and the theme toggle is a sun and a moon that rise and set past the icon's own edge. A symbol
+can be exchanged for another symbol; what those two want is the same strokes MOVING, which no
+single glyph can be.
+
+Pages bakes them too, from `@fortawesome/fontawesome-pro` restored with `FONTAWESOME_NPM_AUTH_TOKEN`
+from the repository's secrets, and skips it without complaint when there is no token — a fork's run
+then publishes the fallback, which is what a contributor's build looks like and is worth seeing.
+
+### 3.1c The components, and what is left to us
 
 Every control on the page is Material Web's: `md-filled-button`,
 `md-filled-tonal-button`, `md-text-button`, `md-outlined-text-field`, `md-outlined-select` /
@@ -612,6 +677,13 @@ TUI is for **working with one**. They share a palette: the values live in
 - **A turn receipt** closes every turn (`▣ turn: …`), so its cost is visible without scrolling back.
 - **Job panes** tile below while a background command or a plugin's child agent is alive, each in
   its own colour. A child's pane shows **its own transcript**, rendered as the main one is.
+- The post-it also carries **what is waiting** and **what is scheduled**. Waiting work is what a
+  person typed into a turn already running, plus what another companion handed over — the queue
+  lives in the memory of the process running the turn, so an attached window asks the daemon for it
+  rather than reporting its own empty one. Waiting work opens the panel by itself; scheduled work
+  does not, because it is true all day and a panel that opens for a nightly job is always open. A
+  job whose schedule can never match is listed whatever its state — nothing else will mention it
+  again — and one somebody switched off is not.
 
 ### 6.2 Typing and scrolling are separate
 

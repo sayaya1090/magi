@@ -219,6 +219,17 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
 
 Pure Go — a single static binary, no CGo. Copy it anywhere and run.
 
+The console's icons are the one thing not in this repository. They are Font Awesome Pro, whose
+licence permits using them in something you deploy and not republishing them as files, so the page
+holds the names and the art is baked in at build time — optional, and absent by default:
+
+```sh
+MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web   # then build as above
+```
+
+A build without it is a working build: every mark falls back to the character or the hand-drawn
+shape the page had before, and the test suite is run both ways. See `docs/UI.md` §3.1b.
+
 ### Run
 
 ```sh

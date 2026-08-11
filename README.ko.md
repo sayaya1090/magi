@@ -207,6 +207,17 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
 
 순수 Go — 단일 정적 바이너리, CGo 없음. 어디든 복사해서 실행.
 
+콘솔 아이콘만은 이 저장소에 없다. Font Awesome Pro이고, 그 라이선스는 배포물에 쓰는 것은 허용하되
+파일로 재배포하는 것은 금하므로, 페이지는 **이름만** 갖고 그림은 빌드 시점에 굽는다 — 선택 사항이고
+기본값은 없음이다:
+
+```sh
+MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web   # 그다음 위와 같이 빌드
+```
+
+없이 빌드해도 정상이다: 모든 표식이 이전의 문자나 손그림으로 되돌아가고, 테스트는 양쪽으로 돌린다.
+`docs/UI.ko.md` §3.1b 참고.
+
 ### 실행
 
 ```sh

@@ -94,8 +94,13 @@ internal/
     plugin/lua/             gopher-lua 플러그인 호스트 (능력 번들)
     mcp/                    MCP 클라이언트: stdio + Streamable HTTP 전송
     daemon/                 유닉스 소켓 위의 엔진: Listen/Serve, 워크스페이스의 데몬을 유일하게
-                            만드는 flock 클레임, Publish(콘솔이 읽는 레코드), Client, 선택적
-                            Controller 커맨드
+                            만드는 flock 클레임, Publish(콘솔이 읽는 레코드), Client, 그리고
+                            엔진이 선택적으로 만족할 수 있는 인터페이스들 — Controller(rewind,
+                            compact, set-model, set-permission), JobRunner(턴 옆에서 도는 것과
+                            그 뒤에 밀린 것), ToolLister·ModelLister(명단과 목록 — 런을 쥔
+                            프로세스만이 말할 수 있다), UserNamer. 구현하지 않은 데몬은 에러가
+                            아니라 빈 값을 답하고, 호출자는 그것을 "없다"가 아니라 "여기서는
+                            알 수 없다"로 읽어야 한다
     fleet/                  이 머신의 모든 magi가 무엇을 하는지 — 로그와 소켓별 짧은 병렬
                             프로브에서 유도. 콘솔과 `--agents`가 같은 것을 묻기 때문에 유도는
                             **한 곳**뿐이다
@@ -566,8 +571,11 @@ magi -daemon          UI 없는 App이 <config>/daemon-<dir>-<hash>.sock에서 �
   `/context` `/plan` `/handoffs`(컴패니언 하나를 그 로그에서 읽음), `/interventions` `/skills`
   `/forget` `/remember`(감독 루프), `/history`·`/search`(지금까지 한 일과 단어로 찾기),
   `/cron`(무인 일정), `/mcp`(외부 툴 서버 조회·편집),
+  `/report-format`(그 컴패니언이 무엇이든 묻기 전에 채워야 할 보고서의 모양),
+  `/tools`·`/model`(데몬에게 묻는다 — 툴 레지스트리와 모델 목록은 런을 쥔 프로세스가 조립한다),
+  `/loop`(턴의 지도, 그리고 포크 원본과의 diff — 이건 로그를 여기서 읽는다),
   `/console`(이 콘솔이 어느 기계인가), `/push`·`/sw.js`(컴패니언이 막히면 폰을 깨움), 그리고 실행을
-  바꾸는 여섯 — `/submit` `/interrupt` `/answer` `/dispatch` `/compact` `/shell` — 각각 소유한 데몬으로
+  바꾸는 일곱 — `/submit` `/interrupt` `/answer` `/dispatch` `/compact` `/shell` `/model` — 각각 소유한 데몬으로
   전달된다. 페이지가 참조하는 모든 경로가 이 바이너리가 서빙하는 경로인지 테스트가 검사한다 —
   **ES 임포트 포함.** `/vendor/material.js`의 404가 안 보였던 이유가 바로 그것이 빠져 있었기
   때문이다.

@@ -97,7 +97,13 @@ internal/
     mcp/                    MCP client: stdio + Streamable HTTP transports
     daemon/                 the engine over a unix socket: Listen/Serve, the flock claim that
                             makes a workspace's daemon unique, Publish (the record a console
-                            reads), Client, and the optional Controller commands
+                            reads), Client, and the optional interfaces an engine may satisfy —
+                            Controller (rewind, compact, set-model, set-permission), JobRunner
+                            (what is running beside the turn, and what is queued behind it),
+                            ToolLister and ModelLister (the roster and the catalogue, which only
+                            the process holding the run can say), UserNamer. A daemon that does
+                            not implement one answers empty rather than erroring, and every
+                            caller has to read that as "not known from here" rather than as "none".
     fleet/                  what every magi on this machine is doing, derived from the logs and
                             a short parallel probe of each socket — ONE derivation, because the
                             console and `--agents` both ask it
@@ -605,10 +611,13 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   transcript, streamed), `/context` `/plan` `/handoffs` (one companion, read off its log),
   `/interventions` `/skills` `/forget` `/remember` (the supervision loop), `/history` and `/search`
   (what a companion has done before now, and finding it by word), `/cron` (its unattended
-  schedule), `/mcp` (read and edit a companion's external tool servers), `/console` (which machine
-  this is), `/push` and `/sw.js` (waking a phone when a companion blocks), and the six that change a
-  run — `/submit` `/interrupt` `/answer` `/dispatch` `/compact` `/shell` — each forwarded to the
-  daemon that owns it. A test checks that every path the page references — including its ES imports,
+  schedule), `/mcp` (read and edit a companion's external tool servers), `/report-format` (the shape
+  a report must take before that companion may ask anything), `/tools` and `/model` (asked of the
+  daemon, because the tool registry and the model catalogue are assembled by the process holding the
+  run), `/loop` (the map of the turns, and the diff against the session a fork came from — read off
+  the log here), `/console` (which machine this is), `/push` and `/sw.js` (waking a phone when a
+  companion blocks), and the seven that change a run — `/submit` `/interrupt` `/answer` `/dispatch`
+  `/compact` `/shell` `/model` — each forwarded to the daemon that owns it. A test checks that every path the page references — including its ES imports,
   which is how a 404 on `/vendor/material.js` went unseen — is one this binary serves.
 
   ⚠ `/promote` is gone with the promotion pipeline, and `/dispatch` no longer has a caller on the
