@@ -183,9 +183,9 @@ func (s *server) council(w http.ResponseWriter, r *http.Request) {
 // without a check "which session" is an argument for reading any log on the machine — the same
 // class of input the ?d= allowlist exists for one layer up.
 //
-// A child of an EARLIER turn is therefore not readable, and that is the honest boundary rather
-// than an oversight: this screen is about the work being done now, and widening it to "anything
-// this workspace ever ran" would be a different feature with a different question behind it.
+// Its own conversation, a child of it, or a session this workspace ran before — the three things
+// the page offers a way into. A child of an EARLIER turn is not among them: it is reachable from
+// that turn's own screen, and nothing links to it from here.
 func (s *server) readable(r *http.Request, in daemon.Info, want string) bool {
 	if want == in.Session {
 		return true
@@ -196,6 +196,17 @@ func (s *server) readable(r *http.Request, in daemon.Info, want string) bool {
 	}
 	for _, k := range kids {
 		if string(k.ID) == want {
+			return true
+		}
+	}
+	// And anything this WORKSPACE has run, which is what the list of past work offers to open. The
+	// boundary is the workspace either way: this companion's own logs, never another's.
+	past, err := s.reader.ListSessions(r.Context(), in.Workdir)
+	if err != nil {
+		return false
+	}
+	for _, m := range past {
+		if string(m.ID) == want {
 			return true
 		}
 	}

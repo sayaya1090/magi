@@ -13,6 +13,7 @@
   "action.edit": "수정",
   "action.forget": "잊기",
   "action.interrupt": "중단",
+  "action.open_history": "열기",
   "action.read": "내용",
   "action.remove": "삭제",
   "action.save": "저장",

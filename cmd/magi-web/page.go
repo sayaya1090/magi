@@ -1281,7 +1281,7 @@ const indexHTML = `<!doctype html>
 
   #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
   #stream, #side, #sidecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
-  #side #plan, #side #handoffs, #side #history { max-width:none; }
+  #side #plan, #side #handoffs { max-width:none; }
 
   /* ── one level in: a verdict, or a child ─────────────────────────────────── */
   /* A page, not a card: what is in here is a transcript or the material a vote stood on, and both
@@ -1447,20 +1447,29 @@ const indexHTML = `<!doctype html>
   .wcard.now .wwhen { color:var(--magi-ref-success); font-weight:600; }
 
   /* ── what this companion did before now ─────────────────────────────────── */
-  #history { max-width:var(--magi-sys-measure); }
-  #history .find { display:flex; align-items:center; gap:var(--magi-sys-space-150); margin:var(--magi-sys-space-150) 0; }
-  #history .findin { flex:1 1 auto; min-width:0; }
-  #history .findn { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
-  #history .findnone { font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-150) 0; }
-  #history .snip {
+  #agentdetail .find { display:flex; align-items:center; gap:var(--magi-sys-space-150); margin:var(--magi-sys-space-150) 0; }
+  #agentdetail .findin { flex:1 1 auto; min-width:0; }
+  #agentdetail .findn { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  #agentdetail .findnone { font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-150) 0; }
+  #agentdetail .snip {
     font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted);
     padding:0 0 var(--magi-sys-space-50) var(--magi-sys-space-400); overflow-wrap:anywhere;
   }
-  #history .k {
+  #agentdetail .dk2 {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
     color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
   }
-  .hs { display:grid; grid-template-columns:5.5rem 1fr; gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-50) 0; }
+  /* Rows that open. They were divs when the list was a card nobody could go into; as buttons they
+     keep the same shape and gain the things a control needs — a pointer, a hover, a focus ring and
+     a place in the tab order. */
+  .hs {
+    display:grid; grid-template-columns:5.5rem 1fr;
+    gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-50) 0;
+    width:100%; text-align:left; background:none; border:0; border-radius:var(--magi-sys-shape-xs);
+    color:inherit; font:inherit; cursor:pointer;
+  }
+  .hs:hover { background:color-mix(in srgb, var(--magi-ref-fg) 6%, transparent); }
+  .hs:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
   .hs + .hs { border-top:1px solid var(--magi-ref-outlineVariant); }
   .hs .when { font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); text-align:right; }
   .hs .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
@@ -1961,7 +1970,7 @@ const indexHTML = `<!doctype html>
        something you glance at. Tighter, so the transcript keeps the screen. */
     #side { gap:var(--magi-sys-space-150); }
     #side md-outlined-card { padding:var(--magi-sys-space-200) var(--magi-sys-space-200); }
-    #history .hs, .ho { grid-template-columns:4.5rem 1fr; }
+    #agentdetail .hs, .ho { grid-template-columns:4.5rem 1fr; }
     
     /* The dialog takes the whole screen here. The guide gives a dialog two shapes and the reason is
        room: six fields and a select in a basic dialog on a 390px phone is a box with its own
@@ -1988,7 +1997,7 @@ const indexHTML = `<!doctype html>
   <h1 class="mark">magi</h1>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
-  <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><a id="crumbHere"></a><span id="crumbSep2" hidden>/</span><span id="crumbDeep"></span></nav>
+  <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><a id="crumbHere"></a><span id="crumbSep2" hidden>/</span><a id="crumbDeep"></a><span id="crumbSep3" hidden>/</span><span id="crumbLeaf"></span></nav>
   <span class="sid" id="sid"></span>
   <!-- The one place that speaks. Errors, the connection dropping, and a search narrowing all
        changed silently before this: a screen reader was never told. role=status with a polite
@@ -2135,6 +2144,7 @@ const indexHTML = `<!doctype html>
          spawned. Its own section rather than a dialog, because what is in it is a transcript or a
          page of evidence — things you scroll, select and copy out of. -->
     <section id="agentdetail" hidden></section>
+
     <div id="sidecol">
       <md-icon-button id="sideToggle" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
@@ -2146,7 +2156,6 @@ const indexHTML = `<!doctype html>
         <md-outlined-card id="handoffs" hidden></md-outlined-card>
         <md-outlined-card id="cron" hidden></md-outlined-card>
         <md-outlined-card id="intervened" hidden></md-outlined-card>
-        <md-outlined-card id="history" hidden></md-outlined-card>
       </aside>
     </div>
   </div>
@@ -2570,7 +2579,6 @@ const reach = ok => { reachOK = ok; paintConn(); };
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
-const historyEl = document.getElementById('history');
 const railFleet = document.getElementById('railFleet');
 const railSkills = document.getElementById('railSkills');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
@@ -2589,6 +2597,7 @@ const view = () => {
 };
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
 const crumbSep2 = document.getElementById('crumbSep2'), crumbDeep = document.getElementById('crumbDeep');
+const crumbSep3 = document.getElementById('crumbSep3'), crumbLeaf = document.getElementById('crumbLeaf');
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
@@ -2608,17 +2617,23 @@ const sock = () => new URLSearchParams(location.search).get('d');
 // The sub parameter is a child session id; cr is "<round>:<member>", a council seat in a round.
 const subOf = () => new URLSearchParams(location.search).get('sub') || '';
 const crOf = () => new URLSearchParams(location.search).get('cr') || '';
-const deepIn = () => !!(sock() && (subOf() || crOf()));
+// past is the third: "" for the list of finished work, a session id for one of them. Present with
+// an empty value, which is why it is read with has() rather than by truthiness — an address that
+// means "the list" and one that means "not here" are different addresses.
+const pastOn = () => new URLSearchParams(location.search).has('past');
+const pastOf = () => new URLSearchParams(location.search).get('past') || '';
+const deepIn = () => !!(sock() && (subOf() || crOf() || pastOn()));
 // Going one level in and coming back out. Both are pushState + render, so the address bar, the
 // crumbs and what is drawn can never disagree — there is one source and it is the URL.
 function goDeep(param, value) {
   const u = new URLSearchParams(location.search);
-  u.delete('sub'); u.delete('cr');
-  if (value) u.set(param, value);
+  u.delete('sub'); u.delete('cr'); u.delete('past');
+  // An empty value is still a value here: ?past= is the list. Only a null clears the level.
+  if (value !== null && value !== undefined) u.set(param, value);
   history.pushState({}, '', '?' + u.toString());
   render();
 }
-const goBackUp = () => goDeep('sub', '');
+const goBackUp = () => goDeep('sub', null);
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
 // The pair (peer, socket) identifies a companion once more than one console is in the list: a
 // socket path is only meaningful on the machine that owns it.
@@ -3126,31 +3141,11 @@ let wasAnswering = false;
 // fleet poll redrawing this panel does not throw away what somebody is in the middle of typing.
 let findQuery = '';
 
-async function loadHistory() {
-  const list = await fetchList('/history' + q());
-  if (!list || !list.length) { historyEl.hidden = true; historyEl.replaceChildren(); return; }
-  const box = cell('');
-  box.append(cell('k', tr('field.history')));
-  box.append(findField(list.length));
-  if (findQuery) { await drawFound(box); }
-  else {
-    for (const h of list) {
-      const row = cell('hs' + (h.current ? ' now' : ''));
-      row.append(cell('when', h.current ? tr('state.working') : ago(h.ago)));
-      row.append(cell('what', h.title || tr('history.untitled')));
-      box.append(row);
-    }
-  }
-  historyEl.replaceChildren(box);
-  historyEl.hidden = false;
-  measureDock();
-}
-
 // findField is the search box over this companion's past work.
 //
-// In the card rather than in a destination of its own: the history card already IS the list of past
-// sessions, and a search that lived elsewhere would be a second list of the same things. The
-// terminal made the same call about its resume picker.
+// On the same screen as the list, not on one of its own: the list already IS the past sessions,
+// and a search that lived elsewhere would be a second list of the same things. The terminal made
+// the same call about its resume picker.
 function findField(total) {
   const wrap = cell('find');
   // The Material field, not a bare input. A bare one has no text size of its own, inherits the
@@ -3166,10 +3161,10 @@ function findField(total) {
   input.addEventListener('input', () => {
     findQuery = input.value;
     clearTimeout(timer);
-    timer = setTimeout(() => loadHistory().then(() => {
+    timer = setTimeout(() => render$past().then(() => {
       // Redrawing replaces the field, so the caret goes back where it was — a search box that
       // loses focus mid-word is a search box you cannot type into.
-      const again = historyEl.querySelector('.findin');
+      const again = detailEl2().querySelector('.findin');
       if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
     }), 220);
   });
@@ -3179,8 +3174,8 @@ function findField(total) {
 }
 
 // drawFound puts the ranked sessions, and the turns that matched, into the card.
-async function drawFound(box) {
-  const hits = await fetchList('/search?q=' + encodeURIComponent(findQuery) + qMore());
+async function drawFound(box, a) {
+  const hits = await fetchList('/search?q=' + encodeURIComponent(findQuery) + '&' + qFor(a).slice(1));
   if (!hits) return;
   if (!hits.length) {
     // Said, rather than an empty card. A list that silently empties under the keystrokes is one
@@ -3189,11 +3184,15 @@ async function drawFound(box) {
     return;
   }
   for (const h of hits) {
-    const row = cell('hs found');
+    const row = el('button');
+    row.type = 'button';
+    row.className = 'hs found hit48';
     row.append(cell('when', new Date(h.when).toLocaleDateString()));
     let what = h.title || tr('history.untitled');
     if (h.scheduled) what += ' · ' + tr('find.scheduled');
     row.append(cell('what', what));
+    // The found session opens too, the same way a listed one does.
+    row.onclick = () => goDeep('past', h.id);
     box.append(row);
     // WHY it matched. With a search typed the titles no longer explain the list — the words were
     // matched somewhere in the middle of the conversation, which is the whole reason for searching
@@ -3496,10 +3495,6 @@ async function loadFleet() {
     if (note !== liveNote) { liveNote = note; draw(lastRows); }
     drawPrompt(mine);
     drawDetail(mine);
-    // Once per visit, not on every poll: a list of finished work does not change while you read it,
-    // and re-fetching it four times a minute would be four reads of the whole store for an answer
-    // that is the same every time.
-    if (!historyEl.children.length) loadHistory();
     loadIntervened(mine);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
@@ -3672,6 +3667,21 @@ function drawDetail(a) {
              })());
   bar.onclick = () => setFolded(!box.hasAttribute('folded'));
   box.replaceChildren(bar, grid);
+  // What it has done before now, reached from the facts. It used to be a card in the pane, and the
+  // pane is meant to stay open — so what is in it has to be worth the width all the time. The plan
+  // moves, the queue moves, what was handed out moves; a list of finished sessions does not.
+  {
+    const row = cell('f');
+    row.append(cell('k', tr('field.history')));
+    const v = cell('v');
+    const b = el('button', tr('action.open_history'));
+    b.type = 'button';
+    b.className = 'deeper hit48';
+    b.onclick = () => goDeep('past', '');
+    v.append(b);
+    row.append(v);
+    grid.append(row);
+  }
   // Children the turn spawned, reached from the facts rather than from the transcript. A child is
   // started inside a tool call and finishes inside the same one, so the transcript row that
   // produced it says "spawn" and nothing about what came back — there was no way in at all.
@@ -3822,11 +3832,59 @@ async function drawDeep(a) {
   box.replaceChildren(cell('dnote', tr('detail.loading')));
   try {
     if (crOf()) await drawVerdict(a, crOf());
+    else if (pastOn()) await drawPast(a);
     else await drawChild(a, subOf());
   } catch (e) {
     box.replaceChildren(cell('dnote', tr('error.unreachable')));
   }
   reveal(box);
+}
+
+// render$past redraws the past screen in place, for the search field's debounce. Named apart from
+// render() because that one decides which screen is up; this one refreshes the screen already on.
+async function render$past() {
+  const s2 = sock();
+  if (!s2 || !pastOn()) return;
+  const known = (fleetSeen || []).find(x => x.socket === s2 && (x.peer || '') === peerOf());
+  await drawPast(known || {socket: s2, peer: peerOf()});
+}
+
+// drawPast is what this companion has done before now: the list, or one of them opened.
+//
+// One level in rather than in the pane. The pane stays open, so what is in it has to be worth the
+// width all the time — the plan, the queue and what was handed out all move while you watch. A list
+// of finished sessions does not: you go and look at it, and while you are looking at it that is
+// the screen you want, not a column beside something else.
+async function drawPast(a) {
+  const box = detailEl2();
+  const want = pastOf();
+  if (want) {
+    const rows = await fetchList('/transcript' + qFor(a) + '&session=' + encodeURIComponent(want));
+    box.replaceChildren();
+    box.append(detailHead(tr('field.history'), '', want));
+    const log2 = cell('dlog');
+    for (const r of (rows || [])) log2.append(rowNode(r));
+    if (!log2.children.length) log2.append(cell('dnote', tr('detail.nothing_yet')));
+    box.append(log2);
+    return;
+  }
+  const list = await fetchList('/history' + qFor(a));
+  box.replaceChildren();
+  box.append(detailHead(tr('field.history'), '', list ? String(list.length) : ''));
+  box.append(findField((list || []).length));
+  if (findQuery) { await drawFound(box, a); return; }
+  for (const h of (list || [])) {
+    // A row that opens. The list answers "what has it been doing"; the session behind a row
+    // answers "what happened in that one", and until now there was no way to ask the second.
+    const row = el('button');
+    row.type = 'button';
+    row.className = 'hs hit48' + (h.current ? ' now' : '');
+    row.append(cell('when', h.current ? tr('state.working') : ago(h.ago)));
+    row.append(cell('what', h.title || tr('history.untitled')));
+    row.onclick = () => goDeep('past', h.id);
+    box.append(row);
+  }
+  if (!(list || []).length) box.append(cell('dnote', tr('find.none')));
 }
 
 // ── the plan it is working through ───────────────────────────────────────────
@@ -5177,7 +5235,21 @@ function render() {
   crumbHere.setAttribute('href', s ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '')) : '');
   crumbHere.className = deep ? '' : 'here';
   crumbSep2.hidden = !deep;
-  crumbDeep.textContent = deep ? (crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':') : '◆ ' + tr('detail.subagent')) : '';
+  crumbDeep.textContent = !deep ? ''
+    : crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':')
+    : pastOn() ? tr('field.history')
+    : '◆ ' + tr('detail.subagent');
+  // Past work has a level of its own inside it — the list, and one session out of it — so the third
+  // crumb becomes the way back to the list and a fourth says which session. Without that, opening
+  // one left the crumb saying "past work" while showing a transcript, with no way back to the list
+  // short of the browser's own button.
+  const leaf = pastOn() && pastOf();
+  crumbDeep.setAttribute('href', leaf
+    ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') + '&past=')
+    : '');
+  crumbDeep.className = leaf ? '' : 'here';
+  crumbSep3.hidden = !leaf;
+  crumbLeaf.textContent = leaf ? pastOf() : '';
   back.className = s ? '' : 'here';
   tabsEl.hidden = !!s;
   // Which kind of page this is, for the rules that differ between them. On a companion's page the
@@ -5219,7 +5291,6 @@ function render() {
   if (!s) panel = 'talk';
   drawPanels();
   document.getElementById('handoffs').hidden = true;
-  historyEl.hidden = true;
   intervenedEl.hidden = true;
   document.getElementById('plan').hidden = true;
   document.getElementById('prompt').hidden = true;

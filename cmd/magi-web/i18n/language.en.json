@@ -13,6 +13,7 @@
   "action.edit": "Edit",
   "action.forget": "Forget",
   "action.interrupt": "Interrupt",
+  "action.open_history": "Open",
   "action.read": "Read",
   "action.remove": "Remove",
   "action.save": "Save",

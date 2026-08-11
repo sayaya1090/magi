@@ -2538,3 +2538,40 @@ console.log(JSON.stringify({text: seen.join(' | ')}));`)
 		t.Errorf("the superseded vote is on screen:\n%s", txt)
 	}
 }
+
+// Past work is one level in, not in the pane.
+//
+// The pane is meant to stay open, so what is in it has to be worth the width all the time: the
+// plan moves, the queue moves, what was handed out moves. A list of finished sessions does not —
+// you go and look at it, and while you are looking at it that is the screen you want.
+func TestPastWorkIsAScreenAndNotAPaneCard(t *testing.T) {
+	got := runPage(t, `[
+      {"id":"s_old","title":"rename the tokens","ago":8000},
+      {"id":"s_now","title":"the turn it is in","ago":3,"current":true}
+    ]`, "?d=%2Fs%2Fa.sock&past=", `
+await drawPast({socket:'/s/a.sock'});
+const rows = [];
+const walk = n => { for (const k of n.children || []) { if (String(k.className).startsWith('hs')) rows.push({txt: k.textContent, opens: !!k.onclick, tag: k.tag}); walk(k); } };
+walk(byId.agentdetail);
+console.log(JSON.stringify({inPane: 'history' in byId, rows: rows}));`)
+
+	if inPane, _ := got["inPane"].(bool); inPane {
+		t.Error("the list is still a card in the pane")
+	}
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("drew %d past sessions, want 2: %v", len(rows), rows)
+	}
+	// The rows open. The list answers "what has it been doing"; the session behind a row answers
+	// "what happened in that one", and there was no way to ask the second at all.
+	for i, r := range rows {
+		m, _ := r.(map[string]any)
+		if opens, _ := m["opens"].(bool); !opens {
+			t.Errorf("row %d does not open: %v", i, m)
+		}
+		// A control, so it is reachable by keyboard and announces itself as one.
+		if tag, _ := m["tag"].(string); tag != "button" {
+			t.Errorf("row %d is a %q rather than a button", i, tag)
+		}
+	}
+}
