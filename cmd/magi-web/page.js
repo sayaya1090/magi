@@ -565,6 +565,20 @@ function icon(ref, opts) {
   return svg;
 }
 
+// withMark puts an icon in front of a component's label, in the slot the library keeps for one.
+//
+// Material's buttons take a leading icon through slot="icon" — not as a child of the label — and
+// giving them one is the difference between a word in a dense list and a control somebody can find
+// by shape. Nothing happens where the build has no sprite: the word was always enough on its own,
+// and a blank slot would only add a gap in front of it.
+function withMark(btn, ref) {
+  const m = icon(ref);
+  if (!m) return btn;
+  m.setAttribute('slot', 'icon');
+  btn.prepend(m);
+  return btn;
+}
+
 // dressIcons swaps the page's own drawings for the baked ones, where there are baked ones.
 //
 // The markup cannot ask a question — it is a static document — so it carries the shape it has
@@ -742,7 +756,7 @@ function rowActions(a) {
   stop.className = 'stop';
   stop.setAttribute('aria-label', tr('action.interrupt'));
   tip(stop, tr('action.interrupt'));
-  stop.innerHTML = '<svg data-i="#i-sl-circle-stop" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+  stop.innerHTML = '<svg data-i="#i-ss-circle-stop" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
     '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>';
   dressIcons(stop);
   stop.onclick = e => {
@@ -809,7 +823,7 @@ function summarise(list) {
     past.setAttribute('aria-label', tr('nav.board'));
     // The drawn columns stay as the fallback and the baked one takes over where there is one, which
     // is the same bargain the markup's icons strike — see dressIcons.
-    past.innerHTML = '<svg data-i="#i-sl-chart-simple" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+    past.innerHTML = '<svg data-i="#i-sl-chart-kanban" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
       '<path d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z" fill="none" ' +
       'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     dressIcons(past);
@@ -2825,6 +2839,7 @@ async function loadSkills() {
     more.className = 'fold';
     let open = false;
     more.textContent = tr('action.read');
+    withMark(more, '#i-sl-file-lines');
     more.onclick = () => {
       open = !open;
       text.hidden = !open;
@@ -2870,6 +2885,7 @@ async function loadMCP() {
     const edit = document.createElement('md-text-button');
     edit.className = 'srvedit';
     edit.textContent = tr('action.edit');
+    withMark(edit, '#i-sl-pen-to-square');
     tip(edit, tr('hint.edit_server', {file: sv.file}));
     edit.onclick = () => openMCP(sv);
     top.append(edit);
@@ -3306,7 +3322,7 @@ function copyChip(text) {
   // hit48 is the page's own expander: a 48dp press area taken out of flow, so the target is a
   // target without the row growing around it. Measured before it: 9×12 pixels.
   b.className = 'copy hit48';
-  b.textContent = '⧉';
+  b.append(iconOr('#i-sl-copy', '\u29C9'));
   b.setAttribute('aria-label', tr('action.copy'));
   tip(b, tr('action.copy'));
   b.onclick = async ev => {
