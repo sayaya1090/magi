@@ -600,3 +600,37 @@ func TestAConnectionAcceptedJustAsItStopsIsClosedAnyway(t *testing.T) {
 			"Serve would wait on its handler forever", err)
 	}
 }
+
+// tooledEngine is a daemon that can say what it is running with.
+type tooledEngine struct {
+	fakeEngine
+	names []string
+}
+
+func (t *tooledEngine) ToolNames() []string { return t.names }
+
+// The roster crosses, and an engine that cannot say leaves it empty rather than guessed at.
+//
+// A viewer cannot build this list: the registry is assembled at startup from the config, the
+// plugins that loaded and the MCP servers that answered, so a second process listing the built-ins
+// would be describing a companion that does not exist. The screen reading it has to be able to tell
+// "nothing came back" from "no tools", which is why the two cases are one test.
+func TestTheToolRosterCrossesAndSilenceIsNotAnEmptyRoster(t *testing.T) {
+	c := start(t, &tooledEngine{names: []string{"bash", "sqlite_query"}})
+	got, err := c.Tools()
+	if err != nil {
+		t.Fatalf("tools: %v", err)
+	}
+	if len(got) != 2 || got[0] != "bash" || got[1] != "sqlite_query" {
+		t.Errorf("the roster arrived as %v", got)
+	}
+
+	quiet := start(t, &fakeEngine{})
+	got, err = quiet.Tools()
+	if err != nil {
+		t.Fatalf("an engine that cannot list its tools answered with an error rather than nothing: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("an engine with no roster to give answered %v", got)
+	}
+}

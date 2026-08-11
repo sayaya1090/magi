@@ -165,6 +165,16 @@ type JobRunner interface {
 // times a second.
 const jobTailBytes = 8 << 10
 
+// ToolLister is an engine that can say which tools it is running with.
+//
+// Asked over the socket rather than assembled by the reader, because the roster is built at startup
+// from the config, the plugins that loaded and the MCP servers that answered — a console listing
+// the built-ins would be describing a companion that does not exist. Optional, like the rest: one
+// that cannot say says nothing, and the screen reports that rather than inventing a list.
+type ToolLister interface {
+	ToolNames() []string
+}
+
 // UserNamer is an engine that knows what to call the person it is talking to.
 //
 // A plugin can rename them — an SSO bridge puts the authenticated username there through
@@ -277,6 +287,9 @@ type Response struct {
 	User string `json:"user,omitempty"`
 	// Jobs answers the jobs method: the work running BESIDE the turn.
 	Jobs *Jobs `json:"jobs,omitempty"`
+	// Tools answers the tools method: the roster this companion is actually running with, which
+	// only the process holding it can say.
+	Tools []string `json:"tools,omitempty"`
 	// Handover answers hand-state. Its own object rather than four more columns here, because
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
@@ -602,6 +615,17 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			if n, ok := eng.(UserNamer); ok {
 				resp.User = n.UserLabel(session.SessionID(req.Session))
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
+		// tools is answered here too, and for the same reason.
+		if req.Method == "tools" {
+			resp = Response{OK: true, Tools: []string{}}
+			if t, ok := eng.(ToolLister); ok {
+				resp.Tools = t.ToolNames()
 			}
 			if enc.Encode(resp) != nil {
 				return
@@ -1086,6 +1110,16 @@ func (c *Client) Jobs(sid string) (Jobs, error) {
 		return Jobs{}, nil
 	}
 	return *resp.Jobs, nil
+}
+
+// Tools is the roster the daemon is running with. Empty from a daemon that cannot say, which the
+// caller must not read as "no tools" — it is "not known from here".
+func (c *Client) Tools() ([]string, error) {
+	resp, err := c.exchange(Request{Method: "tools"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Tools, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {
