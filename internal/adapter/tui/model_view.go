@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/report"
 )
 
 func (m Model) View() tea.View {
@@ -513,6 +514,27 @@ func colorizeChanges(changes string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// groundsBlock renders the report the agent wrote for this decision, or "" when it wrote none.
+//
+// Section keys are whatever the decision-report skill declared, so nothing here names them: they
+// arrive in the order that skill put them in, and that order is part of the report. An empty
+// section is dropped rather than drawn as a heading over nothing — a contract that refuses a blank
+// one means an empty here is an older companion, not a lazy answer.
+func (m *Model) groundsBlock(secs []report.Filled) string {
+	if len(secs) == 0 {
+		return ""
+	}
+	wrap := lipgloss.NewStyle().Width(max(20, m.width-8))
+	var b strings.Builder
+	for _, sec := range secs {
+		if strings.TrimSpace(sec.Text) == "" {
+			continue
+		}
+		b.WriteString(styleFooter.Render(sec.Key) + "\n" + wrap.Render(strings.TrimSpace(sec.Text)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // questOptionAt maps a screen click to an option index, or ok=false if the click
 // isn't on an option row. The modal stacks the title and question above the options
 // inside the box, so option i sits 3 rows (box border + title + question) below the
@@ -536,6 +558,12 @@ func (m *Model) questView() string {
 	var b strings.Builder
 	b.WriteString(stylePermTitle.Render("question") + "  " +
 		styleFooter.Render("↑/↓/tab or click · enter answer · esc dismiss") + "\n")
+	// The grounds, above the question. This order is the argument: read what was tried and what
+	// each way costs, then the question, then pick. Read the other way round a person answers
+	// first and justifies afterwards, which is the failure this report exists to prevent.
+	if g := m.groundsBlock(q.report); g != "" {
+		b.WriteString(g + "\n")
+	}
 	b.WriteString(q.question + "\n")
 	for i, opt := range q.options {
 		line := fmt.Sprintf("%d. %s", i+1, opt)
@@ -561,6 +589,9 @@ func (m *Model) questView() string {
 	for keep := len(q.options) - 1; keep >= 1; keep-- {
 		start := min(max(0, q.sel-keep/2), len(q.options)-keep)
 		var t strings.Builder
+		// No grounds in the short-terminal rendering. When the box will not fit, the question and
+		// the options are what must survive — an unanswerable prompt is worse than an unexplained
+		// one — and the report is still in the transcript and on the console.
 		t.WriteString(stylePermTitle.Render("question") + "\n" + q.question + "\n")
 		for i := start; i < start+keep; i++ {
 			line := fmt.Sprintf("%d. %s", i+1, q.options[i])

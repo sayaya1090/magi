@@ -16,6 +16,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/version"
@@ -79,6 +80,14 @@ type questReq struct {
 	question string
 	options  []string
 	sel      int
+	// report is the grounds the agent wrote for whoever has to decide: what it tried, what each
+	// way costs, which way it leans — the sections the decision-report skill asked for.
+	//
+	// It was dropped here. The tool refuses a report with a section missing, the event carries it,
+	// the console draws it — and the terminal, where the person usually is, showed the question
+	// with the working thrown away. A decision put to somebody who has been away is the one place
+	// the grounds are worth the most, and it was the one place they did not arrive.
+	report []report.Filled
 }
 
 type permReq struct {
