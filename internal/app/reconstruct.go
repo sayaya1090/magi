@@ -79,7 +79,25 @@ func reconstruct(evs []event.Event) []session.Message {
 			if json.Unmarshal(ev.Data, &d) != nil {
 				continue
 			}
-			e := &entry{seq: ev.Seq, msg: session.Message{ID: d.MessageID, Role: session.RoleUser, Parts: d.Parts}}
+			// Who wrote it survives into the message. It used to be dropped here — every prompt
+			// became a user message whatever had written it — and the consequence was that magi's
+			// own words reached the model as the person's: "You stopped without saying you are
+			// finished" arrived indistinguishable from somebody typing it. The actor was in the
+			// event the whole time and was read only for display.
+			//
+			// A system role is not a second channel: normalizeSystemPlacement demotes any
+			// mid-conversation system message to a user one prefixed "[system note]", which is
+			// exactly the attribution that was missing and is portable to backends that reject a
+			// system message anywhere but the head. Compaction summaries have travelled that road
+			// since they existed.
+			//
+			// ActorAgent stays a user message: a subagent's report IS handed to the agent as work
+			// that arrived, and it names itself in its own text.
+			role := session.RoleUser
+			if ev.Actor.Kind == event.ActorSystem {
+				role = session.RoleSystem
+			}
+			e := &entry{seq: ev.Seq, msg: session.Message{ID: d.MessageID, Role: role, Parts: d.Parts}}
 			index[d.MessageID] = e
 			entries = append(entries, e)
 

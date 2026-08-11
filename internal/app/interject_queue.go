@@ -30,7 +30,11 @@ func (a *App) enqueueLateInterjections(ctx context.Context, sid session.SessionI
 	// safety net already re-runs the loop, whose top-of-loop scan handles every late prompt —
 	// enqueuing here too would run it a second time (a spurious duplicate turn). Act ONLY when a
 	// late prompt is buried under a trailing non-user message: the exact blind spot of that net.
-	if msgs := reconstruct(evs); len(msgs) == 0 || msgs[len(msgs)-1].Role == session.RoleUser {
+	// "A prompt is the last thing in the log", whoever wrote it. Both roles, because a prompt
+	// submitted by the orchestrator reconstructs as a system message now and this gate is about
+	// whether a prompt is TRAILING, not about who wrote it — reading it as "no prompt there" would
+	// quietly change which turns get re-run.
+	if msgs := reconstruct(evs); len(msgs) == 0 || isPrompt(msgs[len(msgs)-1].Role) {
 		return
 	}
 	task := strings.TrimSpace(turnTask)
@@ -522,3 +526,8 @@ func (a *App) takeFolded(sid session.SessionID) []string {
 	st.foldedInterject = nil
 	return out
 }
+
+// isPrompt reports whether a reconstructed message is one that was SUBMITTED, rather than
+// something the model or a tool produced. Both roles qualify: a prompt written by magi itself is a
+// system message and a prompt written by a person is a user one.
+func isPrompt(r session.Role) bool { return r == session.RoleUser || r == session.RoleSystem }

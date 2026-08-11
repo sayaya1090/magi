@@ -3,6 +3,9 @@ package openai
 import (
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // Strict chat templates 400 on a second or mid-conversation system message; the
@@ -99,5 +102,44 @@ func TestWireRoleDiag(t *testing.T) {
 		if !strings.Contains(d, want) {
 			t.Errorf("wireRoleDiag missing %q in %q", want, d)
 		}
+	}
+}
+
+// A prompt magi wrote reaches the model marked as one.
+//
+// The whole path, because the attribution is assembled by two pieces that could each be right
+// alone and wrong together: internal/app gives magi's own prompts the system role, and this
+// package demotes any mid-conversation system message to a user one prefixed "[system note]" — so
+// what the model actually receives is a user turn that says it is not the person. Asserting only
+// the role in app would leave the sentence the model reads untested.
+func TestAPromptMagiWroteArrivesMarkedAsNotThePerson(t *testing.T) {
+	req := buildRequest(port.ChatRequest{
+		System: "you are magi",
+		Messages: []session.Message{
+			{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "rename a.txt"}}},
+			{Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartText, Text: "done"}}},
+			{Role: session.RoleSystem, Parts: []session.Part{{Kind: session.PartText,
+				Text: "You stopped without saying you are finished."}}},
+		},
+	}, false, false, "", 0, Sampling{})
+
+	last := req.Messages[len(req.Messages)-1]
+	// A user turn, so it works on every backend — including the ones that reject a system message
+	// anywhere but the head, which is why it is demoted rather than sent as one.
+	if last.Role != "user" {
+		t.Fatalf("magi's own prompt goes out as a %q message", last.Role)
+	}
+	body, _ := last.Content.(string)
+	if !strings.HasPrefix(body, "[system note]") {
+		t.Errorf("what the model reads does not say who wrote it: %q", body)
+	}
+	if !strings.Contains(body, "You stopped without saying") {
+		t.Errorf("the marker replaced the message instead of introducing it: %q", body)
+	}
+	// The person's own turn is untouched: marking everything would be the same failure the other
+	// way round.
+	first := req.Messages[1]
+	if first.Role != "user" || strings.Contains(first.Content.(string), "[system note]") {
+		t.Errorf("the person's own prompt was marked as magi's: %+v", first)
 	}
 }
