@@ -3138,9 +3138,13 @@ function render() {
   // landing on the facts of an agent you just opened is a screen nobody asked for.
   if (!s) panel = 'talk';
   drawPanels();
-  document.getElementById('handoffs').hidden = true;
-  intervenedEl.hidden = true;
-  document.getElementById('plan').hidden = true;
+  // Every card in the pane, by walking the pane — not a list of ids kept here by hand.
+  //
+  // That list was the mechanism, and it was missing one: the scheduled-work card was added without
+  // being added here, so it stayed on screen after you left the companion and sat over the fleet
+  // list showing another agent's jobs. A hand-kept list of things to hide cannot fail a build when
+  // somebody adds the fifth card, and this is the second time this page has proved it.
+  for (const card of document.getElementById('side').children) card.hidden = true;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';
   // Whichever body of content this navigation arrived at. One of them, not all of them: reveal on a

@@ -2725,3 +2725,40 @@ console.log(JSON.stringify({text: seen.join(' | ')}));`)
 		t.Errorf("the question is missing:\n%s", txt)
 	}
 }
+
+// Leaving a companion takes its pane with it.
+//
+// The cards were hidden by a list of ids kept by hand in render, and the scheduled-work card was
+// added without being added to it — so it stayed on screen over the fleet list, showing one
+// agent's jobs while you looked at all of them. A hand-kept list cannot fail a build when somebody
+// adds the fifth card; a walk of the pane cannot miss one.
+//
+// The cards come from the MARKUP, so this fails if one is added and render stops covering it. The
+// fake DOM has no tree of its own, and listing them here by hand would be the same hand-kept list
+// one layer down.
+func TestLeavingACompanionHidesEveryCardInThePane(t *testing.T) {
+	aside := indexHTML[strings.Index(indexHTML, `<aside id="side">`):]
+	aside = aside[:strings.Index(aside, "</aside>")]
+	var ids []string
+	for _, m := range regexp.MustCompile(`id="(\w+)"`).FindAllStringSubmatch(aside, -1) {
+		ids = append(ids, m[1])
+	}
+	if len(ids) < 3 {
+		t.Fatalf("found %d cards in the pane markup — the scrape has lost its subject", len(ids))
+	}
+	list, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := runPage(t, "[]", "", `
+// The pane, as the markup has it, shown the way a companion's page leaves them.
+byId.side.children = `+string(list)+`.map(id => byId[id]);
+for (const c of byId.side.children) c.hidden = false;
+render();
+console.log(JSON.stringify({showing: byId.side.children.filter(c => !c.attrs.hidden).map(c => c.id)}));`)
+
+	if showing, _ := got["showing"].([]any); len(showing) != 0 {
+		t.Errorf("these stayed on screen over the fleet list: %v", showing)
+	}
+}

@@ -1212,16 +1212,22 @@
        reserved for the composer and the pane sat over it, so the last control in the facts was
        three pixels under the dock and the bottom of its 48dp reach was not pressable. It ends
        where the dock begins and scrolls inside itself if there is more than fits. */
+    /* The column is bounded and does not scroll; the CARDS inside it do. The handle sits above
+       them and stays put — with the scroll on the column it was the first thing inside the
+       scrolling box, so the scrollbar ran down the side of the one control that is always there. */
     #sidecol {
       position:sticky; top:5.5rem;
       /* The 5.5rem is where it STICKS; unstuck it starts lower — below the masthead's own block —
          so a cap measured from the stuck position is short by that difference at the top of the
          page, which is exactly where somebody reads it. The extra 3rem covers it. */
       max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
+    }
+    #side {
+      flex:1 1 auto; min-height:0;
       /* Down, never sideways. A session id and a workspace path are long unbreakable strings, and
          with overflow:auto they gave this column a horizontal scrollbar — drawn across the bottom
-         of the pane, under the handle, scrolling content that has somewhere better to go: the
-         cards wrap it. A sideways scrollbar in a 22rem column is a control nobody wants. */
+         of the pane, scrolling content that has somewhere better to go: the cards wrap it. A
+         sideways scrollbar in a 22rem column is a control nobody wants. */
       overflow:hidden auto; overscroll-behavior:contain;
     }
     /* A way out. Whichever it is — a fixed pane or a side sheet — the guide asks for one: a fixed
