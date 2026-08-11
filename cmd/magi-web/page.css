@@ -1542,8 +1542,10 @@
   .txt ul, .txt ol { margin:0 0 var(--magi-sys-space-150); padding-left:var(--magi-sys-space-400); }
   .txt li { margin:var(--magi-sys-space-50) 0; }
   .txt li > p { margin:0; }
+  /* 150, like every other bar in a row: the inset a rule stands off its text by is one measure
+     across the transcript, not one per kind of quote. */
   .txt blockquote {
-    margin:0 0 var(--magi-sys-space-150); padding-left:var(--magi-sys-space-200);
+    margin:0 0 var(--magi-sys-space-150); padding-left:var(--magi-sys-space-150);
     border-left:2px solid var(--magi-ref-outlineVariant); color:var(--magi-ref-muted);
   }
   /* A tint of the foreground rather than a surface token: this page's palette has one surface, and
@@ -1623,7 +1625,10 @@
   .row.user { margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-150); }
   .row.user .txt {
     font:var(--md-sys-typescale-body-large-size)/1.55 var(--magi-ref-display); color:var(--magi-ref-primary);
-    border-left:2px solid var(--magi-ref-primary); padding-left:var(--magi-sys-space-200); margin-left:calc(-1 * var(--magi-sys-space-200));
+    /* The same inset as every other barred row (system, pending, a tool's result): the negative
+       margin pulls the bar toward the gutter, so a larger inset is a bar sitting CLOSER to the
+       name beside it — this one at 200 crowded the label while the rest stood off it by 150. */
+    border-left:2px solid var(--magi-ref-primary); padding-left:var(--magi-sys-space-150); margin-left:calc(-1 * var(--magi-sys-space-150));
   }
   .row.user .who { color:var(--magi-ref-primary); }
   .row.assistant .txt { color:var(--magi-ref-fg); }
