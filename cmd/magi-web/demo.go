@@ -210,6 +210,9 @@ const demoScript = `
     // What this companion can call, and the shape of the run. A short roster rather than the real
     // thirty-odd: the screen is what is being shown, and a wall of names says nothing more about
     // it than eight do.
+    // What this companion could be put on. Three, because the field is a menu now and a menu with
+    // one entry is disabled — the demo should show the control working.
+    '/model': ['qwen3-coder-next', 'gpt-oss:120b-cloud', 'llama4:scout'],
     '/tools': ['bash', 'read', 'edit', 'write', 'grep', 'glob', 'todo_write', 'spawn', 'council'],
     // Forked, because a session that came from nowhere shows half this screen — and the half that
     // only appears on a fork is the half nobody would think to look for.

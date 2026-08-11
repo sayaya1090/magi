@@ -1627,6 +1627,82 @@ function permField(a) {
   return f;
 }
 
+// modelField is which model this companion is on, and the way to put it on another.
+//
+// Built like the approval field beside it, and for the same reasons: the select is kept between
+// redraws so a poll landing while the menu is open does not shut it, the pending value is held
+// until the daemon's next answer so the poll does not fight the click, and what is drawn is what
+// the daemon SAYS it is on — a refused change reverts visibly rather than leaving the console
+// claiming a model nobody is running.
+//
+// The options come from the companion's own daemon, once per screen. A console listing from its
+// own config would offer models that companion cannot reach; a daemon too old to answer, or a
+// backend that is down, leaves the list empty and the field is then the plain reading it was
+// before — the choice is not offered rather than offered and broken.
+function modelField(a, now) {
+  const f = cell('f');
+  f.append(cell('k', tr('field.model')));
+  const v = cell('v');
+  const key = (a.peer || '') + ' ' + a.socket;
+  let sel = modelField.el;
+  if (!sel || modelField.key !== key) {
+    sel = modelField.el = document.createElement('md-outlined-select');
+    modelField.key = key;
+    modelField.list = null;
+    sel.className = 'permsel';
+    sel.setAttribute('label', tr('field.model'));
+    sel.addEventListener('change', async () => {
+      const want = sel.value;
+      if (!want || want === modelField.now) return;
+      modelField.want = want;
+      const why = await post('/model', new URLSearchParams({model: want}), a.socket, a.peer);
+      modelField.want = '';
+      if (!why) loadFleet();
+    });
+  }
+  // The roster, once. Asked on the first draw for this companion and kept: it is a property of the
+  // backend, not of the turn, and re-asking it every three seconds would put a network round trip
+  // behind a card that redraws on a timer.
+  if (modelField.list === null) {
+    modelField.list = [];
+    fetchList('/model' + qFor(a)).then(names => {
+      modelField.list = names || [];
+      paintModels(sel, modelField.list, modelField.now || now);
+    });
+  }
+  modelField.now = modelField.want || now;
+  paintModels(sel, modelField.list || [], modelField.now);
+  v.append(sel);
+  f.append(v);
+  return f;
+}
+
+// paintModels fills the select with what is on offer, plus the one it is on.
+//
+// The current model is always an option even when the backend did not list it — a companion can be
+// running on something the list no longer mentions, and a select that cannot show its own value
+// shows the wrong one.
+function paintModels(sel, names, now) {
+  const want = [...names];
+  if (now && !want.includes(now)) want.unshift(now);
+  const same = (sel._painted || []).join(' ') === want.join(' ');
+  if (!same) {
+    sel._painted = want;
+    sel.replaceChildren(...want.map(n => {
+      const o = document.createElement('md-select-option');
+      o.value = n;
+      o.append(el('div', n));
+      return o;
+    }));
+  }
+  if (now && sel.value !== now && document.activeElement !== sel) {
+    sel.value = now;
+    if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
+  }
+  // One model and nothing to change to is a menu that only wastes a press.
+  sel.disabled = want.length < 2;
+}
+
 function drawDetail(a) {
   const box = document.getElementById('detail');
   if (!a) { box.hidden = true; box.replaceChildren(); return; }
@@ -2202,7 +2278,11 @@ async function drawContext(a, box, grid, field) {
 
   // Which model, because the window below is that model's and a companion can be on one you did
   // not put it on — /route changes it mid-session and nothing else on this page would say so.
-  if (c.model) grid.append(field('field.model', c.model));
+  //
+  // And a way to change it, which the terminal has had as /model since it had a slash command. The
+  // list is asked of the companion's own daemon, so it offers what THAT process can reach; when
+  // nobody could say, the field stays the plain reading it always was.
+  if (c.model) grid.append(modelField(a, c.model));
   // Said once, where somebody would otherwise wonder why there is no cache figure at all.
   if (!c.cacheReported && !c.estimated) {
     grid.append(field('field.cache', tr('context.no_cache_report')));

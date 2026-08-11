@@ -564,6 +564,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/subagents":     s.subagents,
 		"/jobs":          s.jobs,
 		"/tools":         s.tools,
+		"/model":         s.models,
 		"/loop":          s.loop,
 		"/transcript":    s.transcript,
 		"/council":       s.council,

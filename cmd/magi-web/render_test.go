@@ -3370,3 +3370,59 @@ console.log(JSON.stringify({hidden: box.hidden, names}));`)
 		t.Error("a name this console cannot resolve was drawn as a link anyway")
 	}
 }
+
+// The model is a control, and choosing one tells the companion that holds the run.
+//
+// The terminal has had /model since it had slash commands; the console showed the name and left
+// you to go and find a terminal. The list is the daemon's own — a console cannot know what backend
+// that process is configured against — and the current model is always in the menu even when the
+// backend no longer lists it, or the select would show something the companion is not on.
+func TestTheModelIsAMenuThatTellsTheDaemon(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+ROUTES['/model'] = ['gpt-oss:120b-cloud', 'llama4:scout'];
+ROUTES['/context'] = {model: 'qwen3-coder-next', used: 1000, window: 128000};
+await loadFleet();
+const grid = byId.detail;
+// The field is built by the context draw, which is the half of the card that lands late.
+await drawDetail({socket: '/s/a.sock', state: 'working', workdir: '/w', session: 's_1'});
+// The roster is fetched without being awaited by the draw — it fills the menu when it lands, the
+// same way it does in a browser — so the test drains the microtask queue rather than assuming.
+for (let i = 0; i < 20; i++) await Promise.resolve();
+const sel = (function find(n) {
+  if ((n.tag || '') === 'md-outlined-select' && n.attrs.label) return n;
+  for (const k of n.children || []) { const hit = find(k); if (hit) return hit; }
+  return null;
+})(grid);
+const opts = sel ? sel.children.map(o => o.value) : [];
+const before = sel ? sel.value : '';
+// Choosing one posts it, and the value it posts is the one that was chosen.
+sel.value = 'llama4:scout';
+// The handler is async and the fake's setTimeout does not run anything, so the post is awaited
+// through the promise the dispatch returns nothing about — a microtask drain is enough here.
+sel.dispatchEvent({type: 'change'});
+await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+console.log(JSON.stringify({opts, before,
+  posted: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched + ' ' + r.body)}));`)
+
+	opts, _ := got["opts"].([]any)
+	var names []string
+	for _, o := range opts {
+		names = append(names, o.(string))
+	}
+	// The one it is on, then what the daemon offered.
+	if len(names) != 3 || names[0] != "qwen3-coder-next" {
+		t.Fatalf("the menu holds %v; the model it is on must be in it", names)
+	}
+	if got["before"] != "qwen3-coder-next" {
+		t.Errorf("the menu shows %q while the companion runs qwen3-coder-next", got["before"])
+	}
+	posted, _ := got["posted"].([]any)
+	last := ""
+	if len(posted) > 0 {
+		last, _ = posted[len(posted)-1].(string)
+	}
+	if !strings.Contains(last, "/model") || !strings.Contains(last, "llama4") {
+		t.Errorf("choosing a model sent %q — the daemon holding the run was never told", last)
+	}
+}

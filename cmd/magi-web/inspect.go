@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -45,6 +46,48 @@ func (s *server) tools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, "tools", out)
+}
+
+// models is what this companion could be put on, and putting it on one.
+//
+// GET asks the daemon, which asks its own backend: the list depends on what that process is
+// configured against and what that backend answers today, so a console listing from its own config
+// would offer models this companion cannot reach. POST is the change, and it crosses for the reason
+// every control does — done here it would set a field in a copy of the engine nobody is running.
+func (s *server) models(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	if r.Method == http.MethodPost {
+		name := strings.TrimSpace(r.FormValue("model"))
+		if name == "" {
+			http.Error(w, "no model named", http.StatusBadRequest)
+			return
+		}
+		if err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+			return cl.SetModel(sid, name)
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	out := []string{}
+	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		names, merr := cl.Models()
+		if merr != nil {
+			return merr
+		}
+		out = names
+		return nil
+	}); err != nil {
+		// An empty list, not an error page: the screen then shows the model it is on and does not
+		// offer to change it, which is the truthful picture when nobody could say what else exists.
+		writeJSON(w, "models", []string{})
+		return
+	}
+	writeJSON(w, "models", out)
 }
 
 // loopShape is the map of a session's turns, and — when this session was forked from another — how
