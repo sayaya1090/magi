@@ -734,7 +734,12 @@
   /* Expanded, the badge is a child of the list item and lays itself out beside the label; the
      move is placeRailBadge()'s, and this rule only says what it looks like once it is there. */
   body[nav-wide] .raili > md-badge { position:static; align-self:center; }
-  #prefsForm { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:16rem; }
+  /* Gaps, not dividers. This is a contained list — four settings inside a dialog — and the guide
+     keeps dividers for uncontained or complex ones, "only when a stronger visual separation is
+     necessary". A line between every row of four is a fence where a space does the work. */
+  #prefsForm {
+    display:flex; flex-direction:column; gap:var(--magi-sys-space-300); min-width:16rem;
+  }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
      screen's controls" looked like until somebody measured it. */
@@ -749,8 +754,24 @@
   .skwrite .skmodel {
     flex:1 1 100%; font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere;
   }
-  #notify { display:flex; flex-direction:column; align-items:flex-start; gap:var(--magi-sys-space-50); }
-  #notifyWhy { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); max-width:26rem; overflow-wrap:anywhere; }
+  /* The switch is TRAILING, which is where a switch goes: the guide arranges settings in stacked
+     rows with the control at the end of the line, and this one was a column left over from when
+     the control was a button with a sentence under it — so the switch sat below its own label,
+     left-aligned, reading as a second thing rather than as the setting's control. The sentence
+     that explains it still goes underneath, because it is a paragraph and not part of the row. */
+  /* The middle of a row: the sentence that says what the setting does, or why it cannot be
+     changed. Quieter than the name and allowed to wrap — min-width:0 so it wraps inside the row
+     rather than pushing the control off the end of it. */
+  /* The leading half of a settings row: the label, and the supporting line under it. */
+  .prefsay { display:flex; flex-direction:column; gap:var(--magi-sys-space-50); min-width:0; }
+  /* Supporting text: quieter than the label, wrapping rather than pushing the control off the end,
+     and capped at the length the guide asks for — "limit supporting text to one to three lines". */
+  .prefsay .say {
+    font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted);
+    overflow-wrap:anywhere;
+  }
+  .prefsay .say:empty { display:none; }
+
   #prefsForm .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
   }
@@ -826,8 +847,12 @@
   :root[color-theme="light"] .sky .auto { transform:translateY(160%) rotate(-40deg); }
   :root[color-theme="dark"] .sky .moon { transform:none; }
   :root[color-theme="dark"] .sky .auto { transform:translateY(160%) rotate(-40deg); }
-  /* The row a preference sits on: what it is, and the control that changes it, at opposite ends. */
-  .prefrow { display:flex; align-items:center; justify-content:space-between; gap:var(--magi-sys-space-200); }
+  /* One shape for every preference: what it is called, what it does, and the control — in that
+     order, at the same three places on each row, so the eye finds the next control where it found
+     the last one. The name column is fixed so the sentences start on one line down the dialog. */
+  .prefrow { display:flex; align-items:center; gap:var(--magi-sys-space-200); }
+  .prefrow > .prefsay { flex:1 1 auto; min-width:0; }
+  .prefrow > md-outlined-select { flex:0 0 11rem; }
 
   /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
      composer itself grows with what you type. A constant padding here either wastes a screen of

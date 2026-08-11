@@ -105,6 +105,10 @@ function paintTheme() {
   const said = tr('pref.theme') + ': ' + tr(key);
   btn.setAttribute('aria-label', said);
   if (typeof tip === 'function') tip(btn, said);
+  // And in the row itself, because the sky is a picture and a picture cannot say "system" — the
+  // supporting line is where somebody reads which of the three is actually set.
+  const why = document.getElementById('themeWhy');
+  if (why) why.textContent = tr(key);
 }
 applyTheme();
 // What the page is actually showing, which is not the same as what was chosen: 'system' resolves
@@ -4424,7 +4428,8 @@ function paint() {
   fmtGo.onclick = () => { fmtDialog.close('save'); saveFormat(); };
   mcpGo.textContent = tr('action.add_or_replace');
   withMark(mcpGo, '#i-sl-floppy-disk');
-  paintChoice(langEl, 'lang');
+  document.getElementById('langK').textContent = tr('pref.lang');
+  paintChoice(langEl, 'lang', true);
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
   paintNotify();
 

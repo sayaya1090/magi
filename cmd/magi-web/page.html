@@ -236,7 +236,7 @@
        what you get until you touch this — pressing it is the act of stopping. -->
   <form slot="content" method="dialog" id="prefsForm">
     <div class="prefrow">
-      <div class="k" id="themeK"></div>
+      <div class="prefsay"><div class="k" id="themeK"></div><div class="say" id="themeWhy"></div></div>
       <!-- One sky, three bodies: the sun, the moon, and the half-lit circle that means "whatever
            the machine says". Pressing it does not swap an icon — the next body climbs out of the
            horizon while the last one sinks the same way it came, so the button says which
@@ -271,16 +271,22 @@
         </svg>
       </md-icon-button>
     </div>
-    <md-outlined-select id="lang"></md-outlined-select>
+    <div class="prefrow">
+      <div class="prefsay"><div class="k" id="langK"></div><div class="say" id="langWhy"></div></div>
+      <md-outlined-select id="lang"></md-outlined-select>
+    </div>
     <!-- A setting that is on or off, so a switch: the guide keeps switches for exactly this and
          says the effect must be immediate, which subscribing is. Paired with an inline label,
          which it also asks for — and no icon in the handle, because the ones that would fit here
          (a bell, a moon) are the ambiguous kind it warns against. -->
     <div class="prefrow" id="notify">
-      <div class="k" id="notifyK"></div>
+      <!-- Label, the supporting line UNDER it, and the control at the trailing end — the shape
+           the guide gives a list item, and the reason it is that shape: supporting text below the
+           label is what keeps the labels themselves on one scannable column. Beside it, in the
+           middle of the row, the three settings stopped aligning as soon as one sentence wrapped. -->
+      <div class="prefsay"><div class="k" id="notifyK"></div><div class="say" id="notifyWhy"></div></div>
       <md-switch id="notifySwitch" touch-target="wrapper"></md-switch>
     </div>
-    <div id="notifyWhy"></div>
     <div class="k" id="consoleK"></div>
     <div id="console"></div>
   </form>
