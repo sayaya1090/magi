@@ -3273,3 +3273,26 @@ console.log(JSON.stringify({pre, text: words(byId.agentdetail)}));`)
 		t.Errorf("a forked session does not say where it came from:\n%s", s)
 	}
 }
+
+// A language landing after the screen was drawn reaches the crumb you are standing under.
+//
+// The page is served with its English pack inlined so the first paint has words, and the chosen
+// pack arrives a moment later. paint() repaints the labels written into the markup — and it
+// repainted the FIRST crumb for exactly this reason — but the third one is written by render(),
+// which does not run again. Measured on a Korean browser standing in past work: "companions /
+// design / What it has done", every other label around it Korean.
+func TestALateLanguageReachesTheCrumbYouAreStandingUnder(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock&past=", `
+// The pack lands after the screen has been drawn, which is the order a browser gets it in.
+labels$.next({...L, 'field.history': '지나온 작업', 'nav.companions': '컴패니언'});
+console.log(JSON.stringify({deep: crumbDeep.text, back: back.text}));`)
+
+	if got["deep"] != "지나온 작업" {
+		t.Errorf("the crumb kept the seed pack's wording: %q", got["deep"])
+	}
+	// The first crumb is the control: it was already repainted, and must still be.
+	if got["back"] != "컴패니언" {
+		t.Errorf("the first crumb reads %q", got["back"])
+	}
+}

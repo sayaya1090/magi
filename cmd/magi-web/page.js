@@ -454,6 +454,24 @@ function goDeep(param, value) {
 }
 const goBackUp = () => goDeep('sub', null);
 
+// The third crumb says which level you are standing on, and it is made of words.
+//
+// Its own function because two callers need it: render(), which knows the level changed, and
+// paint(), which knows the language did. Written only by render(), it kept whatever the inlined
+// English seed said for as long as the screen stayed open — measured on a Korean browser standing
+// in past work: "companions / design / What it has done", with every other label around it in
+// Korean. paint() already repaints the first crumb for exactly this reason; the deeper one was
+// added later and missed.
+function paintDeepCrumb() {
+  crumbDeep.textContent = !deepIn() ? ''
+    : inspOf() === 'tools' ? '🛠 ' + tr('insp.tools')
+    : inspOf() === 'loop' ? '↻ ' + tr('insp.loop')
+    : askOf() ? '⏸ ' + tr('ask.deciding')
+    : crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':')
+    : pastOn() ? tr('field.history')
+    : '◆ ' + tr('detail.subagent');
+}
+
 // goVerdict opens one member's vote, KEEPING which session it was read in.
 //
 // goDeep clears every level, which is right when they are alternatives — and a verdict read on a
@@ -3821,6 +3839,7 @@ function paint() {
   // reader sees without looking at the page at all, which makes it the last place worth leaving in
   // a language they did not pick.
   back.textContent = sock() ? SECTION.fleet : (SECTION[view()] || tr('nav.companions'));
+  paintDeepCrumb();
   retitle(lastWaiting);
 }
 // True once the page has drawn itself at least once. paint() runs before that on the first pass,
@@ -3934,13 +3953,7 @@ function render() {
   crumbHere.setAttribute('href', s ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '')) : '');
   crumbHere.className = deep ? '' : 'here';
   crumbSep2.hidden = !deep;
-  crumbDeep.textContent = !deep ? ''
-    : inspOf() === 'tools' ? '🛠 ' + tr('insp.tools')
-    : inspOf() === 'loop' ? '↻ ' + tr('insp.loop')
-    : askOf() ? '⏸ ' + tr('ask.deciding')
-    : crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':')
-    : pastOn() ? tr('field.history')
-    : '◆ ' + tr('detail.subagent');
+  paintDeepCrumb();
   // Past work has a level of its own inside it — the list, and one session out of it — so the third
   // crumb becomes the way back to the list and a fourth says which session. Without that, opening
   // one left the crumb saying "past work" while showing a transcript, with no way back to the list
