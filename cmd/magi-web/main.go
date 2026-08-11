@@ -659,6 +659,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/events":               s.events,
 		"/submit":               s.submit,
 		"/interrupt":            s.interrupt,
+		"/resume":               s.resume,
 		"/shell":                s.shell,
 		"/cron":                 s.cron,
 		"/search":               s.search,
@@ -863,7 +864,28 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	var lastSeq int64 = -1
 	tick := time.NewTicker(400 * time.Millisecond)
 	defer tick.Stop()
+	// This stream was addressed by COMPANION, and a companion can now be pointed at another of its
+	// own conversations from any console. So the session is re-read rather than resolved once: a
+	// page watching a companion that moved was left polling the conversation it left, for as long
+	// as the tab stayed open, while everything it typed went to the new one — the shape where what
+	// is on screen and what a control reaches are two different things.
+	//
+	// Every fifth tick rather than every tick: it is a small file read, the poll beside it runs two
+	// and a half times a second per viewer, and two seconds is well inside the time it takes to
+	// read that a conversation has moved. A screen addressed by SESSION (the past view) must not
+	// follow, and does not — it never opens this stream.
+	const lookEvery = 5
+	look := 0
 	for {
+		if look++; look >= lookEvery {
+			look = 0
+			if now, rerr := s.target(r); rerr == nil && now.Session != "" &&
+				session.SessionID(now.Session) != sid {
+				// Everything from the start of the new conversation, in the next frame: the page
+				// draws whatever it is sent, so a reset here IS the redraw.
+				sid, lastSeq = session.SessionID(now.Session), -1
+			}
+		}
 		// Ask before rebuilding. Reconstructing the transcript from the log costs 12ms on a
 		// four-thousand-event session and asking whether anything arrived costs 2µs, and on almost
 		// every tick the answer is nothing — this is the same poll running two and a half times a
@@ -1388,6 +1410,34 @@ func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, "shell", map[string]any{"out": out, "exit": exit})
+}
+
+// resume points a companion at another of its own conversations.
+//
+// The session travels in the BODY and not as the target: `?d=` names the companion, the way every
+// other route here does, and the body says which conversation of that companion is meant. A route
+// that took a session as its address would be the console naming sessions, which is the thing this
+// whole arrangement does not do — it names a companion and reads the session out of the record.
+//
+// Every refusal comes from the daemon: mid-turn, not-my-workspace, could-not-publish. This end
+// does not pre-judge any of them, because the answer is only true at the daemon and a console
+// asking a question it then answers itself is two truths.
+func (s *server) resume(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+		return
+	}
+	want := strings.TrimSpace(r.FormValue("session"))
+	if want == "" {
+		http.Error(w, "no conversation named", http.StatusBadRequest)
+		return
+	}
+	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		return cl.Resume(session.SessionID(want))
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {

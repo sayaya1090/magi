@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1086,5 +1087,86 @@ func TestTheReportFormatIsReadAndWrittenFromTheConsole(t *testing.T) {
 	if w := post(t, f.srv, f.srv.reportFormat, "/report-format"+q, url.Values{
 		"key": {"tried", "tried"}, "prompt": {"a", "b"}}); w.Code != http.StatusBadRequest {
 		t.Errorf("two sections with one name were accepted (%d)", w.Code)
+	}
+}
+
+// Resume returns whatever the daemon decides — this fake records the ask and can refuse.
+func (r *recordingEngine) Resume(_ context.Context, sid session.SessionID) error {
+	return r.note("resume:" + string(sid))
+}
+
+// The console asks the DAEMON to move, and carries its refusal back unchanged.
+//
+// Which conversation a companion is in is the daemon's answer, not this process's: only it knows
+// whether a turn is running and which sessions are its own. A console that pre-judged either would
+// be a second truth, and the one people would see first.
+func TestMovingACompanionToAnotherConversationAsksTheDaemon(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	eng := &recordingEngine{}
+	sock := f.liveDaemon(t, wd, "mover", eng)
+	f.session("mover", wd, "hello", 1, false)
+	q := "?d=" + url.QueryEscape(sock)
+
+	if w := post(t, f.srv, f.srv.resume, "/resume"+q, url.Values{"session": {"a7"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("the move replied %d: %s", w.Code, w.Body.String())
+	}
+	if got := eng.seen(); len(got) != 1 || got[0] != "resume:a7" {
+		t.Errorf("the daemon was told %v — the conversation asked for must cross unchanged", got)
+	}
+
+	// No session named is refused HERE, because there is nothing to ask about.
+	if w := post(t, f.srv, f.srv.resume, "/resume"+q, url.Values{}); w.Code != http.StatusBadRequest {
+		t.Errorf("a move with no conversation named replied %d", w.Code)
+	}
+
+	// And the daemon's own refusal reaches the person, in the daemon's words: "mid-turn" and "not
+	// this workspace" are the two they can act on, and a console that flattened them to "failed"
+	// would leave somebody pressing the same button.
+	eng.fail = errors.New("this companion is mid-turn in a1")
+	w := post(t, f.srv, f.srv.resume, "/resume"+q, url.Values{"session": {"a9"}})
+	if w.Code == http.StatusNoContent {
+		t.Fatal("a refused move was reported as done")
+	}
+	if !strings.Contains(w.Body.String(), "mid-turn") {
+		t.Errorf("the daemon's reason did not reach the page: %q", w.Body.String())
+	}
+}
+
+// A page watching a COMPANION follows it into the conversation it moves to.
+//
+// The stream is addressed by companion — that is what `?d=` names — and it used to resolve the
+// session once, at open. After a move it polled the conversation the companion had left, for as
+// long as the tab stayed open, while everything typed into that page went to the new one. What is
+// on screen and what a control reaches must not be two different things.
+func TestAWatchingPageFollowsTheCompanionToItsNewConversation(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.daemonAt(wd, "wanderer", true)
+	f.session("wanderer", wd, "the first conversation", 1, false)
+	f.session("elsewhere", wd, "the second conversation", 1, false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := httptest.NewRequest(http.MethodGet, "/events?d="+url.QueryEscape(sock), nil).WithContext(ctx)
+	w := newStreamRecorder()
+	done := make(chan struct{})
+	go func() { defer close(done); f.srv.events(w, r) }()
+
+	if !w.waitFor(t, "the first conversation", 3*time.Second) {
+		t.Fatalf("the stream never opened on the conversation it was pointed at: %s", w.body())
+	}
+	// The daemon moves, which is a rewrite of the record every reader polls.
+	if err := daemon.Moved(sock, "elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+	if !w.waitFor(t, "the second conversation", 5*time.Second) {
+		t.Fatalf("the stream stayed on the conversation the companion left: %s", w.body())
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("the stream did not stop when the client went away")
 	}
 }
