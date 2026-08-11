@@ -207,6 +207,21 @@ const demoScript = `
       {key: 'stakes', prompt: 'what each option costs if it turns out to be the wrong one'},
       {key: 'lean', prompt: 'which one you would pick, and the reason'},
     ]},
+    // What this companion can call, and the shape of the run. A short roster rather than the real
+    // thirty-odd: the screen is what is being shown, and a wall of names says nothing more about
+    // it than eight do.
+    '/tools': ['bash', 'read', 'edit', 'write', 'grep', 'glob', 'todo_write', 'spawn', 'council'],
+    // Forked, because a session that came from nowhere shows half this screen — and the half that
+    // only appears on a fork is the half nobody would think to look for.
+    '/loop': {
+      map: '1  plan      write the empty-state spec\n' +
+           '2  work      grep · read · read\n' +
+           '3  council   majority · adopted\n' +
+           '4  work      edit src/inbox.tsx\n' +
+           '5  report    three components audited',
+      origin: 's_demo_parent',
+      diff: '+ src/inbox.tsx uses --surface-dim\n+ docs/empty-states.md',
+    },
     // A council seat one level in, and a child the turn spawned. Both screens exist in the real
     // page and neither could be seen in the demo, which is the surface most people meet first.
     '/subagents': [

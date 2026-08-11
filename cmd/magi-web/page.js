@@ -436,12 +436,17 @@ const pastOf = () => new URLSearchParams(location.search).get('past') || '';
 // right shape for "allow this one command" — but a report is three sections of prose and a strip
 // under a transcript is not where anybody reads three sections of prose.
 const askOf = () => new URLSearchParams(location.search).get('ask') || '';
-const deepIn = () => !!(sock() && (subOf() || crOf() || pastOn() || askOf()));
+// insp is what the terminal answers with /tools and /loop: what this companion can do, and the
+// shape of the run so far. One parameter with two values rather than two parameters, because they
+// are alternatives — you are looking at one of them — and every level here is addressed the same
+// way so that a screen can be sent to somebody.
+const inspOf = () => new URLSearchParams(location.search).get('insp') || '';
+const deepIn = () => !!(sock() && (subOf() || crOf() || pastOn() || askOf() || inspOf()));
 // Going one level in and coming back out. Both are pushState + render, so the address bar, the
 // crumbs and what is drawn can never disagree — there is one source and it is the URL.
 function goDeep(param, value) {
   const u = new URLSearchParams(location.search);
-  u.delete('sub'); u.delete('cr'); u.delete('past'); u.delete('ask');
+  u.delete('sub'); u.delete('cr'); u.delete('past'); u.delete('ask'); u.delete('insp');
   // An empty value is still a value here: ?past= is the list. Only a null clears the level.
   if (value !== null && value !== undefined) u.set(param, value);
   history.pushState({}, '', '?' + u.toString());
@@ -459,7 +464,7 @@ const goBackUp = () => goDeep('sub', null);
 // reached once the work is done".
 function goVerdict(round, member) {
   const u = new URLSearchParams(location.search);
-  u.delete('sub'); u.delete('ask');
+  u.delete('sub'); u.delete('ask'); u.delete('insp');
   u.set('cr', round + ':' + member);
   history.pushState({}, '', '?' + u.toString());
   render();
@@ -1661,6 +1666,24 @@ function drawDetail(a) {
     row.append(v);
     grid.append(row);
   }
+  // What it can do and how the run is shaped — the two things the terminal answers with /tools and
+  // /loop, which had no way in here at all. Buttons in the facts card rather than rows in the
+  // transcript: they are answers to a question somebody asked, not a record of what happened, and
+  // the transcript is already the one place where those two kinds of thing get mixed.
+  {
+    const row = cell('f');
+    row.append(cell('k', tr('field.what_it_has')));
+    const v = cell('v');
+    for (const [key, label] of [['tools', tr('insp.tools')], ['loop', tr('insp.loop')]]) {
+      const b = el('button', label);
+      b.type = 'button';
+      b.className = 'deeper hit48';
+      b.onclick = () => goDeep('insp', key);
+      v.append(b);
+    }
+    row.append(v);
+    grid.append(row);
+  }
   // Children the turn spawned, reached from the facts rather than from the transcript. A child is
   // started inside a tool call and finishes inside the same one, so the transcript row that
   // produced it says "spawn" and nothing about what came back — there was no way in at all.
@@ -1816,12 +1839,63 @@ async function drawChild(a, id) {
   box.append(log2);
 }
 
+// ── what it can do, and the shape of the run ─────────────────────────────────
+// The terminal prints both of these into the conversation, because a terminal has nowhere else to
+// put them. Here they are screens: a transcript is a record of what happened, and a list somebody
+// asked to see is not that.
+
+// drawTools is the roster this companion is running with.
+//
+// Asked of the daemon, never assembled here. The registry is built at startup from the config, the
+// plugins that loaded and the MCP servers that answered — a console listing the built-ins would be
+// describing a companion that does not exist, and would be most confidently wrong exactly when it
+// mattered, on the one whose plugin failed to load.
+async function drawTools(a) {
+  const box = detailEl2();
+  const names = await fetchList('/tools' + qFor(a));
+  box.replaceChildren();
+  box.append(detailHead('🛠 ' + tr('insp.tools'), '', names && names.length ? names.length + '' : ''));
+  if (!names || !names.length) {
+    // Not "no tools". A companion always has some; what an empty answer means is that this daemon
+    // is too old to be asked, and saying the other thing would be a screen inventing a fact.
+    box.append(cell('dnote', tr('insp.tools_unknown')));
+    return;
+  }
+  const list = cell('dlog');
+  for (const n of names) {
+    const row = cell('f');
+    row.append(cell('k', n));
+    list.append(row);
+  }
+  box.append(cell('dk dhero', tr('insp.tools_have')), list);
+}
+
+// drawLoop is the map of the turns, and — when this session was forked from another — what has
+// changed since it left.
+async function drawLoop(a) {
+  const box = detailEl2();
+  const shape = await fetchOne('/loop' + qFor(a));
+  box.replaceChildren();
+  box.append(detailHead('↻ ' + tr('insp.loop'), '', shape && shape.origin ? tr('insp.forked') : ''));
+  if (!shape) { box.append(cell('dnote', tr('error.unreachable'))); return; }
+  // Preformatted, because the map IS its alignment: the same text with the spaces collapsed is a
+  // paragraph of step numbers.
+  detailSection(box, tr('insp.loop_map'), shape.map, {pre: true});
+  if (!String(shape.map || '').trim()) box.append(cell('dnote', tr('detail.nothing_yet')));
+  if (shape.origin) {
+    detailSection(box, tr('insp.forked_from'), shape.origin);
+    detailSection(box, tr('insp.since_fork'), shape.diff, {pre: true});
+  }
+}
+
 // drawDeep decides which of the two is open, and says so in the crumb.
 async function drawDeep(a) {
   const box = detailEl2();
   box.replaceChildren(cell('dnote', tr('detail.loading')));
   try {
-    if (askOf()) await drawAsk(a);
+    if (inspOf() === 'tools') await drawTools(a);
+    else if (inspOf() === 'loop') await drawLoop(a);
+    else if (askOf()) await drawAsk(a);
     else if (crOf()) await drawVerdict(a, crOf());
     else if (pastOn()) await drawPast(a);
     else await drawChild(a, subOf());
@@ -3257,9 +3331,20 @@ async function drawReportFormat(a) {
 // openFormat is the editor: one row per section, which is the pair a contract is made of.
 function openFormat(a, f) {
   fmtFor = a;
-  fmtK.textContent = tr('field.report_format');
+  // A headline that says what the dialog does, not what area of the app it belongs to. "Report
+  // format" is a heading on a card; on a dialog it leaves the person to work out what saving will
+  // change, which is the thing the guide asks the headline to answer.
+  fmtK.textContent = tr('fmt.headline');
   fmtForm.replaceChildren();
-  const more = el('button', tr('fmt.add_section'));
+  // Supporting text, which is the part of a dialog the guide asks for and this one did without: a
+  // headline states the subject and the sentence under it says what pressing save will mean. Here
+  // that is worth saying outright — these are not preferences, they are what the agent will be
+  // refused for leaving out.
+  fmtForm.append(cell('dlgsup', tr('fmt.about')));
+  // Text buttons for the two low-emphasis actions inside the content, and an icon button for
+  // removal — the M3 vocabulary for "an action on this row" rather than a glyph in a link.
+  const more = document.createElement('md-text-button');
+  more.textContent = tr('fmt.add_section');
   const add = (key, prompt) => {
     const row = cell('fmtrow');
     const k = document.createElement('md-outlined-text-field');
@@ -3268,20 +3353,31 @@ function openFormat(a, f) {
     k.value = key || '';
     const p = document.createElement('md-outlined-text-field');
     p.setAttribute('label', tr('fmt.prompt'));
+    // A sentence, so it gets the shape of one. As a single line the prompt scrolled sideways
+    // inside a field narrower than the text it holds, which is the field you cannot read while
+    // you edit it.
+    p.setAttribute('type', 'textarea');
+    // Tall enough for what is in it, up to four lines. A fixed two put a scrollbar inside a field
+    // three lines long, which hides the end of the sentence somebody is editing; a fixed four
+    // leaves three short rows looking like a form with holes in it.
+    // 26 is the column's measured capacity at the dialog's width, not a guess at one: the field is
+    // about 290px of monospace inside a 560dp dialog.
+    p.setAttribute('rows', String(Math.min(4, Math.max(2, Math.ceil(String(prompt || '').length / 26)))));
     p.name = 'prompt';
     p.value = prompt || '';
     // Removing a section has a consequence — the agent stops being asked for it — so it is a
     // control of its own rather than clearing the field and hoping somebody notices.
-    const drop = el('button', '✕');
-    drop.type = 'button';
-    drop.className = 'deeper hit48';
+    const drop = document.createElement('md-icon-button');
+    drop.className = 'fmtdrop';
     drop.setAttribute('aria-label', tr('action.remove'));
+    drop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+      '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" fill="none"/></svg>';
+    tip(drop, tr('action.remove'));
     drop.onclick = () => row.remove();
     row.append(k, p, drop);
     fmtForm.insertBefore(row, more);
   };
-  more.type = 'button';
-  more.className = 'deeper hit48';
   more.onclick = () => add('', '');
   fmtForm.append(more);
   for (const sec of (f.sections || [])) add(sec.key, sec.prompt);
@@ -3839,6 +3935,8 @@ function render() {
   crumbHere.className = deep ? '' : 'here';
   crumbSep2.hidden = !deep;
   crumbDeep.textContent = !deep ? ''
+    : inspOf() === 'tools' ? '🛠 ' + tr('insp.tools')
+    : inspOf() === 'loop' ? '↻ ' + tr('insp.loop')
     : askOf() ? '⏸ ' + tr('ask.deciding')
     : crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':')
     : pastOn() ? tr('field.history')

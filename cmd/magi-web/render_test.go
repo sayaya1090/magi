@@ -3212,3 +3212,64 @@ console.log(JSON.stringify({windowed, hasSpacer, heldStill, grew,
 		t.Errorf("scrolling up brought nothing back: %d then %d", num("windowed"), num("after"))
 	}
 }
+
+// What this companion can call is asked of the daemon holding it, and an unanswered roster is not
+// an empty one.
+//
+// The registry is assembled at startup from the config, the plugins that loaded and the MCP servers
+// that answered. A console listing the built-ins would be describing a companion that does not
+// exist — and would be wrong most confidently on the one whose plugin failed to load. So the screen
+// shows what came back, and when nothing did it says the daemon did not say rather than drawing an
+// empty list, which reads as "this agent has no tools".
+func TestAnUnansweredToolRosterDoesNotReadAsNoTools(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock&insp=tools", `
+const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
+ROUTES['/tools'] = ['bash', 'read', 'sqlite_query'];
+await drawTools({socket: '/s/a.sock'});
+const answered = words(byId.agentdetail);
+ROUTES['/tools'] = [];
+await drawTools({socket: '/s/a.sock'});
+const silent = words(byId.agentdetail);
+console.log(JSON.stringify({answered, silent}));`)
+
+	answered, _ := got["answered"].(string)
+	// The roster that came over the socket, including the one no built-in list could have known.
+	for _, want := range []string{"bash", "sqlite_query"} {
+		if !strings.Contains(answered, want) {
+			t.Errorf("the roster the daemon gave is missing %q:\n%s", want, answered)
+		}
+	}
+	silent, _ := got["silent"].(string)
+	if strings.TrimSpace(silent) == "" || !strings.Contains(silent, "did not say") {
+		t.Errorf("a daemon that could not answer left the screen saying %q — which reads as a companion with no tools", silent)
+	}
+}
+
+// The loop map keeps its alignment, and a fork says what it has changed.
+//
+// The map IS its spacing: the same text rendered as markdown is a paragraph of step numbers. And
+// the comparison with where a fork came from is read from the log rather than from a flag the
+// terminal happens to be holding, which is why a console arriving later can show it at all.
+func TestTheLoopScreenKeepsTheMapAndTheForkComparison(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock&insp=loop", `
+ROUTES['/loop'] = {map: '1  plan\n2  work', origin: 's_parent', diff: '+ one line'};
+await drawLoop({socket: '/s/a.sock'});
+const pre = [];
+const walk = n => { if (n.tag === 'pre') pre.push(n.textContent || ''); for (const k of n.children || []) walk(k); };
+walk(byId.agentdetail);
+const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
+console.log(JSON.stringify({pre, text: words(byId.agentdetail)}));`)
+
+	pre, _ := got["pre"].([]any)
+	if len(pre) != 2 {
+		t.Fatalf("the map and the diff are the two things that must keep their line breaks; %d blocks kept theirs: %v", len(pre), pre)
+	}
+	if s, _ := pre[0].(string); !strings.Contains(s, "1  plan\n2  work") {
+		t.Errorf("the map lost its shape: %q", s)
+	}
+	if s, _ := got["text"].(string); !strings.Contains(s, "s_parent") {
+		t.Errorf("a forked session does not say where it came from:\n%s", s)
+	}
+}
