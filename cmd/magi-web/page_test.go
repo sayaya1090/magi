@@ -18,8 +18,16 @@ import (
 // to routes this same process answers. So the check is the one that matters: every href and src is
 // root-relative, and every path is one this server actually serves.
 func TestThePageFetchesNothingItDoesNotServe(t *testing.T) {
+	// The two XML namespaces are identifiers, not addresses: nothing is fetched from them, and an
+	// svg built with createElementNS has to name one to be an svg at all. Removed from the text
+	// before the scan so the scan can stay a blunt string search, which is what makes it hard to
+	// slip a real dependency past.
+	scan := indexHTML
+	for _, ns := range []string{"http://www.w3.org/2000/svg", "http://www.w3.org/1999/xlink"} {
+		scan = strings.ReplaceAll(scan, ns, "")
+	}
 	for _, bad := range []string{"http://", "https://", "//cdn", "@import"} {
-		if strings.Contains(indexHTML, bad) {
+		if strings.Contains(scan, bad) {
 			t.Errorf("the page references something external (%q) — it must be self-contained", bad)
 		}
 	}
@@ -740,5 +748,28 @@ func TestNoArrayMethodOnADOMCollection(t *testing.T) {
 				"in a browser and an array only in the fake DOM, so this passes every test and "+
 				"throws where it matters. Spread it first.", strings.TrimSpace(m), pat.what)
 		}
+	}
+}
+
+// The sprite reaches the page, and the marker never survives into it.
+//
+// Both halves are ordering, and Go's ordering here is subtle enough to have already caught this
+// out once: every package-level variable is initialised before any init function runs, so a sprite
+// set by the generated file's init and injected inside assemblePage() was always the empty string —
+// which is indistinguishable, on screen, from a build that had no licence to bake icons from.
+// Measured at the time: six symbols baked, zero in the page.
+func TestTheSpriteReachesThePage(t *testing.T) {
+	if strings.Contains(indexHTML, spriteMarker) {
+		t.Error("the icon marker is still in the page; a comment nobody reads is being served to every reader")
+	}
+	if iconSprite == "" {
+		t.Skip("this build has no icons baked in — the fallback path, which the render tests cover")
+	}
+	if !strings.Contains(indexHTML, iconSprite) {
+		t.Error("icons were baked into this binary and did not reach the page: check the init order in page.go")
+	}
+	// A symbol block and nothing that fetches: the sprite is drawings, not references.
+	if !strings.Contains(iconSprite, "<symbol id=\"i-") {
+		t.Errorf("the sprite carries no symbols: %.120s", iconSprite)
 	}
 }

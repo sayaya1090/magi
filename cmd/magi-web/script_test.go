@@ -46,6 +46,13 @@ func TestThePageScriptParses(t *testing.T) {
 func TestEveryElementTheScriptReachesForExists(t *testing.T) {
 	body := scriptBody(t, indexHTML)
 	for _, id := range idsUsed(body) {
+		// The icon symbols are the one set of ids that is allowed to be absent. They come from a
+		// sprite baked in at build time from a licensed download, so a build without that licence
+		// has none of them — and the page is written to ask (see icon() in page.js) rather than to
+		// assume, which is exactly the case this check would otherwise forbid.
+		if strings.HasPrefix(id, "i-") {
+			continue
+		}
 		if !strings.Contains(indexHTML, `id="`+id+`"`) {
 			t.Errorf("the script looks up #%s and the markup has no such element", id)
 		}

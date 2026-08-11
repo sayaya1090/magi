@@ -526,6 +526,51 @@ function cell(cls, text) {
   return d;
 }
 
+// ── icons ────────────────────────────────────────────────────────────────────
+// An icon, when this build has one, and whatever the page drew before when it does not.
+//
+// The art is Font Awesome Pro and its licence lets you use it in something you deploy but not
+// republish it as files, so it is baked into the binary at build time and is simply absent from a
+// build that had no licence to bake from — a contributor's checkout, or a CI job without the token.
+// That is a supported state, not a broken one: this asks the document whether the symbol is there,
+// and hands back the fallback when it is not.
+//
+// Asked of the DOM rather than of a list the build also has to ship: the sprite IS the list, it is
+// already in the page, and a second copy of the answer is a second thing that can be wrong.
+//
+// The reference is written out in full — "#i-<style>-<icon>", where sl = sharp light, ss = sharp
+// solid, b = brands — because the generator finds the icons to bake by grepping this file for
+// exactly that string. Assembled from parts it would find none, and the sprite would be empty on
+// a build that had every licence it needed. So the id is greppable on purpose.
+const SVGNS = 'http://www.w3.org/2000/svg';
+function icon(ref, opts) {
+  const name = String(ref).replace(/^#i-/, '');
+  const has = typeof document.getElementById === 'function' && document.getElementById('i-' + name);
+  if (!has) return (opts && opts.fallback) ? opts.fallback() : null;
+  const svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('class', 'ic ' + ((opts && opts.cls) || ''));
+  svg.setAttribute('aria-hidden', 'true');
+  // No width or height: the size is the use site's business and belongs in the stylesheet, where
+  // it can answer a reader who raised their default font size.
+  const use = document.createElementNS(SVGNS, 'use');
+  // Both spellings. href is the current one; xlink:href is what Safari needed for years, and the
+  // cost of keeping it is one attribute.
+  use.setAttribute('href', '#i-' + name);
+  use.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#i-' + name);
+  svg.append(use);
+  return svg;
+}
+
+// iconOr is the common shape: an icon if there is one, else the mark the page has always drawn.
+// Returns a node either way, so callers append rather than branch.
+function iconOr(ref, glyph, cls) {
+  return icon(ref, {cls: cls, fallback: () => {
+    const s = el('span', glyph);
+    s.className = 'gl ' + (cls || '');
+    return s;
+  }});
+}
+
 // What each companion's state was the last time the table was drawn, so the next draw can tell
 // which rows are news. Keyed by socket rather than by index: the fleet gains and loses rows, and an
 // index would report the whole table as changed the moment one of them left.
@@ -1833,9 +1878,18 @@ function drawDetail(a) {
 const detailEl2 = () => document.getElementById('agentdetail');
 
 // head builds the detail's own heading: who, and what they concluded.
-function detailHead(title, hue, chip) {
+function detailHead(title, hue, chip, mark) {
   const h = cell('dhead');
-  const who = cell('dwho', title);
+  const who = cell('dwho');
+  // The mark first, as a drawing when this build has one and as the glyph it has always been when
+  // it does not. Two nodes rather than one string, because an icon is not a character: it takes
+  // the line's colour, scales with the text, and is hidden from a reader who is being read to —
+  // the heading already says in words what the mark says in shape.
+  if (mark) {
+    const m = iconOr(mark[0], mark[1], 'hic');
+    if (m) who.append(m, document.createTextNode(' '));
+  }
+  who.append(document.createTextNode(title));
   if (hue) who.style.color = hue;
   h.append(who);
   if (chip) h.append(cell('dchip', chip));
@@ -1882,9 +1936,10 @@ async function drawVerdict(a, spec) {
   const seat = COUNCIL_SEATS[member.toLowerCase()];
   const hue = seat ? 'var(--magi-ref-' + member.toLowerCase() + ')' : '';
   box.replaceChildren();
-  box.append(detailHead('⚖ ' + (member || tr('council.outcome')), hue,
+  box.append(detailHead((member || tr('council.outcome')), hue,
     (v.decision ? councilWordOf(v.decision) : '') + (v.lens ? ' · ' + v.lens : '')
-    + (v.confidence ? ' · ' + Math.round(v.confidence * 100) + '%' : '')));
+    + (v.confidence ? ' · ' + Math.round(v.confidence * 100) + '%' : ''),
+    ['#i-sl-scale-balanced', '\u2696']));
 
   const ev = await fetchOne('/council' + qFor(a) + '&round=' + round
     + (pastOf() ? '&session=' + encodeURIComponent(pastOf()) : ''));
@@ -1927,8 +1982,9 @@ async function drawChild(a, id) {
   const list = await fetchList('/subagents' + qFor(a));
   const me = (list || []).find(x => x.id === id) || {id: id};
   box.replaceChildren();
-  box.append(detailHead('◆ ' + (me.role || tr('detail.subagent')), '',
-    (me.running ? tr('detail.running') : tr('detail.finished')) + (me.model ? ' · ' + me.model : '')));
+  box.append(detailHead((me.role || tr('detail.subagent')), '',
+    (me.running ? tr('detail.running') : tr('detail.finished')) + (me.model ? ' · ' + me.model : ''),
+    ['#i-sl-diamond', '\u25C6']));
   detailSection(box, tr('detail.asked'), me.task);
   // Its own transcript, built by the same code that builds the parent's, so a child reads the way
   // everything else on this page reads instead of like a second rendering of the same log.
@@ -1955,7 +2011,8 @@ async function drawTools(a) {
   const box = detailEl2();
   const names = await fetchList('/tools' + qFor(a));
   box.replaceChildren();
-  box.append(detailHead('🛠 ' + tr('insp.tools'), '', names && names.length ? names.length + '' : ''));
+  box.append(detailHead(tr('insp.tools'), '', names && names.length ? names.length + '' : '',
+    ['#i-sl-screwdriver-wrench', '\u{1F6E0}']));
   if (!names || !names.length) {
     // Not "no tools". A companion always has some; what an empty answer means is that this daemon
     // is too old to be asked, and saying the other thing would be a screen inventing a fact.
@@ -1977,7 +2034,8 @@ async function drawLoop(a) {
   const box = detailEl2();
   const shape = await fetchOne('/loop' + qFor(a));
   box.replaceChildren();
-  box.append(detailHead('↻ ' + tr('insp.loop'), '', shape && shape.origin ? tr('insp.forked') : ''));
+  box.append(detailHead(tr('insp.loop'), '', shape && shape.origin ? tr('insp.forked') : '',
+    ['#i-sl-arrows-rotate', '\u21BB']));
   if (!shape) { box.append(cell('dnote', tr('error.unreachable'))); return; }
   // Preformatted, because the map IS its alignment: the same text with the spaces collapsed is a
   // paragraph of step numbers.
@@ -2031,9 +2089,10 @@ async function drawAsk(a) {
     return;
   }
   box.replaceChildren();
-  box.append(detailHead('⏸ ' + (mine.asking || ''), '',
+  box.append(detailHead((mine.asking || ''), '',
     (mine.askKind === 'question' ? tr('ask.question') : tr('ask.permission'))
-    + (mine.askTotal > 1 ? ' · ' + tr('ask.of', {i: mine.askIndex, n: mine.askTotal}) : '')));
+    + (mine.askTotal > 1 ? ' · ' + tr('ask.of', {i: mine.askIndex, n: mine.askTotal}) : ''),
+    ['#i-sl-circle-pause', '\u23F8']));
   const why = grounds(mine);
   if (why) {
     box.append(cell('dk dhero', tr('detail.evidence_decide')));
@@ -2069,7 +2128,7 @@ async function drawPast(a) {
     // the server again would be a second answer that can differ from what is on screen.
     pastRows = rows || [];
     box.replaceChildren();
-    box.append(detailHead(tr('field.history'), '', want));
+    box.append(detailHead(tr('field.history'), '', want, ['#i-sl-clock-rotate-left', '']));
     const log2 = cell('dlog');
     for (const r of (rows || [])) log2.append(rowNode(r));
     if (!log2.children.length) log2.append(cell('dnote', tr('detail.nothing_yet')));
@@ -2078,7 +2137,8 @@ async function drawPast(a) {
   }
   const list = await fetchList('/history' + qFor(a));
   box.replaceChildren();
-  box.append(detailHead(tr('field.history'), '', list ? String(list.length) : ''));
+  box.append(detailHead(tr('field.history'), '', list ? String(list.length) : '',
+    ['#i-sl-clock-rotate-left', '']));
   box.append(findField((list || []).length));
   if (findQuery) { await drawFound(box, a); return; }
   for (const h of (list || [])) {

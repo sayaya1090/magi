@@ -1477,6 +1477,17 @@
   }
   #agentdetail .grounds .gv { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
   #agentdetail .dlog { container-type:inline-size; container-name:transcript; min-width:0; }
+  /* An icon from the sprite. Sized by the text it sits in rather than in pixels, so it grows with
+     a reader who raised their default, and coloured by the line — every symbol is drawn with
+     fill:currentColor, which is the whole reason a two-tone icon was not worth a third file. */
+  .ic { width:1em; height:1em; fill:currentColor; vertical-align:-0.125em; flex:none; }
+  /* The mark on a detail heading: a shade larger than the words, and never the thing that sets the
+     line's height. */
+  .hic { width:1.1em; height:1.1em; }
+  /* The stand-in, when this build has no sprite. Not styled to imitate an icon — it IS the mark the
+     page drew before, and pretending otherwise would make a missing licence look like a bug. */
+  .gl { font-variant-emoji:text; }
+
   /* The way one level in. A quiet control: it is beside content, not over it, and the row it sits
      under is the thing being read. */
   .deeper {

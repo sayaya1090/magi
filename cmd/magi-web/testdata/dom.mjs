@@ -108,6 +108,10 @@ function element(tag) {
       for (const fn of this._on[e && e.type] || []) fn.call(this, e);
       return true;
     },
+    // The namespaced setter, which an <svg><use> needs for the xlink spelling Safari wanted for
+    // years. Same store as setAttribute: nothing here reads a namespace back, and a second map
+    // would be a fake being more of a DOM than the page can tell.
+    setAttributeNS(_ns, k, v) { this.attrs[k] = String(v); },
     requestSubmit() {},
     focus() {},
     // Recorded rather than ignored: where the page decided to move the view is a decision worth
@@ -308,7 +312,16 @@ globalThis.document = {
   },
   body: Object.assign(element('body'), { offsetHeight: 400, scrollHeight: 400 }),
   createElement: element,
+  // Namespaced elements are the same fake element here. The page builds <svg> and <use> this way
+  // because a browser demands it; nothing in these tests reads the namespace back.
+  createElementNS(_ns, tag) { return element(tag); },
   getElementById(id) {
+    // The icon symbols are allowed to be missing, and are missing HERE: they come from a sprite
+    // baked into the binary at build time from a licensed download, and this harness runs the page
+    // against markup with no sprite in it. The page is written to ask before drawing one, so the
+    // fake answers "no" the way a browser would rather than throwing — which is the whole state
+    // being tested. Every other unknown id is still a typo and still throws.
+    if (id.startsWith('i-')) return byId[id] ?? null;
     if (!(id in byId)) throw new Error('the page looked up #' + id + ', which the markup does not have');
     return byId[id];
   },
