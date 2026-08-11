@@ -843,3 +843,34 @@ func TestThePageIsRevalidatedRatherThanHeuristicallyCached(t *testing.T) {
 		t.Errorf("an unchanged page answered %d with %d bytes", again.Code, again.Body.Len())
 	}
 }
+
+// Every row a message produces carries that message's time.
+//
+// The page can only draw what crosses, and the rows are what crosses. A turn's reasoning, its
+// calls and its answer all belong to one moment; the log records the moment once, on the message.
+func TestEveryRowOfAMessageCarriesItsTime(t *testing.T) {
+	at := time.Date(2026, 8, 11, 4, 5, 0, 0, time.UTC)
+	rows := renderMessages([]session.Message{{
+		ID: "m1", Role: session.RoleAssistant, At: at,
+		Parts: []session.Part{
+			{Kind: session.PartReasoning, Text: "thinking about it"},
+			{Kind: session.PartText, Text: "here is what I found"},
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "read", CallID: "c1", Args: []byte(`{}`)}},
+		},
+	}, {
+		ID: "m2", Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "from an older log"}},
+	}})
+	if len(rows) != 4 {
+		t.Fatalf("rendered %d rows", len(rows))
+	}
+	for i, r := range rows[:3] {
+		if r.At != at.Format(time.RFC3339) {
+			t.Errorf("row %d (%s) is stamped %q, want %q", i, r.Who, r.At, at.Format(time.RFC3339))
+		}
+	}
+	// A message with no recorded time says nothing rather than 1970: the page draws an empty stamp
+	// as no stamp, and a wrong one would be worse than a missing one.
+	if rows[3].At != "" {
+		t.Errorf("an unstamped message came through as %q", rows[3].At)
+	}
+}

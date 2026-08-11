@@ -2811,6 +2811,15 @@ function rowNode(r) {
   // names the mechanism rather than the speaker. The rows are the orchestrator's nudges, the
   // compaction summaries and the hook output — magi talking to the agent about the work.
   const w = el('div', r.who === 'system' ? tr('row.system') : r.who); w.className = 'who';
+  // And when. Under the name in the gutter rather than beside the text, so it costs no width in
+  // the column the conversation is read in and lines up down the page as a column of its own.
+  // Local time, HH:MM, and nothing at all for a row whose message carries no stamp — an older log
+  // has none, and "00:00" would be a time this never happened at.
+  if (hhmm(r.at)) {
+    const when = el('div', hhmm(r.at));
+    when.className = 'when';
+    w.append(when);
+  }
 
   // A council seat opens into its own screen. The fold under it holds the member's reasoning; the
   // screen holds what the member was JUDGING, which is the half that makes a vote checkable and

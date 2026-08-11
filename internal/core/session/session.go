@@ -76,6 +76,17 @@ type Message struct {
 	ID    string `json:"id"`
 	Role  Role   `json:"role"`
 	Parts []Part `json:"parts"`
+	// At is when the message began — the timestamp of the event that opened it.
+	//
+	// A message is not persisted; it is rebuilt from the log, and the log has always carried the
+	// time on every envelope. Dropping it in the rebuild meant the time existed only in whatever
+	// UI happened to be watching live: the terminal stamped its blocks from the events as they
+	// arrived, so the same conversation reopened tomorrow — or read from the console, which only
+	// ever reads rebuilt messages — had no times on it at all.
+	//
+	// Zero for anything assembled rather than replayed (a prompt on its way to the model, a
+	// compaction summary), and a zero time is shown as nothing rather than as 1970.
+	At time.Time `json:"at,omitzero"`
 }
 
 // PartKind discriminates the variant of a Part (tagged union).

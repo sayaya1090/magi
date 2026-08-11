@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -29,12 +30,15 @@ func reconstruct(evs []event.Event) []session.Message {
 	var topics []string
 	topicSeen := map[string]bool{}
 
-	addPart := func(seq int64, msgID string, role session.Role, part session.Part) {
+	// at is the time of the event that OPENED the message: a message that grew over four minutes
+	// of streaming is stamped with when it started, which is what a transcript reads as and what
+	// the terminal has always stamped its blocks with.
+	addPart := func(seq int64, at time.Time, msgID string, role session.Role, part session.Part) {
 		if e, ok := index[msgID]; ok {
 			e.msg.Parts = append(e.msg.Parts, part)
 			return
 		}
-		e := &entry{seq: seq, msg: session.Message{ID: msgID, Role: role, Parts: []session.Part{part}}}
+		e := &entry{seq: seq, msg: session.Message{ID: msgID, Role: role, Parts: []session.Part{part}, At: at}}
 		index[msgID] = e
 		entries = append(entries, e)
 	}
@@ -97,7 +101,7 @@ func reconstruct(evs []event.Event) []session.Message {
 			if ev.Actor.Kind == event.ActorSystem {
 				role = session.RoleSystem
 			}
-			e := &entry{seq: ev.Seq, msg: session.Message{ID: d.MessageID, Role: role, Parts: d.Parts}}
+			e := &entry{seq: ev.Seq, msg: session.Message{ID: d.MessageID, Role: role, Parts: d.Parts, At: ev.TS}}
 			index[d.MessageID] = e
 			entries = append(entries, e)
 
@@ -106,7 +110,7 @@ func reconstruct(evs []event.Event) []session.Message {
 			if json.Unmarshal(ev.Data, &d) != nil {
 				continue
 			}
-			addPart(ev.Seq, d.MessageID, d.Role, d.Part)
+			addPart(ev.Seq, ev.TS, d.MessageID, d.Role, d.Part)
 		}
 	}
 

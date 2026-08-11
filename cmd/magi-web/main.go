@@ -812,6 +812,11 @@ type line struct {
 	// the terminal uses. It is in the text too, and reading it back out of a rendered sentence is
 	// how the two surfaces come to disagree about who spoke.
 	Member string `json:"member,omitempty"`
+	// At is when the message this row came out of began, RFC 3339, or empty when the log did not
+	// record one. The terminal has stamped its blocks with it since it had a transcript; the page
+	// showed a conversation with no times in it anywhere, which is the first thing somebody
+	// returning to a companion after lunch wants to know about what they are reading.
+	At string `json:"at,omitempty"`
 	// msg is the message this row came out of, and never crosses the wire. It is how council marks
 	// find the place they belong: they carry the same id, out of the same log.
 	msg string `json:"-"`
@@ -834,15 +839,21 @@ func renderMessages(msgs []session.Message) []line {
 
 	var out []line
 	for _, m := range msgs {
+		// One stamp per message, on every row it produces: a turn's reasoning, its calls and its
+		// answer all belong to the same moment, and the log records the moment once.
+		at := ""
+		if !m.At.IsZero() {
+			at = m.At.Format(time.RFC3339)
+		}
 		for _, p := range m.Parts {
 			switch p.Kind {
 			case session.PartText:
 				if t := strings.TrimSpace(p.Text); t != "" {
-					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID})
+					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID, At: at})
 				}
 			case session.PartReasoning:
 				if t := strings.TrimSpace(p.Text); t != "" {
-					out = append(out, line{Who: "thinking", Text: t, msg: m.ID})
+					out = append(out, line{Who: "thinking", Text: t, msg: m.ID, At: at})
 				}
 			case session.PartToolCall:
 				if p.ToolCall != nil {
@@ -851,7 +862,7 @@ func renderMessages(msgs []session.Message) []line {
 					// folds now, and what a tool was asked is most of what a watcher wants when
 					// they open it.
 					row := line{Who: "tool", Text: p.ToolCall.Name,
-						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args), msg: m.ID}
+						Tool: p.ToolCall.Name, Args: string(p.ToolCall.Args), msg: m.ID, At: at}
 					if res, ok := results[p.ToolCall.CallID]; ok {
 						good := !res.IsError
 						row.Ok = &good
@@ -887,18 +898,18 @@ func renderMessages(msgs []session.Message) []line {
 					// is about what crosses the wire two and a half times a second, not about what
 					// fits on the screen.
 					out = append(out, line{Who: who,
-						Text: text.HeadTail(string(p.ToolResult.Content), 8000), msg: m.ID})
+						Text: text.HeadTail(string(p.ToolResult.Content), 8000), msg: m.ID, At: at})
 				}
 			// The two that were being dropped on the floor. A part kind this switch does not name
 			// is not an empty row — it is a row that never existed, with nothing anywhere saying
 			// so. An image and an error both reached the log and neither reached the page.
 			case session.PartImage:
 				if p.Image != nil {
-					out = append(out, line{Who: "image", Text: p.Image.Path, msg: m.ID})
+					out = append(out, line{Who: "image", Text: p.Image.Path, msg: m.ID, At: at})
 				}
 			case session.PartError:
 				if t := strings.TrimSpace(p.Err); t != "" {
-					out = append(out, line{Who: "error", Text: t, msg: m.ID})
+					out = append(out, line{Who: "error", Text: t, msg: m.ID, At: at})
 				}
 			}
 		}

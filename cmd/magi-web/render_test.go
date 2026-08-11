@@ -2762,3 +2762,33 @@ console.log(JSON.stringify({showing: byId.side.children.filter(c => !c.attrs.hid
 		t.Errorf("these stayed on screen over the fleet list: %v", showing)
 	}
 }
+
+// A transcript says when, not only what.
+//
+// The terminal has stamped every user and assistant block with HH:MM since it had a transcript.
+// The page had no time on it anywhere — and the reason was one layer down: a message is rebuilt
+// from the log and the rebuild dropped the envelope's timestamp, so the console, which only ever
+// reads rebuilt messages, had nothing to draw even though the log had recorded it all along.
+func TestTheTranscriptSaysWhenEachThingWasSaid(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'user', text:'go and do it', at:'2026-08-11T04:05:00Z'},
+      {who:'assistant', text:'done', at:'2026-08-11T04:07:00Z'},
+      {who:'assistant', text:'from an older log with no stamp'}]);
+const when = [];
+const walk = n => { for (const k of n.children || []) { if ((k.className||'') === 'when') when.push(k.textContent); walk(k); } };
+walk(byId.log);
+console.log(JSON.stringify({when: when}));`)
+	when, _ := got["when"].([]any)
+	if len(when) != 2 {
+		t.Fatalf("the page drew %d times for three rows, two of which are stamped: %v", len(when), when)
+	}
+	// Local time, so the assertion is on the shape and the gap rather than on the reader's zone.
+	for _, w := range when {
+		if s, _ := w.(string); len(s) != 5 || s[2] != ':' {
+			t.Errorf("a time reads as %q", w)
+		}
+	}
+	if when[0] == when[1] {
+		t.Errorf("both rows say %v — the stamp is not the row's own", when[0])
+	}
+}

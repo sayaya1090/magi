@@ -1015,7 +1015,11 @@ func rebuildBlocks(msgs []session.Message) []block {
 	for _, msg := range msgs {
 		switch msg.Role {
 		case session.RoleUser:
-			out = append(out, block{kind: blockUser, text: joinTextParts(msg.Parts)})
+			// Stamped from the message, which now carries the time of the event that opened it.
+			// A resumed conversation used to lose every timestamp — the terminal stamps live
+			// blocks from the events as they arrive, and a rebuild had nothing to stamp from —
+			// so yesterday's transcript said only what was said, never when.
+			out = append(out, block{kind: blockUser, text: joinTextParts(msg.Parts), ts: msg.At})
 		case session.RoleSystem:
 			if t := joinTextParts(msg.Parts); t != "" {
 				out = append(out, block{kind: blockInfo, text: t})
@@ -1027,7 +1031,7 @@ func rebuildBlocks(msgs []session.Message) []block {
 					out = append(out, block{kind: blockReasoning, text: p.Text})
 				case session.PartText:
 					if p.Text != "" {
-						out = append(out, block{kind: blockAssistant, text: p.Text})
+						out = append(out, block{kind: blockAssistant, text: p.Text, ts: msg.At})
 					}
 				case session.PartToolCall:
 					if p.ToolCall != nil {

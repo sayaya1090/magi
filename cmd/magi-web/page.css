@@ -1506,12 +1506,21 @@
      present, no longer paid for on every line. */
   @container transcript (max-width:34rem) {
     .row { grid-template-columns:minmax(0, 1fr); gap:0; }
-    .who { text-align:left; }
+    /* The time goes beside the name once the gutter is a line of its own, so a narrow screen does
+       not spend a second row on four digits. */
+    .who { text-align:left; display:flex; gap:var(--magi-sys-space-100); align-items:baseline; }
   }
   .who {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono); letter-spacing:0.0533em;
     color:var(--magi-ref-muted); text-align:right; user-select:none; opacity:.8;
   }
+  /* Under the name, quieter than it. Times are scanned, not read: they answer "when did this
+     happen" for a row somebody has already found, and at full weight they compete with the name
+     for a column that is 6.5rem wide.
+     Quieter by WEIGHT, not by another layer of opacity: the gutter is already at .8, a second
+     multiplier lands the muted role at 3.3:1 in the light theme, and a time nobody can read is
+     not a quiet time — it is a missing one. */
+  .who .when { font-weight:400; letter-spacing:0; }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
   /* Rendered markdown sets its own blocks, so the pre-wrap that keeps plain text's newlines would
      add a blank line after every paragraph. Only the rows that are still plain text keep it. */
