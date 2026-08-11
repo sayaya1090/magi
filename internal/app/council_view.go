@@ -57,6 +57,13 @@ type CouncilMark struct {
 	Cite string `json:"cite,omitempty"`
 	// Tally is set on an outcome: how the vote came out, in words.
 	Tally string `json:"tally,omitempty"`
+	// Confidence, Feedback and Keep are the rest of a vote, carried for a surface that shows one
+	// whole rather than one line. They were dropped here while the terminal read them straight off
+	// the event, which is why the console could show a verdict and not what the member wanted done
+	// about it — Keep in particular is the instruction protecting work already finished.
+	Confidence float64 `json:"confidence,omitempty"`
+	Feedback   string  `json:"feedback,omitempty"`
+	Keep       string  `json:"keep,omitempty"`
 }
 
 // IsOutcome reports whether this mark is a round's decision rather than one member's vote.
@@ -98,7 +105,8 @@ func councilMarks(evs []event.Event) []CouncilMark {
 				continue
 			}
 			m := CouncilMark{After: last, Round: d.Round, Member: d.Member, Lens: d.Lens,
-				Decision: d.Decision, Why: d.Rationale, Cite: d.Cite}
+				Decision: d.Decision, Why: d.Rationale, Cite: d.Cite,
+				Confidence: d.Confidence, Feedback: d.Feedback, Keep: d.Keep}
 			// A member arrives twice: the live preview when it answers, then the recorded fact when
 			// the round closes. Identical ones are the same news. One that DIFFERS is a rebuttal
 			// round having changed that member's mind, which is news of its own — the same rule the

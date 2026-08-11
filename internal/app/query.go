@@ -233,7 +233,18 @@ func (a *App) RunShell(ctx context.Context, workdir, cmd string) (out string, ex
 	return string(res.Stdout) + string(res.Stderr), res.ExitCode, nil
 }
 
-// ListSessions returns session metadata for a workdir.
+// ListSessions returns session metadata for a workdir. Top-level only — a child is listed under
+// the session that spawned it, by ChildSessions.
 func (a *App) ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {
 	return a.store.ListSessions(ctx, workdir)
+}
+
+// ChildSessions returns the subagent sessions a session spawned.
+//
+// A child records its parent when it is created, so this is a fact of the log rather than a
+// register somebody has to keep in step. Which also means it answers for a companion that has
+// stopped, and for last week — neither of which the daemon's in-memory list of running children
+// can do, and both of which are when somebody asks what a subagent actually did.
+func (a *App) ChildSessions(ctx context.Context, workdir, parentID string) ([]session.SessionMeta, error) {
+	return a.store.ChildSessions(ctx, workdir, parentID)
 }
