@@ -1166,7 +1166,19 @@
     font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); margin-left:auto;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  #detail[folded] .grid { display:none; }
+  /* Folding is a movement, not a disappearance.
+     display:none takes the facts away between two frames, which reads as the card being replaced
+     rather than closed — and the caret above it animates, so half the control moved and half
+     blinked. A grid row from 1fr to 0fr is the one way to transition to content height without
+     guessing what that height is; the child clips itself while it happens.
+     Reduced motion is already handled globally: transitions there are restricted to opacity and
+     colour, so this collapses instantly for anybody who asked for that. */
+  #detail .foldwrap {
+    display:grid; grid-template-rows:1fr;
+    transition:grid-template-rows var(--magi-sys-dur-short4) var(--magi-sys-ease-standard);
+  }
+  #detail[folded] .foldwrap { grid-template-rows:0fr; }
+  #detail .foldwrap > .grid { overflow:hidden; min-height:0; }
   /* Two panels on one screen instead of six cards in a column.
      Below the two-column width the page stacked: the facts, then the conversation, then four cards
      of which three are history — so the transcript was off the first screen and the composer, fixed
@@ -1202,7 +1214,13 @@
     #ptabs { display:none !important; }
   }
   @media (min-width:52.5em) {
-    #agentview { grid-template-columns:minmax(0, 1fr) 22rem; align-items:start; }
+    #agentview {
+      grid-template-columns:minmax(0, 1fr) 22rem; align-items:start;
+      /* The pane opens and closes rather than appearing and vanishing. Both tracks are lengths so
+         the change interpolates — with auto on the shut side there is nothing to interpolate to,
+         which is why this was a jump. */
+      transition:grid-template-columns var(--magi-sys-dur-medium2) var(--magi-sys-ease-emphasized);
+    }
     /* The handle travels WITH the pane it opens, in a column of their own.
        It used to be a sibling of the two panes, and a grid places children in order: the handle
        took the second column's first row and the pane it opens was pushed onto the next row, under
@@ -1239,8 +1257,21 @@
        always present". Without it nobody can tell whether the pane is transient or permanent, and
        the conversation cannot have the width back. */
     /* Shut, the second column is only as wide as the handle. */
-    body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr) auto; }
-    body[side="shut"] #side { display:none; }
+    /* 2.5rem is the handle: the column shrinks to exactly the control that reopens it. */
+    body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr) 2.5rem; }
+    /* Clipped by the column as it narrows, and faded out on the way. Not display:none: a box that
+       stops existing cannot be animated, and the pane would vanish a fifth of a second before the
+       space it occupied closed. Hidden at the END, so nothing inside it is tabbable once it is
+       gone — visibility is delayed by the length of the movement, and comes back instantly. */
+    #sidecol { overflow:hidden; }
+    #side { transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard), visibility 0s; }
+    body[side="shut"] #side {
+      opacity:0; visibility:hidden;
+      transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard),
+                 visibility 0s var(--magi-sys-dur-medium2);
+    }
+    /* The transcript takes the width at the same pace the pane gives it up. */
+    #log { transition:max-width var(--magi-sys-dur-medium2) var(--magi-sys-ease-emphasized); }
     /* And the conversation actually takes the room.
        The column widened and the transcript did not: it is capped at the wide measure, and on any
        screen big enough to show a 22rem pane that cap was already the binding constraint — so

@@ -79,6 +79,14 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 		if strings.Contains(selector, "::after") || strings.Contains(selector, "::before") {
 			continue
 		}
+		// Hidden is not dimmed. A rule that takes the element out of the page in the same breath —
+		// visibility:hidden, display:none — is not showing anybody text at 0%; it is showing them
+		// nothing, which is the point. (A pane fades to 0 as it closes and is then hidden, and
+		// without this the check read that as unreadable text left on the screen.) Narrow on
+		// purpose: opacity alone, with the element still in the page, is still caught.
+		if strings.Contains(body, "visibility:hidden") || strings.Contains(body, "display:none") {
+			continue
+		}
 		role := "muted"
 		if cm := colour.FindStringSubmatch(body); cm != nil {
 			role = cm[1]

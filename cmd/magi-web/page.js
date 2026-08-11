@@ -1594,7 +1594,18 @@ function drawDetail(a) {
                return sum;
              })());
   bar.onclick = () => setFolded(!box.hasAttribute('folded'));
-  box.replaceChildren(bar, grid);
+  // The facts sit in a wrapper of their own so folding can be a movement: a grid row going from
+  // 1fr to 0fr is the one way to transition to content height without hard-coding what that height
+  // is, and it needs a box around the thing being collapsed.
+  //
+  // The wrapper OUTLIVES the redraw, and that is what makes the movement possible at all. This card
+  // is rebuilt on every fleet poll — every three seconds — and a box created in this frame has no
+  // previous style to transition from, so a fold landing near a rebuild simply jumped. Measured:
+  // no transition on the element at all. Kept, it is the same box each time and only its contents
+  // are replaced.
+  const wrap = drawDetail.wrap || (drawDetail.wrap = cell('foldwrap'));
+  wrap.replaceChildren(grid);
+  box.replaceChildren(bar, wrap);
   // What it has done before now, reached from the facts. It used to be a card in the pane, and the
   // pane is meant to stay open — so what is in it has to be worth the width all the time. The plan
   // moves, the queue moves, what was handed out moves; a list of finished sessions does not.
@@ -1991,7 +2002,17 @@ async function drawContext(a, box, grid, field) {
   // indexOf, so this threw, the async function rejected with nobody awaiting it, and the whole
   // context block silently stopped rendering. The fake disagreed with the DOM in the direction that
   // makes a test pass and a page fail, which is the fourth time it has done that.
-  if (!c || grid.parentNode !== box) return;
+  //
+  // Walked up rather than compared to the parent: the facts sit inside a wrapper now (so folding
+  // can animate), and a one-level check quietly became false — which is this same failure again,
+  // a guard that stops the panel drawing because the box it was written against moved.
+  const inside = n => {
+    for (let p = n; p; p = p.parentNode) {
+      if (p === box) return true;
+    }
+    return false;
+  };
+  if (!c || !inside(grid)) return;
 
   // Which model, because the window below is that model's and a companion can be on one you did
   // not put it on — /route changes it mid-session and nothing else on this page would say so.
