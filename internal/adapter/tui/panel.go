@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -32,7 +33,12 @@ func (m *Model) hasPanel() bool {
 	// Exactly what the panel draws: the plan the AGENT keeps (todowrite), the live panes and the
 	// finished roster. magi's own record of the run counted here while it had a section; with that
 	// section gone, keeping it would open an empty box on a run that only ran commands.
-	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0
+	//
+	// Work waiting on this turn counts too — it is news, and the only place it is said. Scheduled
+	// jobs deliberately do not: they are a standing fact of the workspace, true all day, and a
+	// panel that opens for them is a panel that is always open.
+	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0 ||
+		len(m.app.ParkedWork()) > 0
 }
 
 // panelCols is the horizontal space the panel RESERVES in the layout. The panel is a
@@ -173,6 +179,37 @@ func (m *Model) statusPanel(panelTop int) string {
 		sort.SliceStable(rows, func(i, j int) bool { return rows[i].sub < rows[j].sub })
 		for _, p := range rows {
 			paneRow(p)
+		}
+	}
+
+	// What is waiting for this turn to end. The console has shown it since there were two kinds of
+	// it; the terminal showed neither, so a person who typed while it was working had no sign that
+	// what they typed had gone anywhere — and a piece of work handed over by another companion was
+	// invisible until it started.
+	if parked := m.app.ParkedWork(); len(parked) > 0 {
+		sep()
+		lines = append(lines, panelHead(fmt.Sprintf("Waiting  %d", len(parked))))
+		for _, p := range parked {
+			lines = append(lines, "· "+oneLine(p.Text, inner-2))
+		}
+	}
+
+	// What it will do when nobody is watching. Read from the config this process can see, the same
+	// call /cron makes — and only the jobs that can actually run, plus the ones that never will,
+	// because a job with a broken schedule is the one nothing else will ever mention again.
+	if jobs := m.scheduledSoon(); len(jobs) > 0 {
+		sep()
+		lines = append(lines, panelHead("Scheduled"))
+		for _, j := range jobs {
+			when := "off"
+			switch {
+			case j.Problem != "":
+				when = "never"
+			case !j.Next.IsZero():
+				when = j.Next.Format("01-02 15:04")
+			}
+			lines = append(lines, "· "+oneLine(j.Name, inner-3-len(when))+" "+
+				lipgloss.NewStyle().Foreground(colMuted).Render(when))
 		}
 	}
 
@@ -354,6 +391,39 @@ func (m *Model) ctxBar(width int) string {
 }
 
 // panelHead renders a post-it section header.
+// scheduledSoon is what the panel says about standing work: the next few jobs, and any that can
+// never run.
+//
+// Capped, and read fresh. The panel is redrawn on every frame and this reads a config file, which
+// is a stat and a parse — the same cost the /cron screen pays on open, paid here at a rate nobody
+// would notice. It is capped because the panel is a post-it: a workspace with twenty jobs would
+// otherwise push the plan off the screen with a list that changes once a day.
+func (m *Model) scheduledSoon() []app.ScheduledJobInfo {
+	if m.app == nil || m.workdir == "" {
+		return nil
+	}
+	all := m.app.ScheduledJobs(m.workdir)
+	out := make([]app.ScheduledJobInfo, 0, len(all))
+	for _, j := range all {
+		// A job that is switched off is a fact about the config, not about what is coming. The one
+		// that CANNOT run is kept whatever its state: nothing else on any screen will say so.
+		if j.Problem == "" && (!j.Enabled || j.Next.IsZero()) {
+			continue
+		}
+		out = append(out, j)
+	}
+	sort.SliceStable(out, func(i, k int) bool {
+		if out[i].Problem != out[k].Problem {
+			return out[i].Problem != "" // the broken one first: it is the one nobody else mentions
+		}
+		return out[i].Next.Before(out[k].Next)
+	})
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return out
+}
+
 func panelHead(s string) string {
 	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Render(s)
 }

@@ -118,6 +118,25 @@ func (a attached) SubagentJobs() []app.SubagentJob {
 	return out
 }
 
+// ParkedWork is what is waiting for the running turn to end, from the process that holds the
+// queue. Read here, this viewer would answer out of its own empty one — and an empty queue on the
+// screen somebody just typed into reads as "that went nowhere".
+//
+// Both kinds arrive as one list in the order they will run, which is the order the daemon puts
+// them in: what the person parked first, then work another companion handed over. The label goes
+// in front of a handover's text, because on this panel the row is all there is to say it.
+func (a attached) ParkedWork() []app.Parked {
+	out := []app.Parked{}
+	for _, q := range a.jobs(a.watching()).Queued {
+		text := q.Text
+		if q.Kind == "handover" && q.From != "" {
+			text = q.From + ": " + text
+		}
+		out = append(out, app.Parked{Text: text})
+	}
+	return out
+}
+
 // watching is the session this viewer is attached to.
 //
 // The strip's three calls take no session argument — the registers they read are process-wide, and

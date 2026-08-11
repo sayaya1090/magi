@@ -34,6 +34,10 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		// know it is over — so both live in that process's memory and a viewer read its own empty
 		// ones. What crosses is which jobs exist; a child's transcript stays in the shared store.
 		"BackgroundJobs": true, "BackgroundTail": true, "SubagentJobs": true,
+		// The queue of what is waiting on the turn. Same shape as the three above: the queue is in
+		// the memory of the process running the turn, and a viewer reading its own would report an
+		// empty one — which reads as "nothing is waiting" on the screen somebody typed into.
+		"ParkedWork": true,
 	}
 	// local: answered from the shared store or this process, and correct there.
 	local := map[string]bool{

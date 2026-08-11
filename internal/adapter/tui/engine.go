@@ -38,6 +38,10 @@ type Engine interface {
 	// same call the search tool makes so the two cannot come to disagree about what matched.
 	RankSessions(ctx context.Context, workdir, query string) ([]app.SessionHit, error)
 	CouncilMemberNames() []string
+	// ParkedWork is what is waiting for the turn in flight to finish — what a person typed while it
+	// was working, and what another companion handed over. Read from the process holding the queue,
+	// which is why an attached window overrides it rather than answering out of its own empty one.
+	ParkedWork() []app.Parked
 	CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error)
 	Fork(ctx context.Context, sid session.SessionID, upToSeq int64) (session.SessionID, error)
 	GitDiff(ctx context.Context, workdir string) (string, error)
