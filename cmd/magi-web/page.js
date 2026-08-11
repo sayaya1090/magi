@@ -1556,6 +1556,10 @@ async function loadFleet() {
   const rows = list
     .filter(a => !filter || GROUP[a.state] === filter)
     .sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
+  // Whatever is no longer in the fleet is no longer worth remembering: a companion that was shut
+  // down should not leave its row in a map that grows for the life of the tab.
+  const alive = new Set(list.map(a => (a.peer || '') + ' ' + a.socket));
+  for (const key of [...shownCards.keys()]) if (!alive.has(key)) shownCards.delete(key);
   fleetEl.replaceChildren(...(here ? [] : [tableHead()]), ...grouped(rows));
 }
 
@@ -1597,6 +1601,35 @@ function drawFleetCount(list, waiting) {
 // Nothing declares a team on a single-workspace machine, and a header saying so would be a line of
 // furniture over every list. Grouping appears when the data has teams in it and not before, which
 // is the same test the page applies to everything else it draws.
+// keptCard is card(), except that a row nothing has changed about is the row that is already on
+// screen.
+//
+// The list is redrawn every three seconds, and it was rebuilt entirely every time: five agents,
+// five new rows, five new answer fields and every state layer and animation restarted, four times
+// a minute, to say exactly what the last one said. A row is cheap and five of them are cheap; the
+// things attached to them are not — a field somebody is typing in, a select somebody has open, the
+// hover they are aiming at.
+//
+// The signature is everything the row DRAWS. It has to be: a field left out of it is a field that
+// stops updating, which is a worse failure than the churn this avoids — so it is built from the
+// same values card() reads, in one place, and a new one added to the row belongs in it.
+const shownCards = new Map();
+function cardSig(a) {
+  return [a.state, a.name, a.role, a.team, a.hub, a.workdir, a.session, a.steps, a.idle,
+          a.task, a.doing, a.asking, a.askId, a.askKind, a.planDone, a.planTotal,
+          a.host, a.addr, a.pid, a.peer, a.live, a.permission, a.user,
+          (a.report || []).map(x => x.key + ':' + x.text).join('|')].join('\u0001');
+}
+function keptCard(a) {
+  const key = (a.peer || '') + ' ' + a.socket;
+  const sig = cardSig(a);
+  const had = shownCards.get(key);
+  if (had && had.sig === sig) return had.node;
+  const node = card(a);
+  shownCards.set(key, {sig, node});
+  return node;
+}
+
 function grouped(rows) {
   const teams = new Map();
   for (const a of rows) {
@@ -1605,7 +1638,7 @@ function grouped(rows) {
     teams.get(key).push(a);
   }
   // One group, and it is the unnamed one: this machine has no teams and there is nothing to say.
-  if (teams.size <= 1 && teams.has('')) return rows.map(card);
+  if (teams.size <= 1 && teams.has('')) return rows.map(keptCard);
 
   const order = [...teams.entries()].sort((x, y) => {
     // The unnamed group last however its members are doing: "these belong to no team" is a remark
@@ -1618,7 +1651,7 @@ function grouped(rows) {
   });
   const out = [];
   for (const [name, members] of order) {
-    out.push(teamHead(name, members), ...members.map(card));
+    out.push(teamHead(name, members), ...members.map(keptCard));
   }
   return out;
 }

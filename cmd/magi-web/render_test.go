@@ -3451,3 +3451,56 @@ console.log(JSON.stringify({opts, before,
 		t.Errorf("choosing a model sent %q — the daemon holding the run was never told", last)
 	}
 }
+
+// A row nothing has changed about is the row that is already on screen.
+//
+// The list redraws every three seconds. Rebuilt whole, every row's state layer and animation
+// restarted four times a minute to say what the last one said — and anything attached to a row
+// went with it: the field somebody is typing an answer into, the menu they have open, the hover
+// they were aiming at. Only what CHANGED may be replaced.
+func TestAnUnchangedRowSurvivesThePoll(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"which branch?","askId":"q1","askKind":"question","task":"land it","steps":3,"idle":5},
+      {"socket":"/s/b.sock","name":"docs","workdir":"/w/docs","state":"idle","live":true,
+       "task":"done here","steps":1,"idle":30}
+    ]`, "", rowsHelper+`
+await loadFleet();
+const first = rows().map(r => r);
+// The same answer again: nothing about either companion has changed.
+await loadFleet();
+const again = rows().map(r => r);
+// And now one of them starts working. Its row is rebuilt; the other's is not.
+FLEET[1].state = 'working';
+FLEET[1].task = 'writing the page';
+await loadFleet();
+const after = rows().map(r => r);
+// And now ONLY the sentence changes — the state stays where it is. A signature that watches the
+// state and not what the row says would keep the old sentence on screen forever, which is the
+// failure this caching can produce and the one worth a test of its own.
+FLEET[1].task = 'reading what it wrote';
+await loadFleet();
+const later = rows().map(r => r);
+console.log(JSON.stringify({
+  keptA: first[0] === again[0], keptB: first[1] === again[1],
+  stillA: again[0] === after[0], changedB: again[1] !== after[1],
+  text: after[1].text, saidLater: later[1].text}));`)
+
+	if got["keptA"] != true || got["keptB"] != true {
+		t.Error("a poll that reported no change rebuilt the rows anyway")
+	}
+	if got["stillA"] != true {
+		t.Error("one companion changed and the OTHER one's row was thrown away with it")
+	}
+	if got["changedB"] != true {
+		t.Error("a companion started working and its row was not redrawn")
+	}
+	if s, _ := got["text"].(string); !strings.Contains(s, "writing the page") {
+		t.Errorf("the rebuilt row does not say what changed: %q", s)
+	}
+	// The sentence alone changing is enough to redraw. This is the half that catches a signature
+	// which has fallen behind what the row draws.
+	if s, _ := got["saidLater"].(string); !strings.Contains(s, "reading what it wrote") {
+		t.Errorf("only the task changed and the row kept the old one: %q", s)
+	}
+}
