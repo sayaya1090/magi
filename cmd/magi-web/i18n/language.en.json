@@ -204,8 +204,6 @@
   "notify.is_on": "This browser is subscribed. Add the page to a home screen to be woken there too.",
   "notify.k": "Notifications",
   "notify.nokey": "This console has no push key",
-  "notify.off": "Turn off",
-  "notify.on": "Turn on",
   "notify.unsupported": "This browser has no push support",
   "panel.state": "Status",
   "panel.talk": "Conversation",

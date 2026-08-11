@@ -941,7 +941,7 @@ func TestThePermissionPromptComesBeforeAnyAwait(t *testing.T) {
 // Cleared first: the switch paints itself on load, and that look at the registration is not part
 // of what the click does.
 globalThis.ORDER.length = 0;
-byId.notifyBtn.onclick();
+byId.notifySwitch.dispatchEvent({type: 'change'});
 // Drained with microtasks: this harness's setTimeout is a stub that never fires, deliberately —
 // a test that waited on a real timer would wait for the page's three-second poll.
 for (let i = 0; i < 80; i++) await Promise.resolve();

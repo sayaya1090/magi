@@ -171,7 +171,7 @@ function loadConsole() {
 //     of reaching this from a phone already qualifies;
 //   - permission denied — the browser was told no once and will not ask again from a click. Only
 //     the reader can undo that, in the browser's own settings.
-const notifyBtn = document.getElementById('notifyBtn');
+const notifySwitch = document.getElementById('notifySwitch');
 const notifyWhy = document.getElementById('notifyWhy');
 let vapidKey = null;
 
@@ -187,36 +187,37 @@ async function currentSub() {
   return reg ? reg.pushManager.getSubscription() : null;
 }
 
+// A switch shows the STATE, where the button showed the next action.
+//
+// The difference is the whole reason it changed: "켜기" on a control that is already on is a
+// sentence somebody has to read twice, and the guide keeps switches for exactly this — a setting
+// that is on or off, taking effect immediately. So nothing here writes a verb any more; it writes
+// whether this browser is subscribed, and the line underneath says why when it cannot be.
 async function paintNotify() {
-  const why = (key, on) => {
+  const why = (key, can) => {
     notifyWhy.textContent = tr(key);
-    notifyBtn.disabled = !on;
+    notifySwitch.toggleAttribute('disabled', !can);
   };
   document.getElementById('notifyK').textContent = tr('notify.k');
+  notifySwitch.setAttribute('aria-label', tr('notify.k'));
+  // Off, and staying off, for every reason it cannot be on. Set before the checks rather than in
+  // each of them: a switch left standing at "on" beside a line explaining why it is impossible is
+  // the readout disagreeing with itself.
+  notifySwitch.selected = false;
   // The static demo has no console behind it and does not export the worker. Checked first, because
   // every reason below it would be the browser's and this one is the page's.
-  if (globalThis.MAGI_DEMO) {
-    notifyBtn.textContent = tr('notify.on');
-    return why('notify.demo', false);
-  }
+  if (globalThis.MAGI_DEMO) return why('notify.demo', false);
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    notifyBtn.textContent = tr('notify.on');
     return why('notify.unsupported', false);
   }
-  if (!window.isSecureContext) {
-    notifyBtn.textContent = tr('notify.on');
-    return why('notify.insecure', false);
-  }
-  if (Notification.permission === 'denied') {
-    notifyBtn.textContent = tr('notify.on');
-    return why('notify.denied', false);
-  }
+  if (!window.isSecureContext) return why('notify.insecure', false);
+  if (Notification.permission === 'denied') return why('notify.denied', false);
   const sub = await currentSub();
-  notifyBtn.textContent = tr(sub ? 'notify.off' : 'notify.on');
+  notifySwitch.selected = !!sub;
   why(sub ? 'notify.is_on' : 'notify.how', true);
 }
 
-notifyBtn.onclick = async () => {
+notifySwitch.addEventListener('change', async () => {
   // The prompt is asked for FIRST, before anything is awaited. requestPermission needs transient
   // user activation, and an await hands the turn back to the event loop — the activation is spent
   // by the time the call is reached, and it resolves 'default' without ever showing a prompt. That
@@ -226,7 +227,7 @@ notifyBtn.onclick = async () => {
   // permission already granted resolves immediately and shows nobody anything.
   const asked = 'Notification' in window && Notification.permission !== 'granted'
     ? Notification.requestPermission() : Promise.resolve('granted');
-  notifyBtn.disabled = true;
+  notifySwitch.toggleAttribute('disabled', true);
   try {
     const existing = await currentSub();
     if (existing) {
@@ -260,9 +261,13 @@ notifyBtn.onclick = async () => {
   } catch (e) {
     notifyWhy.textContent = String(e && e.message || e);
   } finally {
+    // Whatever happened, the switch is redrawn from what IS rather than left where the press put
+    // it. A refused permission or a failed subscribe must snap it back: a switch that stays on
+    // while nothing is subscribed is the worst version of this control, because it is also the
+    // most believable.
     paintNotify();
   }
-};
+});
 
 labels$.pipe(distinctUntilChanged()).subscribe(() => { if (painted) paint(); });
 
@@ -340,6 +345,7 @@ const mcpEl = document.getElementById('mcp');
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet');
 const railEl = document.getElementById('rail');
+const themeEl = document.getElementById('theme');
 const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsEl = document.getElementById('prefs');
@@ -4390,6 +4396,7 @@ function paint() {
   fmtGo.onclick = () => { fmtDialog.close('save'); saveFormat(); };
   mcpGo.textContent = tr('action.add_or_replace');
   withMark(mcpGo, '#i-sl-floppy-disk');
+  paintChoice(themeEl, 'theme', true);
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
   paintNotify();
@@ -4440,9 +4447,17 @@ let repaintable = false;
 // A select whose options are the same list every time and whose words are not. Rebuilt on a pack
 // change rather than translated in place: an md-select-option holds its label as slotted content,
 // so there is nothing to reach in and rewrite.
-function paintChoice(el, kind) {
+function paintChoice(el, kind, named) {
   const c = CHOICES[kind];
-  el.setAttribute('label', tr(c.label));
+  // `named` says the row already carries the setting's name, so the field must not repeat it: the
+  // theme sits in a row whose label is "Theme" and a floating label saying it again is the word
+  // twice in one line. The name still reaches anything that reads the field on its own.
+  if (named) {
+    el.removeAttribute('label');
+    el.setAttribute('aria-label', tr(c.label));
+  } else {
+    el.setAttribute('label', tr(c.label));
+  }
   el.replaceChildren(...c.options.map(([v, key]) => {
     const o = document.createElement('md-select-option');
     o.value = v;
@@ -4722,12 +4737,17 @@ if (localStorage.getItem('side') !== 'open') document.body.setAttribute('side', 
 // Said once, from the state, rather than written into the markup and hoped to stay true. The
 // attribute in the markup is what a screen reader reads before any of this runs, and it was
 // "expanded" while the pane was shut — a control announcing the opposite of what it does.
-sideToggle.setAttribute('aria-expanded', String(document.body.getAttribute('side') !== 'shut'));
+// Selected means OPEN, and it is set from the same fact the attribute is, so the drawing and the
+// announcement cannot come apart.
+const sideOpen = () => document.body.getAttribute('side') !== 'shut';
+sideToggle.selected = sideOpen();
+sideToggle.setAttribute('aria-expanded', String(sideOpen()));
 sideToggle.onclick = () => {
   const shut = document.body.getAttribute('side') !== 'shut';
   document.body.setAttribute('side', shut ? 'shut' : '');
   localStorage.setItem('side', shut ? 'shut' : 'open');
   sideToggle.setAttribute('aria-expanded', String(!shut));
+  sideToggle.selected = !shut;
   paint();
 };
 
@@ -4805,12 +4825,22 @@ prefsDialog.addEventListener('opened', () => { if (painted) paint(); paintNotify
 themeToggle.onclick = () => {
   localStorage.setItem('theme', showing() === 'dark' ? 'light' : 'dark');
   applyTheme();
+  // The other control on the same setting. Left alone it went on showing "시스템 설정" over a
+  // theme somebody had just pinned by hand — two controls telling one story, badly.
+  themeEl.value = prefOf('theme');
 };
 // Escape narrows it again, the way Escape leaves anything that has been opened.
 addEventListener('keydown', e => { if (e.key === 'Escape') closeNav(); });
 
 // A preference is written down and acted on immediately. Language re-fetches rather than reloads:
 // the pack is the only thing that changes, and a reload would throw away the transcript.
+// The theme is chosen here and flipped by the toggle beside it, and both write the same key — so
+// the two are one setting with two controls rather than two settings that have to agree. Which is
+// also why the toggle calls applyTheme rather than setting the attribute itself.
+themeEl.addEventListener('change', () => {
+  localStorage.setItem('theme', themeEl.value);
+  applyTheme();
+});
 langEl.addEventListener('change', () => {
   localStorage.setItem('lang', langEl.value);
   loadPack();

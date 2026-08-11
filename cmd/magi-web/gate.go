@@ -1,0 +1,168 @@
+package main
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/auth"
+)
+
+// Who may do what, at the one place it can be enforced.
+//
+// # A table, and a route missing from it is refused
+//
+// The alternative is a check inside each handler, which is a list somebody maintains: the next
+// route arrives, nobody remembers, and it is open. Here the wrapper asks the table, and a path
+// with no entry answers 403 with a sentence saying the table is what is missing. A test walks the
+// handler list and fails on any path that is in neither set, so the decision is made when the
+// route is written rather than the first time somebody is surprised by it.
+//
+// # Reads and writes are separated by the method, not by two entries
+//
+// Every GET is `read`. What a route needs is only interesting when it CHANGES something, which is
+// also the split the audit record already makes — so the table has one line per route rather than
+// two, and the pair cannot drift.
+//
+// # Hiding is not the check
+//
+// The page asks /me and leaves out the controls somebody may not use, because a composer for a
+// person who may not prompt is a box that swallows what they typed. The server refuses regardless.
+// Confusing the two is how a "read-only" console turns out to have been writable by anybody who
+// opened the network tab.
+
+// mayWrite is the capability each state-changing route needs. Read-only routes are in openToRead
+// or public; anything in neither is refused, loudly.
+var mayWrite = map[string]auth.Capability{
+	// Giving the agent work, including moving it to another of its conversations — which is the
+	// same act as prompting, one step earlier.
+	"/submit":   auth.Prompt,
+	"/dispatch": auth.Prompt,
+	"/compact":  auth.Prompt,
+	"/resume":   auth.Prompt,
+	// Unblocking it, and stopping it. Apart from prompting on purpose: somebody trusted to answer
+	// "yes, run that" is not necessarily somebody who decides what the companion works on, and
+	// that is the most common shape of a second person on a console.
+	"/answer":    auth.Answer,
+	"/interrupt": auth.Answer,
+	// What it learns from.
+	"/skills":        auth.Curate,
+	"/forget":        auth.Curate,
+	"/remember":      auth.Curate,
+	"/report-format": auth.Curate,
+	// How it runs.
+	"/model":      auth.Configure,
+	"/permission": auth.Configure,
+	"/cron":       auth.Configure,
+	"/mcp":        auth.Configure,
+	// A command in the workspace, outside the permission policy a tool call goes through. On a
+	// console started with -exposed the route refuses before this is reached (see refuseWhenShared)
+	// — this is what governs the console that is NOT shared but has more than one person on it.
+	"/shell": auth.Shell,
+	// Subscribing a browser to notifications. It is a write, and it is about the READER: it changes
+	// where this console pushes, not anything a companion does. Read is the honest requirement —
+	// anything more would stop a viewer from being told the thing they are allowed to look at.
+	"/push": auth.Read,
+}
+
+// openToRead is every route that only looks. Named rather than derived, so that adding a route and
+// forgetting it is a refusal instead of an opening.
+var openToRead = map[string]bool{
+	"/fleet": true, "/events": true, "/transcript": true, "/history": true, "/search": true,
+	"/context": true, "/plan": true, "/handoffs": true, "/subagents": true, "/jobs": true,
+	"/interventions": true, "/council": true, "/loop": true, "/tools": true, "/console": true,
+}
+
+// public is the page itself and what it is made of.
+//
+// Not a hole: it is an empty shell that fetches everything through the routes above, and refusing
+// it would hand somebody a broken browser instead of a screen that can say "ask an operator".
+// The login page, when there is one, belongs here for the same reason.
+var public = map[string]bool{
+	"/": true, "/vendor/": true, "/i18n/": true, "/font/": true,
+	"/icon.svg": true, "/manifest.webmanifest": true, "/sw.js": true,
+	// And the answer to "who am I here", which has to reach somebody the console will refuse
+	// everything else to — it is how the page knows to say so instead of drawing an empty fleet.
+	// It discloses nothing they did not send: their own name back, and what it buys them.
+	"/me": true,
+}
+
+// mayDo wraps a route with the question "may this person".
+func (s *server) mayDo(path string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if public[path] {
+			h(w, r)
+			return
+		}
+		who := s.whoFrom(r)
+		need, ok := mayWrite[path]
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			need, ok = auth.Read, ok || openToRead[path]
+		}
+		if !ok {
+			// The table, not the person. Said as a refusal because the alternative — assuming a
+			// route nobody classified is harmless — is how a permission model quietly stops
+			// covering the thing that was added last.
+			http.Error(w, "this console does not know what permission "+path+" needs, so it "+
+				"refuses it", http.StatusForbidden)
+			return
+		}
+		if !s.policy.Allows(who, need, nameOfSocket(r.URL.Query().Get("d"))) {
+			http.Error(w, refusal(who, need), http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	}
+}
+
+// refusal says which of the two things is missing, because they need different next steps: an
+// unnamed caller has to fix the gateway, and a named one has to be given a role by somebody.
+func refusal(who string, need auth.Capability) string {
+	if who == "" {
+		return "this console is shared and nothing in front of it said who you are (see " +
+			"-user-header), so it cannot check whether you may " + string(need)
+	}
+	return who + " may not " + string(need) + " here — ask an operator"
+}
+
+// nameOfSocket is the companion a request is about, by name, for the per-person scope.
+//
+// The socket path is what the page sends and what everything else here resolves; the NAME is what
+// a person writes in auth.toml, because a path is a fact about this machine's filesystem and not
+// something anybody wants to type into a permission file.
+func nameOfSocket(socket string) string {
+	if socket == "" {
+		return ""
+	}
+	base := socket
+	if i := strings.LastIndexByte(base, '/'); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.TrimPrefix(base, "daemon-")
+	base = strings.TrimSuffix(base, ".sock")
+	// The same trailing hash the page strips: two workspaces of the same name get one each, and a
+	// permission written against the name must match both or neither.
+	if i := strings.LastIndexByte(base, '-'); i > 0 && len(base)-i == 9 {
+		base = base[:i]
+	}
+	return base
+}
+
+// me is what the page needs to draw itself: who this is, and what they may do.
+//
+// It exists so the console can leave out what would only produce a refusal. It is not the check —
+// see the note at the top of this file — and it deliberately answers for an unconfigured console
+// too, where the answer is "everything", so the page has one shape of answer to read.
+func (s *server) me(w http.ResponseWriter, r *http.Request) {
+	who := s.whoFrom(r)
+	can := s.policy.Can(who)
+	out := struct {
+		Who        string            `json:"who,omitempty"`
+		Can        []auth.Capability `json:"can"`
+		Companions []string          `json:"companions,omitempty"`
+		Shared     bool              `json:"shared,omitempty"`
+	}{Who: who, Can: can, Companions: s.policy.Scope(who), Shared: s.exposed}
+	if out.Can == nil {
+		out.Can = []auth.Capability{}
+	}
+	writeJSON(w, "capabilities", out)
+}

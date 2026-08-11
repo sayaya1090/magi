@@ -204,8 +204,6 @@
   "notify.is_on": "이 브라우저가 구독 중입니다. 홈 화면에 추가해두면 거기서도 깨어납니다.",
   "notify.k": "알림",
   "notify.nokey": "이 콘솔에 푸시 키가 없습니다.",
-  "notify.off": "끄기",
-  "notify.on": "켜기",
   "notify.unsupported": "이 브라우저는 푸시를 지원하지 않습니다.",
   "panel.state": "상태",
   "panel.talk": "대화",

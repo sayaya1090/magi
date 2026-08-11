@@ -1595,6 +1595,16 @@
   /* A heading's mark needs the space a word after it would have had; a mark inside a button sits
      beside text that brought its own. */
   .hk { margin-inline-end:.4em; }
+
+  /* The panel button draws what the panel is doing.
+     The divider sits where the panel's edge is when it is open, and slides out past the frame's
+     right side when it shuts — the same curve and the same 200ms the pane fades in, so the two
+     read as one movement rather than a button that changed after the fact. Clipped by the frame, so "out" is genuinely gone rather than a line hanging in space. */
+  .panelic { overflow:hidden; }
+  .panelic .split {
+    transition:transform var(--magi-sys-dur-short4) var(--magi-sys-ease-emphasized);
+  }
+  body[side="shut"] .panelic .split { transform:translateX(5.6px); }
   /* The one icon that turns, and only while something is actually running — a spinner on a still
      screen is a screen pretending to work. Reduced motion is handled globally: the rule there
      restricts transitions and animations to a hair, which stops this without a second switch. */

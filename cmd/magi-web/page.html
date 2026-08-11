@@ -190,10 +190,25 @@
     <section id="agentdetail" hidden></section>
 
     <div id="sidecol">
-      <md-icon-button id="sideToggle" aria-expanded="false">
-        <svg data-i="#i-sl-table-columns" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-          <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
-            stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <!-- A TOGGLE icon button, which is what it has always been and did not look like: pressed or
+           not, it drew the same outline, so the only way to know whether the panel was open was to
+           look at the panel. The component keeps a selected state for exactly this and draws it —
+           and takes a second icon for the selected side, filled here against the outline, so the
+           state survives a screenshot as well as a hover.
+
+           Drawn here rather than taken from the sprite, like the hamburger: the sprite's
+           table-columns is a table — a header and two columns — and this is a screen, which is a
+           bar across the top and what is under it. The divider slides in from the right edge as
+           the panel does and slides back out when it shuts, so the button is a small picture of
+           the thing it just did rather than two icons swapped at the end of it. -->
+      <md-icon-button id="sideToggle" toggle aria-expanded="false">
+        <svg class="panelic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="1.6" fill="none"
+            stroke-linejoin="round"/>
+          <path d="M4 9.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path class="split" d="M15 9.5v9.5" stroke="currentColor" stroke-width="1.6"
+            stroke-linecap="round"/>
+        </svg>
       </md-icon-button>
       <aside id="side">
         <md-outlined-card id="plan" hidden></md-outlined-card>
@@ -243,10 +258,23 @@
           </g>
         </svg>
       </md-icon-button>
+      <!-- Three values, so a control that can say all three. The toggle beside it flips between the
+           two it can see and writes the SAME preference — one setting, two controls — but it has no
+           way to say "keep asking the machine", which is the value this console starts on. It was
+           the only way to choose the theme for a while, and choosing it once meant never getting
+           back to following the system without clearing storage. -->
+      <md-outlined-select id="theme"></md-outlined-select>
     </div>
     <md-outlined-select id="lang"></md-outlined-select>
-    <div class="k" id="notifyK"></div>
-    <div id="notify"><md-text-button id="notifyBtn"></md-text-button><div id="notifyWhy"></div></div>
+    <!-- A setting that is on or off, so a switch: the guide keeps switches for exactly this and
+         says the effect must be immediate, which subscribing is. Paired with an inline label,
+         which it also asks for — and no icon in the handle, because the ones that would fit here
+         (a bell, a moon) are the ambiguous kind it warns against. -->
+    <div class="prefrow" id="notify">
+      <div class="k" id="notifyK"></div>
+      <md-switch id="notifySwitch" touch-target="wrapper"></md-switch>
+    </div>
+    <div id="notifyWhy"></div>
     <div class="k" id="consoleK"></div>
     <div id="console"></div>
   </form>
