@@ -1086,6 +1086,45 @@ console.log(JSON.stringify({
 	}
 }
 
+// The button that sends carries ONE mark, however many times its job changes.
+//
+// It is written as label() then withMark(): label keeps the mark so the word can be rewritten
+// without losing it, and withMark used to put the new one in front of the old — so the first time
+// the companion started asking something, the composer's button grew a second mark and kept it for
+// the rest of the session. Reported from a live console.
+//
+// The symbols are registered by hand here. This harness runs the page against markup with no
+// sprite, so every icon site takes the fallback and the drawn path had no test at all — which is
+// how a button with two icons in it shipped.
+func TestTheSendButtonKeepsOneMarkWhenItChangesItsJob(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"which branch should this land on?","askId":"q1#1","askKind":"question","idle":5}]`,
+		"?d=%2Fs%2Fa.sock", `
+byId['i-ss-paper-plane'] = {}; byId['i-sl-reply'] = {};
+const marks = () => byId.send.children.filter(k => k.attrs && k.attrs.slot === 'icon').length;
+await loadFleet();
+const asking = marks();
+answerMode(null);          // the question was answered; the button goes back to sending
+const sending = marks();
+answerMode({askId: 'q1#1', askKind: 'question'});
+console.log(JSON.stringify({asking: asking, sending: sending, again: marks(),
+  word: byId.send.textContent}));
+`)
+	for _, c := range []struct {
+		when string
+		n    float64
+	}{{"answering", got["asking"].(float64)}, {"back to sending", got["sending"].(float64)},
+		{"answering again", got["again"].(float64)}} {
+		if c.n != 1 {
+			t.Errorf("the send button carries %v marks while %s — one control, one icon", c.n, c.when)
+		}
+	}
+	if got["word"] == "" {
+		t.Error("the button lost its word")
+	}
+}
+
 // A prompt with no report is the prompt it always was, not an empty box.
 //
 // A companion on an older build, or one whose report was lost between its socket and this page,

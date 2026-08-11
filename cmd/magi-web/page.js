@@ -572,11 +572,30 @@ function icon(ref, opts) {
 // by shape. Nothing happens where the build has no sprite: the word was always enough on its own,
 // and a blank slot would only add a gap in front of it.
 function withMark(btn, ref) {
+  // The mark it already has goes first. The composer's button changes between a paper plane and a
+  // reply arrow every time the companion starts or stops asking something, and it is written as
+  // label() then withMark() — label KEEPS the mark so the word can be rewritten without losing it,
+  // so a second withMark put the new one in front of the old and the button carried both marks for
+  // the rest of the session. Replacing is also what a caller asking for a mark means: one.
+  for (const k of [...(btn.children || [])]) {
+    if (k.getAttribute && k.getAttribute('slot') === 'icon') k.remove();
+  }
   const m = icon(ref);
   if (!m) return btn;
   m.setAttribute('slot', 'icon');
   btn.prepend(m);
   return btn;
+}
+
+// withGlass puts the search mark in a field's own leading slot.
+//
+// Four fields narrow a list by typing — the log search, the board's, and the two on the shared
+// destination — and all four are the same act. A field takes its icon in a slot of its own rather
+// than as a child, which is why this is not withMark.
+function withGlass(f) {
+  const g = icon('#i-sl-magnifying-glass');
+  if (g) { g.setAttribute('slot', 'leading-icon'); f.append(g); }
+  return f;
 }
 
 // label sets a control's word without throwing away the mark in front of it.
@@ -1235,10 +1254,7 @@ function findField(total) {
   input.value = findQuery;
   input.setAttribute('type', 'search');
   input.setAttribute('label', tr('find.placeholder'));
-  // A field takes its icon in a slot of its own, and the glass is the one mark that says "type
-  // here to look" without a word — this field sits above a list that is already full of words.
-  const glass = icon('#i-sl-magnifying-glass');
-  if (glass) { glass.setAttribute('slot', 'leading-icon'); input.append(glass); }
+  withGlass(input);
   // Debounced: every keystroke would otherwise read every log in the workspace.
   let timer;
   input.addEventListener('input', () => {
@@ -1383,7 +1399,7 @@ async function loadBoard() {
   // Narrowing a day's work by what it was about. Ranked the same way the shared-knowledge search
   // is, so "the one about retries" finds it without knowing how the request was worded — and over
   // the cards already fetched, so it narrows as you type rather than after a round trip.
-  const find = document.createElement('md-outlined-text-field');
+  const find = withGlass(document.createElement('md-outlined-text-field'));
   find.setAttribute('label', tr('label.find'));
   find.value = boardQuery;
   find.addEventListener('input', () => { boardQuery = find.value; loadBoard(); });
@@ -2843,7 +2859,7 @@ function say(text) {
 
 function findBox(get, set) {
   const box = cell('skfind');
-  const f = document.createElement('md-outlined-text-field');
+  const f = withGlass(document.createElement('md-outlined-text-field'));
   f.setAttribute('label', tr('label.find'));
   f.value = get();
   f.addEventListener('input', () => set(f.value));

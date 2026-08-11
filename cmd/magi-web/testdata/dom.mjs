@@ -78,6 +78,15 @@ function element(tag) {
       if (kid && typeof kid === 'object') kid.parentNode = null;
       return kid;
     },
+    // Taking ITSELF out, which is what a node does when the thing that owns it is not in reach.
+    // The report-format editor's row-delete has always called this, and the composer's button asks
+    // for it when its mark is exchanged for another; the fake had only removeChild, so both threw
+    // — the tenth place this stand-in has been narrower than the DOM it stands in for.
+    remove() {
+      const p = this.parentNode;
+      if (p && typeof p.removeChild === 'function') p.removeChild(this);
+      else this.parentNode = null;
+    },
     // Inserting at the FRONT, which is how the transcript puts the stand-in for what is above it.
     prepend(...kids) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
