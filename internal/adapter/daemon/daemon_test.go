@@ -317,7 +317,8 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 	c := start(t, eng)
 
 	// Nothing pending: the answer is "nothing", not an error and not a guess.
-	w, _, _, err := c.Status("s_1")
+	st, err := c.Status("s_1")
+	w := st.Asking
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -330,7 +331,8 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 	eng.waiting = &app.Ask{Kind: "permission", What: "bash", Since: since}
 	eng.mu.Unlock()
 
-	w, _, _, err = c.Status("s_1")
+	st, err = c.Status("s_1")
+	w = st.Asking
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}

@@ -168,6 +168,7 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 		defer tick.Stop()
 		asked := ""   // the prompt already put on screen, so it is drawn once and not every tick
 		note := ""    // the live note already on screen, so an unchanged one is not re-sent each tick
+		user := ""    // the label already delivered, so an unchanged one is not re-sent each tick
 		lost := false // whether the screen has already been told the daemon stopped answering
 		for {
 			select {
@@ -179,7 +180,9 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 			// should happen, not a record of what did, and the event announcing it went to the
 			// daemon's bus. Without this the attached screen shows a run that simply stopped, with
 			// the answer it is waiting for one keystroke away and no way to know.
-			ev, id, doing, drawing, cleared, reachable := a.pendingPrompt(sid, asked)
+			p := a.pendingPrompt(sid, asked)
+			ev, id, doing := p.ev, p.id, p.doing
+			drawing, cleared, reachable := p.drawing, p.cleared, p.reachable
 			// A daemon that dies leaves this view looking alive: the log is still readable, so the
 			// transcript keeps rendering the last thing that happened and nothing says the engine
 			// is gone. The only way to find out was to type something and watch it fail. Say it
@@ -217,6 +220,23 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 				case <-pctx.Done():
 					return
 				}
+			}
+			// What this daemon calls the person, when a plugin has renamed them. Only on a change,
+			// like the note above, and delivered as the event the screen already knows how to read.
+			if reachable && p.user != user {
+				user = p.user
+				select {
+				case out <- userLabelEvent(sid, p.user):
+				case <-pctx.Done():
+					return
+				}
+			}
+			// And the mode it is on, written into this process's own App because that is what the
+			// header reads on every frame — a socket call there would be one per frame. It can
+			// change from the other window or from the console now, so a copy taken at attach
+			// would go stale while somebody watched it.
+			if reachable && p.perm != "" {
+				a.App.SetPermission(p.perm)
 			}
 			ch, stop, err := a.App.Subscribe(pctx, sid, seq)
 			if err != nil {
@@ -287,22 +307,64 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 // A FAILED status is none of those. Treating it as "nothing pending" would clear the marker, and
 // the next poll would redraw a prompt that is already on screen — one dropped packet turning into
 // two stacked modals over the same question.
-func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id, doing string, drawing, cleared, reachable bool) {
-	w, doing, _, err := a.c.Status(string(sid))
+// pulse is one poll's answer. A struct because it was six return values and the two facts added
+// here would have made it eight, every caller unpacking positions it does not use.
+type pulse struct {
+	// ev is the prompt to put on screen, set when drawing.
+	ev event.Event
+	// id is the prompt now on screen — the new one, or the one already there.
+	id string
+	// doing is what a running tool last said about itself.
+	doing string
+	// user is what the daemon calls the person, and perm is the mode it is on. Both are properties
+	// of that process, both can change while this view is open, and both were previously read out
+	// of this process's own empty copy.
+	user string
+	perm string
+	// drawing, cleared and reachable are three distinct outcomes on purpose. drawing says a prompt
+	// is new and here it is; id alone says "still the same one, already on screen"; cleared says
+	// the daemon has nothing pending, which is what lets the next prompt through even if it reuses
+	// an id. A FAILED status is none of those — treating it as "nothing pending" would clear the
+	// marker and the next poll would redraw a prompt that is already up.
+	drawing   bool
+	cleared   bool
+	reachable bool
+}
+
+func (a attached) pendingPrompt(sid session.SessionID, drawn string) pulse {
+	st, err := a.c.Status(string(sid))
 	if err != nil {
-		return event.Event{}, drawn, "", false, false, false // unknown: change nothing
+		return pulse{id: drawn} // unknown: change nothing
 	}
-	if w == nil {
-		return event.Event{}, "", doing, false, true, true
+	p := pulse{doing: st.Doing, user: st.User, perm: st.Permission, reachable: true}
+	switch w := st.Asking; {
+	case w == nil:
+		p.cleared = true
+	case w.ID == drawn:
+		p.id = w.ID
+	default:
+		ev, err := w.Event(sid)
+		if err != nil {
+			p.id = drawn
+			break
+		}
+		p.ev, p.id, p.drawing = ev, w.ID, true
 	}
-	if w.ID == drawn {
-		return event.Event{}, w.ID, doing, false, false, true
+	return p
+}
+
+// userLabelEvent carries a plugin's name for the person across to a viewer.
+//
+// The label is set in the daemon's memory and announced on the daemon's bus, so a view in another
+// process never heard it — the transcript said "you" while the window beside it said who they had
+// logged in as. Synthesised from the status reply, exactly as the progress note is, and only when
+// it changes.
+func userLabelEvent(sid session.SessionID, label string) event.Event {
+	d, _ := json.Marshal(event.UserLabelData{Label: label})
+	return event.Event{
+		SessionID: sid, Type: event.TypeUserLabelChanged, Data: d,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "attach"},
 	}
-	ev, err = w.Event(sid)
-	if err != nil {
-		return event.Event{}, drawn, doing, false, false, true
-	}
-	return ev, w.ID, doing, true, false, true
 }
 
 // progressEvent rebuilds a running tool's live note as the transient event the screen already

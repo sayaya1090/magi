@@ -194,6 +194,10 @@ type Agent struct {
 	// It changes at runtime and decides both what gets a prompt and how long that prompt waits, so
 	// a console offering to change it has to be able to say what it is changing from.
 	Permission string `json:"permission,omitempty"`
+	// User is what this companion calls the person, when a plugin has renamed them (an SSO bridge
+	// puts the authenticated username there). Empty means nobody has, and every surface says the
+	// same ordinary word for the person instead of each inventing its own.
+	User string `json:"user,omitempty"`
 	// PlanDone and PlanTotal are the agent's own todo list, counted. "working" says it is alive;
 	// "working · 3/7" says whether it is getting anywhere, which is the question somebody has when
 	// they look twice in ten minutes.
@@ -229,7 +233,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
 			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
-			Permission: in.Permission,
+			Permission: in.Permission, User: in.User,
 			Live:       in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}

@@ -2859,3 +2859,39 @@ console.log(JSON.stringify({
 		t.Errorf("the rewritten transcript has %d rows", num("finalLen"))
 	}
 }
+
+// The gutter says who, in words, and the person's name is the one their companion uses.
+//
+// The role is what the server calls a row. The console printed it raw — "user", "assistant" — so a
+// plugin that renamed the person (an SSO bridge putting the authenticated username there) showed
+// up in the terminal and nowhere else, and even the fallback disagreed: "you" in one window and
+// "user" in the other, for the same conversation.
+func TestTheGutterNamesWhoInWords(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","user":"sayaya","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+await loadFleet();
+draw([{who:'user', text:'go and do it'},
+      {who:'assistant', text:'done'},
+      {who:'system', text:'you stopped without saying you are finished'},
+      {who:'tool', tool:'read', args:'{}', ok:true, out:'ok'}]);
+const who = byId.log.children.map(r => (r.children.find(c => (c.className||'') === 'who') || {}).textContent);
+console.log(JSON.stringify({who: who}));`)
+	who, _ := got["who"].([]any)
+	if len(who) != 4 {
+		t.Fatalf("drew %d rows: %v", len(who), who)
+	}
+	if who[0] != "sayaya" {
+		t.Errorf("the person is called %q, not the name their companion uses", who[0])
+	}
+	// The companion is the companion, not the API's word for the role.
+	if who[1] != "magi" {
+		t.Errorf("the answer is attributed to %q", who[1])
+	}
+	if who[2] == "system" {
+		t.Error("magi's own voice is labelled with the mechanism rather than the speaker")
+	}
+	// A tool is a tool: nothing to translate and nobody to name.
+	if who[3] != "tool" {
+		t.Errorf("a tool call is attributed to %q", who[3])
+	}
+}

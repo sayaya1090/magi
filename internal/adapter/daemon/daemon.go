@@ -83,6 +83,21 @@ type Engine interface {
 	Doing(sid session.SessionID) (string, bool)
 }
 
+// UserNamer is an engine that knows what to call the person it is talking to.
+//
+// A plugin can rename them — an SSO bridge puts the authenticated username there through
+// magi.set_user_label — and the name lives in that process's memory, announced on its own bus as a
+// transient event. Which means a viewer that attached afterwards never heard it, and a console
+// reading the log could not have: the label is not in the log, because it is not a record of what
+// happened. So the same conversation was headed by a person's name in one window and by "you" in
+// the next, with neither able to tell you the other existed.
+//
+// Optional, and asserted for where the status is assembled: an engine that cannot answer simply
+// does not, and the surfaces fall back to the word they already had.
+type UserNamer interface {
+	UserLabel(sid session.SessionID) string
+}
+
 // Controller is the part of an engine that CHANGES HOW IT RUNS, rather than what it is doing now.
 //
 // Optional, and asserted for at dispatch: an engine that does not implement it refuses these and
@@ -175,6 +190,9 @@ type Response struct {
 	// changes at runtime and a viewer that offers to change it has to show what it is changing
 	// from. Only on the status answer, where every other "what is it doing" fact lives.
 	Permission string `json:"permission,omitempty"`
+	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
+	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
+	User string `json:"user,omitempty"`
 	// Handover answers hand-state. Its own object rather than four more columns here, because
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
@@ -497,6 +515,9 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
 			if c, ok := eng.(Controller); ok {
 				resp.Permission = c.Permission()
+			}
+			if n, ok := eng.(UserNamer); ok {
+				resp.User = n.UserLabel(session.SessionID(req.Session))
 			}
 			if enc.Encode(resp) != nil {
 				return
@@ -925,12 +946,28 @@ func (c *Client) Close() error { return c.rw.Close() }
 // prompt and a progress note taken half a second apart, which is a state the daemon was never in.
 // Status is the three things only the running process knows: what it is blocked on, what a
 // long-running tool last said, and which approval mode it is on right now.
-func (c *Client) Status(sid string) (ask *Waiting, doing, perm string, err error) {
+// Status is what a daemon says about itself right now: the four facts that exist only in the
+// process holding the run.
+//
+// A struct rather than a return list. This was three values, then four, and the fifth would have
+// made every call site unpack positions it does not use to reach the one it does.
+type Status struct {
+	// Asking is the prompt it is blocked on, or nil.
+	Asking *Waiting
+	// Doing is what a still-running tool last reported about itself.
+	Doing string
+	// Permission is the approval mode it is on now.
+	Permission string
+	// User is what it calls the person, when a plugin has renamed them.
+	User string
+}
+
+func (c *Client) Status(sid string) (Status, error) {
 	resp, err := c.exchange(Request{Method: "status", Session: sid})
 	if err != nil {
-		return nil, "", "", err
+		return Status{}, err
 	}
-	return resp.Waiting, resp.Doing, resp.Permission, nil
+	return Status{Asking: resp.Waiting, Doing: resp.Doing, Permission: resp.Permission, User: resp.User}, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
@@ -1170,6 +1207,9 @@ type Info struct {
 	// Permission is the approval mode it is on now. Not in the file either: the mode changes at
 	// runtime, so a record written at startup would be the mode it USED to be on.
 	Permission string `json:"-"`
+	// User is what this companion calls the person, when a plugin has renamed them. Not in the
+	// file, for the same reason: a plugin can set it on any turn.
+	User string `json:"-"`
 }
 
 // SessionFile is where a daemon records what it is driving.
@@ -1367,8 +1407,9 @@ func List(configDir string) ([]Info, error) {
 			if sid == "" {
 				return
 			}
-			if ask, doing, perm, serr := cl.Status(sid); serr == nil {
-				out[i].Asking, out[i].Doing, out[i].Permission = ask, doing, perm
+			if st, serr := cl.Status(sid); serr == nil {
+				out[i].Asking, out[i].Doing = st.Asking, st.Doing
+				out[i].Permission, out[i].User = st.Permission, st.User
 			}
 			// A daemon too old to know the method answers with an error naming what it does
 			// accept. That is a version skew, not a fault: it is alive, and everything else about

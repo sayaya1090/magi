@@ -23,6 +23,7 @@ type promptEngine struct {
 	mu    sync.Mutex
 	ask   *app.Ask
 	doing string
+	user  string
 	answ  []string
 }
 
@@ -36,6 +37,20 @@ func (p *promptEngine) setDoing(s string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.doing = s
+}
+
+// UserLabel makes this engine one that knows what to call the person — the optional interface the
+// daemon asserts for when it assembles a status.
+func (p *promptEngine) UserLabel(session.SessionID) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.user
+}
+
+func (p *promptEngine) setUser(s string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.user = s
 }
 
 func (p *promptEngine) set(a *app.Ask) {
@@ -111,15 +126,16 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	sid := session.SessionID("s_1")
 
 	// Nothing pending: nothing is drawn, and the state is "cleared" rather than "unknown".
-	if _, _, _, drawing, cleared, _ := a.pendingPrompt(sid, ""); drawing || !cleared {
-		t.Errorf("with no prompt pending: drawing=%v cleared=%v, want false/true", drawing, cleared)
+	if p := a.pendingPrompt(sid, ""); p.drawing || !p.cleared {
+		t.Errorf("with no prompt pending: drawing=%v cleared=%v, want false/true", p.drawing, p.cleared)
 	}
 
 	args := json.RawMessage(`{"command":"rm -rf build"}`)
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Args: args,
 		Reason: "destructive command detected", Since: time.Now()})
 
-	ev, id, _, drawing, _, _ := a.pendingPrompt(sid, "")
+	p := a.pendingPrompt(sid, "")
+	ev, id, drawing := p.ev, p.id, p.drawing
 	if !drawing {
 		t.Fatal("a pending permission prompt was not drawn")
 	}
@@ -144,14 +160,15 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	}
 
 	// Drawn once. Polling four times a second must not stack four modals over one question.
-	if _, gotID, _, drawing, cleared, _ := a.pendingPrompt(sid, "call_7"); drawing || cleared || gotID != "call_7" {
-		t.Errorf("the same prompt was drawn again (drawing=%v cleared=%v id=%q)", drawing, cleared, gotID)
+	if p := a.pendingPrompt(sid, "call_7"); p.drawing || p.cleared || p.id != "call_7" {
+		t.Errorf("the same prompt was drawn again (drawing=%v cleared=%v id=%q)", p.drawing, p.cleared, p.id)
 	}
 
 	// A question carries its picks, or the modal offers nothing to pick.
 	eng.set(&app.Ask{ID: "q1#1", Kind: "question", What: "which branch?",
 		Options: []string{"main", "release"}, Since: time.Now()})
-	ev, _, _, drawing, _, _ = a.pendingPrompt(sid, "call_7")
+	p = a.pendingPrompt(sid, "call_7")
+	ev, drawing = p.ev, p.drawing
 	if !drawing || ev.Type != event.TypeQuestionRequested {
 		t.Fatalf("a question came through as %v (drawing=%v)", ev.Type, drawing)
 	}
@@ -175,12 +192,13 @@ func TestAFailedStatusChangesNothingOnScreen(t *testing.T) {
 	a := attached{c: cl}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
+	if p := a.pendingPrompt(sid, ""); !p.drawing {
 		t.Fatal("the prompt was not drawn to begin with")
 	}
 
 	cl.Close() // the daemon is gone, or the connection dropped
-	_, id, _, drawing, cleared, reachable := a.pendingPrompt(sid, "call_7")
+	p := a.pendingPrompt(sid, "call_7")
+	id, drawing, cleared, reachable := p.id, p.drawing, p.cleared, p.reachable
 	if drawing {
 		t.Error("a failed status redrew the prompt")
 	}
@@ -203,19 +221,19 @@ func TestAnAnsweredPromptClearsTheMarker(t *testing.T) {
 	a := attached{c: serveEngine(t, eng)}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
+	if p := a.pendingPrompt(sid, ""); !p.drawing {
 		t.Fatal("not drawn")
 	}
 	if err := a.RespondPermission(context.Background(), command.RespondPermission{
 		SessionID: sid, CallID: "call_7", Decision: "allow"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, cleared, _ := a.pendingPrompt(sid, "call_7"); !cleared {
+	if p := a.pendingPrompt(sid, "call_7"); !p.cleared {
 		t.Fatal("the marker did not clear after the prompt was answered")
 	}
 	// Same id again — a fresh prompt, and it must reach the screen.
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
+	if p := a.pendingPrompt(sid, ""); !p.drawing {
 		t.Error("a new prompt reusing the id was swallowed")
 	}
 }
@@ -232,11 +250,11 @@ func TestTheScreenIsToldWhenTheDaemonGoesAway(t *testing.T) {
 	a := attached{c: cl}
 	sid := session.SessionID("s_1")
 
-	if _, _, _, _, _, reachable := a.pendingPrompt(sid, ""); !reachable {
+	if p := a.pendingPrompt(sid, ""); !p.reachable {
 		t.Fatal("a live daemon was reported unreachable")
 	}
 	cl.Close()
-	_, _, _, _, _, reachable := a.pendingPrompt(sid, "")
+	reachable := a.pendingPrompt(sid, "").reachable
 	if reachable {
 		t.Fatal("a dead daemon was reported reachable — nothing would tell the user")
 	}
@@ -270,12 +288,13 @@ func TestTheAttachedTerminalIsToldWhatIsBeingWaitedOn(t *testing.T) {
 	a := attached{c: serveEngine(t, eng)}
 	sid := session.SessionID("s_1")
 
-	if _, _, doing, _, _, _ := a.pendingPrompt(sid, ""); doing != "" {
-		t.Fatalf("a quiet daemon reported %q", doing)
+	if p := a.pendingPrompt(sid, ""); p.doing != "" {
+		t.Fatalf("a quiet daemon reported %q", p.doing)
 	}
 
 	eng.setDoing("check 6, 4m12s elapsed, still running")
-	_, _, doing, _, _, reachable := a.pendingPrompt(sid, "")
+	p := a.pendingPrompt(sid, "")
+	doing, reachable := p.doing, p.reachable
 	if !reachable {
 		t.Fatal("the daemon went unreachable")
 	}
@@ -310,7 +329,8 @@ func TestThePromptAndTheNoteComeFromOneAnswer(t *testing.T) {
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
 	eng.setDoing("still running")
 
-	ev, id, doing, drawing, _, _ := a.pendingPrompt(sid, "")
+	p := a.pendingPrompt(sid, "")
+	ev, id, doing, drawing := p.ev, p.id, p.doing, p.drawing
 	if !drawing || id != "call_7" || ev.Type != event.TypePermissionRequested {
 		t.Fatalf("the prompt did not come through: drawing=%v id=%q type=%q", drawing, id, ev.Type)
 	}
@@ -318,3 +338,68 @@ func TestThePromptAndTheNoteComeFromOneAnswer(t *testing.T) {
 		t.Errorf("the note was dropped when a prompt was pending: %q", doing)
 	}
 }
+
+// The name a plugin gave the person reaches a window in another process.
+//
+// It is set in the daemon's memory by magi.set_user_label and announced on the daemon's bus, so a
+// viewer that attached afterwards never heard it and could not have read it either: the label is
+// not in the log, because it is not a record of what happened. The same conversation was headed by
+// somebody's name in one window and by "you" in the next, with neither able to say the other
+// existed.
+func TestTheNameThePersonIsCalledReachesAnAttachedView(t *testing.T) {
+	eng := &promptEngine{}
+	a := attached{c: serveEngine(t, eng)}
+	sid := session.SessionID("s_1")
+
+	if p := a.pendingPrompt(sid, ""); p.user != "" {
+		t.Fatalf("a daemon with no label reported %q", p.user)
+	}
+	eng.setUser("sayaya")
+	p := a.pendingPrompt(sid, "")
+	if !p.reachable {
+		t.Fatal("the daemon went unreachable")
+	}
+	if p.user != "sayaya" {
+		t.Fatalf("the label did not cross: %q", p.user)
+	}
+	// And it arrives as the event the screen already knows how to read, rather than as a second
+	// path into the same field.
+	ev := userLabelEvent(sid, p.user)
+	if ev.Type != event.TypeUserLabelChanged {
+		t.Fatalf("the label was carried as %q", ev.Type)
+	}
+	var d event.UserLabelData
+	if err := json.Unmarshal(ev.Data, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Label != "sayaya" {
+		t.Errorf("the event carries %q", d.Label)
+	}
+}
+
+// The approval mode an attached window shows is the daemon's, not its own idea of it.
+//
+// The viewer holds a throwaway App, and the header reads the mode off it on every frame. Changed
+// from the terminal that owns the run — or now from the console — the daemon moved and the
+// attached window went on displaying whatever mode it had started in.
+func TestTheModeAnAttachedViewShowsIsTheDaemonsOwn(t *testing.T) {
+	eng := &controllableEngine{promptEngine: &promptEngine{}, perm: "deny"}
+	a := attached{c: serveEngine(t, eng)}
+	if p := a.pendingPrompt(session.SessionID("s_1"), ""); p.perm != "deny" {
+		t.Errorf("the poll reports the mode as %q, want the daemon's deny", p.perm)
+	}
+}
+
+// controllableEngine is a promptEngine that also answers for how it runs.
+type controllableEngine struct {
+	*promptEngine
+	perm string
+}
+
+func (c *controllableEngine) Rewind(context.Context, session.SessionID, int) (int64, error) {
+	return 0, nil
+}
+func (c *controllableEngine) Compact(context.Context, command.Compact) error { return nil }
+func (c *controllableEngine) SetModel(session.SessionID, string)             {}
+func (c *controllableEngine) SetPermission(p string)                         { c.perm = p }
+func (c *controllableEngine) Permission() string                             { return c.perm }

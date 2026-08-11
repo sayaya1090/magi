@@ -1305,7 +1305,11 @@ async function loadFleet() {
     // Redrawn only when it CHANGED. The transcript is rebuilt whole by draw(), and doing that
     // every three seconds under somebody reading a folded tool result would close what they opened.
     const note = (mine && mine.doing) || '';
-    if (note !== liveNote) { liveNote = note; draw(lastRows); }
+    // What this companion calls the person, when a plugin has renamed them. It is a property of
+    // the daemon's memory, so it arrives on this poll like the note does — and like the note, a
+    // redraw is only worth it when it changed.
+    const named = (mine && mine.user) || '';
+    if (note !== liveNote || named !== userName) { liveNote = note; userName = named; draw(lastRows); }
     drawPrompt(mine);
     drawDetail(mine);
     loadIntervened(mine);
@@ -2834,7 +2838,7 @@ function rowNode(r) {
   // What magi itself said to the agent is a distinct voice, and calling it "system" in the gutter
   // names the mechanism rather than the speaker. The rows are the orchestrator's nudges, the
   // compaction summaries and the hook output — magi talking to the agent about the work.
-  const w = el('div', r.who === 'system' ? tr('row.system') : r.who); w.className = 'who';
+  const w = el('div', whoWord(r)); w.className = 'who';
   // And when. Under the name in the gutter rather than beside the text, so it costs no width in
   // the column the conversation is read in and lines up down the page as a column of its own.
   // Local time, HH:MM, and nothing at all for a row whose message carries no stamp — an older log
@@ -2933,7 +2937,9 @@ function rowNode(r) {
   if (r.pending) {
     // Said in words as well as drawn. A state carried only by a bar is a state some readers are
     // not told, and this one is the answer to "is it working on what I just asked".
-    w.textContent = r.who;
+    //
+    // Appended, not written over the gutter: rewriting textContent here took the row's timestamp
+    // with it, so the one row you are most likely to be watching was the one with no time on it.
     const tag = el('span', ' · ' + tr('row.working'));
     tag.className = 'pendtag';
     w.append(tag);
@@ -2966,6 +2972,26 @@ let lastRows = [];
 // carrying it would have to be re-sent every three seconds to keep it current, which is a rebuild
 // of the whole transcript for one line of text.
 let liveNote = '';
+// userName is what this companion calls the person, or '' when nobody has renamed them.
+//
+// A plugin can — an SSO bridge puts the authenticated username there — and the terminal has shown
+// it since the hook existed. It is not in the log and never was: it is set in the daemon's memory
+// and announced on the daemon's bus, so the console had no way to know and said "user" while the
+// window beside it said who they had signed in as. It rides the fleet poll, like the note above.
+let userName = '';
+
+// whoWord is the word in the gutter: who said this.
+//
+// The role is what the server calls the row; the word a person reads is a different thing, and
+// spelling them the same is how one of them ends up hard-coded in English on every locale. Three
+// of them are not the role at all — the person has a name or is "you", magi's own voice is not
+// "system", and the assistant is the companion, which is what the terminal has always called it.
+function whoWord(r) {
+  if (r.who === 'user') return userName || tr('row.you');
+  if (r.who === 'system') return tr('row.system');
+  if (r.who === 'assistant') return 'magi';
+  return r.who;
+}
 
 // shown is what is currently in the log, row by row, beside the nodes showing them.
 //
