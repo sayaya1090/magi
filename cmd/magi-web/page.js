@@ -800,6 +800,14 @@ function summarise(list) {
     // The chip's own selected state, not an aria attribute of ours. It toggles itself on click and
     // this list is rebuilt from filter on the next render, so the two cannot drift.
     b.selected = filter === k;
+    // The state's own mark, in the slot a chip keeps for one: waiting is a pause, working is the
+    // turning spinner, idle is the moon, and one nobody can reach is a broken link. The count and
+    // the word stay — the mark is a third way of saying it, not a replacement for the two that
+    // survive a build with no icons.
+    // The one that turns, turns. A spinner standing still is a spinner drawn by somebody who did
+    // not mean it — and "working" is the one state on this row of counts that is about motion.
+    const m = icon(STATE_MARK[k] || '', {cls: k === 'working' ? 'spin' : ''});
+    if (m) { m.setAttribute('slot', 'icon'); b.append(m); }
     b.append(cell('n', n + ''), cell('k', stateWord(k)));
     b.onclick = () => {
       filter = filter === k ? null : k;
@@ -1585,6 +1593,19 @@ function drawFleetCount(list, waiting) {
   state.classList.toggle('asking', waiting > 0);
   summarise(list);
 }
+
+// The mark each state wears, where a build has marks. Written once: the chips use it, and the row
+// that carries the same state should not be free to disagree with the chip that counts it.
+// Keyed by the GROUP the chips count, not by the raw state: stopped and abandoned are one tile
+// called "gone", and a table written against the raw states left that tile — the only one that
+// means something has ended badly — as the one with no mark on it.
+const STATE_MARK = {
+  waiting: '#i-ss-circle-pause',
+  working: '#i-ss-spinner-third',
+  idle: '#i-ss-moon',
+  gone: '#i-ss-circle-stop',
+  remote: '#i-sl-satellite-dish',
+};
 
 // grouped lays the rows out by team, when there are teams.
 //
