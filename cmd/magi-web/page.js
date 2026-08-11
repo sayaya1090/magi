@@ -2323,7 +2323,9 @@ async function drawContext(a, box, grid, field) {
       return loadFleet();
     });
   };
-  f.append(fold);
+  // The bar goes under the number it is a picture of, and the lever goes after both. Ordered the
+  // other way the control sat between a reading and its own gauge, so the eye crossed a button to
+  // get from "108,000 / 128,000" to the line showing how full that is.
   if (c.window) {
     const pct = Math.min(100, Math.round((c.used || 0) * 100 / c.window));
     const bar = cell('bar' + (pct >= 80 ? ' tight' : ''));
@@ -2332,6 +2334,7 @@ async function drawContext(a, box, grid, field) {
     bar.append(fill);
     f.append(bar);
   }
+  f.append(fold);
   grid.append(f);
 
   // A compaction is the one moment a companion silently stops knowing something. Four of them in
