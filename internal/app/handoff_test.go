@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -294,11 +295,14 @@ func TestABlockedPeerIsReportedAndStillWaitedFor(t *testing.T) {
 	f.append("theirs", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/them"}))
 	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w/me"}))
 
-	var probes int
+	// Atomic: the probe runs on the watch goroutine and the wait reads it on the test's. An int
+	// here is a race in the fixture rather than a fact about the code — caught by CI, whose test
+	// run has -race and whose local gate does not.
+	var probes atomic.Int64
 	if err := f.a.Expect("mine", event.Actor{Kind: event.ActorAgent, ID: "agent"}, port.Elsewhere{
 		Who: "design", Session: "theirs", Request: "name the tokens",
 		Probe: func() (string, bool) {
-			probes++
+			probes.Add(1)
 			return "design is blocked waiting for a person: permission for bash", false
 		},
 	}); err != nil {
@@ -321,7 +325,7 @@ func TestABlockedPeerIsReportedAndStillWaitedFor(t *testing.T) {
 	}
 	// Said once. The same state reported every half minute is a conversation filling with one fact.
 	before := countContaining(f.myMessages(), "blocked waiting for a person")
-	waitFor(t, "a second probe", func() bool { return probes >= 2 })
+	waitFor(t, "a second probe", func() bool { return probes.Load() >= 2 })
 	if after := countContaining(f.myMessages(), "blocked waiting for a person"); after != before {
 		t.Errorf("one stuck state was reported %d times, was %d", after, before)
 	}

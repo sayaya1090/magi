@@ -105,20 +105,46 @@ func shortSockDir(t *testing.T) string {
 // is a test of the door.
 type recordingWork struct {
 	*app.App
-	ar     *arrival
-	side   session.SessionID
+	ar   *arrival
+	side session.SessionID
+	// mu guards busy and opened. The drain goroutine writes them while the test reads them, which
+	// is the real shape of the thing being tested — one at a time is enforced ACROSS goroutines —
+	// so an unguarded field here is a race in the fixture rather than a fact about the code. Found
+	// by CI, whose test run has -race and whose local gate does not.
+	mu     sync.Mutex
 	busy   session.SessionID
 	opened int
+}
+
+// setBusy and idle are what a turn starting and ending look like to this fake.
+func (w *recordingWork) setBusy(sid session.SessionID) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.busy = sid
+}
+
+// freeIf clears the busy marker when sid is the session that held it, and reports whether it did.
+func (w *recordingWork) freeIf(sid string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if string(w.busy) != sid {
+		return false
+	}
+	w.busy = ""
+	return true
 }
 
 // CreateSession opens a real one in the store, a fresh id each time — the first is <sid>_side, so
 // a test can name it. A stub handing back one fixed id would have made two askers look like one,
 // which is the thing under test.
 func (w *recordingWork) CreateSession(_ context.Context, c command.CreateSession) (session.SessionID, error) {
+	w.mu.Lock()
 	w.opened++
+	n := w.opened
+	w.mu.Unlock()
 	id := w.side
-	if w.opened > 1 {
-		id = session.SessionID(fmt.Sprintf("%s%d", w.side, w.opened))
+	if n > 1 {
+		id = session.SessionID(fmt.Sprintf("%s%d", w.side, n))
 	}
 	w.ar.append(string(id), ev(w.ar.t, event.TypeSessionCreated,
 		event.SessionCreatedData{Workdir: c.Workdir}))
@@ -126,7 +152,11 @@ func (w *recordingWork) CreateSession(_ context.Context, c command.CreateSession
 }
 
 // Running is what serialises the work. Nothing is running in these tests unless one says so.
-func (w *recordingWork) Running() (session.SessionID, bool) { return w.busy, w.busy != "" }
+func (w *recordingWork) Running() (session.SessionID, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.busy, w.busy != ""
+}
 
 // Submit records the prompt AND writes it to the log, which is what a real one does before it
 // starts a turn. Recording only in memory left the log with a turn that finished without ever
@@ -141,9 +171,9 @@ func (w *recordingWork) Submit(_ context.Context, c command.SubmitPrompt) error 
 	w.ar.got.Unlock()
 	w.ar.append(string(c.SessionID), ev(w.ar.t, event.TypePromptSubmitted,
 		event.PromptSubmittedData{MessageID: "m_handed", Parts: c.Parts}))
-	w.busy = c.SessionID
 	// A submitted prompt starts a turn, and a turn running is what the next piece waits for. A
 	// fake that skipped this would drain the whole queue at once and call it serialised.
+	w.setBusy(c.SessionID)
 
 	return nil
 }
@@ -255,8 +285,8 @@ func (ar *arrival) append(sid string, evs ...event.Event) {
 func (ar *arrival) finishes(sid, said string) {
 	ar.t.Helper()
 	ar.said++
-	if ar.work != nil && string(ar.work.busy) == sid {
-		ar.work.busy = "" // the turn ended; the workspace is free again
+	if ar.work != nil {
+		ar.work.freeIf(sid) // the turn ended; the workspace is free again
 	}
 	ar.append(sid,
 		ev(ar.t, event.TypePartAppended, event.PartAppendedData{
@@ -405,7 +435,7 @@ func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
 func TestARefusalIsAnAnswerAndNotAFailedCall(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	ar.work.busy = "the-person-is-working" // so nothing drains and the queue fills
+	ar.work.setBusy("the-person-is-working") // so nothing drains and the queue fills
 
 	for i := 0; i < maxWaiting; i++ {
 		if _, err := cl.Hand("— asked by master", "do it"); err != nil {
@@ -751,7 +781,7 @@ func TestWorkIsQueuedWhileTheWorkspaceIsInUse(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
-	ar.work.busy = "the-person-is-working"
+	ar.work.setBusy("the-person-is-working")
 	receipt, err := cl.Hand("— asked by master", "name the tokens")
 	if err != nil {
 		t.Fatalf("work was refused instead of taken: %v", err)
@@ -770,7 +800,7 @@ func TestWorkIsQueuedWhileTheWorkspaceIsInUse(t *testing.T) {
 		t.Fatalf("a queued piece reads as %+v", got)
 	}
 	// When the workspace frees up it starts, without anybody asking again.
-	ar.work.busy = ""
+	ar.work.setBusy("")
 	until(t, "the queue to drain", func() bool { return len(ar.prompts()) == 1 })
 	if got, _ := cl.Handed(receipt); strings.Contains(got.News, "not started") {
 		t.Errorf("it started but still reads as queued: %+v", got)
@@ -860,7 +890,7 @@ func TestAQueuedPieceGetsItsOwnAnswer(t *testing.T) {
 func TestEveryArrivalIsWrittenDownWithHowMuchWasAlreadyThere(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	ar.work.busy = "the-person-is-working" // so nothing drains and the queue fills
+	ar.work.setBusy("the-person-is-working") // so nothing drains and the queue fills
 
 	for i := 0; i < maxWaiting; i++ {
 		if _, err := cl.Hand("— asked by master", "do it"); err != nil {
