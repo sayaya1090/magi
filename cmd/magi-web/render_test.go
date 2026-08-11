@@ -3326,3 +3326,47 @@ console.log(JSON.stringify({kinds}));`)
 		}
 	}
 }
+
+// A handed-out job names somebody, and the name leads to them.
+//
+// The card is drawn for the case that matters — the companion named IS one this console can see —
+// because that is the branch that draws a link, and the branch that draws a link is the one that
+// threw: the row variable was called el, which shadows the page's own el(), so the moment the name
+// became an anchor the whole card disappeared. Reported as "the handed-out card is gone".
+func TestAHandedOutJobLinksToTheCompanionItNames(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"design","live":true,"state":"working","session":"s_1"},
+      {"socket":"/s/b.sock","name":"buttons","live":true,"state":"working","session":"s_2"}
+    ]`, "?d=%2Fs%2Fa.sock", `
+ROUTES['/handoffs'] = [
+  {from: 'design', to: 'buttons', request: 'make the toggle read its state', state: 'working'},
+  {from: 'design', to: 'nobody-here', request: 'a companion this console cannot see', state: 'idle'}];
+await loadFleet();
+await drawHandoffs({socket: '/s/a.sock'});
+const box = byId.handoffs;
+const names = [];
+const walk = n => { if (String(n.className || '') === 'to') names.push({tag: n.tag, href: n.attrs.href || '', text: n.textContent});
+                    for (const k of n.children || []) walk(k); };
+walk(box);
+console.log(JSON.stringify({hidden: box.hidden, names}));`)
+
+	if got["hidden"] == true {
+		t.Fatal("two handed-out jobs and the card is hidden")
+	}
+	names, _ := got["names"].([]any)
+	if len(names) != 2 {
+		t.Fatalf("the card drew %d names for two jobs: %v", len(names), names)
+	}
+	known, _ := names[0].(map[string]any)
+	if tag, _ := known["tag"].(string); tag != "a" {
+		t.Errorf("a companion this console can see is drawn as %q, with no way to it", tag)
+	}
+	if href, _ := known["href"].(string); !strings.Contains(href, "%2Fs%2Fb.sock") {
+		t.Errorf("the link goes to %q rather than to that companion", href)
+	}
+	// And the one nobody here answers to stays plain: an anchor to nowhere is worse than a word.
+	unknown, _ := names[1].(map[string]any)
+	if tag, _ := unknown["tag"].(string); tag == "a" {
+		t.Error("a name this console cannot resolve was drawn as a link anyway")
+	}
+}

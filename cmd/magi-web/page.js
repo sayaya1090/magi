@@ -2080,7 +2080,10 @@ async function drawHandoffs(a) {
   const list = await fetchList('/handoffs' + qFor(a));
   if (!list || !list.length) { box.hidden = true; box.replaceChildren(); return; }
   const rows = list.map(h => {
-    const el = cell('ho ' + h.state);
+    // `row`, not `el`: this scope used to call its row el, which shadows the page's own el() —
+    // the moment the name became a link the row threw "el is not a function" and the whole card
+    // vanished, on every console where the companion named was one this one can see.
+    const row = cell('ho ' + h.state);
     // The name is a way to the companion it names, when this console can see one by that name.
     // Handed-out work is the one place on this page that talks about somebody who is not on the
     // screen, and the answer to "what is it doing with this" lives on their page.
@@ -2095,11 +2098,11 @@ async function drawHandoffs(a) {
       to.setAttribute('href', at('?d=' + encodeURIComponent(peer.socket) +
         (peer.peer ? '&p=' + encodeURIComponent(peer.peer) : '')));
     }
-    el.append(to, cell('req', h.request));
+    row.append(to, cell('req', h.request));
     // The answer only when the work is over. Anything else would be reporting a sentence
     // mid-thought as a conclusion.
-    el.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
-    return el;
+    row.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
+    return row;
   });
   box.replaceChildren(cell('k', tr('field.handed_out')), ...rows);
   box.hidden = false;
