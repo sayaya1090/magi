@@ -117,9 +117,13 @@ func TestTheMockAnswersExactlyWhatThePageAsksFor(t *testing.T) {
 // teaches the wrong thing about the real console.
 func fetchPathsIn(page string) []string {
 	var out []string
+	// Every helper that READS. The list is the point: a new one that this does not know about makes
+	// the whole check silently narrower, which is how /council was fetched by the page and answered
+	// by nothing for as long as it took to notice.
 	for _, re := range []*regexp.Regexp{
 		regexp.MustCompile(`fetch\('(/[a-z0-9]+)`),
 		regexp.MustCompile(`fetchList\('(/[a-z0-9]+)`),
+		regexp.MustCompile(`fetchOne\('(/[a-z0-9]+)`),
 	} {
 		for _, m := range re.FindAllStringSubmatch(page, -1) {
 			out = append(out, m[1])

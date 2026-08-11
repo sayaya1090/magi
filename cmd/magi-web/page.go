@@ -1283,6 +1283,45 @@ const indexHTML = `<!doctype html>
   #stream, #side, #sidecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
   #side #plan, #side #handoffs, #side #history { max-width:none; }
 
+  /* ── one level in: a verdict, or a child ─────────────────────────────────── */
+  /* A page, not a card: what is in here is a transcript or the material a vote stood on, and both
+     are things you scroll and copy out of. It takes the conversation's measure so the prose in it
+     reads at the same line length as the prose it came from. */
+  #agentdetail { max-width:var(--magi-sys-wide); display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
+  #agentdetail .dhead { display:flex; align-items:baseline; gap:var(--magi-sys-space-200); flex-wrap:wrap; }
+  #agentdetail .dwho { font:600 var(--md-sys-typescale-title-medium-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-primary); }
+  #agentdetail .dchip { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  /* The section headings. Small and quiet: they are labels on the things below them, and the
+     things below them are the content. */
+  #agentdetail .dk {
+    font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
+    letter-spacing:.05em; color:var(--magi-ref-muted); text-transform:none;
+  }
+  /* The evidence heading leads, because the order is the argument: what was judged, then the
+     judgement. A verdict read first can only be believed. */
+  #agentdetail .dhero { color:var(--magi-ref-accent); border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-200); }
+  #agentdetail .dbody { max-width:var(--magi-sys-measure); overflow-wrap:anywhere; }
+  #agentdetail .dbody pre {
+    font:var(--magi-sys-body-s) var(--magi-ref-mono); white-space:pre; max-width:100%;
+    overflow-x:auto; overscroll-behavior-x:contain; background:var(--magi-ref-surface);
+    padding:var(--magi-sys-space-150); border-radius:var(--magi-sys-shape-xs);
+  }
+  #agentdetail .dnote { color:var(--magi-ref-muted); font:var(--magi-sys-body-s) var(--magi-ref-mono); }
+  #agentdetail .dseen { display:flex; flex-direction:column; gap:var(--magi-sys-space-100); }
+  #agentdetail .dlog { container-type:inline-size; container-name:transcript; min-width:0; }
+  /* The way one level in. A quiet control: it is beside content, not over it, and the row it sits
+     under is the thing being read. */
+  .deeper {
+    background:none; border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-xs);
+    color:var(--magi-ref-primary); font:var(--magi-sys-body-s) var(--magi-ref-mono);
+    padding:2px var(--magi-sys-space-150); cursor:pointer; margin:var(--magi-sys-space-50) 0 0 auto;
+    display:inline-block;
+  }
+  .deeper:hover { background:color-mix(in srgb, var(--magi-ref-primary) 8%, transparent); }
+  .deeper:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
+  .row .deeper { grid-column:2; justify-self:start; }
+  #agentdetail .dlog .row .deeper { display:none; } /* one level in is as deep as it goes */
+
   /* ── the agent's own plan ───────────────────────────────────────────────── */
   #plan { max-width:var(--magi-sys-measure); }
   /* The plan's own progress. Linear, at the top edge of the card it belongs to, spanning its
@@ -1949,7 +1988,7 @@ const indexHTML = `<!doctype html>
   <h1 class="mark">magi</h1>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
-  <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
+  <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><a id="crumbHere"></a><span id="crumbSep2" hidden>/</span><span id="crumbDeep"></span></nav>
   <span class="sid" id="sid"></span>
   <!-- The one place that speaks. Errors, the connection dropping, and a search narrowing all
        changed silently before this: a screen reader was never told. role=status with a polite
@@ -2092,6 +2131,10 @@ const indexHTML = `<!doctype html>
     </div>
     <!-- The handle and the pane it opens are one column: siblings of #stream, a grid would place
          them in reading order and put the pane on a row of its own beneath the conversation. -->
+    <!-- One level in from the conversation: a council member's verdict, or a child the turn
+         spawned. Its own section rather than a dialog, because what is in it is a transcript or a
+         page of evidence — things you scroll, select and copy out of. -->
+    <section id="agentdetail" hidden></section>
     <div id="sidecol">
       <md-icon-button id="sideToggle" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
@@ -2545,6 +2588,7 @@ const view = () => {
   return RENAMED[v] || v;
 };
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
+const crumbSep2 = document.getElementById('crumbSep2'), crumbDeep = document.getElementById('crumbDeep');
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
@@ -2559,6 +2603,22 @@ const HREF = {fleet: '', skills: '?v=skills', board: '?v=board'};
 const TABS = ['fleet', 'skills'];
 
 const sock = () => new URLSearchParams(location.search).get('d');
+// One level in from a companion's conversation. Addresses, not state: a screen somebody is looking
+// at is a screen they can send to somebody else, and the back button is the way out of it for free.
+// The sub parameter is a child session id; cr is "<round>:<member>", a council seat in a round.
+const subOf = () => new URLSearchParams(location.search).get('sub') || '';
+const crOf = () => new URLSearchParams(location.search).get('cr') || '';
+const deepIn = () => !!(sock() && (subOf() || crOf()));
+// Going one level in and coming back out. Both are pushState + render, so the address bar, the
+// crumbs and what is drawn can never disagree — there is one source and it is the URL.
+function goDeep(param, value) {
+  const u = new URLSearchParams(location.search);
+  u.delete('sub'); u.delete('cr');
+  if (value) u.set(param, value);
+  history.pushState({}, '', '?' + u.toString());
+  render();
+}
+const goBackUp = () => goDeep('sub', '');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
 // The pair (peer, socket) identifies a companion once more than one console is in the list: a
 // socket path is only meaningful on the machine that owns it.
@@ -3405,6 +3465,18 @@ async function fetchList(path) {
   catch { reach(false); says(tr('error.unreachable')); return null; }
 }
 
+// fetchOne is fetchList for something that is not a list. Same failure handling, because the
+// distinction it draws — "this console is not answering" against "there is nothing here" — is the
+// same one and must not be drawn twice, differently.
+const fetchOne = fetchList;
+
+// councilWordOf is the council's vocabulary as a reader should see it. The log's words are
+// mechanical; "done" on its own reads as a status rather than a judgement.
+function councilWordOf(decision) {
+  const key = {done: 'council.accept', continue: 'council.reject', abstain: 'council.abstain'}[decision];
+  return key ? tr(key) : decision;
+}
+
 async function loadFleet() {
   const list = await fetchList('/fleet');
   if (!list) return;
@@ -3600,6 +3672,27 @@ function drawDetail(a) {
              })());
   bar.onclick = () => setFolded(!box.hasAttribute('folded'));
   box.replaceChildren(bar, grid);
+  // Children the turn spawned, reached from the facts rather than from the transcript. A child is
+  // started inside a tool call and finishes inside the same one, so the transcript row that
+  // produced it says "spawn" and nothing about what came back — there was no way in at all.
+  //
+  // Only when there are some: a button that leads to an empty list is a button that teaches people
+  // not to press it.
+  fetchList('/subagents' + qFor(a)).then(kids => {
+    if (!kids || !kids.length) return;
+    const row = cell('f');
+    row.append(cell('k', tr('detail.subagents')));
+    const v = cell('v');
+    for (const k of kids) {
+      const b = el('button', (k.role || tr('detail.subagent')) + ' · ' + oneLine(k.task || '', 40));
+      b.type = 'button';
+      b.className = 'deeper hit48';
+      b.onclick = () => goDeep('sub', k.id);
+      v.append(b);
+    }
+    row.append(v);
+    grid.append(row);
+  });
   setFolded(localStorage.getItem('facts') === 'folded');
   box.hidden = false;
   // Which of the two panels it belongs to when the columns have stacked. Called here rather than
@@ -3612,6 +3705,128 @@ function drawDetail(a) {
   // a test, or a later screen that needs the whole panel settled — has no other way to know when
   // the slow half landed, and a promise nobody can await is a promise nobody can check.
   return drawContext(a, box, grid, field);
+}
+
+// ── one level in: a council seat, or a child the turn spawned ────────────────
+//
+// The terminal has had this since it had a council: a verdict or a subagent pane opens into a
+// screen of its own. Here the same row folded open to show the one line that was already on the
+// transcript, so pressing it led back to what had just been read.
+//
+// One screen and two sources, because the question is the same for both. Who was this, what were
+// they asked, what did they SEE, and what did they come back with — the last two being the halves
+// that turn a verdict from something to weigh into something to check.
+
+const detailEl2 = () => document.getElementById('agentdetail');
+
+// head builds the detail's own heading: who, and what they concluded.
+function detailHead(title, hue, chip) {
+  const h = cell('dhead');
+  const who = cell('dwho', title);
+  if (hue) who.style.color = hue;
+  h.append(who);
+  if (chip) h.append(cell('dchip', chip));
+  return h;
+}
+
+// section is a labelled block of the detail: a heading nobody has to guess at, and the body under
+// it. Empty bodies are skipped rather than drawn as a heading over nothing.
+function detailSection(box, label, body, opts) {
+  if (!String(body || '').trim()) return;
+  box.append(cell('dk', label));
+  const b = cell('dbody');
+  if (opts && opts.pre) { const p = el('pre'); p.textContent = body; b.append(p); }
+  else md(b, String(body));
+  box.append(b);
+}
+
+// drawVerdict is one council member's vote, and the material the round was shown.
+//
+// The evidence comes first: a vote read before what it judged can only be believed, and read after
+// it can be checked. That ordering is the terminal's and it is the point of the screen.
+async function drawVerdict(a, spec) {
+  const box = detailEl2();
+  const [roundStr, ...rest] = String(spec).split(':');
+  const round = parseInt(roundStr, 10) || 0;
+  const member = rest.join(':');
+  // From the transcript already loaded rather than fetched again: these rows are the ones on
+  // screen, and asking the server for a copy would be a second answer that can differ from what
+  // the reader just pressed.
+  //
+  // The LAST vote of that seat in that round, not the first. A member votes twice when a rebuttal
+  // round changes its mind, and both are in the transcript — reading the earlier one put a
+  // rejection behind a row that said the opposite.
+  const seats = (lastRows || []).filter(r => r.who === 'council' && r.round === round
+    && String(r.member || '') === member);
+  const v = seats[seats.length - 1] || {};
+  // The seat's own colour, taken from the same token the transcript row uses so the two cannot
+  // drift. Only for the three named seats: a custom member gets the default, rather than a lookup
+  // of a token named after whatever the log said.
+  const seat = COUNCIL_SEATS[member.toLowerCase()];
+  const hue = seat ? 'var(--magi-ref-' + member.toLowerCase() + ')' : '';
+  box.replaceChildren();
+  box.append(detailHead('⚖ ' + (member || tr('council.outcome')), hue,
+    (v.decision ? councilWordOf(v.decision) : '') + (v.lens ? ' · ' + v.lens : '')
+    + (v.confidence ? ' · ' + Math.round(v.confidence * 100) + '%' : '')));
+
+  const ev = await fetchOne('/council' + qFor(a) + '&round=' + round);
+  if (ev) {
+    const seen = cell('dseen');
+    detailSection(seen, tr('detail.task'), ev.task);
+    detailSection(seen, tr('detail.plan'), ev.plan);
+    detailSection(seen, tr('detail.report'), ev.report);
+    detailSection(seen, tr('detail.actions'), ev.actions, {pre: true});
+    detailSection(seen, tr('detail.changes'), ev.changes, {pre: true});
+    if (ev.noChanges) seen.append(cell('dnote', tr('detail.no_changes')));
+    if (seen.children.length) {
+      box.append(cell('dk dhero', tr('detail.evidence')));
+      box.append(seen);
+    }
+  }
+  detailSection(box, tr('detail.rationale'), v.why);
+  detailSection(box, tr('detail.next'), v.feedback);
+  // What a revision must NOT lose. It is produced, recorded per member and injected back into the
+  // model — and had no rendering here at all, so the one instruction protecting finished work was
+  // the only part of a verdict nobody could read.
+  detailSection(box, tr('detail.keep'), v.keep);
+  // The grounds, including the two ways there are none: a member saying plainly it judged the
+  // report's substance, and a member that did not answer. A "done" standing on nothing is a fact
+  // about that vote and the empty case is the one worth seeing most.
+  box.append(cell('dk', tr('detail.grounds')));
+  box.append(cell('dbody', !String(v.cite || '').trim() ? tr('detail.no_grounds')
+    : (v.cite.trim().toUpperCase() === 'NO-EVIDENCE' ? tr('detail.judged_on_report') : '"' + v.cite + '"')));
+}
+
+// drawChild is one spawned subagent: what it was, what it was asked, and its own transcript.
+async function drawChild(a, id) {
+  const box = detailEl2();
+  const list = await fetchList('/subagents' + qFor(a));
+  const me = (list || []).find(x => x.id === id) || {id: id};
+  box.replaceChildren();
+  box.append(detailHead('◆ ' + (me.role || tr('detail.subagent')), '',
+    (me.running ? tr('detail.running') : tr('detail.finished')) + (me.model ? ' · ' + me.model : '')));
+  detailSection(box, tr('detail.asked'), me.task);
+  // Its own transcript, built by the same code that builds the parent's, so a child reads the way
+  // everything else on this page reads instead of like a second rendering of the same log.
+  const rows = await fetchList('/transcript' + qFor(a) + '&session=' + encodeURIComponent(id));
+  const log2 = cell('dlog');
+  for (const r of (rows || [])) log2.append(rowNode(r));
+  if (!log2.children.length) log2.append(cell('dnote', tr('detail.nothing_yet')));
+  box.append(cell('dk dhero', tr('detail.what_it_did')));
+  box.append(log2);
+}
+
+// drawDeep decides which of the two is open, and says so in the crumb.
+async function drawDeep(a) {
+  const box = detailEl2();
+  box.replaceChildren(cell('dnote', tr('detail.loading')));
+  try {
+    if (crOf()) await drawVerdict(a, crOf());
+    else await drawChild(a, subOf());
+  } catch (e) {
+    box.replaceChildren(cell('dnote', tr('error.unreachable')));
+  }
+  reveal(box);
 }
 
 // ── the plan it is working through ───────────────────────────────────────────
@@ -4639,6 +4854,22 @@ function rowNode(r) {
   // compaction summaries and the hook output — magi talking to the agent about the work.
   const w = el('div', r.who === 'system' ? tr('row.system') : r.who); w.className = 'who';
 
+  // A council seat opens into its own screen. The fold under it holds the member's reasoning; the
+  // screen holds what the member was JUDGING, which is the half that makes a vote checkable and
+  // the half a transcript row has no room for. Only a member's vote — a round's outcome is a tally
+  // with nothing behind it that is not already on the row.
+  //
+  // A button and not a click on the row: the row already does something (it folds), and one
+  // gesture that does two things depending on where it lands is the shape people press by
+  // accident. Two questions, two controls, and both are reachable by keyboard.
+  const deeper = r.who === 'council' && r.member && r.round ? (() => {
+    const b = el('button', tr('detail.evidence'));
+    b.type = 'button';
+    b.className = 'deeper hit48';
+    b.onclick = ev => { ev.stopPropagation(); goDeep('cr', r.round + ':' + r.member); };
+    return b;
+  })() : null;
+
   if (foldedKinds[r.who]) {
     const det = el('details'); det.className = 'txt fold';
     // Remembered per kind, so somebody who wants to watch tool calls is not re-opening them all
@@ -4702,6 +4933,7 @@ function rowNode(r) {
       }
     }
     d.append(w, det);
+    if (deeper) d.append(deeper);
     return d;
   }
 
@@ -4938,6 +5170,14 @@ function render() {
   back.setAttribute('href', at(s ? '' : HREF[v] || ''));
   crumbSep.hidden = !s;
   crumbHere.textContent = s ? nameOf(s) : '';
+  // One level in, the companion's own name becomes a way BACK to its conversation and the third
+  // crumb says where you are. Without that the only way out of a detail screen is the browser's
+  // back button, which is not a control the page put there.
+  const deep = deepIn();
+  crumbHere.setAttribute('href', s ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '')) : '');
+  crumbHere.className = deep ? '' : 'here';
+  crumbSep2.hidden = !deep;
+  crumbDeep.textContent = deep ? (crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':') : '◆ ' + tr('detail.subagent')) : '';
   back.className = s ? '' : 'here';
   tabsEl.hidden = !!s;
   // Which kind of page this is, for the rules that differ between them. On a companion's page the
@@ -4966,8 +5206,14 @@ function render() {
   // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
-  f.hidden = !s;
-  document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
+  // The conversation and everything that acts on it belong to the companion's page, not to a
+  // screen about one piece of what happened there. Standing in a verdict, "send" would put a
+  // message into a conversation that is not on screen.
+  const deepNow = deepIn();
+  document.getElementById('agentdetail').hidden = !deepNow;
+  streamEl.hidden = !!deepNow;
+  f.hidden = !s || deepNow;
+  document.getElementById('stop').hidden = !s || deepNow; // nothing to interrupt from the fleet view
   // Leaving a companion resets the panel: the next one is arrived at for its conversation, and
   // landing on the facts of an agent you just opened is a screen nobody asked for.
   if (!s) panel = 'talk';
@@ -4982,8 +5228,16 @@ function render() {
   // hidden element does nothing, so the list is the page's destinations and the right one answers.
   for (const el of [fleetEl, skillsEl, boardEl, mcpEl, streamEl]) reveal(el);
   measureDock();
-  if (s) { draw([]); connect(); }
-  else { conn(''); says(''); }
+  if (s && !deepNow) { draw([]); connect(); }
+  else if (!s) { conn(''); says(''); }
+  if (deepNow) {
+    // The fleet poll is still what says which companion this is — the detail needs its socket and
+    // its peer — so the row is taken from the last poll when there is one, and asked for when
+    // there is not.
+    const known = (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf());
+    drawDeep(known || {socket: s, peer: peerOf()});
+    return;
+  }
   if (v === 'board') {
     // Live, like the fleet beside it. A board that showed the day as it stood when you opened it
     // went stale the moment an agent finished something — and the day you watch it is the day work

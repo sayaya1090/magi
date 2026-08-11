@@ -196,6 +196,28 @@ const demoScript = `
       {content: 'fold it into the component docs', status: 'pending'},
     ],
 
+    // A council seat one level in, and a child the turn spawned. Both screens exist in the real
+    // page and neither could be seen in the demo, which is the surface most people meet first.
+    '/subagents': [
+      {id: 's_demo_child', role: 'scout', task: 'find every component that draws an empty state',
+       model: 'qwen3-coder-next', started: now, ago: 240, running: false},
+    ],
+    '/transcript': [
+      {who: 'user', text: 'find every component that draws an empty state, and say which token each uses'},
+      {who: 'thinking', text: 'Start with a grep for the empty-state class, then read the ones that match.'},
+      {who: 'tool', tool: 'grep', args: '{"pattern":"empty-state","path":"src"}', ok: true,
+       out: 'src/list.tsx\nsrc/table.tsx\nsrc/inbox.tsx'},
+      {who: 'assistant', text: 'Three: list, table and inbox. list and table use --surface-dim; ' +
+       'inbox draws its own grey and does not use a token at all.'},
+    ],
+    '/council': {round: 1, members: ['Melchior', 'Balthasar', 'Casper'], rule: 'majority',
+      task: 'Write the empty-state spec and name the tokens it uses.',
+      plan: 'Every empty state names a token; no component invents a colour.',
+      report: 'Spec written, three components audited, one exception found and recorded.',
+      actions: 'grep empty-state src → 3 files\nread src/inbox.tsx → 84 lines',
+      changes: '+++ docs/empty-states.md\n+ ## Empty states\n+ Use --surface-dim.',
+      keep: true},
+
     '/handoffs': [
       {from: 'design', to: 'buttons', socket: '/demo/buttons.sock', state: 'idle',
        request: 'make the toggle read its state from the store',

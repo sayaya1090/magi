@@ -2493,3 +2493,48 @@ console.log(JSON.stringify({rows: rows}));`)
 		t.Errorf("the gutter says %q", who)
 	}
 }
+
+// A council seat has a way one level in, and a round's outcome does not.
+//
+// The fold under a verdict holds the member's reasoning. The screen behind it holds what the
+// member was JUDGING — which is the half that makes a vote checkable, and the half a transcript
+// row has no room for. An outcome is a tally with nothing behind it that is not already on the row.
+func TestOnlyAMembersVoteLeadsOneLevelIn(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'council',member:'Melchior',decision:'done',round:1,text:'Melchior: accept'},
+      {who:'council',decision:'done',round:1,tally:'3 done',text:'the council says done'},
+      {who:'assistant',text:'finished'}]);
+const deep = [];
+const walk = n => { for (const k of n.children || []) { if (String(k.className).includes('deeper')) deep.push(k.textContent); walk(k); } };
+walk(byId.log);
+console.log(JSON.stringify({deep: deep}));`)
+
+	deep, _ := got["deep"].([]any)
+	if len(deep) != 1 {
+		t.Fatalf("%d rows offer a way in, want 1 (the member's vote): %v", len(deep), deep)
+	}
+}
+
+// A seat that changed its mind opens on the vote that counted.
+//
+// A member votes twice when a rebuttal round turns it around, and both rows are in the transcript.
+// Reading the first put a rejection behind a row that said the opposite.
+func TestASeatThatChangedItsMindOpensOnTheVoteThatCounted(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock&cr=1%3AMelchior", `
+lastRows = [{who:'council',member:'Melchior',round:1,decision:'continue',why:'the tests do not run'},
+            {who:'council',member:'Melchior',round:1,decision:'done',why:'they run now'}];
+await drawVerdict({socket:'/s/a.sock'}, '1:Melchior');
+// The fake node's textContent is its own text, not its subtree's, so the tree is walked.
+const seen = [];
+const walk = n => { if (n.textContent) seen.push(n.textContent); for (const k of n.children || []) walk(k); };
+walk(byId.agentdetail);
+console.log(JSON.stringify({text: seen.join(' | ')}));`)
+
+	txt, _ := got["text"].(string)
+	if !strings.Contains(txt, "they run now") {
+		t.Errorf("the detail shows a vote the member replaced:\n%s", txt)
+	}
+	if strings.Contains(txt, "the tests do not run") {
+		t.Errorf("the superseded vote is on screen:\n%s", txt)
+	}
+}
