@@ -148,17 +148,9 @@ func run() int {
 		mux.HandleFunc(path, h)
 	}
 
-	ln, err := net.Listen("tcp", *addr)
+	ln, err := listenLoopback(*addr)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi-web: listen:", err)
-		return 1
-	}
-	if !isLoopback(ln.Addr()) {
-		// Refuse rather than warn. This serves a control surface with no authentication of its
-		// own; bound to a routable address it hands the workspace to whoever finds the port.
-		ln.Close()
-		fmt.Fprintf(os.Stderr, "magi-web: %s is not loopback and this server has no authentication — "+
-			"use ssh -L to reach it from elsewhere\n", *addr)
+		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
 	}
 	fmt.Fprintf(os.Stderr, "magi-web: http://%s — %d companion(s) under %s", ln.Addr(), countDaemons(cd), cd)
@@ -175,6 +167,33 @@ func run() int {
 		return 1
 	}
 	return 0
+}
+
+// listenLoopback binds, and hands back nothing the network can reach.
+//
+// Refuse rather than warn. This serves a control surface with no authentication of its own: a
+// prompt, a shell command, the approval mode, the model, a skill file, a cron job. Bound to a
+// routable address it hands the workspace to whoever finds the port, and a warning on a terminal
+// nobody is looking at is not a defence.
+//
+// It is a function rather than four lines in run() so there is ONE place that opens a port and it
+// is the place that checks — a second net.Listen elsewhere in this binary would be a second door
+// with no lock, which is why a test counts them.
+//
+// The listener is closed on refusal. Returned open, the port would stay bound for the life of the
+// process while the caller reports the failure and exits, and the operator's retry on the same
+// address would fail for a reason that has nothing to do with what they typed.
+func listenLoopback(addr string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen: %w", err)
+	}
+	if !isLoopback(ln.Addr()) {
+		ln.Close()
+		return nil, fmt.Errorf("%s is not loopback and this server has no authentication — "+
+			"use ssh -L to reach it from elsewhere", addr)
+	}
+	return ln, nil
 }
 
 // isLoopback reports whether an address is one only this machine can reach.
