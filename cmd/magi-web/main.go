@@ -840,12 +840,16 @@ func renderMessages(msgs []session.Message) []line {
 					if res, ok := results[p.ToolCall.CallID]; ok {
 						good := !res.IsError
 						row.Ok = &good
-						// The result goes in the same row's body. A failure is what somebody opens
-						// the row for, so it is what the body holds; a success is usually noise,
-						// and the arguments are the more useful thing to have kept.
-						if res.IsError {
-							row.Out = fleet.Clip(string(res.Content), 8000)
-						}
+						// What it ANSWERED, whether or not it failed.
+						//
+						// Only failures used to travel, on the reasoning that a success is noise
+						// and the arguments are the more useful thing to keep. That is wrong twice
+						// over: the row folds, so a success costs nothing until somebody opens it —
+						// and when they did open it they got the arguments they had just read in
+						// the summary line, twice, with the answer nowhere. "What did the grep
+						// find" is most of why anybody opens a tool call, and the terminal has
+						// always shown it.
+						row.Out = fleet.Clip(string(res.Content), 8000)
 					}
 					out = append(out, row)
 				}

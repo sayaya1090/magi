@@ -704,3 +704,34 @@ func TestAnAssetIsRevalidatedRatherThanFrozen(t *testing.T) {
 		t.Errorf("a 304 carried %d bytes", again.Body.Len())
 	}
 }
+
+// A call that WORKED carries what it answered, not only the ones that failed.
+//
+// Only failures used to travel, on the reasoning that a success is noise and the arguments are the
+// more useful thing to keep. The row folds, so a success costs nothing until somebody opens it —
+// and when they opened one they got the arguments they had just read in the summary line, again,
+// with the answer nowhere. "What did the grep find" is most of why anybody opens a tool call.
+func TestASuccessfulCallCarriesItsOutput(t *testing.T) {
+	rows := renderMessages([]session.Message{{
+		Role: session.RoleAssistant,
+		Parts: []session.Part{
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{
+				CallID: "c1", Name: "grep", Args: json.RawMessage(`{"pattern":"empty-state"}`)}},
+			{Kind: session.PartToolResult, ToolResult: &session.ToolResult{
+				CallID: "c1", Content: json.RawMessage(`"src/list.tsx\nsrc/table.tsx"`)}},
+		},
+	}})
+	if len(rows) != 1 {
+		t.Fatalf("rows came out as %+v", rows)
+	}
+	if rows[0].Ok == nil || !*rows[0].Ok {
+		t.Fatal("a call that worked is not reported as having worked")
+	}
+	if !strings.Contains(rows[0].Out, "src/list.tsx") {
+		t.Errorf("what it answered did not travel: %+v", rows[0])
+	}
+	// And what it was asked is still there: the two are different questions and the row holds both.
+	if !strings.Contains(rows[0].Args, "empty-state") {
+		t.Errorf("what it was asked was lost: %+v", rows[0])
+	}
+}
