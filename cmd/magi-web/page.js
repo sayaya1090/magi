@@ -2967,9 +2967,42 @@ let lastRows = [];
 // of the whole transcript for one line of text.
 let liveNote = '';
 
+// shown is what is currently in the log, row by row, beside the nodes showing them.
+//
+// The transcript is re-sent whole two and a half times a second, and it used to be re-BUILT whole
+// just as often: every row of an hour-long session thrown away and made again, markdown and all,
+// four hundred times a minute. On a long conversation that is tens of thousands of nodes per
+// second, and the page spent its time rebuilding what had not changed.
+//
+// It cost more than time. A fold is a node, so its open state died with it: you pressed one open
+// and 400ms later the frame that replaced it read the per-kind preference back and opened every
+// row of that kind — the thing the disclosure comment above says explicitly does not happen.
+const shown = {rows: [], nodes: []};
+
+// same reports whether a row can keep the node it already has. Field by field rather than by
+// stringifying: a tool result is eight kilobytes and this runs on every row of every frame.
+function same(a, b) {
+  return a.who === b.who && a.text === b.text && a.args === b.args && a.out === b.out
+    && a.ok === b.ok && a.pending === b.pending && a.at === b.at && a.round === b.round
+    && a.member === b.member && a.decision === b.decision && a.exit === b.exit
+    && a.tool === b.tool;
+}
+
 function draw(rows) {
   const stick = atBottom();
-  log.replaceChildren(...[...(rows || []), ...localRows].map(rowNode));
+  const want = [...(rows || []), ...localRows];
+  // A transcript grows at the end. So the unchanged head is kept as it is, and everything from the
+  // first difference on is rebuilt — which for the usual frame is the last row and nothing else.
+  // A compaction rewrites history and breaks the match early; that rebuild is correct and rare.
+  let i = 0;
+  while (i < want.length && i < shown.rows.length && same(want[i], shown.rows[i])) i++;
+  while (shown.nodes.length > i) log.removeChild(shown.nodes.pop());
+  for (let j = i; j < want.length; j++) {
+    const n = rowNode(want[j]);
+    shown.nodes.push(n);
+    log.append(n);
+  }
+  shown.rows = want;
   if (stick) window.scrollTo(0, document.body.scrollHeight);
 }
 

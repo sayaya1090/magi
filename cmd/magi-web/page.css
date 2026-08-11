@@ -1500,7 +1500,12 @@
      line — a tool result naming forty tools, a path with no spaces in it — widened the column past
      the page and put a horizontal scrollbar under the whole console. The transcript scrolls
      vertically; anything too wide scrolls inside its own box (below), never by moving the page. */
-  .row { display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--magi-sys-space-200); align-items:start; padding:var(--magi-sys-space-50) 0; }
+  .row { display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--magi-sys-space-200); align-items:start; padding:var(--magi-sys-space-50) 0;
+    /* Off screen, a row costs nothing to lay out or paint. A long conversation is a thousand rows
+       of markdown, tables and folded output, and the browser was laying out all of it on every
+       change to the last one. The size hint keeps the scrollbar honest before a row has ever been
+       rendered; auto lets each row remember its real height once it has been. */
+    content-visibility:auto; contain-intrinsic-size:auto 3.5rem; }
   /* 34rem: the gutter and its gap cost 7.5rem, and below this there is not enough left for a line
      of prose to be worth reading. The label goes above the text instead of beside it — still
      present, no longer paid for on every line. */

@@ -64,6 +64,15 @@ function element(tag) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
       this.children.push(...kids);
     },
+    // Removing one child, which is how the transcript drops the tail it is about to rebuild.
+    // Absent here, a page that stopped replacing everything every frame threw instead — the fake
+    // has to answer the DOM calls the page makes, not the ones it used to make.
+    removeChild(kid) {
+      const i = this.children.indexOf(kid);
+      if (i >= 0) this.children.splice(i, 1);
+      if (kid && typeof kid === 'object') kid.parentNode = null;
+      return kid;
+    },
     replaceChildren(...kids) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
       this.children = kids;

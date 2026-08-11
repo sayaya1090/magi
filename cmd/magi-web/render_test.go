@@ -2792,3 +2792,70 @@ console.log(JSON.stringify({when: when}));`)
 		t.Errorf("both rows say %v — the stamp is not the row's own", when[0])
 	}
 }
+
+// A frame that changes one row rebuilds one row.
+//
+// The transcript is re-sent whole two and a half times a second and it used to be re-BUILT whole
+// just as often — every row of an hour-long session thrown away and made again, markdown and all,
+// four hundred times a minute.
+//
+// It cost more than time. A fold is a node, so its open state died with it: pressing one open and
+// waiting 400ms opened every row of the same kind, because the frame that replaced it read the
+// per-kind preference back for all of them.
+func TestAFrameThatChangesOneRowRebuildsOneRow(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const rows = [];
+for (let i = 0; i < 40; i++) rows.push({who:'assistant', text:'line ' + i, at:'2026-08-11T04:0' + (i%10) + ':00Z'});
+draw(rows);
+const first = byId.log.children.slice();
+// The same frame again: nothing changed, so nothing is rebuilt.
+draw(rows.map(r => Object.assign({}, r)));
+const again = byId.log.children.slice();
+const kept = again.filter((n, i) => n === first[i]).length;
+// One more row arrives, as a turn's next line does.
+draw([...rows, {who:'assistant', text:'the new one', at:'2026-08-11T04:11:00Z'}]);
+const grown = byId.log.children.slice();
+const keptAfterGrowth = grown.slice(0, 40).filter((n, i) => n === first[i]).length;
+// And an EARLIER row changing takes the rows after it with it, which is what a compaction does.
+// A fold opened by hand stays open across the frames that follow. It is the same fact as the
+// node identity above, and it is the one somebody notices: the row you pressed open used to shut
+// itself — or open every row of its kind — a few hundred milliseconds later.
+draw([...rows, {who:'tool', tool:'read', args:'{"path":"go.mod"}', ok:true, out:'module magi'}]);
+const fold = byId.log.children[40].children.find(c => c.tag === 'details');
+fold.open = true;
+draw([...rows, {who:'tool', tool:'read', args:'{"path":"go.mod"}', ok:true, out:'module magi'}]);
+const stillOpen = byId.log.children[40].children.find(c => c.tag === 'details').open;
+const rewritten = rows.map((r, i) => i === 5 ? Object.assign({}, r, {text:'rewritten'}) : r);
+draw(rewritten);
+const after = byId.log.children.slice();
+console.log(JSON.stringify({
+  kept: kept, keptAfterGrowth: keptAfterGrowth, grownLen: grown.length, stillOpen: stillOpen,
+  keptBeforeEdit: after.slice(0, 5).filter((n, i) => n === first[i]).length,
+  rebuiltFromEdit: after.slice(5).filter((n, i) => n === first[i + 5]).length,
+  finalLen: after.length}));`)
+	num := func(k string) int {
+		f, _ := got[k].(float64)
+		return int(f)
+	}
+	if num("kept") != 40 {
+		t.Errorf("an unchanged frame kept %d of 40 rows", num("kept"))
+	}
+	if num("keptAfterGrowth") != 40 || num("grownLen") != 41 {
+		t.Errorf("one new row rebuilt the transcript: kept %d, now %d rows",
+			num("keptAfterGrowth"), num("grownLen"))
+	}
+	if got["stillOpen"] != true {
+		t.Error("a fold pressed open shut itself on the next frame")
+	}
+	// A row that changed does not keep its node, and neither do the rows after it: the page cannot
+	// know whether what follows still belongs where it was.
+	if num("keptBeforeEdit") != 5 {
+		t.Errorf("the rows before an edit were rebuilt too (%d of 5 kept)", num("keptBeforeEdit"))
+	}
+	if num("rebuiltFromEdit") != 0 {
+		t.Errorf("%d rows from the edit on kept a node built for different content", num("rebuiltFromEdit"))
+	}
+	if num("finalLen") != 40 {
+		t.Errorf("the rewritten transcript has %d rows", num("finalLen"))
+	}
+}
