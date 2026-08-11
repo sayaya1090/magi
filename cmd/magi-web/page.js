@@ -3716,6 +3716,11 @@ function render() {
   streamEl.hidden = !!deepNow;
   f.hidden = !s || deepNow;
   document.getElementById('stop').hidden = !s || deepNow; // nothing to interrupt from the fleet view
+  // And the strip under it, when the screen you are on IS the decision. Standing on the decision
+  // screen the same question was drawn twice — its report in full above, its report again in the
+  // dock, with a button offering to open the screen already open. The dock's copy is the one that
+  // exists because the screen might not be.
+  if (deepNow) document.getElementById('prompt').hidden = true;
   // Leaving a companion resets the panel: the next one is arrived at for its conversation, and
   // landing on the facts of an agent you just opened is a screen nobody asked for.
   if (!s) panel = 'talk';

@@ -1417,12 +1417,25 @@
   #agentdetail .askact { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200); align-items:center; }
   #agentdetail .askact .answer { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-150); align-items:center; width:100%; }
   #agentdetail .askact md-outlined-text-field { flex:1 1 22rem; min-width:0; }
-  /* The grounds on this screen are the content, not an aside: full measure, and the section names
-     lead them rather than sitting inline. */
-  #agentdetail .grounds { display:grid; grid-template-columns:1fr; gap:var(--magi-sys-space-100); max-width:var(--magi-sys-measure); }
+  /* The grounds on this screen are the content, not an aside.
+     The section name goes in a gutter to the left, which is the shape this page uses everywhere a
+     short label stands beside something being read — the transcript's speakers, the facts card,
+     the strip's own keys. Stacked above the text it took a line each and pushed the reasoning down
+     the screen it exists to be read on; beside it, the whole report is one scan.
+     The text keeps the page's reading measure. It is not narrower here than in the dock — the
+     gutter is outside it — and it is not wider, because 74 characters is where prose stops being
+     comfortable and a decision screen is not the place to prove otherwise. */
+  #agentdetail .grounds {
+    display:grid; grid-template-columns:7rem minmax(0, var(--magi-sys-measure));
+    gap:var(--magi-sys-space-150) var(--magi-sys-space-300); max-width:none;
+  }
   #agentdetail .grounds .gk {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
-    letter-spacing:.05em; color:var(--magi-ref-accent);
+    letter-spacing:.05em; color:var(--magi-ref-accent); text-align:right;
+  }
+  @media (max-width:40em) {
+    #agentdetail .grounds { grid-template-columns:1fr; gap:var(--magi-sys-space-50); }
+    #agentdetail .grounds .gk { text-align:left; margin-top:var(--magi-sys-space-100); }
   }
   #agentdetail .grounds .gv { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
   #agentdetail .dlog { container-type:inline-size; container-name:transcript; min-width:0; }
