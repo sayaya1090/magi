@@ -1,7 +1,8 @@
 # Opening the console to other people
 
-Status: **proposal, nothing built.** Written while the operator was away, so the decision it turns
-on is stated first and the work stops there.
+Status: **the three "either way" items are built** (see below); the decision the rest turns on is
+still open. Written while the operator was away, so it states the decision first, builds only what
+is right under either answer, and stops there.
 
 ## What is being asked
 
@@ -60,27 +61,46 @@ and any one missing makes the rest theatre:
 6. **A decision about `/shell` and `/dispatch`.** In an externally reachable mode I would refuse
    `/shell` outright: it is a remote shell with a friendly face.
 
-## Needed either way, and buildable now
+## Needed either way — built
 
-These do not depend on the choice, and none of them weakens the current posture:
+None of these depends on the choice and none weakens the current posture.
 
-- **An audit record of state-changing requests** — the seven that change a run, plus the writes
-  (`/skills`, `/forget`, `/remember`, `/report-format`, `/cron`, `/mcp`). Derived like everything
-  else: an event in the log rather than a new file. Useful with one person too, because "who
-  interrupted that turn" is already a question a second console cannot answer.
-- **An `exposed` mode flag** that turns off `/shell` and refuses `-peer`, so the shape of a
-  reachable console is decided before it is reachable rather than after.
-- **A test that the bind guard cannot be bypassed** — there is one refusal today and no test that
-  it stays a refusal.
+- **An audit record of state-changing requests** (`cmd/magi-web/audit.go`). One JSON line per
+  non-GET request appended to `console-audit.jsonl` beside the session store: time, method, path,
+  the companion it named, origin, and status. Wrapped OUTSIDE the cross-site guard, so a refusal —
+  the line somebody would actually want — is recorded even though no handler runs.
 
-## What I would do next, in order
+  Two things changed from the sketch above. It is a **file, not an event in the session log**: the
+  record has to hold requests the daemon never saw (refused at the guard, or a socket that could
+  not be dialled), it must be one place regardless of which companion was named, and magi-web is a
+  reader — the daemon owns the log. And it records **that** a prompt was submitted, never what it
+  said: the log already holds every word, and a second copy would be the whole conversation again
+  in a file with different permissions and no compaction.
 
-1. The operator picks A or B. If B, they say what A could not do for them — that answer decides
-   the scope of 2.
-2. Build the three "either way" items above, with tests. They are small and they are not wasted
-   under either choice.
-3. Only then, if B: design the session and authorization model as its own proposal, with the
-   allow-list first and the login page last.
+  **Who** needed a source. This process has no users and cannot tell a proxied request from any
+  other loopback connection, so identity comes from the gateway through a header the operator names
+  with `-user-header` — unverified, and documented as unverified. Unset, the record says where and
+  not who.
+- **An `exposed` mode flag.** `-exposed` refuses `/shell`, refuses `-peer` at startup, and — added
+  on the same reasoning — refuses **MCP writes**: a server entry is a command line a daemon spawns
+  at startup, which is the shell route wearing a settings form, and this repository's own
+  same-site guard exists because a page on another origin once wrote one. Reading the MCP list
+  stays. `/dispatch` and `/cron` stay: they reach the machine through the agent and its permission
+  policy, and refusing them leaves a console that cannot be used for the thing it is for.
+- **A test that the bind guard cannot be bypassed** (`cmd/magi-web/bind_test.go`). Binding moved
+  into `listenLoopback` so one place opens a port and it is the place that checks; the test pins
+  the refusal, that the socket is released rather than held, and that the message still tells the
+  operator how to reach the console from elsewhere. A second test counts the port-openers in the
+  binary, because the first is worth exactly that count.
+
+## What is left, in order
+
+1. **The operator picks A or B.** If B, they say what A could not do for them — that answer decides
+   the scope of the rest.
+2. If **A**: nothing more in this repository. Put the proxy in front, start the console with
+   `-exposed -user-header <what your gateway sets>`, and the record names people from day one.
+3. If **B**: design the session and authorization model as its own proposal, with the allow-list
+   first and the login page last. The audit record and `-exposed` are already there to build on.
 
 ## What I will not do without being told twice
 

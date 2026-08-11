@@ -243,6 +243,8 @@ MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web   # 그다음 위
 ./magi --agents                # 이 머신의 모든 magi와 각자 무엇을 하는지
 ./magi-web                     # 같은 것을 브라우저에서(127.0.0.1:7777) — 중단·응답·
                                # 배운 것을 읽고, 하나가 막히면 폰으로 알림. -peer로 다른 머신을 붙인다
+./magi-web -exposed            # 인증하는 프록시 뒤: 셸 없음, MCP 쓰기 없음, 바꾼 것은 전부 기록
+                               # (-user-header가 '누구'의 출처)
 ```
 
 콘솔은 눌러볼 수 있는 데모가 있다 — 진짜 페이지, 목업 데이터, 서버 없음:

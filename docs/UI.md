@@ -551,8 +551,20 @@ phone for months.
 5. **Nothing is written on somebody's behalf.** An agent proposes what it learned and a person can
    forget it; no screen turns a repeated correction into a rule by itself. The pipeline that offered
    to is gone, because deciding a correction is a rule was a judgement nobody had grounds for.
-6. **No authentication of its own.** Loopback, behind whatever the organisation already runs.
-7. **A demo is not the product.** `-emit-demo` writes a static copy answered by a mock in the
+6. **No authentication of its own.** Loopback, behind whatever the organisation already runs. The
+   bind is a refusal, not a warning, and a test holds it there. When something in front does
+   authenticate, `-exposed` says so and the console drops the two routes that make the MACHINE run
+   what the caller chose — `/shell`, and writing an MCP server's command line — because those go
+   round the permission policy every tool call goes through. `-peer` is refused with it: a peer is
+   reached on the operator's own tunnel, so a shared console would let whoever the gateway admits
+   act as the operator on another machine.
+7. **Changes are written down.** Every request that changes something appends a line to
+   `console-audit.jsonl` beside the session store: method, path, the companion it named, where it
+   came from, and what was answered — refusals included, since the cross-site guard turns those
+   away before a handler sees them. Never the body: the session log already holds every word. Who
+   comes from the gateway, through the header `-user-header` names; unset, the record says where
+   and not who rather than leaving a blank to be misread as a name.
+8. **A demo is not the product.** `-emit-demo` writes a static copy answered by a mock in the
    browser. It hid a dead console for weeks (§5), so a change to this page is confirmed against a
    running `magi-web` before it is believed.
 

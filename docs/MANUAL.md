@@ -611,6 +611,8 @@ Stop the console and nothing stops working.
 ./magi-web -config-dir /path/to/config       # which daemons it can see
 ./magi-web -workdir /path/to/repo            # the workspace it defaults to
 ./magi-web -peer laptop=http://10.0.0.4:7777 -peer ci=http://10.0.0.9:7777
+./magi-web -exposed                          # more people than you can reach it (proxy in front)
+./magi-web -exposed -user-header X-Forwarded-User
 ./magi-web -emit-demo ./out                  # write the page as static files and exit
 ```
 
@@ -624,6 +626,32 @@ Stop the console and nothing stops working.
   sockets are not this one's to dial. A peer that does not answer becomes a **row saying so**, since
   a machine that went quiet is the thing most worth seeing. Peer URLs come from the operator only —
   never from a page or from another peer's answer.
+- **`-exposed` is for a console more people than you can reach** — behind an authenticating proxy,
+  an SSO gateway, a tunnel a team shares. Nothing here can find that out on its own (a request
+  forwarded by a proxy is a loopback connection like any other), so you say it. It turns off the
+  two routes that make the **machine** run something the caller chose, outside the permission
+  policy an agent's tool calls go through: `/shell`, and writing an MCP server's command line,
+  which a daemon spawns at startup. Reading the MCP list stays. Prompts, answers, cron and dispatch
+  stay too — they reach the machine through the agent, and refusing them leaves a console that
+  cannot be used for the thing it is for. **It does not authenticate anything**; it narrows what an
+  authenticated caller may ask for.
+- **`-exposed` and `-peer` cannot be used together.** A peer is reached on *your* tunnel with your
+  keys, so a shared console would let whoever the gateway admits act as you on another machine —
+  and the record on the far side would say the request came from here. Run a second console for the
+  federated view.
+- **Changes are recorded** in `console-audit.jsonl`, beside the session store
+  (`~/Library/Caches/magi` on macOS, `~/.cache/magi` on Linux, `%LocalAppData%/magi` on Windows;
+  `MAGI_DATA_DIR` moves it). One JSON line per request that changes something: time, method, path,
+  the companion it named, where it came from, and the status — refusals included. Reads are not
+  recorded; the page polls, and a file that is nine parts noise is one nobody opens. The body is
+  never recorded — the session log already holds every word, and this is the record of the door.
+  It only grows; delete it when you want it gone.
+- **`-user-header NAME` is where "who" comes from.** magi has no accounts, so the only thing that
+  knows who is talking is the gateway in front: name the header it sets (`X-Forwarded-User`,
+  `X-Auth-Request-Email`, `Cf-Access-Authenticated-User-Email`, `Tailscale-User-Login`, …) and it
+  is written into each line. Unset, the record says where a request came from and not who sent it.
+  It is not verified and cannot be: it is worth exactly what "the gateway is the only way in" is
+  worth, which is what the loopback bind protects.
 - **`-peer` and the cluster (§13.7) are different things.** A peer is a console the operator listed,
   for a person to look at. A cluster is companions telling each other who exists, for work to be
   handed across. Neither reads the other's list.

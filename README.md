@@ -258,6 +258,8 @@ Markdown and syntax highlighting adapt to dark/light terminals automatically.
 ./magi-web                     # the same, in a browser (127.0.0.1:7777) — interrupt, answer,
                                # read what they have learned, and be told on your phone when one
                                # of them blocks; -peer adds another machine
+./magi-web -exposed            # behind a proxy that authenticates: no shell, no MCP writes, and
+                               # every change recorded (-user-header names who)
 ```
 
 The console has a clickable demo — the real page, mocked data, no server:

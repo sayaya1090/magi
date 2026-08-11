@@ -632,7 +632,16 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   page had become an ES module and the demo still copied only the fonts.
 - **No authentication of magi's own**, by decision: loopback, and reached through whatever the
   organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
-  supervision model this exists to serve.
+  supervision model this exists to serve, and
+  `proposals/external-access-2026-08-12.md` for what opening it to other people would take.
+- **Three things that hold whatever the answer to that turns out to be**, and none of them assumes
+  one: `listenLoopback` is the single place a port is opened and it refuses anything routable (a
+  test counts the openers, because one lock is worth what the door count is); `-exposed` drops the
+  routes that make the machine run what the caller chose — `/shell` and MCP writes — while leaving
+  everything that reaches the machine through the agent; and `audited` wraps every route OUTSIDE
+  the cross-site guard so a refusal is recorded too, appending method, path, companion, origin and
+  status to `console-audit.jsonl`. Who comes from the gateway in front through the header
+  `-user-header` names, unverified and said to be.
 
 ---
 
