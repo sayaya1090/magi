@@ -6,7 +6,13 @@
 # optional and it is not a flag to remember: it is here.
 set -e
 cd "$(dirname "$0")/.."
-gofmt -l ./internal ./cmd
+# gofmt -l PRINTS the unformatted files and exits 0, so with `set -e` this line was a report
+# nobody read: three pushes reached CI with a file gofmt did not like, each time after a gate that
+# had just said nothing was wrong. The exit code is the whole judgement here, so it has to be made.
+unformatted=$(gofmt -l ./internal ./cmd)
+if [ -n "$unformatted" ]; then
+  echo "not gofmt-clean:"; echo "$unformatted"; exit 1
+fi
 go build ./...
 GOOS=windows go build ./cmd/magi ./cmd/magi-web
 GOOS=linux GOARCH=amd64 go vet ./internal/... ./cmd/...

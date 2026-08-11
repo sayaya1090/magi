@@ -234,7 +234,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
 			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
 			Permission: in.Permission, User: in.User,
-			Live:       in.Live, Here: here != "" && in.Socket == here,
+			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}
 		sid := session.SessionID(in.Session)
