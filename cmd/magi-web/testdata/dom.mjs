@@ -414,7 +414,18 @@ globalThis.fetch = async (path, init) => {
     const pack = JSON.parse(process.env.LANG_PACK ?? '{}');
     return { ok: true, status: 200, json: async () => pack, text: async () => JSON.stringify(pack) };
   }
+  // A route a test has answered for itself. The default below hands every path the fleet's list,
+  // which is right for the page's own poll and wrong for anything with a shape of its own — a
+  // strip fed the fleet array finds no children in it and hides, which looks exactly like a
+  // companion with nothing running.
+  const route = String(path).split('?')[0];
+  if (Object.prototype.hasOwnProperty.call(globalThis.ROUTES, route)) {
+    const body = globalThis.ROUTES[route];
+    return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+  }
   return { ok: true, status: 200, json: async () => JSON.parse(process.env.FLEET_JSON ?? '[]'), text: async () => '' };
 };
+// Answers a test can set per route, by path without its query.
+globalThis.ROUTES = {};
 
 export { byId, RENDERED, element };

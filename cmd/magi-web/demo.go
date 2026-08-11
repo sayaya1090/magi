@@ -50,7 +50,11 @@ const demoScript = `
      team: 'frontend', hub: true, workdir: '/Users/you/work/design-system', session: 'd1',
      state: 'working', live: true, task: 'spec the empty state for the fleet table, and name the exact tokens',
      doing: 'check 6, 4m12s elapsed, not met yet (exit 1)',
-     steps: 7, planDone: 2, planTotal: 5, idle: 12, host: 'studio', addr: '10.0.0.4', pid: 4127},
+     steps: 7, planDone: 2, planTotal: 5, idle: 12, host: 'studio', addr: '10.0.0.4', pid: 4127,
+     // The mode it is on, so the approvals control in the facts has something to show. Without it
+     // the demo draws an empty select, which is what a companion too old to answer looks like —
+     // the wrong thing to teach on the screen most people meet first.
+     permission: 'auto', user: 'you'},
     {socket: '/demo/api.sock', name: 'api', role: 'the billing API and its contracts',
      team: 'backend', workdir: '/Users/you/work/billing', session: 'a1',
      state: 'waiting', live: true, asking: 'run: psql -c "drop table staging_invoices"',
@@ -202,6 +206,19 @@ const demoScript = `
       {id: 's_demo_child', role: 'scout', task: 'find every component that draws an empty state',
        model: 'qwen3-coder-next', started: now, ago: 240, running: false},
     ],
+    // The strip in the dock: what is running beside the turn. A child that is still going and a
+    // build that ended badly, because those are the two states worth showing somebody who has
+    // never seen this screen — one to press, one to notice.
+    '/jobs': {
+      children: [
+        {id: 's_demo_child', tool: 'scout', task: 'find every component that draws an empty state',
+         running: true, steps: 4, started: now},
+      ],
+      background: [
+        {id: 'bg_demo', command: 'npm run build', running: false, exit: 1, started: now,
+         tail: 'compiling…\n3 warnings\nerror: Token --surface-dim is not defined'},
+      ],
+    },
     '/transcript': [
       {who: 'user', text: 'find every component that draws an empty state, and say which token each uses'},
       {who: 'thinking', text: 'Start with a grep for the empty-state class, then read the ones that match.'},

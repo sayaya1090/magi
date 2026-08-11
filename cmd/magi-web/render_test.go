@@ -2911,3 +2911,69 @@ console.log(JSON.stringify({who: who}));`)
 		t.Errorf("a tool call is attributed to %q", who[3])
 	}
 }
+
+// The strip says what is running beside the turn, without being opened.
+//
+// A child used to be reachable only through a button inside the facts card — so finding out that
+// anything was happening at all meant opening a card to look. The terminal has kept this along its
+// bottom since it had one, and it is the answer to "is something going on", which is a question you
+// do not ask by navigating.
+func TestTheStripSaysWhatIsRunningBesideTheTurn(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+ROUTES['/jobs'] = {children: [
+    {id: 's_kid', tool: 'scout', task: 'find every empty state', running: true},
+    {id: 's_gone', tool: 'refine', task: 'tighten the wording', running: false, err: 'context cancelled'}],
+  background: [{id: 'bg', command: 'go build ./...', running: true, tail: 'one\nthe last line'}]};
+// loadJobs is started by the poll and awaited here directly, because the fake's setTimeout does
+// not run anything — the strip's fetch has to be the thing that is waited on.
+await loadFleet();
+await loadJobs({socket: '/s/a.sock'});
+// The fake's textContent is a node's OWN text, so a chip's words are gathered from its parts.
+const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
+const chips = byId.strip.children.map(c => ({
+  cls: c.className, tag: c.tag, text: words(c),
+  dot: (c.children || []).some(k => (k.className || '') === 'jdot')}));
+byId.strip.children[0].onclick();
+console.log(JSON.stringify({hidden: byId.strip.hidden, chips, url: location.search}));`)
+	if got["hidden"] == true {
+		t.Fatal("three things are running and the strip is hidden")
+	}
+	chips, _ := got["chips"].([]any)
+	if len(chips) != 3 {
+		t.Fatalf("the strip drew %d chips: %v", len(chips), chips)
+	}
+	first, _ := chips[0].(map[string]any)
+	// Running, said by the chip itself. On the pressable one that is its class — the button
+	// component lays out its own label box and a dot handed to it lands wherever that box puts it.
+	if cls, _ := first["cls"].(string); !strings.Contains(cls, "live") {
+		t.Errorf("a running child is drawn as %q and says nothing about running", cls)
+	}
+	if tag, _ := first["tag"].(string); tag != "md-text-button" {
+		t.Errorf("a child is drawn as %q — it is a way into its own screen and has to be pressable", tag)
+	}
+	// The one that ended badly is marked as such; the one still going is not.
+	second, _ := chips[1].(map[string]any)
+	if cls, _ := second["cls"].(string); !strings.Contains(cls, "bad") {
+		t.Errorf("a child that ended badly is drawn as %q", cls)
+	}
+	if cls, _ := second["cls"].(string); strings.Contains(cls, "live") {
+		t.Error("a finished child is still pulsing")
+	}
+	// A background command shows the end of its output, which is the part that matters.
+	third, _ := chips[2].(map[string]any)
+	// The one that is not a control carries the dot, which is where a dot can be placed.
+	if third["dot"] != true {
+		t.Error("a running background command does not say it is running")
+	}
+	if text, _ := third["text"].(string); !strings.Contains(text, "the last line") {
+		t.Errorf("the command's chip reads %q", text)
+	}
+	if tag, _ := third["tag"].(string); tag == "md-text-button" {
+		t.Error("a background command is drawn as a control, and pressing it does nothing")
+	}
+	// Pressing a child goes to its screen rather than doing something in place.
+	if u, _ := got["url"].(string); !strings.Contains(u, "sub=s_kid") {
+		t.Errorf("pressing the child went to %q", u)
+	}
+}

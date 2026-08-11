@@ -95,6 +95,35 @@ func (s *server) subagents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "subagents", out)
 }
 
+// jobs answers what is running BESIDE the turn: commands left in the background, children spawned.
+//
+// Read from the daemon rather than from the store, and that is the whole point. The store can say
+// which children a session has; it cannot say which of them is still going — a session log does not
+// know it is over — and it knows nothing at all about a background command, which is a PID in
+// another process. The terminal has had a strip along its bottom for both since they existed, and
+// the console had no way to draw one.
+func (s *server) jobs(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	var out daemon.Jobs
+	if err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+		j, err := cl.Jobs(string(sid))
+		if err != nil {
+			return err
+		}
+		out = j
+		return nil
+	}); err != nil {
+		// Not an error page: a companion that is too old to answer, or busy enough to miss the
+		// dial, has nothing running as far as this console can tell — and a strip that shows
+		// nothing is the honest drawing of that. The page says the daemon is gone by other means.
+		writeJSON(w, "jobs", daemon.Jobs{})
+		return
+	}
+	writeJSON(w, "jobs", out)
+}
+
 // transcript renders ONE session of this companion's workspace as rows.
 //
 // The rows are built by the same code that builds the live stream, so a child's transcript reads

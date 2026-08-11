@@ -135,6 +135,7 @@
   "iv.refused": "거부 {n}회",
   "iv.refused_call": "{what} 거부",
   "iv.steers": "교정 {n}회",
+  "job.command": "백그라운드 명령",
   "label.add_server": "MCP 서버 추가",
   "label.answer": "답변",
   "label.ask": "magi에게 요청",

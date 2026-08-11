@@ -560,6 +560,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/mcp":           s.mcp,
 		"/handoffs":      s.handoffs,
 		"/subagents":     s.subagents,
+		"/jobs":          s.jobs,
 		"/transcript":    s.transcript,
 		"/council":       s.council,
 		"/plan":          s.plan,

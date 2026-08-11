@@ -1264,6 +1264,50 @@
      came from: reproducing it in a column beside the thing it led you to is drawing the previous
      step over the current one. The way back is the way in. */
 
+  /* The strip: one chip per thing running beside the turn, wrapping rather than scrolling, quiet
+     until you look at it. It sits in the dock so it is on screen wherever the transcript is
+     scrolled to — a panel that says "a build is running" is worth nothing if you have to scroll to
+     it. */
+  #strip:not([hidden]) { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150); }
+  .job {
+    display:inline-flex; align-items:center; gap:var(--magi-sys-space-100);
+    padding:var(--magi-sys-space-50) var(--magi-sys-space-150);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-full);
+    font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted);
+    background:transparent; max-width:100%; min-width:0;
+  }
+  /* The pressable one is the page's own button component, so it brings its own shape, ripple and
+     focus ring; what it takes from here is the size, because a strip of full-size buttons would be
+     a toolbar and this is a status line. */
+  /* The pressable one is the page's own button component, which brings the ripple, the focus ring
+     and the shape. A rule on the host can only draw a box AROUND it — which is exactly the outline
+     the other chips have, so the two sit together instead of one looking like a stray link. */
+  /* Running, on a chip that cannot hold the dot: the outline is the signal, and it breathes the
+     same way. */
+  md-text-button.job.live { border-color:var(--magi-ref-primary); animation:jpulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion:reduce) { md-text-button.job.live { animation:none; } }
+  md-text-button.job {
+    --md-text-button-label-text-size: var(--md-sys-typescale-label-small-size);
+    --md-text-button-container-height: 1.75rem;
+    --md-text-button-leading-space: var(--magi-sys-space-150);
+    --md-text-button-trailing-space: var(--magi-sys-space-150);
+    padding:0;
+  }
+  .job .jname { color:var(--magi-ref-fg); font-weight:600; }
+  .job .jsay { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  /* Finished, and quieter for it — but not below what the muted role can carry: this text is the
+     only thing saying which command it was. */
+  .job.done { opacity:.75; }
+  .job.bad { border-color:var(--magi-ref-error); color:var(--magi-ref-error); }
+  /* Running, said by something that moves: a strip of still chips does not distinguish the build
+     that is going from the one that ended four minutes ago. */
+  .job .jdot {
+    width:.5rem; height:.5rem; border-radius:var(--magi-sys-shape-full); background:var(--magi-ref-primary); flex:none;
+    animation:jpulse 1.6s ease-in-out infinite;
+  }
+  @keyframes jpulse { 0%, 100% { opacity:.35; } 50% { opacity:1; } }
+  @media (prefers-reduced-motion:reduce) { .job .jdot { animation:none; opacity:.8; } }
+
   #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
   #stream, #side, #sidecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
   #side #plan, #side #handoffs { max-width:none; }
@@ -1741,7 +1785,10 @@
      padding as main. It used to centre a narrower measure of its own in whatever space was left,
      which put the composer 235px right of the text it answers, and matching only the OUTER box
      left it 25px off — the padding is part of where a column starts. */
-  #prompt .inner, form {
+  /* The strip stands in the same column as the composer under it, for the reason written above:
+     the padding is part of where a column starts, and a strip aligned to the dock instead sat 44px
+     left of everything it belongs with. */
+  #prompt .inner, form, #strip:not([hidden]) {
     max-width:var(--magi-sys-page); margin-inline:auto; width:100%; box-sizing:border-box;
     padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300);
   }
@@ -1908,7 +1955,7 @@
     /* The prompt's inner column narrows with the rest of them. Left out, it kept the 1.4rem the
        wide layout gives it and the question sat 6px right of the transcript it is about — which is
        the same misalignment the dock had, one breakpoint down. */
-    form, #prompt .inner { padding-left:var(--magi-sys-space-200); padding-right:var(--magi-sys-space-200); }
+    form, #prompt .inner, #strip:not([hidden]) { padding-left:var(--magi-sys-space-200); padding-right:var(--magi-sys-space-200); }
     /* A phone's rail is a section at the foot of the page rather than a drawer, so there is nothing
        to open and nothing to dim behind. */
     #scrim { display:none; }
@@ -1935,7 +1982,7 @@
        padding it came out of the CONTENT box, which is why the masthead's rule ran 102px further
        left than the words above it — a border is drawn on the box and padding sits inside it. */
     body { padding-left:var(--magi-comp-rail-w); }
-    header, main, #prompt .inner, form { padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300); }
+    header, main, #prompt .inner, form, #strip:not([hidden]) { padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300); }
     #dock { padding-left:var(--magi-comp-rail-w); }
     /* Open, it is a floating panel. Closed, it is part of the furniture. */
 

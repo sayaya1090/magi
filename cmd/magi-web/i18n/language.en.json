@@ -135,6 +135,7 @@
   "iv.refused": "{n} refused",
   "iv.refused_call": "Refused {what}",
   "iv.steers": "{n} corrections",
+  "job.command": "background command",
   "label.add_server": "Add an MCP server",
   "label.answer": "Your answer",
   "label.ask": "Ask magi",

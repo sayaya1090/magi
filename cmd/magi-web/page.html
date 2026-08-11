@@ -259,6 +259,12 @@
 </md-dialog>
 
 <footer id="dock">
+  <!-- What is running beside the turn: a command left in the background, a child that was spawned.
+       Above the composer and always there, which is where the terminal has kept it since it had
+       one — the work that takes minutes is the work you want to see without going looking. Reaching
+       a child through a button buried in the facts card meant opening a card to find out that
+       something was happening at all. -->
+  <div id="strip" hidden></div>
   <div id="prompt" hidden></div>
   <form id="f" hidden><div class="composer">
     <md-outlined-text-field id="t" type="textarea" rows="1"

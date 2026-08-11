@@ -1352,6 +1352,7 @@ async function loadFleet() {
     drawPrompt(mine);
     drawDetail(mine);
     loadIntervened(mine);
+    loadJobs(mine);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
     return;
@@ -2992,6 +2993,68 @@ function rowNode(r) {
   else md(t, r.text);
   d.append(w, t);
   return d;
+}
+
+// ── what is running beside the turn ──────────────────────────────────────────
+// A command left in the background, a child that was spawned. Neither is in the log — a background
+// command is a PID in the daemon's process and a session log cannot say whether a child is still
+// going — so both are read from the daemon, on the poll that already runs.
+//
+// Drawn as a strip in the dock rather than as buttons inside the facts card. The card is a thing
+// you open to check on something; this is the answer to "is anything happening", and it has to be
+// on screen without being asked for. The terminal has kept it along the bottom since it had one.
+const stripEl = document.getElementById('strip');
+
+function jobChip(kind, name, say, opts) {
+  // A child is a way in; a background command is a fact. So one is the page's button component and
+  // the other is not a control at all: a pressable-looking thing that does nothing when pressed is
+  // worse than a plain line of text.
+  const el0 = document.createElement(opts.go ? 'md-text-button' : 'div');
+  if (opts.go) { el0.onclick = opts.go; }
+  el0.className = 'job' + (opts.running ? ' live' : ' done') + (opts.bad ? ' bad' : '');
+  // One line, and for the pressable one a single text node.
+  //
+  // The button component renders whatever it is given inside its own label box, which is laid out
+  // for a word: handed three elements it stacked them and the long one spilled out of the chip and
+  // off the left edge of the page — measured. So the control gets a label, and the running state
+  // is carried by the chip's own outline rather than by a dot it cannot place.
+  const words = oneLine(name, 28) + (say ? ' · ' + oneLine(say, 44) : '');
+  if (opts.go) {
+    el0.textContent = words;
+  } else {
+    if (opts.running) el0.append(cell('jdot', ''));
+    el0.append(cell('jname', oneLine(name, 28)));
+    if (say) el0.append(cell('jsay', oneLine(say, 44)));
+  }
+  el0.setAttribute('aria-label', kind + ': ' + name + (say ? ' — ' + say : ''));
+  return el0;
+}
+
+// lastLine is what a background command has said most recently. The chip has one line of room and
+// the interesting end of a log is the bottom of it.
+function lastLine(s) {
+  const lines = String(s || '').split('\n').filter(l => l.trim());
+  return lines.length ? oneLine(lines[lines.length - 1], 60) : '';
+}
+
+async function loadJobs(a) {
+  if (!a) { stripEl.hidden = true; stripEl.replaceChildren(); return; }
+  const j = await fetchList('/jobs' + qFor(a)) || {};
+  const kids = j.children || [], bg = j.background || [];
+  if (!kids.length && !bg.length) { stripEl.hidden = true; stripEl.replaceChildren(); return; }
+  const chips = [];
+  for (const c of kids) {
+    // A child opens into the screen that already exists for it, which is the whole reason the
+    // strip is worth having: one press from "something is running" to what it is doing.
+    chips.push(jobChip(tr('detail.subagent'), c.tool || tr('detail.subagent'), oneLine(c.task || '', 48),
+      {running: c.running, bad: !!c.err, go: () => goDeep('sub', c.id)}));
+  }
+  for (const b of bg) {
+    chips.push(jobChip(tr('job.command'), oneLine(b.command || '', 40), lastLine(b.tail),
+      {running: b.running, bad: !b.running && b.exit !== 0}));
+  }
+  stripEl.replaceChildren(...chips);
+  stripEl.hidden = false;
 }
 
 // localRows are the shell runs this console has done, in the order it did them.
