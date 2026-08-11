@@ -2988,7 +2988,9 @@ let userName = '';
 // "system", and the assistant is the companion, which is what the terminal has always called it.
 function whoWord(r) {
   if (r.who === 'user') return userName || tr('row.you');
-  if (r.who === 'system') return tr('row.system');
+  // Which part of magi wrote it, when the log says: the orchestrator's nudge and a mined spec are
+  // different facts, and one word for both is the word that says neither.
+  if (r.who === 'system') return r.by || tr('row.system');
   if (r.who === 'assistant') return 'magi';
   return r.who;
 }

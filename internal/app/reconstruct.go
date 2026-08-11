@@ -98,10 +98,16 @@ func reconstruct(evs []event.Event) []session.Message {
 			// ActorAgent stays a user message: a subagent's report IS handed to the agent as work
 			// that arrived, and it names itself in its own text.
 			role := session.RoleUser
+			author := ""
 			if ev.Actor.Kind == event.ActorSystem {
 				role = session.RoleSystem
+				// And WHICH part of magi wrote it. The orchestrator's nudge, the planner's note
+				// and a mined spec all arrive here as "system", and a reader who cannot tell them
+				// apart cannot tell whether the agent was corrected or informed.
+				author = ev.Actor.ID
 			}
-			e := &entry{seq: ev.Seq, msg: session.Message{ID: d.MessageID, Role: role, Parts: d.Parts, At: ev.TS}}
+			e := &entry{seq: ev.Seq, msg: session.Message{
+				ID: d.MessageID, Role: role, Parts: d.Parts, At: ev.TS, Author: author}}
 			index[d.MessageID] = e
 			entries = append(entries, e)
 

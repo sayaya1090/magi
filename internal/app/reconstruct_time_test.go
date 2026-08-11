@@ -72,3 +72,22 @@ func TestAStreamedMessageIsStampedWithWhenItBegan(t *testing.T) {
 		t.Errorf("the message is stamped %v, want the moment it began (%v)", msgs[0].At, began)
 	}
 }
+
+// The actor that wrote a note survives the rebuild.
+func TestARebuiltNoteRemembersWhichPartOfMagiWroteIt(t *testing.T) {
+	d, err := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m1", Parts: []session.Part{{Kind: session.PartText, Text: "you stopped early"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := reconstruct([]event.Event{{
+		Type: event.TypePromptSubmitted, Data: d,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "orchestrator"},
+	}})
+	if len(msgs) != 1 || msgs[0].Role != session.RoleSystem {
+		t.Fatalf("rebuilt %+v", msgs)
+	}
+	if msgs[0].Author != "orchestrator" {
+		t.Errorf("the note is attributed to %q", msgs[0].Author)
+	}
+}

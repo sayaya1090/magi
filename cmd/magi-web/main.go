@@ -817,6 +817,9 @@ type line struct {
 	// showed a conversation with no times in it anywhere, which is the first thing somebody
 	// returning to a companion after lunch wants to know about what they are reading.
 	At string `json:"at,omitempty"`
+	// By is which of magi's own parts wrote a system row — the orchestrator, the planner. The
+	// terminal has named it since these notes existed; the console called all of them magi.
+	By string `json:"by,omitempty"`
 	// msg is the message this row came out of, and never crosses the wire. It is how council marks
 	// find the place they belong: they carry the same id, out of the same log.
 	msg string `json:"-"`
@@ -845,11 +848,12 @@ func renderMessages(msgs []session.Message) []line {
 		if !m.At.IsZero() {
 			at = m.At.Format(time.RFC3339)
 		}
+		by := m.Author
 		for _, p := range m.Parts {
 			switch p.Kind {
 			case session.PartText:
 				if t := strings.TrimSpace(p.Text); t != "" {
-					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID, At: at})
+					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID, At: at, By: by})
 				}
 			case session.PartReasoning:
 				if t := strings.TrimSpace(p.Text); t != "" {

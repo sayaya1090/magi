@@ -87,6 +87,14 @@ type Message struct {
 	// Zero for anything assembled rather than replayed (a prompt on its way to the model, a
 	// compaction summary), and a zero time is shown as nothing rather than as 1970.
 	At time.Time `json:"at,omitzero"`
+	// Author is which of magi's own parts wrote this, for the messages magi writes to the agent:
+	// "orchestrator", "planner", "specmine". Empty for everything a person or the model said.
+	//
+	// The terminal has named it since these notes existed — it draws them as "⟳ orchestrator
+	// note:" — because "something injected this" and "the orchestrator nudged it" are different
+	// facts and only the second is useful. The rebuild dropped the actor, so every other reader
+	// had one word for all of them.
+	Author string `json:"author,omitempty"`
 }
 
 // PartKind discriminates the variant of a Part (tagged union).

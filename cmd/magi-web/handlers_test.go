@@ -874,3 +874,28 @@ func TestEveryRowOfAMessageCarriesItsTime(t *testing.T) {
 		t.Errorf("an unstamped message came through as %q", rows[3].At)
 	}
 }
+
+// A note magi wrote says WHICH part of magi wrote it.
+//
+// The orchestrator's nudge, a planner's note and a mined spec all reach the log as "system", and
+// the terminal has told them apart since they existed — it draws "⟳ orchestrator note:". The
+// rebuild dropped the actor, so every other reader had one word for all of them, and "magi said
+// something to itself" is not the fact anybody needs.
+func TestASystemRowSaysWhichPartOfMagiWroteIt(t *testing.T) {
+	rows := renderMessages([]session.Message{
+		{ID: "m1", Role: session.RoleSystem, Author: "orchestrator",
+			Parts: []session.Part{{Kind: session.PartText, Text: "you stopped without saying you are finished"}}},
+		{ID: "m2", Role: session.RoleUser,
+			Parts: []session.Part{{Kind: session.PartText, Text: "carry on then"}}},
+	})
+	if len(rows) != 2 {
+		t.Fatalf("rendered %d rows", len(rows))
+	}
+	if rows[0].By != "orchestrator" {
+		t.Errorf("the note is attributed to %q", rows[0].By)
+	}
+	// Nothing is attributed to a mechanism when a person spoke.
+	if rows[1].By != "" {
+		t.Errorf("what the person said is attributed to %q", rows[1].By)
+	}
+}

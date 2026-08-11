@@ -1237,6 +1237,16 @@
     /* Shut, the second column is only as wide as the handle. */
     body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr) auto; }
     body[side="shut"] #side { display:none; }
+    /* And the conversation actually takes the room.
+       The column widened and the transcript did not: it is capped at the wide measure, and on any
+       screen big enough to show a 22rem pane that cap was already the binding constraint — so
+       collapsing the pane moved the right-hand margin and nothing else. Measured at a 1617px
+       window: 874px of text with the pane open, 874px with it shut — not a pixel. It is 1268px
+       now.
+       Closing the pane is somebody asking for the width, so it is given, up to the page's own
+       bound. Unbounded it would run to 300 characters on a large monitor, which is not a wider
+       conversation — it is one nobody can read a line of. */
+    body[side="shut"] #log { max-width:var(--magi-sys-page); }
     /* Only where there is a pane to toggle. On the fleet list there is none, and a control that
        opens nothing is a control somebody presses once and distrusts afterwards. */
     body[at="agent"] #sideToggle { display:inline-flex; }
