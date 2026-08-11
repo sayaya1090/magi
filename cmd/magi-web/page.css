@@ -520,6 +520,15 @@
     content:''; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
     width:100%; min-width:48px; height:48px;
   }
+  /* The crumbs further along the line are the same kind of thing and were the same size as the
+     text they are made of — 16px tall, measured. They are the way back out of a detail screen, so
+     the one rule that made the first crumb pressable applies to them too; .here marks the level
+     you are standing on, which is not a link and gets no target. */
+  #crumbHere:not(.here), #crumbDeep:not(.here) { display:inline-block; position:relative; }
+  #crumbHere:not(.here)::after, #crumbDeep:not(.here)::after {
+    content:''; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+    width:100%; min-width:48px; height:48px;
+  }
 
   /* ── the rail: navigation on a wide screen, settings on a narrow one ────── */
   /* One element in two modes rather than two that have to agree. Wide: it stands beside the page
@@ -1293,7 +1302,10 @@
     body[side="shut"] #log { max-width:var(--magi-sys-page); }
     /* Only where there is a pane to toggle. On the fleet list there is none, and a control that
        opens nothing is a control somebody presses once and distrusts afterwards. */
-    body[at="agent"] #sideToggle { display:inline-flex; }
+    /* flex:none, because the column it sits in is a flex column and the pane beside it wants the
+       height: the toggle was squeezed to 40x24 — an icon button is 40dp square, with a 48dp target
+       around it, and 24 is neither. Measured on the live page before this line existed. */
+    body[at="agent"] #sideToggle { display:inline-flex; flex:none; }
   }
 
   /* There is no list beside a companion.
