@@ -2937,6 +2937,42 @@ function oneLine(s, n) {
   return t.length > n ? t.slice(0, n) + '…' : t;
 }
 
+// copyChip copies a message's SOURCE, which is the thing the page cannot otherwise give you.
+//
+// A plain button with a class, not the button component: this is one per prose row, the component
+// is a custom element with a shadow root of its own, and the transcript had just stopped building
+// hundreds of nodes it did not need. The page already builds the facts card's fold bar this way.
+function copyChip(text) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  // hit48 is the page's own expander: a 48dp press area taken out of flow, so the target is a
+  // target without the row growing around it. Measured before it: 9×12 pixels.
+  b.className = 'copy hit48';
+  b.textContent = '⧉';
+  b.setAttribute('aria-label', tr('action.copy'));
+  tip(b, tr('action.copy'));
+  b.onclick = async ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(String(text || ''));
+    } catch (e) {
+      // Said, not swallowed. A copy that silently did nothing is worse than one that failed
+      // loudly: the next thing somebody does is paste, and by then the reason is gone.
+      says(tr('copy.refused'));
+      return;
+    }
+    // Told twice, because one of the two reaches everybody: the glyph for whoever is looking at
+    // the button, the live region for whoever is not.
+    b.textContent = '✓';
+    b.classList.add('done');
+    say(tr('copy.done'));
+    clearTimeout(b._back);
+    b._back = setTimeout(() => { b.textContent = '⧉'; b.classList.remove('done'); }, 1200);
+  };
+  return b;
+}
+
 // rowNode builds one transcript row.
 function rowNode(r) {
   // The decision joins the class list, so a vote is coloured by what it says rather than all
@@ -2963,6 +2999,16 @@ function rowNode(r) {
     const when = el('div', hhmm(r.at));
     when.className = 'when';
     w.append(when);
+  }
+  // What was actually said, on the two rows that are prose. Selecting and pressing copy gets the
+  // RENDERED text — a table comes out as its cells run together and a fenced block loses its
+  // fence — and what somebody pasting an answer somewhere else wants is the source it was written
+  // in. The terminal has had this since it had a transcript.
+  //
+  // Always there rather than on hover: a control that appears under the pointer is a control a
+  // touch screen never shows and a keyboard never reaches. It is quiet instead.
+  if ((r.who === 'user' || r.who === 'assistant') && String(r.text || '').trim()) {
+    w.append(copyChip(r.text));
   }
 
   // A council seat opens into its own screen. The fold under it holds the member's reasoning; the
@@ -3102,12 +3148,19 @@ function rowNode(r) {
 const stripEl = document.getElementById('strip');
 
 function jobChip(kind, name, say, opts) {
-  // A child is a way in; a background command is a fact. So one is the page's button component and
-  // the other is not a control at all: a pressable-looking thing that does nothing when pressed is
-  // worse than a plain line of text.
-  const el0 = document.createElement(opts.go ? 'md-text-button' : 'div');
-  if (opts.go) { el0.onclick = opts.go; }
-  el0.className = 'job' + (opts.running ? ' live' : ' done') + (opts.bad ? ' bad' : '');
+  // A child is a way in; a background command is a fact. So one is pressable and the other is not
+  // a control at all: a pressable-looking thing that does nothing when pressed is worse than a
+  // plain line of text.
+  //
+  // A button element, not the button component. What the guide gives for "a small pressable thing
+  // in a row of small things" is an assist chip, and that component is not in the vendored bundle;
+  // md-text-button forced into a chip's box was one component dressed as another — its own spec is
+  // a 40dp pill — and it brought a shadow root whose label box could not be reached from here (the
+  // host took padding:0 and the spacing had to be set through its tokens). Built here it is the
+  // chip's own measurements, with the hover and press state layers M3 asks for.
+  const el0 = document.createElement(opts.go ? 'button' : 'div');
+  if (opts.go) { el0.type = 'button'; el0.onclick = opts.go; }
+  el0.className = 'job' + (opts.go ? ' press' : '') + (opts.running ? ' live' : ' done') + (opts.bad ? ' bad' : '');
   // One line, and for the pressable one a single text node.
   //
   // The button component renders whatever it is given inside its own label box, which is laid out

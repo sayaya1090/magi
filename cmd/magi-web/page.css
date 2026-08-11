@@ -1314,7 +1314,19 @@
      picked from the spacing scale rather than from the component. 8dp between chips, 8dp between
      the elements inside one, 16dp at the ends — 8dp on the end that has the leading dot, which is
      what the guide calls "left/right padding with icon". */
-  #strip:not([hidden]) { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150); }
+  #strip:not([hidden]) {
+    display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150);
+    /* Its own ground, and the dock's fade moved above it.
+       The dock is transparent for its top 12% so the transcript dissolves into it rather than
+       being cut — and the strip sits exactly there, so the conversation scrolled THROUGH the chips
+       and their labels were unreadable over it. The chips get the page's background and the fade
+       is drawn just above them, which is where the edge of the dock now is. */
+    background:var(--magi-ref-bg); position:relative;
+  }
+  #strip:not([hidden])::before {
+    content:''; position:absolute; left:0; right:0; bottom:100%; height:var(--magi-sys-space-300);
+    background:linear-gradient(to top, var(--magi-ref-bg), transparent); pointer-events:none;
+  }
   /* Scoped to the strip. A scheduled job in the pane is also .job — an unscoped rule here gave
      every row of the schedule a chip's height and border, which is a list turned into a row of
      pills by a name collision. */
@@ -1334,27 +1346,33 @@
   /* The pressable one is the page's own button component, which brings the ripple, the focus ring
      and the shape. A rule on the host can only draw a box AROUND it — which is exactly the outline
      the other chips have, so the two sit together instead of one looking like a stray link. */
-  /* Running, on a chip that cannot hold the dot: the outline is the signal, and it breathes the
-     same way. */
-  #strip md-text-button.job.live { border-color:var(--magi-ref-primary); animation:jpulse 1.6s ease-in-out infinite; }
-  @media (prefers-reduced-motion:reduce) { #strip md-text-button.job.live { animation:none; } }
-  #strip md-text-button.job {
-    --md-text-button-label-text-size: var(--md-sys-typescale-label-small-size);
-    /* The same 32dp box and 8dp corner as the chips beside it: the component's own default is a
-       pill, which is right for a button standing alone and wrong for one standing in a row of
-       chips. */
-    --md-text-button-container-height: 2rem;
-    --md-text-button-container-shape: var(--magi-sys-shape-s);
-    --md-text-button-leading-space: var(--magi-sys-space-200);
-    --md-text-button-trailing-space: var(--magi-sys-space-200);
-    padding:0;
+  /* The pressable one is the same chip, with the states the guide asks a pressable thing to have:
+     a state layer at .08 on hover and .12 on press, over the container. */
+  /* By class, never by tag: the page styles its hand-built controls by what they are for, and a
+     tag selector here would be the one rule that names an element the markup does not have. */
+  #strip .job.press {
+    cursor:pointer; position:relative; overflow:hidden;
+    /* A button element brings the platform's own font and background with it, and neither is this
+       page's. The chip rule above sets the box; this undoes what the element assumed. */
+    background:transparent; font:inherit; font-size:inherit; color:inherit; text-align:left;
   }
+  #strip .job.press::after {
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:currentColor; opacity:0; transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
+  }
+  #strip .job.press:hover::after { opacity:.08; }
+  #strip .job.press:active::after, #strip .job.press:focus-visible::after { opacity:.12; }
+  #strip .job.press:hover { color:var(--magi-ref-primary); border-color:var(--magi-ref-primary); }
   #strip .job .jname { color:var(--magi-ref-fg); font-weight:600; }
   #strip .job .jsay { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   /* Finished, and quieter for it — but not below what the muted role can carry: this text is the
      only thing saying which command it was. */
   #strip .job.done { opacity:.75; }
   #strip .job.bad { border-color:var(--magi-ref-error); color:var(--magi-ref-error); }
+  /* Running, on the chip that cannot hold a dot — the pressable one, whose label is one string —
+     said by its outline, which breathes the same way the dot does. */
+  #strip .job.live:not(:has(.jdot)) { border-color:var(--magi-ref-primary); animation:jpulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion:reduce) { #strip .job.live:not(:has(.jdot)) { animation:none; } }
   /* Running, said by something that moves: a strip of still chips does not distinguish the build
      that is going from the one that ended four minutes ago. */
   #strip .job .jdot {
@@ -1640,6 +1658,21 @@
      multiplier lands the muted role at 3.3:1 in the light theme, and a time nobody can read is
      not a quiet time — it is a missing one. */
   .who .when { font-weight:400; letter-spacing:0; }
+  /* Quiet until it is wanted, and never wider than the gutter it sits in. It is a button, so it
+     brings a focus ring and a keyboard press for free; what it needs from here is to stop looking
+     like one. */
+  .who .copy {
+    background:none; border:0; padding:0; margin-top:var(--magi-sys-space-50);
+    font:inherit; font-size:var(--md-sys-typescale-label-medium-size); line-height:1;
+    /* No opacity of its own. The gutter is already at .8 and a second multiplier lands the muted
+       role at 3.97:1 in the dark theme — a control nobody can see is not a quiet control. */
+    color:var(--magi-ref-muted); cursor:pointer;
+    /* Wide enough to be pressed, before hit48 makes it tall enough. A glyph's own box is nine
+       pixels across and the expander only stretches what is there. */
+    min-width:1.5rem;
+  }
+  .who .copy:hover, .who .copy:focus-visible { color:var(--magi-ref-primary); }
+  .who .copy.done { color:var(--magi-ref-success); }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
   /* Rendered markdown sets its own blocks, so the pre-wrap that keeps plain text's newlines would
      add a blank line after every paragraph. Only the rows that are still plain text keep it. */

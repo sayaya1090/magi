@@ -427,5 +427,14 @@ globalThis.fetch = async (path, init) => {
 };
 // Answers a test can set per route, by path without its query.
 globalThis.ROUTES = {};
+// What the page has copied, in order. The clipboard is a browser capability and there is none
+// here; a fake that threw would make a copy control look broken, and one that swallowed silently
+// would let a control that copies the WRONG thing pass.
+globalThis.CLIPBOARD = [];
+// Defined onto the existing navigator, which node supplies and does not let you replace.
+Object.defineProperty(globalThis.navigator, 'clipboard', {
+  configurable: true,
+  value: { writeText: async t => { globalThis.CLIPBOARD.push(String(t)); } },
+});
 
 export { byId, RENDERED, element };

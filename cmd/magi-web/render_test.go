@@ -2949,7 +2949,7 @@ console.log(JSON.stringify({hidden: byId.strip.hidden, chips, url: location.sear
 	if cls, _ := first["cls"].(string); !strings.Contains(cls, "live") {
 		t.Errorf("a running child is drawn as %q and says nothing about running", cls)
 	}
-	if tag, _ := first["tag"].(string); tag != "md-text-button" {
+	if tag, _ := first["tag"].(string); tag != "button" {
 		t.Errorf("a child is drawn as %q — it is a way into its own screen and has to be pressable", tag)
 	}
 	// The one that ended badly is marked as such; the one still going is not.
@@ -2969,7 +2969,7 @@ console.log(JSON.stringify({hidden: byId.strip.hidden, chips, url: location.sear
 	if text, _ := third["text"].(string); !strings.Contains(text, "the last line") {
 		t.Errorf("the command's chip reads %q", text)
 	}
-	if tag, _ := third["tag"].(string); tag == "md-text-button" {
+	if tag, _ := third["tag"].(string); tag == "button" {
 		t.Error("a background command is drawn as a control, and pressing it does nothing")
 	}
 	// Pressing a child goes to its screen rather than doing something in place.
@@ -3029,5 +3029,43 @@ console.log(JSON.stringify({
 	// And an ordinary call says what came back, on the line that is visible while it is shut.
 	if !strings.Contains(str("grepSum"), "⟶") || !strings.Contains(str("grepSum"), "src/list.tsx") {
 		t.Errorf("a finished call's summary does not say what it found: %q", str("grepSum"))
+	}
+}
+
+// The copy control hands over the SOURCE, which is the thing selecting the page cannot give you.
+//
+// Select an answer with a table in it and copy: what lands on the clipboard is the rendered cells
+// run together, without the pipes that made it a table. What somebody pasting an answer elsewhere
+// wants is what was written. The terminal has copied the source since it had a transcript.
+func TestCopyingAMessageHandsOverWhatWasWritten(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const table = '| where | today |\n|---|---|\n| fleet | nothing |';
+draw([{who:'user', text:'spec the empty state'},
+      {who:'assistant', text:table},
+      {who:'tool', tool:'read', args:'{}', ok:true, out:'ok'}]);
+const chip = r => (r.children.find(c => (c.className||'') === 'who') || {children:[]})
+  .children.filter(c => (c.className||'').startsWith('copy'))[0];
+const rows = byId.log.children;
+const onProse = !!chip(rows[0]) && !!chip(rows[1]);
+chip(rows[1]).onclick({preventDefault(){}, stopPropagation(){}});
+await new Promise(r => queueMicrotask(r));
+console.log(JSON.stringify({
+  onProse, onTool: !!chip(rows[2]),
+  wrote: CLIPBOARD.slice(-1)[0] || '',
+  labelled: !!chip(rows[0]).attrs['aria-label']}));`)
+	if got["onProse"] != true {
+		t.Error("the rows that are prose have no way to copy what they say")
+	}
+	// Not on a tool call: its arguments and output are already preformatted text on the page, and
+	// a control on every row of a busy transcript is furniture.
+	if got["onTool"] == true {
+		t.Error("a tool call carries a copy control")
+	}
+	if got["labelled"] != true {
+		t.Error("the control is a glyph with no name — nothing announces it")
+	}
+	wrote, _ := got["wrote"].(string)
+	if !strings.Contains(wrote, "|---|---|") {
+		t.Errorf("what reached the clipboard is not the source that was written: %q", wrote)
 	}
 }
