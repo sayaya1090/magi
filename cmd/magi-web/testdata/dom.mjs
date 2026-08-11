@@ -423,7 +423,10 @@ globalThis.fetch = async (path, init) => {
     const body = globalThis.ROUTES[route];
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
   }
-  return { ok: true, status: 200, json: async () => JSON.parse(process.env.FLEET_JSON ?? '[]'), text: async () => '' };
+  // The fleet is parsed ONCE and handed out by reference, so a test can change what the next poll
+  // will report — a companion going quiet, or leaving the list — which is a thing that happens and
+  // could not be written down before.
+  return { ok: true, status: 200, json: async () => globalThis.FLEET, text: async () => '' };
 };
 // Answers a test can set per route, by path without its query.
 globalThis.ROUTES = {};
@@ -431,6 +434,7 @@ globalThis.ROUTES = {};
 // here; a fake that threw would make a copy control look broken, and one that swallowed silently
 // would let a control that copies the WRONG thing pass.
 globalThis.CLIPBOARD = [];
+globalThis.FLEET = JSON.parse(process.env.FLEET_JSON ?? '[]');
 // Defined onto the existing navigator, which node supplies and does not let you replace.
 Object.defineProperty(globalThis.navigator, 'clipboard', {
   configurable: true,

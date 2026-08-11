@@ -700,16 +700,23 @@ func (m *Model) cyclePermission() tea.Cmd {
 }
 
 // permHint describes what a permission mode does, for the snackbar.
+// permHint says what a mode DOES, which is narrower than its name in every case.
+//
+// No mode reaches every tool. Only the danger set is gated — write, edit, multiedit, bash,
+// wait_for, webfetch, websearch, port_owner — plus whatever a guardrail rule stops; reading,
+// searching and planning run in all four. "confirm each action" and "block all tool actions" were
+// therefore both untrue, and the second is the dangerous direction to be wrong in: somebody
+// setting deny and walking away was told the agent could do nothing.
 func permHint(mode string) string {
 	switch mode {
 	case "auto":
-		return " — auto-accept edits, confirm commands"
+		return " — edits go through, commands and network ask"
 	case "allow":
-		return " — auto-approve everything"
+		return " — ask only when a guardrail insists"
 	case "deny":
-		return " — block all tool actions"
+		return " — refuse writing, running and reaching out"
 	default:
-		return " — confirm each action"
+		return " — ask before it writes, runs or reaches out"
 	}
 }
 

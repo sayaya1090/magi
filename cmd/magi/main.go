@@ -684,10 +684,25 @@ func run() int {
 	// behind them resolved everything by policy — a wire with no producer, which is most of what
 	// this branch has been removing. Choosing ask/auto on a daemon is choosing to be asked.
 	//
-	// Only when it is chosen EXPLICITLY. The default stays "allow" (headless, above): a resident
-	// agent that stops for a question nobody is there to hear is a stopped agent, and defaults
-	// must not depend on somebody remembering to attach.
-	answerable := *daemonMode && (perm == "ask" || perm == "auto")
+	// Whether anybody CAN be asked is a property of the process, not of the mode it started in.
+	//
+	// This used to read `*daemonMode && (perm == "ask" || perm == "auto")` — the startup mode — and
+	// the mode changes at runtime: the terminal cycles it, and the console now has a control for
+	// it. A daemon started on the default "allow" and switched to "ask" afterwards therefore had
+	// Interactive false with a policy that says ask, which is the one combination that resolves
+	// every gated call by policy WITHOUT asking: writing, running commands and reaching out all
+	// refused, instantly, with no prompt anywhere. Reported from a live console, and it was the
+	// control shipped this morning that made it easy to reach.
+	//
+	// It cost the two orchestration tools as well. ask_user and route_interjection are registered
+	// off this flag, so a daemon started on the default had neither — while the interjection
+	// machinery went on telling the model to call route_interjection, which then came back "no
+	// such tool". Also reported.
+	//
+	// A daemon can always be answered: the socket is the way in, and both the console and an
+	// attached terminal answer over it. Nothing can attach to a -p run, so that one still gets
+	// neither the tools nor a prompt it would block on.
+	answerable := answerableRun(*daemonMode, perm)
 
 	// Asking a person is available wherever a person can answer, which is not the same as "not
 	// headless". A daemon counts as headless — it has no UI of its own — and that was taken as
@@ -701,7 +716,7 @@ func run() int {
 	// can attach to it, and an unusable tool is weight on every request.
 	registerOrchestrationTools(reg, nobodyCanAnswer(headless, answerable))
 
-	if answerable {
+	if answerable && (perm == "ask" || perm == "auto") {
 		if perm == "auto" {
 			fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached, and "+
 				"resolve by policy after %s if none answers\n", perm, daemonAnswerWait)

@@ -83,3 +83,32 @@ func TestAskingIsAvailableWhereverSomebodyCanAnswer(t *testing.T) {
 		t.Error("a daemon that can be answered is not offered ask_user")
 	}
 }
+
+// Whether anybody can be asked is a property of the process, not of the mode it started in.
+//
+// This was read off the startup permission mode, and the mode changes at runtime — the terminal
+// cycles it, the console has a control for it. A daemon started on the default "allow" and
+// switched to "ask" afterwards therefore ran with Interactive false under a policy that says ask,
+// which is the one combination that resolves every gated call by policy WITHOUT asking: writing,
+// commands and network all refused instantly, no prompt anywhere. It also left the daemon without
+// ask_user or route_interjection while the interjection machinery went on naming the second one.
+func TestADaemonCanBeAskedWhateverModeItStartedIn(t *testing.T) {
+	for _, mode := range []string{"allow", "ask", "auto", "deny"} {
+		answerable := answerableRun(true, mode)
+		if nobodyCanAnswer(true, answerable) {
+			t.Errorf("started on %q, a daemon reports that nobody can be asked", mode)
+		}
+		reg := builtin.NewRegistry()
+		registerOrchestrationTools(reg, nobodyCanAnswer(true, answerable))
+		for _, want := range []string{"ask_user", "route_interjection"} {
+			if _, ok := reg.Get(want); !ok {
+				t.Errorf("started on %q, a daemon has no %s", mode, want)
+			}
+		}
+	}
+	// A -p run with nothing able to attach still gets neither: the prompt would block on a
+	// decision that cannot come, and an unusable tool is weight on every request.
+	if !nobodyCanAnswer(true, false) {
+		t.Error("a headless run with no daemon claims somebody can be asked")
+	}
+}

@@ -172,6 +172,24 @@ const daemonAnswerWait = 3 * time.Minute
 // while the process runs (Shift+Tab, /permission, SetPermission over the socket) and a bound frozen
 // at startup would outlive the mode that justified it. Short version: ask waits, auto is bounded,
 // allow never prompts.
+// answerableRun reports whether a question raised by this run can reach a person.
+//
+// It takes the mode it started in and ignores it, deliberately — the parameter is unnamed because
+// nothing may read it, and it is here at all because the expression used to, and the reason it
+// must not is worth keeping next to the answer. The
+// mode changes at runtime (the terminal cycles it, the console has a control for it), so a daemon
+// started on the default "allow" and switched to "ask" ran with "nobody can be asked" frozen in
+// under a policy that says ask: every gated call resolved by policy without a prompt, which is a
+// refusal. It also decided which orchestration tools existed, so that daemon had no ask_user and
+// no route_interjection while the interjection machinery went on naming the second.
+//
+// A daemon can always be answered: the socket is the way in, and the console and an attached
+// terminal both answer over it. Nothing can attach to a -p run, which is the one that truly has
+// nobody.
+func answerableRun(daemonMode bool, _ string) bool {
+	return daemonMode
+}
+
 func answerWait(daemonAnswerable bool) time.Duration {
 	if daemonAnswerable {
 		return daemonAnswerWait

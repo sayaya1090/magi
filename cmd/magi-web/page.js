@@ -363,9 +363,14 @@ const railMenu = document.getElementById('railMenu');
 //
 // So they are kept apart and the dot shows the worse of the two. Anything else is a readout with
 // two writers, which is how it was wrong.
-let streamAt = '', reachOK = true;
+// There is a THIRD fact, and it is the one that matters most on a companion's own page: whether
+// that companion is still there. The two above are both about this console's link to the server
+// that serves it, and the server outlives the daemon — so killing a companion left the dot green
+// and the word "connected" beside a page whose subject no longer exists. Reported from a live
+// console, watching the daemon it had just stopped.
+let streamAt = '', reachOK = true, companionOK = true;
 function paintConn() {
-  const lost = !reachOK || streamAt === 'lost';
+  const lost = !reachOK || !companionOK || streamAt === 'lost';
   state.classList.toggle('lost', lost);
   state.classList.toggle('live', !lost && streamAt === 'live');
 }
@@ -373,6 +378,14 @@ let openMCP = () => {};
 const noteEl = document.getElementById('note');
 const conn = how => { streamAt = how; paintConn(); };
 const reach = ok => { reachOK = ok; paintConn(); };
+// Said as well as drawn, and only on the edge: the note is a status line with several writers, and
+// repeating this into it every three seconds would keep overwriting whatever else it was saying.
+const companionAlive = ok => {
+  if (companionOK === ok) return;
+  companionOK = ok;
+  paintConn();
+  says(ok ? '' : tr('state.companion_gone'));
+};
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
@@ -1341,6 +1354,9 @@ async function loadFleet() {
   const here = sock();
   if (here) {
     const mine = list.find(a => a.socket === here && (a.peer || '') === peerOf());
+    // Gone means gone: not in the list at all (its socket was cleaned up), or in it and not
+    // answering. Either way the page in front of somebody is about a companion that has stopped.
+    companionAlive(!!mine && mine.live !== false);
     // Redrawn only when it CHANGED. The transcript is rebuilt whole by draw(), and doing that
     // every three seconds under somebody reading a folded tool result would close what they opened.
     const note = (mine && mine.doing) || '';
@@ -1357,6 +1373,9 @@ async function loadFleet() {
     // be built for nobody.
     return;
   }
+
+  // The list's own screen is about all of them, so no single companion can be missing from it.
+  companionAlive(true);
 
   // A badge on the section that holds them, which is what M3 uses one for: a count of things
   // wanting attention, on the navigation item that leads to them. It rides the rail item's end slot
@@ -3459,6 +3478,36 @@ function reveal(el, how) {
   el.classList.add(how || 'enter');
 }
 
+// drawnFor is the companion the screen is currently drawn for, so a navigation can tell whether it
+// is leaving one.
+let drawnFor = '';
+
+// clearCompanionView empties everything on screen that belongs to ONE companion.
+//
+// Third time for this shape. The pane's cards were a hand-kept list of ids until somebody added a
+// card and forgot the list, so the fix was to walk the pane — and the strip in the dock was
+// outside that walk, so it stayed up over the fleet list showing the children of a companion you
+// had left. A hand-kept list cannot fail a build; what keeps this honest is that there is ONE
+// place, and anything drawn for a companion is emptied in it.
+//
+// It clears the transcript's memory too, not only its nodes: the rows are reused by position now,
+// and rows left over from another conversation are rows the next frame would try to keep.
+function clearCompanionView() {
+  for (const card of document.getElementById('side').children) card.hidden = true;
+  for (const el of [stripEl, document.getElementById('prompt'), document.getElementById('detail')]) {
+    el.hidden = true;
+    el.replaceChildren();
+  }
+  log.replaceChildren();
+  shown.rows = [];
+  shown.nodes = [];
+  lastRows = [];
+  localRows.length = 0;
+  liveNote = '';
+  userName = '';
+  sidEl.textContent = '';
+}
+
 function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
@@ -3540,15 +3589,9 @@ function render() {
   // landing on the facts of an agent you just opened is a screen nobody asked for.
   if (!s) panel = 'talk';
   drawPanels();
-  // Every card in the pane, by walking the pane — not a list of ids kept here by hand.
-  //
-  // That list was the mechanism, and it was missing one: the scheduled-work card was added without
-  // being added here, so it stayed on screen after you left the companion and sat over the fleet
-  // list showing another agent's jobs. A hand-kept list of things to hide cannot fail a build when
-  // somebody adds the fifth card, and this is the second time this page has proved it.
-  for (const card of document.getElementById('side').children) card.hidden = true;
-  document.getElementById('prompt').hidden = true;
-  sidEl.textContent = '';
+  // Leaving a companion, or arriving at a different one, empties everything drawn for the last.
+  if (!s || s !== drawnFor) clearCompanionView();
+  drawnFor = s;
   // Whichever body of content this navigation arrived at. One of them, not all of them: reveal on a
   // hidden element does nothing, so the list is the page's destinations and the right one answers.
   for (const el of [fleetEl, skillsEl, boardEl, mcpEl, streamEl]) reveal(el);

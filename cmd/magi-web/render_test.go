@@ -3069,3 +3069,80 @@ console.log(JSON.stringify({
 		t.Errorf("what reached the clipboard is not the source that was written: %q", wrote)
 	}
 }
+
+// Killing a companion turns the light out on the page that is showing it.
+//
+// The dot had two inputs and both were about this console's link to the server that serves it —
+// which outlives the daemon. So stopping a companion left a green dot and the word "connected"
+// beside a page whose subject no longer existed.
+func TestAStoppedCompanionTurnsTheLightOut(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+await loadFleet();
+const first = byId.state.className;
+// The same companion, no longer answering. This is what the probe reports the moment its socket
+// stops accepting a dial.
+FLEET[0].live = false;
+await loadFleet();
+const after = byId.state.className;
+// And gone from the list outright, which is what happens once its socket file is cleaned up.
+FLEET.length = 0;
+await loadFleet();
+console.log(JSON.stringify({first, after, missing: byId.state.className, note: byId.note.textContent}));`)
+	first, _ := got["first"].(string)
+	if strings.Contains(first, "lost") {
+		t.Fatalf("a live companion starts out lost: %q", first)
+	}
+	after, _ := got["after"].(string)
+	if !strings.Contains(after, "lost") {
+		t.Errorf("a companion that stopped answering leaves the console reading %q", after)
+	}
+	if miss, _ := got["missing"].(string); !strings.Contains(miss, "lost") {
+		t.Errorf("a companion gone from the fleet leaves the console reading %q", miss)
+	}
+	// Said, not only drawn: a state carried by one dot is a state some readers are not told.
+	if note, _ := got["note"].(string); note == "" {
+		t.Error("nothing says what happened")
+	}
+}
+
+// Leaving a companion takes everything that was about it off the screen.
+//
+// Third time for this shape: the pane's cards were a hand-kept list of ids until one was forgotten
+// and stayed up over the fleet list; the fix was to walk the pane, and the strip in the dock was
+// outside that walk. What keeps it honest is that there is one place, so this asserts the place —
+// nothing drawn for a companion survives the navigation away from it.
+func TestLeavingACompanionClearsWhatWasAboutIt(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+ROUTES['/jobs'] = {children: [{id: 's_kid', tool: 'scout', task: 'look', running: true}]};
+await loadFleet();
+await loadJobs({socket: '/s/a.sock'});
+draw([{who:'user', text:'do it'}, {who:'assistant', text:'done'}]);
+const before = {strip: byId.strip.children.length, rows: byId.log.children.length};
+// Away to the list, which is what pressing the crumb does: the address loses its ?d=.
+location.search = '';
+render();
+console.log(JSON.stringify({before, strip: byId.strip.children.length, stripHidden: byId.strip.hidden,
+  rows: byId.log.children.length, detailHidden: byId.detail.hidden,
+  cards: [...byId.side.children].filter(c => !c.hidden).length}));`)
+	before, _ := got["before"].(map[string]any)
+	if n, _ := before["strip"].(float64); n == 0 {
+		t.Fatal("precondition: nothing was in the strip to leave behind")
+	}
+	if n, _ := got["strip"].(float64); n != 0 {
+		t.Errorf("%v chips followed the reader to the fleet list", n)
+	}
+	if got["stripHidden"] != true {
+		t.Error("the strip is still up on a screen with no companion on it")
+	}
+	if n, _ := got["rows"].(float64); n != 0 {
+		t.Errorf("%v transcript rows survived the navigation", n)
+	}
+	if got["detailHidden"] != true {
+		t.Error("the facts of the companion you left are still on screen")
+	}
+	if n, _ := got["cards"].(float64); n != 0 {
+		t.Errorf("%v pane cards are still showing", n)
+	}
+}
