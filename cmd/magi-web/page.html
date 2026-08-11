@@ -82,17 +82,6 @@
       <circle cx="15" cy="17" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
     </svg>
   </md-icon-button>
-  <md-icon-button id="themeToggle">
-    <svg class="sun" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
-      <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
-      <path d="M12 2.4v2.8M12 18.8v2.8M21.6 12h-2.8M5.2 12H2.4M18.8 5.2l-2 2M7.2 16.8l-2 2M18.8 18.8l-2-2M7.2 7.2l-2-2"
-            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-    </svg>
-    <svg class="moon" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
-      <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"
-            stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
-    </svg>
-  </md-icon-button>
 </header>
 
 <!-- The rail is the wide screen's navigation and the narrow screen's settings drawer — one element
@@ -225,11 +214,36 @@
      that interrupts nothing, and it is the same dialog at every width. -->
 <md-dialog id="prefsDialog" type="alert">
   <div slot="headline" id="prefsK"></div>
-  <!-- No theme here. It has a toggle in the masthead — one tap for the setting that gets changed
-       most — and a select saying the same thing three feet away was the same preference twice, with
-       two ways to be wrong about it. What is left is what a toggle cannot carry: a choice of three
-       languages, and which machine this is. -->
+  <!-- The theme lives here now. It had a toggle in the masthead and the masthead hid it from 600px
+       up — so on every desktop the console had no way to change theme at all, which is the width
+       most people read it on. One control, in the one place that is reachable at every width.
+       A toggle rather than a select of three: the third state is "follow the machine", and it is
+       what you get until you touch this — pressing it is the act of stopping. -->
   <form slot="content" method="dialog" id="prefsForm">
+    <div class="prefrow">
+      <div class="k" id="themeK"></div>
+      <!-- One sky, two bodies. Pressing it does not swap an icon: the sun climbs out of the
+           horizon while the moon sets behind it, and back the other way, so the button says which
+           direction it is going as well as where it ends up. Drawn here rather than taken from the
+           sprite for the reason the hamburger is — a symbol can be exchanged for another symbol,
+           and what this wants is two shapes that MOVE past each other. -->
+      <!-- type="button", or it submits the form it is in — and this form is method="dialog", so a
+           press would close the preferences on the way to changing the theme. The same default
+           closed the report-format dialog when somebody dropped a section. -->
+      <md-icon-button id="themeToggle" type="button">
+        <svg class="sky" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <g class="sun">
+            <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+            <path d="M12 2.4v2.4M12 19.2v2.4M21.6 12h-2.4M4.8 12H2.4M18.6 5.4l-1.7 1.7M7.1 16.9l-1.7 1.7M18.6 18.6l-1.7-1.7M7.1 7.1L5.4 5.4"
+                  stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          </g>
+          <g class="moon">
+            <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"
+                  stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
+          </g>
+        </svg>
+      </md-icon-button>
+    </div>
     <md-outlined-select id="lang"></md-outlined-select>
     <div class="k" id="notifyK"></div>
     <div id="notify"><md-text-button id="notifyBtn"></md-text-button><div id="notifyWhy"></div></div>

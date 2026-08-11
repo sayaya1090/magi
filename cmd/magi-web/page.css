@@ -799,16 +799,30 @@
   /* Both ends to the centre. scaleX rather than a fade: a line that dims is still a line crossing
      the other four halfway through every press. */
   body[nav="open"] .burger .bm { transform:scaleX(0); }
-  /* One of the two is always hidden, and which one follows the theme in force — including when that
-     theme is the machine's, so the query appears here as well as the attribute. Same pairing the
-     palette uses, for the same reason: a reader can override the machine in both directions. */
-  #themeToggle .sun { display:none; }
-  @media (prefers-color-scheme: dark) {
-    :root:not([color-theme]) #themeToggle .sun { display:block; }
-    :root:not([color-theme]) #themeToggle .moon { display:none; }
+  /* One sky, two bodies, and the horizon is the icon's own edge.
+     Which one is up follows the theme in force — including when that theme is the machine's, so
+     the query appears here as well as the attribute, the same pairing the palette uses.
+     Neither is hidden and neither fades: they TRAVEL, out through the bottom of the box and back
+     in through the top, and the box clips them. That is what makes it a rising and a setting
+     rather than a cross-fade — and it means there is no rule anywhere dimming a shape to nothing,
+     which is the state a reader can do nothing with.
+     transform-box:view-box so the turn happens about the middle of the icon rather than about
+     whatever bounding box each shape happens to have. */
+  .sky { overflow:hidden; }
+  .sky g {
+    transform-box:view-box; transform-origin:12px 12px;
+    transition:transform var(--magi-sys-dur-medium2) var(--magi-sys-ease-emphasized);
   }
-  :root[color-theme="dark"] #themeToggle .sun { display:block; }
-  :root[color-theme="dark"] #themeToggle .moon { display:none; }
+  /* Light in force: the sun is up and the moon is below the horizon, turned as it went down. */
+  .sky .moon { transform:translateY(160%) rotate(-40deg); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([color-theme]) .sky .moon { transform:none; }
+    :root:not([color-theme]) .sky .sun { transform:translateY(-160%) rotate(40deg); }
+  }
+  :root[color-theme="dark"] .sky .moon { transform:none; }
+  :root[color-theme="dark"] .sky .sun { transform:translateY(-160%) rotate(40deg); }
+  /* The row a preference sits on: what it is, and the control that changes it, at opposite ends. */
+  .prefrow { display:flex; align-items:center; justify-content:space-between; gap:var(--magi-sys-space-200); }
 
   /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
      composer itself grows with what you type. A constant padding here either wastes a screen of
@@ -2331,7 +2345,7 @@
     #dock { padding-left:var(--magi-comp-rail-w); }
     /* Open, it is a floating panel. Closed, it is part of the furniture. */
 
-    #tabs, #themeToggle { display:none; }
+    #tabs { display:none; }
     }
   /* Compact (below 600px, M3's own boundary): the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
      an invitation to look in the wrong place. What is left behind the button is the preferences,
@@ -2361,7 +2375,7 @@
        gear pushed the masthead back onto two rows and the first agent from 337px to 393px —
        everything gained on this width, given straight back. */
     header { flex-wrap:nowrap; }
-    #prefs, #themeToggle {
+    #prefs {
       flex:none;
       --md-icon-button-state-layer-width:40px; --md-icon-button-state-layer-height:40px;
     }

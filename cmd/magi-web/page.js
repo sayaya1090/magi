@@ -4071,6 +4071,9 @@ function paint() {
   // for, and a lookup through a data attribute is invisible to it.
   railEl.setAttribute('aria-label', tr('nav.destinations'));
   document.getElementById('crumbs').setAttribute('aria-label', tr('nav.where'));
+  // The label beside it, and the one it announces. Both from the pack: the row in the dialog is a
+  // preference like the two below it and has to say which.
+  document.getElementById('themeK').textContent = tr('pref.theme');
   themeToggle.setAttribute('aria-label', tr('pref.theme'));
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
   prefsClose.textContent = tr('action.close');
