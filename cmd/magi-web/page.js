@@ -548,7 +548,11 @@ function icon(ref, opts) {
   const has = typeof document.getElementById === 'function' && document.getElementById('i-' + name);
   if (!has) return (opts && opts.fallback) ? opts.fallback() : null;
   const svg = document.createElementNS(SVGNS, 'svg');
-  svg.setAttribute('class', 'ic ' + ((opts && opts.cls) || ''));
+  // 'sic', not 'ic'. The rail's own drawings have carried class="ic" since before there was a
+  // sprite, sized by a width attribute — and a class here called 'ic' set width:1em on them, which
+  // a stylesheet wins: every rail icon quietly shrank from 24px to 14. Different thing, different
+  // name.
+  svg.setAttribute('class', 'sic ' + ((opts && opts.cls) || ''));
   svg.setAttribute('aria-hidden', 'true');
   // No width or height: the size is the use site's business and belongs in the stylesheet, where
   // it can answer a reader who raised their default font size.
@@ -738,8 +742,9 @@ function rowActions(a) {
   stop.className = 'stop';
   stop.setAttribute('aria-label', tr('action.interrupt'));
   tip(stop, tr('action.interrupt'));
-  stop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+  stop.innerHTML = '<svg data-i="#i-sl-circle-stop" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
     '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>';
+  dressIcons(stop);
   stop.onclick = e => {
     e.preventDefault(); e.stopPropagation();
     confirmStop(nameOf(a.socket) || a.name, () => post('/interrupt', null, a.socket, a.peer).then(loadFleet));
@@ -802,9 +807,12 @@ function summarise(list) {
     past.className = 'toboard';
     tip(past, tr('nav.board'));
     past.setAttribute('aria-label', tr('nav.board'));
-    past.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+    // The drawn columns stay as the fallback and the baked one takes over where there is one, which
+    // is the same bargain the markup's icons strike — see dressIcons.
+    past.innerHTML = '<svg data-i="#i-sl-chart-simple" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
       '<path d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z" fill="none" ' +
       'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    dressIcons(past);
     past.onclick = () => { history.pushState({}, '', at(HREF.board)); render(); };
     box.append(past);
   }
@@ -1257,10 +1265,12 @@ async function loadBoard() {
     const b = document.createElement('md-icon-button');
     b.setAttribute('aria-label', tr(key));
     tip(b, tr(key));
-    b.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+    b.innerHTML = '<svg data-i="' + (delta < 0 ? '#i-sl-chevron-left' : '#i-sl-chevron-right') +
+      '" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
       '<path d="' + (delta < 0 ? 'M14.5 5.5 8 12l6.5 6.5' : 'M9.5 5.5 16 12l-6.5 6.5') +
       '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
       'stroke-linejoin="round"/></svg>';
+    dressIcons(b);
     b.onclick = () => {
       // Parsed as UTC and stepped in whole days, so the answer does not depend on which side of a
       // daylight-saving change the reader is standing on: local-midnight arithmetic lands on 23:00
@@ -3594,9 +3604,10 @@ function openFormat(a, f) {
     drop.setAttribute('type', 'button');   // see the note on `more`: the default submits and closes
     drop.className = 'fmtdrop';
     drop.setAttribute('aria-label', tr('action.remove'));
-    drop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+    drop.innerHTML = '<svg data-i="#i-sl-trash-can" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
       '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" ' +
       'stroke-linecap="round" fill="none"/></svg>';
+    dressIcons(drop);
     tip(drop, tr('action.remove'));
     drop.onclick = () => row.remove();
     row.append(k, p, drop);

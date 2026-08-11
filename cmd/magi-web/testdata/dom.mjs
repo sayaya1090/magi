@@ -209,6 +209,20 @@ function element(tag) {
     // shapes it knows.
     querySelectorAll(sel) {
       const s = String(sel).trim();
+      // [attribute], the third shape: it is how the page finds the drawings that name a symbol they
+      // would rather be. Same answer as the document-wide one next to byId, and the same reason for
+      // being this small — a selector engine that guesses is a fake that flatters.
+      const attr = /^\[([a-z-]+)\]$/.exec(s);
+      if (attr) {
+        const out = [];
+        const walk = n => {
+          if (!n || typeof n !== 'object') return;
+          if (n.attrs && n.attrs[attr[1]] !== undefined) out.push(n);
+          for (const k of n.children || []) walk(k);
+        };
+        walk(this);
+        return out;
+      }
       if (!s.startsWith('.')) {
         if (/[.#\[\s>]/.test(s)) throw new Error('the fake only does a bare tag or a class chain, not ' + s);
         const out = [];

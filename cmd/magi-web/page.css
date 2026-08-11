@@ -1536,8 +1536,11 @@
 
   /* An icon from the sprite. Sized by the text it sits in rather than in pixels, so it grows with
      a reader who raised their default, and coloured by the line — every symbol is drawn with
-     fill:currentColor, which is the whole reason a two-tone icon was not worth a third file. */
-  .ic { width:1em; height:1em; fill:currentColor; vertical-align:-0.125em; flex:none; }
+     fill:currentColor, which is the whole reason a two-tone icon was not worth a third file.
+     ⚠ Not .ic: that class is the rail's, is older, and belongs to svgs sized by a width attribute.
+     A rule named .ic here set width:1em on those and a stylesheet beats an attribute — every rail
+     icon shrank from 24px to 14, silently, in the same commit that gave them their drawings. */
+  .sic { width:1em; height:1em; fill:currentColor; vertical-align:-0.125em; flex:none; }
   /* The mark on a detail heading: a shade larger than the words, and never the thing that sets the
      line's height. */
   .hic { width:1.1em; height:1.1em; }
