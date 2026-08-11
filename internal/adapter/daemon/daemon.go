@@ -83,6 +83,67 @@ type Engine interface {
 	Doing(sid session.SessionID) (string, bool)
 }
 
+// Jobs is the work a companion has running beside its turn: commands it started in the background,
+// and children it spawned.
+//
+// # Why this crosses at all
+//
+// Both registers live in the memory of the process that started them — a background command is a
+// PID this process is waiting on, and the child register is what a session log cannot tell you: a
+// log does not know it is over. A viewer holding its own App read its own empty registers, so the
+// strip along the bottom of the terminal — the one place a five-minute build or a spawned child is
+// visible while it runs — was empty in every attached window and on every page.
+//
+// The children's CONTENT does not cross and must not: a child writes its own session, both
+// processes can read it, and sending its transcript down this socket would be a second copy of
+// something already shared. What crosses is the fact of it — which children exist, and which just
+// ended.
+type Jobs struct {
+	Background []BackgroundJob `json:"background,omitempty"`
+	Children   []ChildJob      `json:"children,omitempty"`
+}
+
+// BackgroundJob is one command the agent left running, with the tail of what it has written.
+//
+// The tail rides along rather than being a second call: the strip shows one for every job on every
+// poll, so fetching them separately would be a round trip per job per tick.
+type BackgroundJob struct {
+	ID      string `json:"id"`
+	Command string `json:"command,omitempty"`
+	Running bool   `json:"running,omitempty"`
+	Killed  bool   `json:"killed,omitempty"`
+	Exit    int    `json:"exit,omitempty"`
+	Started string `json:"started,omitempty"`
+	Tail    string `json:"tail,omitempty"`
+}
+
+// ChildJob is one agent this companion spawned.
+type ChildJob struct {
+	ID      string `json:"id"`
+	Tool    string `json:"tool,omitempty"`
+	Task    string `json:"task,omitempty"`
+	Started string `json:"started,omitempty"`
+	Ended   string `json:"ended,omitempty"`
+	Running bool   `json:"running,omitempty"`
+	Steps   int    `json:"steps,omitempty"`
+	Err     string `json:"err,omitempty"`
+}
+
+// JobRunner is an engine that is running things beside the turn.
+//
+// Optional, like the rest: an engine that has no such register answers with nothing, and a viewer
+// draws no strip rather than failing.
+type JobRunner interface {
+	BackgroundJobs() []app.BackgroundJob
+	BackgroundTail(id string, max int) string
+	SubagentJobs() []app.SubagentJob
+}
+
+// jobTailBytes is how much of a background command's output rides on one reply. The strip shows a
+// tail, so more could not be displayed; the cap is what keeps a runaway log off the socket four
+// times a second.
+const jobTailBytes = 8 << 10
+
 // UserNamer is an engine that knows what to call the person it is talking to.
 //
 // A plugin can rename them — an SSO bridge puts the authenticated username there through
@@ -193,6 +254,8 @@ type Response struct {
 	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
 	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
 	User string `json:"user,omitempty"`
+	// Jobs answers the jobs method: the work running BESIDE the turn.
+	Jobs *Jobs `json:"jobs,omitempty"`
 	// Handover answers hand-state. Its own object rather than four more columns here, because
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
@@ -518,6 +581,34 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			if n, ok := eng.(UserNamer); ok {
 				resp.User = n.UserLabel(session.SessionID(req.Session))
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
+		// jobs is answered here for the same reason status is: it carries a payload.
+		if req.Method == "jobs" {
+			resp = Response{OK: true, Jobs: &Jobs{}}
+			if j, ok := eng.(JobRunner); ok {
+				for _, b := range j.BackgroundJobs() {
+					resp.Jobs.Background = append(resp.Jobs.Background, BackgroundJob{
+						ID: b.ID, Command: b.Command, Running: b.Running, Killed: b.Killed,
+						Exit: b.Exit, Started: b.Started.UTC().Format(time.RFC3339),
+						Tail: j.BackgroundTail(b.ID, jobTailBytes),
+					})
+				}
+				for _, c := range j.SubagentJobs() {
+					out := ChildJob{
+						ID: c.ID, Tool: c.Tool, Task: c.Task, Running: c.Running,
+						Steps: c.Steps, Err: c.Err,
+						Started: c.Started.UTC().Format(time.RFC3339),
+					}
+					if !c.Ended.IsZero() {
+						out.Ended = c.Ended.UTC().Format(time.RFC3339)
+					}
+					resp.Jobs.Children = append(resp.Jobs.Children, out)
+				}
 			}
 			if enc.Encode(resp) != nil {
 				return
@@ -960,6 +1051,19 @@ type Status struct {
 	Permission string
 	// User is what it calls the person, when a plugin has renamed them.
 	User string
+}
+
+// Jobs asks what is running beside the turn. An empty answer and no error is the ordinary case:
+// nothing spawned, nothing backgrounded.
+func (c *Client) Jobs(sid string) (Jobs, error) {
+	resp, err := c.exchange(Request{Method: "jobs", Session: sid})
+	if err != nil {
+		return Jobs{}, err
+	}
+	if resp.Jobs == nil {
+		return Jobs{}, nil
+	}
+	return *resp.Jobs, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {

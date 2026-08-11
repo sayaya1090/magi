@@ -1007,7 +1007,7 @@ func run() int {
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
 		// No KillBackgroundProcesses here, and no CloseLSPPool: those belong to the process that
 		// STARTED them. Detaching a viewer must not reap the daemon's work.
-		if err := tui.Run(ctx, attached{App: a, c: cl}, host,
+		if err := tui.Run(ctx, attached{App: a, c: cl, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
 			session.SessionID(joined), modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
 			fmt.Fprintln(os.Stderr, "magi: attach:", err)
 			return 1

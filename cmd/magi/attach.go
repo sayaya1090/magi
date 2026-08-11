@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -28,6 +29,118 @@ import (
 type attached struct {
 	*app.App
 	c *daemon.Client
+	// seen is the last answer to "what is running beside the turn", kept for a moment.
+	//
+	// The strip asks three questions per tick — which jobs, what has each written, which children —
+	// and asks them of every job, so served one round trip each that would be a socket call per job
+	// per 700ms. They are one reply on the wire and one field here. Nil is allowed: a caller that
+	// has not set it up (a test) simply asks every time.
+	seen *jobsSeen
+}
+
+// jobsSeen caches one jobs reply for jobsFresh.
+type jobsSeen struct {
+	mu sync.Mutex
+	at time.Time
+	// sid is the session this viewer joined, so the three strip calls — which carry no session
+	// argument of their own — can name it on the wire.
+	sid  session.SessionID
+	jobs daemon.Jobs
+}
+
+// jobsFresh is how stale the strip's picture may be. Shorter than the strip's own 700ms poll, so
+// every tick gets its own answer and the cache only collapses the several calls WITHIN a tick.
+const jobsFresh = 400 * time.Millisecond
+
+// jobs answers from the last reply when it is fresh, and asks otherwise.
+func (a attached) jobs(sid session.SessionID) daemon.Jobs {
+	if a.seen == nil {
+		j, _ := a.c.Jobs(string(sid))
+		return j
+	}
+	a.seen.mu.Lock()
+	defer a.seen.mu.Unlock()
+	if time.Since(a.seen.at) < jobsFresh {
+		return a.seen.jobs
+	}
+	j, err := a.c.Jobs(string(sid))
+	if err != nil {
+		// Unreachable keeps the last picture rather than emptying the strip: a dropped poll is not
+		// news that everything finished, and the view says the daemon is gone by its own means.
+		return a.seen.jobs
+	}
+	a.seen.at, a.seen.jobs = time.Now(), j
+	return j
+}
+
+// BackgroundJobs, BackgroundTail and SubagentJobs are the strip along the bottom of the screen: a
+// pane per background command and per spawned child, live while it runs.
+//
+// All three read registers that live in the memory of the process that started the work — a
+// background command is a PID somebody is waiting on, and the child register is the one thing a
+// session log cannot tell you, because a log does not know it is over. The embedded App answered
+// out of this process's own empty registers, so the strip was blank in every attached window while
+// a five-minute build ran three feet away.
+//
+// The children's transcripts still do not cross: a child writes its own session and both processes
+// read it. What crosses is which ones exist.
+func (a attached) BackgroundJobs() []app.BackgroundJob {
+	out := []app.BackgroundJob{}
+	for _, b := range a.jobs(a.watching()).Background {
+		out = append(out, app.BackgroundJob{
+			ID: b.ID, Command: b.Command, Running: b.Running, Killed: b.Killed,
+			Exit: b.Exit, Started: parseWhen(b.Started),
+		})
+	}
+	return out
+}
+
+func (a attached) BackgroundTail(id string, max int) string {
+	for _, b := range a.jobs(a.watching()).Background {
+		if b.ID == id {
+			if len(b.Tail) > max {
+				return b.Tail[len(b.Tail)-max:]
+			}
+			return b.Tail
+		}
+	}
+	return ""
+}
+
+func (a attached) SubagentJobs() []app.SubagentJob {
+	out := []app.SubagentJob{}
+	for _, c := range a.jobs(a.watching()).Children {
+		out = append(out, app.SubagentJob{
+			ID: c.ID, Tool: c.Tool, Task: c.Task, Running: c.Running, Steps: c.Steps,
+			Err: c.Err, Started: parseWhen(c.Started), Ended: parseWhen(c.Ended),
+		})
+	}
+	return out
+}
+
+// watching is the session this viewer is attached to.
+//
+// The strip's three calls take no session argument — the registers they read are process-wide, and
+// in the daemon they are read without one — so the id is recovered from the socket rather than
+// threaded through an engine interface that has no room for it.
+func (a attached) watching() session.SessionID {
+	if a.seen != nil && a.seen.sid != "" {
+		return a.seen.sid
+	}
+	return ""
+}
+
+// parseWhen reads a wire timestamp, or the zero time. A job whose start did not parse is still a
+// job: the strip shows it with no age rather than not at all.
+func parseWhen(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // Submit and Steer start or redirect work. Both must happen where the loop runs; a local Submit

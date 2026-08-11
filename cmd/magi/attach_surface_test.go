@@ -29,6 +29,11 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		"RespondPermission": true, "RespondQuestion": true,
 		"Rewind": true, "Compact": true, "SetModel": true, "SetPermission": true,
 		"Subscribe": true, // polls the shared log rather than the local bus
+		// The registers of work running BESIDE the turn. A background command is a PID the daemon
+		// is waiting on and the child register is what a session log cannot say — a log does not
+		// know it is over — so both live in that process's memory and a viewer read its own empty
+		// ones. What crosses is which jobs exist; a child's transcript stays in the shared store.
+		"BackgroundJobs": true, "BackgroundTail": true, "SubagentJobs": true,
 	}
 	// local: answered from the shared store or this process, and correct there.
 	local := map[string]bool{
@@ -36,7 +41,7 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		"ContextView": true, "SessionDiff": true, "GitDiff": true, "Replay": true, "LoopMap": true,
 		"UsageFor": true, "UsageTotal": true, "SessionModel": true, "UserLabel": true,
 		"CouncilMemberNames": true, "ListModels": true, "ToolNames": true, "Profiles": true,
-		"Permission": true, "Subagents": true, "SubagentJobs": true, "CreateSession": true,
+		"Permission": true, "Subagents": true, "CreateSession": true,
 		"Fork": true, "RunShell": true, "SetTodos": true,
 		// Reading the schedule is reading a file both processes can see.
 		"ScheduledJobs": true,
