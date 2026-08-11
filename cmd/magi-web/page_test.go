@@ -10,6 +10,31 @@ import (
 	"testing"
 )
 
+// The page's sources stay text a person can search.
+//
+// Three raw NUL bytes got into page.js as separators in a join — legal JavaScript, invisible on
+// screen, and enough to make grep call the file binary and answer "no match" for every word in it.
+// The page kept working; searching it stopped, silently, which is the kind of defect that hides
+// every other one. Escapes carry the same character without turning the source into a blob.
+func TestThePageSourcesAreText(t *testing.T) {
+	for _, name := range []string{"page.html", "page.css", "page.js"} {
+		b, err := pageFS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, r := range string(b) {
+			if r == '\n' || r == '\t' {
+				continue
+			}
+			if r < 0x20 || r == 0x7f {
+				t.Errorf("%s holds a control character %#U at byte %d — write it as an escape",
+					name, r, i)
+				break
+			}
+		}
+	}
+}
+
 // The page fetches nothing this binary does not serve. A strict answer to "why is there no build
 // step": an offline machine sees the same page, and there is no CDN whose outage takes the viewer
 // with it.

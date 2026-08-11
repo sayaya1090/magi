@@ -1813,7 +1813,7 @@ function modelField(a, now) {
   const f = cell('f');
   f.append(cell('k', tr('field.model')));
   const v = cell('v');
-  const key = (a.peer || '') + ' ' + a.socket;
+  const key = (a.peer || '') + '\0' + a.socket;
   let sel = modelField.el;
   if (!sel || modelField.key !== key) {
     sel = modelField.el = document.createElement('md-outlined-select');
@@ -1856,7 +1856,7 @@ function modelField(a, now) {
 function paintModels(sel, names, now) {
   const want = [...names];
   if (now && !want.includes(now)) want.unshift(now);
-  const same = (sel._painted || []).join(' ') === want.join(' ');
+  const same = (sel._painted || []).join('\0') === want.join('\0');
   if (!same) {
     sel._painted = want;
     sel.replaceChildren(...want.map(n => {
