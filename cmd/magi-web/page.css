@@ -1757,7 +1757,12 @@
   pre.diff .dctx { color:var(--magi-ref-fg); }
   /* Tables scroll inside themselves, for the same reason. */
   .tablewrap { overflow-x:auto; overscroll-behavior-x:contain; margin:0 0 var(--magi-sys-space-150); }
-  .txt table { border-collapse:collapse; font:var(--magi-sys-body-s) var(--magi-ref-display); }
+  /* Centred in the column, not stretched across it. A three-column table set flush left in a
+     74-character measure leaves a field of empty paper to its right and reads as though something
+     failed to load; auto margins put the figure where a figure goes. It keeps its own width — a
+     table stretched to the measure would space its columns by the widest cell in the paragraph
+     around it, which is not a column width, it is an accident. */
+  .txt table { border-collapse:collapse; font:var(--magi-sys-body-s) var(--magi-ref-display); margin-inline:auto; }
   .txt th, .txt td {
     border:1px solid var(--magi-ref-outlineVariant);
     padding:var(--magi-sys-space-50) var(--magi-sys-space-150); text-align:left; vertical-align:top;
