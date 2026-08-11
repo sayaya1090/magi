@@ -1389,6 +1389,7 @@ async function loadFleet() {
     drawDetail(mine);
     loadIntervened(mine);
     loadJobs(mine);
+    drawReportFormat(mine);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
     return;
@@ -3219,6 +3220,93 @@ function rowNode(r) {
   return d;
 }
 
+// ── the shape of a report ────────────────────────────────────────────────────
+// What this companion must fill in before it may put a decision to somebody. The sections are a
+// contract — ask_user refuses a report with one missing — and the person the report is for is the
+// one who knows what belongs in it. Until now changing it meant writing a markdown file into a
+// workspace over ssh, so it stayed at whatever three sections the default picked.
+const fmtDialog = document.getElementById('fmtDialog');
+const fmtK = document.getElementById('fmtK'), fmtForm = document.getElementById('fmtForm');
+const fmtCancel = document.getElementById('fmtCancel'), fmtGo = document.getElementById('fmtGo');
+let fmtFor = null;
+
+async function drawReportFormat(a) {
+  const box = document.getElementById('reportfmt');
+  if (!a) { box.hidden = true; box.replaceChildren(); return; }
+  const f = await fetchOne('/report-format' + qFor(a));
+  if (!f || !f.sections) { box.hidden = true; box.replaceChildren(); return; }
+  const rows = (f.sections || []).map(sec => {
+    const row = cell('f');
+    row.append(cell('k', sec.key), cell('v', sec.prompt || ''));
+    return row;
+  });
+  // Where it came from, because "edit" means something different in each: yours to change here,
+  // shared with every companion under this console, or not written down anywhere yet.
+  // Literal keys in a lookup, not a key built by concatenation: a key the pack check cannot see is
+  // the one that ships missing and renders as its own dotted name.
+  const FROM = {workspace: 'fmt.from_workspace', console: 'fmt.from_console', default: 'fmt.from_default'};
+  const head = cell('k', tr('field.report_format') + ' · ' + tr(FROM[f.from] || FROM.default));
+  const edit = el('button', tr('action.edit'));
+  edit.type = 'button';
+  edit.className = 'deeper hit48';
+  edit.onclick = () => openFormat(a, f);
+  box.replaceChildren(head, ...rows, edit);
+  box.hidden = false;
+}
+
+// openFormat is the editor: one row per section, which is the pair a contract is made of.
+function openFormat(a, f) {
+  fmtFor = a;
+  fmtK.textContent = tr('field.report_format');
+  fmtForm.replaceChildren();
+  const more = el('button', tr('fmt.add_section'));
+  const add = (key, prompt) => {
+    const row = cell('fmtrow');
+    const k = document.createElement('md-outlined-text-field');
+    k.setAttribute('label', tr('fmt.key'));
+    k.name = 'key';
+    k.value = key || '';
+    const p = document.createElement('md-outlined-text-field');
+    p.setAttribute('label', tr('fmt.prompt'));
+    p.name = 'prompt';
+    p.value = prompt || '';
+    // Removing a section has a consequence — the agent stops being asked for it — so it is a
+    // control of its own rather than clearing the field and hoping somebody notices.
+    const drop = el('button', '✕');
+    drop.type = 'button';
+    drop.className = 'deeper hit48';
+    drop.setAttribute('aria-label', tr('action.remove'));
+    drop.onclick = () => row.remove();
+    row.append(k, p, drop);
+    fmtForm.insertBefore(row, more);
+  };
+  more.type = 'button';
+  more.className = 'deeper hit48';
+  more.onclick = () => add('', '');
+  fmtForm.append(more);
+  for (const sec of (f.sections || [])) add(sec.key, sec.prompt);
+  fmtCancel.textContent = tr('action.cancel');
+  fmtGo.textContent = tr('action.save');
+  fmtDialog.show();
+}
+
+// saveFormat writes the sections back to the companion's own workspace.
+async function saveFormat() {
+  if (!fmtFor) return;
+  const body = new URLSearchParams();
+  for (const row of fmtForm.children) {
+    if ((row.className || '') !== 'fmtrow') continue;
+    const fields = (row.children || []).filter(c => c.name === 'key' || c.name === 'prompt');
+    const key = (fields.find(c => c.name === 'key') || {}).value || '';
+    const prompt = (fields.find(c => c.name === 'prompt') || {}).value || '';
+    if (!String(key).trim()) continue;
+    body.append('key', key);
+    body.append('prompt', prompt);
+  }
+  const why = await post('/report-format', body, fmtFor.socket, fmtFor.peer);
+  if (!why) drawReportFormat(fmtFor);
+}
+
 // ── what is running beside the turn ──────────────────────────────────────────
 // A command left in the background, a child that was spawned. Neither is in the log — a background
 // command is a PID in the daemon's process and a session log cannot say whether a child is still
@@ -3610,6 +3698,10 @@ function paint() {
   // value= and neither reaches the native <dialog>, so pressing cancel left it open with an empty
   // returnValue. Measured, after somebody pressed it.
   mcpCancel.onclick = () => mcpDialog.close('cancel');
+  // Closed by hand, for the reason written above: form= and value= on a custom element never reach
+  // the native dialog, so a cancel that relied on them left it open with nothing decided.
+  fmtCancel.onclick = () => fmtDialog.close('cancel');
+  fmtGo.onclick = () => { fmtDialog.close('save'); saveFormat(); };
   mcpGo.textContent = tr('action.add_or_replace');
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too

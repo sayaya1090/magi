@@ -195,6 +195,7 @@
       <aside id="side">
         <md-outlined-card id="plan" hidden></md-outlined-card>
         <md-outlined-card id="handoffs" hidden></md-outlined-card>
+        <md-outlined-card id="reportfmt" hidden></md-outlined-card>
         <md-outlined-card id="queued" hidden></md-outlined-card>
         <md-outlined-card id="cron" hidden></md-outlined-card>
         <md-outlined-card id="intervened" hidden></md-outlined-card>
@@ -256,6 +257,19 @@
     <!-- armed: the page's existing vocabulary for a control that destroys something, and the
          asking is what is red. -->
     <md-text-button id="stopGo" class="armed"></md-text-button>
+  </div>
+</md-dialog>
+
+<!-- The shape of the report a companion has to fill in before it may put a decision to somebody.
+     The sections are a contract — the tool refuses a report with one missing — and the person the
+     report is FOR is the one who knows what belongs in it. Editing it meant writing a markdown file
+     into a workspace until now. -->
+<md-dialog id="fmtDialog">
+  <div slot="headline" id="fmtK"></div>
+  <form slot="content" id="fmtForm" method="dialog"></form>
+  <div slot="actions">
+    <md-text-button id="fmtCancel" form="fmtForm" value="cancel"></md-text-button>
+    <md-text-button id="fmtGo" form="fmtForm" value="save"></md-text-button>
   </div>
 </md-dialog>
 

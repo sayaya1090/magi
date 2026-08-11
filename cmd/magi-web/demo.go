@@ -200,6 +200,13 @@ const demoScript = `
       {content: 'fold it into the component docs', status: 'pending'},
     ],
 
+    // The shape a report has to take before this companion may ask anything. The default three,
+    // said to come from the workspace so the demo shows the case somebody can edit.
+    '/report-format': {from: 'workspace', sections: [
+      {key: 'tried', prompt: 'what you actually ran or read, and what it showed'},
+      {key: 'stakes', prompt: 'what each option costs if it turns out to be the wrong one'},
+      {key: 'lean', prompt: 'which one you would pick, and the reason'},
+    ]},
     // A council seat one level in, and a child the turn spawned. Both screens exist in the real
     // page and neither could be seen in the demo, which is the surface most people meet first.
     '/subagents': [

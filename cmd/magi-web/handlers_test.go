@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -1013,5 +1015,76 @@ func TestAFileWrittenAndThenLintedIsNotAFailedWrite(t *testing.T) {
 	}
 	if refused.Diff != "" {
 		t.Errorf("a refused write drew a change that never happened: %q", refused.Diff)
+	}
+}
+
+// The shape a report must take is readable and writable from the console.
+//
+// The sections are a contract — ask_user refuses a report with one missing — and the only way to
+// change them was to write a markdown file into a workspace. The person the report is FOR is the
+// one who knows what belongs in it, and they are the one looking at this page.
+func TestTheReportFormatIsReadAndWrittenFromTheConsole(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.liveDaemon(t, wd, "shaping", &recordingEngine{})
+	f.session("shaping", wd, "decide something", 1, false)
+	q := "?d=" + url.QueryEscape(sock)
+
+	// With nothing written anywhere, the built-in default is what the agent is held to, and that
+	// is what the page must show — not an empty card implying there is no contract.
+	var got reportFormat
+	w := get(t, f.srv.reportFormat, "/report-format"+q)
+	if w.Code != 200 {
+		t.Fatalf("reading the format answered %d: %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.From != "default" || len(got.Sections) != len(report.Default) {
+		t.Fatalf("with nothing written the page is told %+v", got)
+	}
+
+	// Written: to the WORKSPACE, where the agent's own loader reads it — a console can hold
+	// companions from several projects and one edit must not re-shape all of them.
+	if w := post(t, f.srv, f.srv.reportFormat, "/report-format"+q, url.Values{
+		"key":    {"tried", "risk"},
+		"prompt": {"what you ran", "what breaks if this is wrong"},
+	}); w.Code != http.StatusNoContent {
+		t.Fatalf("writing answered %d: %s", w.Code, w.Body.String())
+	}
+	body, err := os.ReadFile(filepath.Join(wd, ".magi", "skills", "decision-report.md"))
+	if err != nil {
+		t.Fatalf("nothing was written where the agent reads it: %v", err)
+	}
+	// Read back by the SAME parser the agent uses, not by looking for the strings just written:
+	// what matters is that the file is a contract, not that it contains some text.
+	c := report.Parse(string(body))
+	if len(c) != 2 || c[0].Key != "tried" || c[1].Key != "risk" {
+		t.Fatalf("the file does not parse as the sections that were saved: %+v", c)
+	}
+	if c[1].Prompt != "what breaks if this is wrong" {
+		t.Errorf("a section lost its prompt: %q", c[1].Prompt)
+	}
+
+	// And the page now reads it back as the workspace's own.
+	w = get(t, f.srv.reportFormat, "/report-format"+q)
+	got = reportFormat{}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.From != "workspace" || len(got.Sections) != 2 {
+		t.Errorf("after writing, the page is told %+v", got)
+	}
+
+	// An empty contract is refused: with no sections ask_user would accept a report with nothing
+	// in it, which is the state the whole mechanism exists to prevent.
+	if w := post(t, f.srv, f.srv.reportFormat, "/report-format"+q, url.Values{"key": {"  "}}); w.Code != http.StatusBadRequest {
+		t.Errorf("a report with no sections was accepted (%d)", w.Code)
+	}
+	// So are two sections with one name: Fill writes by key, so the second would silently take the
+	// first one's place and somebody would be missing a section they wrote.
+	if w := post(t, f.srv, f.srv.reportFormat, "/report-format"+q, url.Values{
+		"key": {"tried", "tried"}, "prompt": {"a", "b"}}); w.Code != http.StatusBadRequest {
+		t.Errorf("two sections with one name were accepted (%d)", w.Code)
 	}
 }

@@ -555,6 +555,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/interventions": s.interventions,
 		"/skills":        s.skills,
 		"/forget":        s.forgetSkill,
+		"/report-format": s.reportFormat,
 		"/remember":      s.remember,
 		"/context":       s.context,
 		"/dispatch":      s.dispatch,

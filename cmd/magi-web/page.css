@@ -1497,6 +1497,17 @@
   /* ── work handed to other companions ────────────────────────────────────── */
   #handoffs { max-width:var(--magi-sys-measure); }
 
+  /* ── the shape of a report ───────────────────────────────────────────────── */
+  #reportfmt { max-width:var(--magi-sys-measure); }
+  /* One row per section: the name, what belongs in it, and a way to take it out. The name is short
+     by nature and the sentence is not, so they are not given equal room. */
+  .fmtrow {
+    display:grid; grid-template-columns:10rem minmax(0, 1fr) auto;
+    gap:var(--magi-sys-space-150); align-items:center;
+    padding:var(--magi-sys-space-100) 0;
+  }
+  #fmtForm { display:grid; gap:var(--magi-sys-space-100); min-width:min(36rem, 80vw); }
+
   /* ── what has not started yet ────────────────────────────────────────────── */
   #queued { max-width:var(--magi-sys-measure); }
   .qrow {
