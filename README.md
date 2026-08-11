@@ -263,14 +263,26 @@ supervising rather than operating. See [MANUAL §12](docs/MANUAL.md) and the des
 [companion]
 name = "design"
 role = "the design system: component specs and visual review"
+team = "frontend"                       # optional
 ```
 
-Declared this way, a companion can be addressed by what it is for. Others see it with the
-`companions` tool — including what that workspace has learned, which is how a specialist becomes
-visible. Handing work across workspaces was a tool and is gone: it named its recipient as free text
-with no list of them given anywhere, so a model asked to reach one simply guessed. No registry and
-no gateway either — the companions on a machine already publish into one directory, and that is the
-membership. [MANUAL §13](docs/MANUAL.md).
+Declared this way, a companion can be addressed by what it is for. `companions` lists the others —
+including what each workspace has learned, which is how a specialist becomes visible —
+`companion_can` asks one of them what it can actually do, and `hand_off` gives it a piece of the
+work and keeps going; the answer arrives in your conversation when it finishes. The request carries
+its purpose and the **form** the answer must come back in, so a part that could not be done comes
+back as that part rather than as a paragraph about why it was hard.
+
+No registry and no gateway: every daemon publishes a record beside its socket, and that directory
+is the membership. Across machines it is the same records, traded over **ssh** —
+`magi --join-cluster <host>` once, then the daemons keep each other current and forget anybody they
+have not seen for an hour. Work crosses the same way, so magi opens no port of its own and holds no
+credential of its own.
+
+A companion does one turn at a time and **queues** what arrives meanwhile; how much is queued and
+whether one is in hand ride in its published record, so whoever is choosing can see who is free.
+Every arrival is also written down, and `magi --agents` sums the week — which is the evidence for
+running a second copy of whatever keeps turning work away. [MANUAL §13](docs/MANUAL.md).
 
 ### Headless (scripts & CI)
 

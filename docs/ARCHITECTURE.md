@@ -560,21 +560,54 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   one layer down.
 - **A team is addressing, not topology** (`internal/adapter/tool/companion`, MANUAL §13). Companions
   publish a name, a role and optionally a team into the same records the fleet already reads, so
-  membership needs no registry: the directory is it. Two tools sit on that — one that lists the
-  others (with what each has learned, which is what makes a specialist) and one that hands work to
-  one of them. Neither ranks candidates; the model chooses and the tool refuses anything ambiguous.
-  Registered by `cmd/magi`, not in builtin: `app` imports builtin and `daemon` imports `app`, so a
-  built-in that reads daemon records would close a cycle.
-- **Depth is bounded by shape, not by a counter.** Work handed to a companion cannot be handed on
-  again unless the holder is a hub passing it inside its own team. A member is not a hub, a hub
-  cannot leave its team, and a companion has one team — so two hops is the most that can happen.
+  membership needs no registry: the directory is it. The tools on top of that list the others (with
+  what each has learned, which is what makes a specialist), ask one of them what it can do, hand a
+  piece of work over, and record what an answer was worth. **Nothing ranks candidates** — the model
+  chooses, the tool refuses anything ambiguous, and the record is shown as a tally rather than an
+  order. Registered by `cmd/magi`, not in builtin: `app` imports builtin and `daemon` imports `app`,
+  so a built-in that read daemon records would close a cycle.
+- **A team address resolves to the lightest member, hub on a tie.** The hub is elected from who is
+  actually there rather than read off a config flag, so a team stops being addressable when everyone
+  in it stops and never because nobody typed a word. It used to always resolve to the hub, which
+  made a team of three behave as one queue — nothing can pass handed-over work on, so it all piled
+  up behind whoever had been elected.
+- **Depth is bounded by shape, not by a counter.** Work handed to a companion cannot be handed on.
   The rule is read off a label in the transcript, which survives restarts, attaches and resumes.
+- **Conversations are isolated; the workspace is not.** Each asker gets a side session, so nobody's
+  request lands in the conversation a person is having — but one turn runs at a time per workspace,
+  the person's included, because two turns in one tree are two writers with nothing between them.
+  A busy companion therefore queues (bounded, four) rather than refusing, and a receipt is minted at
+  ACCEPT while the log position is taken at START: taken at accept, a piece that waited would have
+  had somebody else's finished turn returned as its answer, which is a plausible wrong answer rather
+  than an error. Two numbers — queued, and one in hand — ride in the published record, because
+  neither can be derived from a state that is read off the session a person attaches to.
+- **Load is written down as well as advertised** (`<socket>.load`). The live number answers "how
+  busy is it now"; whether one copy is enough is a pattern, and a pattern is invisible in an
+  instant. It decays after a month and survives the daemon, since the week after a companion was
+  killed is when somebody asks whether it was overloaded. Deliberately not with the delegation
+  verdicts, which are a judgement about a companion's work and belong in the repository.
+- **One door across a machine, and it is ssh** (`--relay`). A remote companion is reached by
+  `ssh <host> magi --relay <socket>`, which pipes stdin/stdout to that socket, so taking work,
+  asking what became of it and asking what a companion can do are three methods of the daemon
+  protocol rather than three subcommands that each re-derive what the daemon already knows. Answers
+  are pushed back down the same pipe. magi opens no port of its own between machines and holds no
+  credential of its own: the security boundary is ssh.
+- **Here or elsewhere is decided by the record, not by the hostname.** A config directory can be
+  shared, so comparing this machine's name against a sighting's would dial a path that answers —
+  and open the wrong workspace, with the work arriving looking delivered.
+- **Membership across machines is gossip that decays** (`cluster.json`, `internal/core/cluster`).
+  One ssh exchange is the whole join; after that each daemon trades with two hosts a minute. A
+  companion unseen for five minutes is shown and not offered work, one unseen for an hour is
+  dropped. It is a runtime file rather than configuration because configuration does not go out of
+  date on its own, and this machine's own companions are never written into it — they are read from
+  the published records every time.
 - **What the console serves**, all of it derived or forwarded: `/fleet` (the list), `/events` (a
   transcript, streamed), `/context` `/plan` `/handoffs` (one companion, read off its log),
-  `/interventions` `/skills` `/forget` (the supervision loop), `/history` (what a companion has
-  done before now), `/mcp` (read and edit a companion's external tool servers), `/console` (which
-  machine this is), `/push` and `/sw.js` (waking a phone when a companion blocks), and the five that
-  change a run — `/submit` `/interrupt` `/answer` `/dispatch` `/compact` — each forwarded to the
+  `/interventions` `/skills` `/forget` `/remember` (the supervision loop), `/history` and `/search`
+  (what a companion has done before now, and finding it by word), `/cron` (its unattended
+  schedule), `/mcp` (read and edit a companion's external tool servers), `/console` (which machine
+  this is), `/push` and `/sw.js` (waking a phone when a companion blocks), and the six that change a
+  run — `/submit` `/interrupt` `/answer` `/dispatch` `/compact` `/shell` — each forwarded to the
   daemon that owns it. A test checks that every path the page references — including its ES imports,
   which is how a 404 on `/vendor/material.js` went unseen — is one this binary serves.
 
