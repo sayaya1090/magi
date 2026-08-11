@@ -1,0 +1,58 @@
+# Does the icon token in this repository's secrets actually open the door?
+#
+# The console's icons are Font Awesome Pro. The files are not in this repository and must not be —
+# a licence that permits using them in a site you deploy does not permit republishing them as files
+# — so the Pages build fetches them at build time from Font Awesome's own registry, with a token
+# held in secrets. A token is only readable inside a workflow run, which makes this the only place
+# it can be checked.
+#
+# Dispatch only. It writes nothing, deploys nothing, and prints no part of the token: it asks the
+# registry for a version string and reports which of the two package shapes answered.
+name: Icons token check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ask the registry, without saying the password out loud
+        env:
+          FA_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${FA_TOKEN}" ]; then
+            echo "::error::FONTAWESOME_NPM_AUTH_TOKEN is not set in this repository's secrets"
+            exit 1
+          fi
+          echo "the secret is present (${#FA_TOKEN} characters)"
+
+          # Scoped to the two registries Font Awesome serves, in a config this job throws away.
+          cat > .npmrc <<'EOF'
+          @fortawesome:registry=https://npm.fontawesome.com/
+          @awesome.me:registry=https://npm.fontawesome.com/
+          EOF
+          printf '//npm.fontawesome.com/:_authToken=%s\n' "${FA_TOKEN}" >> .npmrc
+
+          # Two shapes, because a Font Awesome token is one of two things and only the registry can
+          # say which this is: a KIT token, which opens @awesome.me/kit-<id>, or a PRO token, which
+          # opens the @fortawesome/pro-* packages. The kit is the one this console wants — it is the
+          # hand-picked 113, not the whole library.
+          ok=0
+          for pkg in "@awesome.me/kit-fd54b971dc" "@fortawesome/pro-light-svg-icons"; do
+            if v=$(npm view "$pkg" version 2>/tmp/err); then
+              echo "✓ $pkg → $v"
+              ok=1
+            else
+              echo "✗ $pkg — $(tail -3 /tmp/err | tr '\n' ' ')"
+            fi
+          done
+          rm -f .npmrc
+          if [ "$ok" -eq 0 ]; then
+            echo "::error::the token opened neither package; it is the wrong token or has been revoked"
+            exit 1
+          fi
