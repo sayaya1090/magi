@@ -44,6 +44,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/version"
 )
 
@@ -849,7 +850,13 @@ func renderMessages(msgs []session.Message) []line {
 						// the summary line, twice, with the answer nowhere. "What did the grep
 						// find" is most of why anybody opens a tool call, and the terminal has
 						// always shown it.
-						row.Out = fleet.Clip(string(res.Content), 8000)
+						// Head AND tail, with the omitted size named. Clipped from the front
+						// alone, a two-hundred-kilobyte build log arrived as the first eight
+						// kilobytes — the part where everything was still going fine — and the
+						// failure at the end, which is the reason anybody opened the row, was
+						// exactly what got dropped. The same treatment the tool's own output gets
+						// before the model reads it, out of the same function.
+						row.Out = text.HeadTail(string(res.Content), 8000)
 					}
 					out = append(out, row)
 				}
@@ -865,7 +872,8 @@ func renderMessages(msgs []session.Message) []line {
 					// log, and the transcript is rebuilt and re-sent on every change — this bound
 					// is about what crosses the wire two and a half times a second, not about what
 					// fits on the screen.
-					out = append(out, line{Who: who, Text: fleet.Clip(string(p.ToolResult.Content), 8000), msg: m.ID})
+					out = append(out, line{Who: who,
+						Text: text.HeadTail(string(p.ToolResult.Content), 8000), msg: m.ID})
 				}
 			// The two that were being dropped on the floor. A part kind this switch does not name
 			// is not an empty row — it is a row that never existed, with nothing anywhere saying

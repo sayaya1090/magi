@@ -735,3 +735,34 @@ func TestASuccessfulCallCarriesItsOutput(t *testing.T) {
 		t.Errorf("what it was asked was lost: %+v", rows[0])
 	}
 }
+
+// A result too big for the wire keeps its END, which is where the answer is.
+//
+// Clipped from the front alone, a two-hundred-kilobyte build log arrived as the first eight
+// kilobytes — the part where everything was still going fine — and the failure that made somebody
+// open the row was exactly what got dropped.
+func TestABigResultKeepsTheEndAndSaysWhatWentMissing(t *testing.T) {
+	big := `"` + strings.Repeat("compiling…\\n", 3000) + `FAILED: 3 tests"`
+	rows := renderMessages([]session.Message{{
+		Role: session.RoleAssistant,
+		Parts: []session.Part{
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{
+				CallID: "c1", Name: "bash", Args: json.RawMessage(`{"command":"go test ./..."}`)}},
+			{Kind: session.PartToolResult, ToolResult: &session.ToolResult{
+				CallID: "c1", Content: json.RawMessage(big)}},
+		},
+	}})
+	if len(rows) != 1 {
+		t.Fatalf("rows came out as %+v", rows)
+	}
+	out := rows[0].Out
+	if len(out) >= len(big) {
+		t.Fatalf("nothing was elided: %d of %d", len(out), len(big))
+	}
+	if !strings.Contains(out, "FAILED: 3 tests") {
+		t.Errorf("the end went, which is the reason anybody opens the row: …%q", out[max(0, len(out)-60):])
+	}
+	if !strings.Contains(out, "bytes omitted") {
+		t.Errorf("it does not say how much it dropped")
+	}
+}
