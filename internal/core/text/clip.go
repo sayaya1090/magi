@@ -12,7 +12,10 @@
 // copies live there.
 package text
 
-import "unicode/utf8"
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
 // Cut returns at most n bytes of s, ending on a rune boundary, with no marker.
 //
@@ -48,3 +51,46 @@ func ClipWith(s string, n int, marker string) string {
 	}
 	return Cut(s, n) + marker
 }
+
+// HeadTail keeps the beginning AND the end of s within n bytes, eliding the middle and saying how
+// much it dropped.
+//
+// Head-only clipping is wrong for anything a machine produced. A build log's error and its final
+// status live at the END — cut the tail and what survives is the part that was going fine, which
+// reads as a run that simply stopped. Three quarters head to one quarter tail, because the head
+// carries what was being done and the tail carries how it went, and the second is shorter.
+//
+// The count is part of the output, not a nicety. "…" says something was removed and leaves the
+// reader unable to tell six characters from six megabytes, which is the difference between a line
+// that was tidied and a log that was gutted.
+//
+// Cuts on rune boundaries, so the result is always valid UTF-8 — a half rune is a replacement glyph
+// in a terminal and a rejected encode in JSON.
+func HeadTail(s string, n int) string {
+	if n <= 0 || len(s) <= n {
+		if n <= 0 {
+			return ""
+		}
+		return s
+	}
+	head := n * 3 / 4
+	for head > 0 && !utf8.RuneStart(s[head]) {
+		head--
+	}
+	tail := len(s) - (n - head)
+	for tail < len(s) && !utf8.RuneStart(s[tail]) {
+		tail++
+	}
+	if tail <= head { // n so small the two halves meet; keep the head and say so
+		return Cut(s, n) + omitted(len(s)-n)
+	}
+	return s[:head] + omitted(tail-head) + s[tail:]
+}
+
+// omitted is the marker the elision leaves behind, on its own lines so it cannot be mistaken for a
+// line of the output it interrupts.
+//
+// An exact byte count, not a rounded one. The first reader of this is the model, which is deciding
+// whether to go and fetch the rest; "34816" tells it how much it is missing and "34 KB" makes it
+// guess. It costs five characters.
+func omitted(n int) string { return fmt.Sprintf("\n…(%d bytes omitted)…\n", n) }

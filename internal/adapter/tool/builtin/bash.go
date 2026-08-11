@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -538,25 +538,13 @@ var unixShellPath = sync.OnceValue(func() string {
 
 func unixShell() string { return unixShellPath() }
 
-// truncateOut caps very large command output for display, keeping the head AND the tail
-// (¾ / ¼) with the middle elided — a build/test failure's actual error and final status
-// live at the end, so head-only truncation would hide exactly what the agent needs. Cuts
-// on rune boundaries so the result is always valid UTF-8.
-func truncateOut(s string) string {
-	const max = 30 * 1024
-	if len(s) <= max {
-		return s
-	}
-	head := max * 3 / 4
-	for head > 0 && !utf8.RuneStart(s[head]) {
-		head--
-	}
-	tail := len(s) - (max - head)
-	for tail < len(s) && !utf8.RuneStart(s[tail]) {
-		tail++
-	}
-	return s[:head] + fmt.Sprintf("\n…(%d bytes omitted)…\n", tail-head) + s[tail:]
-}
+// truncateOut caps very large command output for display, keeping the head AND the tail with the
+// middle elided and the omitted size named.
+//
+// The elision itself lives in core/text now: the console needed the same treatment for the same
+// reason, and this was the second copy — which is the count at which this tree has learned to move
+// a primitive rather than write it again.
+func truncateOut(s string) string { return text.HeadTail(s, 30*1024) }
 
 // scratchEnv points the command's TMPDIR at the turn's scratch, so everything that ASKS for a temp
 // path — mktemp, python's tempfile, a compiler's intermediates — writes outside the deliverable
