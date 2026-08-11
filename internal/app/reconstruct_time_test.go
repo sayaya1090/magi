@@ -91,3 +91,29 @@ func TestARebuiltNoteRemembersWhichPartOfMagiWroteIt(t *testing.T) {
 		t.Errorf("the note is attributed to %q", msgs[0].Author)
 	}
 }
+
+// The rebuild carries what the log says about a cancelled prompt.
+//
+// It is marked rather than removed: the prompt was said, and taking it out would leave the answer
+// that never came looking like an answer to whatever came before it.
+func TestARebuiltPromptRemembersItWasAbandoned(t *testing.T) {
+	prompt, err := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m1", Parts: []session.Part{{Kind: session.PartText, Text: "never mind"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone, err := json.Marshal(event.PromptAbandonedData{MsgID: "m1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := reconstruct([]event.Event{
+		{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser}, Data: prompt},
+		{Type: event.TypePromptAbandoned, Actor: event.Actor{Kind: event.ActorSystem, ID: "loop"}, Data: gone},
+	})
+	if len(msgs) != 1 {
+		t.Fatalf("rebuilt %d messages — the prompt should still be in the conversation", len(msgs))
+	}
+	if !msgs[0].Abandoned {
+		t.Error("the rebuilt prompt does not know it was abandoned")
+	}
+}

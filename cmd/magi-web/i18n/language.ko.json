@@ -191,6 +191,7 @@
   "reach.on_peer": " ({peer})",
   "reach.only": "{name}만",
   "reach.team": "{team} 팀",
+  "row.abandoned": "답 없음 — 취소되었거나 합쳐짐",
   "row.reasoning": "추론",
   "row.system": "magi",
   "row.working": "처리 중",

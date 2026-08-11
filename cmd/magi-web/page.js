@@ -2946,6 +2946,7 @@ function rowNode(r) {
   // colour rather than into an undefined class, and a name out of the log never becomes a selector.
   const seat = COUNCIL_SEATS[String(r.member || '').toLowerCase()] || '';
   const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '')
+    + (r.abandoned ? ' abandoned' : '')
     + (seat ? ' ' + seat : '')
     + (r.who === 'tool' && r.ok === false ? ' toolfail' : '')
     + (r.who === 'tool' && r.ok === true ? ' toolok' : '')
@@ -3061,6 +3062,14 @@ function rowNode(r) {
     return d;
   }
 
+  // Said, not only greyed: a request nothing will ever answer is a fact about the conversation,
+  // and colour alone is a fact some readers are not told. The log says which of the two happened
+  // no more precisely than this, so neither does the note.
+  if (r.abandoned) {
+    const tag = el('span', ' · ' + tr('row.abandoned'));
+    tag.className = 'pendtag';
+    w.append(tag);
+  }
   if (r.pending) {
     // Said in words as well as drawn. A state carried only by a bar is a state some readers are
     // not told, and this one is the answer to "is it working on what I just asked".

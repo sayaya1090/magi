@@ -1797,6 +1797,10 @@
     padding-left:var(--magi-sys-space-150); margin-left:calc(-1 * var(--magi-sys-space-150));
   }
   .pendtag { color:var(--magi-ref-primary); font-weight:600; }
+  /* A prompt nothing will answer. Quieter than a live one and struck through the way a finished
+     plan item is — the request was made and then overtaken, which is what the line says. */
+  .row.abandoned .txt { color:var(--magi-ref-muted); border-left-color:var(--magi-ref-outlineVariant); }
+  .row.abandoned .who .pendtag { color:var(--magi-ref-muted); font-weight:400; }
   /* Coloured by the verdict, the way the terminal colours it: done is green, a continue is a
      rejection and is red, an abstention is muted. The icon in the summary carries the same fact,
      so a reader who cannot separate the colours is not being told less. */

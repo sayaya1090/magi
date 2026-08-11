@@ -191,6 +191,7 @@
   "reach.on_peer": " on {peer}",
   "reach.only": "Only {name}",
   "reach.team": "The {team} team",
+  "row.abandoned": "not answered — cancelled or merged",
   "row.reasoning": "Reasoning",
   "row.system": "magi",
   "row.working": "working on this",

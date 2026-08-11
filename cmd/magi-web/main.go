@@ -827,6 +827,9 @@ type line struct {
 	// terminal's diff is Go and there is no second implementation worth having — the page already
 	// knows how to colour one.
 	Diff string `json:"diff,omitempty"`
+	// Abandoned marks a prompt no turn will ever answer — cancelled, or merged into a later one.
+	// Without it a cancelled request reads as a question the companion ignored.
+	Abandoned bool `json:"abandoned,omitempty"`
 	// By is which of magi's own parts wrote a system row — the orchestrator, the planner. The
 	// terminal has named it since these notes existed; the console called all of them magi.
 	By string `json:"by,omitempty"`
@@ -863,7 +866,8 @@ func renderMessages(msgs []session.Message) []line {
 			switch p.Kind {
 			case session.PartText:
 				if t := strings.TrimSpace(p.Text); t != "" {
-					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID, At: at, By: by})
+					out = append(out, line{Who: string(m.Role), Text: t, msg: m.ID, At: at, By: by,
+						Abandoned: m.Abandoned})
 				}
 			case session.PartReasoning:
 				if t := strings.TrimSpace(p.Text); t != "" {
@@ -964,6 +968,9 @@ func markPending(rows []line) []line {
 	}
 	last := &rows[len(rows)-1]
 	switch {
+	// Not an abandoned one. The log says outright that nothing will answer it, and a spinner over
+	// a request that was cancelled is the console inventing work.
+	case last.Who == "user" && last.Abandoned:
 	case last.Who == "user":
 		last.Pending = true
 	// A tool call at the very end with no result yet is the call running right now. Only at the

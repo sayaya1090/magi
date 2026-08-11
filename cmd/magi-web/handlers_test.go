@@ -938,3 +938,33 @@ func TestAnEditCrossesAsItsDiff(t *testing.T) {
 		t.Errorf("a command came through with a diff: %q", got[0].Diff)
 	}
 }
+
+// A prompt nothing will ever answer says so, and does not wear a spinner.
+//
+// It was cancelled, or a later request swallowed it — the log records that in its own event, and
+// the terminal has drawn the note since prompts could be cancelled. Without it a cancelled request
+// reads as a question the companion ignored, and being the last row it also got the "working on
+// it" mark: a spinner over work that will never happen.
+func TestAnAbandonedPromptSaysSoAndDoesNotSpin(t *testing.T) {
+	rows := markPending(renderMessages([]session.Message{
+		{ID: "m1", Role: session.RoleUser, Abandoned: true,
+			Parts: []session.Part{{Kind: session.PartText, Text: "never mind this one"}}},
+	}))
+	if len(rows) != 1 {
+		t.Fatalf("rendered %d rows", len(rows))
+	}
+	if !rows[0].Abandoned {
+		t.Error("the row does not carry what the log said about it")
+	}
+	if rows[0].Pending {
+		t.Error("a request that will never be answered is marked as being worked on")
+	}
+	// One that was NOT abandoned still is: this is a distinction, not a blanket.
+	live := markPending(renderMessages([]session.Message{
+		{ID: "m2", Role: session.RoleUser,
+			Parts: []session.Part{{Kind: session.PartText, Text: "do this one"}}},
+	}))
+	if !live[0].Pending {
+		t.Error("an unanswered live prompt lost its mark")
+	}
+}

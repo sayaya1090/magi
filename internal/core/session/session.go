@@ -95,6 +95,12 @@ type Message struct {
 	// facts and only the second is useful. The rebuild dropped the actor, so every other reader
 	// had one word for all of them.
 	Author string `json:"author,omitempty"`
+	// Abandoned marks a prompt no turn will ever answer: it was cancelled, or it was merged into a
+	// later request that carries its text. The log says so in its own event, and the terminal has
+	// drawn the note since prompts could be cancelled — a reader who cannot tell an abandoned
+	// request from an answered one is reading a conversation with a question in it that appears to
+	// have been ignored.
+	Abandoned bool `json:"abandoned,omitempty"`
 }
 
 // PartKind discriminates the variant of a Part (tagged union).

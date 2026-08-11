@@ -111,6 +111,17 @@ func reconstruct(evs []event.Event) []session.Message {
 			index[d.MessageID] = e
 			entries = append(entries, e)
 
+		case event.TypePromptAbandoned:
+			// The prompt is still part of the conversation — it was said — so it is marked rather
+			// than removed. Removing it would leave the answer that never came looking like an
+			// answer to whatever came before.
+			var d event.PromptAbandonedData
+			if json.Unmarshal(ev.Data, &d) == nil {
+				if e, ok := index[d.MsgID]; ok {
+					e.msg.Abandoned = true
+				}
+			}
+
 		case event.TypePartAppended:
 			var d event.PartAppendedData
 			if json.Unmarshal(ev.Data, &d) != nil {
