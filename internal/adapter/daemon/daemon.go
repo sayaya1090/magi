@@ -539,6 +539,21 @@ func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 		case <-ctx.Done():
 		case <-d.stop:
 		}
+		// Both endings close the OPEN CONNECTIONS as well as the listener, and that is the whole
+		// of it: Ctrl-C used to close only the listener, and then wg.Wait below waited for every
+		// serveConn goroutine — each of which sits in Scan until its peer hangs up.
+		//
+		// A console holds one open per daemon it has ever touched (magi-web caches its clients),
+		// and an attached terminal holds one for as long as it is attached. So a daemon anybody
+		// had looked at did not stop on Ctrl-C. It printed nothing and it did not exit; the only
+		// way out was to kill it, which is how it was reported — from Windows, though nothing
+		// about it is Windows.
+		//
+		// A connection blocked on Scan is not work in flight: closing it ends the read, the
+		// goroutine returns, and a request that IS mid-answer still finishes, because Stop closes
+		// the socket rather than the goroutine and the write it is doing completes or fails on its
+		// own. wg.Wait then means what it says.
+		d.Stop()
 		d.ln.Close() // unblocks Accept
 	}()
 	for {

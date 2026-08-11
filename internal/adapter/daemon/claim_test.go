@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
@@ -248,4 +249,45 @@ func TestGivingUpAfterBindingReleasesTheClaim(t *testing.T) {
 		t.Fatalf("the next start was blocked by a claim nobody holds: %v", err)
 	}
 	d2.Close()
+}
+
+// Ctrl-C stops a daemon that somebody is looking at.
+//
+// It did not. Cancelling the context closed the listener and then waited for every connection
+// goroutine, each of which sits in a blocking read until its peer hangs up — and a console holds
+// one open per daemon it has ever touched, while an attached terminal holds one for as long as it
+// is attached. So a daemon anybody had opened printed nothing on Ctrl-C and never exited; the only
+// way out was to kill it. Reported from Windows, and nothing about it was Windows.
+func TestCtrlCStopsADaemonSomebodyIsConnectedTo(t *testing.T) {
+	sock := filepath.Join(shortDir(t), "d.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, &fakeEngine{}, sock) }()
+	waitForSocket(t, sock)
+
+	// A viewer: connected, idle, and holding the connection the way every console does.
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// One request, so the connection is genuinely being served rather than merely accepted.
+	if _, err := conn.Write([]byte(`{"method":"status"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bufio.NewReader(conn).ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("stopping with a viewer attached failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the daemon did not stop while a viewer held a connection — this is the hang, and " +
+			"the only way out of it is to kill the process")
+	}
 }
