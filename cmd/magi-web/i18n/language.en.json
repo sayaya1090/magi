@@ -72,6 +72,7 @@
   "detail.changes": "Changes",
   "detail.evidence": "What the council was shown",
   "detail.evidence_decide": "What it is asking you to decide on",
+  "detail.evidence_gone": "summarised away — this round's material is no longer in the log",
   "detail.finished": "finished",
   "detail.grounds": "Grounds",
   "detail.judged_on_report": "none observed — judged on the report's substance",

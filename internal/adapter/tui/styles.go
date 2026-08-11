@@ -118,8 +118,13 @@ var nervDark = palette{
 	"secondary": "#E8B89F",
 	"error":     "#F2B8B5", "success": "#86EFAC", "surface": "#211B14",
 	"primaryContainer": "#4A2E0B", "outlineVariant": "#463E34", "warn": "#FFD479",
-	// The MAGI — amber / cyan / coral, the NERV-console hues.
-	"melchior": "#FFB454", "balthasar": "#5CD8E6", "casper": "#FF8A8A",
+	// The MAGI — amber / cyan / violet, the NERV-console hues.
+	//
+	// Casper was coral, one step from the error colour beside it (#F2B8B5), and in the light theme
+	// below it WAS the error colour to the digit. A seat whose whole job is to say who is speaking
+	// cannot be the colour that means "this was rejected", so it takes a hue no other role here
+	// uses.
+	"melchior": "#FFB454", "balthasar": "#5CD8E6", "casper": "#D8B4FE",
 
 	// The page and the text on it. The terminal has its own default background and the TUI has
 	// always let it show through, so these two are here for the web to read rather than for
@@ -146,7 +151,7 @@ var nervLight = palette{
 	"secondary": "#82604F",
 	"error":     "#B3261E", "success": "#15803D", "surface": "#F5EEE3",
 	"primaryContainer": "#F8D9A8", "outlineVariant": "#D8CFC0", "warn": "#92600A",
-	"melchior": "#B45309", "balthasar": "#0E7490", "casper": "#B3261E",
+	"melchior": "#B45309", "balthasar": "#0E7490", "casper": "#6D28D9",
 
 	"bg": "#FBF8F3", "fg": "#221D16",
 

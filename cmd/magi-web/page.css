@@ -15,7 +15,7 @@
        carry every role of the terminal's, so retuning one can never leave the two disagreeing.
        These were declared and unused for a long time under a comment saying this console showed no
        council; it does, and now they paint it (see .row.m-*). */
-    --magi-ref-melchior:#FFB454; --magi-ref-balthasar:#5CD8E6; --magi-ref-casper:#FF8A8A;
+    --magi-ref-melchior:#FFB454; --magi-ref-balthasar:#5CD8E6; --magi-ref-casper:#D8B4FE;
     --magi-ref-bg:#14110d; --magi-ref-fg:#E8E2D8;
     --magi-ref-shadow:#000000; --magi-ref-scrim:#000000;
 
@@ -138,7 +138,7 @@
       --magi-ref-secondary:#82604F;
       --magi-ref-error:#B3261E; --magi-ref-success:#15803D; --magi-ref-surface:#F5EEE3;
       --magi-ref-primaryContainer:#F8D9A8; --magi-ref-outlineVariant:#D8CFC0; --magi-ref-warn:#92600A;
-      --magi-ref-melchior:#B45309; --magi-ref-balthasar:#0E7490; --magi-ref-casper:#B3261E;
+      --magi-ref-melchior:#B45309; --magi-ref-balthasar:#0E7490; --magi-ref-casper:#6D28D9;
       --magi-ref-bg:#FBF8F3; --magi-ref-fg:#221D16;
 
       /* ── M3, light ─────────────────────────────────────────────────────── */
@@ -163,7 +163,7 @@
     --magi-ref-secondary:#82604F;
     --magi-ref-error:#B3261E; --magi-ref-success:#15803D; --magi-ref-surface:#F5EEE3;
     --magi-ref-primaryContainer:#F8D9A8; --magi-ref-outlineVariant:#D8CFC0; --magi-ref-warn:#92600A;
-    --magi-ref-melchior:#B45309; --magi-ref-balthasar:#0E7490; --magi-ref-casper:#B3261E;
+    --magi-ref-melchior:#B45309; --magi-ref-balthasar:#0E7490; --magi-ref-casper:#6D28D9;
     --magi-ref-bg:#FBF8F3; --magi-ref-fg:#221D16;
 
     /* ── M3, light ─────────────────────────────────────────────────────── */
@@ -1860,6 +1860,17 @@
      one colour is a wall of identical rows, and which of them said the thing you are reading is
      most of what a council transcript is for. The tokens were declared here from the beginning and
      nothing used them, under a comment saying this console shows no council — it does. */
+  /* The name is a control on a council row, so it brings a button's own font and background with
+     it and has to be told to be the gutter it looks like. */
+  .who.whoin {
+    background:none; border:0; padding:0; margin:0; font:inherit; color:inherit;
+    letter-spacing:inherit; text-align:inherit; cursor:pointer; width:100%;
+  }
+  .who.whoin:hover, .who.whoin:focus-visible { text-decoration:underline; text-underline-offset:2px; }
+  /* Casper was #B3261E in the light theme — the error colour, to the digit — and #FF8A8A in the
+     dark one, which is the error colour's neighbour. So one of the three seats was indistinguishable
+     from a rejection, on a row whose whole job is to say who is speaking. Violet: no other role on
+     this page uses it. */
   .row.m-melchior .who { color:var(--magi-ref-melchior); }
   .row.m-balthasar .who { color:var(--magi-ref-balthasar); }
   .row.m-casper .who { color:var(--magi-ref-casper); }
@@ -1890,8 +1901,10 @@
   .row.v-done .fold > summary { color:var(--magi-ref-success); }
   .row.v-continue .fold > summary { color:var(--magi-ref-error); }
   .row.v-abstain .fold > summary { color:var(--magi-ref-muted); }
-  .row.v-done .who { color:var(--magi-ref-success); }
-  .row.v-continue .who { color:var(--magi-ref-error); }
+  /* The outcome row's gutter takes the verdict's colour; a SEAT's does not — that one belongs to
+     the councillor, and this rule beat it for having been written later in the file. */
+  .row.v-done:not(.seated) .who { color:var(--magi-ref-success); }
+  .row.v-continue:not(.seated) .who { color:var(--magi-ref-error); }
   /* A command somebody ran from here. Its own colour because it is the one row on the page that
      nobody's agent did — and it is not in the log, so it is also the one row a second console
      watching the same session will not have. */

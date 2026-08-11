@@ -72,6 +72,7 @@
   "detail.changes": "변경",
   "detail.evidence": "카운슬이 본 것",
   "detail.evidence_decide": "무엇을 보고 정하라는 것인가",
+  "detail.evidence_gone": "요약되어 사라짐 — 이 라운드가 본 자료는 로그에 없습니다",
   "detail.finished": "종료",
   "detail.grounds": "인용",
   "detail.judged_on_report": "관측된 것 없음 — 보고 내용으로 판단",

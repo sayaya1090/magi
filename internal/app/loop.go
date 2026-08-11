@@ -601,7 +601,11 @@ func unrecordablePart(msgID string, role session.Role, part session.Part, cause 
 	if part.Kind == session.PartToolResult && part.ToolResult != nil {
 		c, _ := json.Marshal(msg)
 		sub = session.Part{ID: part.ID, Kind: session.PartToolResult, ToolResult: &session.ToolResult{
-			CallID: part.ToolResult.CallID, Content: c, IsError: true,
+			// An error, so the agent re-runs it in a narrower form — and advisory, because the
+			// sentence above says it outright: the call RAN. What is missing is the record of what
+			// it answered, not the work; a screen drawing ✗ over a write that landed would be
+			// contradicting the filesystem, which is the same defect the diagnostics path had.
+			CallID: part.ToolResult.CallID, Content: c, IsError: true, Advisory: true,
 		}}
 	}
 	d, err := json.Marshal(event.PartAppendedData{MessageID: msgID, Role: role, Part: sub})

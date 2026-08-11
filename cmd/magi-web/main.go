@@ -1076,9 +1076,29 @@ func councilText(m app.CouncilMark) string {
 	if m.Lens != "" {
 		head += " (" + m.Lens + ")"
 	}
+	// How sure, where the terminal puts it: on the line with the vote. A vote at 55% and a vote at
+	// 95% are different votes and the number was on the wire the whole time.
+	if m.Confidence > 0 {
+		head += fmt.Sprintf(" · %d%%", int(m.Confidence*100+0.5))
+	}
 	var body []string
 	if m.Why != "" {
 		body = append(body, m.Why)
+	}
+	// The rest of the vote, in the words the terminal uses for it.
+	//
+	// This showed the rationale and the citation; the terminal showed the feedback and the keep.
+	// Two surfaces reading one record and each dropping the half the other kept — so a council read
+	// in the console and the same council read in the terminal disagreed about what was said.
+	// Reported live, and the fix is that neither drops anything.
+	if f := strings.TrimSpace(m.Feedback); f != "" && f != m.Why {
+		body = append(body, "feedback: "+f)
+	}
+	// What must survive a revision. Not gated on the vote: an approving member's keep is exactly
+	// the part a rewrite forced by another member's objection would drop, and it reaches the model
+	// — so a reader who cannot see it cannot tell why the next turn protected something.
+	if k := strings.TrimSpace(m.Keep); k != "" {
+		body = append(body, "keep: "+k)
 	}
 	// The fragment a vote rests on, named. An empty one on a "done" is itself worth seeing, which
 	// is why the absence is written out rather than left as a missing line.

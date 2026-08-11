@@ -448,6 +448,22 @@ function goDeep(param, value) {
   render();
 }
 const goBackUp = () => goDeep('sub', null);
+
+// goVerdict opens one member's vote, KEEPING which session it was read in.
+//
+// goDeep clears every level, which is right when they are alternatives — and a verdict read on a
+// past session is not an alternative to that session, it is inside it. Cleared, the screen asked
+// the LIVE session for a round that belongs to a finished one: the evidence came back null and the
+// vote could not be found in the transcript on screen, so the way in from a past council row led
+// to a page with a name on it and nothing else. Reported as "the council's evidence cannot be
+// reached once the work is done".
+function goVerdict(round, member) {
+  const u = new URLSearchParams(location.search);
+  u.delete('sub'); u.delete('ask');
+  u.set('cr', round + ':' + member);
+  history.pushState({}, '', '?' + u.toString());
+  render();
+}
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
 // The pair (peer, socket) identifies a companion once more than one console is in the list: a
 // socket path is only meaningful on the machine that owns it.
@@ -1728,7 +1744,11 @@ async function drawVerdict(a, spec) {
   // The LAST vote of that seat in that round, not the first. A member votes twice when a rebuttal
   // round changes its mind, and both are in the transcript — reading the earlier one put a
   // rejection behind a row that said the opposite.
-  const seats = (lastRows || []).filter(r => r.who === 'council' && r.round === round
+  // From whichever transcript is on screen: the live one, or the past session this verdict was
+  // read in. Asked of the live rows while standing in a finished session, this found nothing and
+  // drew a header with no vote under it.
+  const from = pastOf() ? pastRows : lastRows;
+  const seats = (from || []).filter(r => r.who === 'council' && r.round === round
     && String(r.member || '') === member);
   const v = seats[seats.length - 1] || {};
   // The seat's own colour, taken from the same token the transcript row uses so the two cannot
@@ -1741,7 +1761,8 @@ async function drawVerdict(a, spec) {
     (v.decision ? councilWordOf(v.decision) : '') + (v.lens ? ' · ' + v.lens : '')
     + (v.confidence ? ' · ' + Math.round(v.confidence * 100) + '%' : '')));
 
-  const ev = await fetchOne('/council' + qFor(a) + '&round=' + round);
+  const ev = await fetchOne('/council' + qFor(a) + '&round=' + round
+    + (pastOf() ? '&session=' + encodeURIComponent(pastOf()) : ''));
   if (ev) {
     const seen = cell('dseen');
     detailSection(seen, tr('detail.task'), ev.task);
@@ -1754,6 +1775,12 @@ async function drawVerdict(a, spec) {
       box.append(cell('dk dhero', tr('detail.evidence')));
       box.append(seen);
     }
+  } else {
+    // Said, rather than left as a gap. A round whose convening was compacted away is a round whose
+    // evidence is genuinely gone, and a screen that simply omits it reads as one that failed to
+    // load — somebody presses again, and again. The vote below is still worth the trip.
+    box.append(cell('dk dhero', tr('detail.evidence')));
+    box.append(cell('dnote', tr('detail.evidence_gone')));
   }
   detailSection(box, tr('detail.rationale'), v.why);
   detailSection(box, tr('detail.next'), v.feedback);
@@ -1862,6 +1889,9 @@ async function drawPast(a) {
   const want = pastOf();
   if (want) {
     const rows = await fetchList('/transcript' + qFor(a) + '&session=' + encodeURIComponent(want));
+    // Kept, because a verdict opened from one of these rows is read out of the same list — asking
+    // the server again would be a second answer that can differ from what is on screen.
+    pastRows = rows || [];
     box.replaceChildren();
     box.append(detailHead(tr('field.history'), '', want));
     const log2 = cell('dlog');
@@ -3007,10 +3037,14 @@ function rowNode(r) {
   // …and who said it, so the three councillors keep the hues they have in the terminal. Lowercased
   // and matched against the three known names: a custom member falls through to the council
   // colour rather than into an undefined class, and a name out of the log never becomes a selector.
+  // seated marks a row whose gutter belongs to a named councillor, so the verdict's colour stops
+  // taking it. Both rules named .who at the same weight and the verdict came later in the file, so
+  // every seat's hue lost to red or green — the three colours were declared, applied, and never
+  // once seen. Measured: melchior's gutter came out the error red.
   const seat = COUNCIL_SEATS[String(r.member || '').toLowerCase()] || '';
   const d = el('div'); d.className = 'row ' + r.who + (r.decision ? ' v-' + r.decision : '')
     + (r.abandoned ? ' abandoned' : '')
-    + (seat ? ' ' + seat : '')
+    + (seat ? ' seated ' + seat : '')
     + (r.who === 'tool' && r.ok === false && !r.note ? ' toolfail' : '')
     + (r.who === 'tool' && r.note ? ' toolnote' : '')
     + (r.who === 'tool' && r.ok === true ? ' toolok' : '')
@@ -3018,7 +3052,19 @@ function rowNode(r) {
   // What magi itself said to the agent is a distinct voice, and calling it "system" in the gutter
   // names the mechanism rather than the speaker. The rows are the orchestrator's nudges, the
   // compaction summaries and the hook output — magi talking to the agent about the work.
-  const w = el('div', whoWord(r)); w.className = 'who';
+  let w = el('div', whoWord(r)); w.className = 'who';
+  // A seat's name is pressable: it leads to what that member was judging, which is the half that
+  // makes a vote checkable and the half a transcript row has no room for.
+  if (r.who === 'council' && r.member && r.round) {
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'who whoin hit48';
+    name.textContent = whoWord(r);
+    name.setAttribute('aria-label', tr('detail.evidence') + ': ' + r.member);
+    tip(name, tr('detail.evidence'));
+    name.onclick = ev => { ev.stopPropagation(); goVerdict(r.round, r.member); };
+    w = name;
+  }
   // And when. Under the name in the gutter rather than beside the text, so it costs no width in
   // the column the conversation is read in and lines up down the page as a column of its own.
   // Local time, HH:MM, and nothing at all for a row whose message carries no stamp — an older log
@@ -3039,21 +3085,14 @@ function rowNode(r) {
     w.append(copyChip(r.text));
   }
 
-  // A council seat opens into its own screen. The fold under it holds the member's reasoning; the
-  // screen holds what the member was JUDGING, which is the half that makes a vote checkable and
-  // the half a transcript row has no room for. Only a member's vote — a round's outcome is a tally
-  // with nothing behind it that is not already on the row.
+  // A council seat opens into its own screen, and the way in is the NAME.
   //
-  // A button and not a click on the row: the row already does something (it folds), and one
-  // gesture that does two things depending on where it lands is the shape people press by
-  // accident. Two questions, two controls, and both are reachable by keyboard.
-  const deeper = r.who === 'council' && r.member && r.round ? (() => {
-    const b = el('button', tr('detail.evidence'));
-    b.type = 'button';
-    b.className = 'deeper hit48';
-    b.onclick = ev => { ev.stopPropagation(); goDeep('cr', r.round + ':' + r.member); };
-    return b;
-  })() : null;
+  // It was a button beside the row, on the reasoning that the row already folds and one gesture
+  // doing two things is what people press by accident. In use the button reads as furniture on
+  // every council row, and the name is what somebody points at when they want to know what that
+  // member saw. So the name is the control and the fold is still the fold — two targets, both
+  // reachable by keyboard, neither guessing which was meant.
+  const deeper = null;
 
   if (foldedKinds[r.who]) {
     const det = el('details'); det.className = 'txt fold';
@@ -3274,6 +3313,10 @@ async function loadJobs(a) {
   stripEl.hidden = false;
 }
 
+// pastRows is the transcript of the finished session currently open, for the screens that read a
+// row out of it rather than fetching their own copy.
+let pastRows = [];
+
 // localRows are the shell runs this console has done, in the order it did them.
 //
 // They are not in the log. The daemon does not record a bang-command and neither does the terminal,
@@ -3306,6 +3349,10 @@ let userName = '';
 // of them are not the role at all — the person has a name or is "you", magi's own voice is not
 // "system", and the assistant is the companion, which is what the terminal has always called it.
 function whoWord(r) {
+  // A councillor's row is that councillor's: the gutter says WHO said it, and "council" three
+  // times over says only which machinery produced them. The name is also the way in, so a reader
+  // presses the thing they were already looking at.
+  if (r.who === 'council' && r.member) return r.member;
   if (r.who === 'user') return userName || tr('row.you');
   // Which part of magi wrote it, when the log says: the orchestrator's nudge and a mined spec are
   // different facts, and one word for both is the word that says neither.
