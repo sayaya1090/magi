@@ -1028,10 +1028,27 @@
     grid-template-columns: 7rem minmax(8rem, 1fr) minmax(12rem, 2.6fr) 3.5rem 4rem 7rem 6rem;
     gap:var(--magi-sys-space-200);
   }
+  /* The head's grid must span the same width as a row's, or the columns drift apart across the
+     table: the two agreed on the first column and then separated by four pixels, then thirteen,
+     because a row is drawn 12px wider than the head and pulls that back with its own padding.
+     Measured: the row's content box ends at 1970 and the head's ended at 1982. So the head gives
+     back 12 on the RIGHT — the left edges already agree, and padding both sides would have moved
+     the labels off the values by the same 12 in the other direction. */
   .thead {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
-    padding:var(--magi-sys-space-200) 0 var(--magi-sys-space-100); border-bottom:1px solid var(--magi-ref-fg);
+    /* Out to the row's own edge, then back in by the same amount. A row's box is 12px wider on the
+       left than its text — that is where its hover shading comes from — so a head that started at
+       the text began 12px inside the band the row lights up, and the shading stuck out to the left
+       of the rule above it. Now the rule, the shading and the team line all begin on one edge, and
+       the labels still stand over their columns. */
+    margin-inline-start:calc(-1 * var(--magi-sys-space-150));
+    padding:var(--magi-sys-space-200) var(--magi-sys-space-150) var(--magi-sys-space-100) var(--magi-sys-space-150);
+    border-bottom:1px solid var(--magi-ref-fg);
   }
+  /* The way OUT of the list, at the far end of the row of filters that are about it. Beside them it
+     read as a fifth chip; at the other edge it reads as what it is — the counts are on the left
+     because they are about this table, and this is a door somewhere else. */
+  .toboard { margin-left:auto; }
   .thead .r, .card .r { text-align:right; }
 
   /* A row, and it must not read as a card. It carried a coloured left edge and a rounded corner
@@ -1050,7 +1067,10 @@
      with lines, and a filled band per team would turn a table into a stack of boxes. */
   .teamhead {
     display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap;
-    margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-50); padding:0 0 var(--magi-sys-space-50);
+    /* The same edges as the head above it and the rows below it: its rule and its count line up
+       with the band a row lights up when the cursor is on it. */
+    margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-50) calc(-1 * var(--magi-sys-space-150));
+    padding:0 var(--magi-sys-space-150) var(--magi-sys-space-50) var(--magi-sys-space-150);
     border-bottom:1px solid var(--magi-ref-fg);
   }
   /* The first team sits closer to the table head above it. Written :first-of-type it matched
