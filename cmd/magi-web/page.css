@@ -1592,6 +1592,9 @@
   /* A mark in a gutter: the tick beside a finished step, the caret beside the one in hand. Sized
      to the line it labels rather than to the icon's own idea of a size. */
   .mk { width:.9em; height:.9em; }
+  /* A heading's mark needs the space a word after it would have had; a mark inside a button sits
+     beside text that brought its own. */
+  .hk { margin-inline-end:.4em; }
   /* The one icon that turns, and only while something is actually running — a spinner on a still
      screen is a screen pretending to work. Reduced motion is handled globally: the rule there
      restricts transitions and animations to a hair, which stops this without a second switch. */

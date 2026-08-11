@@ -593,6 +593,27 @@ function label(btn, word) {
   return btn;
 }
 
+// markedKey is a card's heading with the mark that names what the card holds.
+//
+// The panel is a column of headings in one weight and one colour — scheduled, handed out, queued,
+// the report's shape — and finding the one you want meant reading all of them. A mark in front is
+// how a column of prose becomes a list you can skim, and it costs nothing where a build has no
+// sprite: the heading is then exactly the words it always was.
+//
+// cls, because the same shape is wanted on the team header, whose two parts are styled as tname
+// and thub rather than as a card's k — the marking is the same act either way.
+function markedKey(ref, text, cls) {
+  // The word goes in as the element's own text and the mark is PREPENDED, rather than both being
+  // appended as nodes. A heading is read by anything that asks for its textContent — the tests do,
+  // and so does a screen reader taking the accessible name — and split across two child nodes it
+  // reads as empty in the fake DOM and as the icon plus the word everywhere else. One of those is
+  // a test that lies.
+  const k = cell(cls || 'k', text);
+  const m = icon(ref, {cls: 'mk hk'});
+  if (m) k.prepend(m);
+  return k;
+}
+
 // dressIcons swaps the page's own drawings for the baked ones, where there are baked ones.
 //
 // The markup cannot ask a question — it is a static document — so it carries the shape it has
@@ -1067,8 +1088,16 @@ function answerBox(a) {
     // daemon's memory, and the approval mode is exactly where it was. The label said "Always",
     // which reads as a promise about every tool and every run — the terminal's own list is
     // clearer, because it puts the project rule beside it as a separate choice.
-    for (const [label, decision] of [['action.allow', 'allow'], ['action.always', 'always'],
-                                     ['action.deny', 'deny']]) {
+    // The mark matters more here than anywhere else on the page, and it is the last place that got
+    // one. Three buttons the same size, the same colour and the same weight, told apart only by a
+    // word in whichever language the pack is in — and the press is not undoable. A tick, a barred
+    // circle and a struck-through bell are apart at a glance and stay apart when the words are
+    // long: "그만 묻기" and "허용" are three characters and two, side by side, at speed.
+    // `key`, not `label`: label() is the helper that writes a word without throwing away the mark
+    // in front of it, and a loop variable of that name would shadow it exactly where it is needed.
+    for (const [key, decision, mark] of [['action.allow', 'allow', '#i-sl-check'],
+                                         ['action.always', 'always', '#i-sl-bell-slash'],
+                                         ['action.deny', 'deny', '#i-sl-ban']]) {
       // Filled tonal, not text. M3 ranks buttons by emphasis — filled, filled tonal, outlined, text
       // — and these three were at the BOTTOM of it while being the highest-stakes control on the
       // page: the one that approves a "drop table" on a live database. On the same screen, answering
@@ -1079,7 +1108,7 @@ function answerBox(a) {
       // toward approving, and a console that leans on a permission decision is worse than one that
       // draws it quietly. The colour stays neutral for the same reason; the question above them
       // already carries the warning colour.
-      const b = document.createElement('md-filled-tonal-button'); b.textContent = tr(label);
+      const b = label(withMark(document.createElement('md-filled-tonal-button'), mark), tr(key));
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
       box.append(b);
     }
@@ -1206,6 +1235,10 @@ function findField(total) {
   input.value = findQuery;
   input.setAttribute('type', 'search');
   input.setAttribute('label', tr('find.placeholder'));
+  // A field takes its icon in a slot of its own, and the glass is the one mark that says "type
+  // here to look" without a word — this field sits above a list that is already full of words.
+  const glass = icon('#i-sl-magnifying-glass');
+  if (glass) { glass.setAttribute('slot', 'leading-icon'); input.append(glass); }
   // Debounced: every keystroke would otherwise read every log in the workspace.
   let timer;
   input.addEventListener('input', () => {
@@ -1691,12 +1724,16 @@ function grouped(rows) {
 function teamHead(name, members) {
   const h = document.createElement('h2');
   h.className = 'teamhead';
-  h.append(cell('tname', name || tr('team.none')));
+  h.append(markedKey('#i-sl-people-group', name || tr('team.none'), 'tname'));
   // Every companion claiming to speak for the team, not the first one found. Two is a
   // misconfiguration — a team answers with one voice or the question of who answers is open — and
   // naming one of them would draw a settled team over an unsettled one.
   const hubs = members.filter(a => a.hub).map(a => a.name);
-  if (hubs.length) h.append(cell('thub', tr('team.spoken_for', {name: hubs.join(', ')})));
+  if (hubs.length) {
+    // A crown, because "who answers for this team" is the one fact on the header that is about
+    // rank rather than about count, and the sentence beside it is long enough to be skipped.
+    h.append(markedKey('#i-sl-crown', tr('team.spoken_for', {name: hubs.join(', ')}), 'thub'));
+  }
   const waiting = members.filter(a => a.state === 'waiting').length;
   if (waiting) {
     const b = document.createElement('md-badge');
@@ -1979,7 +2016,10 @@ function drawDetail(a) {
   const bar = document.createElement('button');
   bar.type = 'button';
   bar.className = 'foldbar hit48';
-  bar.append(cell('caret', '▾'), cell('k', tr('field.facts')),
+  // The caret is a chevron the stylesheet turns 90° when the panel shuts, so it has to be one
+  // element either way — iconOr returns a node in both builds and the rotation is on .caret.
+  const caret = iconOr('#i-sl-chevron-down', '▾', 'caret');
+  bar.append(caret, cell('k', tr('field.facts')),
              (() => {
                // The same rule as the status line: it ellipses, so it has to be readable in full
                // somewhere. The workdir is the part that gets cut and the part somebody is looking
@@ -2437,7 +2477,7 @@ async function drawHandoffs(a) {
     row.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
     return row;
   });
-  box.replaceChildren(cell('k', tr('field.handed_out')), ...rows);
+  box.replaceChildren(markedKey('#i-sl-share-from-square', tr('field.handed_out')), ...rows);
   box.hidden = false;
 }
 
@@ -2471,7 +2511,7 @@ async function drawCron(a) {
     el.append(cell('jfile', j.file + (j.global ? ' · ' + tr('cron.machine') : '')));
     return el;
   });
-  box.replaceChildren(cell('k', tr('field.scheduled')), ...rows);
+  box.replaceChildren(markedKey('#i-sl-calendar-clock', tr('field.scheduled')), ...rows);
   box.hidden = false;
 }
 
@@ -3735,7 +3775,8 @@ async function drawReportFormat(a) {
   // Literal keys in a lookup, not a key built by concatenation: a key the pack check cannot see is
   // the one that ships missing and renders as its own dotted name.
   const FROM = {workspace: 'fmt.from_workspace', console: 'fmt.from_console', default: 'fmt.from_default'};
-  const head = cell('k', tr('field.report_format') + ' · ' + tr(FROM[f.from] || FROM.default));
+  const head = markedKey('#i-sl-file-lines',
+    tr('field.report_format') + ' · ' + tr(FROM[f.from] || FROM.default));
   const edit = el('button');
   edit.type = 'button';
   edit.className = 'deeper hit48';
@@ -3903,7 +3944,7 @@ function drawQueued(items) {
     row.append(what);
     return row;
   });
-  box.replaceChildren(cell('k', tr('field.queued', {n: items.length})), ...rows);
+  box.replaceChildren(markedKey('#i-sl-layer-group', tr('field.queued', {n: items.length})), ...rows);
   box.hidden = false;
 }
 
