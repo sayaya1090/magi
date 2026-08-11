@@ -165,6 +165,16 @@ type JobRunner interface {
 // times a second.
 const jobTailBytes = 8 << 10
 
+// ModelLister is an engine that can say which models it could run on.
+//
+// Over the socket for the same reason the roster is: the list comes from the backend this daemon is
+// configured against — asked of it, live — so a viewer built from its own config would offer models
+// this companion cannot reach and omit the ones it can. Optional: a daemon that cannot say leaves
+// the list empty, and the screen then shows the model it is on without offering to change it.
+type ModelLister interface {
+	ListModels(ctx context.Context) ([]string, error)
+}
+
 // ToolLister is an engine that can say which tools it is running with.
 //
 // Asked over the socket rather than assembled by the reader, because the roster is built at startup
@@ -290,6 +300,11 @@ type Response struct {
 	// Tools answers the tools method: the roster this companion is actually running with, which
 	// only the process holding it can say.
 	Tools []string `json:"tools,omitempty"`
+	// Models answers the models method: what this daemon's backend says it could run on.
+	Models []string `json:"models,omitempty"`
+	// Why carries a reason with an otherwise-empty answer — the backend refused, or timed out —
+	// so a caller can tell "nothing to offer" from "could not ask".
+	Why string `json:"why,omitempty"`
 	// Handover answers hand-state. Its own object rather than four more columns here, because
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
@@ -615,6 +630,26 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			if n, ok := eng.(UserNamer); ok {
 				resp.User = n.UserLabel(session.SessionID(req.Session))
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
+		// models is the list this companion could be put on, asked of its own backend.
+		if req.Method == "models" {
+			resp = Response{OK: true, Models: []string{}}
+			if l, ok := eng.(ModelLister); ok {
+				// A backend that is slow or down must not hold the socket: the caller is a screen
+				// drawing a menu, and no menu is a better answer than a stuck one.
+				mctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				names, err := l.ListModels(mctx)
+				cancel()
+				if err == nil {
+					resp.Models = names
+				} else {
+					resp.Why = err.Error()
+				}
 			}
 			if enc.Encode(resp) != nil {
 				return
@@ -976,7 +1011,7 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, jobs, tools, models, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
@@ -1110,6 +1145,19 @@ func (c *Client) Jobs(sid string) (Jobs, error) {
 		return Jobs{}, nil
 	}
 	return *resp.Jobs, nil
+}
+
+// Models is what this companion could be put on, from its own backend. Empty when the daemon
+// cannot say or the backend did not answer; Reason carries why when there is one.
+func (c *Client) Models() ([]string, error) {
+	resp, err := c.exchange(Request{Method: "models"})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Models) == 0 && resp.Why != "" {
+		return nil, errors.New(resp.Why)
+	}
+	return resp.Models, nil
 }
 
 // Tools is the roster the daemon is running with. Empty from a daemon that cannot say, which the

@@ -634,3 +634,42 @@ func TestTheToolRosterCrossesAndSilenceIsNotAnEmptyRoster(t *testing.T) {
 		t.Errorf("an engine with no roster to give answered %v", got)
 	}
 }
+
+// modelEngine is a daemon that can list what it could run on, or fail to.
+type modelEngine struct {
+	fakeEngine
+	names []string
+	err   error
+}
+
+func (m *modelEngine) ListModels(context.Context) ([]string, error) { return m.names, m.err }
+
+// The model list crosses, and a backend that cannot answer says why.
+//
+// A viewer cannot build this list either: it comes from the backend THIS daemon is configured
+// against, asked live, so a console listing from its own config would offer models this companion
+// cannot reach. And the failure has to be distinguishable from an empty shelf — a screen that
+// cannot tell them apart offers a menu of nothing with no explanation.
+func TestTheModelListCrossesAndAFailureSaysWhy(t *testing.T) {
+	c := start(t, &modelEngine{names: []string{"qwen3-coder-next", "gpt-oss:120b-cloud"}})
+	got, err := c.Models()
+	if err != nil {
+		t.Fatalf("models: %v", err)
+	}
+	if len(got) != 2 || got[0] != "qwen3-coder-next" {
+		t.Errorf("the list arrived as %v", got)
+	}
+
+	down := start(t, &modelEngine{err: errors.New("connection refused")})
+	if _, err := down.Models(); err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("a backend that refused answered %v — the screen cannot tell that from an empty shelf", err)
+	}
+
+	// And an engine that does not implement the interface at all: empty, no error. A daemon too old
+	// to be asked is not a daemon with no models.
+	old := start(t, &fakeEngine{})
+	names, err := old.Models()
+	if err != nil || len(names) != 0 {
+		t.Errorf("an engine that cannot list models answered %v, %v", names, err)
+	}
+}
