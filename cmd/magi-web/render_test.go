@@ -1441,7 +1441,10 @@ byId.themeToggle.onclick();
 const after = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
 byId.themeToggle.onclick();
 const again = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
-console.log(JSON.stringify({opened, closed, before, after, again,
+byId.themeToggle.onclick();
+// …and back to following the machine, which is the stop the old two-state toggle could not reach.
+const round = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
+console.log(JSON.stringify({opened, closed, before, after, again, round,
   // A real look, not a constant: the dialog must not hold a second control for the theme.
   themeSelect: byId.prefsForm.find(n => String(n.tag).endsWith('-select')).length > 1}));
 `)
@@ -1457,9 +1460,12 @@ console.log(JSON.stringify({opened, closed, before, after, again,
 	if before["stored"] != nil || before["attr"] != nil {
 		t.Errorf("something was stored before anybody chose: %+v", before)
 	}
+	// A ring of three, starting where the console does: follow the machine, then light, then dark.
+	// The two-stop version could not return to "system" — choosing once meant never getting back
+	// without clearing storage — and every stop moves the sky, so no press looks dead.
 	after := got["after"].(map[string]any)
-	if after["stored"] != "dark" || after["attr"] != "dark" {
-		t.Errorf("pressing the toggle on a light page gave %+v, want dark stored and applied", after)
+	if after["stored"] != "light" || after["attr"] != "light" {
+		t.Errorf("pressing the toggle while following the machine gave %+v, want light", after)
 	}
 	// There is no second control for the theme. It used to be a select in the preferences dialog as
 	// well, which is one preference with two ways to be wrong about it; the toggle is the only one
@@ -1467,8 +1473,13 @@ console.log(JSON.stringify({opened, closed, before, after, again,
 	if got["themeSelect"] != false {
 		t.Error("the preferences dialog carries a theme control again; the masthead toggle is the one")
 	}
-	if again := got["again"].(map[string]any); again["stored"] != "light" || again["attr"] != "light" {
-		t.Errorf("pressing it again gave %+v, want light", again)
+	if again := got["again"].(map[string]any); again["stored"] != "dark" || again["attr"] != "dark" {
+		t.Errorf("pressing it again gave %+v, want dark", again)
+	}
+	// The stop that matters: the ring comes back to it, and "system" is the ABSENCE of the
+	// attribute — the stylesheet's own media query is what answers then.
+	if r := got["round"].(map[string]any); r["stored"] != "system" || r["attr"] != nil {
+		t.Errorf("the third press gave %+v, want the machine followed again", r)
 	}
 }
 

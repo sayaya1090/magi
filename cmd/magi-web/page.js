@@ -76,6 +76,35 @@ function applyTheme() {
   const want = prefOf('theme');
   if (want === 'system') document.documentElement.removeAttribute('color-theme');
   else document.documentElement.setAttribute('color-theme', want);
+  paintTheme();
+}
+
+// THEMES is the order the toggle walks, and it starts where the console does. One control with
+// three stops rather than a toggle and a select beside it: the two would be one setting with two
+// controls, and the one that could not reach "system" was the one people pressed.
+// Spelled out rather than built from the value: the pack scanner reads this file for the keys it
+// must contain, and a key assembled at runtime is one it cannot see — the label would render as
+// its own name the first time somebody looked, in whichever language was missing it.
+const THEMES = [
+  ['system', 'pref.theme.system'],
+  ['light', 'pref.theme.light'],
+  ['dark', 'pref.theme.dark'],
+];
+
+// paintTheme names the mode on the control, because a cycling button cannot show the stops it is
+// not on. The sky says which one is set; the tooltip says what it is called and the label says
+// what the button is for.
+function paintTheme() {
+  // Asked of the document rather than closed over the const below it. applyTheme runs while this
+  // module is still evaluating — that is what puts the theme on the page before the first paint —
+  // and a const declared further down is not merely undefined then, it throws on being read.
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  const now = prefOf('theme');
+  const key = (THEMES.find(([v]) => v === now) || THEMES[0])[1];
+  const said = tr('pref.theme') + ': ' + tr(key);
+  btn.setAttribute('aria-label', said);
+  if (typeof tip === 'function') tip(btn, said);
 }
 applyTheme();
 // What the page is actually showing, which is not the same as what was chosen: 'system' resolves
@@ -345,7 +374,6 @@ const mcpEl = document.getElementById('mcp');
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet');
 const railEl = document.getElementById('rail');
-const themeEl = document.getElementById('theme');
 const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsEl = document.getElementById('prefs');
@@ -4368,7 +4396,7 @@ function paint() {
   // The label beside it, and the one it announces. Both from the pack: the row in the dialog is a
   // preference like the two below it and has to say which.
   document.getElementById('themeK').textContent = tr('pref.theme');
-  themeToggle.setAttribute('aria-label', tr('pref.theme'));
+  paintTheme();
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
   prefsClose.textContent = tr('action.close');
   withMark(prefsClose, '#i-sl-xmark');
@@ -4396,7 +4424,6 @@ function paint() {
   fmtGo.onclick = () => { fmtDialog.close('save'); saveFormat(); };
   mcpGo.textContent = tr('action.add_or_replace');
   withMark(mcpGo, '#i-sl-floppy-disk');
-  paintChoice(themeEl, 'theme', true);
   paintChoice(langEl, 'lang');
   if (consoleEl.children.length) loadConsole();   // its two labels are words too
   paintNotify();
@@ -4823,24 +4850,18 @@ prefsDialog.addEventListener('opened', () => { if (painted) paint(); paintNotify
 // other theme is a choice, and pretending it was still deferring to the machine would mean the
 // next OS change silently undid it.
 themeToggle.onclick = () => {
-  localStorage.setItem('theme', showing() === 'dark' ? 'light' : 'dark');
+  // A ring, and every stop moves the sky — so even the step that lands on the colour already
+  // showing (following a machine that is already light, say) is a press that visibly did
+  // something, which is the whole reason a cycling control is allowed here at all.
+  const at = THEMES.findIndex(([v]) => v === prefOf('theme'));
+  localStorage.setItem('theme', THEMES[(at + 1) % THEMES.length][0]);
   applyTheme();
-  // The other control on the same setting. Left alone it went on showing "시스템 설정" over a
-  // theme somebody had just pinned by hand — two controls telling one story, badly.
-  themeEl.value = prefOf('theme');
 };
 // Escape narrows it again, the way Escape leaves anything that has been opened.
 addEventListener('keydown', e => { if (e.key === 'Escape') closeNav(); });
 
 // A preference is written down and acted on immediately. Language re-fetches rather than reloads:
 // the pack is the only thing that changes, and a reload would throw away the transcript.
-// The theme is chosen here and flipped by the toggle beside it, and both write the same key — so
-// the two are one setting with two controls rather than two settings that have to agree. Which is
-// also why the toggle calls applyTheme rather than setting the attribute itself.
-themeEl.addEventListener('change', () => {
-  localStorage.setItem('theme', themeEl.value);
-  applyTheme();
-});
 langEl.addEventListener('change', () => {
   localStorage.setItem('lang', langEl.value);
   loadPack();

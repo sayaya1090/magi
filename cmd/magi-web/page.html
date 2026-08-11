@@ -237,9 +237,14 @@
   <form slot="content" method="dialog" id="prefsForm">
     <div class="prefrow">
       <div class="k" id="themeK"></div>
-      <!-- One sky, two bodies. Pressing it does not swap an icon: the sun climbs out of the
-           horizon while the moon sets behind it, and back the other way, so the button says which
-           direction it is going as well as where it ends up. Drawn here rather than taken from the
+      <!-- One sky, three bodies: the sun, the moon, and the half-lit circle that means "whatever
+           the machine says". Pressing it does not swap an icon — the next body climbs out of the
+           horizon while the last one sinks the same way it came, so the button says which
+           direction it is going as well as where it ends up.
+
+           Three, and not two plus a select beside it. The value this console starts on is
+           "follow the machine", and a two-state toggle could not return to it: choosing light or
+           dark once meant never getting back without clearing storage. Drawn here rather than taken from the
            sprite for the reason the hamburger is — a symbol can be exchanged for another symbol,
            and what this wants is two shapes that MOVE past each other. -->
       <!-- type="button", or it submits the form it is in — and this form is method="dialog", so a
@@ -256,14 +261,15 @@
             <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"
                   stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
           </g>
+          <!-- Following the machine: half lit, which is the mark this means everywhere and the one
+               body of the three that is not a claim about the time of day. Same radius as the sun,
+               so the three are one sky and not three drawings. -->
+          <g class="auto">
+            <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+            <path d="M12 7.8a4.2 4.2 0 0 0 0 8.4z" fill="currentColor"/>
+          </g>
         </svg>
       </md-icon-button>
-      <!-- Three values, so a control that can say all three. The toggle beside it flips between the
-           two it can see and writes the SAME preference — one setting, two controls — but it has no
-           way to say "keep asking the machine", which is the value this console starts on. It was
-           the only way to choose the theme for a while, and choosing it once meant never getting
-           back to following the system without clearing storage. -->
-      <md-outlined-select id="theme"></md-outlined-select>
     </div>
     <md-outlined-select id="lang"></md-outlined-select>
     <!-- A setting that is on or off, so a switch: the guide keeps switches for exactly this and
