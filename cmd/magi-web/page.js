@@ -804,9 +804,7 @@ function summarise(list) {
     // turning spinner, idle is the moon, and one nobody can reach is a broken link. The count and
     // the word stay — the mark is a third way of saying it, not a replacement for the two that
     // survive a build with no icons.
-    // The one that turns, turns. A spinner standing still is a spinner drawn by somebody who did
-    // not mean it — and "working" is the one state on this row of counts that is about motion.
-    const m = icon(STATE_MARK[k] || '', {cls: k === 'working' ? 'spin' : ''});
+    const m = icon(STATE_MARK[k] || '');
     if (m) { m.setAttribute('slot', 'icon'); b.append(m); }
     b.append(cell('n', n + ''), cell('k', stateWord(k)));
     b.onclick = () => {
@@ -1601,7 +1599,10 @@ function drawFleetCount(list, waiting) {
 // means something has ended badly — as the one with no mark on it.
 const STATE_MARK = {
   waiting: '#i-ss-circle-pause',
-  working: '#i-ss-spinner-third',
+  // Still, not spinning. A turning mark in a row of counts is the only moving thing on the screen
+  // and the eye goes to it and stays — this is a tally, not a progress indicator. The place a
+  // spinner earns its keep is the row of the companion that is actually mid-call.
+  working: '#i-ss-play',
   idle: '#i-ss-moon',
   gone: '#i-ss-circle-stop',
   remote: '#i-sl-satellite-dish',

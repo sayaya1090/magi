@@ -1023,6 +1023,22 @@
   .tile.idle    .k { color:var(--magi-ref-accent); }
   .tile.gone    .k { color:var(--magi-ref-error); }
   .tile.remote  .k { color:var(--magi-ref-muted); }
+  /* The mark takes the state's colour, the same one the word beside it wears. A chip paints its
+     leading icon from a token of its own, so left alone the mark came out in the label's default
+     ink while the word next to it was amber or green — two halves of one statement, in two
+     colours. Set per state rather than once, because the token is what the component reads and it
+     cannot inherit from a sibling. */
+  .tile.waiting { --md-filter-chip-leading-icon-color:var(--magi-ref-warn);
+                  --md-filter-chip-selected-leading-icon-color:var(--magi-ref-warn); }
+  .tile.working { --md-filter-chip-leading-icon-color:var(--magi-ref-success);
+                  --md-filter-chip-selected-leading-icon-color:var(--magi-ref-success); }
+  .tile.idle    { --md-filter-chip-leading-icon-color:var(--magi-ref-accent);
+                  --md-filter-chip-selected-leading-icon-color:var(--magi-ref-accent); }
+  .tile.gone    { --md-filter-chip-leading-icon-color:var(--magi-ref-error);
+                  --md-filter-chip-selected-leading-icon-color:var(--magi-ref-error); }
+  .tile.remote  { --md-filter-chip-leading-icon-color:var(--magi-ref-muted);
+                  --md-filter-chip-selected-leading-icon-color:var(--magi-ref-muted); }
+  .tile[disabled] { --md-filter-chip-leading-icon-color:var(--magi-ref-muted); }
   /* A count of zero reads as zero; it does not need to be faint as well, and dimming it put the
      label under AA in both themes (2.25:1 in light — measured by the contrast check). */
   .tile[disabled] .n, .tile[disabled] .k { color:var(--magi-ref-muted); }
