@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -12,11 +13,12 @@ import (
 // jobbingEngine is a promptEngine that is also running things beside the turn.
 type jobbingEngine struct {
 	*promptEngine
-	mu   sync.Mutex
-	asks int
-	bg   []app.BackgroundJob
-	kids []app.SubagentJob
-	tail string
+	mu     sync.Mutex
+	asks   int
+	bg     []app.BackgroundJob
+	kids   []app.SubagentJob
+	queued []daemon.QueuedWork
+	tail   string
 }
 
 func (j *jobbingEngine) BackgroundJobs() []app.BackgroundJob {
@@ -26,7 +28,15 @@ func (j *jobbingEngine) BackgroundJobs() []app.BackgroundJob {
 	return j.bg
 }
 func (j *jobbingEngine) BackgroundTail(string, int) string { return j.tail }
-func (j *jobbingEngine) SubagentJobs() []app.SubagentJob   { return j.kids }
+
+// QueuedWork completes the interface. What has not started yet travels on the same reply as what
+// is running, because they answer one question between them: what is this companion on.
+func (j *jobbingEngine) QueuedWork() []daemon.QueuedWork {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.queued
+}
+func (j *jobbingEngine) SubagentJobs() []app.SubagentJob { return j.kids }
 
 func (j *jobbingEngine) asked() int {
 	j.mu.Lock()

@@ -101,6 +101,24 @@ type Engine interface {
 type Jobs struct {
 	Background []BackgroundJob `json:"background,omitempty"`
 	Children   []ChildJob      `json:"children,omitempty"`
+	// Queued is what will run NEXT, in the order it will run: the person's own parked words first,
+	// then work handed over by somebody else.
+	//
+	// Two queues, deliberately — they are different contracts, one refuses past a handful and the
+	// other never refuses the person in front of the thing — but one ORDER, because there is one
+	// agent and it does one thing at a time. A screen that showed only the handovers said a
+	// companion had nothing waiting while the correction you typed sat in the other queue.
+	Queued []QueuedWork `json:"queued,omitempty"`
+}
+
+// QueuedWork is one thing waiting for the workspace.
+type QueuedWork struct {
+	// Kind is "person" — typed here, into a turn that was already running — or "handover", asked
+	// by another companion. It decides the order and it is the thing a reader needs first.
+	Kind string `json:"kind"`
+	Text string `json:"text,omitempty"`
+	// From names the asker, for a handover.
+	From string `json:"from,omitempty"`
 }
 
 // BackgroundJob is one command the agent left running, with the tail of what it has written.
@@ -137,6 +155,9 @@ type JobRunner interface {
 	BackgroundJobs() []app.BackgroundJob
 	BackgroundTail(id string, max int) string
 	SubagentJobs() []app.SubagentJob
+	// QueuedWork is what has not started yet, in the order it will. Both queues, because there is
+	// one agent — see Jobs.Queued.
+	QueuedWork() []QueuedWork
 }
 
 // jobTailBytes is how much of a background command's output rides on one reply. The strip shows a
@@ -598,6 +619,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 						Tail: j.BackgroundTail(b.ID, jobTailBytes),
 					})
 				}
+				resp.Jobs.Queued = j.QueuedWork()
 				for _, c := range j.SubagentJobs() {
 					out := ChildJob{
 						ID: c.ID, Tool: c.Tool, Task: c.Task, Running: c.Running,

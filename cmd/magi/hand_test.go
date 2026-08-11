@@ -38,11 +38,12 @@ type arrival struct {
 	// bus is the companion's own, held so a test can announce what it wrote to the store. The
 	// engine does both; appending here and staying silent would leave a watch listening to
 	// nothing, which is a test of the fixture and not of the door.
-	bus  *bus.Bus
-	said int
-	live int32 // watches running inside this companion right now
-	work *recordingWork
-	got  struct {
+	bus    *bus.Bus
+	said   int
+	live   int32 // watches running inside this companion right now
+	work   *recordingWork
+	taking handover
+	got    struct {
 		sync.Mutex
 		prompts []string
 	}
@@ -114,6 +115,23 @@ type recordingWork struct {
 	mu     sync.Mutex
 	busy   session.SessionID
 	opened int
+	// parked stands in for the person's own queued interjection: real state in the App, but
+	// putting one there needs a running turn to interject into, and what is under test is the
+	// ORDER — that a free workspace still is not this piece's turn.
+	parked bool
+}
+
+// setPersonWaiting is the person having typed something while the agent worked.
+func (w *recordingWork) setPersonWaiting(v bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.parked = v
+}
+
+func (w *recordingWork) PersonWaiting() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.parked
 }
 
 // setBusy and idle are what a turn starting and ending look like to this fake.
@@ -230,6 +248,8 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 			}{full, ahead})
 		},
 	}}
+	// Kept, so a test about ORDER can ask it to try now rather than wait out the backstop tick.
+	ar.taking = eng.handover
 	ctx, cancel := context.WithCancel(context.Background())
 	ar.t.Cleanup(cancel)
 	go eng.handover.run(ctx) // the daemon starts this; without it nothing leaves the queue
@@ -941,4 +961,44 @@ func TestACompanionSaysWhenItIsInTheMiddleOfSomething(t *testing.T) {
 	// Put down when the turn ends. Left set, this companion would be avoided by every asker for as
 	// long as it ran, with nothing able to correct it.
 	until(t, "the piece to be put down", func() bool { _, h := ar.carrying(); return !h })
+}
+
+// Work handed over waits behind the person, not only behind the turn.
+//
+// Both wake at the same instant — the run goroutine drains its own queued interjection when a turn
+// ends, and this drain is nudged by the same ending — so which one took the workspace was a race
+// with no rule in it. Losing it means somebody who typed a correction while their agent worked now
+// waits for a request that arrived from another machine.
+func TestHandedOverWorkWaitsBehindThePerson(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	ar.work.setBusy("the-person-is-working") // so the piece is queued rather than started at once
+	if _, err := cl.Hand("— asked by master", "audit the config"); err != nil {
+		t.Fatalf("the piece was refused: %v", err)
+	}
+	sent := func() int {
+		ar.got.Lock()
+		defer ar.got.Unlock()
+		return len(ar.got.prompts)
+	}
+	if sent() != 0 {
+		t.Fatal("precondition: the piece started while a turn was running")
+	}
+
+	// The turn ends, and the workspace is free — but the person has something parked, and that
+	// outranks a request handed in from somewhere else.
+	ar.work.setPersonWaiting(true)
+	ar.work.setBusy("")
+	ar.taking.startNext(context.Background())
+	if n := sent(); n != 0 {
+		t.Fatalf("handed-over work started while the person's own was waiting (%d started)", n)
+	}
+
+	// Once nothing of the person's is waiting it goes, which is what makes this an order rather
+	// than a block.
+	ar.work.setPersonWaiting(false)
+	ar.taking.startNext(context.Background())
+	if n := sent(); n != 1 {
+		t.Errorf("with the person's queue empty, the piece did not start (%d started)", n)
+	}
 }

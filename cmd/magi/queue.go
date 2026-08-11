@@ -111,6 +111,16 @@ func (w *waiting) ended() {
 	w.announce(depth, false)
 }
 
+// list is what is waiting, oldest first — the order it will be started in.
+//
+// The label rather than the receipt: a reader wants to know WHO is waiting on this companion, and
+// the receipt is a handle for the asker, not a name for anybody else.
+func (w *waiting) list() []pending {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]pending(nil), w.items...)
+}
+
 // take puts work in the queue, or says the queue is full.
 func (w *waiting) take(p pending) (ahead int, ok bool) {
 	w.mu.Lock()

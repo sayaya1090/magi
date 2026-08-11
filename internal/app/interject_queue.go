@@ -273,6 +273,53 @@ func (a *App) hasPendingInterject(sid session.SessionID) bool {
 	return len(a.stateLocked(sid).pendingInterject) > 0
 }
 
+// PersonWaiting reports whether anybody's own turn is parked here waiting to run.
+//
+// The person's queued interjection and a piece of handed-over work both want the same thing when a
+// turn ends: the workspace. Nothing ordered them — the run goroutine drains its own queue and the
+// handover drain wakes on the same moment, so whichever got there first went — and losing that
+// race means the person who typed while it was working now waits behind somebody else's request.
+//
+// Across every session in this process, because that is the question being asked: is anything of
+// the PERSON'S already waiting. A handed-over piece runs in a side session of its own and is not
+// counted here; it is the thing standing aside.
+func (a *App) PersonWaiting() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, st := range a.states {
+		if st != nil && len(st.pendingInterject) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Parked is one thing waiting to run: what was said, and where it is waiting.
+type Parked struct {
+	Session session.SessionID
+	Text    string
+}
+
+// ParkedWork is everything of the PERSON'S that is waiting for the turn in flight to end.
+//
+// The count alone was already published beside the socket for handed-over work; this is the other
+// half, and it is the half that outranks it. A screen that shows one and not the other says a
+// companion has nothing waiting while the thing you typed sits in a queue.
+func (a *App) ParkedWork() []Parked {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var out []Parked
+	for sid, st := range a.states {
+		if st == nil {
+			continue
+		}
+		for _, it := range st.pendingInterject {
+			out = append(out, Parked{Session: sid, Text: it.Text})
+		}
+	}
+	return out
+}
+
 // deferredInterjectIDs is the set of PromptSubmitted MessageIDs currently queued as
 // interjections — the events to mask from the live-judgment views. Membership IS the
 // mask lifetime: an interjection leaves the queue (drained or absorbed) exactly when it

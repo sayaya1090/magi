@@ -66,6 +66,9 @@ type takes interface {
 	// CONVERSATION; the work is still one at a time, because two turns at once in one workspace
 	// are two agents editing the same files with nothing between them.
 	Running() (session.SessionID, bool)
+	// PersonWaiting reports whether the person's own work is already parked, waiting for the turn
+	// in flight to end. Handed-over work stands aside for it — see startNext.
+	PersonWaiting() bool
 	// Subscribe is how a watch learns that something happened without asking. The alternative was
 	// the far side asking across a network on a three-second timer, which is what this replaces.
 	Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error)
@@ -168,6 +171,16 @@ func (h handover) startNext(ctx context.Context) {
 		return
 	}
 	if _, busy := h.work.Running(); busy {
+		return
+	}
+	// And behind the person, not only behind the turn.
+	//
+	// Both wake at the same instant — the run goroutine drains its own queued interjection when a
+	// turn ends, and this drain is nudged by the same ending — so which one got the workspace was
+	// a race with no rule in it. Losing it means somebody who typed a correction while their agent
+	// worked now waits for a request that arrived from another machine. Work asked for by a person
+	// in front of the thing outranks work handed to it.
+	if h.work.PersonWaiting() {
 		return
 	}
 	p, ok := h.queued.next()

@@ -886,6 +886,10 @@ function answerBox(a) {
     i.onkeydown = e => { if (e.key === 'Enter') go(e); };
     box.append(i, b);
   } else {
+    // "always" is not a mode and does not touch one: it grants THIS tool for THIS session, in the
+    // daemon's memory, and the approval mode is exactly where it was. The label said "Always",
+    // which reads as a promise about every tool and every run — the terminal's own list is
+    // clearer, because it puts the project rule beside it as a separate choice.
     for (const [label, decision] of [['action.allow', 'allow'], ['action.always', 'always'],
                                      ['action.deny', 'deny']]) {
       // Filled tonal, not text. M3 ranks buttons by emphasis — filled, filled tonal, outlined, text
@@ -3219,9 +3223,34 @@ function lastLine(s) {
   return lines.length ? oneLine(lines[lines.length - 1], 60) : '';
 }
 
+// drawQueued is what this companion has NOT started yet, in the order it will.
+//
+// Two queues stand behind it and they stay apart — one refuses past a handful, the other must
+// never refuse the person in front of the thing — but there is one agent and it does one thing at
+// a time, so what a reader needs is one list in the order it will actually be taken. Showing only
+// the handovers said a companion had nothing waiting while the correction somebody typed sat in
+// the other queue.
+function drawQueued(items) {
+  const box = document.getElementById('queued');
+  if (!items || !items.length) { box.hidden = true; box.replaceChildren(); return; }
+  const rows = items.map((q, i) => {
+    const row = cell('qrow' + (q.kind === 'person' ? ' mine' : ''));
+    // The position, because "waiting" is a different fact from "waiting behind three others".
+    row.append(cell('qn', String(i + 1)));
+    const what = cell('qwhat');
+    what.append(cell('qwho', q.kind === 'person' ? tr('queued.you') : (q.from || tr('queued.handed'))));
+    what.append(cell('qsaid', oneLine(q.text || '', 120)));
+    row.append(what);
+    return row;
+  });
+  box.replaceChildren(cell('k', tr('field.queued', {n: items.length})), ...rows);
+  box.hidden = false;
+}
+
 async function loadJobs(a) {
-  if (!a) { stripEl.hidden = true; stripEl.replaceChildren(); return; }
+  if (!a) { stripEl.hidden = true; stripEl.replaceChildren(); drawQueued(null); return; }
   const j = await fetchList('/jobs' + qFor(a)) || {};
+  drawQueued(j.queued);
   const kids = j.children || [], bg = j.background || [];
   if (!kids.length && !bg.length) { stripEl.hidden = true; stripEl.replaceChildren(); return; }
   const chips = [];

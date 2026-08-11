@@ -204,8 +204,10 @@ func TestABlockedAgentGetsTheButtonsThatAnswerIt(t *testing.T) {
 	for _, b := range card["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	if strings.Join(labels, "/") != "Allow/Always/Deny" {
-		t.Errorf("the answer buttons are %v, want Allow/Always/Deny", labels)
+	// Three answers, and the middle one says what it does. "Always" read as a promise about every
+	// tool and every run; it grants THIS tool for THIS session and leaves the mode where it was.
+	if strings.Join(labels, "/") != "Allow/Stop asking for this tool/Deny" {
+		t.Errorf("the answer buttons are %v", labels)
 	}
 	if n := card["inputs"].(float64); n != 0 {
 		t.Errorf("a permission prompt drew %v text inputs; it is a choice, not a sentence", n)
@@ -410,7 +412,7 @@ console.log(JSON.stringify({
 	for _, b := range got["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	if strings.Join(labels, "/") != "Allow/Always/Deny" {
+	if strings.Join(labels, "/") != "Allow/Stop asking for this tool/Deny" {
 		t.Errorf("the answer buttons on the agent's page are %v", labels)
 	}
 	// One agent is waiting, so the tab says so — this page is often behind an app switcher — and it

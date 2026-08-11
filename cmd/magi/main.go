@@ -1958,6 +1958,26 @@ type daemonEngine struct {
 	handover
 }
 
+// QueuedWork is everything waiting for this workspace, in the order it will run.
+//
+// Both queues in one answer, because there is one agent and it does one thing at a time — and in
+// the order the two are actually taken: the person's parked words first, then work handed over.
+// The queues themselves stay apart, and should: one refuses past a handful because a companion
+// accepting work it will never reach is worse than a refusal, and the other must never refuse the
+// person in front of it.
+func (d daemonEngine) QueuedWork() []daemon.QueuedWork {
+	var out []daemon.QueuedWork
+	for _, p := range d.App.ParkedWork() {
+		out = append(out, daemon.QueuedWork{Kind: "person", Text: p.Text})
+	}
+	if d.handover.queued != nil {
+		for _, p := range d.handover.queued.list() {
+			out = append(out, daemon.QueuedWork{Kind: "handover", Text: p.text})
+		}
+	}
+	return out
+}
+
 // About satisfies daemon.Describer: the process that knows answers about itself, instead of a
 // process somewhere else re-deriving it from a config directory that may not even be the right
 // account's.
