@@ -722,6 +722,7 @@ function confirmStop(who, go) {
   stopK.textContent = who ? tr('stop.headline', {name: who}) : tr('stop.headline_plain');
   stopBody.textContent = tr('stop.body');
   stopCancel.textContent = tr('action.keep_running');
+  withMark(stopCancel, '#i-sl-play');
   stopGo.textContent = tr('action.interrupt');
   withMark(stopGo, '#i-ss-circle-stop');
   stopCancel.onclick = () => stopDialog.close('cancel');
@@ -1889,15 +1890,26 @@ function drawDetail(a) {
     const f = cell('f'); f.append(cell('k', tr(key)), cell('v ' + (cls || ''), v)); return f;
   };
   const grid = cell('grid');
+  // The order answers questions in the order somebody asks them, and the grid packs in DOM order —
+  // so this list IS the layout.
+  //   1. what is it doing right now:      state, steps, last activity
+  //   2. who and where it is:             role, team, host, workspace
+  //   3. how you move around it:          session
+  // and then, appended below, how it runs: approvals, model, cache, context — the two that are
+  // controls sit together rather than one at the top of the card and one at the bottom.
+  //
+  // Wide fields span two columns rather than the whole row: a full-row span breaks the packing on
+  // both sides and the card grew three near-empty rows, one of them holding a five-letter state.
+  const wide = f => { f.className = 'f wide'; return f; };
   grid.append(
     field('field.status', stateWord(a.state), 'state ' + a.state),
-    (() => { const f = field('field.workspace', a.workdir); f.className = 'f wide'; return f; })(),
-    ...(a.role ? [field('field.role', a.role)] : []),
+    field('field.steps', a.steps ? a.steps + '' : '—'),
+    field('field.last_activity', ago(a.idle)),
+    ...(a.role ? [wide(field('field.role', a.role))] : []),
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
     field('field.host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
-    field('field.steps', a.steps ? a.steps + '' : '—'),
-    field('field.last_activity', ago(a.idle)),
+    wide(field('field.workspace', a.workdir)),
     sessionField(a),
   );
   grid.append(permField(a));
@@ -3663,9 +3675,13 @@ async function drawReportFormat(a) {
   // the one that ships missing and renders as its own dotted name.
   const FROM = {workspace: 'fmt.from_workspace', console: 'fmt.from_console', default: 'fmt.from_default'};
   const head = cell('k', tr('field.report_format') + ' · ' + tr(FROM[f.from] || FROM.default));
-  const edit = el('button', tr('action.edit'));
+  const edit = el('button');
   edit.type = 'button';
   edit.className = 'deeper hit48';
+  // A plain button, so the mark is a child rather than a slot — same shape, one level down.
+  const em = icon('#i-sl-pen-to-square', {cls: 'mk'});
+  if (em) edit.append(em, document.createTextNode(' '));
+  edit.append(document.createTextNode(tr('action.edit')));
   edit.onclick = () => openFormat(a, f);
   box.replaceChildren(head, ...rows, edit);
   box.hidden = false;
@@ -3734,6 +3750,7 @@ function openFormat(a, f) {
   fmtForm.append(more);
   for (const sec of (f.sections || [])) add(sec.key, sec.prompt);
   fmtCancel.textContent = tr('action.cancel');
+  withMark(fmtCancel, '#i-sl-xmark');
   fmtGo.textContent = tr('action.save');
   withMark(fmtGo, '#i-sl-floppy-disk');
   fmtDialog.show();
@@ -4135,6 +4152,7 @@ function paint() {
   themeToggle.setAttribute('aria-label', tr('pref.theme'));
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
   prefsClose.textContent = tr('action.close');
+  withMark(prefsClose, '#i-sl-xmark');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared']]) {
@@ -4147,6 +4165,7 @@ function paint() {
   }
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
+  withMark(mcpCancel, '#i-sl-xmark');
   // Closed by hand. A dialog's form closes on the button that submitted it and remembers which one
   // in returnValue — but a custom element is not that button: md-text-button carries form= and
   // value= and neither reaches the native <dialog>, so pressing cancel left it open with an empty

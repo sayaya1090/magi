@@ -1253,11 +1253,17 @@
     display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:var(--magi-sys-space-200) var(--magi-sys-space-400);
   }
   #detail .f { display:flex; flex-direction:column; gap:var(--magi-sys-space-50); }
-  /* The long fields take a row to themselves. A session id and a workspace path are strings
-     nobody reads in a 14rem column — the id wraps mid-hash and the path ellipses at the part that
-     tells you which project it is. The grid packs everything else two or three across; these two
-     span whatever it packed. */
-  #detail .f.wide { grid-column:1 / -1; }
+  /* The long fields take TWO columns, not the whole row. A session id and a workspace path are
+     strings nobody reads in a 14rem column — the id wraps mid-hash, the path ellipses at the part
+     that says which project it is — but a full-row span breaks the packing on both sides of it,
+     and the card grew three near-empty rows: the state on one, the path on the next, the session
+     on a third. Two columns is enough for either string and leaves the short readings packed
+     beside them. Below the two-column width there is only one column and this is moot. */
+  #detail .f.wide { grid-column:span 2; }
+  @media (max-width:52.5em) { #detail .f.wide { grid-column:1 / -1; } }
+  /* The menu on a full-width row takes the width: a select sized to its own content puts a long
+     session title behind an ellipsis in the middle of an empty row. */
+  #detail .f.wide .permsel { width:100%; max-width:var(--magi-sys-measure); }
   #detail .f .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
   }
