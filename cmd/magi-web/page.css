@@ -1308,14 +1308,23 @@
      until you look at it. It sits in the dock so it is on screen wherever the transcript is
      scrolled to — a panel that says "a build is running" is worth nothing if you have to scroll to
      it. */
+  /* Chips, to the spec rather than to the eye.
+     The guide gives one set of measurements for all four chip variants and this had none of them:
+     a pill instead of the 8dp corner, whatever height the text made instead of 32dp, and paddings
+     picked from the spacing scale rather than from the component. 8dp between chips, 8dp between
+     the elements inside one, 16dp at the ends — 8dp on the end that has the leading dot, which is
+     what the guide calls "left/right padding with icon". */
   #strip:not([hidden]) { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150); }
   .job {
     display:inline-flex; align-items:center; gap:var(--magi-sys-space-100);
-    padding:var(--magi-sys-space-50) var(--magi-sys-space-150);
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-full);
+    height:2rem; box-sizing:border-box;
+    padding-inline:var(--magi-sys-space-200);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-s);
     font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted);
     background:transparent; max-width:100%; min-width:0;
   }
+  /* The leading dot is this chip's icon, and the guide narrows the padding on that side for one. */
+  .job:has(.jdot) { padding-inline-start:var(--magi-sys-space-100); }
   /* The pressable one is the page's own button component, so it brings its own shape, ripple and
      focus ring; what it takes from here is the size, because a strip of full-size buttons would be
      a toolbar and this is a status line. */
@@ -1328,9 +1337,13 @@
   @media (prefers-reduced-motion:reduce) { md-text-button.job.live { animation:none; } }
   md-text-button.job {
     --md-text-button-label-text-size: var(--md-sys-typescale-label-small-size);
-    --md-text-button-container-height: 1.75rem;
-    --md-text-button-leading-space: var(--magi-sys-space-150);
-    --md-text-button-trailing-space: var(--magi-sys-space-150);
+    /* The same 32dp box and 8dp corner as the chips beside it: the component's own default is a
+       pill, which is right for a button standing alone and wrong for one standing in a row of
+       chips. */
+    --md-text-button-container-height: 2rem;
+    --md-text-button-container-shape: var(--magi-sys-shape-s);
+    --md-text-button-leading-space: var(--magi-sys-space-200);
+    --md-text-button-trailing-space: var(--magi-sys-space-200);
     padding:0;
   }
   .job .jname { color:var(--magi-ref-fg); font-weight:600; }
