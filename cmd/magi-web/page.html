@@ -1,0 +1,257 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#14110d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="magi">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>magi</title>
+<!-- Before the stylesheet, and deliberately not in the module at the end of the page: a theme
+     applied after first paint is a flash of the other one, and on a dark-preferring machine that
+     picked light it is a white flash in a dark room. Four lines, so it stays here rather than
+     becoming a file the page has to wait for. The module reads the same key. -->
+<script>
+  try {
+    var want = localStorage.getItem('theme');
+    if (want === 'light' || want === 'dark') document.documentElement.setAttribute('color-theme', want);
+  } catch (e) { /* storage can be denied; the machine's own preference still answers */ }
+</script>
+<style>
+<!--magi:css-->
+</style>
+
+<header>
+  <!-- The hamburger is on both sizes and means two different things, which is the point: on a wide
+       screen it widens the rail into a drawer, on a narrow one it slides that drawer in over the
+       page. Either way it is the way to the settings, which is why a phone has it too even though
+       a phone navigates with the tabs. -->
+  <!-- The page's one h1. Assistive tech navigates by heading and this page had none — every
+       section head was a styled div, so there was nothing to jump between. Levels follow the
+       CONTENT hierarchy, not the type size: the product, then the groups inside each destination.
+       h2 for those groups and not h3 — measured in a browser, the fleet and the board have no
+       section head above them, so h3 there skipped a level from this h1, which the guide forbids
+       outright. Two levels is all this page has. -->
+  <h1 class="mark">magi</h1>
+  <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
+       crumb is the way back, which is the same element that says where back goes. -->
+  <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><a id="crumbHere"></a><span id="crumbSep2" hidden>/</span><a id="crumbDeep"></a><span id="crumbSep3" hidden>/</span><span id="crumbLeaf"></span></nav>
+  <span class="sid" id="sid"></span>
+  <!-- The one place that speaks. Errors, the connection dropping, and a search narrowing all
+       changed silently before this: a screen reader was never told. role=status with a polite
+       live region announces without stealing focus, which is what the guide asks for a status
+       message and what it names for search results appearing. -->
+  <span id="state" role="status" aria-live="polite"></span>
+  <!-- Where a passing message goes, and it is not the line above.
+       That line is the fleet's count, rebuilt every three seconds by the poll — so a message
+       written into it lived for whatever was left of the interval, sometimes a tenth of a second,
+       and while it showed there was no count and no way to jump to whoever was waiting. Two
+       writers on one readout, again. This one has a single writer and no timer: a message stays
+       until something replaces it or the screen changes, because a notice that removes itself is
+       one somebody can miss, which is the guide's whole objection to snackbars on the web. -->
+  <span id="note" role="status" aria-live="polite"></span>
+  <!-- The page's one announcer. A live region has to be in the document BEFORE its text changes —
+       one created per render is inserted already-full and says nothing. Everything that changes
+       without moving focus speaks through here. -->
+  <span id="say" class="sr-only" role="status" aria-live="polite"></span>
+  <!-- One tooltip for the page. Native title= only appears on hover, never on keyboard focus, and
+       carries no role — so every icon-only control on this page was unlabelled for anyone tabbing
+       through it. This surface is aria-hidden: the button beside it already carries the same words
+       as its aria-label, and announcing both would say everything twice. -->
+  <span id="tip" role="tooltip" aria-hidden="true" hidden></span>
+  <!-- Narrow only, and top right where a thumb reaches. It shows what pressing it GIVES you — a sun
+       while the page is dark — because a control showing its current state leaves you working out
+       what it does. Two shapes with one hidden, rather than a morphing path: an icon that changes
+       shape is an icon that has to be got right twice. -->
+  <!-- Sliders, not a cog. A cog beside the theme toggle is a circle with spokes next to a circle
+       with rays: at 21px they are the same picture, and the two controls sat side by side. -->
+  <md-icon-button id="prefs">
+    <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      <circle cx="15" cy="7" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <circle cx="9" cy="12" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <circle cx="15" cy="17" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+    </svg>
+  </md-icon-button>
+  <md-icon-button id="themeToggle">
+    <svg class="sun" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <path d="M12 2.4v2.8M12 18.8v2.8M21.6 12h-2.8M5.2 12H2.4M18.8 5.2l-2 2M7.2 16.8l-2 2M18.8 18.8l-2-2M7.2 7.2l-2-2"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    </svg>
+    <svg class="moon" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"
+            stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
+    </svg>
+  </md-icon-button>
+</header>
+
+<!-- The rail is the wide screen's navigation and the narrow screen's settings drawer — one element
+     in two modes rather than two that have to agree. Its items are md-list-item with an href, so
+     they are real links with the component's ripple and focus ring: a rail you cannot middle-click
+     is a navigation that forgot it was made of addresses. -->
+
+<div id="scrim"></div>
+<nav id="rail">
+  <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
+       far corner it did not look like it belonged to the column across the page. -->
+  <!-- Two icons, one shown at a time. The guide asks that an expanded rail's menu icon say it can
+       be collapsed, and aria-expanded alone says that only to a screen reader — the sighted user
+       pressing it twice got the same three lines both times. -->
+  <md-icon-button id="railMenu" aria-expanded="false">
+    <svg class="ic-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+    <svg class="ic-close" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+  </md-icon-button>
+  <!-- The icons are drawn here rather than pulled from Material Symbols: that is a whole font to
+       embed for four glyphs, and this page already refuses a font CDN for the typeface it reads
+       with. Stroked in currentColor, so the selected state colours the shape with its label. -->
+  <!-- Two anchors, not a list.
+       A navigation rail is not a list and Material Web ships no rail, so these were md-list-item
+       wearing the job — and the job kept showing. That component writes role="listitem" onto the
+       anchor it renders, which cost the link semantics and name-from-content both, and had to be
+       undone from JS by reaching into its shadow root. It lays its slots out in a row, so the icon
+       could never sit ABOVE the word, which is the shape the collapsed rail is drawn in and the
+       reason this page hid its labels. And its ripple and focus ring each needed a ::part rule to
+       be told what shape the item was.
+       An anchor is a link by being one. The page already draws its own tooltips, focus rings and
+       state layers for the controls it builds; this is one more, and it is smaller than the
+       workarounds it replaces. -->
+  <div id="railNav">
+    <a id="railFleet" class="raili">
+      <!-- The badge rides the icon, which is what a badge is for and the only place it can be when
+           the rail is collapsed to icons. -->
+      <span class="icwrap">
+        <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+          d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <md-badge id="railBadge" hidden></md-badge>
+      </span>
+      <span class="lbl"></span>
+    </a>
+    <a id="railSkills" class="raili">
+      <span class="icwrap">
+        <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+          d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="lbl"></span>
+    </a>
+  </div>
+
+</nav>
+
+<main>
+  <md-tabs id="tabs" hidden>
+    <!-- The label is its own element because the badge is a sibling: writing the word with
+         textContent would take the badge with it, the way setting textContent replaces everything
+         a node holds. -->
+    <!-- Label and badge in ONE slotted element. A tab stacks what is slotted into it — it is built
+         for an icon above a word — so two siblings put the count on a line below the label. -->
+    <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
+    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
+  </md-tabs>
+  <md-chip-set id="summary"></md-chip-set>
+  <div id="skills" hidden></div>
+  <div id="board" hidden></div>
+  <div id="mcp" hidden></div>
+  <div id="fleet"></div>
+  <!-- Two reasons to be on a companion's page, and they want different things. Checking on it wants
+       the facts: state, workspace, model, context, plan. Reading what it is doing and steering it
+       wants the transcript and the box under it.
+       
+       Stacked, the transcript was 1335px down a 1267px screen — off it — behind five cards of which
+       three are history. So the conversation is the page and the facts stand beside it, and on a
+       narrow screen the conversation comes first with the rest underneath. -->
+  <md-tabs id="ptabs" hidden>
+    <md-primary-tab id="ptabTalk"></md-primary-tab>
+    <md-primary-tab id="ptabState"></md-primary-tab>
+  </md-tabs>
+  <div id="agentview">
+    <div id="stream">
+      <md-outlined-card id="detail" hidden></md-outlined-card>
+      <div id="log"></div>
+    </div>
+    <!-- The handle and the pane it opens are one column: siblings of #stream, a grid would place
+         them in reading order and put the pane on a row of its own beneath the conversation. -->
+    <!-- One level in from the conversation: a council member's verdict, or a child the turn
+         spawned. Its own section rather than a dialog, because what is in it is a transcript or a
+         page of evidence — things you scroll, select and copy out of. -->
+    <section id="agentdetail" hidden></section>
+
+    <div id="sidecol">
+      <md-icon-button id="sideToggle" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M4 5h16v14H4zM14 5v14" stroke="currentColor" stroke-width="1.6" fill="none"
+            stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </md-icon-button>
+      <aside id="side">
+        <md-outlined-card id="plan" hidden></md-outlined-card>
+        <md-outlined-card id="handoffs" hidden></md-outlined-card>
+        <md-outlined-card id="cron" hidden></md-outlined-card>
+        <md-outlined-card id="intervened" hidden></md-outlined-card>
+      </aside>
+    </div>
+  </div>
+</main>
+
+
+<!-- Preferences, in one place instead of four. As a section at the foot of every page these were
+     the same three controls repeated under lists somebody was reading for something else; as a
+     panel in the rail they were a second copy of that. A dialog is what M3 uses for a short task
+     that interrupts nothing, and it is the same dialog at every width. -->
+<md-dialog id="prefsDialog" type="alert">
+  <div slot="headline" id="prefsK"></div>
+  <!-- No theme here. It has a toggle in the masthead — one tap for the setting that gets changed
+       most — and a select saying the same thing three feet away was the same preference twice, with
+       two ways to be wrong about it. What is left is what a toggle cannot carry: a choice of three
+       languages, and which machine this is. -->
+  <form slot="content" method="dialog" id="prefsForm">
+    <md-outlined-select id="lang"></md-outlined-select>
+    <div class="k" id="notifyK"></div>
+    <div id="notify"><md-text-button id="notifyBtn"></md-text-button><div id="notifyWhy"></div></div>
+    <div class="k" id="consoleK"></div>
+    <div id="console"></div>
+  </form>
+  <div slot="actions">
+    <md-text-button id="prefsClose" form="prefsForm" value="close"></md-text-button>
+  </div>
+</md-dialog>
+
+<!-- Adding a server is a task with six fields and one outcome, which is what a dialog is for. It
+     sat inline under the list, so the page a person came to READ ended in a form they were not
+     filling in, and the one control that committed it was a button inside that form with nothing
+     to say it was the confirming one. The actions live in the dialog's own slot now: cancel, then
+     add, trailing-aligned, with the confirming action nearest the corner. -->
+<md-dialog id="mcpDialog">
+  <div slot="headline" id="mcpDialogK"></div>
+  <form slot="content" id="mcpForm" method="dialog"></form>
+  <!-- Text buttons, which is what the guide gives a dialog, trailing-aligned with the confirming
+       action nearest the corner. A filled button here would be the page's highest emphasis spent
+       inside a box that is already the only thing the reader can touch. -->
+  <div slot="actions">
+    <md-text-button id="mcpCancel" form="mcpForm" value="cancel"></md-text-button>
+    <md-text-button id="mcpGo" form="mcpForm" value="add"></md-text-button>
+  </div>
+</md-dialog>
+
+<footer id="dock">
+  <div id="prompt" hidden></div>
+  <form id="f" hidden><div class="composer">
+    <md-outlined-text-field id="t" type="textarea" rows="1"
+      ></md-outlined-text-field>
+    <md-filled-button type="submit" id="send">send</md-filled-button>
+    <md-filled-tonal-button type="button" id="stop">interrupt</md-filled-tonal-button>
+  </div><div id="cnote" hidden></div></form>
+</footer>
+
+<script type="module">
+<!--magi:js-->
+</script>

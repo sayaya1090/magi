@@ -553,7 +553,9 @@ were not doing: an action that cannot happen is **disabled**, not hidden and not
 ⚠ **And the gate itself lied twice in one session.** A wrapper that grepped its output for
 `--- FAIL` called a Go syntax error green: a build failure prints neither that string nor anything
 else the filter kept. Judge by the exit code. Both errors were the same mistake — a backtick in a
-comment, which ends the raw string the whole page lives in.
+comment, which ended the Go raw string the whole page used to live in. The page is three embedded
+files now (`page.html`, `page.css`, `page.js`), so that particular trap is gone; the lesson about
+the gate is not.
 
 The standing guards, each pinned by removing the thing it guards and watching it fail:
 
