@@ -1092,20 +1092,37 @@
      hierarchy that means nothing — the grounds are not deeper than the row, they are part of it.
      Separated by the device this page already uses everywhere else: a rule and a gutter of
      small-caps labels. */
+  /* Sections side by side, each keeping a readable line.
+     One column of pairs capped at the reading measure put the whole report in the left 45% of a
+     1400px row with the rest of the card empty beside it — the block looked pushed against the
+     left edge, which it was. Widening the column instead would have bought 130-character lines,
+     which is the other way to make a report unreadable. auto-fit does neither: three sections
+     become three columns on a wide row, two on a medium one, one on a phone, and the block ends
+     where the card does. */
   .grounds {
     grid-column:1 / -1;
-    display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:var(--magi-sys-space-50) var(--magi-sys-space-200);
-    margin:var(--magi-sys-space-150) 0 var(--magi-sys-space-50); padding:var(--magi-sys-space-150) 0 0; max-width:var(--magi-sys-measure);
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap:var(--magi-sys-space-200) var(--magi-sys-space-400);
+    margin:var(--magi-sys-space-150) 0 var(--magi-sys-space-50); padding:var(--magi-sys-space-150) 0 0;
     border-top:1px solid var(--magi-ref-outlineVariant);
   }
+  .grounds .gsec { display:grid; gap:var(--magi-sys-space-50); align-content:start; min-width:0; }
   .grounds .gk {
     font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); letter-spacing:0.0533em;
-    color:var(--magi-ref-muted); text-align:right;
+    color:var(--magi-ref-muted);
   }
-  .grounds .gv { font:var(--md-sys-typescale-label-medium-size)/1.55 var(--magi-ref-mono); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
-  @media (max-width:40em) {
-    .grounds { grid-template-columns:1fr; gap:var(--magi-sys-space-50); }
-    .grounds .gk { text-align:left; margin-top:var(--magi-sys-space-100); }
+  .grounds .gv {
+    font:var(--md-sys-typescale-label-medium-size)/1.55 var(--magi-ref-mono); color:var(--magi-ref-fg);
+    overflow-wrap:anywhere; max-width:var(--magi-sys-measure);
+  }
+  /* A report is written to be read on the decision screen; in a list it is a preview, and a long
+     one must not push the companions under it off the page. Ten lines a section, and the row
+     itself is the way to all of it — the whole card opens the companion, where the decision has a
+     screen of its own. The clamp puts its own ellipsis on the last line it kept and only when it
+     kept fewer than there were, which is the marker: no fade over text that was never cut. */
+  .card .grounds .gv {
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:10; line-clamp:10;
+    overflow:hidden;
   }
 
   /* answering, inline in the row that is asking */
@@ -1445,16 +1462,17 @@
      The text keeps the page's reading measure. It is not narrower here than in the dock — the
      gutter is outside it — and it is not wider, because 74 characters is where prose stops being
      comfortable and a decision screen is not the place to prove otherwise. */
-  #agentdetail .grounds {
+  #agentdetail .grounds { display:grid; grid-template-columns:1fr; gap:var(--magi-sys-space-150); max-width:none; }
+  #agentdetail .grounds .gsec {
     display:grid; grid-template-columns:7rem minmax(0, var(--magi-sys-measure));
-    gap:var(--magi-sys-space-150) var(--magi-sys-space-300); max-width:none;
+    gap:var(--magi-sys-space-150) var(--magi-sys-space-300); align-items:baseline;
   }
   #agentdetail .grounds .gk {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
     letter-spacing:.05em; color:var(--magi-ref-accent); text-align:right;
   }
   @media (max-width:40em) {
-    #agentdetail .grounds { grid-template-columns:1fr; gap:var(--magi-sys-space-50); }
+    #agentdetail .grounds .gsec { grid-template-columns:1fr; gap:var(--magi-sys-space-50); }
     #agentdetail .grounds .gk { text-align:left; margin-top:var(--magi-sys-space-100); }
   }
   #agentdetail .grounds .gv { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
@@ -1541,9 +1559,11 @@
      name's second half.
      The gaps are the guide's — 16dp between the things inside a dialog, 24dp between the blocks
      of it — rather than whatever the spacing scale's smallest step happened to be. */
+  /* The two fields are one row and are drawn as one: stretched, so the short name is a box the
+     same height as the sentence beside it rather than a stamp floating at the top of it. */
   .fmtrow {
     display:grid; grid-template-columns:8rem minmax(0, 1fr) 2.5rem;
-    gap:var(--magi-sys-space-200); align-items:start;
+    gap:var(--magi-sys-space-200); align-items:stretch;
   }
   /* Fits the dialog rather than pushing past it. A dialog is 560dp wide at most and its content
      box does not grow with what is put in it — a form wider than that is simply cut off on the
@@ -1563,9 +1583,10 @@
     font:var(--md-sys-typescale-body-medium-size)/1.5 var(--magi-ref-display);
     color:var(--magi-ref-on-surface-variant); max-width:var(--magi-sys-measure);
   }
-  /* The add control is one action in a row of its own, at the start — where the next row would
-     begin, so it reads as "another one of these" rather than as a footer. */
-  #fmtForm > md-text-button { justify-self:start; }
+  /* The add control takes the width of a row, because that is what pressing it makes.
+     Hugging its label it sat alone under the left column with the form's whole width beside it,
+     reading as something left over rather than as the next row of the list. */
+  #fmtForm > md-text-button { width:100%; }
 
   /* ── what has not started yet ────────────────────────────────────────────── */
   #queued { max-width:var(--magi-sys-measure); }

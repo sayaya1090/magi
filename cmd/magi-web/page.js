@@ -758,7 +758,14 @@ function grounds(a) {
   const box = cell('grounds span');
   for (const sec of a.report) {
     if (!sec || !sec.text) continue;
-    box.append(cell('gk', sec.key), cell('gv', sec.text));
+    // Each section is its own box rather than two loose cells in a shared grid. Flat, the block
+    // could only ever be one column of pairs: on a row 1400px wide that left the report in the
+    // left 45% and 770px of card empty beside it, because the one thing a column of prose must
+    // not do is grow to the width of the furniture. Boxed, the sections can sit side by side —
+    // each keeps a readable line, and together they use the room.
+    const s = cell('gsec');
+    s.append(cell('gk', sec.key), cell('gv', sec.text));
+    box.append(s);
   }
   return box.children.length ? box : null;
 }
@@ -2074,7 +2081,21 @@ async function drawHandoffs(a) {
   if (!list || !list.length) { box.hidden = true; box.replaceChildren(); return; }
   const rows = list.map(h => {
     const el = cell('ho ' + h.state);
-    el.append(cell('to', h.to), cell('req', h.request));
+    // The name is a way to the companion it names, when this console can see one by that name.
+    // Handed-out work is the one place on this page that talks about somebody who is not on the
+    // screen, and the answer to "what is it doing with this" lives on their page.
+    //
+    // Only when it is known: an anchor to nowhere is worse than plain text, and a companion named
+    // here may be on a machine this console has never been told about.
+    const peer = (fleetSeen || []).find(x => x.name === h.to);
+    let to = cell('to', h.to);
+    if (peer && peer.socket) {
+      to = el('a', h.to);
+      to.className = 'to';
+      to.setAttribute('href', at('?d=' + encodeURIComponent(peer.socket) +
+        (peer.peer ? '&p=' + encodeURIComponent(peer.peer) : '')));
+    }
+    el.append(to, cell('req', h.request));
     // The answer only when the work is over. Anything else would be reporting a sentence
     // mid-thought as a conclusion.
     el.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
@@ -3362,7 +3383,14 @@ function openFormat(a, f) {
   // Text buttons for the two low-emphasis actions inside the content, and an icon button for
   // removal — the M3 vocabulary for "an action on this row" rather than a glyph in a link.
   const more = document.createElement('md-text-button');
-  more.textContent = tr('fmt.add_section');
+  // Neither control inside this form submits it. A button in a form defaults to submit, the form
+  // is method="dialog", and submitting it CLOSES the dialog — so pressing the ✕ to drop a section
+  // threw away every other edit on the way out, and the row was removed from a form nobody could
+  // save. Reported as "the dialog shuts before I can save".
+  more.setAttribute('type', 'button');
+  // With the plus, because a button as wide as the rows above it is read as a row until something
+  // says otherwise, and the glyph says it before the word is read.
+  more.textContent = '+ ' + tr('fmt.add_section');
   const add = (key, prompt) => {
     const row = cell('fmtrow');
     const k = document.createElement('md-outlined-text-field');
@@ -3386,6 +3414,7 @@ function openFormat(a, f) {
     // Removing a section has a consequence — the agent stops being asked for it — so it is a
     // control of its own rather than clearing the field and hoping somebody notices.
     const drop = document.createElement('md-icon-button');
+    drop.setAttribute('type', 'button');   // see the note on `more`: the default submits and closes
     drop.className = 'fmtdrop';
     drop.setAttribute('aria-label', tr('action.remove'));
     drop.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +

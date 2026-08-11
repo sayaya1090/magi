@@ -83,6 +83,15 @@ function element(tag) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
       this.children.unshift(...kids);
     },
+    // Inserting BEFORE a child, which is how the report-format editor keeps its add control at the
+    // bottom while rows arrive above it. A missing node appends, as the DOM does.
+    insertBefore(kid, before) {
+      if (kid && typeof kid === 'object') kid.parentNode = this;
+      const i = this.children.indexOf(before);
+      if (i < 0) this.children.push(kid);
+      else this.children.splice(i, 0, kid);
+      return kid;
+    },
     replaceChildren(...kids) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
       this.children = kids;

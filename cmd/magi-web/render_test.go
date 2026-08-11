@@ -849,7 +849,9 @@ func TestABlockedAgentShowsWhatItWantsDecidedOn(t *testing.T) {
 await loadFleet();
 const g = rows()[0].find('div').find(d => String(d.className).includes('grounds'));
 console.log(JSON.stringify({
-  keys: g ? g.children.filter(c => c.className === 'gk').map(c => c.textContent) : [],
+  // Each section is a box of its own now, so the keys are gathered from inside them. The order
+  // across the sections is what this checks, and that is the order they were appended in.
+  keys: g ? g.children.map(s => (s.children.find(c => c.className === 'gk') || {}).textContent || '') : [],
   text: g ? g.text : '',
 }));
 `)
@@ -3294,5 +3296,33 @@ console.log(JSON.stringify({deep: crumbDeep.text, back: back.text}));`)
 	// The first crumb is the control: it was already repainted, and must still be.
 	if got["back"] != "컴패니언" {
 		t.Errorf("the first crumb reads %q", got["back"])
+	}
+}
+
+// Nothing inside the report-format form submits it.
+//
+// The form is method="dialog" and a button in a form defaults to submit, so the ✕ beside a section
+// closed the whole dialog — the row came off a form nobody could then save, and every other edit
+// went with it. Reported as "it shuts before I can save". The same default was on the add control.
+func TestNoControlInsideTheFormatFormClosesTheDialog(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"waiting","session":"s_1"}]`, "?d=%2Fs%2Fa.sock", `
+openFormat({socket:'/s/a.sock'}, {from:'workspace', sections:[{key:'tried', prompt:'what you ran'}]});
+const kinds = [];
+const walk = n => {
+  const t = (n.tag || '').toLowerCase();
+  if (t.includes('button')) kinds.push(t + ':' + (n.attrs.type || 'default'));
+  for (const k of n.children || []) walk(k);
+};
+walk(byId.fmtForm);
+console.log(JSON.stringify({kinds}));`)
+
+	kinds, _ := got["kinds"].([]any)
+	if len(kinds) < 2 {
+		t.Fatalf("the form drew %d buttons; it has an add control and a remove control", len(kinds))
+	}
+	for _, k := range kinds {
+		if s, _ := k.(string); !strings.HasSuffix(s, ":button") {
+			t.Errorf("%s submits the form it is in, which closes the dialog", s)
+		}
 	}
 }

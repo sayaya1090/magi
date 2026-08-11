@@ -134,7 +134,7 @@
   "fmt.from_console": "this console's, shared",
   "fmt.from_default": "the built-in default",
   "fmt.from_workspace": "this companion's own",
-  "fmt.headline": "What this companion must fill in",
+  "fmt.headline": "Report sections",
   "fmt.key": "section",
   "fmt.prompt": "what belongs in it",
   "fold.answered": "answered",
