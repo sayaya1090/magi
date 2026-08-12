@@ -544,7 +544,9 @@ The list is exposed in the system prompt, and the model loads a body with the `s
 
 ## 9. Plugins (Lua)
 
-`plugin.toml` + `init.lua` in `<config>/plugins/<name>/` or `<workdir>/.magi/plugins/<name>/`.
+`plugin.toml` + `init.lua` in `<config>/plugins/<name>/`.
+
+⚠ A plugin declares its own permissions in its own manifest, and they are granted — which is a fair arrangement for a directory you installed into and none at all for one that arrived with a clone. So `<workdir>/.magi/plugins/` is **not** loaded by opening the workspace; magi names what it found and skipped. Run those deliberately with `magi -plugins .magi/plugins`.
 Capabilities: `tool`, `command` (slash commands like `/login`), `context-provider`, `mcp`, `llm-headers`, `analyze`, `experience` (magi.propose_experience — route plugin-learned lessons/skills into the D13 shared store's review queue), `notify` (magi.notify — append a system ⟳ note to a session's transcript, the active-notification channel; the model sees it next turn). `magi.remove_file` deletes a workdir file/dir under the same fs:write grant — the undo half of artifact-writing plugins. **Hot-reload** on file change.
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.

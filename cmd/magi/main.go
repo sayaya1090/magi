@@ -939,6 +939,12 @@ func run() int {
 	for _, dir := range pluginDirs(plat, wd, *pluginsDir) {
 		host.LoadDir(context.Background(), dir)
 	}
+	if theirs := workspacePlugins(wd); len(theirs) > 0 && *pluginsDir == "" {
+		fmt.Fprintf(os.Stderr, "magi: this workspace carries %d plugin(s) (%s) and they were not "+
+			"loaded — a plugin grants itself permissions, so one that came with a repository is "+
+			"run only when you name it: -plugins %s\n",
+			len(theirs), strings.Join(theirs, ", "), filepath.Join(".magi", "plugins"))
+	}
 	loadEmbeddedPlugins(host, plat, cfg)
 	// Lifecycle: run plugin startup handlers now (after load, before the first
 	// turn) — e.g. an SSO plugin authenticates here. shutdown runs on exit.

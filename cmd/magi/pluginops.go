@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -64,18 +65,52 @@ func runPluginInstall(url, pin string) int {
 	return 0
 }
 
-// pluginDirs returns the directories scanned for plugins, in priority order:
-// the global config dir, a project-local .magi/plugins, and an optional
-// explicit --plugins directory.
+// pluginDirs returns the directories scanned for plugins, in priority order: the global config
+// dir, and an optional explicit --plugins directory.
+//
+// # Why the workspace is not one of them any more
+//
+// A plugin declares its own permissions, in its own plugin.toml, and the host grants them: a
+// manifest saying `permissions = ["exec:sh"]` gets exec:sh. That is a reasonable arrangement for a
+// directory the operator installed into — they chose the plugin, and the manifest tells them what
+// it will reach for.
+//
+// <workdir>/.magi/plugins is not that directory. It arrives with a clone, and it was scanned
+// automatically, so `git clone && cd && magi` ran whatever Lua the repository shipped — before the
+// first model call, with permissions the repository wrote for itself, and with nothing on screen
+// saying it had happened. The sandbox does not help: it blocks os and io so that the BRIDGE can be
+// the boundary, and the bridge offers exec, http, read_file, write_file and set_base_url to a
+// plugin whose manifest asked for them.
+//
+// The lever to load them is the one that already existed: name the directory. `magi -plugins
+// ./.magi/plugins` is somebody deciding, which is the whole of what was missing.
 func pluginDirs(plat *platform.OS, workdir, extra string) []string {
-	dirs := []string{
-		filepath.Join(plat.ConfigDir(), "plugins"),
-		filepath.Join(workdir, ".magi", "plugins"),
-	}
+	dirs := []string{filepath.Join(plat.ConfigDir(), "plugins")}
 	if extra != "" {
 		dirs = append(dirs, extra)
 	}
 	return dirs
+}
+
+// workspacePlugins is what the repository brought and this process did not run.
+//
+// Named on startup rather than passed over in silence. A plugin that used to load and now does not
+// is a behaviour change somebody has to be able to see, and an unfamiliar repository carrying one
+// is worth knowing about even when the answer is no.
+func workspacePlugins(workdir string) []string {
+	root := filepath.Join(workdir, ".magi", "plugins")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if _, serr := os.Stat(filepath.Join(root, e.Name(), "plugin.toml")); serr == nil {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // loadEmbeddedPlugins loads plugins compiled into the binary, so a binary-only

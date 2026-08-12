@@ -366,7 +366,7 @@ self-corrects. Read-only tools run in parallel within a turn.
   turns are summarized while recent ones are preserved. A `ctx 42%` meter sits in the header.
 - **Shared experience** — a git-backed memory/skill store (`<config>/experience`) the team can share;
   the `remember` tool contributes to a review queue.
-- **Lua plugins** — drop a `plugin.toml` + `init.lua` into `.magi/plugins/`; auto-loaded, hot-reloaded,
+- **Lua plugins** — drop a `plugin.toml` + `init.lua` into `<config>/plugins/`; auto-loaded, hot-reloaded,
   sandboxed. See [plugins/examples/wordcount](plugins/examples/wordcount).
 - **MCP servers** — declare them in `config.toml` and their tools register at startup:
   ```toml

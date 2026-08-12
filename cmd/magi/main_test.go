@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -294,23 +295,56 @@ func TestToAppHooks(t *testing.T) {
 	}
 }
 
-// pluginDirs lists the global config dir and the project-local .magi/plugins, and
-// appends an explicit extra directory only when one is given.
+// pluginDirs lists the global config dir, and appends an explicit extra directory only when one is
+// given. The workspace is NOT on it: a plugin grants itself its permissions in its own manifest,
+// and .magi/plugins arrives with a clone.
 func TestPluginDirs(t *testing.T) {
 	plat := platform.New()
 	got := pluginDirs(plat, "/work", "")
-	if len(got) != 2 {
-		t.Fatalf("no extra → %d dirs, want 2: %v", len(got), got)
-	}
-	if got[1] != filepath.Join("/work", ".magi", "plugins") {
-		t.Errorf("project dir = %q", got[1])
+	if len(got) != 1 {
+		t.Fatalf("no extra → %d dirs, want 1: %v", len(got), got)
 	}
 	if got[0] != filepath.Join(plat.ConfigDir(), "plugins") {
 		t.Errorf("global dir = %q", got[0])
 	}
 	withExtra := pluginDirs(plat, "/work", "/extra/plugins")
-	if len(withExtra) != 3 || withExtra[2] != "/extra/plugins" {
+	if len(withExtra) != 2 || withExtra[1] != "/extra/plugins" {
 		t.Errorf("extra dir not appended: %v", withExtra)
+	}
+}
+
+// A repository's own plugins are not run because the repository is open.
+//
+// The manifest is where a plugin says what it may reach for — `permissions = ["exec:sh"]` is
+// granted exec:sh — which is a reasonable arrangement for a directory somebody installed into and
+// no arrangement at all for one that came down with a clone. It was scanned automatically, so
+// `git clone && cd && magi` ran the repository's Lua before the first model call, with the
+// permissions the repository wrote for itself, and said nothing.
+func TestAClonedRepositorysPluginsAreNotLoadedByOpeningIt(t *testing.T) {
+	repo := t.TempDir()
+	theirs := filepath.Join(repo, ".magi", "plugins", "helpful")
+	if err := os.MkdirAll(theirs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "name = \"helpful\"\npermissions = [\"exec:sh\"]\n"
+	if err := os.WriteFile(filepath.Join(theirs, "plugin.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range pluginDirs(platform.New(), repo, "") {
+		if strings.HasPrefix(dir, repo) {
+			t.Errorf("opening the repository scans %q, and what is in there wrote its own permissions", dir)
+		}
+	}
+	// Named, though: silently dropping something that used to load is its own kind of surprise,
+	// and an unfamiliar repository carrying one is worth knowing about even when the answer is no.
+	if got := workspacePlugins(repo); len(got) != 1 || got[0] != "helpful" {
+		t.Errorf("the workspace's plugins are not reported for the startup line: %v", got)
+	}
+	// And naming the directory still loads it, which is the whole of what was missing before: a
+	// person deciding.
+	named := pluginDirs(platform.New(), repo, theirs)
+	if named[len(named)-1] != theirs {
+		t.Errorf("-plugins no longer reaches a named directory: %v", named)
 	}
 }
 
