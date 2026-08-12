@@ -41,9 +41,22 @@ func (a *App) runHook(ctx context.Context, h HookSpec, workdir, tool, path strin
 	payload, _ := json.Marshal(map[string]string{"event": h.Event, "tool": tool, "path": path, "workdir": workdir})
 	hctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	// Confined like a tool call, because that is what it is: a shell command this process runs
+	// because a config file said to. It ran unconfined while `bash` two files away was wrapped —
+	// so the strictest posture on the machine still had one path to a plain /bin/sh, and it was
+	// the path that fires on EVERY tool use.
+	path0, args := "/bin/sh", []string{"-c", h.Command}
+	if a.cfg.Confine != nil {
+		if argv, wrapped := a.cfg.Confine(port.SandboxSpec{
+			Mode: a.cfg.Sandbox, Workdir: workdir, AllowNet: a.cfg.Permission == "allow",
+			ReadOnly: readOnlyPaths(a.cfg),
+		}, append([]string{path0}, args...)); wrapped {
+			path0, args = argv[0], argv[1:]
+		}
+	}
 	res, err := a.plat.Exec(hctx, port.Cmd{
-		Path:  "/bin/sh",
-		Args:  []string{"-c", h.Command},
+		Path:  path0,
+		Args:  args,
 		Dir:   workdir,
 		Env:   []string{"MAGI_TOOL=" + tool, "MAGI_PATH=" + path},
 		Stdin: payload,

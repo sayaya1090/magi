@@ -143,6 +143,9 @@ type scriptPlatform struct {
 	mu    sync.Mutex
 	codes []int
 	calls int
+	// onExec, when set, is handed every command this platform is asked to run — for the tests
+	// that are about WHAT was started rather than what it printed.
+	onExec func(port.Cmd)
 }
 
 func (p *scriptPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
@@ -153,6 +156,9 @@ func (p *scriptPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult,
 		code = p.codes[p.calls]
 	}
 	p.calls++
+	if p.onExec != nil {
+		p.onExec(c)
+	}
 	return port.ExecResult{Stdout: []byte("verify output"), ExitCode: code}, nil
 }
 func (p *scriptPlatform) ConfigDir() string           { return "" }

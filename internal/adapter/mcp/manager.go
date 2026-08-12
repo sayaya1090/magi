@@ -23,6 +23,15 @@ type ToolSink interface {
 // sink. When a server exits, its tools are unregistered automatically (F-MCP).
 type Manager struct {
 	sink ToolSink
+	// Confine wraps a stdio server's argv so the OS runs it under this machine's sandbox. Supplied
+	// by the binary that has the platform code; nil = spawn as-is.
+	//
+	// A stdio server is a program named in a config file and kept alive for the daemon's whole
+	// life, and it was the last child spawned with no confinement while the bash tool beside it
+	// had some. It is also the child most likely to be pointed at something outside the workspace
+	// on purpose, so it is confined on the same terms as bash — turn the sandbox off and it runs
+	// as wide as before.
+	Confine func([]string) ([]string, bool)
 
 	mu      sync.Mutex
 	servers map[string]*serverConn
@@ -43,7 +52,13 @@ func NewManager(sink ToolSink) *Manager {
 // AddStdio spawns an MCP server over stdio, performs the handshake, discovers
 // its tools, and registers them. The server's tools are removed if the process exits.
 func (m *Manager) AddStdio(ctx context.Context, name, command string, args, env []string) error {
-	cmd := exec.Command(command, args...)
+	argv := append([]string{command}, args...)
+	if m.Confine != nil {
+		if wrapped, ok := m.Confine(argv); ok {
+			argv = wrapped
+		}
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
 	if len(env) > 0 {
 		cmd.Env = append(cmd.Environ(), env...)
 	}

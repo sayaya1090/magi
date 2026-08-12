@@ -212,6 +212,14 @@ type Config struct {
 	// directory and that whole directory is writable so build tools keep working. Without it a
 	// confined command can rewrite the record of what it just did.
 	StoreDir string
+	// Confine wraps an argv so the OS runs it under this machine's sandbox, or reports that there
+	// is nothing to wrap with. Supplied by the binary that has the platform-specific code; nil
+	// means unconfined, which is what a test gets and what a build with no sandbox has.
+	//
+	// It is here because the bash tool is not the only thing this process starts on somebody
+	// else's say-so — a hook runs on every tool event, an MCP server runs for the daemon's whole
+	// life — and those were spawned unconfined while bash beside them was not.
+	Confine func(port.SandboxSpec, []string) ([]string, bool)
 	// Allow/Deny are pattern rules "Tool(spec)" — e.g. Bash(git push:*),
 	// Read(**/.env), WebFetch(domain:example.com). Deny is a hard floor; secret
 	// paths are denied by default in addition to these.

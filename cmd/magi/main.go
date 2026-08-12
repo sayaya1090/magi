@@ -896,7 +896,10 @@ func run() int {
 		Sandbox:     cfg.Sandbox,
 		// Where the transcripts are, so the sandbox can keep them out of reach of the commands it
 		// confines. Not a setting: it is this process telling the policy where its own record is.
-		StoreDir:            plat.DataDir(),
+		StoreDir: plat.DataDir(),
+		// The platform's own confinement, handed to the core so the children IT starts — a hook on
+		// every tool event — go through the same wrapper the bash tool does.
+		Confine:             builtin.SandboxWrap,
 		BetweenTurns:        func(ctx context.Context) { ears.reconcile(ctx) },
 		DangerTools:         dangerTools,
 		Allow:               cfg.Allow,
@@ -933,6 +936,15 @@ func run() int {
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
 	mcpMgr := mcp.NewManager(reg)
+	// A stdio server is a program a config file names and the daemon keeps alive for its whole
+	// life, and it was the last child started with nothing around it. Same terms as the bash tool:
+	// confined when the sandbox is on, as wide as before when it is off.
+	mcpMgr.Confine = func(argv []string) ([]string, bool) {
+		return builtin.SandboxWrap(port.SandboxSpec{
+			Mode: cfg.Sandbox, Workdir: wd, AllowNet: cfg.Permission == "allow",
+			ReadOnly: []string{plat.DataDir()},
+		}, argv)
+	}
 
 	// Plugin host: provide MCP manager, context registry, and runtime info to plugins.
 	// sid is created just below (CreateSession) but the host needs it now to wire

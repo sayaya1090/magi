@@ -33,6 +33,10 @@ func killCmdTree(cmd *exec.Cmd) error {
 // so there is no argv to rewrite.
 func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) { return nil, false }
 
+// SandboxWrap is the same nothing: Windows confines with a restricted token, not an argv wrapper —
+// see sandboxProcAttr, and the note there about what that token does and does not do.
+func SandboxWrap(spec port.SandboxSpec, argv []string) ([]string, bool) { return nil, false }
+
 // detachTTY is a no-op on Windows. DETACHED_PROCESS was tried here to make interactive prompts
 // fail fast, but it did not fix the reported hang (the real cause was the timeout not killing the
 // process tree — see killCmdTree) AND it broke output capture: a detached child reopens its own

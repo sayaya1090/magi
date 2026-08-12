@@ -20,7 +20,18 @@ import (
 // own build/test commands — working. If bwrap is absent the command runs
 // unconfined and the policy-layer scan + permission prompt remain the guardrails.
 func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) {
-	if !spec.Confined() {
+	return SandboxWrap(spec, []string{"/bin/sh", "-c", command})
+}
+
+// SandboxWrap confines an arbitrary argv, not only a shell command.
+//
+// Exported because the bash tool is no longer the only thing this process starts on somebody
+// else's say-so: a hook is a shell command run on every tool event, and an MCP server is a program
+// the daemon keeps alive for its whole life. Both were spawned unconfined while bash beside them
+// was not, which is the kind of gap that comes from confining at the call site instead of at the
+// thing being confined.
+func SandboxWrap(spec port.SandboxSpec, cmdArgv []string) ([]string, bool) {
+	if !spec.Confined() || len(cmdArgv) == 0 {
 		return nil, false
 	}
 	bwrap, err := exec.LookPath("bwrap")
@@ -78,6 +89,6 @@ func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) {
 		argv = append(argv, "--unshare-net")
 	}
 
-	argv = append(argv, "/bin/sh", "-c", command)
+	argv = append(argv, cmdArgv...)
 	return argv, true
 }

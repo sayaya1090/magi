@@ -21,15 +21,25 @@ import (
 // routinely breaks the agent's own build/test commands. Containing the blast
 // radius (no out-of-tree writes, no exfiltration) is the goal here.
 func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) {
-	if !spec.Confined() {
+	return SandboxWrap(spec, []string{"/bin/sh", "-c", command})
+}
+
+// SandboxWrap confines an arbitrary argv, not only a shell command.
+//
+// Exported because the bash tool is no longer the only thing this process starts on somebody
+// else's say-so: a hook is a shell command run on every tool event, and an MCP server is a program
+// the daemon keeps alive for its whole life. Both were spawned unconfined while bash beside them
+// was not, which is the kind of gap that comes from confining at the call site instead of at the
+// thing being confined.
+func SandboxWrap(spec port.SandboxSpec, argv []string) ([]string, bool) {
+	if !spec.Confined() || len(argv) == 0 {
 		return nil, false
 	}
 	exe, err := exec.LookPath("sandbox-exec")
 	if err != nil {
 		return nil, false // not available → caller falls back to unconfined
 	}
-	profile := seatbeltProfile(spec)
-	return []string{exe, "-p", profile, "/bin/sh", "-c", command}, true
+	return append([]string{exe, "-p", seatbeltProfile(spec)}, argv...), true
 }
 
 func seatbeltProfile(spec port.SandboxSpec) string {

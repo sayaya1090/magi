@@ -7,6 +7,7 @@ import "github.com/sayaya1090/magi/internal/port"
 // sandboxArgv has no OS-level confinement on this platform. Commands run
 // unconfined; the policy layer's command scan + permission prompt remain the
 // active guardrails.
-func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) {
-	return nil, false
-}
+func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) { return nil, false }
+
+// SandboxWrap has nothing to wrap with here either; see sandboxArgv.
+func SandboxWrap(spec port.SandboxSpec, argv []string) ([]string, bool) { return nil, false }
