@@ -142,3 +142,26 @@ func realPath(p string) string {
 	}
 	return abs
 }
+
+// CompanionDir is where one companion's own settings live: its model, its posture, the tool
+// servers and jobs this operator gave it.
+//
+// # Why not in the workspace
+//
+// Those look like project settings and are not. `.magi/config.toml` is committed — it travels with
+// a clone, which is the point of it — so a model chosen on this laptop would arrive on somebody
+// else's, and a permission granted here would be proposed to the whole team in a diff. It is also
+// inside the agent's own reach: the file tools are jailed to the workspace, and that file is in
+// it, so an agent could edit the file that decides what it may do.
+//
+// # Why not in the global config either
+//
+// That is one file for the person, and a model is not a fact about the person. Persisting one
+// there is how a model chosen for one companion arrived on every other one at its next start —
+// measured, and the reason this exists.
+//
+// Keyed by the same string the socket is, so a companion answers on one door and reads settings
+// written for that same door.
+func CompanionDir(configDir, key string) string {
+	return filepath.Join(configDir, "companions", key)
+}

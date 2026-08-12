@@ -264,6 +264,8 @@ Even with no configuration, an "understand → plan → implement → verify →
 |---|---|
 | `deny`, and `permission`/`sandbox`/`profile` when they ask for MORE care than the machine gives (`sandbox = "read-only"` is kept; `permission = "allow"` is refused and said so) | `[[hooks]]` — shell commands on tool events · `[mcp.*]` — processes the daemon spawns, and the headers they send · `[cron.*]` — unattended prompts · `allow`, `allow_domains` · `[plugins.*]` · `base_url`, `experience_dir` · and `.magi/plugins/` |
 
+Settings are read in three layers, most specific last: the person's `<config>/config.toml`, the team's `<workspace>/.magi/config.toml`, then **this companion's own** `<config>/companions/<workspace-key>/config.toml` — its model, its posture, the servers and jobs you gave it here. The companion layer is where magi PERSISTS your choices (`/model`, and the permission modal's "keep for this companion"): they are decisions about one workspace on one machine, so they neither travel in a clone nor land on your other companions — and they sit outside the workspace, where the agent's own file tools cannot reach them.
+
 Trust is per directory and stated once: **`magi --trust`** in the workspace (`magi --untrust` undoes it; the list is `<config>/trusted-workspaces`). Until then, opening the repository prints what was held back. Answering a permission prompt with "always, in this project" also needs it — that answer writes into `.magi/config.toml`, which an untrusted workspace would not be read back from.
 
 Hook events:

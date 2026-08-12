@@ -14,6 +14,7 @@
   "action.edit": "Edit",
   "action.forget": "Forget",
   "action.interrupt": "Interrupt",
+  "action.keep": "Keep for this companion",
   "action.keep_running": "Leave it running",
   "action.move_and_send": "Move and send",
   "action.read": "Read",

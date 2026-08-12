@@ -405,6 +405,22 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "magi: cannot parse %s, ignoring project config: %v\n", filepath.Join(wd, ".magi", "config.toml"), perr)
 	}
 
+	// And last, this companion's own: the model it runs, the posture it was given, the servers and
+	// jobs somebody set up for THIS workspace on THIS machine.
+	//
+	// Last because it is the most specific of the three and the only one that is nobody else's: the
+	// global file is the person's, the project file is the team's, and this one is what the operator
+	// decided about this companion. It is taken as written — no clamp — for the same reason the
+	// global file is: it is theirs, and it is somewhere the agent cannot reach.
+	companionCfg := config.CompanionDir(plat.ConfigDir(), daemon.WorkspaceKey(wd))
+	if own, ounk, oerr := config.LoadWithUnknown(companionCfg); oerr == nil {
+		cfg = mergeProjectConfig(cfg, own)
+		warnUnknownConfigKeys(os.Stderr, "companions/…/config.toml", ounk)
+	} else {
+		fmt.Fprintf(os.Stderr, "magi: cannot parse %s, ignoring it: %v\n",
+			filepath.Join(companionCfg, "config.toml"), oerr)
+	}
+
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
 	// config > built-in default. The flag defaults already fold in env-or-builtin,
 	// so config only fills in when neither an explicit flag nor an env var is set.
@@ -896,16 +912,19 @@ func run() int {
 		ProfileModels:       profileModels(cfg.LLM.Profiles),
 		ProfileDefs:         profileDefs(cfg.LLM.Profiles),
 		NewProvider:         newProvider,
-		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		PermissionPersister: permPersister{
-			path: filepath.Join(wd, ".magi", "config.toml"), configDir: plat.ConfigDir()},
-		SubagentPrefs:     toSubagentPrefs(cfg.Subagents),
-		SubagentPersister: subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		Council:           councilPort,
-		CouncilRule:       corecouncil.Rule(cfg.Council.Rule),
-		CouncilMembers:    councilMembers(cfg.Council, cfg.LLM.Profiles),
-		TimeBudget:        *timeBudget,
-		Observer:          obs,
+		// This companion's file, not the person's. A model chosen here used to be written into the
+		// global config, so it arrived on every other companion at its next start.
+		RoutePersister: routePersister{path: filepath.Join(companionCfg, "config.toml")},
+		// Same file, for the same reason: "always, in this project" is a decision about this
+		// workspace made by this person, and it was being appended to a file the team commits.
+		PermissionPersister: permPersister{path: filepath.Join(companionCfg, "config.toml")},
+		SubagentPrefs:       toSubagentPrefs(cfg.Subagents),
+		SubagentPersister:   subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
+		Council:             councilPort,
+		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
+		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
+		TimeBudget:          *timeBudget,
+		Observer:            obs,
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers

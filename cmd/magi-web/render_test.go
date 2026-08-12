@@ -221,9 +221,12 @@ func TestABlockedAgentGetsTheButtonsThatAnswerIt(t *testing.T) {
 	for _, b := range card["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	// Three answers, and the middle one says what it does. "Always" read as a promise about every
-	// tool and every run; it grants THIS tool for THIS session and leaves the mode where it was.
-	if strings.Join(labels, "/") != "Allow/Stop asking for this tool/Deny" {
+	// Four answers, and the two in the middle say how long they last: one grants THIS tool for
+	// THIS session and leaves the mode where it was, the other writes it into this companion's own
+	// settings so a restart does not ask again. The terminal has had both for a long time; this
+	// console offered only the first, so the only way to stop being asked tomorrow was to go and
+	// find a terminal.
+	if strings.Join(labels, "/") != "Allow/Stop asking for this tool/Keep for this companion/Deny" {
 		t.Errorf("the answer buttons are %v", labels)
 	}
 	if n := card["inputs"].(float64); n != 0 {
@@ -429,7 +432,7 @@ console.log(JSON.stringify({
 	for _, b := range got["buttons"].([]any) {
 		labels = append(labels, b.(string))
 	}
-	if strings.Join(labels, "/") != "Allow/Stop asking for this tool/Deny" {
+	if strings.Join(labels, "/") != "Allow/Stop asking for this tool/Keep for this companion/Deny" {
 		t.Errorf("the answer buttons on the agent's page are %v", labels)
 	}
 	// One agent is waiting, so the tab says so — this page is often behind an app switcher — and it
@@ -4221,5 +4224,39 @@ console.log(JSON.stringify({
 	pres, _ := got["pres"].([]any)
 	if len(pres) != 2 || pres[0] != "go test ./..." || pres[1] != "ok  magi 1.2s" {
 		t.Errorf("the blocks changed: %v", pres)
+	}
+}
+
+// The console can grant a tool past the end of the session, which only the terminal could.
+//
+// The permission modal has had four answers in the terminal since it had any, and the web drew
+// three: the missing one is the only one that OUTLIVES the run, so somebody working from a browser
+// had to go and find a terminal to stop being asked the same thing tomorrow.
+func TestTheConsoleOffersTheAnswerThatSurvivesARestart(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"permission: bash: rm -rf build","askId":"c1","askKind":"permission","idle":2}]`, "", rowsHelper+`
+await loadFleet();
+const box = rows()[0].find('div').filter(d => String(d.className).includes('answer'))[0];
+const sent = [];
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  if (String(p).split('?')[0] === '/answer') { sent.push(String(o && o.body)); return {ok: true, text: async () => ''}; }
+  return base(p, o);
+};
+// The third button is the one that lasts; press it and see what travels.
+box.find('md-filled-tonal-button')[2].onclick({preventDefault(){}, stopPropagation(){}});
+for (let i = 0; i < 6; i++) await Promise.resolve();
+console.log(JSON.stringify({sent: sent}));`)
+
+	sent, _ := got["sent"].([]any)
+	if len(sent) != 1 {
+		t.Fatalf("pressing it sent %v", sent)
+	}
+	body, _ := sent[0].(string)
+	if !strings.Contains(body, "text=persist") {
+		t.Errorf("it sent %q; the decision that survives a restart is persist", body)
+	}
+	if !strings.Contains(body, "kind=permission") || !strings.Contains(body, "call=c1") {
+		t.Errorf("it did not answer the call it was drawn for: %q", body)
 	}
 }

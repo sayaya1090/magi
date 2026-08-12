@@ -14,6 +14,7 @@
   "action.edit": "수정",
   "action.forget": "잊기",
   "action.interrupt": "중단",
+  "action.keep": "이 컴패니언은 계속 허용",
   "action.keep_running": "그대로 두기",
   "action.move_and_send": "옮기고 보내기",
   "action.read": "내용",

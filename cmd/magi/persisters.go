@@ -5,7 +5,6 @@ package main
 // prompt adapter the plugin host uses. Pure wiring — moved out of main.go.
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,28 +21,19 @@ type promptFunc func(prompt.Spec) (map[string]any, error)
 //coverage:ignore func-to-interface adapter: it calls the function it wraps and nothing else
 func (f promptFunc) Ask(s prompt.Spec) (map[string]any, error) { return f(s) }
 
-// routePersister writes /route editor edits back to the global config.toml,
-// preserving its comments, so per-agent routing and the session model survive
-// restarts.
-// permPersister appends "always allow (project)" rules to the project config
-// (.magi/config.toml), which teams commit — so a trusted tool stays trusted for
-// everyone across sessions. The directory is created on first use.
-// permPersister writes a project allow rule when somebody answers a prompt with "always, in this
-// project". configDir is carried so it can tell whether that project's config will be read back —
-// see PersistAllow.
-type permPersister struct{ path, configDir string }
+// permPersister writes the allow rule behind "always, in this project".
+//
+// Into this COMPANION's own config, and no longer into the workspace's. The rule is one person's
+// decision about one workspace on one machine: appended to `.magi/config.toml` it dirtied the
+// user's git tree on every approval and offered a personal grant to the whole team in a diff —
+// and, since a project file is read back only from a workspace the operator has trusted, it was a
+// promise that could quietly expire.
+type permPersister struct{ path string }
 
 func (p permPersister) PersistAllow(rule string) error {
-	// An allow rule written into a workspace nobody has trusted is a rule the next run throws
-	// away: the merge takes an approval list only from a file the operator has vouched for. Saying
-	// so beats writing it — the modal offering this promises the choice survives a restart, and it
-	// would not.
-	if p.configDir != "" && !config.Trusted(p.configDir, filepath.Dir(filepath.Dir(p.path))) {
-		return fmt.Errorf("this workspace is not trusted, so an approval written into its config " +
-			"would be ignored on the next run — `magi --trust` here first, or answer `always` to " +
-			"grant it for this session")
-	}
-	if err := os.MkdirAll(filepath.Dir(p.path), 0o755); err != nil {
+	// 0700: this directory holds what one companion may do. It is beside the socket and the record
+	// under the config dir, which is already the person's own tree.
+	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
 		return err
 	}
 	return config.AppendListItem(p.path, "allow", rule)

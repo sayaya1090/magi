@@ -1293,8 +1293,13 @@ function answerBox(a, freeText) {
     // long: "그만 묻기" and "허용" are three characters and two, side by side, at speed.
     // `key`, not `label`: label() is the helper that writes a word without throwing away the mark
     // in front of it, and a loop variable of that name would shadow it exactly where it is needed.
+    // Four, since the terminal has always had four and this console offered three: `persist` is
+    // the one that OUTLIVES the session, and leaving it out meant the only way to stop being asked
+    // after a restart was to go and find a terminal. It writes into this companion's own settings
+    // — not the workspace, which is the team's — so the grant is "here, on this machine".
     for (const [key, decision, mark] of [['action.allow', 'allow', '#i-sl-check'],
                                          ['action.always', 'always', '#i-sl-bell-slash'],
+                                         ['action.keep', 'persist', '#i-sl-floppy-disk'],
                                          ['action.deny', 'deny', '#i-sl-ban']]) {
       // Filled tonal, not text. M3 ranks buttons by emphasis — filled, filled tonal, outlined, text
       // — and these three were at the BOTTOM of it while being the highest-stakes control on the

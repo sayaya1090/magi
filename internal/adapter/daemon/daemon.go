@@ -396,6 +396,17 @@ func (w *Waiting) Event(sid session.SessionID) (event.Event, error) {
 // config directory rather than the workspace so it never lands in a deliverable tree or a git
 // status. The name carries the base directory so `ls` is readable by a person looking for theirs.
 func SocketPath(configDir, workdir string) string {
+	return filepath.Join(configDir, "daemon-"+WorkspaceKey(workdir)+".sock")
+}
+
+// WorkspaceKey names a workspace in one short, stable string: its base directory, so `ls` is
+// readable by a person looking for theirs, and a hash of the whole path, so two checkouts of one
+// repo are two companions.
+//
+// One definition because there are two users now — the socket above, and the per-companion config
+// directory beside it — and a key spelled two ways would give one companion two identities: it
+// would answer on one socket and read settings written for another.
+func WorkspaceKey(workdir string) string {
 	abs, err := filepath.Abs(workdir)
 	if err != nil {
 		abs = workdir
@@ -407,7 +418,7 @@ func SocketPath(configDir, workdir string) string {
 	if real, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = real
 	}
-	return filepath.Join(configDir, "daemon-"+sanitize(filepath.Base(abs))+"-"+shortHash(abs)+".sock")
+	return sanitize(filepath.Base(abs)) + "-" + shortHash(abs)
 }
 
 // maxSocketPath is what the OS allows in a unix address: 104 bytes on macOS, 108 on Linux. Past it
