@@ -254,6 +254,20 @@ type ToolReader interface {
 	ReadOnlyTool(ctx context.Context, name string, args json.RawMessage) (string, error)
 }
 
+// ToolWriter is an engine that can change a file in its workspace on a person's behalf.
+//
+// Its own method and its own interface, deliberately separate from ToolReader: the reading door is
+// read-only and stays provably so, and a caller that has one has not got the other. What is behind
+// this writes to somebody's working tree, so it is worth being able to say, of the method name
+// alone, which kind of thing it is.
+//
+// The engine records the edit in the companion's log as the person's own words — see
+// App.WriteTool. That is the half that makes a console edit honest rather than a change the agent
+// discovers by finding its file different from the one in its context.
+type ToolWriter interface {
+	WriteTool(ctx context.Context, name string, args json.RawMessage) (string, error)
+}
+
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
 //
 // The distinction is the whole reason this crosses the socket. Everything else a viewer does
@@ -911,6 +925,27 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		// An edit, made where the workspace is, and written into the log as a person's own words.
+		if req.Method == "edit-file" {
+			writer, ok := eng.(ToolWriter)
+			switch {
+			case !ok:
+				resp = Response{Err: "this daemon cannot be asked to edit its workspace"}
+			case strings.TrimSpace(req.Name) == "":
+				resp = Response{Err: "no tool named"}
+			default:
+				out, werr := writer.WriteTool(ctx, req.Name, req.Args)
+				if werr != nil {
+					resp = Response{Err: werr.Error()}
+				} else {
+					resp = Response{OK: true, Out: out}
+				}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -1386,6 +1421,15 @@ func (c *Client) Shell(cmd string) (out string, exit int, err error) {
 // is how a console comes to show something the agent never saw.
 func (c *Client) ReadOnlyTool(name string, args json.RawMessage) (string, error) {
 	resp, err := c.exchange(Request{Method: "tool", Name: name, Args: args})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// WriteTool asks the companion to change one of its own files, and to write down that a person did.
+func (c *Client) WriteTool(name string, args json.RawMessage) (string, error) {
+	resp, err := c.exchange(Request{Method: "edit-file", Name: name, Args: args})
 	if err != nil {
 		return "", err
 	}

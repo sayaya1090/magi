@@ -316,3 +316,118 @@ func readOnlyList() string {
 	sort.Strings(names)
 	return strings.Join(names, ", ")
 }
+
+// WriteTool changes a file in the workspace on a person's behalf, and writes down that they did.
+//
+// # Why this is not ReadOnlyTool with a longer list
+//
+// Because of the second half. A console that could quietly put bytes in a workspace would be doing
+// the agent's work without the agent's log, its approval policy, or its account of why — and the
+// next turn would overwrite it, or build on it, with nothing anywhere saying a person had been in
+// there. Orca and Paseo answer this with a worktree per agent and git as the record; magi has one
+// workspace per companion and a log, so the log is where it goes.
+//
+// So the note is not decoration and not optional: it is appended as the PERSON's own words, in the
+// session the companion is running, before this returns. It shows up in the transcript, in the
+// interventions list, and — because a session log IS the context — in front of the model on its
+// next turn. Nothing is started by it: editing a file is not asking for work, and a console that
+// launched a turn because somebody saved would be a second surprise on top of the first.
+//
+// # What may be written
+//
+// Two tools, both of which take a path and confine it to the workspace exactly as the reading ones
+// do. Not bash: a shell is not a file edit, however easily it can perform one, and a door named
+// for editing that ran commands would be the sort of thing this tree keeps finding and closing.
+func (a *App) WriteTool(ctx context.Context, sid session.SessionID, workdir, name string,
+	args json.RawMessage) (string, error) {
+	if !writeTools[name] {
+		return "", fmt.Errorf("%q is not a tool this can run: only %s", name, writeList())
+	}
+	t, ok := a.tools.Get(name)
+	if !ok {
+		return "", fmt.Errorf("%q is not a tool this companion has", name)
+	}
+	res, err := t.Execute(ctx, args, port.ToolEnv{Workdir: workdir, SessionID: sid})
+	if err != nil {
+		return "", err
+	}
+	if res.IsError {
+		return "", fmt.Errorf("%s", toolText(res.Content))
+	}
+	if nerr := a.noteEdit(ctx, sid, name, args); nerr != nil {
+		// Said, not swallowed. The write happened; what failed is the part that makes it honest,
+		// and a caller that thinks both halves succeeded would report a clean save.
+		return toolText(res.Content), fmt.Errorf("the file was written and the note about it was not: %w", nerr)
+	}
+	return toolText(res.Content), nil
+}
+
+var writeTools = map[string]bool{"write": true, "edit": true}
+
+func writeList() string {
+	names := make([]string, 0, len(writeTools))
+	for n := range writeTools {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// noteEdit puts the person's edit into the companion's own log.
+//
+// A user prompt, because that is what the rest of this system already means by "a person said
+// something": the transcript draws it, Interventions counts it, and the next turn reads it. Not a
+// fact of its own type — a new type would have to be taught to every one of those readers, and the
+// three that matter would each learn it slightly differently.
+//
+// appendPrompt and not Submit: appending records, submitting also STARTS a turn.
+func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, args json.RawMessage) error {
+	var where struct {
+		Path string `json:"path"`
+	}
+	what := "a file in this workspace"
+	// The arguments were good enough for the tool to run on, so a failure here says the shape
+	// changed rather than that the caller was wrong — and the note is still worth writing with the
+	// vaguer subject. Named rather than discarded, because a silently dropped error is how this
+	// tree stops noticing that shape changed.
+	if uerr := json.Unmarshal(args, &where); uerr == nil && strings.TrimSpace(where.Path) != "" {
+		what = strings.TrimSpace(where.Path)
+	}
+	text := "I edited " + what + " from the console (" + tool + "). " +
+		"Read it again before you change it — what you have in context is what it was before."
+	// Written here rather than through appendPrompt, because the abandonment below has to NAME
+	// this prompt and appendPrompt keeps the id it minted to itself.
+	msgID := "m_" + newSortableID()
+	data, err := json.Marshal(event.PromptSubmittedData{
+		MessageID: msgID,
+		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
+	})
+	if err != nil {
+		return err
+	}
+	if aerr := a.appendFact(ctx, sid, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorUser}, data); aerr != nil {
+		return aerr
+	}
+	// A prompt nobody is going to answer has to say so, or it is an open turn.
+	//
+	// Everything that reads a log decides "is this companion mid-turn" from the last prompt with no
+	// finish after it — so a note appended while the companion was idle made the fleet row say
+	// Working, and a stopped one say Abandoned. Neither happened. TypePromptAbandoned is exactly
+	// this state and already exists for the cancelled-turn case: it closes the turn for every
+	// reader that asks, and reconstruct ignores it, so the text stays in the context the next turn
+	// is built from. Which is the whole point of writing it down.
+	//
+	// Only when nothing is running. Mid-turn, this IS an ordinary steer: the loop picks it up, the
+	// turn that answers it is the one already going, and marking it abandoned would tell the loop
+	// to skip what a person just said.
+	if _, running := a.Running(); running {
+		return nil
+	}
+	done, derr := json.Marshal(event.PromptAbandonedData{MsgID: msgID})
+	if derr != nil {
+		return derr
+	}
+	return a.appendFact(ctx, sid, event.TypePromptAbandoned,
+		event.Actor{Kind: event.ActorSystem, ID: "console-edit"}, done)
+}

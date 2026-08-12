@@ -55,6 +55,18 @@ func unfinishedTurn(evs []event.Event) (UnfinishedTurn, bool) {
 			last, open, steps = UnfinishedTurn{MessageID: d.MessageID, Text: promptText(d)}, true, 0
 		case event.TypeTurnFinished:
 			open = false
+		case event.TypePromptAbandoned:
+			// A prompt nobody is going to answer is not an open turn.
+			//
+			// The abandonment names the prompt, and only that one closes anything: an older
+			// cancellation says nothing about the request somebody made since. Two things write
+			// this — the interrupt path, where a person stopped the turn, and a note the console
+			// appends when it edits a file, which is a record rather than a request — and in both
+			// cases what is true afterwards is that nothing is running.
+			var d event.PromptAbandonedData
+			if json.Unmarshal(e.Data, &d) == nil && d.MsgID != "" && d.MsgID == last.MessageID {
+				open = false
+			}
 		case event.TypeError:
 			// An error the loop recorded is an ending: the turn stopped for a reason that is in the
 			// log, and the user saw it. Resuming that is re-running a failure, not rescuing work.

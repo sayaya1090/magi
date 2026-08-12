@@ -4972,16 +4972,94 @@ async function openFile(a, path) {
 // The file, as the agent's own read tool rendered it — line numbers and all. Not re-numbered here
 // and not stripped: a person and their companion pointing at different line 40s is the whole cost
 // of tidying this up.
+// Whether the file showing is being edited, and what it said when it was opened for editing — so
+// "cancel" can put back exactly what was there rather than re-fetching a file the agent may have
+// changed in the meantime.
+let editing = null;
+
 function drawFile(path, text) {
-  // The DIRECTORY above it, and not the whole path: the tab already carries the file's name, and
-  // repeating it costs a line of the pane to say what the reader just clicked — but where the file
-  // is is the half a basename throws away, and on a tree with four main.go in it that half is the
-  // whole answer. Nothing at all for a file in the root, which has no directory to name.
-  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+  // The WHOLE path, not just the directory. The tab carries the name so the reader can find the
+  // file among the open ones; this line is the one they copy into a message or a command, and half
+  // a path is not something anybody can paste. It is a bar of its own — a surface a step up, ruled
+  // off from the code under it — because a path over a file is a label and not the file's first
+  // line, which is what an unruled one read as.
+  const bar = cell('filebar');
+  bar.append(cell('filedir', path));
+  // Editing is offered only to somebody who may — the server refuses regardless, and a button that
+  // answers 403 is one people learn not to press. `shell` is the gate: anybody who can run a
+  // command in that workspace can already write any file in it.
+  if (may('shell') && editing !== path) {
+    const go = withMark(document.createElement('md-text-button'), '#i-sl-pen-to-square');
+    label(go, tr('action.edit'));
+    go.onclick = () => { editing = path; drawFile(path, text); };
+    bar.append(go);
+  }
+  if (editing === path) {
+    fileViewEl.replaceChildren(bar, editor(path, text));
+    showCard();
+    return;
+  }
   const box = cell('filebody');
   box.append(...codeBlocks(text, path));
-  fileViewEl.replaceChildren(...(dir ? [cell('filedir', dir)] : []), box);
+  fileViewEl.replaceChildren(bar, box);
   showCard();
+}
+
+// The editor: the file as it is, and two buttons.
+//
+// Plain text, no line numbers, no highlighting — what is being changed has to be exactly what gets
+// sent, and a gutter woven into the text is the thing this pane already had to take apart to make
+// a drag copy the code. The numbers come back the moment it is saved and read again.
+//
+// The text sent is the WHOLE file. An edit expressed as "replace this string" needs the console and
+// the file to agree about what is in it right now, and between opening this and pressing save the
+// agent may have written it twice — which is also why saving re-reads afterwards rather than
+// assuming what is on disk is what was typed.
+function editor(path, text) {
+  const box = cell('fileedit');
+  // The library's field with type=textarea, not a bare one: a bare textarea inherits the body's
+  // 14px, and iOS Safari zooms the whole page in on a field under 16 and does not zoom back. This
+  // page has a guard that fails the build over exactly that.
+  const area = document.createElement('md-outlined-text-field');
+  area.setAttribute('type', 'textarea');
+  area.setAttribute('rows', '20');
+  area.setAttribute('spellcheck', 'false');
+  area.className = 'fileeditarea';
+  area.value = plainText(text);
+  const row = cell('fileeditrow');
+  const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-floppy-disk'),
+                     tr('action.save'));
+  save.onclick = async () => {
+    save.disabled = true;
+    const why = await post('/save' + qFor(lastDrawnFor || {socket: ''}),
+                           new URLSearchParams({path: path, text: area.value}),
+                           (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
+    save.disabled = false;
+    if (why) return;                        // post() has already said what went wrong
+    editing = null;
+    // Read back rather than drawn from what was typed: the file on disk is the fact, the tool may
+    // have written it differently (a missing final newline), and the companion has just been told
+    // in its own log that this happened.
+    openFile(lastDrawnFor, path);
+  };
+  const stop = withMark(document.createElement('md-text-button'), '#i-sl-xmark');
+  label(stop, tr('action.cancel'));
+  stop.onclick = () => { editing = null; drawFile(path, text); };
+  row.append(save, stop);
+  box.append(area, row);
+  return box;
+}
+
+// plainText strips the read tool's gutter, because what is edited has to be what is sent.
+//
+// The same split codeBlocks makes, in the other direction: a numbered line is digits, a tab, the
+// line. A line that is not numbered is passed through as it is — the tool cuts a long file off
+// with a sentence of its own, and mangling that would hide it.
+function plainText(text) {
+  return String(text).split('\n').map(line => {
+    const tab = line.indexOf('\t');
+    return tab > 0 && /^\s*\d+$/.test(line.slice(0, tab)) ? line.slice(tab + 1) : line;
+  }).join('\n');
 }
 
 // codeBlocks splits the tool's output into two columns: the line numbers, and the file.
@@ -5822,6 +5900,7 @@ function clearCompanionView() {
   lastDrawnFor = null;
   openFiles = [];
   cardShows = 'facts';
+  editing = null;
   openDirs.clear();
   findQ = '';
   filesEl.replaceChildren();

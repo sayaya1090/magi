@@ -96,6 +96,56 @@ func (s *server) file(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "file", map[string]string{"path": path, "text": out})
 }
 
+// save writes a file in the workspace, through the companion, and only for somebody who may.
+//
+// # Why this exists at all, when the reading side argued against writing
+//
+// It argued against writing WITHOUT A RECORD. A console that quietly put bytes into a workspace
+// would be doing the agent's work with none of the agent's account of it: the next turn would
+// overwrite the change or build on it, and nothing anywhere would say a person had been in there.
+// The companion writes the edit into its own log as the person's own words before this answers, so
+// the change is in the transcript, in the interventions list, and in front of the model on its
+// next turn. That is what makes it an edit rather than a surprise.
+//
+// # Why `shell` and not a capability of its own
+//
+// Because a new capability here would be a smaller power with a bigger name. Anybody with `shell`
+// can already write any file in that workspace — `echo … > file` is one command — so putting this
+// behind the same gate widens nothing, while inventing `edit` would leave two capabilities that
+// permit the same act and a roles file where granting one and refusing the other means nothing.
+func (s *server) save(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	path := strings.TrimSpace(r.FormValue("path"))
+	text := r.FormValue("text")
+	if path == "" {
+		http.Error(w, "which file", http.StatusBadRequest)
+		return
+	}
+	// The whole file, not a patch. An edit that arrives as "replace this string" needs the console
+	// and the file to agree about what is in it right now, and between a read and a save the agent
+	// may have written it twice.
+	args, err := json.Marshal(map[string]string{"path": path, "content": text})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		text, terr := cl.WriteTool("write", args)
+		out = text
+		return terr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadRequest)
+		return
+	}
+	writeText(w, out)
+}
+
 // askCompanion runs one read-only tool on the companion this request names.
 func (s *server) askCompanion(r *http.Request, tool string, args json.RawMessage) (string, error) {
 	var out string

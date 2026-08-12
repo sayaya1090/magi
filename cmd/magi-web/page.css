@@ -334,6 +334,13 @@
        fleet is a table and a table uses room, while prose inside it keeps --magi-sys-measure. Capped rather
        than unbounded so an ultrawide monitor does not stretch a row to a metre. */
     --magi-sys-page: 170ch;
+    /* And what a companion's page may take, which is a different question since it grew two panes.
+       170ch caps the middle at a comfortable measure on a list; with 18rem of files on one side and
+       22rem of state on the other it caps the CONVERSATION at something narrow while the monitor
+       has room to spare — the reader ends up with two panes squeezing a column in the middle and
+       wide empty margins either side of the whole thing. A companion's page is allowed the wider
+       bound, and the transcript inside it keeps its own measure regardless. */
+    --magi-sys-page-wide: 230ch;
   }
 
   * { box-sizing:border-box; }
@@ -905,6 +912,11 @@
     padding:var(--magi-sys-space-300) var(--magi-sys-space-500) calc(var(--dock, var(--magi-sys-space-1600)) + var(--magi-sys-space-400));
     max-width:var(--magi-sys-page); margin-inline:auto;
   }
+  /* The panes get the room the margins were holding. Only on a companion's page and only where
+     there is room for both — below that the panes are not beside the conversation anyway. */
+  @media (min-width:100em) {
+    body[at="agent"] main { max-width:var(--magi-sys-page-wide); }
+  }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
   /* Wrapping, because these are sentences and there are three of them now: at 390px the three
@@ -1357,11 +1369,34 @@
   .treerow .treemark.open { transform:rotate(90deg); }
 
   /* The file in the slot the facts card shares. */
-  /* Where the file is. The tab says which one; this says which of the four called main.go it is.
-     Quiet and small — it is context for the tab, not a heading over the pane. */
+  /* The bar over the file: where it is, and the way into editing it. */
+  .filebar { margin-bottom:var(--magi-sys-space-150); display:flex; align-items:center; gap:var(--magi-sys-space-150); flex-wrap:wrap; }
+  .filebar .filedir { flex:1 1 auto; min-width:0; }
+  /* The editor. Monospace at the code's own size, so a line wraps where it wraps in the file, and
+     tall enough to work in without being the whole page. */
+  .fileedit { display:grid; gap:var(--magi-sys-space-150); }
+  /* The component draws the box, the outline, the focus ring and the label; what is said from here
+     is the face and the size. Mono because it is code, and 16px because anything smaller makes iOS
+     Safari zoom the page in on focus and never zoom back — the same floor every other field on this
+     page keeps. */
+  .fileeditarea {
+    width:100%;
+    --md-outlined-text-field-input-text-font:var(--magi-ref-mono);
+    --md-outlined-text-field-input-text-size:16px;
+    --md-outlined-text-field-input-text-line-height:1.6;
+  }
+  .fileeditrow { display:flex; gap:var(--magi-sys-space-150); justify-content:flex-end; }
+
+  /* The path, whole, in a bar of its own. Whole because this is the line somebody copies into a
+     message or a command and half a path pastes as nothing; a bar because a path sitting directly
+     over the code read as the file's first line. A surface one step up and a rule under it, which
+     is how this page separates two layers everywhere else. */
   .filedir {
     font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted);
-    overflow-wrap:anywhere; padding-bottom:var(--magi-sys-space-100);
+    overflow-wrap:anywhere; user-select:all;
+    padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
+    background:var(--magi-ref-surface-container); border-radius:var(--magi-sys-shape-small);
+    border:1px solid var(--magi-ref-outlineVariant);
   }
   /* The parts of a file that are not code. Three marks and a gutter — see paintCode(): this is a
      scan, not a parser, and it colours only what cannot be got wrong in a way that misleads.
@@ -1648,6 +1683,21 @@
      spaces its children; the child does not space itself. */
   md-outlined-card { padding:var(--magi-sys-space-200) var(--magi-sys-space-200); }
   #detail { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
+  /* An open file stays at the top of the conversation while the conversation scrolls under it.
+     It is being read ALONGSIDE the transcript — that is the whole reason it is on this page and
+     not a screen of its own — and a file that scrolls away the moment somebody reads three
+     messages is one they have to go and find again. The card has its own scroll inside it, so
+     what is stuck is a bounded box and never the whole file.
+     Only where the panes are beside the conversation: stacked, the page is one column and a
+     sticky block in the middle of it would sit on top of the messages. */
+  @media (min-width:52.5em) {
+    #fileview {
+      position:sticky; top:5.5rem; z-index:1;
+      max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
+      overflow:auto; overscroll-behavior:contain;
+      background:var(--magi-ref-surface-container-low);
+    }
+  }
   #detail .grid {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
        step count. 14rem is the width of the longest SHORT field (the context reading), so the long

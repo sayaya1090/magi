@@ -2442,6 +2442,15 @@ func (d daemonEngine) ReadOnlyTool(ctx context.Context, name string, args json.R
 	return d.App.ReadOnlyTool(rctx, d.workdir, name, args)
 }
 
+// WriteTool is the console's way to change a file here, with the record that makes it honest —
+// see app.WriteTool and daemon.ToolWriter. The session is the one this companion is running: the
+// note goes into ITS log, which is the context the next turn is built from.
+func (d daemonEngine) WriteTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return d.App.WriteTool(rctx, d.handover.at.now(), d.workdir, name, args)
+}
+
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
 	// command that will not finish, so an unbounded one would hold a daemon goroutine for as long

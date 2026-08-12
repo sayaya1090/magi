@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 )
 
 // The console reads a workspace through the companion's own tools, and only the ones that look.
@@ -74,5 +77,73 @@ func TestOnlyToolsThatLookCanBeRunOutsideATurn(t *testing.T) {
 	if _, err := a.ReadOnlyTool(context.Background(), wd, "read",
 		json.RawMessage(`{"path":"../../../etc/passwd"}`)); err == nil {
 		t.Error("a path outside the workspace was read")
+	}
+}
+
+// An edit made from a console is written into the companion's log as the person's own words.
+//
+// This is the condition the whole write path exists under. Without it the next turn overwrites the
+// change or builds on it, and nothing anywhere says a person was in there — the agent's context
+// still holds the file as it was. Orca and Paseo answer the same problem with a worktree per agent
+// and git as the record; magi has one workspace per companion and a log, so the log is where it
+// goes.
+func TestAConsoleEditIsRecordedInTheCompanionsOwnLog(t *testing.T) {
+	wd := t.TempDir()
+	dir := t.TempDir()
+	st, serr := jsonl.New(dir)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	a := New(st, nil, builtin.Default(), bus.New(), nil, Config{})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.WriteTool(context.Background(), sid, wd, "write",
+		json.RawMessage(`{"path":"note.txt","content":"a person wrote this\n"}`)); err != nil {
+		t.Fatalf("saving: %v", err)
+	}
+	if b, rerr := os.ReadFile(filepath.Join(wd, "note.txt")); rerr != nil || !strings.Contains(string(b), "a person") {
+		t.Fatalf("the file is %q (%v)", string(b), rerr)
+	}
+
+	// The record: the person's own words in that session's log, which is the transcript a reader
+	// scrolls and the context the next turn is built from.
+	evs, rerr := st.Read(context.Background(), sid, 0)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	var said string
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			said += string(e.Data)
+		}
+	}
+	if !strings.Contains(said, "note.txt") {
+		t.Errorf("the companion was not told which file a person changed: %q", said)
+	}
+
+	// And the note is not an open turn. Everything that reads a log decides "is this one mid-turn"
+	// from the last prompt with no finish after it — so without saying otherwise, saving a file
+	// made the fleet row read as Working while nothing at all was running.
+	if _, open := a.UnfinishedTurnOf(context.Background(), sid); open {
+		t.Error("saving a file left the companion looking mid-turn")
+	}
+
+	// And nothing was started by it. Saving a file is not asking for work, and a console that
+	// launched a turn because somebody pressed save would be a second surprise on top of the first.
+	if _, running := a.Running(); running {
+		t.Error("saving a file started a turn")
+	}
+
+	// The write door is not the read door: bash is refused here too, and a tool that only looks is
+	// not what this one is for.
+	if _, err := a.WriteTool(context.Background(), sid, wd, "bash",
+		json.RawMessage(`{"command":"touch through-the-edit-door"}`)); err == nil {
+		t.Error("bash ran through the editing door")
+	}
+	if _, err := os.Stat(filepath.Join(wd, "through-the-edit-door")); err == nil {
+		t.Fatal("bash RAN through the editing door")
 	}
 }

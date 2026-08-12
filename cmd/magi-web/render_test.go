@@ -4675,6 +4675,8 @@ console.log(JSON.stringify({
                      .map(p => p.text).join(''),
   gutter: byId.fileview.find('pre').filter(p => String(p.className).includes('filegutter'))
                        .map(p => p.textContent).join(''),
+  // The whole path, in its own bar: this is the line somebody copies, and half of one pastes as
+  // nothing.
   dir: byId.fileview.find('div').filter(d => String(d.className).includes('filedir'))
                     .map(d => d.textContent).join(''),
   fileHidden: !!byId.fileview.hidden,
@@ -4719,5 +4721,8 @@ console.log(JSON.stringify({
 	}
 	if got["afterPoll"] != true {
 		t.Error("the poll put the facts card back over the file somebody is reading")
+	}
+	if got["dir"] != "README.md" {
+		t.Errorf("the path bar says %q", got["dir"])
 	}
 }
