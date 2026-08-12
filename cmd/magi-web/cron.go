@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/config"
+	"github.com/sayaya1090/magi/internal/core/auth"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -130,6 +131,17 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 	if in.Workdir == "" {
 		http.Error(w, "that companion published no workspace, so there is no project config to write",
 			http.StatusBadRequest)
+		return
+	}
+	// A schedule is prompting, later. The route is `configure` because a job is configuration and
+	// lives in a config file, and that is exactly how it would become the way around `prompt`: a
+	// role written as "may set the model and the servers, may not give the companion work" would
+	// hand somebody a form that gives it work every morning at nine. So both are asked for, and
+	// the second one is asked HERE — after the companion is known, so the answer is about the
+	// companion this job will actually run in.
+	if who := s.whoFrom(r); !s.policy.Allows(who, auth.Prompt, nameOfSocket(r.URL.Query().Get("d")), "") {
+		http.Error(w, refusal(who, auth.Prompt)+" — a scheduled job is a prompt with a clock on it",
+			http.StatusForbidden)
 		return
 	}
 	path := filepath.Join(in.Workdir, ".magi", "config.toml")

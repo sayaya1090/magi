@@ -507,3 +507,58 @@ companions = ["docs"]
 			len(servers), len(rules))
 	}
 }
+
+// A schedule is a prompt with a clock on it.
+//
+// /cron is `configure` because a job is configuration and lives in a config file — and that is
+// exactly what would make it the way around `prompt`. A role written as "may set the model and the
+// servers, may not give the companion work" hands somebody a form that gives it work every morning
+// at nine, and the audit line says configure.
+func TestASchedulerCannotPromptForSomebodyWhoMayNot(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := namedWorkdir(t, "docs")
+	sock := f.daemonAt(wd, "docs", true)
+	f.session("docs", wd, "the docs work", 1, true)
+
+	f.srv.userHeader = "X-Forwarded-User"
+	p, err := config.LoadAuth(policyDir(t, `
+[roles.tuner]
+can = ["read", "configure"]
+
+[people."kim@corp.com"]
+role = "operator"
+
+[people."pat@corp.com"]
+role = "tuner"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	post := func(who, job string) *httptest.ResponseRecorder {
+		body := url.Values{"name": {job}, "schedule": {"@daily"}, "prompt": {"audit yesterday"}}
+		r := httptest.NewRequest(http.MethodPost, "/cron?d="+url.QueryEscape(sock),
+			strings.NewReader(body.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("X-Forwarded-User", who)
+		w := httptest.NewRecorder()
+		f.srv.cron(w, r)
+		return w
+	}
+	if w := post("pat@corp.com", "nightly"); w.Code != http.StatusForbidden {
+		t.Errorf("somebody who may configure but not prompt scheduled a prompt (%d): %s",
+			w.Code, w.Body.String())
+	}
+	if w := post("kim@corp.com", "nightly"); w.Code != http.StatusOK {
+		t.Errorf("an operator could not write a job (%d): %s", w.Code, w.Body.String())
+	}
+	// And configure still buys what it says it does: the list is a read.
+	r := httptest.NewRequest(http.MethodGet, "/cron?d="+url.QueryEscape(sock), nil)
+	r.Header.Set("X-Forwarded-User", "pat@corp.com")
+	w := httptest.NewRecorder()
+	f.srv.cron(w, r)
+	if w.Code != http.StatusOK {
+		t.Errorf("the tuner cannot even read the schedule (%d): %s", w.Code, w.Body.String())
+	}
+}
