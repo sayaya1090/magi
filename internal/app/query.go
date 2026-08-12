@@ -303,10 +303,10 @@ func toolText(raw json.RawMessage) string {
 
 // readOnlyTools is the whole of what may be run this way.
 //
-// Four, and each one only looks: what is in this directory, what matches this pattern, what is in
-// this file, where does this text appear. Nothing here writes, runs, spawns, or asks a person
-// anything.
-var readOnlyTools = map[string]bool{"ls": true, "glob": true, "read": true, "grep": true}
+// Four, and each one only looks: what is in this directory (list), what matches this pattern
+// (glob), what is in this file (read), where does this text appear (grep). Nothing here writes,
+// runs, spawns, or asks a person anything.
+var readOnlyTools = map[string]bool{"list": true, "glob": true, "read": true, "grep": true}
 
 func readOnlyList() string {
 	names := make([]string, 0, len(readOnlyTools))

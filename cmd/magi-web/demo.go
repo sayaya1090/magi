@@ -270,6 +270,22 @@ const demoScript = `
        command: 'npx', args: ['-y', 'figma-mcp'], envNames: ['FIGMA_TOKEN'],
        file: '/Users/you/work/design-system/.magi/config.toml'},
     ],
+    // The workspace, as the companion's own read-only tools answer it: a directory listing, and a
+    // file rendered the way the agent sees it — line-numbered, because a person and their
+    // companion pointing at different line 40s is what tidying that up would cost.
+    '/files': [
+      {name: 'cmd', isDir: true}, {name: 'internal', isDir: true}, {name: 'docs', isDir: true},
+      {name: 'README.md', isDir: false}, {name: 'go.mod', isDir: false},
+    ],
+    '/file': {path: 'README.md', text:
+      '     1\tmagi\n' +
+      '     2\t====\n' +
+      '     3\t\n' +
+      '     4\tA companion is a workspace with an agent living in it.\n' +
+      '     5\t\n' +
+      '     6\tThe console reads this file through the companion rather than opening it: the\n' +
+      '     7\tdaemon already confines every path to the workspace, and this page is often on\n' +
+      '     8\tanother machine entirely.\n'},
     '/context': {model: 'qwen3-coder-next', window: 128000, used: 104300, estimated: false,
       messages: 61, compactions: 2, shed: 39000, lastBefore: 48000, lastAfter: 9000,
       lastAt: now, topics: ['internal/adapter/fleet/fleet.go', 'cmd/magi-web/page.go', 'discussion']},

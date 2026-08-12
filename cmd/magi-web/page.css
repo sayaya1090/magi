@@ -279,6 +279,10 @@
        sits in, and the pane itself — which is pinned to it so a narrowing track clips the pane
        instead of reflowing its text. */
     --magi-comp-side-w:22rem;
+    /* The file pane's, for the same reason and narrower: a tree is names, not prose, and the
+       column it sits in is taken from the conversation. 18rem holds about forty characters of a
+       path before it has to ellipse, which is a filename and its parent. */
+    --magi-comp-files-w:18rem;
     --magi-sys-dur-short2:100ms; --magi-sys-dur-short4:200ms; --magi-sys-dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -1305,6 +1309,62 @@
   .argv { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
   .argv.tall { grid-column:1 / -1; }
 
+  /* ── the workspace, beside the conversation ────────────────────────────────
+     A tree of names and one file at a time. Nothing here is an editor: the console reads through
+     the companion's own tools and has no route that writes, so there is no caret, no dirty state
+     and no save. */
+  .fileshead {
+    font:600 var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono);
+    color:var(--magi-ref-muted); overflow-wrap:anywhere;
+    padding-bottom:var(--magi-sys-space-100); border-bottom:1px solid var(--magi-ref-outlineVariant);
+  }
+  .filesnote {
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-muted);
+  }
+  /* A row is a button, because it does something when pressed — and buttons here carry .state,
+     which brings the layer and the 48dp floor every other hand-built control on this page has. */
+  .treerow {
+    display:flex; align-items:center; gap:var(--magi-sys-space-100);
+    width:100%; border:0; background:none; color:var(--magi-ref-fg); text-align:left;
+    font:var(--md-sys-typescale-body-medium-size)/1.7 var(--magi-ref-mono);
+    border-radius:var(--magi-sys-shape-small); cursor:pointer; padding-right:var(--magi-sys-space-100);
+  }
+  .treerow .treename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .treerow.dir .treename { color:var(--magi-ref-fg); font-weight:600; }
+  .treerow:not(.dir) .treename { color:var(--magi-ref-muted); }
+  /* The one whose tab is showing. Marked on the row as well as on the tab: the two are the same
+     fact seen from the tree and from the slot, and a reader scrolling the tree should be able to
+     find where they are without looking up. */
+  .treerow.now .treename { color:var(--magi-ref-primary); font-weight:600; }
+  .treerow .treemark { flex:none; color:var(--magi-ref-muted); }
+  /* The chevron turns rather than being exchanged for a second glyph: one shape, one meaning, and
+     the movement is what says which way it went. */
+  .treerow .treemark { transition:transform var(--magi-sys-dur-short2) var(--magi-sys-ease-standard); }
+  .treerow .treemark.open { transform:rotate(90deg); }
+
+  /* The file in the slot the facts card shares. */
+  .filetop {
+    display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap;
+    padding-bottom:var(--magi-sys-space-150);
+  }
+  .filepath {
+    font:600 var(--md-sys-typescale-label-large-size)/1.4 var(--magi-ref-mono);
+    color:var(--magi-ref-muted); overflow-wrap:anywhere; min-width:0;
+  }
+  /* Line numbers come from the tool, so the body is one preformatted block and the numbers are
+     part of the text. Scrolled in both directions inside its own box: a long line in a source file
+     is not something to reflow, and the page must not scroll sideways because of it. */
+  .filebody {
+    margin:0; max-height:min(60vh, 34rem); overflow:auto; overscroll-behavior:contain;
+    font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono);
+    color:var(--magi-ref-fg); white-space:pre; tab-size:4;
+  }
+  /* The close mark. Not faded — a muted role at .7 measures 3.99:1 in the light theme and this
+     page's guard refuses that — so it is the muted colour at full strength and takes the text
+     colour when the pointer is on it. */
+  #cardtabs .tabclose { margin-left:var(--magi-sys-space-100); color:var(--magi-ref-muted); }
+  #cardtabs .tabclose:hover { color:var(--magi-ref-fg); }
+
   /* ── how the fleet is laid out ─────────────────────────────────────────────
      Boxes for instances, nodes for companions, and curves for what is crossing between them. The
      boxes are ordinary flow content — a grid that wraps — and the wires are an SVG laid over the
@@ -1647,7 +1707,7 @@
   }
   @media (min-width:52.5em) {
     #agentview {
-      grid-template-columns:minmax(0, 1fr) var(--magi-comp-side-w); align-items:start;
+      grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) var(--magi-comp-side-w); align-items:start;
       /* The pane opens and closes rather than appearing and vanishing. Both tracks are lengths so
          the change interpolates — with auto on the shut side there is nothing to interpolate to,
          which is why this was a jump. */
@@ -1695,7 +1755,26 @@
        the conversation cannot have the width back. */
     /* Shut, the second column is only as wide as the handle. */
     /* 2.5rem is the handle: the column shrinks to exactly the control that reopens it. */
-    body[side="shut"] #agentview { grid-template-columns:minmax(0, 1fr) 2.5rem; }
+    body[side="shut"] #agentview { grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) 2.5rem; }
+    body[files="shut"] #agentview { grid-template-columns:2.5rem minmax(0, 1fr) var(--magi-comp-side-w); }
+    body[files="shut"][side="shut"] #agentview { grid-template-columns:2.5rem minmax(0, 1fr) 2.5rem; }
+    /* The same column the state pane is, mirrored: sticky, bounded, and it clips rather than
+       reflows while it moves. */
+    #filecol {
+      position:sticky; top:5.5rem;
+      max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
+      overflow:hidden;
+    }
+    #files {
+      flex:1 1 auto; min-height:0; width:var(--magi-comp-files-w); box-sizing:border-box;
+      overflow:hidden auto; overscroll-behavior:contain;
+      transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard), visibility 0s;
+    }
+    body[files="shut"] #files {
+      opacity:0; visibility:hidden;
+      transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard),
+                 visibility 0s var(--magi-sys-dur-medium2);
+    }
     /* Clipped by the column as it narrows, and faded out on the way. Not display:none: a box that
        stops existing cannot be animated, and the pane would vanish a fifth of a second before the
        space it occupied closed. Hidden at the END, so nothing inside it is tabbable once it is
@@ -1814,7 +1893,7 @@
   @media (prefers-reduced-motion:reduce) { #strip .job .jdot { animation:none; opacity:.8; } }
 
   #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
-  #stream, #side, #sidecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
+  #stream, #side, #sidecol, #files, #filecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
   #side #plan, #side #handoffs { max-width:none; }
 
   /* ── one level in: a verdict, or a child ─────────────────────────────────── */
@@ -2750,6 +2829,11 @@
        all. The preferences it used to carry are in the dialog now. */
     #rail { display:none; }
     .prefrow.narrowonly { display:flex; }
+    /* Two side panes do not fit beside a conversation on a phone, and stacking three columns is
+       three screens of scrolling to reach the transcript. The file pane goes under it, opened by
+       the same handle — which is why the handle is not hidden here. */
+    #agentview { grid-template-columns:minmax(0, 1fr); }
+    #filecol { position:static; max-height:none; order:2; }
     /* The aside is four cards of context under a conversation, which is a long way to scroll for
        something you glance at. Tighter, so the transcript keeps the screen. */
     #side { gap:var(--magi-sys-space-150); }

@@ -4606,3 +4606,92 @@ console.log(JSON.stringify({
 		t.Errorf("the teams are not shown where their companions are: %s", teams)
 	}
 }
+
+// The workspace beside the conversation, read through the companion.
+//
+// A companion is bound to a directory and the console could say the path and nothing about what is
+// in it. The tree is on the leading side, opposite the state pane — two panes, because a console
+// with one makes somebody choose between seeing the files and seeing what the agent is doing — and
+// an opened file shares the slot the facts card is in, behind a tab, because stacking them would
+// push the transcript off the screen.
+func TestAFileOpensIntoTheSlotTheFactsCardShares(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+const row = {socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api', session: 's1',
+             live: true, idle: 2};
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  // The fleet answers with this companion: the poll runs while the test does, and a poll that
+  // finds nothing clears the card this is about.
+  if (path === '/fleet') return {ok: true, json: async () => ([row])};
+  if (path === '/files') {
+    const at = new URLSearchParams(String(p).split('?')[1] || '').get('path');
+    if (at === 'cmd') return {ok: true, json: async () => ([{name: 'magi', isDir: true},
+                                                            {name: 'main.go', isDir: false}])};
+    return {ok: true, json: async () => ([{name: 'cmd', isDir: true},
+                                          {name: 'README.md', isDir: false}])};
+  }
+  if (path === '/file') return {ok: true, json: async () =>
+    ({path: 'README.md', text: '     1\tmagi\n     2\t====\n'})};
+  return {ok: true, json: async () => ([])};
+};
+const a = row;
+await loadTree(a);
+for (let i = 0; i < 10; i++) await Promise.resolve();
+const rows = () => byId.files.find('button').filter(b => String(b.className).includes('treerow'));
+const names = () => rows().map(b => b.find('div').map(d => d.textContent).join(''));
+const before = names();
+// A directory opens under itself rather than replacing the tree.
+rows().find(b => b.find('div').some(d => d.textContent === 'cmd')).onclick();
+for (let i = 0; i < 10; i++) await Promise.resolve();
+const expanded = names();
+// The facts card is drawn just before, because the thing under test is what happens to it when a
+// file arrives — with an empty card, "hidden" would be true for its own reason and the check would
+// pass with the sharing removed.
+await drawDetail(a);
+// A file opens into the slot, behind a tab, and the facts card stands aside for it.
+rows().find(b => b.find('div').some(d => d.textContent === 'README.md')).onclick();
+for (let i = 0; i < 10; i++) await Promise.resolve();
+console.log(JSON.stringify({
+  before: before,
+  expanded: expanded,
+  tabs: byId.cardtabs.children.map(t => t.textContent || (t.find('div')[0] || {}).textContent || ''),
+  tabsHidden: !!byId.cardtabs.hidden,
+  file: byId.fileview.find('pre').map(p => p.textContent).join(''),
+  fileHidden: !!byId.fileview.hidden,
+  factsHidden: !!byId.detail.hidden,
+  factsKids: byId.detail.children.length,
+}));
+`)
+	before, _ := got["before"].([]any)
+	if len(before) != 2 {
+		t.Fatalf("the workspace root drew %v", before)
+	}
+	expanded, _ := got["expanded"].([]any)
+	if len(expanded) != 4 {
+		t.Errorf("opening a directory drew %v — its entries belong under it, not instead of it", expanded)
+	}
+	if got["tabsHidden"] == true {
+		t.Error("a file is open and nothing says which of the two the slot is showing")
+	}
+	if !strings.Contains(fmt.Sprint(got["tabs"]), "README.md") {
+		t.Errorf("the tabs are %v", got["tabs"])
+	}
+	// Line numbers as the tool wrote them: a person and their companion have to be able to point
+	// at the same line 40.
+	if f, _ := got["file"].(string); !strings.Contains(f, "1\tmagi") {
+		t.Errorf("the file is drawn as %q", f)
+	}
+	if got["fileHidden"] == true {
+		t.Error("the file was fetched and not shown")
+	}
+	// The card has to have been drawn for this to mean anything: an empty one is hidden for its own
+	// reason, and a test that could not tell the two apart would pass with the sharing removed.
+	if n, _ := got["factsKids"].(float64); n == 0 {
+		t.Fatal("the facts card was never drawn, so nothing here is testing that it stands aside")
+	}
+	if got["factsHidden"] != true {
+		t.Error("the facts card and the file are both in the slot at once")
+	}
+}

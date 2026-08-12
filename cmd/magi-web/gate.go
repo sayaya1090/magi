@@ -87,6 +87,11 @@ var openToRead = map[string]bool{
 	"/fleet": true, "/events": true, "/transcript": true, "/history": true, "/search": true,
 	"/context": true, "/plan": true, "/handoffs": true, "/subagents": true, "/jobs": true,
 	"/interventions": true, "/council": true, "/loop": true, "/tools": true, "/console": true,
+	// The workspace, through the companion's own read-only tools. `read`, and not more: everything
+	// a transcript already shows a reader includes the files the agent read and wrote, so a
+	// capability that grants the transcript and refuses the tree would be drawing a line the
+	// content does not respect. Writing has no route at all — see files.go.
+	"/files": true, "/file": true,
 }
 
 // public is the page itself and what it is made of.

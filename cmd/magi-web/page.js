@@ -1886,6 +1886,10 @@ async function loadFleet() {
     drawDetail(mine);
     loadIntervened(mine);
     loadJobs(mine);
+    // The workspace beside the conversation. Redrawn on the poll like everything else on this
+    // page: a file appearing in a directory while somebody watches is the thing a tree is for.
+    lastDrawnFor = mine;
+    loadTree(mine);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
     return;
@@ -4731,6 +4735,183 @@ function path(svg, d, cls) {
   return p;
 }
 
+// ── the workspace, on the page ───────────────────────────────────────────────
+//
+// A companion is bound to a directory, and until now the console could say the path and nothing
+// about what was in it. Reading the files beside the conversation is what the terminal has always
+// had and what every agent IDE is arranged around — the difference being that this console does
+// not open them: it asks the companion, whose own read-only tools already confine every path to
+// the workspace. See files.go.
+const filesEl = document.getElementById('files');
+const fileViewEl = document.getElementById('fileview');
+const cardTabs = document.getElementById('cardtabs');
+const filesToggle = document.getElementById('filesToggle');
+
+// What is open, and which of them is showing. Paths, not contents: the file is fetched when its
+// tab is chosen, so a tab left open for an hour shows what the file is now rather than what it was
+// when somebody clicked it.
+let openFiles = [];
+// The companion the panes are drawn for, so opening one later can fill it without waiting for the
+// next poll. Set where the page draws a companion, cleared when it leaves.
+let lastDrawnFor = null;
+let cardShows = 'facts';
+// Which directories the reader has opened, so a redraw does not close the tree under them.
+const openDirs = new Set();
+
+const filesOpen = () => document.body.getAttribute('files') === 'open';
+
+// loadTree draws the workspace root, and nothing when the pane is shut: a fetch whose answer
+// nobody can see is a request somebody's daemon served for nothing, four times a minute.
+async function loadTree(a) {
+  if (!a || !filesOpen()) return;
+  // A companion on another machine has no socket this console can open — the path in its row is a
+  // path on ITS filesystem. Say so rather than drawing an empty tree, which reads as "no files".
+  if (a.elsewhere) {
+    filesEl.replaceChildren(cell('filesnote', tr('files.elsewhere')));
+    return;
+  }
+  const rows = await treeAt(a, '.');
+  if (rows === null) {
+    filesEl.replaceChildren(cell('filesnote', tr('files.unreadable')));
+    return;
+  }
+  const head = cell('fileshead', shortPath(a.workdir || ''));
+  filesEl.replaceChildren(head, ...(await branches(a, '.', rows, 0)));
+}
+
+async function treeAt(a, path) {
+  const got = await fetchList('/files' + qFor(a) + '&path=' + encodeURIComponent(path));
+  return Array.isArray(got) ? got : null;
+}
+
+// branches renders one directory, and the ones the reader has opened under it.
+//
+// Depth is drawn as an indent rather than as a nested box: a tree of boxes at 18rem runs out of
+// width four levels down, and the indent is what every file tree has used since they existed.
+async function branches(a, dir, rows, depth) {
+  const out = [];
+  for (const e of rows) {
+    const path = dir === '.' ? e.name : dir + '/' + e.name;
+    out.push(treeRow(a, e, path, depth));
+    if (e.isDir && openDirs.has(path)) {
+      const kids = await treeAt(a, path);
+      if (kids) out.push(...(await branches(a, path, kids, depth + 1)));
+    }
+  }
+  return out;
+}
+
+function treeRow(a, e, path, depth) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'treerow state hit48' + (e.isDir ? ' dir' : '') +
+                  (cardShows === path ? ' now' : '');
+  row.style.paddingLeft = (depth * 0.9 + 0.4) + 'rem';
+  const mark = iconOr(e.isDir ? '#i-sl-chevron-right' : '#i-sl-file-lines', e.isDir ? '▸' : '·',
+                      'treemark' + (e.isDir && openDirs.has(path) ? ' open' : ''));
+  if (mark) row.append(mark);
+  row.append(cell('treename', e.name));
+  row.onclick = () => {
+    if (e.isDir) {
+      if (openDirs.has(path)) openDirs.delete(path);
+      else openDirs.add(path);
+      loadTree(a);
+      return;
+    }
+    openFile(a, path);
+  };
+  return row;
+}
+
+// openFile puts a file in the slot the facts card is in, behind a tab of its own.
+async function openFile(a, path) {
+  if (!openFiles.includes(path)) openFiles.push(path);
+  cardShows = path;
+  drawCardTabs(a);
+  const got = await fetchOne('/file' + qFor(a) + '&path=' + encodeURIComponent(path));
+  if (cardShows !== path) return;            // somebody moved on while it was fetching
+  drawFile(path, got && got.text ? got.text : tr('files.unreadable'));
+  loadTree(a);
+}
+
+// The file, as the agent's own read tool rendered it — line numbers and all. Not re-numbered here
+// and not stripped: a person and their companion pointing at different line 40s is the whole cost
+// of tidying this up.
+function drawFile(path, text) {
+  const head = cell('filetop');
+  head.append(cell('filepath', path));
+  const body = document.createElement('pre');
+  body.className = 'filebody';
+  body.textContent = text;
+  fileViewEl.replaceChildren(head, body);
+  showCard();
+}
+
+// drawCardTabs says which of the things sharing the slot is showing.
+//
+// Hidden while the facts are the only thing in there: a strip with one tab is a heading that looks
+// like a control. md-secondary-tab, because this switches CONTENT inside a pane rather than moving
+// between destinations — which is the distinction the guide draws between the two kinds of tab.
+function drawCardTabs(a) {
+  if (!openFiles.length) {
+    cardTabs.hidden = true;
+    cardTabs.replaceChildren();
+    showCard();
+    return;
+  }
+  const tabs = [];
+  const facts = document.createElement('md-secondary-tab');
+  facts.textContent = tr('field.facts');
+  facts.onclick = () => { cardShows = 'facts'; showCard(); drawCardTabs(a); };
+  tabs.push(facts);
+  for (const path of openFiles) {
+    const t = document.createElement('md-secondary-tab');
+    t.append(cell('tablbl', baseName(path)));
+    // A way to shut it, on the tab, which is where an editor puts it. An icon button inside a tab
+    // would be a target inside a target; this is a plain mark with its own click, and the tab
+    // keeps its own.
+    const x = iconOr('#i-sl-xmark', '×', 'tabclose');
+    if (x) {
+      x.onclick = ev => {
+        ev.stopPropagation();
+        openFiles = openFiles.filter(p => p !== path);
+        if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
+        drawCardTabs(a);
+        if (cardShows !== 'facts') openFile(a, cardShows);
+        loadTree(a);
+      };
+      t.append(x);
+    }
+    t.onclick = () => { openFile(a, path); };
+    tabs.push(t);
+  }
+  cardTabs.replaceChildren(...tabs);
+  cardTabs.hidden = false;
+  const at = cardShows === 'facts' ? 0 : openFiles.indexOf(cardShows) + 1;
+  cardTabs.activeTabIndex = at < 0 ? 0 : at;
+  showCard();
+}
+
+// showCard draws whichever of the two the tab strip says.
+function showCard() {
+  const file = cardShows !== 'facts' && openFiles.includes(cardShows);
+  fileViewEl.hidden = !file;
+  // The facts card folds its own body away; here it goes altogether, because something else is
+  // standing in its place. Empty means there is no companion drawn yet, and an empty card is not
+  // shown either.
+  const facts = document.getElementById('detail');
+  facts.hidden = file || !facts.children.length;
+}
+
+function baseName(p) { return String(p).split('/').pop() || p; }
+
+// shortPath is a workspace path with the home directory folded away — the head of a tree is a
+// label, and /Users/somebody/work/thing takes the width of the pane to say "thing".
+function shortPath(p) {
+  const parts = String(p).split('/').filter(Boolean);
+  return parts.slice(-2).join('/') || p;
+}
+
 // ── the shape of a report ────────────────────────────────────────────────────
 // What this companion must fill in before it may put a decision to somebody. The sections are a
 // contract — ask_user refuses a report with one missing — and the person the report is for is the
@@ -5394,6 +5575,18 @@ function clearCompanionView() {
   liveNote = '';
   userName = '';
   sidEl.textContent = '';
+  // The workspace panes belong to the companion that was open. Left standing, the next one's page
+  // would draw somebody else's tree for the length of a poll — and a file tab from a workspace
+  // that is no longer on screen is a tab that reads from a companion nobody is looking at.
+  lastDrawnFor = null;
+  openFiles = [];
+  cardShows = 'facts';
+  openDirs.clear();
+  filesEl.replaceChildren();
+  fileViewEl.replaceChildren();
+  fileViewEl.hidden = true;
+  cardTabs.hidden = true;
+  cardTabs.replaceChildren();
 }
 
 function render() {
@@ -5634,6 +5827,23 @@ if (localStorage.getItem('side') !== 'open') document.body.setAttribute('side', 
 const sideOpen = () => document.body.getAttribute('side') !== 'shut';
 sideToggle.selected = sideOpen();
 sideToggle.setAttribute('aria-expanded', String(sideOpen()));
+// The file pane's handle. Shut unless somebody opened it, remembered across pages and reloads —
+// the same rule the state pane follows, and for the same reason: what a reader chose to have open
+// is a preference, not a thing to re-decide on every companion.
+if (localStorage.getItem('files') !== 'open') document.body.setAttribute('files', 'shut');
+filesToggle.selected = filesOpen();
+filesToggle.setAttribute('aria-expanded', String(filesOpen()));
+filesToggle.onclick = () => {
+  const shut = document.body.getAttribute('files') !== 'shut';
+  document.body.setAttribute('files', shut ? 'shut' : 'open');
+  localStorage.setItem('files', shut ? 'shut' : 'open');
+  filesToggle.setAttribute('aria-expanded', String(!shut));
+  filesToggle.selected = !shut;
+  // Asked for the first time when it opens: a pane nobody has opened has never cost a request.
+  if (!shut) loadTree(lastDrawnFor);
+  paint();
+};
+
 sideToggle.onclick = () => {
   const shut = document.body.getAttribute('side') !== 'shut';
   document.body.setAttribute('side', shut ? 'shut' : '');

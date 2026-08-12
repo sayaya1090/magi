@@ -27,6 +27,16 @@ func TestOnlyToolsThatLookCanBeRunOutsideATurn(t *testing.T) {
 	// this way. An empty one would pass the refusals for the wrong reason.
 	a := New(nil, nil, builtin.Default(), bus.New(), nil, Config{})
 
+	// The directory, which is what a file tree is built from: JSON entries, each with a name and
+	// whether it is one.
+	dir, err := a.ReadOnlyTool(context.Background(), wd, "list", json.RawMessage(`{"path":"."}`))
+	if err != nil {
+		t.Fatalf("listing the workspace: %v", err)
+	}
+	if !strings.Contains(dir, "note.txt") {
+		t.Errorf("the listing came back as %q", dir)
+	}
+
 	out, err := a.ReadOnlyTool(context.Background(), wd, "read", json.RawMessage(`{"path":"note.txt"}`))
 	if err != nil {
 		t.Fatalf("reading a file in the workspace: %v", err)

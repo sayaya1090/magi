@@ -219,8 +219,36 @@
     <md-primary-tab id="ptabState"></md-primary-tab>
   </md-tabs>
   <div id="agentview">
+    <!-- The workspace, on the leading side, opposite the state pane. Two panes and not one:
+         a console with a single sidebar makes somebody choose between seeing the files and seeing
+         what the agent is doing, and Zed has an open issue about exactly that. What is on the left
+         is what the work is made of; what is on the right is what is happening to it.
+         Shut by default and remembered, like the state pane: the conversation is what the page is
+         for, and a reader who wants the tree asks for it once. -->
+    <div id="filecol">
+      <md-icon-button id="filesToggle" toggle aria-expanded="false">
+        <!-- The same drawing as the state pane's handle, mirrored: a screen with a divider, and
+             the divider slides in from the leading edge as this pane does. One picture for one
+             idea, on both sides of the page. -->
+        <svg class="panelic lead" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="1.6" fill="none"
+            stroke-linejoin="round"/>
+          <path d="M4 9.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path class="split" d="M9 9.5v9.5" stroke="currentColor" stroke-width="1.6"
+            stroke-linecap="round"/>
+        </svg>
+      </md-icon-button>
+      <aside id="files"></aside>
+    </div>
     <div id="stream">
+      <!-- One slot, two things in it. The facts card answers "what am I looking at"; a file opened
+           from the tree answers "what is it made of" — both are reference above the conversation,
+           and stacking them would push the transcript off the screen the way the facts alone once
+           did. So they share the slot and a tab says which is showing, which is what an editor
+           does with the same problem. Hidden until there is more than one thing to choose. -->
+      <md-tabs id="cardtabs" hidden></md-tabs>
       <md-outlined-card id="detail" hidden></md-outlined-card>
+      <md-outlined-card id="fileview" hidden></md-outlined-card>
       <div id="log"></div>
     </div>
     <!-- The handle and the pane it opens are one column: siblings of #stream, a grid would place

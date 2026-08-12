@@ -27,7 +27,7 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## material.js — Material Web 2.5.0, 285KB
+## material.js — Material Web 2.5.0, 290KB
 
 The M3 components themselves, so the design comes from the system rather than from CSS written here
 a second time. Only the ones the page uses are imported: `all.js` would register every component
@@ -56,10 +56,13 @@ the library ships.
     import '@material/web/switch/switch.js';
     import '@material/web/tabs/tabs.js';
     import '@material/web/tabs/primary-tab.js';
+    import '@material/web/tabs/secondary-tab.js';
     import '@material/web/progress/linear-progress.js';
     ENTRY
     npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
-    #   sha256 e3fa47aec0bbc26979b94be1ef37db46f11fe955b5606a65dc12e95040bd0722
+    #   sha256 6b7a974c6cdbc43f74b5ee957c99db8edd545a8fa33754a2f90d3f8a61be9ccd
+    # Verified reproducible: the same command with the secondary-tab line removed rebuilds the
+    # previous bundle byte for byte (e3fa47ae…), so the difference here is that one component.
 
 `labs/card` and `labs/badge` are the two imports from the library's unstable half, taken for the
 same reason: a badge is a number in a shape and a card there is a container and nothing more — elevation, a background, a slot and an outline, with no ripple, no
