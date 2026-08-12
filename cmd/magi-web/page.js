@@ -1889,7 +1889,9 @@ async function loadFleet() {
     // The workspace beside the conversation. Redrawn on the poll like everything else on this
     // page: a file appearing in a directory while somebody watches is the thing a tree is for.
     lastDrawnFor = mine;
-    loadTree(mine);
+    // The tree, unless somebody is looking at search results — a poll that redrew the tree under a
+    // reader every three seconds would take their results away mid-scroll.
+    if (!findQ.trim()) loadTree(mine);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
     return;
@@ -4760,6 +4762,86 @@ const openDirs = new Set();
 
 const filesOpen = () => document.body.getAttribute('files') === 'open';
 
+// What is being searched for in the workspace, and which of the two searches it is.
+//
+// Two, because they are two questions with two costs: a name search walks directory entries and a
+// content search reads every file in the tree. Which one is a control the reader sets, not a guess
+// this page makes from the shape of what they typed — a guess would make the expensive one happen
+// by accident.
+let findQ = '';
+let findIn = 'names';
+let findAt = 0;             // the query this page is waiting on, so a slow answer cannot overwrite a fast one
+
+// findRow builds the box and the two chips over the tree.
+function findRow(a) {
+  const box = cell('filefind');
+  const f = withGlass(document.createElement('md-outlined-text-field'));
+  f.setAttribute('label', tr('files.find'));
+  f.value = findQ;
+  // Typed rather than submitted, and debounced: a name search is cheap and reading the tree
+  // narrow as you type is the whole point. A content search waits for the pause too — it is the
+  // expensive one and the pause is what keeps it from running on every keystroke.
+  f.addEventListener('input', () => {
+    findQ = f.value;
+    const mine = ++findAt;
+    setTimeout(() => { if (mine === findAt) runFind(a); }, 250);
+  });
+  box.append(f);
+  const chips = document.createElement('md-chip-set');
+  for (const [kind, key] of [['names', 'files.by_name'], ['text', 'files.by_text']]) {
+    const c = document.createElement('md-filter-chip');
+    c.setAttribute('label', tr(key));
+    c.selected = findIn === kind;
+    c.onclick = () => { findIn = kind; runFind(a); };
+    chips.append(c);
+  }
+  box.append(chips);
+  return box;
+}
+
+// runFind replaces the tree with what was found, or puts the tree back when the box is empty.
+async function runFind(a) {
+  if (!a) return;
+  if (!findQ.trim()) { loadTree(a); return; }
+  const mine = ++findAt;
+  const got = await fetchOne('/find' + qFor(a) + '&in=' + findIn + '&q=' + encodeURIComponent(findQ));
+  if (mine !== findAt) return;               // a later query is already on its way
+  const kids = [findRow(a)];
+  const hits = (got && got.hits) || [];
+  if (!got) kids.push(cell('filesnote', tr('files.unreadable')));
+  else if (!hits.length) kids.push(cell('filesnote', tr('files.no_match')));
+  for (const hit of hits) kids.push(hitRow(a, hit));
+  if (got && got.more) kids.push(cell('filesnote', tr('files.more', {n: got.more})));
+  filesEl.replaceChildren(...kids);
+}
+
+// One result. A name search answers with paths; a content search answers "path:line:text", which
+// is the shape the agent's own grep produces — so the line and the text are shown as they came
+// rather than being reassembled into a sentence.
+function hitRow(a, hit) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'treerow hit state hit48';
+  let path = hit, line = '', text = '';
+  if (findIn === 'text') {
+    const first = hit.indexOf(':');
+    const second = hit.indexOf(':', first + 1);
+    if (first > 0 && second > first) {
+      path = hit.slice(0, first);
+      line = hit.slice(first + 1, second);
+      text = hit.slice(second + 1);
+    }
+  }
+  const mark = iconOr('#i-sl-file-lines', '·', 'treemark');
+  if (mark) row.append(mark);
+  const what = cell('hitwhat');
+  what.append(cell('treename', line ? path + ':' + line : path));
+  if (text) what.append(cell('hitline', text.trim()));
+  row.append(what);
+  row.onclick = () => openFile(a, path);
+  return row;
+}
+
 // loadTree draws the workspace root, and nothing when the pane is shut: a fetch whose answer
 // nobody can see is a request somebody's daemon served for nothing, four times a minute.
 async function loadTree(a) {
@@ -4776,7 +4858,7 @@ async function loadTree(a) {
     return;
   }
   const head = cell('fileshead', shortPath(a.workdir || ''));
-  filesEl.replaceChildren(head, ...(await branches(a, '.', rows, 0)));
+  filesEl.replaceChildren(head, findRow(a), ...(await branches(a, '.', rows, 0)));
 }
 
 async function treeAt(a, path) {
@@ -5582,6 +5664,7 @@ function clearCompanionView() {
   openFiles = [];
   cardShows = 'facts';
   openDirs.clear();
+  findQ = '';
   filesEl.replaceChildren();
   fileViewEl.replaceChildren();
   fileViewEl.hidden = true;

@@ -109,3 +109,84 @@ func (s *server) askCompanion(r *http.Request, tool string, args json.RawMessage
 	})
 	return out, err
 }
+
+// findLimit is how many results travel. A grep over a repository somebody checked a video into
+// answers with tens of thousands of lines, and a pane 18rem wide can show a few dozen — so the cut
+// happens here, once, and the answer says it was cut rather than trailing off.
+const findLimit = 200
+
+// find searches the workspace: file names, or what is inside them.
+//
+// Two kinds because they are two different questions and two different costs. A name search is a
+// walk of the directory entries; a content search reads every file in the tree. The caller says
+// which, rather than this guessing from the shape of the query — a guess would make the expensive
+// one happen by accident.
+func (s *server) find(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, "find", findAnswer{Hits: []string{}})
+		return
+	}
+	tool, args := "glob", map[string]string{}
+	if r.URL.Query().Get("in") == "text" {
+		// The pattern goes to the tool as it was typed: grep takes a regular expression, that is
+		// what the agent's own searches take, and quietly escaping it here would make the console's
+		// search a different search from the one in the transcript. A bad expression comes back as
+		// the tool's own complaint.
+		tool, args = "grep", map[string]string{"pattern": q}
+	} else {
+		// A name search is "contains", because that is what somebody typing three letters of a
+		// filename means. ** so it reaches the whole tree rather than the root.
+		args = map[string]string{"pattern": "**/*" + globQuote(q) + "*"}
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out, err := s.askCompanion(r, tool, raw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var hits []string
+	if uerr := json.Unmarshal([]byte(out), &hits); uerr != nil {
+		http.Error(w, "the companion answered something this console could not read",
+			http.StatusBadGateway)
+		return
+	}
+	ans := findAnswer{Hits: hits}
+	if len(hits) > findLimit {
+		ans.Hits, ans.More = hits[:findLimit], len(hits)-findLimit
+	}
+	writeJSON(w, "find", ans)
+}
+
+type findAnswer struct {
+	// Hits are paths for a name search and "path:line:text" for a content one — the tools' own
+	// shapes, passed through. The page knows which it asked for.
+	Hits []string `json:"hits"`
+	// More is how many were cut off, so the pane can say "and 3,412 more" instead of implying the
+	// list is all there is.
+	More int `json:"more,omitempty"`
+}
+
+// globQuote makes the glob metacharacters in a typed query mean themselves.
+//
+// Somebody typing "page[1]" is naming a file, not writing a character class — and an unclosed
+// bracket is refused by the tool, so without this a perfectly reasonable filename comes back as a
+// syntax error. The wildcards this function does NOT escape are the ones the caller wrapped the
+// query in.
+func globQuote(q string) string {
+	var b strings.Builder
+	for _, r := range q {
+		if strings.ContainsRune(`*?[]\`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}

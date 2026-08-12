@@ -286,6 +286,14 @@ const demoScript = `
       '     6\tThe console reads this file through the companion rather than opening it: the\n' +
       '     7\tdaemon already confines every path to the workspace, and this page is often on\n' +
       '     8\tanother machine entirely.\n'},
+    // A search over the workspace. Answered with content hits — "path:line:text", the shape the
+    // agent's own grep produces — because that is the one whose result shape a reader cannot
+    // guess from a list of paths.
+    '/find': {hits: [
+      'cmd/magi-web/page.js:1284:function emptyState(whatKey, howKey) {',
+      'cmd/magi-web/page.css:1311:  .empty { font:var(--md-sys-typescale-body-large-size)/1.7',
+      'docs/UI.md:88:an empty state names the thing that is absent and how it stops being absent',
+    ], more: 12},
     '/context': {model: 'qwen3-coder-next', window: 128000, used: 104300, estimated: false,
       messages: 61, compactions: 2, shed: 39000, lastBefore: 48000, lastAfter: 9000,
       lastAt: now, topics: ['internal/adapter/fleet/fleet.go', 'cmd/magi-web/page.go', 'discussion']},

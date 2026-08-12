@@ -1321,6 +1321,20 @@
   .filesnote {
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
+  /* The box and the two chips over the tree. The chips are one set with one selection — which of
+     the two searches this is — and they are md-filter-chip because that is what they do: narrow a
+     collection, with the selected one carrying the check. */
+  .filefind { display:grid; gap:var(--magi-sys-space-150); }
+  .filefind md-outlined-text-field { width:100%; }
+  /* A hit is a row like any other in this pane, plus the line it was found on. The line is set in
+     the same mono as the file it came from and clipped: this is a pointer into a file, not a
+     reading of it — pressing it opens the file, which is where reading happens. */
+  .treerow.hit { align-items:flex-start; padding-top:var(--magi-sys-space-50); padding-bottom:var(--magi-sys-space-50); }
+  .hitwhat { display:grid; gap:2px; min-width:0; }
+  .hitline {
+    font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
   /* A row is a button, because it does something when pressed — and buttons here carry .state,
      which brings the layer and the 48dp floor every other hand-built control on this page has. */
   .treerow {

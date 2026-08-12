@@ -880,6 +880,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/access":        s.access,
 		"/files":         s.files,
 		"/file":          s.file,
+		"/find":          s.find,
 		"/history":       s.history,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,
