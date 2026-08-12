@@ -119,3 +119,33 @@ role = "responder"
 		t.Error("the refused change was applied to the running policy anyway")
 	}
 }
+
+// Adding the first person is what switches the gate on, so it is refused where that would lock
+// the door on the way in.
+//
+// A console with no gateway in front of it cannot name anybody. With nobody listed that is fine —
+// one operator, no policy — and the moment somebody is listed every request becomes an unnamed
+// one, including the screen that just did it. The startup check refuses to boot such a console on
+// the next run; this is the same refusal a moment earlier, while there is still somebody to tell.
+func TestTheFirstPersonIsRefusedOnAConsoleThatCannotNameAnybody(t *testing.T) {
+	s := withPolicy(t, "") // nobody configured
+	s.userHeader = ""      // and nothing in front to say who is asking
+
+	w := ask(t, s, "", http.MethodPost, url.Values{"who": {"kim@corp.com"}, "role": {"operator"}})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("it answered %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "-user-header") {
+		t.Errorf("the refusal does not say what is missing: %s", w.Body.String())
+	}
+	if s.policy.Configured() {
+		t.Error("the policy was switched on anyway")
+	}
+	// With a gateway named, the same call goes through: this is about the console being able to
+	// name people, not about who is asking.
+	s.userHeader = "X-Forwarded-User"
+	if w := ask(t, s, "", http.MethodPost,
+		url.Values{"who": {"kim@corp.com"}, "role": {"operator"}}); w.Code != http.StatusOK {
+		t.Errorf("the first person could not be added (%d): %s", w.Code, w.Body.String())
+	}
+}

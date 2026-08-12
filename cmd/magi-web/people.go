@@ -108,6 +108,16 @@ func (s *server) peopleWrite(w http.ResponseWriter, r *http.Request) {
 		writeText(w, who+" can no longer use this console")
 		return
 	}
+	// The first person is the act that turns the gate on for everybody, and on a console with
+	// nothing in front of it there is then nobody it can name — every request, including this
+	// screen, becomes an unnamed one and is refused. The startup check catches that on the next
+	// run and refuses to boot; here it would happen live, to the person who just did it.
+	if !s.policy.Configured() && s.userHeader == "" {
+		http.Error(w, "this console has nothing in front of it to say who anybody is, so listing "+
+			"people would lock everybody out of it — start it with -user-header (and a gateway "+
+			"that sets it) before giving anybody a role", http.StatusConflict)
+		return
+	}
 	person := auth.Person{Role: strings.TrimSpace(r.FormValue("role"))}
 	for _, c := range strings.Split(r.FormValue("companions"), ",") {
 		if c = strings.TrimSpace(c); c != "" {
