@@ -155,3 +155,22 @@ func TestASharedConsoleWillNotStartInPlaintext(t *testing.T) {
 		t.Error("half a certificate pair was accepted on an unshared console")
 	}
 }
+
+// A permission file nothing can apply is not a state to start in.
+//
+// The policy answers "what may this person do" and the person is whoever the header names. Without
+// the flag there is no name, an unnamed caller is refused by design, and the console comes up
+// announcing how many people it has while turning down every request — including the ones an
+// operator would use to fix it.
+func TestAPolicyWithNobodyToNameRefusesToStart(t *testing.T) {
+	if err := policyCanName(true, ""); err == nil {
+		t.Error("a console with people and no -user-header started; nothing on it would work")
+	}
+	if err := policyCanName(true, "X-Forwarded-User"); err != nil {
+		t.Errorf("a console with people and a header was refused: %v", err)
+	}
+	// And the ordinary console, which has no policy and needs no gateway, is untouched.
+	if err := policyCanName(false, ""); err != nil {
+		t.Errorf("a single-operator console was refused: %v", err)
+	}
+}

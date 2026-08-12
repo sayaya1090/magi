@@ -158,6 +158,11 @@ func run() int {
 		return 1
 	}
 
+	if err := policyCanName(policy.Configured(), *userHeader); err != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", err)
+		return 1
+	}
+
 	// Beside the store, which is where records of what happened live.
 	audit, aerr := newAudit(plat.DataDir())
 	if aerr != nil {
@@ -285,6 +290,24 @@ func exposedHasTLS(exposed bool, cert, key string) error {
 			"wire. Put a certificate here, or drop -exposed and reach it through your own tunnel")
 	}
 	return nil
+}
+
+// policyCanName refuses a permission file nothing can apply.
+//
+// A policy answers "what may this person do", and the person is whoever the header names. With no
+// -user-header there is no name, an unnamed caller is refused by design, and the console starts,
+// prints how many people it has, and turns down every request including the ones that would let an
+// operator fix it. Nothing about that state works, so it is not a state to start in — the refusal
+// belongs here, where somebody is looking at the flags they just typed, and not on a page four
+// minutes later telling them to ask an operator.
+func policyCanName(configured bool, userHeader string) error {
+	if !configured || userHeader != "" {
+		return nil
+	}
+	return errors.New("this console has an " + config.AuthFile + " and no -user-header, so it " +
+		"cannot tell who anybody is: every request would be refused, including the ones that " +
+		"would change that. Name the header your gateway sets (e.g. -user-header X-Forwarded-User), " +
+		"or move the file away to go back to one operator")
 }
 
 // listenLoopback binds, and hands back nothing the network can reach.
