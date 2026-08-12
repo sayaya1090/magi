@@ -62,9 +62,13 @@ type sessionState struct {
 	// what is still OUT: one drives a note about an unfinished piece, the other a question about
 	// a finished one, and folding them together would make a turn that is waiting look like a
 	// turn that owes an opinion.
-	answered  []answeredHandoff
-	grants    map[string]bool // "always" grants per tool
-	userLabel string          // display name for the user in the transcript (plugin set_user_label); "" = "you"
+	answered []answeredHandoff
+	grants   map[string]bool // "always" grants per tool
+	// handedOver marks a conversation opened for work another COMPANION asked for, rather than a
+	// person at a keyboard. It changes what approval means here — see requestPermission — and is
+	// set once at creation and never cleared: where a conversation came from does not change.
+	handedOver bool
+	userLabel  string // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the
 	// first run after load (deferredHydrated). Unlike pendingInterject (in-memory, lost on a

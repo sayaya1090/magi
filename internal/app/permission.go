@@ -69,9 +69,23 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 // requestPermission applies the permission policy, blocking for an interactive
 // decision when policy is "ask" (F-LOOP-PERMISSION).
 func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool, reason string) bool {
-	// A policy-forced prompt (risky bash, egress) overrides allow/auto so the
-	// user always gets a say — but an explicit "deny" mode still denies.
-	if !forcePrompt {
+	// Work another companion asked for is approved one call at a time, by a person, or not at all.
+	//
+	// The approval mode is a statement about what THIS operator wants done on their behalf without
+	// being asked. A handed-over turn is not on their behalf: another agent decided what to ask
+	// for, its wording arrives verbatim, and the mode was set with a person's own work in mind. So
+	// the floor for these conversations is the strict one, whatever the mode says:
+	//
+	//   - allow and auto do not short-circuit; the prompt happens.
+	//   - an earlier "always" in this conversation does not carry to the next call, because the
+	//     conversation is one asker's and the grant would outlive the request that earned it.
+	//   - with nobody to ask, it is refused rather than resolved by policy. Unattended is exactly
+	//     the case this exists for: a machine asking a machine at four in the morning.
+	//
+	// `deny` still denies, and a person answering can still say yes. What is gone is the path
+	// where nobody says anything and the tool runs.
+	handed := a.handedOver(sid)
+	if !forcePrompt && !handed {
 		switch a.Permission() {
 		case "allow":
 			return true
@@ -91,7 +105,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	// "ask" (and "auto" for non-edit tools): honor a prior "always" grant.
 	a.mu.Lock()
-	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] {
+	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] && !handed {
 		a.mu.Unlock()
 		return true
 	}
@@ -102,6 +116,9 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	// come (the run/bus goroutines then all sleep → the Go runtime kills the process).
 	if !a.cfg.Interactive {
 		a.mu.Unlock()
+		if handed {
+			return false
+		}
 		return a.Permission() == "allow"
 	}
 	ch := make(chan string, 1)
@@ -133,6 +150,13 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	select {
 	case dec := <-ch:
+		if (dec == "always" || dec == "persist") && handed {
+			// Said, not swallowed. Somebody pressing "always" here means it, and quietly treating
+			// it as "just this once" would be the console doing something other than what the
+			// button said — the next call asking again would look like a bug.
+			a.noteOneCallOnly(ctx, sid, tc)
+			return true
+		}
 		if dec == "always" || dec == "persist" {
 			a.mu.Lock()
 			if a.stateLocked(sid).grants == nil {
@@ -156,7 +180,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		// Nobody answered. Resolve the way a run with no human resolves — by policy — and record
 		// that this is what happened: a decision taken by default reads identically to one somebody
 		// made unless the log says otherwise.
-		byPolicy := a.Permission() == "allow"
+		byPolicy := !handed && a.Permission() == "allow"
 		a.noteUnanswered(ctx, sid, tc, byPolicy)
 		return byPolicy
 	case <-ctx.Done():
@@ -239,6 +263,26 @@ func (a *App) notePersistOutcome(ctx context.Context, sid session.SessionID, tc 
 	if note == "" {
 		return // written; the modal already told the user that is what `project` does
 	}
+	nd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: note}},
+	})
+	a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, nd)
+}
+
+// handedOver reports whether this conversation is one another companion asked for.
+func (a *App) handedOver(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	return ok && st.handedOver
+}
+
+// noteOneCallOnly records that a standing approval was taken as a single one.
+func (a *App) noteOneCallOnly(ctx context.Context, sid session.SessionID, tc *session.ToolCall) {
+	note := "note: this conversation is work another companion asked for, so `" + tc.Name +
+		"` is approved for THIS CALL only — a standing grant here would outlive the request that " +
+		"earned it, and the next call asks again."
 	nd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: note}},

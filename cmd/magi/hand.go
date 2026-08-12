@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -287,7 +288,14 @@ func (h handover) sessionFor(ctx context.Context, label string) (session.Session
 	if sid, ok := h.mine.by[label]; ok {
 		return sid, nil
 	}
-	sid, err := h.work.CreateSession(ctx, command.CreateSession{Workdir: h.workdir})
+	// Created under an actor that says where the work came from. The store lifts that into
+	// SessionMeta.Origin, and the approval floor for a handed-over conversation reads it — see
+	// app.HandoffActorID. Without it a side session is indistinguishable from one somebody opened
+	// themselves, which is exactly the distinction the floor is about.
+	sid, err := h.work.CreateSession(ctx, command.CreateSession{
+		Workdir: h.workdir,
+		Actor:   event.Actor{Kind: event.ActorUser, ID: app.HandoffActorID(label)},
+	})
 	if err != nil {
 		return "", fmt.Errorf("this companion could not open a conversation for the work: %w", err)
 	}
