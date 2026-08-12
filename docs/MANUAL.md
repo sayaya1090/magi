@@ -274,6 +274,18 @@ command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
 
 The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same three methods.
 
+**Or over TLS, with no ssh at all.** Each magi has a key pair and a self-signed certificate, made once and kept; `magi --whoami` prints its fingerprint. Carry that fingerprint to the other machine the way you would an ssh host key — over a channel you trust — and admit it:
+
+```
+magi --whoami                                   # on the machine to be reached
+magi --admit SHA256:… --as buildbox --at build.local:7777   # on the machine reaching out
+magi --fleet-listen :7777                       # on the machine to be reached
+```
+
+Both ends check the same thing: the public key that arrived against the list of admitted fingerprints. There is no certificate authority — the certificate is an envelope and the key is the identity, so renewing one changes nothing. A party nobody admitted **fails the TLS handshake**, so it learns nothing: no route, no version, no list of companions. Revoking is `magi --refuse SHA256:…`, and it takes effect on the next connection.
+
+A machine with an address on its admitted line is reached over TLS; one without is reached over ssh. Same door either way.
+
 ⚠ **What the sandbox does and does not do.** It confines WRITES on macOS (`sandbox-exec`) and Linux (`bwrap`) and nothing on Windows, where only a restricted token is applied. It never confines reads, on any platform — the agent runs arbitrary toolchains, so its read set is effectively everything. The session store is kept read-only inside it, so a confined command cannot rewrite the record of what it did. If a confined posture is asked for and the tool behind it is missing, magi says so at startup and runs unconfined rather than refusing to work. For isolation between people, separate OS accounts are the boundary; the sandbox is about blast radius, not about tenancy.
 
 Settings are read in three layers, most specific last: the person's `<config>/config.toml`, the team's `<workspace>/.magi/config.toml`, then **this companion's own** `<config>/companions/<workspace-key>/config.toml` — its model, its posture, the servers and jobs you gave it here. The companion layer is where magi PERSISTS your choices (`/model`, and the permission modal's "keep for this companion"): they are decisions about one workspace on one machine, so they neither travel in a clone nor land on your other companions — and they sit outside the workspace, where the agent's own file tools cannot reach them.

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
+	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
@@ -453,6 +455,18 @@ func reachCompanion(ctx context.Context, host, socket string) (*daemon.Client, e
 	if answersHere(host, socket) {
 		return daemon.Dial(socket)
 	}
+	// Over TLS when this machine has admitted that one and knows where it is; over ssh otherwise.
+	//
+	// One decision, made from the admitted list rather than from a setting: a machine somebody put
+	// an address beside is a machine they meant to reach that way, and one with no address is
+	// reached the way it always was. Both ends are the same door — see door.go for what crosses.
+	if peer, ok := peerFor(configDirOf(), host); ok {
+		dial, derr := fleetTo(ctx, configDirOf(), thisHost(), peer, socket)
+		if derr != nil {
+			return nil, derr
+		}
+		return daemon.Over(dial), nil
+	}
 	// The door, not the relay: the relay carries the whole protocol and this crossing needs three
 	// methods. See door.go — an ssh key restricted to the relay is still a key that can submit,
 	// steer and run a shell command over there.
@@ -539,4 +553,14 @@ func (w *where) move(do func(from session.SessionID) (session.SessionID, error))
 	}
 	w.sid = to
 	return nil
+}
+
+// configDirOf and thisHost are the two facts a crossing needs about THIS machine, read where they
+// are needed rather than threaded through the tool layer — which must not learn what a config
+// directory is (see the note on Reach in the companion package).
+func configDirOf() string { return platform.New().ConfigDir() }
+
+func thisHost() string {
+	h, _ := os.Hostname()
+	return h
 }

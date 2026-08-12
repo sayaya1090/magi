@@ -276,6 +276,17 @@ func run() int {
 		fleetDoorMode = flag.Bool("fleet-door", false,
 			"serve one narrow crossing from another machine: three methods, and only companions "+
 				"this account published; meant as an ssh forced command, not run by hand")
+		fleetListen = flag.String("fleet-listen", env("MAGI_FLEET_LISTEN", ""),
+			"serve the fleet door on this address over mTLS, for machines admitted with --admit; "+
+				"the ssh forced command is the other way to be reached")
+		whoami = flag.Bool("whoami", false,
+			"print this magi's fleet fingerprint, which is what another machine admits")
+		admitFP = flag.String("admit", "",
+			"admit a machine by the fingerprint its `magi --whoami` printed (with --as, and "+
+				"--at host:port when this machine also reaches out to it)")
+		refuseFP        = flag.String("refuse", "", "take an admitted machine off the list, by fingerprint")
+		admitAs         = flag.String("as", "", "the name to file an --admit under")
+		admitAt         = flag.String("at", "", "host:port for an --admit this machine also dials")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -365,6 +376,15 @@ func run() int {
 	}
 
 	plat := platform.New()
+
+	// Identity and admission, before anything else reads the world: these are one file each and
+	// the answer to "who am I" must not depend on a store, a model or a daemon being reachable.
+	if *whoami || *admitFP != "" || *refuseFP != "" || *fleetListen != "" {
+		return runFleetCmd(fleetOpts{
+			whoami: *whoami, admit: *admitFP, refuse: *refuseFP, as: *admitAs, at: *admitAt,
+			listen: *fleetListen, configDir: plat.ConfigDir(), out: os.Stdout, errOut: os.Stderr,
+		})
+	}
 
 	// Trust is answered here, before anything reads the workspace's file: the whole point of the
 	// command is to change what the NEXT run takes from it.
