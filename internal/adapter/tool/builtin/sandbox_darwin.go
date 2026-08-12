@@ -71,6 +71,18 @@ func seatbeltProfile(spec port.SandboxSpec) string {
 	}
 	b.WriteString("  (regex #\"^/dev/tty\")\n  (regex #\"^/dev/fd/\"))\n")
 
+	// Carved back out, after the allow above: seatbelt takes the LAST matching rule, so this is
+	// how a subtree inside a writable one stays read-only.
+	for _, p := range spec.ReadOnly {
+		if p == "" {
+			continue
+		}
+		b.WriteString("(deny file-write* (subpath " + quote(p) + "))\n")
+		if tw := privateTwin(p); tw != p {
+			b.WriteString("(deny file-write* (subpath " + quote(tw) + "))\n")
+		}
+	}
+
 	return b.String()
 }
 

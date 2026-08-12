@@ -430,6 +430,12 @@ type SandboxSpec struct {
 	Mode     string
 	Workdir  string
 	AllowNet bool
+	// ReadOnly are paths that stay read-only even when they fall inside something the mode makes
+	// writable. One user so far and it is the important one: the session store lives under the
+	// user's cache directory, and the cache directory is writable so build tools keep working — so
+	// a confined command could rewrite or delete any transcript on the machine, including the one
+	// recording what it was doing.
+	ReadOnly []string
 }
 
 // Confined reports whether the spec requests actual confinement.

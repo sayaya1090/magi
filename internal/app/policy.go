@@ -47,6 +47,22 @@ var secretGlobs = []string{
 	"**/secrets/**", "**/*.secret", "**/credentials.json",
 }
 
+// guardrailGlobs are the files that decide what the agent may do. Denied for WRITING, allowed for
+// reading — knowing your own posture is useful and harmless; rewriting it is the whole problem.
+//
+// The project config is inside the workspace, which is inside the tool jail, so `write` reached it.
+// In a trusted workspace that file is taken as written, so an agent could grant itself hooks, tool
+// servers, an approval list — and in `auto` mode an edit is approved without anybody seeing it. A
+// plugin's manifest is the same shape one level down: it declares the permissions the host then
+// grants it.
+//
+// This is the file-tool half. A bash command touching them is caught by the same scan that catches
+// a secret path, and magi's own writers (the persisters, the console's editors) are not tools and
+// are unaffected — which is why the settings a person changes still change.
+var guardrailGlobs = []string{
+	"**/.magi/config.toml", "**/.magi/plugins/**",
+}
+
 // bashDestructive matches commands whose blast radius is large and irreversible.
 var bashDestructive = []*regexp.Regexp{
 	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-zA-Z]*\b`), // rm -rf / -fr / -r / -f (short flags)
@@ -80,6 +96,14 @@ func newPolicy(allow, deny, allowDomains []string) *Policy {
 	// Default secret protections come first, then user deny rules.
 	for _, g := range secretGlobs {
 		for _, t := range []string{"read", "write", "edit", "multiedit"} {
+			if pr, ok := parseRule(t + "(" + g + ")"); ok {
+				p.deny = append(p.deny, pr)
+			}
+		}
+	}
+	// Writes only: see guardrailGlobs.
+	for _, g := range guardrailGlobs {
+		for _, t := range []string{"write", "edit", "multiedit"} {
 			if pr, ok := parseRule(t + "(" + g + ")"); ok {
 				p.deny = append(p.deny, pr)
 			}

@@ -887,13 +887,16 @@ func run() int {
 	// closures above: the engine has to be told how to reach it before either of them is real.
 	var ears *companionEars
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
-		Model:               session.ModelRef{Provider: "openai", Model: modelID},
-		System:              systemPrompt,
-		Permission:          perm,
-		Interactive:         !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
-		AnswerWait:          answerWait(answerable),  // whether an answerer is elsewhere; app decides which modes wait
-		Profile:             orStr(*profile, cfg.Profile),
-		Sandbox:             cfg.Sandbox,
+		Model:       session.ModelRef{Provider: "openai", Model: modelID},
+		System:      systemPrompt,
+		Permission:  perm,
+		Interactive: !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
+		AnswerWait:  answerWait(answerable),  // whether an answerer is elsewhere; app decides which modes wait
+		Profile:     orStr(*profile, cfg.Profile),
+		Sandbox:     cfg.Sandbox,
+		// Where the transcripts are, so the sandbox can keep them out of reach of the commands it
+		// confines. Not a setting: it is this process telling the policy where its own record is.
+		StoreDir:            plat.DataDir(),
 		BetweenTurns:        func(ctx context.Context) { ears.reconcile(ctx) },
 		DangerTools:         dangerTools,
 		Allow:               cfg.Allow,

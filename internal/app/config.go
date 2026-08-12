@@ -207,6 +207,11 @@ type Config struct {
 	// below when they're unset; explicit fields override the preset.
 	Profile string // "safe" | "standard" | "yolo"
 	Sandbox string // "read-only" | "workspace-write" | "full" (OS sandbox axis)
+	// StoreDir is where the session logs live. It is not a setting anybody writes: the daemon
+	// passes it so the sandbox can keep it read-only, because it sits under the user's cache
+	// directory and that whole directory is writable so build tools keep working. Without it a
+	// confined command can rewrite the record of what it just did.
+	StoreDir string
 	// Allow/Deny are pattern rules "Tool(spec)" — e.g. Bash(git push:*),
 	// Read(**/.env), WebFetch(domain:example.com). Deny is a hard floor; secret
 	// paths are denied by default in addition to these.

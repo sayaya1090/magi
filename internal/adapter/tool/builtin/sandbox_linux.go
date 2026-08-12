@@ -63,6 +63,17 @@ func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) {
 		}
 	}
 
+	// Carved back out, after the RW binds: a later bind of the same path wins, so this is how a
+	// directory inside a writable one goes back to read-only.
+	for _, p := range spec.ReadOnly {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
+			argv = append(argv, "--ro-bind", p, p)
+		}
+	}
+
 	if !spec.AllowNet {
 		argv = append(argv, "--unshare-net")
 	}
