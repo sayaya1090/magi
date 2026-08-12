@@ -720,13 +720,7 @@ func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
 	list = append(list, s.peerInterventions(r.Context(), r.URL.RawQuery)...)
 	// Scoped for the same reason the fleet is, and more so: this carries what a person SAID to each
 	// companion, verbatim. A list of names is an inventory; this is the correspondence.
-	kept := list[:0]
-	for _, m := range list {
-		if s.seen(r, m.Companion, m.Peer) {
-			kept = append(kept, m)
-		}
-	}
-	list = kept
+	list = onlySeen(s, r, list, func(m fleet.Moment) (string, string) { return m.Companion, m.Peer })
 	sort.Slice(list, func(i, j int) bool { return list[i].At > list[j].At })
 	writeJSON(w, "interventions", list)
 }
@@ -937,13 +931,7 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 	// And then only the ones this person may see. This is the list every other screen is read from
 	// — the board, the count in the masthead, the dispatch roster — so a scope that left it whole
 	// hid nothing: it carries every companion's name, workspace path, host and current task.
-	kept := list[:0]
-	for _, a := range list {
-		if s.seen(r, a.Name, a.Peer) {
-			kept = append(kept, a)
-		}
-	}
-	writeJSON(w, "fleet", kept)
+	writeJSON(w, "fleet", onlySeen(s, r, list, func(a fleet.Agent) (string, string) { return a.Name, a.Peer }))
 }
 
 // events streams the transcript as server-sent events, re-reading the log as it grows.

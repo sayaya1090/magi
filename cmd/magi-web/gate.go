@@ -136,8 +136,11 @@ func (s *server) seen(r *http.Request, name, peer string) bool {
 // nothing to inspect here — the subject appears only once the list is built — so the filter has to
 // live where the list is. One helper rather than a loop written out at each site, because a scope
 // implemented four times is four slightly different scopes.
+// It copies rather than filtering in place. The rows here are tens, not thousands, and a shared
+// helper that quietly empties its caller's slice is a trap for the first route that hands it
+// something cached — the cache would keep one person's scope and serve it to everybody.
 func onlySeen[T any](s *server, r *http.Request, rows []T, of func(T) (name, peer string)) []T {
-	out := rows[:0]
+	out := make([]T, 0, len(rows))
 	for _, row := range rows {
 		if name, peer := of(row); s.seen(r, name, peer) {
 			out = append(out, row)
