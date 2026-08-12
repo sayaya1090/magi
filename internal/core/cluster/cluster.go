@@ -46,7 +46,9 @@
 package cluster
 
 import (
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -116,6 +118,61 @@ type Member struct {
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.
 	Seen time.Time `json:"seen"`
+	// By is the public key of the machine this record describes, and Sig is that machine's
+	// signature over everything above.
+	//
+	// # Why a record and not a message
+	//
+	// Gossip is transitive: what one machine sends includes what it heard about a third. Signing
+	// the MESSAGE would prove only "this peer said this", so an admitted peer could invent a
+	// companion on somebody else's host — or quietly change where an existing one answers — and it
+	// would arrive indistinguishable from the truth. What has to be checkable is the RECORD, by
+	// the machine it is about, which is the only party that can say where its own companions are.
+	//
+	// The key itself and not its fingerprint, because a fingerprint is a hash and a hash cannot
+	// verify a signature. The fingerprint the admitted list compares is derived from this.
+	By  string `json:"by,omitempty"`
+	Sig string `json:"sig,omitempty"`
+}
+
+// Signable is the bytes a machine signs to vouch for one of its own records.
+//
+// Written out field by field rather than by marshalling the struct: JSON key order is stable in Go
+// today and is not a promise, and a signature that depends on how a library felt like ordering a
+// map is a signature that stops verifying on an upgrade. Length-prefixed, so two fields cannot be
+// slid into one another — "host=a, socket=bc" and "host=ab, socket=c" have to be different bytes.
+//
+// # What is signed is what does not move
+//
+// Identity and capabilities: where a companion answers, what it calls itself, and what it says it
+// can do. Those are the fields that decide where work is sent and who a caller is talking to, and
+// nothing between here and there is allowed to rewrite them.
+//
+// Seen is deliberately NOT signed, and neither are Waiting and Handling. Merge clamps a sighting
+// from the future — a clock running fast is not news — and those two are moments that are never
+// carried from an older entry. Signing a field the design rewrites would break the signature on
+// exactly the machines the rewrite exists for, which is the loudest possible way to be wrong about
+// nothing.
+//
+// The cost is stated plainly: freshness is a relay's claim, not the owner's. An admitted peer can
+// keep a companion that HAS existed looking alive for as long as it keeps repeating the record.
+// What it cannot do is invent one, move one to a socket of its choosing, or change what one claims
+// to be — which is the class of thing a roster is acted on for.
+func Signable(m Member) []byte {
+	var b strings.Builder
+	put := func(s string) {
+		fmt.Fprintf(&b, "%d:%s|", len(s), s)
+	}
+	put(strings.ToLower(m.Host))
+	put(m.Socket)
+	put(m.Name)
+	put(m.Role)
+	put(m.Team)
+	put(strconv.FormatBool(m.Hub))
+	put(m.Workdir)
+	put(strconv.Itoa(m.Can))
+	put(strings.Join(m.Does, "\x00"))
+	return []byte(b.String())
 }
 
 // Key identifies a companion across the cluster.
@@ -185,7 +242,15 @@ func Merge(have, heard []Member, now time.Time) []Member {
 }
 
 // fillFrom takes keep whole and borrows any identity field it is missing from other.
+//
+// Except from a record its owner signed. A signature is a statement about the fields it covers, so
+// a signed record is complete by definition: what it does not say is not missing, it is absent.
+// Borrowing into one would also make the bytes stop matching the signature, and this machine
+// relays what it stores — so the improvement would arrive at the next machine as a forgery.
 func fillFrom(keep, other Member) Member {
+	if keep.Sig != "" {
+		return keep
+	}
 	if keep.Name == "" {
 		keep.Name = other.Name
 	}

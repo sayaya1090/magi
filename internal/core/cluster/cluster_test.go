@@ -355,3 +355,42 @@ func TestOneMachineIsOneMemberHoweverItIsCapitalised(t *testing.T) {
 		t.Fatalf("one companion became %d: %+v", len(got), got)
 	}
 }
+
+// A signed record is not "improved" by an older sighting of the same companion.
+//
+// Merge borrows identity fields onto an entry that is missing them, which is right for a bare
+// sighting and wrong for a record its owner signed: the signature covers those fields, so what the
+// owner did not say is absent rather than missing. Borrowing would also make the bytes stop
+// matching the signature — and this machine relays what it stores, so the improvement would arrive
+// at the next machine as a forgery.
+func TestASignedRecordIsNotFilledInFromAnOlderOne(t *testing.T) {
+	now := time.Now()
+	old := Member{
+		Host: "buildbox", Socket: "/s/d.sock", Name: "design", Role: "the design system",
+		Team: "frontend", Can: 3, Does: []string{"tokens"}, Seen: now.Add(-time.Minute),
+	}
+	// The same companion, said again by the machine it belongs to, which has since dropped the
+	// team and the role. Signed — the bytes here stand in for a real signature; what matters is
+	// that Merge sees a record that carries one.
+	fresh := Member{
+		Host: "buildbox", Socket: "/s/d.sock", Name: "design", Seen: now,
+		By: "a-key", Sig: "a-signature",
+	}
+	got := Merge([]Member{old}, []Member{fresh}, now)
+	if len(got) != 1 {
+		t.Fatalf("one companion became %d", len(got))
+	}
+	if got[0].Role != "" || got[0].Team != "" {
+		t.Errorf("the signed record was filled in from an older one: role=%q team=%q",
+			got[0].Role, got[0].Team)
+	}
+	if len(got[0].Does) != 0 || got[0].Can != 0 {
+		t.Errorf("capabilities were borrowed onto a signed record: can=%d does=%v",
+			got[0].Can, got[0].Does)
+	}
+	// An UNSIGNED record still is, because a bare sighting is exactly what that behaviour is for.
+	bare := Member{Host: "buildbox", Socket: "/s/d.sock", Seen: now}
+	if got := Merge([]Member{old}, []Member{bare}, now); got[0].Role == "" {
+		t.Error("a bare sighting stopped being filled in, which is what it is for")
+	}
+}

@@ -193,3 +193,62 @@ func readFile(p string) string {
 	}
 	return string(b)
 }
+
+// Sign vouches for bytes with this machine's key.
+//
+// Ed25519, so a signature is 64 bytes and verifying one is a hash and a curve operation — cheap
+// enough to do for every record in a gossip round without thinking about it.
+func (i *Identity) Sign(msg []byte) string {
+	key, ok := i.Cert.PrivateKey.(ed25519.PrivateKey)
+	if !ok {
+		return ""
+	}
+	return base64.RawStdEncoding.EncodeToString(ed25519.Sign(key, msg))
+}
+
+// PublicKey is what a record carries so anybody can check its signature: the SPKI, base64, which
+// is the same bytes Fingerprint hashes. Carrying the key rather than the fingerprint is not a
+// weakening — a fingerprint cannot verify anything — and what the admitted list compares is still
+// the hash of exactly these bytes.
+func (i *Identity) PublicKey() string {
+	if i.Cert.Leaf == nil {
+		return ""
+	}
+	return base64.RawStdEncoding.EncodeToString(i.Cert.Leaf.RawSubjectPublicKeyInfo)
+}
+
+// VerifyBy checks a signature against a public key carried in a record.
+//
+// Self-certifying on its own: anybody can mint a key and sign with it, so this proves the record
+// was not TAMPERED with and came from whoever holds that key — not that the key is anybody in
+// particular. The second half is the caller's, by remembering which key a member had the first
+// time it was seen; see the fleet-seen store in the daemon package.
+func VerifyBy(publicKey, sig string, msg []byte) bool {
+	spki, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(publicKey))
+	if err != nil {
+		return false
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(sig))
+	if err != nil {
+		return false
+	}
+	pub, err := x509.ParsePKIXPublicKey(spki)
+	if err != nil {
+		return false
+	}
+	ed, ok := pub.(ed25519.PublicKey)
+	if !ok {
+		return false
+	}
+	return ed25519.Verify(ed, msg, raw)
+}
+
+// FingerprintOfKey is the name the admitted list uses, computed from the key a record carries.
+func FingerprintOfKey(publicKey string) string {
+	spki, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(publicKey))
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(spki)
+	return "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
+}
