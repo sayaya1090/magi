@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/auth"
 	"github.com/sayaya1090/magi/internal/core/text"
 )
 
@@ -171,6 +173,35 @@ func (s *server) whoFrom(r *http.Request) string {
 		return ""
 	}
 	return text.Clip(r.Header.Get(s.userHeader), 100)
+}
+
+// groupsFrom is what the gateway said this caller belongs to, or nothing.
+//
+// The directory is where somebody is added on their first day and removed on their last, so a
+// console that reads membership needs no list of its own to keep in step — see auth.Policy.Groups.
+// Split on commas and spaces because every gateway spells a list differently and none of them is
+// worth a second flag.
+//
+// ⚠ Trusted exactly as far as the name beside it. A gateway that forwards a groups header it did
+// not set lets a client claim its own membership — which is the same footgun as the user header
+// and wants the same answer: strip both at the proxy.
+func (s *server) groupsFrom(r *http.Request) []string {
+	if s.groupsHeader == "" {
+		return nil
+	}
+	raw := text.Clip(r.Header.Get(s.groupsHeader), 400)
+	var out []string
+	for _, g := range strings.FieldsFunc(raw, func(c rune) bool { return c == ',' || c == ' ' }) {
+		if g = strings.TrimSpace(g); g != "" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// grant is the whole answer about one caller: name, groups, and what the two together buy.
+func (s *server) grant(r *http.Request) auth.Grant {
+	return s.policy.GrantTo(s.whoFrom(r), s.groupsFrom(r))
 }
 
 // hostOf drops the ephemeral port, which is noise: from a proxy on the same machine every line

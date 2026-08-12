@@ -64,6 +64,23 @@ func LoadAuth(dir string) (auth.Policy, error) {
 	// Lower-cased on the way in, once. An address is not case-sensitive and a gateway may spell it
 	// either way; comparing case-insensitively at every call site instead would be four places
 	// that have to remember.
+	// Groups first, and validated the same way: a group naming a role this build does not have is
+	// the same mistake as a person naming one, and finding out at the moment it matters — somebody
+	// from that group being refused everything — is the worst time.
+	for name, person := range got.Groups {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key == "" {
+			return auth.Policy{}, fmt.Errorf("%s: a group is listed with no name", AuthFile)
+		}
+		if _, ok := p.Roles[person.Role]; !ok {
+			return auth.Policy{}, fmt.Errorf("%s: the group %s is given the role %q, which is not "+
+				"defined here or built in", AuthFile, key, person.Role)
+		}
+		if p.Groups == nil {
+			p.Groups = map[string]auth.Person{}
+		}
+		p.Groups[key] = person
+	}
 	for who, person := range got.People {
 		key := strings.ToLower(strings.TrimSpace(who))
 		if key == "" {
@@ -77,16 +94,26 @@ func LoadAuth(dir string) (auth.Policy, error) {
 	}
 	// Somebody has to be able to grant a role, or the console is locked in whatever shape it is in
 	// now — including with nobody able to fix it.
-	if len(p.People) > 0 && !anyAdmin(p) {
+	if p.Configured() && !anyAdmin(p) {
 		return auth.Policy{}, fmt.Errorf("%s lists people and none of them may %q — nobody could "+
 			"change that afterwards", AuthFile, auth.Admin)
 	}
 	return p, nil
 }
 
+// anyAdmin: somebody, by name or by membership, may change this policy.
+//
+// A group counts. On a console where the directory is the roster, there may be no people listed at
+// all — and refusing to start that because nobody is named individually would be refusing the
+// configuration this feature exists to make possible.
 func anyAdmin(p auth.Policy) bool {
 	for who := range p.People {
 		if p.Allows(who, auth.Admin, "", "") {
+			return true
+		}
+	}
+	for name := range p.Groups {
+		if p.AllowsWith("", []string{name}, auth.Admin, "", "") {
 			return true
 		}
 	}
@@ -131,6 +158,7 @@ func SetPerson(dir, who string, p auth.Person) error {
 		return fmt.Errorf("%q is not a role here — this console has %s", p.Role, roleList(now))
 	}
 	after := withPerson(now, who, &p)
+	after.Groups = now.Groups
 	if !HasAdmin(after) {
 		return fmt.Errorf("that would leave nobody who may %q, and a console with people and no "+
 			"admin refuses to start — give somebody else the role first", auth.Admin)
@@ -159,10 +187,11 @@ func RemovePerson(dir, who string) error {
 		return fmt.Errorf("%s is not on the list", who)
 	}
 	after := withPerson(now, who, nil)
+	after.Groups = now.Groups
 	// One person left is a special case worth naming: removing the LAST person is not a lockout,
 	// it is going back to a console with one operator and no policy at all, which is a state this
 	// tree supports and somebody may well want.
-	if len(after.People) > 0 && !HasAdmin(after) {
+	if after.Configured() && !HasAdmin(after) {
 		return fmt.Errorf("that would leave nobody who may %q — give somebody else the role first",
 			auth.Admin)
 	}

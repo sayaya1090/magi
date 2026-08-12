@@ -300,6 +300,24 @@ The invitation stands for fifteen minutes and is spent by the first machine that
 
 Settings are read in three layers, most specific last: the person's `<config>/config.toml`, the team's `<workspace>/.magi/config.toml`, then **this companion's own** `<config>/companions/<workspace-key>/config.toml` — its model, its posture, the servers and jobs you gave it here. The companion layer is where magi PERSISTS your choices (`/model`, and the permission modal's "keep for this companion"): they are decisions about one workspace on one machine, so they neither travel in a clone nor land on your other companions — and they sit outside the workspace, where the agent's own file tools cannot reach them.
 
+**Who may use the console.** `<config>/auth.toml` maps names and groups onto roles:
+
+```toml
+[groups."eng-platform"]        # what the gateway reports in -groups-header
+role = "operator"
+
+[groups."eng-docs"]
+role = "responder"
+companions = ["docs"]          # narrowed to some of the fleet
+
+[people."lee@corp.com"]        # individual exceptions, not the roster
+role = "viewer"
+```
+
+Groups are how joiners and leavers stop being your problem: the directory is where somebody is added on their first day and removed on their last, and a console that reads membership needs no list of its own to keep in step. Capabilities and scopes ADD UP across matches — two teams means both, never less. Manage it from the console (an admin sees a people screen) or from a terminal on that machine (`magi --people`, `--grant`, `--revoke`), which is also the way in when a policy has locked its author out. Nothing can leave the file with no admin: that console would refuse to start, with the fix behind the door.
+
+⚠ The groups header is trusted exactly as far as the name beside it. A gateway that forwards a header it did not set lets a client claim its own membership — strip both at the proxy.
+
 Trust is per directory and stated once: **`magi --trust`** in the workspace (`magi --untrust` undoes it; the list is `<config>/trusted-workspaces`). Until then, opening the repository prints what was held back. Answering a permission prompt with "always, in this project" also needs it — that answer writes into `.magi/config.toml`, which an untrusted workspace would not be read back from.
 
 Hook events:

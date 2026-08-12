@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -147,5 +149,42 @@ func TestTheFirstPersonIsRefusedOnAConsoleThatCannotNameAnybody(t *testing.T) {
 	if w := ask(t, s, "", http.MethodPost,
 		url.Values{"who": {"kim@corp.com"}, "role": {"operator"}}); w.Code != http.StatusOK {
 		t.Errorf("the first person could not be added (%d): %s", w.Code, w.Body.String())
+	}
+}
+
+// An unclaimed console says whose name to grant, once.
+//
+// It cannot work out that the person behind the gateway's header is the one who started it — the
+// daemon recorded a uid and the header carries a name, and nothing joins the two. So it says the
+// name where the person who CAN join them will see it: a terminal on that machine.
+func TestAnUnclaimedConsoleSaysHowToClaimIt(t *testing.T) {
+	var said strings.Builder
+	log.SetOutput(&said)
+	defer log.SetOutput(os.Stderr)
+
+	s := withPolicy(t, "") // nobody configured
+	s.userHeader = "X-Forwarded-User"
+	for i := 0; i < 3; i++ {
+		r := httptest.NewRequest(http.MethodGet, "/fleet", nil)
+		r.Header.Set("X-Forwarded-User", "lee@corp.com")
+		s.claimHint(r)
+	}
+	got := said.String()
+	if !strings.Contains(got, "lee@corp.com") || !strings.Contains(got, "--grant") {
+		t.Errorf("the note does not say the name or the command:\n%s", got)
+	}
+	if strings.Count(got, "--grant") != 1 {
+		t.Errorf("it said it %d times; it is a note, not an alarm:\n%s", strings.Count(got, "--grant"), got)
+	}
+
+	// And a console that HAS a policy has nothing to claim, so it says nothing.
+	said.Reset()
+	s2 := withPolicy(t, twoPeople)
+	s2.userHeader = "X-Forwarded-User"
+	r := httptest.NewRequest(http.MethodGet, "/fleet", nil)
+	r.Header.Set("X-Forwarded-User", "kim@corp.com")
+	s2.claimHint(r)
+	if said.Len() != 0 {
+		t.Errorf("a configured console offered to be claimed:\n%s", said.String())
 	}
 }

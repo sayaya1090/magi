@@ -218,6 +218,8 @@
   "people.add": "사람 추가",
   "people.add_who": "게이트웨이가 알려주는 이름 (예: lee@corp.com)",
   "people.companions": "컴패니언 (비우면 전체)",
+  "people.exceptions": "개별 예외",
+  "people.groups": "게이트웨이가 내려주는 그룹",
   "people.nobody": "아직 아무도 등록돼 있지 않습니다 — 이 콘솔은 운영자 한 명, 정책 없음으로 동작합니다.",
   "people.nobody_how": "첫 사람을 추가하면 그 순간부터 모두에게 권한 검사가 적용됩니다.",
   "people.remove_body": "이 사람은 더 이상 이 콘솔의 어떤 것도 볼 수 없게 됩니다. 언제든 다시 추가할 수 있습니다.",

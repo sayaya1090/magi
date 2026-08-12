@@ -218,6 +218,8 @@
   "people.add": "Add somebody",
   "people.add_who": "The name your gateway reports (e.g. lee@corp.com)",
   "people.companions": "Companions (empty = all)",
+  "people.exceptions": "Individual exceptions",
+  "people.groups": "Groups your gateway reports",
   "people.nobody": "Nobody is listed yet: this console runs as one operator, with no policy.",
   "people.nobody_how": "Adding the first person turns the gate on for everybody.",
   "people.remove_body": "They will no longer see anything on this console. You can add them back at any time.",

@@ -86,11 +86,92 @@ type Person struct {
 type Policy struct {
 	Roles  map[string]Role   `toml:"roles"`
 	People map[string]Person `toml:"people"`
+	// Groups map what the gateway says somebody BELONGS to onto what they may do here.
+	//
+	// The reason is joiners and leavers. A list of people is a list somebody maintains on every
+	// console, and the entry that gets forgotten is always the leaver's — so the failure mode of
+	// hand-maintenance is access that outlives the job. The directory already knows: it is where
+	// somebody is added on their first day and removed on their last, and a gateway that
+	// authenticates against it can say which groups came back with the name.
+	//
+	// People stay, and become what they should have been all along: the exceptions. One person
+	// given something their group does not have, or narrowed to less than it.
+	Groups map[string]Person `toml:"groups"`
+}
+
+// Grant is what one caller may do here: the union of what their name and their groups give them.
+//
+// Resolved once per request rather than asked question by question, because a caller has one
+// identity and answering "may they" from three places is three chances to answer differently.
+type Grant struct {
+	// Named is whether the policy knew this caller at all — by name or by group. It is the
+	// difference between "allowed nothing" and "not here", which is the difference between a
+	// refusal that says ask an operator and one that says fix your gateway.
+	Named      bool
+	Can        []Capability
+	Companions []string
+	// Everywhere is true when any match left the scope open: a person in two groups, one of which
+	// is unscoped, is unscoped. Kept apart from an empty Companions list because those mean the
+	// same thing and are reached differently, and folding them would make "narrowed to nothing"
+	// indistinguishable from "narrowed to everything".
+	Everywhere bool
+}
+
+// GrantTo resolves a caller's name and groups into one answer.
+//
+// Additive, the way RBAC is everywhere else: capabilities union, scopes union, and any unscoped
+// match opens the scope. The alternative — intersecting scopes — makes joining a second team TAKE
+// something away, which nobody predicts and everybody reports as a bug.
+func (p Policy) GrantTo(who string, groups []string) Grant {
+	g := Grant{}
+	add := func(person Person, ok bool) {
+		if !ok {
+			return
+		}
+		role, known := p.Roles[person.Role]
+		if !known {
+			return // a role that was deleted grants nothing, rather than everything
+		}
+		g.Named = true
+		for _, c := range role.Can {
+			if !has(g.Can, c) {
+				g.Can = append(g.Can, c)
+			}
+		}
+		if len(person.Companions) == 0 {
+			g.Everywhere = true
+			return
+		}
+		g.Companions = append(g.Companions, person.Companions...)
+	}
+	for _, name := range groups {
+		person, ok := p.Groups[strings.ToLower(strings.TrimSpace(name))]
+		add(person, ok)
+	}
+	person, ok := p.People[strings.ToLower(strings.TrimSpace(who))]
+	add(person, ok)
+	return g
+}
+
+// Allows is the whole question for a resolved caller.
+func (g Grant) Allows(c Capability, companion, peer string) bool {
+	if !has(g.Can, c) {
+		return false
+	}
+	return g.InScope(companion, peer)
+}
+
+// InScope is the scope half on its own, for the routes that filter what they answer with.
+func (g Grant) InScope(companion, peer string) bool {
+	if g.Everywhere {
+		return true
+	}
+	return withinScope(g.Companions, companion, peer)
 }
 
 // Configured reports whether anybody has been given a role. Until somebody has, the console is a
 // single-operator console and every request is theirs.
-func (p Policy) Configured() bool { return len(p.People) > 0 }
+func (p Policy) Configured() bool { return len(p.People) > 0 || len(p.Groups) > 0 }
 
 // Allows answers the whole question: may this person do this, to this companion.
 //
@@ -101,42 +182,43 @@ func (p Policy) Configured() bool { return len(p.People) > 0 }
 // `companion` is the name of the companion the request is about and `peer` the console it was
 // reported by — empty for the ones that are about the console itself.
 func (p Policy) Allows(who string, c Capability, companion, peer string) bool {
+	return p.AllowsWith(who, nil, c, companion, peer)
+}
+
+// AllowsWith is Allows for a caller whose groups the gateway also reported.
+func (p Policy) AllowsWith(who string, groups []string, c Capability, companion, peer string) bool {
 	if !p.Configured() {
 		return true // one operator, one machine; see Policy
 	}
-	person, ok := p.People[strings.ToLower(strings.TrimSpace(who))]
-	if !ok {
-		return false
-	}
-	role, ok := p.Roles[person.Role]
-	if !ok {
-		return false // a role that was deleted grants nothing, rather than everything
-	}
-	if !has(role.Can, c) {
-		return false
-	}
-	return withinScope(person.Companions, companion, peer)
+	return p.GrantTo(who, groups).Allows(c, companion, peer)
 }
 
 // Can is what this person may do at all, for a page deciding what to draw. It is NOT the check —
 // see the note on hiding in the console's own gate.
-func (p Policy) Can(who string) []Capability {
+func (p Policy) Can(who string) []Capability { return p.CanWith(who, nil) }
+
+// CanWith is Can for a caller whose groups came with the name.
+func (p Policy) CanWith(who string, groups []string) []Capability {
 	if !p.Configured() {
 		return append([]Capability(nil), All...)
 	}
-	person, ok := p.People[strings.ToLower(strings.TrimSpace(who))]
-	if !ok {
-		return nil
-	}
-	return append([]Capability(nil), p.Roles[person.Role].Can...)
+	return p.GrantTo(who, groups).Can
 }
 
 // Scope is the companions this person may act on, empty for all of them.
-func (p Policy) Scope(who string) []string {
+func (p Policy) Scope(who string) []string { return p.ScopeWith(who, nil) }
+
+// ScopeWith is Scope for a caller whose groups came with the name. An unscoped match anywhere
+// means unscoped, which is why this can answer nil for somebody whose own entry names companions.
+func (p Policy) ScopeWith(who string, groups []string) []string {
 	if !p.Configured() {
 		return nil
 	}
-	return append([]string(nil), p.People[strings.ToLower(strings.TrimSpace(who))].Companions...)
+	g := p.GrantTo(who, groups)
+	if g.Everywhere {
+		return nil
+	}
+	return append([]string(nil), g.Companions...)
 }
 
 // InScope reports whether this person may see or act on one companion, named and placed.
@@ -152,14 +234,19 @@ func (p Policy) Scope(who string) []string {
 // the same names, so `docs` means docs EVERYWHERE and the qualified form is how somebody says
 // otherwise.
 func (p Policy) InScope(who, companion, peer string) bool {
+	return p.InScopeWith(who, nil, companion, peer)
+}
+
+// InScopeWith is InScope for a caller whose groups came with the name.
+func (p Policy) InScopeWith(who string, groups []string, companion, peer string) bool {
 	if !p.Configured() {
 		return true
 	}
-	person, ok := p.People[strings.ToLower(strings.TrimSpace(who))]
-	if !ok {
+	g := p.GrantTo(who, groups)
+	if !g.Named {
 		return false
 	}
-	return withinScope(person.Companions, companion, peer)
+	return g.InScope(companion, peer)
 }
 
 // withinScope: an empty list is every companion, and a request about no companion in particular

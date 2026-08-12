@@ -3348,8 +3348,24 @@ async function loadPeople() {
     peopleEl.replaceChildren(head, emptyState('people.nobody', 'people.nobody_how'));
     return;
   }
-  const rows = (got.people || []).map(p => personRow(p, roles));
-  peopleEl.replaceChildren(head, ...rows);
+  // Groups first, because on a console wired to a directory they are the roster and the people
+  // below them are the exceptions — one person given something their group does not have. Drawn
+  // read-only: membership is maintained where somebody is hired and let go, and a console that
+  // offered to edit it would be offering to disagree with the directory.
+  const kids = [head];
+  if ((got.groups || []).length) {
+    kids.push(cell('foldk', tr('people.groups')));
+    for (const g of got.groups) {
+      const row = cell('srv');
+      const top = cell('top');
+      top.append(cell('name', g.who), cell('tier', g.role));
+      row.append(top, cell('args', (g.can || []).join(' ') +
+        (g.companions && g.companions.length ? '  ·  ' + g.companions.join(', ') : '')));
+      kids.push(row);
+    }
+    kids.push(cell('foldk', tr('people.exceptions')));
+  }
+  peopleEl.replaceChildren(...kids, ...(got.people || []).map(p => personRow(p, roles)));
 }
 
 function personRow(p, roles) {

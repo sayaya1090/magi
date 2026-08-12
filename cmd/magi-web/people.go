@@ -44,6 +44,11 @@ type personRow struct {
 
 type peopleAnswer struct {
 	People []personRow `json:"people"`
+	// Groups is the other half of the roster, and on a console wired to a directory it is the
+	// whole of it: membership is maintained where somebody is hired and let go, and what is listed
+	// here is the mapping onto what that means. A screen that showed only individuals would say
+	// "nobody has access" about a console the whole team uses.
+	Groups []personRow `json:"groups,omitempty"`
 	// Roles is what a role name may be here, so a screen offers the ones this console has rather
 	// than a free-text box that fails on save.
 	Roles []roleRow `json:"roles"`
@@ -80,6 +85,13 @@ func (s *server) people(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(out.People, func(i, j int) bool { return out.People[i].Who < out.People[j].Who })
+	for name, person := range p.Groups {
+		out.Groups = append(out.Groups, personRow{
+			Who: name, Role: person.Role, Companions: person.Companions,
+			Can: p.Roles[person.Role].Can,
+		})
+	}
+	sort.Slice(out.Groups, func(i, j int) bool { return out.Groups[i].Who < out.Groups[j].Who })
 	for name, role := range p.Roles {
 		out.Roles = append(out.Roles, roleRow{Name: name, Can: role.Can})
 	}
@@ -150,4 +162,39 @@ func (s *server) repolicy() {
 		return
 	}
 	s.policy = p
+}
+
+// claimHint says, once, how to become the admin of a console nobody has claimed.
+//
+// The console cannot work out that the person behind the gateway's header is the one who started
+// it: the daemon recorded a uid and the header carries a name, and nothing joins them. So the
+// answer is to say the name out loud where the person who CAN join them will see it — a terminal
+// on that machine — with the command that does it.
+//
+// Once per process, because it is a note and not an alarm, and never on a console that already has
+// a policy: there is nothing to claim then, and the sentence would read as an offer.
+func (s *server) claimHint(r *http.Request) {
+	if s.policy.Configured() || s.userHeader == "" {
+		return
+	}
+	who := s.whoFrom(r)
+	if who == "" {
+		return
+	}
+	s.claimOnce.Do(func() {
+		log.Printf("magi-web: nobody is configured, so everybody who reaches this console is the "+
+			"operator. The gateway calls you %s — claim it on that machine with: "+
+			"magi --grant %s --role operator", who, who)
+	})
+}
+
+// claiming wraps a route so the hint above gets a chance to be said.
+//
+// Around the gate rather than inside a handler: the note is about the console and not about any
+// one route, and on an unclaimed console every route is answering everybody anyway.
+func (s *server) claiming(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.claimHint(r)
+		h(w, r)
+	}
 }

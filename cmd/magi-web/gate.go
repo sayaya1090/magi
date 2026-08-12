@@ -133,7 +133,11 @@ func (s *server) mayDo(path string, h http.HandlerFunc) http.HandlerFunc {
 				"refuses it", http.StatusForbidden)
 			return
 		}
-		if !s.policy.Allows(who, need, nameOfSocket(r.URL.Query().Get("d")), r.URL.Query().Get("p")) {
+		// A console with nobody configured is the one-operator console and answers everything —
+		// the short-circuit lives here rather than inside the grant, because a grant is about a
+		// caller and this is about whether there is a policy at all.
+		if s.policy.Configured() &&
+			!s.grant(r).Allows(need, nameOfSocket(r.URL.Query().Get("d")), r.URL.Query().Get("p")) {
 			http.Error(w, refusal(who, need), http.StatusForbidden)
 			return
 		}
@@ -145,7 +149,10 @@ func (s *server) mayDo(path string, h http.HandlerFunc) http.HandlerFunc {
 // with a LIST. The gate cannot do this: there is no companion in the request to check, and the
 // answer is what has to be filtered.
 func (s *server) seen(r *http.Request, name, peer string) bool {
-	return s.policy.InScope(s.whoFrom(r), name, peer)
+	if !s.policy.Configured() {
+		return true
+	}
+	return s.grant(r).InScope(name, peer)
 }
 
 // onlySeen keeps the rows of a list whose subject this person may see.
@@ -209,13 +216,13 @@ func nameOfSocket(socket string) string {
 // too, where the answer is "everything", so the page has one shape of answer to read.
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	who := s.whoFrom(r)
-	can := s.policy.Can(who)
+	can := s.policy.CanWith(who, s.groupsFrom(r))
 	out := struct {
 		Who        string            `json:"who,omitempty"`
 		Can        []auth.Capability `json:"can"`
 		Companions []string          `json:"companions,omitempty"`
 		Shared     bool              `json:"shared,omitempty"`
-	}{Who: who, Can: can, Companions: s.policy.Scope(who), Shared: s.shared()}
+	}{Who: who, Can: can, Companions: s.policy.ScopeWith(who, s.groupsFrom(r)), Shared: s.shared()}
 	if out.Can == nil {
 		out.Can = []auth.Capability{}
 	}

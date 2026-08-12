@@ -82,6 +82,9 @@ func run() int {
 	// Named rather than sniffed. Every gateway spells it differently (X-Forwarded-User,
 	// X-Auth-Request-Email, Cf-Access-Authenticated-User-Email, Tailscale-User-Login), and a list
 	// of headers this trusts by default is a list of headers anybody can set.
+	groupsHeader := flag.String("groups-header", "",
+		"header the authenticating proxy puts the person's groups in (e.g. X-Forwarded-Groups); "+
+			"maps to [groups.*] in auth.toml, so joiners and leavers are handled in the directory")
 	userHeader := flag.String("user-header", "",
 		"header the authenticating proxy in front puts the person's name in, recorded with each "+
 			"change (e.g. X-Forwarded-User); unset records where a request came from and not who")
@@ -173,7 +176,8 @@ func run() int {
 
 	srv := &server{
 		reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{},
-		peers: peers, exposed: *exposed, userHeader: *userHeader, audit: audit, policy: policy,
+		peers: peers, exposed: *exposed, userHeader: *userHeader, groupsHeader: *groupsHeader,
+		audit: audit, policy: policy,
 		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
 		// one must not, because an event stream is supposed to stay open and a timeout there would
 		// cut the transcript every few seconds.
@@ -228,7 +232,12 @@ func run() int {
 		}
 	}
 	if policy.Configured() {
-		fmt.Fprintf(os.Stderr, " — %d people, by role", len(policy.People))
+		fmt.Fprintf(os.Stderr, " — %d people and %d group(s), by role", len(policy.People), len(policy.Groups))
+	} else if *userHeader != "" {
+		// Nobody configured and a gateway in front: this console answers everybody it can name,
+		// which is the state somebody setting one up passes through and does not always notice.
+		// The name is not known until a request arrives — see claimHint, which says it once.
+		fmt.Fprint(os.Stderr, " — nobody configured: everybody who reaches it is the operator")
 	}
 	fmt.Fprintln(os.Stderr)
 	srvr := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -394,6 +403,10 @@ type server struct {
 	// operator because only they know what is in front. Empty means the record says where a
 	// request came from and not who sent it. See audit.go.
 	userHeader string
+	// groupsHeader is where the gateway puts membership, when it reports it. Empty = names only.
+	groupsHeader string
+	// claimOnce keeps the "nobody has claimed this console" note to one line per process.
+	claimOnce sync.Once
 
 	// Other consoles this one reads, from the operator's flags. Empty is the ordinary case: one
 	// machine, no federation, nothing on the network.
@@ -815,7 +828,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		// want. Then the cross-site guard, which is about the BROWSER and applies to everybody
 		// including the operator. Then may-do, which is about the person — asked last, so a
 		// forged cross-site request is turned away before anybody's permissions are consulted.
-		out[path] = s.audited(sameSiteOnly(s.mayDo(path, h)))
+		out[path] = s.audited(sameSiteOnly(s.claiming(s.mayDo(path, h))))
 	}
 	return out
 }
