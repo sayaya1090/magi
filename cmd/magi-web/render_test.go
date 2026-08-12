@@ -4658,10 +4658,19 @@ console.log(JSON.stringify({
   expanded: expanded,
   tabs: byId.cardtabs.children.map(t => t.textContent || (t.find('div')[0] || {}).textContent || ''),
   tabsHidden: !!byId.cardtabs.hidden,
-  file: byId.fileview.find('pre').map(p => p.textContent).join(''),
+  // The code column only: the numbers are their own block now, unselectable, so what a drag copies
+  // is what this reads.
+  file: byId.fileview.find('pre').filter(p => String(p.className).includes('filecode'))
+                     .map(p => p.text).join(''),
+  gutter: byId.fileview.find('pre').filter(p => String(p.className).includes('filegutter'))
+                       .map(p => p.textContent).join(''),
+  dir: byId.fileview.find('div').filter(d => String(d.className).includes('filedir'))
+                    .map(d => d.textContent).join(''),
   fileHidden: !!byId.fileview.hidden,
   factsHidden: !!byId.detail.hidden,
   factsKids: byId.detail.children.length,
+  // And it stays out of the way when the poll redraws it, which it does every three seconds.
+  afterPoll: await (async () => { await drawDetail(a); return !!byId.detail.hidden; })(),
 }));
 `)
 	before, _ := got["before"].([]any)
@@ -4680,8 +4689,11 @@ console.log(JSON.stringify({
 	}
 	// Line numbers as the tool wrote them: a person and their companion have to be able to point
 	// at the same line 40.
-	if f, _ := got["file"].(string); !strings.Contains(f, "1\tmagi") {
-		t.Errorf("the file is drawn as %q", f)
+	if f, _ := got["file"].(string); !strings.Contains(f, "magi") || strings.Contains(f, "1\t") {
+		t.Errorf("the code column is %q — the numbers belong in their own, or a drag copies them", f)
+	}
+	if g, _ := got["gutter"].(string); !strings.Contains(g, "1\n2") {
+		t.Errorf("the gutter is %q", g)
 	}
 	if got["fileHidden"] == true {
 		t.Error("the file was fetched and not shown")
@@ -4693,5 +4705,8 @@ console.log(JSON.stringify({
 	}
 	if got["factsHidden"] != true {
 		t.Error("the facts card and the file are both in the slot at once")
+	}
+	if got["afterPoll"] != true {
+		t.Error("the poll put the facts card back over the file somebody is reading")
 	}
 }

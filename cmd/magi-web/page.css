@@ -1357,25 +1357,51 @@
   .treerow .treemark.open { transform:rotate(90deg); }
 
   /* The file in the slot the facts card shares. */
-  .filetop {
-    display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap;
-    padding-bottom:var(--magi-sys-space-150);
+  /* Where the file is. The tab says which one; this says which of the four called main.go it is.
+     Quiet and small — it is context for the tab, not a heading over the pane. */
+  .filedir {
+    font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted);
+    overflow-wrap:anywhere; padding-bottom:var(--magi-sys-space-100);
   }
-  .filepath {
-    font:600 var(--md-sys-typescale-label-large-size)/1.4 var(--magi-ref-mono);
-    color:var(--magi-ref-muted); overflow-wrap:anywhere; min-width:0;
-  }
+  /* The parts of a file that are not code. Three marks and a gutter — see paintCode(): this is a
+     scan, not a parser, and it colours only what cannot be got wrong in a way that misleads.
+     The gutter is the quietest thing on the screen: it is there to be referred to, not read. */
+  .filecode .tok-note { color:var(--magi-ref-muted); font-style:italic; }
+  .filecode .tok-text { color:var(--magi-ref-accent); }
+  .filecode .tok-num { color:var(--magi-ref-primary); }
   /* Line numbers come from the tool, so the body is one preformatted block and the numbers are
      part of the text. Scrolled in both directions inside its own box: a long line in a source file
      is not something to reflow, and the page must not scroll sideways because of it. */
+  /* Two columns that scroll as one: the numbers, then the file. Both are <pre> with the same
+     metrics, so line 40 in one is line 40 in the other without anything measuring anything. */
   .filebody {
-    margin:0; max-height:min(60vh, 34rem); overflow:auto; overscroll-behavior:contain;
+    display:grid; grid-template-columns:auto minmax(0, 1fr);
+    max-height:min(60vh, 34rem); overflow:auto; overscroll-behavior:contain;
     font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono);
-    color:var(--magi-ref-fg); white-space:pre; tab-size:4;
+    color:var(--magi-ref-fg); tab-size:4;
+  }
+  .filegutter, .filecode { margin:0; white-space:pre; font:inherit; }
+  /* Not selectable, and not scrolled away. A drag across the code copies the code — with one run
+     of text the numbers came with it and every pasted line had a number welded to its front — and
+     the column stays at the left edge while a long line scrolls, which is exactly when a reader
+     needs to know which line they are on. */
+  .filegutter {
+    user-select:none; -webkit-user-select:none; text-align:right;
+    padding-right:var(--magi-sys-space-150); position:sticky; left:0;
+    background:var(--magi-ref-surface-container-low); color:var(--magi-ref-outline);
   }
   /* The close mark. Not faded — a muted role at .7 measures 3.99:1 in the light theme and this
      page's guard refuses that — so it is the muted colour at full strength and takes the text
      colour when the pointer is on it. */
+  /* Which tab is showing, said in more than the indicator under it. The strip sits above a card
+     that fills the width, so the 2px line at the bottom of one tab is a long way from the content
+     it belongs to — the label carries it too. */
+  #cardtabs md-secondary-tab[active] { --md-secondary-tab-label-text-weight:700; }
+  #cardtabs md-secondary-tab {
+    --md-secondary-tab-label-text-font:var(--magi-ref-mono);
+    --md-secondary-tab-active-label-text-color:var(--magi-ref-primary);
+    --md-secondary-tab-active-indicator-color:var(--magi-ref-primary);
+  }
   #cardtabs .tabclose { margin-left:var(--magi-sys-space-100); color:var(--magi-ref-muted); }
   #cardtabs .tabclose:hover { color:var(--magi-ref-fg); }
 

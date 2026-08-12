@@ -397,14 +397,19 @@ function drawPanels() {
   if (!s || wide.matches) {
     // Both halves, as they were. Nothing may stay hidden from a previous narrow visit.
     if (sideEl) sideEl.hidden = false;
-    if (detailEl) detailEl.hidden = !s;
     log.hidden = !s;
+    // The facts card is not simply "shown on a companion's page" any more: it shares its slot with
+    // an open file, and which of the two is showing is the tab strip's answer. Said through
+    // showCard so there is one place that decides, rather than three that have to agree.
+    if (!s && detailEl) detailEl.hidden = true;
+    else showCard();
     return;
   }
   const talk = panel === 'talk';
   log.hidden = !talk;
-  detailEl.hidden = talk;
   sideEl.hidden = talk;
+  if (talk) detailEl.hidden = true;
+  else showCard();
 }
 // Only when the reader switched, not on the poll that redraws the facts four times a minute.
 // Sideways, in the direction the reader moved. Talk sits left of state, so arriving at state comes
@@ -2423,7 +2428,11 @@ function drawDetail(a) {
     grid.append(row);
   });
   setFolded(localStorage.getItem('facts') === 'folded');
-  box.hidden = false;
+  // Shown unless something else is standing in its place. This card is rebuilt by the fleet poll
+  // every three seconds, and an unconditional `hidden = false` here put it back over an open file
+  // on every one of them — the file stayed in the DOM underneath and the card kept reappearing on
+  // top of it. Whatever the tab strip says is what shows; see showCard().
+  showCard();
   // Which of the two panels it belongs to when the columns have stacked. Called here rather than
   // left to render(), because this runs on every fleet poll and render() does not.
   if (sock()) drawPanels();
@@ -4922,13 +4931,119 @@ async function openFile(a, path) {
 // and not stripped: a person and their companion pointing at different line 40s is the whole cost
 // of tidying this up.
 function drawFile(path, text) {
-  const head = cell('filetop');
-  head.append(cell('filepath', path));
-  const body = document.createElement('pre');
-  body.className = 'filebody';
-  body.textContent = text;
-  fileViewEl.replaceChildren(head, body);
+  // The DIRECTORY above it, and not the whole path: the tab already carries the file's name, and
+  // repeating it costs a line of the pane to say what the reader just clicked — but where the file
+  // is is the half a basename throws away, and on a tree with four main.go in it that half is the
+  // whole answer. Nothing at all for a file in the root, which has no directory to name.
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+  const box = cell('filebody');
+  box.append(...codeBlocks(text, path));
+  fileViewEl.replaceChildren(...(dir ? [cell('filedir', dir)] : []), box);
   showCard();
+}
+
+// codeBlocks splits the tool's output into two columns: the line numbers, and the file.
+//
+// Two blocks and not one, because of what happens when somebody drags across it. The read tool
+// writes "   12\tthe line", and as one run of text a selection takes the numbers with it — paste
+// that into a terminal and every line has a number welded to its front. The gutter is its own
+// column, unselectable, so a drag across the code copies the code.
+//
+// It also has to stay put sideways: a long line scrolls the block, and a gutter that scrolled with
+// it would leave the numbers off the left edge exactly when a reader is furthest into a line.
+function codeBlocks(text, path) {
+  const comment = commentMark(path);
+  const nums = document.createElement('pre');
+  nums.className = 'filegutter';
+  // Hidden from a screen reader: it reads the file, and a column of bare numbers between it and
+  // every line is noise that cannot be skipped.
+  nums.setAttribute('aria-hidden', 'true');
+  const code = document.createElement('pre');
+  code.className = 'filecode';
+  let gutter = '';
+  for (const line of String(text).split('\n')) {
+    const tab = line.indexOf('\t');
+    let body = line;
+    if (tab > 0 && /^\s*\d+$/.test(line.slice(0, tab))) {
+      gutter += line.slice(0, tab).trim() + '\n';
+      body = line.slice(tab + 1);
+    } else {
+      // A line the tool did not number keeps its place in the column, or every number below it
+      // would point at the wrong line.
+      gutter += '\n';
+    }
+    for (const part of codeParts(body, comment)) {
+      if (!part.cls) { code.append(document.createTextNode(part.text)); continue; }
+      const m = document.createElement('span');
+      m.className = part.cls;
+      m.textContent = part.text;
+      code.append(m);
+    }
+    code.append(document.createTextNode('\n'));
+  }
+  nums.textContent = gutter;
+  return [nums, code];
+}
+
+// paintCode marks the parts of a file that are not code: comments, strings, numbers.
+//
+// # Why not a highlighter
+//
+// Highlighting properly means a grammar per language and a parser to run it — that is a library
+// the size of everything else this page vendors put together, for a pane that exists so somebody
+// can glance at the file their companion just mentioned. And a half-parser is worse than none: it
+// colours a keyword inside a string and the reader stops trusting every colour on the screen.
+//
+// So this marks only what can be found by scanning a line left to right and cannot be got wrong in
+// a way that misleads: a comment that runs to the end of the line, a quoted string, and a bare
+// number. Nothing here claims to know the language beyond which character starts a comment in it.
+
+// commentMark is what starts a comment to the end of the line in this kind of file, or "" when
+// this page does not know — in which case nothing is marked as one, which is the honest answer.
+function commentMark(path) {
+  const ext = String(path).split('.').pop().toLowerCase();
+  if (['go', 'js', 'mjs', 'ts', 'tsx', 'jsx', 'css', 'java', 'c', 'h', 'cc', 'cpp', 'rs', 'swift',
+       'kt', 'scala', 'php', 'sql'].includes(ext)) return '//';
+  if (['py', 'sh', 'bash', 'zsh', 'rb', 'yml', 'yaml', 'toml', 'conf', 'ini', 'mk'].includes(ext) ||
+      ['makefile', 'dockerfile'].includes(String(path).split('/').pop().toLowerCase())) return '#';
+  if (['lua', 'sql'].includes(ext)) return '--';
+  return '';
+}
+
+// codeParts splits one line into the pieces worth marking. A scan, not a parse: a quote opens a
+// string and the next matching quote closes it, and a comment mark outside a string runs to the
+// end. Anything it cannot place stays plain, which is what "not a parser" has to mean.
+function codeParts(code, comment) {
+  const out = [];
+  let plain = '';
+  const flush = () => { if (plain) { out.push({text: plain}); plain = ''; } };
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (comment && code.startsWith(comment, i)) {
+      flush();
+      out.push({text: code.slice(i), cls: 'tok-note'});
+      return out;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      let j = i + 1;
+      while (j < code.length && code[j] !== c) j += code[j] === '\\' ? 2 : 1;
+      flush();
+      out.push({text: code.slice(i, Math.min(j + 1, code.length)), cls: 'tok-text'});
+      i = j;
+      continue;
+    }
+    if (/[0-9]/.test(c) && !/[\w.]/.test(code[i - 1] || ' ')) {
+      let j = i;
+      while (j < code.length && /[\w.]/.test(code[j])) j++;
+      flush();
+      out.push({text: code.slice(i, j), cls: 'tok-num'});
+      i = j - 1;
+      continue;
+    }
+    plain += c;
+  }
+  flush();
+  return out;
 }
 
 // drawCardTabs says which of the things sharing the slot is showing.
