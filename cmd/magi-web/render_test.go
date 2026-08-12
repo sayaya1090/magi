@@ -4260,3 +4260,59 @@ console.log(JSON.stringify({sent: sent}));`)
 		t.Errorf("it did not answer the call it was drawn for: %q", body)
 	}
 }
+
+// The people screen draws who may use this console, and does not draw at all for anybody else.
+//
+// Two halves of the same rule: the markup carries data-may="admin" so the screen is not offered to
+// somebody who would be refused, and the server refuses regardless — hiding is for the person who
+// would otherwise press a control that answers 403.
+func TestThePeopleScreenIsDrawnForAnAdminAndHiddenFromEverybodyElse(t *testing.T) {
+	fleet := `[]`
+	page := `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  const path = String(p).split('?')[0];
+  if (path === '/me') return {ok: true, json: async () => ({can: CAN})};
+  if (path === '/people') return {ok: true, json: async () => ({configured: true, roles: [
+      {name: 'operator', can: ['read','answer','prompt','curate','configure','admin','shell']},
+      {name: 'viewer', can: ['read']}],
+    people: [
+      {who: 'kim@corp.com', role: 'operator', can: ['read','answer','prompt','curate','configure','admin','shell'], me: true},
+      {who: 'lee@corp.com', role: 'viewer', companions: ['docs'], can: ['read']}]})};
+  return base(p, o);
+};
+await loadMe();
+history.pushState({}, '', '/?v=people');
+// Through render(), which is what a person arriving at the address gets — including the decision
+// about whether to ask the server at all.
+render();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+const names = byId.people.find('div').filter(d => String(d.className).includes('name')).map(d => d.textContent);
+console.log(JSON.stringify({
+  hidden: byId.people.hidden,
+  names: names,
+  roles: byId.people.find('md-outlined-select').length,
+}));
+`
+	admin := runPage(t, fleet, "?v=people", strings.Replace(page, "CAN", `['read','admin']`, 1))
+	if admin["hidden"] == true {
+		t.Fatal("an admin cannot see the screen")
+	}
+	names, _ := admin["names"].([]any)
+	if len(names) != 2 || names[0] != "kim@corp.com" {
+		t.Errorf("the list drew %v", names)
+	}
+	if admin["roles"].(float64) != 2 {
+		t.Errorf("%v role pickers for two people", admin["roles"])
+	}
+
+	// Somebody who may read but not admin: the screen is not there to arrive at, even by address.
+	viewer := runPage(t, fleet, "?v=people", strings.Replace(page, "CAN", `['read']`, 1))
+	// Hidden, which is the whole of what the PAGE can promise. What keeps the list from somebody
+	// who may not have it is the server — TestOnlyAnAdminSeesOrChangesWhoMayUseThisConsole — and
+	// that is deliberate: hiding is for the person who would otherwise be offered a control that
+	// answers 403, never for the answer itself.
+	if viewer["hidden"] != true {
+		t.Error("a viewer reached the people screen by editing the address")
+	}
+}

@@ -151,6 +151,14 @@ const demoScript = `
     // auth.toml answers, so the copy behaves like the ordinary single-operator one rather than
     // like a person nobody gave a role to.
     '/me': {can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
+    // Nobody configured, which is the honest answer for a demo and the same one a console with no
+    // auth.toml gives: the screen then shows what that state IS — one operator, no policy — rather
+    // than an empty table that reads as "your file was not read".
+    '/people': {people: [], roles: [
+      {name: 'operator', can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
+      {name: 'responder', can: ['read', 'answer']},
+      {name: 'viewer', can: ['read']},
+    ], configured: false},
     // A key so the notifications switch draws its live state rather than "this console has no push
     // key". Nothing can be subscribed here — there is no server to post to and the mock refuses
     // writes — but the reason a reader sees is then the browser's own, which is the true one.

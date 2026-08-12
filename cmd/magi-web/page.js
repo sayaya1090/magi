@@ -422,6 +422,7 @@ const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board');
 const mcpEl = document.getElementById('mcp');
+const peopleEl = document.getElementById('people');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet');
@@ -497,10 +498,10 @@ const crumbSep3 = document.getElementById('crumbSep3'), crumbLeaf = document.get
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
-const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board'};
+const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board', people: 'nav.people'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-const HREF = {fleet: '', skills: '?v=skills', board: '?v=board'};
+const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', people: '?v=people'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
@@ -3325,6 +3326,95 @@ async function loadSkills() {
 // ── what they can reach ──────────────────────────────────────────────────────
 // The MCP servers each companion has, and the form to add one. Not polled: a config file does not
 // change while you are looking at it, and this page is read to decide something.
+// Who may use this console, and how much.
+//
+// A row per person, and the two things a row can be changed to: a different role, or a narrower
+// set of companions. The capabilities are drawn beside the role because a role NAME is a promise
+// and the capabilities are the promise itself — reading them together is how somebody notices that
+// "responder" does not include what they assumed.
+//
+// The screen is drawn only for an admin (the markup carries data-may), and the server refuses
+// regardless: hiding is for a person who would otherwise be offered a control that answers 403.
+async function loadPeople() {
+  // fetchList is the one fetch helper: it decodes whatever JSON came back, array or object, and
+  // answers null when the server did not — see its note on why a refusal is not an exception.
+  const got = await fetchList('/people');
+  if (!got) return;
+  const roles = (got.roles || []).map(r => r.name);
+  const head = sectionHead('nav.people', addPersonButton(roles));
+  if (!got.configured) {
+    // Not an empty table: a console with nobody listed is the one-operator console, and which of
+    // the two this is answers "was my file read".
+    peopleEl.replaceChildren(head, emptyState('people.nobody', 'people.nobody_how'));
+    return;
+  }
+  const rows = (got.people || []).map(p => personRow(p, roles));
+  peopleEl.replaceChildren(head, ...rows);
+}
+
+function personRow(p, roles) {
+  const row = cell('srv' + (p.me ? ' now' : ''));
+  const top = cell('top');
+  top.append(cell('name', p.who));
+  if (p.me) top.append(cell('tier', tr('people.you')));
+  row.append(top);
+  // What the role buys, in the vocabulary the file uses. Not translated: these are the words that
+  // go INTO auth.toml, and a screen that showed one word while the file wanted another would be
+  // teaching somebody the wrong name for the thing they are editing.
+  row.append(cell('args', (p.can || []).join(' ')));
+
+  const controls = cell('answer');
+  const pick = document.createElement('md-outlined-select');
+  pick.setAttribute('label', tr('people.role'));
+  for (const r of roles) {
+    const o = document.createElement('md-select-option');
+    o.value = r;
+    if (r === p.role) o.selected = true;
+    const t = document.createElement('div');
+    t.slot = 'headline';
+    t.textContent = r;
+    o.append(t);
+    pick.append(o);
+  }
+  const scope = withGlass(document.createElement('md-outlined-text-field'));
+  scope.setAttribute('label', tr('people.companions'));
+  scope.value = (p.companions || []).join(', ');
+  const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
+                     tr('action.save'));
+  save.onclick = () => setPerson(p.who, pick.value, scope.value);
+  const drop = withMark(document.createElement('md-text-button'), '#i-sl-trash-can');
+  label(drop, tr('action.remove'));
+  drop.onclick = () => confirmThis({
+    head: tr('people.remove_head', {who: p.who}),
+    body: tr('people.remove_body'),
+    keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+    doIt: tr('action.remove'), doMark: '#i-sl-trash-can',
+    go: () => post('/people', new URLSearchParams({who: p.who, remove: '1'}), '', '')
+      .then(why => { if (!why) loadPeople(); }),
+  });
+  controls.append(pick, scope, save, drop);
+  row.append(controls);
+  return row;
+}
+
+function setPerson(who, role, companions) {
+  post('/people', new URLSearchParams({who: who, role: role, companions: companions}), '', '')
+    .then(why => { if (!why) loadPeople(); });
+}
+
+// Adding somebody is the head's own action, for the same reason adding a server is: at the bottom
+// of a list it is behind everybody already on it.
+function addPersonButton(roles) {
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-plus'),
+                  tr('people.add'));
+  b.onclick = () => {
+    const who = prompt(tr('people.add_who'));
+    if (!who || !who.trim()) return;
+    setPerson(who.trim(), roles.includes('viewer') ? 'viewer' : (roles[0] || ''), '');
+  };
+  return b;
+}
+
 async function loadMCP() {
   const list = await fetchList('/mcp');
   if (!list) return;
@@ -4656,6 +4746,7 @@ loadMe();   // its two labels are words too
   // Guarded on a first paint having happened, or this would run before the loaders are declared.
   if (!repaintable) return;
   if (view() === 'skills') { loadSkills(); loadMCP(); }
+  else if (view() === 'people' && mayEl(peopleEl)) loadPeople();
 
   else if (view() === 'board') loadBoard();
   else if (!sock()) loadFleet();
@@ -4840,6 +4931,9 @@ function render() {
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
   mcpEl.hidden = !!s || v !== 'skills';
+  // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
+  // be able to arrive at by editing the address either.
+  peopleEl.hidden = !!s || v !== 'people' || !mayEl(peopleEl);
   // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
@@ -4877,7 +4971,7 @@ function render() {
   drawnFor = s;
   // Whichever body of content this navigation arrived at. One of them, not all of them: reveal on a
   // hidden element does nothing, so the list is the page's destinations and the right one answers.
-  for (const el of [fleetEl, skillsEl, boardEl, mcpEl, streamEl]) reveal(el);
+  for (const el of [fleetEl, skillsEl, boardEl, mcpEl, peopleEl, streamEl]) reveal(el);
   measureDock();
   if (s && !deepNow) { draw([]); connect(); }
   else if (!s) { conn(''); says(''); }
@@ -4903,6 +4997,16 @@ function render() {
       // them would take the focus and the half-typed date with it.
       onlyWhen(() => !boardEl.contains(document.activeElement)),
     ).subscribe(() => loadBoard());
+    return;
+  }
+  if (v === 'people') {
+    // Read once and not polled: this list changes when somebody joins or leaves, which is not on a
+    // three-second clock — and a table that reorders itself while an admin is picking a role is
+    // worse than one a minute old.
+    //
+    // Not asked for at all when it may not be had. The server refuses either way; a fetch that
+    // exists only to be refused is a 403 in somebody's audit record with nothing behind it.
+    if (mayEl(peopleEl)) loadPeople();
     return;
   }
   if (v === 'skills') {

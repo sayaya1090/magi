@@ -165,6 +165,10 @@
   <div id="skills" hidden></div>
   <div id="board" hidden></div>
   <div id="mcp" hidden></div>
+  <!-- Who may use this console. Its own screen and not a tab: it is opened when somebody joins or
+       leaves, which is not daily, and the navigation has to fit on a phone. data-may hides it from
+       anybody who could not act on it anyway — the server refuses regardless. -->
+  <div id="people" hidden data-may="admin"></div>
   <div id="fleet"></div>
   <!-- Two reasons to be on a companion's page, and they want different things. Checking on it wants
        the facts: state, workspace, model, context, plan. Reading what it is doing and steering it
