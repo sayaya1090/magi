@@ -1156,20 +1156,45 @@ func dial(path string, connectTimeout, deadline time.Duration) (*Client, error) 
 		conn, err = net.Dial("unix", path)
 	}
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file") ||
-			strings.Contains(err.Error(), "connect: no such") {
-			return nil, fmt.Errorf("no magi daemon at %s — start one with `magi --daemon` in that workspace", path)
+		// Refused, not absent. A socket belonging to another account answers "permission denied",
+		// and that daemon IS running — telling somebody to start one would send them to fix a
+		// machine that is fine.
+		if errors.Is(err, os.ErrPermission) {
+			return nil, fmt.Errorf("daemon: %w", err)
 		}
-		if strings.Contains(err.Error(), "connection refused") {
-			return nil, fmt.Errorf("a socket is at %s but nothing is listening — the daemon died; "+
+		// Otherwise the question is only whether anything is at that path, which is a fact this
+		// process can check rather than a phrase to match. It used to match phrases, and the
+		// phrases differ by platform: a leftover file is "connection refused" on Linux and "socket
+		// operation on non-socket" on macOS, so the same absence was ErrGone on one and not on the
+		// other — and a caller that asked the honest question got the honest answer on one CI and
+		// not the other.
+		if _, serr := os.Stat(path); serr == nil {
+			return nil, gone("a socket is at %s but nothing is listening — the daemon died; "+
 				"start one with `magi --daemon`", path)
 		}
-		return nil, fmt.Errorf("daemon: %w", err)
+		return nil, gone("no magi daemon at %s — start one with `magi --daemon` in that workspace", path)
 	}
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	return &Client{rw: conn, nc: conn, enc: json.NewEncoder(conn), sc: sc, deadline: deadline}, nil
 }
+
+// gone is "that companion is not running", said in the words for the case at hand.
+//
+// Both of the sentences above are ErrGone and neither used to say so: the message was built with
+// fmt.Errorf and the syscall underneath was dropped, so a caller could match the WORDS or nothing.
+// One did — the console's "is it off?" check keyed on errno and therefore worked on macOS, where
+// connecting to a leftover file gives ENOTSOCK and falls through this branch, and failed on Linux,
+// where it gives ECONNREFUSED and lands here. That is a difference no caller should have to know.
+func gone(format string, a ...any) error { return goneErr{msg: fmt.Sprintf(format, a...)} }
+
+type goneErr struct{ msg string }
+
+func (e goneErr) Error() string { return e.msg }
+
+// Unwrap, so errors.Is(err, ErrGone) is the question a caller asks, and the sentence stays the one
+// a person reads.
+func (e goneErr) Unwrap() error { return ErrGone }
 
 // Over speaks the daemon protocol across an already-open pipe.
 //

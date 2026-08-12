@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1230,5 +1233,39 @@ func TestAStoppedCompanionSaysSoInWords(t *testing.T) {
 	}
 	if !strings.Contains(body, "not running") || !strings.Contains(body, "on disk") {
 		t.Errorf("it does not say the companion is off and its conversations are kept: %s", body)
+	}
+}
+
+// "Not running" is asked of the daemon package, not of the operating system.
+//
+// The three errnos mean one thing — a socket taken away with its daemon, one left behind with
+// nothing accepting, a path that is not a socket at all — and which of them a machine produces
+// differs by platform. Keyed on errno alone this worked on macOS and failed on Linux, where the
+// dial replaces the syscall with a sentence of its own: a green local gate and a red CI, for a
+// difference no caller should have to know about.
+func TestNotRunningIsRecognisedHoweverThePlatformSaysIt(t *testing.T) {
+	in := daemon.Info{Socket: "/tmp/daemon-docs.sock", Workdir: "/w/docs"}
+	said := func(err error) string { return notRunning(in, err).Error() }
+
+	// The daemon package's own words, on whatever platform produced them.
+	for _, err := range []error{
+		fmt.Errorf("a socket is at /x but nothing is listening: %w", daemon.ErrGone),
+		fmt.Errorf("dial unix /x: connect: %w", syscall.ECONNREFUSED),
+		fmt.Errorf("dial unix /x: connect: %w", fs.ErrNotExist),
+		fmt.Errorf("dial unix /x: connect: %w", syscall.ENOTSOCK),
+	} {
+		got := said(err)
+		if !strings.Contains(got, "not running") || !strings.Contains(got, "on disk") {
+			t.Errorf("%v became %q", err, got)
+		}
+		if strings.Contains(got, "connect:") {
+			t.Errorf("the syscall reached the person: %q", got)
+		}
+	}
+	// Anything else is passed through: a broken pipe mid-request is not "it is off", and dressing
+	// it as one would send somebody to start a daemon that is already running.
+	other := errors.New("write: broken pipe")
+	if said(other) != other.Error() {
+		t.Errorf("an unrelated failure was rewritten as absence: %q", said(other))
 	}
 }

@@ -723,12 +723,14 @@ func (s *server) withClient(r *http.Request, do func(*daemon.Client, session.Ses
 // and answers none of what the person is now wondering. Chiefly: whether the conversation they
 // were reading is gone. It is not, and that is the sentence.
 func notRunning(in daemon.Info, err error) error {
-	// The three ways an address answers "nobody is here". A daemon that exited cleanly took its
-	// socket with it (ENOENT); one that was killed left the inode behind with nothing accepting on
-	// it (ECONNREFUSED); and a path that is not a socket at all (ENOTSOCK) is the same fact seen
-	// from a different angle — whatever is at that name, no companion is behind it.
-	if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) &&
-		!errors.Is(err, syscall.ENOTSOCK) {
+	// Asked of the daemon package rather than of the operating system. The three errnos below are
+	// the same fact seen from three angles — a socket taken away with its daemon (ENOENT), one left
+	// behind with nothing accepting (ECONNREFUSED), a path that is not a socket at all (ENOTSOCK) —
+	// and which of them a machine produces differs by platform: this check keyed on errno alone and
+	// so worked on macOS and failed on Linux, where the dial replaces the syscall with a sentence.
+	// ErrGone is the daemon package saying the thing itself.
+	if !errors.Is(err, daemon.ErrGone) && !errors.Is(err, fs.ErrNotExist) &&
+		!errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, syscall.ENOTSOCK) {
 		return err
 	}
 	where := in.Workdir
