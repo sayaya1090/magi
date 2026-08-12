@@ -771,6 +771,13 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "magi: "+msg)
 		return 2
 	}
+	// A posture that cannot be delivered is worth one line. Asked for and unavailable, every
+	// confinement path in this tree returns "not wrapped" and the command runs as it would have —
+	// which is the right failure (a missing tool must not stop the work) and a silent one, so a
+	// person can believe a machine is confined for as long as they never test it.
+	if msg := sandboxNotice(cfg.Sandbox, builtin.SandboxWrap); msg != "" {
+		fmt.Fprintln(os.Stderr, "magi: "+msg)
+	}
 
 	// Consensus council (D14): the loop's termination gate, ON BY DEFAULT (disable
 	// with [council] enabled=false). Each member can run on its own backend — resolve maps a
@@ -1322,6 +1329,33 @@ func posture(c config.Config) (permission, sandbox string) {
 		permission = "ask" // the built-in default, and the value a project is measured against
 	}
 	return permission, sandbox
+}
+
+// sandboxNotice is what to say when a confined posture is asked for and this machine cannot give
+// it. Empty when the posture is unconfined by choice, or when the wrapper works.
+//
+// The probe is the real wrapper, on a throwaway argv, so the answer cannot drift from what the
+// next tool call will actually get. Naming the missing piece per platform, because "no sandbox" is
+// not actionable and "bwrap is not installed" is.
+func sandboxNotice(mode string, wrap func(port.SandboxSpec, []string) ([]string, bool)) string {
+	spec := port.SandboxSpec{Mode: mode}
+	if !spec.Confined() {
+		return "" // unconfined on purpose
+	}
+	if _, ok := wrap(spec, []string{"/bin/true"}); ok {
+		return ""
+	}
+	missing := "no confinement is available on this platform"
+	switch runtime.GOOS {
+	case "darwin":
+		missing = "sandbox-exec was not found"
+	case "linux":
+		missing = "bwrap (bubblewrap) is not installed"
+	case "windows":
+		missing = "this build does not jail writes on Windows — a restricted token is all it applies"
+	}
+	return "sandbox=" + mode + " was asked for and " + missing + ", so commands run unconfined. " +
+		"The command scan and the permission prompt are what remain."
 }
 
 // mergeProjectConfig overlays a project's .magi/config.toml (proj) onto the global

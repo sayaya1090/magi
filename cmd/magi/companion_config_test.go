@@ -8,6 +8,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/config"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // A companion's own settings are keyed the same way its door is.
@@ -83,5 +84,31 @@ func TestPersistWritesTheCompanionsFileAndNotTheRepo(t *testing.T) {
 	}
 	if len(back.Allow) != 1 || back.Allow[0] != "bash(go test:*)" {
 		t.Errorf("the rule does not load back: %v", back.Allow)
+	}
+}
+
+// A posture that cannot be delivered says so, once.
+//
+// Every confinement path in this tree fails open — a missing sandbox-exec or bwrap returns "not
+// wrapped" and the command runs as it would have. That is the right failure, because a missing
+// tool must not stop the work, and it is a silent one: somebody can believe a machine is confined
+// for as long as they never test it.
+func TestAnUndeliverablePostureIsSaidOutLoud(t *testing.T) {
+	works := func(port.SandboxSpec, []string) ([]string, bool) { return []string{"jail"}, true }
+	missing := func(port.SandboxSpec, []string) ([]string, bool) { return nil, false }
+
+	if got := sandboxNotice("workspace-write", missing); got == "" {
+		t.Error("a confined posture with nothing to confine with said nothing")
+	} else if !strings.Contains(got, "workspace-write") || !strings.Contains(got, "unconfined") {
+		t.Errorf("the line does not say what was asked for and what is happening instead: %q", got)
+	}
+	if got := sandboxNotice("workspace-write", works); got != "" {
+		t.Errorf("a working sandbox complained: %q", got)
+	}
+	// Unconfined on purpose is not a problem to report.
+	for _, mode := range []string{"", "full"} {
+		if got := sandboxNotice(mode, missing); got != "" {
+			t.Errorf("sandbox=%q reported %q", mode, got)
+		}
 	}
 }
