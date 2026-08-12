@@ -270,6 +270,12 @@ func run() int {
 		relaySock = flag.String("relay", "",
 			"pipe stdin and stdout to a daemon socket here, so a magi on another machine can speak "+
 				"the daemon protocol to it; run over ssh, not by hand")
+		// The narrow way in, for a key that is somebody else's. See door.go: the relay above
+		// carries the whole protocol and any socket path, which is right for your own machines and
+		// wrong for anybody else's key.
+		fleetDoorMode = flag.Bool("fleet-door", false,
+			"serve one narrow crossing from another machine: three methods, and only companions "+
+				"this account published; meant as an ssh forced command, not run by hand")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -510,6 +516,12 @@ func run() int {
 	// wrong account or an empty container filesystem to make it get wrong.
 	if *relaySock != "" {
 		return relayHere(os.Stdin, os.Stdout, os.Stderr, *relaySock)
+	}
+	// Same place in the order and for the same reason, with one difference: the door reads which
+	// companion is wanted rather than being told in argv, because under a forced command argv is
+	// this machine's and not the caller's.
+	if *fleetDoorMode {
+		return fleetDoor(os.Stdin, os.Stdout, os.Stderr, plat.ConfigDir())
 	}
 
 	if *mcpTo != "" {

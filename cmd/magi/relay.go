@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -257,6 +258,30 @@ func relayTo(ctx context.Context, host, socket string) (*pipe, error) {
 	}
 	return pipeTo(exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
 		host, "magi", "--relay", socket))
+}
+
+// doorTo opens the narrow crossing: the same ssh pipe, into `magi --fleet-door`, with the
+// companion named on the first line instead of in argv.
+//
+// The socket moves into the stream because that is what a forced command needs — with one, ssh
+// ignores whatever the client asked to run, so nothing the caller puts in argv survives. Sending
+// it the same way whether or not the far side has a forced command means one path here, and a
+// deployment that adds the forced command later needs no change on this side.
+func doorTo(ctx context.Context, host, socket string) (*pipe, error) {
+	if host == "" || socket == "" {
+		return nil, errNoRelay
+	}
+	p, err := pipeTo(exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+		host, "magi", "--fleet-door"))
+	if err != nil {
+		return nil, err
+	}
+	open, _ := json.Marshal(doorOpen{Socket: socket})
+	if _, werr := p.Write(append(open, '\n')); werr != nil {
+		p.Close()
+		return nil, fmt.Errorf("could not say which companion is wanted: %w", werr)
+	}
+	return p, nil
 }
 
 var errNoRelay = errors.New("no way to reach that machine")

@@ -264,6 +264,16 @@ Even with no configuration, an "understand → plan → implement → verify →
 |---|---|
 | `deny`, and `permission`/`sandbox`/`profile` when they ask for MORE care than the machine gives (`sandbox = "read-only"` is kept; `permission = "allow"` is refused and said so) | `[[hooks]]` — shell commands on tool events · `[mcp.*]` — processes the daemon spawns, and the headers they send · `[cron.*]` — unattended prompts · `allow`, `allow_domains` · `[plugins.*]` · `base_url`, `experience_dir` · and `.magi/plugins/` |
 
+**Reaching a companion on another machine.** The crossing is an ssh pipe into `magi --fleet-door`, which carries three methods — ask what a companion is, hand it work, ask how that work went — and opens only companions that account has published. Give somebody a key that can do that and nothing else:
+
+```
+command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
+```
+
+`restrict` removes pty, port forwarding, agent forwarding and X11; the forced command means ssh ignores whatever the client asked to run, so the caller chooses neither the program nor the flags nor the socket. The older `magi --relay <socket>` still exists and carries the WHOLE daemon protocol at whatever socket path it is given — that is the shape for your own machines, and not a shape to put behind somebody else's key.
+
+The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same three methods.
+
 ⚠ **What the sandbox does and does not do.** It confines WRITES on macOS (`sandbox-exec`) and Linux (`bwrap`) and nothing on Windows, where only a restricted token is applied. It never confines reads, on any platform — the agent runs arbitrary toolchains, so its read set is effectively everything. The session store is kept read-only inside it, so a confined command cannot rewrite the record of what it did. If a confined posture is asked for and the tool behind it is missing, magi says so at startup and runs unconfined rather than refusing to work. For isolation between people, separate OS accounts are the boundary; the sandbox is about blast radius, not about tenancy.
 
 Settings are read in three layers, most specific last: the person's `<config>/config.toml`, the team's `<workspace>/.magi/config.toml`, then **this companion's own** `<config>/companions/<workspace-key>/config.toml` — its model, its posture, the servers and jobs you gave it here. The companion layer is where magi PERSISTS your choices (`/model`, and the permission modal's "keep for this companion"): they are decisions about one workspace on one machine, so they neither travel in a clone nor land on your other companions — and they sit outside the workspace, where the agent's own file tools cannot reach them.

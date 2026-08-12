@@ -453,7 +453,10 @@ func reachCompanion(ctx context.Context, host, socket string) (*daemon.Client, e
 	if answersHere(host, socket) {
 		return daemon.Dial(socket)
 	}
-	p, err := relayTo(ctx, host, socket)
+	// The door, not the relay: the relay carries the whole protocol and this crossing needs three
+	// methods. See door.go — an ssh key restricted to the relay is still a key that can submit,
+	// steer and run a shell command over there.
+	p, err := doorTo(ctx, host, socket)
 	if err != nil {
 		return nil, err
 	}
