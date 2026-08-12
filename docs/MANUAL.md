@@ -286,6 +286,16 @@ Both ends check the same thing: the public key that arrived against the list of 
 
 A machine with an address on its admitted line is reached over TLS; one without is reached over ssh. Same door either way.
 
+**Or provision it in one line each.** Carrying a fingerprint by hand is four steps across two machines, and the last one is the one people skip:
+
+```
+magi --provision laptop --at build.local:7777     # on the machine to be reached
+  on laptop, run:
+    magi --join build.local:7777 --token <secret> --pin SHA256:…
+```
+
+The invitation stands for fifteen minutes and is spent by the first machine that uses it; both ends record each other's key in that one exchange. The joining machine's key is taken from the certificate it presents, not from anything it types, so it cannot claim somebody else's — and the `--pin` means the secret is only ever sent to the machine that minted it. While an invitation is open the door accepts an unknown certificate far enough to reach `/fleet/join` and nothing else; with none open, a stranger's handshake simply fails.
+
 ⚠ **What the sandbox does and does not do.** It confines WRITES on macOS (`sandbox-exec`) and Linux (`bwrap`) and nothing on Windows, where only a restricted token is applied. It never confines reads, on any platform — the agent runs arbitrary toolchains, so its read set is effectively everything. The session store is kept read-only inside it, so a confined command cannot rewrite the record of what it did. If a confined posture is asked for and the tool behind it is missing, magi says so at startup and runs unconfined rather than refusing to work. For isolation between people, separate OS accounts are the boundary; the sandbox is about blast radius, not about tenancy.
 
 Settings are read in three layers, most specific last: the person's `<config>/config.toml`, the team's `<workspace>/.magi/config.toml`, then **this companion's own** `<config>/companions/<workspace-key>/config.toml` — its model, its posture, the servers and jobs you gave it here. The companion layer is where magi PERSISTS your choices (`/model`, and the permission modal's "keep for this companion"): they are decisions about one workspace on one machine, so they neither travel in a clone nor land on your other companions — and they sit outside the workspace, where the agent's own file tools cannot reach them.

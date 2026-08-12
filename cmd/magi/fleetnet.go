@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,6 +45,10 @@ import (
 // machine may hand this one work.
 const fleetPath = "/fleet"
 
+// fleetJoinPath is where an invitation is spent. Its own route because it is the one thing a
+// machine that has NOT been admitted may reach, and only while somebody is inviting.
+const fleetJoinPath = "/fleet/join"
+
 // fleetCrossTimeout bounds one crossing, the way the ssh path is bounded by the context that kills
 // its process.
 const fleetCrossTimeout = 30 * time.Second
@@ -57,7 +62,17 @@ func fleetServe(ctx context.Context, addr, configDir, host string, errOut io.Wri
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(fleetPath, func(w http.ResponseWriter, r *http.Request) {
+		// Re-checked here, because the handshake may have let a stranger through: a join window
+		// accepts any certificate so the one route below can ask for the secret. Everything else
+		// is for parties already on the list.
+		if _, ok := identity.PeerOf(configDir, peerCerts(r)); !ok {
+			answerFleet(w, daemon.Response{Err: "this machine has not admitted you"})
+			return
+		}
 		fleetHandle(w, r, configDir)
+	})
+	mux.HandleFunc(fleetJoinPath, func(w http.ResponseWriter, r *http.Request) {
+		fleetJoinHandle(w, r, configDir, id)
 	})
 	srv := &http.Server{
 		Handler:           mux,
@@ -69,7 +84,7 @@ func fleetServe(ctx context.Context, addr, configDir, host string, errOut io.Wri
 			// send Go looking for a chain to a root, which is exactly the authority this design
 			// does without — so the requirement is "present one" and the verification is ours.
 			ClientAuth:            tls.RequireAnyClientCert,
-			VerifyPeerCertificate: identity.VerifyAdmitted(configDir, nil),
+			VerifyPeerCertificate: identity.VerifyAdmittedOrInviting(configDir),
 		},
 	}
 	ln, err := net.Listen("tcp", addr)
@@ -154,6 +169,53 @@ func fleetHandle(w http.ResponseWriter, r *http.Request, configDir string) {
 // A failure here is the caller having gone, which nothing can be done about — so it is logged, the
 // way the console logs an answer it could not finish writing, rather than returned to a handler
 // that has no move left either.
+// fleetJoinHandle takes an invitation and records the two machines in each other's lists.
+//
+// Both directions in one exchange, which is the whole point of provisioning: the caller's key is
+// admitted here from the certificate it presented — not from anything it typed, so it cannot claim
+// somebody else's — and this machine's own fingerprint goes back so the caller can pin it.
+func fleetJoinHandle(w http.ResponseWriter, r *http.Request, configDir string, id *identity.Identity) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	certs := peerCerts(r)
+	if len(certs) == 0 {
+		answerFleet(w, daemon.Response{Err: "a join needs a certificate to admit"})
+		return
+	}
+	var ask struct {
+		Token string `json:"token"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+	if json.Unmarshal(body, &ask) != nil || strings.TrimSpace(ask.Token) == "" {
+		answerFleet(w, daemon.Response{Err: "a join needs an invitation"})
+		return
+	}
+	label, ok := identity.Redeem(configDir, ask.Token)
+	if !ok {
+		// One sentence for wrong, spent and expired alike: which of the three it was is not the
+		// caller's business, and saying would turn this into an oracle.
+		answerFleet(w, daemon.Response{Err: "that invitation is not open"})
+		return
+	}
+	fp := identity.FingerprintOf(certs[0])
+	if _, err := identity.Admit(configDir, identity.Peer{Fingerprint: fp, Label: label}); err != nil {
+		answerFleet(w, daemon.Response{Err: "could not record you: " + err.Error()})
+		return
+	}
+	log.Printf("magi: admitted %s as %s by invitation", fp, label)
+	answerFleet(w, daemon.Response{OK: true, Out: id.Fingerprint()})
+}
+
+// peerCerts is what the other end presented, or nothing when the connection is not TLS.
+func peerCerts(r *http.Request) []*x509.Certificate {
+	if r.TLS == nil {
+		return nil
+	}
+	return r.TLS.PeerCertificates
+}
+
 func answerFleet(w http.ResponseWriter, resp daemon.Response) {
 	w.Header().Set("Content-Type", "application/json")
 	b, err := json.Marshal(resp)
@@ -311,6 +373,9 @@ type fleetOpts struct {
 	admit, refuse string
 	as, at        string
 	listen        string
+	provision     string
+	join          string
+	token, pin    string
 	configDir     string
 	out, errOut   io.Writer
 }
@@ -344,6 +409,10 @@ func runFleetCmd(o fleetOpts) int {
 		}
 		fmt.Fprintf(o.out, "admitted %s as %s\n", o.admit, orWordCLI(o.as, "unnamed"))
 		return 0
+	case o.provision != "":
+		return fleetProvision(o.configDir, host, o.provision, o.at, o.out)
+	case o.join != "":
+		return fleetJoin(o.configDir, host, o.join, o.token, o.pin, o.out)
 	case o.refuse != "":
 		was, err := identity.Refuse(o.configDir, o.refuse)
 		if err != nil {
@@ -366,4 +435,117 @@ func orWordCLI(s, fallback string) string {
 		return fallback
 	}
 	return strings.TrimSpace(s)
+}
+
+// fleetJoin spends an invitation: this machine's key is recorded over there, and that machine's
+// fingerprint is recorded here, in one exchange.
+//
+// The pin is what makes it safe to do over a network nobody vouches for. An invitation is a bearer
+// secret, so handing it to the wrong server would hand over the secret AND admit that server —
+// pinning the fingerprint the inviter printed means the secret only ever reaches the machine it
+// was minted on.
+func fleetJoin(configDir, host, addr, token, pin string, out io.Writer) int {
+	if addr == "" || token == "" || pin == "" {
+		fmt.Fprintln(out, "magi: a join needs the address, the invitation and the fingerprint to "+
+			"pin — the line `magi --provision` printed has all three")
+		return 2
+	}
+	id, err := identity.Load(configDir, host)
+	if err != nil {
+		fmt.Fprintln(out, "magi:", err)
+		return 1
+	}
+	// Pinned before anything is sent. The peer is not on the admitted list yet — this is the one
+	// crossing where the fingerprint comes from the command line instead — so the check is written
+	// here rather than borrowed from the list.
+	client := &http.Client{
+		Timeout: fleetCrossTimeout,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			Certificates:       []tls.Certificate{id.Cert},
+			MinVersion:         tls.VersionTLS13,
+			InsecureSkipVerify: true, //nolint:gosec // pinned to --pin below
+			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+				if len(raw) == 0 {
+					return fmt.Errorf("that machine presented no certificate")
+				}
+				leaf, perr := x509.ParseCertificate(raw[0])
+				if perr != nil {
+					return perr
+				}
+				if got := identity.FingerprintOf(leaf); got != pin {
+					return fmt.Errorf("that machine is %s and the invitation named %s — "+
+						"the address may be somebody else's", got, pin)
+				}
+				return nil
+			},
+		}},
+	}
+	body, err := json.Marshal(map[string]string{"token": token})
+	if err != nil {
+		fmt.Fprintln(out, "magi:", err)
+		return 1
+	}
+	resp, err := client.Post("https://"+addr+fleetJoinPath, "application/json", bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintln(out, "magi: could not join:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	var got daemon.Response
+	answer, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	if json.Unmarshal(answer, &got) != nil || !got.OK {
+		fmt.Fprintln(out, "magi: that machine did not take the invitation:", strings.TrimSpace(orWordCLI(got.Err, string(answer))))
+		return 1
+	}
+	if got.Out != pin {
+		// It answered with a different fingerprint than the one this connection was pinned to,
+		// which cannot happen over a verified connection — said rather than trusted.
+		fmt.Fprintln(out, "magi: that machine named a different key than it presented")
+		return 1
+	}
+	label := labelOf(addr)
+	if _, err := identity.Admit(configDir, identity.Peer{
+		Fingerprint: pin, Label: label, Addr: addr}); err != nil {
+		fmt.Fprintln(out, "magi:", err)
+		return 1
+	}
+	fmt.Fprintf(out, "joined %s (%s)\nboth machines now hold each other's key; `magi --refuse` on "+
+		"either side ends it\n", label, pin)
+	return 0
+}
+
+// fleetProvision mints an invitation and prints the one line the other machine runs.
+//
+// One line, because the four steps it replaces — read a fingerprint here, carry it, admit it
+// there, write down an address — are four chances to stop. The fingerprint is still in the line,
+// so what the other side pins is still something this machine printed.
+func fleetProvision(configDir, host, label, at string, out io.Writer) int {
+	id, err := identity.Load(configDir, host)
+	if err != nil {
+		fmt.Fprintln(out, "magi:", err)
+		return 1
+	}
+	token, err := identity.Mint(configDir, label)
+	if err != nil {
+		fmt.Fprintln(out, "magi:", err)
+		return 1
+	}
+	where := at
+	if where == "" {
+		where = orWordCLI(host, "this-machine") + ":7777"
+	}
+	fmt.Fprintf(out, "on %s, run:\n\n  magi --join %s --token %s --pin %s\n\n",
+		orWordCLI(label, "the other machine"), where, token, id.Fingerprint())
+	fmt.Fprintf(out, "the invitation stands for %s and is spent by the first machine that uses it.\n"+
+		"this machine must be answering: magi --fleet-listen %s\n", identity.TokenLife(), where)
+	return 0
+}
+
+// labelOf is the host part of an address, which is the name a joined machine gets until somebody
+// edits the line.
+func labelOf(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil && h != "" {
+		return h
+	}
+	return addr
 }

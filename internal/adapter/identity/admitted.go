@@ -164,6 +164,32 @@ func VerifyAdmitted(configDir string, want func(Peer) bool) func([][]byte, [][]*
 	}
 }
 
+// VerifyAdmittedOrInviting is the listener's hook while invitations can be open.
+//
+// An unadmitted party may finish a handshake only while one is, and then only to reach the one
+// route that demands the secret — see the fleet door's join handler, which re-checks admission for
+// everything else. Without the window, a stranger's handshake fails and it learns nothing at all;
+// with it, the exposure is one endpoint that answers "no" to anybody without an invitation.
+func VerifyAdmittedOrInviting(configDir string) func([][]byte, [][]*x509.Certificate) error {
+	strict := VerifyAdmitted(configDir, nil)
+	return func(raw [][]byte, chains [][]*x509.Certificate) error {
+		if err := strict(raw, chains); err == nil {
+			return nil
+		} else if !Inviting(configDir) {
+			return err
+		}
+		return nil
+	}
+}
+
+// PeerOf names the party on the other end of a finished handshake, if this machine admitted it.
+func PeerOf(configDir string, certs []*x509.Certificate) (Peer, bool) {
+	if len(certs) == 0 {
+		return Peer{}, false
+	}
+	return AdmittedPeer(configDir, FingerprintOf(certs[0]))
+}
+
 func orWord(s, fallback string) string {
 	if strings.TrimSpace(s) == "" {
 		return fallback
