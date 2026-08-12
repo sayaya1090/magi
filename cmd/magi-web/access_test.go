@@ -19,14 +19,14 @@ func ask(t *testing.T, s *server, who, method string, form url.Values) *httptest
 	t.Helper()
 	var r *http.Request
 	if method == http.MethodPost {
-		r = httptest.NewRequest(method, "/people", strings.NewReader(form.Encode()))
+		r = httptest.NewRequest(method, "/access", strings.NewReader(form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
-		r = httptest.NewRequest(method, "/people", nil)
+		r = httptest.NewRequest(method, "/access", nil)
 	}
 	r.Header.Set("X-Forwarded-User", who)
 	w := httptest.NewRecorder()
-	s.routes()["/people"](w, r)
+	s.routes()["/access"](w, r)
 	return w
 }
 
@@ -55,7 +55,7 @@ role = "responder"
 	if w.Code != http.StatusOK {
 		t.Fatalf("an admin could not read the list (%d): %s", w.Code, w.Body.String())
 	}
-	var got peopleAnswer
+	var got accessAnswer
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +67,15 @@ role = "responder"
 	}
 	if len(got.Roles) == 0 {
 		t.Error("no roles were offered, so a screen has to guess what a role may be")
+	}
+	// And the list says WHOSE it is. A console watching three machines draws this screen three
+	// times the same way, and the list governs exactly one of them — the account this process runs
+	// as, reading the directory it was pointed at. Without the name the roster reads as the fleet's.
+	if !strings.Contains(got.Instance.Who, "@") {
+		t.Errorf("the list does not name the account and machine it governs: %q", got.Instance.Who)
+	}
+	if got.Instance.ConfigDir != s.cfgDir {
+		t.Errorf("the list says it came from %q and it was read from %q", got.Instance.ConfigDir, s.cfgDir)
 	}
 }
 
@@ -190,23 +199,37 @@ func TestAnUnclaimedConsoleSaysHowToClaimIt(t *testing.T) {
 	}
 }
 
-// The people screen has a way in.
+// The access screen has a way in — two, and both of them gated.
 //
-// It is not in the rail or the tabs on purpose — it is opened when somebody joins or leaves, and a
-// navigation has to fit on a phone — which left it reachable only by typing ?v=people. A screen
-// nobody can find is a screen that has not been built, and it got asked about as one.
-func TestThereIsAWayToThePeopleScreen(t *testing.T) {
-	if !strings.Contains(indexHTML, `id="peopleGo"`) {
-		t.Error("nothing in the markup opens the people screen")
+// It was reachable only by typing ?v=access, and a screen nobody can find is a screen that has not
+// been built: it got asked about as one. The rail's foot carries it on a wide screen; below
+// 37.4375em the rail is not drawn at all, so the preferences dialog carries it there.
+func TestThereIsAWayToTheAccessScreen(t *testing.T) {
+	if !strings.Contains(indexHTML, `id="accessGo"`) {
+		t.Error("nothing in the preferences opens the access screen")
 	}
-	// Behind the same capability as the screen: a row offering a place somebody will be refused is
-	// the offer this console does not make.
-	row := regexp.MustCompile(`(?s)<div class="prefrow" data-may="admin">.*?id="peopleGo"`)
+	if !strings.Contains(indexHTML, `id="railAccess"`) {
+		t.Error("the navigation does not carry the access screen")
+	}
+	// At the FOOT of the rail, which is where the guide puts what is about the console rather than
+	// about the work — and which is the difference between a third destination and a third
+	// destination that reads as one of the two you live on.
+	foot := regexp.MustCompile(`(?s)<div id="railFoot">.*?id="railAccess"`)
+	if !foot.MatchString(indexHTML) {
+		t.Error("the rail's access item is not in the foot")
+	}
+	// Behind the same capability as the screen: a control offering a place somebody will be refused
+	// is the offer this console does not make. Both of them.
+	row := regexp.MustCompile(`(?s)<div class="prefrow" data-may="admin">.*?id="accessGo"`)
 	if !row.MatchString(indexHTML) {
-		t.Error("the way in is not gated on admin, so it is offered to people the screen refuses")
+		t.Error("the preferences row is not gated on admin, so it is offered to people the screen refuses")
 	}
-	// And the page wires it to the screen's own address rather than a hand-written one.
-	if !strings.Contains(scriptBody(t, indexHTML), "HREF.people") {
-		t.Error("the control does not navigate to the people view")
+	rail := regexp.MustCompile(`(?s)id="railAccess"[^>]*data-may="admin"`)
+	if !rail.MatchString(indexHTML) {
+		t.Error("the rail item is not gated on admin, so it is offered to people the screen refuses")
+	}
+	// And the page wires them to the screen's own address rather than a hand-written one.
+	if !strings.Contains(scriptBody(t, indexHTML), "HREF.access") {
+		t.Error("the control does not navigate to the access view")
 	}
 }

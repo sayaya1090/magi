@@ -54,7 +54,7 @@ var mayWrite = map[string]auth.Capability{
 	// Who may use this console, and how much. The capability that grants the others, and until
 	// this route existed it granted nothing at all — a word in a config file that read like a
 	// promise, which is the thing the auth package warns about in its own opening comment.
-	"/people":     auth.Admin,
+	"/access":     auth.Admin,
 	"/permission": auth.Configure,
 	"/cron":       auth.Configure,
 	"/mcp":        auth.Configure,
@@ -78,7 +78,7 @@ var mayWrite = map[string]auth.Capability{
 // A table rather than a check inside the handler, so the gate stays the one place a route's
 // permissions are written down. A check in the handler is a permission nobody can find.
 var mayRead = map[string]auth.Capability{
-	"/people": auth.Admin,
+	"/access": auth.Admin,
 }
 
 // openToRead is every route that only looks. Named rather than derived, so that adding a route and

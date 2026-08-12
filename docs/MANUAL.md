@@ -314,7 +314,7 @@ companions = ["docs"]          # narrowed to some of the fleet
 role = "viewer"
 ```
 
-Groups are how joiners and leavers stop being your problem: the directory is where somebody is added on their first day and removed on their last, and a console that reads membership needs no list of its own to keep in step. Capabilities and scopes ADD UP across matches — two teams means both, never less. Manage it from the console (an admin sees a people screen) or from a terminal on that machine (`magi --people`, `--grant`, `--revoke`), which is also the way in when a policy has locked its author out. Nothing can leave the file with no admin: that console would refuse to start, with the fix behind the door.
+Groups are how joiners and leavers stop being your problem: the directory is where somebody is added on their first day and removed on their last, and a console that reads membership needs no list of its own to keep in step. Capabilities and scopes ADD UP across matches — two teams means both, never less. Manage it from the console (an admin sees an access screen, at the foot of the rail) or from a terminal on that machine (`magi --access`, `--grant`, `--revoke`), which is also the way in when a policy has locked its author out. Nothing can leave the file with no admin: that console would refuse to start, with the fix behind the door.
 
 ⚠ The groups header is trusted exactly as far as the name beside it. A gateway that forwards a header it did not set lets a client claim its own membership — strip both at the proxy.
 

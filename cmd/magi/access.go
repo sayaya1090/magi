@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+	osuser "os/user"
 	"sort"
 	"strings"
 
@@ -21,7 +23,7 @@ import (
 //
 // It edits the same file the console does, through the same two functions, so there is one set of
 // rules about what a change may leave behind and not two that agree until they do not.
-type peopleOpts struct {
+type accessOpts struct {
 	list      bool
 	grant     string
 	revoke    string
@@ -31,7 +33,7 @@ type peopleOpts struct {
 	out       io.Writer
 }
 
-func runPeopleCmd(o peopleOpts) int {
+func runAccessCmd(o accessOpts) int {
 	switch {
 	case o.grant != "":
 		person := auth.Person{Role: strings.TrimSpace(o.role)}
@@ -58,16 +60,21 @@ func runPeopleCmd(o peopleOpts) int {
 		fmt.Fprintf(o.out, "%s can no longer use this console\n", strings.ToLower(o.revoke))
 		return 0
 	default:
-		return listPeople(o.configDir, o.out)
+		return listAccess(o.configDir, o.out)
 	}
 }
 
-func listPeople(configDir string, out io.Writer) int {
+func listAccess(configDir string, out io.Writer) int {
 	p, err := config.LoadAuth(configDir)
 	if err != nil {
 		fmt.Fprintln(out, "magi:", err)
 		return 1
 	}
+	// Whose list this is, first. In a terminal the question is sharper than on a screen: MAGI_CONFIG_DIR
+	// may be set, the shell may be somebody else's through sudo, and both make this command edit a
+	// policy other than the one the person meant. The account, the machine, and the directory the
+	// answer came out of.
+	fmt.Fprintf(out, "%s  %s\n\n", whoAndWhere(), configDir)
 	if !p.Configured() {
 		// Not an empty table. A console with nobody listed is not a console with no answer — it is
 		// the one-operator console, and saying which of the two this is saves somebody wondering
@@ -76,6 +83,26 @@ func listPeople(configDir string, out io.Writer) int {
 		fmt.Fprintln(out, "adding the first person turns the gate on for everybody —")
 		fmt.Fprintln(out, "  magi --grant you@example.com --role operator")
 		return 0
+	}
+	// Groups above the people, because on a console wired to a directory the groups ARE the roster —
+	// membership is maintained where somebody is hired and let go — and the people below them are
+	// the exceptions to it. A listing that showed only the exceptions would say "three people" about
+	// a console the whole team can reach.
+	if len(p.Groups) > 0 {
+		groups := make([]string, 0, len(p.Groups))
+		for name := range p.Groups {
+			groups = append(groups, name)
+		}
+		sort.Strings(groups)
+		for _, name := range groups {
+			g := p.Groups[name]
+			line := "@" + name + "  " + g.Role
+			if len(g.Companions) > 0 {
+				line += "  (" + strings.Join(g.Companions, ", ") + ")"
+			}
+			line += "  [" + capWords(p.Roles[g.Role].Can) + "]"
+			fmt.Fprintln(out, line)
+		}
 	}
 	names := make([]string, 0, len(p.People))
 	for who := range p.People {
@@ -103,4 +130,29 @@ func capWords(cs []auth.Capability) string {
 		out = append(out, string(c))
 	}
 	return strings.Join(out, " ")
+}
+
+// whoAndWhere is the account and the machine, which together are what a policy belongs to.
+//
+// Not an address: an IP says how to REACH a machine and a machine has several. The pair is what
+// the person already calls this magi, and it is the trust boundary too — two accounts on one host
+// read two config directories and enforce two policies, and neither can write the other's files.
+func whoAndWhere() string {
+	user, host := "", ""
+	if u, err := osuser.Current(); err == nil {
+		user = u.Username
+	}
+	if h, err := os.Hostname(); err == nil {
+		host = h
+	}
+	switch {
+	case user != "" && host != "":
+		return user + "@" + host
+	case host != "":
+		return host
+	case user != "":
+		return user
+	default:
+		return "this machine"
+	}
 }

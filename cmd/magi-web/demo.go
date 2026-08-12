@@ -151,14 +151,37 @@ const demoScript = `
     // auth.toml answers, so the copy behaves like the ordinary single-operator one rather than
     // like a person nobody gave a role to.
     '/me': {can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
-    // Nobody configured, which is the honest answer for a demo and the same one a console with no
-    // auth.toml gives: the screen then shows what that state IS — one operator, no policy — rather
-    // than an empty table that reads as "your file was not read".
-    '/people': {people: [], roles: [
-      {name: 'operator', can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
-      {name: 'responder', can: ['read', 'answer']},
-      {name: 'viewer', can: ['read']},
-    ], configured: false},
+    // A roster with people in it, because the demo is how somebody looks at this screen and an
+    // unconfigured console draws two sentences saying there is nothing to look at. That state is
+    // real and the console still shows it — it is just not the one worth putting on the page most
+    // people meet first.
+    //
+    // Groups above, individuals below, which is the shape the screen argues for: on a console
+    // wired to a directory the groups ARE the roster — membership is maintained where somebody is
+    // hired and let go — and the people are the exceptions to it. So the fixture has both, and the
+    // two exceptions are the two that actually happen: somebody scoped to one companion, and
+    // somebody who can answer questions without being able to start work.
+    '/access': {
+      // Whose list it is. A fleet on this page spans two machines, so a roster with no name on it
+      // reads as the roster of everything on it.
+      instance: {who: 'you@studio', configDir: '/Users/you/.config/magi'},
+      groups: [
+        {who: 'platform-team', role: 'operator',
+         can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
+        {who: 'design-guild', role: 'responder', can: ['read', 'answer'], companions: ['design', 'palette']},
+        {who: 'everyone', role: 'viewer', can: ['read']},
+      ],
+      people: [
+        {who: 'you@studio', role: 'operator',
+         can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell'], me: true},
+        {who: 'sam@example.com', role: 'responder', can: ['read', 'answer'], companions: ['api']},
+        {who: 'contractor@example.com', role: 'viewer', can: ['read']},
+      ],
+      roles: [
+        {name: 'operator', can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
+        {name: 'responder', can: ['read', 'answer']},
+        {name: 'viewer', can: ['read']},
+      ], configured: true},
     // A key so the notifications switch draws its live state rather than "this console has no push
     // key". Nothing can be subscribed here — there is no server to post to and the mock refuses
     // writes — but the reason a reader sees is then the browser's own, which is the true one.

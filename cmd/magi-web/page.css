@@ -639,6 +639,19 @@
 
   #rail .ic { flex:none; display:block; }
   #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }
+  /* The foot of the rail, which is where the guide puts the items about the tool rather than about
+     the work. margin-top:auto is what makes it the foot: the rail is a column with a fixed height,
+     so the space the page does not use is given to this margin and the group falls to the bottom.
+     A hairline above it, not just the gap: on a short window the gap can close to nothing and the
+     two groups would read as one list whose last item happens to be about permissions. */
+  #railFoot {
+    margin-top:auto; display:flex; flex-direction:column; gap:var(--magi-sys-space-150);
+    padding-top:var(--magi-sys-space-200); border-top:1px solid var(--magi-ref-outlineVariant);
+  }
+  /* A foot with nothing in it is a line across the bottom of the rail with nothing under it, which
+     is what a reader who is not an admin would see. :empty cannot see it — the anchor is still
+     there, hidden — so the hairline goes when everything inside is. */
+  #railFoot:not(:has(.raili:not([hidden]))) { border-top:0; padding-top:0; }
   /* A destination. Expanded it is a row — icon, then the word — and collapsed it is the word UNDER
      the icon, which is the shape the spec draws and the shape md-list-item could not make.
      The active indicator is a pill behind the ICON at 56x32, not behind the whole item: that is
@@ -1279,6 +1292,15 @@
     text-align:right; white-space:nowrap; }
   .argv { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
   .argv.tall { grid-column:1 / -1; }
+
+  /* Whose list this is, under the heading and above the rows. Quiet, because it is not a row and
+     not a setting — but monospace, because a path a person is about to compare with what they
+     typed is read character by character, and the account and machine beside it are literals too. */
+  .instance { font:var(--md-sys-typescale-label-medium-size)/1.7 var(--magi-ref-mono);
+    color:var(--magi-ref-muted); margin:0 0 var(--magi-sys-space-200); overflow-wrap:anywhere; }
+  .instance b { color:var(--magi-ref-fg); font-weight:600; }
+  /* The sentence under it is prose and is set as prose: a reason to read, not a value to compare. */
+  .instance .why { display:block; font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-display); }
 
   .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-500) 0; max-width:52ch; }
   .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--magi-ref-mono); color:var(--magi-ref-accent); }

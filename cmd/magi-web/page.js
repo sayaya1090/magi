@@ -422,7 +422,7 @@ const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board');
 const mcpEl = document.getElementById('mcp');
-const peopleEl = document.getElementById('people');
+const accessEl = document.getElementById('access');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet');
@@ -478,6 +478,7 @@ const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
 const railFleet = document.getElementById('railFleet');
 const railSkills = document.getElementById('railSkills');
+const railAccess = document.getElementById('railAccess');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 // Corrections used to be a destination of its own and is now the first half of the experience
 // page. An address somebody kept still lands on the thing it was pointing at.
@@ -498,10 +499,10 @@ const crumbSep3 = document.getElementById('crumbSep3'), crumbLeaf = document.get
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
-const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board', people: 'nav.people'};
+const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board', access: 'nav.access'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', people: '?v=people'};
+const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=access'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
@@ -3335,26 +3336,30 @@ async function loadSkills() {
 //
 // The screen is drawn only for an admin (the markup carries data-may), and the server refuses
 // regardless: hiding is for a person who would otherwise be offered a control that answers 403.
-async function loadPeople() {
+async function loadAccess() {
   // fetchList is the one fetch helper: it decodes whatever JSON came back, array or object, and
   // answers null when the server did not — see its note on why a refusal is not an exception.
-  const got = await fetchList('/people');
+  const got = await fetchList('/access');
   if (!got) return;
   const roles = (got.roles || []).map(r => r.name);
-  const head = sectionHead('nav.people', addPersonButton(roles));
+  const head = sectionHead('nav.access', addPersonButton(roles));
+  // Whose list this is, before the list. Drawn on both branches: "nobody is listed" is a statement
+  // about one instance too, and on a page that shows companions from several machines it was the
+  // branch most likely to be read as a statement about all of them.
+  const whose = instanceLine(got.instance);
   if (!got.configured) {
     // Not an empty table: a console with nobody listed is the one-operator console, and which of
     // the two this is answers "was my file read".
-    peopleEl.replaceChildren(head, emptyState('people.nobody', 'people.nobody_how'));
+    accessEl.replaceChildren(head, ...whose, emptyState('access.nobody', 'access.nobody_how'));
     return;
   }
   // Groups first, because on a console wired to a directory they are the roster and the people
   // below them are the exceptions — one person given something their group does not have. Drawn
   // read-only: membership is maintained where somebody is hired and let go, and a console that
   // offered to edit it would be offering to disagree with the directory.
-  const kids = [head];
+  const kids = [head, ...whose];
   if ((got.groups || []).length) {
-    kids.push(cell('foldk', tr('people.groups')));
+    kids.push(cell('foldk', tr('access.groups')));
     for (const g of got.groups) {
       const row = cell('srv');
       const top = cell('top');
@@ -3363,16 +3368,41 @@ async function loadPeople() {
         (g.companions && g.companions.length ? '  ·  ' + g.companions.join(', ') : '')));
       kids.push(row);
     }
-    kids.push(cell('foldk', tr('people.exceptions')));
+    kids.push(cell('foldk', tr('access.exceptions')));
   }
-  peopleEl.replaceChildren(...kids, ...(got.people || []).map(p => personRow(p, roles)));
+  accessEl.replaceChildren(...kids, ...(got.people || []).map(p => personRow(p, roles)));
+}
+
+// instanceLine names the magi this list governs: user@host, and the file it was read from.
+//
+// The account is half of the name because it is half of the boundary — two accounts on one machine
+// read two config directories and enforce two policies, and neither can touch the other's. Not an
+// address: an IP says how to REACH a machine, a host has several, they change, and a tunnel makes
+// every peer look like 127.0.0.1.
+//
+// The path is beside the name rather than folded into it: MAGI_CONFIG_DIR can give one account two
+// instances, and then the path is the only thing that tells them apart.
+//
+// An array, so a console too old to answer with one contributes nothing rather than an empty line
+// — the caller spreads it.
+function instanceLine(inst) {
+  if (!inst || (!inst.who && !inst.configDir)) return [];
+  const line = cell('instance');
+  if (inst.who) {
+    const b = document.createElement('b');
+    b.textContent = inst.who;
+    line.append(b);
+  }
+  if (inst.configDir) line.append(document.createTextNode((inst.who ? '  ·  ' : '') + inst.configDir));
+  line.append(cell('why', tr('access.instance_why')));
+  return [line];
 }
 
 function personRow(p, roles) {
   const row = cell('srv' + (p.me ? ' now' : ''));
   const top = cell('top');
   top.append(cell('name', p.who));
-  if (p.me) top.append(cell('tier', tr('people.you')));
+  if (p.me) top.append(cell('tier', tr('access.you')));
   row.append(top);
   // What the role buys, in the vocabulary the file uses. Not translated: these are the words that
   // go INTO auth.toml, and a screen that showed one word while the file wanted another would be
@@ -3381,7 +3411,7 @@ function personRow(p, roles) {
 
   const controls = cell('answer');
   const pick = document.createElement('md-outlined-select');
-  pick.setAttribute('label', tr('people.role'));
+  pick.setAttribute('label', tr('access.role'));
   for (const r of roles) {
     const o = document.createElement('md-select-option');
     o.value = r;
@@ -3393,7 +3423,7 @@ function personRow(p, roles) {
     pick.append(o);
   }
   const scope = withGlass(document.createElement('md-outlined-text-field'));
-  scope.setAttribute('label', tr('people.companions'));
+  scope.setAttribute('label', tr('access.companions'));
   scope.value = (p.companions || []).join(', ');
   const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
                      tr('action.save'));
@@ -3401,12 +3431,12 @@ function personRow(p, roles) {
   const drop = withMark(document.createElement('md-text-button'), '#i-sl-trash-can');
   label(drop, tr('action.remove'));
   drop.onclick = () => confirmThis({
-    head: tr('people.remove_head', {who: p.who}),
-    body: tr('people.remove_body'),
+    head: tr('access.remove_head', {who: p.who}),
+    body: tr('access.remove_body'),
     keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
     doIt: tr('action.remove'), doMark: '#i-sl-trash-can',
-    go: () => post('/people', new URLSearchParams({who: p.who, remove: '1'}), '', '')
-      .then(why => { if (!why) loadPeople(); }),
+    go: () => post('/access', new URLSearchParams({who: p.who, remove: '1'}), '', '')
+      .then(why => { if (!why) loadAccess(); }),
   });
   controls.append(pick, scope, save, drop);
   row.append(controls);
@@ -3414,17 +3444,17 @@ function personRow(p, roles) {
 }
 
 function setPerson(who, role, companions) {
-  post('/people', new URLSearchParams({who: who, role: role, companions: companions}), '', '')
-    .then(why => { if (!why) loadPeople(); });
+  post('/access', new URLSearchParams({who: who, role: role, companions: companions}), '', '')
+    .then(why => { if (!why) loadAccess(); });
 }
 
 // Adding somebody is the head's own action, for the same reason adding a server is: at the bottom
 // of a list it is behind everybody already on it.
 function addPersonButton(roles) {
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-plus'),
-                  tr('people.add'));
+                  tr('access.add'));
   b.onclick = () => {
-    const who = prompt(tr('people.add_who'));
+    const who = prompt(tr('access.add_who'));
     if (!who || !who.trim()) return;
     setPerson(who.trim(), roles.includes('viewer') ? 'viewer' : (roles[0] || ''), '');
   };
@@ -4719,14 +4749,15 @@ function paint() {
   document.getElementById('themeK').textContent = tr('pref.theme');
   paintTheme();
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
-  document.getElementById('peopleK').textContent = tr('nav.people');
-  document.getElementById('peopleWhy').textContent = tr('people.why');
-  label(document.getElementById('peopleGo'), tr('people.open'));
+  document.getElementById('accessK').textContent = tr('nav.access');
+  document.getElementById('accessWhy').textContent = tr('access.why');
+  label(document.getElementById('accessGo'), tr('access.open'));
   prefsClose.textContent = tr('action.close');
   withMark(prefsClose, '#i-sl-xmark');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
-  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared']]) {
+  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared'],
+                           [railAccess, 'nav.access']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
@@ -4765,7 +4796,7 @@ loadMe();   // its two labels are words too
   // Guarded on a first paint having happened, or this would run before the loaders are declared.
   if (!repaintable) return;
   if (view() === 'skills') { loadSkills(); loadMCP(); }
-  else if (view() === 'people' && mayEl(peopleEl)) loadPeople();
+  else if (view() === 'access' && mayEl(accessEl)) loadAccess();
 
   else if (view() === 'board') loadBoard();
   else if (!sock()) loadFleet();
@@ -4952,7 +4983,7 @@ function render() {
   mcpEl.hidden = !!s || v !== 'skills';
   // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
   // be able to arrive at by editing the address either.
-  peopleEl.hidden = !!s || v !== 'people' || !mayEl(peopleEl);
+  accessEl.hidden = !!s || v !== 'access' || !mayEl(accessEl);
   // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
@@ -4990,7 +5021,7 @@ function render() {
   drawnFor = s;
   // Whichever body of content this navigation arrived at. One of them, not all of them: reveal on a
   // hidden element does nothing, so the list is the page's destinations and the right one answers.
-  for (const el of [fleetEl, skillsEl, boardEl, mcpEl, peopleEl, streamEl]) reveal(el);
+  for (const el of [fleetEl, skillsEl, boardEl, mcpEl, accessEl, streamEl]) reveal(el);
   measureDock();
   if (s && !deepNow) { draw([]); connect(); }
   else if (!s) { conn(''); says(''); }
@@ -5018,14 +5049,14 @@ function render() {
     ).subscribe(() => loadBoard());
     return;
   }
-  if (v === 'people') {
+  if (v === 'access') {
     // Read once and not polled: this list changes when somebody joins or leaves, which is not on a
     // three-second clock — and a table that reorders itself while an admin is picking a role is
     // worse than one a minute old.
     //
     // Not asked for at all when it may not be had. The server refuses either way; a fetch that
     // exists only to be refused is a 403 in somebody's audit record with nothing behind it.
-    if (mayEl(peopleEl)) loadPeople();
+    if (mayEl(accessEl)) loadAccess();
     return;
   }
   if (v === 'skills') {
@@ -5070,10 +5101,11 @@ back.onclick = e => {
   history.pushState({}, '', url);
   render();
 };
-// The rail's four, addressed the same way the tabs are. They are md-list-item with an href, so the
-// component draws a real anchor: the click is intercepted like every other in-page link, and a
-// middle click or a copied address still lands.
-const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills']];
+// The rail's destinations, addressed the same way the tabs are. They are anchors with an href, so
+// the click is intercepted like every other in-page link, and a middle click or a copied address
+// still lands. Access is one of them for the same reason it is in the rail at all: it is a screen
+// with an address, and the only thing different about it is that it sits at the foot.
+const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'], [railAccess, 'access']];
 for (const [el, key] of RAILS) {
   el.href = at(HREF[key]);
   el.onclick = e => {
@@ -5187,9 +5219,9 @@ prefsEl.onclick = () => prefsDialog.show();
 // Preferences is where the way to the people screen lives; see the markup for why it is not in the
 // navigation. Closing the dialog first, because leaving a modal open over the screen it just took
 // somebody to is the one thing a link out of a dialog must not do.
-document.getElementById('peopleGo').onclick = () => {
+document.getElementById('accessGo').onclick = () => {
   prefsDialog.close('go');
-  history.pushState({}, '', at(HREF.people));
+  history.pushState({}, '', at(HREF.access));
   render();
 };
 // Painted when it OPENS, not before. A dialog does not render what is slotted into it until then,

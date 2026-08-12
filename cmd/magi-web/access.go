@@ -42,8 +42,20 @@ type personRow struct {
 	Me bool `json:"me,omitempty"`
 }
 
-type peopleAnswer struct {
-	People []personRow `json:"people"`
+type accessAnswer struct {
+	// Instance is whose list this is: user@host, and the config directory it was read from.
+	//
+	// It answers a question the screen used to leave open. A fleet spans machines and accounts, and
+	// this list governs exactly ONE of them — the one this console runs as — so a roster with no
+	// name on it reads as the roster of everything on the page. Two accounts on one machine have
+	// two of these and neither can see the other's; the directory is beside the name because
+	// MAGI_CONFIG_DIR can give one account two instances, and then it is the only thing that tells
+	// them apart.
+	//
+	// It comes from the same read as the rows rather than from /console, so the name and the list
+	// cannot come from two different processes and disagree.
+	Instance instanceRow `json:"instance"`
+	People   []personRow `json:"people"`
 	// Groups is the other half of the roster, and on a console wired to a directory it is the
 	// whole of it: membership is maintained where somebody is hired and let go, and what is listed
 	// here is the mapping onto what that means. A screen that showed only individuals would say
@@ -57,18 +69,23 @@ type peopleAnswer struct {
 	Configured bool `json:"configured"`
 }
 
+type instanceRow struct {
+	Who       string `json:"who,omitempty"`       // user@host
+	ConfigDir string `json:"configDir,omitempty"` // where the file it governs lives
+}
+
 type roleRow struct {
 	Name string            `json:"name"`
 	Can  []auth.Capability `json:"can"`
 }
 
 // people answers with the list, or changes one entry.
-func (s *server) people(w http.ResponseWriter, r *http.Request) {
+func (s *server) access(w http.ResponseWriter, r *http.Request) {
 	// Never forwarded to a peer. A policy belongs to the console that enforces it, and editing
 	// another machine's from here would be an admin on one console quietly becoming an admin on
 	// another.
 	if r.Method == http.MethodPost {
-		s.peopleWrite(w, r)
+		s.accessWrite(w, r)
 		return
 	}
 	p, err := config.LoadAuth(s.cfgDir)
@@ -77,7 +94,11 @@ func (s *server) people(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	me := strings.ToLower(strings.TrimSpace(s.whoFrom(r)))
-	out := peopleAnswer{Configured: p.Configured()}
+	user, host := whereWeAre()
+	out := accessAnswer{
+		Instance:   instanceRow{Who: instanceOf(user, host), ConfigDir: s.cfgDir},
+		Configured: p.Configured(),
+	}
 	for who, person := range p.People {
 		out.People = append(out.People, personRow{
 			Who: who, Role: person.Role, Companions: person.Companions,
@@ -99,7 +120,7 @@ func (s *server) people(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "people", out)
 }
 
-func (s *server) peopleWrite(w http.ResponseWriter, r *http.Request) {
+func (s *server) accessWrite(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {
 		return
 	}

@@ -292,7 +292,7 @@ func run() int {
 		joinAddr        = flag.String("fleet-join", "", "spend an invitation on host:port (with --token and --pin)")
 		joinToken       = flag.String("token", "", "the invitation printed by --provision")
 		joinPin         = flag.String("pin", "", "the fingerprint the invitation named, pinned before anything is sent")
-		listPeopleF     = flag.Bool("people", false, "print who may use this console, and what each may do")
+		listAccessF     = flag.Bool("access", false, "print who may use this console, and what each may do")
 		grantWho        = flag.String("grant", "", "give somebody a role here (with --role, and --companions to narrow them)")
 		revokeWho       = flag.String("revoke", "", "take somebody off this console")
 		grantRole       = flag.String("role", "", "the role for --grant: operator, responder, viewer, or one you defined")
@@ -400,9 +400,9 @@ func run() int {
 	}
 	// The policy, from a terminal. Here for the same reason the identity commands are: this is the
 	// way in when the console itself will not let somebody in.
-	if *listPeopleF || *grantWho != "" || *revokeWho != "" {
-		return runPeopleCmd(peopleOpts{
-			list: *listPeopleF, grant: *grantWho, revoke: *revokeWho,
+	if *listAccessF || *grantWho != "" || *revokeWho != "" {
+		return runAccessCmd(accessOpts{
+			list: *listAccessF, grant: *grantWho, revoke: *revokeWho,
 			role: *grantRole, scope: *grantScope,
 			configDir: plat.ConfigDir(), out: os.Stdout,
 		})

@@ -347,8 +347,13 @@ for (const id of ['ptabTalk', 'ptabState']) byId.ptabs.append(byId[id]);
 // The companions tab holds a label element beside its badge, so the word can be rewritten without
 // taking the badge with it. Mirrored here for the same reason the rail's labels are.
 { const wrap = element('span'); wrap.className = 'tablbl'; const l = element('span'); l.className = 'lbl'; wrap.append(l); wrap.append(byId.tabBadge); byId.tabFleet.append(wrap); }
-for (const id of ['railFleet', 'railSkills']) {
-  byId.railNav.append(byId[id]);
+// The rail's destinations, under the two containers the markup puts them in: the two you live on
+// in #railNav, and the console's own screen at the foot in #railFoot. Which parent is not
+// decoration here — the page walks a container to find what is in it, and a foot the fake left
+// empty is a foot whose emptiness nothing can be asked about.
+for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
+                            ['railAccess', 'railFoot']]) {
+  byId[parent].append(byId[id]);
   // The label is markup, not something the module creates: paint() writes into it by class.
   const lbl = element('span');
   lbl.className = 'lbl';

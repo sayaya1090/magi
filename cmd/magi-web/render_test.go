@@ -4266,14 +4266,15 @@ console.log(JSON.stringify({sent: sent}));`)
 // Two halves of the same rule: the markup carries data-may="admin" so the screen is not offered to
 // somebody who would be refused, and the server refuses regardless — hiding is for the person who
 // would otherwise press a control that answers 403.
-func TestThePeopleScreenIsDrawnForAnAdminAndHiddenFromEverybodyElse(t *testing.T) {
+func TestTheAccessScreenIsDrawnForAnAdminAndHiddenFromEverybodyElse(t *testing.T) {
 	fleet := `[]`
 	page := `
 const base = globalThis.fetch;
 globalThis.fetch = async (p, o) => {
   const path = String(p).split('?')[0];
   if (path === '/me') return {ok: true, json: async () => ({can: CAN})};
-  if (path === '/people') return {ok: true, json: async () => ({configured: true, roles: [
+  if (path === '/access') return {ok: true, json: async () => ({configured: true,
+    instance: {who: 'you@studio', configDir: '/Users/you/.config/magi'}, roles: [
       {name: 'operator', can: ['read','answer','prompt','curate','configure','admin','shell']},
       {name: 'viewer', can: ['read']}],
     people: [
@@ -4282,19 +4283,28 @@ globalThis.fetch = async (p, o) => {
   return base(p, o);
 };
 await loadMe();
-history.pushState({}, '', '/?v=people');
+history.pushState({}, '', '/?v=access');
 // Through render(), which is what a person arriving at the address gets — including the decision
 // about whether to ask the server at all.
 render();
 for (let i = 0; i < 8; i++) await Promise.resolve();
-const names = byId.people.find('div').filter(d => String(d.className).includes('name')).map(d => d.textContent);
+const names = byId.access.find('div').filter(d => String(d.className).includes('name')).map(d => d.textContent);
 console.log(JSON.stringify({
-  hidden: byId.people.hidden,
+  hidden: byId.access.hidden,
   names: names,
-  roles: byId.people.find('md-outlined-select').length,
+  roles: byId.access.find('md-outlined-select').length,
+  // The way IN, which is the part a person hits first and the part that was missing: the screen
+  // existed and nothing on the page led to it.
+  railHref: byId.railAccess.getAttribute('href'),
+  railHidden: !!byId.railAccess.hidden,
+  railWord: byId.railAccess.querySelector('.lbl').textContent,
+  atFoot: byId.railFoot.children.includes(byId.railAccess),
+  // Whose list this is. Without it the roster reads as the fleet's, and the fleet spans machines.
+  whose: byId.access.find('div').filter(d => String(d.className).includes('instance'))
+                    .map(d => d.children.map(k => k.textContent).join(' ')).join(''),
 }));
 `
-	admin := runPage(t, fleet, "?v=people", strings.Replace(page, "CAN", `['read','admin']`, 1))
+	admin := runPage(t, fleet, "?v=access", strings.Replace(page, "CAN", `['read','admin']`, 1))
 	if admin["hidden"] == true {
 		t.Fatal("an admin cannot see the screen")
 	}
@@ -4305,14 +4315,36 @@ console.log(JSON.stringify({
 	if admin["roles"].(float64) != 2 {
 		t.Errorf("%v role pickers for two people", admin["roles"])
 	}
+	// A screen with no door is a screen nobody finds. The rail carries the way in, at its foot and
+	// away from the two destinations somebody lives on, with a word on it rather than a bare icon.
+	if admin["railHref"] != "/?v=access" {
+		t.Errorf("the rail leads to %v", admin["railHref"])
+	}
+	if admin["railHidden"] == true {
+		t.Error("an admin has no way to the access screen from the navigation")
+	}
+	if admin["atFoot"] != true {
+		t.Error("the way to the access screen is not at the foot of the rail")
+	}
+	if w, _ := admin["railWord"].(string); strings.TrimSpace(w) == "" {
+		t.Error("the rail's access item is an icon with no word")
+	}
+	// The list says which magi it governs. A console watching three machines draws three of these
+	// screens the same way, and only this line tells them apart.
+	if w, _ := admin["whose"].(string); !strings.Contains(w, "you@studio") {
+		t.Errorf("the list does not say whose it is: %q", w)
+	}
 
 	// Somebody who may read but not admin: the screen is not there to arrive at, even by address.
-	viewer := runPage(t, fleet, "?v=people", strings.Replace(page, "CAN", `['read']`, 1))
+	viewer := runPage(t, fleet, "?v=access", strings.Replace(page, "CAN", `['read']`, 1))
 	// Hidden, which is the whole of what the PAGE can promise. What keeps the list from somebody
 	// who may not have it is the server — TestOnlyAnAdminSeesOrChangesWhoMayUseThisConsole — and
 	// that is deliberate: hiding is for the person who would otherwise be offered a control that
 	// answers 403, never for the answer itself.
 	if viewer["hidden"] != true {
-		t.Error("a viewer reached the people screen by editing the address")
+		t.Error("a viewer reached the access screen by editing the address")
+	}
+	if viewer["railHidden"] != true {
+		t.Error("a viewer is offered a rail item leading to a screen they will be refused")
 	}
 }

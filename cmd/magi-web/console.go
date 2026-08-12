@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	osuser "os/user"
 )
 
 // Which console this is.
@@ -31,6 +32,12 @@ import (
 type consoleInfo struct {
 	Host      string `json:"host,omitempty"`
 	ConfigDir string `json:"configDir,omitempty"`
+	// User is the OS account this process runs as, because that — not the machine — is the unit
+	// everything else here is scoped to. Two accounts on one host read two config directories,
+	// enforce two policies and cannot write to each other's sessions; one account on two hosts is
+	// two of everything as well. So "which magi am I looking at" is answered by the pair, and the
+	// screen says it as user@host.
+	User string `json:"user,omitempty"`
 	// Peers is the other consoles this one federates, by name. The page does not draw them yet;
 	// they are here because "which machine am I looking at" and "which machines can this one see"
 	// are the same question asked from either end, and answering only half of it invites a second
@@ -50,12 +57,47 @@ func (s *server) console(w http.ResponseWriter, r *http.Request) {
 	out := consoleInfo{ConfigDir: s.cfgDir, EmbedModel: s.embedModel}
 	// A host that cannot be read is left empty rather than filled with a guess: the page draws the
 	// lines it has, and "unknown" on a screen answering "which machine is this" is worse than the
-	// line not being there.
-	if h, err := os.Hostname(); err == nil {
-		out.Host = h
-	}
+	// line not being there. Same for the account.
+	out.User, out.Host = whereWeAre()
 	for _, p := range s.peers {
 		out.Peers = append(out.Peers, p.Name)
 	}
 	writeJSON(w, "console", out)
+}
+
+// whereWeAre names this instance: the account and the machine.
+//
+// # Why not an address
+//
+// An IP says how to REACH a machine, which is a different question and a worse answer to this one:
+// a host has several, they change under DHCP, a tunnel makes every peer look like 127.0.0.1, and
+// behind NAT two machines share one. A hostname is what the person already calls it.
+//
+// # Why the account is half of it
+//
+// The trust boundary here is the OS user, not the box. Two accounts on one machine have separate
+// config directories, separate policies, separate sessions, and neither can write the other's
+// files — so a permission list belongs to user@host and never to a host. The config directory is
+// carried beside this rather than folded into it, because MAGI_CONFIG_DIR can give one account two
+// instances, and then the directory is the only thing that tells them apart.
+func whereWeAre() (user, host string) {
+	if u, err := osuser.Current(); err == nil {
+		user = u.Username
+	}
+	if h, err := os.Hostname(); err == nil {
+		host = h
+	}
+	return user, host
+}
+
+// instanceOf is user@host, or whichever half could be read.
+func instanceOf(user, host string) string {
+	switch {
+	case user != "" && host != "":
+		return user + "@" + host
+	case host != "":
+		return host
+	default:
+		return user
+	}
 }
