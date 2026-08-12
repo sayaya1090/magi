@@ -87,6 +87,10 @@ type Member struct {
 	Role string `json:"role,omitempty"`
 	Team string `json:"team,omitempty"`
 	Hub  bool   `json:"hub,omitempty"`
+	// Account is the OS user the daemon runs as. With Host it names the instance: two accounts on
+	// one machine are two config directories, two policies and two session stores, and a roster
+	// that said only the host would imply their companions are interchangeable.
+	Account string `json:"account,omitempty"`
 	// Workdir is where it works, which is what tells two checkouts of one repo apart.
 	Workdir string `json:"workdir,omitempty"`
 	// Can is how many things it advertises being able to do: its written procedures plus the tool
@@ -168,6 +172,7 @@ func Signable(m Member) []byte {
 	put(m.Name)
 	put(m.Role)
 	put(m.Team)
+	put(m.Account)
 	put(strconv.FormatBool(m.Hub))
 	put(m.Workdir)
 	put(strconv.Itoa(m.Can))
@@ -262,6 +267,9 @@ func fillFrom(keep, other Member) Member {
 	}
 	if keep.Workdir == "" {
 		keep.Workdir = other.Workdir
+	}
+	if keep.Account == "" {
+		keep.Account = other.Account
 	}
 	// Capabilities are borrowed as a pair or not at all. The names from one sighting and the count
 	// from another would give a member advertising three things out of nine when nobody ever saw

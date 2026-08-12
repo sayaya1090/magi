@@ -47,6 +47,7 @@ import (
 	"io"
 	"net"
 	"os"
+	osuser "os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1508,6 +1509,14 @@ type Info struct {
 	// this whole split exists for. Then the only thing telling them apart is this.
 	Host string `json:"host,omitempty"`
 	Addr string `json:"addr,omitempty"`
+	// Account is the OS user this daemon runs as, and with Host it names the INSTANCE a companion
+	// belongs to.
+	//
+	// The pair is the unit everything else here is scoped to: two accounts on one machine read two
+	// config directories, enforce two policies, keep two session stores, and neither can write the
+	// other's files. A roster that said only the host would put two people's companions on one line
+	// of provenance and imply they are interchangeable.
+	Account string `json:"account,omitempty"`
 	// Version is the build this daemon is running, which is not always the build the console
 	// reading it is. Upgrading replaces the binary and leaves every daemon already running on the
 	// old one until somebody restarts it — so a console showing only its own version answers a
@@ -1582,7 +1591,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
-		Host: host, Addr: primaryAddr(), Version: version.Version,
+		Host: host, Addr: primaryAddr(), Account: account(), Version: version.Version,
 	})
 	recordMu.Unlock()
 	if err != nil {
@@ -1647,6 +1656,16 @@ type Identity struct {
 	Hub  bool     // whether this one answers for its team
 	Can  int      // how many things it can do — skills plus tool servers; a tie-break in an election
 	Does []string // and what they are called, capped at cluster.MaxDoes
+}
+
+// account is the OS user this process runs as, or empty when it cannot be read — empty rather than
+// a guess, since the whole value of the name is that it matches what somebody sees in a shell.
+func account() string {
+	u, err := osuser.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
 }
 
 // primaryAddr is the address another machine would reach this one at, best effort.

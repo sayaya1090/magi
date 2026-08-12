@@ -151,15 +151,23 @@ type Agent struct {
 	Role string `json:"role,omitempty"`
 	// Team and Hub are how a group is addressed: a team name reaches its hub, and the hub is the
 	// companion that answers for the rest of them.
-	Team    string `json:"team,omitempty"`
-	Hub     bool   `json:"hub,omitempty"`
-	Host    string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
-	Addr    string `json:"addr"`
-	Live    bool   `json:"live"`
-	State   State  `json:"state"`
-	Asking  string `json:"asking"`  // what it is blocked on, when State is waiting
-	AskID   string `json:"askId"`   // the call id an answer must carry
-	AskKind string `json:"askKind"` // "permission" | "question"
+	Team string `json:"team,omitempty"`
+	Hub  bool   `json:"hub,omitempty"`
+	Host string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
+	// Instance is which magi it belongs to: account@host. The pair, not the host, because two
+	// accounts on one machine are two config directories, two policies and two session stores —
+	// their companions cannot see or touch each other's, and a row that named only the machine
+	// implied they were one fleet.
+	//
+	// Empty when the daemon that published the record is too old to say which account it runs as:
+	// the row then shows the host it has always shown rather than a name half-invented here.
+	Instance string `json:"instance,omitempty"`
+	Addr     string `json:"addr"`
+	Live     bool   `json:"live"`
+	State    State  `json:"state"`
+	Asking   string `json:"asking"`  // what it is blocked on, when State is waiting
+	AskID    string `json:"askId"`   // the call id an answer must carry
+	AskKind  string `json:"askKind"` // "permission" | "question"
 	// AskIndex and AskTotal place a question in the run its call is asking, counting from one.
 	// Answering one of three and being handed the next without warning is a different experience
 	// from answering one of one, and the row is where a reader finds out which they are in.
@@ -240,7 +248,8 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
-			Host: in.Host, Addr: in.Addr, Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
+			Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host),
+			Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
 			Permission: in.Permission, User: in.User,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
@@ -309,7 +318,8 @@ func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
 			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
-			Does: m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
+			Instance: instanceOf(m.Account, m.Host),
+			Does:     m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
 			// Live is "believed reachable", and for a companion on another machine the evidence
 			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
 			// anything acting on this has to look at State too, and Remote is not a state anything
@@ -968,4 +978,20 @@ func describeAsk(w *daemon.Waiting) string {
 		return Clip(w.What, 120)
 	}
 	return Clip(w.What, 120)
+}
+
+// instanceOf names the magi a companion belongs to: account@host.
+//
+// Half an answer rather than none when only one half is known — a row that says "buildbox" is still
+// telling somebody where to look — and nothing at all when neither is, because a made-up name here
+// would be indistinguishable from a real one.
+func instanceOf(account, host string) string {
+	switch {
+	case account != "" && host != "":
+		return account + "@" + host
+	case host != "":
+		return host
+	default:
+		return account
+	}
 }

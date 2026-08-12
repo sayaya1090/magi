@@ -1122,3 +1122,36 @@ func TestARefusalThatListsTwoCompanionsTellsThemApart(t *testing.T) {
 		t.Errorf("a companion on another machine is not told from one here: %q", far)
 	}
 }
+
+// A row says which magi a companion belongs to, not just which machine.
+//
+// Two accounts on one host are two config directories, two policies and two session stores: their
+// companions cannot read or write each other's, and a listing that named only the machine said
+// they were one fleet. The pair is what everything else here is scoped to.
+func TestARowNamesTheInstanceACompanionBelongsTo(t *testing.T) {
+	f := newFleetFixture(t)
+	// Somebody else's account, on another machine — the case the pair exists for.
+	f.knowOf(cluster.Member{Host: "mini", Socket: "/far/ops.sock", Name: "ops",
+		Account: "deploy", Seen: time.Now()})
+	var far *fleet.Agent
+	for i, a := range f.get() {
+		if strings.EqualFold(a.Name, "ops") {
+			far = &f.get()[i]
+		}
+	}
+	if far == nil {
+		t.Fatal("the companion on the other machine is not listed at all")
+	}
+	if far.Instance != "deploy@mini" {
+		t.Errorf("the row says the companion belongs to %q", far.Instance)
+	}
+
+	// And a record from a daemon too old to say which account it runs as gives the host it always
+	// gave, rather than a name half-invented here.
+	f.knowOf(cluster.Member{Host: "buildbox", Socket: "/far/old.sock", Name: "old", Seen: time.Now()})
+	for _, a := range f.get() {
+		if strings.EqualFold(a.Name, "old") && a.Instance != "buildbox" {
+			t.Errorf("a record with no account was drawn as %q", a.Instance)
+		}
+	}
+}

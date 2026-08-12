@@ -881,7 +881,12 @@ function card(a) {
   const name = document.createElement('b');
   // The console it came from first when there is one: with three machines federated, that is the
   // thing the eye needs before the hostname.
-  name.textContent = a.peer ? a.peer : (a.host || 'this machine');
+  //
+  // Otherwise the INSTANCE — account@host — and not the machine. Two accounts on one host are two
+  // config directories, two policies and two session stores; their companions cannot touch each
+  // other's, and a row naming only the machine said they were one fleet. A daemon too old to say
+  // which account it runs as still gives its host, which is what this said before.
+  name.textContent = a.peer ? a.peer : (a.instance || a.host || 'this machine');
   host.append(name);
   if (a.addr) host.append(document.createElement('br'), document.createTextNode(a.addr));
   if (a.here) host.append(document.createElement('br'), document.createTextNode('this directory'));
@@ -2300,7 +2305,7 @@ function drawDetail(a) {
     field('field.last_activity', ago(a.idle)),
     ...(a.role ? [wide(field('field.role', a.role))] : []),
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
-    field('field.host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
+    field('field.host', (a.instance || a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
     wide(field('field.workspace', a.workdir)),
     sessionField(a),
