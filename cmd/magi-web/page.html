@@ -311,15 +311,15 @@
       <div class="prefsay"><div class="k" id="notifyK"></div><div class="say" id="notifyWhy"></div></div>
       <md-switch id="notifySwitch" touch-target="wrapper"></md-switch>
     </div>
-    <!-- The phone's way to the people screen. The rail's foot is the wide screen's, and below
-         37.4375em the rail is not drawn at all — so without this row the screen would be reachable
-         only by typing ?v=people, which is a screen nobody finds and is how "is it built?" gets
-         asked about something that is.
-         Two doors to one screen rather than one door that moves: preferences is where the
-         console's own settings already live, and a reader who found it here on their phone finds
-         it here on their laptop too. data-may hides the row from anybody who would be refused the
+    <!-- The phone's way to the access screen, and only the phone's. The rail carries it at every
+         other width; below 37.4375em the rail is not drawn at all, and without this row the screen
+         would be reachable only by typing ?v=access — a screen nobody finds, which is how "is it
+         built?" gets asked about something that is.
+         Hidden where the rail is drawn rather than kept as a second permanent door: two ways to
+         one screen, both on screen at once, is a reader wondering which of them is the real one.
+         It is the same address either way. data-may hides it from anybody who would be refused the
          screen behind it. -->
-    <div class="prefrow" data-may="admin">
+    <div class="prefrow narrowonly" data-may="admin">
       <div class="prefsay"><div class="k" id="accessK"></div><div class="say" id="accessWhy"></div></div>
       <md-text-button id="accessGo" type="button"></md-text-button>
     </div>

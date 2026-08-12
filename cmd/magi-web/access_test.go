@@ -220,9 +220,14 @@ func TestThereIsAWayToTheAccessScreen(t *testing.T) {
 	}
 	// Behind the same capability as the screen: a control offering a place somebody will be refused
 	// is the offer this console does not make. Both of them.
-	row := regexp.MustCompile(`(?s)<div class="prefrow" data-may="admin">.*?id="accessGo"`)
+	row := regexp.MustCompile(`(?s)<div class="prefrow narrowonly" data-may="admin">.*?id="accessGo"`)
 	if !row.MatchString(indexHTML) {
-		t.Error("the preferences row is not gated on admin, so it is offered to people the screen refuses")
+		t.Error("the preferences row is not gated on admin, or is no longer the narrow-width door")
+	}
+	// And it is the NARROW width's door only. The rail carries the same address everywhere else,
+	// and two visible ways to one screen is a reader wondering which one is the real one.
+	if !strings.Contains(indexHTML, ".prefrow.narrowonly { display:none; }") {
+		t.Error("the preferences row is drawn at every width, beside the rail item that does the same thing")
 	}
 	rail := regexp.MustCompile(`(?s)id="railAccess"[^>]*data-may="admin"`)
 	if !rail.MatchString(indexHTML) {

@@ -145,8 +145,11 @@ const demoScript = `
     ],
     // Which machine this console is. A demo that left it blank would be showing the drawer with a
     // hole in it, and the hole is the part that answers "am I looking at the right one".
+    // Two versions, and deliberately not the same one: the console is the process the reader just
+    // loaded and the companions are whatever was running before the upgrade. A demo showing them
+    // equal would hide the only case the two lines exist for.
     '/console': {host: 'studio', configDir: '/Users/you/.config/magi',
-                 peers: ['mini', 'laptop']},
+                 peers: ['mini', 'laptop'], version: 'v0.6.2', daemons: ['v0.6.1', 'v0.6.2']},
     // Everything, because a demo has nobody configured — which is also what a console with no
     // auth.toml answers, so the copy behaves like the ordinary single-operator one rather than
     // like a person nobody gave a role to.

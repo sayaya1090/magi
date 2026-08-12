@@ -58,6 +58,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/version"
 )
 
 // Engine is the part of the app a daemon exposes: the calls that only the process holding the run
@@ -1507,6 +1508,12 @@ type Info struct {
 	// this whole split exists for. Then the only thing telling them apart is this.
 	Host string `json:"host,omitempty"`
 	Addr string `json:"addr,omitempty"`
+	// Version is the build this daemon is running, which is not always the build the console
+	// reading it is. Upgrading replaces the binary and leaves every daemon already running on the
+	// old one until somebody restarts it — so a console showing only its own version answers a
+	// question nobody asked, and the one they did ask ("why does this companion not have the thing
+	// I just shipped") has no answer on the screen at all.
+	Version string `json:"version,omitempty"`
 	// Live is filled in by List, not by the daemon: a file cannot say whether the process that
 	// wrote it is still there. Only a dial can.
 	Live bool `json:"-"`
@@ -1575,7 +1582,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
-		Host: host, Addr: primaryAddr(),
+		Host: host, Addr: primaryAddr(), Version: version.Version,
 	})
 	recordMu.Unlock()
 	if err != nil {

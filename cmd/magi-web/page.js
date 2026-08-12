@@ -223,7 +223,13 @@ function loadConsole() {
     if (!c) return;
     consoleEl.replaceChildren();
     embedModel = c.embedModel || '';
-    for (const [k, val] of [['field.host', c.host], ['field.config', c.configDir]]) {
+    // The machine, the directory, and the two builds. The console's own version is the process the
+    // reader just loaded; the daemons' is what their companions are actually running, and the two
+    // come apart the moment somebody upgrades without restarting anything.
+    const daemons = (c.daemons || []).join(', ');
+    for (const [k, val] of [['field.host', c.host], ['field.config', c.configDir],
+                            ['field.console_version', c.version],
+                            ['field.daemon_version', daemons]]) {
       if (!val) continue;
       const line = cell('');
       const b = document.createElement('b');

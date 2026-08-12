@@ -4,6 +4,10 @@ import (
 	"net/http"
 	"os"
 	osuser "os/user"
+	"sort"
+
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/version"
 )
 
 // Which console this is.
@@ -43,6 +47,17 @@ type consoleInfo struct {
 	// are the same question asked from either end, and answering only half of it invites a second
 	// endpoint later that disagrees with this one.
 	Peers []string `json:"peers,omitempty"`
+	// Version is the build this console is, and Daemons the builds the companions on this machine
+	// are running.
+	//
+	// Two lines rather than one because they come apart exactly when it matters: upgrading replaces
+	// the binary and every daemon already running keeps the old one until it is restarted. The
+	// console is the process a person just reloaded, so it is always the new number — and "why
+	// hasn't the thing I shipped shown up" is answered by the other one.
+	Version string `json:"version,omitempty"`
+	// Daemons is every distinct version among the companions published here, newest first is not
+	// meaningful — they are sorted, and a machine where everything agrees has one entry.
+	Daemons []string `json:"daemons,omitempty"`
 	// EmbedModel is what searches on this machine turn text into vectors with, or empty for none.
 	// It is here rather than on a settings screen because it is a COMPATIBILITY fact about the
 	// team: vectors from two models are not comparable, so two companions on different ones share
@@ -54,7 +69,21 @@ func (s *server) console(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	out := consoleInfo{ConfigDir: s.cfgDir, EmbedModel: s.embedModel}
+	out := consoleInfo{ConfigDir: s.cfgDir, EmbedModel: s.embedModel, Version: version.Version}
+	// The companions' builds, from the records they published. A daemon too old to write one
+	// contributes nothing rather than "unknown": the line is about what IS running, and a machine
+	// where everything agrees should read as one number and not as a list with a hole in it.
+	if list, err := daemon.List(s.cfgDir); err == nil {
+		seen := map[string]bool{}
+		for _, in := range list {
+			if in.Version == "" || seen[in.Version] {
+				continue
+			}
+			seen[in.Version] = true
+			out.Daemons = append(out.Daemons, in.Version)
+		}
+		sort.Strings(out.Daemons)
+	}
 	// A host that cannot be read is left empty rather than filled with a guess: the page draws the
 	// lines it has, and "unknown" on a screen answering "which machine is this" is worse than the
 	// line not being there. Same for the account.

@@ -864,6 +864,10 @@
      order, at the same three places on each row, so the eye finds the next control where it found
      the last one. The name column is fixed so the sentences start on one line down the dialog. */
   .prefrow { display:flex; align-items:center; gap:var(--magi-sys-space-200); }
+  /* A row that belongs to the width where the rail is not drawn. The default is hidden and the
+     narrow query puts it back, so the phone case is the exception that has to be stated — the
+     other way round, a new width would inherit "show it" and quietly give the screen two doors. */
+  .prefrow.narrowonly { display:none; }
   .prefrow > .prefsay { flex:1 1 auto; min-width:0; }
   .prefrow > md-outlined-select { flex:0 0 11rem; }
 
@@ -2547,6 +2551,7 @@
     /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
        all. The preferences it used to carry are in the dialog now. */
     #rail { display:none; }
+    .prefrow.narrowonly { display:flex; }
     /* The aside is four cards of context under a conversation, which is a long way to scroll for
        something you glance at. Tighter, so the transcript keeps the screen. */
     #side { gap:var(--magi-sys-space-150); }
