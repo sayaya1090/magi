@@ -4719,6 +4719,9 @@ function paint() {
   document.getElementById('themeK').textContent = tr('pref.theme');
   paintTheme();
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
+  document.getElementById('peopleK').textContent = tr('nav.people');
+  document.getElementById('peopleWhy').textContent = tr('people.why');
+  label(document.getElementById('peopleGo'), tr('people.open'));
   prefsClose.textContent = tr('action.close');
   withMark(prefsClose, '#i-sl-xmark');
   prefsK.textContent = tr('nav.preferences');
@@ -5181,6 +5184,14 @@ railMenu.onclick = () => {
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
 prefsEl.onclick = () => prefsDialog.show();
+// Preferences is where the way to the people screen lives; see the markup for why it is not in the
+// navigation. Closing the dialog first, because leaving a modal open over the screen it just took
+// somebody to is the one thing a link out of a dialog must not do.
+document.getElementById('peopleGo').onclick = () => {
+  prefsDialog.close('go');
+  history.pushState({}, '', at(HREF.people));
+  render();
+};
 // Painted when it OPENS, not before. A dialog does not render what is slotted into it until then,
 // so a select told its value while the dialog was closed had no options to resolve it against and
 // showed an empty field over a value it was holding.

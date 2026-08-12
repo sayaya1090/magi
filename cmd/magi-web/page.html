@@ -293,6 +293,16 @@
       <div class="prefsay"><div class="k" id="notifyK"></div><div class="say" id="notifyWhy"></div></div>
       <md-switch id="notifySwitch" touch-target="wrapper"></md-switch>
     </div>
+    <!-- The way to the people screen, and the only one: it is not in the rail or the tabs, because
+         it is opened when somebody joins or leaves and a navigation has to fit on a phone. It has
+         to be SOMEWHERE, though — a screen reachable only by typing ?v=people is a screen nobody
+         finds, which is how "is it built?" gets asked about something that is. Preferences is
+         where the console's own settings already live, and data-may hides the row from anybody who
+         would be refused the screen behind it. -->
+    <div class="prefrow" data-may="admin">
+      <div class="prefsay"><div class="k" id="peopleK"></div><div class="say" id="peopleWhy"></div></div>
+      <md-text-button id="peopleGo" type="button"></md-text-button>
+    </div>
     <!-- One block, not two rows. Split, the heading sat exactly as far from its own contents as
          from the setting above it, so it read as floating between the two rather than belonging to
          what is under it. -->

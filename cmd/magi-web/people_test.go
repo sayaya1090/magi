@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -186,5 +187,26 @@ func TestAnUnclaimedConsoleSaysHowToClaimIt(t *testing.T) {
 	s2.claimHint(r)
 	if said.Len() != 0 {
 		t.Errorf("a configured console offered to be claimed:\n%s", said.String())
+	}
+}
+
+// The people screen has a way in.
+//
+// It is not in the rail or the tabs on purpose — it is opened when somebody joins or leaves, and a
+// navigation has to fit on a phone — which left it reachable only by typing ?v=people. A screen
+// nobody can find is a screen that has not been built, and it got asked about as one.
+func TestThereIsAWayToThePeopleScreen(t *testing.T) {
+	if !strings.Contains(indexHTML, `id="peopleGo"`) {
+		t.Error("nothing in the markup opens the people screen")
+	}
+	// Behind the same capability as the screen: a row offering a place somebody will be refused is
+	// the offer this console does not make.
+	row := regexp.MustCompile(`(?s)<div class="prefrow" data-may="admin">.*?id="peopleGo"`)
+	if !row.MatchString(indexHTML) {
+		t.Error("the way in is not gated on admin, so it is offered to people the screen refuses")
+	}
+	// And the page wires it to the screen's own address rather than a hand-written one.
+	if !strings.Contains(scriptBody(t, indexHTML), "HREF.people") {
+		t.Error("the control does not navigate to the people view")
 	}
 }
