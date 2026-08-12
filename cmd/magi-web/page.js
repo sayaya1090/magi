@@ -3428,12 +3428,21 @@ async function loadAccess() {
   // read-only: membership is maintained where somebody is hired and let go, and a console that
   // offered to edit it would be offering to disagree with the directory.
   const kids = [head, ...whose, cell('accsay', tr('access.lead'))];
-  if ((got.groups || []).length) {
+  // Narrowed to one capability when a chip is pressed, and said in words above the lists: a filter
+  // that only shows itself as a chip somewhere in the middle of a row is a screen that has quietly
+  // stopped being the whole roster.
+  const has = row => !capFilter || (row.can || []).includes(capFilter);
+  if (capFilter) kids.push(capNote());
+  const groups = (got.groups || []).filter(has);
+  const people = (got.people || []).filter(has);
+  if (groups.length) {
     kids.push(rosterHead('access.groups', 'access.groups_why'),
-              accList(got.groups.map(g => groupRow(g))));
+              accList(groups.map(g => groupRow(g))));
   }
-  kids.push(rosterHead('access.exceptions', 'access.exceptions_why'),
-            accList((got.people || []).map(p => personRow(p, roles))));
+  if (people.length || !capFilter) {
+    kids.push(rosterHead('access.exceptions', 'access.exceptions_why'),
+              accList(people.map(p => personRow(p, roles))));
+  }
   // What the words on the chips mean, once, under the thing they are on — reference goes below
   // what it explains. Once rather than per row: seven sentences repeated beside every person is a
   // screen nobody reads, and the same seven under it is a screen somebody reads once.
@@ -3459,6 +3468,17 @@ const CAP_SAY = {
   read: 'cap.read', answer: 'cap.answer', prompt: 'cap.prompt', curate: 'cap.curate',
   configure: 'cap.configure', admin: 'cap.admin', shell: 'cap.shell',
 };
+
+// What the screen is showing while a chip is pressed, and the way back to all of it.
+function capNote() {
+  const box = cell('capnote');
+  box.append(cell('', tr('access.only', {cap: capFilter})));
+  const all = label(withMark(document.createElement('md-text-button'), '#i-sl-xmark'),
+                    tr('access.show_all'));
+  all.onclick = () => { capFilter = null; loadAccess(); };
+  box.append(all);
+  return box;
+}
 
 function capLegend(caps) {
   const box = cell('caplegend');
@@ -3493,21 +3513,34 @@ function rosterHead(key, whyKey) {
   return h;
 }
 
-// A capability, drawn as a chip and deliberately NOT an md-chip.
+// Which capability the roster is narrowed to, or null for all of them.
 //
-// The library's chips are controls: assist does something, filter filters a collection, input is a
-// thing a person entered and can remove, suggestion is a proposal to act on. This is none of them —
-// it is what a role already grants, and it does nothing when pressed. A component with a ripple and
-// a pressed state that answers nothing is a worse lie than a shape that never offered.
+// One filter for the whole screen, which is what makes a chip in a row the same control as the
+// chip with the same word three rows down: press "configure" anywhere and the question being asked
+// is the same one — who here can configure things. The guide's rule that a page's chip sets are
+// all one selection mode falls out of there being one selection.
+let capFilter = null;
+
+// A capability, as the component rather than a div wearing its shape.
 //
-// So it borrows the chip's shape (8dp corner, outline, label type) and none of its behaviour. What
-// the words mean is said once in the legend at the foot of the screen rather than seven times over
-// in tooltips nobody on a touch screen can open.
+// It was a div, on the argument that every chip variant the library ships is a control and a
+// capability does nothing when pressed. The argument was right about chips and wrong about this
+// one: pressing a capability CAN mean something, and it is the question somebody reading this
+// screen already has — "who else can do this?". So it is a filter chip, filtering the roster, which
+// is exactly what filter chips are for. The selected state is real, shared, and says what is being
+// asked; a person who presses one and gets the answer never has to learn a second control.
 function capChip(word) {
-  const c = cell('capchip', word);
-  // The one that can grant the others is drawn differently, and says so in the markup rather than
-  // through a second class: what is special about it is which capability it IS.
+  const c = document.createElement('md-filter-chip');
+  c.className = 'capchip';
+  c.setAttribute('label', word);
   c.setAttribute('data-cap', word);
+  // The chip's own property, not an attribute of ours: it toggles itself and the list is rebuilt
+  // from capFilter, so the drawing and the state cannot drift.
+  c.selected = capFilter === word;
+  c.onclick = () => {
+    capFilter = capFilter === word ? null : word;
+    loadAccess();
+  };
   return c;
 }
 
@@ -4417,20 +4450,31 @@ async function loadMap() {
   if (!rows) return;
   const head = sectionHead('nav.map', toTable());
   const boxes = cell('places');
-  // Own instance first, then the ones somebody admitted, then the ones only heard of. That is the
-  // order of how much you can DO with them, which is the order somebody reads for.
+  // Two boundaries, two boxes. The outer one is the MACHINE, which is what a network reaches and
+  // what goes down; the inner one is the account on it, which is what owns a config directory, a
+  // policy, a key and a session store. Nesting them says both without a word of explanation — and
+  // it says the thing a flat list of "you@studio, sam@studio, you@buildbox" makes a reader
+  // assemble for themselves: that two of those share a kernel and two share an owner.
   const rank = {own: 0, admitted: 1, unknown: 2};
-  const by = new Map();
+  const machines = new Map();
   for (const a of rows) {
-    const key = a.peer ? a.peer : (a.instance || a.host || tr('map.here'));
-    if (!by.has(key)) by.set(key, []);
-    by.get(key).push(a);
+    // A peer is a console somebody put in front of another machine's fleet. What comes back is
+    // already grouped by that console, and this one has no idea what host it runs on — so the
+    // peer's name IS the machine here, which is also what every other screen calls it.
+    const host = a.peer ? a.peer : (a.host || tr('map.here'));
+    const who = accountOf(a) || tr('map.here');
+    if (!machines.has(host)) machines.set(host, new Map());
+    const inner = machines.get(host);
+    if (!inner.has(who)) inner.set(who, []);
+    inner.get(who).push(a);
   }
-  const places = [...by.entries()].sort((x, y) => {
-    const rx = rank[trustOf(x[1])] ?? 3, ry = rank[trustOf(y[1])] ?? 3;
+  const order = list => rank[trustOf(list)] ?? 3;
+  const placed = [...machines.entries()].sort((x, y) => {
+    const rx = Math.min(...[...x[1].values()].map(order));
+    const ry = Math.min(...[...y[1].values()].map(order));
     return rx - ry || (x[0] < y[0] ? -1 : 1);
   });
-  for (const [name, list] of places) boxes.append(placeBox(name, list));
+  for (const [host, accounts] of placed) boxes.append(machineBox(host, accounts, order));
   // The wires are drawn over the boxes, so the element has to exist before anything is measured —
   // and it is measured only in a browser: there is no layout under the test harness, and a wire
   // between two boxes that are both at 0,0 is a line of noise pretending to be information.
@@ -4448,6 +4492,47 @@ async function loadMap() {
   canvas.append(wires, boxes);
   mapEl.replaceChildren(head, cell('accsay', tr('map.lead')), canvas, legend);
   drawWires(canvas, wires, rows, hands || []);
+}
+
+// accountOf is the half of an instance that is not the machine. The machine is already the box
+// around it, and repeating "you@buildbox" inside a box labelled buildbox is the label saying the
+// same thing twice.
+function accountOf(a) {
+  const inst = a.instance || '';
+  const at = inst.indexOf('@');
+  if (at > 0) return inst.slice(0, at);
+  return inst;
+}
+
+// One machine, with the accounts running magi on it.
+//
+// Its own freshness rather than each account's: gossip crosses between machines, so "nothing heard
+// for nine minutes" is a fact about the link to that box and not about one account inside it. The
+// console's own machine says nothing — it is reading its own directory, and there is no link to
+// be up or down.
+function machineBox(host, accounts, order) {
+  const box = cell('machine');
+  const top = cell('machinetop');
+  top.append(cell('machinename', host));
+  const all = [].concat(...[...accounts.values()]);
+  const addr = (all.find(a => a.addr) || {}).addr;
+  if (addr) top.append(cell('machineaddr', addr));
+  box.append(top);
+  // Only the bad news lives up here. How fresh each companion's record is belongs on the companion
+  // — a gossip round carries every member's own sighting, so "heard 30 seconds ago" is a fact
+  // about that companion and not about the box around it. What IS about the box is silence: when
+  // nothing inside it has been heard from at all, the link is what to look at, not five rows each
+  // reporting the same minute.
+  if (trustOf(all) && trustOf(all) !== 'own' && !all.some(a => a.live)) {
+    const fresh = all.reduce((n, a) => Math.min(n, a.idle >= 0 ? a.idle : 1e9), 1e9);
+    box.append(cell('placeseen down', tr('map.unseen', {ago: ago(fresh === 1e9 ? -1 : fresh)})));
+  }
+  const inner = cell('accounts');
+  for (const [who, list] of [...accounts.entries()].sort((x, y) => order(x[1]) - order(y[1]))) {
+    inner.append(placeBox(who, list));
+  }
+  box.append(inner);
+  return box;
 }
 
 // trustOf is the relationship a whole instance has with this console: its companions all live
@@ -4473,27 +4558,19 @@ function toMap() {
   return b;
 }
 
-// One instance: the machines-and-account box, with its companions inside it.
+// One account on that machine: a magi, with its companions.
 //
-// The box is the unit because it is the unit everywhere else — one config directory, one policy,
-// one session store, one key. Companions inside one box can reach each other by socket; anything
-// crossing a box boundary goes over the door, which is what the wires between boxes are.
-function placeBox(name, list) {
+// The inner box is the boundary everything else here is scoped to — one config directory, one
+// policy, one key, one session store. Two accounts side by side inside one machine box is the
+// picture that says sharing a kernel shares nothing: neither can read the other's sessions, and
+// work between them crosses the door exactly as it would between two cities.
+function placeBox(who, list) {
   const box = cell('place ' + (trustOf(list) || 'unsaid'));
   const top = cell('placetop');
-  top.append(cell('placename', name));
+  top.append(cell('placename', who));
   const t = trustOf(list);
   if (t) top.append(cell('placetrust ' + t, tr(TRUST_SAY[t] || 'map.trust_unsaid')));
   box.append(top);
-  // How fresh this machine's news is. For the console's own instance there is nothing to say — it
-  // is reading its own directory — and for everybody else it is the honest form of "is the link
-  // up": the age of the freshest sighting, which is what a gossip round leaves behind.
-  if (t && t !== 'own') {
-    const fresh = list.reduce((n, a) => Math.min(n, a.idle >= 0 ? a.idle : 1e9), 1e9);
-    const live = list.some(a => a.live);
-    box.append(cell('placeseen' + (live ? '' : ' down'),
-      tr(live ? 'map.seen' : 'map.unseen', {ago: ago(fresh === 1e9 ? -1 : fresh)})));
-  }
   for (const a of list) box.append(mapNode(a));
   return box;
 }
@@ -4518,6 +4595,10 @@ function mapNode(a) {
   if (mark) n.append(mark);
   n.append(cell('nodename', a.name || ''));
   if (a.hub) n.append(cell('nodehub', tr('team.speaks')));
+  // How old this companion's record is — but only for the ones that arrived as records. On a local
+  // row the same number means "last activity", which is a different fact with the same shape, and
+  // the state word beside it already says what that row is doing.
+  if (remote) n.append(cell('nodeage' + (a.live ? '' : ' down'), ago(a.idle)));
   n.append(cell('nodestate', stateWord(a.state)));
   return n;
 }

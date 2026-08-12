@@ -4325,8 +4325,9 @@ console.log(JSON.stringify({
   parts: byId.access.find('div').map(d => String(d.className)).filter(c => c),
   // Chips inside the ROWS, not only in the legend: a joined string of the same words passes any
   // check that only asks whether the class appears somewhere on the screen.
-  rowchips: byId.access.find('div').filter(d => String(d.className).split(' ').includes('caps'))
-                       .reduce((n, d) => n + d.children.length, 0),
+  // Chips are md-filter-chip now — a component, and a control that answers "who else may do this?"
+  // — so they are counted as elements rather than as divs.
+  rowchips: byId.access.find('md-filter-chip').length,
 }));
 `
 	admin := runPage(t, fleet, "?v=access", strings.Replace(page, "CAN", `['read','admin']`, 1))
@@ -4379,7 +4380,7 @@ console.log(JSON.stringify({
 	// And each row is drawn in list anatomy rather than as three lines of the same size — which is
 	// what it was, and the reason nobody could tell the name from what it buys.
 	parts := fmt.Sprint(admin["parts"])
-	for _, want := range []string{"who", "caps", "acclist", "capchip", "caplegend", "accsay"} {
+	for _, want := range []string{"who", "caps", "acclist", "caplegend", "accsay"} {
 		if !strings.Contains(parts, want) {
 			t.Errorf("no %q in the row's parts: %s", want, parts)
 		}
@@ -4518,8 +4519,10 @@ console.log(JSON.stringify({off: !!byId.sideToggle.disabled, says: byId.sideTogg
 //
 // A table answers "what is each one doing". Once there is more than one machine in a fleet the
 // other question is where all this is running and what actually travels — and the answer is not a
-// list, because the thing being asked about is the shape.
-func TestTheMapGroupsCompanionsByInstanceAndSaysWhatCanBeReached(t *testing.T) {
+// list, because the thing being asked about is the shape. Two boundaries are drawn as two boxes:
+// the machine, which is what a network reaches and what goes down, and the account on it, which is
+// what owns a config directory, a policy and a key.
+func TestTheMapDrawsMachinesAndTheAccountsInsideThem(t *testing.T) {
 	got := runPage(t, `[]`, "?v=map", `
 globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
@@ -4528,6 +4531,9 @@ globalThis.fetch = async (p) => {
      trust: 'own', live: true, idle: 3, hub: true},
     {socket: '/s/a.sock', name: 'api', state: 'waiting', host: 'studio', instance: 'you@studio',
      trust: 'own', live: true, idle: 9},
+    // Another account on the SAME machine: one box around them both, two inside it.
+    {socket: '/far/r.sock', name: 'risk', state: 'remote', host: 'studio', instance: 'sam@studio',
+     trust: 'admitted', live: true, idle: 12},
     {socket: '/far/t.sock', name: 'tests', state: 'remote', host: 'buildbox',
      instance: 'you@buildbox', trust: 'admitted', live: true, idle: 30},
     {socket: '/far/x.sock', name: 'deploy', state: 'remote', host: 'mini', instance: 'ops@mini',
@@ -4541,41 +4547,45 @@ globalThis.fetch = async (p) => {
 };
 render();
 for (let i = 0; i < 20; i++) await Promise.resolve();
-const places = byId.map.find('div').filter(d => String(d.className).split(' ').includes('place'));
+const named = (root, cls) => root.find('div').filter(d => String(d.className).split(' ').includes(cls));
+const machines = byId.map.find('div').filter(d => String(d.className).split(' ').includes('machine'));
 console.log(JSON.stringify({
   hidden: byId.map.hidden,
-  // One box per instance, in the order of what can be done with them: yours, then admitted, then
-  // heard-of.
-  places: places.map(p => p.find('div').filter(d => String(d.className).includes('placename'))
-                           .map(d => d.textContent).join('')),
-  trust: places.map(p => String(p.className)),
-  // A companion on another machine is drawn and does not link, the same rule the table follows.
-  faroff: byId.map.find('div').filter(d => String(d.className).includes('faroff')).length,
+  machines: machines.map(m => named(m, 'machinename').map(d => d.textContent).join('')),
+  // The accounts inside each, which is the boundary a machine box does NOT draw: two accounts on
+  // one host share a kernel and nothing else.
+  accounts: machines.map(m => named(m, 'placename').map(d => d.textContent).join(',')),
+  trust: machines.map(m => named(m, 'placetrust').map(d => d.textContent).join(',')),
+  faroff: named(byId.map, 'faroff').length,
   links: byId.map.find('a').filter(a => String(a.className).includes('node')).length,
-  // And the news from a machine nobody has heard from is said, not implied by an empty box.
   down: byId.map.find('div').filter(d => String(d.className).includes('placeseen down')).length,
 }));
 `)
 	if got["hidden"] == true {
 		t.Fatal("the map is not drawn at its own address")
 	}
-	places, _ := got["places"].([]any)
-	if len(places) != 3 {
-		t.Fatalf("four companions on three instances drew %v boxes", places)
+	machines, _ := got["machines"].([]any)
+	if len(machines) != 3 {
+		t.Fatalf("five companions on three machines drew %v boxes", machines)
 	}
-	if places[0] != "you@studio" || places[2] != "ops@mini" {
-		t.Errorf("the boxes are not ordered by what can be done with them: %v", places)
+	if machines[0] != "studio" || machines[2] != "mini" {
+		t.Errorf("the machines are not ordered by what can be done with them: %v", machines)
 	}
-	if tr := fmt.Sprint(got["trust"]); !strings.Contains(tr, "own") || !strings.Contains(tr, "unknown") {
+	// The machine is named once, by the box; the account inside it is not "you@studio" again.
+	accounts, _ := got["accounts"].([]any)
+	if accounts[0] != "you,sam" {
+		t.Errorf("the accounts on the first machine are %v", accounts[0])
+	}
+	if tr := fmt.Sprint(got["trust"]); !strings.Contains(tr, "yours") || !strings.Contains(tr, "not admitted") {
 		t.Errorf("a box does not say this console's relationship with it: %s", tr)
 	}
-	if n, _ := got["faroff"].(float64); n != 2 {
-		t.Errorf("%v companions on other machines are drawn as unreachable; two are", n)
+	if n, _ := got["faroff"].(float64); n != 3 {
+		t.Errorf("%v companions on other instances are drawn as unreachable; three are", n)
 	}
 	if n, _ := got["links"].(float64); n != 2 {
-		t.Errorf("%v nodes link into a companion's page; only the two here should", n)
+		t.Errorf("%v nodes link into a companion's page; only this instance's two should", n)
 	}
 	if n, _ := got["down"].(float64); n != 1 {
-		t.Errorf("%v boxes say nothing has been heard from them; one machine is quiet", n)
+		t.Errorf("%v machines say nothing has been heard from them; one is quiet", n)
 	}
 }

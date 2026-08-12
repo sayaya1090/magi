@@ -1312,7 +1312,11 @@
      knows. */
   .viewbar { display:flex; justify-content:flex-end; margin-bottom:var(--magi-sys-space-150); }
   .mapcanvas { position:relative; }
-  .wires { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
+  /* Over the boxes, not under them. The wires are drawn between node edges, so a stacking order
+     that put them behind the boxes hid every line the moment it crossed one — which is most of
+     them. Inert to the pointer, so being on top costs the nodes nothing. */
+  .wires { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; z-index:1; }
+  .places { position:relative; }
   .wire { fill:none; stroke-width:2; stroke-linecap:round; }
   /* Answered, in flight, and unreachable — three states somebody acts on differently, so three
      appearances rather than one line in three shades. The dashed one is the only one that is not a
@@ -1360,6 +1364,10 @@
   }
   .node .nodename { font:600 var(--magi-sys-body-m) var(--magi-ref-mono); overflow-wrap:anywhere; min-width:0; flex:1 1 auto; }
   .node .nodestate { font:var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-muted); }
+  /* How old this companion's record is. Beside the state and quieter than it: the state is what it
+     is doing, this is how sure we are that the state is still true. */
+  .node .nodeage { font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  .node .nodeage.down { color:var(--magi-ref-warn); }
   .node .nodehub { font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-primary); }
   .node .nodemark { flex:none; }
   /* Not a link, and it should not look like one: a companion on another machine is drawn because
@@ -1396,6 +1404,16 @@
      time rather than as a block. Between only: a rule under the last row would close a list that
      the next heading already closes. */
   .acclist .acc + .acc { border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-200); }
+  /* A break between the two lists has to be stronger than a break between two rows, and it was
+     weaker: rows were ruled and the sections were separated by a margin, so the roster read as one
+     long list with a bold line in the middle of it. Two weights and two amounts of room — the
+     hairline between rows is outline-variant, the rule between sections is outline, and the
+     section gets the space of a new beginning. Only when something precedes it: a rule above the
+     first heading would close nothing. */
+  .acclist + .rosterhead {
+    margin-top:var(--magi-sys-space-600); padding-top:var(--magi-sys-space-400);
+    border-top:1px solid var(--magi-ref-outline);
+  }
   /* Complex — each one carries a form — so these get the stronger separation the guidance reserves
      for exactly that, and the room to go with it. */
   .acclist .person { padding-bottom:var(--magi-sys-space-250); border-bottom:1px solid var(--magi-ref-outlineVariant); }
@@ -1420,30 +1438,39 @@
   /* Supporting text: body, one step down from the headline and in the muted role. Monospace for
      the same reason — these are the words that go into the file. */
   .acccaps .caps { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); }
-  /* A capability, wearing a chip's shape and none of its behaviour — see capChip(). 8dp is the
-     corner every chip in the system has; the label type is the chip's; the outline is what the
-     guidance asks for a chip on a plain background instead of elevation. What it does not have is
-     a ripple, a pressed state or a target, because it does nothing. */
-  .capchip {
-    display:inline-flex; align-items:center; padding:2px var(--magi-sys-space-150);
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-small);
-    font:var(--md-sys-typescale-label-large-size)/1.8 var(--magi-ref-mono);
-    color:var(--magi-ref-fg); white-space:nowrap;
-  }
+  /* A capability is an md-filter-chip and the component draws it — the shape, the ripple, the
+     focus ring, the 48dp target and the check mark when it is on. Nothing here paints over that.
+     The one thing said from outside is the face: these words are literals from auth.toml, and the
+     rest of the page sets literals in mono. */
+  .capchip { --md-filter-chip-label-text-font:var(--magi-ref-mono); }
   /* The one that can grant the others reads differently, because it IS different: everything else
-     on this screen can be handed back, and this one hands out. */
-  .capchip:is([data-cap="admin"]) { color:var(--magi-ref-warn); border-color:var(--magi-ref-warn); }
+     on this screen can be handed back, and this one hands out. Through the component's own tokens
+     rather than a colour on the host, which would not reach the label inside its shadow root. */
+  .capchip[data-cap="admin"] {
+    --md-filter-chip-label-text-color:var(--magi-ref-warn);
+    --md-filter-chip-outline-color:var(--magi-ref-warn);
+  }
+  /* What the screen is showing while one is pressed, and the way back to all of it. */
+  .capnote {
+    display:flex; align-items:center; gap:var(--magi-sys-space-150); flex-wrap:wrap;
+    margin-bottom:var(--magi-sys-space-200);
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-fg);
+  }
   /* And the scope under it, smaller again: it is a qualifier on the line above, not a line of its
      own standing. */
   .acccaps .scope {
     font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display);
     color:var(--magi-ref-muted);
   }
-  /* The lead sentence, and the one under each heading: prose, so the display face and a body size,
-     and held to a measure — this is the only part of the screen somebody READS rather than scans. */
+  /* The lead sentence, and the one under each heading: prose, so the display face and a body size.
+     No measure of its own — it takes the column it is in. A 60ch cap here read as a narrow strip
+     against the rows below it, which run the width of the panel: the two are one screen, and a
+     paragraph indented from its own list by 400px looks like a caption for something else. What
+     the guide asks for is a line that does not run to 120 characters; that is the container's job
+     on this page, and the container already does it at every width this screen is used at. */
   .accsay, .rosterhead .why {
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display);
-    color:var(--magi-ref-muted); max-width:60ch;
+    color:var(--magi-ref-muted);
   }
   .accsay { margin:calc(-1 * var(--magi-sys-space-100)) 0 var(--magi-sys-space-200); }
   /* Under the heading rather than beside it: a heading and a sentence on one line is two type
@@ -1457,7 +1484,7 @@
     gap:var(--magi-sys-space-200); align-items:baseline; }
   .capdef .capsay {
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display);
-    color:var(--magi-ref-muted); max-width:60ch;
+    color:var(--magi-ref-muted);
   }
   .acccontrols {
     display:flex; flex-wrap:wrap; align-items:center;
