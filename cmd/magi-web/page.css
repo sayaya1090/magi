@@ -1302,7 +1302,14 @@
   /* The sentence under it is prose and is set as prose: a reason to read, not a value to compare. */
   .instance .why { display:block; font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-display); }
 
-  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-500) 0; max-width:52ch; }
+  /* The empty state takes the whole panel and stands in the middle of it.
+     A measure is for prose somebody READS — a paragraph after paragraph, where the eye has to find
+     the next line and 52 characters is where it stops missing. This is two sentences on a screen
+     with nothing else on it, and held to 52ch on the left edge of a 1400px panel it read as a
+     caption for the emptiness rather than as the whole of what the screen is saying. Centred and
+     given the width, it is what is there. */
+  .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--magi-ref-display); color:var(--magi-ref-muted);
+    padding:var(--magi-sys-space-700) var(--magi-sys-space-300); text-align:center; }
   .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--magi-ref-mono); color:var(--magi-ref-accent); }
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
