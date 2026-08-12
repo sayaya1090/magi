@@ -262,19 +262,17 @@ func run() int {
 // somebody acting as the operator on a second machine, and the audit record on the far side would
 // say the request came from here. There is no way to narrow it from this end, so the two are
 // refused together rather than half-supported.
-func exposedAllows(exposed bool, peers []peer) error {
-	if !exposed || len(peers) == 0 {
-		return nil
-	}
-	names := make([]string, len(peers))
-	for i, p := range peers {
-		names[i] = p.Name
-	}
-	return fmt.Errorf("-exposed and -peer cannot be used together (%s): a peer is reached on the "+
-		"operator's own tunnel, so a shared console would let anybody it admits act as the operator "+
-		"on another machine — run a second console for the federated view, or drop -exposed",
-		strings.Join(names, ", "))
-}
+// exposedAllows used to refuse -exposed together with -peer, and no longer does.
+//
+// The reason it refused was real: a crossing to a peer carries no identity, so on a shared console
+// anybody admitted here could act as the operator over there, unattributed. But the ban also
+// removed the arrangement people actually want — one console, several machines, several people
+// looking — to prevent a class of request that can simply be refused instead. It is: see proxy,
+// where a change aimed at a peer is turned away and a read is not.
+//
+// Kept as a function because the shape of the check is worth having when identity does cross the
+// hop, and because deleting a rule is a decision that should leave something behind to read.
+func exposedAllows(exposed bool, peers []peer) error { return nil }
 
 // exposedHasTLS refuses a shared console with nothing to encrypt it.
 //

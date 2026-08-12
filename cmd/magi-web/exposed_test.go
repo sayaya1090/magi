@@ -66,27 +66,58 @@ func TestASharedConsoleStillShowsWhatIsRunning(t *testing.T) {
 	}
 }
 
-// Federation on a shared console would let whoever the gateway admits act as the operator on
-// another machine — magi-web forwards on the operator's own tunnel and has no credential of its
-// own to narrow it with. Refused at startup, where it can still be a sentence rather than a
-// surprise.
-func TestASharedConsoleCannotAlsoFederate(t *testing.T) {
+// A shared console shows other machines and does not act on them.
+//
+// It used to refuse to start at all with -exposed and -peer together, because a crossing to a peer
+// carries no identity: on a shared console anybody admitted here could act as the operator over
+// there, with nothing in that console's record to say who did. True, and the ban also removed the
+// arrangement people want — one console, several machines, several people looking — to prevent a
+// class of request that can be refused on its own.
+//
+// So the rule moved from startup to the crossing, and narrowed to what is actually unsafe: with
+// ONE operator the person who could have sent it is the person whose tunnel it goes down, and the
+// far console's record naming the operator is true.
+func TestASharedConsoleShowsAPeerAndDoesNotActOnIt(t *testing.T) {
 	peers := []peer{{Name: "mini", Base: "http://127.0.0.1:7778"}}
-	if err := exposedAllows(true, peers); err == nil {
-		t.Fatal("-exposed with -peer was accepted")
-	} else {
-		if !strings.Contains(err.Error(), "mini") {
-			t.Errorf("the refusal does not name the peer: %v", err)
-		}
-		if !strings.Contains(err.Error(), "-exposed") || !strings.Contains(err.Error(), "-peer") {
-			t.Errorf("the refusal does not name both flags: %v", err)
+	// No combination is refused at startup any more.
+	for _, exposed := range []bool{true, false} {
+		if err := exposedAllows(exposed, peers); err != nil {
+			t.Errorf("exposed=%v with a peer was refused at startup: %v", exposed, err)
 		}
 	}
-	if err := exposedAllows(false, peers); err != nil {
-		t.Errorf("federation alone was refused: %v", err)
+
+	shared := withPolicy(t, `
+[people."kim@corp.com"]
+role = "operator"
+`)
+	p := peer{Name: "mini", Base: "http://127.0.0.1:7778"}
+	post := httptest.NewRequest(http.MethodPost, "/interrupt?p=mini&d=/s/a.sock", nil)
+	post.Header.Set("X-Forwarded-User", "kim@corp.com")
+	w := httptest.NewRecorder()
+	shared.proxy(w, post, p, "/s/a.sock")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a shared console forwarded an action to another machine (%d)", w.Code)
 	}
-	if err := exposedAllows(true, nil); err != nil {
-		t.Errorf("a shared console with no peers was refused: %v", err)
+	if !strings.Contains(w.Body.String(), p.Base) {
+		t.Errorf("the refusal does not say where it CAN be done: %s", w.Body.String())
+	}
+
+	// And the same console still shows what is over there: looking is what a federated view is for.
+	far := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("the far console was sent a %s", r.Method)
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer far.Close()
+	p = peer{Name: "mini", Base: far.URL}
+	shared.http = far.Client()
+	get := httptest.NewRequest(http.MethodGet, "/fleet?p=mini", nil)
+	get.Header.Set("X-Forwarded-User", "kim@corp.com")
+	w = httptest.NewRecorder()
+	shared.proxy(w, get, p, "")
+	if w.Code == http.StatusForbidden {
+		t.Errorf("a shared console refused to READ a peer: %s", w.Body.String())
 	}
 }
 

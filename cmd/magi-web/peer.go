@@ -181,6 +181,26 @@ func unreachable(p peer, err error) fleet.Agent {
 // path, the target socket and the form body. A peer console is not a tunnel to arbitrary URLs, and
 // the way it stops being one is that nothing else here is copied.
 func (s *server) proxy(w http.ResponseWriter, r *http.Request, p peer, socket string) {
+	// On a SHARED console, reads cross and changes do not.
+	//
+	// The request rebuilt below carries no identity — deliberately, because a header this console
+	// forwarded would be one the far console has to trust from a machine rather than from its own
+	// gateway. With one operator that costs nothing: the only person who could have sent it is the
+	// person whose tunnel it goes down, so the far console's record naming "the operator" is true.
+	//
+	// With several people it stops being true. The action arrives unattributable — no name for the
+	// far console's audit, nobody for its policy to check — and anybody admitted here would be
+	// acting as the operator over there. This used to be prevented by refusing -exposed and -peer
+	// together, which also removed the arrangement people actually want: one console, several
+	// machines, several people looking. Looking is what a federated view is FOR, so looking stays
+	// and the change is turned away — with the address of the console that can make it.
+	if s.shared() && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "this console is shared, so it can show you "+p.Name+" and cannot act on it: "+
+			"an action sent from here would arrive there with no name on it, and could be neither "+
+			"checked nor recorded. Open "+p.Base+" and do it where that companion lives.",
+			http.StatusForbidden)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "unreadable form", http.StatusBadRequest)
 		return
