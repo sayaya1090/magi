@@ -279,3 +279,45 @@ func TestAPeersAnswerIsBounded(t *testing.T) {
 		t.Errorf("an answer past the cap was accepted: %q", list[0].Task)
 	}
 }
+
+// The workspace of a companion on ANOTHER machine, through the console in front of it.
+//
+// "Can I see the files on my other machine?" has two answers, and this is the one that is yes: a
+// magi-web running there is a peer, and every companion route this console has — including the two
+// that read a workspace — is answered by whichever console owns the companion. The path never
+// leaves that machine, and this one resolves nothing against its own filesystem.
+//
+// (The other answer is no, and it is deliberate: a companion known only by gossip has no console
+// in front of it, and the fleet door carries work rather than file contents. The pane says so.)
+func TestAWorkspaceOnAnotherMachineIsReadThroughItsOwnConsole(t *testing.T) {
+	var seen []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/files", func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, "files "+r.URL.Query().Get("d")+" "+r.URL.Query().Get("path"))
+		_, _ = w.Write([]byte(`[{"name":"cmd","isDir":true},{"name":"go.mod","isDir":false}]`))
+	})
+	mux.HandleFunc("/file", func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, "file "+r.URL.Query().Get("path"))
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"path": r.URL.Query().Get("path"), "text": "     1\tmodule magi\n"})
+	})
+	remote := httptest.NewServer(mux)
+	t.Cleanup(remote.Close)
+	f := federatedServer(t, peer{Name: "buildbox", Base: remote.URL})
+	q := "?d=" + url.QueryEscape("/there/a.sock") + "&p=buildbox"
+
+	w := httptest.NewRecorder()
+	f.srv.files(w, httptest.NewRequest(http.MethodGet, "/files"+q+"&path=.", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "go.mod") {
+		t.Fatalf("the listing came back %d: %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	f.srv.file(w, httptest.NewRequest(http.MethodGet, "/file"+q+"&path=go.mod", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "module magi") {
+		t.Fatalf("the file came back %d: %s", w.Code, w.Body.String())
+	}
+	// Asked of the other console, with the socket it uses on ITS machine — not opened here.
+	if len(seen) != 2 || !strings.HasPrefix(seen[0], "files /there/a.sock") {
+		t.Errorf("the far console saw %v", seen)
+	}
+}

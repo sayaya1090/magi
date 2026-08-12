@@ -4846,8 +4846,10 @@ function hitRow(a, hit) {
 // nobody can see is a request somebody's daemon served for nothing, four times a minute.
 async function loadTree(a) {
   if (!a || !filesOpen()) return;
-  // A companion on another machine has no socket this console can open — the path in its row is a
-  // path on ITS filesystem. Say so rather than drawing an empty tree, which reads as "no files".
+  // A companion known only by gossip has no socket this console can open — the path in its row is a
+  // path on ITS filesystem, and the fleet door carries work rather than file contents. Say so, and
+  // say the way round it: a magi-web running there is a peer, and a peer's companions come through
+  // its own console with their files intact. A row with a peer on it is NOT this case.
   if (a.elsewhere) {
     filesEl.replaceChildren(cell('filesnote', tr('files.elsewhere')));
     return;

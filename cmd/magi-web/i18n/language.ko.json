@@ -159,7 +159,7 @@
   "field.workspace": "워크스페이스",
   "files.by_name": "이름",
   "files.by_text": "내용",
-  "files.elsewhere": "이 컴패니언은 다른 인스턴스에 있습니다 — 파일은 여기가 아니라 그쪽에서 읽습니다.",
+  "files.elsewhere": "이 컴패니언에는 가십으로만 닿습니다 — 파일은 그 머신에 남습니다. 그쪽에 magi-web을 띄워 이 콘솔에 피어로 추가하면 다른 것과 똑같이 열립니다.",
   "files.find": "이 워크스페이스에서 찾기",
   "files.more": "외 {n}개 더",
   "files.no_match": "일치하는 것이 없습니다.",

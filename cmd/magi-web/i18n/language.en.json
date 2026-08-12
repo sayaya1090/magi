@@ -159,7 +159,7 @@
   "field.workspace": "Workspace",
   "files.by_name": "names",
   "files.by_text": "contents",
-  "files.elsewhere": "This companion is on another instance — its files are read from there, not here.",
+  "files.elsewhere": "Only gossip reaches this companion, so its files stay on its own machine. A magi-web running there, added here as a peer, opens them like any other.",
   "files.find": "Find in this workspace",
   "files.more": "and {n} more",
   "files.no_match": "Nothing here matches that.",

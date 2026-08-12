@@ -1712,7 +1712,12 @@
      so the later "none" won at every width: the pane defaults to shut and the only control that
      opens it was invisible, which made the plan, the handoffs and the history unreachable on this
      page. Nothing said so — a control that is not drawn asks no questions. */
-  #sideToggle { display:none; }
+  #sideToggle, #filesToggle { display:none; }
+  /* The file pane's handle follows the state pane's rule and not the pane's own width: it is drawn
+     only on a companion's page, at every width, because below the two-pane breakpoint the pane it
+     opens goes under the conversation rather than beside it. Left to the default it stood on the
+     fleet list, over a screen with no workspace in it — a control opening nothing. */
+  body[at="agent"] #filesToggle { display:inline-flex; flex:none; }
   /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
      1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
      840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
@@ -1908,6 +1913,9 @@
 
   #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
   #stream, #side, #sidecol, #files, #filecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
+  /* And the column with it: a grid track holding one hidden control still takes its gap, which on
+     the list screen is a 24px hole down the leading edge of the page. */
+  body:not([at="agent"]) #filecol { display:none; }
   #side #plan, #side #handoffs { max-width:none; }
 
   /* ── one level in: a verdict, or a child ─────────────────────────────────── */
