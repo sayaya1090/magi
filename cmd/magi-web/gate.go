@@ -50,7 +50,11 @@ var mayWrite = map[string]auth.Capability{
 	"/remember":      auth.Curate,
 	"/report-format": auth.Curate,
 	// How it runs.
-	"/model":      auth.Configure,
+	"/model": auth.Configure,
+	// Who may use this console, and how much. The capability that grants the others, and until
+	// this route existed it granted nothing at all — a word in a config file that read like a
+	// promise, which is the thing the auth package warns about in its own opening comment.
+	"/people":     auth.Admin,
 	"/permission": auth.Configure,
 	"/cron":       auth.Configure,
 	"/mcp":        auth.Configure,
@@ -62,6 +66,19 @@ var mayWrite = map[string]auth.Capability{
 	// where this console pushes, not anything a companion does. Read is the honest requirement —
 	// anything more would stop a viewer from being told the thing they are allowed to look at.
 	"/push": auth.Read,
+}
+
+// mayRead is the exception to "every GET is read": a route whose ANSWER is privileged.
+//
+// One route so far, and the reason is the shape of what it returns. The people list is who exists
+// here, what each may do and which companions they are narrowed to — a map of the console's own
+// permission model, which is the first thing somebody works from when they want more of it than
+// they have. Reading it is an admin's business.
+//
+// A table rather than a check inside the handler, so the gate stays the one place a route's
+// permissions are written down. A check in the handler is a permission nobody can find.
+var mayRead = map[string]auth.Capability{
+	"/people": auth.Admin,
 }
 
 // openToRead is every route that only looks. Named rather than derived, so that adding a route and
@@ -104,6 +121,9 @@ func (s *server) mayDo(path string, h http.HandlerFunc) http.HandlerFunc {
 		need, ok := mayWrite[path]
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			need, ok = auth.Read, ok || openToRead[path]
+			if stricter, special := mayRead[path]; special {
+				need, ok = stricter, true
+			}
 		}
 		if !ok {
 			// The table, not the person. Said as a refusal because the alternative — assuming a

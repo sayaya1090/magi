@@ -864,6 +864,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/permission":    s.permission,
 		"/console":       s.console,
 		"/me":            s.me,
+		"/people":        s.people,
 		"/history":       s.history,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,

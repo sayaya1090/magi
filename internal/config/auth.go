@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -98,4 +99,106 @@ func capList() string {
 		names = append(names, string(c))
 	}
 	return strings.Join(names, ", ")
+}
+
+// HasAdmin reports whether anybody in this policy may change it.
+//
+// Exported because the writer needs the same answer the loader does: LoadAuth refuses a file that
+// lists people and gives none of them `admin`, and a console started against one refuses to run at
+// all. So a change that would produce that file has to be refused BEFORE it is written — otherwise
+// the way somebody finds out is a console that will not come back up, with the fix on the far side
+// of the door they just locked.
+func HasAdmin(p auth.Policy) bool { return anyAdmin(p) }
+
+// SetPerson writes one person's role and scope into auth.toml, and reports what stopped it.
+//
+// Surgical, like every other named-table editor here: the file is somebody's, comments and all,
+// and a program that rewrites it wholesale is one they stop editing by hand.
+//
+// The check is on the RESULT, not on the change: demoting the last admin, deleting them, or
+// narrowing them to a companion they cannot use are three different edits with one consequence,
+// and the consequence is the thing worth refusing.
+func SetPerson(dir, who string, p auth.Person) error {
+	who = strings.ToLower(strings.TrimSpace(who))
+	if who == "" {
+		return fmt.Errorf("no name given")
+	}
+	now, err := LoadAuth(dir)
+	if err != nil {
+		return err
+	}
+	if _, ok := now.Roles[p.Role]; !ok {
+		return fmt.Errorf("%q is not a role here — this console has %s", p.Role, roleList(now))
+	}
+	after := withPerson(now, who, &p)
+	if !HasAdmin(after) {
+		return fmt.Errorf("that would leave nobody who may %q, and a console with people and no "+
+			"admin refuses to start — give somebody else the role first", auth.Admin)
+	}
+	path := filepath.Join(dir, AuthFile)
+	section := `people."` + who + `"`
+	if err := SetKey(path, section, "role", p.Role); err != nil {
+		return err
+	}
+	if len(p.Companions) == 0 {
+		// An empty list is not the same as no list: no list means every companion, which is the
+		// ordinary case and the one that must need no configuration.
+		return SetRawKey(path, section, "companions", "")
+	}
+	return SetRawKey(path, section, "companions", quotedList(p.Companions))
+}
+
+// RemovePerson takes somebody off the list, refusing the removal that locks the door.
+func RemovePerson(dir, who string) error {
+	who = strings.ToLower(strings.TrimSpace(who))
+	now, err := LoadAuth(dir)
+	if err != nil {
+		return err
+	}
+	if _, listed := now.People[who]; !listed {
+		return fmt.Errorf("%s is not on the list", who)
+	}
+	after := withPerson(now, who, nil)
+	// One person left is a special case worth naming: removing the LAST person is not a lockout,
+	// it is going back to a console with one operator and no policy at all, which is a state this
+	// tree supports and somebody may well want.
+	if len(after.People) > 0 && !HasAdmin(after) {
+		return fmt.Errorf("that would leave nobody who may %q — give somebody else the role first",
+			auth.Admin)
+	}
+	return RemoveSection(filepath.Join(dir, AuthFile), `people."`+who+`"`)
+}
+
+// withPerson is the policy as it would be after one change. A copy, because the caller is holding
+// the current one and a check that mutated it would be a check that had already happened.
+func withPerson(p auth.Policy, who string, person *auth.Person) auth.Policy {
+	next := auth.Policy{Roles: p.Roles, People: map[string]auth.Person{}}
+	for k, v := range p.People {
+		if k != who {
+			next.People[k] = v
+		}
+	}
+	if person != nil {
+		next.People[who] = *person
+	}
+	return next
+}
+
+func roleList(p auth.Policy) string {
+	names := make([]string, 0, len(p.Roles))
+	for n := range p.Roles {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+func quotedList(in []string) string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, strconv.Quote(s))
+		}
+	}
+	return "[" + strings.Join(out, ", ") + "]"
 }
