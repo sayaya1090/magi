@@ -117,6 +117,21 @@ function element(tag) {
       else this.children.splice(i, 0, kid);
       return kid;
     },
+    // Standing aside for what takes its place, which is how a control that has been used becomes
+    // the thing it opened. The DOM puts the new nodes AT THIS INDEX and then takes this one out,
+    // so order is preserved — appending them and removing itself would move them to the end, and a
+    // "write a different answer" button would open its field somewhere other than where it stood.
+    // The eleventh gap between this stand-in and the DOM it stands in for.
+    replaceWith(...kids) {
+      const p = this.parentNode;
+      if (!p) return;
+      p.adopt(kids);
+      for (const k of kids) { if (k && typeof k === 'object') k.parentNode = p; }
+      const i = p.children.indexOf(this);
+      if (i < 0) p.children.push(...kids);
+      else p.children.splice(i, 1, ...kids);
+      this.parentNode = null;
+    },
     replaceChildren(...kids) {
       this.adopt(kids);
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }

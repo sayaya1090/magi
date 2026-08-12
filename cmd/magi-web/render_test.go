@@ -3834,3 +3834,111 @@ console.log(JSON.stringify({text: empties.length ? empties[0].innerHTML || empti
 		t.Errorf("they were told the fleet is empty: %q", said)
 	}
 }
+
+// A question with a list is answered by pressing one on the agent's page too.
+//
+// The fleet row drew the buttons and the agent's own page did not: a question turned the composer
+// into an answer field and that was the whole offer. The options had reached the page — the report
+// above argues about them, since the default contract asks what each option costs and which one
+// the agent leans to — so the person was reading the words and retyping one of them, exactly, into
+// a box under prose that had scrolled away.
+func TestThePromptBarOffersTheOptionsItWasGiven(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+drawPrompt({socket:'/s/a.sock', state:'waiting', asking:'which surface?', askId:'q1',
+            askKind:'question', askIndex:1, askTotal:1,
+            askOptions:['surface', 'surface-dim']});
+const buttons = byId.prompt.find('md-outlined-button').map(b => b.textContent);
+console.log(JSON.stringify({
+  buttons: buttons,
+  // The composer stays the way to say something that is not on the list, so there must be exactly
+  // one field in play: the one at the bottom of the page.
+  fields: byId.prompt.find('md-outlined-text-field').length,
+  note: byId.cnote.textContent,
+}));`)
+
+	buttons, _ := got["buttons"].([]any)
+	if len(buttons) != 2 || buttons[0] != "surface" || buttons[1] != "surface-dim" {
+		t.Errorf("the bar drew %v, wanted a button per option — the answer travels as text, so the "+
+			"wording is the answer", buttons)
+	}
+	if got["fields"].(float64) != 0 {
+		t.Error("a second text field was drawn in the bar, over the composer that is already one")
+	}
+	if note, _ := got["note"].(string); !strings.Contains(note, "Pick one") {
+		t.Errorf("the composer says %q — it does not say the list above is the offer", note)
+	}
+}
+
+// And the list is not the only thing that can be said.
+//
+// The answer travels as text, so something outside the list is deliverable and is sometimes the
+// true answer. On the ask screen there is no composer to say it in — a deep screen hides it — so
+// the way to say "neither" has to be here, behind a press rather than beside the options: a field
+// standing open next to three buttons asks "type something" as loudly as they ask "pick one".
+func TestTheAskScreenCanSayNoneOfThose(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const box = answerBox({socket:'/s/a.sock', state:'waiting', asking:'which surface?', askId:'q1',
+                       askKind:'question', askOptions:['surface', 'surface-dim']}, true);
+const before = box.find('md-outlined-text-field').length;
+const more = box.find('md-text-button')[0];
+if (more) more.onclick({preventDefault(){}, stopPropagation(){}});
+console.log(JSON.stringify({
+  before: before,
+  offered: !!more,
+  after: box.find('md-outlined-text-field').length,
+  stillOptions: box.find('md-outlined-button').length,
+  // Where it opened, not only that it opened: the field takes the place the button stood in, so
+  // it lands under the options rather than at the end of whatever else the box holds.
+  order: box.children.map(k => k.tag).join(','),
+}));`)
+
+	if got["offered"] != true {
+		t.Fatal("the ask screen offers no way to answer anything but the list, and hides the composer")
+	}
+	if got["before"].(float64) != 0 {
+		t.Error("the field stands open beside the options, which asks to type as loudly as it asks to pick")
+	}
+	if got["after"].(float64) != 1 {
+		t.Errorf("pressing it opened %v fields", got["after"])
+	}
+	if got["stillOptions"].(float64) != 2 {
+		t.Errorf("opening the field took the options away (%v left)", got["stillOptions"])
+	}
+	if order, _ := got["order"].(string); order != "md-outlined-button,md-outlined-button,md-outlined-text-field,md-filled-button" {
+		t.Errorf("the field opened at %q — it takes the place the button stood in, which is under "+
+			"the options and not at the end of the box", order)
+	}
+}
+
+// The stand-in replaces a node where it stood.
+//
+// About the fake DOM rather than the page: the page's one caller happens to put the control it
+// replaces last, so a replaceWith that appended instead would look identical there and be wrong
+// the first time somebody puts anything after it. A stand-in is only worth having where it agrees
+// with the DOM before the page depends on the difference.
+func TestTheFakeDOMReplacesInPlace(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+const box = document.createElement('div');
+const a = document.createElement('span'); a.textContent = 'a';
+const mid = document.createElement('span'); mid.textContent = 'mid';
+const z = document.createElement('span'); z.textContent = 'z';
+box.append(a, mid, z);
+const one = document.createElement('em'); one.textContent = '1';
+const two = document.createElement('em'); two.textContent = '2';
+mid.replaceWith(one, two);
+console.log(JSON.stringify({
+  order: box.children.map(k => k.textContent).join(','),
+  orphaned: mid.parentNode === null,
+  adopted: one.parentNode === box,
+}));`)
+
+	if order, _ := got["order"].(string); order != "a,1,2,z" {
+		t.Errorf("replaceWith left %q, wanted a,1,2,z — the DOM puts the new nodes where the old one was", order)
+	}
+	if got["orphaned"] != true {
+		t.Error("the replaced node kept its parent, so a page could still reach what it took out")
+	}
+	if got["adopted"] != true {
+		t.Error("the new nodes were not adopted, so asking one which box it is in answers wrong")
+	}
+}

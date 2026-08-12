@@ -1193,11 +1193,38 @@ function jumpToFirstRow() {
   });
 }
 
+// textAnswer is a field and a send button that carry one typed reply.
+//
+// Its own function because it is now the SECOND way to answer a question rather than the only one:
+// a question with a list of options is answered by pressing one, and this is what "none of those"
+// opens. Written twice, the two would drift on the details that matter — the disabled state, and
+// the clicks that must not reach the row underneath.
+function textAnswer(send) {
+  const i = document.createElement('md-outlined-text-field');
+  i.label = tr('label.answer');
+  const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');
+  withMark(b, '#i-ss-paper-plane');
+  // Disabled until there is something to send, rather than pressable and inert. The guide is
+  // explicit that an action which cannot happen is DISABLED and not hidden, and the third state
+  // — drawn as pressable and then doing nothing — is the one it does not offer: a press that
+  // answers nothing reads as broken, and there is no way to tell it from a page that has died.
+  const arm = () => b.toggleAttribute('disabled', !i.value.trim());
+  arm();
+  const go = e => { e.preventDefault(); e.stopPropagation(); if (i.value.trim()) send(i.value.trim()); };
+  b.onclick = go;
+  i.addEventListener('input', arm);
+  // The box sits inside a row that is a link, and inside the ask screen it sits under one. Neither
+  // press is a navigation.
+  i.onclick = e => { e.preventDefault(); e.stopPropagation(); };
+  i.onkeydown = e => { if (e.key === 'Enter') go(e); };
+  return [i, b];
+}
+
 // answerBox is the reply to a blocked agent, next to the question it answers.
 //
 // The buttons stop the click from opening the agent (the row is a link) — reading and answering are
 // different intentions and the same tap must not do both.
-function answerBox(a) {
+function answerBox(a, freeText) {
   const box = document.createElement('div'); box.className = 'answer';
   // The socket is passed, not spliced into the path: post() adds the target itself, and doing it
   // in both places produced /answer?d=X?d=X — invisible on the fleet, where post()'s own target is
@@ -1232,23 +1259,23 @@ function answerBox(a) {
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(opt); };
       box.append(b);
     }
+    // A list is what the agent expects and not all it will take: the answer travels as text, so
+    // something outside the list is deliverable and is sometimes the true answer ("neither — the
+    // column is nullable"). It is behind a press rather than beside the options, because a field
+    // standing open next to three buttons asks "type something" as loudly as they ask "pick one",
+    // and the list is the offer.
+    if (freeText) {
+      const more = el('md-text-button', tr('ask.other'));
+      more.onclick = e => {
+        e.preventDefault(); e.stopPropagation();
+        const [i, b] = textAnswer(send);
+        more.replaceWith(i, b);
+        i.focus();
+      };
+      box.append(more);
+    }
   } else if (a.askKind === 'question') {
-    const i = document.createElement('md-outlined-text-field');
-    i.label = tr('label.answer');
-    const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');
-  withMark(b, '#i-ss-paper-plane');
-    // Disabled until there is something to send, rather than pressable and inert. The guide is
-    // explicit that an action which cannot happen is DISABLED and not hidden, and the third state
-    // — drawn as pressable and then doing nothing — is the one it does not offer: a press that
-    // answers nothing reads as broken, and there is no way to tell it from a page that has died.
-    const arm2 = () => b.toggleAttribute('disabled', !i.value.trim());
-    arm2();
-    const go = e => { e.preventDefault(); e.stopPropagation(); if (i.value.trim()) send(i.value.trim()); };
-    b.onclick = go;
-    i.addEventListener('input', arm2);
-    i.onclick = e => { e.preventDefault(); e.stopPropagation(); };
-    i.onkeydown = e => { if (e.key === 'Enter') go(e); };
-    box.append(i, b);
+    box.append(...textAnswer(send));
   } else {
     // "always" is not a mode and does not touch one: it grants THIS tool for THIS session, in the
     // daemon's memory, and the approval mode is exactly where it was. The label said "Always",
@@ -1339,7 +1366,14 @@ function drawPrompt(a) {
   // A permission prompt keeps its own controls: they are buttons, so nothing collides, and leaving
   // the composer live there is deliberate — "do something else instead" is a legitimate reply to
   // being asked whether to drop a table.
-  if (a.askKind !== 'question') inner.append(answerBox(a));
+  //
+  // A question that came WITH a list is the exception, and was the worst of both: the options
+  // reached the page — the report argues about them, since the default contract asks what each one
+  // costs and which one the agent leans to — and the only way to answer was to retype one of them
+  // into the composer, exactly, from memory of prose scrolled off the top. The list is drawn here
+  // and the composer stays what it was, which makes it the other half of the same offer: press one,
+  // or write something that is not on it.
+  if (a.askKind !== 'question' || (a.askOptions || []).length) inner.append(answerBox(a, false));
   box.replaceChildren(inner);
   box.hidden = false;
   if (!promptWasUp) reveal(box, 'rise');
@@ -1360,7 +1394,7 @@ function answerMode(a) {
   answering = a;
   t.setAttribute('label', tr(a ? 'label.answer' : 'label.ask'));
   const note = document.getElementById('cnote');
-  note.textContent = a ? tr('answer.instead') : '';
+  note.textContent = a ? tr((a.askOptions || []).length ? 'answer.or_pick' : 'answer.instead') : '';
   note.hidden = !a;
   // The word AND the mark, and both change with the mode: a paper plane for putting something into
   // the conversation, a reply arrow for answering the question above it.
@@ -2554,7 +2588,9 @@ async function drawAsk(a) {
   }
   box.append(cell('dk', tr('ask.your_answer')));
   const act = cell('askact');
-  act.append(answerBox(mine));
+  // With the free-text path, which on this screen is the only one there is: a deep screen hides the
+  // composer, so an answer outside the list would otherwise mean going back to say it.
+  act.append(answerBox(mine, true));
   box.append(act);
 }
 
