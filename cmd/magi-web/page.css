@@ -1324,6 +1324,14 @@
   .wire.ok { stroke:var(--magi-ref-outline); }
   .wire.flight { stroke:var(--magi-ref-primary); }
   .wire.down { stroke:var(--magi-ref-warn); stroke-dasharray:5 5; }
+  /* A team line is not traffic and must not read as any. A hub is an addressing convention — name
+     the team and the one that answers for it gets it — and nothing routes through it. So: thinner,
+     dotted, in the accent rather than in any of the three colours the traffic uses. */
+  .wire.team { stroke:var(--magi-ref-accent); stroke-width:1.5; stroke-dasharray:1 4; }
+  .wirekey.team { border-top:1.5px dotted var(--magi-ref-accent); }
+  /* Room under the boxes for the lane the crossing wires travel in. Reserved rather than
+     discovered: a lane drawn into space the layout did not leave lands on the legend. */
+  .mapcanvas { padding-bottom:var(--magi-sys-space-700); }
   .places {
     display:grid; grid-template-columns:repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
     gap:var(--magi-sys-space-300); align-items:start;
@@ -1354,6 +1362,15 @@
     font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
   .placeseen.down { color:var(--magi-ref-warn); }
+  /* The team a run of nodes belongs to. A label rather than a box: a team crosses machines and
+     accounts, so a box around its members here would have to be drawn in three places and would
+     say they are together in a way the two boundaries above it deny. */
+  .teamlabel {
+    margin-top:var(--magi-sys-space-100);
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display);
+    letter-spacing:.08em; text-transform:uppercase; color:var(--magi-ref-accent);
+  }
+  .place > .teamlabel:first-of-type { margin-top:0; }
   /* A companion. The same state vocabulary as the table — .state carries the state layer and the
      48dp floor, and the state class colours the mark. */
   .node {

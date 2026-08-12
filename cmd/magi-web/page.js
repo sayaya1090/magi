@@ -4483,7 +4483,7 @@ async function loadMap() {
   wires.setAttribute('aria-hidden', 'true');
   const legend = cell('maplegend');
   for (const [cls, key] of [['ok', 'map.edge_ok'], ['flight', 'map.edge_working'],
-                            ['down', 'map.edge_down']]) {
+                            ['down', 'map.edge_down'], ['team', 'map.edge_team']]) {
     const item = cell('mapkey');
     item.append(cell('wirekey ' + cls), cell('', tr(key)));
     legend.append(item);
@@ -4571,7 +4571,24 @@ function placeBox(who, list) {
   const t = trustOf(list);
   if (t) top.append(cell('placetrust ' + t, tr(TRUST_SAY[t] || 'map.trust_unsaid')));
   box.append(top);
-  for (const a of list) box.append(mapNode(a));
+  // Grouped by team inside the box, because a team is the third boundary on this screen and the
+  // only one that CUTS ACROSS the other two: frontend can be three companions in one account,
+  // backend can be one here, one on another account and one on another machine. Inside a box it is
+  // a heading; across boxes it is the dotted line from whoever answers for the team.
+  const teams = new Map();
+  for (const a of list) {
+    const t = a.team || '';
+    if (!teams.has(t)) teams.set(t, []);
+    teams.get(t).push(a);
+  }
+  // Named teams first, in name order; the companions in no team last, under no heading — a
+  // heading reading "no team" is a label for the absence of one.
+  const named = [...teams.keys()].filter(Boolean).sort();
+  for (const t of named) {
+    box.append(cell('teamlabel', t));
+    for (const a of teams.get(t)) box.append(mapNode(a));
+  }
+  for (const a of (teams.get('') || [])) box.append(mapNode(a));
   return box;
 }
 
@@ -4609,41 +4626,95 @@ function mapNode(a) {
 // something only the browser knows. Under the test harness there is no layout at all and every box
 // measures 0×0 — so nothing is drawn, and the model underneath is what the tests check. A wire
 // drawn between two zeroes would be a line saying something nobody established.
+//
+// # Why the lines go round rather than across
+//
+// A straight line between two nodes in different machines crosses everything between them, and a
+// diagram whose edges pass through its own boxes is one where you cannot tell which pair a line
+// joins. So a crossing edge leaves its box at the side, drops into a lane under all of them,
+// travels there, and comes up into the other one — orthogonal, one lane per edge so two of them
+// never sit on top of each other. Inside a box the two nodes are stacked a few pixels apart and a
+// short curve to the side is unambiguous, so that stays a curve.
 function drawWires(canvas, svg, rows, hands) {
-  if (typeof canvas.getBoundingClientRect !== 'function') return;
+  if (typeof canvas.getBoundingClientRect !== 'function') return 0;
   const frame = canvas.getBoundingClientRect();
-  if (!frame.width || !frame.height) return;
+  if (!frame.width || !frame.height) return 0;
   svg.setAttribute('viewBox', '0 0 ' + frame.width + ' ' + frame.height);
-  const at = sock => {
-    const el = canvas.querySelector('[data-sock="' + String(sock).replace(/"/g, '') + '"]');
+  const box = el => {
     if (!el || typeof el.getBoundingClientRect !== 'function') return null;
     const r = el.getBoundingClientRect();
-    return {x: r.left - frame.left, y: r.top - frame.top + r.height / 2, w: r.width, h: r.height};
+    return {l: r.left - frame.left, r: r.right - frame.left,
+            t: r.top - frame.top, b: r.bottom - frame.top,
+            y: r.top - frame.top + r.height / 2};
+  };
+  const nodeOf = sock => {
+    const el = canvas.querySelector('[data-sock="' + String(sock).replace(/"/g, '') + '"]');
+    if (!el) return null;
+    const at = box(el);
+    if (!at) return null;
+    // The machine box it sits in, which is what an edge has to go around rather than through.
+    let outer = el.parentNode;
+    while (outer && !String(outer.className || '').split(' ').includes('machine')) outer = outer.parentNode;
+    at.machine = box(outer) || at;
+    at.el = el;
+    return at;
   };
   const bySock = new Map(rows.map(a => [a.socket, a]));
   const byName = new Map(rows.map(a => [String(a.name || '').toLowerCase(), a]));
-  const drawn = [];
+  // The lane under everything. The canvas reserves the room for it; without that the lowest wire
+  // would be drawn over the legend.
+  let lane = 0;
+  const laneY = () => frame.height - 8 - (lane++ % 6) * 7;
+  let drawn = 0;
+  const pairs = [];
   for (const h of hands) {
     const from = byName.get(String(h.from || '').toLowerCase());
     const to = bySock.get(h.socket) || byName.get(String(h.to || '').toLowerCase());
     if (!from || !to || from === to) continue;
-    const a = at(from.socket), b = at(to.socket);
-    if (!a || !b) continue;
     // Three states, and they are the three a person acts on differently: in flight, answered, and
     // one that cannot be reached at all — which is what a handover to a companion nobody has seen
     // for five minutes is, however healthy the row looked when it was sent.
-    const cls = !to.live ? 'down' : (h.state === 'working' ? 'flight' : 'ok');
-    drawn.push(wire(svg, a, b, cls));
+    pairs.push([from, to, !to.live ? 'down' : (h.state === 'working' ? 'flight' : 'ok')]);
   }
-  return drawn.length;
+  // Teams, which are the other thing joining two companions — and a different KIND of joining, so
+  // a different kind of line. A hub is an addressing convention: naming the team reaches the one
+  // that answers for it. Nothing routes through a hub and nothing is hidden behind one, so these
+  // are drawn as what they are — who answers for whom — and never as traffic.
+  for (const hub of rows.filter(a => a.hub && a.team)) {
+    for (const m of rows) {
+      if (m === hub || m.team !== hub.team) continue;
+      pairs.push([hub, m, 'team']);
+    }
+  }
+  for (const [from, to, cls] of pairs) {
+    const a = nodeOf(from.socket), b = nodeOf(to.socket);
+    if (!a || !b) continue;
+    const together = a.machine.l === b.machine.l && a.machine.t === b.machine.t;
+    if (together) curve(svg, a, b, cls);
+    else around(svg, a, b, laneY(), cls);
+    drawn++;
+  }
+  return drawn;
 }
 
-function wire(svg, a, b, cls) {
+// Two nodes in one box: a short curve out of the trailing edge and back in.
+function curve(svg, a, b, cls) {
+  const x1 = a.r, y1 = a.y, x2 = b.r, y2 = b.y;
+  const out = Math.max(16, Math.abs(y2 - y1) / 2);
+  path(svg, 'M' + x1 + ' ' + y1 + ' C' + (x1 + out) + ' ' + y1 + ' ' +
+             (x2 + out) + ' ' + y2 + ' ' + x2 + ' ' + y2, cls);
+}
+
+// Two nodes in different boxes: out of the side, down into the lane, along it, and up.
+function around(svg, a, b, y, cls) {
+  const leave = a.machine.r + 10, enter = b.machine.l - 10;
+  const p = ['M' + a.r + ' ' + a.y, 'H' + leave, 'V' + y, 'H' + enter, 'V' + b.y, 'H' + b.l];
+  path(svg, p.join(' '), cls);
+}
+
+function path(svg, d, cls) {
   const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  const x1 = a.x + a.w, y1 = a.y, x2 = b.x, y2 = b.y;
-  const bend = Math.max(24, Math.abs(x2 - x1) / 2);
-  p.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C' + (x1 + bend) + ' ' + y1 + ' ' +
-                      (x2 - bend) + ' ' + y2 + ' ' + x2 + ' ' + y2);
+  p.setAttribute('d', d);
   p.setAttribute('class', 'wire ' + cls);
   svg.append(p);
   return p;

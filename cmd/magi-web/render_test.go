@@ -4528,14 +4528,15 @@ globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
   if (path === '/fleet') return {ok: true, json: async () => ([
     {socket: '/s/d.sock', name: 'design', state: 'working', host: 'studio', instance: 'you@studio',
-     trust: 'own', live: true, idle: 3, hub: true},
+     trust: 'own', live: true, idle: 3, hub: true, team: 'frontend'},
     {socket: '/s/a.sock', name: 'api', state: 'waiting', host: 'studio', instance: 'you@studio',
-     trust: 'own', live: true, idle: 9},
-    // Another account on the SAME machine: one box around them both, two inside it.
+     trust: 'own', live: true, idle: 9, team: 'backend', hub: true},
+    // Another account on the SAME machine: one box around them both, two inside it. Same team as
+    // the one above, which is the case teams exist for — a team is not a machine and not an owner.
     {socket: '/far/r.sock', name: 'risk', state: 'remote', host: 'studio', instance: 'sam@studio',
-     trust: 'admitted', live: true, idle: 12},
+     trust: 'admitted', live: true, idle: 12, team: 'backend'},
     {socket: '/far/t.sock', name: 'tests', state: 'remote', host: 'buildbox',
-     instance: 'you@buildbox', trust: 'admitted', live: true, idle: 30},
+     instance: 'you@buildbox', trust: 'admitted', live: true, idle: 30, team: 'backend'},
     {socket: '/far/x.sock', name: 'deploy', state: 'remote', host: 'mini', instance: 'ops@mini',
      trust: 'unknown', live: false, idle: 900},
   ])};
@@ -4559,6 +4560,9 @@ console.log(JSON.stringify({
   faroff: named(byId.map, 'faroff').length,
   links: byId.map.find('a').filter(a => String(a.className).includes('node')).length,
   down: byId.map.find('div').filter(d => String(d.className).includes('placeseen down')).length,
+  // Teams, which cut across both boxes: a heading inside each box that has one, so a reader can
+  // see that "backend" is one companion here, one on another account and one on another machine.
+  teams: named(byId.map, 'teamlabel').map(d => d.textContent),
 }));
 `)
 	if got["hidden"] == true {
@@ -4587,5 +4591,11 @@ console.log(JSON.stringify({
 	}
 	if n, _ := got["down"].(float64); n != 1 {
 		t.Errorf("%v machines say nothing has been heard from them; one is quiet", n)
+	}
+	// backend is on three of the boxes and frontend on one, so four headings — the count is the
+	// point: a team drawn once, in the box it happens to start in, would be a lie about where it is.
+	teams := fmt.Sprint(got["teams"])
+	if strings.Count(teams, "backend") != 3 || !strings.Contains(teams, "frontend") {
+		t.Errorf("the teams are not shown where their companions are: %s", teams)
 	}
 }

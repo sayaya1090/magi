@@ -57,7 +57,7 @@ const demoScript = `
      // the wrong thing to teach on the screen most people meet first.
      permission: 'auto', user: 'you'},
     {socket: '/demo/api.sock', name: 'api', role: 'the billing API and its contracts',
-     team: 'backend', workdir: '/Users/you/work/billing', session: 'a1',
+     team: 'backend', hub: true, workdir: '/Users/you/work/billing', session: 'a1',
      state: 'waiting', live: true, asking: 'run: psql -c "drop table staging_invoices"',
      askId: 'call_42', askKind: 'permission', task: 'add the idempotency key', steps: 3,
      planDone: 1, planTotal: 4, idle: 4, host: 'studio', instance: 'you@studio', trust: 'own',
@@ -111,7 +111,7 @@ const demoScript = `
     // somebody this console trusts passed the record along. You can see that it exists and you
     // cannot reach it — which is the whole point of saying so on the row.
     {socket: '/demo/deploy.sock', name: 'deploy', role: 'production rollouts',
-     workdir: '/home/ops/infra', session: 'p9',
+     team: 'backend', workdir: '/home/ops/infra', session: 'p9',
      state: 'remote', live: true, idle: 51,
      host: 'mini', instance: 'ops@mini', trust: 'unknown', addr: '10.0.0.9',
      can: 4, does: ['rollout', 'rollback']},
