@@ -384,7 +384,11 @@ func run() int {
 	}
 	warnUnknownConfigKeys(os.Stderr, "config.toml", unknown)
 	if proj, punk, perr := config.LoadWithUnknown(filepath.Join(wd, ".magi")); perr == nil {
-		cfg = mergeProjectConfig(cfg, proj)
+		var said []string
+		cfg, said = mergeProjectConfigSaying(cfg, proj)
+		for _, line := range said {
+			fmt.Fprintln(os.Stderr, "magi: .magi/config.toml", line)
+		}
 		warnUnknownConfigKeys(os.Stderr, ".magi/config.toml", punk)
 	} else {
 		// Project overlay is optional and repo-local; a parse error there warns and
@@ -1212,20 +1216,98 @@ func run() int {
 	return runHeadless(ctx, a, sid, promptText, *output == "json", os.Stdout, os.Stderr)
 }
 
+// A project may tighten the guardrails and may not loosen them.
+//
+// .magi/config.toml is committed — the manual says so, and that is the point of it: the workflow
+// travels with the repo. Which means it is a file a CLONE brings with it, written by whoever wrote
+// the repo. auth.toml is kept out of this merge for exactly that reason, with the note that a
+// permission model a cloned repository can edit is not one — and the keys that note is about were
+// merged anyway. `permission = "allow"` turns off the approval gate, `sandbox = "full"` turns off
+// the confinement, `profile = "yolo"` does both in a word, and `allow` adds to the list of what
+// runs unasked. A repository could arrive holding all four.
+//
+// The rule keeps what the feature is for. A repo that wants MORE care than the machine gives by
+// default — read-only, ask before everything — still gets it, because that direction is a request
+// and not a grant. The other direction is refused out loud: silently ignoring it would leave
+// somebody believing their committed posture was in force.
+//
+// It does not cover what a project may still ADD, because those have no tighter direction to be
+// clamped to: hooks run /bin/sh, an MCP server is a command the daemon spawns, base_url decides
+// where the prompts go. Those are named on the way past instead — see projectBrought — and the
+// approval they actually need is a workspace-trust decision that does not exist yet.
+var permTight = map[string]int{"deny": 0, "ask": 1, "auto": 2, "allow": 3}
+var sandTight = map[string]int{"read-only": 0, "workspace-write": 1, "full": 2, "": 2}
+
+// posture is what a config actually runs at: what it says, or what its profile says for it.
+func posture(c config.Config) (permission, sandbox string) {
+	permission, sandbox = c.Permission, c.Sandbox
+	switch c.Profile {
+	case "safe":
+		if permission == "" {
+			permission = "ask"
+		}
+		if sandbox == "" {
+			sandbox = "read-only"
+		}
+	case "standard":
+		if permission == "" {
+			permission = "auto"
+		}
+		if sandbox == "" {
+			sandbox = "workspace-write"
+		}
+	case "yolo":
+		if permission == "" {
+			permission = "allow"
+		}
+		if sandbox == "" {
+			sandbox = "full"
+		}
+	}
+	if permission == "" {
+		permission = "ask" // the built-in default, and the value a project is measured against
+	}
+	return permission, sandbox
+}
+
 // mergeProjectConfig overlays a project's .magi/config.toml (proj) onto the global
 // config (cfg): hooks, allow/deny lists, domain lists, council signals, and the
 // string maps (routing/MCP/headers/plugins/theme) accumulate; scalar fields
-// override only when the project explicitly sets them. Returns the merged config.
+// override only when the project explicitly sets them. Returns the merged config,
+// and what is worth saying out loud about what the project did — refusals first.
 func mergeProjectConfig(cfg, proj config.Config) config.Config {
+	merged, _ := mergeProjectConfigSaying(cfg, proj)
+	return merged
+}
+
+func mergeProjectConfigSaying(cfg, proj config.Config) (config.Config, []string) {
+	var said []string
 	cfg.Hooks = append(cfg.Hooks, proj.Hooks...)
 	if proj.ExperienceDir != "" {
 		cfg.ExperienceDir = proj.ExperienceDir
 	}
-	if proj.Profile != "" {
-		cfg.Profile = proj.Profile
+	// Resolved into the two axes rather than copied as a word, then clamped. A profile only fills
+	// what is empty, so once both axes are explicit the string has nothing left to do — and
+	// carrying the project's "yolo" forward would let it fill an axis the clamp had left alone.
+	was, wasSand := posture(cfg)
+	want, wantSand := posture(proj)
+	if proj.Permission != "" || proj.Profile != "" {
+		if permTight[want] <= permTight[was] {
+			cfg.Permission = want
+		} else {
+			said = append(said, "asks to approve at \""+want+"\" and this machine is at \""+was+
+				"\"; a project may tighten how much it asks, not loosen it")
+			cfg.Permission = was
+		}
 	}
-	if proj.Sandbox != "" {
-		cfg.Sandbox = proj.Sandbox
+	if proj.Sandbox != "" || proj.Profile != "" {
+		if sandTight[wantSand] <= sandTight[wasSand] {
+			cfg.Sandbox = wantSand
+		} else {
+			said = append(said, "asks for the \""+sandboxName(wantSand)+"\" sandbox and this machine "+
+				"gives \""+sandboxName(wasSand)+"\"; a project may confine itself further, not less")
+			cfg.Sandbox = wasSand
+		}
 	}
 	if proj.Model != "" {
 		cfg.Model = proj.Model
@@ -1233,12 +1315,18 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 	if proj.BaseURL != "" {
 		cfg.BaseURL = proj.BaseURL
 	}
-	if proj.Permission != "" {
-		cfg.Permission = proj.Permission
-	}
-	cfg.Allow = append(cfg.Allow, proj.Allow...)
+	// Deny accumulates and allow does not. One of them narrows what runs unasked and the other
+	// widens it, and the widening one is a repository writing its own permission to skip the
+	// prompt — for the commands it chose, on a machine it was cloned onto.
 	cfg.Deny = append(cfg.Deny, proj.Deny...)
-	cfg.AllowDomains = append(cfg.AllowDomains, proj.AllowDomains...)
+	if len(proj.Allow) > 0 {
+		said = append(said, fmt.Sprintf("lists %d command(s) to run without asking; that list is "+
+			"the machine's to keep, so it was not taken", len(proj.Allow)))
+	}
+	if len(proj.AllowDomains) > 0 {
+		said = append(said, fmt.Sprintf("opens %d domain(s) to the agent; that list is the "+
+			"machine's to keep, so it was not taken", len(proj.AllowDomains)))
+	}
 	for k, v := range proj.Routing {
 		if cfg.Routing == nil {
 			cfg.Routing = map[string]string{}
@@ -1301,7 +1389,48 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 	if proj.Council.Preset != "" {
 		cfg.Council.Preset = proj.Council.Preset
 	}
-	return cfg
+	return cfg, append(said, projectBrought(proj)...)
+}
+
+// sandboxName puts a word to the empty sandbox, which is the loosest one and reads as a mistake.
+func sandboxName(s string) string {
+	if s == "" {
+		return "unconfined"
+	}
+	return s
+}
+
+// projectBrought names what the repository added that runs, or decides where things go.
+//
+// Not refused: hooks and MCP servers are the documented reason this file is committed, and a team
+// that put a nightly job or a formatter in the repo means it. But they are a shell command run on
+// a tool event, a process the daemon spawns, and the address every prompt is sent to — arriving
+// from a file that came down with a clone. Somebody opening an unfamiliar repository should be
+// told, once, in the line where the companion says what it is.
+func projectBrought(proj config.Config) []string {
+	var out []string
+	if n := len(proj.Hooks); n > 0 {
+		out = append(out, fmt.Sprintf("brings %d hook(s), which run as shell commands on tool events", n))
+	}
+	if n := len(proj.MCP); n > 0 {
+		out = append(out, fmt.Sprintf("brings %d tool server(s): %s", n, strings.Join(sortedKeys(proj.MCP), ", ")))
+	}
+	if n := len(proj.Cron); n > 0 {
+		out = append(out, fmt.Sprintf("brings %d scheduled job(s): %s", n, strings.Join(sortedKeys(proj.Cron), ", ")))
+	}
+	if proj.BaseURL != "" {
+		out = append(out, "sends this companion's prompts to "+proj.BaseURL)
+	}
+	return out
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // resolvePrompt returns the headless prompt text. The literal "-" means "read the

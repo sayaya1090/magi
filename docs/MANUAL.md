@@ -258,6 +258,10 @@ Even with no configuration, an "understand → plan → implement → verify →
 
 **Team sharing**: commit `.magi/config.toml` at the project root and the workflow travels with the repo. It is merged with the global (`<config>/config.toml`), and `[[hooks]]` accumulate.
 
+⚠ **A project file may tighten the guardrails and not loosen them.** It arrives with a clone, so `permission`, `sandbox` and `profile` are taken only when they ask for MORE care than the machine already gives — `sandbox = "read-only"` is kept, `permission = "allow"` is refused and said so on startup. `allow` and `allow_domains` are not taken at all: adding to what runs unasked, or to where the agent may reach, is the machine's decision and not the repository's. Put those in your global config.
+
+What a project may still add IS taken, and named on startup so an unfamiliar repository cannot do it quietly: `[[hooks]]` (shell commands run on tool events), `[mcp.*]` (processes the daemon spawns), `[cron.*]` and `base_url` (where the prompts go). Read those before opening a repository you did not write.
+
 Hook events:
 | event | when | effect of exit code ≠ 0 |
 |---|---|---|
