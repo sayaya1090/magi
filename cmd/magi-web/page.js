@@ -3603,6 +3603,8 @@ function capsLine(can, companions) {
   const caps = cell('caps');
   for (const c of (can || [])) caps.append(capChip(c));
   box.append(caps);
+  // A group's scope stays on the line, because a group has no sub-section: it is read-only here —
+  // membership belongs to the directory — and a section with nothing to press in it is a heading.
   if (companions && companions.length) {
     box.append(cell('scope', tr('access.scoped', {list: companions.join(', ')})));
   }
@@ -3639,7 +3641,7 @@ function instanceLine(inst) {
 function personRow(p, roles) {
   const row = cell('acc person' + (p.me ? ' now' : ''));
   row.append(whoLine(p.who, p.me ? cell('you', tr('access.you')) : null),
-             capsLine(p.can, p.companions));
+             capsLine(p.can));
 
   const controls = cell('acccontrols');
   const pick = document.createElement('md-outlined-select');
@@ -3654,12 +3656,9 @@ function personRow(p, roles) {
     o.append(t);
     pick.append(o);
   }
-  const scope = withGlass(document.createElement('md-outlined-text-field'));
-  scope.setAttribute('label', tr('access.companions'));
-  scope.value = (p.companions || []).join(', ');
-  const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
-                     tr('action.save'));
-  save.onclick = () => setPerson(p.who, pick.value, scope.value);
+  // The role is the only thing this control changes now: which companions it applies to is its own
+  // sub-section below, where each one can be taken away on its own.
+  pick.addEventListener('change', () => setPerson(p.who, pick.value, (p.companions || []).join(',')));
   const drop = withMark(document.createElement('md-text-button'), '#i-sl-trash-can');
   label(drop, tr('action.remove'));
   drop.onclick = () => confirmThis({
@@ -3670,9 +3669,52 @@ function personRow(p, roles) {
     go: () => post('/access', new URLSearchParams({who: p.who, remove: '1'}), '', '')
       .then(why => { if (!why) loadAccess(); }),
   });
-  controls.append(pick, scope, save, drop);
-  row.append(controls);
+  controls.append(pick, drop);
+  row.append(controls, scopeSection(p));
   return row;
+}
+
+// Which companions a person's role applies to — a sub-section of theirs, not a field.
+//
+// # Why it is not a chip with an × on the capabilities
+//
+// It was asked for there, and it cannot go there: a capability is not granted to a PERSON. It comes
+// from the role, and taking `configure` off one person while leaving them an operator is a sentence
+// auth.toml has no way to write. Roles exist so that grants do not accumulate per person one
+// exception at a time.
+//
+// What IS per person is this: the same role, narrowed to named companions. So the × belongs here,
+// where pressing it removes something that exists — and a list of them is a section rather than a
+// comma-separated text field, which is what it was: a box somebody had to retype in full to drop
+// one name from three.
+function scopeSection(p) {
+  const box = cell('scopes');
+  const on = p.companions || [];
+  box.append(cell('scopek', tr(on.length ? 'access.only_on' : 'access.everywhere')));
+  const chips = document.createElement('md-chip-set');
+  for (const name of on) {
+    // An INPUT chip, which is the variant for a piece of information a person put there and can
+    // take away — and it is the one the guide gives a trailing remove action.
+    const c = document.createElement('md-input-chip');
+    c.setAttribute('label', name);
+    c.className = 'scopechip';
+    c.addEventListener('remove', () => {
+      setPerson(p.who, p.role, on.filter(n => n !== name).join(','));
+    });
+    chips.append(c);
+  }
+  // And the way to add one. A name rather than a menu of what is running: a person can be scoped
+  // to a companion that is not up at the moment, and a menu would refuse to say so.
+  const add = withGlass(document.createElement('md-outlined-text-field'));
+  add.setAttribute('label', tr('access.add_companion'));
+  add.addEventListener('keydown', ev => {
+    if (ev.key !== 'Enter') return;
+    const name = String(add.value || '').trim();
+    if (!name || on.includes(name)) return;
+    setPerson(p.who, p.role, on.concat([name]).join(','));
+  });
+  box.append(chips, add);
+  return box;
 }
 
 function addPersonButton(roles) {

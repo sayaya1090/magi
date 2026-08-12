@@ -1598,6 +1598,15 @@
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display);
     color:var(--magi-ref-muted);
   }
+  /* A person's scope: which companions their role applies to. A section under them rather than a
+     field beside them — it is a list somebody adds to and takes from one at a time, and it was a
+     comma-separated text box they had to retype in full to drop one name from three. */
+  .scopes { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-150); }
+  .scopek {
+    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
+  }
+  .scopes md-outlined-text-field { max-width:16rem; }
+  .scopechip { --md-input-chip-label-text-font:var(--magi-ref-mono); }
   .acccontrols {
     display:flex; flex-wrap:wrap; align-items:center;
     gap:var(--magi-sys-space-150); margin-top:var(--magi-sys-space-150);

@@ -1,7 +1,8 @@
 {
   "access.add": "사용자 추가",
+  "access.add_companion": "컴패니언 추가 (엔터)",
   "access.add_who": "게이트웨이가 알려주는 이름 (예: lee@corp.com)",
-  "access.companions": "컴패니언 (비우면 전체)",
+  "access.everywhere": "이 콘솔의 모든 컴패니언에서",
   "access.exceptions": "개별 사용자 (그룹의 예외)",
   "access.exceptions_why": "소속 그룹이 주지 않는 것을 따로 받은 사람입니다.",
   "access.groups": "게이트웨이가 내려주는 그룹",
@@ -12,6 +13,7 @@
   "access.nobody": "아직 등록된 사용자가 없습니다 — 이 콘솔은 운영자 한 명, 정책 없음으로 동작합니다.",
   "access.nobody_how": "첫 사용자를 추가하면 그 순간부터 모두에게 권한 검사가 적용됩니다.",
   "access.only": "{cap} 권한이 있는 대상만 보는 중",
+  "access.only_on": "다음 컴패니언에서만",
   "access.open": "열기",
   "access.remove_body": "이 사용자는 더 이상 이 콘솔의 어떤 것도 볼 수 없게 됩니다. 언제든 다시 추가할 수 있습니다.",
   "access.remove_head": "{who} 를 이 콘솔에서 제외할까요?",

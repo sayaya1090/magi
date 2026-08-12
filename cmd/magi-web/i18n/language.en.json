@@ -1,7 +1,8 @@
 {
   "access.add": "Add somebody",
+  "access.add_companion": "Add a companion (Enter)",
   "access.add_who": "The name your gateway reports (e.g. lee@corp.com)",
-  "access.companions": "Companions (empty = all)",
+  "access.everywhere": "On every companion here",
   "access.exceptions": "Individual exceptions",
   "access.exceptions_why": "Somebody given something their group does not give them.",
   "access.groups": "Groups your gateway reports",
@@ -12,6 +13,7 @@
   "access.nobody": "Nobody is listed yet: this console runs as one operator, with no policy.",
   "access.nobody_how": "Adding the first person turns the gate on for everybody.",
   "access.only": "Showing only who may {cap}",
+  "access.only_on": "Only on these companions",
   "access.open": "Open",
   "access.remove_body": "They will no longer see anything on this console. You can add them back at any time.",
   "access.remove_head": "Remove {who} from this console?",

@@ -4333,6 +4333,7 @@ console.log(JSON.stringify({
   // Chips are md-filter-chip now — a component, and a control that answers "who else may do this?"
   // — so they are counted as elements rather than as divs.
   rowchips: byId.access.find('md-filter-chip').length,
+  scopechips: byId.access.find('md-input-chip').length,
 }));
 `
 	admin := runPage(t, fleet, "?v=access", strings.Replace(page, "CAN", `['read','admin']`, 1))
@@ -4393,6 +4394,16 @@ console.log(JSON.stringify({
 	// kim has seven, lee has one, the group has two — as chips, one element each.
 	if n, _ := admin["rowchips"].(float64); n < 10 {
 		t.Errorf("the rows carry %v capability chips; a joined string would look like this", n)
+	}
+	// A person's scope is a section of their own with a chip per companion, each removable: the ×
+	// belongs where pressing it removes something that exists. On the capabilities it could not —
+	// those come from the role, and "this operator, minus configure" is a sentence auth.toml has no
+	// way to write.
+	if !strings.Contains(parts, "scopes") {
+		t.Errorf("no scope section under the people: %s", parts)
+	}
+	if n, _ := admin["scopechips"].(float64); n != 1 {
+		t.Errorf("%v scope chips; lee is scoped to one companion", n)
 	}
 	// The list says which magi it governs. A console watching three machines draws three of these
 	// screens the same way, and only this line tells them apart.
