@@ -5,6 +5,7 @@ package main
 // prompt adapter the plugin host uses. Pure wiring — moved out of main.go.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,9 +28,21 @@ func (f promptFunc) Ask(s prompt.Spec) (map[string]any, error) { return f(s) }
 // permPersister appends "always allow (project)" rules to the project config
 // (.magi/config.toml), which teams commit — so a trusted tool stays trusted for
 // everyone across sessions. The directory is created on first use.
-type permPersister struct{ path string }
+// permPersister writes a project allow rule when somebody answers a prompt with "always, in this
+// project". configDir is carried so it can tell whether that project's config will be read back —
+// see PersistAllow.
+type permPersister struct{ path, configDir string }
 
 func (p permPersister) PersistAllow(rule string) error {
+	// An allow rule written into a workspace nobody has trusted is a rule the next run throws
+	// away: the merge takes an approval list only from a file the operator has vouched for. Saying
+	// so beats writing it — the modal offering this promises the choice survives a restart, and it
+	// would not.
+	if p.configDir != "" && !config.Trusted(p.configDir, filepath.Dir(filepath.Dir(p.path))) {
+		return fmt.Errorf("this workspace is not trusted, so an approval written into its config " +
+			"would be ignored on the next run — `magi --trust` here first, or answer `always` to " +
+			"grant it for this session")
+	}
 	if err := os.MkdirAll(filepath.Dir(p.path), 0o755); err != nil {
 		return err
 	}

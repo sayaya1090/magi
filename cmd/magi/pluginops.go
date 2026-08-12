@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -86,6 +87,13 @@ func runPluginInstall(url, pin string) int {
 // ./.magi/plugins` is somebody deciding, which is the whole of what was missing.
 func pluginDirs(plat *platform.OS, workdir, extra string) []string {
 	dirs := []string{filepath.Join(plat.ConfigDir(), "plugins")}
+	// …unless the operator has said this workspace's file is their own, which is the same sentence
+	// for the config beside it. One decision per directory rather than one per kind of thing a
+	// directory can carry: somebody who trusts a repo enough to run its hooks is not making a
+	// different judgement about its Lua.
+	if config.Trusted(plat.ConfigDir(), workdir) {
+		dirs = append(dirs, filepath.Join(workdir, ".magi", "plugins"))
+	}
 	if extra != "" {
 		dirs = append(dirs, extra)
 	}
@@ -242,4 +250,40 @@ func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
 func (o *pluginObserver) WantsTurnFinished() bool {
 	h := o.host.Load()
 	return h != nil && h.HasEventHandlers("turn_finished")
+}
+
+// runTrustCmd adds this workspace to the trusted list, or takes it off.
+//
+// It prints what the decision covers rather than a bare "ok". Trust is the one setting here whose
+// effect is entirely in what OTHER files are allowed to say, so a confirmation that does not name
+// them leaves somebody to guess whether they just allowed a hook, a plugin, or both.
+func runTrustCmd(configDir, workdir string, remove bool, out io.Writer) int {
+	if remove {
+		was, err := config.Untrust(configDir, workdir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "magi:", err)
+			return 1
+		}
+		if !was {
+			fmt.Fprintf(out, "%s was not trusted anyway\n", workdir)
+			return 0
+		}
+		fmt.Fprintf(out, "%s is no longer trusted — its hooks, tool servers, scheduled jobs and "+
+			"plugins stop being taken from the next run\n", workdir)
+		return 0
+	}
+	already, err := config.Trust(configDir, workdir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "magi:", err)
+		return 1
+	}
+	if already {
+		fmt.Fprintf(out, "%s is already trusted\n", workdir)
+		return 0
+	}
+	fmt.Fprintf(out, "%s is trusted: its .magi/config.toml is taken as written — hooks, tool "+
+		"servers, scheduled jobs, its approval list and where its prompts go — and its "+
+		".magi/plugins are loaded. `magi --untrust` here undoes it; the list is %s\n",
+		workdir, filepath.Join(configDir, config.TrustFile))
+	return 0
 }

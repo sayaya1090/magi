@@ -258,9 +258,13 @@ Even with no configuration, an "understand → plan → implement → verify →
 
 **Team sharing**: commit `.magi/config.toml` at the project root and the workflow travels with the repo. It is merged with the global (`<config>/config.toml`), and `[[hooks]]` accumulate.
 
-⚠ **A project file may tighten the guardrails and not loosen them.** It arrives with a clone, so `permission`, `sandbox` and `profile` are taken only when they ask for MORE care than the machine already gives — `sandbox = "read-only"` is kept, `permission = "allow"` is refused and said so on startup. `allow` and `allow_domains` are not taken at all: adding to what runs unasked, or to where the agent may reach, is the machine's decision and not the repository's. Put those in your global config.
+⚠ **Until you trust the workspace, only the careful half of that file is taken.** It arrives with a clone, so magi splits it in two:
 
-What a project may still add IS taken, and named on startup so an unfamiliar repository cannot do it quietly: `[[hooks]]` (shell commands run on tool events), `[mcp.*]` (processes the daemon spawns), `[cron.*]` and `base_url` (where the prompts go). Read those before opening a repository you did not write.
+| From any workspace | Only from a **trusted** one |
+|---|---|
+| `deny`, and `permission`/`sandbox`/`profile` when they ask for MORE care than the machine gives (`sandbox = "read-only"` is kept; `permission = "allow"` is refused and said so) | `[[hooks]]` — shell commands on tool events · `[mcp.*]` — processes the daemon spawns, and the headers they send · `[cron.*]` — unattended prompts · `allow`, `allow_domains` · `[plugins.*]` · `base_url`, `experience_dir` · and `.magi/plugins/` |
+
+Trust is per directory and stated once: **`magi --trust`** in the workspace (`magi --untrust` undoes it; the list is `<config>/trusted-workspaces`). Until then, opening the repository prints what was held back. Answering a permission prompt with "always, in this project" also needs it — that answer writes into `.magi/config.toml`, which an untrusted workspace would not be read back from.
 
 Hook events:
 | event | when | effect of exit code ≠ 0 |
@@ -546,7 +550,7 @@ The list is exposed in the system prompt, and the model loads a body with the `s
 
 `plugin.toml` + `init.lua` in `<config>/plugins/<name>/`.
 
-⚠ A plugin declares its own permissions in its own manifest, and they are granted — which is a fair arrangement for a directory you installed into and none at all for one that arrived with a clone. So `<workdir>/.magi/plugins/` is **not** loaded by opening the workspace; magi names what it found and skipped. Run those deliberately with `magi -plugins .magi/plugins`.
+⚠ A plugin declares its own permissions in its own manifest, and they are granted — which is a fair arrangement for a directory you installed into and none at all for one that arrived with a clone. So `<workdir>/.magi/plugins/` is loaded only from a workspace you have trusted (`magi --trust`, see §config); magi names what it found and skipped. A one-off is still `magi -plugins .magi/plugins`.
 Capabilities: `tool`, `command` (slash commands like `/login`), `context-provider`, `mcp`, `llm-headers`, `analyze`, `experience` (magi.propose_experience — route plugin-learned lessons/skills into the D13 shared store's review queue), `notify` (magi.notify — append a system ⟳ note to a session's transcript, the active-notification channel; the model sees it next turn). `magi.remove_file` deletes a workdir file/dir under the same fs:write grant — the undo half of artifact-writing plugins. **Hot-reload** on file change.
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.

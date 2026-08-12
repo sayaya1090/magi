@@ -276,6 +276,8 @@ func run() int {
 		doUpdatePlugins = flag.Bool("update-plugins", false, "update only managed (git) plugins, then exit")
 		pluginInstall   = flag.String("plugin-install", "", "git URL of a plugin to clone into the user plugins dir, then exit")
 		pluginPin       = flag.String("plugin-pin", "", "optional tag/branch/commit for -plugin-install")
+		doTrust         = flag.Bool("trust", false, "treat this workspace's .magi config and plugins as your own, then exit")
+		doUntrust       = flag.Bool("untrust", false, "take this workspace off the trusted list, then exit")
 		theme           = flag.String("theme", env("MAGI_THEME", "auto"), "color theme: auto|dark|light")
 		noHarness       = flag.Bool("no-harness", false, "disable the built-in harness (default hooks like format-on-save)")
 		timeBudget      = flag.Duration("time-budget", envDur("MAGI_TIME_BUDGET", 0), "soft wall-clock budget shown to the agent as guidance (e.g. 20m); 0 = off. Never affects leaderboard/comparison runs unless set.")
@@ -358,6 +360,12 @@ func run() int {
 
 	plat := platform.New()
 
+	// Trust is answered here, before anything reads the workspace's file: the whole point of the
+	// command is to change what the NEXT run takes from it.
+	if *doTrust || *doUntrust {
+		return runTrustCmd(plat.ConfigDir(), wd, *doUntrust, os.Stdout)
+	}
+
 	// On first run, drop a commented default config.toml so users have a
 	// discoverable, editable settings file (never overwrites an existing one).
 	if err := config.WriteDefaultIfMissing(plat.ConfigDir()); err != nil {
@@ -386,7 +394,7 @@ func run() int {
 	warnUnknownConfigKeys(os.Stderr, "config.toml", unknown)
 	if proj, punk, perr := config.LoadWithUnknown(filepath.Join(wd, ".magi")); perr == nil {
 		var said []string
-		cfg, said = mergeProjectConfigSaying(cfg, proj)
+		cfg, said = mergeProjectConfigSaying(cfg, proj, config.Trusted(plat.ConfigDir(), wd))
 		for _, line := range said {
 			fmt.Fprintln(os.Stderr, "magi: .magi/config.toml", line)
 		}
@@ -889,14 +897,15 @@ func run() int {
 		ProfileDefs:         profileDefs(cfg.LLM.Profiles),
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
-		SubagentPrefs:       toSubagentPrefs(cfg.Subagents),
-		SubagentPersister:   subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		Council:             councilPort,
-		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
-		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
-		TimeBudget:          *timeBudget,
-		Observer:            obs,
+		PermissionPersister: permPersister{
+			path: filepath.Join(wd, ".magi", "config.toml"), configDir: plat.ConfigDir()},
+		SubagentPrefs:     toSubagentPrefs(cfg.Subagents),
+		SubagentPersister: subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
+		Council:           councilPort,
+		CouncilRule:       corecouncil.Rule(cfg.Council.Rule),
+		CouncilMembers:    councilMembers(cfg.Council, cfg.LLM.Profiles),
+		TimeBudget:        *timeBudget,
+		Observer:          obs,
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
@@ -940,10 +949,11 @@ func run() int {
 	for _, dir := range pluginDirs(plat, wd, *pluginsDir) {
 		host.LoadDir(context.Background(), dir)
 	}
-	if theirs := workspacePlugins(wd); len(theirs) > 0 && *pluginsDir == "" {
+	if theirs := workspacePlugins(wd); len(theirs) > 0 && *pluginsDir == "" &&
+		!config.Trusted(plat.ConfigDir(), wd) {
 		fmt.Fprintf(os.Stderr, "magi: this workspace carries %d plugin(s) (%s) and they were not "+
-			"loaded — a plugin grants itself permissions, so one that came with a repository is "+
-			"run only when you name it: -plugins %s\n",
+			"loaded — a plugin grants itself permissions in its own manifest, so one that came "+
+			"with a repository runs when you say so: `magi --trust` here, or -plugins %s\n",
 			len(theirs), strings.Join(theirs, ", "), filepath.Join(".magi", "plugins"))
 	}
 	loadEmbeddedPlugins(host, plat, cfg)
@@ -1112,7 +1122,9 @@ func run() int {
 				return nil
 			}
 			if proj, perr := config.Load(filepath.Join(wd, ".magi")); perr == nil {
-				g = mergeProjectConfig(g, proj)
+				// Trust is re-read here too: a workspace taken off the list should stop scheduling
+				// at the next reload rather than at the next restart.
+				g, _ = mergeProjectConfigSaying(g, proj, config.Trusted(plat.ConfigDir(), wd))
 			}
 			return g.Cron
 		}
@@ -1283,12 +1295,18 @@ func posture(c config.Config) (permission, sandbox string) {
 // override only when the project explicitly sets them. Returns the merged config,
 // and what is worth saying out loud about what the project did — refusals first.
 func mergeProjectConfig(cfg, proj config.Config) config.Config {
-	merged, _ := mergeProjectConfigSaying(cfg, proj)
+	merged, _ := mergeProjectConfigSaying(cfg, proj, true)
 	return merged
 }
 
-func mergeProjectConfigSaying(cfg, proj config.Config) (config.Config, []string) {
+// trusted says this workspace's file is the operator's own — see config.TrustFile. Untrusted, the
+// posture keys may only tighten and everything that RUNS is left out; trusted, the file is taken as
+// written, which is what the manual has always described.
+func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Config, []string) {
 	var said []string
+	if !trusted {
+		proj = asStranger(proj, &said)
+	}
 	cfg.Hooks = append(cfg.Hooks, proj.Hooks...)
 	if proj.ExperienceDir != "" {
 		cfg.ExperienceDir = proj.ExperienceDir
@@ -1299,7 +1317,7 @@ func mergeProjectConfigSaying(cfg, proj config.Config) (config.Config, []string)
 	was, wasSand := posture(cfg)
 	want, wantSand := posture(proj)
 	if proj.Permission != "" || proj.Profile != "" {
-		if permTight[want] <= permTight[was] {
+		if trusted || permTight[want] <= permTight[was] {
 			cfg.Permission = want
 		} else {
 			said = append(said, "asks to approve at \""+want+"\" and this machine is at \""+was+
@@ -1308,7 +1326,7 @@ func mergeProjectConfigSaying(cfg, proj config.Config) (config.Config, []string)
 		}
 	}
 	if proj.Sandbox != "" || proj.Profile != "" {
-		if sandTight[wantSand] <= sandTight[wasSand] {
+		if trusted || sandTight[wantSand] <= sandTight[wasSand] {
 			cfg.Sandbox = wantSand
 		} else {
 			said = append(said, "asks for the \""+sandboxName(wantSand)+"\" sandbox and this machine "+
@@ -1326,14 +1344,8 @@ func mergeProjectConfigSaying(cfg, proj config.Config) (config.Config, []string)
 	// widens it, and the widening one is a repository writing its own permission to skip the
 	// prompt — for the commands it chose, on a machine it was cloned onto.
 	cfg.Deny = append(cfg.Deny, proj.Deny...)
-	if len(proj.Allow) > 0 {
-		said = append(said, fmt.Sprintf("lists %d command(s) to run without asking; that list is "+
-			"the machine's to keep, so it was not taken", len(proj.Allow)))
-	}
-	if len(proj.AllowDomains) > 0 {
-		said = append(said, fmt.Sprintf("opens %d domain(s) to the agent; that list is the "+
-			"machine's to keep, so it was not taken", len(proj.AllowDomains)))
-	}
+	cfg.Allow = append(cfg.Allow, proj.Allow...)
+	cfg.AllowDomains = append(cfg.AllowDomains, proj.AllowDomains...)
 	for k, v := range proj.Routing {
 		if cfg.Routing == nil {
 			cfg.Routing = map[string]string{}
@@ -1397,6 +1409,51 @@ func mergeProjectConfigSaying(cfg, proj config.Config) (config.Config, []string)
 		cfg.Council.Preset = proj.Council.Preset
 	}
 	return cfg, append(said, projectBrought(proj)...)
+}
+
+// asStranger strips a project config down to what a file nobody has vouched for may say.
+//
+// What survives is a REQUEST: be read-only here, ask before everything, deny these tools. What does
+// not is everything that runs or redirects — a hook is a shell command on every tool event, an MCP
+// server is a process the daemon spawns and a URL its headers carry secrets to, a cron job is an
+// unattended prompt, base_url is where every prompt goes, a [plugins.x] table can switch on a
+// bundled plugin, an allow list is the approval prompt answered in advance, and experience_dir
+// moves what the agent reads and writes as it learns.
+//
+// Each is the documented reason the file is committed, and each arrives with a clone. So they are
+// held back rather than refused: `magi --trust` says this directory is one whose file is mine, once,
+// and then everything here is taken as written.
+func asStranger(proj config.Config, said *[]string) config.Config {
+	var held []string
+	note := func(what string, n int) {
+		if n > 0 {
+			held = append(held, what)
+		}
+	}
+	note(fmt.Sprintf("%d hook(s)", len(proj.Hooks)), len(proj.Hooks))
+	note(fmt.Sprintf("%d tool server(s)", len(proj.MCP)), len(proj.MCP))
+	note(fmt.Sprintf("%d scheduled job(s)", len(proj.Cron)), len(proj.Cron))
+	note(fmt.Sprintf("%d approval(s) given in advance", len(proj.Allow)), len(proj.Allow))
+	note(fmt.Sprintf("%d domain(s)", len(proj.AllowDomains)), len(proj.AllowDomains))
+	note(fmt.Sprintf("%d plugin setting(s)", len(proj.Plugins)), len(proj.Plugins))
+	if proj.BaseURL != "" {
+		held = append(held, "an address for its prompts")
+	}
+	if len(proj.LLM.Headers) > 0 {
+		held = append(held, fmt.Sprintf("%d request header(s)", len(proj.LLM.Headers)))
+	}
+	if proj.ExperienceDir != "" {
+		held = append(held, "a different store to learn into")
+	}
+	if len(held) > 0 {
+		*said = append(*said, "carries "+strings.Join(held, ", ")+" and this workspace is not one "+
+			"you have trusted, so none of it was taken — `magi --trust` here if the file is yours")
+	}
+	proj.Hooks, proj.MCP, proj.Cron, proj.Plugins = nil, nil, nil, nil
+	proj.Allow, proj.AllowDomains = nil, nil
+	proj.BaseURL, proj.ExperienceDir = "", ""
+	proj.LLM.Headers = nil
+	return proj
 }
 
 // sandboxName puts a word to the empty sandbox, which is the loosest one and reads as a mistake.

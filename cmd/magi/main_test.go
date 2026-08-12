@@ -348,6 +348,33 @@ func TestAClonedRepositorysPluginsAreNotLoadedByOpeningIt(t *testing.T) {
 	}
 }
 
+// Trusting a workspace is the same sentence about its plugins as about its config.
+//
+// One decision per directory, not one per kind of thing a directory can carry: somebody who
+// trusts a repo enough to run its hooks is not making a different judgement about its Lua.
+func TestATrustedWorkspaceLoadsItsOwnPlugins(t *testing.T) {
+	cfg, repo := t.TempDir(), t.TempDir()
+	t.Setenv("MAGI_CONFIG_DIR", cfg)
+	theirs := filepath.Join(repo, ".magi", "plugins")
+	inside := func() bool {
+		for _, d := range pluginDirs(platform.New(), repo, "") {
+			if d == theirs {
+				return true
+			}
+		}
+		return false
+	}
+	if inside() {
+		t.Fatal("an untrusted workspace is scanned")
+	}
+	if _, err := config.Trust(cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	if !inside() {
+		t.Error("a trusted workspace's plugins are still not loaded, so --trust says more than it does")
+	}
+}
+
 // The orchestrator system prompt must carry the anti-defeatism directives (install
 // missing tools / fall back to a present runtime / actually do+verify) and stay
 // cross-platform (no single package manager hardcoded). Read-only subagents must NOT
