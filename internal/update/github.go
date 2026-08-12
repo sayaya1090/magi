@@ -102,11 +102,73 @@ func (g *GitHubSource) Latest(ctx context.Context) (Release, error) {
 			if g.Token != "" && a.APIURL != "" {
 				dl = a.APIURL // authenticated, private-capable download path
 			}
-			return Release{Version: rel.TagName, URL: dl}, nil
+			sum, serr := g.checksumOf(ctx, rel, a.Name)
+			if serr != nil {
+				return Release{}, serr
+			}
+			return Release{Version: rel.TagName, URL: dl, SHA256: sum}, nil
 		}
 	}
 	return Release{}, fmt.Errorf("github: no asset for %s in %s", want, rel.TagName)
 }
+
+// checksumOf reads the release's checksums.txt and finds the line for one asset.
+//
+// # Why this is not optional
+//
+// Download verifies a checksum when it is given one, and nothing ever gave it one: this function
+// is what was missing, so the field was always empty and the check was always skipped. An updater
+// that replaces the running binary is the most consequential download this program makes, and it
+// was making it on the strength of TLS alone while carrying a verifier that read as though more
+// was happening.
+//
+// A release without the file is refused rather than waved through. goreleaser publishes it for
+// every build of this project, so its absence is not "an older release" — it is a release that was
+// not built the way this one expects, which is exactly when not to overwrite the binary.
+func (g *GitHubSource) checksumOf(ctx context.Context, rel ghRelease, asset string) (string, error) {
+	var url string
+	for _, a := range rel.Assets {
+		if a.Name == checksumsAsset {
+			url = a.URL
+			if g.Token != "" && a.APIURL != "" {
+				url = a.APIURL
+			}
+			break
+		}
+	}
+	if url == "" {
+		return "", fmt.Errorf("github: %s publishes no %s, so the download cannot be checked — "+
+			"install this one by hand if you mean to", rel.TagName, checksumsAsset)
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req.Header.Set("Accept", "application/octet-stream")
+	g.authorize(req)
+	resp, err := g.client().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("github: %s status %d", checksumsAsset, resp.StatusCode)
+	}
+	// Bounded: it is a list of hashes, and a body that is not one must not be read into memory
+	// because a release said so.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		// "<hex>  <name>", which is what sha256sum writes and what goreleaser copies.
+		f := strings.Fields(line)
+		if len(f) == 2 && f[1] == asset {
+			return f[0], nil
+		}
+	}
+	return "", fmt.Errorf("github: %s does not list %s", checksumsAsset, asset)
+}
+
+// checksumsAsset is the name goreleaser gives the digest list; see .goreleaser.yaml.
+const checksumsAsset = "checksums.txt"
 
 // Download fetches the asset bytes. With a token it authenticates and requests the raw
 // octet-stream (required for the asset-API URL of a private release); anonymously it is

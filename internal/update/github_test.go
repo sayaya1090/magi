@@ -26,8 +26,13 @@ func TestGitHubLatestPicksPlatformAsset(t *testing.T) {
 	asset := AssetName()
 	body := fmt.Sprintf(`{"tag_name":"v1.2.3","assets":[
 		{"name":"magi_someotheros_otherarch.tar.gz","browser_download_url":"http://x/wrong"},
-		{"name":"%s.tar.gz","browser_download_url":"http://x/right"}]}`, asset)
+		{"name":"%s.tar.gz","browser_download_url":"http://x/right"},
+		{"name":"checksums.txt","browser_download_url":"http://x/sums"}]}`, asset)
+	sums := "beef  " + asset + ".tar.gz\ncafe  magi_someotheros_otherarch.tar.gz\n"
 	g := &GitHubSource{Owner: "o", Repo: "r", HTTP: &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() == "http://x/sums" {
+			return cannedResp(http.StatusOK, sums), nil
+		}
 		if !strings.Contains(r.URL.String(), "/repos/o/r/releases/latest") {
 			t.Errorf("unexpected URL: %s", r.URL)
 		}
@@ -45,6 +50,49 @@ func TestGitHubLatestPicksPlatformAsset(t *testing.T) {
 	}
 	if rel.URL != "http://x/right" {
 		t.Errorf("should pick the %s asset, got URL %q", asset, rel.URL)
+	}
+	// The digest for THIS asset, and not the first line of the file.
+	if rel.SHA256 != "beef" {
+		t.Errorf("checksum = %q, want the line for %s", rel.SHA256, asset)
+	}
+}
+
+// A release with no digest list is not installed.
+//
+// Download has always verified a checksum when it was given one, and nothing ever gave it one, so
+// the field sat empty and the check was skipped on every update this program has ever done. The
+// list is published for every build of this project; its absence means a release built some other
+// way, which is exactly when not to overwrite the running binary.
+func TestAReleaseWithoutChecksumsIsRefused(t *testing.T) {
+	asset := AssetName()
+	body := fmt.Sprintf(`{"tag_name":"v9.9.9","assets":[
+		{"name":"%s.tar.gz","browser_download_url":"http://x/right"}]}`, asset)
+	g := &GitHubSource{Owner: "o", Repo: "r", HTTP: &http.Client{Transport: rtFunc(func(*http.Request) (*http.Response, error) {
+		return cannedResp(http.StatusOK, body), nil
+	})}}
+	_, err := g.Latest(context.Background())
+	if err == nil {
+		t.Fatal("a release with no checksums.txt was accepted for download")
+	}
+	if !strings.Contains(err.Error(), "checksums.txt") {
+		t.Errorf("the reason does not name what is missing: %v", err)
+	}
+}
+
+// And a list that does not mention this asset is the same answer.
+func TestAChecksumListMissingThisAssetIsRefused(t *testing.T) {
+	asset := AssetName()
+	body := fmt.Sprintf(`{"tag_name":"v9.9.9","assets":[
+		{"name":"%s.tar.gz","browser_download_url":"http://x/right"},
+		{"name":"checksums.txt","browser_download_url":"http://x/sums"}]}`, asset)
+	g := &GitHubSource{Owner: "o", Repo: "r", HTTP: &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() == "http://x/sums" {
+			return cannedResp(http.StatusOK, "beef  magi_someotheros_otherarch.tar.gz\n"), nil
+		}
+		return cannedResp(http.StatusOK, body), nil
+	})}}
+	if _, err := g.Latest(context.Background()); err == nil {
+		t.Fatal("an asset absent from the digest list was accepted for download")
 	}
 }
 

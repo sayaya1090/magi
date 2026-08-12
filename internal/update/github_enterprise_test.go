@@ -11,9 +11,13 @@ import (
 // the /repos/<owner>/<repo>/releases/latest path shape.
 func TestGitHubWithAPIBaseRoutesToEnterprise(t *testing.T) {
 	var gotURL string
-	body := fmt.Sprintf(`{"tag_name":"v2.0.0","assets":[{"name":"%s.tar.gz","browser_download_url":"http://x/pub"}]}`, AssetName())
+	body := fmt.Sprintf(`{"tag_name":"v2.0.0","assets":[{"name":"%s.tar.gz","browser_download_url":"http://x/pub"},`+
+		`{"name":"checksums.txt","browser_download_url":"http://x/sums"}]}`, AssetName())
 	g := NewGitHubSource("o", "r", WithAPIBase("https://ghe.corp/api/v3/"))
 	g.HTTP = &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() == "http://x/sums" {
+			return cannedResp(http.StatusOK, sumsFor(AssetName())), nil
+		}
 		gotURL = r.URL.String()
 		return cannedResp(http.StatusOK, body), nil
 	})}
@@ -30,10 +34,16 @@ func TestGitHubWithAPIBaseRoutesToEnterprise(t *testing.T) {
 func TestGitHubWithTokenPicksAssetAPIURLAndAuthorizes(t *testing.T) {
 	var auth string
 	body := fmt.Sprintf(`{"tag_name":"v3.1.0","assets":[{"name":"%s.tar.gz",`+
-		`"browser_download_url":"http://x/pub","url":"https://api.github.com/repos/o/r/releases/assets/42"}]}`, AssetName())
+		`"browser_download_url":"http://x/pub","url":"https://api.github.com/repos/o/r/releases/assets/42"},`+
+		`{"name":"checksums.txt","browser_download_url":"http://x/pubsums","url":"http://x/apisums"}]}`, AssetName())
 	g := NewGitHubSource("o", "r", WithToken("secret-tok"))
+	var sumsFrom string
 	g.HTTP = &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
 		auth = r.Header.Get("Authorization")
+		if u := r.URL.String(); u == "http://x/apisums" || u == "http://x/pubsums" {
+			sumsFrom = u
+			return cannedResp(http.StatusOK, sumsFor(AssetName())), nil
+		}
 		return cannedResp(http.StatusOK, body), nil
 	})}
 	rel, err := g.Latest(context.Background())
@@ -46,16 +56,29 @@ func TestGitHubWithTokenPicksAssetAPIURLAndAuthorizes(t *testing.T) {
 	if want := "https://api.github.com/repos/o/r/releases/assets/42"; rel.URL != want {
 		t.Errorf("token source should download via the asset-API URL, got %q", rel.URL)
 	}
+	// The digest list is an asset like any other, so a private release needs it fetched the same
+	// authenticated way — read over the public URL it would 403 and the update would fail with a
+	// checksum error, which says the wrong thing about a working release.
+	if sumsFrom != "http://x/apisums" {
+		t.Errorf("the digest list was read from %q, not the asset-API URL", sumsFrom)
+	}
 }
+
+// sumsFor is a checksums.txt with one line that matches, as goreleaser writes it.
+func sumsFor(asset string) string { return "beef  " + asset + ".tar.gz\n" }
 
 // Without a token the public browser_download_url is used and no auth header is sent —
 // the anonymous public path stays exactly as before.
 func TestGitHubAnonymousKeepsBrowserURL(t *testing.T) {
 	var auth string
 	body := fmt.Sprintf(`{"tag_name":"v3.1.0","assets":[{"name":"%s.tar.gz",`+
-		`"browser_download_url":"http://x/pub","url":"http://x/api"}]}`, AssetName())
+		`"browser_download_url":"http://x/pub","url":"http://x/api"},`+
+		`{"name":"checksums.txt","browser_download_url":"http://x/sums"}]}`, AssetName())
 	g := &GitHubSource{Owner: "o", Repo: "r", HTTP: &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
 		auth = r.Header.Get("Authorization")
+		if r.URL.String() == "http://x/sums" {
+			return cannedResp(http.StatusOK, sumsFor(AssetName())), nil
+		}
 		return cannedResp(http.StatusOK, body), nil
 	})}}
 	rel, err := g.Latest(context.Background())
