@@ -581,7 +581,7 @@ func emitDemo(dir string) error {
 		page = strings.ReplaceAll(page, `"`+prefix, `".`+prefix)
 		page = strings.ReplaceAll(page, "url("+prefix, "url(."+prefix)
 	}
-	for _, file := range []string{"/icon.svg", "/manifest.webmanifest"} {
+	for _, file := range []string{"/icon.svg", "/icon-maskable.svg", "/manifest.webmanifest"} {
 		page = strings.ReplaceAll(page, `"`+file+`"`, `".`+file+`"`)
 	}
 	page += demoScript
@@ -596,6 +596,7 @@ func emitDemo(dir string) error {
 		// until a check started walking every path the page references.
 		"manifest.webmanifest": manifestJSON,
 		"icon.svg":             iconSVG,
+		"icon-maskable.svg":    iconMaskableSVG,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			return err

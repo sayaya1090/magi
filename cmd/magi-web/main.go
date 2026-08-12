@@ -835,6 +835,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/answer":               s.answer,
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,
+		"/icon-maskable.svg":    s.iconMaskable,
 		"/font/":                s.font,
 		// The page's own two subtrees. Missing, `import '/vendor/material.js'` answered 404, which
 		// fails the whole ES module — so on a real console NOTHING ran: no components, no script, no
@@ -955,10 +956,26 @@ const manifestJSON = `{
   "display": "standalone",
   "background_color": "#14110d",
   "theme_color": "#14110d",
-  "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+  "icons": [
+    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+    {"src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable"}
+  ]
 }`
 
 const iconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <circle cx="96" cy="70" r="21" fill="#FFB454"/>
+  <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
+  <circle cx="122" cy="115" r="21" fill="#FF8A8A"/>
+  <circle cx="96" cy="97" r="43" fill="none" stroke="#FF7A1A" stroke-width="4" opacity=".55"/>
+</svg>`
+
+// iconMaskableSVG is the same three councillors with the plate back under them.
+//
+// A maskable icon is not a picture with rounded corners applied — the platform crops it to
+// whatever shape it likes, circle on one launcher and squircle on the next, and a transparent one
+// is cropped to nothing with the launcher filling the rest in a colour this file did not choose.
+// So this one keeps the ground, and it is the only place that needs it.
+const iconMaskableSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
   <rect width="192" height="192" fill="#211B14"/>
   <circle cx="96" cy="70" r="21" fill="#FFB454"/>
   <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
@@ -975,15 +992,29 @@ func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// icon is the home-screen icon: the three councillors, in their own hues.
+// icon is the mark: the three councillors, in their own hues, on nothing.
 //
 // SVG so there is one file for every size, and drawn here rather than shipped as a PNG because a
 // binary asset in a source tree is a thing nobody can review. The maskable safe zone is the middle
 // 80%, so nothing meaningful goes near the edge.
+//
+// No ground under it. This is the favicon, and a tab strip is whatever colour the browser and its
+// theme make it — a dark brown square there is a sticker on the tab rather than a mark in it. The
+// same file is the notification icon, where a launcher tints what it is given and a plate is a
+// plate. Where a ground IS required, there is a second file that has one; see iconMaskableSVG.
 func (s *server) icon(w http.ResponseWriter, r *http.Request) {
+	s.svg(w, iconSVG)
+}
+
+// iconMaskable is the same mark for a home screen, which crops it.
+func (s *server) iconMaskable(w http.ResponseWriter, r *http.Request) {
+	s.svg(w, iconMaskableSVG)
+}
+
+func (s *server) svg(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "image/svg+xml")
-	if _, err := io.WriteString(w, iconSVG); err != nil {
-		log.Printf("magi-web: writing the icon: %v", err)
+	if _, err := io.WriteString(w, body); err != nil {
+		log.Printf("magi-web: writing an icon: %v", err)
 	}
 }
 

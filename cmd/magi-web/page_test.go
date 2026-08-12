@@ -798,3 +798,49 @@ func TestTheSpriteReachesThePage(t *testing.T) {
 		t.Errorf("the sprite carries no symbols: %.120s", iconSprite)
 	}
 }
+
+// Everything the manifest names is a route this binary answers.
+//
+// The page's own references are walked; the manifest's were not, and it is the file whose links
+// nobody sees fail. A phone reads it once at install time and quietly keeps whatever icon it
+// managed to fetch, so a src pointing at nothing looks exactly like one that worked until somebody
+// installs it on a new device.
+func TestTheManifestNamesOnlyRoutesThisServerHas(t *testing.T) {
+	var m struct {
+		Icons []struct {
+			Src     string `json:"src"`
+			Purpose string `json:"purpose"`
+		} `json:"icons"`
+	}
+	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+		t.Fatalf("the manifest is not JSON: %v", err)
+	}
+	served := (&server{}).routes()
+	if len(m.Icons) == 0 {
+		t.Fatal("the manifest offers no icon at all")
+	}
+	var maskable bool
+	for _, ic := range m.Icons {
+		if _, ok := served[ic.Src]; !ok {
+			t.Errorf("the manifest names %q and this server has no such route", ic.Src)
+		}
+		if strings.Contains(ic.Purpose, "maskable") {
+			maskable = true
+			// A maskable icon is cropped to whatever shape the launcher likes and the launcher
+			// fills what is left. Transparent, that fill is a colour this repository did not
+			// choose, under a mark that was drawn for a dark one.
+			if !strings.Contains(iconMaskableSVG, `<rect width="192" height="192"`) {
+				t.Error("the maskable icon has no ground under it, so a home screen crops it onto " +
+					"whatever the launcher picks")
+			}
+		}
+	}
+	if !maskable {
+		t.Error("nothing is offered as maskable, so a home screen gets the plain mark and pads it")
+	}
+	// And the plain one has no plate: it is the favicon and the notification icon, where a ground
+	// is a dark sticker on somebody else's surface.
+	if strings.Contains(iconSVG, "<rect") {
+		t.Error("the favicon carries a background plate")
+	}
+}

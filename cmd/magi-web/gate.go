@@ -79,7 +79,7 @@ var openToRead = map[string]bool{
 // The login page, when there is one, belongs here for the same reason.
 var public = map[string]bool{
 	"/": true, "/vendor/": true, "/i18n/": true, "/font/": true,
-	"/icon.svg": true, "/manifest.webmanifest": true, "/sw.js": true,
+	"/icon.svg": true, "/icon-maskable.svg": true, "/manifest.webmanifest": true, "/sw.js": true,
 	// And the answer to "who am I here", which has to reach somebody the console will refuse
 	// everything else to — it is how the page knows to say so instead of drawing an empty fleet.
 	// It discloses nothing they did not send: their own name back, and what it buys them.
