@@ -2404,6 +2404,18 @@ func (d daemonEngine) About() string {
 	return mcpserve.Describe(d.card())
 }
 
+// ReadOnlyTool is the console's way into this workspace: the companion's own read-only tools, run
+// where the workspace is, outside the turn. See daemon.ToolReader for why it is done this way and
+// not by whoever is looking.
+func (d daemonEngine) ReadOnlyTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	// Bounded like the shell beside it. A caller has no key to press to give up on a grep over a
+	// repository somebody checked a video into, and an unbounded one holds a daemon goroutine for
+	// as long as the machine is up.
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return d.App.ReadOnlyTool(rctx, d.workdir, name, args)
+}
+
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
 	// command that will not finish, so an unbounded one would hold a daemon goroutine for as long

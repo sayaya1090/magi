@@ -226,6 +226,34 @@ type Controller interface {
 	Permission() string
 }
 
+// ToolReader is an engine that can run one of its READ-ONLY tools where it is, outside the turn.
+//
+// # Why the console does not read the files itself
+//
+// A workspace belongs to the companion, not to whoever is looking at it. magi-web may be reading
+// over an ssh tunnel from another machine, under another account, with no route to that filesystem
+// at all — and even where it does have one, a second implementation of "what is in this directory"
+// is a second answer that can disagree with the one the agent gets. The daemon is already the
+// process that knows where the workspace is and already confines every path to it.
+//
+// # Why the agent's own tools rather than new code
+//
+// The confinement, the symlink jail, the line numbering, the too-big-to-show cutoff: all of it
+// exists in the tools the agent uses, has tests, and has been wrong and fixed. Calling them is one
+// implementation; writing a directory lister here would be a second one that has to learn the same
+// lessons again.
+//
+// # What this must not do
+//
+// Touch the turn. It runs on the connection's own goroutine, reads no session state and writes
+// none, so a person browsing files while the agent works interrupts nothing — which is the whole
+// point of it being out of band. And it is READ-only: the allowlist is on the engine side, so a
+// caller naming `bash` or `edit` is refused by the process that owns the workspace rather than by
+// whatever was in front of it.
+type ToolReader interface {
+	ReadOnlyTool(ctx context.Context, name string, args json.RawMessage) (string, error)
+}
+
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
 //
 // The distinction is the whole reason this crosses the socket. Everything else a viewer does
@@ -289,6 +317,10 @@ type Request struct {
 	// a column every time the engine gains a knob.
 	Name string `json:"name,omitempty"`
 	N    int    `json:"n,omitempty"`
+	// Args is the tool method's arguments, verbatim, as the tool's own schema spells them. Raw
+	// JSON rather than a field per argument: the caller and the tool already agree on a schema,
+	// and re-declaring it here would be a third copy to keep in step with the other two.
+	Args json.RawMessage `json:"args,omitempty"`
 }
 
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
@@ -857,6 +889,28 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			return // this connection was a stream; it ends with it
 		}
+		// A read-only tool, run where the workspace is. Answered here rather than in dispatch for the
+		// same reason shell is: it has a payload.
+		if req.Method == "tool" {
+			reader, ok := eng.(ToolReader)
+			switch {
+			case !ok:
+				resp = Response{Err: "this daemon cannot read its workspace"}
+			case strings.TrimSpace(req.Name) == "":
+				resp = Response{Err: "no tool named"}
+			default:
+				out, rerr := reader.ReadOnlyTool(ctx, req.Name, req.Args)
+				if rerr != nil {
+					resp = Response{Err: rerr.Error()}
+				} else {
+					resp = Response{OK: true, Out: out}
+				}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -1322,6 +1376,20 @@ func (c *Client) Shell(cmd string) (out string, exit int, err error) {
 		return resp.Out, -1, nil
 	}
 	return resp.Out, *resp.Exit, nil
+}
+
+// ReadOnlyTool runs one of the companion's read-only tools in ITS workspace and returns what the
+// tool produced, as the tool wrote it.
+//
+// The text is the tool's own result — line-numbered file contents, a directory listing, whatever
+// that tool produces for the agent. Not reshaped on the way through: two renderings of one thing
+// is how a console comes to show something the agent never saw.
+func (c *Client) ReadOnlyTool(name string, args json.RawMessage) (string, error) {
+	resp, err := c.exchange(Request{Method: "tool", Name: name, Args: args})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
 }
 
 // Shutdown asks the daemon to stop.

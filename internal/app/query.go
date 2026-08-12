@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -247,4 +248,71 @@ func (a *App) ListSessions(ctx context.Context, workdir string) ([]session.Sessi
 // can do, and both of which are when somebody asks what a subagent actually did.
 func (a *App) ChildSessions(ctx context.Context, workdir, parentID string) ([]session.SessionMeta, error) {
 	return a.store.ChildSessions(ctx, workdir, parentID)
+}
+
+// ReadOnlyTool runs one of this app's read-only tools outside any turn.
+//
+// # Why the app and not the caller
+//
+// The tools live here, behind an unexported registry, and the environment they need — where the
+// workspace is, what a session id means — is this type's business. A caller assembling a ToolEnv
+// would be a second place that decides what a tool runs against.
+//
+// # The allowlist is here too
+//
+// Named tools only, and only ones that look. A caller that could name `bash` would have a shell in
+// somebody's workspace through a door built for reading a file, and the refusal has to be made by
+// the process that owns the workspace rather than by whatever was in front of it — there is more
+// than one thing in front of it (a console, a relay, a peer) and only one of these.
+//
+// The environment is deliberately bare: no spawn, no scratch directories, no progress channel.
+// Anything needing those is not a tool that only looks, and would fail here rather than quietly
+// doing half of what it does inside a turn.
+func (a *App) ReadOnlyTool(ctx context.Context, workdir, name string, args json.RawMessage) (string, error) {
+	if !readOnlyTools[name] {
+		return "", fmt.Errorf("%q is not a tool this can run: only %s", name, readOnlyList())
+	}
+	t, ok := a.tools.Get(name)
+	if !ok {
+		return "", fmt.Errorf("%q is not a tool this companion has", name)
+	}
+	res, err := t.Execute(ctx, args, port.ToolEnv{Workdir: workdir})
+	if err != nil {
+		return "", err
+	}
+	if res.IsError {
+		// The tool's own words. A file that is not there, a path outside the workspace, a
+		// directory that cannot be read — the tool has already said which, in the sentence the
+		// agent would have got, and rewriting it here would give the console a second vocabulary
+		// for the same failures.
+		return "", fmt.Errorf("%s", toolText(res.Content))
+	}
+	return toolText(res.Content), nil
+}
+
+// toolText is a tool result as text. The payload is JSON — a quoted string for the ones that
+// produce text — so a caller that passed it through raw would show a reader their file wrapped in
+// quotes with every newline spelled out.
+func toolText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return string(raw)
+}
+
+// readOnlyTools is the whole of what may be run this way.
+//
+// Four, and each one only looks: what is in this directory, what matches this pattern, what is in
+// this file, where does this text appear. Nothing here writes, runs, spawns, or asks a person
+// anything.
+var readOnlyTools = map[string]bool{"ls": true, "glob": true, "read": true, "grep": true}
+
+func readOnlyList() string {
+	names := make([]string, 0, len(readOnlyTools))
+	for n := range readOnlyTools {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
