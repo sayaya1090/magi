@@ -1343,7 +1343,15 @@ let promptWasUp = false;
 function drawPrompt(a) {
   const box = document.getElementById('prompt');
   if (!a || a.state !== 'waiting') {
-    box.hidden = true; box.replaceChildren(); promptWasUp = false; measureDock(); return;
+    box.hidden = true; box.replaceChildren(); promptWasUp = false;
+    // And the composer goes back to being the composer. It is one field in two roles, and the
+    // role was set when the question appeared and cleared nowhere: interrupt the turn, or let
+    // somebody else answer from their own console, and the box in front of you still said "your
+    // answer" and still posted to /answer — with the call id of a question that no longer exists.
+    // Typing a fresh request there went nowhere and looked like the page had stopped listening.
+    answerMode(null);
+    measureDock();
+    return;
   }
   const inner = document.createElement('div'); inner.className = 'inner';
   const k = document.createElement('div'); k.className = 'asking';
@@ -3808,6 +3816,47 @@ function summaryFor(r) {
   return oneLine(r.text, 90);
 }
 
+// jsonPairs reads a tool's arguments as what they are: a flat object with known keys.
+//
+// They were printed as the JSON they arrived in, which is the form they have because a wire needs
+// one — a call to write a file is its path and its whole body escaped onto a single line, and the
+// thing somebody opened the fold to read is in there behind \n and \". The shape is not a mystery;
+// it is a small object whose keys are the tool's own parameter names.
+//
+// Only an object, and only when it parses. An array is a list of things with no names to put
+// beside them, and anything that is not JSON at all — most tool OUTPUT — is prose or a diff and
+// belongs in the block it already had.
+function jsonPairs(text) {
+  const t = String(text || '').trim();
+  if (!t.startsWith('{')) return null;      // cheap reject before handing a transcript to the parser
+  let v;
+  try { v = JSON.parse(t); } catch { return null; }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out = [];
+  for (const k of Object.keys(v)) {
+    const raw = v[k];
+    // A string keeps its own newlines and quotes — that is the whole gain. Anything else is
+    // re-encoded, because "[object Object]" is worse than the JSON it came from.
+    out.push([k, typeof raw === 'string' ? raw : JSON.stringify(raw)]);
+  }
+  return out.length ? out : null;
+}
+
+// pairsInto draws those pairs: the name in a gutter, the value beside it, and a value that runs to
+// several lines in a block of its own underneath.
+function pairsInto(pairs) {
+  const box = cell('args');
+  for (const [k, v] of pairs) {
+    box.append(cell('argk', k));
+    // Preformatted either way: an argument is a path, a command or a body, and none of those want
+    // their whitespace collapsed. The one-liners just do not need a block of their own.
+    const val = el('pre', v);
+    val.className = 'argv' + (v.includes('\n') ? ' tall' : '');
+    box.append(val);
+  }
+  return box;
+}
+
 // The three named seats. A map rather than a template so nothing from the log reaches a class name.
 const COUNCIL_SEATS = {melchior: 'm-melchior', balthasar: 'm-balthasar', casper: 'm-casper'};
 
@@ -3977,10 +4026,13 @@ function rowNode(r) {
       for (const [key, text, asDiff] of parts) {
         // One block needs no label: with nothing to tell it apart from, a word above it is noise.
         if (key && parts.length > 1) body.append(cell('foldk', tr(key)));
+        const pairs = asDiff ? null : jsonPairs(text);
         if (asDiff) {
           const pre = el('pre');
           pre.className = 'diff';
           body.append(diffInto(pre, text));
+        } else if (pairs) {
+          body.append(pairsInto(pairs));
         } else {
           body.append(el('pre', text));
         }
@@ -5155,7 +5207,11 @@ f.onsubmit = e => {
 // only way to break a line there, and hijacking it leaves no way to write a second paragraph.
 const touch = matchMedia('(hover: none)').matches;
 t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !touch) { e.preventDefault(); f.requestSubmit(); } };
-document.getElementById('stop').onclick = () => confirmStop(nameOf(sock()), () => post('/interrupt', null));
+// …and the fleet is re-read straight after, rather than at the next poll. Stopping a turn is the
+// one action somebody takes because they want to do something ELSE immediately, and up to three
+// seconds of a prompt bar that is no longer true is three seconds of typing into the wrong role.
+document.getElementById('stop').onclick = () =>
+  confirmStop(nameOf(sock()), () => post('/interrupt', null).then(loadFleet));
 
 // The markup's own drawings give way to the baked ones, once, before the first paint. Not on every
 // render: these eight elements are in the document from the start and outlive every redraw.

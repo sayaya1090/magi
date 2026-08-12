@@ -1269,6 +1269,17 @@
      eye already looks for them, and not the free-text field, which fills its line. */
   .answer.choices { justify-content:center; }
 
+  /* A tool call's arguments, read as the small named object they are. The name goes in a gutter to
+     the left — the same shape the report's sections and the transcript's speakers use — and a value
+     with newlines in it takes the full width underneath, because that one is a file body or a
+     command block and a 12rem column would ruin it. */
+  .args { display:grid; grid-template-columns:auto minmax(0, 1fr); gap:var(--magi-sys-space-50) var(--magi-sys-space-200);
+    align-items:baseline; }
+  .argk { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted);
+    text-align:right; white-space:nowrap; }
+  .argv { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
+  .argv.tall { grid-column:1 / -1; }
+
   .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-500) 0; max-width:52ch; }
   .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--magi-ref-mono); color:var(--magi-ref-accent); }
 

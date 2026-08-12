@@ -4127,3 +4127,99 @@ console.log(JSON.stringify({after: window.scrolledTo}));`)
 		t.Error("the fonts landed, the lines re-measured, and the reader was left above the end")
 	}
 }
+
+// When the question goes, the composer stops being an answer box.
+//
+// One field in two roles, and the role was set when the question appeared and cleared nowhere.
+// Interrupt the turn — or let somebody answer from another console — and the box still said "your
+// answer" and still posted to /answer, with the call id of a question that no longer exists. A
+// fresh request typed there went nowhere, which reads as the page having stopped listening.
+func TestTheComposerLeavesAnswerModeWhenTheQuestionDoes(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+drawPrompt({socket:'/s/a.sock', state:'waiting', asking:'which one?', askId:'q1',
+            askKind:'question', askIndex:1, askTotal:1});
+const asking = {answering: !!answering, label: byId.t.attrs['label'] || ''};
+// The turn was interrupted: the companion is idle and there is no question any more.
+drawPrompt({socket:'/s/a.sock', state:'idle'});
+console.log(JSON.stringify({
+  asking: asking,
+  after: {answering: !!answering, label: byId.t.attrs['label'] || '', hidden: byId.prompt.hidden},
+}));`)
+
+	asking, _ := got["asking"].(map[string]any)
+	if asking["answering"] != true {
+		t.Fatal("the composer never entered answer mode, so this test proves nothing")
+	}
+	after, _ := got["after"].(map[string]any)
+	if after["answering"] == true {
+		t.Error("the question is gone and the composer is still answering it — what gets typed " +
+			"there posts to a call id that no longer exists")
+	}
+	if after["label"] == asking["label"] {
+		t.Errorf("the field still says %q", after["label"])
+	}
+	if after["hidden"] != true {
+		t.Error("the prompt bar stayed up")
+	}
+}
+
+// A tool call's arguments are read as the named object they are.
+//
+// They were printed as the JSON they arrived in, which is the form they have because a wire needs
+// one. A call to write a file is its path and its whole body escaped onto a single line, and the
+// thing somebody opened the fold to read is in there behind \n and \". The shape is not a mystery
+// — it is a small object whose keys are the tool's own parameter names.
+func TestToolArgumentsAreDrawnAsFields(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'tool', tool:'write', ok:true,
+       args:'{"path":"cmd/main.go","text":"package main\\n\\nfunc main() {}\\n"}'}]);
+const fold = byId.log.find('details')[0];
+const keys = fold.find('div').filter(d => String(d.className).includes('argk')).map(d => d.textContent);
+const vals = fold.find('pre').map(p => ({cls: String(p.className || ''), text: p.textContent}));
+console.log(JSON.stringify({keys: keys, vals: vals}));`)
+
+	keys, _ := got["keys"].([]any)
+	if len(keys) != 2 || keys[0] != "path" || keys[1] != "text" {
+		t.Fatalf("the arguments were not named: %v", keys)
+	}
+	vals, _ := got["vals"].([]any)
+	var body string
+	for _, v := range vals {
+		m, _ := v.(map[string]any)
+		s, _ := m["text"].(string)
+		if strings.Contains(s, `{"path"`) {
+			t.Errorf("the raw JSON is still being printed: %q", s)
+		}
+		if strings.Contains(s, "package main") {
+			body = s
+			if cls, _ := m["cls"].(string); !strings.Contains(cls, "tall") {
+				t.Errorf("a value with newlines shares the value column (%q)", cls)
+			}
+		}
+	}
+	if body == "" {
+		t.Error("the file body is not in the fold at all")
+	}
+	if strings.Contains(body, `\n`) {
+		t.Errorf("the body kept its escapes: %q", body)
+	}
+}
+
+// And anything that is not a named object is left exactly as it was.
+func TestToolOutputThatIsNotAnObjectIsLeftAlone(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+draw([{who:'tool', tool:'bash', ok:true, args:'go test ./...', out:'ok  magi 1.2s'}]);
+const fold = byId.log.find('details')[0];
+console.log(JSON.stringify({
+  fields: fold.find('div').filter(d => String(d.className).includes('argk')).length,
+  pres: fold.find('pre').map(p => p.textContent),
+}));`)
+
+	if got["fields"].(float64) != 0 {
+		t.Error("a plain command line was taken apart as though it were an object")
+	}
+	pres, _ := got["pres"].([]any)
+	if len(pres) != 2 || pres[0] != "go test ./..." || pres[1] != "ok  magi 1.2s" {
+		t.Errorf("the blocks changed: %v", pres)
+	}
+}
