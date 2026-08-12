@@ -56,11 +56,21 @@ therefore issued restricted:
 command="magi --fleet-door",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAA…
 ```
 
-`magi --fleet-door` reads `SSH_ORIGINAL_COMMAND`, accepts only a path ending in `.fleet.sock`
-inside its own config directory, and pipes. No shell, no chosen path.
+`magi --fleet-door` reads `SSH_ORIGINAL_COMMAND` and accepts **exactly two** commands:
 
-**This is load-bearing.** Without it the design degrades to a recommendation, which is what the
-first version of it was.
+```
+magi --relay <…/*.fleet.sock>    the socket above, and no other path
+magi --members                   the gossip exchange, which is stdin/stdout and not a socket at all
+```
+
+No shell, no chosen path. **This is load-bearing.** Without it the design degrades to a
+recommendation, which is what the first version of it was.
+
+⚠ And `--members` is why this section says "exactly two". Gossip is a SHELL COMMAND, not a socket
+call — `ssh host magi --members` — so a forced command that allowed only the relay would have
+silently stopped the cluster from seeing itself. There are three doors, not two: the attach socket,
+the fleet socket, and the members exchange. The third carries no methods, only member records, and
+the signature rules in §5 are what guard it.
 
 ## 3. Who — a handshake, not a claim
 
@@ -105,6 +115,12 @@ heard → pending    the operator sees it. Nothing else does — not the roster 
 
 `watched` has a concrete case: a CI box admitted in order to be watched, which must not queue work
 into a laptop. Admission is three buttons — `[admit] [watch] [refuse]` — and no second config file.
+
+⚠ **Today the ear is local only**, so the difference between `watched` and `admitted` is `hand`
+alone. `companionPeers` skips remote companions outright — "there is no ear across machines yet" —
+and an ear is this binary spawned as `magi --mcp <name>`, a stdio subprocess of the magi that owns
+it. No port, no remote surface. The clause about ears is written here so that it is already decided
+the day one exists; it is not a thing this design turns off today.
 
 An unverified or unadmitted caller may call `about` and nothing else, and its arrival is one line in
 the queue, rate-limited per peer uid and capped.
