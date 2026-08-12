@@ -50,7 +50,7 @@ const demoScript = `
      team: 'frontend', hub: true, workdir: '/Users/you/work/design-system', session: 'd1',
      state: 'working', live: true, task: 'spec the empty state for the fleet table, and name the exact tokens',
      doing: 'check 6, 4m12s elapsed, not met yet (exit 1)',
-     steps: 7, planDone: 2, planTotal: 5, idle: 12, host: 'studio', instance: 'you@studio',
+     steps: 7, planDone: 2, planTotal: 5, idle: 12, host: 'studio', instance: 'you@studio', trust: 'own',
      addr: '10.0.0.4', pid: 4127,
      // The mode it is on, so the approvals control in the facts has something to show. Without it
      // the demo draws an empty select, which is what a companion too old to answer looks like —
@@ -60,7 +60,7 @@ const demoScript = `
      team: 'backend', workdir: '/Users/you/work/billing', session: 'a1',
      state: 'waiting', live: true, asking: 'run: psql -c "drop table staging_invoices"',
      askId: 'call_42', askKind: 'permission', task: 'add the idempotency key', steps: 3,
-     planDone: 1, planTotal: 4, idle: 4, host: 'studio', instance: 'you@studio',
+     planDone: 1, planTotal: 4, idle: 4, host: 'studio', instance: 'you@studio', trust: 'own',
      addr: '10.0.0.4', pid: 4128},
     // A question rather than a permission, so the demo shows the other prompt and the report a
     // person is meant to decide on. Its sections are the default contract's — a console whose
@@ -74,17 +74,53 @@ const demoScript = `
        {key: 'stakes', text: 'surface matches the table around it but the empty state stops reading as a panel; the container reads as a panel and is one more layer to keep in step with the cards'},
        {key: 'lean', text: 'surface-container-low — the contrast is the one with headroom, and light is already the tighter theme'},
      ],
-     task: 'spec the empty state', steps: 5, idle: 22, host: 'studio', instance: 'you@studio',
+     task: 'spec the empty state', steps: 5, idle: 22, host: 'studio', instance: 'you@studio', trust: 'own',
      addr: '10.0.0.4', pid: 4131},
     {socket: '/demo/buttons.sock', name: 'buttons', role: 'components', team: 'frontend',
      workdir: '/Users/you/work/ui-kit', session: 'b1', state: 'idle', live: true,
      task: 'the toggle now reads its state from the store rather than a prop', idle: 640,
-     host: 'studio', instance: 'you@studio', addr: '10.0.0.4', pid: 4129},
+     host: 'studio', instance: 'you@studio', trust: 'own', addr: '10.0.0.4', pid: 4129},
     {socket: '/demo/ops.sock', name: 'ops', role: 'deploys and alerting', workdir: '/Users/you/work/infra',
      session: 'o1', state: 'stopped', live: false, task: 'rotated the staging certificates', idle: 90000,
-     // Another machine AND another account: the pair is the unit, and a demo where every row said
-     // the same host would never show why.
-     host: 'mini', instance: 'ops@mini', addr: '10.0.0.9'},
+     host: 'studio', instance: 'you@studio', trust: 'own', addr: '10.0.0.4'},
+
+    // ── the three other kinds of instance ───────────────────────────────────
+    // A fleet is not one machine and not one person, and the four combinations behave differently
+    // enough that a demo showing only the first teaches the wrong thing. Everything below arrived
+    // by gossip: another instance's companions are never in this console's own directory, whether
+    // or not they are on this machine, because a config directory belongs to one account.
+
+    // Same person, another machine. Admitted — you carried the fingerprint between your own two
+    // machines — so work can actually cross to it.
+    {socket: '/demo/tests.sock', name: 'tests', role: 'the slow suite, off the laptop',
+     team: 'backend', workdir: '/home/you/work/billing', session: 't1',
+     state: 'remote', live: true, idle: 34,
+     host: 'buildbox', instance: 'you@buildbox', trust: 'admitted', addr: '10.0.0.21',
+     can: 11, does: ['run-suite', 'bisect', 'flake-report']},
+
+    // Another person, THIS machine. Their companions are not in your directory — a different
+    // account reads a different config directory — so they arrive the same way a remote one does,
+    // and nothing about sharing a kernel makes them yours. Admitted, so you can hand work over.
+    {socket: '/demo/risk.sock', name: 'risk', role: 'credit models', team: 'backend',
+     workdir: '/Users/sam/work/risk', session: 'r1',
+     state: 'remote', live: true, idle: 8,
+     host: 'studio', instance: 'sam@studio', trust: 'admitted', addr: '10.0.0.4',
+     can: 6, does: ['score', 'backtest']},
+
+    // Another person, another machine, and never admitted here: it is on the roster because
+    // somebody this console trusts passed the record along. You can see that it exists and you
+    // cannot reach it — which is the whole point of saying so on the row.
+    {socket: '/demo/deploy.sock', name: 'deploy', role: 'production rollouts',
+     workdir: '/home/ops/infra', session: 'p9',
+     state: 'remote', live: true, idle: 51,
+     host: 'mini', instance: 'ops@mini', trust: 'unknown', addr: '10.0.0.9',
+     can: 4, does: ['rollout', 'rollback']},
+
+    // Seen once and not since: the record is still here because membership decays rather than
+    // being deleted, and five minutes without a sighting is what "temporarily down" looks like.
+    {socket: '/demo/docs.sock', name: 'docs', role: 'the manual', workdir: '/home/you/work/docs',
+     session: 'm4', state: 'remote', live: false, idle: 900,
+     host: 'buildbox', instance: 'you@buildbox', trust: 'admitted', addr: '10.0.0.21'},
   ];
   // Sessions, dated against the clock so the board's day picker has yesterday and last week in it.
   const day = n => new Date(Date.now() - n * 86400000);

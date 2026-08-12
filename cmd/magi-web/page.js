@@ -430,6 +430,7 @@ wide.addEventListener('change', drawPanels);
 const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board');
+const mapEl = document.getElementById('map');
 const mcpEl = document.getElementById('mcp');
 const accessEl = document.getElementById('access');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
@@ -509,10 +510,12 @@ const crumbSep3 = document.getElementById('crumbSep3'), crumbLeaf = document.get
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
-const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board', access: 'nav.access'};
+const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board',
+                     access: 'nav.access', map: 'nav.map'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=access'};
+const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=access',
+              map: '?v=map'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
@@ -886,7 +889,7 @@ function card(a) {
   // config directories, two policies and two session stores; their companions cannot touch each
   // other's, and a row naming only the machine said they were one fleet. A daemon too old to say
   // which account it runs as still gives its host, which is what this said before.
-  name.textContent = a.peer ? a.peer : (a.instance || a.host || 'this machine');
+  name.textContent = a.peer ? a.peer : (a.instance || a.host || tr('map.here'));
   host.append(name);
   if (a.addr) host.append(document.createElement('br'), document.createTextNode(a.addr));
   if (a.here) host.append(document.createElement('br'), document.createTextNode('this directory'));
@@ -1912,7 +1915,15 @@ async function loadFleet() {
   // down should not leave its row in a map that grows for the life of the tab.
   const alive = new Set(list.map(a => (a.peer || '') + ' ' + a.socket));
   for (const key of [...shownCards.keys()]) if (!alive.has(key)) shownCards.delete(key);
-  fleetEl.replaceChildren(...(here ? [] : [tableHead()]), ...grouped(rows));
+  // The way to the other view of this same destination. Only on the list's own screen, and only
+  // when there is something to lay out: a map of one companion is a box with a box in it.
+  const viewbar = [];
+  if (!here && list.length > 1) {
+    const bar = cell('viewbar');
+    bar.append(toMap());
+    viewbar.push(bar);
+  }
+  fleetEl.replaceChildren(...(here ? [] : [...viewbar, tableHead()]), ...grouped(rows));
 }
 
 // The masthead's readout for the list's own screen: how many there are, and a way to reach whoever
@@ -2305,7 +2316,7 @@ function drawDetail(a) {
     field('field.last_activity', ago(a.idle)),
     ...(a.role ? [wide(field('field.role', a.role))] : []),
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
-    field('field.host', (a.instance || a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
+    field('field.host', (a.instance || a.host || tr('map.here')) + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
     wide(field('field.workspace', a.workdir)),
     sessionField(a),
@@ -4391,6 +4402,172 @@ function rowNode(r) {
   return d;
 }
 
+// ── how the fleet is laid out, and what is crossing between its parts ────────
+//
+// The table answers "what is each companion doing". This answers the other question a person has
+// once there is more than one machine in it: WHERE is all this running, and what is actually
+// travelling between the parts. Both are the same rows — this one groups them by the instance they
+// belong to and draws the traffic that the table can only list one companion at a time.
+//
+// Two fetches and no new endpoint: /fleet is who exists and /handoffs is what was handed to whom.
+// A third endpoint assembling a graph server-side would be a second place that decides what a
+// companion IS, and the first one already answers this page four times a minute.
+async function loadMap() {
+  const [rows, hands] = await Promise.all([fetchList('/fleet'), fetchList('/handoffs')]);
+  if (!rows) return;
+  const head = sectionHead('nav.map', toTable());
+  const boxes = cell('places');
+  // Own instance first, then the ones somebody admitted, then the ones only heard of. That is the
+  // order of how much you can DO with them, which is the order somebody reads for.
+  const rank = {own: 0, admitted: 1, unknown: 2};
+  const by = new Map();
+  for (const a of rows) {
+    const key = a.peer ? a.peer : (a.instance || a.host || tr('map.here'));
+    if (!by.has(key)) by.set(key, []);
+    by.get(key).push(a);
+  }
+  const places = [...by.entries()].sort((x, y) => {
+    const rx = rank[trustOf(x[1])] ?? 3, ry = rank[trustOf(y[1])] ?? 3;
+    return rx - ry || (x[0] < y[0] ? -1 : 1);
+  });
+  for (const [name, list] of places) boxes.append(placeBox(name, list));
+  // The wires are drawn over the boxes, so the element has to exist before anything is measured —
+  // and it is measured only in a browser: there is no layout under the test harness, and a wire
+  // between two boxes that are both at 0,0 is a line of noise pretending to be information.
+  const wires = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  wires.setAttribute('class', 'wires');
+  wires.setAttribute('aria-hidden', 'true');
+  const legend = cell('maplegend');
+  for (const [cls, key] of [['ok', 'map.edge_ok'], ['flight', 'map.edge_working'],
+                            ['down', 'map.edge_down']]) {
+    const item = cell('mapkey');
+    item.append(cell('wirekey ' + cls), cell('', tr(key)));
+    legend.append(item);
+  }
+  const canvas = cell('mapcanvas');
+  canvas.append(wires, boxes);
+  mapEl.replaceChildren(head, cell('accsay', tr('map.lead')), canvas, legend);
+  drawWires(canvas, wires, rows, hands || []);
+}
+
+// trustOf is the relationship a whole instance has with this console: its companions all live
+// under one key, so any row of the group answers for the group.
+function trustOf(list) {
+  for (const a of list) if (a.trust) return a.trust;
+  return '';
+}
+
+// toTable is the way back, and the fleet's own head grows the way here. One control each, because
+// these are two views of one destination rather than two destinations.
+function toTable() {
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-layer-group'),
+                  tr('map.as_table'));
+  b.onclick = () => { history.pushState({}, '', at(HREF.fleet)); render(); };
+  return b;
+}
+
+function toMap() {
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-share-from-square'),
+                  tr('map.as_map'));
+  b.onclick = () => { history.pushState({}, '', at(HREF.map)); render(); };
+  return b;
+}
+
+// One instance: the machines-and-account box, with its companions inside it.
+//
+// The box is the unit because it is the unit everywhere else — one config directory, one policy,
+// one session store, one key. Companions inside one box can reach each other by socket; anything
+// crossing a box boundary goes over the door, which is what the wires between boxes are.
+function placeBox(name, list) {
+  const box = cell('place ' + (trustOf(list) || 'unsaid'));
+  const top = cell('placetop');
+  top.append(cell('placename', name));
+  const t = trustOf(list);
+  if (t) top.append(cell('placetrust ' + t, tr(TRUST_SAY[t] || 'map.trust_unsaid')));
+  box.append(top);
+  // How fresh this machine's news is. For the console's own instance there is nothing to say — it
+  // is reading its own directory — and for everybody else it is the honest form of "is the link
+  // up": the age of the freshest sighting, which is what a gossip round leaves behind.
+  if (t && t !== 'own') {
+    const fresh = list.reduce((n, a) => Math.min(n, a.idle >= 0 ? a.idle : 1e9), 1e9);
+    const live = list.some(a => a.live);
+    box.append(cell('placeseen' + (live ? '' : ' down'),
+      tr(live ? 'map.seen' : 'map.unseen', {ago: ago(fresh === 1e9 ? -1 : fresh)})));
+  }
+  for (const a of list) box.append(mapNode(a));
+  return box;
+}
+
+const TRUST_SAY = {own: 'map.trust_own', admitted: 'map.trust_admitted', unknown: 'map.trust_unknown'};
+
+// A companion, as a node: what it is called and what it is doing. The same state vocabulary the
+// table uses — a second set of words for the same five states would be two things to learn.
+function mapNode(a) {
+  // A companion on another machine is drawn and does NOT link, for the reason the table gives: its
+  // socket is a path on ITS filesystem, and this console would resolve it against its own — which
+  // on two machines set up by one person is frequently a real companion, the wrong one.
+  const remote = a.state === 'remote';
+  const n = document.createElement(remote ? 'div' : 'a');
+  n.className = 'node state ' + (a.state || '') + (remote ? ' faroff' : '');
+  n.setAttribute('data-sock', a.socket || '');
+  if (!remote) {
+    n.href = href(a);
+    n.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
+  }
+  const mark = iconOr(STATE_MARK[GROUP[a.state] || ''] || '', '•', 'nodemark');
+  if (mark) n.append(mark);
+  n.append(cell('nodename', a.name || ''));
+  if (a.hub) n.append(cell('nodehub', tr('team.speaks')));
+  n.append(cell('nodestate', stateWord(a.state)));
+  return n;
+}
+
+// drawWires puts the traffic on top of the layout.
+//
+// Measured rather than laid out: the boxes are ordinary flow content, so where a node ended up is
+// something only the browser knows. Under the test harness there is no layout at all and every box
+// measures 0×0 — so nothing is drawn, and the model underneath is what the tests check. A wire
+// drawn between two zeroes would be a line saying something nobody established.
+function drawWires(canvas, svg, rows, hands) {
+  if (typeof canvas.getBoundingClientRect !== 'function') return;
+  const frame = canvas.getBoundingClientRect();
+  if (!frame.width || !frame.height) return;
+  svg.setAttribute('viewBox', '0 0 ' + frame.width + ' ' + frame.height);
+  const at = sock => {
+    const el = canvas.querySelector('[data-sock="' + String(sock).replace(/"/g, '') + '"]');
+    if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+    const r = el.getBoundingClientRect();
+    return {x: r.left - frame.left, y: r.top - frame.top + r.height / 2, w: r.width, h: r.height};
+  };
+  const bySock = new Map(rows.map(a => [a.socket, a]));
+  const byName = new Map(rows.map(a => [String(a.name || '').toLowerCase(), a]));
+  const drawn = [];
+  for (const h of hands) {
+    const from = byName.get(String(h.from || '').toLowerCase());
+    const to = bySock.get(h.socket) || byName.get(String(h.to || '').toLowerCase());
+    if (!from || !to || from === to) continue;
+    const a = at(from.socket), b = at(to.socket);
+    if (!a || !b) continue;
+    // Three states, and they are the three a person acts on differently: in flight, answered, and
+    // one that cannot be reached at all — which is what a handover to a companion nobody has seen
+    // for five minutes is, however healthy the row looked when it was sent.
+    const cls = !to.live ? 'down' : (h.state === 'working' ? 'flight' : 'ok');
+    drawn.push(wire(svg, a, b, cls));
+  }
+  return drawn.length;
+}
+
+function wire(svg, a, b, cls) {
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const x1 = a.x + a.w, y1 = a.y, x2 = b.x, y2 = b.y;
+  const bend = Math.max(24, Math.abs(x2 - x1) / 2);
+  p.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C' + (x1 + bend) + ' ' + y1 + ' ' +
+                      (x2 - bend) + ' ' + y2 + ' ' + x2 + ' ' + y2);
+  p.setAttribute('class', 'wire ' + cls);
+  svg.append(p);
+  return p;
+}
+
 // ── the shape of a report ────────────────────────────────────────────────────
 // What this companion must fill in before it may put a decision to somebody. The sections are a
 // contract — ask_user refuses a report with one missing — and the person the report is for is the
@@ -5112,11 +5289,16 @@ function render() {
   // A companion's page is INSIDE the companions destination, so that is the one that stays lit.
   // Marked by view alone it went dark the moment you opened a row, and the rail then said you were
   // nowhere — on the screen you reach it from most often.
-  for (const [el, key] of RAILS) el.toggleAttribute('selected', s ? key === 'fleet' : v === key);
+  // The map is the companions destination seen another way, so that is the one that stays lit
+  // while you stand in it — the same reason a companion's own page keeps it lit.
+  for (const [el, key] of RAILS) {
+    el.toggleAttribute('selected', s || v === 'map' ? key === 'fleet' : v === key);
+  }
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
+  mapEl.hidden = !!s || v !== 'map';
   mcpEl.hidden = !!s || v !== 'skills';
   // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
   // be able to arrive at by editing the address either.
@@ -5184,6 +5366,14 @@ function render() {
       // them would take the focus and the half-typed date with it.
       onlyWhen(() => !boardEl.contains(document.activeElement)),
     ).subscribe(() => loadBoard());
+    return;
+  }
+  if (v === 'map') {
+    // Live, like the table it is another view of: a picture of who is talking to whom is worth
+    // nothing if it is a picture of five minutes ago. Same interval as the fleet poll, and the
+    // same clean-up path — render() clears fleetTimer on the way out of every view.
+    loadMap();
+    fleetTimer = setInterval(loadMap, 3000);
     return;
   }
   if (v === 'access') {

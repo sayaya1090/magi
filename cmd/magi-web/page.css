@@ -1305,6 +1305,73 @@
   .argv { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
   .argv.tall { grid-column:1 / -1; }
 
+  /* ── how the fleet is laid out ─────────────────────────────────────────────
+     Boxes for instances, nodes for companions, and curves for what is crossing between them. The
+     boxes are ordinary flow content — a grid that wraps — and the wires are an SVG laid over the
+     top and measured after layout, because where a node ended up is something only the browser
+     knows. */
+  .viewbar { display:flex; justify-content:flex-end; margin-bottom:var(--magi-sys-space-150); }
+  .mapcanvas { position:relative; }
+  .wires { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
+  .wire { fill:none; stroke-width:2; stroke-linecap:round; }
+  /* Answered, in flight, and unreachable — three states somebody acts on differently, so three
+     appearances rather than one line in three shades. The dashed one is the only one that is not a
+     solid connection, which is the reading it should have before any colour is noticed. */
+  .wire.ok { stroke:var(--magi-ref-outline); }
+  .wire.flight { stroke:var(--magi-ref-primary); }
+  .wire.down { stroke:var(--magi-ref-warn); stroke-dasharray:5 5; }
+  .places {
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+    gap:var(--magi-sys-space-300); align-items:start;
+  }
+  /* One magi. The outline is the boundary the whole system is arranged around — one config
+     directory, one policy, one key — so it is drawn as a boundary and not as a heading with rows
+     under it. */
+  .place {
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
+    padding:var(--magi-sys-space-200); display:grid; gap:var(--magi-sys-space-150);
+    background:var(--magi-ref-surface-container-low);
+  }
+  /* Yours reads as yours. Not a colour on its own: the word beside the name says it too. */
+  .place.own { border-color:var(--magi-ref-primary); }
+  .place.unknown { border-style:dashed; }
+  .placetop { display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap; }
+  .placename {
+    font:600 var(--md-sys-typescale-title-small-size)/1.4 var(--magi-ref-mono);
+    color:var(--magi-ref-fg); overflow-wrap:anywhere; min-width:0;
+  }
+  .placetrust {
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display);
+    letter-spacing:.06em; text-transform:uppercase; color:var(--magi-ref-muted);
+  }
+  .placetrust.own { color:var(--magi-ref-primary); }
+  .placetrust.unknown { color:var(--magi-ref-warn); }
+  .placeseen {
+    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
+  }
+  .placeseen.down { color:var(--magi-ref-warn); }
+  /* A companion. The same state vocabulary as the table — .state carries the state layer and the
+     48dp floor, and the state class colours the mark. */
+  .node {
+    display:flex; align-items:center; gap:var(--magi-sys-space-150);
+    padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
+    border-radius:var(--magi-sys-shape-small); text-decoration:none; color:var(--magi-ref-fg);
+    background:var(--magi-ref-surface-container);
+  }
+  .node .nodename { font:600 var(--magi-sys-body-m) var(--magi-ref-mono); overflow-wrap:anywhere; min-width:0; flex:1 1 auto; }
+  .node .nodestate { font:var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-muted); }
+  .node .nodehub { font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-primary); }
+  .node .nodemark { flex:none; }
+  /* Not a link, and it should not look like one: a companion on another machine is drawn because
+     it exists and cannot be opened from here — its socket is a path on its own filesystem. */
+  .node.faroff { cursor:default; }
+  .maplegend { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-300); margin-top:var(--magi-sys-space-300); }
+  .mapkey { display:flex; align-items:center; gap:var(--magi-sys-space-100);
+    font:var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-muted); }
+  .wirekey { width:2rem; height:0; border-top:2px solid var(--magi-ref-outline); }
+  .wirekey.flight { border-color:var(--magi-ref-primary); }
+  .wirekey.down { border-top-style:dashed; border-color:var(--magi-ref-warn); }
+
   /* ── who may use this console ──────────────────────────────────────────────
      Rebuilt on list anatomy, because the screen had none: every line was the same size in the same
      colour, so "kim@corp.com", "read answer" and the group above them read as three peers. The

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/adapter/identity"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/cluster"
 	"github.com/sayaya1090/magi/internal/core/report"
@@ -154,6 +155,18 @@ type Agent struct {
 	Team string `json:"team,omitempty"`
 	Hub  bool   `json:"hub,omitempty"`
 	Host string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
+	// Trust is this console's relationship with the machine the companion is on: "own" for the
+	// instance this console runs in, "admitted" for one whose key somebody put on the admitted
+	// list, and "unknown" for one that arrived by gossip and has never been admitted here.
+	//
+	// It is what decides whether work can actually cross. A row that looks the same for all three
+	// invites somebody to hand work to a companion this machine cannot reach, and then to read the
+	// refusal as a bug. Since a member record carries the public key it was signed with, this is a
+	// fact the console can work out rather than a guess: the key is either on the list or it is not.
+	//
+	// Empty on a row from a record too old to carry a key, which is different from "unknown" — one
+	// says nobody admitted this machine, the other says we cannot tell.
+	Trust string `json:"trust,omitempty"`
 	// Instance is which magi it belongs to: account@host. The pair, not the host, because two
 	// accounts on one machine are two config directories, two policies and two session stores —
 	// their companions cannot see or touch each other's, and a row that named only the machine
@@ -248,7 +261,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
-			Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host),
+			Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
 			Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
 			Permission: in.Permission, User: in.User,
 			Live: in.Live, Here: here != "" && in.Socket == here,
@@ -318,8 +331,8 @@ func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
 			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
-			Instance: instanceOf(m.Account, m.Host),
-			Does:     m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
+			Instance: instanceOf(m.Account, m.Host), Trust: trustIn(configDir, m.By),
+			Does: m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
 			// Live is "believed reachable", and for a companion on another machine the evidence
 			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
 			// anything acting on this has to look at State too, and Remote is not a state anything
@@ -994,4 +1007,27 @@ func instanceOf(account, host string) string {
 	default:
 		return account
 	}
+}
+
+// The three relationships a console can have with the machine a companion runs on.
+const (
+	TrustOwn      = "own"      // this instance: same account, same machine, same config directory
+	TrustAdmitted = "admitted" // somebody put its key on the admitted list here
+	TrustUnknown  = "unknown"  // heard of by gossip, never admitted
+)
+
+// trustIn answers whether the machine that signed a record is one this console admitted.
+//
+// The key is in the record — that is what signing bought — so this is a lookup rather than a guess.
+// A record with no key at all answers "", which is not the same as "unknown": one says nobody
+// admitted this machine, the other says this console cannot tell, and a screen that merged them
+// would accuse an old daemon of being a stranger.
+func trustIn(configDir, by string) string {
+	if by == "" {
+		return ""
+	}
+	if _, ok := identity.AdmittedPeer(configDir, identity.FingerprintOfKey(by)); ok {
+		return TrustAdmitted
+	}
+	return TrustUnknown
 }

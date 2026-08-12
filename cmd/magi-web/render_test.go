@@ -4513,3 +4513,69 @@ console.log(JSON.stringify({off: !!byId.sideToggle.disabled, says: byId.sideTogg
 		t.Error("a companion with a plan cannot open the pane holding it")
 	}
 }
+
+// The other view of the companions: where they are running, and what is crossing between them.
+//
+// A table answers "what is each one doing". Once there is more than one machine in a fleet the
+// other question is where all this is running and what actually travels — and the answer is not a
+// list, because the thing being asked about is the shape.
+func TestTheMapGroupsCompanionsByInstanceAndSaysWhatCanBeReached(t *testing.T) {
+	got := runPage(t, `[]`, "?v=map", `
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/fleet') return {ok: true, json: async () => ([
+    {socket: '/s/d.sock', name: 'design', state: 'working', host: 'studio', instance: 'you@studio',
+     trust: 'own', live: true, idle: 3, hub: true},
+    {socket: '/s/a.sock', name: 'api', state: 'waiting', host: 'studio', instance: 'you@studio',
+     trust: 'own', live: true, idle: 9},
+    {socket: '/far/t.sock', name: 'tests', state: 'remote', host: 'buildbox',
+     instance: 'you@buildbox', trust: 'admitted', live: true, idle: 30},
+    {socket: '/far/x.sock', name: 'deploy', state: 'remote', host: 'mini', instance: 'ops@mini',
+     trust: 'unknown', live: false, idle: 900},
+  ])};
+  if (path === '/handoffs') return {ok: true, json: async () => ([
+    {from: 'design', to: 'api', socket: '/s/a.sock', request: 'spec it', state: 'working'},
+    {from: 'api', to: 'deploy', socket: '/far/x.sock', request: 'ship it', state: 'idle'},
+  ])};
+  return {ok: true, json: async () => ([])};
+};
+render();
+for (let i = 0; i < 20; i++) await Promise.resolve();
+const places = byId.map.find('div').filter(d => String(d.className).split(' ').includes('place'));
+console.log(JSON.stringify({
+  hidden: byId.map.hidden,
+  // One box per instance, in the order of what can be done with them: yours, then admitted, then
+  // heard-of.
+  places: places.map(p => p.find('div').filter(d => String(d.className).includes('placename'))
+                           .map(d => d.textContent).join('')),
+  trust: places.map(p => String(p.className)),
+  // A companion on another machine is drawn and does not link, the same rule the table follows.
+  faroff: byId.map.find('div').filter(d => String(d.className).includes('faroff')).length,
+  links: byId.map.find('a').filter(a => String(a.className).includes('node')).length,
+  // And the news from a machine nobody has heard from is said, not implied by an empty box.
+  down: byId.map.find('div').filter(d => String(d.className).includes('placeseen down')).length,
+}));
+`)
+	if got["hidden"] == true {
+		t.Fatal("the map is not drawn at its own address")
+	}
+	places, _ := got["places"].([]any)
+	if len(places) != 3 {
+		t.Fatalf("four companions on three instances drew %v boxes", places)
+	}
+	if places[0] != "you@studio" || places[2] != "ops@mini" {
+		t.Errorf("the boxes are not ordered by what can be done with them: %v", places)
+	}
+	if tr := fmt.Sprint(got["trust"]); !strings.Contains(tr, "own") || !strings.Contains(tr, "unknown") {
+		t.Errorf("a box does not say this console's relationship with it: %s", tr)
+	}
+	if n, _ := got["faroff"].(float64); n != 2 {
+		t.Errorf("%v companions on other machines are drawn as unreachable; two are", n)
+	}
+	if n, _ := got["links"].(float64); n != 2 {
+		t.Errorf("%v nodes link into a companion's page; only the two here should", n)
+	}
+	if n, _ := got["down"].(float64); n != 1 {
+		t.Errorf("%v boxes say nothing has been heard from them; one machine is quiet", n)
+	}
+}
