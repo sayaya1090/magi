@@ -1272,6 +1272,32 @@ func run() int {
 		// Starting queued work as the workspace frees up, on the same lifetime as the schedule and
 		// the gossip: a companion that has been stopped should not pick up somebody's next piece.
 		go taking.run(cronCtx)
+		// What this companion is doing, into its own record, so it can travel.
+		//
+		// Only this process can say it: a console works the state of the companions in its own
+		// directory out from a dial, and nothing dials the ones on other machines — which is why a
+		// roster used to show them as "elsewhere", a place, in the column about what things are
+		// doing. Gossip already carries a sighting every round; this is what rides along with it,
+		// the way a node's application state rides Cassandra's.
+		//
+		// Polled rather than hooked into the turn: "working" is App.Running and "waiting" is the
+		// engine's pending ask, both cheap to read and both changing under a dozen code paths that
+		// would each have to remember to say so. NoteState writes only when the answer changed, so
+		// a companion sitting idle rewrites nothing and wakes no reader.
+		go func() {
+			tick := time.NewTicker(3 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-cronCtx.Done():
+					return
+				case <-tick.C:
+					if serr := daemon.NoteState(sockPath, companionState(a, sid)); serr != nil {
+						fmt.Fprintln(os.Stderr, "magi:", serr)
+					}
+				}
+			}
+		}()
 		serveErr := serving.Serve(dctx, daemonEngine{
 			App: a, workdir: wd, handover: taking,
 			republish: func(to session.SessionID) error { return daemon.Moved(sockPath, to) },
@@ -2184,7 +2210,7 @@ func companionPeers(list []fleet.Agent, cfg config.Config) (peers []fleet.Agent,
 		if a.Here || !a.Live || a.Name == "" {
 			continue
 		}
-		if a.State == fleet.Remote {
+		if a.Elsewhere {
 			// Attaching spawns THIS machine's binary with `--mcp <name>`, which resolves the name
 			// against companions published HERE. For one on another machine that is a peer that
 			// fails to start — or, on two machines set up by one person where the same names and
@@ -2423,4 +2449,23 @@ func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return d.App.RunShell(rctx, d.workdir, cmd)
+}
+
+// companionState is the one sentence a daemon can say about itself that a machine on the other
+// side of the world cannot work out: what it is doing right now.
+//
+// The same ladder every console applies to a local companion, in the same order and for the same
+// reason: blocked on a person beats a turn in flight, because the turn is true and is not the
+// thing that needs doing about it.
+func companionState(a *app.App, sid session.SessionID) string {
+	if a == nil {
+		return ""
+	}
+	if _, waiting := a.Waiting(sid); waiting {
+		return "waiting"
+	}
+	if _, running := a.Running(); running {
+		return "working"
+	}
+	return "idle"
 }

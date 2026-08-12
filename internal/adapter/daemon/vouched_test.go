@@ -42,7 +42,7 @@ func TestARecordNobodyVouchedForIsNotBelieved(t *testing.T) {
 
 	invented := cluster.Member{Host: "buildbox", Socket: "/s/ghost.sock", Name: "ghost", Seen: now}
 	real1 := sent(t, far, cluster.Member{Host: "buildbox", Socket: "/s/d.sock", Name: "design",
-		Account: "you", Seen: now})[0]
+		Account: "you", State: "working", Seen: now})[0]
 
 	got := Vouched(cfg, []cluster.Member{invented, real1}, func(string, ...any) {})
 	if len(got) != 1 || got[0].Name != "design" {
@@ -55,6 +55,13 @@ func TestARecordNobodyVouchedForIsNotBelieved(t *testing.T) {
 	moved.Socket = "/s/mine.sock"
 	if got := Vouched(cfg, []cluster.Member{moved}, func(string, ...any) {}); len(got) != 0 {
 		t.Errorf("a record whose socket was rewritten still verified: %+v", got)
+	}
+	// And what it says it is doing: a relay that could rewrite that could tell everybody a
+	// machine's companions are idle and take their work, or busy and starve them of it.
+	lying := real1
+	lying.State = "idle"
+	if got := Vouched(cfg, []cluster.Member{lying}, func(string, ...any) {}); len(got) != 0 {
+		t.Errorf("a record whose state was rewritten still verified: %+v", got)
 	}
 	// And the account it says it belongs to. Moving a companion into somebody else's instance is
 	// how a row comes to say two people's work is one fleet.

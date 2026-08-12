@@ -87,7 +87,8 @@ func names(as []fleet.Agent) string {
 func TestACompanionOnAnotherMachineIsNotAttachedAsALocalPeer(t *testing.T) {
 	list := []fleet.Agent{
 		{Name: "here", Socket: "/s/a.sock", Live: true, State: fleet.Idle},
-		{Name: "design", Socket: "/far/d.sock", Host: "buildbox", Live: true, State: fleet.Remote},
+		{Name: "design", Socket: "/far/d.sock", Host: "buildbox", Live: true,
+			Elsewhere: true, State: fleet.Idle},
 	}
 	peers, _ := companionPeers(list, config.Config{})
 	for _, p := range peers {

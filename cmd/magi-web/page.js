@@ -633,9 +633,10 @@ const ago = s => s < 0 ? '' : tr('time.ago', {d: dur(s)});
 // gone. Kubernetes consoles sort trouble to the top for the same reason — a list you have to read
 // to find the problem is a list that hides it.
 const ORDER = {waiting: 0, working: 1, idle: 2, abandoned: 3, stopped: 4, remote: 5};
-// Elsewhere is its own group and not part of 'gone'. A companion on another machine has not
-// stopped — nothing here dialled it, so nothing here knows either way — and putting it under the
-// heading for crashes would be a claim the row itself refuses to make.
+// `remote` survives as a state for one case only: a record from a daemon too old to say what its
+// companion was doing. "We were told nothing" and "we were told it is idle" are different facts,
+// and drawing them the same way would invent the second from the first. Everything else about
+// being on another machine is the row's `elsewhere`, not its state.
 const GROUP = {waiting: 'waiting', working: 'working', idle: 'idle', abandoned: 'gone', stopped: 'gone',
   remote: 'remote'};
 let filter = null;   // one of the summary keys, or null for everything
@@ -824,7 +825,7 @@ function card(a) {
   // filesystem, and this console would resolve that path against its own — which on two machines
   // set up by one person is frequently a real companion, the wrong one. So the row is shown and
   // does not link, which is the honest shape of "we know it exists and cannot reach into it".
-  if (a.state !== 'remote') {
+  if (!a.elsewhere) {
     el.href = href(a);
     el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
   }
@@ -1006,14 +1007,22 @@ function tableHead() {
 // the work this removes, and it is the first thing a console shows.
 function summarise(list) {
   const box = document.getElementById('summary');
-  const counts = {waiting: 0, working: 0, idle: 0, gone: 0, remote: 0};
-  for (const a of list) counts[GROUP[a.state] || 'idle']++;
+  // The four states a LOCAL companion moves between, and nothing for the ones elsewhere.
+  //
+  // There was a fifth tile counting them, and it filtered on a fact the row already carries in its
+  // host column — sam@studio, you@buildbox. Worse, it was the one tile that could not be a state:
+  // nothing here dials a companion on another instance, so "elsewhere" says where it is and
+  // nothing at all about what it is doing, sitting in a row of chips that all mean what something
+  // is doing. Two ways to say where, and none of them the thing the tile row is for.
+  const counts = {waiting: 0, working: 0, idle: 0, gone: 0};
+  // Counted only where somebody here dialled it. A companion elsewhere reports its own state
+  // through gossip, which is worth showing on its row — and putting it in a tally beside four
+  // numbers this console measured would mix a reading with a sighting a minute old.
+  for (const a of list) {
+    if (a.elsewhere) continue;
+    counts[GROUP[a.state] || 'idle']++;
+  }
   box.replaceChildren(...Object.entries(counts)
-    // A zero is informative for the four states a local companion moves between — "nothing is
-    // waiting" is worth reading. It is not informative for a cluster: somebody with one machine
-    // has no companions elsewhere and never will, and a chip permanently reading zero is a box
-    // that has to be looked at every time to learn nothing.
-    .filter(([k, n]) => k !== 'remote' || n > 0)
     .map(([k, n]) => {
     const b = document.createElement('md-filter-chip');
     b.className = 'tile ' + k;
@@ -1909,8 +1918,14 @@ async function loadFleet() {
   // Trouble first, then movement, then quiet, then gone; most recently active within each. A list
   // you have to read to find the problem is a list that hides it.
   const rows = list
-    .filter(a => !filter || GROUP[a.state] === filter)
-    .sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
+    // A tile counts what this console dialled, so it filters the same set: a companion elsewhere
+    // reports its own state and is not part of the tally that chip is showing.
+    .filter(a => !filter || (!a.elsewhere && GROUP[a.state] === filter))
+    // Elsewhere last, whatever it says it is doing. A remote companion waiting on a person is
+    // waiting on somebody at ANOTHER console — sorting it above the local work would put another
+    // team's problem at the top of this one's screen.
+    .sort((x, y) => (!!x.elsewhere - !!y.elsewhere) ||
+                    (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
   // Whatever is no longer in the fleet is no longer worth remembering: a companion that was shut
   // down should not leave its row in a map that grows for the life of the tab.
   const alive = new Set(list.map(a => (a.peer || '') + ' ' + a.socket));
@@ -4483,7 +4498,7 @@ async function loadMap() {
   wires.setAttribute('aria-hidden', 'true');
   const legend = cell('maplegend');
   for (const [cls, key] of [['ok', 'map.edge_ok'], ['flight', 'map.edge_working'],
-                            ['down', 'map.edge_down'], ['team', 'map.edge_team']]) {
+                            ['down', 'map.edge_down']]) {
     const item = cell('mapkey');
     item.append(cell('wirekey ' + cls), cell('', tr(key)));
     legend.append(item);
@@ -4600,7 +4615,7 @@ function mapNode(a) {
   // A companion on another machine is drawn and does NOT link, for the reason the table gives: its
   // socket is a path on ITS filesystem, and this console would resolve it against its own — which
   // on two machines set up by one person is frequently a real companion, the wrong one.
-  const remote = a.state === 'remote';
+  const remote = !!a.elsewhere;
   const n = document.createElement(remote ? 'div' : 'a');
   n.className = 'node state ' + (a.state || '') + (remote ? ' faroff' : '');
   n.setAttribute('data-sock', a.socket || '');
@@ -4676,16 +4691,12 @@ function drawWires(canvas, svg, rows, hands) {
     // for five minutes is, however healthy the row looked when it was sent.
     pairs.push([from, to, !to.live ? 'down' : (h.state === 'working' ? 'flight' : 'ok')]);
   }
-  // Teams, which are the other thing joining two companions — and a different KIND of joining, so
-  // a different kind of line. A hub is an addressing convention: naming the team reaches the one
-  // that answers for it. Nothing routes through a hub and nothing is hidden behind one, so these
-  // are drawn as what they are — who answers for whom — and never as traffic.
-  for (const hub of rows.filter(a => a.hub && a.team)) {
-    for (const m of rows) {
-      if (m === hub || m.team !== hub.team) continue;
-      pairs.push([hub, m, 'team']);
-    }
-  }
+  // Teams are NOT drawn as lines. A hub is an addressing convention — name the team and the one
+  // that answers for it gets it — and nothing routes through it, so a line from the hub to each
+  // member is a picture of traffic that does not exist. Drawn once and taken out again: on a fleet
+  // where a team spans three boxes it read as the busiest thing on the diagram while being the one
+  // thing on it that never carries a byte. The team is a heading inside each box instead, which
+  // says the same membership without claiming a route.
   for (const [from, to, cls] of pairs) {
     const a = nodeOf(from.socket), b = nodeOf(to.socket);
     if (!a || !b) continue;

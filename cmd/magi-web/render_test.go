@@ -2509,8 +2509,8 @@ console.log(JSON.stringify({notes, bars: byId.log.find('md-linear-progress').len
 const withACompanionElsewhere = `[
   {"socket":"/s/b.sock","name":"docs","workdir":"/w/docs","state":"working","live":true,
    "task":"rewrite the page","steps":12,"idle":2,"host":"mini","addr":"10.0.0.12"},
-  {"socket":"/s/far.sock","name":"design","workdir":"/w/design","state":"remote","live":true,
-   "role":"screens","idle":40,"host":"buildbox"}
+  {"socket":"/s/far.sock","name":"design","workdir":"/w/design","state":"idle","elsewhere":true,
+   "live":true,"role":"screens","idle":40,"host":"buildbox","instance":"you@buildbox"}
 ]`
 
 // A companion on another machine is shown, counted apart from the dead, and not opened from here.
@@ -2521,7 +2521,7 @@ const withACompanionElsewhere = `[
 func TestACompanionElsewhereIsShownAndNotOpenedFromHere(t *testing.T) {
 	got := runPage(t, withACompanionElsewhere, "", rowsHelper+`
 await loadFleet();
-const far = rows().find(r => (r.className || '').split(' ').includes('remote'));
+const far = rows().find(r => String(r.text).includes('design'));
 // attrs.href, not .href: the fake DOM stores what was assigned and has no getter for it, so
 // reading the property answers undefined whether or not the page set one. Found by mutation —
 // the first version of this asserted on .href and passed with the guard removed.
@@ -2545,8 +2545,13 @@ console.log(JSON.stringify({
 	for _, tl := range got["tiles"].([]any) {
 		tiles = append(tiles, tl.(string))
 	}
-	if strings.Join(tiles, "|") != "0 Waiting|1 Working|0 Idle|0 Gone|1 Elsewhere" {
-		t.Errorf("the summary reads %v — elsewhere is not counted apart from gone", tiles)
+	// Four tiles, and no fifth for the companion elsewhere. The tiles are a row of states — what
+	// something is DOING — and "elsewhere" is a place: nothing here dials a companion on another
+	// instance, so that tile said where the row was while the row's own host column already said
+	// it, and said nothing about what it was doing. It is also not folded into any of the four:
+	// counting it as idle would be the invention the whole remote path refuses to make.
+	if strings.Join(tiles, "|") != "0 Waiting|1 Working|0 Idle|0 Gone" {
+		t.Errorf("the summary reads %v", tiles)
 	}
 }
 
@@ -4533,12 +4538,14 @@ globalThis.fetch = async (p) => {
      trust: 'own', live: true, idle: 9, team: 'backend', hub: true},
     // Another account on the SAME machine: one box around them both, two inside it. Same team as
     // the one above, which is the case teams exist for — a team is not a machine and not an owner.
-    {socket: '/far/r.sock', name: 'risk', state: 'remote', host: 'studio', instance: 'sam@studio',
-     trust: 'admitted', live: true, idle: 12, team: 'backend'},
-    {socket: '/far/t.sock', name: 'tests', state: 'remote', host: 'buildbox',
+    {socket: '/far/r.sock', name: 'risk', state: 'waiting', elsewhere: true, host: 'studio',
+     instance: 'sam@studio', trust: 'admitted', live: true, idle: 12, team: 'backend'},
+    {socket: '/far/t.sock', name: 'tests', state: 'working', elsewhere: true, host: 'buildbox',
      instance: 'you@buildbox', trust: 'admitted', live: true, idle: 30, team: 'backend'},
-    {socket: '/far/x.sock', name: 'deploy', state: 'remote', host: 'mini', instance: 'ops@mini',
-     trust: 'unknown', live: false, idle: 900},
+    // Nothing heard for fifteen minutes, and its record says nothing about what it was doing —
+    // which is a daemon too old to say, and is not the same as idle.
+    {socket: '/far/x.sock', name: 'deploy', state: 'remote', elsewhere: true, host: 'mini',
+     instance: 'ops@mini', trust: 'unknown', live: false, idle: 900},
   ])};
   if (path === '/handoffs') return {ok: true, json: async () => ([
     {from: 'design', to: 'api', socket: '/s/a.sock', request: 'spec it', state: 'working'},

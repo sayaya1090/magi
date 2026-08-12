@@ -215,7 +215,6 @@
   "map.as_table": "As a table",
   "map.edge_down": "cannot be reached",
   "map.edge_ok": "answered",
-  "map.edge_team": "answers for its team",
   "map.edge_working": "in flight",
   "map.here": "this machine",
   "map.lead": "Where the fleet is running, and what is crossing between its parts. A box is one magi — one account on one machine, with its own config directory, policy and key.",

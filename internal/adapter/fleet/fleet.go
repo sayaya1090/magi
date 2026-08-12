@@ -155,6 +155,15 @@ type Agent struct {
 	Team string `json:"team,omitempty"`
 	Hub  bool   `json:"hub,omitempty"`
 	Host string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
+	// Elsewhere marks a row this console did not dial: it came from a member record another machine
+	// signed, so nothing here has spoken to it.
+	//
+	// A fact about the ROW, not a state. It used to be the state — "elsewhere" sat in the column
+	// that says what a companion is doing, which is a place answering a question about activity —
+	// and everything that had to know "can this be opened from here" read the state word to find
+	// out. Now the state says what the record says it was doing when it was last seen, and this
+	// says how much to trust that: nothing here dialled it.
+	Elsewhere bool `json:"elsewhere,omitempty"`
 	// Trust is this console's relationship with the machine the companion is on: "own" for the
 	// instance this console runs in, "admitted" for one whose key somebody put on the admitted
 	// list, and "unknown" for one that arrived by gossip and has never been admitted here.
@@ -334,11 +343,13 @@ func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 			Instance: instanceOf(m.Account, m.Host), Trust: trustIn(configDir, m.By),
 			Does: m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
 			// Live is "believed reachable", and for a companion on another machine the evidence
-			// is a sighting rather than a dial. Weaker, and named as such by the state beside it:
-			// anything acting on this has to look at State too, and Remote is not a state anything
-			// treats as ordinary.
-			Live:  m.Fresh(now),
-			State: Remote,
+			// is a sighting rather than a dial. Weaker, and named as such by Elsewhere beside it:
+			// anything acting on this row has to look at that too.
+			Live:      m.Fresh(now),
+			Elsewhere: true,
+			// What it was doing when its own machine last wrote it down. Remote when the record
+			// carries nothing — a daemon too old to say, and a screen must not fill that in.
+			State: stateHeard(m.State),
 			Idle:  int(now.Sub(m.Seen).Seconds()),
 		})
 	}
@@ -541,7 +552,7 @@ func RosterLines(list []Agent, here string) string {
 	out := make([]string, 0, len(found))
 	for _, a := range found {
 		line := "  " + a.Name
-		if a.State == Remote {
+		if a.Elsewhere {
 			line += " (on " + a.Host + ")"
 		}
 		if a.Team != "" {
@@ -660,7 +671,7 @@ func qualified(a Agent) string {
 	if a.Peer != "" {
 		return a.Peer + "/" + a.Name
 	}
-	if a.Host != "" && a.State == Remote {
+	if a.Host != "" && a.Elsewhere {
 		return a.Host + "/" + a.Name
 	}
 	return a.Name
@@ -1030,4 +1041,19 @@ func trustIn(configDir, by string) string {
 		return TrustAdmitted
 	}
 	return TrustUnknown
+}
+
+// stateHeard is what a member record says its companion was doing, mapped onto the states every
+// screen already knows — or Remote when it says nothing.
+//
+// Remote survives as the state for exactly one case: a record from a daemon too old to carry one.
+// "We were told nothing" and "we were told it is idle" are different facts, and a screen that drew
+// them the same way would be inventing the second from the first.
+func stateHeard(s string) State {
+	switch State(s) {
+	case Waiting, Working, Idle:
+		return State(s)
+	default:
+		return Remote
+	}
 }

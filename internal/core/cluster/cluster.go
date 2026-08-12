@@ -87,6 +87,12 @@ type Member struct {
 	Role string `json:"role,omitempty"`
 	Team string `json:"team,omitempty"`
 	Hub  bool   `json:"hub,omitempty"`
+	// State is what that companion was doing when it was last seen: "waiting", "working", "idle".
+	//
+	// A sighting and not a reading — see daemon.Info.State. Signed with the rest, because a peer
+	// that could rewrite it could tell everybody a machine's companions are idle and take their
+	// work, or busy and starve them of it.
+	State string `json:"state,omitempty"`
 	// Account is the OS user the daemon runs as. With Host it names the instance: two accounts on
 	// one machine are two config directories, two policies and two session stores, and a roster
 	// that said only the host would imply their companions are interchangeable.
@@ -173,6 +179,7 @@ func Signable(m Member) []byte {
 	put(m.Role)
 	put(m.Team)
 	put(m.Account)
+	put(m.State)
 	put(strconv.FormatBool(m.Hub))
 	put(m.Workdir)
 	put(strconv.Itoa(m.Can))
@@ -271,6 +278,9 @@ func fillFrom(keep, other Member) Member {
 	if keep.Account == "" {
 		keep.Account = other.Account
 	}
+	// State is NOT borrowed. Everything else in here describes what a companion IS and survives
+	// being seen twice; this describes a moment, and an old "working" carried onto a fresh sighting
+	// would be a claim nobody made — the same rule Waiting and Handling already follow.
 	// Capabilities are borrowed as a pair or not at all. The names from one sighting and the count
 	// from another would give a member advertising three things out of nine when nobody ever saw
 	// it that way.

@@ -94,7 +94,7 @@ const demoScript = `
     // machines — so work can actually cross to it.
     {socket: '/demo/tests.sock', name: 'tests', role: 'the slow suite, off the laptop',
      team: 'backend', workdir: '/home/you/work/billing', session: 't1',
-     state: 'remote', live: true, idle: 34,
+     state: 'working', elsewhere: true, live: true, idle: 34,
      host: 'buildbox', instance: 'you@buildbox', trust: 'admitted', addr: '10.0.0.21',
      can: 11, does: ['run-suite', 'bisect', 'flake-report']},
 
@@ -103,7 +103,7 @@ const demoScript = `
     // and nothing about sharing a kernel makes them yours. Admitted, so you can hand work over.
     {socket: '/demo/risk.sock', name: 'risk', role: 'credit models', team: 'backend',
      workdir: '/Users/sam/work/risk', session: 'r1',
-     state: 'remote', live: true, idle: 8,
+     state: 'waiting', elsewhere: true, live: true, idle: 8,
      host: 'studio', instance: 'sam@studio', trust: 'admitted', addr: '10.0.0.4',
      can: 6, does: ['score', 'backtest']},
 
@@ -112,14 +112,16 @@ const demoScript = `
     // cannot reach it — which is the whole point of saying so on the row.
     {socket: '/demo/deploy.sock', name: 'deploy', role: 'production rollouts',
      team: 'backend', workdir: '/home/ops/infra', session: 'p9',
-     state: 'remote', live: true, idle: 51,
+     state: 'idle', elsewhere: true, live: true, idle: 51,
      host: 'mini', instance: 'ops@mini', trust: 'unknown', addr: '10.0.0.9',
      can: 4, does: ['rollout', 'rollback']},
 
     // Seen once and not since: the record is still here because membership decays rather than
     // being deleted, and five minutes without a sighting is what "temporarily down" looks like.
     {socket: '/demo/docs.sock', name: 'docs', role: 'the manual', workdir: '/home/you/work/docs',
-     session: 'm4', state: 'remote', live: false, idle: 900,
+     // Nothing heard for fifteen minutes, and the record it left says nothing about what it was
+     // doing — which is a daemon too old to say, and is NOT the same as "idle".
+     session: 'm4', state: 'remote', elsewhere: true, live: false, idle: 900,
      host: 'buildbox', instance: 'you@buildbox', trust: 'admitted', addr: '10.0.0.21'},
   ];
   // Sessions, dated against the clock so the board's day picker has yesterday and last week in it.

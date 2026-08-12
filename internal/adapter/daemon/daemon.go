@@ -1577,6 +1577,19 @@ type Info struct {
 	// this whole split exists for. Then the only thing telling them apart is this.
 	Host string `json:"host,omitempty"`
 	Addr string `json:"addr,omitempty"`
+	// State is what this companion is doing, as the daemon that IS it says so: "waiting" on a
+	// person, "working" on a turn, or "idle".
+	//
+	// It is here because it has to TRAVEL. A console dials the companions in its own directory and
+	// works their state out from the answer; nothing dials the ones on other machines, so a roster
+	// used to show them as "elsewhere" — a place, in a column about what things are doing. Gossip
+	// already carries a sighting every round, which is exactly where Cassandra puts a node's
+	// application state, and the record is signed, so a relay can carry this and cannot invent it.
+	//
+	// It is a SIGHTING, never a live reading: it was true when the record was written, and how long
+	// ago that was travels beside it. A screen that shows one without the other is claiming to know
+	// something it cannot.
+	State string `json:"state,omitempty"`
 	// Account is the OS user this daemon runs as, and with Host it names the INSTANCE a companion
 	// belongs to.
 	//
@@ -1689,6 +1702,25 @@ func Announce(socketPath string, waiting int, handling bool) error {
 		return nil // nothing changed; do not rewrite a file readers are polling
 	}
 	in.Waiting, in.Handling = waiting, handling
+	return writeRecord(socketPath, in)
+}
+
+// NoteState records what this companion is doing, in its own record.
+//
+// Read-modify-write on the daemon's own file, exactly like Announce, and written only when it
+// CHANGED: readers poll this file, and rewriting it every few seconds to say the same thing would
+// wake every one of them for nothing.
+func NoteState(socketPath, state string) error {
+	recordMu.Lock()
+	defer recordMu.Unlock()
+	in, err := Published(socketPath)
+	if err != nil {
+		return nil
+	}
+	if in.State == state {
+		return nil
+	}
+	in.State = state
 	return writeRecord(socketPath, in)
 }
 

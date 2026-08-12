@@ -1115,7 +1115,9 @@ func TestARefusalThatListsTwoCompanionsTellsThemApart(t *testing.T) {
 	// A companion on another machine carries it, because the same name on two hosts is two
 	// companions and the difference is which machine the work lands on.
 	far := fleet.Names([]fleet.Agent{
-		{Name: "design", Host: "buildbox", State: fleet.Remote},
+		// Elsewhere, not a state: the row's state now says what that companion was DOING when its
+		// own machine last wrote it down, and being unreachable from here is a fact about the row.
+		{Name: "design", Host: "buildbox", Elsewhere: true, State: fleet.Idle},
 		{Name: "design", Workdir: "/w/here", Live: true},
 	})
 	if !strings.Contains(far, "buildbox/design") {
@@ -1152,6 +1154,45 @@ func TestARowNamesTheInstanceACompanionBelongsTo(t *testing.T) {
 	for _, a := range f.get() {
 		if strings.EqualFold(a.Name, "old") && a.Instance != "buildbox" {
 			t.Errorf("a record with no account was drawn as %q", a.Instance)
+		}
+	}
+}
+
+// What a companion elsewhere is DOING travels with the sighting that found it.
+//
+// Nothing here dials another machine's companions, so their rows used to say "elsewhere" in the
+// column that says what things are doing — a place, answering a question about activity. The
+// machine that owns them knows, writes it into its own record, and gossip already carries that
+// record every round. What arrives is a sighting and not a reading: it was true when it was
+// written, and how long ago that was is on the row beside it.
+func TestWhatARemoteCompanionWasDoingArrivesWithTheSighting(t *testing.T) {
+	f := newFleetFixture(t)
+	now := time.Now()
+	f.knowOf(
+		cluster.Member{Host: "buildbox", Socket: "/far/a.sock", Name: "busy",
+			Account: "you", State: "working", Seen: now},
+		cluster.Member{Host: "buildbox", Socket: "/far/b.sock", Name: "asking",
+			Account: "you", State: "waiting", Seen: now},
+		// A daemon too old to say. "We were told nothing" and "we were told it is idle" are
+		// different facts, and a row that drew them the same way would invent the second.
+		cluster.Member{Host: "buildbox", Socket: "/far/c.sock", Name: "silent",
+			Account: "you", Seen: now},
+	)
+	want := map[string]fleet.State{"busy": fleet.Working, "asking": fleet.Waiting, "silent": fleet.Remote}
+	seen := map[string]fleet.State{}
+	for _, a := range f.get() {
+		if _, ok := want[strings.ToLower(a.Name)]; !ok {
+			continue
+		}
+		seen[strings.ToLower(a.Name)] = a.State
+		// And it is still a row nothing here spoke to, whatever it says it was doing.
+		if !a.Elsewhere {
+			t.Errorf("%s came back as a companion this console dialled", a.Name)
+		}
+	}
+	for name, state := range want {
+		if seen[name] != state {
+			t.Errorf("%s is drawn as %q and its machine said %q", name, seen[name], state)
 		}
 	}
 }
