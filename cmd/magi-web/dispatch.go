@@ -64,6 +64,9 @@ func (s *server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := found[0]
+	// The record's Agent is the socket in the URL, which for a dispatch is the companion doing the
+	// asking. What was acted on is this one.
+	noteSubject(r, target.Name)
 	// Asked AGAIN, now that the subject is known. The gate checked the companion this request
 	// NAMED in its query and this route acts on the one it just resolved from the body — so
 	// somebody scoped to one companion could dispatch to another, and the front door had no way to

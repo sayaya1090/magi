@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -91,6 +92,28 @@ type entry struct {
 	// which is the connection this process actually accepted: the two disagreeing is worth seeing,
 	// and merging them would make a forwarded header look like an observation.
 	Via string `json:"via,omitempty"`
+	// Acted is what the request turned out to be about, when the handler learned it from the body
+	// rather than from the URL. A dispatch is addressed at one companion and hands work to another,
+	// so a record with only the URL's name answers "who told docs to do something" and never "who
+	// told billing" — which is the question the record is kept for.
+	Acted string `json:"acted,omitempty"`
+}
+
+// subject is where a handler leaves what it turned out to act on.
+//
+// A pointer in the request's context, filled in by the handler and read by the wrapper AFTER the
+// handler returns — the same shape as statusWriter, and for the same reason: the record needs
+// something only the handler can know, and the handler is already holding it.
+type subject struct{ name string }
+
+type subjectKey struct{}
+
+// noteSubject records what this request actually acted on, for the audit line. Silent when nothing
+// is recording, so a handler can call it unconditionally.
+func noteSubject(r *http.Request, name string) {
+	if sub, ok := r.Context().Value(subjectKey{}).(*subject); ok {
+		sub.name = name
+	}
 }
 
 // note appends one line. A nil log records nothing, which is what a test's bare server does.
@@ -126,8 +149,10 @@ func (s *server) audited(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		sw := &statusWriter{ResponseWriter: w}
-		h(sw, r)
+		sub := &subject{}
+		h(sw, r.WithContext(context.WithValue(r.Context(), subjectKey{}, sub)))
 		s.audit.note(entry{
+			Acted:  sub.name,
 			At:     time.Now().Format(time.RFC3339),
 			Method: r.Method,
 			Path:   r.URL.Path,

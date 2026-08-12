@@ -213,3 +213,40 @@ func TestAConsoleWithNoRecordStillWorks(t *testing.T) {
 		t.Error("a console with no audit file refused the request")
 	}
 }
+
+// The record names what was acted on, not only what was addressed.
+//
+// A dispatch is addressed at the companion doing the asking and hands the work to another one, and
+// the record's Agent is the URL's socket. So "who told billing to do that" — the question a record
+// is kept for — was answerable for every route except the one where the subject is chosen in the
+// body, which is also the only route that can name a companion the caller never opened.
+func TestTheRecordSaysWhatWasActedOn(t *testing.T) {
+	s, dir := serverWithAudit(t)
+	h := s.audited(func(w http.ResponseWriter, r *http.Request) {
+		noteSubject(r, "billing")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	h(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/dispatch?d=/tmp/docs.sock", nil))
+
+	got := readAudit(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("recorded %d requests: %+v", len(got), got)
+	}
+	if got[0].Acted != "billing" {
+		t.Errorf("the line says it acted on %q; the work went to billing: %+v", got[0].Acted, got[0])
+	}
+	// And the companion it went through is still there, because both are facts and they differ.
+	if got[0].Agent != "/tmp/docs.sock" {
+		t.Errorf("the line lost the companion that was addressed: %+v", got[0])
+	}
+}
+
+// A handler that records nothing leaves the field out rather than writing an empty one.
+func TestAnUnannotatedRequestHasNoActedField(t *testing.T) {
+	s, dir := serverWithAudit(t)
+	h := s.audited(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	h(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/submit?d=/tmp/docs.sock", nil))
+	if got := readAudit(t, dir); got[0].Acted != "" {
+		t.Errorf("acted is %q on a route that never set it", got[0].Acted)
+	}
+}

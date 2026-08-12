@@ -268,6 +268,7 @@ func (s *server) storeDirFor(r *http.Request, scope string) (string, error) {
 			"it is not yours to write — put it in the workspace it is about, or ask an operator", scope)
 	}
 	if scope == "global" {
+		noteSubject(r, "the global tier")
 		return filepath.Join(s.cfgDir, "experience"), nil
 	}
 	// A team tier is named, not resolved from a companion: the team outlives its members, and
@@ -276,6 +277,7 @@ func (s *server) storeDirFor(r *http.Request, scope string) (string, error) {
 		if strings.ContainsAny(team, `/\.`) {
 			return "", fmt.Errorf("a team name is one path segment, and %q is not", team)
 		}
+		noteSubject(r, "the "+team+" team's tier")
 		return filepath.Join(s.cfgDir, "teams", team, "experience"), nil
 	}
 	in, err := s.target(r)
