@@ -98,9 +98,9 @@ func (p Policy) Configured() bool { return len(p.People) > 0 }
 // configured console that is a refusal and not a fallback — an unnamed caller getting the
 // operator's powers is exactly the hole this exists to close.
 //
-// `companion` is the name of the companion the request is about, empty for the ones that are about
-// the console itself.
-func (p Policy) Allows(who string, c Capability, companion string) bool {
+// `companion` is the name of the companion the request is about and `peer` the console it was
+// reported by — empty for the ones that are about the console itself.
+func (p Policy) Allows(who string, c Capability, companion, peer string) bool {
 	if !p.Configured() {
 		return true // one operator, one machine; see Policy
 	}
@@ -115,7 +115,7 @@ func (p Policy) Allows(who string, c Capability, companion string) bool {
 	if !has(role.Can, c) {
 		return false
 	}
-	return withinScope(person.Companions, companion)
+	return withinScope(person.Companions, companion, peer)
 }
 
 // Can is what this person may do at all, for a page deciding what to draw. It is NOT the check —
@@ -139,14 +139,41 @@ func (p Policy) Scope(who string) []string {
 	return append([]string(nil), p.People[strings.ToLower(strings.TrimSpace(who))].Companions...)
 }
 
+// InScope reports whether this person may see or act on one companion, named and placed.
+//
+// Exported because a scope is not one check. The gate can ask it for a request that NAMES its
+// companion, but the routes that answer "what else is there" — the fleet, the interventions — have
+// nothing for a gate to inspect and must filter what they produce instead. One predicate, three
+// callers, rather than three ideas of what a scope means.
+//
+// `peer` is the console a companion was reported by, empty for this machine. An entry may be a
+// bare name, which matches that name anywhere, or "peer/name", which matches one machine's. Bare
+// is the common case and the dangerous one: two machines set up by one person run companions with
+// the same names, so `docs` means docs EVERYWHERE and the qualified form is how somebody says
+// otherwise.
+func (p Policy) InScope(who, companion, peer string) bool {
+	if !p.Configured() {
+		return true
+	}
+	person, ok := p.People[strings.ToLower(strings.TrimSpace(who))]
+	if !ok {
+		return false
+	}
+	return withinScope(person.Companions, companion, peer)
+}
+
 // withinScope: an empty list is every companion, and a request about no companion in particular
 // (the console's own screens) is not narrowed by one.
-func withinScope(only []string, companion string) bool {
+func withinScope(only []string, companion, peer string) bool {
 	if len(only) == 0 || companion == "" {
 		return true
 	}
 	for _, n := range only {
 		if strings.EqualFold(n, companion) {
+			return true
+		}
+		if here, want, found := strings.Cut(n, "/"); found &&
+			strings.EqualFold(here, peer) && strings.EqualFold(want, companion) {
 			return true
 		}
 	}

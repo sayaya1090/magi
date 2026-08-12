@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
+	"github.com/sayaya1090/magi/internal/core/auth"
 )
 
 // Addressing a companion by what it IS rather than by where it lives.
@@ -63,6 +64,14 @@ func (s *server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := found[0]
+	// Asked AGAIN, now that the subject is known. The gate checked the companion this request
+	// NAMED in its query and this route acts on the one it just resolved from the body — so
+	// somebody scoped to one companion could dispatch to another, and the front door had no way to
+	// see it. The check belongs where the target stops being a guess.
+	if !s.seen(r, target.Name, target.Peer) {
+		http.Error(w, refusal(s.whoFrom(r), auth.Prompt), http.StatusForbidden)
+		return
+	}
 	if target.State == fleet.Stopped {
 		// Not an error worth refusing over — a stopped daemon may be started again and the prompt
 		// would be waiting — but it cannot be delivered now, and saying "sent" would be a lie.

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -295,7 +297,127 @@ role = "operator"
 	if p.Configured() {
 		t.Fatal("a policy was picked up from a workspace")
 	}
-	if !p.Allows("attacker@example.com", auth.Admin, "") {
+	if !p.Allows("attacker@example.com", auth.Admin, "", "") {
 		t.Fatal("this console is not the unconfigured one — the fixture is wrong")
 	}
+}
+
+// A scope that leaves the LISTS whole hides nothing.
+//
+// The gate checks the companion a request names, and the routes that answer "what else is there"
+// name none — so /fleet handed over every companion's name, workspace path, host and current task
+// to somebody scoped to one of them, and /interventions handed over what people had SAID to each,
+// verbatim. Those two are where a scope is read from: the board, the masthead count and the
+// dispatch roster are all drawn from the fleet list.
+func TestTheListsAreFilteredByScopeToo(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := namedWorkdir(t, "docs")
+	other := namedWorkdir(t, "billing")
+	f.daemonAt(wd, "docs", true)
+	f.daemonAt(other, "billing", true)
+	f.session("docs", wd, "the docs work", 1, false)
+	f.session("billing", other, "the billing work", 1, false)
+
+	f.srv.userHeader = "X-Forwarded-User"
+	p, err := config.LoadAuth(policyDir(t, `
+[people."kim@corp.com"]
+role = "operator"
+
+[people."lee@corp.com"]
+role = "operator"
+companions = ["docs"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	names := func(who string) []string {
+		r := httptest.NewRequest(http.MethodGet, "/fleet", nil)
+		r.Header.Set("X-Forwarded-User", who)
+		w := httptest.NewRecorder()
+		f.srv.fleet(w, r)
+		var got []struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("%s: %v (%s)", who, err, w.Body.String())
+		}
+		var out []string
+		for _, a := range got {
+			out = append(out, a.Name)
+		}
+		sort.Strings(out)
+		return out
+	}
+	if got := names("kim@corp.com"); len(got) != 2 {
+		t.Errorf("an unscoped operator sees %v, wanted both", got)
+	}
+	if got := names("lee@corp.com"); len(got) != 1 || got[0] != "docs" {
+		t.Errorf("somebody scoped to docs sees %v — the list is the scope's biggest hole", got)
+	}
+}
+
+// A dispatch names its target in the BODY, after the gate has checked the one in the query.
+//
+// So the front door saw "docs" and the work went to "billing". A scope cannot be checked only
+// where a route begins when the route chooses its subject later.
+func TestADispatchCannotReachOutsideTheScope(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := namedWorkdir(t, "docs")
+	other := namedWorkdir(t, "billing")
+	sock := f.daemonAt(wd, "docs", true)
+	f.daemonAt(other, "billing", true)
+	f.session("docs", wd, "the docs work", 1, false)
+	f.session("billing", other, "the billing work", 1, false)
+
+	f.srv.userHeader = "X-Forwarded-User"
+	p, err := config.LoadAuth(policyDir(t, `
+[people."kim@corp.com"]
+role = "operator"
+
+[people."lee@corp.com"]
+role = "operator"
+companions = ["docs"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	// Addressed at docs — which lee may reach — and aimed at billing, which they may not.
+	r := httptest.NewRequest(http.MethodPost, "/dispatch?d="+url.QueryEscape(sock),
+		strings.NewReader(url.Values{"to": {"billing"}, "text": {"do this"}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("X-Forwarded-User", "lee@corp.com")
+	w := httptest.NewRecorder()
+	f.srv.dispatch(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("the dispatch answered %d — it passed the front door as docs and acted as billing",
+			w.Code)
+	}
+}
+
+// policyDir writes an auth.toml and hands back the directory holding it.
+func policyDir(t *testing.T, toml string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, config.AuthFile), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// namedWorkdir is a workspace whose BASE is the name a scope is written against.
+//
+// In production the two are the same fact: the socket is derived from the workdir and the fleet
+// row's name is its base directory, so `companions = ["docs"]` matches both. A fixture that named
+// the socket and the directory differently would let a filter pass while agreeing with nothing.
+func namedWorkdir(t *testing.T, name string) string {
+	t.Helper()
+	d := filepath.Join(shortTempDir(t), name)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return d
 }

@@ -85,7 +85,7 @@ func LoadAuth(dir string) (auth.Policy, error) {
 
 func anyAdmin(p auth.Policy) bool {
 	for who := range p.People {
-		if p.Allows(who, auth.Admin, "") {
+		if p.Allows(who, auth.Admin, "", "") {
 			return true
 		}
 	}

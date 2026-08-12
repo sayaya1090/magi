@@ -87,6 +87,13 @@ var public = map[string]bool{
 }
 
 // mayDo wraps a route with the question "may this person".
+//
+// ⚠ It is the FRONT DOOR and not the whole of a scope. Two other shapes exist and neither is
+// answerable here: a route that returns a LIST has no companion in its request to check (see
+// s.seen, used by /fleet and /interventions), and a route that resolves its subject from the body
+// passes this check under one name and acts under another (see /dispatch, which asks again once it
+// knows). Adding a route of either shape and stopping at this wrapper leaves a scope that hides
+// nothing.
 func (s *server) mayDo(path string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if public[path] {
@@ -106,12 +113,19 @@ func (s *server) mayDo(path string, h http.HandlerFunc) http.HandlerFunc {
 				"refuses it", http.StatusForbidden)
 			return
 		}
-		if !s.policy.Allows(who, need, nameOfSocket(r.URL.Query().Get("d"))) {
+		if !s.policy.Allows(who, need, nameOfSocket(r.URL.Query().Get("d")), r.URL.Query().Get("p")) {
 			http.Error(w, refusal(who, need), http.StatusForbidden)
 			return
 		}
 		h(w, r)
 	}
+}
+
+// seen reports whether a companion belongs on this person's screen, for the routes that answer
+// with a LIST. The gate cannot do this: there is no companion in the request to check, and the
+// answer is what has to be filtered.
+func (s *server) seen(r *http.Request, name, peer string) bool {
+	return s.policy.InScope(s.whoFrom(r), name, peer)
 }
 
 // refusal says which of the two things is missing, because they need different next steps: an
