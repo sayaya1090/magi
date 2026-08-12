@@ -38,7 +38,7 @@ func (s *server) compact(w http.ResponseWriter, r *http.Request) {
 		// A daemon built without the control interface answers plainly, and that answer is worth
 		// passing through rather than flattening: "this daemon cannot be controlled remotely" is a
 		// different thing to know from "the socket is gone".
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

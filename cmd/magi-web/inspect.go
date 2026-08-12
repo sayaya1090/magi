@@ -67,7 +67,7 @@ func (s *server) models(w http.ResponseWriter, r *http.Request) {
 		if err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
 			return cl.SetModel(sid, name)
 		}); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			http.Error(w, err.Error(), daemonSaysNo(err))
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

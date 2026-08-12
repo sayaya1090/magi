@@ -3977,3 +3977,100 @@ console.log(JSON.stringify({atBottom: wasStuck, readingAbove: window.scrolledTo}
 		t.Errorf("it threw a reader who was mid-transcript to %v", got["readingAbove"])
 	}
 }
+
+// A card opens the conversation on the companion that had it.
+//
+// Cards are grouped into a lane by team, or by name when there is no team, and the owner was found
+// again inside the lane BY NAME. A companion is named after its directory, so two workspaces whose
+// last path segment matches — ~/work/api and ~/side/api, or the same project checked out twice —
+// are two companions called api, in one lane, and every card in it resolved to the first.
+//
+// What that costs is not a wrong link. It is a session id handed to a daemon that does not own it:
+// the move is refused, correctly, and what the console had offered was a conversation it could not
+// open on the companion it named.
+func TestABoardCardAddressesTheCompanionThatOwnsIt(t *testing.T) {
+	fleet := `[{"socket":"/s/one.sock","name":"api","workdir":"/w/work/api","state":"idle","live":true,"idle":3},
+	           {"socket":"/s/two.sock","name":"api","workdir":"/w/side/api","state":"idle","live":true,"idle":4}]`
+	got := runPage(t, fleet, "", `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  const u = String(p);
+  if (u.startsWith('/history')) {
+    // Each companion has one conversation, today, and they are not the same conversation.
+    const which = u.includes('two.sock') ? 'two' : 'one';
+    return {ok: true, json: async () => [{
+      id: 's_' + which, title: 'the ' + which + ' work',
+      started: new Date().toISOString(), ended: new Date().toISOString(),
+    }]};
+  }
+  return base(p, o);
+};
+history.pushState({}, '', '/?v=board');
+await loadFleet();
+render();
+await loadBoard();
+const cards = byId.board.find('a').filter(x => String(x.className).includes('wwhat'));
+console.log(JSON.stringify({hrefs: cards.map(x => x.attrs['href'] || x.href || '')}));`)
+
+	hrefs, _ := got["hrefs"].([]any)
+	if len(hrefs) != 2 {
+		t.Fatalf("the board drew %d cards, wanted one per companion: %v", len(hrefs), hrefs)
+	}
+	for _, h := range hrefs {
+		u, _ := h.(string)
+		// The pairing is what matters: one.sock's conversation must not be offered on two.sock.
+		if strings.Contains(u, "s_one") && !strings.Contains(u, "one.sock") {
+			t.Errorf("a card for the first companion's conversation addresses %q", u)
+		}
+		if strings.Contains(u, "s_two") && !strings.Contains(u, "two.sock") {
+			t.Errorf("a card for the second companion's conversation addresses %q — its session "+
+				"belongs to a workspace that daemon has never seen", u)
+		}
+	}
+}
+
+// A move the companion refused is not followed by the send.
+//
+// post() answers with the REASON it failed and an empty string when it did not. The move-and-send
+// path compared that against false, which a string never is, so a refused move — mid-turn, or a
+// conversation belonging to another workspace — went straight on to submit. The words landed in
+// whatever conversation the companion was actually in, which is by definition the one nobody was
+// looking at, while the refusal went past as a toast.
+func TestARefusedMoveDoesNotSendAnyway(t *testing.T) {
+	fleet := `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,
+       "session":"s_now","idle":9}]`
+	got := runPage(t, fleet, "?d=%2Fs%2Fa.sock&past=s_older", `
+const base = globalThis.fetch;
+const asked = [];
+globalThis.fetch = async (p, o) => {
+  const u = String(p), path = u.split('?')[0];
+  if (path === '/transcript') return {ok: true, json: async () => [{who: 'user', text: 'last week'}]};
+  if (path === '/resume') { asked.push('resume'); return {ok: false, text: async () => 's_older is not a conversation of this workspace'}; }
+  if (path === '/submit') { asked.push('submit'); return {ok: true, text: async () => ''}; }
+  return base(p, o);
+};
+await loadFleet();
+render();
+byId.t.value = 'the words';
+byId.f.onsubmit({preventDefault(){}});
+// The move is behind a confirmation, which is where the send is decided.
+byId.stopGo.onclick();
+// Timers are recorded rather than run here, so the wait is the microtask queue: the flow is a
+// fetch, its body, and a then.
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({asked: asked, kept: byId.t.value}));`)
+
+	asked, _ := got["asked"].([]any)
+	if len(asked) == 0 || asked[0] != "resume" {
+		t.Fatalf("the flow did not try to move first: %v", asked)
+	}
+	for _, a := range asked[1:] {
+		if a == "submit" {
+			t.Error("it sent the message after the companion refused to move — into the conversation " +
+				"it was already in, which is the one not on screen")
+		}
+	}
+	if got["kept"] != "the words" {
+		t.Errorf("what was typed is %q; a send that did not happen must leave it in the box", got["kept"])
+	}
+}

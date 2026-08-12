@@ -1178,3 +1178,57 @@ func TestAWatchingPageFollowsTheCompanionToItsNewConversation(t *testing.T) {
 		t.Error("the stream did not stop when the client went away")
 	}
 }
+
+// A companion that answered no is not a machine that could not be reached.
+//
+// Everything coming back from a daemon was 502. Most of it is the opposite of a gateway failure:
+// it was reached, it understood, and it refused — mid-turn, or a conversation that is not in its
+// workspace. Reported as 502 a refusal reads as a broken console, and the reason scrolls past as a
+// toast on a page that looks disconnected.
+func TestARefusalIsNotAGatewayError(t *testing.T) {
+	f := newFleetFixture(t)
+	eng := &recordingEngine{fail: errors.New("this companion is mid-turn")}
+	sock := f.liveDaemon(t, t.TempDir(), "s1", eng)
+	w := post(t, f.srv, f.srv.submit, "/submit?d="+url.QueryEscape(sock), url.Values{"text": {"go"}})
+	if w.Code != http.StatusConflict {
+		t.Errorf("a refusal answered %d, wanted 409: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "mid-turn") {
+		t.Errorf("the companion's own reason did not come back: %s", w.Body.String())
+	}
+	// And it was asked once. The reconnect exists for a socket the daemon has replaced, and asking
+	// a companion that already answered gets the same answer down a second connection.
+	var tries int
+	for _, s := range eng.seen() {
+		// Submit or steer: a companion that is doing something is steered, and which one this
+		// fixture takes is not what is being measured.
+		if strings.HasPrefix(s, "submit:") || strings.HasPrefix(s, "steer:") {
+			tries++
+		}
+	}
+	if tries != 1 {
+		t.Errorf("the refusal was asked for %d times: %v", tries, eng.seen())
+	}
+}
+
+// A companion that is not running says so, rather than naming a socket file.
+//
+// Turning a daemon off leaves its record behind on purpose — the board still shows what it did and
+// its conversations are files — so the console offers everything about it and fails only when
+// somebody sends. It failed with "dial unix …: connect: no such file or directory", which is true
+// and answers none of what the person is then wondering, chiefly whether the conversation they
+// were reading is gone.
+func TestAStoppedCompanionSaysSoInWords(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := namedWorkdir(t, "docs")
+	// A record with nothing listening behind it: exactly what a daemon leaves when it exits.
+	sock := f.daemonAt(wd, "docs", false)
+	w := post(t, f.srv, f.srv.submit, "/submit?d="+url.QueryEscape(sock), url.Values{"text": {"go"}})
+	body := w.Body.String()
+	if strings.Contains(body, "no such file") || strings.Contains(body, "connect:") {
+		t.Errorf("the console answered with the syscall: %s", body)
+	}
+	if !strings.Contains(body, "not running") || !strings.Contains(body, "on disk") {
+		t.Errorf("it does not say the companion is off and its conversations are kept: %s", body)
+	}
+}

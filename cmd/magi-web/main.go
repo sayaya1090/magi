@@ -25,6 +25,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -34,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -619,6 +621,25 @@ func (s *server) refuseWhenShared(w http.ResponseWriter, what string) bool {
 	return true
 }
 
+// daemonSaysNo turns what came back from a companion into a status.
+//
+// Everything from a daemon was 502, which says "the machine in the middle could not be reached" —
+// and most of these are the opposite: it was reached, it understood, and it said no. A companion
+// mid-turn cannot be moved, and a conversation belonging to another workspace is not its to open.
+// Reported as a gateway error, a refusal reads as a broken console, and the page's own retry logic
+// treats it as one.
+//
+// 409, because the refusals are all of one kind: what was asked conflicts with the state the
+// companion is in. The client's typed Refused is the seam — it exists so a caller can tell "it
+// answered no" from "it never answered", and this is the caller that had not been using it.
+func daemonSaysNo(err error) int {
+	var refused daemon.Refused
+	if errors.As(err, &refused) {
+		return http.StatusConflict
+	}
+	return http.StatusBadGateway
+}
+
 // postOnly rejects a read method on a handler that changes something.
 func postOnly(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodPost {
@@ -655,17 +676,57 @@ func (s *server) withClient(r *http.Request, do func(*daemon.Client, session.Ses
 	sid := session.SessionID(in.Session)
 	cl, err := s.clientFor(in.Socket)
 	if err != nil {
-		return err
+		return notRunning(in, err)
 	}
 	if err = do(cl, sid); err == nil {
 		return nil
 	}
+	// A refusal is not a stale connection. The reconnect below exists for a socket the daemon has
+	// since replaced — the first call fails on a dead pipe and the second one works — and a
+	// companion that answered "no, I am mid-turn" would have that reason asked for twice and
+	// answered the same way, which is a second round trip to learn nothing.
+	var refused daemon.Refused
+	if errors.As(err, &refused) {
+		return err
+	}
 	s.forget(in.Socket)
 	cl, derr := s.clientFor(in.Socket)
 	if derr != nil {
-		return err // the original failure, not "could not reconnect" — that hides the reason
+		// The reconnect can know something the first failure could not: a call that died on a
+		// broken pipe says the connection went, and a redial that finds nothing there says the
+		// companion did. That is the more useful of the two, and the only one of them that tells
+		// somebody their conversation is still on disk.
+		if said := notRunning(in, derr); said != derr {
+			return said
+		}
+		return err // otherwise the original failure, not "could not reconnect" — that hides it
 	}
 	return do(cl, sid)
+}
+
+// notRunning says what a companion that is not there means, rather than what the socket did.
+//
+// A daemon that is off leaves its record behind on purpose: the board still shows what it did, and
+// its conversations are files. So the console offers everything about it and only fails at the
+// moment somebody sends — with "dial unix …: connect: no such file or directory", which is true
+// and answers none of what the person is now wondering. Chiefly: whether the conversation they
+// were reading is gone. It is not, and that is the sentence.
+func notRunning(in daemon.Info, err error) error {
+	// The three ways an address answers "nobody is here". A daemon that exited cleanly took its
+	// socket with it (ENOENT); one that was killed left the inode behind with nothing accepting on
+	// it (ECONNREFUSED); and a path that is not a socket at all (ENOTSOCK) is the same fact seen
+	// from a different angle — whatever is at that name, no companion is behind it.
+	if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) &&
+		!errors.Is(err, syscall.ENOTSOCK) {
+		return err
+	}
+	where := in.Workdir
+	if where == "" {
+		where = "its workspace"
+	}
+	return fmt.Errorf("%s is not running, so there is nothing to send to. Its conversations are on "+
+		"disk and will still be there — start it again in %s and this one opens where it was left",
+		nameOfSocket(in.Socket), where)
 }
 
 // page is the whole front end. Server-rendered with an inline script and no build step: magi ships
@@ -1393,7 +1454,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 			SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1437,7 +1498,7 @@ func (s *server) permission(w http.ResponseWriter, r *http.Request) {
 	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
 		return cl.SetPermission(mode)
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1485,7 +1546,7 @@ func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 			SessionID: sid, CallID: callID, Decision: text})
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1534,7 +1595,7 @@ func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 		return e
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	writeJSON(w, "shell", map[string]any{"out": out, "exit": exit})
@@ -1562,7 +1623,7 @@ func (s *server) resume(w http.ResponseWriter, r *http.Request) {
 	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
 		return cl.Resume(session.SessionID(want))
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1578,7 +1639,7 @@ func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
 		return cl.Interrupt(context.Background(), command.Interrupt{SessionID: sid})
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

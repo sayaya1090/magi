@@ -1664,7 +1664,15 @@ async function loadBoard() {
     let work = [];
     for (const [who, i] of members) {
       for (const h of runs[i]) {
-        if (dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay) work.push({...h, who: who.name});
+        // The companion itself travels with the card, not just its name. Looked up again later by
+        // name, a lane holding two companions called the same thing — this console's `docs` and a
+        // federated one's — resolved every card to whichever came first, so a card for the remote
+        // session addressed the local daemon. That daemon then refused a conversation that is not
+        // in its workspace, correctly, and the console reported it as a machine that could not be
+        // reached.
+        if (dayOf(h.started) <= boardDay && dayOf(h.ended) >= boardDay) {
+          work.push({...h, who: who.name, owner: who});
+        }
       }
     }
     work.sort((x, y) => String(y.started).localeCompare(String(x.started)));
@@ -1703,8 +1711,7 @@ async function loadBoard() {
       if (members.length > 1 || h.who !== key) when.append(cell('wwho', h.who));
       // The title is the way in. It carries the address so the companion is reachable with a middle
       // click and a copied url, the same as the fleet row.
-      const mine = members.find(([m]) => m.name === h.who);
-      const owner = mine ? mine[0] : a;
+      const owner = h.owner || a;
       // Into the SESSION, not just the companion. A card on this board IS one conversation — it
       // has an id, a title, a start and an end — and pressing it used to land on whatever that
       // companion is doing now, throwing away the one thing the card knew. The address carries the
@@ -5088,8 +5095,13 @@ f.onsubmit = e => {
         // can be refused — mid-turn, or a conversation this companion does not own. post() reports
         // the refusal itself, and returning here leaves what was typed unsent rather than sending
         // it somewhere nobody was looking.
-        post('/resume', new URLSearchParams({session: to})).then(ok => {
-          if (ok === false) { t.value = v; grow(); return; }
+        // post() answers with the REASON it failed and an empty string when it did not, so the
+        // test is truthiness. Compared against false it was never true, and a move the companion
+        // had refused — mid-turn, or a conversation belonging to another workspace — was followed
+        // by the send anyway: the words went into whatever conversation it was actually in, which
+        // is the one nobody was looking at, while the refusal flashed past as a toast.
+        post('/resume', new URLSearchParams({session: to})).then(why => {
+          if (why) { t.value = v; grow(); return; }
           post('/submit', new URLSearchParams({text: v}));
           // Back to the companion's own page: the conversation just became the current one, and
           // standing in the session view would leave the reply arriving on a screen behind this.
