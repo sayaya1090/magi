@@ -611,8 +611,8 @@ Stop the console and nothing stops working.
 ./magi-web -config-dir /path/to/config       # which daemons it can see
 ./magi-web -workdir /path/to/repo            # the workspace it defaults to
 ./magi-web -peer laptop=http://10.0.0.4:7777 -peer ci=http://10.0.0.9:7777
-./magi-web -exposed                          # more people than you can reach it (proxy in front)
-./magi-web -exposed -user-header X-Forwarded-User
+./magi-web -exposed -tls-cert cert.pem -tls-key key.pem   # more people than you can reach it
+./magi-web -exposed -tls-cert cert.pem -tls-key key.pem -user-header X-Forwarded-User
 ./magi-web -emit-demo ./out                  # write the page as static files and exit
 ```
 
@@ -635,6 +635,13 @@ Stop the console and nothing stops working.
   stay too — they reach the machine through the agent, and refusing them leaves a console that
   cannot be used for the thing it is for. **It does not authenticate anything**; it narrows what an
   authenticated caller may ask for.
+- **`-exposed` requires `-tls-cert` and `-tls-key`, and refuses to start without them.** The
+  authentication is in magi rather than in front of it, so whatever identifies a person crosses
+  this connection — in plaintext it is on the wire, and loopback does not save it: the port is
+  reached through something forwarding to it. Without `-exposed` they are optional and rarely
+  wanted; one operator over their own tunnel gains nothing from a certificate they had to invent.
+  Half a pair is refused either way, since it would serve plaintext while somebody believed
+  otherwise.
 - **`-exposed` and `-peer` cannot be used together.** A peer is reached on *your* tunnel with your
   keys, so a shared console would let whoever the gateway admits act as you on another machine —
   and the record on the far side would say the request came from here. Run a second console for the

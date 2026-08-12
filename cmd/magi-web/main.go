@@ -21,6 +21,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -71,6 +72,11 @@ func run() int {
 	exposed := flag.Bool("exposed", false,
 		"more people than the operator can reach this console (through a proxy or gateway that "+
 			"authenticates); refuses the routes that run something chosen by the caller")
+	// The certificate this console presents. Its own, not a proxy's: the operator chose to put the
+	// authentication in magi rather than in front of it, and a login token crossing plaintext is a
+	// login token on the wire — so -exposed refuses to start without these.
+	tlsCert := flag.String("tls-cert", "", "certificate to serve TLS with (PEM); required with -exposed")
+	tlsKey := flag.String("tls-key", "", "private key for -tls-cert (PEM)")
 	// Named rather than sniffed. Every gateway spells it differently (X-Forwarded-User,
 	// X-Auth-Request-Email, Cf-Access-Authenticated-User-Email, Tailscale-User-Login), and a list
 	// of headers this trusts by default is a list of headers anybody can set.
@@ -89,6 +95,10 @@ func run() int {
 		return 1
 	}
 	if err := exposedAllows(*exposed, peers); err != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", err)
+		return 1
+	}
+	if err := exposedHasTLS(*exposed, *tlsCert, *tlsKey); err != nil {
 		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
 	}
@@ -187,7 +197,12 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "magi-web: http://%s — %d companion(s) under %s", ln.Addr(), countDaemons(cd), cd)
+	scheme := "http"
+	if *tlsCert != "" {
+		scheme = "https"
+	}
+	fmt.Fprintf(os.Stderr, "magi-web: %s://%s — %d companion(s) under %s",
+		scheme, ln.Addr(), countDaemons(cd), cd)
 	if len(peers) > 0 {
 		names := make([]string, len(peers))
 		for i, p := range peers {
@@ -209,8 +224,15 @@ func run() int {
 		fmt.Fprintf(os.Stderr, " — %d people, by role", len(policy.People))
 	}
 	fmt.Fprintln(os.Stderr)
-	if err := (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln); err != nil {
-		fmt.Fprintln(os.Stderr, "magi-web:", err)
+	srvr := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	var serr error
+	if *tlsCert != "" {
+		serr = srvr.ServeTLS(ln, *tlsCert, *tlsKey)
+	} else {
+		serr = srvr.Serve(ln)
+	}
+	if serr != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", serr)
 		return 1
 	}
 	return 0
@@ -236,6 +258,33 @@ func exposedAllows(exposed bool, peers []peer) error {
 		"operator's own tunnel, so a shared console would let anybody it admits act as the operator "+
 		"on another machine — run a second console for the federated view, or drop -exposed",
 		strings.Join(names, ", "))
+}
+
+// exposedHasTLS refuses a shared console with nothing to encrypt it.
+//
+// The operator chose authentication in magi rather than a proxy in front, and that decision brings
+// this one with it: whatever identifies a person — a session cookie today, a bearer token
+// tomorrow — crosses this connection, and a token over plaintext is a token on the wire. The
+// gateway that authenticates them is the thing on the other end of it.
+//
+// Loopback does not save it. The port is reached through something forwarding to it, and the hop
+// this process can see is the only one it can do anything about.
+//
+// Not required WITHOUT -exposed: one operator on their own machine, over a unix-domain-shaped
+// tunnel they made themselves, gains nothing from a certificate they would have to invent.
+func exposedHasTLS(exposed bool, cert, key string) error {
+	if !exposed {
+		if (cert == "") != (key == "") {
+			return errors.New("-tls-cert and -tls-key are a pair; one without the other serves nothing")
+		}
+		return nil
+	}
+	if cert == "" || key == "" {
+		return errors.New("-exposed needs -tls-cert and -tls-key: this console authenticates people " +
+			"itself, so what identifies them crosses this connection — in plaintext it is on the " +
+			"wire. Put a certificate here, or drop -exposed and reach it through your own tunnel")
+	}
+	return nil
 }
 
 // listenLoopback binds, and hands back nothing the network can reach.

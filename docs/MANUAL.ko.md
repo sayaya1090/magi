@@ -589,8 +589,8 @@ fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(�
 ./magi-web -config-dir /path/to/config       # 어떤 데몬들이 보이는지
 ./magi-web -workdir /path/to/repo            # 기본 워크스페이스
 ./magi-web -peer laptop=http://10.0.0.4:7777 -peer ci=http://10.0.0.9:7777
-./magi-web -exposed                          # 나 말고 더 많은 사람이 닿는다(앞에 프록시)
-./magi-web -exposed -user-header X-Forwarded-User
+./magi-web -exposed -tls-cert cert.pem -tls-key key.pem   # 나 말고 더 많은 사람이 닿는다
+./magi-web -exposed -tls-cert cert.pem -tls-key key.pem -user-header X-Forwarded-User
 ./magi-web -emit-demo ./out                  # 페이지를 정적 파일로 쓰고 종료
 ```
 
@@ -611,6 +611,11 @@ fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(�
   남는다. 프롬프트·응답·크론·디스패치도 남는다 — 그것들은 에이전트를 거쳐 기계에 닿고, 그것마저
   막으면 콘솔이 존재 이유를 잃는다. **이 플래그는 인증을 하지 않는다.** 인증된 호출자가 무엇을
   요구할 수 있는지를 좁힐 뿐이다.
+- **`-exposed`는 `-tls-cert`·`-tls-key`를 요구하고, 없으면 기동하지 않는다.** 인증이 앞이 아니라
+  magi 안에 있으므로 사람을 식별하는 것이 이 연결을 건넌다 — 평문이면 그것은 선로 위에 있는 것이고,
+  루프백은 그것을 구해주지 않는다(그 포트는 무언가가 전달해 주어서 닿는 것이다). `-exposed`가 없으면
+  선택이고 대개 필요 없다 — 자기 터널로 접속하는 운영자 한 명에게 직접 만든 인증서는 얻는 게 없다.
+  **반쪽만 준 경우는 어느 쪽이든 거절한다** — 누군가 아니라고 믿는 동안 평문으로 서빙하게 되므로.
 - **`-exposed`와 `-peer`는 함께 쓸 수 없다.** 피어는 *당신의* 터널로 당신의 키를 써서 닿는다. 공유된
   콘솔이라면 게이트웨이가 들여보낸 누구든 다른 기계에서 당신 행세를 하게 되고, 저쪽의 기록에는
   "여기서 온 요청"이라고 남는다. 연합 화면이 필요하면 콘솔을 하나 더 띄운다.

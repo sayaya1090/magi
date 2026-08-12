@@ -126,3 +126,32 @@ func TestTheSharedRefusalCoversTheRoutesThatSpawnProcesses(t *testing.T) {
 		}
 	}
 }
+
+// A shared console will not start without a certificate.
+//
+// The operator chose authentication in magi rather than a proxy in front, and that decision brings
+// this one with it: whatever identifies a person crosses this connection, and in plaintext it is
+// on the wire. Loopback does not save it — the port is reached through something forwarding to it.
+func TestASharedConsoleWillNotStartInPlaintext(t *testing.T) {
+	if err := exposedHasTLS(true, "", ""); err == nil {
+		t.Error("a shared console started with nothing to encrypt it")
+	} else if !strings.Contains(err.Error(), "-tls-cert") {
+		t.Errorf("the refusal does not say what to add: %v", err)
+	}
+	if err := exposedHasTLS(true, "cert.pem", ""); err == nil {
+		t.Error("a certificate with no key was accepted")
+	}
+	if err := exposedHasTLS(true, "cert.pem", "key.pem"); err != nil {
+		t.Errorf("a shared console with both was refused: %v", err)
+	}
+	// The ordinary console keeps working with neither: one operator on their own machine, over a
+	// tunnel they made, gains nothing from a certificate they would have to invent.
+	if err := exposedHasTLS(false, "", ""); err != nil {
+		t.Errorf("an unshared console was made to produce a certificate: %v", err)
+	}
+	// But half a pair is a mistake either way — it would serve plaintext while somebody believed
+	// otherwise.
+	if err := exposedHasTLS(false, "cert.pem", ""); err == nil {
+		t.Error("half a certificate pair was accepted on an unshared console")
+	}
+}
