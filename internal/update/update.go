@@ -104,6 +104,12 @@ func Apply(newBin []byte, target string) error {
 }
 
 // verifySHA256 checks data against an expected hex digest.
+//
+// What this proves, exactly: the bytes that arrived are the bytes the release lists. The digest
+// comes from the same release as the binary, so it does not prove authorship — a pipeline that can
+// publish one can publish both. It catches a truncated or altered download and a mismatched asset,
+// which is what an updater can check on its own. Proving WHO built it needs a signature over the
+// release made with a key that is not in the release, and there is not one yet.
 func verifySHA256(data []byte, expected string) error {
 	sum := sha256.Sum256(data)
 	got := hex.EncodeToString(sum[:])

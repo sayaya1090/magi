@@ -320,3 +320,39 @@ companions = ["docs"]
 		t.Errorf("an unconfigured console told %q; it has one operator and no scopes", got)
 	}
 }
+
+// A subscription is removed by the person it belongs to.
+//
+// The endpoint is the whole of what identifies one, and an endpoint is not a secret anybody
+// guards: it sits in a browser, a log and a support ticket. Without an owner on the record,
+// knowing one was enough to switch off somebody else's notifications — from an account that may
+// only be allowed to read.
+func TestOnlyTheOwnerCanRemoveASubscription(t *testing.T) {
+	s := withPolicy(t, twoPeople)
+	s.pushes = &pushState{
+		file: filepath.Join(t.TempDir(), "subs.json"),
+		subs: map[string]webpush.Subscription{"e1": {Endpoint: "e1", P256dh: "k", Auth: "a"}},
+		who:  map[string]string{"e1": "kim@corp.com"},
+	}
+	drop := func(who string) int {
+		body := url.Values{"endpoint": {"e1"}, "p256dh": {"k"}, "auth": {"a"}, "delete": {"1"}}
+		r := httptest.NewRequest(http.MethodPost, "/push", strings.NewReader(body.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("X-Forwarded-User", who)
+		w := httptest.NewRecorder()
+		s.push(w, r)
+		return w.Code
+	}
+	if code := drop("lee@corp.com"); code != http.StatusForbidden {
+		t.Errorf("somebody else removed kim's subscription (%d)", code)
+	}
+	if _, still := s.pushes.subs["e1"]; !still {
+		t.Error("the subscription is gone")
+	}
+	if code := drop("kim@corp.com"); code != http.StatusNoContent {
+		t.Errorf("the owner could not remove their own subscription (%d)", code)
+	}
+	if _, still := s.pushes.subs["e1"]; still {
+		t.Error("the owner's removal did nothing")
+	}
+}

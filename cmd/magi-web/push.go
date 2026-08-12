@@ -195,6 +195,14 @@ func (s *server) push(w http.ResponseWriter, r *http.Request) {
 		}
 		p.mu.Lock()
 		if r.FormValue("delete") == "1" {
+			// Only your own. An endpoint is a credential and not a secret anybody guards — it is in
+			// a browser, a log, a support ticket — and without this, knowing one was enough to
+			// switch off somebody else's notifications from an account that may only read.
+			if who := s.whoFrom(r); s.policy.Configured() && p.who[sub.Endpoint] != who {
+				p.mu.Unlock()
+				http.Error(w, "that subscription is not yours to remove", http.StatusForbidden)
+				return
+			}
 			delete(p.subs, sub.Endpoint)
 			delete(p.who, sub.Endpoint)
 		} else {
