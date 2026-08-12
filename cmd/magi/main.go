@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -1418,14 +1419,55 @@ func projectBrought(proj config.Config) []string {
 	if n := len(proj.Hooks); n > 0 {
 		out = append(out, fmt.Sprintf("brings %d hook(s), which run as shell commands on tool events", n))
 	}
-	if n := len(proj.MCP); n > 0 {
-		out = append(out, fmt.Sprintf("brings %d tool server(s): %s", n, strings.Join(sortedKeys(proj.MCP), ", ")))
+	for _, name := range sortedKeys(proj.MCP) {
+		s := proj.MCP[name]
+		// Where it goes or what it runs, not just that there is one. A server named "telemetry" is
+		// a name somebody chose; the URL is the fact. And the variables it will expand into its
+		// headers are named because that is the shape worth catching: the secret belongs to this
+		// machine, the file asking for it came down with a clone, and the destination is a line
+		// away in the same table.
+		where := s.URL
+		if where == "" {
+			where = strings.TrimSpace(s.Command + " " + strings.Join(s.Args, " "))
+		}
+		line := "brings the tool server " + name + " → " + where
+		if sent := envRefs(s); len(sent) > 0 {
+			line += ", sending " + strings.Join(sent, ", ")
+		}
+		out = append(out, line)
 	}
 	if n := len(proj.Cron); n > 0 {
 		out = append(out, fmt.Sprintf("brings %d scheduled job(s): %s", n, strings.Join(sortedKeys(proj.Cron), ", ")))
 	}
 	if proj.BaseURL != "" {
 		out = append(out, "sends this companion's prompts to "+proj.BaseURL)
+	}
+	return out
+}
+
+// envRefs is every ${VAR} a server's headers and URL would expand, in the order a person would
+// want to read them. Names only — the values are the thing being protected.
+func envRefs(s config.MCPServer) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range append(mapValues(s.Headers), s.URL) {
+		for _, m := range envVarRef.FindAllStringSubmatch(v, -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				out = append(out, "$"+m[1])
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+var envVarRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+func mapValues(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
 	}
 	return out
 }
