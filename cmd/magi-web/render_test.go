@@ -4074,3 +4074,33 @@ console.log(JSON.stringify({asked: asked, kept: byId.t.value}));`)
 		t.Errorf("what was typed is %q; a send that did not happen must leave it in the box", got["kept"])
 	}
 }
+
+// The page follows the last line even when the row that arrived grows after it lands.
+//
+// A row is content-visibility:auto with an intrinsic size of 3.5rem, so one that has just been
+// appended reports THAT height until the browser lays it out — a frame later, because it is at the
+// bottom of the viewport. Scrolling once therefore aims at a document that is about to get taller,
+// and the reader is left short of the end by the difference. The rows this bites are the tall ones:
+// reported from a live console as "the request is there and the answer under it is not", which is
+// exactly a tool call, its output and its fold arriving as one 3.5rem guess.
+func TestTheBottomIsReachedAfterALateGrowingRow(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+window.scrollY = 0; window.innerHeight = 800;
+document.body.offsetHeight = 400; document.body.scrollHeight = 400;
+const went = [];
+window.scrollTo = (x, y) => {
+  went.push(y);
+  // The browser lays the new row out after the first scroll, and the page gets taller.
+  if (went.length === 1) document.body.scrollHeight = 2400;
+};
+toBottom();
+console.log(JSON.stringify({went: went}));`)
+
+	went, _ := got["went"].([]any)
+	if len(went) < 2 {
+		t.Fatalf("it scrolled %v and stopped — one pass cannot see a row that grows after it", went)
+	}
+	if last := went[len(went)-1]; last != float64(2400) {
+		t.Errorf("it ended at %v, and the document is 2400 tall by then", last)
+	}
+}

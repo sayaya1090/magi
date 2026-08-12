@@ -1244,6 +1244,11 @@ function answerBox(a, freeText) {
     .then(loadFleet)
     .then(() => jumpToNextWaiting(a.socket));
   if (a.askKind === 'question' && (a.askOptions || []).length) {
+    // A set of choices, centred, because that is what the row IS. Left-aligned it reads as a
+    // toolbar — a strip of things you may do to the thing above — and these are not actions on the
+    // question, they are the answer to it. Centred they read as one group being offered, which is
+    // also how they sit under the report on the ask screen.
+    box.classList.add('choices');
     // The agent offered a list, so the answer is one of these and typing a fourth thing is not an
     // answer to what was asked. The console drew a free-text box regardless — asking somebody to
     // retype an option they could see in the terminal and could not see here, and to guess its
@@ -3525,6 +3530,30 @@ async function loadMCP() {
 // somebody reads the middle of a long run is how a live page becomes unreadable.
 const atBottom = () => window.innerHeight + window.scrollY >= document.body.offsetHeight - 48;
 
+// toBottom goes to the foot of the page, and then again once the browser has laid out what it just
+// put there.
+//
+// A row is `content-visibility:auto` with an intrinsic size of 3.5rem, so a row that has only just
+// been appended reports THAT height until the browser lays it out — which it does a frame later,
+// because the row is at the bottom of the viewport. One scroll therefore aims at a document that
+// is about to get taller, and the reader lands short of the end by the difference.
+//
+// The rows this bites are the tall ones, which is exactly the ones worth reading to the end of: a
+// tool call carries its command, its output and a fold, and is many times 3.5rem. Measured on a
+// live console — an answer with two tool calls left the page a few hundred pixels above the last
+// line, every time.
+//
+// Two extra frames rather than a loop with a condition. The growth happens on the frame after the
+// insert; a third pass is there for the row that grows again as its own content settles, and a
+// watcher that kept going would be a scroll that fights a person trying to scroll away.
+function toBottom(frames) {
+  window.scrollTo(0, document.body.scrollHeight);
+  const left = frames === undefined ? 2 : frames;
+  if (left > 0 && typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => toBottom(left - 1));
+  }
+}
+
 // ── markdown, as nodes ───────────────────────────────────────────────────────
 //
 // The terminal has rendered markdown since it existed; this page showed the source. A table arrived
@@ -4423,7 +4452,7 @@ function draw(rows) {
   // over one reach of a hundred rows: 2,500 pixels of drift when the box above was shrunk by what
   // was recorded on the way out, ~600 when it is shrunk by what the recovered rows report now.
   // The rest is what Chrome's own scroll anchoring absorbs as they come into view.
-  if (stick) window.scrollTo(0, document.body.scrollHeight);
+  if (stick) toBottom();
   else if (i === 0 && document.body.scrollHeight !== wasTall) {
     window.scrollTo(0, wasAt + (document.body.scrollHeight - wasTall));
   }
@@ -5053,7 +5082,7 @@ const dock = document.getElementById('dock');
 function measureDock() {
   const stick = atBottom();
   document.documentElement.style.setProperty('--dock', (dock.offsetHeight || 0) + 'px');
-  if (stick) window.scrollTo(0, document.body.scrollHeight);
+  if (stick) toBottom();
 }
 if (typeof ResizeObserver === 'function') new ResizeObserver(measureDock).observe(dock);
 t.addEventListener('input', grow);

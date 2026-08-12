@@ -1265,6 +1265,9 @@
     letter-spacing:0.05em;
   }
   .answer md-outlined-text-field { flex:1; min-width:11rem; }
+  /* The options a question came with. Not the permission buttons beside them, which stay where the
+     eye already looks for them, and not the free-text field, which fills its line. */
+  .answer.choices { justify-content:center; }
 
   .empty { font:var(--md-sys-typescale-body-large-size)/1.7 var(--magi-ref-display); color:var(--magi-ref-muted); padding:var(--magi-sys-space-500) 0; max-width:52ch; }
   .empty code { font:var(--md-sys-typescale-body-medium-size)/1 var(--magi-ref-mono); color:var(--magi-ref-accent); }
@@ -1592,6 +1595,7 @@
      enough to answer from. */
   #agentdetail .askact { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200); align-items:center; }
   #agentdetail .askact .answer { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-150); align-items:center; width:100%; }
+  #agentdetail .askact .answer.choices { justify-content:center; }
   #agentdetail .askact md-outlined-text-field { flex:1 1 22rem; min-width:0; }
   /* The grounds on this screen are the content, not an aside.
      The section name goes in a gutter to the left, which is the shape this page uses everywhere a
