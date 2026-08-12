@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,8 +28,13 @@ func TestARelayCarriesTheDaemonsOwnAnswerAboutItself(t *testing.T) {
 	dir := shortSockDir(t)
 	sock := filepath.Join(dir, "d.sock")
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = daemon.Serve(ctx, describingEngine{}, sock) }()
+	// Cancelled AND waited for: the goroutine writes into a store rooted in a t.TempDir()
+	// created earlier, so a cancel that only asks it to stop leaves a write racing the removal.
+	// CI reports that as "TempDir RemoveAll cleanup: directory not empty".
+	var running sync.WaitGroup
+	running.Add(1)
+	t.Cleanup(func() { cancel(); running.Wait() })
+	go func() { defer running.Done(); _ = daemon.Serve(ctx, describingEngine{}, sock) }()
 	waitForSocket(t, sock)
 
 	// Both halves of a pipe, as ssh would give them.

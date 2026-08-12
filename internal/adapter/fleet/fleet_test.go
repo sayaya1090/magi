@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -279,8 +280,13 @@ func (f *fleetFixture) serveEngine(workdir, sid string, eng daemon.Engine) strin
 	f.t.Helper()
 	sock := filepath.Join(f.cfgDir, "daemon-"+sid+".sock")
 	ctx, cancel := context.WithCancel(context.Background())
-	f.t.Cleanup(cancel)
-	go func() { _ = daemon.Serve(ctx, eng, sock) }()
+	// Cancelled AND waited for: the goroutine writes into a store rooted in a t.TempDir()
+	// created earlier, so a cancel that only asks it to stop leaves a write racing the removal.
+	// CI reports that as "TempDir RemoveAll cleanup: directory not empty".
+	var running sync.WaitGroup
+	running.Add(1)
+	f.t.Cleanup(func() { cancel(); running.Wait() })
+	go func() { defer running.Done(); _ = daemon.Serve(ctx, eng, sock) }()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if c, err := net.Dial("unix", sock); err == nil {

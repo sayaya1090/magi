@@ -259,9 +259,16 @@ func (ar *arrival) publish(name, sid string) (*daemon.Client, *daemon.Receipts) 
 	// Kept, so a test about ORDER can ask it to try now rather than wait out the backstop tick.
 	ar.taking = eng.handover
 	ctx, cancel := context.WithCancel(context.Background())
-	ar.t.Cleanup(cancel)
-	go eng.handover.run(ctx) // the daemon starts this; without it nothing leaves the queue
-	go func() { _ = daemon.Serve(ctx, eng, sock) }()
+	// Cancelled AND waited for. Both goroutines write into the store, whose root is a t.TempDir()
+	// created before this cleanup was registered — so it is removed after this returns, and a
+	// cancel that only ASKS them to stop leaves a write racing the removal. CI caught it as
+	// "TempDir RemoveAll cleanup: directory not empty", which names the symptom and not one line
+	// of the cause.
+	var running sync.WaitGroup
+	running.Add(2)
+	ar.t.Cleanup(func() { cancel(); running.Wait() })
+	go func() { defer running.Done(); eng.handover.run(ctx) }() // the daemon starts this; without it nothing leaves the queue
+	go func() { defer running.Done(); _ = daemon.Serve(ctx, eng, sock) }()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if c, err := net.Dial("unix", sock); err == nil {
