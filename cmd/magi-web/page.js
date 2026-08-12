@@ -2356,6 +2356,16 @@ function drawDetail(a) {
       b.onclick = () => goDeep('insp', key);
       v.append(b);
     }
+    // The report format sits with them rather than in a row of its own. It is the same kind of
+    // thing they are — something about this companion you go and look at — and as a row it cost
+    // the card a whole line to show three words that change about as often as the model does.
+    {
+      const b = el('button', tr('field.report_format'));
+      b.type = 'button';
+      b.className = 'deeper hit48';
+      b.onclick = () => openFormat(a);
+      v.append(b);
+    }
     row.append(v);
     grid.append(row);
   }
@@ -2380,7 +2390,6 @@ function drawDetail(a) {
     row.append(v);
     grid.append(row);
   });
-  drawReportFormat(a, grid);
   setFolded(localStorage.getItem('facts') === 'folded');
   box.hidden = false;
   // Which of the two panels it belongs to when the columns have stacked. Called here rather than
@@ -2742,7 +2751,14 @@ function showSide(box, on) {
 // button that disappears from the masthead moves everything beside it.
 function refreshSideToggle() {
   if (typeof sideToggle === 'undefined' || !sideToggle || !sideEl) return;
-  const any = (sideEl.children || []).some(c => !c.hidden);
+  // Array.from, because children is an HTMLCollection in a browser and an HTMLCollection has no
+  // .some — the page would throw here, and this runs inside paint(), so everything paint() had not
+  // reached yet stayed blank. That is how the rail lost its labels: not a styling problem, an
+  // exception three lines above the loop that writes them.
+  let any = false;
+  for (const c of Array.from(sideEl.children || [])) {
+    if (!c.hidden) any = true;
+  }
   sideToggle.disabled = !any;
   // What it would do, or why it will not. Said on the tooltip and to a screen reader, because a
   // greyed-out control with no explanation is the least useful state a control can be in.
@@ -3400,13 +3416,48 @@ async function loadAccess() {
   // below them are the exceptions — one person given something their group does not have. Drawn
   // read-only: membership is maintained where somebody is hired and let go, and a console that
   // offered to edit it would be offering to disagree with the directory.
-  const kids = [head, ...whose];
+  const kids = [head, ...whose, cell('accsay', tr('access.lead'))];
   if ((got.groups || []).length) {
-    kids.push(rosterHead('access.groups'), accList(got.groups.map(g => groupRow(g))));
+    kids.push(rosterHead('access.groups', 'access.groups_why'),
+              accList(got.groups.map(g => groupRow(g))));
   }
-  kids.push(rosterHead('access.exceptions'),
+  kids.push(rosterHead('access.exceptions', 'access.exceptions_why'),
             accList((got.people || []).map(p => personRow(p, roles))));
+  // What the words on the chips mean, once, under the thing they are on — reference goes below
+  // what it explains. Once rather than per row: seven sentences repeated beside every person is a
+  // screen nobody reads, and the same seven under it is a screen somebody reads once.
+  kids.push(rosterHead('access.legend'), capLegend(everyCap(got)));
   accessEl.replaceChildren(...kids);
+}
+
+// everyCap is every capability this console knows about, in the order the roles list them rather
+// than alphabetically: the roles are written from least to most, and the legend reading that way
+// says something the alphabet cannot.
+function everyCap(got) {
+  const seen = [];
+  for (const r of (got.roles || [])) {
+    for (const c of (r.can || [])) if (!seen.includes(c)) seen.push(c);
+  }
+  return seen;
+}
+
+// Literal keys in a lookup, not a key built by concatenation: a key the pack check cannot see is
+// the one that ships missing and renders as its own dotted name. It also decides what happens to a
+// capability this page has never heard of — nothing, rather than a dotted key beside a chip.
+const CAP_SAY = {
+  read: 'cap.read', answer: 'cap.answer', prompt: 'cap.prompt', curate: 'cap.curate',
+  configure: 'cap.configure', admin: 'cap.admin', shell: 'cap.shell',
+};
+
+function capLegend(caps) {
+  const box = cell('caplegend');
+  for (const c of caps) {
+    if (!CAP_SAY[c]) continue;
+    const row = cell('capdef');
+    row.append(capChip(c), cell('capsay', tr(CAP_SAY[c])));
+    box.append(row);
+  }
+  return box;
 }
 
 // A subheading over a list, which is what the two halves of this screen needed and did not have.
@@ -3415,11 +3466,38 @@ async function loadAccess() {
 // the section already has the page's h2, and a second heading at the same weight would say the two
 // are peers. h3 because it IS one: assistive tech navigates by heading, and these are the two
 // landmarks on this screen.
-function rosterHead(key) {
+function rosterHead(key, whyKey) {
   const h = document.createElement('h3');
   h.className = 'rosterhead';
   h.textContent = tr(key);
+  // A sentence under the heading when the heading needs one. Both of these do: "groups" and
+  // "exceptions" name the two halves without saying why a console has both, and that is the part
+  // somebody arriving at this screen for the first time does not know.
+  if (whyKey) {
+    const say = document.createElement('span');
+    say.className = 'why';
+    say.textContent = tr(whyKey);
+    h.append(say);
+  }
   return h;
+}
+
+// A capability, drawn as a chip and deliberately NOT an md-chip.
+//
+// The library's chips are controls: assist does something, filter filters a collection, input is a
+// thing a person entered and can remove, suggestion is a proposal to act on. This is none of them —
+// it is what a role already grants, and it does nothing when pressed. A component with a ripple and
+// a pressed state that answers nothing is a worse lie than a shape that never offered.
+//
+// So it borrows the chip's shape (8dp corner, outline, label type) and none of its behaviour. What
+// the words mean is said once in the legend at the foot of the screen rather than seven times over
+// in tooltips nobody on a touch screen can open.
+function capChip(word) {
+  const c = cell('capchip', word);
+  // The one that can grant the others is drawn differently, and says so in the markup rather than
+  // through a second class: what is special about it is which capability it IS.
+  c.setAttribute('data-cap', word);
+  return c;
 }
 
 // The list itself is a container, so the rows inside it are spaced with a gap rather than ruled
@@ -3448,7 +3526,9 @@ function capsLine(can, companions) {
   // The capability words are NOT translated: they are what goes into auth.toml, and a screen that
   // showed one word while the file wanted another would teach somebody the wrong name for the
   // thing they are editing.
-  box.append(cell('caps', (can || []).join('  ')));
+  const caps = cell('caps');
+  for (const c of (can || [])) caps.append(capChip(c));
+  box.append(caps);
   if (companions && companions.length) {
     box.append(cell('scope', tr('access.scoped', {list: companions.join(', ')})));
   }
@@ -4321,46 +4401,15 @@ const fmtK = document.getElementById('fmtK'), fmtForm = document.getElementById(
 const fmtCancel = document.getElementById('fmtCancel'), fmtGo = document.getElementById('fmtGo');
 let fmtFor = null;
 
-// A row in the facts, not a card in the side pane.
-//
-// The pane is what is happening: the plan, what was handed over, what somebody had to say. This is
-// a SETTING — the shape every report from this companion must take — and it belongs to the
-// companion the way its model and its approval mode do, which is the card it now sits in. It also
-// never changed between one turn and the next, so it spent the day taking a panel's worth of room
-// to say the same three words. The terminal's side pane never carried it either.
-async function drawReportFormat(a, grid) {
-  if (!a || !grid) return;
-  const f = await fetchOne('/report-format' + qFor(a));
-  if (!f || !f.sections) return;
-  const row = cell('f wide');
-  // Where it came from, because "edit" means something different in each: yours to change here,
-  // shared with every companion under this console, or not written down anywhere yet.
-  // Literal keys in a lookup, not a key built by concatenation: a key the pack check cannot see is
-  // the one that ships missing and renders as its own dotted name.
-  const FROM = {workspace: 'fmt.from_workspace', console: 'fmt.from_console', default: 'fmt.from_default'};
-  row.append(cell('k', tr('field.report_format')));
-  const v = cell('v');
-  // The section KEYS, which are what a report is checked against, and where they were written
-  // down. The prompts behind them are a paragraph each and belong in the editor rather than in a
-  // card somebody reads past every day.
-  v.append(cell('', (f.sections || []).map(sec => sec.key).join(' · ')));
-  v.append(cell('say', tr(FROM[f.from] || FROM.default)));
-  const edit = el('button');
-  edit.type = 'button';
-  edit.className = 'deeper hit48';
-  // A plain button, so the mark is a child rather than a slot — same shape, one level down.
-  const em = icon('#i-sl-pen-to-square', {cls: 'mk'});
-  if (em) edit.append(em, document.createTextNode(' '));
-  edit.append(document.createTextNode(tr('action.edit')));
-  edit.onclick = () => openFormat(a, f);
-  v.append(edit);
-  row.append(v);
-  grid.append(row);
-}
-
 // openFormat is the editor: one row per section, which is the pair a contract is made of.
-function openFormat(a, f) {
+//
+// It fetches what is in force when the caller has not already got it, which is what the button in
+// the facts does: the card is redrawn on every fleet poll, and asking the daemon for a contract
+// that changes about as often as the model does — three seconds apart, forever — to fill in a line
+// nobody was reading is a request paid for by every console watching.
+async function openFormat(a, f) {
   fmtFor = a;
+  if (!f) f = await fetchOne('/report-format' + qFor(a)) || {sections: []};
   // A headline that says what the dialog does, not what area of the app it belongs to. "Report
   // format" is a heading on a card; on a dialog it leaves the person to work out what saving will
   // change, which is the thing the guide asks the headline to answer.
@@ -4376,6 +4425,14 @@ function openFormat(a, f) {
   // that is worth saying outright — these are not preferences, they are what the agent will be
   // refused for leaving out.
   fmtForm.append(cell('dlgsup', tr('fmt.about')));
+  // And where the one in force came from, because that is what "save" will change and it is not
+  // the same act in the three cases: this companion's own workspace, everything under this console,
+  // or nothing written down yet. Said here rather than on the card behind it — this is the moment
+  // it matters, and it was costing a line on a card the rest of the time.
+  // Literal keys in a lookup, not a key built by concatenation: a key the pack check cannot see is
+  // the one that ships missing and renders as its own dotted name.
+  const FROM = {workspace: 'fmt.from_workspace', console: 'fmt.from_console', default: 'fmt.from_default'};
+  fmtForm.append(cell('dlgsup from', tr(FROM[f.from] || FROM.default)));
   // Text buttons for the two low-emphasis actions inside the content, and an icon button for
   // removal — the M3 vocabulary for "an action on this row" rather than a glyph in a link.
   const more = document.createElement('md-text-button');
@@ -4438,7 +4495,9 @@ async function saveFormat() {
   const body = new URLSearchParams();
   for (const row of fmtForm.children) {
     if ((row.className || '') !== 'fmtrow') continue;
-    const fields = (row.children || []).filter(c => c.name === 'key' || c.name === 'prompt');
+    // Array.from: children is an HTMLCollection in a browser and has no .filter, so this threw
+    // where it matters most — on the way to saving what somebody just typed.
+    const fields = Array.from(row.children || []).filter(c => c.name === 'key' || c.name === 'prompt');
     const key = (fields.find(c => c.name === 'key') || {}).value || '';
     const prompt = (fields.find(c => c.name === 'prompt') || {}).value || '';
     if (!String(key).trim()) continue;

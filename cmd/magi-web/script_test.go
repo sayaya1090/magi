@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -94,5 +95,45 @@ func idsUsed(body string) []string {
 		if k := strings.IndexByte(body[i:], '\''); k >= 0 {
 			out = append(out, body[i:i+k])
 		}
+	}
+}
+
+// An HTMLCollection is not an array, and the fake DOM's is.
+//
+// `children` comes back as an HTMLCollection in a browser: it has length and indexing and NONE of
+// the array methods. The fake here answers with a real array, so a page written against it passes
+// every test and throws on the first frame in front of a person — and because most of this page is
+// painted from one function, an exception in the middle of it leaves everything after that line
+// blank. That is exactly how the navigation lost its labels: not a styling problem, a TypeError
+// three lines above the loop that writes them. Second time; the first was `.indexOf`.
+//
+// A source scan rather than a richer fake: making children array-like would break the tests that
+// read it, and this is the cheaper guard for a mistake whose whole shape is one property access.
+func TestThePageDoesNotTreatAChildListAsAnArray(t *testing.T) {
+	// Comments stripped first: this file explains the mistake in prose more than once, and a scan
+	// that reads its own warning as an instance of the thing it warns about cries wolf forever.
+	body := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(scriptBody(t, indexHTML), "")
+	call := regexp.MustCompile(`\.children\s*(\|\|\s*\[\])?\s*\)?\.(some|map|filter|forEach|reduce|find|includes|indexOf|slice|sort|every|flatMap|at)\b`)
+	// A copy is fine, and both ways of making one are: Array.from(...) and a spread. Looking back a
+	// few characters rather than writing one regex for all three — Go has no lookbehind, and a
+	// pattern that tried would be the kind nobody can read or fix.
+	safe := func(before string) bool {
+		return strings.Contains(before, "Array.from(") || strings.Contains(before, "...(")
+	}
+	for _, at := range call.FindAllStringIndex(body, -1) {
+		from := at[0] - 24
+		if from < 0 {
+			from = 0
+		}
+		if safe(body[from:at[0]]) {
+			continue
+		}
+		t.Errorf("an array method is called on a child list: %q — wrap it in Array.from()",
+			body[at[0]:at[1]])
+	}
+	// The scan has to be able to fail: a pattern that matches nothing because it is wrong reads
+	// exactly like a page that is clean.
+	if !call.MatchString("const n = box.children.map(x => x);") {
+		t.Error("the scan does not recognise the mistake it exists to find")
 	}
 }

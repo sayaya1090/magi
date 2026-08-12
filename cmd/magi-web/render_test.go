@@ -4323,6 +4323,10 @@ console.log(JSON.stringify({
   // a headline, the capabilities under it, and the scope under that.
   heads: byId.access.find('h3').map(h => String(h.className) + ':' + h.textContent),
   parts: byId.access.find('div').map(d => String(d.className)).filter(c => c),
+  // Chips inside the ROWS, not only in the legend: a joined string of the same words passes any
+  // check that only asks whether the class appears somewhere on the screen.
+  rowchips: byId.access.find('div').filter(d => String(d.className).split(' ').includes('caps'))
+                       .reduce((n, d) => n + d.children.length, 0),
 }));
 `
 	admin := runPage(t, fleet, "?v=access", strings.Replace(page, "CAN", `['read','admin']`, 1))
@@ -4358,8 +4362,10 @@ console.log(JSON.stringify({
 	}
 	// Two subheadings, because the screen holds two lists and they mean different things: what the
 	// directory says, and who was given something it does not say.
+	// Three: what the directory says, who was given something it does not, and what the words on
+	// the chips mean.
 	heads, _ := admin["heads"].([]any)
-	if len(heads) != 2 {
+	if len(heads) != 3 {
 		t.Errorf("the roster has %v subheadings", heads)
 	}
 	// Wearing the class that gives them their type role. A bare h3 inherits the body size, which is
@@ -4373,10 +4379,14 @@ console.log(JSON.stringify({
 	// And each row is drawn in list anatomy rather than as three lines of the same size — which is
 	// what it was, and the reason nobody could tell the name from what it buys.
 	parts := fmt.Sprint(admin["parts"])
-	for _, want := range []string{"who", "caps", "acclist"} {
+	for _, want := range []string{"who", "caps", "acclist", "capchip", "caplegend", "accsay"} {
 		if !strings.Contains(parts, want) {
 			t.Errorf("no %q in the row's parts: %s", want, parts)
 		}
+	}
+	// kim has seven, lee has one, the group has two — as chips, one element each.
+	if n, _ := admin["rowchips"].(float64); n < 10 {
+		t.Errorf("the rows carry %v capability chips; a joined string would look like this", n)
 	}
 	// The list says which magi it governs. A console watching three machines draws three of these
 	// screens the same way, and only this line tells them apart.
@@ -4433,13 +4443,13 @@ console.log(JSON.stringify({where: byId.whereami.textContent}));
 	}
 }
 
-// The report format is a setting about the companion, so it is in the facts and not in the pane.
+// The report format is reached from the facts, not from a card in the side pane.
 //
 // The pane is what is HAPPENING — the plan, what was handed over, what somebody had to say. This
-// changes about as often as the model does and it never changed between one turn and the next, so
-// it spent the day taking a panel's worth of room to say three words. The terminal never carried
-// it in a side pane either.
-func TestTheReportFormatIsAFactAboutTheCompanion(t *testing.T) {
+// changes about as often as the model does, and the terminal never carried it in a pane at all. It
+// is a button beside the other two things you go and look at about a companion; as a row of its own
+// it cost the card a line to show three words nobody was reading.
+func TestTheReportFormatIsReachedFromTheFacts(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async (p) => ({ok: true, json: async () =>
   String(p).startsWith('/report-format') ? {from: 'workspace', sections: [
@@ -4449,19 +4459,30 @@ globalThis.fetch = async (p) => ({ok: true, json: async () =>
 await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
                   steps: 1, idle: 2, session: 's1'});
 for (let i = 0; i < 12; i++) await Promise.resolve();
+const button = byId.detail.find('button').filter(b => b.textContent === tr('field.report_format'));
+if (button.length) button[0].onclick();
+for (let i = 0; i < 12; i++) await Promise.resolve();
 console.log(JSON.stringify({
-  facts: byId.detail.text,
+  buttons: byId.detail.find('button').map(b => b.textContent),
   pane: byId.side.children.map(c => c.attrs.id || '').join(' '),
+  // Pressing it opens the editor with what is in force, and says where that came from — the three
+  // cases mean three different things by "save".
+  dialog: byId.fmtForm.children.map(c => c.textContent).join(' | '),
+  open: !!byId.fmtDialog.open,
 }));
 `)
-	facts := got["facts"].(string)
-	for _, want := range []string{"tried · stakes", "this companion's own"} {
-		if !strings.Contains(facts, want) {
-			t.Errorf("the facts card does not carry %q:\n%s", want, facts)
-		}
+	buttons := fmt.Sprint(got["buttons"])
+	if !strings.Contains(buttons, "What it brings you when it asks") {
+		t.Errorf("no way to the report format in the facts: %s", buttons)
 	}
 	if strings.Contains(got["pane"].(string), "reportfmt") {
 		t.Error("the report format is still a card in the side pane")
+	}
+	if got["open"] != true {
+		t.Error("pressing it did not open the editor")
+	}
+	if d, _ := got["dialog"].(string); !strings.Contains(d, "this companion's own") {
+		t.Errorf("the editor does not say where the format in force came from: %q", d)
 	}
 }
 

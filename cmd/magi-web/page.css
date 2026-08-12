@@ -1323,7 +1323,12 @@
      uncontained, and a short repeating list is neither. The people below are the exception and say
      so themselves. */
   .acclist { display:grid; gap:var(--magi-sys-space-200); }
-  .acc { display:grid; gap:var(--magi-sys-space-50); }
+  .acc { display:grid; gap:var(--magi-sys-space-100); }
+  /* Ruled between, not around. Each row is now two lines and a set of chips, which is the "complex"
+     the lists guidance keeps dividers for — and a group's grant is a thing somebody reads one at a
+     time rather than as a block. Between only: a rule under the last row would close a list that
+     the next heading already closes. */
+  .acclist .acc + .acc { border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-200); }
   /* Complex — each one carries a form — so these get the stronger separation the guidance reserves
      for exactly that, and the room to go with it. */
   .acclist .person { padding-bottom:var(--magi-sys-space-250); border-bottom:1px solid var(--magi-ref-outlineVariant); }
@@ -1347,15 +1352,45 @@
   .acccaps { display:grid; gap:var(--magi-sys-space-50); }
   /* Supporting text: body, one step down from the headline and in the muted role. Monospace for
      the same reason — these are the words that go into the file. */
-  .acccaps .caps {
-    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-mono);
-    color:var(--magi-ref-muted); overflow-wrap:anywhere;
+  .acccaps .caps { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); }
+  /* A capability, wearing a chip's shape and none of its behaviour — see capChip(). 8dp is the
+     corner every chip in the system has; the label type is the chip's; the outline is what the
+     guidance asks for a chip on a plain background instead of elevation. What it does not have is
+     a ripple, a pressed state or a target, because it does nothing. */
+  .capchip {
+    display:inline-flex; align-items:center; padding:2px var(--magi-sys-space-150);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-small);
+    font:var(--md-sys-typescale-label-large-size)/1.8 var(--magi-ref-mono);
+    color:var(--magi-ref-fg); white-space:nowrap;
   }
+  /* The one that can grant the others reads differently, because it IS different: everything else
+     on this screen can be handed back, and this one hands out. */
+  .capchip:is([data-cap="admin"]) { color:var(--magi-ref-warn); border-color:var(--magi-ref-warn); }
   /* And the scope under it, smaller again: it is a qualifier on the line above, not a line of its
      own standing. */
   .acccaps .scope {
     font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display);
     color:var(--magi-ref-muted);
+  }
+  /* The lead sentence, and the one under each heading: prose, so the display face and a body size,
+     and held to a measure — this is the only part of the screen somebody READS rather than scans. */
+  .accsay, .rosterhead .why {
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display);
+    color:var(--magi-ref-muted); max-width:60ch;
+  }
+  .accsay { margin:calc(-1 * var(--magi-sys-space-100)) 0 var(--magi-sys-space-200); }
+  /* Under the heading rather than beside it: a heading and a sentence on one line is two type
+     roles competing for the same baseline, and the sentence loses. */
+  .rosterhead .why { display:block; margin-top:var(--magi-sys-space-50); font-weight:400; letter-spacing:0; }
+  /* The legend: what each word on a chip means, once. Two columns so the chips make a column of
+     their own and the sentences line up beside them — a list of "word — sentence" run together is
+     the shape that gets skipped. */
+  .caplegend { display:grid; gap:var(--magi-sys-space-150); }
+  .capdef { display:grid; grid-template-columns:minmax(6rem, auto) minmax(0, 1fr);
+    gap:var(--magi-sys-space-200); align-items:baseline; }
+  .capdef .capsay {
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display);
+    color:var(--magi-ref-muted); max-width:60ch;
   }
   .acccontrols {
     display:flex; flex-wrap:wrap; align-items:center;
