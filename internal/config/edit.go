@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -75,6 +76,14 @@ func SetRawKey(path, section, key, raw string) error {
 }
 
 func setKey(path, section, key, value string, quote bool) error {
+	// The file is created if absent, and so is the directory holding it. A workspace has no .magi
+	// until something writes one, which is the ordinary state of a project that has never been
+	// configured — and the first write to it is exactly this. Without the MkdirAll the console
+	// answered a person adding their first scheduled job with a raw errno and a 500, about a
+	// directory they had no reason to know was supposed to exist.
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	setKeyMu.Lock()
 	defer setKeyMu.Unlock()
 	return withFileLock(path, func() error { return setKeyLocked(path, section, key, value, quote) })
