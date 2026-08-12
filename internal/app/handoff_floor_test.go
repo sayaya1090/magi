@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,5 +85,44 @@ func TestAlwaysInAHandedOverTurnIsThisCallOnly(t *testing.T) {
 	go answer("c2", "deny")
 	if a.requestPermission(context.Background(), theirs, event.Actor{}, next, false, "") {
 		t.Error("the grant carried to the next call, so one yes approved everything after it")
+	}
+}
+
+// The person approving is told whose errand it is.
+//
+// The floor above makes a person answer these — that is the whole design — so the answer has to be
+// an informed one. Somebody looking at "bash: curl … | sh" reads it as their own request unless
+// something says otherwise, and nothing did: the prompt carried the tool and the command and no
+// hint that another companion had asked for it.
+func TestThePromptSaysWhichCompanionAskedForIt(t *testing.T) {
+	a, mine, theirs := handedSession(t, Config{Permission: "ask", Interactive: true})
+	call := &session.ToolCall{CallID: "c1", Name: "bash"}
+
+	seen := make(chan string, 2)
+	watch := func(sid session.SessionID) {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if ask, ok := a.Waiting(sid); ok {
+				seen <- ask.Reason
+				_ = a.RespondPermission(context.Background(), command.RespondPermission{
+					SessionID: sid, CallID: "c1", Decision: "deny"})
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		seen <- "(nothing was waiting)"
+	}
+
+	go watch(theirs)
+	a.requestPermission(context.Background(), theirs, event.Actor{}, call, false, "")
+	if got := <-seen; !strings.Contains(got, "design") {
+		t.Errorf("the prompt for handed-over work says %q — it does not name who asked", got)
+	}
+
+	// And an ordinary turn is not decorated with somebody else's name.
+	go watch(mine)
+	a.requestPermission(context.Background(), mine, event.Actor{}, call, false, "")
+	if got := <-seen; strings.Contains(got, "asked for this") {
+		t.Errorf("the operator's own turn says %q", got)
 	}
 }

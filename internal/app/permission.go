@@ -84,7 +84,19 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	//
 	// `deny` still denies, and a person answering can still say yes. What is gone is the path
 	// where nobody says anything and the tool runs.
-	handed := a.handedOver(sid)
+	asker := a.handedFrom(sid)
+	handed := asker != ""
+	// Whose errand it is goes into the reason, which is the line both surfaces already show. A
+	// person looking at "bash: curl … | sh" answers it as their own request unless something says
+	// otherwise — and the whole point of the floor above is that a person DOES answer these, so
+	// the answer has to be an informed one.
+	if handed {
+		if reason != "" {
+			reason = asker + " asked for this — " + reason
+		} else {
+			reason = asker + " asked for this"
+		}
+	}
 	if !forcePrompt && !handed {
 		switch a.Permission() {
 		case "allow":
@@ -270,12 +282,16 @@ func (a *App) notePersistOutcome(ctx context.Context, sid session.SessionID, tc 
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, nd)
 }
 
-// handedOver reports whether this conversation is one another companion asked for.
-func (a *App) handedOver(sid session.SessionID) bool {
+// handedFrom names the companion whose request opened this conversation, or "" for the ordinary
+// kind that a person started.
+func (a *App) handedFrom(sid session.SessionID) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st, ok := a.stateIf(sid)
-	return ok && st.handedOver
+	if !ok {
+		return ""
+	}
+	return st.handedFrom
 }
 
 // noteOneCallOnly records that a standing approval was taken as a single one.

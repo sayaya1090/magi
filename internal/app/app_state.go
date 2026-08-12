@@ -64,10 +64,13 @@ type sessionState struct {
 	// turn that owes an opinion.
 	answered []answeredHandoff
 	grants   map[string]bool // "always" grants per tool
-	// handedOver marks a conversation opened for work another COMPANION asked for, rather than a
-	// person at a keyboard. It changes what approval means here — see requestPermission — and is
-	// set once at creation and never cleared: where a conversation came from does not change.
-	handedOver bool
+	// handedFrom is who asked, when this conversation was opened for work another COMPANION
+	// handed over rather than for a person at a keyboard. Empty means the ordinary kind.
+	//
+	// It changes what approval means here — see requestPermission — and it is set once at creation
+	// and never cleared: where a conversation came from does not change. The NAME and not just a
+	// flag, because the person being asked to approve a command needs to know whose errand it is.
+	handedFrom string
 	userLabel  string // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the

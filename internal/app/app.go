@@ -155,8 +155,8 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 	}
 	a.mu.Lock()
 	a.stateLocked(sid).meta = s
-	if _, fromAgent := HandoffOrigin(c.Actor.ID); fromAgent {
-		a.stateLocked(sid).handedOver = true
+	if who, fromAgent := HandoffOrigin(c.Actor.ID); fromAgent {
+		a.stateLocked(sid).handedFrom = firstLine(who, 80)
 	}
 	// A user label set before any session existed (an SSO plugin's startup login)
 	// was latched — apply it so the identity rides every session from turn one.
