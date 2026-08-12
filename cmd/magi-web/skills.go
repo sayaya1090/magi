@@ -89,6 +89,12 @@ func (s *server) skills(w http.ResponseWriter, r *http.Request) {
 	// "three rules" about a store that holds nine.
 	out = append(out, s.peerSkills(r.Context())...)
 
+	// A rule belongs to the workspace it governs, so a project tier is that companion's and is
+	// filtered like anything else of theirs. The global and team tiers name no companion and are
+	// kept: they are this console's own, and a person who may read here may read what governs
+	// everybody. See onlySeen for why this cannot be done at the door.
+	out = onlySeen(s, r, out, func(k storedSkill) (string, string) { return k.Companion, k.Peer })
+
 	// Widest reach first: what every companion follows, then what a team follows, then one
 	// workspace. A page about who a rule reaches is ordered by how far it reaches.
 	rank := map[string]int{"global": 0, "team": 1, "project": 2}

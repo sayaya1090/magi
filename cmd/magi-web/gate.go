@@ -128,6 +128,24 @@ func (s *server) seen(r *http.Request, name, peer string) bool {
 	return s.policy.InScope(s.whoFrom(r), name, peer)
 }
 
+// onlySeen keeps the rows of a list whose subject this person may see.
+//
+// The third shape of a scope check, and the one that is easy to forget because nothing about the
+// request is wrong: the caller asked a legitimate question about no companion in particular, and
+// the ANSWER is what carries other people's companions. A gate reading the query string has
+// nothing to inspect here — the subject appears only once the list is built — so the filter has to
+// live where the list is. One helper rather than a loop written out at each site, because a scope
+// implemented four times is four slightly different scopes.
+func onlySeen[T any](s *server, r *http.Request, rows []T, of func(T) (name, peer string)) []T {
+	out := rows[:0]
+	for _, row := range rows {
+		if name, peer := of(row); s.seen(r, name, peer) {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
 // refusal says which of the two things is missing, because they need different next steps: an
 // unnamed caller has to fix the gateway, and a named one has to be given a role by somebody.
 func refusal(who string, need auth.Capability) string {

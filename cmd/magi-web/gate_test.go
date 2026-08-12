@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/auth"
 )
@@ -420,4 +421,89 @@ func namedWorkdir(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// The same hole, three more lists.
+//
+// /fleet and /interventions were filtered when the scope went in; these were not, and they are the
+// lists that carry the most. /handoffs is who asked whom, the question verbatim and the answer.
+// /mcp is how another workspace is wired — command line, arguments, the names of the variables it
+// is handed. /skills is the rules another team wrote for its own companion. None of the three
+// names a companion in the request, so none of them was ever seen by the gate at the door.
+func TestTheRemainingListsAreFilteredByScope(t *testing.T) {
+	f := newFleetFixture(t)
+	docs := namedWorkdir(t, "docs")
+	billing := namedWorkdir(t, "billing")
+	f.daemonAt(docs, "docs", true)
+	f.daemonAt(billing, "billing", true)
+	// A question billing put to docs. The row that reports it names both ends.
+	f.session("docs", docs, fleet.DispatchMark+"billing, asked\n\nreconcile the invoices", 1, true)
+	f.session("billing", billing, "the billing work", 1, false)
+	writeConfig(t, filepath.Join(docs, ".magi"), "[mcp.docsearch]\ncommand = \"docs-mcp\"\n")
+	writeConfig(t, filepath.Join(billing, ".magi"), "[mcp.ledger]\ncommand = \"ledger-mcp\"\n")
+	f.learn(t, filepath.Join(docs, ".magi", "experience"), "docs-rule", "how docs work")
+	f.learn(t, filepath.Join(billing, ".magi", "experience"), "billing-rule", "how billing works")
+
+	f.srv.userHeader = "X-Forwarded-User"
+	p, err := config.LoadAuth(policyDir(t, `
+[people."kim@corp.com"]
+role = "operator"
+
+[people."lee@corp.com"]
+role = "operator"
+companions = ["docs"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	ask := func(who, path string, h http.HandlerFunc, into any) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("X-Forwarded-User", who)
+		w := httptest.NewRecorder()
+		h(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s as %s answered %d: %s", path, who, w.Code, w.Body.String())
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), into); err != nil {
+			t.Fatalf("%s as %s: %v (%s)", path, who, err, w.Body.String())
+		}
+	}
+
+	var all, mine []fleet.Handoff
+	ask("kim@corp.com", "/handoffs", f.srv.handoffs, &all)
+	ask("lee@corp.com", "/handoffs", f.srv.handoffs, &mine)
+	if len(all) != 1 {
+		t.Fatalf("the fixture wrote no handoff for an unscoped operator to see: %+v", all)
+	}
+	if len(mine) != 0 {
+		t.Errorf("somebody scoped to docs read %q asked of docs by billing — the row names both ends",
+			mine[0].Request)
+	}
+
+	var servers []mcpServer
+	ask("lee@corp.com", "/mcp", f.srv.mcp, &servers)
+	for _, m := range servers {
+		if m.Companion == "billing" {
+			t.Errorf("somebody scoped to docs was told billing runs %q", m.Command)
+		}
+	}
+
+	var rules []storedSkill
+	ask("lee@corp.com", "/skills", f.srv.skills, &rules)
+	for _, k := range rules {
+		if k.Companion == "billing" {
+			t.Errorf("somebody scoped to docs was shown billing's rule %q", k.Name)
+		}
+	}
+	// And the same three, whole, for somebody with no scope at all — a filter that answers nothing
+	// passes every test above and is worse than the leak.
+	ask("kim@corp.com", "/mcp", f.srv.mcp, &servers)
+	ask("kim@corp.com", "/skills", f.srv.skills, &rules)
+	if len(servers) != 2 || len(rules) != 2 {
+		t.Errorf("an unscoped operator sees %d servers and %d rules, wanted both of each",
+			len(servers), len(rules))
+	}
 }

@@ -79,6 +79,10 @@ func (s *server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		return out[i].Name < out[j].Name
 	})
+	// Filtered by whose config each row came out of. This one is worth more than a name to somebody
+	// who should not have it: a project row is a command line, its arguments and the names of the
+	// variables it is given, which describes how another team's workspace is wired.
+	out = onlySeen(s, r, out, func(m mcpServer) (string, string) { return m.Companion, "" })
 	writeJSON(w, "mcp servers", out)
 }
 

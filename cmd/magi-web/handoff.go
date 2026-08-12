@@ -37,6 +37,12 @@ func (s *server) handoffs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Asked without naming a companion, this is the whole machine's traffic: who asked whom, the
+	// question as it was written, and the answer. Both ends are checked because the row carries
+	// both — being allowed to see the asker is not being allowed to read what somebody else's
+	// companion said back.
+	list = onlySeen(s, r, list, func(h fleet.Handoff) (string, string) { return h.From, "" })
+	list = onlySeen(s, r, list, func(h fleet.Handoff) (string, string) { return h.To, "" })
 	writeJSON(w, "handoffs", list)
 }
 
