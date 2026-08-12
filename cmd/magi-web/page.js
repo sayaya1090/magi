@@ -4056,6 +4056,11 @@ function openFormat(a, f) {
   // A headline that says what the dialog does, not what area of the app it belongs to. "Report
   // format" is a heading on a card; on a dialog it leaves the person to work out what saving will
   // change, which is the thing the guide asks the headline to answer.
+  //
+  // And it stopped calling this a report. A run that ends delivers one — that is the word's job
+  // here — while this is the packet an agent puts in front of somebody to get a decision out of
+  // them. One word for both left the screen ambiguous about which of the two it was editing; the
+  // code still says report, because the contract, the route and the file are named that.
   fmtK.textContent = tr('fmt.headline');
   fmtForm.replaceChildren();
   // Supporting text, which is the part of a dialog the guide asks for and this one did without: a
