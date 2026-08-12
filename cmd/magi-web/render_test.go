@@ -3942,3 +3942,38 @@ console.log(JSON.stringify({
 		t.Error("the new nodes were not adopted, so asking one which box it is in answers wrong")
 	}
 }
+
+// A reader at the bottom stays at the bottom when the dock grows under them.
+//
+// The dock is fixed, so its own height moves nothing; what moves is the padding the page reserves
+// for it. A question arriving — with three options to press, now that it draws them — makes the
+// document taller under somebody who was reading its last line, and the line they were reading
+// goes under the bar. The transcript's redraw anchors itself for exactly this reason; the dock was
+// the other thing that changes height and did not.
+func TestGrowingTheDockKeepsAReaderAtTheBottom(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+// At the bottom: the window's height covers the whole document from where it sits.
+window.scrollY = 0; window.innerHeight = 800;
+document.body.offsetHeight = 400; document.body.scrollHeight = 400;
+window.scrolledTo = null;
+byId.dock.offsetHeight = 260;                       // a question with options just opened
+measureDock();
+const wasStuck = window.scrolledTo;
+
+// And a reader who had scrolled up is left where they are: the page grew below them, off screen.
+window.scrollY = 0; window.innerHeight = 200;
+document.body.offsetHeight = 4000; document.body.scrollHeight = 4000;
+window.scrolledTo = null;
+byId.dock.offsetHeight = 320;
+measureDock();
+console.log(JSON.stringify({atBottom: wasStuck, readingAbove: window.scrolledTo}));`)
+
+	if got["atBottom"] == nil {
+		t.Error("the page grew under a reader at the bottom and left them above it, reading the bar")
+	} else if got["atBottom"].(float64) != 400 {
+		t.Errorf("it scrolled to %v, not to the foot of the document", got["atBottom"])
+	}
+	if got["readingAbove"] != nil {
+		t.Errorf("it threw a reader who was mid-transcript to %v", got["readingAbove"])
+	}
+}

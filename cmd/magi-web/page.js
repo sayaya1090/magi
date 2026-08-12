@@ -5033,9 +5033,20 @@ const grow = () => measureDock();
 // The transcript reserves whatever the dock is actually occupying. Its height changes with the
 // composer as you type and with the prompt bar appearing, and a guessed constant either wastes a
 // screen or hides the last thing the agent said — on a phone, the second.
+//
+// And the reader who was at the bottom stays there. The dock is fixed, so its own growth moves
+// nothing; what moves is the padding the page reserves for it, which makes the document taller
+// under somebody who was reading its last line. A question arriving with three options to press is
+// enough to push the answer they were reading off the bottom of the screen — the transcript's own
+// redraw anchors itself for exactly this reason, and this is the other thing that changes height.
+//
+// Measured BEFORE the property is set: the dock is fixed, so at this point the document is still
+// the height it was and "at the bottom" is still answerable.
 const dock = document.getElementById('dock');
 function measureDock() {
+  const stick = atBottom();
   document.documentElement.style.setProperty('--dock', (dock.offsetHeight || 0) + 'px');
+  if (stick) window.scrollTo(0, document.body.scrollHeight);
 }
 if (typeof ResizeObserver === 'function') new ResizeObserver(measureDock).observe(dock);
 t.addEventListener('input', grow);

@@ -419,7 +419,10 @@ globalThis.document = {
 // puts on window has to be here too — a bare object made the notifications switch throw before it
 // reached anything, and an async handler swallows that into a rejected promise nobody awaits.
 globalThis.window = {
-  innerHeight: 800, scrollY: 0, scrollTo() {},
+  // scrollTo REMEMBERS where it was sent. A no-op could not tell a page that keeps the reader at
+  // the bottom from one that leaves them behind, and both are silent.
+  innerHeight: 800, scrollY: 0, scrolledTo: null,
+  scrollTo(_x, y) { this.scrolledTo = y; },
   isSecureContext: true,
   get Notification() { return globalThis.Notification; },
   get PushManager() { return globalThis.PushManager; },
