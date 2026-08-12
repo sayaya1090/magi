@@ -597,11 +597,23 @@ func sameSiteOnly(h http.HandlerFunc) http.HandlerFunc {
 //
 // The refusal names the flag. Somebody hitting a wall they did not put up needs to know it was put
 // up on purpose and by whom, or the next step is to go looking for the bug.
+//
+// ⚠ A console with an auth.toml is shared whether or not the flag was passed. It binds loopback
+// either way, and a gateway on the same machine in front of it is a perfectly ordinary way to run
+// this — one that never touches -exposed and, until this read the policy too, kept both of these
+// routes open to anybody the gateway let in. The policy is the honest signal: it exists precisely
+// because more than one person reaches this console.
+func (s *server) shared() bool { return s.exposed || s.policy.Configured() }
+
 func (s *server) refuseWhenShared(w http.ResponseWriter, what string) bool {
-	if !s.exposed {
+	if !s.shared() {
 		return false
 	}
-	http.Error(w, what+" is off on this console: it was started with -exposed, which means more "+
+	why := "it was started with -exposed"
+	if !s.exposed {
+		why = "it has an " + config.AuthFile + ", so more than one person reaches it"
+	}
+	http.Error(w, what+" is off on this console: "+why+", which means more "+
 		"people than the operator can reach it. Do it from a terminal on that machine.",
 		http.StatusForbidden)
 	return true

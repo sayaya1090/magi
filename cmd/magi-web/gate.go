@@ -195,7 +195,7 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		Can        []auth.Capability `json:"can"`
 		Companions []string          `json:"companions,omitempty"`
 		Shared     bool              `json:"shared,omitempty"`
-	}{Who: who, Can: can, Companions: s.policy.Scope(who), Shared: s.exposed}
+	}{Who: who, Can: can, Companions: s.policy.Scope(who), Shared: s.shared()}
 	if out.Can == nil {
 		out.Can = []auth.Capability{}
 	}

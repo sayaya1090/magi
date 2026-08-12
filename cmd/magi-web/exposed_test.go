@@ -174,3 +174,36 @@ func TestAPolicyWithNobodyToNameRefusesToStart(t *testing.T) {
 		t.Errorf("a single-operator console was refused: %v", err)
 	}
 }
+
+// A console with people on it is shared, whether or not the flag says so.
+//
+// -exposed turns off the two routes that make this machine run something the caller chose: a shell
+// command, and an MCP server's command line. The flag is not the only way to have more than one
+// person on a console — it binds loopback either way, and a gateway on the same machine in front
+// of it is an ordinary way to run this. That console has an auth.toml and no flag, and both routes
+// were open to anybody the gateway let in.
+func TestAPolicyMakesAConsoleSharedEvenWithoutTheFlag(t *testing.T) {
+	withPeople := withPolicy(t, `
+[people."kim@corp.com"]
+role = "operator"
+`)
+	if !withPeople.shared() {
+		t.Error("a console with people on it did not consider itself shared")
+	}
+	for name, h := range map[string]http.HandlerFunc{
+		"/shell": withPeople.shell, "/mcp": withPeople.mcp,
+	} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, name, nil)
+		r.Header.Set("X-Forwarded-User", "kim@corp.com")
+		h(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s answered %d on a console with people on it: %s", name, w.Code, w.Body.String())
+		}
+	}
+	// And the ordinary console — one operator, no gateway — keeps both.
+	alone := withPolicy(t, "")
+	if alone.shared() {
+		t.Error("a single-operator console called itself shared; that would take away its own shell")
+	}
+}
