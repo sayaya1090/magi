@@ -284,9 +284,19 @@ func run() int {
 		admitFP = flag.String("admit", "",
 			"admit a machine by the fingerprint its `magi --whoami` printed (with --as, and "+
 				"--at host:port when this machine also reaches out to it)")
-		refuseFP        = flag.String("refuse", "", "take an admitted machine off the list, by fingerprint")
-		admitAs         = flag.String("as", "", "the name to file an --admit under")
-		admitAt         = flag.String("at", "", "host:port for an --admit this machine also dials")
+		refuseFP     = flag.String("refuse", "", "take an admitted machine off the list, by fingerprint")
+		admitAs      = flag.String("as", "", "the name to file an --admit under")
+		admitAt      = flag.String("at", "", "host:port for an --admit this machine also dials")
+		provisionFor = flag.String("provision", "",
+			"mint a short-lived invitation for another machine and print the one line it runs")
+		joinAddr        = flag.String("fleet-join", "", "spend an invitation on host:port (with --token and --pin)")
+		joinToken       = flag.String("token", "", "the invitation printed by --provision")
+		joinPin         = flag.String("pin", "", "the fingerprint the invitation named, pinned before anything is sent")
+		listPeopleF     = flag.Bool("people", false, "print who may use this console, and what each may do")
+		grantWho        = flag.String("grant", "", "give somebody a role here (with --role, and --companions to narrow them)")
+		revokeWho       = flag.String("revoke", "", "take somebody off this console")
+		grantRole       = flag.String("role", "", "the role for --grant: operator, responder, viewer, or one you defined")
+		grantScope      = flag.String("companions", "", "comma-separated companions a --grant is narrowed to; empty = all")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -379,10 +389,22 @@ func run() int {
 
 	// Identity and admission, before anything else reads the world: these are one file each and
 	// the answer to "who am I" must not depend on a store, a model or a daemon being reachable.
-	if *whoami || *admitFP != "" || *refuseFP != "" || *fleetListen != "" {
+	if *whoami || *admitFP != "" || *refuseFP != "" || *fleetListen != "" ||
+		*provisionFor != "" || *joinAddr != "" {
 		return runFleetCmd(fleetOpts{
 			whoami: *whoami, admit: *admitFP, refuse: *refuseFP, as: *admitAs, at: *admitAt,
-			listen: *fleetListen, configDir: plat.ConfigDir(), out: os.Stdout, errOut: os.Stderr,
+			listen: *fleetListen, provision: *provisionFor, join: *joinAddr,
+			token: *joinToken, pin: *joinPin,
+			configDir: plat.ConfigDir(), out: os.Stdout, errOut: os.Stderr,
+		})
+	}
+	// The policy, from a terminal. Here for the same reason the identity commands are: this is the
+	// way in when the console itself will not let somebody in.
+	if *listPeopleF || *grantWho != "" || *revokeWho != "" {
+		return runPeopleCmd(peopleOpts{
+			list: *listPeopleF, grant: *grantWho, revoke: *revokeWho,
+			role: *grantRole, scope: *grantScope,
+			configDir: plat.ConfigDir(), out: os.Stdout,
 		})
 	}
 
