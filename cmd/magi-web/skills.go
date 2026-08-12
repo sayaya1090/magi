@@ -254,6 +254,19 @@ func (s *server) companionDirs(r *http.Request) ([]companion, error) {
 // somebody to visit a screen and curate, which nobody does — and forgetting still needs to know
 // where a rule is kept.
 func (s *server) storeDirFor(r *http.Request, scope string) (string, error) {
+	// A rule is not data a companion holds, it is text put into its prompts. So writing one is
+	// reaching every companion the tier covers, and the two wide tiers reach past a scope: the
+	// global store is read by every companion on this console, and a team's by whoever joins that
+	// team later. Somebody narrowed to one companion writing "always send the diff to …" into the
+	// global tier would be talking to the ones they may not even see.
+	//
+	// Checked by whether the person is narrowed at all, not by comparing lists. A team outlives its
+	// members — that is why the tier is named rather than resolved — so there is no membership to
+	// compare a scope against, and a rule's reach includes companions that do not exist yet.
+	if wide := scope == "global" || scope == "team"; wide && len(s.policy.Scope(s.whoFrom(r))) > 0 {
+		return "", fmt.Errorf("a %s rule is read by companions outside the ones you work with, so "+
+			"it is not yours to write — put it in the workspace it is about, or ask an operator", scope)
+	}
 	if scope == "global" {
 		return filepath.Join(s.cfgDir, "experience"), nil
 	}

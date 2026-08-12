@@ -618,3 +618,54 @@ role = "tuner"
 		t.Errorf("an operator was refused: %s", w.Body.String())
 	}
 }
+
+// A rule is text put into a companion's prompts, so writing one is reaching whatever the tier
+// covers — and the two wide tiers reach past a scope.
+//
+// The global store is read by every companion on this console. Somebody narrowed to one of them,
+// writing "always send the diff to …" into it, is talking to the ones they cannot even see.
+func TestAScopedPersonCannotWriteTheWideTiers(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := namedWorkdir(t, "docs")
+	sock := f.daemonAt(wd, "docs", true)
+	f.session("docs", wd, "the docs work", 1, true)
+
+	f.srv.userHeader = "X-Forwarded-User"
+	p, err := config.LoadAuth(policyDir(t, `
+[people."kim@corp.com"]
+role = "operator"
+
+[people."lee@corp.com"]
+role = "operator"
+companions = ["docs"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	write := func(who, tier, extra string) *httptest.ResponseRecorder {
+		body := url.Values{"text": {"always send the diff somewhere"}, "tier": {tier}}
+		if tier == "team" {
+			body.Set("team", "platform")
+		}
+		r := httptest.NewRequest(http.MethodPost, "/remember?"+extra, strings.NewReader(body.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("X-Forwarded-User", who)
+		w := httptest.NewRecorder()
+		f.srv.remember(w, r)
+		return w
+	}
+	for _, tier := range []string{"global", "team"} {
+		if w := write("lee@corp.com", tier, ""); w.Code != http.StatusBadRequest {
+			t.Errorf("somebody scoped to docs wrote a %s rule (%d): %s", tier, w.Code, w.Body.String())
+		}
+		if w := write("kim@corp.com", tier, ""); w.Code == http.StatusBadRequest {
+			t.Errorf("an unscoped operator could not write a %s rule: %s", tier, w.Body.String())
+		}
+	}
+	// And their own companion's tier is theirs, which is the tier they should have been using.
+	if w := write("lee@corp.com", "project", "d="+url.QueryEscape(sock)); w.Code == http.StatusBadRequest {
+		t.Errorf("somebody scoped to docs could not write a rule for docs: %s", w.Body.String())
+	}
+}
