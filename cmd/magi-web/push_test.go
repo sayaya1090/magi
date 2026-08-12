@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -263,5 +264,59 @@ func TestASecondQuestionToTheSameCompanionIsAnnouncedToo(t *testing.T) {
 	p.told[first] = true
 	if p.told[second] {
 		t.Error("a different question was already considered told")
+	}
+}
+
+// A notification carries the same scope the screens do.
+//
+// The interesting failure is not a wrong answer on a page — it is a phone. The fleet and the
+// interventions filter what they draw, so a person scoped to one companion never sees another on
+// screen; the watcher sends from a loop with no request in it, and told everybody about everybody.
+// Whatever this console will not show somebody, it must not buzz them with.
+func TestANotificationStaysInsideTheScope(t *testing.T) {
+	s := withPolicy(t, `
+[people."kim@corp.com"]
+role = "operator"
+companions = ["billing"]
+
+[people."lee@corp.com"]
+role = "responder"
+companions = ["docs"]
+`)
+	p := &pushState{
+		subs: map[string]webpush.Subscription{
+			"https://push.example/kim": {Endpoint: "https://push.example/kim"},
+			"https://push.example/lee": {Endpoint: "https://push.example/lee"},
+			"https://push.example/old": {Endpoint: "https://push.example/old"},
+		},
+		who: map[string]string{
+			"https://push.example/kim": "kim@corp.com",
+			"https://push.example/lee": "lee@corp.com",
+			// Subscribed before the console had people in it. Nobody, not everybody.
+			"https://push.example/old": "",
+		},
+	}
+	only := func(got []webpush.Subscription) string {
+		var eps []string
+		for _, g := range got {
+			eps = append(eps, strings.TrimPrefix(g.Endpoint, "https://push.example/"))
+		}
+		sort.Strings(eps)
+		return strings.Join(eps, ",")
+	}
+	if got := only(p.mayHear(s.policy, "", "billing")); got != "kim" {
+		t.Errorf("billing started waiting and %q was told; only kim may see billing", got)
+	}
+	if got := only(p.mayHear(s.policy, "", "docs")); got != "lee" {
+		t.Errorf("docs started waiting and %q was told; only lee may see docs", got)
+	}
+	// A handoff names two companions and the payload carries both, so being scoped to one of the
+	// pair is not enough to be told about it.
+	if got := only(p.mayHear(s.policy, "", "docs", "billing")); got != "" {
+		t.Errorf("a docs↔billing handoff was announced to %q; neither may see both", got)
+	}
+	// And the same console with nobody configured is the console as it was: everyone hears.
+	if got := only(p.mayHear(withPolicy(t, "").policy, "", "billing")); got != "kim,lee,old" {
+		t.Errorf("an unconfigured console told %q; it has one operator and no scopes", got)
 	}
 }

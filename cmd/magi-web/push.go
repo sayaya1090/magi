@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
+	"github.com/sayaya1090/magi/internal/core/auth"
 	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/core/webpush"
 )
@@ -32,12 +33,14 @@ import (
 // page is already installable: there is a manifest and an icon, so a phone that added it to its
 // home screen can be woken by the console it already has. Nothing new to sign up for.
 //
-// # What this does NOT do
+// # Who is told what
 //
-// It does not decide who may subscribe. This console has no users and no login — whoever reaches
-// the port reaches the page, which is the standing position here and belongs to whatever put the
-// port there. So anyone who can open the console can point a notification at their own browser.
-// That is the same access they already have to read every transcript on it.
+// This file was written for a console with one operator, where subscribing was open to whoever
+// reached the port — the same access they already had to read every transcript on it. A console
+// with people in it changes that, and in a direction easy to miss: the screens filter what they
+// draw to a person's scope, and a notification leaves through a different door. The subscriber's
+// name is recorded, and the watcher asks the ordinary read permission before it sends. What a
+// person cannot open in the console does not arrive on their phone either.
 //
 // ⚠ A service worker only registers in a secure context, so a console reached over plain http from
 // another machine cannot turn this on at all. The page says so rather than offering a switch that
@@ -48,6 +51,12 @@ type pushState struct {
 
 	mu   sync.Mutex
 	subs map[string]webpush.Subscription // by endpoint
+	// who subscribed each endpoint, as the gateway named them, empty on a console with no gateway.
+	// A notification is a read, and it goes out to a phone that is nowhere near the permission
+	// check the page made — so it is the one read the console performs on somebody's behalf while
+	// they are not asking. Without this the watcher would tell every browser about every companion,
+	// which is the scope the screens stopped leaking and the pocket kept.
+	who map[string]string
 
 	// What each companion was doing when it was last looked at, so the watcher can notice a change
 	// rather than re-announce the same block every few seconds.
@@ -67,6 +76,11 @@ type storedSub struct {
 	// subscriptions can tell which is the phone. Clipped, because a user agent string is long and
 	// nothing reads it.
 	Agent string `json:"agent,omitempty"`
+	// Who the gateway named when this was subscribed. Absent in a file written before the console
+	// had people in it, and that absence is read as nobody rather than as everybody: a phone
+	// subscribed when the console had no policy has no claim on what the policy later says is out
+	// of scope. Re-subscribing from the page fixes it in one tap.
+	Who string `json:"who,omitempty"`
 }
 
 // newPush loads the console's push identity and whatever subscriptions it already has.
@@ -103,6 +117,7 @@ func newPush(cfgDir string) (*pushState, error) {
 		keys: keys,
 		file: filepath.Join(cfgDir, "push-subscriptions.json"),
 		subs: map[string]webpush.Subscription{},
+		who:  map[string]string{},
 		was:  map[string]fleet.State{},
 		told: map[string]bool{},
 	}
@@ -129,6 +144,7 @@ func (p *pushState) load() {
 	}
 	for _, s := range list {
 		p.subs[s.Endpoint] = s.Subscription
+		p.who[s.Endpoint] = s.Who
 	}
 }
 
@@ -136,7 +152,8 @@ func (p *pushState) load() {
 func (p *pushState) saveLocked(agents map[string]string) {
 	list := make([]storedSub, 0, len(p.subs))
 	for _, s := range p.subs {
-		list = append(list, storedSub{Subscription: s, Added: time.Now().UTC().Format(time.RFC3339), Agent: agents[s.Endpoint]})
+		list = append(list, storedSub{Subscription: s, Added: time.Now().UTC().Format(time.RFC3339),
+			Agent: agents[s.Endpoint], Who: p.who[s.Endpoint]})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Endpoint < list[j].Endpoint })
 	b, err := json.MarshalIndent(list, "", "  ")
@@ -179,8 +196,13 @@ func (s *server) push(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		if r.FormValue("delete") == "1" {
 			delete(p.subs, sub.Endpoint)
+			delete(p.who, sub.Endpoint)
 		} else {
 			p.subs[sub.Endpoint] = sub
+			// Recorded on every subscribe, not only the first: the same browser re-subscribes when
+			// its endpoint rotates, and a stale name there would be a scope that outlived the
+			// person it was granted to.
+			p.who[sub.Endpoint] = s.whoFrom(r)
 		}
 		p.saveLocked(map[string]string{sub.Endpoint: text.Clip(r.UserAgent(), 120)})
 		p.mu.Unlock()
@@ -228,20 +250,19 @@ func (s *server) watch(ctx context.Context, every time.Duration) {
 		// quiet. Checked only on that edge, because reading it means replaying transcripts — the
 		// cost /handoffs exists as its own endpoint to keep off the fleet poll.
 		settled := justSettled(list, p.was)
-		subs := make([]webpush.Subscription, 0, len(p.subs))
-		for _, sub := range p.subs {
-			subs = append(subs, sub)
-		}
+		any := len(p.subs) > 0
 		p.mu.Unlock()
 		if first {
 			first = false
 			continue
 		}
 		for _, a := range news {
-			s.notify(a, subs)
+			if subs := p.mayHear(s.policy, a.Peer, a.Name); len(subs) > 0 {
+				s.notify(a, subs)
+			}
 		}
-		if len(settled) > 0 && len(subs) > 0 {
-			s.notifyAnswers(ctx, settled, subs)
+		if len(settled) > 0 && any {
+			s.notifyAnswers(ctx, settled)
 		}
 	}
 }
@@ -273,7 +294,7 @@ func justSettled(list []fleet.Agent, was map[string]fleet.State) []fleet.Agent {
 //
 // The notification names the ASKER, not the receiver. "buttons finished" is a fact about a
 // companion; "design's question came back" is the thing the reader is waiting on.
-func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent, subs []webpush.Subscription) {
+func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 	list, err := fleet.Handoffs(ctx, s.reader, s.cfgDir, "", &s.fleetCache)
 	if err != nil {
 		return
@@ -310,8 +331,38 @@ func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent, subs 
 		if err != nil {
 			continue
 		}
-		s.send(body, subs)
+		// Both names, because the payload carries both: the title is the asker and the body is the
+		// receiver and what it said. Somebody scoped to one of the pair would be told the other
+		// exists, and told what it answered.
+		if subs := p.mayHear(s.policy, "", h.From, h.To); len(subs) > 0 {
+			s.send(body, subs)
+		}
 	}
+}
+
+// mayHear is the subscriptions of people who may read every companion a payload names.
+//
+// A notification is a read performed while nobody is asking, so it is checked as one — the same
+// Allows the routes use, not a scope test of its own. Two consequences worth stating: a person
+// whose role lost `read` stops being buzzed without anybody remembering to unsubscribe them, and a
+// subscription with no name attached hears nothing once the console has people in it.
+func (p *pushState) mayHear(policy auth.Policy, peer string, names ...string) []webpush.Subscription {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]webpush.Subscription, 0, len(p.subs))
+	for endpoint, sub := range p.subs {
+		ok := true
+		for _, name := range names {
+			if !policy.Allows(p.who[endpoint], auth.Read, name, peer) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			out = append(out, sub)
+		}
+	}
+	return out
 }
 
 // newlyWaiting returns the companions that have just started waiting, and updates was in place.
