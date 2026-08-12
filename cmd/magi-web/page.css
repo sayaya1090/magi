@@ -1305,6 +1305,65 @@
   .argv { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
   .argv.tall { grid-column:1 / -1; }
 
+  /* ── who may use this console ──────────────────────────────────────────────
+     Rebuilt on list anatomy, because the screen had none: every line was the same size in the same
+     colour, so "kim@corp.com", "read answer" and the group above them read as three peers. The
+     type scale is what says which is which, and each line here is a role from it — headline for
+     the name, body for what it buys, label for the scope under that.
+     Groups and people are built from the same two lines so a field never moves between one row and
+     the next, which is the one thing the lists guidance asks of a list holding two kinds of item. */
+  /* A subheading over each half. title-small: the section's own h2 is the page's heading, and a
+     second one at that weight would say the two are peers. */
+  .rosterhead {
+    margin:var(--magi-sys-space-400) 0 var(--magi-sys-space-150);
+    font:600 var(--md-sys-typescale-title-small-size)/1.4 var(--magi-ref-display);
+    letter-spacing:.01em; color:var(--magi-ref-muted);
+  }
+  /* Gap between rows, not rules: the lists guidance keeps dividers for lists that are complex or
+     uncontained, and a short repeating list is neither. The people below are the exception and say
+     so themselves. */
+  .acclist { display:grid; gap:var(--magi-sys-space-200); }
+  .acc { display:grid; gap:var(--magi-sys-space-50); }
+  /* Complex — each one carries a form — so these get the stronger separation the guidance reserves
+     for exactly that, and the room to go with it. */
+  .acclist .person { padding-bottom:var(--magi-sys-space-250); border-bottom:1px solid var(--magi-ref-outlineVariant); }
+  .acclist .person:last-child { border-bottom:0; padding-bottom:0; }
+  .accwho { display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap; }
+  /* The headline. Monospace because it is a literal somebody types into a file and compares by
+     eye — the same reason every other identifier on this page is. */
+  .accwho .who {
+    font:600 var(--md-sys-typescale-body-large-size)/1.4 var(--magi-ref-mono);
+    color:var(--magi-ref-fg); overflow-wrap:anywhere; min-width:0;
+  }
+  /* Trailing, and a label rather than a heading: it classifies the row, it does not name it. */
+  .accwho .role {
+    font:600 var(--md-sys-typescale-label-large-size)/1.4 var(--magi-ref-display);
+    letter-spacing:.02em; color:var(--magi-ref-primary);
+  }
+  .accwho .you {
+    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display);
+    letter-spacing:.06em; text-transform:uppercase; color:var(--magi-ref-accent);
+  }
+  .acccaps { display:grid; gap:var(--magi-sys-space-50); }
+  /* Supporting text: body, one step down from the headline and in the muted role. Monospace for
+     the same reason — these are the words that go into the file. */
+  .acccaps .caps {
+    font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-mono);
+    color:var(--magi-ref-muted); overflow-wrap:anywhere;
+  }
+  /* And the scope under it, smaller again: it is a qualifier on the line above, not a line of its
+     own standing. */
+  .acccaps .scope {
+    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display);
+    color:var(--magi-ref-muted);
+  }
+  .acccontrols {
+    display:flex; flex-wrap:wrap; align-items:center;
+    gap:var(--magi-sys-space-150); margin-top:var(--magi-sys-space-150);
+  }
+  .acccontrols md-outlined-select { flex:0 0 11rem; }
+  .acccontrols md-outlined-text-field { flex:1 1 14rem; min-width:0; }
+
   /* Whose list this is, under the heading and above the rows. Quiet, because it is not a row and
      not a setting — but monospace, because a path a person is about to compare with what they
      typed is read character by character, and the account and machine beside it are literals too. */

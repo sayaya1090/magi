@@ -3397,32 +3397,65 @@ async function loadAccess() {
   // offered to edit it would be offering to disagree with the directory.
   const kids = [head, ...whose];
   if ((got.groups || []).length) {
-    kids.push(cell('foldk', tr('access.groups')));
-    for (const g of got.groups) {
-      const row = cell('srv');
-      const top = cell('top');
-      top.append(cell('name', g.who), cell('tier', g.role));
-      row.append(top, cell('args', (g.can || []).join(' ') +
-        (g.companions && g.companions.length ? '  ·  ' + g.companions.join(', ') : '')));
-      kids.push(row);
-    }
-    kids.push(cell('foldk', tr('access.exceptions')));
+    kids.push(rosterHead('access.groups'), accList(got.groups.map(g => groupRow(g))));
   }
-  accessEl.replaceChildren(...kids, ...(got.people || []).map(p => personRow(p, roles)));
+  kids.push(rosterHead('access.exceptions'),
+            accList((got.people || []).map(p => personRow(p, roles))));
+  accessEl.replaceChildren(...kids);
 }
 
-// instanceLine names the magi this list governs: user@host, and the file it was read from.
+// A subheading over a list, which is what the two halves of this screen needed and did not have.
 //
-// The account is half of the name because it is half of the boundary — two accounts on one machine
-// read two config directories and enforce two policies, and neither can touch the other's. Not an
-// address: an IP says how to REACH a machine, a host has several, they change, and a tunnel makes
-// every peer look like 127.0.0.1.
-//
-// The path is beside the name rather than folded into it: MAGI_CONFIG_DIR can give one account two
-// instances, and then the path is the only thing that tells them apart.
-//
-// An array, so a console too old to answer with one contributes nothing rather than an empty line
-// — the caller spreads it.
+// title-small on the muted role, per the type scale: it is a heading and it is the smallest one —
+// the section already has the page's h2, and a second heading at the same weight would say the two
+// are peers. h3 because it IS one: assistive tech navigates by heading, and these are the two
+// landmarks on this screen.
+function rosterHead(key) {
+  const h = document.createElement('h3');
+  h.className = 'rosterhead';
+  h.textContent = tr(key);
+  return h;
+}
+
+// The list itself is a container, so the rows inside it are spaced with a gap rather than ruled
+// off from one another — the lists guidance keeps dividers for uncontained or complex lists and
+// asks for gap otherwise. The people below carry a form each, which is the "complex" case, and
+// they say so with a hairline of their own.
+function accList(rows) {
+  const box = cell('acclist');
+  box.append(...rows);
+  return box;
+}
+
+// One row of the roster, in list anatomy: who it is on the headline, what that buys underneath,
+// and the scope after it. Groups and people are built by the same two helpers so a field never
+// moves between one row and the next — which is the one thing the lists guidance asks of a list
+// that mixes two kinds of item.
+function whoLine(who, trailing) {
+  const line = cell('accwho');
+  line.append(cell('who', who));
+  if (trailing) line.append(trailing);
+  return line;
+}
+
+function capsLine(can, companions) {
+  const box = cell('acccaps');
+  // The capability words are NOT translated: they are what goes into auth.toml, and a screen that
+  // showed one word while the file wanted another would teach somebody the wrong name for the
+  // thing they are editing.
+  box.append(cell('caps', (can || []).join('  ')));
+  if (companions && companions.length) {
+    box.append(cell('scope', tr('access.scoped', {list: companions.join(', ')})));
+  }
+  return box;
+}
+
+function groupRow(g) {
+  const row = cell('acc');
+  row.append(whoLine('@' + g.who, cell('role', g.role)), capsLine(g.can, g.companions));
+  return row;
+}
+
 // instanceOf is user@host, or whichever half a console could tell us. The same shape the server
 // builds for the access screen, and the same reasoning: the pair is what everything here belongs
 // to, and half of it is better than a guess at the other half.
@@ -3445,17 +3478,11 @@ function instanceLine(inst) {
 }
 
 function personRow(p, roles) {
-  const row = cell('srv' + (p.me ? ' now' : ''));
-  const top = cell('top');
-  top.append(cell('name', p.who));
-  if (p.me) top.append(cell('tier', tr('access.you')));
-  row.append(top);
-  // What the role buys, in the vocabulary the file uses. Not translated: these are the words that
-  // go INTO auth.toml, and a screen that showed one word while the file wanted another would be
-  // teaching somebody the wrong name for the thing they are editing.
-  row.append(cell('args', (p.can || []).join(' ')));
+  const row = cell('acc person' + (p.me ? ' now' : ''));
+  row.append(whoLine(p.who, p.me ? cell('you', tr('access.you')) : null),
+             capsLine(p.can, p.companions));
 
-  const controls = cell('answer');
+  const controls = cell('acccontrols');
   const pick = document.createElement('md-outlined-select');
   pick.setAttribute('label', tr('access.role'));
   for (const r of roles) {
@@ -3489,13 +3516,6 @@ function personRow(p, roles) {
   return row;
 }
 
-function setPerson(who, role, companions) {
-  post('/access', new URLSearchParams({who: who, role: role, companions: companions}), '', '')
-    .then(why => { if (!why) loadAccess(); });
-}
-
-// Adding somebody is the head's own action, for the same reason adding a server is: at the bottom
-// of a list it is behind everybody already on it.
 function addPersonButton(roles) {
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-plus'),
                   tr('access.add'));

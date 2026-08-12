@@ -11,6 +11,7 @@
   "access.remove_body": "이 사용자는 더 이상 이 콘솔의 어떤 것도 볼 수 없게 됩니다. 언제든 다시 추가할 수 있습니다.",
   "access.remove_head": "{who} 를 이 콘솔에서 제외할까요?",
   "access.role": "역할",
+  "access.scoped": "{list} 에서만",
   "access.why": "이 콘솔을 어떤 사용자가 어디까지 쓸 수 있는지",
   "access.you": "나",
   "action.add_or_replace": "추가·교체",

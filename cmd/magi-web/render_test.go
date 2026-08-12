@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -4288,7 +4289,9 @@ globalThis.fetch = async (p, o) => {
   const path = String(p).split('?')[0];
   if (path === '/me') return {ok: true, json: async () => ({can: CAN})};
   if (path === '/access') return {ok: true, json: async () => ({configured: true,
-    instance: {who: 'you@studio', configDir: '/Users/you/.config/magi'}, roles: [
+    instance: {who: 'you@studio', configDir: '/Users/you/.config/magi'},
+    groups: [{who: 'platform', role: 'operator', can: ['read','admin'], companions: ['api']}],
+    roles: [
       {name: 'operator', can: ['read','answer','prompt','curate','configure','admin','shell']},
       {name: 'viewer', can: ['read']}],
     people: [
@@ -4302,7 +4305,7 @@ history.pushState({}, '', '/?v=access');
 // about whether to ask the server at all.
 render();
 for (let i = 0; i < 8; i++) await Promise.resolve();
-const names = byId.access.find('div').filter(d => String(d.className).includes('name')).map(d => d.textContent);
+const names = byId.access.find('div').filter(d => String(d.className).split(' ').includes('who')).map(d => d.textContent);
 console.log(JSON.stringify({
   hidden: byId.access.hidden,
   names: names,
@@ -4316,6 +4319,10 @@ console.log(JSON.stringify({
   // Whose list this is. Without it the roster reads as the fleet's, and the fleet spans machines.
   whose: byId.access.find('div').filter(d => String(d.className).includes('instance'))
                     .map(d => d.children.map(k => k.textContent).join(' ')).join(''),
+  // The anatomy, which is what says which line is which: a subheading over each half, and per row
+  // a headline, the capabilities under it, and the scope under that.
+  heads: byId.access.find('h3').map(h => String(h.className) + ':' + h.textContent),
+  parts: byId.access.find('div').map(d => String(d.className)).filter(c => c),
 }));
 `
 	admin := runPage(t, fleet, "?v=access", strings.Replace(page, "CAN", `['read','admin']`, 1))
@@ -4323,6 +4330,12 @@ console.log(JSON.stringify({
 		t.Fatal("an admin cannot see the screen")
 	}
 	names, _ := admin["names"].([]any)
+	// The group is a row of the roster too, and the first one: on a console wired to a directory it
+	// IS the roster and the people under it are the exceptions.
+	if len(names) != 3 || names[0] != "@platform" {
+		t.Errorf("the groups are not drawn above the people: %v", names)
+	}
+	names = names[1:]
 	if len(names) != 2 || names[0] != "kim@corp.com" {
 		t.Errorf("the list drew %v", names)
 	}
@@ -4342,6 +4355,28 @@ console.log(JSON.stringify({
 	}
 	if w, _ := admin["railWord"].(string); strings.TrimSpace(w) == "" {
 		t.Error("the rail's access item is an icon with no word")
+	}
+	// Two subheadings, because the screen holds two lists and they mean different things: what the
+	// directory says, and who was given something it does not say.
+	heads, _ := admin["heads"].([]any)
+	if len(heads) != 2 {
+		t.Errorf("the roster has %v subheadings", heads)
+	}
+	// Wearing the class that gives them their type role. A bare h3 inherits the body size, which is
+	// the state this screen was in: everything the same size, and no way to tell a heading from a
+	// row it heads.
+	for _, h := range heads {
+		if !strings.HasPrefix(fmt.Sprint(h), "rosterhead:") {
+			t.Errorf("a subheading is drawn at whatever size it inherits: %v", h)
+		}
+	}
+	// And each row is drawn in list anatomy rather than as three lines of the same size — which is
+	// what it was, and the reason nobody could tell the name from what it buys.
+	parts := fmt.Sprint(admin["parts"])
+	for _, want := range []string{"who", "caps", "acclist"} {
+		if !strings.Contains(parts, want) {
+			t.Errorf("no %q in the row's parts: %s", want, parts)
+		}
 	}
 	// The list says which magi it governs. A console watching three machines draws three of these
 	// screens the same way, and only this line tells them apart.

@@ -238,6 +238,29 @@ startup, so the command would sit there never running); and a name that cannot b
 header — refused rather than sanitised, since a name quietly rewritten is a server nobody can find
 again in their own file.
 
+### 2.5a Who may use this console (`/?v=access`)
+
+Who exists, what each may do, and which companions they are narrowed to. Behind `admin` and only
+that — the server refuses regardless; hiding the screen is for the person who would otherwise be
+offered a control that answers 403.
+
+- **The rail's foot carries the way in**, away from the two destinations somebody lives on: this is
+  opened when a person joins or leaves. Below 37.4375em the rail is not drawn at all, so there the
+  preferences dialog carries it — one door per width, never two on screen at once.
+- **It says whose list it is**: `user@host`, with the config directory it was read from. A fleet
+  spans machines and accounts and this governs exactly one of them. Not an address — an IP says how
+  to reach a machine, a host has several, and a tunnel makes every peer look like `127.0.0.1`.
+- **Groups above, people below.** On a console wired to a directory the groups ARE the roster —
+  membership is maintained where somebody is hired and let go — and the people under it are the
+  exceptions. Groups are read-only here: a console that offered to edit them would be offering to
+  disagree with the directory.
+- **A row is list anatomy**: the name on the headline, what the role buys under it, the scope under
+  that. Three type roles, because every line was the same size before and nothing said which was
+  which. Capability words are **not translated** — they are what goes into `auth.toml`.
+- Nothing can leave the file with no admin: that console would refuse to start, with the fix behind
+  the door. `magi --access`, `--grant`, `--revoke` are the way in when a policy has locked its
+  author out.
+
 ### 2.6 The grounds a decision rests on
 
 Until recently a decision reached the console as a question and two to four option labels — "which

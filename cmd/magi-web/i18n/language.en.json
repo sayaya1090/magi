@@ -11,6 +11,7 @@
   "access.remove_body": "They will no longer see anything on this console. You can add them back at any time.",
   "access.remove_head": "Remove {who} from this console?",
   "access.role": "Role",
+  "access.scoped": "On {list} only",
   "access.why": "Who may use this console, and how much",
   "access.you": "you",
   "action.add_or_replace": "Add or replace",
