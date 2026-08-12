@@ -145,7 +145,7 @@ Flags / environment variables (precedence: flag > env > default):
 | `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
 | `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
-| — | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
+| `[sampling] reasoning_effort` | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
 | — | `MAGI_TEMPERATURE` | (config `[sampling]`, else model default) | sampling temperature sent with every request; overrides `[sampling] temperature` |
 | — | `MAGI_TOP_P` | (config `[sampling]`, else model default) | nucleus sampling cutoff; overrides `[sampling] top_p` |
 | — | `MAGI_TOP_K` | (config `[sampling]`, else model default) | top-k cutoff — a non-OpenAI extension, sent only when set and honored only by backends that implement it (Ollama's `/v1` ignores it) |

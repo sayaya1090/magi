@@ -171,6 +171,13 @@ func WithSampling(s Sampling) Option {
 		if s.TopK != nil {
 			c.sampling.TopK = s.TopK
 		}
+		// Not part of Sampling on the wire — it is its own top-level field — but it arrives from
+		// the same [sampling] table, so it arrives through the same option. Env still outranks it:
+		// New() reads MAGI_REASONING_EFFORT first and the loop below applies options after, so the
+		// empty-string guard is what keeps a config value from erasing an explicit env one.
+		if s.ReasoningEffort != "" {
+			c.reasoningEffort = s.ReasoningEffort
+		}
 	}
 }
 
@@ -193,11 +200,10 @@ func WithResponseHeaderTimeout(d time.Duration) Option {
 // apiKey may be empty for local backends like Ollama.
 func New(baseURL, apiKey string, opts ...Option) *Client {
 	c := &Client{
-		baseURL:         strings.TrimRight(baseURL, "/"),
-		apiKey:          apiKey,
-		http:            &http.Client{Timeout: 0}, // streaming: no overall timeout
-		headers:         httpx.NewHeaders(nil),
-		reasoningEffort: strings.TrimSpace(os.Getenv("MAGI_REASONING_EFFORT")),
+		baseURL: strings.TrimRight(baseURL, "/"),
+		apiKey:  apiKey,
+		http:    &http.Client{Timeout: 0}, // streaming: no overall timeout
+		headers: httpx.NewHeaders(nil),
 	}
 	for _, o := range opts {
 		o(c)
@@ -206,6 +212,12 @@ func New(baseURL, apiKey string, opts ...Option) *Client {
 	// second config file. An unparseable value is ignored (and named on stderr, since a silently
 	// dropped sampling override would make an A/B look like a null result).
 	envSampling(&c.sampling)
+	// Read here rather than in the literal above, where an option applied afterwards overwrote it
+	// — which made [sampling] reasoning_effort outrank MAGI_REASONING_EFFORT, the opposite of the
+	// rule every other setting here follows.
+	if v := strings.TrimSpace(os.Getenv("MAGI_REASONING_EFFORT")); v != "" {
+		c.reasoningEffort = v
+	}
 	return c
 }
 

@@ -138,6 +138,15 @@ type SamplingConfig struct {
 	Temperature *float64 `toml:"temperature"`
 	TopP        *float64 `toml:"top_p"`
 	TopK        *int     `toml:"top_k"`
+	// ReasoningEffort is how much a thinking model is asked to think: "none" (Ollama honours it to
+	// turn thinking off) or low|medium|high. Empty omits the field entirely, which is the only
+	// safe default — a non-thinking model handed one can reject the whole request.
+	//
+	// It sits with the sampling knobs because that is what it is: something sent with every
+	// request that shapes the answer rather than deciding where it goes. It was reachable only as
+	// MAGI_REASONING_EFFORT, which is a machine-wide switch — and this is a per-companion choice
+	// (a planner that should think, a formatter that should not).
+	ReasoningEffort string `toml:"reasoning_effort"`
 }
 
 // LLMConfig tunes the LLM backend connection. Headers are custom HTTP headers
@@ -399,6 +408,9 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # temperature = 0.2
 # top_p       = 0.8
 # top_k       = 20          # not an OpenAI field; sent only when set, and Ollama's /v1 ignores it
+# reasoning_effort = "high" # thinking budget: none|low|medium|high. Omitted entirely when unset,
+#                           # which is the only safe default — a non-thinking model handed one can
+#                           # reject the request. MAGI_REASONING_EFFORT still wins.
 
 # --- Color theme (TUI). Override any Material Design 3 role per mode; an
 # unspecified role keeps the built-in NERV/MAGI default. Roles: primary, accent,

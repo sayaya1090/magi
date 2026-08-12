@@ -52,6 +52,10 @@ type Sampling struct {
 	Temperature *float64
 	TopP        *float64
 	TopK        *int
+	// ReasoningEffort is not a sampling parameter on the wire — it is its own top-level field —
+	// but it comes from the same [sampling] table and is set the same way, so it travels with
+	// them rather than growing a second option for one string.
+	ReasoningEffort string
 }
 
 // streamOptions asks the server to emit a final usage chunk while streaming.

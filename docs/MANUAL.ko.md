@@ -130,7 +130,7 @@ git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지
 | `--plugin-install` / `--plugin-pin` | — | — | clone할 플러그인 git URL / 그에 대한 태그·브랜치·커밋(선택) |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (꺼짐) | 인터랙티브 기동 시 업데이트 체크 비활성화 |
 | `--api-key` | `MAGI_API_KEY` | (없음) | 백엔드 키 (config `api_key`도 가능, `${ENV}` 확장; `OPENAI_API_KEY`로 폴백). CLI 값은 프로세스 목록에 노출되니 env/config가 더 안전. Ollama 불필요 |
-| — | `MAGI_REASONING_EFFORT` | (백엔드 기본) | reasoning 모델용 `reasoning_effort`로 백엔드에 전달 — 예: `none`으로 thinking 비활성, 또는 `low`\|`medium`\|`high`; 비우면 필드 생략 |
+| `[sampling] reasoning_effort` | `MAGI_REASONING_EFFORT` | (백엔드 기본) | reasoning 모델용 `reasoning_effort`로 백엔드에 전달 — 예: `none`으로 thinking 비활성, 또는 `low`\|`medium`\|`high`; 비우면 필드 생략 |
 | — | `MAGI_TEMPERATURE` | (설정 `[sampling]`, 없으면 모델 기본) | 모든 요청에 실리는 샘플링 temperature; `[sampling] temperature`보다 우선 |
 | — | `MAGI_TOP_P` | (설정 `[sampling]`, 없으면 모델 기본) | nucleus 샘플링 컷오프; `[sampling] top_p`보다 우선 |
 | — | `MAGI_TOP_K` | (설정 `[sampling]`, 없으면 모델 기본) | top-k 컷오프 — OpenAI 비표준 확장이라 설정했을 때만 전송되고, 구현한 백엔드에서만 반영된다(Ollama `/v1`은 무시) |

@@ -455,9 +455,10 @@ func run() int {
 	// [sampling] — part of the baseline options, so profile clients (newProviderFactory) inherit
 	// it too and a routed agent samples the same way as the main one.
 	llmOpts = append(llmOpts, openai.WithSampling(openai.Sampling{
-		Temperature: cfg.Sampling.Temperature,
-		TopP:        cfg.Sampling.TopP,
-		TopK:        cfg.Sampling.TopK,
+		Temperature:     cfg.Sampling.Temperature,
+		TopP:            cfg.Sampling.TopP,
+		TopK:            cfg.Sampling.TopK,
+		ReasoningEffort: cfg.Sampling.ReasoningEffort,
 	}))
 	llm := openai.New(baseURLVal, apiKeyVal, llmOpts...) // concrete client: doctor/probe/header calls need it
 
