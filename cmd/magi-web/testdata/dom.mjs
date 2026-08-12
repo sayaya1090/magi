@@ -67,6 +67,7 @@ function element(tag) {
     // against it used indexOf, which threw in a browser and silently dropped a whole panel.
     append(...kids) {
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
+      this.adopt(kids);
       this.children.push(...kids);
     },
     // Removing one child, which is how the transcript drops the tail it is about to rebuild.
@@ -87,14 +88,29 @@ function element(tag) {
       if (p && typeof p.removeChild === 'function') p.removeChild(this);
       else this.parentNode = null;
     },
+    // Taken out of wherever it was, first. The DOM MOVES a node: appending one that already has a
+    // parent removes it from that parent, and nothing about the tree can be in two places. This
+    // fake kept it in both — so a node could end up inside its own descendant, and a walk over the
+    // tree recursed until the stack ran out. Found by the attribute selector added for data-may;
+    // it had been true for every append before that and only ever cost duplicates nobody counted.
+    adopt(kids) {
+      for (const k of kids) {
+        if (k && typeof k === 'object' && k.parentNode && k.parentNode !== this &&
+            typeof k.parentNode.removeChild === 'function') {
+          k.parentNode.removeChild(k);
+        }
+      }
+    },
     // Inserting at the FRONT, which is how the transcript puts the stand-in for what is above it.
     prepend(...kids) {
+      this.adopt(kids);
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
       this.children.unshift(...kids);
     },
     // Inserting BEFORE a child, which is how the report-format editor keeps its add control at the
     // bottom while rows arrive above it. A missing node appends, as the DOM does.
     insertBefore(kid, before) {
+      this.adopt([kid]);
       if (kid && typeof kid === 'object') kid.parentNode = this;
       const i = this.children.indexOf(before);
       if (i < 0) this.children.push(kid);
@@ -102,6 +118,7 @@ function element(tag) {
       return kid;
     },
     replaceChildren(...kids) {
+      this.adopt(kids);
       for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
       this.children = kids;
     },
@@ -280,9 +297,15 @@ globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 // It used to be a list kept here by hand, and keeping it was the tax on adding any element at all:
 // the way it told you it was short was an error in an unrelated test, naming the lookup rather
 // than the change. The markup's ids are exactly the set the page can ask for.
-import { MARKUP_IDS } from './ids.mjs';
+import { MARKUP_IDS, MARKUP_MAY } from './ids.mjs';
 const byId = {};
 for (const id of MARKUP_IDS) byId[id] = element('div');
+// The one attribute the markup writes and the page reads back. Everything else a stub carries was
+// put there by the page itself; this one arrives from the HTML, and without it the permission gate
+// looked as though it covered nothing at all.
+for (const [id, need] of Object.entries(MARKUP_MAY || {})) {
+  if (byId[id]) byId[id].attrs['data-may'] = need;
+}
 // A dialog opens, closes, and remembers which button closed it. The page reads returnValue to tell
 // a cancel from a confirm, and a fake without it makes every cancel look like a confirm — which is
 // the one thing a dialog must never get wrong.
@@ -352,8 +375,14 @@ globalThis.document = {
     const m = /^\[([a-z-]+)\]$/.exec(String(sel));
     if (!m) throw new Error('the fake DOM only understands [attribute] selectors, not ' + sel);
     const out = [];
+    // Each node once, however it got where it is. A real tree cannot contain itself, but a TEST
+    // can assign `children` directly — one does, to stand the pane up from the markup's ids — and
+    // the walk then followed its own tail until the stack ran out. Every id is also a root here,
+    // so a node reachable twice would be reported twice even without a cycle.
+    const seen = new Set();
     const walk = n => {
-      if (!n || typeof n !== 'object') return;
+      if (!n || typeof n !== 'object' || seen.has(n)) return;
+      seen.add(n);
       if (n.attrs && n.attrs[m[1]] !== undefined) out.push(n);
       for (const k of n.children || []) walk(k);
     };

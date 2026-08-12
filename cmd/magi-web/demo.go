@@ -147,6 +147,10 @@ const demoScript = `
     // hole in it, and the hole is the part that answers "am I looking at the right one".
     '/console': {host: 'studio', configDir: '/Users/you/.config/magi',
                  peers: ['mini', 'laptop']},
+    // Everything, because a demo has nobody configured — which is also what a console with no
+    // auth.toml answers, so the copy behaves like the ordinary single-operator one rather than
+    // like a person nobody gave a role to.
+    '/me': {can: ['read', 'answer', 'prompt', 'curate', 'configure', 'admin', 'shell']},
     // A key so the notifications switch draws its live state rather than "this console has no push
     // key". Nothing can be subscribed here — there is no server to post to and the mock refuses
     // writes — but the reason a reader sees is then the browser's own, which is the true one.

@@ -262,11 +262,13 @@
                   stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
           </g>
           <!-- Following the machine: half lit, which is the mark this means everywhere and the one
-               body of the three that is not a claim about the time of day. Same radius as the sun,
-               so the three are one sky and not three drawings. -->
+               body of the three that is not a claim about the time of day. Sized against the MOON
+               rather than the sun's core — the sun is small in the middle of eight rays and reads
+               as wide as all of them, so a circle at the core's radius looked like a dot beside
+               the other two. -->
           <g class="auto">
-            <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
-            <path d="M12 7.8a4.2 4.2 0 0 0 0 8.4z" fill="currentColor"/>
+            <circle cx="12" cy="12" r="7.4" stroke="currentColor" stroke-width="1.8" fill="none"/>
+            <path d="M12 4.6a7.4 7.4 0 0 0 0 14.8z" fill="currentColor"/>
           </g>
         </svg>
       </md-icon-button>
@@ -287,8 +289,13 @@
       <div class="prefsay"><div class="k" id="notifyK"></div><div class="say" id="notifyWhy"></div></div>
       <md-switch id="notifySwitch" touch-target="wrapper"></md-switch>
     </div>
-    <div class="k" id="consoleK"></div>
-    <div id="console"></div>
+    <!-- One block, not two rows. Split, the heading sat exactly as far from its own contents as
+         from the setting above it, so it read as floating between the two rather than belonging to
+         what is under it. -->
+    <div class="prefsay">
+      <div class="k" id="consoleK"></div>
+      <div id="console"></div>
+    </div>
   </form>
   <div slot="actions">
     <md-text-button id="prefsClose" form="prefsForm" value="close"></md-text-button>
@@ -353,7 +360,10 @@
     <md-outlined-text-field id="t" type="textarea" rows="1"
       ></md-outlined-text-field>
     <md-filled-button type="submit" id="send">send</md-filled-button>
-    <md-filled-tonal-button type="button" id="stop">interrupt</md-filled-tonal-button>
+    <!-- Stopping a turn is answering for it: the same person who may say "no, don't run that" may
+         say "stop". Somebody who may only look is not offered the button that ends somebody
+         else's work. -->
+    <md-filled-tonal-button type="button" id="stop" data-may="answer">interrupt</md-filled-tonal-button>
   </div><div id="cnote" hidden></div></form>
 </footer>
 

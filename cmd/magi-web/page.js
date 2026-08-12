@@ -167,6 +167,54 @@ loadPack();
 // constants that do not exist yet.
 let painted = false;
 
+// What this person may do here, or null when nobody has been configured and the answer is
+// "everything" — which is what a loopback console with one operator has always been.
+//
+// This is NOT the check. The server refuses regardless, and it must: hiding is courtesy and the
+// gate is security, and a page that confuses the two is how a console somebody called read-only
+// turns out to have been writable by anybody who opened the network tab. What this buys is the
+// other half — a composer for somebody who may not prompt is a box that swallows what they typed,
+// and a button that only ever answers 403 teaches people to distrust the screen.
+let myCan = null;
+const may = c => !myCan || myCan.includes(c);
+
+// applyMay hides the controls this person has no use for.
+//
+// Declared in the markup or on the element (data-may="configure") rather than listed here, for the
+// reason the route table is a table: a control added later is covered by existing, and the person
+// adding it says what it needs at the moment they know.
+// mayEl is the same question asked of an element that declares its own requirement. A control
+// whose visibility is COMPUTED — the interrupt button is not drawn on the fleet screen at all —
+// folds this into that computation, because a pass afterwards is a pass the next layout undoes.
+const mayEl = el => !el || !el.getAttribute('data-may') || may(el.getAttribute('data-may'));
+
+function applyMay(root) {
+  for (const el of (root || document).querySelectorAll('[data-may]')) {
+    // It only ever TAKES AWAY. Written as an assignment it also un-hid things the page had hidden
+    // for its own reasons — the interrupt button is not drawn on the fleet screen at all, and a
+    // gate that granted as well as refused put it back there.
+    if (!may(el.getAttribute('data-may'))) el.hidden = true;
+  }
+}
+
+// loadMe asks once, at startup, and paints what it learns.
+//
+// A console with nobody configured answers "everything", so this changes nothing there — which is
+// the property that matters: the ordinary single-operator console must not grow a permission model
+// it did not ask for.
+async function loadMe() {
+  const me = await fetchList('/me');
+  if (!me) return;                      // unreachable: leave everything drawn, the server still refuses
+  myCan = Array.isArray(me.can) ? me.can : null;
+  document.body.toggleAttribute('no-read', !may('read'));
+  applyMay(document);
+  // The composer, and nothing else. Everything on a companion's page is redrawn by the poll a
+  // moment later anyway; a full paint() from here hung the page instead — worth knowing rather
+  // than working around, so: paint() is for a language pack landing, and it re-enters enough of
+  // the page that calling it from a fetch that resolves during startup never came back.
+  if (typeof composerReach === 'function') composerReach();
+}
+
 // Whose console this is. Not an account — magi has no users to log in — but the two facts that
 // answer "am I looking at the right machine": the host it runs on and the config directory it
 // reads. A supervisor with three of these open in three tabs has asked that question.
@@ -1335,6 +1383,18 @@ function answerMode(a) {
 // companion mid-turn cannot be moved at all, so a box that accepted a sentence there was taking
 // something it could not deliver.
 function composerReach() {
+  // Two capabilities meet at one box. Answering what the agent is blocked on and giving it new
+  // work are different permissions on purpose — somebody trusted to unblock a companion is not
+  // necessarily somebody who decides what it works on — and this is the control both would use.
+  // So it stays for either, and refuses in the mode the person has no capability for.
+  const canAnswer = may('answer'), canPrompt = may('prompt');
+  f.hidden = f.hidden || (!canAnswer && !canPrompt);
+  if (answering ? !canAnswer : !canPrompt) {
+    t.toggleAttribute('disabled', true);
+    document.getElementById('send').toggleAttribute('disabled', true);
+    t.setAttribute('label', tr(answering ? 'may.not_answer' : 'may.not_prompt'));
+    return;
+  }
   const to = movingTo();
   const a = shownAgent();
   // Idle is the daemon's state, not the session's: a session that is not current is never running,
@@ -1758,7 +1818,14 @@ async function loadFleet() {
   if (!here) drawFleetCount(list, waiting);
   if (!list.length) {
     fleetEl.replaceChildren();
-    if (!here) fleetEl.append(emptyState('empty.no_agents', 'empty.no_agents_how'));
+    // An empty list and a list you may not see are different facts, and the same blank screen was
+    // both. Somebody a gateway let in but nobody gave a role to was shown "no companions yet" —
+    // which is a lie about the fleet, and sends them looking for a daemon to start.
+    if (!here) {
+      fleetEl.append(may('read')
+        ? emptyState('empty.no_agents', 'empty.no_agents_how')
+        : emptyState('may.nothing', 'may.nothing_how'));
+    }
     return;
   }
   // Trouble first, then movement, then quiet, then gone; most recently active within each. A list
@@ -1954,10 +2021,15 @@ function paintPerm(sel) {
 }
 
 function permField(a) {
+  // Changing how a companion runs is `configure`; reading which mode it is on is not. So the field
+  // is drawn and disabled rather than removed: a viewer who cannot see the approval mode cannot
+  // tell a companion that stops for everything from one that stops for nothing.
+
   const f = cell('f');
   f.append(cell('k', tr('field.permission')));
   const v = cell('v');
   let sel = permField.el;
+  if (sel) sel.toggleAttribute('disabled', !may('configure'));
   if (!sel) {
     sel = permField.el = document.createElement('md-outlined-select');
     sel.className = 'permsel';
@@ -1978,6 +2050,9 @@ function permField(a) {
     sel.value = now;
     if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
   }
+  // Drawn and disabled rather than removed: a reader who cannot see which approval mode a
+  // companion is on cannot tell one that stops for everything from one that stops for nothing.
+  sel.toggleAttribute('disabled', !may('configure'));
   v.append(sel);
   f.append(v);
   return f;
@@ -2029,6 +2104,7 @@ function modelField(a, now) {
   }
   modelField.now = modelField.want || now;
   paintModels(sel, modelField.list || [], modelField.now);
+  sel.toggleAttribute('disabled', !may('configure'));
   v.append(sel);
   f.append(v);
   return f;
@@ -4380,6 +4456,7 @@ function paint() {
   answerMode(answering);
   const stopBtn = document.getElementById('stop');
   stopBtn.textContent = tr('action.interrupt');
+  if (!mayEl(stopBtn)) stopBtn.hidden = true;
   withMark(stopBtn, '#i-ss-circle-stop');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
   // A secondary tab's indicator spans the tab; a primary tab's hugs its label. The bundle keeps
@@ -4430,7 +4507,8 @@ function paint() {
   withMark(mcpGo, '#i-sl-floppy-disk');
   document.getElementById('langK').textContent = tr('pref.lang');
   paintChoice(langEl, 'lang', true);
-  if (consoleEl.children.length) loadConsole();   // its two labels are words too
+  if (consoleEl.children.length) loadConsole();
+loadMe();   // its two labels are words too
   paintNotify();
 
   // The lists are drawn by functions, and a function's words are read at draw time. A pack that
@@ -4647,7 +4725,10 @@ function render() {
   // Navigation changes which conversation the box would reach, and arriving at a session screen
   // does not draw a prompt — so the composer is told here as well as when a question appears.
   composerReach();
-  document.getElementById('stop').hidden = !s || deepNow; // nothing to interrupt from the fleet view
+  // Nothing to interrupt from the fleet view — and nothing to offer somebody who may not answer,
+  // which is the same permission: stopping a turn is deciding for it.
+  const stopBtn = document.getElementById('stop');
+  stopBtn.hidden = !s || deepNow || !mayEl(stopBtn);
   // And the strip under it, when the screen you are on IS the decision. Standing on the decision
   // screen the same question was drawn twice — its report in full above, its report again in the
   // dock, with a button offering to open the screen already open. The dock's copy is the one that

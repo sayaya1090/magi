@@ -60,8 +60,22 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// And the one markup ATTRIBUTE the page reads back off its own elements. The fake builds a stub
+	// per id and knows nothing of what the HTML wrote on them, which is fine for the attributes the
+	// page only ever sets — but data-may is written in the markup and read by applyMay, so without
+	// this the permission gate looked as though it covered nothing.
+	may := map[string]string{}
+	for _, m := range regexp.MustCompile(`<[^>]*\sid="([A-Za-z][\w-]*)"[^>]*\sdata-may="(\w+)"`).
+		FindAllStringSubmatch(indexHTML, -1) {
+		may[m[1]] = m[2]
+	}
+	mayJSON, err := json.Marshal(may)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "ids.mjs"),
-		[]byte("export const MARKUP_IDS = "+string(list)+";\n"), 0o644); err != nil {
+		[]byte("export const MARKUP_IDS = "+string(list)+";\n"+
+			"export const MARKUP_MAY = "+string(mayJSON)+";\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The page imports the vendored bundle by the path this binary serves it at. Node resolves
@@ -3740,5 +3754,83 @@ console.log(JSON.stringify({fields: box ? box.find('md-outlined-text-field').len
 `)
 	if got["fields"].(float64) != 1 {
 		t.Errorf("an open question drew %v fields", got["fields"])
+	}
+}
+
+// The page leaves out what this person would only be refused for.
+//
+// Hiding is NOT the check — the server refuses either way, and a page that confused the two is how
+// a console somebody called read-only turns out to have been writable by anybody who opened the
+// network tab. What it buys is the other half: a composer for somebody who may not prompt is a box
+// that swallows what they typed, and a button that only ever answers 403 teaches people to
+// distrust the screen.
+func TestThePageLeavesOutWhatThisPersonMayNotDo(t *testing.T) {
+	probe := func(can string) string {
+		return `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  if (String(p).split('?')[0] === '/me') return {ok: true, json: async () => ({can: ` + can + `})};
+  return base(p, o);
+};
+await loadMe();
+await loadFleet();
+render();
+console.log(JSON.stringify({
+  stopHidden: byId.stop.hidden === true,
+  fieldOff: byId.t.attrs['disabled'] !== undefined,
+  label: byId.t.attrs['label'] || '',
+  empty: byId.fleet.find('div').filter(d => String(d.className).includes('empty')).length,
+}));
+`
+	}
+	fleet := `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,"session":"s1","idle":9}]`
+
+	// A viewer: no stopping, no typing, and the field says which of the two it is.
+	viewer := runPage(t, fleet, "?d=%2Fs%2Fa.sock", probe(`['read']`))
+	if viewer["stopHidden"] != true {
+		t.Error("a viewer is offered the button that ends somebody else's turn")
+	}
+	if viewer["fieldOff"] != true {
+		t.Error("a viewer gets a live composer — a box that swallows what they typed")
+	}
+	if !strings.Contains(viewer["label"].(string), "may not") {
+		t.Errorf("the field does not say why it is shut: %q", viewer["label"])
+	}
+
+	// A responder: stopping and answering are the same permission, so the button stays.
+	responder := runPage(t, fleet, "?d=%2Fs%2Fa.sock", probe(`['read', 'answer']`))
+	if responder["stopHidden"] == true {
+		t.Error("somebody who may answer cannot stop a turn, which is the same act")
+	}
+
+	// An operator, and the console with nobody configured, are the same screen.
+	op := runPage(t, fleet, "?d=%2Fs%2Fa.sock", probe(`['read', 'answer', 'prompt']`))
+	if op["fieldOff"] == true {
+		t.Error("somebody who may prompt was given a dead composer")
+	}
+}
+
+// Somebody a gateway let in but nobody gave a role to is told that, not shown an empty fleet.
+//
+// The same blank screen was two different facts — "no companions yet" and "you may not see them" —
+// and the first sends somebody off to start a daemon that is already running.
+func TestAPersonWithNoRoleIsToldSoRatherThanShownAnEmptyFleet(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  if (String(p).split('?')[0] === '/me') return {ok: true, json: async () => ({can: []})};
+  return base(p, o);
+};
+await loadMe();
+await loadFleet();
+const empties = byId.fleet.find('div').filter(d => String(d.className).includes('empty'));
+console.log(JSON.stringify({text: empties.length ? empties[0].innerHTML || empties[0].textContent : ''}));
+`)
+	said, _ := got["text"].(string)
+	if said == "" {
+		t.Fatal("nothing was drawn at all")
+	}
+	if strings.Contains(said, "No companions") || strings.Contains(said, "magi -daemon") {
+		t.Errorf("they were told the fleet is empty: %q", said)
 	}
 }
