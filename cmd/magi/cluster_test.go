@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,9 +18,29 @@ import (
 	"github.com/sayaya1090/magi/internal/core/cluster"
 )
 
+// farMachine is a key that is not this machine's, stable for one test.
+//
+// Records arriving from elsewhere are signed by the machine they describe, and a member seen twice
+// has to be signed by the SAME key both times or this machine refuses it as somebody claiming to
+// be it — which is the point of the check and a trap for a fixture that mints a key per call.
+var farMachines sync.Map // *testing.T -> config dir holding one key
+
+func farMachine(t *testing.T) string {
+	t.Helper()
+	if d, ok := farMachines.Load(t); ok {
+		return d.(string)
+	}
+	d := t.TempDir()
+	farMachines.Store(t, d)
+	t.Cleanup(func() { farMachines.Delete(t) })
+	return d
+}
+
+// memberJSON is a member list on the wire — signed, because an unsigned one is dropped on arrival
+// and a fixture that skipped that would be testing the drop rather than the exchange.
 func memberJSON(t *testing.T, ms []cluster.Member) string {
 	t.Helper()
-	b, err := json.Marshal(ms)
+	b, err := json.Marshal(daemon.Vouch(farMachine(t), ms))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,9 +166,10 @@ func TestARoundTeachesThisMachineSomebodyItHadNeverMet(t *testing.T) {
 		{Host: "buildbox", Socket: "/s/b.sock", Name: "build", Seen: time.Now()},
 	})
 	trade := func(_ context.Context, host string, mine []cluster.Member) ([]cluster.Member, error) {
-		return []cluster.Member{
+		// Signed by the machine it describes, which is what a real exchange carries.
+		return daemon.Vouch(farMachine(t), []cluster.Member{
 			{Host: "mini", Socket: "/s/c.sock", Name: "third", Seen: time.Now()},
-		}, nil
+		}), nil
 	}
 	gossipRound(context.Background(), cfg, trade, nil, testRand(), map[string]bool{})
 	if !hasName(daemon.Known(cfg, time.Now()), "third") {

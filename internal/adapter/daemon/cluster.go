@@ -52,6 +52,11 @@ func Host() string {
 //
 // The capability count comes off the record rather than being worked out here: it is counted by
 // the daemon that owns the workspace, which is the only process that can see both halves of it.
+//
+// Signed on the way out — see Vouch. Here rather than at whichever code path happens to be sending:
+// this is the one place a record about THIS machine is made, and a record that is signed only when
+// it leaves by the door somebody remembered to change is a record that arrives unsigned, and is
+// dropped, from the other three.
 func Mine(configDir string, now time.Time) []cluster.Member {
 	found, err := List(configDir)
 	if err != nil {
@@ -70,7 +75,7 @@ func Mine(configDir string, now time.Time) []cluster.Member {
 		}
 		out = append(out, m)
 	}
-	return out
+	return Vouch(configDir, out)
 }
 
 // Known is everything this machine can say about who is out there: its own live companions, and the
@@ -107,7 +112,11 @@ func Elsewhere(configDir string, now time.Time) []cluster.Member {
 func LearnMembers(configDir string, heard []cluster.Member, now time.Time) ([]cluster.Member, error) {
 	host := Host()
 	var theirs []cluster.Member
-	for _, m := range heard {
+	// Checked before anything is believed, and here because this is the ONE door records from
+	// another machine come through: every exchange, every relay, every restore from a peer ends up
+	// in this function. A check at the call sites would be four checks, and the fifth call site
+	// would be the one somebody adds next month.
+	for _, m := range Vouched(configDir, heard, nil) {
 		if host != "" && strings.EqualFold(m.Host, host) {
 			continue // ours, and the directory is the authority on ours
 		}

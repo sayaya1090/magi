@@ -963,7 +963,10 @@ func TestAMachineThatDoesNotAnswerDoesNotEndTheWait(t *testing.T) {
 // elsewhere records a sighting of a companion on another machine, the way an exchange would.
 func (tm *team) elsewhere(ms ...cluster.Member) {
 	tm.t.Helper()
-	if _, err := daemon.LearnMembers(tm.cfgDir, ms, time.Now()); err != nil {
+	// Signed as the machine they describe would sign them: an unsigned record is dropped on
+	// arrival, so a fixture handing over bare structs would be exercising the drop. The key lives
+	// in a config directory of its own, which is what another machine is.
+	if _, err := daemon.LearnMembers(tm.cfgDir, daemon.Vouch(tm.t.TempDir(), ms), time.Now()); err != nil {
 		tm.t.Fatal(err)
 	}
 }

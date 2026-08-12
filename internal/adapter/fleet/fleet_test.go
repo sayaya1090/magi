@@ -806,9 +806,20 @@ func TestATeamThatIsAllStoppedHasNoHub(t *testing.T) {
 // knowOf writes the sightings this machine has been told about, the way an exchange would.
 func (f *fleetFixture) knowOf(ms ...cluster.Member) {
 	f.t.Helper()
-	if _, err := daemon.LearnMembers(f.cfgDir, ms, time.Now()); err != nil {
+	if _, err := daemon.LearnMembers(f.cfgDir, asAnotherMachine(f.t, ms), time.Now()); err != nil {
 		f.t.Fatal(err)
 	}
+}
+
+// asAnotherMachine signs records the way the machine they describe would.
+//
+// A record with no signature is dropped on arrival, which is the point of them — so a fixture that
+// hands LearnMembers bare structs is testing the drop, not the listing. The key lives in a config
+// directory of its own, which is exactly what "another machine" is: a different key, made
+// somewhere else, seen here for the first time.
+func asAnotherMachine(t *testing.T, ms []cluster.Member) []cluster.Member {
+	t.Helper()
+	return daemon.Vouch(t.TempDir(), ms)
 }
 
 // teamDaemon publishes a companion that belongs to a team, optionally declaring it speaks for it.
@@ -872,9 +883,9 @@ func TestACompanionSeenDirectlyAndHeardAboutIsOneCompanion(t *testing.T) {
 	// or a second workstation writing into this directory looks like from here.
 	overwritePublishedHost(t, sock, wd, "shared", "buildbox", "design")
 	// And heard about, the way an exchange with a third machine would deliver it.
-	if _, err := daemon.LearnMembers(f.cfgDir, []cluster.Member{{
+	if _, err := daemon.LearnMembers(f.cfgDir, asAnotherMachine(t, []cluster.Member{{
 		Host: "buildbox", Socket: sock, Name: "design", Workdir: wd, Seen: time.Now(),
-	}}, time.Now()); err != nil {
+	}}), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -904,9 +915,9 @@ func TestTheSamePathOnTwoMachinesIsTwoCompanions(t *testing.T) {
 	sock := f.serveAsking(wd, "mine", nil)
 	f.session("mine", wd, "building", 1, true)
 	overwritePublishedHost(t, sock, wd, "mine", "thishost", "here")
-	if _, err := daemon.LearnMembers(f.cfgDir, []cluster.Member{{
+	if _, err := daemon.LearnMembers(f.cfgDir, asAnotherMachine(t, []cluster.Member{{
 		Host: "otherbox", Socket: sock, Name: "there", Workdir: wd, Seen: time.Now(),
-	}}, time.Now()); err != nil {
+	}}), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	var here, there bool
