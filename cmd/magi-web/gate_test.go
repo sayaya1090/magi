@@ -562,3 +562,59 @@ role = "tuner"
 		t.Errorf("the tuner cannot even read the schedule (%d): %s", w.Code, w.Body.String())
 	}
 }
+
+// Auto-approval is answering, in advance and for everything.
+//
+// /permission is `configure`, and "how strictly does it ask" is configuration. But `allow` approves
+// every tool call the companion will make and `auto` approves its edits, so a role written as "may
+// set how it runs, may not tell it yes" could do in one post what /answer governs one call at a
+// time. Tightening it is not the same act and stays where it was.
+func TestLooseningApprovalNeedsTheAnswerCapability(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := namedWorkdir(t, "docs")
+	sock := f.daemonAt(wd, "docs", true)
+	f.session("docs", wd, "the docs work", 1, true)
+
+	f.srv.userHeader = "X-Forwarded-User"
+	p, err := config.LoadAuth(policyDir(t, `
+[roles.tuner]
+can = ["read", "configure"]
+
+[people."kim@corp.com"]
+role = "operator"
+
+[people."pat@corp.com"]
+role = "tuner"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	set := func(who, mode string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/permission?d="+url.QueryEscape(sock),
+			strings.NewReader(url.Values{"mode": {mode}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("X-Forwarded-User", who)
+		w := httptest.NewRecorder()
+		f.srv.permission(w, r)
+		return w
+	}
+	for _, mode := range []string{"allow", "auto"} {
+		if w := set("pat@corp.com", mode); w.Code != http.StatusForbidden {
+			t.Errorf("somebody who may not answer set the mode to %s (%d): %s",
+				mode, w.Code, w.Body.String())
+		}
+	}
+	// Putting a person back in the loop is not a way around the person. These reach the daemon —
+	// which this fixture does not run — so anything but a refusal is the assertion.
+	for _, mode := range []string{"ask", "deny"} {
+		if w := set("pat@corp.com", mode); w.Code == http.StatusForbidden {
+			t.Errorf("tightening to %s was refused to somebody who may configure: %s",
+				mode, w.Body.String())
+		}
+	}
+	if w := set("kim@corp.com", "allow"); w.Code == http.StatusForbidden {
+		t.Errorf("an operator was refused: %s", w.Body.String())
+	}
+}

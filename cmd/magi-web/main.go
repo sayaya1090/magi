@@ -1409,6 +1409,19 @@ func (s *server) permission(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mode must be ask, auto, allow or deny", http.StatusBadRequest)
 		return
 	}
+	// Loosening the approval axis is answering, in advance and for everything. `allow` approves
+	// every tool call this companion makes and `auto` approves the edits, so a role holding
+	// `configure` alone — "may set how it runs, may not tell it yes" — could do in one post what
+	// /answer exists to govern one call at a time. Tightening it (`ask`, `deny`) needs no such
+	// thing: putting a person back in the loop is not a way around the person.
+	if mode == "allow" || mode == "auto" {
+		if who := s.whoFrom(r); !s.policy.Allows(who, auth.Answer,
+			nameOfSocket(r.URL.Query().Get("d")), r.URL.Query().Get("p")) {
+			http.Error(w, refusal(who, auth.Answer)+" — "+mode+" answers every request this "+
+				"companion would have made", http.StatusForbidden)
+			return
+		}
+	}
 	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
 		return cl.SetPermission(mode)
 	}); err != nil {
