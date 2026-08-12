@@ -372,6 +372,14 @@ globalThis.document = {
     removeAttribute(k) { delete this.attrs[k]; },
   },
   body: Object.assign(element('body'), { offsetHeight: 400, scrollHeight: 400 }),
+  // The typeface arrives after the page does, and the page has to answer for what that moves. A
+  // promise that never settles would have let a test "pass" by never running the handler at all —
+  // which is what happened, and is why _land exists: the test decides when the fonts are in.
+  fonts: (() => {
+    let land;
+    const ready = new Promise(r => { land = r; });
+    return { ready, _land: () => land() };
+  })(),
   createElement: element,
   // Namespaced elements are the same fake element here. The page builds <svg> and <use> this way
   // because a browser demands it; nothing in these tests reads the namespace back.

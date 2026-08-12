@@ -4104,3 +4104,26 @@ console.log(JSON.stringify({went: went}));`)
 		t.Errorf("it ended at %v, and the document is 2400 tall by then", last)
 	}
 }
+
+// And once more when the typeface lands.
+//
+// The transcript is set in a web font with font-display:swap, so every line is measured in a
+// fallback face first and re-measured when the real one arrives. On a cold load that happens after
+// the first draw: the page changes height under somebody who was already at the foot of it. Same
+// failure as the late-growing row, from the other direction, and the same one line fixes it.
+func TestTheBottomIsReachedAgainWhenTheFontsLand(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+window.scrollY = 0; window.innerHeight = 800;
+document.body.offsetHeight = 400; document.body.scrollHeight = 400;
+// After the page has finished starting up, so what is measured is the FONTS landing and not
+// something else that scrolled on the way in.
+for (let i = 0; i < 8; i++) await Promise.resolve();
+window.scrolledTo = null;
+document.fonts._land();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({after: window.scrolledTo}));`)
+
+	if got["after"] == nil {
+		t.Error("the fonts landed, the lines re-measured, and the reader was left above the end")
+	}
+}

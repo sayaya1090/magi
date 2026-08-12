@@ -5078,6 +5078,14 @@ const grow = () => measureDock();
 //
 // Measured BEFORE the property is set: the dock is fixed, so at this point the document is still
 // the height it was and "at the bottom" is still answerable.
+// The same failure once more, from the other direction: the transcript is set in a web font, and
+// `font-display: swap` means every line is measured in a fallback face first and re-measured when
+// the real one arrives. On a cold load that lands after the first draw, so the page changes height
+// under somebody who was already at the foot of it. Once, when the fonts are in.
+if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+  document.fonts.ready.then(() => { if (atBottom()) toBottom(); });
+}
+
 const dock = document.getElementById('dock');
 function measureDock() {
   const stick = atBottom();
