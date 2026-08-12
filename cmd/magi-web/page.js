@@ -223,6 +223,9 @@ function loadConsole() {
     if (!c) return;
     consoleEl.replaceChildren();
     embedModel = c.embedModel || '';
+    // The masthead's copy of the same fact. Written from here rather than fetched again: one read,
+    // one answer, and the two places that show it cannot come to disagree.
+    whereamiEl.textContent = instanceOf(c.user, c.host);
     // The machine, the directory, and the two builds. The console's own version is the process the
     // reader just loaded; the daemons' is what their companions are actually running, and the two
     // come apart the moment somebody upgrades without restarting anything.
@@ -482,6 +485,7 @@ const companionAlive = ok => {
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
+const whereamiEl = document.getElementById('whereami');
 const railFleet = document.getElementById('railFleet');
 const railSkills = document.getElementById('railSkills');
 const railAccess = document.getElementById('railAccess');
@@ -1865,7 +1869,6 @@ async function loadFleet() {
     drawDetail(mine);
     loadIntervened(mine);
     loadJobs(mine);
-    drawReportFormat(mine);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
     return;
@@ -2372,6 +2375,7 @@ function drawDetail(a) {
     row.append(v);
     grid.append(row);
   });
+  drawReportFormat(a, grid);
   setFolded(localStorage.getItem('facts') === 'folded');
   box.hidden = false;
   // Which of the two panels it belongs to when the columns have stacked. Called here rather than
@@ -2714,10 +2718,38 @@ function planRows(todos) {
   return box;
 }
 
+// showSide draws or withdraws one of the pane's cards, and tells the control that opens the pane.
+//
+// One funnel rather than five `box.hidden = …`, because the fact the control needs is not about
+// any one card: it is whether ANY of them has something in it. Five assignments would be five
+// places to remember, and the one that got forgotten would leave a button that opens an empty
+// column — which reads as broken, not as empty.
+function showSide(box, on) {
+  if (!box) return;
+  box.hidden = !on;
+  refreshSideToggle();
+}
+
+// refreshSideToggle disables the control when the pane it opens has nothing in it.
+//
+// A control that does something invisible is one somebody presses twice and then stops trusting.
+// Disabled rather than hidden: the pane comes and goes with what a companion is doing, and a
+// button that disappears from the masthead moves everything beside it.
+function refreshSideToggle() {
+  if (typeof sideToggle === 'undefined' || !sideToggle || !sideEl) return;
+  const any = (sideEl.children || []).some(c => !c.hidden);
+  sideToggle.disabled = !any;
+  // What it would do, or why it will not. Said on the tooltip and to a screen reader, because a
+  // greyed-out control with no explanation is the least useful state a control can be in.
+  const word = !any ? 'side.nothing' : (document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide');
+  sideToggle.setAttribute('aria-label', tr(word));
+  tip(sideToggle, tr(word));
+}
+
 async function drawPlan(a) {
   const box = document.getElementById('plan');
   const todos = await fetchList('/plan' + qFor(a));
-  if (!todos || !todos.length) { box.hidden = true; box.replaceChildren(); return; }
+  if (!todos || !todos.length) { showSide(box, false); box.replaceChildren(); return; }
   // How much of the plan is behind it. Determinate, because the counts are known — an
   // indeterminate bar here would say "something is happening" to somebody who can already see
   // exactly what is happening in the list below it.
@@ -2735,7 +2767,7 @@ async function drawPlan(a) {
   box.replaceChildren(cell('k', tr('field.plan')), bar,
     cell('plancount', tr('plan.progress', {done: done, total: todos.length})),
     ...todos.map(planRow));
-  box.hidden = false;
+  showSide(box, true);
 }
 
 // ── what it handed to the others ─────────────────────────────────────────────
@@ -2745,7 +2777,7 @@ async function drawPlan(a) {
 async function drawHandoffs(a) {
   const box = document.getElementById('handoffs');
   const list = await fetchList('/handoffs' + qFor(a));
-  if (!list || !list.length) { box.hidden = true; box.replaceChildren(); return; }
+  if (!list || !list.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = list.map(h => {
     // `row`, not `el`: this scope used to call its row el, which shadows the page's own el() —
     // the moment the name became a link the row threw "el is not a function" and the whole card
@@ -2772,7 +2804,7 @@ async function drawHandoffs(a) {
     return row;
   });
   box.replaceChildren(markedKey('#i-sl-share-from-square', tr('field.handed_out')), ...rows);
-  box.hidden = false;
+  showSide(box, true);
 }
 
 // ── what it does when nobody is watching ─────────────────────────────────────
@@ -2787,7 +2819,7 @@ async function drawHandoffs(a) {
 async function drawCron(a) {
   const box = document.getElementById('cron');
   const list = await fetchList('/cron' + qFor(a));
-  if (!list || !list.length) { box.hidden = true; box.replaceChildren(); return; }
+  if (!list || !list.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = list.map(j => {
     const el = cell('job' + (j.enabled ? '' : ' off') + (j.problem ? ' broken' : ''));
     el.append(cell('jname', j.name), cell('jwhen', j.schedule));
@@ -2806,7 +2838,7 @@ async function drawCron(a) {
     return el;
   });
   box.replaceChildren(markedKey('#i-sl-calendar-clock', tr('field.scheduled')), ...rows);
-  box.hidden = false;
+  showSide(box, true);
 }
 
 // ── what is in its head ──────────────────────────────────────────────────────
@@ -2972,11 +3004,11 @@ function qFor(a) {
 // how often this companion had to be corrected, and what was refused. That is a fact about the
 // companion, so it belongs on the companion's page.
 async function loadIntervened(a) {
-  if (!a) { intervenedEl.hidden = true; intervenedEl.replaceChildren(); return; }
+  if (!a) { showSide(intervenedEl, false); intervenedEl.replaceChildren(); return; }
   const list = await fetchList('/interventions');
   if (!list) return;
   const mine = list.filter(m => m.socket === a.socket && (m.peer || '') === (a.peer || ''));
-  if (!mine.length) { intervenedEl.hidden = true; intervenedEl.replaceChildren(); return; }
+  if (!mine.length) { showSide(intervenedEl, false); intervenedEl.replaceChildren(); return; }
 
   const box = cell('');
   const steers = mine.filter(m => m.kind !== 'denied').length;
@@ -2994,7 +3026,7 @@ async function loadIntervened(a) {
     box.append(row);
   }
   intervenedEl.replaceChildren(box);
-  intervenedEl.hidden = false;
+  showSide(intervenedEl, true);
   measureDock();
 }
 
@@ -3391,6 +3423,14 @@ async function loadAccess() {
 //
 // An array, so a console too old to answer with one contributes nothing rather than an empty line
 // — the caller spreads it.
+// instanceOf is user@host, or whichever half a console could tell us. The same shape the server
+// builds for the access screen, and the same reasoning: the pair is what everything here belongs
+// to, and half of it is better than a guess at the other half.
+function instanceOf(user, host) {
+  if (user && host) return user + '@' + host;
+  return host || user || '';
+}
+
 function instanceLine(inst) {
   if (!inst || (!inst.who && !inst.configDir)) return [];
   const line = cell('instance');
@@ -4256,23 +4296,30 @@ const fmtK = document.getElementById('fmtK'), fmtForm = document.getElementById(
 const fmtCancel = document.getElementById('fmtCancel'), fmtGo = document.getElementById('fmtGo');
 let fmtFor = null;
 
-async function drawReportFormat(a) {
-  const box = document.getElementById('reportfmt');
-  if (!a) { box.hidden = true; box.replaceChildren(); return; }
+// A row in the facts, not a card in the side pane.
+//
+// The pane is what is happening: the plan, what was handed over, what somebody had to say. This is
+// a SETTING — the shape every report from this companion must take — and it belongs to the
+// companion the way its model and its approval mode do, which is the card it now sits in. It also
+// never changed between one turn and the next, so it spent the day taking a panel's worth of room
+// to say the same three words. The terminal's side pane never carried it either.
+async function drawReportFormat(a, grid) {
+  if (!a || !grid) return;
   const f = await fetchOne('/report-format' + qFor(a));
-  if (!f || !f.sections) { box.hidden = true; box.replaceChildren(); return; }
-  const rows = (f.sections || []).map(sec => {
-    const row = cell('f');
-    row.append(cell('k', sec.key), cell('v', sec.prompt || ''));
-    return row;
-  });
+  if (!f || !f.sections) return;
+  const row = cell('f wide');
   // Where it came from, because "edit" means something different in each: yours to change here,
   // shared with every companion under this console, or not written down anywhere yet.
   // Literal keys in a lookup, not a key built by concatenation: a key the pack check cannot see is
   // the one that ships missing and renders as its own dotted name.
   const FROM = {workspace: 'fmt.from_workspace', console: 'fmt.from_console', default: 'fmt.from_default'};
-  const head = markedKey('#i-sl-file-lines',
-    tr('field.report_format') + ' · ' + tr(FROM[f.from] || FROM.default));
+  row.append(cell('k', tr('field.report_format')));
+  const v = cell('v');
+  // The section KEYS, which are what a report is checked against, and where they were written
+  // down. The prompts behind them are a paragraph each and belong in the editor rather than in a
+  // card somebody reads past every day.
+  v.append(cell('', (f.sections || []).map(sec => sec.key).join(' · ')));
+  v.append(cell('say', tr(FROM[f.from] || FROM.default)));
   const edit = el('button');
   edit.type = 'button';
   edit.className = 'deeper hit48';
@@ -4281,8 +4328,9 @@ async function drawReportFormat(a) {
   if (em) edit.append(em, document.createTextNode(' '));
   edit.append(document.createTextNode(tr('action.edit')));
   edit.onclick = () => openFormat(a, f);
-  box.replaceChildren(head, ...rows, edit);
-  box.hidden = false;
+  v.append(edit);
+  row.append(v);
+  grid.append(row);
 }
 
 // openFormat is the editor: one row per section, which is the pair a contract is made of.
@@ -4373,7 +4421,7 @@ async function saveFormat() {
     body.append('prompt', prompt);
   }
   const why = await post('/report-format', body, fmtFor.socket, fmtFor.peer);
-  if (!why) drawReportFormat(fmtFor);
+  if (!why) drawDetail(fmtFor);
 }
 
 // ── what is running beside the turn ──────────────────────────────────────────
@@ -4434,7 +4482,7 @@ function lastLine(s) {
 // the other queue.
 function drawQueued(items) {
   const box = document.getElementById('queued');
-  if (!items || !items.length) { box.hidden = true; box.replaceChildren(); return; }
+  if (!items || !items.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = items.map((q, i) => {
     const row = cell('qrow' + (q.kind === 'person' ? ' mine' : ''));
     // The position, because "waiting" is a different fact from "waiting behind three others".
@@ -4446,7 +4494,7 @@ function drawQueued(items) {
     return row;
   });
   box.replaceChildren(markedKey('#i-sl-layer-group', tr('field.queued', {n: items.length})), ...rows);
-  box.hidden = false;
+  showSide(box, true);
 }
 
 async function loadJobs(a) {
@@ -4741,8 +4789,7 @@ function paint() {
   for (const id of ['ptabTalk', 'ptabState']) document.getElementById(id).fullWidthIndicator = true;
   // The waiting badge changes parent with the rail, per the spec: on the icon while collapsed,
   // beside the label once there is one.
-  sideToggle.setAttribute('aria-label', tr(document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide'));
-  tip(sideToggle, tr(document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide'));
+  refreshSideToggle();
   placeRailBadge();
   // Two navigation landmarks on one page have to be told apart, and the label must not repeat the
   // role — a screen reader already says "navigation". Named one at a time rather than swept with a

@@ -502,6 +502,14 @@
      read as one word broken by slashes, and each crumb now carries a 48dp press target that is
      wider than the word it belongs to. Touching, those targets overlapped, and the crumb you
      pressed was decided by which came later in the markup rather than by where you pressed. */
+  /* The instance, beside the brand. Monospace and quiet: it is a literal somebody compares with
+     what they typed, not a title — and at the size and colour of the crumb below it, so the eye
+     reads the pair as "this magi, at this place" rather than as two headings. */
+  .whereami {
+    font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted);
+    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .whereami:empty { display:none; }
   #crumbs { display:flex; align-items:baseline; gap:var(--magi-sys-space-100); }
   #crumbs > span { color:var(--magi-ref-outlineVariant); }
   #back {
@@ -1766,16 +1774,6 @@
      The pair is the guide's overline-and-body: the name is a label in the variant colour, small
      and spaced, and the sentence is body text in the plain one. Two roles, so the eye can take
      the names alone down the left and stop at the one it wants. */
-  #reportfmt { max-width:var(--magi-sys-measure); display:grid; gap:var(--magi-sys-space-150); }
-  #reportfmt > .k {
-    font:600 var(--magi-sys-title-s) var(--magi-ref-display); color:var(--magi-ref-fg);
-  }
-  #reportfmt .f { display:grid; gap:var(--magi-sys-space-50); }
-  #reportfmt .f .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
-    letter-spacing:0.06em; color:var(--magi-ref-on-surface-variant);
-  }
-  #reportfmt .f .v { font:var(--magi-sys-body-m) var(--magi-ref-display); color:var(--magi-ref-fg); }
   /* One row per section: the name, what belongs in it, and a way to take it out. The name is short
      by nature and the sentence is not, so they are not given equal room. Aligned to the TOP, not
      the middle: the prompt is a two-line field and centring left its label floating beside the

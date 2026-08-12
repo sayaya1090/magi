@@ -258,6 +258,7 @@
   "shell.nooutput": "(no output)",
   "shell.running": "running…",
   "side.hide": "Hide the facts",
+  "side.nothing": "Nothing to show about this one yet",
   "side.show": "Show the facts",
   "skill.learned_from": "From {src}",
   "state.abandoned": "Abandoned",

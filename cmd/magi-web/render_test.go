@@ -73,9 +73,23 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// And which of them the markup starts HIDDEN. Every stub the fake builds was visible from its
+	// first frame while the real page starts most of its panels closed, so a question like "is
+	// there anything in the side pane" answered yes here and no in a browser — the fake diverging
+	// in the direction that hides a bug, which is the one direction it must not.
+	var hidden []string
+	for _, m := range regexp.MustCompile(`<[^>]*\sid="([A-Za-z][\w-]*)"[^>]*\shidden[\s>]`).
+		FindAllStringSubmatch(indexHTML, -1) {
+		hidden = append(hidden, m[1])
+	}
+	hiddenJSON, err := json.Marshal(hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "ids.mjs"),
 		[]byte("export const MARKUP_IDS = "+string(list)+";\n"+
-			"export const MARKUP_MAY = "+string(mayJSON)+";\n"), 0o644); err != nil {
+			"export const MARKUP_MAY = "+string(mayJSON)+";\n"+
+			"export const MARKUP_HIDDEN = "+string(hiddenJSON)+";\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The page imports the vendored bundle by the path this binary serves it at. Node resolves
@@ -4346,5 +4360,100 @@ console.log(JSON.stringify({
 	}
 	if viewer["railHidden"] != true {
 		t.Error("a viewer is offered a rail item leading to a screen they will be refused")
+	}
+}
+
+// The masthead says which magi this is.
+//
+// Three of these open in three tabs are the same page: before this, telling them apart meant
+// recognising the companions in the list, which fails at exactly the moment it matters — when two
+// machines are running the same work. And it stays quiet when the console cannot say, because a
+// masthead reading "unknown" is worse than one that does not claim.
+func TestTheMastheadNamesTheInstance(t *testing.T) {
+	page := `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  const path = String(p).split('?')[0];
+  if (path === '/console') return {ok: true, json: async () => (CONSOLE)};
+  return base(p, o);
+};
+loadConsole();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({where: byId.whereami.textContent}));
+`
+	named := runPage(t, `[]`, "", strings.Replace(page, "CONSOLE",
+		`{host: 'studio', user: 'you', configDir: '/Users/you/.config/magi'}`, 1))
+	if named["where"] != "you@studio" {
+		t.Errorf("the masthead says %q", named["where"])
+	}
+	// Half an answer is still an answer: the machine, when nothing can name the account.
+	partial := runPage(t, `[]`, "", strings.Replace(page, "CONSOLE", `{host: 'studio'}`, 1))
+	if partial["where"] != "studio" {
+		t.Errorf("with no account the masthead says %q", partial["where"])
+	}
+	// And nothing at all rather than a guess.
+	silent := runPage(t, `[]`, "", strings.Replace(page, "CONSOLE", `{}`, 1))
+	if silent["where"] != "" {
+		t.Errorf("a console that could say nothing claimed %q", silent["where"])
+	}
+}
+
+// The report format is a setting about the companion, so it is in the facts and not in the pane.
+//
+// The pane is what is HAPPENING — the plan, what was handed over, what somebody had to say. This
+// changes about as often as the model does and it never changed between one turn and the next, so
+// it spent the day taking a panel's worth of room to say three words. The terminal never carried
+// it in a side pane either.
+func TestTheReportFormatIsAFactAboutTheCompanion(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => ({ok: true, json: async () =>
+  String(p).startsWith('/report-format') ? {from: 'workspace', sections: [
+    {key: 'tried', prompt: 'what you ran'},
+    {key: 'stakes', prompt: 'what it costs'},
+  ]} : []});
+await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
+                  steps: 1, idle: 2, session: 's1'});
+for (let i = 0; i < 12; i++) await Promise.resolve();
+console.log(JSON.stringify({
+  facts: byId.detail.text,
+  pane: byId.side.children.map(c => c.attrs.id || '').join(' '),
+}));
+`)
+	facts := got["facts"].(string)
+	for _, want := range []string{"tried · stakes", "this companion's own"} {
+		if !strings.Contains(facts, want) {
+			t.Errorf("the facts card does not carry %q:\n%s", want, facts)
+		}
+	}
+	if strings.Contains(got["pane"].(string), "reportfmt") {
+		t.Error("the report format is still a card in the side pane")
+	}
+}
+
+// A control that opens an empty column reads as broken rather than as empty.
+//
+// The pane comes and goes with what a companion is doing: a fresh one has no plan, nothing handed
+// over and nothing scheduled. Disabled rather than hidden, because a button that leaves the
+// masthead moves everything beside it.
+func TestTheSidePaneToggleSaysWhenThereIsNothingToOpen(t *testing.T) {
+	page := `
+globalThis.fetch = async (p) => ({ok: true, json: async () => (ANSWER)});
+await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
+                  steps: 1, idle: 2, session: 's1'});
+for (let i = 0; i < 12; i++) await Promise.resolve();
+console.log(JSON.stringify({off: !!byId.sideToggle.disabled, says: byId.sideToggle.attrs['aria-label']}));
+`
+	empty := runPage(t, `[]`, "", strings.Replace(page, "ANSWER", `[]`, 1))
+	if empty["off"] != true {
+		t.Error("the control offers to open a pane with nothing in it")
+	}
+	if s, _ := empty["says"].(string); !strings.Contains(strings.ToLower(s), "nothing") {
+		t.Errorf("a disabled control does not say why: %q", s)
+	}
+
+	full := runPage(t, `[]`, "", strings.Replace(page, "ANSWER",
+		`String(p).startsWith('/plan') ? [{content: 'write the spec', status: 'in_progress'}] : []`, 1))
+	if full["off"] != false {
+		t.Error("a companion with a plan cannot open the pane holding it")
 	}
 }

@@ -40,7 +40,16 @@
        h2 for those groups and not h3 — measured in a browser, the fleet and the board have no
        section head above them, so h3 there skipped a level from this h1, which the guide forbids
        outright. Two levels is all this page has. -->
-  <h1 class="mark">magi</h1>
+  <h1 class="mark">MAGI</h1>
+  <!-- Which magi this is, beside its name. A supervisor has three of these open in three tabs and
+       the pages are identical; before this the only way to tell them apart was to recognise the
+       companions in the list, which fails at exactly the moment it matters — when two machines are
+       running the same work. user@host, because that pair is what a policy, a session store and a
+       set of companions belong to; the config directory behind it is in the preferences, where the
+       question is "which directory" rather than "which magi".
+       Empty until /console answers, and it stays empty on a console that cannot say — a masthead
+       reading "unknown" is worse than one that does not claim. -->
+  <span id="whereami" class="whereami"></span>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
   <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><a id="crumbHere"></a><span id="crumbSep2" hidden>/</span><a id="crumbDeep"></a><span id="crumbSep3" hidden>/</span><span id="crumbLeaf"></span></nav>
@@ -141,8 +150,12 @@
     </a>
     <a id="railSkills" class="raili">
       <span class="icwrap">
-        <svg data-i="#i-sl-lightbulb" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
-          d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
+        <!-- A store, not a lightbulb. What is behind this destination is the pool every companion
+             here reads from and writes to — the lessons they have learned and the tool servers
+             they can reach — and a lightbulb says "idea", which is one of the two halves at best.
+             Stacked discs is the drawing everybody already reads as shared data. -->
+        <svg data-i="#i-sl-database" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+          d="M12 3c4.2 0 7 1.1 7 2.3S16.2 7.6 12 7.6 5 6.5 5 5.3 7.8 3 12 3M5 5.3v13.4C5 19.9 7.8 21 12 21s7-1.1 7-2.3V5.3M5 12c0 1.2 2.8 2.3 7 2.3s7-1.1 7-2.3"
           fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </span>
       <span class="lbl"></span>
@@ -235,7 +248,6 @@
       <aside id="side">
         <md-outlined-card id="plan" hidden></md-outlined-card>
         <md-outlined-card id="handoffs" hidden></md-outlined-card>
-        <md-outlined-card id="reportfmt" hidden></md-outlined-card>
         <md-outlined-card id="queued" hidden></md-outlined-card>
         <md-outlined-card id="cron" hidden></md-outlined-card>
         <md-outlined-card id="intervened" hidden></md-outlined-card>

@@ -312,7 +312,7 @@ globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 // It used to be a list kept here by hand, and keeping it was the tax on adding any element at all:
 // the way it told you it was short was an error in an unrelated test, naming the lookup rather
 // than the change. The markup's ids are exactly the set the page can ask for.
-import { MARKUP_IDS, MARKUP_MAY } from './ids.mjs';
+import { MARKUP_IDS, MARKUP_MAY, MARKUP_HIDDEN } from './ids.mjs';
 const byId = {};
 for (const id of MARKUP_IDS) byId[id] = element('div');
 // The one attribute the markup writes and the page reads back. Everything else a stub carries was
@@ -320,6 +320,12 @@ for (const id of MARKUP_IDS) byId[id] = element('div');
 // looked as though it covered nothing at all.
 for (const [id, need] of Object.entries(MARKUP_MAY || {})) {
   if (byId[id]) byId[id].attrs['data-may'] = need;
+}
+// Closed to begin with, exactly as the markup has them. A stub that starts visible answers "yes,
+// there is something here" to a page asking whether a panel has anything in it — and answers it
+// before the page has drawn anything at all.
+for (const id of (MARKUP_HIDDEN || [])) {
+  if (byId[id]) byId[id].attrs.hidden = true;
 }
 // A dialog opens, closes, and remembers which button closed it. The page reads returnValue to tell
 // a cancel from a confirm, and a fake without it makes every cancel look like a confirm — which is
@@ -351,6 +357,12 @@ for (const id of ['ptabTalk', 'ptabState']) byId.ptabs.append(byId[id]);
 // in #railNav, and the console's own screen at the foot in #railFoot. Which parent is not
 // decoration here — the page walks a container to find what is in it, and a foot the fake left
 // empty is a foot whose emptiness nothing can be asked about.
+// The pane's cards, under the pane. The page asks the CONTAINER whether any of them has something
+// in it — a control that opens an empty column reads as broken — and a bag of loose stubs makes
+// that question unanswerable here while it answers fine in a browser.
+for (const id of ['plan', 'handoffs', 'queued', 'cron', 'intervened']) {
+  if (byId[id]) byId.side.append(byId[id]);
+}
 for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
                             ['railAccess', 'railFoot']]) {
   byId[parent].append(byId[id]);
