@@ -379,6 +379,15 @@ for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
   byId[id].append(lbl);
 }
 
+// The computed style of an element, for the two things the page asks it: the root's font size
+// (a rem in pixels) and a custom property it set itself. A stand-in and not a layout engine — the
+// page reads these to convert a drag in pixels into a width in rem, and a fake that answered
+// nothing made the module throw on load.
+globalThis.getComputedStyle = (el) => ({
+  fontSize: '16px',
+  getPropertyValue: (k) => String((el && el.style && el.style[k]) || ''),
+});
+
 globalThis.document = {
   title: "",
   // Text nodes are elements with only text here — the page appends them beside <br> to stack a

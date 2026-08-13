@@ -5060,10 +5060,18 @@ function gitLine(a, c) {
 // move the tree say so before they do it.
 function gitBranchActs(a, g) {
   const box = cell('gitbranchacts');
+  // Icon buttons with the word in a tooltip, not five labelled buttons: this column is 18rem and
+  // "Restore stash" alone is most of it, so labels wrapped the row into three. A tooltip rather
+  // than a menu — the actions are five, they are always the same five, and a menu would put two
+  // presses between somebody and pulling. The page's own tooltip appears on focus as well as on
+  // hover, which a native title does not.
   const act = (key, mark, run, on) => {
     if (on === false) return;
-    const b = withMark(document.createElement('md-text-button'), mark);
-    label(b, tr(key));
+    const b = document.createElement('md-icon-button');
+    const m = icon(mark);
+    if (m) b.append(m);
+    b.setAttribute('aria-label', tr(key));
+    tip(b, tr(key));
     b.onclick = run;
     box.append(b);
   };
@@ -6536,6 +6544,53 @@ lookSwitch.addEventListener('change', () => {
   lookOn = !!lookSwitch.selected;
   localStorage.setItem('lookover', lookOn ? 'on' : 'off');
 });
+
+// The two grips: the edge of each pane, dragged.
+//
+// What they write is the custom property the grid track is made of, so the column and the pane
+// pinned to it move together and nothing has to be told twice. Clamped, because a pane dragged to
+// nothing is a pane somebody cannot get back without knowing where the invisible edge is — and one
+// dragged past half the window has taken the conversation the page is for.
+//
+// A separator in the ARIA sense: it takes focus and arrow keys move it, which is the half of a
+// splitter that is always left out. Remembered, like whether the pane is open at all.
+function grip(el, prop, key, lead) {
+  const root = document.documentElement;
+  const rem = parseFloat(getComputedStyle(root).fontSize) || 16;
+  const saved = parseFloat(localStorage.getItem(key) || '');
+  if (saved) root.style.setProperty(prop, saved + 'rem');
+  const clamp = w => Math.max(12, Math.min(40, w));
+  const setW = w => {
+    const at = clamp(w);
+    root.style.setProperty(prop, at + 'rem');
+    localStorage.setItem(key, String(at));
+    el.setAttribute('aria-valuenow', String(Math.round(at)));
+  };
+  const widthNow = () => parseFloat(getComputedStyle(root).getPropertyValue(prop)) || 18;
+  el.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    el.setPointerCapture(ev.pointerId);
+    el.classList.add('gripping');
+    const from = ev.clientX, was = widthNow();
+    const move = m => setW(was + (lead ? (from - m.clientX) : (m.clientX - from)) / rem);
+    const done = () => {
+      el.classList.remove('gripping');
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', done);
+      el.removeEventListener('pointercancel', done);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', done);
+    el.addEventListener('pointercancel', done);
+  });
+  el.addEventListener('keydown', ev => {
+    const step = ev.shiftKey ? 4 : 1;
+    if (ev.key === 'ArrowLeft') { ev.preventDefault(); setW(widthNow() + (lead ? step : -step)); }
+    if (ev.key === 'ArrowRight') { ev.preventDefault(); setW(widthNow() + (lead ? -step : step)); }
+  });
+}
+grip(document.getElementById('filesGrip'), '--magi-comp-files-w', 'files.w', false);
+grip(document.getElementById('sideGrip'), '--magi-comp-side-w', 'side.w', true);
 
 const scrimEl = document.getElementById('scrim');
 // Collapsed the badge sits on the icon's upper right; expanded it moves beside the label, which

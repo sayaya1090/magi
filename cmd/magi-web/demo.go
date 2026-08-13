@@ -277,18 +277,32 @@ const demoScript = `
       {name: 'cmd', isDir: true}, {name: 'internal', isDir: true}, {name: 'docs', isDir: true},
       {name: 'README.md', isDir: false}, {name: 'go.mod', isDir: false},
     ],
-    '/file': {path: 'README.md', text:
-      '     1\tmagi\n' +
-      '     2\t====\n' +
-      '     3\t\n' +
-      '     4\tA companion is a workspace with an agent living in it.\n' +
-      '     5\t\n' +
-      '     6\tThe console reads this file through the companion rather than opening it: the\n' +
-      '     7\tdaemon already confines every path to the workspace, and this page is often on\n' +
-      '     8\tanother machine entirely.\n'},
+    // A source file rather than a README, because this is the one place a reader sees what the
+    // pane does with code: the comment, the strings and the numbers are marked, and the line
+    // numbers are the read tool's own — a person and their companion have to be able to point at
+    // the same line 40.
+    '/file': {path: 'internal/app/git.go', text:
+      '    64\t// GitFacts reads the workspace\'s git state, or reports that there is none.\n' +
+      '    65\tfunc (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {\n' +
+      '    66\t\tif a.plat == nil {\n' +
+      '    67\t\t\treturn GitState{}, fmt.Errorf("platform unavailable")\n' +
+      '    68\t\t}\n' +
+      '    69\t\tres, err := a.plat.Exec(ctx, port.Cmd{\n' +
+      '    70\t\t\tPath:      "git",\n' +
+      '    71\t\t\t// --porcelain=v2 is the format git documents for programs.\n' +
+      '    72\t\t\tArgs:      []string{"status", "--porcelain=v2", "--branch"},\n' +
+      '    73\t\t\tDir:       workdir,\n' +
+      '    74\t\t\tMaxOutput: 1048576,\n' +
+      '    75\t\t})\n' +
+      '    76\t\tif err != nil || res.ExitCode != 0 {\n' +
+      '    77\t\t\t// Not a checkout, no git, or a repository this account may not read.\n' +
+      '    78\t\t\treturn GitState{}, nil\n' +
+      '    79\t\t}\n' +
+      '    80\t\treturn parseGitStatus(string(res.Stdout)), nil\n' +
+      '    81\t}\n'},
     // A search over the workspace. Answered with content hits — "path:line:text", the shape the
-    // agent's own grep produces — because that is the one whose result shape a reader cannot
-    // guess from a list of paths.
+    // agent's own grep produces — because that is the one whose result shape a reader cannot guess
+    // from a list of paths.
     '/find': {hits: [
       'cmd/magi-web/page.js:1284:function emptyState(whatKey, howKey) {',
       'cmd/magi-web/page.css:1311:  .empty { font:var(--md-sys-typescale-body-large-size)/1.7',

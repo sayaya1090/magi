@@ -1332,6 +1332,27 @@
      git's section below three hundred files, and scrolling to reach the branch took the tree away
      from wherever the reader had got to — two things looked at for two reasons should not move
      each other. The tree takes what is left after git has what it needs. */
+  /* The edge of a pane, as a control.
+     A window splitter in the ARIA sense — focusable, arrow keys move it — writing the custom
+     property the grid track is made of. A hairline until the pointer is on it: most of the time the
+     width is already right, and a permanent bar between every column is furniture. */
+  .grip {
+    position:absolute; top:0; bottom:0; right:-3px; width:6px; z-index:3;
+    cursor:col-resize; touch-action:none;
+  }
+  .grip.lead { right:auto; left:-3px; }
+  .grip::after {
+    content:''; position:absolute; inset:0 2px; border-radius:var(--magi-sys-shape-full);
+    background:var(--magi-ref-outlineVariant); opacity:0;
+    transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
+  }
+  .grip:hover::after, .grip:focus-visible::after, .grip.gripping::after { opacity:1; }
+  .grip:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--magi-ref-accent)); outline-offset:1px; }
+  /* No handle where there is no column to resize: below the two-pane breakpoint the panes are
+     above and below the conversation, and a vertical splitter would move nothing. */
+  @media (max-width:52.4375em) { .grip { display:none; } }
+  body[files="shut"] #filesGrip, body[side="shut"] #sideGrip { display:none; }
+
   .filescard {
     display:flex; flex-direction:column; min-height:0;
     border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
@@ -1944,12 +1965,12 @@
      so the later "none" won at every width: the pane defaults to shut and the only control that
      opens it was invisible, which made the plan, the handoffs and the history unreachable on this
      page. Nothing said so — a control that is not drawn asks no questions. */
+  /* Both pane handles live in the masthead now, and are drawn only where there are panes.
+     In the columns they were two controls floating at the top of two columns with nothing to line
+     up against; here they are on the one line that already holds the preferences, which is what
+     they are — how this window is arranged. */
   #sideToggle, #filesToggle { display:none; }
-  /* The file pane's handle follows the state pane's rule and not the pane's own width: it is drawn
-     only on a companion's page, at every width, because below the two-pane breakpoint the pane it
-     opens goes under the conversation rather than beside it. Left to the default it stood on the
-     fleet list, over a screen with no workspace in it — a control opening nothing. */
-  body[at="agent"] #filesToggle { display:inline-flex; flex:none; }
+  body[at="agent"] #sideToggle, body[at="agent"] #filesToggle { display:inline-flex; flex:none; }
   /* 840px, the start of the expanded breakpoint, where the guide recommends two panes. It was
      1100 — a number nobody's scale has. The five are compact <600, medium 600-839, expanded
      840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
@@ -2056,7 +2077,7 @@
     /* flex:none, because the column it sits in is a flex column and the pane beside it wants the
        height: the toggle was squeezed to 40x24 — an icon button is 40dp square, with a 48dp target
        around it, and 24 is neither. Measured on the live page before this line existed. */
-    body[at="agent"] #sideToggle { display:inline-flex; flex:none; }
+
   }
 
   /* There is no list beside a companion.
@@ -2145,8 +2166,9 @@
   @keyframes jpulse { 0%, 100% { opacity:.35; } 50% { opacity:1; } }
   @media (prefers-reduced-motion:reduce) { #strip .job .jdot { animation:none; opacity:.8; } }
 
-  #sideToggle { align-self:flex-end; margin-bottom:calc(-1 * var(--magi-sys-space-150)); }
+
   #stream, #side, #sidecol, #files, #filecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
+  #sidecol, #filecol { position:relative; }
   /* And the column with it: a grid track holding one hidden control still takes its gap, which on
      the list screen is a 24px hole down the leading edge of the page. */
   body:not([at="agent"]) #filecol { display:none; }

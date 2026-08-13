@@ -82,6 +82,33 @@
        shape is an icon that has to be got right twice. -->
   <!-- Sliders, not a cog. A cog beside the theme toggle is a circle with spokes next to a circle
        with rays: at 21px they are the same picture, and the two controls sat side by side. -->
+  <!-- The two pane handles, in the masthead rather than in the columns they open.
+       Inside the content they were two controls floating at the top of two columns, and the eye
+       read them as part of the panes rather than as the window's own chrome — with nothing to line
+       up against, on a page whose columns otherwise square up. Here they sit on one line with the
+       preferences, which is what they are: how this window is arranged. Drawn only on a
+       companion's page; there are no panes anywhere else. -->
+  <md-icon-button id="filesToggle" toggle aria-expanded="false">
+    <!-- The same drawing as the state pane's handle, mirrored: a screen with a divider, and
+     the divider slides in from the leading edge as this pane does. One picture for one
+     idea, on both sides of the page. -->
+    <svg class="panelic lead" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+  <path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="1.6" fill="none"
+    stroke-linejoin="round"/>
+  <path d="M4 9.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  <path class="split" d="M9 9.5v9.5" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round"/>
+    </svg>
+  </md-icon-button>
+  <md-icon-button id="sideToggle" toggle aria-expanded="false">
+    <svg class="panelic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+  <path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="1.6" fill="none"
+    stroke-linejoin="round"/>
+  <path d="M4 9.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  <path class="split" d="M15 9.5v9.5" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round"/>
+    </svg>
+  </md-icon-button>
   <md-icon-button id="prefs">
     <svg data-i="#i-sl-sliders" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
       <path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3"
@@ -226,19 +253,12 @@
          Shut by default and remembered, like the state pane: the conversation is what the page is
          for, and a reader who wants the tree asks for it once. -->
     <div id="filecol">
-      <md-icon-button id="filesToggle" toggle aria-expanded="false">
-        <!-- The same drawing as the state pane's handle, mirrored: a screen with a divider, and
-             the divider slides in from the leading edge as this pane does. One picture for one
-             idea, on both sides of the page. -->
-        <svg class="panelic lead" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-          <path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="1.6" fill="none"
-            stroke-linejoin="round"/>
-          <path d="M4 9.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          <path class="split" d="M9 9.5v9.5" stroke="currentColor" stroke-width="1.6"
-            stroke-linecap="round"/>
-        </svg>
-      </md-icon-button>
       <aside id="files"></aside>
+      <!-- The column's own edge, as a control. A window splitter in the ARIA sense: focusable,
+           arrow keys move it, and what it writes is the custom property the grid track is made of.
+           Drawn as a hairline that thickens under the pointer rather than as a bar, because most
+           of the time the answer to "how wide" is already right and a permanent bar is furniture. -->
+      <div id="filesGrip" class="grip" role="separator" aria-orientation="vertical" tabindex="0"></div>
     </div>
     <div id="stream">
       <!-- One slot, two things in it. The facts card answers "what am I looking at"; a file opened
@@ -259,26 +279,7 @@
     <section id="agentdetail" hidden></section>
 
     <div id="sidecol">
-      <!-- A TOGGLE icon button, which is what it has always been and did not look like: pressed or
-           not, it drew the same outline, so the only way to know whether the panel was open was to
-           look at the panel. The component keeps a selected state for exactly this and draws it —
-           and takes a second icon for the selected side, filled here against the outline, so the
-           state survives a screenshot as well as a hover.
-
-           Drawn here rather than taken from the sprite, like the hamburger: the sprite's
-           table-columns is a table — a header and two columns — and this is a screen, which is a
-           bar across the top and what is under it. The divider slides in from the right edge as
-           the panel does and slides back out when it shuts, so the button is a small picture of
-           the thing it just did rather than two icons swapped at the end of it. -->
-      <md-icon-button id="sideToggle" toggle aria-expanded="false">
-        <svg class="panelic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-          <path d="M4 5h16v14H4z" stroke="currentColor" stroke-width="1.6" fill="none"
-            stroke-linejoin="round"/>
-          <path d="M4 9.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          <path class="split" d="M15 9.5v9.5" stroke="currentColor" stroke-width="1.6"
-            stroke-linecap="round"/>
-        </svg>
-      </md-icon-button>
+      <div id="sideGrip" class="grip lead" role="separator" aria-orientation="vertical" tabindex="0"></div>
       <aside id="side">
         <md-outlined-card id="plan" hidden></md-outlined-card>
         <md-outlined-card id="handoffs" hidden></md-outlined-card>

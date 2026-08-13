@@ -4756,7 +4756,10 @@ console.log(JSON.stringify({
   changed: byId.files.find('button').filter(b => String(b.className).includes('gitrow'))
                      .map(b => b.find('div').map(d => d.textContent).join(' ')),
   picks: byId.files.find('md-outlined-select').length,
-  acts: named('gitbranchacts').map(d => d.find('md-text-button').map(b => b.textContent).join('|')).join('|'),
+  // Icon buttons with the word in a tooltip, so what a test reads is the label they announce —
+  // which is also the only thing a screen reader gets.
+  acts: named('gitbranchacts').map(d => d.find('md-icon-button')
+                                          .map(b => b.attrs['aria-label'] || '').join('|')).join('|'),
   groups: named('gitgroup').map(d => d.textContent),
 }));
 `
