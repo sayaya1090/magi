@@ -314,6 +314,17 @@ type FileKeeper interface {
 	FileDo(ctx context.Context, what, path, to string, ask bool) error
 }
 
+// Speaker is an engine that will take part in a meeting.
+//
+// One call is one contribution: it reads the question and everything said so far, and answers with
+// what it has to add or with a pass. It happens in a session of its own with read-only tools — see
+// app.MeetingTurn — so a companion mid-turn on its own work can take part without that work being
+// touched, and so a meeting cannot change three workspaces while its subject is still being argued
+// about.
+type Speaker interface {
+	MeetingTurn(ctx context.Context, topic, transcript string, closing bool) (said string, pass bool, err error)
+}
+
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
 //
 // The distinction is the whole reason this crosses the socket. Everything else a viewer does
@@ -1059,6 +1070,23 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "meet" {
+			sp, ok := eng.(Speaker)
+			if !ok {
+				resp = Response{Err: "this daemon cannot take part in a meeting"}
+			} else if said, passed, merr := sp.MeetingTurn(ctx, req.Name, req.Text,
+				req.Decision == "closing"); merr != nil {
+				resp = Response{Err: merr.Error()}
+			} else {
+				// A pass travels as a flag rather than as a word in the text, or a contribution
+				// that happens to begin with the word would arrive as a silence.
+				resp = Response{OK: true, Out: said, Exit: passFlag(passed)}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "look-over" {
 			rev, ok := eng.(Reviewer)
 			if !ok {
@@ -1577,6 +1605,33 @@ func (c *Client) Git() (string, error) {
 		return "", err
 	}
 	return resp.Out, nil
+}
+
+// Meet asks the companion for one contribution to a meeting: what it has to add, or a pass.
+//
+// topic is the question, transcript is everything said so far, and closing asks the other
+// question — what this participant will DO about it — which is what a meeting is for.
+func (c *Client) Meet(topic, transcript string, closing bool) (said string, pass bool, err error) {
+	which := ""
+	if closing {
+		which = "closing"
+	}
+	resp, err := c.exchange(Request{Method: "meet", Name: topic, Text: transcript, Decision: which})
+	if err != nil {
+		return "", false, err
+	}
+	return resp.Out, resp.Exit != nil && *resp.Exit == 1, nil
+}
+
+// passFlag carries "this was a pass" in the one field a Response has for a small number. Named
+// rather than written inline at the call site, because 0 and 1 mean nothing to a reader of that
+// line and "pass" means everything.
+func passFlag(pass bool) *int {
+	n := 0
+	if pass {
+		n = 1
+	}
+	return &n
 }
 
 // LookOver asks the companion's model what it makes of a file being edited. Nothing is saved.

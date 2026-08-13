@@ -2463,6 +2463,22 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 	return json.Marshal(st)
 }
 
+// MeetingTurn is this companion taking part in a meeting — see app.MeetingTurn for why it happens
+// in a session of its own with read-only tools.
+//
+// Longer than the other bounds here: a participant reads its own files before it says anything,
+// which is the reason it is worth asking rather than asking one model to imagine three.
+func (d daemonEngine) MeetingTurn(ctx context.Context, topic, transcript string, closing bool) (string, bool, error) {
+	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	u, err := d.App.MeetingTurn(rctx, d.handover.at.now(), nameOr(d.card().Name, d.workdir),
+		topic, transcript, closing)
+	if err != nil {
+		return "", false, err
+	}
+	return u.Text, u.Pass, nil
+}
+
 // LookOver is the model reading over somebody's shoulder — see app.LookOver. Bounded harder than
 // the rest: this is asked on a pause in typing, so an answer that takes a minute has been overtaken
 // by the next keystroke and is worth nothing to anybody.

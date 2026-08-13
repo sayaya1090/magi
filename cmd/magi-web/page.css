@@ -2033,6 +2033,11 @@
     body[at="agent"] main {
       height:calc(100dvh - var(--magi-comp-masthead, 5.5rem));
       overflow:hidden; padding-bottom:0;
+      /* And barely any at the top. The panes used to be stuck to a line 5.5rem down the WINDOW,
+         which is just under the masthead; in the shell they start where main's content starts, so
+         the page's own 24px of breathing room put them back down the screen — the gap the sticky
+         rule existed to remove. The columns hold their own padding now. */
+      padding-top:var(--magi-sys-space-100);
     }
     body[at="agent"] #agentview { height:100%; min-height:0; }
     /* The columns stop being sticky: there is nothing to stick to, and they are simply as tall as
@@ -2109,12 +2114,11 @@
     body[side="shut"] #agentview { grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) 0; }
     body[files="shut"] #agentview { grid-template-columns:0 minmax(0, 1fr) var(--magi-comp-side-w); }
     body[files="shut"][side="shut"] #agentview { grid-template-columns:0 minmax(0, 1fr) 0; }
-    /* The same column the state pane is, mirrored: sticky, bounded, and it clips rather than
-       reflows while it moves. */
+    /* The same column the state pane is, mirrored. Sticky is the fallback for a browser without
+       dvh or without the shell above applying; where the shell does apply it overrides both of
+       these, and the column is simply as tall as the shell. */
     #filecol {
       position:sticky; top:5.5rem;
-      /* To the bottom of the window. The dock is inset between the panes now, so nothing of the
-         composer crosses this column and the strip of empty space under it was for nothing. */
       max-height:calc(100dvh - 5.5rem - var(--magi-sys-space-300));
       overflow:hidden;
     }
