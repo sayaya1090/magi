@@ -1444,8 +1444,13 @@
      on when the middle of a path is the part that was cut. */
   .gitinner .gitbranch { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gitcommit md-outlined-text-field { width:100%; min-width:0; }
-  .gitacts { display:flex; flex:none; }
-  .gitacts md-icon-button { --md-icon-button-icon-size:18px; }
+  /* One control per row rather than four. The column is 18rem and the path is what a reader is
+     there for; three or four icons beside every file spent most of the width on actions wanted
+     once each. Shown when the row is hovered or its menu is open — always for a keyboard, which
+     cannot hover. */
+  .gitacts { display:flex; flex:none; visibility:hidden; }
+  .gitline:hover .gitacts, .gitacts:focus-within, .gitline:focus-within .gitacts { visibility:visible; }
+  .gitacts md-icon-button { --md-icon-button-icon-size:16px; width:28px; height:28px; }
   .gitcommit { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-150); }
   .gitrow .gitkind {
     flex:none; min-width:4.5rem;
@@ -2033,7 +2038,7 @@
     /* The columns stop being sticky: there is nothing to stick to, and they are simply as tall as
        the shell. */
     body[at="agent"] #filecol, body[at="agent"] #sidecol {
-      position:static; height:100%; max-height:none; top:auto;
+      position:relative; z-index:2; height:100%; max-height:none; top:auto;
     }
     body[at="agent"] #stream { height:100%; min-height:0; overflow:hidden; }
     /* The transcript is the one thing in the middle column that moves. Everything above it — the
@@ -2899,8 +2904,14 @@
      they both sat at the bottom, and the prompt — being the later one — hid the composer entirely,
      so a blocked agent could be answered and not steered. Which is the wrong way round: "do
      something else instead" is a legitimate reply to being asked. */
+  /* Under the panes, over the conversation.
+     The dock sat at the same level as the masthead — which was right when it ran the width of the
+     page and had nothing beside it. Between two panes it is a third column's worth of furniture,
+     and at z-index 2 it drew OVER the cards either side of it: a menu opened from the file tree,
+     or a long state card, went behind the composer. It belongs to the middle column, so it stacks
+     with the middle column: above the transcript scrolling under it, below the panes. */
   #dock {
-    position:fixed; left:0; right:0; bottom:0; z-index:2;
+    position:fixed; left:0; right:0; bottom:0; z-index:1;
     background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
     padding-bottom:env(safe-area-inset-bottom);
   }

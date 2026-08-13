@@ -5119,36 +5119,47 @@ function gitRun(a, what, extra) {
     a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
 }
 
-// The two or three things somebody does to a changed file from a screen.
+// What somebody does to a changed file, behind one control.
 //
-// Icon buttons beside the row rather than a menu: there are at most three and they are the same
-// three every time, and a menu would put two presses between somebody and staging a file. What is
-// offered depends on where the file is — staging something already staged does nothing, and a
-// screen that offers it is a screen that has to be tried to be understood.
+// Three or four icon buttons per row is most of an 18rem column spent on actions that are wanted
+// once each — and the path, which is the thing being read, was what gave up the room. One button
+// that opens the list is the same trade every editor's git panel makes at this width.
+//
+// The menu is the same component the tree's rows use, and the first item is the one that answers
+// the question the others act on: what changed.
 function gitActs(a, c) {
   const box = cell('gitacts');
   if (!may('shell')) return box;
-  const act = (mark, key, run) => {
-    const b = document.createElement('md-icon-button');
-    const m = icon(mark);
-    if (m) b.append(m);
-    b.setAttribute('aria-label', tr(key));
-    tip(b, tr(key));
-    b.onclick = ev => { ev.stopPropagation(); run(); };
-    box.append(b);
-  };
+  const open = document.createElement('md-icon-button');
+  const dots = icon('#i-sl-sliders');
+  if (dots) open.append(dots);
+  open.setAttribute('aria-label', tr('files.more'));
+  tip(open, tr('files.more'));
+  const menu = document.createElement('md-menu');
+  const id = 'ga' + (gitActs.n = (gitActs.n || 0) + 1);
+  open.id = id;
+  menu.setAttribute('anchor', id);
   const send = (what, extra) => gitRun(a, what, Object.assign({path: c.path}, extra || {}));
-  // What changed, before deciding what to do about it — first, because it is the one that answers
-  // the question the others act on.
-  act('#i-sl-file-lines', 'diff.show',
-      () => openDiff(a, c.path, c.kind === 'untracked' ? 'untracked' : (c.kind === 'staged' ? 'staged' : '')));
-  if (c.kind !== 'staged') act('#i-sl-plus', 'git.stage', () => send('stage'));
-  if (c.kind === 'staged' || c.kind === 'both') act('#i-sl-reply', 'git.unstage', () => send('unstage'));
+  const item = (key, mark, run) => {
+    const it = document.createElement('md-menu-item');
+    const head = document.createElement('div');
+    head.slot = 'headline';
+    head.textContent = tr(key);
+    it.append(head);
+    const g = icon(mark);
+    if (g) { g.setAttribute('slot', 'start'); it.append(g); }
+    it.addEventListener('click', run);
+    menu.append(it);
+  };
+  item('diff.show', '#i-sl-file-lines',
+       () => openDiff(a, c.path, c.kind === 'untracked' ? 'untracked' : (c.kind === 'staged' ? 'staged' : '')));
+  if (c.kind !== 'staged') item('git.stage', '#i-sl-plus', () => send('stage'));
+  if (c.kind === 'staged' || c.kind === 'both') item('git.unstage', '#i-sl-reply', () => send('unstage'));
   // Throwing away what is in a file is the one thing here that cannot be undone by pressing the
   // other button, so it asks first — and it is not offered for a file git does not track yet,
   // where `git restore` has nothing to restore FROM.
   if (c.kind !== 'untracked') {
-    act('#i-sl-eraser', 'git.discard', () => confirmThis({
+    item('git.discard', '#i-sl-eraser', () => confirmThis({
       head: tr('git.discard_head', {path: c.path}),
       body: tr('git.discard_body'),
       keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
@@ -5156,6 +5167,8 @@ function gitActs(a, c) {
       go: () => send('discard'),
     }));
   }
+  open.onclick = ev => { ev.stopPropagation(); menu.open = !menu.open; };
+  box.append(open, menu);
   return box;
 }
 
