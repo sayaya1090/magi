@@ -4860,15 +4860,13 @@ async function runFind(a) {
   const mine = ++findAt;
   const got = await fetchOne('/find' + qFor(a) + '&in=' + findIn + '&q=' + encodeURIComponent(findQ));
   if (mine !== findAt) return;               // a later query is already on its way
-  const card = cell('filescard');
   const kids = [findRow(a)];
   const hits = (got && got.hits) || [];
   if (!got) kids.push(cell('filesnote', tr('files.unreadable')));
   else if (!hits.length) kids.push(cell('filesnote', tr('files.no_match')));
   for (const hit of hits) kids.push(hitRow(a, hit));
   if (got && got.more) kids.push(cell('filesnote', tr('files.more', {n: got.more})));
-  card.append(...kids);
-  filesEl.replaceChildren(card);
+  filesEl.replaceChildren(paneCard('files', tr('nav.files'), kids));
 }
 
 // One result. A name search answers with paths; a content search answers "path:line:text", which
@@ -4907,16 +4905,12 @@ async function loadTree(a) {
   // say the way round it: a magi-web running there is a peer, and a peer's companions come through
   // its own console with their files intact. A row with a peer on it is NOT this case.
   if (a.elsewhere) {
-    const only = cell('filescard');
-    only.append(cell('filesnote', tr('files.elsewhere')));
-    filesEl.replaceChildren(only);
+    filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.elsewhere'))]));
     return;
   }
   const rows = await treeAt(a, '.');
   if (rows === null) {
-    const only = cell('filescard');
-    only.append(cell('filesnote', tr('files.unreadable')));
-    filesEl.replaceChildren(only);
+    filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.unreadable'))]));
     return;
   }
   // Two cards, like the pane on the other side — and each one scrolls itself.
@@ -4926,11 +4920,41 @@ async function loadTree(a) {
   // scrolled the tree away from wherever the reader had got to. They are two different things
   // being looked at for two different reasons, so they get two boxes with two scrollbars, and
   // neither moves when the other does.
-  const tree = cell('filescard');
-  tree.append(cell('fileshead', shortPath(a.workdir || '')), findRow(a),
-              ...(await branches(a, '.', rows, 0)));
+  const tree = paneCard('files', shortPath(a.workdir || ''),
+                        [findRow(a), ...(await branches(a, '.', rows, 0))]);
   const git = await gitSection(a);
   filesEl.replaceChildren(tree, ...git);
+}
+
+// One section of the pane: a heading you can press, and what is under it.
+//
+// Collapsible rather than an accordion — an accordion closes one thing to open another, and here
+// the branch and the tree are wanted at the same time about as often as not. What a person needs
+// is to put away whichever half they are not using, which is a disclosure per section: both open
+// by default, each remembered, neither closing the other.
+//
+// The heading is a button and says its state, so a keyboard reaches it and a screen reader is told
+// what pressing it does — which is the part that gets left out when this is built from a div.
+function paneCard(key, title, kids) {
+  const shut = localStorage.getItem('pane.' + key) === 'shut';
+  const card = cell('filescard' + (shut ? ' shut' : ''));
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'panehead state';
+  head.setAttribute('aria-expanded', String(!shut));
+  const caret = iconOr('#i-sl-chevron-down', '▾', 'panecaret');
+  if (caret) head.append(caret);
+  head.append(cell('panetitle', title));
+  head.onclick = () => {
+    const now = !card.classList.contains('shut');
+    card.classList.toggle('shut', now);
+    head.setAttribute('aria-expanded', String(!now));
+    localStorage.setItem('pane.' + key, now ? 'shut' : 'open');
+  };
+  const body = cell('panebody');
+  body.append(...kids);
+  card.append(head, body);
+  return card;
 }
 
 // What git makes of this workspace: the branch, how far it is from its upstream, and what has not
@@ -4944,7 +4968,7 @@ async function loadTree(a) {
 async function gitSection(a) {
   const g = await fetchOne('/git' + qFor(a));
   if (!g || !g.repo) return [];
-  const box = cell('gitbox filescard');
+  const box = cell('gitinner');
   const top = cell('gittop');
   const mark = iconOr('#i-sl-layer-group', '⎇', 'gitmark');
   if (mark) top.append(mark);
@@ -4995,7 +5019,7 @@ async function gitSection(a) {
   const changes = g.changes || [];
   if (!changes.length) {
     box.append(cell('gitclean', tr('git.clean')));
-    return [box];
+    return [paneCard('git', tr('git.section'), [box])];
   }
   // Grouped the way every editor's git panel groups them: what a commit would take, and what it
   // would leave. A flat list makes somebody read the word on each row to work out which half of
@@ -5011,7 +5035,7 @@ async function gitSection(a) {
     for (const c of rest) box.append(gitLine(a, c));
   }
   if (may('shell') && staged.length) box.append(commitRow(a));
-  return [box];
+  return [paneCard('git', tr('git.section'), [box])];
 }
 
 // gitLine is one changed file: the row that opens it, and what can be done to it.
@@ -5326,11 +5350,6 @@ function editor(path, text, acts) {
   said.hidden = true;
   // The switch, and the only thing that turns this on. A model reading over somebody's shoulder is
   // a good idea and a bill; which of the two it is depends on whether they asked for it.
-  const watch = document.createElement('md-switch');
-  watch.selected = lookOn;
-  watch.setAttribute('aria-label', tr('files.look'));
-  const watchRow = cell('lookrow');
-  watchRow.append(cell('lookk', tr('files.look')), watch);
   const ask = async () => {
     if (!lookOn || !may('prompt')) { said.hidden = true; return; }
     const mine = ++lookAt;
@@ -5342,11 +5361,6 @@ function editor(path, text, acts) {
     said.textContent = (out || '').trim();
     said.hidden = !said.textContent;
   };
-  watch.addEventListener('change', () => {
-    lookOn = !!watch.selected;
-    localStorage.setItem('lookover', lookOn ? 'on' : 'off');
-    if (lookOn) ask(); else { said.hidden = true; ++lookAt; }
-  });
   // On a pause, not on a keystroke. Two seconds is long enough that a sentence being typed is not
   // sent five times and short enough that stopping to think gets an answer while it is still about
   // what you were thinking.
@@ -5377,7 +5391,7 @@ function editor(path, text, acts) {
   acts.append(save, stop);
   // The switch only where the capability is: asking costs the backend, and a control that answers
   // 403 is one people learn not to press.
-  box.append(...(may('prompt') ? [watchRow] : []), said, area);
+  box.append(said, area);
   return box;
 }
 
@@ -6063,6 +6077,8 @@ function paint() {
   document.getElementById('themeK').textContent = tr('pref.theme');
   paintTheme();
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
+  document.getElementById('lookK').textContent = tr('files.look');
+  document.getElementById('lookWhy').textContent = tr('files.look_why');
   document.getElementById('accessK').textContent = tr('nav.access');
   document.getElementById('accessWhy').textContent = tr('access.why');
   label(document.getElementById('accessGo'), tr('access.open'));
@@ -6510,6 +6526,16 @@ sideToggle.onclick = () => {
   sideToggle.selected = !shut;
   paint();
 };
+
+// The look-over preference, wired where the other two preferences are. Remembered rather than
+// asked again: it is true of the reader and not of the file, which is why it is here rather than
+// on the editor.
+const lookSwitch = document.getElementById('lookSwitch');
+lookSwitch.selected = lookOn;
+lookSwitch.addEventListener('change', () => {
+  lookOn = !!lookSwitch.selected;
+  localStorage.setItem('lookover', lookOn ? 'on' : 'off');
+});
 
 const scrimEl = document.getElementById('scrim');
 // Collapsed the badge sits on the icon's upper right; expanded it moves beside the label, which

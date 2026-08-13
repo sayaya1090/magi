@@ -357,6 +357,14 @@
       <div class="prefsay"><div class="k" id="notifyK"></div><div class="say" id="notifyWhy"></div></div>
       <md-switch id="notifySwitch" touch-target="wrapper"></md-switch>
     </div>
+    <!-- Whether the model reads over your shoulder while you edit a file. A preference and not a
+         control on the editor: it is true of every file you open rather than of the one in front of
+         you, and as a row inside the editor it spent a line of a narrow pane saying so on every
+         file. data-may because asking spends the backend, which is what `prompt` is about. -->
+    <div class="prefrow" data-may="prompt">
+      <div class="prefsay"><div class="k" id="lookK"></div><div class="say" id="lookWhy"></div></div>
+      <md-switch id="lookSwitch" touch-target="wrapper"></md-switch>
+    </div>
     <!-- The phone's way to the access screen, and only the phone's. The rail carries it at every
          other width; below 37.4375em the rail is not drawn at all, and without this row the screen
          would be reachable only by typing ?v=access — a screen nobody finds, which is how "is it

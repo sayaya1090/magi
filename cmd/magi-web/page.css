@@ -1333,16 +1333,37 @@
      from wherever the reader had got to — two things looked at for two reasons should not move
      each other. The tree takes what is left after git has what it needs. */
   .filescard {
-    display:flex; flex-direction:column; gap:var(--magi-sys-space-100);
+    display:flex; flex-direction:column; min-height:0;
     border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
     background:var(--magi-ref-surface-container-low);
-    padding:var(--magi-sys-space-150);
-    overflow:hidden auto; overscroll-behavior:contain; min-height:0;
+    overflow:hidden;
   }
+  /* The heading is the control. A button, so a keyboard reaches it and its state is announced —
+     which is the part that gets left out when a disclosure is built from a div. */
+  .panehead {
+    display:flex; align-items:center; gap:var(--magi-sys-space-100);
+    width:100%; border:0; background:none; color:var(--magi-ref-fg); text-align:left; cursor:pointer;
+    padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
+    font:600 var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display);
+    border-radius:var(--magi-sys-shape-medium) var(--magi-sys-shape-medium) 0 0;
+  }
+  .panehead .panecaret { flex:none; color:var(--magi-ref-muted);
+    transition:transform var(--magi-sys-dur-short2) var(--magi-sys-ease-standard); }
+  .filescard.shut .panehead .panecaret { transform:rotate(-90deg); }
+  .panetitle { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  /* What is under it, and the thing that scrolls. Shut, it is gone rather than merely hidden: a
+     collapsed section that still took its own scroll height would leave the card the same size. */
+  .panebody {
+    display:flex; flex-direction:column; gap:var(--magi-sys-space-100); min-height:0;
+    overflow:hidden auto; overscroll-behavior:contain;
+    padding:0 var(--magi-sys-space-150) var(--magi-sys-space-150);
+  }
+  .filescard.shut .panebody { display:none; }
+  .filescard.shut { flex:0 0 auto; }
   #files > .filescard:first-child { flex:1 1 auto; }
   /* git's card is as tall as what is in it, up to a share of the column: a branch and four changes
      should not take half the pane, and forty changes should not take all of it. */
-  #files > .gitbox { flex:0 1 auto; max-height:45%; }
+  #files > .filescard:last-child:not(:first-child) { flex:0 1 auto; max-height:50%; }
   .fileshead {
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
     color:var(--magi-ref-muted); overflow-wrap:anywhere;
@@ -1352,7 +1373,7 @@
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
   /* What git makes of the workspace, over the tree it is the state of. */
-  .gitbox { gap:var(--magi-sys-space-50); }
+  .gitinner { display:flex; flex-direction:column; gap:var(--magi-sys-space-50); min-width:0; }
   .gittop { display:flex; align-items:center; gap:var(--magi-sys-space-100); flex-wrap:wrap; }
   .gitbranch {
     font:600 var(--md-sys-typescale-label-large-size)/1.5 var(--magi-ref-mono);
@@ -1383,13 +1404,13 @@
      message are all unbreakable strings, and a flex or grid child's default minimum is its
      CONTENT — so one 60-character path made the whole card wider than the pane and the pane grew a
      sideways scrollbar. min-width:0 on every box that holds one, and the text itself clips. */
-  .gitbox, .gitline, .gitacts, .gittop, .gitbranchacts, .gitcommit { min-width:0; max-width:100%; }
+  .gitinner, .gitline, .gitacts, .gittop, .gitbranchacts, .gitcommit { min-width:0; max-width:100%; }
   .gitline { display:flex; align-items:center; gap:var(--magi-sys-space-50); min-width:0; }
   .gitline .treerow { flex:1 1 auto; min-width:0; }
   .gitrow .treename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   /* The whole path in a tooltip's place: the row clips, and the title is what a reader falls back
      on when the middle of a path is the part that was cut. */
-  .gitbox .gitbranch { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gitinner .gitbranch { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gitcommit md-outlined-text-field { width:100%; min-width:0; }
   .gitacts { display:flex; flex:none; }
   .gitacts md-icon-button { --md-icon-button-icon-size:18px; }
@@ -1497,10 +1518,6 @@
   /* The switch that lets the model read over your shoulder, and what it said. The switch is a
      preference and reads like one; what it says is a note above the buffer, in the warning colour
      because it only ever speaks when something is wrong — silence is the other answer. */
-  .lookrow { display:flex; align-items:center; gap:var(--magi-sys-space-150); }
-  .lookk {
-    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
-  }
   .looksaid {
     font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-warn);
     white-space:pre-wrap; padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
