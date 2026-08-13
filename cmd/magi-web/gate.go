@@ -47,6 +47,14 @@ var mayWrite = map[string]auth.Capability{
 	// Asking the model to look at a file somebody is editing. It changes nothing and records
 	// nothing — but it spends the backend on their behalf, which is what `prompt` is about.
 	"/look": auth.Prompt,
+	// Convening a meeting, speaking in one, ending it, and giving out what it concluded. All
+	// `prompt`: a meeting is model turns on several companions at once — the most expensive thing
+	// this console can start — and handing a conclusion out is giving one of them work, which is
+	// the same act /submit is. Reading a meeting is a read; see below.
+	"/meet":       auth.Prompt,
+	"/meet-say":   auth.Prompt,
+	"/meet-close": auth.Prompt,
+	"/meet-hand":  auth.Prompt,
 	// Changing a file in the workspace from the console. Behind `shell` rather than a capability of
 	// its own: anybody who may run a command there can already write any file in it, so this widens
 	// nothing — and two capabilities permitting one act would make granting either meaningless.
@@ -102,6 +110,10 @@ var openToRead = map[string]bool{
 	// capability that grants the transcript and refuses the tree would be drawing a line the
 	// content does not respect. Writing has no route at all — see files.go.
 	"/files": true, "/file": true, "/find": true, "/git": true, "/diff": true,
+	// Watching a meeting that is already happening. Convening one is a POST and costs turns; being
+	// in the room while it does is reading, and a console where only the convener could follow
+	// along would be a discussion nobody else could see the result of.
+	"/meet": true,
 }
 
 // public is the page itself and what it is made of.

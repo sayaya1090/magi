@@ -427,6 +427,9 @@ type server struct {
 	// withhold the page from somebody sitting in front of it.
 	pushes *pushState
 
+	// Meetings this console is holding — see meet.go. Zero value is a console that has held none.
+	meets meetings
+
 	// What searches here embed with, for the shared-knowledge screen to show. Read once at startup:
 	// changing it means restarting anyway, since the vectors already cached are the old model's.
 	embedModel string
@@ -888,6 +891,10 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/diff":          s.diff,
 		"/file-do":       s.fileDo,
 		"/history":       s.history,
+		"/meet":          s.meet,
+		"/meet-say":      s.meetSay,
+		"/meet-close":    s.meetClose,
+		"/meet-hand":     s.meetHand,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,
 	}
