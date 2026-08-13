@@ -12,6 +12,7 @@
   "access.legend": "What the words mean",
   "access.nobody": "Nobody is listed yet: this console runs as one operator, with no policy.",
   "access.nobody_how": "Adding the first person turns the gate on for everybody.",
+  "access.nobody_unnamed": "Nobody can be added until this console is started with -user-header, behind a gateway that sets it: naming the first person turns the gate on, and a console that cannot tell who anybody is would then refuse everybody.",
   "access.only": "Showing only who may {cap}",
   "access.only_on": "Only on these companions",
   "access.open": "Open",

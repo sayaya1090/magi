@@ -132,6 +132,40 @@ role = "responder"
 	}
 }
 
+// The refusal above is the right answer to a request nobody should have been able to make.
+//
+// A screen can only decline to offer a control if it is told, and this list was not telling it:
+// it said whether a policy exists and never whether the console can tell who a request is from.
+// So the button was drawn, a name was typed into the dialog, the dialog closed, and the reason
+// arrived as a status note clipped at 80 characters — the half that says what to do about it cut
+// off. Measured live against a console started without -user-header.
+func TestTheListSaysWhetherThisConsoleCanNameAnybody(t *testing.T) {
+	s := withPolicy(t, "") // nobody configured, so everybody reaching it is the operator
+	s.userHeader = ""
+
+	read := func() accessAnswer {
+		t.Helper()
+		w := ask(t, s, "", http.MethodGet, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("the list answered %d: %s", w.Code, w.Body.String())
+		}
+		var got accessAnswer
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := read(); got.Named {
+		t.Error("a console with nothing in front of it says it can name people, so the screen " +
+			"offers a button whose only answer is 409")
+	}
+	s.userHeader = "X-Forwarded-User"
+	if got := read(); !got.Named {
+		t.Error("a console behind a gateway says it cannot name anybody, so the screen hides the " +
+			"one control that would make it a console with a policy")
+	}
+}
+
 // Adding the first person is what switches the gate on, so it is refused where that would lock
 // the door on the way in.
 //

@@ -67,6 +67,15 @@ type accessAnswer struct {
 	// Configured is false on a console with nobody listed: one operator, no policy, and adding the
 	// first person is the act that turns the gate on for everybody.
 	Configured bool `json:"configured"`
+	// Named is whether anything in front of this console says who a request is from — a gateway
+	// setting the header named by -user-header.
+	//
+	// Without it the FIRST person cannot be added: naming somebody turns the gate on, and a console
+	// that cannot tell who anybody is would then refuse everybody, including the person who just
+	// did it. accessWrite refuses that with a sentence, which is right, but the screen was still
+	// offering the button — a name typed into a dialog, the dialog closing, and nothing written.
+	// The screen can only decline to offer it if it is told, so it is told.
+	Named bool `json:"named"`
 }
 
 type instanceRow struct {
@@ -98,6 +107,7 @@ func (s *server) access(w http.ResponseWriter, r *http.Request) {
 	out := accessAnswer{
 		Instance:   instanceRow{Who: instanceOf(user, host), ConfigDir: s.cfgDir},
 		Configured: p.Configured(),
+		Named:      s.userHeader != "",
 	}
 	for who, person := range p.People {
 		out.People = append(out.People, personRow{

@@ -3572,7 +3572,14 @@ async function loadAccess() {
   const got = await fetchList('/access');
   if (!got) return;
   const roles = (got.roles || []).map(r => r.name);
-  const head = sectionHead('nav.access', addPersonButton(roles));
+  // Adding the first person is the act that turns the gate on, so a console with nothing in front
+  // of it to say who anybody is cannot do it: it would refuse everybody afterwards, starting with
+  // whoever pressed the button. The server says so — measured live, 409 with the reason — but the
+  // reason arrived as a status note clipped at 80 characters, which cut off the half that says
+  // what to do about it. So the button is not offered, and the empty state carries the sentence
+  // instead, where there is room for all of it.
+  const mayAdd = got.configured || got.named;
+  const head = sectionHead('nav.access', mayAdd ? addPersonButton(roles) : null);
   // Whose list this is, before the list. Drawn on both branches: "nobody is listed" is a statement
   // about one instance too, and on a page that shows companions from several machines it was the
   // branch most likely to be read as a statement about all of them.
@@ -3580,7 +3587,8 @@ async function loadAccess() {
   if (!got.configured) {
     // Not an empty table: a console with nobody listed is the one-operator console, and which of
     // the two this is answers "was my file read".
-    accessEl.replaceChildren(head, ...whose, emptyState('access.nobody', 'access.nobody_how'));
+    accessEl.replaceChildren(head, ...whose,
+                             emptyState('access.nobody', mayAdd ? 'access.nobody_how' : 'access.nobody_unnamed'));
     return;
   }
   // Groups first, because on a console wired to a directory they are the roster and the people

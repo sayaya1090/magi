@@ -4367,6 +4367,52 @@ console.log(JSON.stringify({sent: sent}));`)
 // Two halves of the same rule: the markup carries data-may="admin" so the screen is not offered to
 // somebody who would be refused, and the server refuses regardless — hiding is for the person who
 // would otherwise press a control that answers 403.
+// A console that cannot name anybody is not offered the one control that names somebody.
+//
+// Adding the first person turns the gate on for everybody, and a console with no gateway in front
+// of it cannot tell who anybody is afterwards — including whoever pressed the button. The server
+// refuses it, correctly, and the screen went on offering it anyway: the dialog opened, took a
+// name, closed, and the reason came back as a status note clipped mid-sentence. The way out is in
+// the empty state instead, where the whole sentence fits.
+func TestTheFirstPersonIsNotOfferedWhereItCannotBeAdded(t *testing.T) {
+	fleet := `[]`
+	page := `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  const path = String(p).split('?')[0];
+  if (path === '/me') return {ok: true, json: async () => ({can: ['read','admin']})};
+  if (path === '/access') return {ok: true, json: async () => ({configured: false, named: NAMED,
+    instance: {who: 'you@studio', configDir: '/Users/you/.config/magi'},
+    roles: [{name: 'operator', can: ['read','admin']}, {name: 'viewer', can: ['read']}]})};
+  return base(p, o);
+};
+await loadMe();
+history.pushState({}, '', '/?v=access');
+render();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({
+  // Counted, not read: a component's label is in its children, and this DOM's textContent is own
+  // text only — so a check on the words passed while the button was there.
+  adds: byId.access.find('md-text-button').length,
+  empty: byId.access.find('div').filter(d => String(d.className) === 'empty')
+                    .map(d => d.textContent).join(' '),
+}));
+`
+	unnamed := runPage(t, fleet, "?v=access", strings.Replace(page, "NAMED", "false", 1))
+	if n, _ := unnamed["adds"].(float64); n != 0 {
+		t.Errorf("the screen offers %v control(s) on a console where adding anybody answers 409", n)
+	}
+	// And says why, with the part that can be acted on: a screen that simply drops the control is
+	// a screen somebody reads as broken.
+	if why, _ := unnamed["empty"].(string); !strings.Contains(why, "-user-header") {
+		t.Errorf("the empty state does not say what would make this possible: %q", why)
+	}
+	named := runPage(t, fleet, "?v=access", strings.Replace(page, "NAMED", "true", 1))
+	if n, _ := named["adds"].(float64); n == 0 {
+		t.Error("a console behind a gateway is not offered the way to add its first person")
+	}
+}
+
 func TestTheAccessScreenIsDrawnForAnAdminAndHiddenFromEverybodyElse(t *testing.T) {
 	fleet := `[]`
 	page := `
