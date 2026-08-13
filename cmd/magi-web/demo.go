@@ -418,7 +418,7 @@ const demoScript = `
     // do, and one of them with nothing, which is an ordinary outcome.
     '/meet': [
       {id: 'm20260813-090400-0', topic: 'how long may the fleet table take to load, and who owns it',
-       round: 2, max: 3, holder: 'you', held: true,
+       round: 2, max: 5, holder: 'you', held: true,
        trouble: 'ops: no daemon at /demo/ops.sock',
        speakers: [
          {name: 'design', socket: '/demo/design.sock'},
