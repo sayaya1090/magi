@@ -1638,8 +1638,12 @@
     border-left:1px solid var(--magi-ref-outlineVariant);
   }
   .treerow[style*="--d: 0"]::before, .treerow[style*="--d:0"]::before { border-left:0; }
-  /* Where a finger is the input, the row is a target rather than a line of text. The guide gives
-     40dp when a mouse is the primary input and 48 when it is not. */
+  /* Where a finger is the input, the row is a target rather than a line of text.
+     ⚠ Chosen, not conformant, and the numbers said plainly: the guide asks for 48×48dp under a
+     finger and 44×44 under a pointer, with 8dp between targets. This row is 26.4dp under a mouse
+     and 40 under a finger, because the pane is 18rem wide and holds a list of forty names scanned
+     for one of them — at 44 it holds eight. The reader was shown both and picked density
+     (2026-08-14). The comment here used to claim the guide allowed 40 for a mouse; it does not. */
   @media (hover:none) {
     .treerow { min-height:40px; }
   }
