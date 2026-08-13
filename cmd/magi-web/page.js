@@ -408,9 +408,35 @@ function drawPanels() {
   const talk = panel === 'talk';
   log.hidden = !talk;
   sideEl.hidden = talk;
-  if (talk) detailEl.hidden = true;
-  else showCard();
+  // The file slot belongs to the workspace half, not above the conversation.
+  //
+  // It was drawn by showCard alone, which knows which card is showing and not which PANEL is — so
+  // on a phone an open file sat between the header and the transcript and pushed the conversation
+  // off the screen: measured at 390x844, 0px of conversation visible and 1636px of page under the
+  // thumb, with the file's own Save five hundred pixels above the composer that answers the
+  // companion. Two places to type on one screen, and neither near its own words.
+  if (talk) {
+    detailEl.hidden = true;
+    fileViewEl.hidden = true;
+    cardTabs.hidden = true;
+  } else {
+    cardTabs.hidden = !openFiles.length;
+    showCard();
+  }
+  document.body.setAttribute('panel', panel);
 }
+// toWorkspacePanel puts the reader where the thing they just opened is.
+//
+// Only where the two halves are two screens. Opening a file from the tree while the conversation
+// is showing used to load it into a panel nobody was looking at — the press appeared to do
+// nothing, which is worse than the wedged card it replaced.
+function toWorkspacePanel() {
+  if (ptabs.hidden || panel === 'state') return;
+  panel = 'state';
+  ptabs.activeTabIndex = 1;
+  drawPanels();
+}
+
 // Only when the reader switched, not on the poll that redraws the facts four times a minute.
 // Sideways, in the direction the reader moved. Talk sits left of state, so arriving at state comes
 // in from the right and going back to talk comes in from the left — which is what tells somebody
@@ -6183,6 +6209,7 @@ async function openDiff(a, path, which) {
   const key = DIFF + path + '#' + (which || '');
   if (!openFiles.includes(key)) openFiles.push(key);
   cardShows = key;
+  toWorkspacePanel();
   drawCardTabs(a);
   const got = await fetchOne('/diff' + qFor(a) + '&path=' + encodeURIComponent(path) +
                              '&which=' + encodeURIComponent(which || ''));
@@ -6206,6 +6233,7 @@ let commitDraft = '';    // the message as it is being typed, kept across redraw
 async function openCommit(a) {
   if (!openFiles.includes(COMMIT)) openFiles.push(COMMIT);
   cardShows = COMMIT;
+  toWorkspacePanel();
   drawCardTabs(a);
   const g = await fetchOne('/git' + qFor(a));
   if (cardShows !== COMMIT) return;
@@ -6351,6 +6379,7 @@ const DIFF_WHICH = {staged: 'diff.staged', untracked: 'diff.untracked', '': 'dif
 async function openFile(a, path) {
   if (!openFiles.includes(path)) openFiles.push(path);
   cardShows = path;
+  toWorkspacePanel();
   drawCardTabs(a);
   const got = await fetchOne('/file' + qFor(a) + '&path=' + encodeURIComponent(path));
   if (cardShows !== path) return;            // somebody moved on while it was fetching

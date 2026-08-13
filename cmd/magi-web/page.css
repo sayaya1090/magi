@@ -2262,6 +2262,22 @@
       max-height:min(78%, 78vh); display:flex; flex-direction:column; min-height:0; overflow:hidden;
     }
   }
+  /* One thing at a time where there is only room for one.
+     The card slot sits above the transcript, which is right on a screen wide enough for both and
+     wrong on a phone: opening a file put 0px of conversation on screen and 1636px of page under
+     the thumb, with the file's own Save five hundred pixels above the composer. Below the pane
+     breakpoint the strip switches between them — the conversation is one of its tabs — and the
+     other one is not drawn. */
+  /* The box for talking to the companion belongs to the half with the conversation in it.
+     On the workspace half of a stacked companion it was a composer fixed over a file somebody is
+     reading — two places to type on one screen, and on a phone it took a third of what the
+     question bar left. What is NOT hidden with it: the bar where the companion is asking
+     something, and the strip of what is running. Those are the companion speaking, and a question
+     hidden behind a tab is a question nobody answers. */
+  @media (max-width:52.4375em) {
+    body[at="agent"][panel="state"] #dock form { display:none; }
+  }
+
   @media (min-width:52.5em) {
     #agentview {
       /* The conversation has a floor, and the panes give way to it.
