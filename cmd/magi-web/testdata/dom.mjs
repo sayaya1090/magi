@@ -48,6 +48,11 @@ function element(tag) {
     },
     // Reading it is what forces a reflow in a browser; here it only has to exist.
     offsetWidth: 0,
+    // A box that scrolls. The transcript scrolls its own column beside a companion, so the numbers
+    // it reads — where it is, how tall it is, how much of it is visible — belong to an ELEMENT and
+    // not only to the window. Writable, because a test drives them and then asks where the page
+    // sent the scroll.
+    scrollTop: 0, scrollHeight: 0, clientHeight: 0,
     // Setting textContent REPLACES the node's contents, children included. The fake kept only its
     // own string and left the children standing, so a readout rebuilt from "5 agents" plus a button
     // and then reset to "cannot reach magi-web" read as both at once here and correctly in a
@@ -405,6 +410,22 @@ globalThis.document = {
     removeAttribute(k) { delete this.attrs[k]; },
   },
   body: Object.assign(element('body'), { offsetHeight: 400, scrollHeight: 400 }),
+  // The box the page scrolls, as the page now asks for it.
+  //
+  // The transcript used to measure window.scrollY and document.body.scrollHeight directly; beside a
+  // companion it scrolls its own column instead, so it asks a SCROLLER for those three numbers and
+  // the window is only one of the answers. This stands in for the window's: the numbers come from
+  // the fields tests already set, and writing scrollTop records where it was sent — which is what
+  // every scroll test here asserts on.
+  get scrollingElement() {
+    const doc = this;
+    return {
+      get scrollTop() { return globalThis.window.scrollY || 0; },
+      set scrollTop(v) { globalThis.window.scrolledTo = v; globalThis.window.scrollY = v; },
+      get scrollHeight() { return doc.body.scrollHeight || 0; },
+      get clientHeight() { return globalThis.window.innerHeight || 0; },
+    };
+  },
   // The typeface arrives after the page does, and the page has to answer for what that moves. A
   // promise that never settles would have let a test "pass" by never running the handler at all —
   // which is what happened, and is why _land exists: the test decides when the fonts are in.

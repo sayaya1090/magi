@@ -3975,28 +3975,23 @@ console.log(JSON.stringify({
 // the other thing that changes height and did not.
 func TestGrowingTheDockKeepsAReaderAtTheBottom(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
-// At the bottom: the window's height covers the whole document from where it sits.
-window.scrollY = 0; window.innerHeight = 800;
-document.body.offsetHeight = 400; document.body.scrollHeight = 400;
-window.scrolledTo = null;
+// Beside a companion the transcript scrolls its own column, so that box is what says where the
+// reader is. At the bottom: what is visible covers everything from where it sits.
+byId.log.scrollTop = 0; byId.log.clientHeight = 800; byId.log.scrollHeight = 400;
 byId.dock.offsetHeight = 260;                       // a question with options just opened
 measureDock();
-const wasStuck = window.scrolledTo;
+const wasStuck = byId.log.scrollTop;
 
 // And a reader who had scrolled up is left where they are: the page grew below them, off screen.
-window.scrollY = 0; window.innerHeight = 200;
-document.body.offsetHeight = 4000; document.body.scrollHeight = 4000;
-window.scrolledTo = null;
+byId.log.scrollTop = 0; byId.log.clientHeight = 200; byId.log.scrollHeight = 4000;
 byId.dock.offsetHeight = 320;
 measureDock();
-console.log(JSON.stringify({atBottom: wasStuck, readingAbove: window.scrolledTo}));`)
+console.log(JSON.stringify({atBottom: wasStuck, readingAbove: byId.log.scrollTop}));`)
 
-	if got["atBottom"] == nil {
-		t.Error("the page grew under a reader at the bottom and left them above it, reading the bar")
-	} else if got["atBottom"].(float64) != 400 {
-		t.Errorf("it scrolled to %v, not to the foot of the document", got["atBottom"])
+	if n, _ := got["atBottom"].(float64); n != 400 {
+		t.Errorf("a reader at the bottom ended at %v, and the foot is 400", got["atBottom"])
 	}
-	if got["readingAbove"] != nil {
+	if n, _ := got["readingAbove"].(float64); n != 0 {
 		t.Errorf("it threw a reader who was mid-transcript to %v", got["readingAbove"])
 	}
 }
@@ -4108,14 +4103,17 @@ console.log(JSON.stringify({asked: asked, kept: byId.t.value}));`)
 // exactly a tool call, its output and its fold arriving as one 3.5rem guess.
 func TestTheBottomIsReachedAfterALateGrowingRow(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
-window.scrollY = 0; window.innerHeight = 800;
-document.body.offsetHeight = 400; document.body.scrollHeight = 400;
+byId.log.clientHeight = 800; byId.log.scrollHeight = 400;
 const went = [];
-window.scrollTo = (x, y) => {
-  went.push(y);
-  // The browser lays the new row out after the first scroll, and the page gets taller.
-  if (went.length === 1) document.body.scrollHeight = 2400;
-};
+// The box records where it was sent, and grows after the first scroll the way a row does once the
+// browser has laid it out.
+Object.defineProperty(byId.log, 'scrollTop', {
+  get() { return went.length ? went[went.length - 1] : 0; },
+  set(y) {
+    went.push(y);
+    if (went.length === 1) byId.log.scrollHeight = 2400;
+  },
+});
 toBottom();
 console.log(JSON.stringify({went: went}));`)
 
@@ -4136,18 +4134,18 @@ console.log(JSON.stringify({went: went}));`)
 // failure as the late-growing row, from the other direction, and the same one line fixes it.
 func TestTheBottomIsReachedAgainWhenTheFontsLand(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
-window.scrollY = 0; window.innerHeight = 800;
-document.body.offsetHeight = 400; document.body.scrollHeight = 400;
+// The transcript's own box, which is what scrolls beside a companion.
+byId.log.clientHeight = 800; byId.log.scrollHeight = 400;
 // After the page has finished starting up, so what is measured is the FONTS landing and not
 // something else that scrolled on the way in.
 for (let i = 0; i < 8; i++) await Promise.resolve();
-window.scrolledTo = null;
+byId.log.scrollTop = -1;                 // a value nothing else would leave behind
 document.fonts._land();
 for (let i = 0; i < 8; i++) await Promise.resolve();
-console.log(JSON.stringify({after: window.scrolledTo}));`)
+console.log(JSON.stringify({after: byId.log.scrollTop}));`)
 
-	if got["after"] == nil {
-		t.Error("the fonts landed, the lines re-measured, and the reader was left above the end")
+	if n, _ := got["after"].(float64); n != 400 {
+		t.Errorf("the fonts landed, the lines re-measured, and the reader was left at %v", got["after"])
 	}
 }
 
@@ -4814,5 +4812,49 @@ console.log(JSON.stringify({
 	none := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", strings.Replace(page, "GIT", `{repo: false}`, 1))
 	if none["branch"] != "" {
 		t.Errorf("a workspace that is not a checkout drew %q", none["branch"])
+	}
+}
+
+// Beside a companion the transcript scrolls its own box, not the window.
+//
+// One window scroller for three columns of independent content made them fight: the cards above
+// the conversation and the panes either side had to be sticky or not, and whichever way that was
+// decided per element, scrolling the transcript moved something with no reason to move. The page
+// stops scrolling here and each column scrolls itself — which also makes "stay at the bottom" a
+// question about the transcript rather than about the window.
+func TestTheTranscriptScrollsItsOwnColumn(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+byId.log.clientHeight = 400; byId.log.scrollHeight = 4000; byId.log.scrollTop = 4000;
+window.scrolledTo = null;
+// At the foot of its own box, so a new row follows.
+const wasBottom = atBottom();
+toBottom();
+const wentTo = byId.log.scrollTop;
+// And a reader partway up is left alone.
+byId.log.scrollTop = 1200;
+const stillBottom = atBottom();
+console.log(JSON.stringify({wasBottom: wasBottom, wentTo: wentTo, stillBottom: stillBottom,
+                            window: window.scrolledTo,
+                            // Reaching the TOP of the column asks for the rows above, and a scroll
+                            // inside an element never reaches the window — so the column has to be
+                            // listened to directly or a long transcript stops loading backwards.
+                            heard: (byId.log._on.scroll || []).length}));
+`)
+	if got["wasBottom"] != true {
+		t.Error("a reader at the foot of the transcript was not read as being there")
+	}
+	if n, _ := got["wentTo"].(float64); n != 4000 {
+		t.Errorf("following the tail sent the column to %v", got["wentTo"])
+	}
+	if got["stillBottom"] != false {
+		t.Error("a reader 2,800 pixels up was read as being at the bottom")
+	}
+	// And nothing was done to the window: the page beside a companion does not scroll, and a page
+	// that scrolled as well would move the panes and the cards that are meant to stay put.
+	if got["window"] != nil {
+		t.Errorf("the window was scrolled to %v as well", got["window"])
+	}
+	if n, _ := got["heard"].(float64); n < 1 {
+		t.Error("nothing listens to the column's own scroll, so reaching its top asks for nothing")
 	}
 }

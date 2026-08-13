@@ -286,6 +286,10 @@
     /* One step of a tree's depth: the indent per level, and where the guide line for that level is
        drawn. One number so the two cannot drift. */
     --magi-comp-tree-step:0.75rem;
+    /* How much of the window the masthead takes. A fallback, replaced by the measured height on
+       every layout — the bar wraps at some widths and in some languages, and a shell sized against
+       a guess is a shell whose last line is under the fold or whose bottom is empty. */
+    --magi-comp-masthead:5.5rem;
     --magi-sys-dur-short2:100ms; --magi-sys-dur-short4:200ms; --magi-sys-dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -1872,12 +1876,7 @@
      Only where the panes are beside the conversation: stacked, the page is one column and a
      sticky block in the middle of it would sit on top of the messages. */
   @media (min-width:52.5em) {
-    #fileview {
-      position:sticky; top:5.5rem; z-index:1;
-      max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
-      overflow:auto; overscroll-behavior:contain;
-      background:var(--magi-ref-surface-container-low);
-    }
+    #fileview { overflow:auto; overscroll-behavior:contain; }
   }
   #detail .grid {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
@@ -1989,6 +1988,35 @@
      840-1199, large 1200-1599, extra-large 1600+, and two panes are recommended from expanded. */
   @media (min-width:52.5em) {
     #ptabs { display:none !important; }
+    /* ── the companion's page is an app shell ───────────────────────────────
+       One window scroller for three columns of independent content made them fight: the cards
+       above the conversation and the panes either side are sticky or not, and whichever way that
+       is decided per element, scrolling the transcript moved something that had no reason to move.
+       So the page itself stops scrolling beside a companion, and each column scrolls its own
+       contents — which is what every editor and every chat client does with this layout, and what
+       makes "stay at the bottom" a question about the transcript rather than about the window.
+       Only here: the fleet, the board and the phone are one column of page and scroll as a page. */
+    body[at="agent"] main {
+      height:calc(100dvh - var(--magi-comp-masthead, 5.5rem));
+      overflow:hidden; padding-bottom:0;
+    }
+    body[at="agent"] #agentview { height:100%; min-height:0; }
+    /* The columns stop being sticky: there is nothing to stick to, and they are simply as tall as
+       the shell. */
+    body[at="agent"] #filecol, body[at="agent"] #sidecol {
+      position:static; height:100%; max-height:none; top:auto;
+    }
+    body[at="agent"] #stream { height:100%; min-height:0; overflow:hidden; }
+    /* The transcript is the one thing in the middle column that moves. Everything above it — the
+       tabs, the card, an open file — stays where it was put. */
+    body[at="agent"] #log {
+      flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain;
+      padding-bottom:calc(var(--dock, 0px) + var(--magi-sys-space-300));
+    }
+    /* A deep screen is a page of its own inside the column. */
+    body[at="agent"] #agentdetail { overflow:auto; min-height:0; }
+    /* And the file card stops needing to be sticky: nothing under it scrolls past it any more. */
+    body[at="agent"] #fileview { position:static; max-height:min(60vh, 34rem); }
   }
   @media (min-width:52.5em) {
     #agentview {

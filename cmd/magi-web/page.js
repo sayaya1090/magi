@@ -3945,9 +3945,24 @@ async function loadMCP() {
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
+// Which box the transcript scrolls IN.
+//
+// Beside a companion on a wide screen the page itself does not scroll: the three columns each
+// scroll their own contents, so the cards above the conversation and the panes either side stay
+// where they are while the transcript moves under them. Everywhere else — the fleet list, a phone,
+// a deep screen — the window is the scroller, as it has always been.
+//
+// One accessor rather than a flag each site checks: everything below measures a scroll position,
+// and two of them disagreeing is a transcript that jumps.
+const logScrolls = () => wide.matches && !!sock();
+const scroller = () => (logScrolls() ? log : (document.scrollingElement || document.documentElement));
+
 // Follow the tail only while the reader is already at the bottom. Yanking the view down while
 // somebody reads the middle of a long run is how a live page becomes unreadable.
-const atBottom = () => window.innerHeight + window.scrollY >= document.body.offsetHeight - 48;
+const atBottom = () => {
+  const s = scroller();
+  return s.scrollHeight - s.scrollTop - s.clientHeight <= 48;
+};
 
 // toBottom goes to the foot of the page, and then again once the browser has laid out what it just
 // put there.
@@ -3966,7 +3981,8 @@ const atBottom = () => window.innerHeight + window.scrollY >= document.body.offs
 // insert; a third pass is there for the row that grows again as its own content settles, and a
 // watcher that kept going would be a scroll that fights a person trying to scroll away.
 function toBottom(frames) {
-  window.scrollTo(0, document.body.scrollHeight);
+  const s = scroller();
+  s.scrollTop = s.scrollHeight;
   const left = frames === undefined ? 2 : frames;
   if (left > 0 && typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(() => toBottom(left - 1));
@@ -6038,7 +6054,8 @@ function draw(rows) {
   // first difference on is rebuilt — which for the usual frame is the last row and nothing else.
   // A compaction rewrites history and breaks the match early; that rebuild is correct and rare.
   // Measured before anything moves, for the anchoring at the end.
-  const wasAt = window.scrollY, wasTall = document.body.scrollHeight;
+  const box = scroller();
+  const wasAt = box.scrollTop, wasTall = box.scrollHeight;
   let i = 0;
   while (i < win.length && i < shown.rows.length && same(win[i], shown.rows[i])) i++;
   while (shown.nodes.length > i) log.removeChild(shown.nodes.pop());
@@ -6072,8 +6089,8 @@ function draw(rows) {
   // was recorded on the way out, ~600 when it is shrunk by what the recovered rows report now.
   // The rest is what Chrome's own scroll anchoring absorbs as they come into view.
   if (stick) toBottom();
-  else if (i === 0 && document.body.scrollHeight !== wasTall) {
-    window.scrollTo(0, wasAt + (document.body.scrollHeight - wasTall));
+  else if (i === 0 && box.scrollHeight !== wasTall) {
+    box.scrollTop = wasAt + (box.scrollHeight - wasTall);
   }
 }
 
@@ -6083,12 +6100,17 @@ function draw(rows) {
 // conversation, and a button saying "earlier" in the middle of it would be furniture explaining a
 // mechanism nobody asked about. The margin is a screen and a half, so the rows are there before the
 // empty box is.
-addEventListener('scroll', () => {
+// Both boxes, because only one of them is scrolling at a time and a scroll inside an element does
+// not reach the window. Same handler: what it asks is "is the top of what we are showing near the
+// top of the box", which is the same question wherever the box is.
+const reachedUp = () => {
   if (!above || !spacer.parentNode) return;
-  if (spacer.getBoundingClientRect().bottom > -window.innerHeight * 1.5) {
+  if (spacer.getBoundingClientRect().bottom > -scroller().clientHeight * 1.5) {
     if (reachUp()) draw(lastRows);
   }
-}, {passive: true});
+};
+addEventListener('scroll', reachedUp, {passive: true});
+log.addEventListener('scroll', reachedUp, {passive: true});
 
 // runShell sends a command to the daemon and shows what it wrote.
 async function runShell(cmd) {
@@ -6680,6 +6702,20 @@ function grip(el, prop, key, lead) {
 }
 grip(document.getElementById('filesGrip'), '--magi-comp-files-w', 'files.w', false);
 grip(document.getElementById('sideGrip'), '--magi-comp-side-w', 'side.w', true);
+
+// The masthead's real height, into the property the shell is sized from.
+//
+// Measured rather than assumed: the bar wraps at some widths and in some languages, and a shell
+// sized against a guess either hides its last line under the fold or leaves a strip of nothing at
+// the bottom. Same shape as the dock's measurement, which has been doing this for the composer.
+function measureMasthead() {
+  const bar = document.getElementById('masthead');
+  if (!bar || typeof bar.getBoundingClientRect !== 'function') return;
+  const h = Math.ceil(bar.getBoundingClientRect().height);
+  if (h > 0) document.documentElement.style.setProperty('--magi-comp-masthead', h + 'px');
+}
+measureMasthead();
+addEventListener('resize', measureMasthead, {passive: true});
 
 const scrimEl = document.getElementById('scrim');
 // Collapsed the badge sits on the icon's upper right; expanded it moves beside the label, which
