@@ -5546,24 +5546,41 @@ function drawWires(canvas, svg, rows, hands) {
     const a = nodeOf(from.socket), b = nodeOf(to.socket);
     if (!a || !b) continue;
     const together = a.machine.l === b.machine.l && a.machine.t === b.machine.t;
-    if (together) curve(svg, a, b, cls);
-    else around(svg, a, b, laneY(), cls);
+    if (together) curve(svg, a, b, cls, frame.width);
+    else around(svg, a, b, laneY(), cls, frame.width);
     drawn++;
   }
   return drawn;
 }
 
-// Two nodes in one box: a short curve out of the trailing edge and back in.
-function curve(svg, a, b, cls) {
-  const x1 = a.r, y1 = a.y, x2 = b.r, y2 = b.y;
-  const out = Math.max(16, Math.abs(y2 - y1) / 2);
-  path(svg, 'M' + x1 + ' ' + y1 + ' C' + (x1 + out) + ' ' + y1 + ' ' +
-             (x2 + out) + ' ' + y2 + ' ' + x2 + ' ' + y2, cls);
+// Two nodes in one box: a short curve out of the side that has room for it.
+//
+// It always left the trailing edge, which is fine while the boxes are half the canvas and wrong
+// the moment they are all of it: on a phone every node's right edge IS the canvas edge, so the
+// curve was drawn outside the frame and clipped there — measured at 390px, a path running to 387
+// in a canvas 359 wide, which reads as grey stubs hanging off the cards.
+function curve(svg, a, b, cls, width) {
+  const y1 = a.y, y2 = b.y;
+  const want = Math.max(16, Math.abs(y2 - y1) / 2);
+  const right = (width || Infinity) - Math.max(a.r, b.r) - 4;
+  if (right >= 12) {
+    const out = Math.min(want, right);
+    path(svg, 'M' + a.r + ' ' + y1 + ' C' + (a.r + out) + ' ' + y1 + ' ' +
+               (b.r + out) + ' ' + y2 + ' ' + b.r + ' ' + y2, cls);
+    return;
+  }
+  // No room on that side: leave and arrive on the leading edge, which is the same picture mirrored.
+  const out = Math.min(want, Math.max(4, Math.min(a.l, b.l) - 4));
+  path(svg, 'M' + a.l + ' ' + y1 + ' C' + (a.l - out) + ' ' + y1 + ' ' +
+             (b.l - out) + ' ' + y2 + ' ' + b.l + ' ' + y2, cls);
 }
 
 // Two nodes in different boxes: out of the side, down into the lane, along it, and up.
-function around(svg, a, b, y, cls) {
-  const leave = a.machine.r + 10, enter = b.machine.l - 10;
+function around(svg, a, b, y, cls, width) {
+  // Inside the canvas at both ends: a machine box that reaches the frame left no room for the
+  // 10px step out of it, and that end of the wire was drawn past the edge and cut off.
+  const leave = Math.min(a.machine.r + 10, (width || a.machine.r + 10) - 4);
+  const enter = Math.max(b.machine.l - 10, 4);
   const p = ['M' + a.r + ' ' + a.y, 'H' + leave, 'V' + y, 'H' + enter, 'V' + b.y, 'H' + b.l];
   path(svg, p.join(' '), cls);
 }
