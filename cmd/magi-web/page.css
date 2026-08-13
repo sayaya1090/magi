@@ -1639,42 +1639,39 @@
   /* The colour and the field, stacked. The field is transparent and sits over a copy of the text
      that carries the marks; both are the same face at the same size and the same padding, or the
      colour drifts off the letters it belongs to. */
-  .editstack { position:relative; }
+  /* The editor is the reading view with a caret in it. Same grid, same gutter, same face, same
+     size — anything that differs is a line breaking somewhere else the moment you press edit, and
+     then the thing on screen has stopped being the thing you were looking at. */
+  .editbody { max-height:min(60vh, 34rem); }
+  /* The ghost is in flow and the field is over it, not the other way round: the coloured copy is
+     the one that knows how big the file is, so it sizes the box and the field inherits that. Grown
+     to the longest line, so a file with one wide line scrolls the pane sideways under a gutter
+     that stays where it is. */
+  .editstack { position:relative; min-width:100%; width:max-content; }
   .editstack .editghost {
-    position:absolute; inset:0; margin:0; overflow:hidden; pointer-events:none;
-    white-space:pre-wrap; overflow-wrap:break-word;
-    /* The same face and size as the file BEING edited — see .fileeditarea for why this is
-       body-small and what a finger changes. The ghost carries the colour under a transparent
-       field, so any drift here is the highlight sliding off the letters it belongs to. */
-    font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono); tab-size:4;
-    /* The component's own inner padding, so line one starts on line one. */
-    padding:var(--magi-sys-space-200); color:var(--magi-ref-fg);
-    border-radius:var(--magi-sys-shape-extra-small);
+    margin:0; pointer-events:none; white-space:pre; tab-size:4; color:var(--magi-ref-fg);
   }
-  /* The text being typed is invisible; the caret and the selection are not. */
-  .editstack .fileeditarea {
-    position:relative; background:transparent;
-    --md-outlined-text-field-input-text-color:transparent;
-    --md-outlined-text-field-focus-input-text-color:transparent;
-    --md-outlined-text-field-container-color:transparent;
-    --md-outlined-text-field-caret-color:var(--magi-ref-primary);
-  }
+  /* The text being typed is invisible; the caret and the selection are not. Sized by JS to its own
+     content, because the box that scrolls is the pane around it — that is what keeps the numbers
+     beside their own lines with nothing listening for a scroll. */
   .fileeditarea {
-    width:100%; max-height:calc(100dvh - 22rem); overflow:auto;
-    --md-outlined-text-field-input-text-font:var(--magi-ref-mono);
-    /* The size the file is READ at. Editing was body-large and reading is body-small, so pressing
-       edit re-flowed the whole file — every line broke somewhere else, and the thing on screen
-       stopped being the thing you had just been looking at. It is one file in one place; the two
-       modes differ in what you can do, not in what it looks like. */
-    --md-outlined-text-field-input-text-size:var(--md-sys-typescale-body-small-size);
-    --md-outlined-text-field-input-text-line-height:1.6;
+    position:absolute; inset:0; width:100%; height:100%;
+    margin:0; padding:0; border:0; outline:0; background:transparent; resize:none;
+    color:transparent; caret-color:var(--magi-ref-primary);
+    white-space:pre; overflow:hidden; tab-size:4; font:inherit; display:block;
   }
+  .fileeditarea:focus { outline:0; }
+  /* Selection has to be visible through transparent text, and it is the one thing here the reading
+     view does not have to draw. */
+  .fileeditarea::selection { background:var(--magi-ref-primary); color:transparent; }
   /* Except where a finger is the input. Below 16px, iOS Safari zooms the page in when a field
-     takes focus and does not zoom back out — so on touch the editor keeps the larger size and the
-     ghost follows it, which is a re-flow on entering edit and the lesser of the two. */
+     takes focus and does not zoom back — so on touch the whole pane takes the larger size, editor
+     and reading view together, which keeps the two identical rather than trading one jump for
+     another. */
   @media (hover:none) {
-    .fileeditarea { --md-outlined-text-field-input-text-size:var(--md-sys-typescale-body-large-size); }
-    .editstack .editghost { font-size:var(--md-sys-typescale-body-large-size); }
+    .editbody, .editbody .fileeditarea, .editbody .editghost {
+      font-size:var(--md-sys-typescale-body-large-size);
+    }
   }
 
   /* This file's controls, in one corner and in every mode: "edit" becomes "save · cancel" where

@@ -6137,14 +6137,23 @@ let lookAt = 0;
 
 function editor(path, text, acts) {
   const box = cell('fileedit');
-  // The library's field with type=textarea, not a bare one: a bare textarea inherits the body's
-  // 14px, and iOS Safari zooms the whole page in on a field under 16 and does not zoom back. This
-  // page has a guard that fails the build over exactly that.
-  const area = document.createElement('md-outlined-text-field');
-  area.setAttribute('type', 'textarea');
-  area.setAttribute('rows', '20');
-  area.setAttribute('spellcheck', 'false');
+  // A bare textarea, which this page otherwise does not build.
+  //
+  // The reason for the ban is a field that inherits the body's 14px, because iOS Safari zooms the
+  // page in on anything under 16 and does not zoom back — so this one states its own size and
+  // takes 16 where a finger is the input, which is the rule the ban exists to enforce.
+  //
+  // The component cannot do this job. Measured on the live page: its inner textarea sets
+  // `white-space: pre-wrap` and `overflow-x: hidden` in its own shadow CSS, and neither can be
+  // reached from out here — the host inheriting `pre` changes nothing. So every long line wrapped,
+  // pressing edit re-flowed the file, and a column of line numbers could not be made to line up
+  // with text whose lines are not the file's lines. Wrapping off, the editor and the reading view
+  // are the same picture with a caret in it.
+  const area = document.createElement('textarea');
   area.className = 'fileeditarea';
+  area.setAttribute('spellcheck', 'false');
+  area.setAttribute('wrap', 'off');
+  area.setAttribute('aria-label', path);
   area.value = plainText(text);
   // The same marking as the reading view, behind the text being typed.
   //
@@ -6152,23 +6161,43 @@ function editor(path, text, acts) {
   // text UNDER it, in the same face at the same size, with the field itself made transparent. That
   // is how every browser editor that is not a rewritten text engine does it, and it costs nothing
   // when it drifts: the worst case is colour a pixel out of place behind a perfectly readable
-  // caret. It is redrawn as you type, and scrolls with the field.
+  // caret. It is redrawn as you type.
   const behind = document.createElement('pre');
   behind.className = 'filecode editghost';
   behind.setAttribute('aria-hidden', 'true');
+  // The numbers, in the reading view's own column: same element, same class, same sticky left edge
+  // — so the two modes cannot drift apart in the one place a reader compares them.
+  const nums = document.createElement('pre');
+  nums.className = 'filegutter';
+  nums.setAttribute('aria-hidden', 'true');
+  let lines = -1;
   const repaint = () => {
+    const src = String(area.value || '');
+    const comment = commentMark(path);
     behind.replaceChildren();
-    for (const part of codeParts(String(area.value || ''), commentMark(path))) {
-      if (!part.cls) { behind.append(document.createTextNode(part.text)); continue; }
-      const m = document.createElement('span');
-      m.className = part.cls;
-      m.textContent = part.text;
-      behind.append(m);
+    // Line by line, because the scanner is: a comment runs to the end of ITS line, and handing it
+    // the whole buffer made the first `//` in the file swallow everything after it — one grey span
+    // where the reading view had ten marks. The reading view has always painted it this way.
+    for (const line of src.split('\n')) {
+      for (const part of codeParts(line, comment)) {
+        if (!part.cls) { behind.append(document.createTextNode(part.text)); continue; }
+        const m = document.createElement('span');
+        m.className = part.cls;
+        m.textContent = part.text;
+        behind.append(m);
+      }
+      behind.append(document.createTextNode('\n'));
     }
-    // A trailing newline so the last line has somewhere to be, the way a textarea keeps one.
-    behind.append(document.createTextNode('\n'));
+    // Only when the count changed: typing inside a line is most of what typing is, and rebuilding
+    // a two-thousand-line column for each keystroke is work nobody asked for.
+    const n = src.split('\n').length;
+    if (n !== lines) {
+      lines = n;
+      let g = '';
+      for (let i = 1; i <= n; i++) g += i + '\n';
+      nums.textContent = g;
+    }
   };
-  repaint();
   // What the model made of it, above the buffer: it is about what is on the screen, and putting it
   // under a 28rem editor is putting it off the bottom of the pane.
   const said = cell('looksaid');
@@ -6194,16 +6223,6 @@ function editor(path, text, acts) {
     const mine = ++lookAt;
     setTimeout(() => { if (mine === lookAt) { lookAt = mine - 1; ask(); } }, 2000);
   });
-  // The colour scrolls with the text it is under. Read from the field's own scroller, which is
-  // inside its shadow root — the host does not scroll, so listening to the host alone would leave
-  // the colour standing still under a moving caret.
-  const inner = area.shadowRoot && area.shadowRoot.querySelector('textarea');
-  if (inner) {
-    inner.addEventListener('scroll', () => {
-      behind.scrollTop = inner.scrollTop;
-      behind.scrollLeft = inner.scrollLeft;
-    }, {passive: true});
-  }
   const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-floppy-disk'),
                      tr('action.save'));
   const opened = plainText(text);
@@ -6242,12 +6261,19 @@ function editor(path, text, acts) {
   // Into the bar at the top, where the edit button was: the control that starts this and the two
   // that end it are the same control in three states, and a control that moves is one you look for.
   acts.append(save, stop);
-  // The switch only where the capability is: asking costs the backend, and a control that answers
-  // 403 is one people learn not to press.
-  // One box holding both, the colour under and the field over it.
+  // The reading view's own shape: a column of numbers and a column of file, scrolling as one box.
+  // Written as the same grid rather than something that resembles it, because "the same picture
+  // with a caret in it" is the whole requirement here.
+  const wrap = cell('filebody editbody');
   const stack = cell('editstack');
   stack.append(behind, area);
-  box.append(said, stack);
+  wrap.append(nums, stack);
+  box.append(said, wrap);
+  // Nothing measures anything. The ghost is the text, in flow, so it is exactly the size of the
+  // file; the field is laid over it and takes that size; the pane around them is what scrolls. An
+  // earlier turn at this sized the field from its own scrollHeight and got zero — a box measuring
+  // itself while it is the thing being sized.
+  repaint();
   return box;
 }
 

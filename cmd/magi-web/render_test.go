@@ -4413,6 +4413,48 @@ console.log(JSON.stringify({
 	}
 }
 
+// The editor is the reading view with a caret in it.
+//
+// It is a bare textarea with wrapping off, over a coloured copy of the same text, beside the
+// reading view's own gutter — because the component this used to be sets `white-space: pre-wrap`
+// and `overflow-x: hidden` inside its shadow root, so every long line wrapped, pressing edit
+// re-flowed the file, and no column of numbers could line up with lines that are not the file's.
+func TestTheEditorNumbersItsLinesAndPaintsEachOne(t *testing.T) {
+	page := `
+const acts = document.createElement('div');
+const box = editor('a.go', '// why\nname := "s" + 42\nlast()\n', acts);
+const find = (cls) => box.find(e => String(e.className).split(' ').includes(cls))[0];
+const ghost = find('editghost');
+const marks = ghost.find('span');
+console.log(JSON.stringify({
+  field: (() => { const f = box.find('textarea')[0];
+                  return f ? f.tag + ' wrap=' + f.attrs.wrap : 'none'; })(),
+  // 1..n, one per line, with the textarea's phantom last line counted the way the box counts it.
+  nums: find('filegutter').textContent.trim().split('\n'),
+  // Each line painted on its own: handed the whole buffer, the scanner takes the first // as a
+  // comment running to the end of the FILE and one grey span replaces every other mark.
+  marks: marks.map(m => String(m.className) + ':' + m.textContent),
+}));
+`
+	got := runPage(t, `[]`, "?d=/s/api.sock", page)
+	if f := fmt.Sprint(got["field"]); !strings.Contains(f, "textarea") || !strings.Contains(f, "wrap=off") {
+		t.Errorf("the buffer is %v — a wrapping field cannot be numbered line for line", f)
+	}
+	nums, _ := got["nums"].([]any)
+	if fmt.Sprint(nums) != "[1 2 3 4]" {
+		t.Errorf("the gutter reads %v for a three-line file with a final newline", nums)
+	}
+	marks := fmt.Sprint(got["marks"])
+	if !strings.Contains(marks, "tok-note:// why") {
+		t.Errorf("the comment on line one is not marked as one: %v", marks)
+	}
+	// The line after the comment still gets its own marks, which is the whole point of painting
+	// line by line rather than handing the scanner the file.
+	if !strings.Contains(marks, "tok-text") || !strings.Contains(marks, "tok-num") {
+		t.Errorf("everything after the first comment was swallowed by it: %v", marks)
+	}
+}
+
 func TestTheAccessScreenIsDrawnForAnAdminAndHiddenFromEverybodyElse(t *testing.T) {
 	fleet := `[]`
 	page := `

@@ -284,6 +284,7 @@ func TestTheChosenThemeIsAppliedBeforeTheStylesheet(t *testing.T) {
 
 func TestThePageWorksOnAPhone(t *testing.T) {
 	flat := strings.ReplaceAll(indexHTML, " ", "")
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
 	if !strings.Contains(flat, "viewport-fit=cover") {
 		t.Error("no viewport-fit=cover, so env(safe-area-inset-*) is always zero")
 	}
@@ -320,9 +321,39 @@ func TestThePageWorksOnAPhone(t *testing.T) {
 	}
 	// And nothing typed into is a bare element any more — one that was would inherit that 14px
 	// without ever setting an input-text-size for the loop above to find.
-	for _, raw := range []string{"createElement('input')", "createElement('textarea')", "<input", "<textarea"} {
+	//
+	// One exception, and it is the reason this is a rule about SIZE rather than about elements: the
+	// code editor is a bare textarea because the component's own shadow CSS wraps its lines and
+	// hides its horizontal overflow, which no editor can live with. It answers the rule instead of
+	// being exempt from it — it states its size, and takes body-large where a finger is the input.
+	for _, raw := range []string{"createElement('input')", "<input", "<textarea"} {
 		if strings.Contains(indexHTML, raw) {
 			t.Errorf("the page still builds a bare %s; it has no text size of its own and iOS zooms on it", raw)
+		}
+	}
+	if strings.Contains(indexHTML, "createElement('textarea')") {
+		touch := regexp.MustCompile(`(?s)@media \(hover:none\)\s*\{(.*?)\n  \}`)
+		bumped := false
+		for _, m := range touch.FindAllStringSubmatch(css, -1) {
+			if strings.Contains(m[1], "fileeditarea") && strings.Contains(m[1], "body-large-size") {
+				bumped = true
+			}
+		}
+		if !bumped {
+			t.Error("the editor is a bare textarea and nothing raises it to body-large on touch, " +
+				"so iOS zooms the page in on the first tap and does not zoom back")
+		}
+	}
+	// The size that bump lands on has to be the one that clears the bar, whatever the scale says
+	// today: read it rather than trusting the name.
+	if m := regexp.MustCompile(`--md-sys-typescale-body-large-size:\s*([0-9.]+)rem`).
+		FindStringSubmatch(css); m == nil {
+		t.Error("body-large has no size in rem, so the touch bump above cannot be judged")
+	} else {
+		var rem float64
+		fmt.Sscanf(m[1], "%g", &rem)
+		if rem*16 < 16 {
+			t.Errorf("body-large is %grem — under 16px, which is what the touch bump raises fields to", rem)
 		}
 	}
 	// Enter must not be hijacked where the return key is the only way to break a line.
