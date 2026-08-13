@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -411,3 +412,65 @@ func (a *App) noteGit(ctx context.Context, sid session.SessionID, what, path, me
 	}
 	return a.noteToSession(ctx, sid, text, ask)
 }
+
+// GitDiffOf is what changed in ONE file, in git's own words.
+//
+// Beside GitDiff, which is the whole tree assembled through a throwaway index for the council's
+// evidence gate — a different question with a different answer shape. This one is for a person
+// looking at a file: it asks git for that path, and it asks the version of the question the caller
+// named rather than folding staged and unstaged together the way an evidence diff has to.
+//
+// # Why the console does not compute it
+//
+// A diff is not a hard thing to produce and it is a very easy thing to produce DIFFERENTLY. git
+// knows about renames, mode changes, binary files, submodules, CRLF and the .gitattributes that
+// say what is text — a screen that reimplemented any of that would show a person something their
+// repository does not agree with. So this runs git and passes what it says through.
+//
+// # Staged and unstaged are two different questions
+//
+// "What would a commit take" and "what have I changed since I staged" are not the same diff, and a
+// screen that showed one while the reader thought they were looking at the other would be worse
+// than showing neither. The caller says which.
+//
+// # An untracked file has no diff, and gets one anyway
+//
+// git will not diff a file it does not know about, so this asks it to compare the file with
+// nothing: every line is an addition, which is exactly what a new file is. --no-index exits 1 to
+// mean "they differ", which is the ordinary case here rather than a failure.
+func (a *App) GitDiffOf(ctx context.Context, workdir, path string, staged, untracked bool) (string, error) {
+	if a.plat == nil {
+		return "", fmt.Errorf("platform unavailable")
+	}
+	args := []string{"diff", "--no-color"}
+	switch {
+	case untracked:
+		args = append(args, "--no-index", "--", os.DevNull, path)
+	case staged:
+		args = append(args, "--cached", "--", path)
+	default:
+		args = append(args, "--", path)
+	}
+	if strings.TrimSpace(path) == "" && !untracked {
+		// The whole tree, which is what a review of "everything about to be committed" wants.
+		args = args[:len(args)-1]
+	}
+	res, err := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: args, Dir: workdir, MaxOutput: diffCap})
+	if err != nil {
+		return "", err
+	}
+	// 0 is "no difference" and 1 is "they differ" for --no-index; for an ordinary diff 0 is the
+	// only success. Anything else is git refusing, and it says why better than this could.
+	if res.ExitCode > 1 || (res.ExitCode == 1 && !untracked) {
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(res.Stderr)))
+	}
+	out := string(res.Stdout)
+	if len(out) >= diffCap {
+		out += "\n… (this diff is longer than the console will carry; the rest is not shown)"
+	}
+	return out, nil
+}
+
+// diffCap bounds what travels. A diff of a lock file or a vendored bundle is a megabyte of lines
+// nobody reads, and it would arrive at a pane that shows a few hundred.
+const diffCap = 512 << 10

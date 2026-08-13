@@ -1519,6 +1519,15 @@
     background:var(--magi-ref-surface-container); border-radius:var(--magi-sys-shape-small);
     border:1px solid var(--magi-ref-outlineVariant);
   }
+  /* A diff, coloured by what each line does. Not a red/green wash across the row — a line that is
+     entirely one colour is unreadable in the light theme and unprintable in either; the marker and
+     the text carry it, and the background is a tint you can read through. */
+  .diffbody { display:block; }
+  .diffbody .dl { display:block; }
+  .diffbody .add { color:var(--magi-ref-fg); background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent); }
+  .diffbody .cut { color:var(--magi-ref-muted); background:color-mix(in srgb, var(--magi-ref-warn) 12%, transparent); }
+  .diffbody .at { color:var(--magi-ref-accent); }
+
   /* The parts of a file that are not code. Three marks and a gutter — see paintCode(): this is a
      scan, not a parser, and it colours only what cannot be got wrong in a way that misleads.
      The gutter is the quietest thing on the screen: it is there to be referred to, not read. */

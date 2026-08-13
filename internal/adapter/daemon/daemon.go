@@ -276,6 +276,11 @@ type ToolWriter interface {
 // in it, which is a property of the shape rather than of the escaping.
 type GitTeller interface {
 	Git(ctx context.Context) (json.RawMessage, error)
+	// GitDiff is what changed in one file — staged or not, and an untracked file compared with
+	// nothing, which is what a new file's diff is. Read-only: it runs git and passes back what git
+	// said, because a diff is easy to produce differently and a screen that reimplemented renames,
+	// mode changes and binary detection would show something the repository does not agree with.
+	GitDiff(ctx context.Context, path string, staged, untracked bool) (string, error)
 }
 
 // Reviewer is an engine that will look at a file somebody is editing and say what is wrong with it.
@@ -992,6 +997,21 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "git-diff" {
+			teller, ok := eng.(GitTeller)
+			if !ok {
+				resp = Response{Err: "this daemon cannot show a diff"}
+			} else if out, derr := teller.GitDiff(ctx, req.Text, req.Decision == "staged",
+				req.Decision == "untracked"); derr != nil {
+				resp = Response{Err: derr.Error()}
+			} else {
+				resp = Response{OK: true, Out: out}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "git-do" {
 			doer, ok := eng.(GitDoer)
 			if !ok {
@@ -1522,6 +1542,15 @@ func (c *Client) Git() (string, error) {
 // LookOver asks the companion's model what it makes of a file being edited. Nothing is saved.
 func (c *Client) LookOver(path, text string) (string, error) {
 	resp, err := c.exchange(Request{Method: "look-over", Name: path, Text: text})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// GitDiff is what changed in one file: staged, unstaged, or an untracked file against nothing.
+func (c *Client) GitDiff(path string, which string) (string, error) {
+	resp, err := c.exchange(Request{Method: "git-diff", Text: path, Decision: which})
 	if err != nil {
 		return "", err
 	}

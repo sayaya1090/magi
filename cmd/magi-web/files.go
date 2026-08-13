@@ -210,6 +210,29 @@ func (s *server) look(w http.ResponseWriter, r *http.Request) {
 	writeText(w, out)
 }
 
+// diff answers what changed in one file, as git wrote it.
+//
+// `which` says WHICH question: what a commit would take (staged), what has changed since it was
+// staged (the default), or a file git does not know about yet (untracked), which is compared with
+// nothing so that every line reads as the addition it is.
+func (s *server) diff(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	which := strings.TrimSpace(r.URL.Query().Get("which"))
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		text, gerr := cl.GitDiff(path, which)
+		out = text
+		return gerr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, "diff", map[string]string{"path": path, "which": which, "text": out})
+}
+
 // gitDo runs one of the four git commands the pane offers, in the companion's workspace.
 //
 // Behind `shell` for the reason saving is: anybody who may run a command in that workspace can

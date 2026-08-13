@@ -305,6 +305,17 @@ const demoScript = `
         {path: 'docs/UI.md', kind: 'both'},
         {path: 'scratchpad/notes.md', kind: 'untracked'},
       ]},
+    // What changed in one file, as git wrote it: the console does not compute a diff, it shows the
+    // one the repository agrees with.
+    '/diff': {path: 'internal/app/git.go', which: 'staged', text:
+      'diff --git a/internal/app/git.go b/internal/app/git.go\n' +
+      '@@ -64,6 +64,12 @@ type GitChange struct {\n' +
+      ' // GitFacts reads the workspace\'s git state, or reports that there is none.\n' +
+      ' func (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {\n' +
+      '-\tif a.plat == nil {\n' +
+      '+\tif a.plat == nil || strings.TrimSpace(workdir) == "" {\n' +
+      ' \t\treturn GitState{}, fmt.Errorf("platform unavailable")\n' +
+      ' \t}\n'},
     '/context': {model: 'qwen3-coder-next', window: 128000, used: 104300, estimated: false,
       messages: 61, compactions: 2, shed: 39000, lastBefore: 48000, lastAfter: 9000,
       lastAt: now, topics: ['internal/adapter/fleet/fleet.go', 'cmd/magi-web/page.go', 'discussion']},

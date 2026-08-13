@@ -2474,6 +2474,13 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 
 // GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
 // is written into this companion's log.
+// GitDiff is what changed in one file here — see app.GitDiffOf.
+func (d daemonEngine) GitDiff(ctx context.Context, path string, staged, untracked bool) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return d.App.GitDiffOf(rctx, d.workdir, path, staged, untracked)
+}
+
 func (d daemonEngine) GitDo(ctx context.Context, what, path, message string, ask bool) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

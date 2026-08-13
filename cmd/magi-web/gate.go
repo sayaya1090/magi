@@ -100,7 +100,7 @@ var openToRead = map[string]bool{
 	// a transcript already shows a reader includes the files the agent read and wrote, so a
 	// capability that grants the transcript and refuses the tree would be drawing a line the
 	// content does not respect. Writing has no route at all — see files.go.
-	"/files": true, "/file": true, "/find": true, "/git": true,
+	"/files": true, "/file": true, "/find": true, "/git": true, "/diff": true,
 }
 
 // public is the page itself and what it is made of.

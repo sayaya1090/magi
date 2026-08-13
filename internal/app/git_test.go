@@ -255,3 +255,71 @@ func TestAConsoleChangeCanAskForAnAnswerOrJustSayIt(t *testing.T) {
 		t.Errorf("%d of them were marked abandoned; only the one nobody asked about should be", abandoned)
 	}
 }
+
+// A diff is git's answer, not one this console works out.
+//
+// Renames, mode changes, binary files, what .gitattributes calls text: a screen that reimplemented
+// any of it would show somebody something their repository does not agree with. So the three
+// questions a person asks — what would a commit take, what have I changed since staging, what is
+// in this new file — are three calls to git, and what comes back is passed through.
+func TestADiffIsWhatGitSaysAboutOneFile(t *testing.T) {
+	wd, dir := t.TempDir(), t.TempDir()
+	st, serr := jsonl.New(dir)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	a := New(st, nil, builtin.Default(), bus.New(), platform.OS{}, Config{})
+	run := func(args ...string) {
+		t.Helper()
+		if res, xerr := (platform.OS{}).Exec(context.Background(),
+			port.Cmd{Path: "git", Args: args, Dir: wd}); xerr != nil || res.ExitCode != 0 {
+			t.Skipf("git is not usable here: %v", xerr)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@example.com")
+	run("config", "user.name", "t")
+	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("one\ntwo\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "first")
+
+	// Changed and not staged.
+	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("one\nTWO\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	unstaged, err := a.GitDiffOf(context.Background(), wd, "a.txt", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(unstaged, "-two") || !strings.Contains(unstaged, "+TWO") {
+		t.Errorf("the unstaged diff is %q", unstaged)
+	}
+	// …and staged is a different question with a different answer: nothing is staged yet.
+	if staged, serr := a.GitDiffOf(context.Background(), wd, "a.txt", true, false); serr != nil {
+		t.Fatal(serr)
+	} else if strings.TrimSpace(staged) != "" {
+		t.Errorf("nothing is staged and the staged diff is %q", staged)
+	}
+	run("add", "a.txt")
+	if staged, serr := a.GitDiffOf(context.Background(), wd, "a.txt", true, false); serr != nil {
+		t.Fatal(serr)
+	} else if !strings.Contains(staged, "+TWO") {
+		t.Errorf("after staging, the staged diff is %q", staged)
+	}
+
+	// A file git does not know about has no diff, and gets one anyway: every line is an addition,
+	// which is what a new file is. --no-index exits 1 to mean "they differ", which is the ordinary
+	// case here rather than a failure.
+	if werr := os.WriteFile(filepath.Join(wd, "new.txt"), []byte("fresh\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	fresh, ferr := a.GitDiffOf(context.Background(), wd, "new.txt", false, true)
+	if ferr != nil {
+		t.Fatalf("an untracked file: %v", ferr)
+	}
+	if !strings.Contains(fresh, "+fresh") {
+		t.Errorf("a new file's diff is %q", fresh)
+	}
+}

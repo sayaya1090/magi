@@ -5090,6 +5090,10 @@ function gitActs(a, c) {
     box.append(b);
   };
   const send = (what, extra) => gitRun(a, what, Object.assign({path: c.path}, extra || {}));
+  // What changed, before deciding what to do about it — first, because it is the one that answers
+  // the question the others act on.
+  act('#i-sl-file-lines', 'diff.show',
+      () => openDiff(a, c.path, c.kind === 'untracked' ? 'untracked' : (c.kind === 'staged' ? 'staged' : '')));
   if (c.kind !== 'staged') act('#i-sl-plus', 'git.stage', () => send('stage'));
   if (c.kind === 'staged' || c.kind === 'both') act('#i-sl-reply', 'git.unstage', () => send('unstage'));
   // Throwing away what is in a file is the one thing here that cannot be undone by pressing the
@@ -5180,6 +5184,59 @@ function treeRow(a, e, path, depth) {
   };
   return row;
 }
+
+// A diff is opened the way a file is, and lives in the same tab strip.
+//
+// One list rather than two: they are both "something about this workspace, up in the slot", they
+// close the same way, and a reader switching between a file and its diff should not be switching
+// between two mechanisms. The tab is named by a prefix — a path can be anything, and a prefix with
+// a colon in it is a path git cannot produce, since a path is relative to the workspace root.
+const DIFF = 'diff:';
+const isDiff = p => String(p).startsWith(DIFF);
+const diffPath = p => String(p).slice(DIFF.length).split('#')[0];
+const diffWhich = p => (String(p).split('#')[1] || '');
+
+async function openDiff(a, path, which) {
+  const key = DIFF + path + '#' + (which || '');
+  if (!openFiles.includes(key)) openFiles.push(key);
+  cardShows = key;
+  drawCardTabs(a);
+  const got = await fetchOne('/diff' + qFor(a) + '&path=' + encodeURIComponent(path) +
+                             '&which=' + encodeURIComponent(which || ''));
+  if (cardShows !== key) return;
+  drawDiff(path, which, got && typeof got.text === 'string' ? got.text : '');
+  loadTree(a);
+}
+
+// The diff, coloured by what each line does and nothing else.
+//
+// No parsing beyond the first character of a line, which is the whole of what a unified diff
+// promises: + is added, - is removed, @@ is where, and anything else is context. A renderer that
+// tried to understand more would be a second implementation of the thing git just did.
+function drawDiff(path, which, text) {
+  const bar = cell('filebar');
+  bar.append(cell('filedir', path + (which ? '  ·  ' + tr(DIFF_WHICH[which] || 'diff.unstaged')
+                                            : '  ·  ' + tr('diff.unstaged'))));
+  const body = document.createElement('pre');
+  body.className = 'filecode diffbody';
+  const lines = String(text).split('\n');
+  if (!String(text).trim()) {
+    fileViewEl.replaceChildren(bar, cell('filesnote', tr('diff.same')));
+    showCard();
+    return;
+  }
+  for (const line of lines) {
+    const row = document.createElement('span');
+    const c = line[0];
+    row.className = 'dl' + (c === '+' ? ' add' : c === '-' ? ' cut' : c === '@' ? ' at' : '');
+    row.textContent = line + '\n';
+    body.append(row);
+  }
+  fileViewEl.replaceChildren(bar, body);
+  showCard();
+}
+
+const DIFF_WHICH = {staged: 'diff.staged', untracked: 'diff.untracked', '': 'diff.unstaged'};
 
 // openFile puts a file in the slot the facts card is in, behind a tab of its own.
 async function openFile(a, path) {
@@ -5459,7 +5516,7 @@ function drawCardTabs(a) {
   tabs.push(facts);
   for (const path of openFiles) {
     const t = document.createElement('md-secondary-tab');
-    t.append(cell('tablbl', baseName(path)));
+    t.append(cell('tablbl', isDiff(path) ? baseName(diffPath(path)) + ' ±' : baseName(path)));
     // A way to shut it, on the tab, which is where an editor puts it. An icon button inside a tab
     // would be a target inside a target; this is a plain mark with its own click, and the tab
     // keeps its own.
@@ -5470,12 +5527,18 @@ function drawCardTabs(a) {
         openFiles = openFiles.filter(p => p !== path);
         if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
         drawCardTabs(a);
-        if (cardShows !== 'facts') openFile(a, cardShows);
+        if (cardShows !== 'facts') {
+          if (isDiff(cardShows)) openDiff(a, diffPath(cardShows), diffWhich(cardShows));
+          else openFile(a, cardShows);
+        }
         loadTree(a);
       };
       t.append(x);
     }
-    t.onclick = () => { openFile(a, path); };
+    t.onclick = () => {
+      if (isDiff(path)) openDiff(a, diffPath(path), diffWhich(path));
+      else openFile(a, path);
+    };
     tabs.push(t);
   }
   cardTabs.replaceChildren(...tabs);
