@@ -512,6 +512,10 @@ func TestTheFarSideAnswersOnlyOnceTheTurnHasFinished(t *testing.T) {
 	if got, err := cl.Handed(receipt); err != nil || got.Done {
 		t.Fatalf("an unfinished turn answered %+v %v", got, err)
 	}
+	// Handing over is asynchronous: the piece is queued and a drain starts it. Finishing before it
+	// starts marks where the answer begins AFTER the words were written, and the receipt comes back
+	// done with nothing in it — which is what CI saw, twice, on a machine slower than this one.
+	until(t, "the work to be started", func() bool { return len(ar.prompts()) == 1 })
 	ar.finishes(ar.side("s_design"), "the screen is rewritten")
 
 	got, err := cl.Handed(receipt)
@@ -566,6 +570,12 @@ func TestTheAnswerIsPushedWhenTheTurnEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Started before the watch attaches. A piece still in the queue has news of its own — where it
+	// is in the line — and news is pushed, so a watch attached first sees a frame before the turn
+	// has ended. That frame is a different feature, and on CI it arrived here and read as the
+	// answer this test says must not come early.
+	until(t, "the work to be started", func() bool { return len(ar.prompts()) == 1 })
+
 	// A connection of its own: a watch gives its connection over to the stream, so a caller that
 	// watched on the one it does everything else with would be unable to do anything else.
 	sock := filepath.Join(ar.cfgDir, "daemon-s_design.sock")
@@ -584,22 +594,34 @@ func TestTheAnswerIsPushedWhenTheTurnEnds(t *testing.T) {
 		})
 	}()
 
-	// Nothing yet: an unfinished turn has nothing to say, and a frame saying so would be the poll
-	// this replaces, dressed as a push.
-	select {
-	case h := <-got:
+	// No ANSWER yet: an unfinished turn has none, and a frame carrying one would be the poll this
+	// replaces, dressed as a push. News — a queue position, a companion that went quiet — is the
+	// other thing this stream carries and says nothing about whether the work is done.
+	answer := func(within time.Duration) (daemon.Handover, bool) {
+		t.Helper()
+		until := time.After(within)
+		for {
+			select {
+			case h := <-got:
+				if h.Done || h.Answer != "" {
+					return h, true
+				}
+			case <-until:
+				return daemon.Handover{}, false
+			}
+		}
+	}
+	if h, came := answer(300 * time.Millisecond); came {
 		t.Fatalf("an unfinished turn pushed %+v", h)
-	case <-time.After(300 * time.Millisecond):
 	}
 
 	ar.finishes(ar.side("s_design"), "the screen is rewritten")
-	select {
-	case h := <-got:
+	if h, came := answer(5 * time.Second); !came {
+		t.Fatal("the turn ended and nothing was pushed")
+	} else {
 		if !h.Done || h.Answer != "the screen is rewritten" {
 			t.Fatalf("the pushed frame was %+v", h)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the turn ended and nothing was pushed")
 	}
 	// And the stream ends itself, rather than leaving a connection open on both machines for
 	// however long the asker takes to notice.
