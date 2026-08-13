@@ -25,8 +25,10 @@ type talker struct {
 	say  string
 	pass bool
 	// slow holds the turn open, which is how a meeting in progress is made observable from a test
-	// without racing it.
-	slow chan struct{}
+	// without racing it, and started says the turn has BEGUN — sent before the block, because the
+	// two facts are needed at different moments and only one of them can be read off the record.
+	slow    chan struct{}
+	started chan struct{}
 
 	mu     sync.Mutex
 	asked  []string // the transcripts it was given, in order
@@ -35,6 +37,12 @@ type talker struct {
 
 func (t *talker) MeetingTurn(ctx context.Context, topic, transcript string, closing bool) (
 	string, bool, error) {
+	if t.started != nil {
+		select {
+		case t.started <- struct{}{}:
+		default:
+		}
+	}
 	if t.slow != nil {
 		select {
 		case <-t.slow:
@@ -196,11 +204,26 @@ func TestAMeetingByItselfGivesNobodyWork(t *testing.T) {
 // a hush that did nothing.
 func TestNobodyIsAskedToSpeakWhileSomebodyIsTyping(t *testing.T) {
 	f, design, api, who := room(t)
-	design.slow = make(chan struct{})
+	design.slow, design.started = make(chan struct{}), make(chan struct{}, 1)
 	who.Set("topic", "who owns the retry budget")
 	v := convene(t, f, who)
 
-	// Take the floor while the first speaker is still composing.
+	// Wait until the first speaker actually HAS the floor before taking it away.
+	//
+	// Taking it first is not a sharper version of this test, it is a different one: the hush works,
+	// so a driver that had not yet asked anybody would never ask, nothing would be said, and the
+	// wait below would time out on correct behaviour. It did — on CI, where the POST won a race it
+	// wins on nobody's laptop.
+	until(t, "the first speaker to be asked", func() bool {
+		select {
+		case <-design.started:
+			return true
+		default:
+			return false
+		}
+	})
+
+	// Take the floor while that first speaker is still composing.
 	w := post(t, f.srv, f.srv.meetSay, "/meet-say", url.Values{"id": {v.ID}, "hold": {"1"}})
 	if w.Code != http.StatusOK {
 		t.Fatalf("taking the floor replied %d: %s", w.Code, w.Body.String())
