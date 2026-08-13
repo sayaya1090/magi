@@ -27,7 +27,7 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## material.js — Material Web 2.5.0, 297KB
+## material.js — Material Web 2.5.0, 330KB
 
 The M3 components themselves, so the design comes from the system rather than from CSS written here
 a second time. Only the ones the page uses are imported: `all.js` would register every component
@@ -51,6 +51,8 @@ the library ships.
     import '@material/web/iconbutton/icon-button.js';
     import '@material/web/list/list.js';
     import '@material/web/list/list-item.js';
+    import '@material/web/menu/menu.js';
+    import '@material/web/menu/menu-item.js';
     import '@material/web/chips/chip-set.js';
     import '@material/web/chips/filter-chip.js';
     import '@material/web/chips/input-chip.js';
@@ -61,10 +63,11 @@ the library ships.
     import '@material/web/progress/linear-progress.js';
     ENTRY
     npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
-    #   sha256 bba391a2b2308be40a8496474c1188ca2fc881aabee62871802c7731a239b10f
-    # Verified reproducible: the same command with the two added lines removed rebuilds the
-    # bundle this repository carried before them, byte for byte (e3fa47ae…) — so what the size
-    # grew by is those two components and nothing else.
+    #   sha256 d19b5d7dddf57b52da0e68efbe5d5af7da74ddd47b82dab7dfa8c4baf81ad469
+    # Verified reproducible at every step: removing the imports added in a change rebuilds the
+    # bundle this repository carried before it, byte for byte. secondary-tab and input-chip put it
+    # back to e3fa47ae…; the two menu imports put it back to bba391a2…. So the size each time grew
+    # by exactly the components named and nothing else.
 
 `labs/card` and `labs/badge` are the two imports from the library's unstable half, taken for the
 same reason: a badge is a number in a shape and a card there is a container and nothing more — elevation, a background, a slot and an outline, with no ripple, no

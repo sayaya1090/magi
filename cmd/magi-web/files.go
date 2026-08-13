@@ -233,6 +233,31 @@ func (s *server) diff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "diff", map[string]string{"path": path, "which": which, "text": out})
 }
 
+// fileDo makes, moves or removes a file in the workspace.
+//
+// Behind `shell` like the other two that change something there, and for the same reason: anybody
+// who may run a command in that workspace can already do all of this with one line, so this widens
+// nothing — and a second capability permitting the same act would make granting either meaningless.
+func (s *server) fileDo(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	what := strings.TrimSpace(r.FormValue("do"))
+	path := strings.TrimSpace(r.FormValue("path"))
+	to := strings.TrimSpace(r.FormValue("to"))
+	ask := r.FormValue("ask") != ""
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		return cl.FileDo(what, path, to, ask)
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadRequest)
+		return
+	}
+	writeText(w, "")
+}
+
 // gitDo runs one of the four git commands the pane offers, in the companion's workspace.
 //
 // Behind `shell` for the reason saving is: anybody who may run a command in that workspace can

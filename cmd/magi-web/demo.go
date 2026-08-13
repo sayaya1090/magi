@@ -685,6 +685,16 @@ const demoScript = `
      x=96 and stayed there while the drawer widened to 256 and slid underneath it. A notice about
      the whole page belongs across the whole page; the rail then starts below it, which is what the
      padding the script sets is for. */
+  /* Everything the page pins to the top of the WINDOW has to start below the banner.
+     body's padding moves the flow and moves nothing that is fixed or sticky — so the masthead
+     sticks at 0 and slides under this, the rail starts behind it, and both panes stick a banner's
+     height too high. The offset is the same custom property the script measures, and the rules
+     live here rather than in the page: the banner is the demo's, and the page carries no rule
+     about it. :has() so a page served WITHOUT a banner is untouched by any of this. */
+  body:has(.demo-banner) header { top:var(--demo-banner, 0px); }
+  body:has(.demo-banner) #rail { top:var(--demo-banner, 0px); }
+  body:has(.demo-banner) #sidecol,
+  body:has(.demo-banner) #filecol { top:calc(5.5rem + var(--demo-banner, 0px)); }
   .demo-banner {
     position:fixed; inset:0 0 auto 0; z-index:60; padding:.55rem 1.2rem;
     background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);

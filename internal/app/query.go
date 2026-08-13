@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -454,4 +455,110 @@ func (a *App) noteToSession(ctx context.Context, sid session.SessionID, text str
 	}
 	return a.appendFact(ctx, sid, event.TypePromptAbandoned,
 		event.Actor{Kind: event.ActorSystem, ID: "console-edit"}, done)
+}
+
+// FileDo makes, moves and removes files in a workspace on a person's behalf.
+//
+// # Why this is not WriteTool with more names
+//
+// Writing a file is one act with one shape: a path and some bytes, which the agent's own write
+// tool already does, confined and jailed. Making a directory, renaming a thing and deleting one
+// are three different acts on the TREE, and the last of them cannot be undone by doing the
+// opposite. They get their own door, their own confirmation upstairs, and — like every other
+// change this console makes — a line in the companion's log saying what happened and what it
+// means for what the agent is holding.
+//
+// # Delete is a delete, not a git rm
+//
+// The file goes; the index is left alone. A tracked file removed this way shows up as a change git
+// can put back, which is the recovery every editor's delete relies on — and `git rm` would stage
+// the removal, quietly making it part of a commit somebody else was about to make.
+func (a *App) FileDo(ctx context.Context, sid session.SessionID, workdir, what, path, to string,
+	ask bool) error {
+	abs, err := insideWorkdir(workdir, path)
+	if err != nil {
+		return err
+	}
+	var note string
+	switch what {
+	case "new-file":
+		if _, serr := os.Stat(abs); serr == nil {
+			// Never over the top of something. A "new file" that silently opened an existing one
+			// for overwriting is the shape of a lost afternoon.
+			return fmt.Errorf("%s already exists", path)
+		}
+		if merr := os.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
+			return merr
+		}
+		if werr := os.WriteFile(abs, nil, 0o644); werr != nil {
+			return werr
+		}
+		note = "I made the file " + path + " from the console. It is empty."
+	case "new-dir":
+		if merr := os.MkdirAll(abs, 0o755); merr != nil {
+			return merr
+		}
+		note = "I made the directory " + path + " from the console."
+	case "rename":
+		dest, derr := insideWorkdir(workdir, to)
+		if derr != nil {
+			return derr
+		}
+		if _, serr := os.Stat(dest); serr == nil {
+			return fmt.Errorf("%s already exists", to)
+		}
+		if merr := os.MkdirAll(filepath.Dir(dest), 0o755); merr != nil {
+			return merr
+		}
+		if rerr := os.Rename(abs, dest); rerr != nil {
+			return rerr
+		}
+		note = "I renamed " + path + " to " + to + " from the console. Anything you have read from " +
+			"the old path is at the new one now."
+	case "delete":
+		// One thing, not a tree. Removing a directory full of work with one press is not a file
+		// manager's job on a screen with no undo — a directory goes when it is empty, which is the
+		// same rule every editor's delete follows for the same reason.
+		if rerr := os.Remove(abs); rerr != nil {
+			return rerr
+		}
+		note = "I deleted " + path + " from the console. What you have in context is a file that " +
+			"is no longer there; if it was tracked, git can put it back."
+	default:
+		return fmt.Errorf("%q is not one of the things this can do to a file: new-file, new-dir, rename, delete", what)
+	}
+	return a.noteToSession(ctx, sid, note, ask)
+}
+
+// insideWorkdir resolves a path against the workspace and refuses anything outside it.
+//
+// The same jail the tools apply, applied here because these calls do not go through a tool: a
+// path is cleaned, joined, and checked against the workspace root — and the check is on the
+// RESULT, so "../../etc/passwd" and a symlink pointing out are both refused rather than one of
+// them being spotted by a rule about how the string looked.
+func insideWorkdir(workdir, path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("which file")
+	}
+	base, err := filepath.Abs(filepath.Clean(workdir))
+	if err != nil {
+		return "", err
+	}
+	abs := filepath.Clean(filepath.Join(base, path))
+	if filepath.IsAbs(path) {
+		abs = filepath.Clean(path)
+	}
+	rel, rerr := filepath.Rel(base, abs)
+	if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s is outside this workspace", path)
+	}
+	// And where the parent already exists, its REAL path has to be inside too: a symlink inside the
+	// workspace pointing out of it is the case a lexical check cannot see.
+	if real, lerr := filepath.EvalSymlinks(filepath.Dir(abs)); lerr == nil {
+		if rel, rerr := filepath.Rel(base, real); rerr != nil || rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("%s is outside this workspace", path)
+		}
+	}
+	return abs, nil
 }

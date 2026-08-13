@@ -5190,6 +5190,83 @@ async function branches(a, dir, rows, depth) {
   return out;
 }
 
+// The menu a tree row opens: the things an editor's project view does to a file.
+//
+// A real menu and not a row of icons, because there are six of them and five are rare — an icon
+// per action would put "delete" permanently beside every filename in an 18rem column. md-menu,
+// which the bundle now carries: it positions itself, closes on the next click and on Escape,
+// and moves focus through its items with the arrow keys, none of which is worth rebuilding here.
+//
+// Opened by the right button, and by a control on the row, because a context menu that can only be
+// reached by right-clicking is one nobody finds on a trackpad or a touch screen.
+function rowMenu(a, e, path) {
+  const box = cell('rowmenu');
+  const open = document.createElement('md-icon-button');
+  const m = icon('#i-sl-sliders');
+  if (m) open.append(m);
+  open.setAttribute('aria-label', tr('files.more'));
+  tip(open, tr('files.more'));
+  const menu = document.createElement('md-menu');
+  const id = 'rm' + (rowMenu.n = (rowMenu.n || 0) + 1);
+  open.id = id;
+  menu.setAttribute('anchor', id);
+  const item = (key, run, mark) => {
+    const it = document.createElement('md-menu-item');
+    const head = document.createElement('div');
+    head.slot = 'headline';
+    head.textContent = tr(key);
+    it.append(head);
+    const g = icon(mark);
+    if (g) { g.setAttribute('slot', 'start'); it.append(g); }
+    it.addEventListener('click', run);
+    menu.append(it);
+    return it;
+  };
+  const send = (what, extra) => post('/file-do' + qFor(a),
+    new URLSearchParams(Object.assign({do: what, path: path}, extra || {})),
+    a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
+  const under = e.isDir ? path + '/' : (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
+  item('files.new_file', () => {
+    const name = prompt(tr('files.new_file_who'), under);
+    if (name && name.trim()) send('new-file', {path: name.trim()}).then(() => openFile(a, name.trim()));
+  }, '#i-sl-plus');
+  item('files.new_dir', () => {
+    const name = prompt(tr('files.new_dir_who'), under);
+    if (name && name.trim()) send('new-dir', {path: name.trim()});
+  }, '#i-sl-plus');
+  item('files.rename', () => {
+    const to = prompt(tr('files.rename_who'), path);
+    if (to && to.trim() && to.trim() !== path) send('rename', {to: to.trim()});
+  }, '#i-sl-pen-to-square');
+  item('files.copy_path', () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(path).then(() => says(tr('files.copied')));
+  }, '#i-sl-copy');
+  // Both of the ones that lose work ask first, and they are different questions: a delete takes
+  // the file, a rollback takes what was typed into it since the last commit.
+  item('git.discard', () => confirmThis({
+    head: tr('git.discard_head', {path: path}),
+    body: tr('git.discard_body'),
+    keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+    doIt: tr('git.discard'), doMark: '#i-sl-eraser',
+    go: () => gitRun(a, 'discard', {path: path}),
+  }), '#i-sl-eraser');
+  item('files.delete', () => confirmThis({
+    head: tr('files.delete_head', {path: path}),
+    body: tr('files.delete_body'),
+    keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+    doIt: tr('files.delete'), doMark: '#i-sl-trash-can',
+    go: () => send('delete').then(() => {
+      // A tab showing a file that is no longer there is a tab showing nothing.
+      openFiles = openFiles.filter(p => p !== path && diffPath(p) !== path);
+      if (cardShows === path || diffPath(cardShows) === path) cardShows = 'facts';
+      drawCardTabs(a);
+    }),
+  }), '#i-sl-trash-can');
+  open.onclick = ev => { ev.stopPropagation(); menu.open = !menu.open; };
+  box.append(open, menu);
+  return box;
+}
+
 function treeRow(a, e, path, depth) {
   const row = document.createElement('button');
   row.type = 'button';
@@ -5214,7 +5291,19 @@ function treeRow(a, e, path, depth) {
     }
     openFile(a, path);
   };
-  return row;
+  if (!may('shell')) return row;
+  // The row and its menu travel together: the menu anchors to the control in it, and a row that
+  // returned only the button would leave the menu behind when the tree is redrawn.
+  const line = cell('treeline');
+  const menu = rowMenu(a, e, path);
+  line.append(row, menu);
+  // The right button opens the same menu, which is where a person looks for it first.
+  line.addEventListener('contextmenu', ev => {
+    ev.preventDefault();
+    const opener = menu.children[0];
+    if (opener && opener.onclick) opener.onclick(ev);
+  });
+  return line;
 }
 
 // A diff is opened the way a file is, and lives in the same tab strip.

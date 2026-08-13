@@ -301,6 +301,15 @@ type GitDoer interface {
 	GitDo(ctx context.Context, what, path, message string, ask bool) (string, error)
 }
 
+// FileKeeper is an engine that will make, move and remove files in its workspace.
+//
+// Apart from ToolWriter because these are acts on the TREE rather than on a file's contents, and
+// one of them cannot be undone by doing the opposite. See app.FileDo, including what is written
+// into the companion's log — all of them, because all of them change what the agent is holding.
+type FileKeeper interface {
+	FileDo(ctx context.Context, what, path, to string, ask bool) error
+}
+
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
 //
 // The distinction is the whole reason this crosses the socket. Everything else a viewer does
@@ -997,6 +1006,20 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "file-do" {
+			keeper, ok := eng.(FileKeeper)
+			if !ok {
+				resp = Response{Err: "this daemon cannot make or remove files"}
+			} else if ferr := keeper.FileDo(ctx, req.Name, req.Text, req.Answer, req.Ask); ferr != nil {
+				resp = Response{Err: ferr.Error()}
+			} else {
+				resp = Response{OK: true}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "git-diff" {
 			teller, ok := eng.(GitTeller)
 			if !ok {
@@ -1546,6 +1569,13 @@ func (c *Client) LookOver(path, text string) (string, error) {
 		return "", err
 	}
 	return resp.Out, nil
+}
+
+// FileDo makes, moves or removes a file in the companion's workspace: new-file, new-dir, rename,
+// delete. The paths travel as arguments and never as part of a command line.
+func (c *Client) FileDo(what, path, to string, ask bool) error {
+	_, err := c.exchange(Request{Method: "file-do", Name: what, Text: path, Answer: to, Ask: ask})
+	return err
 }
 
 // GitDiff is what changed in one file: staged, unstaged, or an untracked file against nothing.

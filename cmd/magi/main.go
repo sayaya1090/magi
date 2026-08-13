@@ -2474,6 +2474,14 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 
 // GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
 // is written into this companion's log.
+// FileDo makes, moves or removes a file here — see app.FileDo for what each one writes into this
+// companion's log.
+func (d daemonEngine) FileDo(ctx context.Context, what, path, to string, ask bool) error {
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return d.App.FileDo(rctx, d.handover.at.now(), d.workdir, what, path, to, ask)
+}
+
 // GitDiff is what changed in one file here — see app.GitDiffOf.
 func (d daemonEngine) GitDiff(ctx context.Context, path string, staged, untracked bool) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)

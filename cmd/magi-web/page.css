@@ -1475,6 +1475,19 @@
        make the two disagree by a pixel at every level. */
     padding:1px var(--magi-sys-space-50) 1px calc(var(--d, 0) * var(--magi-comp-tree-step) + var(--magi-sys-space-50));
   }
+  /* A row and the control that opens its menu. The control appears when the row is hovered or the
+     menu is open, because a permanent one puts "delete" beside every filename in an 18rem column —
+     and it is always there for a keyboard, which cannot hover. */
+  .treeline { display:flex; align-items:center; gap:0; min-width:0; position:relative; }
+  .treeline .treerow { flex:1 1 auto; min-width:0; }
+  /* Present when the row is, drawn when it is wanted. visibility rather than a fade: a control at
+     0.08 opacity is a control somebody can see and cannot read, and this page's own contrast guard
+     refuses dimmed roles for exactly that reason. Hidden this way it also leaves the layout alone,
+     so no row changes width when the pointer arrives. */
+  .rowmenu { flex:none; visibility:hidden; }
+  .treeline:hover .rowmenu, .rowmenu:focus-within, .treeline:focus-within .rowmenu { visibility:visible; }
+  .rowmenu md-icon-button { --md-icon-button-icon-size:16px; width:28px; height:28px; }
+
   /* The line that makes it read as a tree rather than as text with spaces in front of it. One
      guide, at the parent's level: it is what says "these belong to the folder above" without
      drawing a diagram nobody asked for. */
@@ -2005,8 +2018,9 @@
       position:sticky; top:5.5rem;
       /* The 5.5rem is where it STICKS; unstuck it starts lower — below the masthead's own block —
          so a cap measured from the stuck position is short by that difference at the top of the
-         page, which is exactly where somebody reads it. The extra 3rem covers it. */
-      max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
+         page, which is exactly where somebody reads it. The extra 3rem covers it.
+         No room left for the dock: it is inset between the two panes now. */
+      max-height:calc(100dvh - 5.5rem - 3rem - var(--magi-sys-space-300));
     }
     #side {
       flex:1 1 auto; min-height:0;
@@ -2027,14 +2041,19 @@
        the conversation cannot have the width back. */
     /* Shut, the second column is only as wide as the handle. */
     /* 2.5rem is the handle: the column shrinks to exactly the control that reopens it. */
-    body[side="shut"] #agentview { grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) 2.5rem; }
-    body[files="shut"] #agentview { grid-template-columns:2.5rem minmax(0, 1fr) var(--magi-comp-side-w); }
-    body[files="shut"][side="shut"] #agentview { grid-template-columns:2.5rem minmax(0, 1fr) 2.5rem; }
+    /* Shut is nothing at all now. The 2.5rem was the width of a handle standing in the column, and
+       the handles are in the masthead: a shut pane that still held a 40px strip was 40px of nothing
+       down each side of the conversation. */
+    body[side="shut"] #agentview { grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) 0; }
+    body[files="shut"] #agentview { grid-template-columns:0 minmax(0, 1fr) var(--magi-comp-side-w); }
+    body[files="shut"][side="shut"] #agentview { grid-template-columns:0 minmax(0, 1fr) 0; }
     /* The same column the state pane is, mirrored: sticky, bounded, and it clips rather than
        reflows while it moves. */
     #filecol {
       position:sticky; top:5.5rem;
-      max-height:calc(100dvh - 5.5rem - 3rem - var(--dock, 0px) - var(--magi-sys-space-300));
+      /* To the bottom of the window. The dock is inset between the panes now, so nothing of the
+         composer crosses this column and the strip of empty space under it was for nothing. */
+      max-height:calc(100dvh - 5.5rem - var(--magi-sys-space-300));
       overflow:hidden;
     }
     #files {
@@ -2168,6 +2187,10 @@
 
 
   #stream, #side, #sidecol, #files, #filecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
+  /* The columns hold panes and nothing else now. That gap was the space between a handle and the
+     pane under it; with the handles in the masthead it was a strip of nothing at the top of both
+     columns, and the cards no longer lined up with the conversation beside them. */
+  #sidecol, #filecol { gap:0; }
   #sidecol, #filecol { position:relative; }
   /* And the column with it: a grid track holding one hidden control still takes its gap, which on
      the list screen is a 24px hole down the leading edge of the page. */
@@ -2823,6 +2846,19 @@
     position:fixed; left:0; right:0; bottom:0; z-index:2;
     background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
     padding-bottom:env(safe-area-inset-bottom);
+  }
+  /* The dock belongs to the CONVERSATION, so beside a companion it stands between the two panes
+     rather than across all three columns. It used to run the full width under them: the composer
+     answered a transcript in the middle while starting under the file tree, and the panes had to
+     stop short of the bottom to keep clear of it — which is why they ended in a strip of empty
+     column. Inset by the two tracks, and only where the tracks are beside the conversation. */
+  @media (min-width:52.5em) {
+    body[at="agent"] #dock {
+      left:calc(var(--magi-comp-files-now, var(--magi-comp-files-w)) + var(--magi-sys-space-300));
+      right:calc(var(--magi-comp-side-now, var(--magi-comp-side-w)) + var(--magi-sys-space-300));
+    }
+    body[at="agent"][files="shut"] #dock { left:0; }
+    body[at="agent"][side="shut"] #dock { right:0; }
   }
   #prompt {
     background:var(--magi-ref-bg);
