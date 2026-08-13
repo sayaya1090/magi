@@ -3295,9 +3295,15 @@
      than the conversation and off its axis. Same cap and same left edge as #log, which is what
      "under the text it answers" means. */
   @media (min-width:52.5em) {
+    /* One cap for the column, and it is main's. Beside a companion the conversation already sits
+       inside main's own bound and between whatever panes are open, and a second cap inside that
+       only opened a gap: at 2488px the column ran to 2230 and the text stopped at 1772, so a third
+       of the page was blank to the right of every line. The transcript, the composer and the strip
+       take the track. */
+    body[at="agent"] #log { max-width:none; }
     body[at="agent"] #prompt .inner,
     body[at="agent"] form,
-    body[at="agent"] #strip:not([hidden]) { margin-inline:0; }
+    body[at="agent"] #strip:not([hidden]) { max-width:none; margin-inline:0; }
   }
   #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-warn); overflow-wrap:anywhere; }
 
