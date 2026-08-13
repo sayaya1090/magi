@@ -687,14 +687,19 @@ const demoScript = `
      padding the script sets is for. */
   /* Everything the page pins to the top of the WINDOW has to start below the banner.
      body's padding moves the flow and moves nothing that is fixed or sticky — so the masthead
-     sticks at 0 and slides under this, the rail starts behind it, and both panes stick a banner's
-     height too high. The offset is the same custom property the script measures, and the rules
-     live here rather than in the page: the banner is the demo's, and the page carries no rule
-     about it. :has() so a page served WITHOUT a banner is untouched by any of this. */
+     sticks at 0 and slides under this and the rail starts behind it. The offset is the same custom
+     property the script measures, and the rules live here rather than in the page: the banner is
+     the demo's, and the page carries no rule about it. :has() so a page served WITHOUT a banner is
+     untouched by any of this.
+
+     The two panes were in this list, and are not any more. They used to STICK — to a line 5.5rem
+     down the window — and a stuck thing needed the banner added to where it stuck. They are
+     ordinary boxes in the app shell now, and a top offset on a relatively-positioned box does not
+     choose where it starts: it SHIFTS it from where it is. So the offset that used to hold them
+     level pushed them 124px down instead, and the demo grew a band of nothing above the file tree
+     and the plan that the real console never had. */
   body:has(.demo-banner) header { top:var(--demo-banner, 0px); }
   body:has(.demo-banner) #rail { top:var(--demo-banner, 0px); }
-  body:has(.demo-banner) #sidecol,
-  body:has(.demo-banner) #filecol { top:calc(5.5rem + var(--demo-banner, 0px)); }
   .demo-banner {
     position:fixed; inset:0 0 auto 0; z-index:60; padding:.55rem 1.2rem;
     background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);
