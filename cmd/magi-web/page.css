@@ -462,7 +462,12 @@
 
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
-    position:sticky; top:0; z-index:2; background:var(--magi-ref-bg);
+    /* Above the content, and by more than a tie. The panes beside a conversation are z-index 2 as
+       well, and an equal z-index is settled by document order — which puts them, further down the
+       markup, in front. Any moment the page can scroll at all beside a companion, a card slid up
+       over the masthead: the report was "shrink the window and the cards come out over the
+       header", and the tie is why. 3 leaves the rail and the drawer above it, where they were. */
+    position:sticky; top:0; z-index:3; background:var(--magi-ref-bg);
     border-bottom:1px solid var(--magi-ref-fg);
     box-shadow:0 3px 0 -2px var(--magi-ref-outlineVariant);   /* the hairline under the rule */
     padding:var(--magi-sys-space-150) var(--magi-sys-space-300) var(--magi-sys-space-100);
@@ -2091,8 +2096,14 @@
     }
     /* A deep screen is a page of its own inside the column. */
     body[at="agent"] #agentdetail { overflow:auto; min-height:0; }
-    /* And the file card stops needing to be sticky: nothing under it scrolls past it any more. */
-    body[at="agent"] #fileview { position:static; max-height:min(60vh, 34rem); }
+    /* And the file card stops needing to be sticky: nothing under it scrolls past it any more.
+       RELATIVE, not static. A card paints its own surface with an absolutely-positioned box inset
+       to zero, and inset:0 answers to the nearest POSITIONED ancestor — with the card itself
+       static, that was the whole column. So the card's background was painted from the top of the
+       column to the bottom of it, over the tab strip above it: the tabs were there, the right
+       size, the right colour, and buried under an opaque surface belonging to the thing below
+       them. Which is why opening a file made the tabs disappear. */
+    body[at="agent"] #fileview { position:relative; max-height:min(60vh, 34rem); }
   }
   @media (min-width:52.5em) {
     #agentview {

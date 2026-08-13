@@ -6228,10 +6228,23 @@ function drawCardTabs(a) {
     };
     tabs.push(t);
   }
+  // Which one is showing, said on the TAB and not on the strip.
+  //
+  // activeTabIndex is the strip's view of a list it has not been given yet: the assignment ran in
+  // the same breath as replaceChildren, before the component had seen its new children, so it
+  // found nothing to mark — the strip read back -1 and the labels were not painted at all. A tab
+  // bar with the right boxes, the right text in the DOM, the right colours computed, and nothing
+  // on the screen. Measured: appending any node afterwards made the component notice and the
+  // words appeared.
+  //
+  // The children carry the state instead, before they are handed over, which is the same rule the
+  // pane handles and the chips follow — the component owns what it draws, and it reads `active`
+  // off the tabs when it adopts them.
+  const at = cardShows === 'facts' ? 0 : openFiles.indexOf(cardShows) + 1;
+  const which = at < 0 ? 0 : at;
+  tabs.forEach((t, i) => { t.active = i === which; });
   cardTabs.replaceChildren(...tabs);
   cardTabs.hidden = false;
-  const at = cardShows === 'facts' ? 0 : openFiles.indexOf(cardShows) + 1;
-  cardTabs.activeTabIndex = at < 0 ? 0 : at;
   showCard();
 }
 

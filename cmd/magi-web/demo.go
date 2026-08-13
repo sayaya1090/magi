@@ -474,9 +474,17 @@ const demoScript = `
   // screen the notice covered its first control — the button that widens it. The offset is set
   // from here because the banner is the demo's, and the page should not carry a rule about
   // furniture that only exists in a copy of itself.
+  let bannerWas = 0;
   const pushBelowBanner = () => {
     const h = Math.ceil(banner.getBoundingClientRect().height);
     if (!h) return;   // not laid out yet; the caller tries again
+    // Unchanged, and this is where it STOPS. The line at the end of this function tells the page
+    // the geometry moved by firing a resize — and this function is itself a resize listener, so
+    // without a way out it called itself until the stack ran out. Which it did, on every open of a
+    // file in the demo: the error took down whatever else was mid-render, and the tab strip over
+    // the file was the visible half of that.
+    if (h === bannerWas) return;
+    bannerWas = h;
     document.documentElement.style.setProperty('--demo-banner', h + 'px');
     // Out of the flow, so the space it used to take has to be given back — to the page, and to the
     // rail, which is fixed to the top of the window and knows nothing about a notice above it.
