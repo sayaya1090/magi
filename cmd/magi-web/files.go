@@ -203,6 +203,33 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 // change to anything, but it is work asked of the backend on somebody's behalf, which is what that
 // capability is about. Read-only in every other sense — nothing is written, nothing is recorded,
 // and no turn is started.
+// gitPR pushes the branch and opens a pull request, answering with the URL it got back.
+func (s *server) gitPR(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		http.Error(w, "a pull request needs a title", http.StatusBadRequest)
+		return
+	}
+	var url string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		out, perr := cl.OpenPR(title, r.FormValue("body"))
+		url = out
+		return perr
+	}); derr != nil {
+		// The refusals here are the interesting half — no gh, a rejected push, a request that
+		// already exists — so they are passed through rather than replaced with a status line.
+		http.Error(w, derr.Error(), http.StatusConflict)
+		return
+	}
+	writeText(w, url)
+}
+
 // gitMsg is a commit message drafted from what is staged. It commits nothing.
 //
 // Beside look() rather than beside the git routes, because it is the same kind of thing: the

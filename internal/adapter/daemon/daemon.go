@@ -294,6 +294,10 @@ type GitTeller interface {
 // written, nothing is recorded, nothing is started — the answer goes to the person who asked.
 type Reviewer interface {
 	LookOver(ctx context.Context, path, text string) (string, error)
+	// OpenPR pushes the branch and opens a pull request for it, answering with the URL. Here
+	// rather than with the git verbs because it is not git: it is a tool that may not be installed
+	// and a network round trip that can fail in ways a local command cannot.
+	OpenPR(ctx context.Context, title, body string) (string, error)
 	// DraftCommit is the same kind of thing about a different subject: what is staged, described.
 	// A draft only — the console puts it in a box somebody edits before anything is committed.
 	DraftCommit(ctx context.Context) (string, error)
@@ -1090,6 +1094,20 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "git-pr" {
+			rev, ok := eng.(Reviewer)
+			if !ok {
+				resp = Response{Err: "this daemon cannot open a pull request"}
+			} else if url, perr := rev.OpenPR(ctx, req.Name, req.Text); perr != nil {
+				resp = Response{Err: perr.Error()}
+			} else {
+				resp = Response{OK: true, Out: url}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "git-msg" {
 			rev, ok := eng.(Reviewer)
 			if !ok {
@@ -1654,6 +1672,15 @@ func passFlag(pass bool) *int {
 // LookOver asks the companion's model what it makes of a file being edited. Nothing is saved.
 func (c *Client) LookOver(path, text string) (string, error) {
 	resp, err := c.exchange(Request{Method: "look-over", Name: path, Text: text})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// OpenPR pushes this companion's branch and opens a pull request, answering with its URL.
+func (c *Client) OpenPR(title, body string) (string, error) {
+	resp, err := c.exchange(Request{Method: "git-pr", Name: title, Text: body})
 	if err != nil {
 		return "", err
 	}

@@ -312,6 +312,66 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir st
 	return strings.Trim(strings.TrimSpace(out), "`\n "), nil
 }
 
+// OpenPR pushes this branch and opens a pull request for it.
+//
+// Two commands and a tool that may not be installed, which is why it is not one of GitDo's closed
+// list: that list is fixed argv for git itself, and this shells out to `gh`. Still the same rules
+// — the title and the body travel as arguments, never as part of a command line — and the same
+// duty afterwards: the companion is told, because a pull request is a fact about the branch it is
+// reasoning about.
+//
+// The push comes first and sets the upstream. `gh pr create` will offer to push interactively and
+// there is nobody here to answer it, so a branch that exists only locally would fail with a
+// question. A branch already pushed makes this a no-op that costs one round trip.
+func (a *App) OpenPR(ctx context.Context, sid session.SessionID, workdir, title, body string, ask bool) (string, error) {
+	if a.plat == nil {
+		return "", fmt.Errorf("platform unavailable")
+	}
+	if strings.TrimSpace(title) == "" {
+		return "", fmt.Errorf("a pull request needs a title")
+	}
+	if res, err := a.plat.Exec(ctx, port.Cmd{
+		Path: "gh", Args: []string{"--version"}, Dir: workdir, MaxOutput: 4 << 10}); err != nil || res.ExitCode != 0 {
+		// Said plainly rather than as a failed command: the answer is "install gh or open it in a
+		// browser", and a screen repeating exec's own words would send somebody to the wrong place.
+		return "", fmt.Errorf("this workspace has no gh, so the console cannot open a pull request — " +
+			"install GitHub CLI and sign it in, or open the request in a browser")
+	}
+	push, perr := a.plat.Exec(ctx, port.Cmd{
+		Path: "git", Args: []string{"push", "--set-upstream", "origin", "HEAD"},
+		Dir: workdir, MaxOutput: diffCap})
+	if perr != nil {
+		return "", perr
+	}
+	if push.ExitCode != 0 {
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(push.Stderr)))
+	}
+	args := []string{"pr", "create", "--title", title}
+	if strings.TrimSpace(body) != "" {
+		args = append(args, "--body", body)
+	} else {
+		args = append(args, "--body", "")
+	}
+	res, err := a.plat.Exec(ctx, port.Cmd{Path: "gh", Args: args, Dir: workdir, MaxOutput: diffCap})
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(res.Stderr)))
+	}
+	// What gh prints is the URL, which is the whole answer somebody wants back.
+	url := strings.TrimSpace(string(res.Stdout))
+	if i := strings.LastIndex(url, "\n"); i >= 0 {
+		url = strings.TrimSpace(url[i+1:])
+	}
+	if nerr := a.noteToSession(ctx, sid,
+		"I opened a pull request from the console for this branch: "+url+" — titled "+title+
+			". The branch is pushed, so what is on the remote is what you have committed.", ask); nerr != nil {
+		return url, nerr
+	}
+	return url, nil
+}
+
 // lookOverCap is how much of a buffer travels. Big enough for the files people read on this screen,
 // small enough that holding the key down does not become a bill.
 const lookOverCap = 60 << 10

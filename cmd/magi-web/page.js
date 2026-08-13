@@ -5862,6 +5862,24 @@ function gitBranchActs(a, g) {
   } else {
     act('git.unstash', '#i-sl-arrows-rotate', () => gitRun(a, 'unstash'));
   }
+  // A pull request is the end of the same errand as pushing, so it sits with push rather than in a
+  // menu somewhere else. One box: the first line is the title and the rest is the body, which is
+  // the shape everybody already writes a commit in — and gh reads them the same way round.
+  act('git.pr', '#i-sl-share-from-square', () => {
+    askLine({
+      head: tr('git.pr'), body: tr('git.pr_who'), label: tr('git.pr_text'), lines: 8,
+      doIt: tr('git.pr'), doMark: '#i-sl-share-from-square',
+      go: async text => {
+        const at = String(text).indexOf('\n');
+        const title = at < 0 ? text : text.slice(0, at).trim();
+        const body = at < 0 ? '' : text.slice(at + 1).trim();
+        const url = await postText('/git-pr' + qFor(a), new URLSearchParams({title: title, body: body}));
+        // The URL is the answer, and it is said where this page says everything else. A console
+        // that opened the browser for you would be deciding something it was not asked to.
+        if (url) says(url);
+      },
+    });
+  }, g.repo);
   act('git.new_branch', '#i-sl-plus', () => {
     askLine({head: tr('git.new_branch'), body: tr('git.new_branch_who'), label: tr('git.branch'),
              doIt: tr('git.new_branch'), doMark: '#i-sl-plus',

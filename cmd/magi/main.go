@@ -2488,6 +2488,14 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 	return d.App.LookOver(rctx, d.handover.at.now(), path, text)
 }
 
+// OpenPR is the console asking for a pull request. Longer than the others on purpose: it pushes
+// and then talks to GitHub, and neither is a local command's worth of waiting.
+func (d daemonEngine) OpenPR(ctx context.Context, title, body string) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	return d.App.OpenPR(rctx, d.handover.at.now(), d.workdir, title, body, false)
+}
+
 // DraftCommit is the same shoulder-reading, about what is staged rather than about a buffer.
 func (d daemonEngine) DraftCommit(ctx context.Context) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 45*time.Second)

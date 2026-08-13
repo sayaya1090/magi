@@ -188,3 +188,28 @@ func TestACommitMessageIsDraftedFromWhatIsStaged(t *testing.T) {
 		t.Errorf("the model was asked %d times for one draft", llm.call)
 	}
 }
+
+// A pull request is refused before anything is pushed when there is no gh to open it with.
+//
+// The order matters more than the message: the branch must not be pushed by a call that is going
+// to fail at the next step, because a push is a fact about the remote that the person who pressed
+// the button did not ask for on its own.
+func TestOpeningAPullRequestNeedsGhAndSaysSo(t *testing.T) {
+	dir := gitRepo(t)
+	a := gitDiffApp(t)
+	// A PATH with nothing on it: gh cannot be found, and neither can git — so if the push were
+	// attempted first this would fail with git's words rather than with ours.
+	t.Setenv("PATH", t.TempDir())
+	_, err := a.OpenPR(context.Background(), "s1", dir, "a title", "a body", false)
+	if err == nil {
+		t.Fatal("a workspace with no gh opened a pull request")
+	}
+	if !strings.Contains(err.Error(), "gh") {
+		t.Errorf("the refusal does not say what is missing: %v", err)
+	}
+	// And a request with no title is refused without running anything at all.
+	if _, terr := a.OpenPR(context.Background(), "s1", dir, "  ", "", false); terr == nil ||
+		!strings.Contains(terr.Error(), "title") {
+		t.Errorf("an untitled pull request answered %v", terr)
+	}
+}
