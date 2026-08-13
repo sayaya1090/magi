@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,7 +113,7 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("two\n"), 0o644); werr != nil {
 		t.Fatal(werr)
 	}
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "a.txt", ""); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "a.txt", "", false); gerr != nil {
 		t.Fatalf("staging: %v", gerr)
 	}
 	if got, _ := a.GitFacts(context.Background(), wd); len(got.Changes) != 1 || got.Changes[0].Kind != "staged" {
@@ -127,10 +128,10 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 
 	// And discarding is. The file goes back, and the companion is told, because what it holds in
 	// context is the version that has just gone.
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "unstage", "a.txt", ""); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "unstage", "a.txt", "", false); gerr != nil {
 		t.Fatalf("unstaging: %v", gerr)
 	}
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "discard", "a.txt", ""); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "discard", "a.txt", "", false); gerr != nil {
 		t.Fatalf("discarding: %v", gerr)
 	}
 	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); strings.TrimSpace(string(b)) != "one" {
@@ -145,10 +146,10 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("three\n"), 0o644); werr != nil {
 		t.Fatal(werr)
 	}
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "a.txt", ""); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "a.txt", "", false); gerr != nil {
 		t.Fatal(gerr)
 	}
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "commit", "", "a second commit"); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "commit", "", "a second commit", false); gerr != nil {
 		t.Fatalf("committing: %v", gerr)
 	}
 	if said := userSaid(t, st, sid); !strings.Contains(said, "a second commit") {
@@ -157,7 +158,7 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("four\n"), 0o644); werr != nil {
 		t.Fatal(werr)
 	}
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "stash", "", ""); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "stash", "", "", false); gerr != nil {
 		t.Fatalf("stashing: %v", gerr)
 	}
 	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); strings.TrimSpace(string(b)) != "three" {
@@ -167,7 +168,7 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 	if said := userSaid(t, st, sid); !strings.Contains(said, "not what is on disk") {
 		t.Errorf("the stash did not say what it means for the agent: %q", said)
 	}
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "unstash", "", ""); gerr != nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "unstash", "", "", false); gerr != nil {
 		t.Fatalf("putting the stash back: %v", gerr)
 	}
 	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); strings.TrimSpace(string(b)) != "four" {
@@ -176,12 +177,12 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 
 	// The list is closed. Anything else somebody wants from git they have a terminal for.
 	for _, what := range []string{"reset", "clean", "checkout", "rm", "rebase"} {
-		if _, gerr := a.GitDo(context.Background(), sid, wd, what, "a.txt", ""); gerr == nil {
+		if _, gerr := a.GitDo(context.Background(), sid, wd, what, "a.txt", "", false); gerr == nil {
 			t.Errorf("%q ran from a screen offering four commands", what)
 		}
 	}
 	// And a filename is a filename, not an argument: `--force` is a file called --force.
-	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "--force", ""); gerr == nil {
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "--force", "", false); gerr == nil {
 		t.Error("a path that looks like a flag was taken as one")
 	}
 }
@@ -199,4 +200,58 @@ func userSaid(t *testing.T, st *jsonl.Store, sid session.SessionID) string {
 		}
 	}
 	return out
+}
+
+// Asked for an answer, an idle companion gives one; not asked, it is only told.
+//
+// Both are wanted and neither is the default for the other: a console that always answered would
+// spend a turn on every click of a stage button, and one that never did would make somebody who
+// wants a second opinion on the change they just made go and type "look at it".
+func TestAConsoleChangeCanAskForAnAnswerOrJustSayIt(t *testing.T) {
+	wd, dir := t.TempDir(), t.TempDir()
+	st, serr := jsonl.New(dir)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	a := New(st, nil, builtin.Default(), bus.New(), platform.OS{}, Config{})
+	sid, cerr := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+
+	// Told, not asked: the note is in the log and the turn reads as closed, so nothing on any
+	// screen says this companion is working.
+	if _, err := a.WriteTool(context.Background(), sid, wd, "write",
+		json.RawMessage(`{"path":"a.txt","content":"one\n"}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, open := a.UnfinishedTurnOf(context.Background(), sid); open {
+		t.Error("a change nobody asked about left the companion looking mid-turn")
+	}
+
+	// Asked: the prompt stands as a prompt — not marked abandoned — which is what makes the loop
+	// pick it up. There is no model in this test, so what is checked is the record, not the reply.
+	if _, err := a.WriteTool(context.Background(), sid, wd, "write",
+		json.RawMessage(`{"path":"a.txt","content":"two\n"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	evs, rerr := st.Read(context.Background(), sid, 0)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	var prompts, abandoned int
+	for _, e := range evs {
+		switch e.Type {
+		case event.TypePromptSubmitted:
+			prompts++
+		case event.TypePromptAbandoned:
+			abandoned++
+		}
+	}
+	if prompts != 2 {
+		t.Fatalf("%d notes were written for two changes", prompts)
+	}
+	if abandoned != 1 {
+		t.Errorf("%d of them were marked abandoned; only the one nobody asked about should be", abandoned)
+	}
 }

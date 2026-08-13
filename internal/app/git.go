@@ -285,7 +285,7 @@ const lookOverCap = 60 << 10
 // So the rule is the simple one, because a rule with a carve-out is a rule somebody has to
 // remember: every mutation this console makes is written where the agent will read it, in the
 // person's own words, one line each.
-func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, path, message string) (string, error) {
+func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, path, message string, ask bool) (string, error) {
 	if a.plat == nil {
 		return "", fmt.Errorf("platform unavailable")
 	}
@@ -355,7 +355,7 @@ func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, p
 		// could write about it.
 		return "", fmt.Errorf("%s", out)
 	}
-	if nerr := a.noteGit(ctx, sid, what, path, message); nerr != nil {
+	if nerr := a.noteGit(ctx, sid, what, path, message, ask); nerr != nil {
 		return out, fmt.Errorf("git did it and the note about it was not written: %w", nerr)
 	}
 	return out, nil
@@ -369,7 +369,7 @@ const gitDoList = "stage, unstage, discard, commit, push, stash, unstash, switch
 // The second half is the part that matters. "I stashed the working tree" is a fact; "the files you
 // read are not what is on disk now" is the consequence, and the consequence is what a model acts
 // on. Each of these says what changed under it in the terms the agent's own next step cares about.
-func (a *App) noteGit(ctx context.Context, sid session.SessionID, what, path, message string) error {
+func (a *App) noteGit(ctx context.Context, sid session.SessionID, what, path, message string, ask bool) error {
 	subject := path
 	if strings.TrimSpace(subject) == "" {
 		subject = "this workspace"
@@ -409,5 +409,5 @@ func (a *App) noteGit(ctx context.Context, sid session.SessionID, what, path, me
 	default:
 		text = "I ran git " + what + " from the console."
 	}
-	return a.noteToSession(ctx, sid, text)
+	return a.noteToSession(ctx, sid, text, ask)
 }

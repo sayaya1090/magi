@@ -265,7 +265,7 @@ type ToolReader interface {
 // App.WriteTool. That is the half that makes a console edit honest rather than a change the agent
 // discovers by finding its file different from the one in its context.
 type ToolWriter interface {
-	WriteTool(ctx context.Context, name string, args json.RawMessage) (string, error)
+	WriteTool(ctx context.Context, name string, args json.RawMessage, ask bool) (string, error)
 }
 
 // GitTeller is an engine that can say what git makes of its workspace.
@@ -293,7 +293,7 @@ type Reviewer interface {
 // a shell parses. See app.GitDo, including which of them is written into the companion's log:
 // discard throws away what was in a file, and the agent's context still holds it.
 type GitDoer interface {
-	GitDo(ctx context.Context, what, path, message string) (string, error)
+	GitDo(ctx context.Context, what, path, message string, ask bool) (string, error)
 }
 
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
@@ -363,6 +363,10 @@ type Request struct {
 	// JSON rather than a field per argument: the caller and the tool already agree on a schema,
 	// and re-declaring it here would be a third copy to keep in step with the other two.
 	Args json.RawMessage `json:"args,omitempty"`
+	// Ask says the caller wants the companion to ANSWER what it is being told, rather than only be
+	// told. It rides with the console's own changes — an edit, a git command — and turns the note
+	// they leave in the log from a record into a steer.
+	Ask bool `json:"ask,omitempty"`
 }
 
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
@@ -962,7 +966,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			case strings.TrimSpace(req.Name) == "":
 				resp = Response{Err: "no tool named"}
 			default:
-				out, werr := writer.WriteTool(ctx, req.Name, req.Args)
+				out, werr := writer.WriteTool(ctx, req.Name, req.Args, req.Ask)
 				if werr != nil {
 					resp = Response{Err: werr.Error()}
 				} else {
@@ -992,7 +996,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			doer, ok := eng.(GitDoer)
 			if !ok {
 				resp = Response{Err: "this daemon cannot run git commands"}
-			} else if out, gerr := doer.GitDo(ctx, req.Name, req.Text, req.Answer); gerr != nil {
+			} else if out, gerr := doer.GitDo(ctx, req.Name, req.Text, req.Answer, req.Ask); gerr != nil {
 				resp = Response{Err: gerr.Error()}
 			} else {
 				resp = Response{OK: true, Out: out}
@@ -1498,8 +1502,8 @@ func (c *Client) ReadOnlyTool(name string, args json.RawMessage) (string, error)
 }
 
 // WriteTool asks the companion to change one of its own files, and to write down that a person did.
-func (c *Client) WriteTool(name string, args json.RawMessage) (string, error) {
-	resp, err := c.exchange(Request{Method: "edit-file", Name: name, Args: args})
+func (c *Client) WriteTool(name string, args json.RawMessage, ask bool) (string, error) {
+	resp, err := c.exchange(Request{Method: "edit-file", Name: name, Args: args, Ask: ask})
 	if err != nil {
 		return "", err
 	}
@@ -1526,8 +1530,8 @@ func (c *Client) LookOver(path, text string) (string, error) {
 
 // GitDo runs one of the four git commands in the companion's workspace: stage, unstage, discard,
 // commit. The path travels as an argument and never as part of a command line.
-func (c *Client) GitDo(what, path, message string) (string, error) {
-	resp, err := c.exchange(Request{Method: "git-do", Name: what, Text: path, Answer: message})
+func (c *Client) GitDo(what, path, message string, ask bool) (string, error) {
+	resp, err := c.exchange(Request{Method: "git-do", Name: what, Text: path, Answer: message, Ask: ask})
 	if err != nil {
 		return "", err
 	}

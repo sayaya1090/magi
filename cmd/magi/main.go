@@ -2445,10 +2445,10 @@ func (d daemonEngine) ReadOnlyTool(ctx context.Context, name string, args json.R
 // WriteTool is the console's way to change a file here, with the record that makes it honest —
 // see app.WriteTool and daemon.ToolWriter. The session is the one this companion is running: the
 // note goes into ITS log, which is the context the next turn is built from.
-func (d daemonEngine) WriteTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+func (d daemonEngine) WriteTool(ctx context.Context, name string, args json.RawMessage, ask bool) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	return d.App.WriteTool(rctx, d.handover.at.now(), d.workdir, name, args)
+	return d.App.WriteTool(rctx, d.handover.at.now(), d.workdir, name, args, ask)
 }
 
 // Git is what git says about this workspace, for a console showing it. Bounded like the rest: a
@@ -2474,10 +2474,10 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 
 // GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
 // is written into this companion's log.
-func (d daemonEngine) GitDo(ctx context.Context, what, path, message string) (string, error) {
+func (d daemonEngine) GitDo(ctx context.Context, what, path, message string, ask bool) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return d.App.GitDo(rctx, d.handover.at.now(), d.workdir, what, path, message)
+	return d.App.GitDo(rctx, d.handover.at.now(), d.workdir, what, path, message, ask)
 }
 
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {

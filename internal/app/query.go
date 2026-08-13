@@ -339,7 +339,7 @@ func readOnlyList() string {
 // do. Not bash: a shell is not a file edit, however easily it can perform one, and a door named
 // for editing that ran commands would be the sort of thing this tree keeps finding and closing.
 func (a *App) WriteTool(ctx context.Context, sid session.SessionID, workdir, name string,
-	args json.RawMessage) (string, error) {
+	args json.RawMessage, ask bool) (string, error) {
 	if !writeTools[name] {
 		return "", fmt.Errorf("%q is not a tool this can run: only %s", name, writeList())
 	}
@@ -354,7 +354,7 @@ func (a *App) WriteTool(ctx context.Context, sid session.SessionID, workdir, nam
 	if res.IsError {
 		return "", fmt.Errorf("%s", toolText(res.Content))
 	}
-	if nerr := a.noteEdit(ctx, sid, name, args); nerr != nil {
+	if nerr := a.noteEdit(ctx, sid, name, args, ask); nerr != nil {
 		// Said, not swallowed. The write happened; what failed is the part that makes it honest,
 		// and a caller that thinks both halves succeeded would report a clean save.
 		return toolText(res.Content), fmt.Errorf("the file was written and the note about it was not: %w", nerr)
@@ -381,7 +381,7 @@ func writeList() string {
 // three that matter would each learn it slightly differently.
 //
 // appendPrompt and not Submit: appending records, submitting also STARTS a turn.
-func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, args json.RawMessage) error {
+func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, args json.RawMessage, ask bool) error {
 	var where struct {
 		Path string `json:"path"`
 	}
@@ -395,10 +395,18 @@ func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, 
 	}
 	text := "I edited " + what + " from the console (" + tool + "). " +
 		"Read it again before you change it — what you have in context is what it was before."
-	return a.noteToSession(ctx, sid, text)
+	return a.noteToSession(ctx, sid, text, ask)
 }
 
-// noteToSession puts a person's own words into a companion's log without asking it to work.
+// noteToSession puts a person's own words into a companion's log.
+//
+// ask says whether the companion should answer NOW. Off, this is a record: the sentence is in the
+// context the next turn is built from and nothing runs. On, it is exactly a steer — the same act as
+// typing it into the composer — and an idle companion picks it up immediately.
+//
+// Which of the two is the person's call and not this function's. A console that always answered
+// would spend a turn on every click of a stage button; one that never did would make somebody who
+// wants a second opinion on the edit they just made go and type "look at it".
 //
 // Shared by every console action that changes something under a running agent — an edit, and each
 // of the git commands — because they all need the same two things: the sentence has to reach the
@@ -406,7 +414,7 @@ func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, 
 //
 // Written out rather than through appendPrompt, because the abandonment below has to NAME this
 // prompt and appendPrompt keeps the id it minted to itself.
-func (a *App) noteToSession(ctx context.Context, sid session.SessionID, text string) error {
+func (a *App) noteToSession(ctx context.Context, sid session.SessionID, text string, ask bool) error {
 	msgID := "m_" + newSortableID()
 	data, err := json.Marshal(event.PromptSubmittedData{
 		MessageID: msgID,
@@ -432,6 +440,12 @@ func (a *App) noteToSession(ctx context.Context, sid session.SessionID, text str
 	// turn that answers it is the one already going, and marking it abandoned would tell the loop
 	// to skip what a person just said.
 	if _, running := a.Running(); running {
+		return nil
+	}
+	// Asked for an answer, and nothing is running: start the turn. Not marked abandoned, because
+	// it is not abandoned — something is about to read it.
+	if ask {
+		a.startRun(ctx, sid)
 		return nil
 	}
 	done, derr := json.Marshal(event.PromptAbandonedData{MsgID: msgID})

@@ -127,6 +127,10 @@ func (s *server) save(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "which file", http.StatusBadRequest)
 		return
 	}
+	// Whether the companion should answer, rather than only be told. The person's call, per action:
+	// a console that always answered would spend a turn on every click of a stage button, and one
+	// that never did would make somebody wanting a second opinion go and type "look at it".
+	ask := r.FormValue("ask") != ""
 	// The whole file, not a patch. An edit that arrives as "replace this string" needs the console
 	// and the file to agree about what is in it right now, and between a read and a save the agent
 	// may have written it twice.
@@ -137,7 +141,7 @@ func (s *server) save(w http.ResponseWriter, r *http.Request) {
 	}
 	var out string
 	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
-		text, terr := cl.WriteTool("write", args)
+		text, terr := cl.WriteTool("write", args, ask)
 		out = text
 		return terr
 	}); derr != nil {
@@ -223,7 +227,7 @@ func (s *server) gitDo(w http.ResponseWriter, r *http.Request) {
 	message := strings.TrimSpace(r.FormValue("message"))
 	var out string
 	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
-		said, gerr := cl.GitDo(what, path, message)
+		said, gerr := cl.GitDo(what, path, message, r.FormValue("ask") != "")
 		out = said
 		return gerr
 	}); derr != nil {

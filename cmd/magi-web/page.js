@@ -4860,13 +4860,15 @@ async function runFind(a) {
   const mine = ++findAt;
   const got = await fetchOne('/find' + qFor(a) + '&in=' + findIn + '&q=' + encodeURIComponent(findQ));
   if (mine !== findAt) return;               // a later query is already on its way
+  const card = cell('filescard');
   const kids = [findRow(a)];
   const hits = (got && got.hits) || [];
   if (!got) kids.push(cell('filesnote', tr('files.unreadable')));
   else if (!hits.length) kids.push(cell('filesnote', tr('files.no_match')));
   for (const hit of hits) kids.push(hitRow(a, hit));
   if (got && got.more) kids.push(cell('filesnote', tr('files.more', {n: got.more})));
-  filesEl.replaceChildren(...kids);
+  card.append(...kids);
+  filesEl.replaceChildren(card);
 }
 
 // One result. A name search answers with paths; a content search answers "path:line:text", which
@@ -4905,20 +4907,30 @@ async function loadTree(a) {
   // say the way round it: a magi-web running there is a peer, and a peer's companions come through
   // its own console with their files intact. A row with a peer on it is NOT this case.
   if (a.elsewhere) {
-    filesEl.replaceChildren(cell('filesnote', tr('files.elsewhere')));
+    const only = cell('filescard');
+    only.append(cell('filesnote', tr('files.elsewhere')));
+    filesEl.replaceChildren(only);
     return;
   }
   const rows = await treeAt(a, '.');
   if (rows === null) {
-    filesEl.replaceChildren(cell('filesnote', tr('files.unreadable')));
+    const only = cell('filescard');
+    only.append(cell('filesnote', tr('files.unreadable')));
+    filesEl.replaceChildren(only);
     return;
   }
-  const head = cell('fileshead', shortPath(a.workdir || ''));
-  // The tree first and git under it. The tree is what somebody came to this pane for and is the
-  // taller of the two; a status block above it pushed the files down the column on every draw,
-  // and what git has to say is read after you have found the file, not before.
+  // Two cards, like the pane on the other side — and each one scrolls itself.
+  //
+  // One scroller for both was wrong in a way you feel rather than see: a repository with three
+  // hundred files pushed git's section off the bottom, and scrolling down to reach the branch
+  // scrolled the tree away from wherever the reader had got to. They are two different things
+  // being looked at for two different reasons, so they get two boxes with two scrollbars, and
+  // neither moves when the other does.
+  const tree = cell('filescard');
+  tree.append(cell('fileshead', shortPath(a.workdir || '')), findRow(a),
+              ...(await branches(a, '.', rows, 0)));
   const git = await gitSection(a);
-  filesEl.replaceChildren(head, findRow(a), ...(await branches(a, '.', rows, 0)), ...git);
+  filesEl.replaceChildren(tree, ...git);
 }
 
 // What git makes of this workspace: the branch, how far it is from its upstream, and what has not
@@ -4932,7 +4944,7 @@ async function loadTree(a) {
 async function gitSection(a) {
   const g = await fetchOne('/git' + qFor(a));
   if (!g || !g.repo) return [];
-  const box = cell('gitbox');
+  const box = cell('gitbox filescard');
   const top = cell('gittop');
   const mark = iconOr('#i-sl-layer-group', '⎇', 'gitmark');
   if (mark) top.append(mark);
@@ -5009,7 +5021,11 @@ function gitLine(a, c) {
   row.type = 'button';
   row.className = 'treerow gitrow state hit48 ' + (c.kind || '');
   row.append(cell('gitkind', tr(GIT_KIND[c.kind] || 'git.changed')));
-  row.append(cell('treename', c.path));
+  const name = cell('treename', c.path);
+  // Clipped in an 18rem column, so the whole path has to be somewhere: the page's own tooltip,
+  // which appears on focus as well as on hover — a native title does neither for a keyboard.
+  tip(name, c.path);
+  row.append(name);
   row.onclick = () => openFile(a, c.path);
   line.append(row, gitActs(a, c));
   return line;

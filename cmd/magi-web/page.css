@@ -1325,6 +1325,21 @@
      A tree of names and one file at a time. Nothing here is an editor: the console reads through
      the companion's own tools and has no route that writes, so there is no caret, no dirty state
      and no save. */
+  /* A card each, like the pane on the other side, and a scrollbar each. One scroller for both put
+     git's section below three hundred files, and scrolling to reach the branch took the tree away
+     from wherever the reader had got to — two things looked at for two reasons should not move
+     each other. The tree takes what is left after git has what it needs. */
+  .filescard {
+    display:flex; flex-direction:column; gap:var(--magi-sys-space-150);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
+    background:var(--magi-ref-surface-container-low);
+    padding:var(--magi-sys-space-150);
+    overflow:hidden auto; overscroll-behavior:contain; min-height:0;
+  }
+  #files > .filescard:first-child { flex:1 1 auto; }
+  /* git's card is as tall as what is in it, up to a share of the column: a branch and four changes
+     should not take half the pane, and forty changes should not take all of it. */
+  #files > .gitbox { flex:0 1 auto; max-height:45%; }
   .fileshead {
     font:600 var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono);
     color:var(--magi-ref-muted); overflow-wrap:anywhere;
@@ -1334,10 +1349,7 @@
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
   /* What git makes of the workspace, over the tree it is the state of. */
-  .gitbox {
-    display:grid; gap:var(--magi-sys-space-50);
-    padding-bottom:var(--magi-sys-space-150); border-bottom:1px solid var(--magi-ref-outlineVariant);
-  }
+  .gitbox { gap:var(--magi-sys-space-50); }
   .gittop { display:flex; align-items:center; gap:var(--magi-sys-space-100); flex-wrap:wrap; }
   .gitbranch {
     font:600 var(--md-sys-typescale-label-large-size)/1.5 var(--magi-ref-mono);
@@ -1357,15 +1369,25 @@
      buttons sit at the trailing end, which is where the lists guidance puts a secondary action. */
   /* The branch menu, the four branch-level buttons, and the two group headings — the shape every
      editor's git panel has, in a column 18rem wide. */
-  .gitpick { flex:1 1 8rem; min-width:0; --md-outlined-select-text-field-input-text-font:var(--magi-ref-mono); }
+  .gitpick { flex:1 1 6rem; min-width:0; max-width:100%; --md-outlined-select-text-field-input-text-font:var(--magi-ref-mono); }
   .gitbranchacts { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-50); }
   .gitgroup {
     margin-top:var(--magi-sys-space-100);
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display);
     letter-spacing:.04em; color:var(--magi-ref-muted);
   }
-  .gitline { display:flex; align-items:center; gap:var(--magi-sys-space-50); }
+  /* Nothing in here is allowed to be wider than the column. A path, a branch name and a commit
+     message are all unbreakable strings, and a flex or grid child's default minimum is its
+     CONTENT — so one 60-character path made the whole card wider than the pane and the pane grew a
+     sideways scrollbar. min-width:0 on every box that holds one, and the text itself clips. */
+  .gitbox, .gitline, .gitacts, .gittop, .gitbranchacts, .gitcommit { min-width:0; max-width:100%; }
+  .gitline { display:flex; align-items:center; gap:var(--magi-sys-space-50); min-width:0; }
   .gitline .treerow { flex:1 1 auto; min-width:0; }
+  .gitrow .treename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  /* The whole path in a tooltip's place: the row clips, and the title is what a reader falls back
+     on when the middle of a path is the part that was cut. */
+  .gitbox .gitbranch { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gitcommit md-outlined-text-field { width:100%; min-width:0; }
   .gitacts { display:flex; flex:none; }
   .gitacts md-icon-button { --md-icon-button-icon-size:18px; }
   .gitcommit { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-150); }
@@ -1943,7 +1965,9 @@
     }
     #files {
       flex:1 1 auto; min-height:0; width:var(--magi-comp-files-w); box-sizing:border-box;
-      overflow:hidden auto; overscroll-behavior:contain;
+      /* The COLUMN does not scroll; the cards in it do. A scrollbar out here would scroll the two
+         together, which is the thing having two cards is for. */
+      overflow:hidden;
       transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard), visibility 0s;
     }
     body[files="shut"] #files {

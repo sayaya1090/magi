@@ -101,7 +101,7 @@ func TestAConsoleEditIsRecordedInTheCompanionsOwnLog(t *testing.T) {
 	}
 
 	if _, err := a.WriteTool(context.Background(), sid, wd, "write",
-		json.RawMessage(`{"path":"note.txt","content":"a person wrote this\n"}`)); err != nil {
+		json.RawMessage(`{"path":"note.txt","content":"a person wrote this\n"}`), false); err != nil {
 		t.Fatalf("saving: %v", err)
 	}
 	if b, rerr := os.ReadFile(filepath.Join(wd, "note.txt")); rerr != nil || !strings.Contains(string(b), "a person") {
@@ -140,7 +140,7 @@ func TestAConsoleEditIsRecordedInTheCompanionsOwnLog(t *testing.T) {
 	// The write door is not the read door: bash is refused here too, and a tool that only looks is
 	// not what this one is for.
 	if _, err := a.WriteTool(context.Background(), sid, wd, "bash",
-		json.RawMessage(`{"command":"touch through-the-edit-door"}`)); err == nil {
+		json.RawMessage(`{"command":"touch through-the-edit-door"}`), false); err == nil {
 		t.Error("bash ran through the editing door")
 	}
 	if _, err := os.Stat(filepath.Join(wd, "through-the-edit-door")); err == nil {
