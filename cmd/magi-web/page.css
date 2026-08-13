@@ -1509,7 +1509,10 @@
   /* The branch menu, the four branch-level buttons, and the two group headings — the shape every
      editor's git panel has, in a column 18rem wide. */
   .gitpick { flex:1 1 6rem; min-width:0; max-width:100%; --md-outlined-select-text-field-input-text-font:var(--magi-ref-mono); }
-  .gitbranchacts { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-50); }
+  /* Ranged right, under the branch they act on. Left, they sat in the middle of the column with
+     the empty half of the row beside them — measured 352..524 in a card whose contents run to 614
+     — and read as the start of a list rather than as the card's own controls. */
+  .gitbranchacts { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:var(--magi-sys-space-50); }
   .gitgroup {
     margin-top:var(--magi-sys-space-100);
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display);
@@ -1534,7 +1537,10 @@
   .gitacts { display:flex; flex:none; visibility:hidden; }
   .gitline:hover .gitacts, .gitacts:focus-within, .gitline:focus-within .gitacts { visibility:visible; }
   .gitacts md-icon-button { --md-icon-button-icon-size:16px; width:28px; height:28px; }
-  .gitcommit { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-150); }
+  /* One control, at the trailing end with the rest of this card's actions. It was a full-width
+     button under a full-width box; the box has moved into a dialog and a button stretched across a
+     column is a bar, not a button. */
+  .gitcommit { display:flex; justify-content:flex-end; margin-top:var(--magi-sys-space-150); }
   .gitrow .gitkind {
     flex:none; min-width:4.5rem;
     font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-muted);
@@ -1547,6 +1553,9 @@
      collection, with the selected one carrying the check. */
   .filefind { display:grid; gap:var(--magi-sys-space-150); }
   .filefind md-outlined-text-field { width:100%; }
+  /* Which of the two searches this is, ranged right for the same reason the git buttons are: they
+     belong to the box above them rather than to the list below, and the list starts at the left. */
+  .filefind md-chip-set { justify-content:flex-end; }
   /* A hit is a row like any other in this pane, plus the line it was found on. The line is set in
      the same mono as the file it came from and clipped: this is a pointer into a file, not a
      reading of it — pressing it opens the file, which is where reading happens. */
@@ -2718,14 +2727,16 @@
   .meettrouble { color:var(--magi-ref-warn); }
   .meetwho { display:flex; flex-wrap:wrap; }
   .meetends { color:var(--magi-ref-muted); }
-  /* The action on its own line, at the leading edge, and wide enough to read as the end of the
-     form rather than a pill left over at the margin.
-     It has been all three ways: flush left and small, which read as another field that had lost
+  /* The action on its own line, centred, and wide.
+     It has been every way round: flush left and small, which read as another field that had lost
      its label; pushed to the trailing end, alone at the far side of a wide screen with the note
-     that explains it a screen away; and this — where the width is what says "this is the one
-     control here", which was the reader's own suggestion of the three. The note sits under it and
-     says why it cannot be pressed yet. */
-  .meetgo { justify-self:start; min-width:14rem; }
+     that explains it a screen away; flush left and wide, which on a 1385px card still left it
+     hanging off the leading edge with the whole card empty beside it. Centred, it is the one
+     control on the screen and sits where the eye already is at the end of the form. The note that
+     says why it cannot be pressed yet sits under it. */
+  .meetgo { justify-self:center; min-width:min(26rem, 100%); }
+  /* And what is under it lines up with it rather than with the form's edge. */
+  .meetbox .meetnote { text-align:center; }
 
   /* The room, as one line of chips.
      Rows first, and four participants in four full-width rows spent most of the screen saying one

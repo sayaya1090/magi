@@ -888,6 +888,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/git":           s.git,
 		"/look":          s.look,
 		"/git-do":        s.gitDo,
+		"/git-msg":       s.gitMsg,
 		"/diff":          s.diff,
 		"/file-do":       s.fileDo,
 		"/history":       s.history,

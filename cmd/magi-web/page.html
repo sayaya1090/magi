@@ -475,6 +475,10 @@
     <md-outlined-select id="askPick" hidden></md-outlined-select>
   </div>
   <div slot="actions">
+    <!-- A question the page can answer for you. The commit dialog uses it to draft the message
+         from what is staged; the button sits away from the two that end the dialog, because it
+         does neither. -->
+    <md-text-button id="askExtra" hidden></md-text-button>
     <md-text-button id="askCancel"></md-text-button>
     <md-text-button id="askGo"></md-text-button>
   </div>

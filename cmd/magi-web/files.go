@@ -203,6 +203,29 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 // change to anything, but it is work asked of the backend on somebody's behalf, which is what that
 // capability is about. Read-only in every other sense — nothing is written, nothing is recorded,
 // and no turn is started.
+// gitMsg is a commit message drafted from what is staged. It commits nothing.
+//
+// Beside look() rather than beside the git routes, because it is the same kind of thing: the
+// companion's own model, asked a question outside the session, answering to the person who asked.
+func (s *server) gitMsg(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, merr := cl.DraftCommit()
+		out = said
+		return merr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	writeText(w, out)
+}
+
 func (s *server) look(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {
 		return

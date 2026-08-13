@@ -648,6 +648,14 @@ const demoScript = `
     // ends a discussion, and sending a conclusion is the one thing in the whole feature that
     // reaches a workspace. A demo that reported all three as "would have sent: POST" teaches that
     // they are the same act.
+    // The draft a companion's model would write. Answered like a real one — the box is filled and
+    // the person edits it — because a demo where the button announces itself teaches the button.
+    if (url === '/git-msg' && init && init.method === 'POST') {
+      return {ok: true, status: 200, text: async () =>
+        'git: name the branch the card is showing\n\n' +
+        'The pane read the checkout every time it drew, so a detached head was drawn as a branch ' +
+        'called nothing at all. It says the sha now, and says that is what it is.'};
+    }
     if (init && init.method === 'POST' &&
         (url === '/meet-say' || url === '/meet-close' || url === '/meet-hand')) {
       const said = {'/meet-say': 'would have taken the floor and said it',

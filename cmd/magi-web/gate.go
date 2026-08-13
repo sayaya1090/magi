@@ -47,6 +47,8 @@ var mayWrite = map[string]auth.Capability{
 	// Asking the model to look at a file somebody is editing. It changes nothing and records
 	// nothing — but it spends the backend on their behalf, which is what `prompt` is about.
 	"/look": auth.Prompt,
+	// Drafting a message spends the model, like /look, and is not a change to the workspace.
+	"/git-msg": auth.Prompt,
 	// Convening a meeting, speaking in one, ending it, and giving out what it concluded. All
 	// `prompt`: a meeting is model turns on several companions at once — the most expensive thing
 	// this console can start — and handing a conclusion out is giving one of them work, which is

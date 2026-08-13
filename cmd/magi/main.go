@@ -2488,6 +2488,13 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 	return d.App.LookOver(rctx, d.handover.at.now(), path, text)
 }
 
+// DraftCommit is the same shoulder-reading, about what is staged rather than about a buffer.
+func (d daemonEngine) DraftCommit(ctx context.Context) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return d.App.DraftCommit(rctx, d.handover.at.now(), d.workdir)
+}
+
 // GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
 // is written into this companion's log.
 // FileDo makes, moves or removes a file here — see app.FileDo for what each one writes into this

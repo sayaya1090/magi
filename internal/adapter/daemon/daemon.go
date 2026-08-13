@@ -294,6 +294,9 @@ type GitTeller interface {
 // written, nothing is recorded, nothing is started — the answer goes to the person who asked.
 type Reviewer interface {
 	LookOver(ctx context.Context, path, text string) (string, error)
+	// DraftCommit is the same kind of thing about a different subject: what is staged, described.
+	// A draft only — the console puts it in a box somebody edits before anything is committed.
+	DraftCommit(ctx context.Context) (string, error)
 }
 
 // GitDoer is an engine that will run one of a short, closed list of git commands in its workspace.
@@ -1087,6 +1090,20 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "git-msg" {
+			rev, ok := eng.(Reviewer)
+			if !ok {
+				resp = Response{Err: "this daemon cannot draft a commit message"}
+			} else if out, derr := rev.DraftCommit(ctx); derr != nil {
+				resp = Response{Err: derr.Error()}
+			} else {
+				resp = Response{OK: true, Out: out}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "look-over" {
 			rev, ok := eng.(Reviewer)
 			if !ok {
@@ -1637,6 +1654,15 @@ func passFlag(pass bool) *int {
 // LookOver asks the companion's model what it makes of a file being edited. Nothing is saved.
 func (c *Client) LookOver(path, text string) (string, error) {
 	resp, err := c.exchange(Request{Method: "look-over", Name: path, Text: text})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// DraftCommit asks the companion's model to describe what is staged. Nothing is committed.
+func (c *Client) DraftCommit() (string, error) {
+	resp, err := c.exchange(Request{Method: "git-msg"})
 	if err != nil {
 		return "", err
 	}

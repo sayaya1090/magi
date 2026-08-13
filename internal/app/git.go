@@ -256,6 +256,62 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 	return strings.TrimSpace(out), nil
 }
 
+// DraftCommit asks the companion's model for a commit message for what is staged.
+//
+// A draft, not a commit: nothing is written, nothing is run, and the person who asked gets text
+// they can rewrite or throw away. The same shape as LookOver above, and for the same reason —
+// this travels outside the session so a discarded draft does not become part of the conversation.
+//
+// The last few subjects in this repository go with it. A commit message is written in a house
+// style — what goes in the first word, whether there is a scope, how long the subject runs — and
+// a model shown five real examples matches it, where one told "be conventional" invents a
+// convention. They are evidence from the repository rather than a rule somebody typed here.
+func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir string) (string, error) {
+	diff, err := a.GitDiffOf(ctx, workdir, "", true, false)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(diff) == "" {
+		// Nothing staged is not a failure: it is the answer, and a screen says it better than a
+		// model would.
+		return "", nil
+	}
+	if len(diff) > lookOverCap {
+		diff = diff[:lookOverCap] + "\n… (the rest of this diff was not sent)"
+	}
+	house := ""
+	if a.plat != nil {
+		res, lerr := a.plat.Exec(ctx, port.Cmd{
+			Path: "git", Args: []string{"log", "-n", "5", "--pretty=%s"}, Dir: workdir, MaxOutput: 4 << 10})
+		if lerr == nil && res.ExitCode == 0 && strings.TrimSpace(string(res.Stdout)) != "" {
+			house = "\n\nThe last five subjects in this repository, so the draft is written the way " +
+				"this project writes them:\n" + strings.TrimSpace(string(res.Stdout))
+		}
+	}
+	s := a.sessionInfo(ctx, sid)
+	agent := a.agentFor(s)
+	req := port.ChatRequest{
+		Model: s.Model.Model,
+		System: "Write the commit message for the staged diff below. Answer with the message and " +
+			"nothing else: no preamble, no code fences, no quotation marks. A subject line in the " +
+			"imperative under 72 characters, then — only if the change needs it — a blank line and " +
+			"a short body saying WHY. Describe only what the diff shows: no issue numbers, no " +
+			"names, nothing you cannot see here." + house,
+		Messages: []session.Message{{
+			Role:  session.RoleUser,
+			Parts: []session.Part{{Kind: session.PartText, Text: diff}},
+		}},
+	}
+	stream, serr := a.providerFor(agent).StreamChat(ctx, req)
+	if serr != nil {
+		return "", serr
+	}
+	out, _ := drainStream(stream)
+	// A model that answers in a fence anyway is a model whose text is still usable; the fence is
+	// not part of the message and would land in the log verbatim.
+	return strings.Trim(strings.TrimSpace(out), "`\n "), nil
+}
+
 // lookOverCap is how much of a buffer travels. Big enough for the files people read on this screen,
 // small enough that holding the key down does not become a bill.
 const lookOverCap = 60 << 10

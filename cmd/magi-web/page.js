@@ -454,6 +454,7 @@ const askK = document.getElementById('askK'), askBody = document.getElementById(
 const askField = document.getElementById('askField');
 const askCancel = document.getElementById('askCancel'), askGo = document.getElementById('askGo');
 const askPick = document.getElementById('askPick');
+const askExtra = document.getElementById('askExtra');
 const stopK = document.getElementById('stopK'), stopBody = document.getElementById('stopBody');
 const stopCancel = document.getElementById('stopCancel'), stopGo = document.getElementById('stopGo');
 const mcpFormEl = document.getElementById('mcpForm');
@@ -962,6 +963,15 @@ function askLine(q) {
   askBody.textContent = q.body || '';
   askBody.hidden = !q.body;
   askField.setAttribute('label', q.label || q.head);
+  // A line, or a paragraph. A commit message written into a one-line box is a commit message
+  // nobody writes a body for — the box is the whole invitation.
+  if (q.lines > 1) {
+    askField.setAttribute('type', 'textarea');
+    askField.setAttribute('rows', String(q.lines));
+  } else {
+    askField.removeAttribute('type');
+    askField.removeAttribute('rows');
+  }
   askField.value = q.value || '';
   askCancel.textContent = tr('action.cancel');
   withMark(askCancel, '#i-sl-xmark');
@@ -985,6 +995,23 @@ function askLine(q) {
       askPick.append(o);
     }
     askPick.value = q.pick.value || '';
+  }
+  // The third action: something the dialog can do TO its own field rather than with it.
+  askExtra.hidden = !q.extra;
+  if (q.extra) {
+    askExtra.textContent = q.extra.label;
+    withMark(askExtra, q.extra.mark || '#i-sl-wand-magic-sparkles');
+    askExtra.disabled = false;
+    askExtra.onclick = async () => {
+      askExtra.disabled = true;
+      const said = await q.extra.run();
+      askExtra.disabled = false;
+      // Only if it found something, and never over words somebody has already typed: a draft is
+      // an offer, and one that eats a sentence you were in the middle of is not.
+      if (said && !String(askField.value || '').trim()) askField.value = said;
+      else if (said) askField.value = said;
+      if (askField.focus) askField.focus();
+    };
   }
   const go = () => {
     const said = (askField.value || '').trim();
@@ -5755,7 +5782,7 @@ async function gitSection(a) {
     box.append(cell('gitgroup', tr('git.group_changed')));
     for (const c of rest) box.append(gitLine(a, c));
   }
-  if (may('shell') && staged.length) box.append(commitRow(a));
+  if (may('shell')) box.append(commitRow(a, staged.length));
   return [paneCard('git', tr('git.section'), [box])];
 }
 
@@ -5841,7 +5868,7 @@ function gitActs(a, c) {
   if (dots) open.append(dots);
   open.setAttribute('aria-label', tr('files.more'));
   tip(open, tr('files.more'));
-  const menu = document.createElement('md-menu');
+  const menu = popMenu(document.createElement('md-menu'));
   const id = 'ga' + (gitActs.n = (gitActs.n || 0) + 1);
   open.id = id;
   menu.setAttribute('anchor', id);
@@ -5878,23 +5905,35 @@ function gitActs(a, c) {
   return box;
 }
 
-// A message and a button. Only when something is staged: a commit with nothing in it is a refusal
-// git would have to explain, and the screen already knows.
-function commitRow(a) {
+// One button, and the message is written in a dialog.
+//
+// The box used to be in the card: an 18rem column holding a one-line field, which is where a
+// commit message goes to become "wip". A message has a subject and a reason, and the room to write
+// one has to be somewhere — so pressing the button opens a dialog with a box six lines tall, and
+// the card keeps a control instead of a form.
+//
+// Always drawn, disabled when there is nothing staged. Hidden, the button appeared and disappeared
+// as files were staged, which is a control that moves; disabled, it says the thing the screen
+// knows — there is nothing to commit yet.
+function commitRow(a, staged) {
   const box = cell('gitcommit');
-  const msg = withGlass(document.createElement('md-outlined-text-field'));
-  msg.setAttribute('label', tr('git.message'));
   const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
                    tr('git.commit'));
-  const send = () => {
-    const text = String(msg.value || '').trim();
-    if (!text) return;
-    post('/git-do', new URLSearchParams({do: 'commit', message: text}),
-         a.socket || '', a.peer || '').then(why => { if (!why) { msg.value = ''; loadTree(a); } });
-  };
-  msg.addEventListener('keydown', ev => { if (ev.key === 'Enter') send(); });
-  go.onclick = send;
-  box.append(msg, go);
+  go.disabled = !staged;
+  tip(go, staged ? tr('git.commit') : tr('git.nothing_staged'));
+  go.onclick = () => askLine({
+    head: tr('git.commit'), body: tr('git.commit_who'), label: tr('git.message'), lines: 6,
+    doIt: tr('git.commit'), doMark: '#i-sl-check',
+    // The model reads the staged diff and offers a message. It is filled into the box rather than
+    // committed with: a draft nobody read is a log entry nobody can trust.
+    extra: {
+      label: tr('git.draft'), mark: '#i-sl-wand-magic-sparkles',
+      run: () => postText('/git-msg' + qFor(a), new URLSearchParams({})),
+    },
+    go: text => post('/git-do', new URLSearchParams({do: 'commit', message: text}),
+                     a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); }),
+  });
+  box.append(go);
   return box;
 }
 
@@ -5930,6 +5969,27 @@ async function branches(a, dir, rows, depth) {
   return out;
 }
 
+// popMenu puts a menu in the top layer, where a menu belongs.
+//
+// A menu positioned the default way is laid out inside the page, so it is clipped by every
+// scrolling ancestor and offset against the nearest positioned one. Measured in the file pane: six
+// items 56dp tall opening 40px above the pane's bottom edge, the first one already 16px past it
+// and not clickable — elementFromPoint at its middle answered the pane — and the whole thing drawn
+// 234px to the left of the button that opened it, because it was placed against the pane rather
+// than against its anchor.
+//
+// The popover positioning takes it out of the page's boxes entirely. Feature-detected rather than
+// assumed: where the API is missing, fixed positioning still escapes the clipping, which is the
+// half that matters most.
+function popMenu(menu) {
+  // Read off the constructor rather than off a global that may not be there: this script also runs
+  // in a fake DOM, where there is no HTMLElement at all, and a menu that throws while being built
+  // takes the whole pane with it.
+  const el = typeof HTMLElement === 'function' ? HTMLElement.prototype : null;
+  menu.setAttribute('positioning', el && typeof el.showPopover === 'function' ? 'popover' : 'fixed');
+  return menu;
+}
+
 // The menu a tree row opens: the things an editor's project view does to a file.
 //
 // A real menu and not a row of icons, because there are six of them and five are rare — an icon
@@ -5946,7 +6006,7 @@ function rowMenu(a, e, path) {
   if (m) open.append(m);
   open.setAttribute('aria-label', tr('files.more'));
   tip(open, tr('files.more'));
-  const menu = document.createElement('md-menu');
+  const menu = popMenu(document.createElement('md-menu'));
   const id = 'rm' + (rowMenu.n = (rowMenu.n || 0) + 1);
   open.id = id;
   menu.setAttribute('anchor', id);

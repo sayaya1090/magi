@@ -12,6 +12,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 func gitDiffApp(t *testing.T) *App {
@@ -142,5 +143,48 @@ func TestGitDiffPreservesRealIndex(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "staged.txt") {
 		t.Fatalf("GitDiff disturbed the real index; staged.txt no longer staged. cached=%q", out)
+	}
+}
+
+// A drafted commit message is about what is STAGED, and it is only ever a draft.
+//
+// Two things a screen depends on: nothing staged answers with nothing — the button that offers
+// this is disabled there and a model asked anyway would invent a change — and what the model says
+// arrives as text somebody can edit, with the fence a model sometimes wraps it in taken off,
+// because that fence would otherwise be committed verbatim.
+func TestACommitMessageIsDraftedFromWhatIsStaged(t *testing.T) {
+	dir := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep("```\ngit: say what changed\n```")}}
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(store, llm, builtin.Default(), bus.New(), platform.New(), Config{})
+
+	// Nothing staged: the file is there but git has not been told about it.
+	if said, derr := a.DraftCommit(context.Background(), "s1", dir); derr != nil || said != "" {
+		t.Fatalf("an unstaged workspace drafted %q (%v)", said, derr)
+	}
+	if llm.call != 0 {
+		t.Errorf("the model was asked about a diff that does not exist (%d calls)", llm.call)
+	}
+
+	add := exec.Command("git", "add", "a.txt")
+	add.Dir = dir
+	if out, aerr := add.CombinedOutput(); aerr != nil {
+		t.Fatalf("git add: %v\n%s", aerr, out)
+	}
+	said, derr := a.DraftCommit(context.Background(), "s1", dir)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if said != "git: say what changed" {
+		t.Errorf("the draft came back as %q — the fence is not part of the message", said)
+	}
+	if llm.call != 1 {
+		t.Errorf("the model was asked %d times for one draft", llm.call)
 	}
 }
