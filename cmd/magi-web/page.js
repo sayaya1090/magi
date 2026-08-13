@@ -4911,8 +4911,56 @@ async function loadTree(a) {
     return;
   }
   const head = cell('fileshead', shortPath(a.workdir || ''));
-  filesEl.replaceChildren(head, findRow(a), ...(await branches(a, '.', rows, 0)));
+  const git = await gitSection(a);
+  filesEl.replaceChildren(head, ...git, findRow(a), ...(await branches(a, '.', rows, 0)));
 }
+
+// What git makes of this workspace: the branch, how far it is from its upstream, and what has not
+// been committed.
+//
+// Above the tree, because it is the state the tree is IN: a file list with no branch on it is the
+// same list on main and on a branch three commits deep, and which of those you are looking at
+// changes what every row means. Nothing at all when the workspace is not a checkout — a companion
+// working in a directory nobody put under version control has no branch to be on, and a section
+// saying so would be a heading over an emptiness.
+async function gitSection(a) {
+  const g = await fetchOne('/git' + qFor(a));
+  if (!g || !g.repo) return [];
+  const box = cell('gitbox');
+  const top = cell('gittop');
+  const mark = iconOr('#i-sl-layer-group', '⎇', 'gitmark');
+  if (mark) top.append(mark);
+  // A detached head is not a branch. git says "(detached)" where the name goes, and printing a
+  // short sha under the word "branch" teaches somebody the wrong thing in the state where it costs
+  // work — so the commit is shown as a commit.
+  top.append(cell('gitbranch', g.branch || (g.head ? '@' + g.head : tr('git.detached'))));
+  if (g.ahead) top.append(cell('gitab ahead', '↑' + g.ahead));
+  if (g.behind) top.append(cell('gitab behind', '↓' + g.behind));
+  box.append(top);
+  const changes = g.changes || [];
+  if (!changes.length) {
+    box.append(cell('gitclean', tr('git.clean')));
+    return [box];
+  }
+  // The uncommitted ones, as rows that open the file — which is what somebody looking at this list
+  // wants next, every time. Ordered as git gave them; sorting by kind would move a file under
+  // somebody's cursor as they stage things.
+  for (const c of changes) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'treerow gitrow state hit48 ' + (c.kind || '');
+    row.append(cell('gitkind', tr(GIT_KIND[c.kind] || 'git.changed')));
+    row.append(cell('treename', c.path));
+    row.onclick = () => openFile(a, c.path);
+    box.append(row);
+  }
+  return [box];
+}
+
+// Literal keys in a lookup, for the reason every other one on this page is: a key built by
+// concatenation is invisible to the check that finds phrases nobody asks for.
+const GIT_KIND = {staged: 'git.staged', unstaged: 'git.unstaged', both: 'git.both',
+                  untracked: 'git.untracked', conflict: 'git.conflict'};
 
 async function treeAt(a, path) {
   const got = await fetchList('/files' + qFor(a) + '&path=' + encodeURIComponent(path));

@@ -2451,6 +2451,18 @@ func (d daemonEngine) WriteTool(ctx context.Context, name string, args json.RawM
 	return d.App.WriteTool(rctx, d.handover.at.now(), d.workdir, name, args)
 }
 
+// Git is what git says about this workspace, for a console showing it. Bounded like the rest: a
+// status over a tree with a hundred thousand untracked files is a walk, not an answer.
+func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
+	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	st, err := d.App.GitFacts(rctx, d.workdir)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(st)
+}
+
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
 	// command that will not finish, so an unbounded one would hold a daemon goroutine for as long

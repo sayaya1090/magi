@@ -268,6 +268,16 @@ type ToolWriter interface {
 	WriteTool(ctx context.Context, name string, args json.RawMessage) (string, error)
 }
 
+// GitTeller is an engine that can say what git makes of its workspace.
+//
+// Its own method rather than a tool: the tool registry is what the MODEL sees, and a git_status in
+// it would be in front of every agent on every turn to answer a question the console asked. And
+// not the shell either — see app.GitFacts: what runs is a fixed argv with nothing from the request
+// in it, which is a property of the shape rather than of the escaping.
+type GitTeller interface {
+	Git(ctx context.Context) (json.RawMessage, error)
+}
+
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
 //
 // The distinction is the whole reason this crosses the socket. Everything else a viewer does
@@ -946,6 +956,20 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "git" {
+			teller, ok := eng.(GitTeller)
+			if !ok {
+				resp = Response{Err: "this daemon cannot say what git makes of its workspace"}
+			} else if out, gerr := teller.Git(ctx); gerr != nil {
+				resp = Response{Err: gerr.Error()}
+			} else {
+				resp = Response{OK: true, Out: string(out)}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -1430,6 +1454,15 @@ func (c *Client) ReadOnlyTool(name string, args json.RawMessage) (string, error)
 // WriteTool asks the companion to change one of its own files, and to write down that a person did.
 func (c *Client) WriteTool(name string, args json.RawMessage) (string, error) {
 	resp, err := c.exchange(Request{Method: "edit-file", Name: name, Args: args})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// Git asks what git makes of the companion's workspace: its branch, and what is not committed.
+func (c *Client) Git() (string, error) {
+	resp, err := c.exchange(Request{Method: "git"})
 	if err != nil {
 		return "", err
 	}

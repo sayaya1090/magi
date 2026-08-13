@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -144,6 +145,34 @@ func (s *server) save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeText(w, out)
+}
+
+// git answers what git makes of the companion's workspace: the branch, and what is not committed.
+//
+// Read-only and fixed: what runs on the far side is `git status --porcelain=v2 --branch` with the
+// workspace as its directory and nothing from this request anywhere in it.
+func (s *server) git(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		text, gerr := cl.Git()
+		out = text
+		return gerr
+	}); derr != nil {
+		// A daemon too old to answer, or one whose workspace is not a checkout, is not an error
+		// page: the pane shows nothing rather than a failure about a section nobody asked for.
+		writeJSON(w, "git", app.GitState{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if strings.TrimSpace(out) == "" {
+		out = "{}"
+	}
+	if _, werr := w.Write([]byte(out)); werr != nil {
+		log.Printf("magi-web: writing the git state: %v", werr)
+	}
 }
 
 // askCompanion runs one read-only tool on the companion this request names.

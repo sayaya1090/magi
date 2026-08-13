@@ -1333,6 +1333,33 @@
   .filesnote {
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
+  /* What git makes of the workspace, over the tree it is the state of. */
+  .gitbox {
+    display:grid; gap:var(--magi-sys-space-50);
+    padding-bottom:var(--magi-sys-space-150); border-bottom:1px solid var(--magi-ref-outlineVariant);
+  }
+  .gittop { display:flex; align-items:center; gap:var(--magi-sys-space-100); flex-wrap:wrap; }
+  .gitbranch {
+    font:600 var(--md-sys-typescale-label-large-size)/1.5 var(--magi-ref-mono);
+    color:var(--magi-ref-fg); overflow-wrap:anywhere; min-width:0;
+  }
+  /* How far from the upstream, in the direction it is: one number each way rather than a sentence,
+     because this is glanced at and not read. */
+  .gitab { font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); }
+  .gitab.ahead { color:var(--magi-ref-primary); }
+  .gitab.behind { color:var(--magi-ref-warn); }
+  .gitclean, .gitmark { color:var(--magi-ref-muted); }
+  .gitclean { font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); }
+  /* A changed file is a row like any other in this pane, with what kind of change in front of it.
+     The word, not git's two letters: XY is git's alphabet, and a console printing "RM" is asking
+     its reader to know it. */
+  .gitrow .gitkind {
+    flex:none; min-width:5.5rem;
+    font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
+  }
+  .gitrow.staged .gitkind { color:var(--magi-ref-primary); }
+  .gitrow.both .gitkind, .gitrow.conflict .gitkind { color:var(--magi-ref-warn); }
+
   /* The box and the two chips over the tree. The chips are one set with one selection — which of
      the two searches this is — and they are md-filter-chip because that is what they do: narrow a
      collection, with the selected one carrying the check. */

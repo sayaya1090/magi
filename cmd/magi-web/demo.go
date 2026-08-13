@@ -294,6 +294,16 @@ const demoScript = `
       'cmd/magi-web/page.css:1311:  .empty { font:var(--md-sys-typescale-body-large-size)/1.7',
       'docs/UI.md:88:an empty state names the thing that is absent and how it stops being absent',
     ], more: 12},
+    // What git makes of the workspace: a branch with something to push, and a working tree with
+    // one of each kind of change in it — including the one worth seeing, a file that is staged AND
+    // changed since, where committing now would commit half of what is on screen.
+    '/git': {repo: true, branch: 'engine-ui-split', head: '20ff4276',
+      upstream: 'origin/engine-ui-split', ahead: 2, behind: 0, changes: [
+        {path: 'cmd/magi-web/page.js', kind: 'unstaged'},
+        {path: 'internal/app/git.go', kind: 'staged'},
+        {path: 'docs/UI.md', kind: 'both'},
+        {path: 'scratchpad/notes.md', kind: 'untracked'},
+      ]},
     '/context': {model: 'qwen3-coder-next', window: 128000, used: 104300, estimated: false,
       messages: 61, compactions: 2, shed: 39000, lastBefore: 48000, lastAfter: 9000,
       lastAt: now, topics: ['internal/adapter/fleet/fleet.go', 'cmd/magi-web/page.go', 'discussion']},

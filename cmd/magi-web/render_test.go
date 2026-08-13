@@ -4636,6 +4636,8 @@ globalThis.fetch = async (p) => {
   // The fleet answers with this companion: the poll runs while the test does, and a poll that
   // finds nothing clears the card this is about.
   if (path === '/fleet') return {ok: true, json: async () => ([row])};
+  // Not a checkout, so the git section draws nothing and the rows below are the tree's own.
+  if (path === '/git') return {ok: true, json: async () => ({repo: false})};
   if (path === '/files') {
     const at = new URLSearchParams(String(p).split('?')[1] || '').get('path');
     if (at === 'cmd') return {ok: true, json: async () => ([{name: 'magi', isDir: true},
@@ -4655,7 +4657,9 @@ const names = () => rows().map(b => b.find('div').map(d => d.textContent).join('
 const before = names();
 // A directory opens under itself rather than replacing the tree.
 rows().find(b => b.find('div').some(d => d.textContent === 'cmd')).onclick();
-for (let i = 0; i < 10; i++) await Promise.resolve();
+// The tree redraw asks git and the directory before it can finish, so this waits for more than one
+// answer to land.
+for (let i = 0; i < 40; i++) await Promise.resolve();
 const expanded = names();
 // The facts card is drawn just before, because the thing under test is what happens to it when a
 // file arrives — with an empty card, "hidden" would be true for its own reason and the check would
@@ -4663,7 +4667,7 @@ const expanded = names();
 await drawDetail(a);
 // A file opens into the slot, behind a tab, and the facts card stands aside for it.
 rows().find(b => b.find('div').some(d => d.textContent === 'README.md')).onclick();
-for (let i = 0; i < 10; i++) await Promise.resolve();
+for (let i = 0; i < 40; i++) await Promise.resolve();
 console.log(JSON.stringify({
   before: before,
   expanded: expanded,
@@ -4724,5 +4728,64 @@ console.log(JSON.stringify({
 	}
 	if got["dir"] != "README.md" {
 		t.Errorf("the path bar says %q", got["dir"])
+	}
+}
+
+// The branch, and what has not been committed, over the tree they are the state of.
+//
+// A file list with no branch on it is the same list on main and on a branch three commits deep,
+// and which of those somebody is looking at changes what every row in it means. A workspace that
+// is not a checkout says nothing at all — there is no branch to be on, and a heading over an
+// emptiness is worse than no heading.
+func TestTheFilePaneSaysWhatGitMakesOfTheWorkspace(t *testing.T) {
+	page := `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/git') return {ok: true, json: async () => (GIT)};
+  if (path === '/files') return {ok: true, json: async () => ([{name: 'go.mod', isDir: false}])};
+  return {ok: true, json: async () => ([])};
+};
+await loadTree({socket: '/s/a.sock', name: 'api', workdir: '/w/api', session: 's1'});
+for (let i = 0; i < 40; i++) await Promise.resolve();
+const named = cls => byId.files.find('div').filter(d => String(d.className).split(' ').includes(cls));
+console.log(JSON.stringify({
+  branch: named('gitbranch').map(d => d.textContent).join(''),
+  ahead: named('gitab').map(d => d.textContent).join(' '),
+  changed: byId.files.find('button').filter(b => String(b.className).includes('gitrow'))
+                     .map(b => b.find('div').map(d => d.textContent).join(' ')),
+}));
+`
+	on := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", strings.Replace(page, "GIT",
+		`{repo: true, branch: 'engine-ui-split', ahead: 2, changes: [
+			{path: 'internal/app/git.go', kind: 'staged'},
+			{path: 'docs/UI.md', kind: 'both'}]}`, 1))
+	if on["branch"] != "engine-ui-split" {
+		t.Errorf("the pane says the branch is %q", on["branch"])
+	}
+	if a, _ := on["ahead"].(string); !strings.Contains(a, "2") {
+		t.Errorf("two commits to push are drawn as %q", a)
+	}
+	changed, _ := on["changed"].([]any)
+	if len(changed) != 2 || !strings.Contains(fmt.Sprint(changed), "git.go") {
+		t.Errorf("the uncommitted files are %v", changed)
+	}
+	// Each one says WHAT kind of change in words: git's XY pair is git's alphabet, and a console
+	// printing "RM" is asking its reader to know it.
+	if !strings.Contains(fmt.Sprint(changed), "staged") {
+		t.Errorf("no word for the kind of change: %v", changed)
+	}
+
+	// A detached head is not a branch, and a directory nobody put under version control has no
+	// section at all.
+	off := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", strings.Replace(page, "GIT",
+		`{repo: true, head: 'abc12345', changes: []}`, 1))
+	if b, _ := off["branch"].(string); !strings.Contains(b, "abc12345") {
+		t.Errorf("a detached head is drawn as %q", b)
+	}
+	none := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", strings.Replace(page, "GIT", `{repo: false}`, 1))
+	if none["branch"] != "" {
+		t.Errorf("a workspace that is not a checkout drew %q", none["branch"])
 	}
 }
