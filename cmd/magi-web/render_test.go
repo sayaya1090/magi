@@ -4367,6 +4367,53 @@ console.log(JSON.stringify({sent: sent}));`)
 // Two halves of the same rule: the markup carries data-may="admin" so the screen is not offered to
 // somebody who would be refused, and the server refuses regardless — hiding is for the person who
 // would otherwise press a control that answers 403.
+// Who to ask, grouped by whose they are and coloured by which team they belong to.
+//
+// One row of chips is fine for four companions and stops being fine at fifteen. Two accounts on
+// one machine cannot see each other's work at all, which makes the owner the harder boundary and
+// so the grouping; the team is the colour, and it is in the tooltip as well — this page has been
+// caught before saying a thing with a colour and nothing else.
+func TestTheConveneChipsAreGroupedByOwnerAndColouredByTeam(t *testing.T) {
+	page := `
+const mates = [
+  {name: 'api', socket: '/s/a', team: 'backend', instance: 'you@studio', role: 'the billing API'},
+  {name: 'design', socket: '/s/d', team: 'frontend', instance: 'you@studio'},
+  {name: 'risk', socket: '/s/r', team: 'backend', instance: 'sam@studio'},
+  {name: 'ops', socket: '/s/o', instance: 'sam@studio'},
+];
+drawConvene(mates, []);
+const who = byId.meet.find(e => String(e.className) === 'meetwho')[0];
+const chips = who.find('md-filter-chip');
+console.log(JSON.stringify({
+  owners: who.find(e => String(e.className) === 'meetowner').map(e => e.textContent),
+  sets: who.find('md-chip-set').length,
+  chips: chips.map(c => c.attrs.label + '/' + String(c.className || '') + '/' + (c.attrs['data-tip'] || '')),
+}));
+`
+	got := runPage(t, `[]`, "?v=meet", page)
+	if o := fmt.Sprint(got["owners"]); o != "[you@studio sam@studio]" {
+		t.Errorf("the chips are grouped under %v", o)
+	}
+	if n, _ := got["sets"].(float64); n != 2 {
+		t.Errorf("%v chip set(s) for two owners", n)
+	}
+	chips := fmt.Sprint(got["chips"])
+	// Same team, same colour; a companion on no team takes none.
+	if !strings.Contains(chips, "api/tm0") || !strings.Contains(chips, "risk/tm0") {
+		t.Errorf("the two backend companions are not the same colour: %v", chips)
+	}
+	if !strings.Contains(chips, "design/tm1") {
+		t.Errorf("a second team did not get a second colour: %v", chips)
+	}
+	if !strings.Contains(chips, "ops//") {
+		t.Errorf("a companion on no team was given a team's colour: %v", chips)
+	}
+	// And the colour is never the only telling.
+	if !strings.Contains(chips, "backend") {
+		t.Errorf("the team is not in the tooltip, so the colour is the only place it is said: %v", chips)
+	}
+}
+
 // The dialog asks what the person may do, and starts on an answer that will not be refused.
 //
 // It used to decide by itself — viewer, or whatever came first — and on a console with nobody on

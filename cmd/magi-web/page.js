@@ -4971,19 +4971,44 @@ function drawConvene(list, open) {
   // has never dialled — see Elsewhere — so putting it in the room would be offering a turn nobody
   // here can spend.
   const here = (list || []).filter(a => !a.elsewhere && !a.peer);
-  const who = document.createElement('md-chip-set');
-  who.className = 'meetwho';
+  // Grouped by whose they are, coloured by which team they belong to.
+  //
+  // One row of chips was fine for four companions and stops being fine at fifteen: the two facts a
+  // person picks by — whose account runs it, and which team it belongs to — were in neither the
+  // label nor the order. Owner is the grouping because it is the harder boundary (two accounts on
+  // one machine cannot see each other's work at all); team is the colour because it is what makes
+  // a set of chips scannable rather than a wall of names.
+  //
+  // Colour is never the only telling: the team is in the tooltip too, which is where this page
+  // puts every other fact it cannot fit on a control.
+  const owner = a => a.instance || a.host || '';
+  const teams = [...new Set(here.map(a => a.team).filter(Boolean))].sort();
+  const groups = new Map();
+  for (const a of here) {
+    if (!groups.has(owner(a))) groups.set(owner(a), []);
+    groups.get(owner(a)).push(a);
+  }
+  const who = cell('meetwho');
   // A chip set of one is not a set — the guidance says so twice, once about chips never standing
   // alone and once about a filter that offers a single choice. With fewer than two companions
   // there is no room to fill, and the line below says that in words instead.
-  for (const a of (here.length > 1 ? here : [])) {
+  for (const [mine, kids] of (here.length > 1 ? [...groups] : [])) {
+    // The owner's name only when there is more than one of them: a heading over the single group
+    // every ordinary console has says nothing and costs a line.
+    if (groups.size > 1 && mine) who.append(cell('meetowner', mine));
+    const set = document.createElement('md-chip-set');
+    who.append(set);
+  for (const a of kids) {
     const c = document.createElement('md-filter-chip');
+    const slot = a.team ? teams.indexOf(a.team) % 4 : -1;
+    if (slot >= 0) c.classList.add('tm' + slot);
     // The name alone. A chip label is capped at twenty characters by the guidance and these were
     // running to sixty — "design — the design system: component specs and visual review" is a
     // sentence wearing a chip. What it is for belongs in the tooltip, where the rest of this page
     // puts the same fact.
     c.setAttribute('label', a.name);
-    if (a.role) tip(c, a.role);
+    const says = [a.team ? tr('meet.of_team', {team: a.team}) : '', a.role].filter(Boolean).join(' · ');
+    if (says) tip(c, says);
     c.selected = meetPick.has(a.socket);
     c.onclick = () => {
       // The chip owns its own selected state and flips it after the click; what this reads is what
@@ -4992,7 +5017,8 @@ function drawConvene(list, open) {
       if (meetPick.has(a.socket)) meetPick.delete(a.socket); else meetPick.add(a.socket);
       armConvene();
     };
-    who.append(c);
+    set.append(c);
+  }
   }
 
   const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-comments'),
@@ -5868,7 +5894,7 @@ function gitActs(a, c) {
   if (dots) open.append(dots);
   open.setAttribute('aria-label', tr('files.more'));
   tip(open, tr('files.more'));
-  const menu = popMenu(document.createElement('md-menu'));
+  const menu = popMenu(document.createElement('md-menu'), box);
   const id = 'ga' + (gitActs.n = (gitActs.n || 0) + 1);
   open.id = id;
   menu.setAttribute('anchor', id);
@@ -5900,7 +5926,7 @@ function gitActs(a, c) {
       go: () => send('discard'),
     }));
   }
-  open.onclick = ev => { ev.stopPropagation(); menu.open = !menu.open; };
+  open.onclick = ev => { ev.stopPropagation(); atPointer(menu, open, ev); menu.open = !menu.open; };
   box.append(open, menu);
   return box;
 }
@@ -5920,19 +5946,10 @@ function commitRow(a, staged) {
   const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
                    tr('git.commit'));
   go.disabled = !staged;
-  tip(go, staged ? tr('git.commit') : tr('git.nothing_staged'));
-  go.onclick = () => askLine({
-    head: tr('git.commit'), body: tr('git.commit_who'), label: tr('git.message'), lines: 6,
-    doIt: tr('git.commit'), doMark: '#i-sl-check',
-    // The model reads the staged diff and offers a message. It is filled into the box rather than
-    // committed with: a draft nobody read is a log entry nobody can trust.
-    extra: {
-      label: tr('git.draft'), mark: '#i-sl-wand-magic-sparkles',
-      run: () => postText('/git-msg' + qFor(a), new URLSearchParams({})),
-    },
-    go: text => post('/git-do', new URLSearchParams({do: 'commit', message: text}),
-                     a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); }),
-  });
+  tip(go, staged ? tr('git.commit_who') : tr('git.nothing_staged'));
+  // Up into the slot, where there is room to read what is being committed. A message written
+  // without the diff in front of it is the message this console kept getting.
+  go.onclick = () => { commitPick = ''; openCommit(a); };
   box.append(go);
   return box;
 }
@@ -5981,12 +5998,36 @@ async function branches(a, dir, rows, depth) {
 // The popover positioning takes it out of the page's boxes entirely. Feature-detected rather than
 // assumed: where the API is missing, fixed positioning still escapes the clipping, which is the
 // half that matters most.
-function popMenu(menu) {
+// atPointer puts the menu where the pointer is, when a pointer is what opened it.
+//
+// A menu anchors to a control, which is right when the control was pressed and wrong when the
+// right button was used somewhere along a row: the menu appeared beside a button at the end of the
+// line rather than under the cursor, which is where everything else on a desktop puts it. The
+// offsets are measured from the anchor, so this is the distance from the anchor to the pointer.
+// A press with no coordinates — a keyboard, a synthetic click — leaves the anchor alone.
+function atPointer(menu, anchor, ev) {
+  const x = ev && typeof ev.clientX === 'number' ? ev.clientX : 0;
+  const y = ev && typeof ev.clientY === 'number' ? ev.clientY : 0;
+  if (!x && !y) { menu.xOffset = 0; menu.yOffset = 0; return; }
+  if (!anchor.getBoundingClientRect) return;
+  const r = anchor.getBoundingClientRect();
+  menu.xOffset = Math.round(x - r.left);
+  menu.yOffset = Math.round(y - r.bottom);
+}
+
+function popMenu(menu, holder) {
   // Read off the constructor rather than off a global that may not be there: this script also runs
   // in a fake DOM, where there is no HTMLElement at all, and a menu that throws while being built
   // takes the whole pane with it.
   const el = typeof HTMLElement === 'function' ? HTMLElement.prototype : null;
   menu.setAttribute('positioning', el && typeof el.showPopover === 'function' ? 'popover' : 'fixed');
+  // The button that opens this lives in a box shown only while its row is hovered, and the menu is
+  // that box's child however it is positioned — so walking the pointer over to the menu took the
+  // pointer off the row, hid the box, and took the menu with it. It stays shown while it is open.
+  if (holder && menu.addEventListener) {
+    menu.addEventListener('opening', () => holder.classList.add('showing'));
+    menu.addEventListener('closed', () => holder.classList.remove('showing'));
+  }
   return menu;
 }
 
@@ -6006,7 +6047,7 @@ function rowMenu(a, e, path) {
   if (m) open.append(m);
   open.setAttribute('aria-label', tr('files.more'));
   tip(open, tr('files.more'));
-  const menu = popMenu(document.createElement('md-menu'));
+  const menu = popMenu(document.createElement('md-menu'), box);
   const id = 'rm' + (rowMenu.n = (rowMenu.n || 0) + 1);
   open.id = id;
   menu.setAttribute('anchor', id);
@@ -6065,7 +6106,7 @@ function rowMenu(a, e, path) {
       drawCardTabs(a);
     }),
   }), '#i-sl-trash-can');
-  open.onclick = ev => { ev.stopPropagation(); menu.open = !menu.open; };
+  open.onclick = ev => { ev.stopPropagation(); atPointer(menu, open, ev); menu.open = !menu.open; };
   box.append(open, menu);
   return box;
 }
@@ -6130,6 +6171,126 @@ async function openDiff(a, path, which) {
   if (cardShows !== key) return;
   drawDiff(path, which, got && typeof got.text === 'string' ? got.text : '');
   loadTree(a);
+}
+
+// The commit workbench: what is staged, what changed in it, and the message.
+//
+// Not a dialog. A commit message is written while reading a diff, and a diff does not fit in a
+// box 560dp wide — which is what the guide caps a dialog at, and the reason the first attempt at
+// this read as a form with a text box floating in it. The slot above the transcript is already the
+// place this console puts a file, a diff and a card, and it is as wide as the conversation: the
+// list of staged files on the left, the diff of whichever one is picked on the right, the message
+// under both.
+const COMMIT = 'commit:';
+let commitPick = '';     // which staged file is being read; '' is everything at once
+let commitDraft = '';    // the message as it is being typed, kept across redraws
+
+async function openCommit(a) {
+  if (!openFiles.includes(COMMIT)) openFiles.push(COMMIT);
+  cardShows = COMMIT;
+  drawCardTabs(a);
+  const g = await fetchOne('/git' + qFor(a));
+  if (cardShows !== COMMIT) return;
+  drawCommit(a, g || {});
+  // The diff comes after the shape, so the list is readable while git is still being asked.
+  const text = await fetchOne('/diff' + qFor(a) + '&path=' + encodeURIComponent(commitPick) +
+                              '&which=staged');
+  if (cardShows !== COMMIT) return;
+  const into = fileViewEl.querySelector('.commitdiff');
+  if (into) fillDiff(into, text && typeof text.text === 'string' ? text.text : '');
+}
+
+// fillDiff paints a unified diff into a box: + is added, - is removed, @@ is where, and everything
+// else is context. The same reading drawDiff does, factored out because the workbench needs it in
+// a box of its own rather than in the whole pane.
+function fillDiff(into, text) {
+  into.replaceChildren();
+  if (!String(text).trim()) {
+    into.append(cell('filesnote', tr('diff.same')));
+    return;
+  }
+  for (const line of String(text).split('\n')) {
+    const row = document.createElement('span');
+    const c = line[0];
+    row.className = 'dl' + (c === '+' ? ' add' : c === '-' ? ' cut' : c === '@' ? ' at' : '');
+    row.textContent = line + '\n';
+    into.append(row);
+  }
+}
+
+function drawCommit(a, g) {
+  const staged = (g.changes || []).filter(c => c.kind === 'staged' || c.kind === 'both');
+  const bar = cell('filebar');
+  bar.append(cell('filedir', tr('git.commit') + (g.branch ? '  ·  ' + g.branch : '')));
+  const box = cell('commitbox');
+
+  // Left: what is going in. Every one of them, and "all of it" at the top — reading the whole
+  // staged diff at once is how somebody writes the subject line, and reading one file is how they
+  // check a detail in it.
+  const list = cell('commitfiles');
+  const pick = (path, words, kind) => {
+    const b = document.createElement('button');
+    b.className = 'treerow state' + (commitPick === path ? ' now' : '');
+    b.type = 'button';
+    if (kind) b.append(cell('gitkind', tr(kind)));
+    b.append(cell('treename', words));
+    b.onclick = () => { commitPick = path; openCommit(a); };
+    list.append(b);
+    return b;
+  };
+  pick('', tr('git.all_staged', {n: staged.length}), '');
+  for (const c of staged) pick(c.path, c.path, 'git.kind_staged');
+  box.append(list);
+
+  // Right: the diff of whatever is picked.
+  const diff = document.createElement('pre');
+  diff.className = 'filecode diffbody commitdiff';
+  diff.append(cell('filesnote', tr('diff.reading')));
+  box.append(diff);
+
+  // Under both: the message, and the two things that can be done with it.
+  const foot = cell('commitfoot');
+  const msg = document.createElement('md-outlined-text-field');
+  msg.setAttribute('type', 'textarea');
+  msg.setAttribute('rows', '5');
+  msg.setAttribute('label', tr('git.message'));
+  msg.className = 'commitmsg';
+  msg.value = commitDraft;
+  msg.addEventListener('input', () => { commitDraft = msg.value; });
+  const acts = cell('commitacts');
+  const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
+                      tr('git.draft'));
+  draft.onclick = async () => {
+    draft.disabled = true;
+    const said = await postText('/git-msg' + qFor(a), new URLSearchParams({}));
+    draft.disabled = false;
+    if (said) { commitDraft = said; msg.value = said; if (msg.focus) msg.focus(); }
+  };
+  const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
+                   tr('git.commit'));
+  go.disabled = !staged.length;
+  go.onclick = async () => {
+    const text = String(msg.value || '').trim();
+    if (!text) { says(tr('git.need_message')); return; }
+    go.disabled = true;
+    const why = await post('/git-do', new URLSearchParams({do: 'commit', message: text}),
+                           a.socket || '', a.peer || '');
+    go.disabled = false;
+    if (why) return;
+    // Committed: the message is spent and the workbench has nothing left to show.
+    commitDraft = '';
+    commitPick = '';
+    openFiles = openFiles.filter(p => p !== COMMIT);
+    cardShows = openFiles[openFiles.length - 1] || 'facts';
+    drawCardTabs(a);
+    if (cardShows === 'facts') showCard();
+    loadTree(a);
+  };
+  acts.append(draft, go);
+  foot.append(msg, acts);
+  box.append(foot);
+  fileViewEl.replaceChildren(bar, box);
+  showCard();
 }
 
 // The diff, coloured by what each line does and nothing else.
@@ -6589,7 +6750,8 @@ function drawCardTabs(a) {
   tabs.push(facts);
   for (const path of openFiles) {
     const t = document.createElement('md-secondary-tab');
-    t.append(cell('tablbl', isDiff(path) ? baseName(diffPath(path)) + ' ±' : baseName(path)));
+    t.append(cell('tablbl', path === COMMIT ? tr('git.commit')
+                           : isDiff(path) ? baseName(diffPath(path)) + ' ±' : baseName(path)));
     // A way to shut it, on the tab, which is where an editor puts it. An icon button inside a tab
     // would be a target inside a target; this is a plain mark with its own click, and the tab
     // keeps its own.
@@ -6601,7 +6763,8 @@ function drawCardTabs(a) {
         if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
         drawCardTabs(a);
         if (cardShows !== 'facts') {
-          if (isDiff(cardShows)) openDiff(a, diffPath(cardShows), diffWhich(cardShows));
+          if (cardShows === COMMIT) openCommit(a);
+          else if (isDiff(cardShows)) openDiff(a, diffPath(cardShows), diffWhich(cardShows));
           else openFile(a, cardShows);
         }
         loadTree(a);
@@ -6609,7 +6772,8 @@ function drawCardTabs(a) {
       t.append(x);
     }
     t.onclick = () => {
-      if (isDiff(path)) openDiff(a, diffPath(path), diffWhich(path));
+      if (path === COMMIT) openCommit(a);
+      else if (isDiff(path)) openDiff(a, diffPath(path), diffWhich(path));
       else openFile(a, path);
     };
     tabs.push(t);

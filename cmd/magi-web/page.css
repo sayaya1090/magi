@@ -1535,12 +1535,35 @@
      once each. Shown when the row is hovered or its menu is open — always for a keyboard, which
      cannot hover. */
   .gitacts { display:flex; flex:none; visibility:hidden; }
-  .gitline:hover .gitacts, .gitacts:focus-within, .gitline:focus-within .gitacts { visibility:visible; }
+  .gitline:hover .gitacts, .gitacts:focus-within, .gitline:focus-within .gitacts,
+  .gitacts.showing { visibility:visible; }
   .gitacts md-icon-button { --md-icon-button-icon-size:16px; width:28px; height:28px; }
-  /* One control, at the trailing end with the rest of this card's actions. It was a full-width
-     button under a full-width box; the box has moved into a dialog and a button stretched across a
-     column is a bar, not a button. */
-  .gitcommit { display:flex; justify-content:flex-end; margin-top:var(--magi-sys-space-150); }
+  /* The commit workbench, in the slot above the transcript: what is going in on the left, what
+     changed in it on the right, the message under both. Two columns because that is the reading
+     order — pick a file, read the diff, write the line — and a dialog cannot hold it: the guide
+     caps a basic dialog at 560dp and a unified diff is wider than that on its own. */
+  .commitbox {
+    display:grid; grid-template-columns:minmax(10rem, 16rem) minmax(0, 1fr);
+    gap:var(--magi-sys-space-200); align-items:start;
+  }
+  .commitfiles { display:grid; align-content:start; max-height:min(40vh, 22rem); overflow:auto; }
+  .commitbox .commitdiff {
+    margin:0; max-height:min(40vh, 22rem); overflow:auto; min-width:0;
+    font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono); tab-size:4;
+  }
+  /* The message spans both columns: it is about all of it, not about the file on the right. */
+  .commitfoot { grid-column:1 / -1; display:grid; gap:var(--magi-sys-space-150); }
+  .commitfoot .commitmsg { width:100%; }
+  .commitacts { display:flex; gap:var(--magi-sys-space-150); justify-content:flex-end; }
+  @media (max-width:52.4375em) {
+    /* One column on a phone, the list first: at 390px a 10rem column beside a diff is neither. */
+    .commitbox { grid-template-columns:minmax(0, 1fr); }
+  }
+
+  /* Full width, which is what it was when there was a box above it. Ranged right it read as one
+     more small control in a column of them; across the card it is the thing this card is FOR —
+     the reader's call, and the same one they made about the convene button. */
+  .gitcommit { display:grid; margin-top:var(--magi-sys-space-150); }
   .gitrow .gitkind {
     flex:none; min-width:4.5rem;
     font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-muted);
@@ -1593,7 +1616,11 @@
      refuses dimmed roles for exactly that reason. Hidden this way it also leaves the layout alone,
      so no row changes width when the pointer arrives. */
   .rowmenu { flex:none; visibility:hidden; }
-  .treeline:hover .rowmenu, .rowmenu:focus-within, .treeline:focus-within .rowmenu { visibility:visible; }
+  /* …and while its menu is open, wherever the pointer has gone. The menu is in the top layer now
+     but it is still this element's child, so hiding the container hides the menu: moving the mouse
+     off the row to reach the menu made the menu disappear on the way. */
+  .treeline:hover .rowmenu, .rowmenu:focus-within, .treeline:focus-within .rowmenu,
+  .rowmenu.showing { visibility:visible; }
   .rowmenu md-icon-button { --md-icon-button-icon-size:16px; width:28px; height:28px; }
 
   /* The line that makes it read as a tree rather than as text with spaces in front of it. One
@@ -2725,7 +2752,27 @@
   .meetbar-progress { --md-linear-progress-active-indicator-color:var(--magi-ref-primary); }
   .meetmeta { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-medium-size); }
   .meettrouble { color:var(--magi-ref-warn); }
-  .meetwho { display:flex; flex-wrap:wrap; }
+  /* Groups down, chips across. */
+  .meetwho { display:grid; gap:var(--magi-sys-space-100); }
+  .meetwho md-chip-set { display:flex; flex-wrap:wrap; }
+  .meetowner {
+    font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted);
+    margin-top:var(--magi-sys-space-50);
+  }
+  /* A team is a colour. Four of them, cycled, and the name is in the tooltip as well — a colour
+     that is the only telling is one nobody can read out, and this page has been caught doing that
+     before. On the label and the outline while the chip is unselected, and as the container once
+     it is picked, where the label takes the page's own ground colour: every one of these hues is
+     bright against the dark theme's background and dark against the light one, so the pair holds
+     both ways round. */
+  .meetwho md-filter-chip.tm0 { --md-filter-chip-outline-color:var(--magi-ref-primary); --md-filter-chip-label-text-color:var(--magi-ref-primary); --md-filter-chip-selected-container-color:var(--magi-ref-primary); }
+  .meetwho md-filter-chip.tm1 { --md-filter-chip-outline-color:var(--magi-ref-accent); --md-filter-chip-label-text-color:var(--magi-ref-accent); --md-filter-chip-selected-container-color:var(--magi-ref-accent); }
+  .meetwho md-filter-chip.tm2 { --md-filter-chip-outline-color:var(--magi-ref-warn); --md-filter-chip-label-text-color:var(--magi-ref-warn); --md-filter-chip-selected-container-color:var(--magi-ref-warn); }
+  .meetwho md-filter-chip.tm3 { --md-filter-chip-outline-color:var(--magi-ref-muted); --md-filter-chip-label-text-color:var(--magi-ref-muted); --md-filter-chip-selected-container-color:var(--magi-ref-muted); }
+  .meetwho md-filter-chip[class*="tm"] {
+    --md-filter-chip-selected-label-text-color:var(--magi-ref-bg);
+    --md-filter-chip-icon-selected-color:var(--magi-ref-bg);
+  }
   .meetends { color:var(--magi-ref-muted); }
   /* The action on its own line, centred, and wide.
      It has been every way round: flush left and small, which read as another field that had lost
@@ -2809,7 +2856,14 @@
     padding:var(--magi-sys-space-200);
   }
   .meetlist .meetrow + .meetrow { border-top:1px solid var(--magi-ref-outlineVariant); }
-  .meettitle { color:var(--magi-ref-fg); }
+  /* A title, drawn as one. It was body text at body weight over a muted line, so three meetings in
+     a list read as three sentences rather than as three things — measured 14px/400 against a 12px
+     supporting line. The room's own topic is title-medium at 600 and this is the same thing in a
+     list. */
+  .meettitle {
+    color:var(--magi-ref-fg); font-weight:600;
+    font-size:var(--md-sys-typescale-title-medium-size);
+  }
 
   @media (max-width:52.4375em) {
     /* The name over the words rather than beside them: at 390px a nine-rem column leaves a
