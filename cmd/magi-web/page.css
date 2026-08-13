@@ -2088,6 +2088,15 @@
       position:relative; z-index:2; height:100%; max-height:none; top:auto;
     }
     body[at="agent"] #stream { height:100%; min-height:0; overflow:hidden; }
+    /* What is above the transcript keeps its size while the transcript grows.
+       The column is a flex box and everything in it was shrinkable, so a conversation getting
+       longer squeezed the things over it: measured, sixty new lines took the tab strip from 44px
+       to 6 and the open file from 412 to 85. The tabs are chrome — they are the same height with
+       one line of conversation or a thousand — and the file has its own cap and its own scroll.
+       The transcript is the one that takes what is left, which it already asks for. */
+    body[at="agent"] #cardtabs, body[at="agent"] #detail, body[at="agent"] #fileview {
+      flex:0 0 auto;
+    }
     /* The transcript is the one thing in the middle column that moves. Everything above it — the
        tabs, the card, an open file — stays where it was put. */
     body[at="agent"] #log {
@@ -2107,7 +2116,24 @@
   }
   @media (min-width:52.5em) {
     #agentview {
-      grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) var(--magi-comp-side-w); align-items:start;
+      /* The conversation has a floor, and the panes give way to it.
+         Both panes were fixed tracks, so the middle took the whole cost of opening one: at 1280 the
+         conversation went from 1088px to 736 with the state pane, and to 448 — fifty-three
+         characters a line — with both. The panes are reference; this is the page. So the middle
+         asks for 34rem before either of them gets its full width, and what is left is shared
+         between them. Dragging a pane wider still works: this is the floor under the automatic
+         arrangement, not a cap on what somebody chooses.
+
+         The panes have a floor of their own, or the rule above would starve them: at 1024 with
+         both open they fell to 144px each, which is a column too narrow to read a filename in.
+         11 + 33 + 11 rem plus the gaps is exactly what the narrowest window this layout runs in
+         can hold, so all three stay usable and the reader shuts one when they want more room. A pane dragged narrower than
+         its floor keeps the width it was given — the min() takes whichever is smaller. */
+      grid-template-columns:
+        minmax(min(11rem, var(--magi-comp-files-w)), var(--magi-comp-files-w))
+        minmax(min(33rem, 100%), 1fr)
+        minmax(min(11rem, var(--magi-comp-side-w)), var(--magi-comp-side-w));
+      align-items:start;
       /* The pane opens and closes rather than appearing and vanishing. Both tracks are lengths so
          the change interpolates — with auto on the shut side there is nothing to interpolate to,
          which is why this was a jump. */
@@ -2159,8 +2185,15 @@
     /* Shut is nothing at all now. The 2.5rem was the width of a handle standing in the column, and
        the handles are in the masthead: a shut pane that still held a 40px strip was 40px of nothing
        down each side of the conversation. */
-    body[side="shut"] #agentview { grid-template-columns:var(--magi-comp-files-w) minmax(0, 1fr) 0; }
-    body[files="shut"] #agentview { grid-template-columns:0 minmax(0, 1fr) var(--magi-comp-side-w); }
+    body[side="shut"] #agentview {
+      grid-template-columns:
+        minmax(min(11rem, var(--magi-comp-files-w)), var(--magi-comp-files-w))
+        minmax(min(33rem, 100%), 1fr) 0;
+    }
+    body[files="shut"] #agentview {
+      grid-template-columns:0 minmax(min(33rem, 100%), 1fr)
+        minmax(min(11rem, var(--magi-comp-side-w)), var(--magi-comp-side-w));
+    }
     body[files="shut"][side="shut"] #agentview { grid-template-columns:0 minmax(0, 1fr) 0; }
     /* The same column the state pane is, mirrored. Sticky is the fallback for a browser without
        dvh or without the shell above applying; where the shell does apply it overrides both of
