@@ -494,6 +494,13 @@
        one — the work that takes minutes is the work you want to see without going looking. Reaching
        a child through a button buried in the facts card meant opening a card to find out that
        something was happening at all. -->
+  <!-- The dock's contents stand in the page's column, so they are inside a box with the page's
+       geometry rather than pinned to the window. Fixed and full width, they hugged the left while
+       main centred itself on a wide monitor: measured at 2488px, the conversation began at 339 and
+       the composer under it at 120. The bay is main's own rule — same cap, same centring — and the
+       reading measure applies INSIDE it, left-aligned, exactly as the transcript does inside main.
+       Not #dock itself, which stays full width so its fade still covers the whole foot of the page. -->
+  <div class="bay">
   <div id="strip" hidden></div>
   <div id="prompt" hidden></div>
   <form id="f" hidden><div class="composer">
@@ -505,6 +512,7 @@
          else's work. -->
     <md-filled-tonal-button type="button" id="stop" data-may="answer">interrupt</md-filled-tonal-button>
   </div><div id="cnote" hidden></div></form>
+  </div>
 </footer>
 
 <script type="module">

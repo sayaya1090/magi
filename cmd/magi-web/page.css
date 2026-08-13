@@ -983,6 +983,15 @@
      there is room for both — below that the panes are not beside the conversation anyway. */
   @media (min-width:100em) {
     body[at="agent"] main { max-width:var(--magi-sys-page-wide); }
+    /* The masthead widens with what is under it. It kept the page's own cap while the conversation
+       took the wider one, so on a 2488px monitor the header ran 568..2001 over a page running
+       315..2254 — a narrow hat on a wide head, and the border under it stopped a quarter of the
+       way in from each side. */
+    body[at="agent"] header { max-width:var(--magi-sys-page-wide); }
+    /* The dock's contents are measured with main, at the same breakpoint: the two are one column,
+       and a column that widens at the top and not at the bottom is the thing this pair of rules
+       exists to prevent. */
+    body[at="agent"] #dock .bay { max-width:var(--magi-sys-page-wide); }
   }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
@@ -3198,21 +3207,43 @@
      with the middle column: above the transcript scrolling under it, below the panes. */
   #dock {
     position:fixed; left:0; right:0; bottom:0; z-index:1;
-    background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
     padding-bottom:env(safe-area-inset-bottom);
+    /* Full width and takes no clicks. It spans the window so the bay inside it can be measured
+       against the same box main is, and a fixed band across the foot of the page would otherwise
+       swallow the bottom of both panes — a file tree whose last rows cannot be clicked. Only the
+       three boxes that ARE the dock take the pointer back. */
+    pointer-events:none;
   }
+  #strip, #prompt, #dock form { pointer-events:auto; }
   /* The dock belongs to the CONVERSATION, so beside a companion it stands between the two panes
      rather than across all three columns. It used to run the full width under them: the composer
      answered a transcript in the middle while starting under the file tree, and the panes had to
      stop short of the bottom to keep clear of it — which is why they ended in a strip of empty
      column. Inset by the two tracks, and only where the tracks are beside the conversation. */
   @media (min-width:52.5em) {
-    body[at="agent"] #dock {
-      left:calc(var(--magi-comp-files-now, var(--magi-comp-files-w)) + var(--magi-sys-space-300));
-      right:calc(var(--magi-comp-side-now, var(--magi-comp-side-w)) + var(--magi-sys-space-300));
+    /* Inset the BAY by the pane tracks, not the dock by the window.
+       Insetting the dock was right about where the composer belongs and wrong about what it is
+       measured against: the panes are tracks inside main's grid, and main centres itself once the
+       page is wider than its cap, so on a 2488px monitor the conversation sat at 651 and the
+       composer under it at 432. These are the same two variables the grid uses, applied to a box
+       that is already main's box — which is what makes the composer land on the middle track
+       rather than near it. */
+    body[at="agent"] #dock .bay {
+      padding-left:calc(var(--magi-comp-files-now, var(--magi-comp-files-w)) + var(--magi-sys-space-300));
+      padding-right:calc(var(--magi-comp-side-now, var(--magi-comp-side-w)) + var(--magi-sys-space-300));
     }
-    body[at="agent"][files="shut"] #dock { left:0; }
-    body[at="agent"][side="shut"] #dock { right:0; }
+    body[at="agent"][files="shut"] #dock .bay { padding-left:0; }
+    body[at="agent"][side="shut"] #dock .bay { padding-right:0; }
+  }
+  /* Main's rule, on purpose, written the same way it is written for main: the dock is a fixed box
+     across the window and main is a centred column, and the only way the two stay in one column is
+     for the dock's contents to be measured the way main is. */
+  #dock .bay {
+    max-width:var(--magi-sys-page); margin-inline:auto;
+    /* The fade is the conversation's, so it is drawn on the conversation's box and clipped to it:
+       over a pane it would put a wash across the last rows of a list somebody is reading. */
+    background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
+    background-clip:content-box;
   }
   #prompt {
     background:var(--magi-ref-bg);
