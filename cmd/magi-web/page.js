@@ -5158,7 +5158,26 @@ function roster(m) {
     tip(c, what ? s.name + ' — ' + what : tr('meet.call', {who: s.name}));
     c.setAttribute('aria-label', what ? s.name + ' — ' + what : s.name);
     if (!m.closed) {
+      // One token, one selected chip. A filter chip toggles itself, so pressing a second one left
+      // two chips ticked until the next poll answered — the roster saying two companions held the
+      // floor — and pressing the holder's own chip un-ticked it while nothing had changed. The set
+      // is single-select because the thing it draws is single: whoever is being called now.
+      //
+      // In the change event, and again after the component has finished with it: a chip writes its
+      // own `selected` a microtask after the click, so a value assigned during the click is
+      // overwritten. Same lesson as the pane handles.
+      const only = () => {
+        for (const other of box.children) other.selected = other === c;
+      };
       c.onclick = async () => {
+        // On click, and again once the component has finished with it. A filter chip flips its own
+        // `selected` when its inner button is pressed and then re-dispatches the click out here, so
+        // a value written now can still be undone by the chip's own update — the same beat the pane
+        // handles had to learn about. (Not a `change` listener: only chips with `toggle` set fire
+        // that, and these are filter chips.)
+        only();
+        await Promise.resolve();
+        only();
         await fetch('/meet-say', {method: 'POST',
           body: new URLSearchParams({id: m.id, call: s.name})});
         loadMeet();

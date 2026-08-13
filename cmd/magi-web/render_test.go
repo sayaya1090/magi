@@ -5047,6 +5047,10 @@ console.log(JSON.stringify({
   // is the only way a companion that has stopped being asked comes back. Read after the line
   // above: what matters there is that DRAWING the room sent nothing.
   calling: await (async () => { await chip('ops').onclick(); return POSTED.slice(); })(),
+  // One token, one tick. Read after the press above: a filter chip selects itself, so calling on
+  // somebody left the previous holder's chip selected too and the roster said two companions had
+  // the floor.
+  selectedAfter: cls('meetsp').filter(d => d.selected).map(d => d.attrs.label),
 }));
 `)
 	if h := fmt.Sprint(got["holder"]); !strings.Contains(h, "design") {
@@ -5065,6 +5069,10 @@ console.log(JSON.stringify({
 	}
 	if c := fmt.Sprint(got["calling"]); !strings.Contains(c, "call=ops") {
 		t.Errorf("pressing a participant posted %v — it must call on them", c)
+	}
+	// The floor is one thing, so the set that draws it has one selected member.
+	if s := fmt.Sprint(got["selectedAfter"]); s != "[ops]" {
+		t.Errorf("after calling on ops the roster shows %v selected", s)
 	}
 	if l := fmt.Sprint(got["laps"]); !strings.Contains(l, "1") || !strings.Contains(l, "2") {
 		t.Errorf("the rounds are not marked in the transcript: %v", l)
