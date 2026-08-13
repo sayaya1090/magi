@@ -615,7 +615,11 @@
      is how wide the rail is drawing itself right now. Widening the rail used to widen the gutter,
      so the table shifted 184px right and lost 184px of width every time the drawer opened. The
      drawer floats over the gutter instead, and nothing on the page moves. */
-  body[nav="open"] { --magi-comp-rail-now:16rem; }
+  /* 20rem open, not 16. The drawer floats over the gutter and pushes nothing, so its width costs
+     the page nothing — and at 16 the line under each destination wrapped to two or three, which
+     turned a rail into a paragraph. The guide's own drawer is 360dp; this stays under that and
+     gives the sentence one line at the sizes this ships in. */
+  body[nav="open"] { --magi-comp-rail-now:20rem; }
   /* Collapsed, the rail is 4.5rem and a word like "connections" is not — so collapsed shows the
      icon and nothing else. Clipping the label instead would put half a word on screen, which reads
      as a bug rather than as a choice. The label still exists for a screen reader: it is the
@@ -642,10 +646,31 @@
      breaks makes the row jump while the rail is still widening; this appears only once the drawer
      is open and the width has stopped moving. */
   #rail .sub { display:none; }
-  body[nav-wide] #rail .sub {
-    display:block; min-width:0;
+  /* Shown while the rail IS open, and gone the instant it starts closing.
+     Keyed on nav rather than on nav-wide, which is the shape and outlives the width by a quarter
+     second on the way out: the sentence stayed while the lane it was written in was being taken
+     away, so for the length of the animation it wrapped into three lines inside a 96px rail and
+     the whole column jumped. nav goes at the moment of the press, which is when the width starts
+     moving.
+     And it clips rather than wraps, for the same reason the label above it does: the width is
+     mid-flight, and text that re-wraps while a box is moving is the flinch the reader sees. */
+  body[nav="open"] #rail .sub {
+    display:block; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     font:400 var(--md-sys-typescale-label-small-size)/1.35 var(--magi-ref-mono);
-    letter-spacing:0; color:var(--magi-ref-muted); text-wrap:pretty;
+    letter-spacing:0; color:var(--magi-ref-muted);
+    /* In after the lane exists, not while it is being made. The 250ms is the rail's own width
+       transition — the sentence arrives once there is room for it, which reads as the drawer
+       opening and then filling rather than as text being dragged out of the edge of the screen.
+       An animation and not a transition: the element goes from display:none, and a transition
+       from a box that was not being rendered does not run. `both` keeps it at zero through the
+       delay. Out is not animated at all — see above, it goes the moment the width starts back. */
+    animation:railSubIn var(--magi-sys-dur-short4) var(--magi-sys-ease-standard) 250ms both;
+  }
+  @keyframes railSubIn { from { opacity:0; } to { opacity:1; } }
+  /* With motion turned down the rail does not travel — the width transition is not in the list
+     that block keeps — so there is no arrival to wait for, and a delay would only be a gap. */
+  @media (prefers-reduced-motion:reduce) {
+    body[nav="open"] #rail .sub { animation-delay:0s !important; }
   }
   body[nav-wide] .raili .words { display:grid; gap:2px; min-width:0; }
   /* The label waits for the room. It is revealed the instant the drawer is ASKED to open, and at

@@ -522,8 +522,11 @@ func TestTheDrawerDoesNotTakeWidthFromThePage(t *testing.T) {
 	if n := strings.Count(css, "--magi-comp-rail-w:"); n != 1 {
 		t.Errorf("--magi-comp-rail-w is declared %d times; the gutter the page reserves is one constant", n)
 	}
-	if !strings.Contains(css, "--magi-comp-rail-now:16rem") {
-		t.Error("nothing widens the rail; the drawer cannot open")
+	// Something widens the rail when it is asked to open. The WIDTH is not pinned here — it has
+	// been 16rem and is 20 — because what this test is about is the two names staying apart, and an
+	// assertion on the number is one that fails for a reason it was not written for.
+	if !regexp.MustCompile(`body\[nav="open"\][^{]*\{[^}]*--magi-comp-rail-now:`).MatchString(css) {
+		t.Error("nothing widens the rail when it opens; the drawer cannot open")
 	}
 	// Whatever reads the live width, it must be the rail itself. Anything else reading --magi-comp-rail-now
 	// is a part of the page that moves when the drawer does.
