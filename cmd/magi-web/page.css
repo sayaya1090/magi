@@ -626,6 +626,23 @@
      Clipped rather than wrapped: the rail already hides its overflow, and a longer word in another
      language now runs out of the item instead of pushing the row apart. */
   #rail .lbl { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  /* The second line, and only where there is room for one.
+     Collapsed and open showed the same four words, so opening the rail bought width and spent it
+     on making the same thing bigger. What an open rail has is room for the sentence that says what
+     a destination is FOR — which is the part "shared" and "meeting" cannot carry on their own.
+     Hidden rather than absent when collapsed: the markup is the same in both states, and a screen
+     reader gets the label either way.
+     Two lines now, so the word and its sentence stack in a column beside the icon, and the item is
+     as tall as what is in it. Wrapping is allowed here where the LABEL forbids it — a label that
+     breaks makes the row jump while the rail is still widening; this appears only once the drawer
+     is open and the width has stopped moving. */
+  #rail .sub { display:none; }
+  body[nav-wide] #rail .sub {
+    display:block; min-width:0;
+    font:400 var(--md-sys-typescale-label-small-size)/1.35 var(--magi-ref-mono);
+    letter-spacing:0; color:var(--magi-ref-muted); text-wrap:pretty;
+  }
+  body[nav-wide] .raili .words { display:grid; gap:2px; min-width:0; }
   /* The label waits for the room. It is revealed the instant the drawer is ASKED to open, and at
      that instant the rail is still 80px wide — the item has no lane for a word beside a 24dp icon,
      so it grew to 66px and came back to 56 as the rail caught up. Ten pixels of flinch on every
@@ -772,7 +789,15 @@
   body[nav-wide] #rail .icwrap { overflow:visible; }
   /* Expanded, the badge is a child of the list item and lays itself out beside the label; the
      move is placeRailBadge()'s, and this rule only says what it looks like once it is there. */
-  body[nav-wide] .raili > md-badge { position:static; align-self:center; }
+  /* The badge's own box, and a positioning context to go with it.
+     Static, the count was laid out at the end of the row — and then drawn 87px to the left of
+     there, on top of the word. The component positions its inner circle ABSOLUTELY, so with the
+     host static that inner box resolved against the nearest positioned ancestor, which is the
+     item itself: the badge stood where the item's top-right corner said, not where its own box
+     was. Measured at x=130 with the host box at x=217, over the "ni" of "Companions".
+     position:relative changes nothing about where the host sits and makes it the thing its own
+     content is measured from. */
+  body[nav-wide] .raili > md-badge { position:relative; align-self:center; }
   /* Gaps, not dividers. This is a contained list — four settings inside a dialog — and the guide
      keeps dividers for uncontained or complex ones, "only when a stronger visual separation is
      necessary". A line between every row of four is a fence where a space does the work. */
@@ -1396,6 +1421,11 @@
      max-content on the basis so a SHORT card (a clean tree, a clean status) gives its slack to the
      other one rather than holding a share it does not need. */
   #files > .filescard { flex:1 1 auto; flex-basis:max-content; min-height:5rem; }
+  /* Git is as tall as what is in it, and no taller. What it holds is a branch and a list of
+     changed files — a short, countable thing — so a share of the leftover space is a box with
+     nothing in the bottom half. The tree is the one with more to show than fits, so the leftover
+     is the tree's. */
+  #files > .pane-git { flex:0 0 auto; min-height:0; }
   /* Shut, it is its heading and nothing else, and it must not take a share at all. */
   #files > .filescard.shut { flex:0 0 auto; min-height:0; }
   .fileshead {
@@ -2032,8 +2062,14 @@
        makes "stay at the bottom" a question about the transcript rather than about the window.
        Only here: the fleet, the board and the phone are one column of page and scroll as a page. */
     body[at="agent"] main {
-      height:calc(100dvh - var(--magi-comp-masthead, 5.5rem));
-      overflow:hidden; padding-bottom:0;
+      /* From where the content actually starts — measured, because what sits above it is the
+         masthead plus this page's own padding plus, in the demo, a banner. Sized against the
+         masthead alone, the columns ended below the bottom of the window and the last card in
+         them was cut off by the screen edge. */
+      height:calc(100dvh - var(--magi-comp-shelltop, 5.5rem));
+      /* And a little room under them, so the bottom card ends before the window does rather than
+         against it. */
+      overflow:hidden; padding-bottom:var(--magi-sys-space-200);
       /* And barely any at the top. The panes used to be stuck to a line 5.5rem down the WINDOW,
          which is just under the masthead; in the shell they start where main's content starts, so
          the page's own 24px of breathing room put them back down the screen — the gap the sticky
@@ -2529,7 +2565,14 @@
   .meettrouble { color:var(--magi-ref-warn); }
   .meetwho { display:flex; flex-wrap:wrap; }
   .meetends { color:var(--magi-ref-muted); }
-  .meetgo { justify-self:start; }
+  /* The note takes the room and the action sits at the trailing end, which is where a form's
+     action goes. Wrapping, so a long refusal on a narrow screen puts the button on its own line
+     rather than squeezing it to nothing. */
+  .meetgobar {
+    display:flex; align-items:center; gap:var(--magi-sys-space-300); flex-wrap:wrap;
+  }
+  .meetgobar .meetnote { flex:1 1 20rem; }
+  .meetgo { margin-left:auto; }
 
   /* The room, as a list. Boxes first, and the cards guidance is explicit about why not: do not
      force content into cards when spacing and dividers give a simpler hierarchy — and this tree
