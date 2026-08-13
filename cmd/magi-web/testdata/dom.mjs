@@ -166,7 +166,12 @@ function element(tag) {
     // would be a fake being more of a DOM than the page can tell.
     setAttributeNS(_ns, k, v) { this.attrs[k] = String(v); },
     requestSubmit() {},
-    focus() {},
+    // Focus is RECORDED, not swallowed. The page asks document.activeElement to decide whether a
+    // poll may rebuild something somebody is using, and a fake that always answered "nothing is
+    // focused" made every one of those branches untestable — the first bug in that shape shipped:
+    // a link that kept focus after being clicked stopped the screen it navigated to from drawing.
+    focus() { FOCUSED = this; },
+    blur() { if (FOCUSED === this) FOCUSED = null; },
     // Recorded rather than ignored: where the page decided to move the view is a decision worth
     // asserting on, and a row is REBUILT by the poll that follows an answer — so a test cannot
     // patch the element it clicked and expect to still be holding it.
@@ -398,10 +403,16 @@ for (const id of ['plan', 'handoffs', 'queued', 'cron', 'intervened']) {
 for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
                             ['railMeet', 'railNav'], ['railAccess', 'railFoot']]) {
   byId[parent].append(byId[id]);
-  // The label is markup, not something the module creates: paint() writes into it by class.
-  const lbl = element('span');
-  lbl.className = 'lbl';
-  byId[id].append(lbl);
+  // The label and the line under it are markup, not something the module creates: paint() writes
+  // into both by class, and a stub missing either throws where the browser would simply write.
+  const words = element('span');
+  words.className = 'words';
+  for (const cls of ['lbl', 'sub']) {
+    const n = element('span');
+    n.className = cls;
+    words.append(n);
+  }
+  byId[id].append(words);
 }
 
 // The computed style of an element, for the two things the page asks it: the root's font size
@@ -413,8 +424,14 @@ globalThis.getComputedStyle = (el) => ({
   getPropertyValue: (k) => String((el && el.style && el.style[k]) || ''),
 });
 
+// Whatever last had focus(), for document.activeElement below.
+let FOCUSED = null;
+
 globalThis.document = {
   title: "",
+  // A live getter rather than a value: the page reads it in the middle of a redraw, after
+  // something has been focused and often after the element has been replaced.
+  get activeElement() { return FOCUSED; },
   // Text nodes are elements with only text here — the page appends them beside <br> to stack a
   // host name over its address, and the fake only has to make .text come out right.
   createTextNode(t) { const n = element('#text'); n.textContent = t; return n; },

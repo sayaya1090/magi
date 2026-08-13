@@ -4684,6 +4684,21 @@ let meetPick = new Set();
 // there is no id for getElementById to find — and an id that only exists at runtime is one the
 // page's own "every element it reaches for exists" check cannot vouch for.
 let meetGoBtn = null;
+// The two fields somebody types into. Held for one question only — "is the caret in this?" — which
+// is what decides whether the poll may rebuild the screen under them.
+let meetTopicField = null;
+let meetSayField = null;
+
+// typingIn reports whether the caret is in that field.
+//
+// The field, not the screen. Both draws used to skip when the focus was anywhere inside #meet, and
+// a link is focusable: clicking a meeting in the list left the caret on the row you had just
+// clicked, so the room refused to draw and the list stayed where it was. The address had already
+// changed, so it looked like one particular meeting could not be opened at all.
+//
+// A text field puts its own focus in a shadow root, and document.activeElement reports the HOST —
+// which is exactly the element held here.
+function typingIn(field) { return !!field && document.activeElement === field; }
 let meetTopic = '';
 // The meeting the reader is in, and whether the last look found it. A meeting lives in the console
 // that convened it, so one that has gone is a normal thing to arrive at from a bookmark.
@@ -4719,10 +4734,10 @@ async function loadMeet() {
 
 // The form: what to ask, and who to ask.
 function drawConvene(list, open) {
-  // Not while somebody is filling it in. The poll behind this form is here for the list of open
-  // meetings at the bottom, and rebuilding the form to refresh that list would take the caret out
-  // of the topic somebody is halfway through writing.
-  if (meetEl.contains(document.activeElement)) return;
+  // Not while somebody is writing the question. The poll behind this form is here for the list of
+  // open meetings at the bottom, and rebuilding the form to refresh that list would take the caret
+  // out of a topic somebody is halfway through.
+  if (typingIn(meetTopicField)) return;
   const box = cell('meetbox');
   box.append(sectionHead('meet.title', toFleet()));
   box.append(cell('meetwhy', tr('meet.why')));
@@ -4733,6 +4748,7 @@ function drawConvene(list, open) {
   topic.setAttribute('type', 'textarea');
   topic.setAttribute('rows', '2');
   topic.value = meetTopic;
+  meetTopicField = topic;
   // Kept as it is typed, not read at the end: the poll under this form redraws it every two
   // seconds, and a field whose value lived only in the DOM would lose a sentence mid-word.
   topic.addEventListener('input', () => { meetTopic = topic.value; armConvene(); });
@@ -4795,10 +4811,16 @@ function drawConvene(list, open) {
   // the room that will not. Asking a convener for a number was asking them to guess the length of
   // a discussion before it had happened.
   box.append(cell('meetends', tr('meet.ends')), topic, cell('meetlbl', tr('meet.who')), who);
-  // The reason it cannot start yet, beside the control it is about rather than as a refusal from
-  // the server after the fact. Two is the floor: with one companion this is a conversation, and
-  // its own page does that better.
-  box.append(cell('meetnote', here.length < 2 ? tr('meet.need_two') : ''), go);
+  // The reason it cannot start yet, on the same line as the control it is about rather than as a
+  // refusal from the server after the fact. Two is the floor: with one companion this is a
+  // conversation, and its own page does that better.
+  //
+  // One line, note leading and action trailing. The button was flush against the left edge on a
+  // line of its own, which is where a form's fields begin and not where its action belongs — it
+  // read as another field that had lost its label, and the note under it hung off nothing.
+  const bar = cell('meetgobar');
+  bar.append(cell('meetnote', here.length < 2 ? tr('meet.need_two') : ''), go);
+  box.append(bar);
 
   const rooms = (open || []).filter(m => !m.closed || (m.tasks || []).length);
   if (rooms.length) {
@@ -4871,10 +4893,11 @@ function upNextName(m) {
 
 // The room.
 function drawRoom(m) {
-  // While the floor is taken, nothing else can be said — that is what taking it means — so a
-  // redraw would change nothing except where the caret is. The view stands still exactly while
-  // the room does.
-  if (m.held && meetEl.contains(document.activeElement)) return;
+  // While somebody is typing into the room, the room holds still. Taking the floor is what makes
+  // that safe: nothing else can be said, so a redraw would change nothing except where the caret
+  // is. Asked of the say box rather than of the screen — every other thing in here is focusable
+  // too, and a rule about "focus is somewhere on this screen" is a rule that fires on a link.
+  if (typingIn(meetSayField)) return;
   const box = cell('meetbox');
   box.append(sectionHead('meet.title', toBack()));
   // The question is the headline of this screen, so it is a heading and not a styled line: with
@@ -4904,6 +4927,7 @@ function drawRoom(m) {
 
   box.append(roster(m));
   box.append(transcript(m));
+  meetSayField = null;
   if (!m.closed) box.append(sayBox(m));
   if (m.closed && (m.tasks || []).length) box.append(conclusions(m));
   meetEl.replaceChildren(box);
@@ -4982,6 +5006,7 @@ function sayBox(m) {
   f.setAttribute('type', 'textarea');
   f.setAttribute('rows', '2');
   f.id = 'meetSay';
+  meetSayField = f;
   // Taken on the first keystroke and not on every one: the hush is a state, and re-posting it per
   // character would be a request per character. Given back by sending, or by leaving the box empty.
   let held = false;
@@ -5353,7 +5378,7 @@ async function loadTree(a) {
 // what pressing it does — which is the part that gets left out when this is built from a div.
 function paneCard(key, title, kids) {
   const shut = localStorage.getItem('pane.' + key) === 'shut';
-  const card = cell('filescard' + (shut ? ' shut' : ''));
+  const card = cell('filescard pane-' + key + (shut ? ' shut' : ''));
   const head = document.createElement('button');
   head.type = 'button';
   head.className = 'panehead state';
@@ -6740,14 +6765,24 @@ function paint() {
   withMark(prefsClose, '#i-sl-xmark');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
-  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared'],
-                           [railMeet, 'nav.meet'], [railAccess, 'nav.access']]) {
+  // Both keys written out rather than built as key + '_sub': the phrase pack's own audit finds
+  // unused phrases by grepping for the literal, and a key assembled at runtime is invisible to it
+  // — which would leave four translated lines nobody could tell were still reachable.
+  for (const [el, key, sub] of [[railFleet, 'nav.companions', 'nav.companions_sub'],
+                                [railSkills, 'nav.shared', 'nav.shared_sub'],
+                                [railMeet, 'nav.meet', 'nav.meet_sub'],
+                                [railAccess, 'nav.access', 'nav.access_sub']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
     // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
+    // And what is behind it, one line, drawn only when the rail is open. Open and closed carried
+    // the same four words at two sizes, so widening the rail bought room and spent it on nothing —
+    // while "shared" and "meeting" are exactly the two a newcomer cannot guess. The stylesheet
+    // hides it collapsed; the text is written either way so a language change reaches it.
+    el.querySelector('.sub').textContent = tr(sub);
   }
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
@@ -7289,6 +7324,18 @@ function measureMasthead() {
   if (!bar || typeof bar.getBoundingClientRect !== 'function') return;
   const h = Math.ceil(bar.getBoundingClientRect().height);
   if (h > 0) document.documentElement.style.setProperty('--magi-comp-masthead', h + 'px');
+  // And where the shell actually BEGINS, which is not the same number.
+  //
+  // The columns were sized as 100dvh minus the masthead, and everything else between the top of
+  // the window and the top of the content was unaccounted for: the page's own padding above main,
+  // and in the demo a banner across the top. The column then ran past the bottom of the window by
+  // exactly that much, so the last card in it was cut off by the edge of the screen — which is
+  // what "the git card is stuck to the bottom with no room under it" was.
+  const main = document.querySelector('main');
+  if (main && typeof main.getBoundingClientRect === 'function') {
+    const top = Math.ceil(main.getBoundingClientRect().top);
+    if (top > 0) document.documentElement.style.setProperty('--magi-comp-shelltop', top + 'px');
+  }
 }
 measureMasthead();
 addEventListener('resize', measureMasthead, {passive: true});

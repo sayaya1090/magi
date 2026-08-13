@@ -5057,3 +5057,48 @@ console.log(JSON.stringify({
 		t.Error("a closed meeting still offers a box to speak in")
 	}
 }
+
+// A focused link must not stop the screen it navigates to from drawing.
+//
+// The room and the form both stand still while somebody is typing into them, which is right — a
+// poll that rebuilt the box under a half-written sentence would take the caret with it. Both asked
+// the wrong question to find out: "is the focus anywhere on this screen". A link is focusable, so
+// clicking a meeting in the list left the caret on the row that had just been clicked, and the
+// room refused to draw. The address had changed, so it read as one particular meeting — the one
+// whose fixture had the floor taken — being impossible to open at all. Going back was the same
+// bug: the way out of the room is a button inside the room.
+func TestOpeningAMeetingFromAFocusedRowStillDraws(t *testing.T) {
+	got := meetPage(t, `{
+    id: 'm1', topic: 'who owns the retry budget', round: 2, max: 5, holder: 'you', held: true,
+    speakers: [{name: 'design', socket: '/s/d'}, {name: 'you', person: true}],
+    said: [{who: 'design', round: 1, text: 'mine above 200ms'}],
+  }`, `
+const drawn = () => byId.meet.find(d => String(d.className).split(' ')[0] === 'meettopic').length > 0;
+const first = drawn();
+// The row somebody just clicked: a link, inside this screen, still holding the focus.
+const link = document.createElement('a');
+byId.meet.append(link);
+link.focus();
+byId.meet.replaceChildren();
+await loadMeet();
+const withLinkFocused = drawn();
+// And the one case the standing-still rule is for: the caret in the box you are typing into.
+const box = byId.meet.find(d => d.id === 'meetSay')[0];
+if (box) {
+  box.focus();
+  byId.meet.replaceChildren();
+  await loadMeet();
+}
+console.log(JSON.stringify({first, withLinkFocused, whileTyping: box ? drawn() : null}));
+`)
+	if got["first"] != true {
+		t.Fatal("the room did not draw at all, so nothing below is being measured")
+	}
+	if got["withLinkFocused"] != true {
+		t.Error("the room refuses to draw while a link on the screen has the focus — which is the " +
+			"state every click through to it leaves behind")
+	}
+	if got["whileTyping"] != false {
+		t.Error("the poll rebuilt the room under somebody typing into it")
+	}
+}
