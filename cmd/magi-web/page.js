@@ -3734,6 +3734,22 @@ function instanceLine(inst) {
   return [line];
 }
 
+// setPerson writes one person's line: their role, and which companions it is narrowed to.
+//
+// It was CALLED from four places — the role menu, adding somebody, and both ends of the scope
+// list — and defined in none of them. Every write on this screen threw ReferenceError into the
+// console and did nothing: the role snapped back on the next poll, a companion added to a scope
+// never appeared, and "Add somebody" looked like a button with nothing behind it. Nothing caught
+// it because a page that loads fine and a handler that throws are different events, and no test
+// pressed these.
+//
+// Empty companions means "every companion here", which is what the route already understands and
+// what the screen says under the field.
+function setPerson(who, role, companions) {
+  return post('/access', new URLSearchParams({who: who, role: role, companions: companions || ''}), '', '')
+    .then(why => { if (!why) loadAccess(); });
+}
+
 function personRow(p, roles) {
   const row = cell('acc person' + (p.me ? ' now' : ''));
   row.append(whoLine(p.who, p.me ? cell('you', tr('access.you')) : null),
