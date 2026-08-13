@@ -17,7 +17,14 @@ function element(tag) {
     children: [],
     _on: {},
     attrs: {},
-    style: {},
+    // A style object that can be SET as well as read. The page writes custom properties on rows —
+    // a tree's depth, which the stylesheet turns into an indent and a guide line — through
+    // setProperty, which the plain object here did not have: the page threw at the first row.
+    style: {
+      setProperty(k, v) { this[k] = String(v); },
+      getPropertyValue(k) { return this[k] ?? ''; },
+      removeProperty(k) { delete this[k]; },
+    },
     _class: '',
     _text: '',
     set className(v) { this._class = String(v); },

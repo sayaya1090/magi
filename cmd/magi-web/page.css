@@ -283,6 +283,9 @@
        column it sits in is taken from the conversation. 18rem holds about forty characters of a
        path before it has to ellipse, which is a filename and its parent. */
     --magi-comp-files-w:18rem;
+    /* One step of a tree's depth: the indent per level, and where the guide line for that level is
+       drawn. One number so the two cannot drift. */
+    --magi-comp-tree-step:0.75rem;
     --magi-sys-dur-short2:100ms; --magi-sys-dur-short4:200ms; --magi-sys-dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -1330,7 +1333,7 @@
      from wherever the reader had got to — two things looked at for two reasons should not move
      each other. The tree takes what is left after git has what it needs. */
   .filescard {
-    display:flex; flex-direction:column; gap:var(--magi-sys-space-150);
+    display:flex; flex-direction:column; gap:var(--magi-sys-space-100);
     border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
     background:var(--magi-ref-surface-container-low);
     padding:var(--magi-sys-space-150);
@@ -1341,7 +1344,7 @@
      should not take half the pane, and forty changes should not take all of it. */
   #files > .gitbox { flex:0 1 auto; max-height:45%; }
   .fileshead {
-    font:600 var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono);
+    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
     color:var(--magi-ref-muted); overflow-wrap:anywhere;
     padding-bottom:var(--magi-sys-space-100); border-bottom:1px solid var(--magi-ref-outlineVariant);
   }
@@ -1392,8 +1395,8 @@
   .gitacts md-icon-button { --md-icon-button-icon-size:18px; }
   .gitcommit { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-150); }
   .gitrow .gitkind {
-    flex:none; min-width:5.5rem;
-    font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
+    flex:none; min-width:4.5rem;
+    font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
   .gitrow.staged .gitkind { color:var(--magi-ref-primary); }
   .gitrow.both .gitkind, .gitrow.conflict .gitkind { color:var(--magi-ref-warn); }
@@ -1414,11 +1417,35 @@
   }
   /* A row is a button, because it does something when pressed — and buttons here carry .state,
      which brings the layer and the 48dp floor every other hand-built control on this page has. */
+  /* A tree row: dense, and the shape of a tree.
+     Smaller than the page's body text and tighter than its spacing, because this is a list of forty
+     names scanned for one of them — the type scale's label size is what that is for. The indent and
+     the guide line beside it both come from --d, the row's depth, so they cannot drift apart. */
   .treerow {
-    display:flex; align-items:center; gap:var(--magi-sys-space-100);
+    position:relative;
+    display:flex; align-items:center; gap:var(--magi-sys-space-50);
     width:100%; border:0; background:none; color:var(--magi-ref-fg); text-align:left;
-    font:var(--md-sys-typescale-body-medium-size)/1.7 var(--magi-ref-mono);
-    border-radius:var(--magi-sys-shape-small); cursor:pointer; padding-right:var(--magi-sys-space-100);
+    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-mono);
+    border-radius:var(--magi-sys-shape-extra-small); cursor:pointer;
+    min-height:1.65rem;
+    /* The indent is a MEASURE, not spacing off the scale: it is one step of a tree's depth, the
+       same number the guide line beside it is drawn at, and rounding it to the spacing scale would
+       make the two disagree by a pixel at every level. */
+    padding:1px var(--magi-sys-space-50) 1px calc(var(--d, 0) * var(--magi-comp-tree-step) + var(--magi-sys-space-50));
+  }
+  /* The line that makes it read as a tree rather than as text with spaces in front of it. One
+     guide, at the parent's level: it is what says "these belong to the folder above" without
+     drawing a diagram nobody asked for. */
+  .treerow[style*="--d"]::before {
+    content:''; position:absolute; top:0; bottom:0;
+    left:calc(var(--d, 0) * var(--magi-comp-tree-step) - 2px);
+    border-left:1px solid var(--magi-ref-outlineVariant);
+  }
+  .treerow[style*="--d: 0"]::before, .treerow[style*="--d:0"]::before { border-left:0; }
+  /* Where a finger is the input, the row is a target rather than a line of text. The guide gives
+     40dp when a mouse is the primary input and 48 when it is not. */
+  @media (hover:none) {
+    .treerow { min-height:40px; }
   }
   .treerow .treename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   .treerow.dir .treename { color:var(--magi-ref-fg); font-weight:600; }

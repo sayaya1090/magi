@@ -4877,7 +4877,7 @@ async function runFind(a) {
 function hitRow(a, hit) {
   const row = document.createElement('button');
   row.type = 'button';
-  row.className = 'treerow hit state hit48';
+  row.className = 'treerow hit state';
   let path = hit, line = '', text = '';
   if (findIn === 'text') {
     const first = hit.indexOf(':');
@@ -5019,7 +5019,7 @@ function gitLine(a, c) {
   const line = cell('gitline');
   const row = document.createElement('button');
   row.type = 'button';
-  row.className = 'treerow gitrow state hit48 ' + (c.kind || '');
+  row.className = 'treerow gitrow state ' + (c.kind || '');
   row.append(cell('gitkind', tr(GIT_KIND[c.kind] || 'git.changed')));
   const name = cell('treename', c.path);
   // Clipped in an 18rem column, so the whole path has to be somewhere: the page's own tooltip,
@@ -5157,9 +5157,14 @@ async function branches(a, dir, rows, depth) {
 function treeRow(a, e, path, depth) {
   const row = document.createElement('button');
   row.type = 'button';
-  row.className = 'treerow state hit48' + (e.isDir ? ' dir' : '') +
-                  (cardShows === path ? ' now' : '');
-  row.style.paddingLeft = (depth * 0.9 + 0.4) + 'rem';
+  // No hit48 here, and that is deliberate. It and the state layer are both ::after — one element —
+  // so a row wearing both got a hover wash 48px tall over a 26px row, spilling onto its
+  // neighbours. A tree is a dense list read with a mouse, which is the case the guide allows 40dp
+  // for; the row carries its own height instead, and grows on a touch screen where the finger is.
+  row.className = 'treerow state' + (e.isDir ? ' dir' : '') + (cardShows === path ? ' now' : '');
+  // The depth as a number the stylesheet can use, so the indent AND the guide line that marks it
+  // come from one value rather than from two that have to agree.
+  row.style.setProperty('--d', String(depth));
   const mark = iconOr(e.isDir ? '#i-sl-chevron-right' : '#i-sl-file-lines', e.isDir ? '▸' : '·',
                       'treemark' + (e.isDir && openDirs.has(path) ? ' open' : ''));
   if (mark) row.append(mark);
