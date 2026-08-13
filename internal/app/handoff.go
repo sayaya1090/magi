@@ -121,11 +121,23 @@ func (a *App) Expect(sid session.SessionID, actor event.Actor, e port.Elsewhere)
 	}
 
 	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return fmt.Errorf("cannot wait for %s's answer: shutting down", e.Who)
+	}
 	st := a.stateLocked(sid)
 	st.handoffs = append(st.handoffs, pendingHandoff{Who: e.Who, Request: e.Request, Since: time.Now()})
+	// Counted like every other background goroutine here. It was not, so Close returned while this
+	// was still running: a watch that writes the peer's answer INTO a conversation outliving the
+	// thing that owns the store it writes to. CI saw it as a data race — the watch reading a pacing
+	// value a finished test had already put back — which is the same fact wearing test clothes.
+	a.wg.Add(1)
 	a.mu.Unlock()
 
-	go a.watchHandoff(ctx, sid, actor, e, their, since)
+	go func() {
+		defer a.wg.Done()
+		a.watchHandoff(ctx, sid, actor, e, their, since)
+	}()
 	return nil
 }
 
