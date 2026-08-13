@@ -1385,10 +1385,17 @@
   }
   .filescard.shut .panebody { display:none; }
   .filescard.shut { flex:0 0 auto; }
-  #files > .filescard:first-child { flex:1 1 auto; }
-  /* git's card is as tall as what is in it, up to a share of the column: a branch and four changes
-     should not take half the pane, and forty changes should not take all of it. */
-  #files > .filescard:last-child:not(:first-child) { flex:0 1 auto; max-height:50%; }
+  /* The two cards share the column by what is IN them.
+     A fixed split is wrong in both directions: on a tall screen the tree took everything and git
+     sat in a strip at the bottom with four rows and empty space under them, and on a repository
+     mid-rebase the reverse. flex-basis:auto with both cards allowed to grow means each asks for
+     its content's height and the leftover is split between them — and neither can be squeezed to
+     nothing, because a card holding only its heading is a card nobody can use.
+     max-content on the basis so a SHORT card (a clean tree, a clean status) gives its slack to the
+     other one rather than holding a share it does not need. */
+  #files > .filescard { flex:1 1 auto; flex-basis:max-content; min-height:5rem; }
+  /* Shut, it is its heading and nothing else, and it must not take a share at all. */
+  #files > .filescard.shut { flex:0 0 auto; min-height:0; }
   .fileshead {
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
     color:var(--magi-ref-muted); overflow-wrap:anywhere;
@@ -1541,10 +1548,32 @@
   /* Bounded by the room there IS. The card is already capped at the viewport's height (it sticks
      to the top while the conversation scrolls), so an editor with a fixed 28rem minimum pushed the
      buttons out of that box on every screen shorter than it. Half the card, at most. */
+  /* The colour and the field, stacked. The field is transparent and sits over a copy of the text
+     that carries the marks; both are the same face at the same size and the same padding, or the
+     colour drifts off the letters it belongs to. */
+  .editstack { position:relative; }
+  .editstack .editghost {
+    position:absolute; inset:0; margin:0; overflow:hidden; pointer-events:none;
+    white-space:pre-wrap; overflow-wrap:break-word;
+    font:var(--md-sys-typescale-body-large-size)/1.6 var(--magi-ref-mono); tab-size:4;
+    /* The component's own inner padding, so line one starts on line one. */
+    padding:var(--magi-sys-space-200); color:var(--magi-ref-fg);
+    border-radius:var(--magi-sys-shape-extra-small);
+  }
+  /* The text being typed is invisible; the caret and the selection are not. */
+  .editstack .fileeditarea {
+    position:relative; background:transparent;
+    --md-outlined-text-field-input-text-color:transparent;
+    --md-outlined-text-field-focus-input-text-color:transparent;
+    --md-outlined-text-field-container-color:transparent;
+    --md-outlined-text-field-caret-color:var(--magi-ref-primary);
+  }
   .fileeditarea {
     width:100%; max-height:calc(100dvh - 22rem); overflow:auto;
     --md-outlined-text-field-input-text-font:var(--magi-ref-mono);
-    --md-outlined-text-field-input-text-size:16px;
+    /* body-large is 1rem, which is also the floor under which iOS Safari zooms the page in on
+       focus and does not zoom back. The scale and the constraint agree here. */
+    --md-outlined-text-field-input-text-size:var(--md-sys-typescale-body-large-size);
     --md-outlined-text-field-input-text-line-height:1.6;
   }
 
@@ -2910,6 +2939,24 @@
   #prompt .inner, form, #strip:not([hidden]) {
     max-width:var(--magi-sys-page); margin-inline:auto; width:100%; box-sizing:border-box;
     padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300);
+  }
+  /* Beside a companion the dock IS the middle column, so what is in it takes that column's width
+     and the transcript's measure — not the page's.
+     Moving the dock between the panes was half the job: the boxes inside it were still capped at
+     the whole page's 170ch and centred in whatever the inset left, so the composer sat narrower
+     than the conversation and off its axis. Same cap and same left edge as #log, which is what
+     "under the text it answers" means. */
+  @media (min-width:52.5em) {
+    body[at="agent"] #prompt .inner,
+    body[at="agent"] form,
+    body[at="agent"] #strip:not([hidden]) {
+      max-width:var(--magi-sys-wide); margin-inline:0;
+    }
+    /* …and the conversation's own cap is lifted the same way when a pane is shut, so the two stay
+       the same width as the column changes. */
+    body[at="agent"][side="shut"] #prompt .inner,
+    body[at="agent"][side="shut"] form,
+    body[at="agent"][side="shut"] #strip:not([hidden]) { max-width:var(--magi-sys-page); }
   }
   #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-warn); overflow-wrap:anywhere; }
 

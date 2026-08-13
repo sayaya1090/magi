@@ -5457,6 +5457,29 @@ function editor(path, text, acts) {
   area.setAttribute('spellcheck', 'false');
   area.className = 'fileeditarea';
   area.value = plainText(text);
+  // The same marking as the reading view, behind the text being typed.
+  //
+  // A textarea cannot hold coloured runs — it holds a string — so the colour goes on a copy of the
+  // text UNDER it, in the same face at the same size, with the field itself made transparent. That
+  // is how every browser editor that is not a rewritten text engine does it, and it costs nothing
+  // when it drifts: the worst case is colour a pixel out of place behind a perfectly readable
+  // caret. It is redrawn as you type, and scrolls with the field.
+  const behind = document.createElement('pre');
+  behind.className = 'filecode editghost';
+  behind.setAttribute('aria-hidden', 'true');
+  const repaint = () => {
+    behind.replaceChildren();
+    for (const part of codeParts(String(area.value || ''), commentMark(path))) {
+      if (!part.cls) { behind.append(document.createTextNode(part.text)); continue; }
+      const m = document.createElement('span');
+      m.className = part.cls;
+      m.textContent = part.text;
+      behind.append(m);
+    }
+    // A trailing newline so the last line has somewhere to be, the way a textarea keeps one.
+    behind.append(document.createTextNode('\n'));
+  };
+  repaint();
   // What the model made of it, above the buffer: it is about what is on the screen, and putting it
   // under a 28rem editor is putting it off the bottom of the pane.
   const said = cell('looksaid');
@@ -5478,9 +5501,20 @@ function editor(path, text, acts) {
   // sent five times and short enough that stopping to think gets an answer while it is still about
   // what you were thinking.
   area.addEventListener('input', () => {
+    repaint();
     const mine = ++lookAt;
     setTimeout(() => { if (mine === lookAt) { lookAt = mine - 1; ask(); } }, 2000);
   });
+  // The colour scrolls with the text it is under. Read from the field's own scroller, which is
+  // inside its shadow root — the host does not scroll, so listening to the host alone would leave
+  // the colour standing still under a moving caret.
+  const inner = area.shadowRoot && area.shadowRoot.querySelector('textarea');
+  if (inner) {
+    inner.addEventListener('scroll', () => {
+      behind.scrollTop = inner.scrollTop;
+      behind.scrollLeft = inner.scrollLeft;
+    }, {passive: true});
+  }
   const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-floppy-disk'),
                      tr('action.save'));
   const opened = plainText(text);
@@ -5516,7 +5550,10 @@ function editor(path, text, acts) {
   acts.append(save, stop);
   // The switch only where the capability is: asking costs the backend, and a control that answers
   // 403 is one people learn not to press.
-  box.append(said, area);
+  // One box holding both, the colour under and the field over it.
+  const stack = cell('editstack');
+  stack.append(behind, area);
+  box.append(said, stack);
   return box;
 }
 
