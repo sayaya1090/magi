@@ -44,11 +44,15 @@ var mayWrite = map[string]auth.Capability{
 	// that is the most common shape of a second person on a console.
 	"/answer":    auth.Answer,
 	"/interrupt": auth.Answer,
+	// Asking the model to look at a file somebody is editing. It changes nothing and records
+	// nothing — but it spends the backend on their behalf, which is what `prompt` is about.
+	"/look": auth.Prompt,
 	// Changing a file in the workspace from the console. Behind `shell` rather than a capability of
 	// its own: anybody who may run a command there can already write any file in it, so this widens
 	// nothing — and two capabilities permitting one act would make granting either meaningless.
 	// The companion records the edit in its own log; see files.go.
-	"/save": auth.Shell,
+	"/save":   auth.Shell,
+	"/git-do": auth.Shell,
 	// What it learns from.
 	"/skills":        auth.Curate,
 	"/forget":        auth.Curate,

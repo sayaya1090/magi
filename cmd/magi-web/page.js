@@ -4911,8 +4911,11 @@ async function loadTree(a) {
     return;
   }
   const head = cell('fileshead', shortPath(a.workdir || ''));
+  // The tree first and git under it. The tree is what somebody came to this pane for and is the
+  // taller of the two; a status block above it pushed the files down the column on every draw,
+  // and what git has to say is read after you have found the file, not before.
   const git = await gitSection(a);
-  filesEl.replaceChildren(head, ...git, findRow(a), ...(await branches(a, '.', rows, 0)));
+  filesEl.replaceChildren(head, findRow(a), ...(await branches(a, '.', rows, 0)), ...git);
 }
 
 // What git makes of this workspace: the branch, how far it is from its upstream, and what has not
@@ -4946,15 +4949,78 @@ async function gitSection(a) {
   // wants next, every time. Ordered as git gave them; sorting by kind would move a file under
   // somebody's cursor as they stage things.
   for (const c of changes) {
+    const line = cell('gitline');
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'treerow gitrow state hit48 ' + (c.kind || '');
     row.append(cell('gitkind', tr(GIT_KIND[c.kind] || 'git.changed')));
     row.append(cell('treename', c.path));
     row.onclick = () => openFile(a, c.path);
-    box.append(row);
+    line.append(row, gitActs(a, c));
+    box.append(line);
+  }
+  if (may('shell') && changes.some(c => c.kind === 'staged' || c.kind === 'both')) {
+    box.append(commitRow(a));
   }
   return [box];
+}
+
+// The two or three things somebody does to a changed file from a screen.
+//
+// Icon buttons beside the row rather than a menu: there are at most three and they are the same
+// three every time, and a menu would put two presses between somebody and staging a file. What is
+// offered depends on where the file is — staging something already staged does nothing, and a
+// screen that offers it is a screen that has to be tried to be understood.
+function gitActs(a, c) {
+  const box = cell('gitacts');
+  if (!may('shell')) return box;
+  const act = (mark, key, run) => {
+    const b = document.createElement('md-icon-button');
+    const m = icon(mark);
+    if (m) b.append(m);
+    b.setAttribute('aria-label', tr(key));
+    tip(b, tr(key));
+    b.onclick = ev => { ev.stopPropagation(); run(); };
+    box.append(b);
+  };
+  const send = (what, extra) => post('/git-do' + qFor(a),
+    new URLSearchParams(Object.assign({do: what, path: c.path}, extra || {})),
+    a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
+  if (c.kind !== 'staged') act('#i-sl-plus', 'git.stage', () => send('stage'));
+  if (c.kind === 'staged' || c.kind === 'both') act('#i-sl-reply', 'git.unstage', () => send('unstage'));
+  // Throwing away what is in a file is the one thing here that cannot be undone by pressing the
+  // other button, so it asks first — and it is not offered for a file git does not track yet,
+  // where `git restore` has nothing to restore FROM.
+  if (c.kind !== 'untracked') {
+    act('#i-sl-eraser', 'git.discard', () => confirmThis({
+      head: tr('git.discard_head', {path: c.path}),
+      body: tr('git.discard_body'),
+      keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+      doIt: tr('git.discard'), doMark: '#i-sl-eraser',
+      go: () => send('discard'),
+    }));
+  }
+  return box;
+}
+
+// A message and a button. Only when something is staged: a commit with nothing in it is a refusal
+// git would have to explain, and the screen already knows.
+function commitRow(a) {
+  const box = cell('gitcommit');
+  const msg = withGlass(document.createElement('md-outlined-text-field'));
+  msg.setAttribute('label', tr('git.message'));
+  const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
+                   tr('git.commit'));
+  const send = () => {
+    const text = String(msg.value || '').trim();
+    if (!text) return;
+    post('/git-do' + qFor(a), new URLSearchParams({do: 'commit', message: text}),
+         a.socket || '', a.peer || '').then(why => { if (!why) { msg.value = ''; loadTree(a); } });
+  };
+  msg.addEventListener('keydown', ev => { if (ev.key === 'Enter') send(); });
+  go.onclick = send;
+  box.append(msg, go);
+  return box;
 }
 
 // Literal keys in a lookup, for the reason every other one on this page is: a key built by
@@ -5031,8 +5097,15 @@ function drawFile(path, text) {
   // a path is not something anybody can paste. It is a bar of its own — a surface a step up, ruled
   // off from the code under it — because a path over a file is a label and not the file's first
   // line, which is what an unruled one read as.
+  // One place for this file's controls, at the top and in the same corner whichever mode it is in:
+  // "edit" becomes "save · cancel" where the edit button was. They were at the foot of the editor,
+  // which on an ordinary wide screen is below the fold — somebody had to scroll a 28rem box past
+  // the thing they had just typed to reach the button for it. A toolbar over the document is what
+  // every editor does with the same problem.
   const bar = cell('filebar');
   bar.append(cell('filedir', path));
+  const acts = cell('fileacts');
+  bar.append(acts);
   // Editing is offered only to somebody who may — the server refuses regardless, and a button that
   // answers 403 is one people learn not to press. `shell` is the gate: anybody who can run a
   // command in that workspace can already write any file in it.
@@ -5040,10 +5113,10 @@ function drawFile(path, text) {
     const go = withMark(document.createElement('md-text-button'), '#i-sl-pen-to-square');
     label(go, tr('action.edit'));
     go.onclick = () => { editing = path; drawFile(path, text); };
-    bar.append(go);
+    acts.append(go);
   }
   if (editing === path) {
-    fileViewEl.replaceChildren(bar, editor(path, text));
+    fileViewEl.replaceChildren(bar, editor(path, text, acts));
     showCard();
     return;
   }
@@ -5063,7 +5136,14 @@ function drawFile(path, text) {
 // the file to agree about what is in it right now, and between opening this and pressing save the
 // agent may have written it twice — which is also why saving re-reads afterwards rather than
 // assuming what is on disk is what was typed.
-function editor(path, text) {
+// Whether the model is asked to look at what is being typed, and what it last said.
+//
+// Off unless somebody turns it on, and remembered: it spends the backend on every pause in typing,
+// which is a cost the person doing the typing should choose rather than discover.
+let lookOn = localStorage.getItem('lookover') === 'on';
+let lookAt = 0;
+
+function editor(path, text, acts) {
   const box = cell('fileedit');
   // The library's field with type=textarea, not a bare one: a bare textarea inherits the body's
   // 14px, and iOS Safari zooms the whole page in on a field under 16 and does not zoom back. This
@@ -5074,7 +5154,40 @@ function editor(path, text) {
   area.setAttribute('spellcheck', 'false');
   area.className = 'fileeditarea';
   area.value = plainText(text);
-  const row = cell('fileeditrow');
+  // What the model made of it, above the buffer: it is about what is on the screen, and putting it
+  // under a 28rem editor is putting it off the bottom of the pane.
+  const said = cell('looksaid');
+  said.hidden = true;
+  // The switch, and the only thing that turns this on. A model reading over somebody's shoulder is
+  // a good idea and a bill; which of the two it is depends on whether they asked for it.
+  const watch = document.createElement('md-switch');
+  watch.selected = lookOn;
+  watch.setAttribute('aria-label', tr('files.look'));
+  const watchRow = cell('lookrow');
+  watchRow.append(cell('lookk', tr('files.look')), watch);
+  const ask = async () => {
+    if (!lookOn || !may('prompt')) { said.hidden = true; return; }
+    const mine = ++lookAt;
+    const out = await postText('/look' + qFor(lastDrawnFor || {socket: ''}),
+                               new URLSearchParams({path: path, text: area.value}));
+    if (mine !== lookAt) return;             // they kept typing; this answer is about older text
+    // Silence is the answer when there is nothing worth saying. No panel, no "looks good" — a
+    // reviewer that always finds three things is one people stop reading.
+    said.textContent = (out || '').trim();
+    said.hidden = !said.textContent;
+  };
+  watch.addEventListener('change', () => {
+    lookOn = !!watch.selected;
+    localStorage.setItem('lookover', lookOn ? 'on' : 'off');
+    if (lookOn) ask(); else { said.hidden = true; ++lookAt; }
+  });
+  // On a pause, not on a keystroke. Two seconds is long enough that a sentence being typed is not
+  // sent five times and short enough that stopping to think gets an answer while it is still about
+  // what you were thinking.
+  area.addEventListener('input', () => {
+    const mine = ++lookAt;
+    setTimeout(() => { if (mine === lookAt) { lookAt = mine - 1; ask(); } }, 2000);
+  });
   const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-floppy-disk'),
                      tr('action.save'));
   save.onclick = async () => {
@@ -5093,8 +5206,12 @@ function editor(path, text) {
   const stop = withMark(document.createElement('md-text-button'), '#i-sl-xmark');
   label(stop, tr('action.cancel'));
   stop.onclick = () => { editing = null; drawFile(path, text); };
-  row.append(save, stop);
-  box.append(area, row);
+  // Into the bar at the top, where the edit button was: the control that starts this and the two
+  // that end it are the same control in three states, and a control that moves is one you look for.
+  acts.append(save, stop);
+  // The switch only where the capability is: asking costs the backend, and a control that answers
+  // 403 is one people learn not to press.
+  box.append(...(may('prompt') ? [watchRow] : []), said, area);
   return box;
 }
 
@@ -6347,6 +6464,22 @@ async function post(path, body, socket, peer, quiet) {
   // a form has a field to hang this on and a fleet action does not.
   if (!quiet) says(why.slice(0, 80));
   return why;
+}
+
+// postText is post for a route whose ANSWER is the point rather than its silence.
+//
+// post() reports failures and swallows the body on success, which is right for an action: what a
+// caller wants to know is whether it was refused. Asking the model what it makes of a file is the
+// other shape — the body IS the answer — and a refusal here is drawn where the answer would have
+// gone rather than announced across the page.
+async function postText(path, body) {
+  try {
+    const r = await fetch(path + (path.includes('?') ? '' : q()), {method: 'POST', body});
+    const said = (await r.text()).trim();
+    return r.ok ? said : '';
+  } catch {
+    return '';   // the console is talking to something it cannot reach; the pane simply says nothing
+  }
 }
 
 const t = document.getElementById('t');

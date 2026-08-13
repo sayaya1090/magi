@@ -278,6 +278,24 @@ type GitTeller interface {
 	Git(ctx context.Context) (json.RawMessage, error)
 }
 
+// Reviewer is an engine that will look at a file somebody is editing and say what is wrong with it.
+//
+// Not a turn: what travels is a buffer that is not on disk, twenty times in a minute, and putting
+// that in the session would fill the agent's context with drafts. See app.LookOver. Nothing is
+// written, nothing is recorded, nothing is started — the answer goes to the person who asked.
+type Reviewer interface {
+	LookOver(ctx context.Context, path, text string) (string, error)
+}
+
+// GitDoer is an engine that will run one of a short, closed list of git commands in its workspace.
+//
+// stage, unstage, discard, commit — each a fixed argv with the path as an argument, never a string
+// a shell parses. See app.GitDo, including which of them is written into the companion's log:
+// discard throws away what was in a file, and the agent's context still holds it.
+type GitDoer interface {
+	GitDo(ctx context.Context, what, path, message string) (string, error)
+}
+
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
 //
 // The distinction is the whole reason this crosses the socket. Everything else a viewer does
@@ -970,6 +988,34 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "git-do" {
+			doer, ok := eng.(GitDoer)
+			if !ok {
+				resp = Response{Err: "this daemon cannot run git commands"}
+			} else if out, gerr := doer.GitDo(ctx, req.Name, req.Text, req.Answer); gerr != nil {
+				resp = Response{Err: gerr.Error()}
+			} else {
+				resp = Response{OK: true, Out: out}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
+		if req.Method == "look-over" {
+			rev, ok := eng.(Reviewer)
+			if !ok {
+				resp = Response{Err: "this daemon cannot look over a file"}
+			} else if out, lerr := rev.LookOver(ctx, req.Name, req.Text); lerr != nil {
+				resp = Response{Err: lerr.Error()}
+			} else {
+				resp = Response{OK: true, Out: out}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		// shell is answered here rather than in dispatch, like status, because it has a payload:
 		// dispatch returns only an error, and giving it a return value for one caller would make
 		// every other write site pretend to produce something.
@@ -1463,6 +1509,25 @@ func (c *Client) WriteTool(name string, args json.RawMessage) (string, error) {
 // Git asks what git makes of the companion's workspace: its branch, and what is not committed.
 func (c *Client) Git() (string, error) {
 	resp, err := c.exchange(Request{Method: "git"})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// LookOver asks the companion's model what it makes of a file being edited. Nothing is saved.
+func (c *Client) LookOver(path, text string) (string, error) {
+	resp, err := c.exchange(Request{Method: "look-over", Name: path, Text: text})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// GitDo runs one of the four git commands in the companion's workspace: stage, unstage, discard,
+// commit. The path travels as an argument and never as part of a command line.
+func (c *Client) GitDo(what, path, message string) (string, error) {
+	resp, err := c.exchange(Request{Method: "git-do", Name: what, Text: path, Answer: message})
 	if err != nil {
 		return "", err
 	}

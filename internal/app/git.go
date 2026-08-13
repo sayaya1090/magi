@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -181,4 +183,132 @@ func shortSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+// LookOver asks the model what it makes of a file somebody is editing, without writing anything.
+//
+// # Why this is not a turn
+//
+// A turn is the agent working: it has the session's history, its tools, its plan, and everything it
+// does lands in the log. A half-typed buffer is none of that — it is a person asking "does this
+// look right" over their own shoulder, twenty times in a minute, about a file that is not on disk
+// yet. Putting that in the session would fill the context with drafts and leave the agent
+// answering questions about work nobody has done.
+//
+// So it is one call to the same model with a small prompt and no tools, nothing recorded, nothing
+// started. What comes back goes on the screen of the person who asked and nowhere else.
+//
+// # Why it says nothing rather than something
+//
+// A reviewer that always finds three things teaches people to stop reading it. The prompt asks for
+// silence when there is nothing worth saying, and an empty answer is drawn as nothing at all — no
+// panel, no "looks good", no green tick that has to be earned back.
+func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", nil
+	}
+	// Bounded. A person can open a 40,000-line file in the console, and the buffer travels on every
+	// pause in typing — an unbounded prompt here is somebody's context window and their bill.
+	if len(text) > lookOverCap {
+		text = text[:lookOverCap] + "\n… (the rest of this file was not sent)"
+	}
+	// The companion's own agent and model, so what answers is the thing the person is working with
+	// — not a second opinion from whatever this process's default happens to be.
+	s := a.sessionInfo(ctx, sid)
+	agent := a.agentFor(s)
+	req := port.ChatRequest{
+		Model: s.Model.Model,
+		System: "A person is editing " + path + " and has not saved it. Read it and say ONLY what " +
+			"is wrong, missing or about to break: a bug, a typo in an identifier, a case not " +
+			"handled, something that contradicts the rest of the file. At most three short lines, " +
+			"each naming the line it is about. If there is nothing worth saying, answer with an " +
+			"empty message — do not summarise the file, do not praise it, do not suggest style.",
+		Messages: []session.Message{{
+			Role:  session.RoleUser,
+			Parts: []session.Part{{Kind: session.PartText, Text: text}},
+		}},
+	}
+	stream, serr := a.providerFor(agent).StreamChat(ctx, req)
+	if serr != nil {
+		return "", serr
+	}
+	out, _ := drainStream(stream)
+	return strings.TrimSpace(out), nil
+}
+
+// lookOverCap is how much of a buffer travels. Big enough for the files people read on this screen,
+// small enough that holding the key down does not become a bill.
+const lookOverCap = 60 << 10
+
+// GitDo is the handful of git commands a person runs from a screen, run where the workspace is.
+//
+// # The list is closed, and it is short
+//
+// stage, unstage, discard, commit. Each is a FIXED argv with the path as one argument — never a
+// string a shell parses — so a filename with a space, a semicolon or a leading dash is a filename.
+// Anything else somebody wants from git they have a terminal for, and the agent has bash.
+//
+// # Why not a tool for the agent
+//
+// It already has bash and knows git; a git_stage in the registry would be a name in front of every
+// agent on every turn for the console's convenience. The registry is the model's vocabulary, not
+// this screen's.
+//
+// # What is recorded, and what is not
+//
+// discard CHANGES THE WORKING TREE — it throws away what was in a file — so it is written into the
+// companion's log exactly like a console edit: the agent's context still holds the version that is
+// now gone. stage, unstage and commit move git's own state and leave the tree as it was; git's
+// history is their record and the log stays out of it.
+func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, path, message string) (string, error) {
+	if a.plat == nil {
+		return "", fmt.Errorf("platform unavailable")
+	}
+	var args []string
+	switch what {
+	case "stage":
+		args = []string{"add", "--", path}
+	case "unstage":
+		args = []string{"restore", "--staged", "--", path}
+	case "discard":
+		args = []string{"restore", "--", path}
+	case "commit":
+		if strings.TrimSpace(message) == "" {
+			return "", fmt.Errorf("a commit needs a message")
+		}
+		// Only what is staged, which is what the screen showed as staged when the button was
+		// pressed. -a would also take everything else in the tree, including a file somebody left
+		// half-edited in the other pane.
+		args = []string{"commit", "-m", message}
+	default:
+		return "", fmt.Errorf("%q is not one of the git commands this can run: stage, unstage, discard, commit", what)
+	}
+	if what != "commit" && strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("which file")
+	}
+	res, err := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: args, Dir: workdir, MaxOutput: gitCaptureCap})
+	if err != nil {
+		return "", err
+	}
+	out := strings.TrimSpace(string(res.Stdout) + "\n" + string(res.Stderr))
+	if res.ExitCode != 0 {
+		// git's own words. It is better at saying why a commit was refused than anything this
+		// could write about it.
+		return "", fmt.Errorf("%s", out)
+	}
+	if what == "discard" {
+		if nerr := a.noteEdit(ctx, sid, "git restore", []byte(`{"path":`+quoteJSON(path)+`}`)); nerr != nil {
+			return out, fmt.Errorf("the file was restored and the note about it was not: %w", nerr)
+		}
+	}
+	return out, nil
+}
+
+// quoteJSON is a string as a JSON literal, for the one place that builds arguments by hand.
+func quoteJSON(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(b)
 }

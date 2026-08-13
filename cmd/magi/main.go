@@ -2463,6 +2463,23 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 	return json.Marshal(st)
 }
 
+// LookOver is the model reading over somebody's shoulder — see app.LookOver. Bounded harder than
+// the rest: this is asked on a pause in typing, so an answer that takes a minute has been overtaken
+// by the next keystroke and is worth nothing to anybody.
+func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return d.App.LookOver(rctx, d.handover.at.now(), path, text)
+}
+
+// GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
+// is written into this companion's log.
+func (d daemonEngine) GitDo(ctx context.Context, what, path, message string) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return d.App.GitDo(rctx, d.handover.at.now(), d.workdir, what, path, message)
+}
+
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
 	// command that will not finish, so an unbounded one would hold a daemon goroutine for as long

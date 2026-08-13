@@ -883,6 +883,8 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/find":          s.find,
 		"/save":          s.save,
 		"/git":           s.git,
+		"/look":          s.look,
+		"/git-do":        s.gitDo,
 		"/history":       s.history,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,

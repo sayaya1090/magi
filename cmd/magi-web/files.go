@@ -175,6 +175,65 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// look asks the companion's model what it makes of a file somebody is editing.
+//
+// A POST because it carries a buffer, and behind `prompt` because it spends the model: it is not a
+// change to anything, but it is work asked of the backend on somebody's behalf, which is what that
+// capability is about. Read-only in every other sense — nothing is written, nothing is recorded,
+// and no turn is started.
+func (s *server) look(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	path := strings.TrimSpace(r.FormValue("path"))
+	text := r.FormValue("text")
+	if strings.TrimSpace(text) == "" {
+		writeText(w, "")
+		return
+	}
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, lerr := cl.LookOver(path, text)
+		out = said
+		return lerr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	writeText(w, out)
+}
+
+// gitDo runs one of the four git commands the pane offers, in the companion's workspace.
+//
+// Behind `shell` for the reason saving is: anybody who may run a command in that workspace can
+// already run these, so this widens nothing — and it is the capability whose name already means
+// "acts in the workspace outside the approval policy a tool call goes through".
+func (s *server) gitDo(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	what := strings.TrimSpace(r.FormValue("do"))
+	path := strings.TrimSpace(r.FormValue("path"))
+	message := strings.TrimSpace(r.FormValue("message"))
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, gerr := cl.GitDo(what, path, message)
+		out = said
+		return gerr
+	}); derr != nil {
+		// git's own words, at the status of a request that asked for something it would not do.
+		http.Error(w, derr.Error(), http.StatusBadRequest)
+		return
+	}
+	writeText(w, out)
+}
+
 // askCompanion runs one read-only tool on the companion this request names.
 func (s *server) askCompanion(r *http.Request, tool string, args json.RawMessage) (string, error) {
 	var out string

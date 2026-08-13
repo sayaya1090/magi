@@ -1353,6 +1353,13 @@
   /* A changed file is a row like any other in this pane, with what kind of change in front of it.
      The word, not git's two letters: XY is git's alphabet, and a console printing "RM" is asking
      its reader to know it. */
+  /* A changed file and what can be done to it, on one line: the row takes the width and the
+     buttons sit at the trailing end, which is where the lists guidance puts a secondary action. */
+  .gitline { display:flex; align-items:center; gap:var(--magi-sys-space-50); }
+  .gitline .treerow { flex:1 1 auto; min-width:0; }
+  .gitacts { display:flex; flex:none; }
+  .gitacts md-icon-button { --md-icon-button-icon-size:18px; }
+  .gitcommit { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-150); }
   .gitrow .gitkind {
     flex:none; min-width:5.5rem;
     font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
@@ -1397,7 +1404,15 @@
 
   /* The file in the slot the facts card shares. */
   /* The bar over the file: where it is, and the way into editing it. */
-  .filebar { margin-bottom:var(--magi-sys-space-150); display:flex; align-items:center; gap:var(--magi-sys-space-150); flex-wrap:wrap; }
+  /* The bar stays at the top of the card while the file scrolls under it: it holds the path
+     somebody copies and the buttons that end an edit, and both are wanted at every scroll
+     position. The card is what scrolls, so this sticks to the card. */
+  .filebar {
+    margin-bottom:var(--magi-sys-space-150); display:flex; align-items:center;
+    gap:var(--magi-sys-space-150); flex-wrap:wrap;
+    position:sticky; top:0; z-index:2; background:var(--magi-ref-surface-container-low);
+    padding-bottom:var(--magi-sys-space-100);
+  }
   .filebar .filedir { flex:1 1 auto; min-width:0; }
   /* The editor. Monospace at the code's own size, so a line wraps where it wraps in the file, and
      tall enough to work in without being the whole page. */
@@ -1406,13 +1421,34 @@
      is the face and the size. Mono because it is code, and 16px because anything smaller makes iOS
      Safari zoom the page in on focus and never zoom back — the same floor every other field on this
      page keeps. */
+  /* Bounded by the room there IS. The card is already capped at the viewport's height (it sticks
+     to the top while the conversation scrolls), so an editor with a fixed 28rem minimum pushed the
+     buttons out of that box on every screen shorter than it. Half the card, at most. */
   .fileeditarea {
-    width:100%;
+    width:100%; max-height:calc(100dvh - 22rem); overflow:auto;
     --md-outlined-text-field-input-text-font:var(--magi-ref-mono);
     --md-outlined-text-field-input-text-size:16px;
     --md-outlined-text-field-input-text-line-height:1.6;
   }
-  .fileeditrow { display:flex; gap:var(--magi-sys-space-150); justify-content:flex-end; }
+
+  /* This file's controls, in one corner and in every mode: "edit" becomes "save · cancel" where
+     the edit button was. At the foot of the editor they were below the fold on an ordinary wide
+     screen — somebody had to scroll a 28rem box past what they had just typed to reach the button
+     for it — and a control that moves between modes is one you have to look for twice. */
+  .fileacts { display:flex; gap:var(--magi-sys-space-100); flex:none; margin-left:auto; }
+  /* The switch that lets the model read over your shoulder, and what it said. The switch is a
+     preference and reads like one; what it says is a note above the buffer, in the warning colour
+     because it only ever speaks when something is wrong — silence is the other answer. */
+  .lookrow { display:flex; align-items:center; gap:var(--magi-sys-space-150); }
+  .lookk {
+    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
+  }
+  .looksaid {
+    font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-warn);
+    white-space:pre-wrap; padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
+    border-left:2px solid var(--magi-ref-warn); background:var(--magi-ref-surface-container);
+    border-radius:var(--magi-sys-shape-extra-small);
+  }
 
   /* The path, whole, in a bar of its own. Whole because this is the line somebody copies into a
      message or a command and half a path pastes as nothing; a bar because a path sitting directly
