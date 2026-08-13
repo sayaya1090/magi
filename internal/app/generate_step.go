@@ -46,7 +46,18 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		// supervisor reads this to know the child is working through a silence that emits no
 		// events (see enterGen).
 		a.enterGen(sid)
-		stream, err := a.providerFor(agent).StreamChat(streamCtx, req)
+		// A run with nothing to run on. An App can legitimately be built without a provider — the
+		// console builds one as a READER, to derive rows from logs — and until now anything that
+		// started a turn on such an App dereferenced nil here and took the process down. A turn
+		// that cannot be run is an error to report, not a crash: the same shape as a backend that
+		// refuses, which every caller of this already knows how to handle.
+		prov := a.providerFor(agent)
+		if prov == nil {
+			a.leaveGen(sid)
+			streamCancel()
+			return stepResponse{}, fmt.Errorf("this magi has no model backend configured, so there is nothing to run this turn on")
+		}
+		stream, err := prov.StreamChat(streamCtx, req)
 		if err != nil {
 			a.leaveGen(sid)
 			streamCancel()
