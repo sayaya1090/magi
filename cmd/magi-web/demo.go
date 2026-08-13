@@ -483,6 +483,11 @@ const demoScript = `
     document.body.style.paddingTop = h + 'px';
     const rail = document.getElementById('rail');
     if (rail) rail.style.paddingTop = 'calc(' + h + 'px + .7rem)';
+    // The page sizes its app shell from where its content actually begins, and this just moved it.
+    // It re-measures on resize, so saying "the geometry changed" in the language it already speaks
+    // keeps the banner's knowledge here, in the demo, rather than teaching the page about a notice
+    // that only exists in a copy of itself.
+    dispatchEvent(new Event('resize'));
   };
   banner.textContent = 'demo — the real page, answered by a mock. Nothing here is a running agent, ' +
                        'and every action reports what it would have sent.';
