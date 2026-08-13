@@ -4961,29 +4961,44 @@ func TestTheMeetingScreenSaysWhereTheTokenIs(t *testing.T) {
            {who: 'design', round: 2, text: 'then the table marks the rest as still coming'}],
   }`, `
 const cls = c => byId.meet.find(d => String(d.className).split(' ')[0] === c);
-// The fake keeps textContent per node rather than composing it from the tree, so a row's words
+// The fake keeps textContent per node rather than composing it from the tree, so a line's words
 // live in its children — which is also how the page builds them.
 const txt = d => d.find(() => true).map(x => x.textContent || '').join(' ').trim();
+const chip = name => cls('meetsp').find(d => d.attrs.label === name);
+const chips = cls('meetsp');
 console.log(JSON.stringify({
-  holder: cls('meetsp').filter(d => String(d.className).includes('holding')).map(txt),
-  next: cls('meetsp').filter(d => String(d.className).includes('next')).map(txt),
-  resting: cls('meetsp').map(txt).filter(s => s.includes('ops'))[0],
+  holder: chips.filter(d => String(d.className).includes('holding')).map(d => d.attrs.label),
+  holderSelected: !!(chip('design') || {}).selected,
+  next: chips.filter(d => String(d.className).includes('next')).map(d => d.attrs.label),
+  // Two passes and the rules stop asking. The chip says so where a colour alone would be the only
+  // telling, and says what pressing it does about it.
+  resting: [String((chip('ops') || {}).className), (chip('ops') || {attrs:{}}).attrs['aria-label']],
   laps: cls('meetlap').map(d => d.textContent),
   passed: cls('meetline').filter(d => String(d.className).includes('passed')).map(txt),
   trouble: (cls('meettrouble')[0] || {}).textContent,
-  posted: POSTED,
+  posted: POSTED.slice(),
+  // Pressing a participant calls on them — the same act as writing "@ops" into a sentence, which
+  // is the only way a companion that has stopped being asked comes back. Read after the line
+  // above: what matters there is that DRAWING the room sent nothing.
+  calling: await (async () => { await chip('ops').onclick(); return POSTED.slice(); })(),
 }));
 `)
 	if h := fmt.Sprint(got["holder"]); !strings.Contains(h, "design") {
 		t.Errorf("nothing on the screen is marked as holding the floor: %v", h)
 	}
+	if got["holderSelected"] != true {
+		t.Error("the chip of whoever holds the floor is not the selected one in the set")
+	}
 	if n := fmt.Sprint(got["next"]); !strings.Contains(n, "api") {
 		t.Errorf("nobody is marked as next, so a reader cannot tell who is being waited on: %v", n)
 	}
 	// Two passes and the rules stop asking. A reader has to be told that is a rule and not a fault,
-	// and that naming the companion brings it back.
-	if r, _ := got["resting"].(string); !strings.Contains(r, "name") {
-		t.Errorf("the skipped participant's row says %q", r)
+	// and that naming the companion brings it back — which is what pressing the chip does.
+	if r := fmt.Sprint(got["resting"]); !strings.Contains(r, "resting") || !strings.Contains(r, "name") {
+		t.Errorf("the skipped participant's chip says %v", r)
+	}
+	if c := fmt.Sprint(got["calling"]); !strings.Contains(c, "call=ops") {
+		t.Errorf("pressing a participant posted %v — it must call on them", c)
 	}
 	if l := fmt.Sprint(got["laps"]); !strings.Contains(l, "1") || !strings.Contains(l, "2") {
 		t.Errorf("the rounds are not marked in the transcript: %v", l)
@@ -5100,5 +5115,31 @@ console.log(JSON.stringify({first, withLinkFocused, whileTyping: box ? drawn() :
 	}
 	if got["whileTyping"] != false {
 		t.Error("the poll rebuilt the room under somebody typing into it")
+	}
+}
+
+// A screen with no transcript is not scrolled to the foot of itself.
+//
+// Following the tail acts on the WINDOW when the transcript does not scroll its own column — right
+// on a phone, and wrong on every screen that has no transcript. The dock measurement runs at load,
+// so the permissions screen asked "am I at the bottom" of a page it had not drawn yet, got yes, and
+// went there: it opened 1,126 pixels down with its heading off the top. The fleet and the board are
+// the same shape.
+func TestAScreenWithNoTranscriptIsNotScrolledToItsFoot(t *testing.T) {
+	got := runPage(t, `[]`, "?v=access", `
+byId.log.clientHeight = 0;          // nothing to follow: no transcript on this screen
+byId.log.scrollHeight = 0;
+window.scrolledTo = null;
+window.scrollY = 0;
+const stuck = atBottom();
+toBottom();
+measureDock();
+console.log(JSON.stringify({stuck, scrolled: window.scrolledTo}));
+`)
+	if got["stuck"] != false {
+		t.Error("a screen with no transcript reports the reader as sitting at the tail of one")
+	}
+	if got["scrolled"] != nil {
+		t.Errorf("the window was scrolled to %v on a screen with nothing to follow", got["scrolled"])
 	}
 }

@@ -286,6 +286,7 @@
   "mcp.kind_http": "HTTP로 (url)",
   "mcp.kind_stdio": "이 기계가 띄우는 프로세스",
   "meet.back": "회의 목록",
+  "meet.call": "{who}에게 발언 요청",
   "meet.closing": "마무리하는 중",
   "meet.collecting": "각자 무엇을 할지 묻는 중",
   "meet.done": "끝남",

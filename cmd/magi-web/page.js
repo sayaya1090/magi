@@ -3983,9 +3983,19 @@ const scroller = () => (logScrolls() ? log : (document.scrollingElement || docum
 // Follow the tail only while the reader is already at the bottom. Yanking the view down while
 // somebody reads the middle of a long run is how a live page becomes unreadable.
 const atBottom = () => {
+  if (!following()) return false;
   const s = scroller();
   return s.scrollHeight - s.scrollTop - s.clientHeight <= 48;
 };
+
+// following reports whether there is a transcript on screen to follow.
+//
+// Both of these act on the WINDOW when the transcript does not scroll itself — which is right on a
+// phone and wrong everywhere there is no transcript at all. On the permissions screen the dock
+// measurement ran at load, found "the bottom" of a page that had not been drawn yet, and sent the
+// window to it: the screen opened 1,126 pixels down, with its heading off the top. The fleet and
+// the board are the same shape and were the same bug waiting.
+const following = () => (log.clientHeight || 0) > 0;
 
 // toBottom goes to the foot of the page, and then again once the browser has laid out what it just
 // put there.
@@ -4004,6 +4014,7 @@ const atBottom = () => {
 // insert; a third pass is there for the row that grows again as its own content settles, and a
 // watcher that kept going would be a scroll that fights a person trying to scroll away.
 function toBottom(frames) {
+  if (!following()) return;
   const s = scroller();
   s.scrollTop = s.scrollHeight;
   const left = frames === undefined ? 2 : frames;
@@ -4818,9 +4829,7 @@ function drawConvene(list, open) {
   // One line, note leading and action trailing. The button was flush against the left edge on a
   // line of its own, which is where a form's fields begin and not where its action belongs — it
   // read as another field that had lost its label, and the note under it hung off nothing.
-  const bar = cell('meetgobar');
-  bar.append(cell('meetnote', here.length < 2 ? tr('meet.need_two') : ''), go);
-  box.append(bar);
+  box.append(go, cell('meetnote', here.length < 2 ? tr('meet.need_two') : ''));
 
   const rooms = (open || []).filter(m => !m.closed || (m.tasks || []).length);
   if (rooms.length) {
@@ -4958,21 +4967,46 @@ function toFleet() {
 // so is whoever is next. Without that, "why is nothing happening" has no answer on the screen —
 // the transcript only says what has already been said.
 function roster(m) {
-  const box = cell('meetroster');
+  // A row of chips, not a stack of rows. Four participants took four lines and most of the width
+  // to say one word each about their state — and the state is the kind of thing a colour says.
+  // Pressing one calls on that participant: it is the same act as writing "@ops" in a sentence,
+  // and pressing your own is taking the floor. So the roster is also how the token is moved, which
+  // is what the widest thing on the screen should be for.
+  const box = document.createElement('md-chip-set');
+  box.className = 'meetroster';
   for (const s of (m.speakers || [])) {
     const holding = m.holder === s.name;
-    const row = cell('meetsp' + (holding ? ' holding' : '') + (s.next ? ' next' : '') +
-                     (s.person ? ' person' : ''));
-    row.append(cell('meetspname', s.name));
-    row.append(cell('meetspsay', holding ? tr('meet.holding')
+    // Assist chips: each one does something. Not filter chips — nothing here is being filtered, and
+    // a filter chip's tick would say "included" about a participant who is in the room either way.
+    // A filter chip, because the bundle has those and assist chips are not in it — and the
+    // semantic survives the substitution: the set has exactly one selected member, and the
+    // selected one is whoever holds the floor. Pressing another is changing that selection.
+    const c = document.createElement('md-filter-chip');
+    c.className = 'meetsp' + (holding ? ' holding' : '') + (s.next ? ' next' : '') +
+                  (s.person ? ' person' : '') + (s.passes >= 2 ? ' resting' : '');
+    c.setAttribute('label', s.name);
+    c.selected = holding;
+    // The state in words as well as in colour, where a colour alone would be the only telling.
+    const what = holding ? tr('meet.holding')
       : s.next ? tr('meet.next')
-      // Two passes and the rules stop asking. Said here rather than left as silence, because a
-      // reader watching a companion be skipped needs to know it is a rule and not a fault — and
-      // needs to know that naming it brings it back.
+      // Two passes and the rules stop asking. Said here rather than left as silence: a reader
+      // watching a companion be skipped needs to know it is a rule and not a fault — and that
+      // naming it brings it back, which pressing this does.
       : s.passes >= 2 ? tr('meet.resting')
       : s.person ? tr('meet.you')
-      : ''));
-    box.append(row);
+      : '';
+    tip(c, what ? s.name + ' — ' + what : tr('meet.call', {who: s.name}));
+    c.setAttribute('aria-label', what ? s.name + ' — ' + what : s.name);
+    if (!m.closed) {
+      c.onclick = async () => {
+        await fetch('/meet-say', {method: 'POST',
+          body: new URLSearchParams({id: m.id, call: s.name})});
+        loadMeet();
+      };
+    } else {
+      c.setAttribute('disabled', '');
+    }
+    box.append(c);
   }
   return box;
 }
@@ -5039,9 +5073,11 @@ function sayBox(m) {
     await fetch('/meet-close', {method: 'POST', body: new URLSearchParams({id: m.id})});
     loadMeet();
   };
-  const bar = cell('meetbar');
-  bar.append(send, stop);
-  box.append(f, bar);
+  // One row: the box, the thing that sends it, and the thing that ends the meeting. They were a
+  // full-width field with its buttons stranded underneath — three parts of one control, drawn as
+  // two unrelated things. The field takes the room and the buttons sit at the end of it, which is
+  // the shape the page's own composer has had all along.
+  box.append(f, send, stop);
   return box;
 }
 

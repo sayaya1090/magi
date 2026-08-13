@@ -286,6 +286,7 @@
   "mcp.kind_http": "Over HTTP (a url)",
   "mcp.kind_stdio": "A process this machine starts",
   "meet.back": "All meetings",
+  "meet.call": "Call on {who}",
   "meet.closing": "Wrapping up",
   "meet.collecting": "Asking each of them what they will do",
   "meet.done": "Finished",

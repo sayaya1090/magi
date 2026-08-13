@@ -255,6 +255,20 @@ func (s *server) meetSay(w http.ResponseWriter, r *http.Request) {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	me := run.personName(s.personHere(r))
+	// Calling on somebody by pressing their name. It is the same act as writing "@ops" into a
+	// sentence — the rules already have it — and on a screen where the roster is a row of chips it
+	// is the obvious thing to do to one. A companion that had passed twice and stopped being asked
+	// comes back this way, which is the only way back.
+	if call := strings.TrimSpace(r.FormValue("call")); call != "" {
+		if call == me {
+			// Pressing your own chip is taking the floor, which is what the box below does when you
+			// start typing in it. One act, two ways to reach it.
+			run.held = true
+		}
+		run.m.Take(call)
+		writeJSON(w, "meeting", run.viewLocked())
+		return
+	}
 	if said == "" {
 		// A keystroke, not a sentence: the floor, without words yet.
 		run.held = r.FormValue("hold") != ""

@@ -1622,7 +1622,10 @@
   .editstack .editghost {
     position:absolute; inset:0; margin:0; overflow:hidden; pointer-events:none;
     white-space:pre-wrap; overflow-wrap:break-word;
-    font:var(--md-sys-typescale-body-large-size)/1.6 var(--magi-ref-mono); tab-size:4;
+    /* The same face and size as the file BEING edited — see .fileeditarea for why this is
+       body-small and what a finger changes. The ghost carries the colour under a transparent
+       field, so any drift here is the highlight sliding off the letters it belongs to. */
+    font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono); tab-size:4;
     /* The component's own inner padding, so line one starts on line one. */
     padding:var(--magi-sys-space-200); color:var(--magi-ref-fg);
     border-radius:var(--magi-sys-shape-extra-small);
@@ -1638,10 +1641,19 @@
   .fileeditarea {
     width:100%; max-height:calc(100dvh - 22rem); overflow:auto;
     --md-outlined-text-field-input-text-font:var(--magi-ref-mono);
-    /* body-large is 1rem, which is also the floor under which iOS Safari zooms the page in on
-       focus and does not zoom back. The scale and the constraint agree here. */
-    --md-outlined-text-field-input-text-size:var(--md-sys-typescale-body-large-size);
+    /* The size the file is READ at. Editing was body-large and reading is body-small, so pressing
+       edit re-flowed the whole file — every line broke somewhere else, and the thing on screen
+       stopped being the thing you had just been looking at. It is one file in one place; the two
+       modes differ in what you can do, not in what it looks like. */
+    --md-outlined-text-field-input-text-size:var(--md-sys-typescale-body-small-size);
     --md-outlined-text-field-input-text-line-height:1.6;
+  }
+  /* Except where a finger is the input. Below 16px, iOS Safari zooms the page in when a field
+     takes focus and does not zoom back out — so on touch the editor keeps the larger size and the
+     ghost follows it, which is a re-flow on entering edit and the lesser of the two. */
+  @media (hover:none) {
+    .fileeditarea { --md-outlined-text-field-input-text-size:var(--md-sys-typescale-body-large-size); }
+    .editstack .editghost { font-size:var(--md-sys-typescale-body-large-size); }
   }
 
   /* This file's controls, in one corner and in every mode: "edit" becomes "save · cancel" where
@@ -2137,7 +2149,13 @@
        column to the bottom of it, over the tab strip above it: the tabs were there, the right
        size, the right colour, and buried under an opaque surface belonging to the thing below
        them. Which is why opening a file made the tabs disappear. */
-    body[at="agent"] #fileview { position:relative; max-height:min(60vh, 34rem); }
+    /* Half the column at most, and never more than a screenful.
+       It was 60vh — which on a 900px window is 540 of the 777 the column has, leaving the
+       conversation 223px: two messages under a file that fills the screen. The file and the
+       conversation share this column, and neither is the other's guest, so the file takes what it
+       needs up to half of it and scrolls inside itself for the rest. The vh ceiling stays for the
+       tall window, where half a column is more file than anybody reads at once. */
+    body[at="agent"] #fileview { position:relative; max-height:min(50%, 60vh); }
   }
   @media (min-width:52.5em) {
     #agentview {
@@ -2634,43 +2652,40 @@
   .meettrouble { color:var(--magi-ref-warn); }
   .meetwho { display:flex; flex-wrap:wrap; }
   .meetends { color:var(--magi-ref-muted); }
-  /* The note takes the room and the action sits at the trailing end, which is where a form's
-     action goes. Wrapping, so a long refusal on a narrow screen puts the button on its own line
-     rather than squeezing it to nothing. */
-  .meetgobar {
-    display:flex; align-items:center; gap:var(--magi-sys-space-300); flex-wrap:wrap;
-  }
-  .meetgobar .meetnote { flex:1 1 20rem; }
-  .meetgo { margin-left:auto; }
+  /* The action on its own line, at the leading edge, and wide enough to read as the end of the
+     form rather than a pill left over at the margin.
+     It has been all three ways: flush left and small, which read as another field that had lost
+     its label; pushed to the trailing end, alone at the far side of a wide screen with the note
+     that explains it a screen away; and this — where the width is what says "this is the one
+     control here", which was the reader's own suggestion of the three. The note sits under it and
+     says why it cannot be pressed yet. */
+  .meetgo { justify-self:start; min-width:14rem; }
 
-  /* The room, as a list. Boxes first, and the cards guidance is explicit about why not: do not
-     force content into cards when spacing and dividers give a simpler hierarchy — and this tree
-     had already decided the same thing about the fleet, where a row is a row. Each participant is
-     one line: who, leading; what they are doing about it, trailing. Which is a list item. */
-  .meetroster { display:grid; }
-  .meetsp {
-    display:flex; align-items:baseline; gap:var(--magi-sys-space-150);
-    padding:var(--magi-sys-space-150) var(--magi-sys-space-200);
-  }
-  .meetroster .meetsp + .meetsp { border-top:1px solid var(--magi-ref-outlineVariant); }
-  /* Whoever has the floor, marked the way the lists guidance marks a selected item: the state is
-     on the WHOLE row, not on a mark inside it. Not colour alone either — the word at the end of
-     the row says it, which is what makes it readable without colour vision. */
-  /* The pair, not two colours that happen to sit together: a selected container and the `on-`
-     role that goes with it. Written as primary on surface-container-high first, and the light
-     theme measured 4.01:1 for the name of whoever was speaking — the one row on the screen a
-     reader is looking for. A container role carries its own foreground and cannot drift from it. */
+  /* The room, as one line of chips.
+     Rows first, and four participants in four full-width rows spent most of the screen saying one
+     word each about their state — a state is what a colour is for. Each chip is also the control
+     that calls on that participant, so the roster is where the token is moved rather than a
+     read-out beside it.
+     Filter chips because they are what the bundle has, and the semantic survives: the set has one
+     selected member and the selected one is whoever holds the floor, so pressing another is
+     changing that selection. Colour carries the state and the tooltip carries the word — the pair
+     the guide asks for wherever a colour would otherwise be the only telling. */
+  .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); }
+  /* Whoever holds the floor: a container role and the `on-` colour that belongs to it, rather than
+     two colours that happen to sit together. Written as primary-on-surface first, and the light
+     theme measured 4.01:1 on the one name a reader is looking for. */
   .meetsp.holding {
-    background:var(--md-sys-color-secondary-container);
-    color:var(--md-sys-color-on-secondary-container);
+    --md-filter-chip-selected-container-color:var(--md-sys-color-secondary-container);
+    --md-filter-chip-selected-label-text-color:var(--md-sys-color-on-secondary-container);
+    --md-filter-chip-selected-outline-color:var(--magi-ref-primary);
+    --md-filter-chip-selected-outline-width:2px;
   }
-  .meetspname { color:var(--magi-ref-fg); }
-  .meetsp.holding .meetspname { color:var(--md-sys-color-on-secondary-container); font-weight:600; }
-  .meetsp.next .meetspname { color:var(--magi-ref-accent); }
-  .meetspsay {
-    margin-left:auto; color:var(--magi-ref-muted);
-    font-size:var(--md-sys-typescale-label-small-size);
-  }
+  /* Next in line, outlined in the accent: "who is being waited on" without reading anything. */
+  .meetsp.next { --md-filter-chip-outline-color:var(--magi-ref-accent); }
+  .meetsp.person { --md-filter-chip-label-text-color:var(--magi-ref-primary); }
+  /* Asked twice, said no twice: in the room and not being asked. Dimmer, and the tooltip says why
+     and what pressing it would do. */
+  .meetsp.resting { --md-filter-chip-label-text-color:var(--magi-ref-muted); }
 
   .meetsaid { display:grid; gap:var(--magi-sys-space-150); }
   .meetlap {
@@ -2686,8 +2701,13 @@
   .meetline.passed .meettext { color:var(--magi-ref-muted); }
   .meetwait { color:var(--magi-ref-muted); }
 
-  .meetsay { display:grid; gap:var(--magi-sys-space-150); }
-  .meetbar { display:flex; gap:var(--magi-sys-space-200); align-items:center; }
+  /* The box and its two buttons are one control on one line: the field takes the room and they sit
+     at the end of it, the same shape the page's composer has. Wrapping, because on a phone three of
+     them do not fit and the buttons belong under the box rather than squeezed beside it. */
+  .meetsay {
+    display:flex; gap:var(--magi-sys-space-150); align-items:flex-end; flex-wrap:wrap;
+  }
+  .meetsay > md-outlined-text-field { flex:1 1 18rem; min-width:0; }
 
   .meettasks { display:grid; gap:var(--magi-sys-space-150); }
   .meettask {
