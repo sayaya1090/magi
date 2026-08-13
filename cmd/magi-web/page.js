@@ -495,6 +495,7 @@ const consoleEl = document.getElementById('console');
 const whereamiEl = document.getElementById('whereami');
 const railFleet = document.getElementById('railFleet');
 const railSkills = document.getElementById('railSkills');
+const railMeet = document.getElementById('railMeet');
 const railAccess = document.getElementById('railAccess');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 // Corrections used to be a destination of its own and is now the first half of the experience
@@ -1053,29 +1054,56 @@ function summarise(list) {
     };
     return b;
   }));
-  // The way to the board, from the list it is about. Text rather than a chip: the chips are a
-  // filter on this table and this is not — a control that looked like them and did something else
-  // would be the worst of both.
-  // …and only when there is a past to look at. On a machine with no companions the board can
-  // never have held anything, and a control that can be pressed to reach a blank screen is worse
-  // than one that is not there — the same rule the zero tiles above already follow.
-  if (list.length) {
-    // An icon, not a word. The row it sits in is four counting chips, and a fifth thing shaped like
-    // a word reads as a fifth count — this is a way OUT of the list rather than a filter on it, and
-    // the shape is what says so. It keeps its name in the tooltip and its aria-label, because an
-    // icon alone is a guess for anybody who has not pressed it once.
-    const past = document.createElement('md-icon-button');
-    past.className = 'toboard';
-    tip(past, tr('nav.board'));
-    past.setAttribute('aria-label', tr('nav.board'));
-    // The drawn columns stay as the fallback and the baked one takes over where there is one, which
-    // is the same bargain the markup's icons strike — see dressIcons.
-    past.innerHTML = '<svg data-i="#i-sl-chart-kanban" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
-      '<path d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z" fill="none" ' +
-      'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    dressIcons(past);
-    past.onclick = () => { history.pushState({}, '', at(HREF.board)); render(); };
-    box.append(past);
+  // The ways OUT of this list, in one place and all the same shape.
+  //
+  // They were not. The board was an icon button here beside the counting chips; the map was a text
+  // button in a bar of its own above the table; the meetings screen arrived and took a third
+  // shape. Three controls that do one kind of thing — leave this list for another view of the same
+  // fleet — drawn three ways in three places, so nothing about any of them said they were
+  // siblings.
+  //
+  // Icons, not words: the row they sit in is four counting chips, and a word-shaped control reads
+  // as a fifth count. Each keeps its name in the tooltip and its aria-label, because an icon alone
+  // is a guess for anybody who has not pressed it once. Drawn paths as the fallback and the baked
+  // sprite where there is one, the same bargain the markup's icons strike — see dressIcons.
+  //
+  // …and only when there is something to look at. On a machine with no companions the board can
+  // never have held anything and a map is a box with a box in it — a control that can be pressed
+  // to reach a blank screen is worse than one that is not there, the same rule the zero tiles
+  // above already follow.
+  const local = list.filter(a => !a.elsewhere && !a.peer).length;
+  const ways = [
+    ['nav.board', '#i-sl-chart-kanban', HREF.board, list.length > 0,
+     '<path d="M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z" fill="none" ' +
+     'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'],
+    ['nav.map', '#i-sl-share-from-square', HREF.map, list.length > 1,
+     '<path d="M12 4.2a2 2 0 1 1 0 4 2 2 0 0 1 0-4M6 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4M18 15.8a2 ' +
+     '2 0 1 1 0 4 2 2 0 0 1 0-4M12 8.2v3.6M12 11.8H6v4M12 11.8h6v4" fill="none" ' +
+     'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'],
+    // The meetings screen is a destination in the rail as well. Here too because the rail is not
+    // drawn at all below 600px, and because this is where the participants are: the act belongs
+    // beside the list you would pick them from.
+    ['nav.meet', '#i-sl-comments', HREF.meet, local > 1 && mayEl(meetEl),
+     '<path d="M9.5 4h6.8A2.7 2.7 0 0 1 19 6.7v4.1a2.7 2.7 0 0 1-2.7 2.7H15l-3 2.6v-2.6H9.5a2.7 ' +
+     '2.7 0 0 1-2.7-2.7V6.7A2.7 2.7 0 0 1 9.5 4M5 9.4v5.9a2.7 2.7 0 0 0 2.7 2.7H9v2.4l2.8-2.4h2" ' +
+     'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+     'stroke-linejoin="round"/>'],
+  ];
+  let first = true;
+  for (const [key, ref, href, when, path] of ways) {
+    if (!when) continue;
+    const b = document.createElement('md-icon-button');
+    // The first of them takes the space; the rest sit beside it. Said of the group rather than of
+    // one control, so removing whichever happens to be first does not strand the row.
+    b.className = 'toview' + (first ? ' lead' : '');
+    first = false;
+    tip(b, tr(key));
+    b.setAttribute('aria-label', tr(key));
+    b.innerHTML = '<svg data-i="' + ref + '" viewBox="0 0 24 24" width="20" height="20" ' +
+      'aria-hidden="true">' + path + '</svg>';
+    dressIcons(b);
+    b.onclick = () => { history.pushState({}, '', at(href)); render(); };
+    box.append(b);
   }
 }
 
@@ -1945,18 +1973,9 @@ async function loadFleet() {
   // down should not leave its row in a map that grows for the life of the tab.
   const alive = new Set(list.map(a => (a.peer || '') + ' ' + a.socket));
   for (const key of [...shownCards.keys()]) if (!alive.has(key)) shownCards.delete(key);
-  // The way to the other view of this same destination. Only on the list's own screen, and only
-  // when there is something to lay out: a map of one companion is a box with a box in it.
-  const viewbar = [];
-  if (!here && list.length > 1) {
-    const bar = cell('viewbar');
-    bar.append(toMap());
-    // Where the participants are is where a meeting is convened from. Only when there are two to
-    // convene: the way to a screen that would refuse you is not a way anywhere.
-    if (mayEl(meetEl) && list.filter(a => !a.elsewhere && !a.peer).length > 1) bar.append(toMeet());
-    viewbar.push(bar);
-  }
-  fleetEl.replaceChildren(...(here ? [] : [...viewbar, tableHead()]), ...grouped(rows));
+  // The ways to the other views of this destination sit in the summary row with the board's, where
+  // they are one row of matching controls rather than three shapes in three places. See summarise.
+  fleetEl.replaceChildren(...(here ? [] : [tableHead()]), ...grouped(rows));
 }
 
 // The masthead's readout for the list's own screen: how many there are, and a way to reach whoever
@@ -4646,21 +4665,6 @@ function toTable() {
   return b;
 }
 
-function toMap() {
-  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-share-from-square'),
-                  tr('map.as_map'));
-  b.onclick = () => { history.pushState({}, '', at(HREF.map)); render(); };
-  return b;
-}
-
-// The way to a meeting, from the list the participants are in.
-function toMeet() {
-  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-comments'),
-                  tr('meet.convene'));
-  b.onclick = () => { history.pushState({}, '', at(HREF.meet)); render(); };
-  return b;
-}
-
 // ── meetings ─────────────────────────────────────────────────────────────────
 //
 // Companions talking to each other, watched from here.
@@ -4681,7 +4685,6 @@ let meetPick = new Set();
 // page's own "every element it reaches for exists" check cannot vouch for.
 let meetGoBtn = null;
 let meetTopic = '';
-let meetLaps = 3;
 // The meeting the reader is in, and whether the last look found it. A meeting lives in the console
 // that convened it, so one that has gone is a normal thing to arrive at from a bookmark.
 const meetOf = () => new URLSearchParams(location.search).get('m') || '';
@@ -4740,9 +4743,17 @@ function drawConvene(list, open) {
   const here = (list || []).filter(a => !a.elsewhere && !a.peer);
   const who = document.createElement('md-chip-set');
   who.className = 'meetwho';
-  for (const a of here) {
+  // A chip set of one is not a set — the guidance says so twice, once about chips never standing
+  // alone and once about a filter that offers a single choice. With fewer than two companions
+  // there is no room to fill, and the line below says that in words instead.
+  for (const a of (here.length > 1 ? here : [])) {
     const c = document.createElement('md-filter-chip');
-    c.setAttribute('label', a.name + (a.role ? ' — ' + a.role : ''));
+    // The name alone. A chip label is capped at twenty characters by the guidance and these were
+    // running to sixty — "design — the design system: component specs and visual review" is a
+    // sentence wearing a chip. What it is for belongs in the tooltip, where the rest of this page
+    // puts the same fact.
+    c.setAttribute('label', a.name);
+    if (a.role) tip(c, a.role);
     c.selected = meetPick.has(a.socket);
     c.onclick = () => {
       // The chip owns its own selected state and flips it after the click; what this reads is what
@@ -4754,17 +4765,6 @@ function drawConvene(list, open) {
     who.append(c);
   }
 
-  // How many laps, as a spend rather than a setting: each one is a turn per participant.
-  const laps = document.createElement('md-chip-set');
-  laps.className = 'meetlaps';
-  for (const n of [1, 2, 3]) {
-    const c = document.createElement('md-filter-chip');
-    c.setAttribute('label', tr('meet.laps', {n}));
-    c.selected = meetLaps === n;
-    c.onclick = () => { meetLaps = n; loadMeet(); };
-    laps.append(c);
-  }
-
   const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-comments'),
                    tr('meet.start'));
   go.className = 'meetgo';
@@ -4772,7 +4772,6 @@ function drawConvene(list, open) {
   go.onclick = async () => {
     const body = new URLSearchParams();
     body.set('topic', meetTopic);
-    body.set('rounds', String(meetLaps));
     for (const s of meetPick) body.append('who', s);
     const r = await fetch('/meet', {method: 'POST', body});
     if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
@@ -4786,12 +4785,20 @@ function drawConvene(list, open) {
     render();
   };
 
-  box.append(topic, cell('meetlbl', tr('meet.who')), who, cell('meetlbl', tr('meet.rounds')), laps,
-             go);
-  // Two is the floor, and the reason is said rather than left to a refusal from the server: with
-  // one companion this is a conversation, and its own page does that better.
-  const note = cell('meetnote', here.length < 2 ? tr('meet.need_two') : '');
-  box.append(note);
+  // What this is, how it ends, then the form, then the one control that starts it. The button was
+  // in the middle — between the chips and two lines of explanation — which put the act before the
+  // half of the explanation that says what pressing it commits to, and left the notes hanging off
+  // nothing.
+  //
+  // How it ends is said once and near the top, because it is not a thing anybody sets: the
+  // participants stop when they have nothing left to add, and the console's ceiling is there for
+  // the room that will not. Asking a convener for a number was asking them to guess the length of
+  // a discussion before it had happened.
+  box.append(cell('meetends', tr('meet.ends')), topic, cell('meetlbl', tr('meet.who')), who);
+  // The reason it cannot start yet, beside the control it is about rather than as a refusal from
+  // the server after the fact. Two is the floor: with one companion this is a conversation, and
+  // its own page does that better.
+  box.append(cell('meetnote', here.length < 2 ? tr('meet.need_two') : ''), go);
 
   const rooms = (open || []).filter(m => !m.closed || (m.tasks || []).length);
   if (rooms.length) {
@@ -4822,7 +4829,7 @@ function armConvene() {
 
 function meetRow(m) {
   const a = document.createElement('a');
-  a.className = 'meetrow';
+  a.className = 'meetrow state';
   a.href = at(HREF.meet + '&m=' + encodeURIComponent(m.id));
   a.onclick = e => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
@@ -4839,7 +4846,13 @@ function meetRow(m) {
 // meetWhere is the one line that says what stage a meeting is at.
 function meetWhere(m) {
   if (m.collecting) return tr('meet.collecting');
-  if (m.closed) return (m.tasks || []).length ? tr('meet.done') : tr('meet.closing');
+  if (m.closed) {
+    if (!(m.tasks || []).length) return tr('meet.closing');
+    // Two ways to be finished, and they mean different things to somebody reading the
+    // conclusions: a room that ran out of things to say has answered the question, and a room the
+    // ceiling stopped may have been mid-argument.
+    return m.spent ? tr('meet.done_spent') : tr('meet.done');
+  }
   return tr('meet.round', {n: m.round, of: m.max});
 }
 
@@ -4850,6 +4863,12 @@ function drawMeetGone() {
   meetEl.replaceChildren(box);
 }
 
+// upNextName is whoever the console is waiting on, for the one line that says so.
+function upNextName(m) {
+  const next = (m.speakers || []).find(sp => sp.next);
+  return next ? next.name : '';
+}
+
 // The room.
 function drawRoom(m) {
   // While the floor is taken, nothing else can be said — that is what taking it means — so a
@@ -4857,10 +4876,28 @@ function drawRoom(m) {
   // the room does.
   if (m.held && meetEl.contains(document.activeElement)) return;
   const box = cell('meetbox');
-  const head = sectionHead('meet.title', toBack());
-  box.append(head);
-  box.append(cell('meettopic', m.topic));
+  box.append(sectionHead('meet.title', toBack()));
+  // The question is the headline of this screen, so it is a heading and not a styled line: with
+  // only the section's own h2 above it, everything below — the roster, the transcript, the
+  // conclusions — hung off "Meeting" and a reader moving by headings never met the topic.
+  const topic = document.createElement('h3');
+  topic.className = 'meettopic';
+  topic.textContent = m.topic;
+  box.append(topic);
   box.append(cell('meetmeta', meetWhere(m)));
+  // Something is happening and it takes a minute. Without this the room is a still page between
+  // turns — the same picture as a room that has stopped — and the guidance is explicit that a wait
+  // whose length nobody can predict gets an indeterminate indicator rather than nothing.
+  if (!m.closed || m.collecting) {
+    const bar = document.createElement('md-linear-progress');
+    bar.indeterminate = true;
+    bar.className = 'meetbar-progress';
+    // Named for what is being waited on, not "loading": whoever has the floor is the answer to
+    // "why is nothing on the screen changing".
+    bar.setAttribute('aria-label', m.collecting ? tr('meet.collecting')
+      : tr('meet.waiting_on', {who: m.holder || upNextName(m) || ''}));
+    box.append(bar);
+  }
   // What went wrong, where it happened, rather than in a log nobody has open. A participant whose
   // daemon has gone is a fact about this meeting.
   if (m.trouble) box.append(cell('meettrouble', tr('meet.trouble', {why: m.trouble})));
@@ -6704,7 +6741,7 @@ function paint() {
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared'],
-                           [railAccess, 'nav.access']]) {
+                           [railMeet, 'nav.meet'], [railAccess, 'nav.access']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
@@ -7100,7 +7137,8 @@ back.onclick = e => {
 // the click is intercepted like every other in-page link, and a middle click or a copied address
 // still lands. Access is one of them for the same reason it is in the rail at all: it is a screen
 // with an address, and the only thing different about it is that it sits at the foot.
-const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'], [railAccess, 'access']];
+const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'], [railMeet, 'meet'],
+               [railAccess, 'access']];
 for (const [el, key] of RAILS) {
   el.href = at(HREF[key]);
   el.onclick = e => {

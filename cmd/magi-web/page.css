@@ -1156,7 +1156,9 @@
   /* The way OUT of the list, at the far end of the row of filters that are about it. Beside them it
      read as a fifth chip; at the other edge it reads as what it is — the counts are on the left
      because they are about this table, and this is a door somewhere else. */
-  .toboard { margin-left:auto; }
+  /* The group is pushed to the trailing end together: the first of them takes the space and
+     the rest follow it, so which control happens to be first does not change the layout. */
+  .toview.lead { margin-left:auto; }
   .thead .r, .card .r { text-align:right; }
 
   /* A row, and it must not read as a card. It carried a coloured left edge and a rounded corner
@@ -1664,7 +1666,6 @@
      boxes are ordinary flow content — a grid that wraps — and the wires are an SVG laid over the
      top and measured after layout, because where a node ended up is something only the browser
      knows. */
-  .viewbar { display:flex; justify-content:flex-end; margin-bottom:var(--magi-sys-space-150); }
   .mapcanvas { position:relative; }
   /* Over the boxes, not under them. The wires are drawn between node edges, so a stacking order
      that put them behind the boxes hid every line the moment it crossed one — which is most of
@@ -2515,36 +2516,45 @@
      ordinary text at ordinary weight. */
   #meet { display:block; max-width:var(--magi-sys-page); }
   .meetbox { display:grid; gap:var(--magi-sys-space-200); }
-  .meetwhy, .meetnote { color:var(--magi-ref-muted); max-width:var(--magi-sys-measure); }
+  .meetwhy, .meetnote { color:var(--magi-ref-muted); }
   .meetlbl { color:var(--magi-ref-muted); margin-top:var(--magi-sys-space-100); }
-  .meettopic { color:var(--magi-ref-fg); font-size:var(--md-sys-typescale-title-medium-size); }
+  /* A heading, so it is drawn as one: the h3 default would be a browser size off the type scale
+     entirely. */
+  .meettopic {
+    margin:0; color:var(--magi-ref-fg); font-weight:600;
+    font-size:var(--md-sys-typescale-title-medium-size);
+  }
+  .meetbar-progress { --md-linear-progress-active-indicator-color:var(--magi-ref-primary); }
   .meetmeta { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-medium-size); }
   .meettrouble { color:var(--magi-ref-warn); }
-  .meetwho, .meetlaps { display:flex; flex-wrap:wrap; }
-  .meettopicfield { max-width:var(--magi-sys-measure); }
+  .meetwho { display:flex; flex-wrap:wrap; }
+  .meetends { color:var(--magi-ref-muted); }
   .meetgo { justify-self:start; }
 
-  /* The room. A row per speaker, because each carries three facts — who, whether they hold the
-     floor, and whether the rules are still asking them — and three facts do not fit in a chip. */
-  .meetroster {
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
-    gap:var(--magi-sys-space-100);
-  }
+  /* The room, as a list. Boxes first, and the cards guidance is explicit about why not: do not
+     force content into cards when spacing and dividers give a simpler hierarchy — and this tree
+     had already decided the same thing about the fleet, where a row is a row. Each participant is
+     one line: who, leading; what they are doing about it, trailing. Which is a list item. */
+  .meetroster { display:grid; }
   .meetsp {
     display:flex; align-items:baseline; gap:var(--magi-sys-space-150);
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
     padding:var(--magi-sys-space-150) var(--magi-sys-space-200);
-    background:var(--magi-ref-surface-container-low);
   }
-  /* Whoever has the floor. Not colour alone — the word beside the name says it too, which is the
-     rule everywhere else on this page and the reason it is readable without colour vision. */
+  .meetroster .meetsp + .meetsp { border-top:1px solid var(--magi-ref-outlineVariant); }
+  /* Whoever has the floor, marked the way the lists guidance marks a selected item: the state is
+     on the WHOLE row, not on a mark inside it. Not colour alone either — the word at the end of
+     the row says it, which is what makes it readable without colour vision. */
+  /* The pair, not two colours that happen to sit together: a selected container and the `on-`
+     role that goes with it. Written as primary on surface-container-high first, and the light
+     theme measured 4.01:1 for the name of whoever was speaking — the one row on the screen a
+     reader is looking for. A container role carries its own foreground and cannot drift from it. */
   .meetsp.holding {
-    border-color:var(--magi-ref-primary); background:var(--magi-ref-surface-container-high);
+    background:var(--md-sys-color-secondary-container);
+    color:var(--md-sys-color-on-secondary-container);
   }
-  .meetsp.next { border-style:dashed; }
-  .meetsp.person { border-color:var(--magi-ref-accent); }
   .meetspname { color:var(--magi-ref-fg); }
-  .meetsp.holding .meetspname { color:var(--magi-ref-primary); }
+  .meetsp.holding .meetspname { color:var(--md-sys-color-on-secondary-container); font-weight:600; }
+  .meetsp.next .meetspname { color:var(--magi-ref-accent); }
   .meetspsay {
     margin-left:auto; color:var(--magi-ref-muted);
     font-size:var(--md-sys-typescale-label-small-size);
@@ -2558,7 +2568,7 @@
   }
   .meetline { display:grid; grid-template-columns:minmax(6rem, 9rem) 1fr; gap:var(--magi-sys-space-200); }
   .meetwho2 { color:var(--magi-ref-accent); overflow-wrap:anywhere; }
-  .meettext { white-space:pre-wrap; overflow-wrap:anywhere; max-width:var(--magi-sys-measure); }
+  .meettext { white-space:pre-wrap; overflow-wrap:anywhere; }
   /* A pass is quieter than a sentence and still there. Muted rather than hidden: silence from
      somebody who read the discussion is information. */
   .meetline.passed .meettext { color:var(--magi-ref-muted); }
@@ -2574,17 +2584,19 @@
     border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-150);
   }
   .meettaskwho { color:var(--magi-ref-accent); }
-  .meettaskwhat { white-space:pre-wrap; overflow-wrap:anywhere; max-width:var(--magi-sys-measure); }
+  .meettaskwhat { white-space:pre-wrap; overflow-wrap:anywhere; }
   .meettask.nothing .meettaskwhat { color:var(--magi-ref-muted); }
   .meetsent { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); }
 
-  .meetlist { display:grid; gap:var(--magi-sys-space-150); }
+  /* And the meetings themselves, for the same reason: a list of things to open is a list. The
+     whole row is the one action — single-action, in the lists guidance's five modes — so the state
+     layer covers all of it rather than sitting on a word inside it. */
+  .meetlist { display:grid; }
   .meetrow {
     display:grid; gap:var(--magi-sys-space-50); text-decoration:none; color:inherit;
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
     padding:var(--magi-sys-space-200);
   }
-  .meetrow:hover { background:var(--magi-ref-surface-container-high); }
+  .meetlist .meetrow + .meetrow { border-top:1px solid var(--magi-ref-outlineVariant); }
   .meettitle { color:var(--magi-ref-fg); }
 
   @media (max-width:52.4375em) {

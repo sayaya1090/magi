@@ -61,13 +61,16 @@ type meetingRun struct {
 
 // meetView is what the screen reads: everything about one meeting, in one answer.
 type meetView struct {
-	ID         string        `json:"id"`
-	Topic      string        `json:"topic"`
-	Round      int           `json:"round"`
-	Max        int           `json:"max"`
-	Holder     string        `json:"holder,omitempty"`
-	Held       bool          `json:"held,omitempty"`
-	Closed     bool          `json:"closed,omitempty"`
+	ID     string `json:"id"`
+	Topic  string `json:"topic"`
+	Round  int    `json:"round"`
+	Max    int    `json:"max"`
+	Holder string `json:"holder,omitempty"`
+	Held   bool   `json:"held,omitempty"`
+	Closed bool   `json:"closed,omitempty"`
+	// Spent marks a meeting the backstop ended rather than the room: a discussion that converged
+	// and one that ran out of laps are different outcomes, and the screen says which.
+	Spent      bool          `json:"spent,omitempty"`
 	Collecting bool          `json:"collecting,omitempty"`
 	Trouble    string        `json:"trouble,omitempty"`
 	Speakers   []meetSpeaker `json:"speakers"`
@@ -106,9 +109,12 @@ type meetLine struct {
 	At    string `json:"at"`
 }
 
-// meetRounds is the default number of laps. Three is room for a position, an objection, and an
-// answer to the objection — and every lap is one model turn per participant, so this is a spend.
-const meetRounds = 3
+// meetRounds is the backstop, not a plan: what ends a meeting is the room running out of things
+// to say. See meeting.MaxRounds. The console picks it rather than asking, because a convener
+// choosing a number is a convener guessing, before the discussion, how long the discussion needs
+// to be — and every lap costs one model turn per participant, so the guess is expensive in both
+// directions. A caller may still name one; the screen does not.
+const meetRounds = 5
 
 // meet answers with one meeting, or with the ones this console is holding. POST convenes.
 func (s *server) meet(w http.ResponseWriter, r *http.Request) {
@@ -492,8 +498,9 @@ func (run *meetingRun) view() meetView {
 func (run *meetingRun) viewLocked() meetView {
 	out := meetView{
 		ID: run.id, Topic: run.m.Topic, Round: run.m.Round, Max: run.m.MaxRounds,
-		Holder: run.m.Holder, Held: run.held, Closed: run.m.Closed, Collecting: run.collecting,
-		Trouble: run.trouble, Speakers: []meetSpeaker{}, Said: []meetLine{},
+		Holder: run.m.Holder, Held: run.held, Closed: run.m.Closed, Spent: run.m.Spent,
+		Collecting: run.collecting,
+		Trouble:    run.trouble, Speakers: []meetSpeaker{}, Said: []meetLine{},
 	}
 	for _, t := range run.tasks {
 		out.Tasks = append(out.Tasks, meetTask{Who: t.Who, What: t.What})

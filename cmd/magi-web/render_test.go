@@ -587,7 +587,7 @@ func TestTheSummaryCountsEachStateAndFilters(t *testing.T) {
 	got := runPage(t, fiveStates, "", rowsHelper+`
 await loadFleet();
 // The way to the board sits in this row too, and it is not a tile: it is a link out, not a filter.
-const tiles = byId.summary.children.filter(t => t.className !== 'toboard')
+const tiles = byId.summary.children.filter(t => !String(t.className).startsWith('toview'))
   .map(t => ({k: t.text, pressed: !!t.selected, off: !!t.disabled}));
 console.log(JSON.stringify({tiles, rows: rows().length}));
 `)
@@ -2546,7 +2546,7 @@ console.log(JSON.stringify({
   found: !!far,
   href: far ? (far.attrs.href || '') : 'no row',
   clickable: far ? !!far.onclick : true,
-  tiles: byId.summary.children.filter(t => t.className !== 'toboard').map(t => t.text),
+  tiles: byId.summary.children.filter(t => !String(t.className).startsWith('toview')).map(t => t.text),
 }));
 `)
 	if got["found"] != true {

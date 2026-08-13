@@ -396,7 +396,7 @@ for (const id of ['plan', 'handoffs', 'queued', 'cron', 'intervened']) {
   if (byId[id]) byId.side.append(byId[id]);
 }
 for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
-                            ['railAccess', 'railFoot']]) {
+                            ['railMeet', 'railNav'], ['railAccess', 'railFoot']]) {
   byId[parent].append(byId[id]);
   // The label is markup, not something the module creates: paint() writes into it by class.
   const lbl = element('span');

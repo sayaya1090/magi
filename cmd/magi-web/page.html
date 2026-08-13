@@ -187,6 +187,22 @@
       </span>
       <span class="lbl"></span>
     </a>
+    <!-- Companions talking to each other. A destination and not a control on the fleet: a meeting
+         outlives the screen it was convened from, and somebody coming back to one an hour later
+         should not have to remember which list had the button. The convening form lives here too,
+         because picking who is in the room is the first thing you do on the way in.
+         data-may for the same reason the screen carries it: a meeting is model turns on several
+         companions at once, and a way in that only leads to a refusal is not a way anywhere. -->
+    <a id="railMeet" class="raili" data-may="prompt">
+      <span class="icwrap">
+        <!-- Two speech bubbles: the one drawing everybody already reads as a discussion, and the
+             only one on this rail that is about companions talking rather than about work. -->
+        <svg data-i="#i-sl-comments" class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path
+          d="M9.5 4h6.8A2.7 2.7 0 0 1 19 6.7v4.1a2.7 2.7 0 0 1-2.7 2.7H15l-3 2.6v-2.6H9.5a2.7 2.7 0 0 1-2.7-2.7V6.7A2.7 2.7 0 0 1 9.5 4M5 9.4v5.9a2.7 2.7 0 0 0 2.7 2.7H9v2.4l2.8-2.4h2"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="lbl"></span>
+    </a>
   </div>
 
   <!-- Who may use this console, at the foot of the rail and away from the other two.
