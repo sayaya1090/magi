@@ -844,8 +844,15 @@
      screen's controls" looked like until somebody measured it. */
   .skfind { display:flex; margin:0 0 var(--magi-sys-space-300); }
   .skfind md-outlined-text-field { flex:1 1 22rem; max-width:34rem; }
+  /* Centred on the field, not sitting on its floor. A field is 56dp (80 with two rows) and a
+     button is 40, so aligning their bottoms puts the button's middle 8-20px below the middle of
+     the thing it acts on and the row reads as two rows that failed to line up. The guide has no
+     sentence about this — it rules on horizontal alignment and leaves the cross axis alone — so
+     it is a house rule: a field and its controls are one control, centred on the field.
+     Safe here because no field on this page grows: measured with six lines typed, the composer's
+     box stays 56px and scrolls inside itself. */
   .skwrite {
-    display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200); align-items:flex-end;
+    display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200); align-items:center;
     margin:var(--magi-sys-space-400) 0 0; padding-top:var(--magi-sys-space-300); border-top:1px solid var(--magi-ref-outlineVariant);
   }
   .skwrite md-outlined-select { flex:0 0 14rem; }
@@ -2732,7 +2739,10 @@
      selected member and the selected one is whoever holds the floor, so pressing another is
      changing that selection. Colour carries the state and the tooltip carries the word — the pair
      the guide asks for wherever a colour would otherwise be the only telling. */
-  .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); }
+  /* Centred. The roster is the meeting's own instrument rather than a list to read down, and the
+     transcript under it is a column of text with its own left edge — chips ranged against that
+     edge read as the first line of the transcript. */
+  .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); justify-content:center; }
   /* Whoever holds the floor: a container role and the `on-` colour that belongs to it, rather than
      two colours that happen to sit together. Written as primary-on-surface first, and the light
      theme measured 4.01:1 on the one name a reader is looking for. */
@@ -2767,7 +2777,7 @@
      at the end of it, the same shape the page's composer has. Wrapping, because on a phone three of
      them do not fit and the buttons belong under the box rather than squeezed beside it. */
   .meetsay {
-    display:flex; gap:var(--magi-sys-space-150); align-items:flex-end; flex-wrap:wrap;
+    display:flex; gap:var(--magi-sys-space-150); align-items:center; flex-wrap:wrap;
   }
   .meetsay > md-outlined-text-field { flex:1 1 18rem; min-width:0; }
 
@@ -3304,7 +3314,7 @@
     padding-left:var(--magi-sys-space-50); overflow-wrap:anywhere;
   }
   .composer {
-    display:flex; gap:var(--magi-sys-space-200); align-items:flex-end;
+    display:flex; gap:var(--magi-sys-space-200); align-items:center;
     border-top:1px solid var(--magi-ref-fg); padding-top:var(--magi-sys-space-150);
   }
   /* The composer's field is an M3 outlined text field. Its outline, focus behaviour, floating
@@ -3434,7 +3444,7 @@
        other two share the next one — the send button is a word, and a word does not need a row.
        Ordered rather than reordered in the markup: the tab order that reads to → message → send is
        the right one, and only where they SIT changes. */
-    .composer { flex-wrap:wrap; align-items:end; }
+    .composer { flex-wrap:wrap; align-items:center; }
     .composer md-outlined-text-field#t { order:1; }
       .composer md-filled-button, .composer md-filled-tonal-button { order:3; flex:0 0 auto; }
     /* The component, not the element it replaced. These two rules named "textarea" and "button",
