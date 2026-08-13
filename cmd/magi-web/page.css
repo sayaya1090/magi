@@ -1437,7 +1437,7 @@
 
   .filescard {
     display:flex; flex-direction:column; min-height:0;
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-m);
     background:var(--magi-ref-surface-container-low);
     overflow:hidden;
   }
@@ -1448,7 +1448,7 @@
     width:100%; border:0; background:none; color:var(--magi-ref-fg); text-align:left; cursor:pointer;
     padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
     font:600 var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display);
-    border-radius:var(--magi-sys-shape-medium) var(--magi-sys-shape-medium) 0 0;
+    border-radius:var(--magi-sys-shape-m) var(--magi-sys-shape-m) 0 0;
   }
   .panehead .panecaret { flex:none; color:var(--magi-ref-muted);
     transition:transform var(--magi-sys-dur-short2) var(--magi-sys-ease-standard); }
@@ -1609,7 +1609,7 @@
     display:flex; align-items:center; gap:var(--magi-sys-space-50);
     width:100%; border:0; background:none; color:var(--magi-ref-fg); text-align:left;
     font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-mono);
-    border-radius:var(--magi-sys-shape-extra-small); cursor:pointer;
+    border-radius:var(--magi-sys-shape-xs); cursor:pointer;
     min-height:1.65rem;
     /* The indent is a MEASURE, not spacing off the scale: it is one step of a tree's depth, the
        same number the guide line beside it is drawn at, and rounding it to the spacing scale would
@@ -1742,7 +1742,7 @@
     font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-warn);
     white-space:pre-wrap; padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
     border-left:2px solid var(--magi-ref-warn); background:var(--magi-ref-surface-container);
-    border-radius:var(--magi-sys-shape-extra-small);
+    border-radius:var(--magi-sys-shape-xs);
   }
 
   /* The path, whole, in a bar of its own. Whole because this is the line somebody copies into a
@@ -1753,7 +1753,7 @@
     font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted);
     overflow-wrap:anywhere; user-select:all;
     padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
-    background:var(--magi-ref-surface-container); border-radius:var(--magi-sys-shape-small);
+    background:var(--magi-ref-surface-container); border-radius:var(--magi-sys-shape-s);
     border:1px solid var(--magi-ref-outlineVariant);
   }
   /* A diff, coloured by what each line does. Not a red/green wash across the row — a line that is
@@ -1836,7 +1836,7 @@
      directory, one policy, one key — so it is drawn as a boundary and not as a heading with rows
      under it. */
   .place {
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-m);
     padding:var(--magi-sys-space-200); display:grid; gap:var(--magi-sys-space-150);
     background:var(--magi-ref-surface-container-low);
   }
@@ -1872,7 +1872,7 @@
   .node {
     display:flex; align-items:center; gap:var(--magi-sys-space-150);
     padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
-    border-radius:var(--magi-sys-shape-small); text-decoration:none; color:var(--magi-ref-fg);
+    border-radius:var(--magi-sys-shape-s); text-decoration:none; color:var(--magi-ref-fg);
     background:var(--magi-ref-surface-container);
   }
   .node .nodename { font:600 var(--magi-sys-body-m) var(--magi-ref-mono); overflow-wrap:anywhere; min-width:0; flex:1 1 auto; }
@@ -1929,7 +1929,9 @@
   }
   /* Complex — each one carries a form — so these get the stronger separation the guidance reserves
      for exactly that, and the room to go with it. */
-  .acclist .person { padding-bottom:var(--magi-sys-space-250); border-bottom:1px solid var(--magi-ref-outlineVariant); }
+  /* On the scale. It asked for 250, which this page does not have — the scale steps 200 then 300 —
+     so the padding under every person's row has been zero and their rule sat against their text. */
+  .acclist .person { padding-bottom:var(--magi-sys-space-200); border-bottom:1px solid var(--magi-ref-outlineVariant); }
   .acclist .person:last-child { border-bottom:0; padding-bottom:0; }
   .accwho { display:flex; align-items:baseline; gap:var(--magi-sys-space-150); flex-wrap:wrap; }
   /* The headline. Monospace because it is a literal somebody types into a file and compares by

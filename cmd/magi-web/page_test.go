@@ -282,6 +282,40 @@ func TestTheChosenThemeIsAppliedBeforeTheStylesheet(t *testing.T) {
 	}
 }
 
+// Every custom property the stylesheet reads is one it declares.
+//
+// A var() that names nothing is not an error anywhere: the declaration is dropped and the element
+// takes its initial value, in silence. Eight rules in this file were reading three shape tokens
+// that do not exist — the scale is declared as xs/s/m/l/xl and they asked for extra-small/small/
+// medium — so every card in the file pane had been drawn with square corners since the day the
+// names diverged, and the only reason anybody found out was a reader asking whether it was on
+// purpose.
+func TestEveryTokenTheStylesheetReadsIsOneItDeclares(t *testing.T) {
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	css = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	declared := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(--[a-zA-Z0-9-]+)\s*:`).FindAllStringSubmatch(css, -1) {
+		declared[m[1]] = true
+	}
+	// A var() with a fallback says what to do when the name is missing, so it is not this bug.
+	used := regexp.MustCompile(`var\(\s*(--[a-zA-Z0-9-]+)\s*\)`).FindAllStringSubmatch(css, -1)
+	missing := map[string]int{}
+	for _, m := range used {
+		// The component library declares its own; this is about the ones this page invented.
+		if !strings.HasPrefix(m[1], "--magi-") || declared[m[1]] {
+			continue
+		}
+		missing[m[1]]++
+	}
+	if len(missing) > 0 {
+		t.Errorf("the stylesheet reads %d name(s) it never declares, so those rules are dropped in "+
+			"silence: %v", len(missing), missing)
+	}
+	if len(declared) == 0 || len(used) == 0 {
+		t.Error("nothing was collected, so this guard is measuring nothing")
+	}
+}
+
 func TestThePageWorksOnAPhone(t *testing.T) {
 	flat := strings.ReplaceAll(indexHTML, " ", "")
 	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
