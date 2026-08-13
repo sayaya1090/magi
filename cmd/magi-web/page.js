@@ -436,6 +436,7 @@ const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board');
 const mapEl = document.getElementById('map');
+const meetEl = document.getElementById('meet');
 const mcpEl = document.getElementById('mcp');
 const accessEl = document.getElementById('access');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
@@ -516,11 +517,11 @@ const crumbSep3 = document.getElementById('crumbSep3'), crumbLeaf = document.get
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
 const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board',
-                     access: 'nav.access', map: 'nav.map'};
+                     access: 'nav.access', map: 'nav.map', meet: 'nav.meet'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
 const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=access',
-              map: '?v=map'};
+              map: '?v=map', meet: '?v=meet'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
@@ -1950,6 +1951,9 @@ async function loadFleet() {
   if (!here && list.length > 1) {
     const bar = cell('viewbar');
     bar.append(toMap());
+    // Where the participants are is where a meeting is convened from. Only when there are two to
+    // convene: the way to a screen that would refuse you is not a way anywhere.
+    if (mayEl(meetEl) && list.filter(a => !a.elsewhere && !a.peer).length > 1) bar.append(toMeet());
     viewbar.push(bar);
   }
   fleetEl.replaceChildren(...(here ? [] : [...viewbar, tableHead()]), ...grouped(rows));
@@ -4649,6 +4653,364 @@ function toMap() {
   return b;
 }
 
+// The way to a meeting, from the list the participants are in.
+function toMeet() {
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-comments'),
+                  tr('meet.convene'));
+  b.onclick = () => { history.pushState({}, '', at(HREF.meet)); render(); };
+  return b;
+}
+
+// ── meetings ─────────────────────────────────────────────────────────────────
+//
+// Companions talking to each other, watched from here.
+//
+// The console holds the floor and drives the turns (see meet.go); this screen is a window onto
+// that, plus the two things a person does in a room — say something, and end it. It polls rather
+// than streams: a turn is a minute of model time, so there is nothing an event stream would
+// deliver sooner than the next tick.
+//
+// Nothing on this screen changes a workspace. The conclusions arrive as a list and stay there
+// until somebody presses send on one, which is the seam the whole feature is built around.
+
+// What is being filled in, held outside the render because the render happens on a timer: a topic
+// half typed would be wiped by the poll that redraws the meetings under it.
+let meetPick = new Set();
+// The convene button, held rather than looked up: it is built here and never in the markup, so
+// there is no id for getElementById to find — and an id that only exists at runtime is one the
+// page's own "every element it reaches for exists" check cannot vouch for.
+let meetGoBtn = null;
+let meetTopic = '';
+let meetLaps = 3;
+// The meeting the reader is in, and whether the last look found it. A meeting lives in the console
+// that convened it, so one that has gone is a normal thing to arrive at from a bookmark.
+const meetOf = () => new URLSearchParams(location.search).get('m') || '';
+let meetGone = false;
+
+// meetGet is a quiet read: no red dot, no status line.
+//
+// fetchList speaks up because the screens that use it are the console's own state — if the fleet
+// cannot be read, something is wrong with the console. A meeting that ended is not that: it is an
+// address that no longer names anything, and the screen says so in the place the meeting would
+// have been.
+async function meetGet(path) {
+  try {
+    const r = await fetch(path);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+async function loadMeet() {
+  const id = meetOf();
+  if (!id) {
+    const [list, open] = await Promise.all([fetchList('/fleet'), meetGet('/meet')]);
+    drawConvene(list || [], open || []);
+    return;
+  }
+  const m = await meetGet('/meet?id=' + encodeURIComponent(id));
+  if (!m) { meetGone = true; drawMeetGone(); return; }
+  meetGone = false;
+  drawRoom(m);
+}
+
+// The form: what to ask, and who to ask.
+function drawConvene(list, open) {
+  // Not while somebody is filling it in. The poll behind this form is here for the list of open
+  // meetings at the bottom, and rebuilding the form to refresh that list would take the caret out
+  // of the topic somebody is halfway through writing.
+  if (meetEl.contains(document.activeElement)) return;
+  const box = cell('meetbox');
+  box.append(sectionHead('meet.title', toFleet()));
+  box.append(cell('meetwhy', tr('meet.why')));
+
+  const topic = document.createElement('md-outlined-text-field');
+  topic.className = 'meettopicfield';
+  topic.setAttribute('label', tr('meet.topic'));
+  topic.setAttribute('type', 'textarea');
+  topic.setAttribute('rows', '2');
+  topic.value = meetTopic;
+  // Kept as it is typed, not read at the end: the poll under this form redraws it every two
+  // seconds, and a field whose value lived only in the DOM would lose a sentence mid-word.
+  topic.addEventListener('input', () => { meetTopic = topic.value; armConvene(); });
+
+  // Only what this console can actually ask. A companion on another machine is a row this console
+  // has never dialled — see Elsewhere — so putting it in the room would be offering a turn nobody
+  // here can spend.
+  const here = (list || []).filter(a => !a.elsewhere && !a.peer);
+  const who = document.createElement('md-chip-set');
+  who.className = 'meetwho';
+  for (const a of here) {
+    const c = document.createElement('md-filter-chip');
+    c.setAttribute('label', a.name + (a.role ? ' — ' + a.role : ''));
+    c.selected = meetPick.has(a.socket);
+    c.onclick = () => {
+      // The chip owns its own selected state and flips it after the click; what this reads is what
+      // it is ABOUT to become, so the set and the drawing cannot disagree. Same lesson the pane
+      // handles learned the hard way.
+      if (meetPick.has(a.socket)) meetPick.delete(a.socket); else meetPick.add(a.socket);
+      armConvene();
+    };
+    who.append(c);
+  }
+
+  // How many laps, as a spend rather than a setting: each one is a turn per participant.
+  const laps = document.createElement('md-chip-set');
+  laps.className = 'meetlaps';
+  for (const n of [1, 2, 3]) {
+    const c = document.createElement('md-filter-chip');
+    c.setAttribute('label', tr('meet.laps', {n}));
+    c.selected = meetLaps === n;
+    c.onclick = () => { meetLaps = n; loadMeet(); };
+    laps.append(c);
+  }
+
+  const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-comments'),
+                   tr('meet.start'));
+  go.className = 'meetgo';
+  meetGoBtn = go;
+  go.onclick = async () => {
+    const body = new URLSearchParams();
+    body.set('topic', meetTopic);
+    body.set('rounds', String(meetLaps));
+    for (const s of meetPick) body.append('who', s);
+    const r = await fetch('/meet', {method: 'POST', body});
+    if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
+    // The answer is the meeting, and a console that accepted the request without making one — the
+    // demo, which answers every POST with "would have sent" — leaves the reader where they were
+    // rather than at an address that names nothing.
+    const m = await r.json().catch(() => null);
+    if (!m || !m.id) { loadMeet(); return; }
+    meetTopic = '';
+    history.pushState({}, '', at(HREF.meet + '&m=' + encodeURIComponent(m.id)));
+    render();
+  };
+
+  box.append(topic, cell('meetlbl', tr('meet.who')), who, cell('meetlbl', tr('meet.rounds')), laps,
+             go);
+  // Two is the floor, and the reason is said rather than left to a refusal from the server: with
+  // one companion this is a conversation, and its own page does that better.
+  const note = cell('meetnote', here.length < 2 ? tr('meet.need_two') : '');
+  box.append(note);
+
+  const rooms = (open || []).filter(m => !m.closed || (m.tasks || []).length);
+  if (rooms.length) {
+    box.append(sectionHead('meet.open'));
+    const l = cell('meetlist');
+    for (const m of rooms) l.append(meetRow(m));
+    box.append(l);
+  }
+  meetEl.replaceChildren(box);
+  armConvene();
+}
+
+// armConvene keeps the button honest about whether there is a meeting to start.
+//
+// A control that can be pressed and then refuses is worse than one that says why it cannot: the
+// press is the moment somebody learns, and by then they have written a topic.
+function armConvene() {
+  const go = meetGoBtn;
+  if (!go) return;
+  const ready = meetTopic.trim() !== '' && meetPick.size >= 2;
+  go.toggleAttribute('disabled', !ready);
+  const note = meetEl.querySelector('.meetnote');
+  if (note && !note.dataset.fixed) {
+    note.textContent = ready ? '' :
+      meetPick.size < 2 ? tr('meet.need_two') : tr('meet.need_topic');
+  }
+}
+
+function meetRow(m) {
+  const a = document.createElement('a');
+  a.className = 'meetrow';
+  a.href = at(HREF.meet + '&m=' + encodeURIComponent(m.id));
+  a.onclick = e => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    history.pushState({}, '', a.getAttribute('href'));
+    render();
+  };
+  a.append(cell('meettitle', m.topic));
+  a.append(cell('meetmeta', meetWhere(m) + ' · ' +
+    (m.speakers || []).filter(s => !s.person).map(s => s.name).join(', ')));
+  return a;
+}
+
+// meetWhere is the one line that says what stage a meeting is at.
+function meetWhere(m) {
+  if (m.collecting) return tr('meet.collecting');
+  if (m.closed) return (m.tasks || []).length ? tr('meet.done') : tr('meet.closing');
+  return tr('meet.round', {n: m.round, of: m.max});
+}
+
+function drawMeetGone() {
+  const box = cell('meetbox');
+  box.append(sectionHead('meet.title', toFleet()));
+  box.append(emptyState('meet.gone', 'meet.gone_how'));
+  meetEl.replaceChildren(box);
+}
+
+// The room.
+function drawRoom(m) {
+  // While the floor is taken, nothing else can be said — that is what taking it means — so a
+  // redraw would change nothing except where the caret is. The view stands still exactly while
+  // the room does.
+  if (m.held && meetEl.contains(document.activeElement)) return;
+  const box = cell('meetbox');
+  const head = sectionHead('meet.title', toBack());
+  box.append(head);
+  box.append(cell('meettopic', m.topic));
+  box.append(cell('meetmeta', meetWhere(m)));
+  // What went wrong, where it happened, rather than in a log nobody has open. A participant whose
+  // daemon has gone is a fact about this meeting.
+  if (m.trouble) box.append(cell('meettrouble', tr('meet.trouble', {why: m.trouble})));
+
+  box.append(roster(m));
+  box.append(transcript(m));
+  if (!m.closed) box.append(sayBox(m));
+  if (m.closed && (m.tasks || []).length) box.append(conclusions(m));
+  meetEl.replaceChildren(box);
+}
+
+function toBack() {
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'),
+                  tr('meet.back'));
+  b.onclick = () => { history.pushState({}, '', at(HREF.meet)); render(); };
+  return b;
+}
+
+// And out of the meetings screen entirely, to where the participants are.
+//
+// Not the map's control, which is what this used to borrow: that one is labelled "as a table"
+// because there it switches between two views of one destination. Here it is a way out, and a way
+// out labelled as a view switch tells somebody the wrong thing about where they are.
+function toFleet() {
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'),
+                  tr('nav.companions'));
+  b.onclick = () => { history.pushState({}, '', at(HREF.fleet)); render(); };
+  return b;
+}
+
+// Who is in the room, and what each of them is doing about it.
+//
+// The token is the whole mechanism, so the screen draws it: whoever holds the floor is marked, and
+// so is whoever is next. Without that, "why is nothing happening" has no answer on the screen —
+// the transcript only says what has already been said.
+function roster(m) {
+  const box = cell('meetroster');
+  for (const s of (m.speakers || [])) {
+    const holding = m.holder === s.name;
+    const row = cell('meetsp' + (holding ? ' holding' : '') + (s.next ? ' next' : '') +
+                     (s.person ? ' person' : ''));
+    row.append(cell('meetspname', s.name));
+    row.append(cell('meetspsay', holding ? tr('meet.holding')
+      : s.next ? tr('meet.next')
+      // Two passes and the rules stop asking. Said here rather than left as silence, because a
+      // reader watching a companion be skipped needs to know it is a rule and not a fault — and
+      // needs to know that naming it brings it back.
+      : s.passes >= 2 ? tr('meet.resting')
+      : s.person ? tr('meet.you')
+      : ''));
+    box.append(row);
+  }
+  return box;
+}
+
+// Everything said, in order, attributed.
+function transcript(m) {
+  const box = cell('meetsaid');
+  let round = 0;
+  for (const u of (m.said || [])) {
+    if (u.round !== round) {
+      round = u.round;
+      box.append(cell('meetlap', tr('meet.lap', {n: round})));
+    }
+    const line = cell('meetline' + (u.pass ? ' passed' : ''));
+    line.append(cell('meetwho2', u.who));
+    // A pass is a contribution: somebody read the room and had nothing to add, which is worth
+    // seeing. Drawn quieter than a sentence, and never dropped.
+    line.append(cell('meettext', u.pass ? (u.text ? tr('meet.passed_why', {why: u.text})
+                                                  : tr('meet.passed')) : u.text));
+    box.append(line);
+  }
+  if (!(m.said || []).length) box.append(cell('meetwait', tr('meet.waiting')));
+  return box;
+}
+
+// The person's own box: typing takes the floor, sending gives it back.
+function sayBox(m) {
+  const box = cell('meetsay');
+  const f = document.createElement('md-outlined-text-field');
+  f.setAttribute('label', tr('meet.say'));
+  f.setAttribute('type', 'textarea');
+  f.setAttribute('rows', '2');
+  f.id = 'meetSay';
+  // Taken on the first keystroke and not on every one: the hush is a state, and re-posting it per
+  // character would be a request per character. Given back by sending, or by leaving the box empty.
+  let held = false;
+  const hold = async on => {
+    if (held === on) return;
+    held = on;
+    const body = new URLSearchParams({id: m.id});
+    if (on) body.set('hold', '1');
+    await fetch('/meet-say', {method: 'POST', body});
+  };
+  f.addEventListener('input', () => { hold(f.value.trim() !== ''); });
+  f.addEventListener('blur', () => { if (f.value.trim() === '') hold(false); });
+  const send = label(withMark(document.createElement('md-filled-button'), '#i-sl-paper-plane-top'),
+                     tr('meet.send'));
+  send.onclick = async () => {
+    const text = f.value.trim();
+    if (!text) return;
+    const body = new URLSearchParams({id: m.id, text});
+    const r = await fetch('/meet-say', {method: 'POST', body});
+    if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
+    f.value = '';
+    held = false;
+    loadMeet();
+  };
+  const stop = label(withMark(document.createElement('md-text-button'), '#i-sl-flag-checkered'),
+                     tr('meet.wrap'));
+  // Ending it is the convener's call and not a rule: the rounds are a ceiling, not a plan, and a
+  // meeting that has answered the question in one lap should not spend two more.
+  stop.onclick = async () => {
+    await fetch('/meet-close', {method: 'POST', body: new URLSearchParams({id: m.id})});
+    loadMeet();
+  };
+  const bar = cell('meetbar');
+  bar.append(send, stop);
+  box.append(f, bar);
+  return box;
+}
+
+// What each participant leaves with, and the one control that makes any of it happen.
+function conclusions(m) {
+  const box = cell('meettasks');
+  box.append(sectionHead('meet.tasks'));
+  for (const t of (m.tasks || [])) {
+    const row = cell('meettask' + (t.what ? '' : ' nothing'));
+    row.append(cell('meettaskwho', t.who));
+    // Nothing to do is an outcome and is drawn as one. A participant missing from this list would
+    // read as one nobody asked.
+    row.append(cell('meettaskwhat', t.what || tr('meet.task_none')));
+    if (t.what) {
+      const go = label(withMark(document.createElement('md-text-button'), '#i-sl-paper-plane-top'),
+                       tr('meet.hand'));
+      go.onclick = async () => {
+        const r = await fetch('/meet-hand',
+          {method: 'POST', body: new URLSearchParams({id: m.id, who: t.who})});
+        if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
+        // Said on the row rather than as a page-wide notice: what was sent, and to whom, is a fact
+        // about this line.
+        go.replaceWith(cell('meetsent', tr('meet.handed')));
+      };
+      row.append(go);
+    }
+    box.append(row);
+  }
+  return box;
+}
+
 // One account on that machine: a magi, with its companions.
 //
 // The inner box is the boundary everything else here is scoped to — one config directory, one
@@ -6584,6 +6946,10 @@ function render() {
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
   mapEl.hidden = !!s || v !== 'map';
+  // Hidden by the view AND by the capability, like the access screen: a meeting spends model turns
+  // on several companions at once, so somebody who may not prompt should not arrive at the form by
+  // editing the address either. The server refuses regardless.
+  meetEl.hidden = !!s || v !== 'meet' || !mayEl(meetEl);
   mcpEl.hidden = !!s || v !== 'skills';
   // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
   // be able to arrive at by editing the address either.
@@ -6659,6 +7025,23 @@ function render() {
     // same clean-up path — render() clears fleetTimer on the way out of every view.
     loadMap();
     fleetTimer = setInterval(loadMap, 3000);
+    return;
+  }
+  if (v === 'meet') {
+    // Polled, and only while the meeting is still somewhere. A turn takes a minute, so two seconds
+    // is well inside the grain of what changes — and a stream would arrive no sooner.
+    //
+    // The redraw does not take the box out from under a person mid-sentence: the topic and what is
+    // being typed live outside the render, and the room is only rebuilt when the poll actually
+    // finds something different. A meeting that has gone stops the poll rather than asking a
+    // console that has already answered "no such meeting" once every two seconds for the evening.
+    loadMeet();
+    fleetTimer = setInterval(() => {
+      // A meeting that has gone stops the poll, rather than asking a console that has already
+      // answered "no such meeting" once every two seconds for the rest of the evening.
+      if (meetGone) { clearInterval(fleetTimer); fleetTimer = null; return; }
+      loadMeet();
+    }, 2000);
     return;
   }
   if (v === 'access') {

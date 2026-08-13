@@ -2508,6 +2508,91 @@
   #cron .job.off .jname { color:var(--magi-ref-muted); text-decoration:line-through; }
   #cron .job.broken .jnext { color:var(--magi-ref-error); }
 
+  /* ── a meeting: who has the floor, and what was said ─────────────────────
+     One column and not a chat: a meeting is read top to bottom afterwards as much as it is watched
+     while it happens, and the thing a reader is looking for is who said what in which round. The
+     token is the mechanism, so it is the loudest thing on the screen — everything else here is
+     ordinary text at ordinary weight. */
+  #meet { display:block; max-width:var(--magi-sys-page); }
+  .meetbox { display:grid; gap:var(--magi-sys-space-200); }
+  .meetwhy, .meetnote { color:var(--magi-ref-muted); max-width:var(--magi-sys-measure); }
+  .meetlbl { color:var(--magi-ref-muted); margin-top:var(--magi-sys-space-100); }
+  .meettopic { color:var(--magi-ref-fg); font-size:var(--md-sys-typescale-title-medium-size); }
+  .meetmeta { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-medium-size); }
+  .meettrouble { color:var(--magi-ref-warn); }
+  .meetwho, .meetlaps { display:flex; flex-wrap:wrap; }
+  .meettopicfield { max-width:var(--magi-sys-measure); }
+  .meetgo { justify-self:start; }
+
+  /* The room. A row per speaker, because each carries three facts — who, whether they hold the
+     floor, and whether the rules are still asking them — and three facts do not fit in a chip. */
+  .meetroster {
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+    gap:var(--magi-sys-space-100);
+  }
+  .meetsp {
+    display:flex; align-items:baseline; gap:var(--magi-sys-space-150);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
+    padding:var(--magi-sys-space-150) var(--magi-sys-space-200);
+    background:var(--magi-ref-surface-container-low);
+  }
+  /* Whoever has the floor. Not colour alone — the word beside the name says it too, which is the
+     rule everywhere else on this page and the reason it is readable without colour vision. */
+  .meetsp.holding {
+    border-color:var(--magi-ref-primary); background:var(--magi-ref-surface-container-high);
+  }
+  .meetsp.next { border-style:dashed; }
+  .meetsp.person { border-color:var(--magi-ref-accent); }
+  .meetspname { color:var(--magi-ref-fg); }
+  .meetsp.holding .meetspname { color:var(--magi-ref-primary); }
+  .meetspsay {
+    margin-left:auto; color:var(--magi-ref-muted);
+    font-size:var(--md-sys-typescale-label-small-size);
+  }
+
+  .meetsaid { display:grid; gap:var(--magi-sys-space-150); }
+  .meetlap {
+    color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size);
+    letter-spacing:.05em; border-top:1px solid var(--magi-ref-outlineVariant);
+    padding-top:var(--magi-sys-space-150);
+  }
+  .meetline { display:grid; grid-template-columns:minmax(6rem, 9rem) 1fr; gap:var(--magi-sys-space-200); }
+  .meetwho2 { color:var(--magi-ref-accent); overflow-wrap:anywhere; }
+  .meettext { white-space:pre-wrap; overflow-wrap:anywhere; max-width:var(--magi-sys-measure); }
+  /* A pass is quieter than a sentence and still there. Muted rather than hidden: silence from
+     somebody who read the discussion is information. */
+  .meetline.passed .meettext { color:var(--magi-ref-muted); }
+  .meetwait { color:var(--magi-ref-muted); }
+
+  .meetsay { display:grid; gap:var(--magi-sys-space-150); }
+  .meetbar { display:flex; gap:var(--magi-sys-space-200); align-items:center; }
+
+  .meettasks { display:grid; gap:var(--magi-sys-space-150); }
+  .meettask {
+    display:grid; grid-template-columns:minmax(6rem, 9rem) 1fr auto;
+    gap:var(--magi-sys-space-200); align-items:center;
+    border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-150);
+  }
+  .meettaskwho { color:var(--magi-ref-accent); }
+  .meettaskwhat { white-space:pre-wrap; overflow-wrap:anywhere; max-width:var(--magi-sys-measure); }
+  .meettask.nothing .meettaskwhat { color:var(--magi-ref-muted); }
+  .meetsent { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); }
+
+  .meetlist { display:grid; gap:var(--magi-sys-space-150); }
+  .meetrow {
+    display:grid; gap:var(--magi-sys-space-50); text-decoration:none; color:inherit;
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-medium);
+    padding:var(--magi-sys-space-200);
+  }
+  .meetrow:hover { background:var(--magi-ref-surface-container-high); }
+  .meettitle { color:var(--magi-ref-fg); }
+
+  @media (max-width:52.4375em) {
+    /* The name over the words rather than beside them: at 390px a nine-rem column leaves a
+       sentence four words wide. */
+    .meetline, .meettask { grid-template-columns:1fr; }
+  }
+
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--magi-sys-page); }
   .boardhead { display:flex; gap:var(--magi-sys-space-200); align-items:center; margin:0 0 var(--magi-sys-space-200); flex-wrap:wrap; }

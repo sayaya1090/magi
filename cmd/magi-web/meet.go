@@ -61,18 +61,28 @@ type meetingRun struct {
 
 // meetView is what the screen reads: everything about one meeting, in one answer.
 type meetView struct {
-	ID         string         `json:"id"`
-	Topic      string         `json:"topic"`
-	Round      int            `json:"round"`
-	Max        int            `json:"max"`
-	Holder     string         `json:"holder,omitempty"`
-	Held       bool           `json:"held,omitempty"`
-	Closed     bool           `json:"closed,omitempty"`
-	Collecting bool           `json:"collecting,omitempty"`
-	Trouble    string         `json:"trouble,omitempty"`
-	Speakers   []meetSpeaker  `json:"speakers"`
-	Said       []meetLine     `json:"said"`
-	Tasks      []meeting.Task `json:"tasks,omitempty"`
+	ID         string        `json:"id"`
+	Topic      string        `json:"topic"`
+	Round      int           `json:"round"`
+	Max        int           `json:"max"`
+	Holder     string        `json:"holder,omitempty"`
+	Held       bool          `json:"held,omitempty"`
+	Closed     bool          `json:"closed,omitempty"`
+	Collecting bool          `json:"collecting,omitempty"`
+	Trouble    string        `json:"trouble,omitempty"`
+	Speakers   []meetSpeaker `json:"speakers"`
+	Said       []meetLine    `json:"said"`
+	Tasks      []meetTask    `json:"tasks,omitempty"`
+}
+
+// meetTask is one participant's conclusion on the wire.
+//
+// The core type would serialise as Who/What — its fields carry no tags, and they should not: a
+// domain type that knows how a browser spells things is a domain type with a transport in it. The
+// mapping lives here, where the rest of this screen's wire shape is written.
+type meetTask struct {
+	Who  string `json:"who"`
+	What string `json:"what,omitempty"`
 }
 
 type meetSpeaker struct {
@@ -483,7 +493,10 @@ func (run *meetingRun) viewLocked() meetView {
 	out := meetView{
 		ID: run.id, Topic: run.m.Topic, Round: run.m.Round, Max: run.m.MaxRounds,
 		Holder: run.m.Holder, Held: run.held, Closed: run.m.Closed, Collecting: run.collecting,
-		Trouble: run.trouble, Speakers: []meetSpeaker{}, Said: []meetLine{}, Tasks: run.tasks,
+		Trouble: run.trouble, Speakers: []meetSpeaker{}, Said: []meetLine{},
+	}
+	for _, t := range run.tasks {
+		out.Tasks = append(out.Tasks, meetTask{Who: t.Who, What: t.What})
 	}
 	for _, sp := range run.m.Speakers {
 		out.Speakers = append(out.Speakers, meetSpeaker{

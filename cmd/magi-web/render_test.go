@@ -4921,3 +4921,139 @@ console.log(JSON.stringify({wasBottom: wasBottom, wentTo: wentTo, stillBottom: s
 		t.Error("nothing listens to the column's own scroll, so reaching its top asks for nothing")
 	}
 }
+
+// meetPage renders the meetings screen against one fixture meeting.
+func meetPage(t *testing.T, meeting, epilogue string) map[string]any {
+	t.Helper()
+	return runPage(t, `[]`, "?v=meet&m=m1", `
+const MEETING = `+meeting+`;
+globalThis.POSTED = [];
+globalThis.fetch = async (p, init) => {
+  const path = String(p);
+  if (init && init.method === 'POST') {
+    POSTED.push(path + ' ' + String(init.body || ''));
+    return {ok: true, status: 204, text: async () => '', json: async () => ({})};
+  }
+  if (path.startsWith('/meet')) {
+    return {ok: true, status: 200, json: async () => MEETING, text: async () => ''};
+  }
+  return {ok: true, status: 200, json: async () => [], text: async () => '[]'};
+};
+await loadMeet();
+`+epilogue)
+}
+
+// The screen says where the token is, because the token is the whole mechanism.
+//
+// A transcript alone answers "what has been said" and not "why is nothing happening" — the second
+// question is the one somebody watching a meeting actually has, and its answer is who holds the
+// floor and who is next. A pass belongs on the screen for the same reason: silence from a
+// companion that READ the discussion is information, and a screen that dropped it would show a
+// participant who mysteriously never spoke.
+func TestTheMeetingScreenSaysWhereTheTokenIs(t *testing.T) {
+	got := meetPage(t, `{
+    id: 'm1', topic: 'who owns the retry budget', round: 2, max: 3, holder: 'design',
+    trouble: 'ops: no daemon at /s/ops.sock',
+    speakers: [{name: 'design', socket: '/s/d'}, {name: 'api', socket: '/s/a', next: true},
+               {name: 'ops', socket: '/s/o', passes: 2}, {name: 'you', person: true}],
+    said: [{who: 'design', round: 1, text: 'the budget is mine above 200ms'},
+           {who: 'api', round: 1, pass: true, text: 'no number yet'},
+           {who: 'design', round: 2, text: 'then the table marks the rest as still coming'}],
+  }`, `
+const cls = c => byId.meet.find(d => String(d.className).split(' ')[0] === c);
+// The fake keeps textContent per node rather than composing it from the tree, so a row's words
+// live in its children — which is also how the page builds them.
+const txt = d => d.find(() => true).map(x => x.textContent || '').join(' ').trim();
+console.log(JSON.stringify({
+  holder: cls('meetsp').filter(d => String(d.className).includes('holding')).map(txt),
+  next: cls('meetsp').filter(d => String(d.className).includes('next')).map(txt),
+  resting: cls('meetsp').map(txt).filter(s => s.includes('ops'))[0],
+  laps: cls('meetlap').map(d => d.textContent),
+  passed: cls('meetline').filter(d => String(d.className).includes('passed')).map(txt),
+  trouble: (cls('meettrouble')[0] || {}).textContent,
+  posted: POSTED,
+}));
+`)
+	if h := fmt.Sprint(got["holder"]); !strings.Contains(h, "design") {
+		t.Errorf("nothing on the screen is marked as holding the floor: %v", h)
+	}
+	if n := fmt.Sprint(got["next"]); !strings.Contains(n, "api") {
+		t.Errorf("nobody is marked as next, so a reader cannot tell who is being waited on: %v", n)
+	}
+	// Two passes and the rules stop asking. A reader has to be told that is a rule and not a fault,
+	// and that naming the companion brings it back.
+	if r, _ := got["resting"].(string); !strings.Contains(r, "name") {
+		t.Errorf("the skipped participant's row says %q", r)
+	}
+	if l := fmt.Sprint(got["laps"]); !strings.Contains(l, "1") || !strings.Contains(l, "2") {
+		t.Errorf("the rounds are not marked in the transcript: %v", l)
+	}
+	if p := fmt.Sprint(got["passed"]); !strings.Contains(p, "api") {
+		t.Errorf("a pass was dropped from the transcript: %v", p)
+	}
+	if tr, _ := got["trouble"].(string); !strings.Contains(tr, "ops") {
+		t.Errorf("the unreachable participant is not named on the screen: %q", tr)
+	}
+	// And drawing a room does not act on anybody. The one POST this screen makes on its own is the
+	// hush when somebody types; opening it sends nothing at all.
+	if p, _ := got["posted"].([]any); len(p) != 0 {
+		t.Errorf("opening a meeting sent %v", p)
+	}
+}
+
+// A conclusion is a proposal until a person presses send.
+//
+// The meeting is read-only by construction — participants speak from read-only sessions — and this
+// is the screen half of the same rule: the tasks sit there, one control each, and nothing leaves
+// until somebody presses one. A participant with nothing to do is drawn as such rather than left
+// off, because a missing row reads as one nobody got round to asking.
+func TestTheConclusionsWaitForAPerson(t *testing.T) {
+	got := meetPage(t, `{
+    id: 'm1', topic: 'the empty state', round: 2, max: 2, closed: true,
+    speakers: [{name: 'design', socket: '/s/d'}, {name: 'buttons', socket: '/s/b'},
+               {name: 'you', person: true}],
+    said: [{who: 'design', round: 1, text: 'three components invent their own'}],
+    tasks: [{who: 'design', what: 'write the spec and name the tokens'}, {who: 'buttons'}],
+  }`, `
+const cls = c => byId.meet.find(d => String(d.className).split(' ')[0] === c);
+const txt = d => d.find(() => true).map(x => x.textContent || '').join(' ').trim();
+const rows = cls('meettask');
+const sendable = rows.map(r => r.find(clicky).length);
+const before = POSTED.length;
+// Awaited, because sending is a request: reading POSTED before it resolves would pass whether or
+// not the button did anything.
+await rows[0].find(clicky)[0].onclick();
+console.log(JSON.stringify({
+  rows: rows.map(txt),
+  nothing: rows.map(r => String(r.className).includes('nothing')),
+  sendable: sendable,
+  before: before,
+  posted: POSTED,
+  saying: !!byId.meet.find(d => d.id === 'meetSay').length,
+}));
+`)
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("the conclusions are %v", rows)
+	}
+	if n := fmt.Sprint(got["nothing"]); n != "[false true]" {
+		t.Errorf("nothing-to-do is not drawn as an outcome: %v", n)
+	}
+	// One control on the row that has work, none on the row that does not: a send button beside
+	// "nothing to do" is a control that can only fail.
+	if s := fmt.Sprint(got["sendable"]); s != "[1 0]" {
+		t.Errorf("the controls per row are %v", s)
+	}
+	if n, _ := got["before"].(float64); n != 0 {
+		t.Error("drawing the conclusions handed work out on its own")
+	}
+	posted, _ := got["posted"].([]any)
+	if len(posted) != 1 || !strings.Contains(fmt.Sprint(posted[0]), "/meet-hand") ||
+		!strings.Contains(fmt.Sprint(posted[0]), "design") {
+		t.Errorf("pressing send posted %v", posted)
+	}
+	// A finished meeting has no floor to take, so there is nothing to say into.
+	if got["saying"] == true {
+		t.Error("a closed meeting still offers a box to speak in")
+	}
+}
