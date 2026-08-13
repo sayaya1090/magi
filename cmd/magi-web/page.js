@@ -6270,7 +6270,9 @@ function drawCommit(a, g) {
   const foot = cell('commitfoot');
   const msg = document.createElement('md-outlined-text-field');
   msg.setAttribute('type', 'textarea');
-  msg.setAttribute('rows', '5');
+  // Four lines: a subject, a blank line and two of body is what most messages are, and the box
+  // has to leave room for the diff above it in a card that is not always tall.
+  msg.setAttribute('rows', '4');
   msg.setAttribute('label', tr('git.message'));
   msg.className = 'commitmsg';
   msg.value = commitDraft;
@@ -6307,6 +6309,8 @@ function drawCommit(a, g) {
   acts.append(draft, go);
   foot.append(msg, acts);
   box.append(foot);
+  // The card is taller in this mode and holds its own scrolling boxes — see the rule in the stylesheet.
+  fileViewEl.classList.add('commitmode');
   fileViewEl.replaceChildren(bar, box);
   showCard();
 }
@@ -6324,6 +6328,7 @@ function drawDiff(path, which, text) {
   body.className = 'filecode diffbody';
   const lines = String(text).split('\n');
   if (!String(text).trim()) {
+    fileViewEl.classList.remove('commitmode');
     fileViewEl.replaceChildren(bar, cell('filesnote', tr('diff.same')));
     showCard();
     return;
@@ -6335,6 +6340,7 @@ function drawDiff(path, which, text) {
     row.textContent = line + '\n';
     body.append(row);
   }
+  fileViewEl.classList.remove('commitmode');
   fileViewEl.replaceChildren(bar, body);
   showCard();
 }
@@ -6385,12 +6391,14 @@ function drawFile(path, text) {
     acts.append(go);
   }
   if (editing === path) {
+    fileViewEl.classList.remove('commitmode');
     fileViewEl.replaceChildren(bar, editor(path, text, acts));
     showCard();
     return;
   }
   const box = cell('filebody');
   box.append(...codeBlocks(text, path));
+  fileViewEl.classList.remove('commitmode');
   fileViewEl.replaceChildren(bar, box);
   showCard();
 }

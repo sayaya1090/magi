@@ -1542,13 +1542,23 @@
      changed in it on the right, the message under both. Two columns because that is the reading
      order — pick a file, read the diff, write the line — and a dialog cannot hold it: the guide
      caps a basic dialog at 560dp and a unified diff is wider than that on its own. */
+  /* Rows that give way, not boxes with heights of their own. The list and the diff shared the top
+     row and each carried a cap in vh, so together they could be taller than the card and the whole
+     workbench scrolled — the message box included, which is the one thing that must not move. Now
+     the top row takes what is left and the two boxes in it scroll; the message row is auto. */
   .commitbox {
     display:grid; grid-template-columns:minmax(10rem, 16rem) minmax(0, 1fr);
-    gap:var(--magi-sys-space-200); align-items:start;
+    grid-template-rows:minmax(3rem, 1fr) auto;
+    gap:var(--magi-sys-space-200); align-items:stretch; min-height:0; flex:1 1 auto;
+    /* A floor low enough that the message always fits above the fold, and a scroller of last
+       resort: forced into a 300px card the whole thing used to overflow and the message box was
+       the part that fell off the bottom — the one thing here that cannot be cut. */
+    overflow:auto;
   }
-  .commitfiles { display:grid; align-content:start; max-height:min(40vh, 22rem); overflow:auto; }
+  .commitfoot { min-height:0; }
+  .commitfiles { display:grid; align-content:start; min-height:0; overflow:auto; }
   .commitbox .commitdiff {
-    margin:0; max-height:min(40vh, 22rem); overflow:auto; min-width:0;
+    margin:0; min-height:0; overflow:auto; min-width:0;
     font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono); tab-size:4;
   }
   /* The message spans both columns: it is about all of it, not about the file on the right. */
@@ -2242,6 +2252,13 @@
        needs up to half of it and scrolls inside itself for the rest. The vh ceiling stays for the
        tall window, where half a column is more file than anybody reads at once. */
     body[at="agent"] #fileview { position:relative; max-height:min(50%, 60vh); }
+    /* Except while it is holding the commit workbench, which is three things at once — the list,
+       the diff and the message — and half a column is not enough for them: at 1080 the whole
+       workbench scrolled inside a 400px box while the transcript below it had room to spare. It
+       takes most of the column and nothing inside it scrolls except the two boxes that should. */
+    body[at="agent"] #fileview.commitmode {
+      max-height:min(78%, 78vh); display:flex; flex-direction:column; min-height:0; overflow:hidden;
+    }
   }
   @media (min-width:52.5em) {
     #agentview {
