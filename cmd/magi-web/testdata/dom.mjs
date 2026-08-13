@@ -324,7 +324,7 @@ globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 // It used to be a list kept here by hand, and keeping it was the tax on adding any element at all:
 // the way it told you it was short was an error in an unrelated test, naming the lookup rather
 // than the change. The markup's ids are exactly the set the page can ask for.
-import { MARKUP_IDS, MARKUP_MAY, MARKUP_HIDDEN } from './ids.mjs';
+import { MARKUP_IDS, MARKUP_MAY, MARKUP_HIDDEN, MARKUP_TOGGLES } from './ids.mjs';
 const byId = {};
 for (const id of MARKUP_IDS) byId[id] = element('div');
 // The one attribute the markup writes and the page reads back. Everything else a stub carries was
@@ -338,6 +338,26 @@ for (const [id, need] of Object.entries(MARKUP_MAY || {})) {
 // before the page has drawn anything at all.
 for (const id of (MARKUP_HIDDEN || [])) {
   if (byId[id]) byId[id].attrs.hidden = true;
+}
+// A toggle button, as Material Web actually behaves.
+//
+// The real component captures `selected` when the click arrives, lets the click finish
+// propagating, and only THEN writes back the opposite of what it captured — followed by `input`
+// and `change`. Two consequences the page has to live with, and both are here: a handler that
+// assigns `selected` is assigning to something that is about to be overwritten, and the reliable
+// place to learn the new state is the `change` event. A fake that just ran onclick let a page get
+// both wrong and still pass.
+for (const id of (MARKUP_TOGGLES || [])) {
+  if (!byId[id]) continue;
+  byId[id].selected = false;
+  byId[id].click = function () {
+    const before = !!this.selected;
+    if (this.onclick) this.onclick({preventDefault() {}, stopPropagation() {}});
+    this.dispatchEvent({type: 'click'});
+    this.selected = !before; // after propagation, from what it read first — see above
+    this.dispatchEvent({type: 'input'});
+    this.dispatchEvent({type: 'change'});
+  };
 }
 // A dialog opens, closes, and remembers which button closed it. The page reads returnValue to tell
 // a cancel from a confirm, and a fake without it makes every cancel look like a confirm — which is
@@ -498,8 +518,14 @@ globalThis.window = {
 // test sees the words a browser sees on the first paint.
 globalThis.__LANG = JSON.parse(process.env.LANG_PACK ?? '{}');
 
+// What a returning reader's browser already remembers, before a line of the page has run.
+//
+// An epilogue can only write it AFTER the page has read it, so anything the page decides at start
+// up from a stored preference — which pane is open, which theme — was untestable: a test could set
+// the key and then had to set the resulting state by hand, which is the test asserting its own
+// arrangement. This is the same seam every other input to the fake uses.
 globalThis.localStorage = {
-  store: new Map(),
+  store: new Map(Object.entries(JSON.parse(process.env.STORE ?? '{}'))),
   getItem(k) { return this.store.has(k) ? this.store.get(k) : null; },
   setItem(k, v) { this.store.set(k, String(v)); },
   removeItem(k) { this.store.delete(k); },

@@ -87,10 +87,27 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// And which of them are TOGGLE buttons, because a toggle button owns a piece of state the page
+	// has to work with rather than against: it flips `selected` itself, after the click has
+	// finished propagating, from the value it read before. A fake whose buttons did nothing of the
+	// sort let a page assign `selected` in a click handler and look correct — while in a browser
+	// the component overwrote it a microtask later and the handle ended up lit when the pane was
+	// shut. Scraped from the markup for the same reason the ids are: a list kept by hand beside the
+	// fake is a list that stops matching the page.
+	var toggles []string
+	for _, m := range regexp.MustCompile(`<[^>]*\sid="([A-Za-z][\w-]*)"[^>]*\stoggle[\s>]`).
+		FindAllStringSubmatch(indexHTML, -1) {
+		toggles = append(toggles, m[1])
+	}
+	togglesJSON, err := json.Marshal(toggles)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "ids.mjs"),
 		[]byte("export const MARKUP_IDS = "+string(list)+";\n"+
 			"export const MARKUP_MAY = "+string(mayJSON)+";\n"+
-			"export const MARKUP_HIDDEN = "+string(hiddenJSON)+";\n"), 0o644); err != nil {
+			"export const MARKUP_HIDDEN = "+string(hiddenJSON)+";\n"+
+			"export const MARKUP_TOGGLES = "+string(togglesJSON)+";\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The page imports the vendored bundle by the path this binary serves it at. Node resolves
@@ -2815,7 +2832,7 @@ console.log(JSON.stringify({pre: pre, labels: labels}));`)
 func TestThePaneHandleSaysWhetherItIsOpen(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 const t0 = byId.sideToggle.attrs['aria-expanded'];
-byId.sideToggle.onclick();
+byId.sideToggle.click();
 const t1 = byId.sideToggle.attrs['aria-expanded'];
 console.log(JSON.stringify({before: t0, after: t1}));`)
 
@@ -2828,6 +2845,52 @@ console.log(JSON.stringify({before: t0, after: t1}));`)
 	// a rule that exists only in a test's idea of the page is a rule nobody ships.
 	if !strings.Contains(indexHTML, "#sideToggle[aria-expanded=\"true\"]") {
 		t.Error("nothing paints the open state, so only a screen reader is told")
+	}
+}
+
+// A pane handle lit means a pane open — in every state, and for both of them.
+//
+// The left one said the opposite. Two things did it, and either alone was enough. The page asked
+// "is it open" as `=== 'open'` on one side and `!== 'shut'` on the other, and the init left the
+// attribute unwritten for a pane remembered open — so one of the two questions answered "shut"
+// about a pane that was plainly there. And the click handler assigned `selected`, which the
+// component overwrites a microtask later from the value it read before the handler ran. The result
+// was a handle that was dark while the pane was open, lit while it was shut, and re-opened the
+// pane when pressed — three symptoms of one thing being tracked in two places.
+func TestBothPaneHandlesTrackTheirPane(t *testing.T) {
+	// Remembered open, which is the state the left handle used to get wrong from the first frame.
+	t.Setenv("STORE", `{"files":"open","side":"open"}`)
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const look = () => ({
+  files: [!!byId.filesToggle.selected, document.body.attrs.files,
+          byId.filesToggle.attrs['aria-expanded']],
+  side: [!!byId.sideToggle.selected, document.body.attrs.side,
+         byId.sideToggle.attrs['aria-expanded']],
+});
+const start = look();
+byId.filesToggle.click(); byId.sideToggle.click();
+const shut = look();
+byId.filesToggle.click(); byId.sideToggle.click();
+console.log(JSON.stringify({start, shut, again: look()}));`)
+
+	// [lit?, what the body says, what a screen reader is told] — all three, at each step.
+	for _, step := range []struct {
+		when string
+		want []any
+	}{
+		{"start", []any{true, "open", "true"}},
+		{"shut", []any{false, "shut", "false"}},
+		{"again", []any{true, "open", "true"}},
+	} {
+		at, _ := got[step.when].(map[string]any)
+		for _, pane := range []string{"files", "side"} {
+			row, _ := at[pane].([]any)
+			if len(row) != 3 || row[0] != step.want[0] || row[1] != step.want[1] ||
+				row[2] != step.want[2] {
+				t.Errorf("%s pane %s: handle/body/aria are %v, and the pane is %v",
+					step.when, pane, row, step.want)
+			}
+		}
 	}
 }
 

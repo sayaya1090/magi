@@ -4830,7 +4830,8 @@ let cardShows = 'facts';
 // Which directories the reader has opened, so a redraw does not close the tree under them.
 const openDirs = new Set();
 
-const filesOpen = () => document.body.getAttribute('files') === 'open';
+// The attribute is written both ways by paneHandle, so this is the whole of the question.
+const filesOpen = () => document.body.getAttribute('files') !== 'shut';
 
 // What is being searched for in the workspace, and which of the two searches it is.
 //
@@ -6746,40 +6747,59 @@ for (const [el, key] of RAILS) {
 // absence of a value. An empty string and "never chosen" were the same thing before, which is why
 // the default could not be changed without also forgetting everybody's choice.
 const sideToggle = document.getElementById('sideToggle');
-if (localStorage.getItem('side') !== 'open') document.body.setAttribute('side', 'shut');
-// Said once, from the state, rather than written into the markup and hoped to stay true. The
-// attribute in the markup is what a screen reader reads before any of this runs, and it was
-// "expanded" while the pane was shut — a control announcing the opposite of what it does.
-// Selected means OPEN, and it is set from the same fact the attribute is, so the drawing and the
-// announcement cannot come apart.
-const sideOpen = () => document.body.getAttribute('side') !== 'shut';
-sideToggle.selected = sideOpen();
-sideToggle.setAttribute('aria-expanded', String(sideOpen()));
-// The file pane's handle. Shut unless somebody opened it, remembered across pages and reloads —
-// the same rule the state pane follows, and for the same reason: what a reader chose to have open
-// is a preference, not a thing to re-decide on every companion.
-if (localStorage.getItem('files') !== 'open') document.body.setAttribute('files', 'shut');
-filesToggle.selected = filesOpen();
-filesToggle.setAttribute('aria-expanded', String(filesOpen()));
-filesToggle.onclick = () => {
-  const shut = document.body.getAttribute('files') !== 'shut';
-  document.body.setAttribute('files', shut ? 'shut' : 'open');
-  localStorage.setItem('files', shut ? 'shut' : 'open');
-  filesToggle.setAttribute('aria-expanded', String(!shut));
-  filesToggle.selected = !shut;
-  // Asked for the first time when it opens: a pane nobody has opened has never cost a request.
-  if (!shut) loadTree(lastDrawnFor);
-  paint();
-};
 
-sideToggle.onclick = () => {
-  const shut = document.body.getAttribute('side') !== 'shut';
-  document.body.setAttribute('side', shut ? 'shut' : '');
-  localStorage.setItem('side', shut ? 'shut' : 'open');
-  sideToggle.setAttribute('aria-expanded', String(!shut));
-  sideToggle.selected = !shut;
-  paint();
-};
+// One handle, wired once, for both panes.
+//
+// # The button owns "selected", and the page reads it
+//
+// A toggle icon button flips its own `selected` — and it does so AFTER the click has finished
+// propagating, from the value it captured before. So a click listener that assigns `selected` is
+// assigning to something the component overwrites a microtask later, from a value the listener has
+// already changed. That is what the left pane was doing, and the handle ended up saying the
+// opposite of what the pane was: shut and lit, open and dark, and the click that should have
+// closed it opened it again. It is not a race to be won — the component is the owner. So the page
+// listens for `change`, reads what the button now is, and makes the pane match.
+//
+// # Both panes, one function
+//
+// They were two copies, and the copies differed in exactly one character: one read "is it open"
+// as `!== 'shut'` and the other as `=== 'open'`. With the attribute left unset for a remembered-
+// open pane — which is what the init below used to do — those two are not the same question, and
+// the second one answers "shut" about a pane that is plainly open. One implementation cannot drift
+// from itself.
+//
+// SHUT unless somebody opened it. It used to be the other way round, and each pane took its width
+// from the best place on the page the moment there was room — at a 900px window that left the
+// conversation 44 characters a line. What is in them is reference; the conversation is what the
+// page is for. Remembered, because a pane you shut should stay shut when you open the next
+// companion: reopening it every time would make the button feel like it did nothing.
+//
+// Stored as the word "open" rather than as an empty string, so the default can be read off the
+// absence of a value — an empty string and "never chosen" were the same thing before, which is why
+// the default could not be changed without also forgetting everybody's choice. The ATTRIBUTE is
+// always written, both ways: "the attribute is missing" as a third state is what let the two
+// predicates above disagree.
+function paneHandle(el, key, opened) {
+  const say = open => {
+    document.body.setAttribute(key, open ? 'open' : 'shut');
+    localStorage.setItem(key, open ? 'open' : 'shut');
+    // What a screen reader is told, from the same fact the drawing comes from, so the two cannot
+    // come apart. The markup says "false" until this runs, which is the safe thing to have said.
+    el.setAttribute('aria-expanded', String(open));
+  };
+  const open = localStorage.getItem(key) === 'open';
+  say(open);
+  el.selected = open;
+  el.addEventListener('change', () => {
+    const now = !!el.selected;
+    say(now);
+    if (now) opened?.();
+    paint();
+  });
+}
+// Asked for the first time when it opens: a pane nobody has opened has never cost a request.
+paneHandle(filesToggle, 'files', () => loadTree(lastDrawnFor));
+paneHandle(sideToggle, 'side');
 
 // The look-over preference, wired where the other two preferences are. Remembered rather than
 // asked again: it is true of the reader and not of the file, which is why it is here rather than
