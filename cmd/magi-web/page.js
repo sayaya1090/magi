@@ -4695,6 +4695,11 @@ let meetPick = new Set();
 // there is no id for getElementById to find — and an id that only exists at runtime is one the
 // page's own "every element it reaches for exists" check cannot vouch for.
 let meetGoBtn = null;
+// What has already been sent, by meeting and by whom. Kept for the life of the page: the room is
+// redrawn on a timer, and "you already sent this one" is not a fact the server carries — handing a
+// task out is an ordinary prompt in that companion's session, indistinguishable afterwards from
+// any other.
+const meetHanded = new Set();
 // The two fields somebody types into. Held for one question only — "is the caret in this?" — which
 // is what decides whether the poll may rebuild the screen under them.
 let meetTopicField = null;
@@ -4807,7 +4812,11 @@ function drawConvene(list, open) {
     // rather than at an address that names nothing.
     const m = await r.json().catch(() => null);
     if (!m || !m.id) { loadMeet(); return; }
+    // The form is emptied, both halves of it. The topic was cleared and the picks were not, so
+    // coming back to the list left every chip still selected and the button one press away from
+    // convening the same room about nothing.
     meetTopic = '';
+    meetPick = new Set();
     history.pushState({}, '', at(HREF.meet + '&m=' + encodeURIComponent(m.id)));
     render();
   };
@@ -4831,9 +4840,14 @@ function drawConvene(list, open) {
   // read as another field that had lost its label, and the note under it hung off nothing.
   box.append(go, cell('meetnote', here.length < 2 ? tr('meet.need_two') : ''));
 
-  const rooms = (open || []).filter(m => !m.closed || (m.tasks || []).length);
-  if (rooms.length) {
-    box.append(sectionHead('meet.open'));
+  // Two lists, because they are two different things to a reader: one is a discussion they can
+  // walk into, the other is a decision waiting for somebody to act on it. Under one heading that
+  // said "going on now", the finished ones read as a pile of meetings that would not end.
+  const going = (open || []).filter(m => !m.closed);
+  const done = (open || []).filter(m => m.closed && (m.tasks || []).length);
+  for (const [key, rooms] of [['meet.open', going], ['meet.finished', done]]) {
+    if (!rooms.length) continue;
+    box.append(sectionHead(key));
     const l = cell('meetlist');
     for (const m of rooms) l.append(meetRow(m));
     box.append(l);
@@ -4982,7 +4996,10 @@ function roster(m) {
     // semantic survives the substitution: the set has exactly one selected member, and the
     // selected one is whoever holds the floor. Pressing another is changing that selection.
     const c = document.createElement('md-filter-chip');
-    c.className = 'meetsp' + (holding ? ' holding' : '') + (s.next ? ' next' : '') +
+    // Speaking wins over next. While a companion is composing it is BOTH — it holds the floor and
+    // it is still the one whose turn this round is — and a chip wearing two markers at once says
+    // neither: the eye wants "this one now, that one after".
+    c.className = 'meetsp' + (holding ? ' holding' : '') + (s.next && !holding ? ' next' : '') +
                   (s.person ? ' person' : '') + (s.passes >= 2 ? ' resting' : '');
     c.setAttribute('label', s.name);
     c.selected = holding;
@@ -5091,15 +5108,19 @@ function conclusions(m) {
     // Nothing to do is an outcome and is drawn as one. A participant missing from this list would
     // read as one nobody asked.
     row.append(cell('meettaskwhat', t.what || tr('meet.task_none')));
-    if (t.what) {
+    if (t.what && meetHanded.has(m.id + '|' + t.who)) {
+      row.append(cell('meetsent', tr('meet.handed')));
+    } else if (t.what) {
       const go = label(withMark(document.createElement('md-text-button'), '#i-sl-paper-plane-top'),
                        tr('meet.hand'));
       go.onclick = async () => {
         const r = await fetch('/meet-hand',
           {method: 'POST', body: new URLSearchParams({id: m.id, who: t.who})});
         if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
-        // Said on the row rather than as a page-wide notice: what was sent, and to whom, is a fact
-        // about this line.
+        // Remembered, not just drawn. The room is rebuilt by the poll every two seconds, so a
+        // receipt written into the row it was pressed on vanished on the next tick — and a reader
+        // who cannot see what they have already sent sends it twice.
+        meetHanded.add(m.id + '|' + t.who);
         go.replaceWith(cell('meetsent', tr('meet.handed')));
       };
       row.append(go);
@@ -6494,25 +6515,60 @@ function drawQueued(items) {
   showSide(box, true);
 }
 
+// justFailed is a child that ended badly within the last few minutes.
+//
+// Long enough that somebody who was looking elsewhere still finds out, short enough that the strip
+// empties. Without the second half it is not a strip of what is happening, it is a scar.
+const FAILED_FOR = 5 * 60 * 1000;
+function justFailed(c) {
+  if (!c.err) return false;
+  if (!c.ended) return true;                     // ended without saying when: show it
+  const at = Date.parse(c.ended);
+  return !at || Date.now() - at < FAILED_FOR;
+}
+
+// taskLine is the first line of a child's task that says anything about the task.
+//
+// A spawned child is given a prompt, and the prompt is what gets recorded as its task — so a chip
+// meant to say "what is this one doing" led with the scaffolding: "THE QUESTION", "HOW TO ANSWER".
+// The heading is for the model; the line under it is the answer to the reader's question.
+function taskLine(task) {
+  const lines = String(task).split('\n').map(l => l.trim()).filter(Boolean);
+  for (const l of lines) {
+    if (l === l.toUpperCase() && /[A-Z]/.test(l)) continue;   // a shouted heading, not the task
+    return l;
+  }
+  return lines[0] || '';
+}
+
 async function loadJobs(a) {
   if (!a) { stripEl.hidden = true; stripEl.replaceChildren(); drawQueued(null); return; }
   const j = await fetchList('/jobs' + qFor(a)) || {};
   drawQueued(j.queued);
   const kids = j.children || [], bg = j.background || [];
-  if (!kids.length && !bg.length) { stripEl.hidden = true; stripEl.replaceChildren(); return; }
   const chips = [];
   for (const c of kids) {
-    // A child opens into the screen that already exists for it, which is the whole reason the
-    // strip is worth having: one press from "something is running" to what it is doing.
-    chips.push(jobChip(tr('detail.subagent'), c.tool || tr('detail.subagent'), oneLine(c.task || '', 48),
+    // What is going on, and what has just gone wrong. Not everything that ever ran: the strip was
+    // drawing every child the session had spawned, so after an hour of meetings a companion's page
+    // carried fifteen chips, none of them running, each holding a slab of the prompt its turn was
+    // given — which also read as the meeting's words having leaked onto the companion's own page.
+    // A failure stays for a few minutes, because a subagent that died is the one thing here
+    // somebody needs to be told about; everything finished is on the subagents screen, where
+    // finished things live.
+    if (!c.running && !justFailed(c)) continue;
+    chips.push(jobChip(tr('detail.subagent'), c.tool || tr('detail.subagent'),
+      oneLine(taskLine(c.task || ''), 48),
       {running: c.running, bad: !!c.err, go: () => goDeep('sub', c.id)}));
   }
   for (const b of bg) {
     chips.push(jobChip(tr('job.command'), oneLine(b.command || '', 40), lastLine(b.tail),
       {running: b.running, bad: !b.running && b.exit !== 0}));
   }
+  // Hidden when it has nothing to say, decided after the chips are built rather than from the
+  // length of what came back: with fifteen finished children and none of them drawn, the strip
+  // stayed on screen as a band of nothing.
   stripEl.replaceChildren(...chips);
-  stripEl.hidden = false;
+  stripEl.hidden = chips.length === 0;
 }
 
 // pastRows is the transcript of the finished session currently open, for the screens that read a

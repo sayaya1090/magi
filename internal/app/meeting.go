@@ -106,8 +106,14 @@ func readUtterance(who, text string) meeting.Utterance {
 	if i := strings.IndexAny(first, " \n\t:.—-"); i > 0 {
 		first = first[:i]
 	}
-	if strings.EqualFold(strings.TrimSpace(first), "PASS") {
-		reason := strings.TrimSpace(strings.TrimLeft(said[len(first):], " \n\t:.—-"))
+	// Undressed before it is compared. A model answering a chat writes markdown, and the first
+	// live meeting this ran came back "**PASS** – my workspace only contains…" ten times: the word
+	// was there, the asterisks were not in the comparison, and every pass was recorded as a
+	// contribution. Nobody's pass count moved, the round never came back all-passes, and a
+	// discussion in which nothing was said ran to the ceiling — ten model turns to say nothing,
+	// which is the exact failure the convergence rule exists to prevent.
+	if strings.EqualFold(strings.Trim(first, "*_`~ \t"), "PASS") {
+		reason := strings.TrimSpace(strings.TrimLeft(said[len(first):], " \n\t:.—–·-*_`~"))
 		return meeting.Utterance{Who: who, Pass: true, Text: reason}
 	}
 	if said == "" {

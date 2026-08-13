@@ -226,6 +226,14 @@ func (s *server) meetStart(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("rounds"))); err == nil && n > 0 && n <= 9 {
 		rounds = n
 	}
+	// The same question, to the same room, twice. A press that seems to do nothing — a slow answer,
+	// a reader who went back to the list and pressed again — should land on the meeting they
+	// already started rather than starting a second one beside it. Answering with the existing one
+	// makes the second press mean what the person meant by it.
+	if going := s.meets.same(topic, sockets); going != nil {
+		writeJSON(w, "meeting", going.view())
+		return
+	}
 	run, err := s.meets.start(topic, speakers, sockets, rounds)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -394,6 +402,13 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 		next, ok := run.m.Next()
 		topic, transcript := run.m.Topic, run.m.Transcript()
 		sock := run.sockets[next.Name]
+		if ok {
+			// The floor is TAKEN for the length of the turn, not handed over at the end of it.
+			// Watched live, the roster never lit anybody: Holder was set by speaking and cleared by
+			// the same call, so the one moment worth showing — a companion composing, for the
+			// minute it takes — was the moment the screen showed nothing at all.
+			run.m.Take(next.Name)
+		}
 		run.mu.Unlock()
 		if !ok {
 			run.collect(ctx, s, topic)
@@ -587,6 +602,33 @@ func (run *meetingRun) finished() bool {
 // same second, which is what a person clicking twice does.
 func meetID(at time.Time, n int) string {
 	return "m" + at.UTC().Format("20060102-150405") + "-" + strconv.Itoa(n)
+}
+
+// same is a meeting already going on the same question with the same companions, or nil.
+func (m *meetings) same(topic string, sockets map[string]string) *meetingRun {
+	m.mu.Lock()
+	runs := make([]*meetingRun, 0, len(m.open))
+	for _, r := range m.open {
+		runs = append(runs, r)
+	}
+	m.mu.Unlock()
+	for _, r := range runs {
+		if r.finished() {
+			continue // a question asked again after it was answered is a new meeting
+		}
+		r.mu.Lock()
+		match := r.m.Topic == topic && len(r.sockets) == len(sockets)
+		for name, sock := range r.sockets {
+			if match && sockets[name] != sock {
+				match = false
+			}
+		}
+		r.mu.Unlock()
+		if match {
+			return r
+		}
+	}
+	return nil
 }
 
 func (m *meetings) get(id string) *meetingRun {

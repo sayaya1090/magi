@@ -3110,9 +3110,19 @@ console.log(JSON.stringify({who: who}));`)
 func TestTheStripSaysWhatIsRunningBesideTheTurn(t *testing.T) {
 	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"working","session":"s_1"}]`,
 		"?d=%2Fs%2Fa.sock", `
+// The shape the daemon actually sends: running while it runs, ended when it is over, err when it
+// went wrong. The fixture used to invent one — with no end time at all — which is how a strip
+// that drew every child which had ever run looked correct here for as long as it did.
 ROUTES['/jobs'] = {children: [
-    {id: 's_kid', tool: 'scout', task: 'find every empty state', running: true},
-    {id: 's_gone', tool: 'refine', task: 'tighten the wording', running: false, err: 'context cancelled'}],
+    {id: 's_kid', tool: 'scout', task: 'THE QUESTION\nfind every empty state', running: true,
+     started: new Date().toISOString()},
+    {id: 's_gone', tool: 'refine', task: 'tighten the wording', err: 'context cancelled',
+     started: new Date(Date.now() - 90000).toISOString(), ended: new Date().toISOString()},
+    // Finished, and fine. Fifteen of these is what a companion that has been in meetings all
+    // afternoon has, and none of them belongs on a strip that says what is happening now.
+    {id: 's_done', tool: 'meeting', task: 'THE QUESTION\nwho owns the retry budget',
+     started: new Date(Date.now() - 300000).toISOString(),
+     ended: new Date(Date.now() - 240000).toISOString(), steps: 3}],
   background: [{id: 'bg', command: 'go build ./...', running: true, tail: 'one\nthe last line'}]};
 // loadJobs is started by the poll and awaited here directly, because the fake's setTimeout does
 // not run anything — the strip's fetch has to be the thing that is waited on.
@@ -3129,8 +3139,18 @@ console.log(JSON.stringify({hidden: byId.strip.hidden, chips, url: location.sear
 		t.Fatal("three things are running and the strip is hidden")
 	}
 	chips, _ := got["chips"].([]any)
+	// Three: the running child, the one that just failed, and the background command. The child
+	// that finished cleanly is not on the strip — it is on the subagents screen.
 	if len(chips) != 3 {
 		t.Fatalf("the strip drew %d chips: %v", len(chips), chips)
+	}
+	if all := fmt.Sprint(chips); strings.Contains(all, "retry budget") {
+		t.Errorf("a child that finished is still on the strip: %v", all)
+	}
+	// And the chip says what the child is doing rather than the heading its prompt begins with.
+	if f, _ := chips[0].(map[string]any); !strings.Contains(fmt.Sprint(f["text"]), "empty state") ||
+		strings.Contains(fmt.Sprint(f["text"]), "THE QUESTION") {
+		t.Errorf("the chip reads %v", f["text"])
 	}
 	first, _ := chips[0].(map[string]any)
 	// Running, said by the chip itself. On the pressable one that is its class — the button
@@ -5038,7 +5058,14 @@ const before = POSTED.length;
 // Awaited, because sending is a request: reading POSTED before it resolves would pass whether or
 // not the button did anything.
 await rows[0].find(clicky)[0].onclick();
+// And the room is rebuilt by the poll every two seconds. A receipt written into the row it was
+// pressed on vanished on the next tick, and a reader who cannot see what they have already sent
+// sends it again.
+await loadMeet();
+const redrawn = cls('meettask');
 console.log(JSON.stringify({
+  afterPoll: {sent: redrawn.filter(r => r.find(d => String(d.className) === 'meetsent').length).length,
+              buttons: redrawn.reduce((n, r) => n + r.find(clicky).length, 0)},
   rows: rows.map(txt),
   nothing: rows.map(r => String(r.className).includes('nothing')),
   sendable: sendable,
@@ -5070,6 +5097,14 @@ console.log(JSON.stringify({
 	// A finished meeting has no floor to take, so there is nothing to say into.
 	if got["saying"] == true {
 		t.Error("a closed meeting still offers a box to speak in")
+	}
+	// What was sent stays sent through the redraw, and its button does not come back.
+	after, _ := got["afterPoll"].(map[string]any)
+	if n, _ := after["sent"].(float64); n != 1 {
+		t.Errorf("after the poll, %v rows say they were sent", after["sent"])
+	}
+	if n, _ := after["buttons"].(float64); n != 0 {
+		t.Errorf("the send button came back on a task already handed out (%v of them)", after["buttons"])
 	}
 }
 

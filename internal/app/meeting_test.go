@@ -103,3 +103,36 @@ func TestAMeetingTurnIsSpawnedReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// A model writes markdown, and the word inside it still means what it says.
+//
+// The first live meeting came back "**PASS** – my workspace only contains billing" ten times over.
+// The comparison was against the bare word, so every one of those was recorded as a contribution:
+// no pass count moved, no round ever came back all-passes, and a discussion in which nothing was
+// said ran to the ceiling — ten model turns spent saying nothing, which is the failure the
+// convergence rule exists to prevent.
+func TestAPassStillReadsAsOneWhenTheModelDressesItUp(t *testing.T) {
+	for _, said := range []string{
+		"**PASS** – my workspace only contains the billing API",
+		"*PASS* — not mine",
+		"`PASS`: nothing to add",
+		"__PASS__ · the question does not touch what I work on",
+		"PASS",
+		"pass - already said by design",
+	} {
+		u := readUtterance("api", said)
+		if !u.Pass {
+			t.Errorf("%q was recorded as a contribution", said)
+			continue
+		}
+		// And the reason comes out as a reason, with the dressing and the dash gone.
+		if strings.HasPrefix(u.Text, "-") || strings.HasPrefix(u.Text, "–") ||
+			strings.HasPrefix(u.Text, "—") || strings.HasPrefix(u.Text, "*") {
+			t.Errorf("%q left punctuation at the front of the reason: %q", said, u.Text)
+		}
+	}
+	// A sentence that merely contains the word is still a contribution.
+	if u := readUtterance("api", "I would not pass on this one"); u.Pass {
+		t.Error("a sentence about passing was read as a pass")
+	}
+}

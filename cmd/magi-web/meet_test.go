@@ -511,8 +511,10 @@ func TestAConsoleWillNotHoldUnlimitedMeetings(t *testing.T) {
 	defer close(design.slow)
 
 	for i := 0; i < meetsAtOnce; i++ {
+		// Distinct questions: the same one twice lands on the meeting already going, which is a
+		// different rule tested next door.
 		w := post(t, f.srv, f.srv.meet, "/meet",
-			url.Values{"topic": {"one"}, "who": who["who"]})
+			url.Values{"topic": {fmt.Sprintf("question %d", i)}, "who": who["who"]})
 		if w.Code != http.StatusOK {
 			t.Fatalf("meeting %d was refused early: %d %s", i+1, w.Code, w.Body.String())
 		}
@@ -570,5 +572,68 @@ func TestAMeetingCannotCarryUnboundedTextOrUnboundedSeats(t *testing.T) {
 	}
 	if w := post(t, f.srv, f.srv.meet, "/meet", seats); w.Code != http.StatusBadRequest {
 		t.Errorf("a meeting of %d replied %d: %s", tooMany, w.Code, w.Body.String())
+	}
+}
+
+// The screen shows who is speaking WHILE they speak.
+//
+// A turn is a minute of model time and it is the one thing worth watching; the roster lit nobody
+// for the whole of it. The floor was taken and released by the same call — recording what somebody
+// said — so "holding" only ever existed between two statements, which is not a state anybody sees.
+func TestTheFloorIsHeldForTheLengthOfTheTurn(t *testing.T) {
+	f, design, _, who := room(t)
+	design.slow, design.started = make(chan struct{}), make(chan struct{}, 1)
+	defer close(design.slow)
+	who.Set("topic", "who owns the retry budget")
+	v := convene(t, f, who)
+
+	until(t, "the first speaker to be asked", func() bool {
+		select {
+		case <-design.started:
+			return true
+		default:
+			return false
+		}
+	})
+	// It is composing now, and the room says so.
+	got := read(t, f, v.ID)
+	if got.Holder != "design" {
+		t.Errorf("while design is composing the floor is held by %q", got.Holder)
+	}
+	var lit string
+	for _, sp := range got.Speakers {
+		if sp.Name == got.Holder {
+			lit = sp.Name
+		}
+	}
+	if lit != "design" {
+		t.Errorf("the roster does not carry whoever is speaking: %+v", got.Speakers)
+	}
+}
+
+// The same question to the same room twice is one meeting.
+//
+// A press that seems to do nothing — a slow answer, or a reader who went back to the list and
+// pressed again — used to start a second discussion beside the first, with the same companions
+// answering the same thing twice and the fleet paying for both. The second press lands on the
+// meeting they already started.
+func TestConveningTheSameQuestionTwiceLandsOnTheFirstMeeting(t *testing.T) {
+	f, design, _, who := room(t)
+	design.slow = make(chan struct{}) // nothing finishes, so the first one is still going
+	defer close(design.slow)
+	who.Set("topic", "who owns the retry budget")
+
+	first := convene(t, f, who)
+	again := convene(t, f, who)
+	if again.ID != first.ID {
+		t.Errorf("the second press started %s beside %s", again.ID, first.ID)
+	}
+	if n := len(f.srv.meets.list(nil)); n != 1 {
+		t.Errorf("%d meetings for one question", n)
+	}
+	// A different question, or a different room, is a different meeting.
+	other := url.Values{"who": who["who"], "topic": {"something else"}}
+	if v := convene(t, f, other); v.ID == first.ID {
+		t.Error("a different question was folded into the meeting already going")
 	}
 }
