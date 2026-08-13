@@ -137,3 +137,25 @@ func TestThePageDoesNotTreatAChildListAsAnArray(t *testing.T) {
 		t.Error("the scan does not recognise the mistake it exists to find")
 	}
 }
+
+// A companion is named once in a request, not twice.
+//
+// post() addresses a companion from the socket and peer it is handed, and four call sites ALSO
+// appended ?d= to the path: /save, /file-do and both of the git ones. The result was
+// /save?d=…sock?d=…sock, which the server reads as a socket path with a query welded to the end —
+// so it answered "no daemon at …?d=…" and every workspace-changing action from this page silently
+// did nothing. Nothing could see it: the demo mocks every POST and the Go tests call handlers
+// directly, so the URL the page builds was never exercised until a live console was in front of a
+// real daemon.
+func TestARequestNamesItsCompanionOnce(t *testing.T) {
+	src := scriptBody(t, indexHTML)
+	// post(path, ...) — the path may not carry a query, because post appends its own.
+	doubled := regexp.MustCompile(`post\(\s*'[^']*'\s*\+\s*q(For)?\(`)
+	if m := doubled.FindAllString(src, -1); len(m) > 0 {
+		t.Errorf("%d call site(s) hand post() a path that already names the companion: %v", len(m), m)
+	}
+	// And the same shape through the other sender, which appends q() when the path has no query.
+	if m := regexp.MustCompile(`postText\(\s*'[^']*\?[^']*'\s*\+\s*q\(`).FindAllString(src, -1); len(m) > 0 {
+		t.Errorf("postText is given a path with two queries: %v", m)
+	}
+}

@@ -5596,7 +5596,7 @@ function gitBranchActs(a, g) {
 // gitRun sends one of them and redraws from what git says afterwards rather than from what the
 // button meant to do.
 function gitRun(a, what, extra) {
-  return post('/git-do' + qFor(a),
+  return post('/git-do',
     new URLSearchParams(Object.assign({do: what}, extra || {})),
     a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
 }
@@ -5665,7 +5665,7 @@ function commitRow(a) {
   const send = () => {
     const text = String(msg.value || '').trim();
     if (!text) return;
-    post('/git-do' + qFor(a), new URLSearchParams({do: 'commit', message: text}),
+    post('/git-do', new URLSearchParams({do: 'commit', message: text}),
          a.socket || '', a.peer || '').then(why => { if (!why) { msg.value = ''; loadTree(a); } });
   };
   msg.addEventListener('keydown', ev => { if (ev.key === 'Enter') send(); });
@@ -5733,7 +5733,7 @@ function rowMenu(a, e, path) {
     menu.append(it);
     return it;
   };
-  const send = (what, extra) => post('/file-do' + qFor(a),
+  const send = (what, extra) => post('/file-do',
     new URLSearchParams(Object.assign({do: what, path: path}, extra || {})),
     a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
   const under = e.isDir ? path + '/' : (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
@@ -6021,7 +6021,12 @@ function editor(path, text, acts) {
     const patch = unifiedDiff(opened, area.value, path);
     if (patch) body.set('patch', patch);
     else body.set('text', area.value);
-    const why = await post('/save' + qFor(lastDrawnFor || {socket: ''}), body,
+    // The companion is named ONCE. post() addresses it from the socket and peer it is given —
+    // passing a path that already carries ?d= as well produced /save?d=…?d=…, which resolves to a
+    // socket path with a query string welded to the end of it. The console then said "no daemon at
+    // …?d=…" and every workspace-changing action from this page had been failing that way: the
+    // demo mocks every POST and the Go tests call the handler directly, so neither could see it.
+    const why = await post('/save', body,
                            (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
     save.disabled = false;
     if (why) {
@@ -6070,7 +6075,13 @@ function editor(path, text, acts) {
 // the file, which is the honest fallback rather than a worse diff.
 function unifiedDiff(before, after, path) {
   if (before === after) return '';
-  const a = before.split('\n'), b = after.split('\n');
+  // A file that ends in a newline has as many LINES as it has newlines — the empty string after
+  // the last one is not a line, and splitting on "\n" invents it. The patch then carried a
+  // trailing context line nothing on disk matched, so `git apply` refused every save of every
+  // ordinary text file: "main.go changed since you opened it". Both sides lose it, so a patch that
+  // adds or removes the final newline still shows up as a change to the last real line.
+  const rows = t => { const l = String(t).split('\n'); if (l.length && l[l.length - 1] === '') l.pop(); return l; };
+  const a = rows(before), b = rows(after);
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) head++;
   let tail = 0;

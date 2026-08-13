@@ -5178,3 +5178,53 @@ console.log(JSON.stringify({stuck, scrolled: window.scrolledTo}));
 		t.Errorf("the window was scrolled to %v on a screen with nothing to follow", got["scrolled"])
 	}
 }
+
+// A patch applies to the file as it is on disk.
+//
+// Every save of every ordinary text file was refused: "main.go changed since you opened it".
+// Nothing had changed. A file ending in a newline was split into one more line than it has — the
+// empty string after the last newline is not a line — so the patch carried a trailing context line
+// that matched nothing, and git apply threw it out. The demo mocks the POST and the Go tests call
+// the handler directly, so the patch the page BUILDS had never been applied to anything until a
+// console was in front of a real daemon.
+func TestAPatchFromTheEditorAppliesToTheRealFile(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+const before = 'package main\n\nfunc main() {}\n';
+const after  = 'package main\n\n// touched\nfunc main() {}\n';
+console.log(JSON.stringify({
+  patch: unifiedDiff(before, after, 'main.go'),
+  // The other end of it: dropping the final newline is a change to the last line, not a change to
+  // a line that does not exist.
+  dropped: unifiedDiff(before, 'package main\n\nfunc main() {}', 'main.go'),
+  same: unifiedDiff(before, before, 'main.go'),
+}));`)
+	patch, _ := got["patch"].(string)
+	if patch == "" {
+		t.Fatal("no patch was produced for a real change")
+	}
+	// Written to disk and applied with git itself: what the page builds either applies or it does
+	// not, and nothing short of running it can say which.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"),
+		[]byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"add", "main.go"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Skipf("no usable git here: %v %s", err, out)
+		}
+	}
+	pf := filepath.Join(dir, "p.diff")
+	if err := os.WriteFile(pf, []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "apply", "--check", pf).CombinedOutput(); err != nil {
+		t.Errorf("the editor's patch does not apply: %v\n%s\npatch:\n%s", err, out, patch)
+	}
+	if s, _ := got["same"].(string); s != "" {
+		t.Errorf("an unchanged file produced a patch:\n%s", s)
+	}
+	if d, _ := got["dropped"].(string); !strings.Contains(d, "func main() {}") {
+		t.Errorf("removing the final newline produced:\n%s", d)
+	}
+}
