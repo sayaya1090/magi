@@ -1621,6 +1621,12 @@
      off the row to reach the menu made the menu disappear on the way. */
   .treeline:hover .rowmenu, .rowmenu:focus-within, .treeline:focus-within .rowmenu,
   .rowmenu.showing { visibility:visible; }
+  /* A menu item is 48dp in the guide and the bundle draws it at 56 — the list item's height,
+     which is what it is built from. Measured on the live page before and after: 56 → 48. */
+  md-menu-item {
+    --md-menu-item-one-line-container-height:48px;
+    --md-list-item-one-line-container-height:48px;
+  }
   .rowmenu md-icon-button { --md-icon-button-icon-size:16px; width:28px; height:28px; }
 
   /* The line that makes it read as a tree rather than as text with spaces in front of it. One
