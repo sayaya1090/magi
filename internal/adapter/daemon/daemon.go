@@ -266,6 +266,10 @@ type ToolReader interface {
 // discovers by finding its file different from the one in its context.
 type ToolWriter interface {
 	WriteTool(ctx context.Context, name string, args json.RawMessage, ask bool) (string, error)
+	// PatchFile applies a unified diff instead of carrying the whole file — and, because a patch
+	// carries the context around what it changes, it is also the check for a file that moved under
+	// the person while they were typing. See app.PatchFile.
+	PatchFile(ctx context.Context, path, patch string, ask bool) error
 }
 
 // GitTeller is an engine that can say what git makes of its workspace.
@@ -979,6 +983,12 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 				resp = Response{Err: "this daemon cannot be asked to edit its workspace"}
 			case strings.TrimSpace(req.Name) == "":
 				resp = Response{Err: "no tool named"}
+			case req.Name == "patch":
+				if perr := writer.PatchFile(ctx, req.Text, req.Answer, req.Ask); perr != nil {
+					resp = Response{Err: perr.Error()}
+				} else {
+					resp = Response{OK: true}
+				}
 			default:
 				out, werr := writer.WriteTool(ctx, req.Name, req.Args, req.Ask)
 				if werr != nil {
@@ -1545,6 +1555,13 @@ func (c *Client) ReadOnlyTool(name string, args json.RawMessage) (string, error)
 }
 
 // WriteTool asks the companion to change one of its own files, and to write down that a person did.
+// PatchFile applies a unified diff to one file in the companion's workspace. A refusal here is
+// usually the file having changed since it was read, which is the whole reason to send a patch.
+func (c *Client) PatchFile(path, patch string, ask bool) error {
+	_, err := c.exchange(Request{Method: "edit-file", Name: "patch", Text: path, Answer: patch, Ask: ask})
+	return err
+}
+
 func (c *Client) WriteTool(name string, args json.RawMessage, ask bool) (string, error) {
 	resp, err := c.exchange(Request{Method: "edit-file", Name: name, Args: args, Ask: ask})
 	if err != nil {

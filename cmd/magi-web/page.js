@@ -5483,13 +5483,25 @@ function editor(path, text, acts) {
   });
   const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-floppy-disk'),
                      tr('action.save'));
+  const opened = plainText(text);
   save.onclick = async () => {
     save.disabled = true;
-    const why = await post('/save' + qFor(lastDrawnFor || {socket: ''}),
-                           new URLSearchParams({path: path, text: area.value}),
+    // A patch when one can be made, the file when it cannot. The patch is smaller and it is the
+    // only version that can refuse — see unifiedDiff.
+    const body = new URLSearchParams({path: path});
+    const patch = unifiedDiff(opened, area.value, path);
+    if (patch) body.set('patch', patch);
+    else body.set('text', area.value);
+    const why = await post('/save' + qFor(lastDrawnFor || {socket: ''}), body,
                            (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
     save.disabled = false;
-    if (why) return;                        // post() has already said what went wrong
+    if (why) {
+      // A refusal here is usually the file having moved: the companion edited it while this was
+      // open. Said where the model's own remarks go, because it is about this buffer.
+      said.textContent = why;
+      said.hidden = false;
+      return;
+    }
     editing = null;
     // Read back rather than drawn from what was typed: the file on disk is the fact, the tool may
     // have written it differently (a missing final newline), and the companion has just been told
@@ -5506,6 +5518,79 @@ function editor(path, text, acts) {
   // 403 is one people learn not to press.
   box.append(said, area);
   return box;
+}
+
+// A unified diff between what was opened and what is in the box now.
+//
+// # Why the page makes one at all
+//
+// Saving used to send the whole file. For a page of prose that is nothing; for a source file of
+// four thousand lines it is the whole thing over a tunnel on every save — and, worse, the last
+// writer wins. A patch is smaller and it carries CONTEXT, which is what lets the far side refuse:
+// if the agent has edited that file since this was opened, the context no longer matches, git says
+// so, and a save that would have thrown somebody's work away becomes a sentence instead.
+//
+// # The algorithm, and its bound
+//
+// Common head and tail are trimmed off — which for an ordinary edit leaves a handful of lines —
+// and what is left is diffed with a plain LCS table. That table is O(n×m), so it is only entered
+// when the changed middle is small; past the bound this answers with nothing and the caller sends
+// the file, which is the honest fallback rather than a worse diff.
+function unifiedDiff(before, after, path) {
+  if (before === after) return '';
+  const a = before.split('\n'), b = after.split('\n');
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head &&
+         a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+  const mid = {a: a.slice(head, a.length - tail), b: b.slice(head, b.length - tail)};
+  // 4,000 cells per side is a change of a few hundred lines, which is a very large hand edit and
+  // still a table of sixteen million booleans at the limit — beyond it, the file is the cheaper
+  // thing to send.
+  if (mid.a.length > 4000 || mid.b.length > 4000) return '';
+  const ops = lcsOps(mid.a, mid.b);
+  // Three lines of context either side, which is what git writes and what makes a refusal mean
+  // "this moved" rather than "this file is not identical".
+  const ctx = 3;
+  const from = Math.max(0, head - ctx);
+  const toEnd = Math.min(a.length, a.length - tail + ctx);
+  const lines = [];
+  for (let i = from; i < head; i++) lines.push(' ' + a[i]);
+  for (const op of ops) lines.push(op);
+  for (let i = a.length - tail; i < toEnd; i++) lines.push(' ' + a[i]);
+  const oldCount = toEnd - from;
+  const newCount = oldCount - mid.a.length + mid.b.length;
+  const p = String(path);
+  return 'diff --git a/' + p + ' b/' + p + '\n' +
+         '--- a/' + p + '\n+++ b/' + p + '\n' +
+         '@@ -' + (from + 1) + ',' + oldCount + ' +' + (from + 1) + ',' + newCount + ' @@\n' +
+         lines.join('\n') + '\n';
+}
+
+// lcsOps turns two runs of lines into the +/- lines between them, longest common subsequence
+// first: the point is to keep the lines that did not change OUT of the patch, or a one-word edit
+// in the middle of a function arrives as the whole function removed and added again.
+function lcsOps(a, b) {
+  const n = a.length, m = b.length;
+  const table = [];
+  for (let i = 0; i <= n; i++) table.push(new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1
+                                  : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push(' ' + a[i]); i++; j++; }
+    else if (table[i + 1][j] >= table[i][j + 1]) { out.push('-' + a[i]); i++; }
+    else { out.push('+' + b[j]); j++; }
+  }
+  while (i < n) { out.push('-' + a[i]); i++; }
+  while (j < m) { out.push('+' + b[j]); j++; }
+  return out;
 }
 
 // plainText strips the read tool's gutter, because what is edited has to be what is sent.

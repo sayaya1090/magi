@@ -323,3 +323,70 @@ func TestADiffIsWhatGitSaysAboutOneFile(t *testing.T) {
 		t.Errorf("a new file's diff is %q", fresh)
 	}
 }
+
+// A save that arrives as a patch is also the check that nobody else moved the file.
+//
+// The whole-file save has nothing to disagree with: the last writer wins, silently. A patch carries
+// the context around each change, so a file the agent edited while a person was typing no longer
+// matches and git refuses — which turns a save that would have thrown work away into a sentence.
+func TestAPatchRefusesWhenTheFileMovedUnderIt(t *testing.T) {
+	wd, dir := t.TempDir(), t.TempDir()
+	st, serr := jsonl.New(dir)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	a := New(st, nil, builtin.Default(), bus.New(), platform.OS{}, Config{})
+	sid, cerr := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if res, xerr := (platform.OS{}).Exec(context.Background(),
+		port.Cmd{Path: "git", Args: []string{"init", "-q"}, Dir: wd}); xerr != nil || res.ExitCode != 0 {
+		t.Skipf("git is not usable here: %v", xerr)
+	}
+	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("one\ntwo\nthree\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+
+	// The patch a console makes from what it opened and what was typed.
+	patch := "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n" +
+		"@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n"
+	if err := a.PatchFile(context.Background(), sid, wd, "a.txt", patch, false); err != nil {
+		t.Fatalf("applying a patch to the file it was made from: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); !strings.Contains(string(b), "TWO") {
+		t.Fatalf("the file is %q", string(b))
+	}
+	// And the companion is told, like every other change this console makes.
+	if said := userSaid(t, st, sid); !strings.Contains(said, "a.txt") {
+		t.Errorf("the patch was not written into the log: %q", said)
+	}
+
+	// Now somebody else changes the same lines — which is the agent, mid-turn — and the same patch
+	// arrives from a person who has been typing since.
+	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("one\nsomething else\nthree\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	err := a.PatchFile(context.Background(), sid, wd, "a.txt", patch, false)
+	if err == nil {
+		t.Fatal("a patch was applied over somebody else's change")
+	}
+	if !strings.Contains(err.Error(), "changed since you opened it") {
+		t.Errorf("the refusal does not say what happened: %v", err)
+	}
+	// And it changed nothing on the way to refusing.
+	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); !strings.Contains(string(b), "something else") {
+		t.Errorf("the refused patch still altered the file: %q", string(b))
+	}
+
+	// A path outside the workspace is refused HERE, before git is asked anything — git would refuse
+	// it too, and only because this happens to be a checkout: the jail has to hold in a workspace
+	// that is not one, so the refusal has to be ours.
+	perr := a.PatchFile(context.Background(), sid, wd, "../escape.txt", patch, false)
+	if perr == nil {
+		t.Fatal("a patch named a path outside the workspace and was applied")
+	}
+	if !strings.Contains(perr.Error(), "outside this workspace") {
+		t.Errorf("the path was refused by git rather than by the jail: %v", perr)
+	}
+}

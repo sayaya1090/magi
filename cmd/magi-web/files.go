@@ -131,9 +131,27 @@ func (s *server) save(w http.ResponseWriter, r *http.Request) {
 	// a console that always answered would spend a turn on every click of a stage button, and one
 	// that never did would make somebody wanting a second opinion go and type "look at it".
 	ask := r.FormValue("ask") != ""
-	// The whole file, not a patch. An edit that arrives as "replace this string" needs the console
-	// and the file to agree about what is in it right now, and between a read and a save the agent
-	// may have written it twice.
+	// A PATCH when the page could make one, and the whole file otherwise.
+	//
+	// The patch is the smaller thing to send for a large file, and it is also the only version of
+	// this that can refuse: it carries the context around each change, so a file the agent has
+	// edited since the person opened it no longer matches and git says so. A whole-file save has
+	// nothing to disagree with — the last writer simply wins, silently.
+	//
+	// The page falls back to the whole file where a patch means nothing: a new file, or a workspace
+	// that is not a checkout and so has no git to apply one.
+	if patch := r.FormValue("patch"); strings.TrimSpace(patch) != "" {
+		if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+			return cl.PatchFile(path, patch, ask)
+		}); derr != nil {
+			// 409, not 400: this is not a malformed request, it is two people having changed the
+			// same thing — and the page draws it as that rather than as a failure to save.
+			http.Error(w, derr.Error(), http.StatusConflict)
+			return
+		}
+		writeText(w, "")
+		return
+	}
 	args, err := json.Marshal(map[string]string{"path": path, "content": text})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -554,11 +554,80 @@ func insideWorkdir(workdir, path string) (string, error) {
 	}
 	// And where the parent already exists, its REAL path has to be inside too: a symlink inside the
 	// workspace pointing out of it is the case a lexical check cannot see.
+	//
+	// Both sides resolved, which is the part this got wrong first time. A workspace is very often
+	// reached through a symlink — /tmp and /var are ones on macOS, and every t.TempDir() lives
+	// under them — so comparing a resolved child against an unresolved base said that every file in
+	// such a workspace was outside it. The check is real-path against real-path or it is a check
+	// that refuses honest callers.
+	realBase := base
+	if r, lerr := filepath.EvalSymlinks(base); lerr == nil {
+		realBase = r
+	}
 	if real, lerr := filepath.EvalSymlinks(filepath.Dir(abs)); lerr == nil {
-		if rel, rerr := filepath.Rel(base, real); rerr != nil || rel == ".." ||
+		if rel, rerr := filepath.Rel(realBase, real); rerr != nil || rel == ".." ||
 			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return "", fmt.Errorf("%s is outside this workspace", path)
 		}
 	}
 	return abs, nil
+}
+
+// PatchFile applies a unified diff to a file in the workspace, on a person's behalf.
+//
+// # Why a patch and not the file
+//
+// A console save used to send the whole file. That is fine for a page of markdown and wrong for a
+// source file of four thousand lines: the bytes go over a tunnel on every save, and — worse — the
+// last writer wins. A patch carries only what changed, and it carries the CONTEXT of what changed,
+// so applying it is also the check nobody had written: if the agent has edited that file since the
+// person opened it, the context no longer matches and git refuses. A save that would have silently
+// thrown away somebody's work becomes a sentence saying so.
+//
+// # Why git apply and not our own
+//
+// The same reason the diff is git's: whitespace rules, line endings, an incomplete last line. A
+// patcher written here would be a second implementation that disagrees with the one the agent uses
+// in exactly the cases nobody tests.
+//
+// A workspace that is not a checkout has no git to apply with, and the caller falls back to
+// sending the file — which is honest, since there is nothing to conflict with either.
+func (a *App) PatchFile(ctx context.Context, sid session.SessionID, workdir, path, patch string,
+	ask bool) error {
+	if a.plat == nil {
+		return fmt.Errorf("platform unavailable")
+	}
+	if _, err := insideWorkdir(workdir, path); err != nil {
+		return err
+	}
+	if strings.TrimSpace(patch) == "" {
+		return fmt.Errorf("nothing to apply")
+	}
+	res, err := a.plat.Exec(ctx, port.Cmd{
+		// --unidiff-zero because a patch made from two buffers may carry no context at all around a
+		// change at the very start or end of a file; everywhere else the context is what makes the
+		// refusal below meaningful.
+		Path: "git", Args: []string{"apply", "--unidiff-zero", "--whitespace=nowarn", "-"},
+		Dir: workdir, Stdin: []byte(patch), MaxOutput: 1 << 16,
+	})
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		// git's own words, with the one thing git cannot know said in front of them: what this
+		// almost always means here is that the file moved under the person while they were typing.
+		return fmt.Errorf("%s changed since you opened it, so this could not be applied on top: %s",
+			path, strings.TrimSpace(string(res.Stderr)))
+	}
+	return a.noteEdit(ctx, sid, "patch", []byte(`{"path":`+jsonString(path)+`}`), ask)
+}
+
+// jsonString is a Go string as a JSON literal, for the two places that build a small object by
+// hand rather than marshalling a struct that exists for one line.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(b)
 }

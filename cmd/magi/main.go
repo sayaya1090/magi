@@ -2495,6 +2495,14 @@ func (d daemonEngine) GitDo(ctx context.Context, what, path, message string, ask
 	return d.App.GitDo(rctx, d.handover.at.now(), d.workdir, what, path, message, ask)
 }
 
+// PatchFile applies a diff here rather than carrying the whole file — see app.PatchFile, including
+// why a refusal from it is the useful answer.
+func (d daemonEngine) PatchFile(ctx context.Context, path, patch string, ask bool) error {
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return d.App.PatchFile(rctx, d.handover.at.now(), d.workdir, path, patch, ask)
+}
+
 func (d daemonEngine) RunShellHere(ctx context.Context, cmd string) (string, int, error) {
 	// Bounded the same way the terminal bounds it. A console has no key to press to give up on a
 	// command that will not finish, so an unbounded one would hold a daemon goroutine for as long
