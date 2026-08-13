@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -425,5 +426,149 @@ func TestTheConsoleKeepsNoSecondCopyOfTheOrder(t *testing.T) {
 	}
 	if !strings.Contains(src, "peek.Next()") {
 		t.Error("the screen no longer asks the rules who is next")
+	}
+}
+
+// A meeting is not readable by somebody who may not see the companions in it.
+//
+// The list and the room both answer with a whole transcript — every participant's words, their
+// names and the sockets they answer on. A scope that stops somebody from opening a companion and
+// then hands them everything that companion said in a meeting is not a scope; it is a longer way
+// round. Both are refused as "no such meeting", because a caller who learns one exists has already
+// learned the thing being kept from them.
+func TestAMeetingIsOnlyReadableByPeopleWhoMaySeeTheRoom(t *testing.T) {
+	f, _, _, who := room(t)
+	convene(t, f, url.Values{"topic": {"who owns the retry budget"}, "who": who["who"]})
+
+	// Narrowed to one of the two companions in that meeting.
+	f.srv.userHeader = "X-Forwarded-User"
+	if err := os.WriteFile(filepath.Join(f.cfgDir, config.AuthFile), []byte(`
+[people."kim"]
+role = "operator"
+companions = ["design"]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := config.LoadAuth(f.cfgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	as := func(method, path string, body url.Values) *httptest.ResponseRecorder {
+		var r *http.Request
+		if method == http.MethodPost {
+			r = httptest.NewRequest(method, path, strings.NewReader(body.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			r = httptest.NewRequest(method, path, nil)
+		}
+		r.Header.Set("X-Forwarded-User", "kim")
+		w := httptest.NewRecorder()
+		switch {
+		case strings.HasPrefix(path, "/meet-say"):
+			f.srv.meetSay(w, r)
+		case strings.HasPrefix(path, "/meet-close"):
+			f.srv.meetClose(w, r)
+		default:
+			f.srv.meet(w, r)
+		}
+		return w
+	}
+
+	// The list says nothing about it.
+	w := as(http.MethodGet, "/meet", nil)
+	if strings.Contains(w.Body.String(), "retry budget") || strings.Contains(w.Body.String(), "api") {
+		t.Errorf("the list hands over a meeting about somebody else's companion: %s", w.Body.String())
+	}
+	// And the room cannot be opened, spoken into, or ended.
+	id := f.srv.meets.list(nil)[0].ID
+	if w := as(http.MethodGet, "/meet?id="+url.QueryEscape(id), nil); w.Code != http.StatusNotFound {
+		t.Errorf("reading it replied %d: %s", w.Code, w.Body.String())
+	}
+	for _, path := range []string{"/meet-say", "/meet-close"} {
+		w := as(http.MethodPost, path, url.Values{"id": {id}, "text": {"hello"}})
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s replied %d: %s", path, w.Code, w.Body.String())
+		}
+	}
+	// The operator with no narrowing still sees it, or this test would pass with the whole screen
+	// broken.
+	if got := f.srv.meets.list(func(run *meetingRun) bool { return true }); len(got) != 1 {
+		t.Fatalf("the meeting is not there at all: %v", got)
+	}
+}
+
+// One console will not hold an unbounded number of meetings.
+//
+// Each is a goroutine and, expensively, a model turn per participant per round — so a loop of
+// posts is not a nuisance, it is every companion on the machine dragged into a dozen discussions
+// at once with the backend paying for all of them. The permission is already `prompt`; this is the
+// mistake and the stuck script, which cost the same as malice.
+func TestAConsoleWillNotHoldUnlimitedMeetings(t *testing.T) {
+	f, design, _, who := room(t)
+	design.slow = make(chan struct{}) // nothing finishes, so they all stay open
+	defer close(design.slow)
+
+	for i := 0; i < meetsAtOnce; i++ {
+		w := post(t, f.srv, f.srv.meet, "/meet",
+			url.Values{"topic": {"one"}, "who": who["who"]})
+		if w.Code != http.StatusOK {
+			t.Fatalf("meeting %d was refused early: %d %s", i+1, w.Code, w.Body.String())
+		}
+	}
+	w := post(t, f.srv, f.srv.meet, "/meet", url.Values{"topic": {"one too many"}, "who": who["who"]})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("the %dth meeting replied %d: %s", meetsAtOnce+1, w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "wrap one up") {
+		t.Errorf("the refusal does not say what to do about it: %s", w.Body.String())
+	}
+}
+
+// What a meeting carries into everybody's prompt is bounded, and so is the room.
+//
+// The topic is put in front of every participant on every turn and written into each of their
+// session logs; a person's contribution is the same. Unclipped, a pasted file is not a question —
+// it is that file paid for once per speaker per round, in every workspace. The seat count is the
+// same arithmetic from the other side.
+func TestAMeetingCannotCarryUnboundedTextOrUnboundedSeats(t *testing.T) {
+	f, design, _, who := room(t)
+	design.slow = make(chan struct{})
+	defer close(design.slow)
+
+	// Fixed numbers on both sides, not the constants being tested: an assertion written against
+	// meetSaid passes however large somebody makes meetSaid, which is the change it exists to
+	// catch. Twenty thousand in, eight thousand tolerated — whatever the cap is set to, it belongs
+	// well under that.
+	const sent, tolerated = 20000, 8000
+	huge := strings.Repeat("x", sent)
+	v := convene(t, f, url.Values{"topic": {huge}, "who": who["who"]})
+	if len(v.Topic) > tolerated {
+		t.Errorf("the topic went through at %d characters", len(v.Topic))
+	}
+	w := post(t, f.srv, f.srv.meetSay, "/meet-say", url.Values{"id": {v.ID}, "text": {huge}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("saying it replied %d: %s", w.Code, w.Body.String())
+	}
+	said := read(t, f, v.ID).Said
+	if len(said) != 1 || len(said[0].Text) > tolerated {
+		t.Errorf("what the person said went in at %d characters", len(said[0].Text))
+	}
+
+	// And a room bigger than anybody reads is refused rather than dialled.
+	// Distinct companions, because duplicates collapse into one seat on the way in. Twelve, for
+	// the same reason the numbers above are fixed: the cap belongs below it, wherever it is set.
+	const tooMany = 12
+	seats := url.Values{"topic": {"everything"}}
+	for i := 0; i < tooMany; i++ {
+		wd := shortTempDir(t)
+		sock := f.liveDaemonAs(t, wd, fmt.Sprintf("s%d", i), &talker{recordingEngine: &recordingEngine{}},
+			daemon.Identity{Name: fmt.Sprintf("c%d", i)})
+		f.session(fmt.Sprintf("s%d", i), wd, "idle", 0, true)
+		seats.Add("who", sock)
+	}
+	if w := post(t, f.srv, f.srv.meet, "/meet", seats); w.Code != http.StatusBadRequest {
+		t.Errorf("a meeting of %d replied %d: %s", tooMany, w.Code, w.Body.String())
 	}
 }

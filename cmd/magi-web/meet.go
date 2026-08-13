@@ -13,6 +13,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/meeting"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // Companions talking to each other, run from here.
@@ -116,6 +117,13 @@ type meetLine struct {
 // directions. A caller may still name one; the screen does not.
 const meetRounds = 5
 
+// meetSeats is the most companions one meeting will ask, and meetSaid the most text one question
+// or one person's contribution may carry into everybody else's prompt.
+const (
+	meetSeats = 8
+	meetSaid  = 4000
+)
+
 // meet answers with one meeting, or with the ones this console is holding. POST convenes.
 func (s *server) meet(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
@@ -124,11 +132,14 @@ func (s *server) meet(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if id == "" {
-		writeJSON(w, "meetings", s.meets.list())
+		writeJSON(w, "meetings", s.meets.list(func(run *meetingRun) bool { return s.mayWatch(r, run) }))
 		return
 	}
 	run := s.meets.get(id)
-	if run == nil {
+	if run == nil || !s.mayWatch(r, run) {
+		// The same answer either way. A caller who learns that a meeting exists but is none of
+		// their business has learned the thing the scope was keeping from them — which on this
+		// screen is a list of somebody else's companions and everything they said.
 		http.Error(w, "no meeting by that name here — it ended with the console that held it",
 			http.StatusNotFound)
 		return
@@ -136,9 +147,38 @@ func (s *server) meet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "meeting", run.view())
 }
 
+// mayWatch reports whether this person may see a meeting at all.
+//
+// Every companion in the room, not any of them: what a meeting hands back is one transcript with
+// all of them talking in it, and a scope that admits a reader because ONE participant is theirs
+// hands them the other three's words as well. There is no way to show half a discussion.
+//
+// The gate at the front cannot do this — the meeting is named in the query and its participants
+// are only known here — which is the same third shape the scope check has everywhere else: a
+// route whose ANSWER carries the subject. See onlySeen.
+func (s *server) mayWatch(r *http.Request, run *meetingRun) bool {
+	if run == nil {
+		return false
+	}
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	for _, sp := range run.m.Speakers {
+		if sp.Person() {
+			continue
+		}
+		if !s.seen(r, sp.Name, "") {
+			return false
+		}
+	}
+	return true
+}
+
 // meetStart convenes one: a question, and who is being asked.
 func (s *server) meetStart(w http.ResponseWriter, r *http.Request) {
-	topic := strings.TrimSpace(r.FormValue("topic"))
+	// Clipped, like everything else this console passes on. The topic is put in front of every
+	// participant on every turn and written into each of their session logs, so a pasted file is
+	// not a question — it is the same file paid for once per speaker per round.
+	topic := text.Clip(strings.TrimSpace(r.FormValue("topic")), meetSaid)
 	if topic == "" {
 		http.Error(w, "a meeting needs a question to be about", http.StatusBadRequest)
 		return
@@ -165,6 +205,14 @@ func (s *server) meetStart(w http.ResponseWriter, r *http.Request) {
 		speakers = append(speakers, meeting.Speaker{Name: name, Socket: sock})
 		sockets[name] = sock
 	}
+	// And a ceiling on the room. Every participant is a model turn per round, so a request naming
+	// forty companions is forty turns a lap — and a discussion nobody can read is not the thing
+	// this feature is for either.
+	if len(speakers) > meetSeats {
+		http.Error(w, "a meeting of more than "+strconv.Itoa(meetSeats)+" companions is a broadcast; "+
+			"pick the ones whose answer you need", http.StatusBadRequest)
+		return
+	}
 	if len(speakers) < 2 {
 		// One companion and a person is not a meeting, it is a conversation — and the companion's
 		// own page does that better than anything here could.
@@ -178,7 +226,11 @@ func (s *server) meetStart(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("rounds"))); err == nil && n > 0 && n <= 9 {
 		rounds = n
 	}
-	run := s.meets.start(topic, speakers, sockets, rounds)
+	run, err := s.meets.start(topic, speakers, sockets, rounds)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	// Background, not the request's context: the meeting outlives the POST that convened it, and
 	// tying it to the browser would end it the moment somebody navigated away.
 	go run.drive(context.Background(), s)
@@ -195,15 +247,15 @@ func (s *server) meetSay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := s.meets.get(strings.TrimSpace(r.FormValue("id")))
-	if run == nil {
+	if run == nil || !s.mayWatch(r, run) {
 		http.Error(w, "no meeting by that name here", http.StatusNotFound)
 		return
 	}
-	text := strings.TrimSpace(r.FormValue("text"))
+	said := text.Clip(strings.TrimSpace(r.FormValue("text")), meetSaid)
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	me := run.personName(s.personHere(r))
-	if text == "" {
+	if said == "" {
 		// A keystroke, not a sentence: the floor, without words yet.
 		run.held = r.FormValue("hold") != ""
 		if run.held {
@@ -214,7 +266,7 @@ func (s *server) meetSay(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, "meeting", run.viewLocked())
 		return
 	}
-	run.m.Say(meeting.Utterance{Who: me, Text: text})
+	run.m.Say(meeting.Utterance{Who: me, Text: said})
 	run.held = false
 	writeJSON(w, "meeting", run.viewLocked())
 }
@@ -226,7 +278,7 @@ func (s *server) meetClose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := s.meets.get(strings.TrimSpace(r.FormValue("id")))
-	if run == nil {
+	if run == nil || !s.mayWatch(r, run) {
 		http.Error(w, "no meeting by that name here", http.StatusNotFound)
 		return
 	}
@@ -247,7 +299,7 @@ func (s *server) meetHand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := s.meets.get(strings.TrimSpace(r.FormValue("id")))
-	if run == nil {
+	if run == nil || !s.mayWatch(r, run) {
 		http.Error(w, "no meeting by that name here", http.StatusNotFound)
 		return
 	}
@@ -408,9 +460,17 @@ func (s *server) speakTo(ctx context.Context, socket, topic, transcript string, 
 		said, pass, err := cl.Meet(topic, transcript, closing)
 		done <- answer{said, pass, err}
 	}()
+	// Bounded, a little above the daemon's own limit on a contribution. The companion stops itself
+	// after five minutes; this is for the case where it never gets that far — a wedged process
+	// that accepts a connection and answers nothing would otherwise hold the floor for the life of
+	// the console, with the meeting frozen behind it and no way to end it.
+	late := time.NewTimer(6 * time.Minute)
+	defer late.Stop()
 	select {
 	case a := <-done:
 		return a.said, a.pass, a.err
+	case <-late.C:
+		return "", false, errText("no answer in six minutes")
 	case <-ctx.Done():
 		return "", false, ctx.Err()
 	}
@@ -441,8 +501,19 @@ func (s *server) personHere(r *http.Request) string {
 	return "you"
 }
 
+// meetsAtOnce is how many meetings one console will hold.
+//
+// Each one is a goroutine and, far more expensively, a model turn per participant per round: a
+// loop of POSTs would put every companion on the machine into a dozen simultaneous discussions
+// and leave the goroutines behind afterwards. The permission is already `prompt` — this is not
+// about somebody who should not be here, it is about a mistake or a stuck script costing the
+// whole fleet's backend. Finished meetings do not count against it and are dropped oldest-first
+// once there are more than a screenful.
+const meetsAtOnce = 6
+
+// start makes a meeting, or says why it will not.
 func (m *meetings) start(topic string, speakers []meeting.Speaker, sockets map[string]string,
-	rounds int) *meetingRun {
+	rounds int) (*meetingRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.open == nil {
@@ -450,13 +521,52 @@ func (m *meetings) start(topic string, speakers []meeting.Speaker, sockets map[s
 		// because a server built without going through the constructor is what every test here is.
 		m.open = map[string]*meetingRun{}
 	}
+	m.forgetOldLocked()
+	going := 0
+	for _, r := range m.open {
+		if !r.finished() {
+			going++
+		}
+	}
+	if going >= meetsAtOnce {
+		return nil, errText("this console is already holding " + strconv.Itoa(going) +
+			" meetings; wrap one up before starting another")
+	}
 	run := &meetingRun{
 		id:      meetID(time.Now(), len(m.open)),
 		m:       meeting.New(topic, speakers, rounds),
 		sockets: sockets,
 	}
 	m.open[run.id] = run
-	return run
+	return run, nil
+}
+
+// meetsKept is how many finished meetings stay readable. They are the record of what was decided
+// until somebody acts on it — and each one holds a whole transcript, so they cannot all stay.
+const meetsKept = 12
+
+// forgetOldLocked drops the oldest finished meetings once there are more than that.
+func (m *meetings) forgetOldLocked() {
+	done := make([]string, 0, len(m.open))
+	for id, r := range m.open {
+		if r.finished() {
+			done = append(done, id)
+		}
+	}
+	if len(done) <= meetsKept {
+		return
+	}
+	sort.Strings(done) // the id begins with the time it started, so this is oldest first
+	for _, id := range done[:len(done)-meetsKept] {
+		delete(m.open, id)
+	}
+}
+
+// finished reports whether a meeting has run its course: closed, and the conclusions collected.
+func (run *meetingRun) finished() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.m.Closed && !run.collecting
 }
 
 // meetID names a meeting by when it started. The counter is the tiebreak for two convened in the
@@ -474,7 +584,10 @@ func (m *meetings) get(id string) *meetingRun {
 	return m.open[id]
 }
 
-func (m *meetings) list() []meetView {
+// list is the meetings this person may see. The filter is passed in rather than applied by the
+// caller afterwards, so there is no moment when a full list exists to be handed to the wrong
+// place — the same reason onlySeen copies rather than filtering in place.
+func (m *meetings) list(may func(*meetingRun) bool) []meetView {
 	m.mu.Lock()
 	runs := make([]*meetingRun, 0, len(m.open))
 	for _, r := range m.open {
@@ -483,6 +596,9 @@ func (m *meetings) list() []meetView {
 	m.mu.Unlock()
 	out := make([]meetView, 0, len(runs))
 	for _, r := range runs {
+		if may != nil && !may(r) {
+			continue
+		}
 		out = append(out, r.view())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
