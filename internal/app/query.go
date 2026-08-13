@@ -395,8 +395,18 @@ func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, 
 	}
 	text := "I edited " + what + " from the console (" + tool + "). " +
 		"Read it again before you change it — what you have in context is what it was before."
-	// Written here rather than through appendPrompt, because the abandonment below has to NAME
-	// this prompt and appendPrompt keeps the id it minted to itself.
+	return a.noteToSession(ctx, sid, text)
+}
+
+// noteToSession puts a person's own words into a companion's log without asking it to work.
+//
+// Shared by every console action that changes something under a running agent — an edit, and each
+// of the git commands — because they all need the same two things: the sentence has to reach the
+// context the next turn is built from, and it must not look like a request nobody answered.
+//
+// Written out rather than through appendPrompt, because the abandonment below has to NAME this
+// prompt and appendPrompt keeps the id it minted to itself.
+func (a *App) noteToSession(ctx context.Context, sid session.SessionID, text string) error {
 	msgID := "m_" + newSortableID()
 	data, err := json.Marshal(event.PromptSubmittedData{
 		MessageID: msgID,

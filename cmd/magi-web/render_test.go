@@ -4755,6 +4755,9 @@ console.log(JSON.stringify({
   ahead: named('gitab').map(d => d.textContent).join(' '),
   changed: byId.files.find('button').filter(b => String(b.className).includes('gitrow'))
                      .map(b => b.find('div').map(d => d.textContent).join(' ')),
+  picks: byId.files.find('md-outlined-select').length,
+  acts: named('gitbranchacts').map(d => d.find('md-text-button').map(b => b.textContent).join('|')).join('|'),
+  groups: named('gitgroup').map(d => d.textContent),
 }));
 `
 	on := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", strings.Replace(page, "GIT",
@@ -4775,6 +4778,27 @@ console.log(JSON.stringify({
 	// printing "RM" is asking its reader to know it.
 	if !strings.Contains(fmt.Sprint(changed), "staged") {
 		t.Errorf("no word for the kind of change: %v", changed)
+	}
+
+	// The branch is a menu where there is more than one — the thing you look at to see where you
+	// are is the thing you press to go somewhere else — and the four branch-level actions are
+	// there: pull, push, stash or restore, new branch.
+	many := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", strings.Replace(page, "GIT",
+		`{repo: true, branch: 'engine-ui-split', upstream: 'origin/x', ahead: 1,
+		  branches: ['engine-ui-split', 'main'], changes: [{path: 'a.go', kind: 'staged'}]}`, 1))
+	if n, _ := many["picks"].(float64); n != 1 {
+		t.Errorf("%v branch menus for a checkout with two branches", n)
+	}
+	acts := fmt.Sprint(many["acts"])
+	for _, want := range []string{"Pull", "Push", "Stash", "New branch"} {
+		if !strings.Contains(acts, want) {
+			t.Errorf("no %q among the branch actions: %s", want, acts)
+		}
+	}
+	// And the changes are grouped the way a git panel groups them: what a commit would take, and
+	// what it would leave.
+	if g := fmt.Sprint(many["groups"]); !strings.Contains(g, "Staged") {
+		t.Errorf("the changes are not grouped: %s", g)
 	}
 
 	// A detached head is not a branch, and a directory nobody put under version control has no

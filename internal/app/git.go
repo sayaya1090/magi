@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -52,6 +51,10 @@ type GitState struct {
 	Behind   int    `json:"behind,omitempty"`
 	// Changes is every path git would mention, with what kind of change it is.
 	Changes []GitChange `json:"changes"`
+	// Branches is what this checkout could switch to, current one included. Local only: a screen
+	// offering to switch to a remote branch is offering to create a tracking branch under a name
+	// somebody did not choose, which is a different act with the same word on it.
+	Branches []string `json:"branches,omitempty"`
 }
 
 // GitChange is one path and what has happened to it.
@@ -84,7 +87,23 @@ func (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {
 		// screen that asked.
 		return GitState{}, nil
 	}
-	return parseGitStatus(string(res.Stdout)), nil
+	st := parseGitStatus(string(res.Stdout))
+	// The branches, in a second call because git says nothing about them in a status. Sorted by
+	// how recently each was committed to, which is the order every IDE lists them in and the order
+	// somebody is actually looking for: the one you were on yesterday is near the top.
+	if b, berr := a.plat.Exec(ctx, port.Cmd{
+		Path:      "git",
+		Args:      []string{"for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads/"},
+		Dir:       workdir,
+		MaxOutput: gitCaptureCap,
+	}); berr == nil && b.ExitCode == 0 {
+		for _, name := range strings.Split(strings.TrimSpace(string(b.Stdout)), "\n") {
+			if name = strings.TrimSpace(name); name != "" {
+				st.Branches = append(st.Branches, name)
+			}
+		}
+	}
+	return st, nil
 }
 
 // gitCaptureCap bounds the answer. A tree with a hundred thousand untracked files — a node_modules
@@ -242,11 +261,11 @@ const lookOverCap = 60 << 10
 
 // GitDo is the handful of git commands a person runs from a screen, run where the workspace is.
 //
-// # The list is closed, and it is short
+// # The list is closed
 //
-// stage, unstage, discard, commit. Each is a FIXED argv with the path as one argument — never a
-// string a shell parses — so a filename with a space, a semicolon or a leading dash is a filename.
-// Anything else somebody wants from git they have a terminal for, and the agent has bash.
+// stage, unstage, discard, commit, push, stash, unstash. Each is a FIXED argv with the path as one
+// argument — never a string a shell parses — so a filename with a space, a semicolon or a leading
+// dash is a filename. Anything else somebody wants from git they have a terminal for.
 //
 // # Why not a tool for the agent
 //
@@ -254,17 +273,24 @@ const lookOverCap = 60 << 10
 // agent on every turn for the console's convenience. The registry is the model's vocabulary, not
 // this screen's.
 //
-// # What is recorded, and what is not
+// # Every one of them is written into the companion's log
 //
-// discard CHANGES THE WORKING TREE — it throws away what was in a file — so it is written into the
-// companion's log exactly like a console edit: the agent's context still holds the version that is
-// now gone. stage, unstage and commit move git's own state and leave the tree as it was; git's
-// history is their record and the log stays out of it.
+// This is the reason the whole path exists rather than a nicety on top of it. The agent is
+// reasoning about a tree and a history it has read: what is uncommitted, what HEAD is, what it
+// would push. A person committing, pushing or stashing from the console moves exactly those things
+// under it — a stash CHANGES THE FILES the agent read, a commit moves HEAD so the agent's next
+// commit means something different, a push changes what "unpushed" means, and staging changes what
+// a `git commit` it runs would capture.
+//
+// So the rule is the simple one, because a rule with a carve-out is a rule somebody has to
+// remember: every mutation this console makes is written where the agent will read it, in the
+// person's own words, one line each.
 func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, path, message string) (string, error) {
 	if a.plat == nil {
 		return "", fmt.Errorf("platform unavailable")
 	}
 	var args []string
+	needsPath := true
 	switch what {
 	case "stage":
 		args = []string{"add", "--", path}
@@ -279,14 +305,47 @@ func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, p
 		// Only what is staged, which is what the screen showed as staged when the button was
 		// pressed. -a would also take everything else in the tree, including a file somebody left
 		// half-edited in the other pane.
-		args = []string{"commit", "-m", message}
+		args, needsPath = []string{"commit", "-m", message}, false
+	case "push":
+		args, needsPath = []string{"push"}, false
+	case "stash":
+		// The whole working tree, including untracked files — a stash that leaves them behind is
+		// one that does not do what the button says.
+		args, needsPath = []string{"stash", "push", "--include-untracked"}, false
+	case "unstash":
+		args, needsPath = []string{"stash", "pop"}, false
+	case "switch":
+		// An existing branch. `switch` rather than `checkout`: it does one thing, and it refuses
+		// rather than quietly creating something when the name is not a branch.
+		if strings.TrimSpace(message) == "" {
+			return "", fmt.Errorf("which branch")
+		}
+		args, needsPath = []string{"switch", "--", strings.TrimSpace(message)}, false
+	case "new-branch":
+		if strings.TrimSpace(message) == "" {
+			return "", fmt.Errorf("a branch needs a name")
+		}
+		args, needsPath = []string{"switch", "--create", strings.TrimSpace(message)}, false
+	case "pull":
+		// --ff-only: a pull that merges is a pull that can leave a conflicted tree behind a button
+		// press. If it will not fast-forward, git says so and the person decides in a terminal.
+		args, needsPath = []string{"pull", "--ff-only"}, false
+	case "fetch":
+		args, needsPath = []string{"fetch"}, false
 	default:
-		return "", fmt.Errorf("%q is not one of the git commands this can run: stage, unstage, discard, commit", what)
+		return "", fmt.Errorf("%q is not one of the git commands this can run: %s", what, gitDoList)
 	}
-	if what != "commit" && strings.TrimSpace(path) == "" {
+	if needsPath && strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("which file")
 	}
-	res, err := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: args, Dir: workdir, MaxOutput: gitCaptureCap})
+	cmd := port.Cmd{Path: "git", Args: args, Dir: workdir, MaxOutput: gitCaptureCap}
+	if what == "push" || what == "pull" || what == "fetch" {
+		// Never a prompt. A push that needs a credential would sit there with a terminal question
+		// nobody can see, holding the daemon goroutine until the timeout — and a console that
+		// hangs is worse than one that says "this needs a credential I cannot ask you for".
+		cmd.Env = []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS="}
+	}
+	res, err := a.plat.Exec(ctx, cmd)
 	if err != nil {
 		return "", err
 	}
@@ -296,19 +355,59 @@ func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, p
 		// could write about it.
 		return "", fmt.Errorf("%s", out)
 	}
-	if what == "discard" {
-		if nerr := a.noteEdit(ctx, sid, "git restore", []byte(`{"path":`+quoteJSON(path)+`}`)); nerr != nil {
-			return out, fmt.Errorf("the file was restored and the note about it was not: %w", nerr)
-		}
+	if nerr := a.noteGit(ctx, sid, what, path, message); nerr != nil {
+		return out, fmt.Errorf("git did it and the note about it was not written: %w", nerr)
 	}
 	return out, nil
 }
 
-// quoteJSON is a string as a JSON literal, for the one place that builds arguments by hand.
-func quoteJSON(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
+const gitDoList = "stage, unstage, discard, commit, push, stash, unstash, switch, new-branch, pull, fetch"
+
+// noteGit tells the companion what a person just did to its repository, and what that means for
+// what it is holding.
+//
+// The second half is the part that matters. "I stashed the working tree" is a fact; "the files you
+// read are not what is on disk now" is the consequence, and the consequence is what a model acts
+// on. Each of these says what changed under it in the terms the agent's own next step cares about.
+func (a *App) noteGit(ctx context.Context, sid session.SessionID, what, path, message string) error {
+	subject := path
+	if strings.TrimSpace(subject) == "" {
+		subject = "this workspace"
 	}
-	return string(b)
+	var text string
+	switch what {
+	case "stage":
+		text = "I staged " + subject + " from the console. A commit you make now would include it."
+	case "unstage":
+		text = "I unstaged " + subject + " from the console. A commit you make now would leave it out."
+	case "discard":
+		text = "I threw away the changes in " + subject + " from the console — it is back at the " +
+			"last commit. What you have in context is the version that is gone; read it again."
+	case "commit":
+		text = "I committed the staged changes from the console: " + strings.TrimSpace(message) +
+			". HEAD has moved, so nothing is left staged and a commit of yours would start from here."
+	case "push":
+		text = "I pushed this branch from the console. What was unpushed is on the remote now."
+	case "stash":
+		text = "I stashed the working tree from the console, untracked files included. The files " +
+			"you have read are not what is on disk now — read anything you were working on again."
+	case "unstash":
+		text = "I put the stash back from the console. The working tree has changed under you; " +
+			"read anything you were working on again."
+	case "switch":
+		text = "I switched this workspace to the branch " + strings.TrimSpace(message) +
+			" from the console. Every file you have read may be a different version now."
+	case "new-branch":
+		text = "I made the branch " + strings.TrimSpace(message) +
+			" from the console and this workspace is on it. Commits you make land there."
+	case "pull":
+		text = "I pulled from the console. Files you have read may have moved on; read anything " +
+			"you were working on again."
+	case "fetch":
+		text = "I fetched from the console. Nothing in the working tree changed — what moved is " +
+			"what the remote branches point at."
+	default:
+		text = "I ran git " + what + " from the console."
+	}
+	return a.noteToSession(ctx, sid, text)
 }

@@ -118,9 +118,11 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 	if got, _ := a.GitFacts(context.Background(), wd); len(got.Changes) != 1 || got.Changes[0].Kind != "staged" {
 		t.Fatalf("after staging: %+v", got.Changes)
 	}
-	// Nothing in the log: staging moved git's state and left the file alone.
-	if said := userSaid(t, st, sid); said != "" {
-		t.Errorf("staging was written into the log: %q", said)
+	// And the agent is told, because staging changes what a commit IT makes would capture. Every
+	// mutation this console makes is written down — a rule with a carve-out is one somebody has to
+	// remember, and the carve-out is always the case that later surprises a model.
+	if said := userSaid(t, st, sid); !strings.Contains(said, "staged") {
+		t.Errorf("staging was not written into the log: %q", said)
 	}
 
 	// And discarding is. The file goes back, and the companion is told, because what it holds in
@@ -138,8 +140,42 @@ func TestGitCommandsAreFourAndDiscardIsRecorded(t *testing.T) {
 		t.Errorf("throwing the file away was not written into the log: %q", said)
 	}
 
+	// A commit, a stash and putting it back: the three the agent most needs to hear about, because
+	// each one moves what it is reasoning about — HEAD, or the files it has read.
+	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("three\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "stage", "a.txt", ""); gerr != nil {
+		t.Fatal(gerr)
+	}
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "commit", "", "a second commit"); gerr != nil {
+		t.Fatalf("committing: %v", gerr)
+	}
+	if said := userSaid(t, st, sid); !strings.Contains(said, "a second commit") {
+		t.Errorf("the commit was not written into the log: %q", said)
+	}
+	if werr := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("four\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "stash", "", ""); gerr != nil {
+		t.Fatalf("stashing: %v", gerr)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); strings.TrimSpace(string(b)) != "three" {
+		t.Errorf("after a stash the file is %q", string(b))
+	}
+	// The consequence, not just the fact: what the agent has read is not what is on disk.
+	if said := userSaid(t, st, sid); !strings.Contains(said, "not what is on disk") {
+		t.Errorf("the stash did not say what it means for the agent: %q", said)
+	}
+	if _, gerr := a.GitDo(context.Background(), sid, wd, "unstash", "", ""); gerr != nil {
+		t.Fatalf("putting the stash back: %v", gerr)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wd, "a.txt")); strings.TrimSpace(string(b)) != "four" {
+		t.Errorf("after putting the stash back the file is %q", string(b))
+	}
+
 	// The list is closed. Anything else somebody wants from git they have a terminal for.
-	for _, what := range []string{"push", "reset", "clean", "checkout", "rm"} {
+	for _, what := range []string{"reset", "clean", "checkout", "rm", "rebase"} {
 		if _, gerr := a.GitDo(context.Background(), sid, wd, what, "a.txt", ""); gerr == nil {
 			t.Errorf("%q ran from a screen offering four commands", what)
 		}

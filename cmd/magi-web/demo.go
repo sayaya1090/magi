@@ -298,7 +298,8 @@ const demoScript = `
     // one of each kind of change in it — including the one worth seeing, a file that is staged AND
     // changed since, where committing now would commit half of what is on screen.
     '/git': {repo: true, branch: 'engine-ui-split', head: '20ff4276',
-      upstream: 'origin/engine-ui-split', ahead: 2, behind: 0, changes: [
+      upstream: 'origin/engine-ui-split', ahead: 2, behind: 0,
+      branches: ['engine-ui-split', 'main', 'fleet-door'], changes: [
         {path: 'cmd/magi-web/page.js', kind: 'unstaged'},
         {path: 'internal/app/git.go', kind: 'staged'},
         {path: 'docs/UI.md', kind: 'both'},

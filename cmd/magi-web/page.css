@@ -1355,6 +1355,15 @@
      its reader to know it. */
   /* A changed file and what can be done to it, on one line: the row takes the width and the
      buttons sit at the trailing end, which is where the lists guidance puts a secondary action. */
+  /* The branch menu, the four branch-level buttons, and the two group headings — the shape every
+     editor's git panel has, in a column 18rem wide. */
+  .gitpick { flex:1 1 8rem; min-width:0; --md-outlined-select-text-field-input-text-font:var(--magi-ref-mono); }
+  .gitbranchacts { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-50); }
+  .gitgroup {
+    margin-top:var(--magi-sys-space-100);
+    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display);
+    letter-spacing:.04em; color:var(--magi-ref-muted);
+  }
   .gitline { display:flex; align-items:center; gap:var(--magi-sys-space-50); }
   .gitline .treerow { flex:1 1 auto; min-width:0; }
   .gitacts { display:flex; flex:none; }

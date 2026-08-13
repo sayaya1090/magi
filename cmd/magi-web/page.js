@@ -952,7 +952,10 @@ function confirmThis(q) {
   withMark(stopCancel, q.keepMark);
   stopGo.textContent = q.doIt;
   withMark(stopGo, q.doMark);
-  stopCancel.onclick = () => stopDialog.close('cancel');
+  // The dismissive action can have work to do as well: a control that has already moved — a menu
+  // that switched to the branch somebody then decided against — has to be put back, and only the
+  // caller knows what back is.
+  stopCancel.onclick = () => { stopDialog.close('cancel'); if (q.onKeep) q.onKeep(); };
   stopGo.onclick = () => { stopDialog.close('go'); q.go(); };
   stopDialog.show();
 }
@@ -4933,36 +4936,123 @@ async function gitSection(a) {
   const top = cell('gittop');
   const mark = iconOr('#i-sl-layer-group', '⎇', 'gitmark');
   if (mark) top.append(mark);
-  // A detached head is not a branch. git says "(detached)" where the name goes, and printing a
-  // short sha under the word "branch" teaches somebody the wrong thing in the state where it costs
-  // work — so the commit is shown as a commit.
-  top.append(cell('gitbranch', g.branch || (g.head ? '@' + g.head : tr('git.detached'))));
+  // The branch is a MENU where there is more than one, which is what every editor's git panel puts
+  // in this corner: the thing you look at to see where you are is the thing you press to go
+  // somewhere else. A detached head is not a branch — git says "(detached)" where the name goes,
+  // and printing a short sha under the word "branch" teaches the wrong thing in the state where it
+  // costs work — so that case is a label and not a menu.
+  const here = g.branch || (g.head ? '@' + g.head : tr('git.detached'));
+  const branches = g.branches || [];
+  if (may('shell') && g.branch && branches.length > 1) {
+    const pick = document.createElement('md-outlined-select');
+    pick.className = 'gitpick';
+    pick.setAttribute('label', tr('git.branch'));
+    for (const name of branches) {
+      const o = document.createElement('md-select-option');
+      o.value = name;
+      if (name === g.branch) o.selected = true;
+      const t = document.createElement('div');
+      t.slot = 'headline';
+      t.textContent = name;
+      o.append(t);
+      pick.append(o);
+    }
+    // Switching moves every file under the reader, so it is confirmed rather than done on a
+    // change event somebody triggered with an arrow key while the menu was open.
+    pick.addEventListener('change', () => {
+      const to = String(pick.value || '');
+      if (!to || to === g.branch) return;
+      confirmThis({
+        head: tr('git.switch_head', {branch: to}),
+        body: tr('git.switch_body'),
+        keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+        doIt: tr('git.switch'), doMark: '#i-sl-arrows-rotate',
+        go: () => gitRun(a, 'switch', {message: to}),
+        // Put back if they say no: the menu has already moved to the branch they did not choose.
+        onKeep: () => { pick.value = g.branch; },
+      });
+    });
+    top.append(pick);
+  } else {
+    top.append(cell('gitbranch', here));
+  }
   if (g.ahead) top.append(cell('gitab ahead', '↑' + g.ahead));
   if (g.behind) top.append(cell('gitab behind', '↓' + g.behind));
   box.append(top);
+  if (may('shell')) box.append(gitBranchActs(a, g));
   const changes = g.changes || [];
   if (!changes.length) {
     box.append(cell('gitclean', tr('git.clean')));
     return [box];
   }
-  // The uncommitted ones, as rows that open the file — which is what somebody looking at this list
-  // wants next, every time. Ordered as git gave them; sorting by kind would move a file under
-  // somebody's cursor as they stage things.
-  for (const c of changes) {
-    const line = cell('gitline');
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'treerow gitrow state hit48 ' + (c.kind || '');
-    row.append(cell('gitkind', tr(GIT_KIND[c.kind] || 'git.changed')));
-    row.append(cell('treename', c.path));
-    row.onclick = () => openFile(a, c.path);
-    line.append(row, gitActs(a, c));
-    box.append(line);
+  // Grouped the way every editor's git panel groups them: what a commit would take, and what it
+  // would leave. A flat list makes somebody read the word on each row to work out which half of
+  // the commit they are looking at.
+  const staged = changes.filter(c => c.kind === 'staged' || c.kind === 'both');
+  const rest = changes.filter(c => !(c.kind === 'staged' || c.kind === 'both'));
+  if (staged.length) {
+    box.append(cell('gitgroup', tr('git.group_staged')));
+    for (const c of staged) box.append(gitLine(a, c));
   }
-  if (may('shell') && changes.some(c => c.kind === 'staged' || c.kind === 'both')) {
-    box.append(commitRow(a));
+  if (rest.length) {
+    box.append(cell('gitgroup', tr('git.group_changed')));
+    for (const c of rest) box.append(gitLine(a, c));
   }
+  if (may('shell') && staged.length) box.append(commitRow(a));
   return [box];
+}
+
+// gitLine is one changed file: the row that opens it, and what can be done to it.
+function gitLine(a, c) {
+  const line = cell('gitline');
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'treerow gitrow state hit48 ' + (c.kind || '');
+  row.append(cell('gitkind', tr(GIT_KIND[c.kind] || 'git.changed')));
+  row.append(cell('treename', c.path));
+  row.onclick = () => openFile(a, c.path);
+  line.append(row, gitActs(a, c));
+  return line;
+}
+
+// What the branch as a whole can be told to do. The four an editor's panel puts over the file
+// list, and no more: everything here either moves the branch or moves the tree, and the ones that
+// move the tree say so before they do it.
+function gitBranchActs(a, g) {
+  const box = cell('gitbranchacts');
+  const act = (key, mark, run, on) => {
+    if (on === false) return;
+    const b = withMark(document.createElement('md-text-button'), mark);
+    label(b, tr(key));
+    b.onclick = run;
+    box.append(b);
+  };
+  act('git.pull', '#i-sl-reply', () => gitRun(a, 'pull'), !!g.upstream);
+  act('git.push', '#i-sl-share-from-square', () => gitRun(a, 'push'), !!g.upstream || !!g.ahead);
+  // Stash or put it back — never both, because which one is meaningful is a fact about the tree.
+  if ((g.changes || []).length) {
+    act('git.stash', '#i-sl-floppy-disk', () => confirmThis({
+      head: tr('git.stash_head'), body: tr('git.stash_body'),
+      keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
+      doIt: tr('git.stash'), doMark: '#i-sl-floppy-disk',
+      go: () => gitRun(a, 'stash'),
+    }));
+  } else {
+    act('git.unstash', '#i-sl-arrows-rotate', () => gitRun(a, 'unstash'));
+  }
+  act('git.new_branch', '#i-sl-plus', () => {
+    const name = prompt(tr('git.new_branch_who'));
+    if (name && name.trim()) gitRun(a, 'new-branch', {message: name.trim()});
+  });
+  return box;
+}
+
+// gitRun sends one of them and redraws from what git says afterwards rather than from what the
+// button meant to do.
+function gitRun(a, what, extra) {
+  return post('/git-do' + qFor(a),
+    new URLSearchParams(Object.assign({do: what}, extra || {})),
+    a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
 }
 
 // The two or three things somebody does to a changed file from a screen.
@@ -4983,9 +5073,7 @@ function gitActs(a, c) {
     b.onclick = ev => { ev.stopPropagation(); run(); };
     box.append(b);
   };
-  const send = (what, extra) => post('/git-do' + qFor(a),
-    new URLSearchParams(Object.assign({do: what, path: c.path}, extra || {})),
-    a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
+  const send = (what, extra) => gitRun(a, what, Object.assign({path: c.path}, extra || {}));
   if (c.kind !== 'staged') act('#i-sl-plus', 'git.stage', () => send('stage'));
   if (c.kind === 'staged' || c.kind === 'both') act('#i-sl-reply', 'git.unstage', () => send('unstage'));
   // Throwing away what is in a file is the one thing here that cannot be undone by pressing the
