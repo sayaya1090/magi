@@ -5228,3 +5228,49 @@ console.log(JSON.stringify({
 		t.Errorf("removing the final newline produced:\n%s", d)
 	}
 }
+
+// The workspace pane is rebuilt when the workspace changes, and not when a message arrives.
+//
+// It is drawn from the three-second poll, so every line of conversation rebuilt the tree, the git
+// card, the branch select and every per-file menu for a workspace where nothing had happened. A
+// rebuilt select is a select whose open menu shuts under the pointer, and a rebuilt row is one
+// that moves out from under it.
+func TestTheWorkspacePaneIsRedrawnOnlyWhenItChanges(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+let tree = [{name: 'README.md'}, {name: 'docs', isDir: true}];
+let branch = 'main';
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/files') return {ok: true, json: async () => tree};
+  if (path === '/git') return {ok: true, json: async () => ({repo: true, branch, changes: []})};
+  if (path === '/fleet') return {ok: true, json: async () => ([])};
+  return {ok: true, json: async () => ([]), text: async () => ''};
+};
+const a = {socket: '/s/a.sock', workdir: '/w', name: 'design'};
+await loadTree(a);
+const first = byId.files.children[0];
+await loadTree(a);                    // the poll, with nothing changed
+const second = byId.files.children[0];
+tree = tree.concat([{name: 'new.go'}]);   // a file appears in the workspace
+await loadTree(a);
+const third = byId.files.children[0];
+branch = 'engine-ui-split';               // and the branch changes under it
+await loadTree(a);
+const fourth = byId.files.children[0];
+console.log(JSON.stringify({
+  keptItsCard: first === second,
+  redrawnForAFile: second !== third,
+  redrawnForABranch: third !== fourth,
+}));`)
+	if got["keptItsCard"] != true {
+		t.Error("the pane was rebuilt by a poll that found nothing changed")
+	}
+	if got["redrawnForAFile"] != true {
+		t.Error("a file appearing in the workspace did not redraw the tree")
+	}
+	if got["redrawnForABranch"] != true {
+		t.Error("the branch changing did not redraw the git card")
+	}
+}

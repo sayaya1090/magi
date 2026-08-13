@@ -637,3 +637,43 @@ func TestConveningTheSameQuestionTwiceLandsOnTheFirstMeeting(t *testing.T) {
 		t.Error("a different question was folded into the meeting already going")
 	}
 }
+
+// A floor nobody is using comes back.
+//
+// Taking it is a keystroke; giving it back is sending. So a tab closed mid-sentence, or a stray
+// press in the box, left every participant waiting on somebody who had walked away — watched live,
+// with three companions silent behind a hold nobody was going to release. It comes back on its own
+// after a minute and a half, which is long enough that nobody composing is ever cut off.
+func TestAFloorNobodyIsUsingComesBack(t *testing.T) {
+	f, design, _, who := room(t)
+	// The first speaker is parked in its turn while the floor is taken, so the driver is still
+	// running when the hold arrives. Without that, fakes that answer instantly finish the whole
+	// meeting first and the hold is a flag on a room nobody is driving — which is a different
+	// thing entirely, and not the one this is about.
+	design.slow, design.started = make(chan struct{}), make(chan struct{}, 1)
+	who.Set("topic", "who owns the retry budget")
+	v := convene(t, f, who)
+	until(t, "the first speaker", func() bool {
+		select {
+		case <-design.started:
+			return true
+		default:
+			return false
+		}
+	})
+	// Somebody starts typing and never finishes.
+	post(t, f.srv, f.srv.meetSay, "/meet-say", url.Values{"id": {v.ID}, "hold": {"1"}})
+	close(design.slow)
+	if !read(t, f, v.ID).Held {
+		t.Fatal("taking the floor did not hold it")
+	}
+	// Wound back past the limit, rather than waiting a minute and a half for a test to pass.
+	run := f.srv.meets.get(v.ID)
+	run.mu.Lock()
+	run.heldAt = time.Now().Add(-heldFor - time.Second)
+	run.mu.Unlock()
+
+	until(t, "the room to carry on without them", func() bool { return !read(t, f, v.ID).Held })
+	// And it really carries on: somebody speaks after the hold lapses.
+	until(t, "the next contribution", func() bool { return len(read(t, f, v.ID).Said) > 0 })
+}

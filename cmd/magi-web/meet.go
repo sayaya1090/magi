@@ -51,6 +51,11 @@ type meetingRun struct {
 	// held is set while the person has the floor: nobody else is asked to speak until they let it
 	// go, which is the hush a room gives somebody who has started talking.
 	held bool
+	// heldAt is when they took it. A hold is a keystroke, and the thing that ends it is sending —
+	// so a tab closed mid-sentence, or a stray press in the box, left the room silent for as long
+	// as the console stayed up. Watched live: the floor was taken, the sentence never arrived, and
+	// three companions waited on somebody who had walked away.
+	heldAt time.Time
 	// trouble is the last thing that went wrong, kept to be shown rather than swallowed: a
 	// participant whose daemon has gone is a fact about the meeting, not a reason to end it.
 	trouble string
@@ -116,6 +121,9 @@ type meetLine struct {
 // to be — and every lap costs one model turn per participant, so the guess is expensive in both
 // directions. A caller may still name one; the screen does not.
 const meetRounds = 5
+
+// heldFor is how long the room waits for somebody who took the floor and has not said anything.
+const heldFor = 90 * time.Second
 
 // meetSeats is the most companions one meeting will ask, and meetSaid the most text one question
 // or one person's contribution may carry into everybody else's prompt.
@@ -280,6 +288,7 @@ func (s *server) meetSay(w http.ResponseWriter, r *http.Request) {
 	if said == "" {
 		// A keystroke, not a sentence: the floor, without words yet.
 		run.held = r.FormValue("hold") != ""
+		run.heldAt = time.Now()
 		if run.held {
 			run.m.Take(me)
 		} else {
@@ -388,6 +397,12 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 			return
 		}
 		run.mu.Lock()
+		// A hold that nobody is using any more. Long enough that somebody composing a sentence is
+		// never cut off, short enough that a closed tab does not end the meeting by accident.
+		if run.held && !run.heldAt.IsZero() && time.Since(run.heldAt) > heldFor {
+			run.held = false
+			run.m.Yield()
+		}
 		if run.held {
 			run.mu.Unlock()
 			// Somebody is typing. Half a second is short enough that the room does not feel frozen

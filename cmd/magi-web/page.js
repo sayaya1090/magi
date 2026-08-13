@@ -4704,6 +4704,11 @@ const meetHanded = new Set();
 // is what decides whether the poll may rebuild the screen under them.
 let meetTopicField = null;
 let meetSayField = null;
+// What is being typed into the room. Held out here for the same reason the topic is: the room is
+// rebuilt every two seconds, and a sentence that lived only in the field was thrown away by the
+// next tick unless the caret happened to be in it. Watched live: the floor was taken, the words
+// were gone by the time Say it was pressed, and the press did nothing at all.
+let meetSaying = '';
 
 // typingIn reports whether the caret is in that field.
 //
@@ -4890,6 +4895,9 @@ function meetRow(m) {
 
 // meetWhere is the one line that says what stage a meeting is at.
 function meetWhere(m) {
+  // The floor being held is the reason nothing is happening, so it is the thing to say. Without
+  // it the room reads "Round 2 of 5" and looks stuck, which is exactly what it is not.
+  if (!m.closed && m.held) return tr('meet.yours');
   if (m.collecting) return tr('meet.collecting');
   if (m.closed) {
     if (!(m.tasks || []).length) return tr('meet.closing');
@@ -5057,6 +5065,7 @@ function sayBox(m) {
   f.setAttribute('type', 'textarea');
   f.setAttribute('rows', '2');
   f.id = 'meetSay';
+  f.value = meetSaying;
   meetSayField = f;
   // Taken on the first keystroke and not on every one: the hush is a state, and re-posting it per
   // character would be a request per character. Given back by sending, or by leaving the box empty.
@@ -5068,17 +5077,18 @@ function sayBox(m) {
     if (on) body.set('hold', '1');
     await fetch('/meet-say', {method: 'POST', body});
   };
-  f.addEventListener('input', () => { hold(f.value.trim() !== ''); });
+  f.addEventListener('input', () => { meetSaying = f.value; hold(f.value.trim() !== ''); });
   f.addEventListener('blur', () => { if (f.value.trim() === '') hold(false); });
   const send = label(withMark(document.createElement('md-filled-button'), '#i-sl-paper-plane-top'),
                      tr('meet.send'));
   send.onclick = async () => {
-    const text = f.value.trim();
+    const text = (f.value || meetSaying).trim();
     if (!text) return;
     const body = new URLSearchParams({id: m.id, text});
     const r = await fetch('/meet-say', {method: 'POST', body});
     if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
     f.value = '';
+    meetSaying = '';
     held = false;
     loadMeet();
   };
@@ -5406,6 +5416,7 @@ async function loadTree(a) {
     filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.elsewhere'))]));
     return;
   }
+  treeAt.seen = [];
   const rows = await treeAt(a, '.');
   if (rows === null) {
     filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.unreadable'))]));
@@ -5421,6 +5432,18 @@ async function loadTree(a) {
   const tree = paneCard('files', shortPath(a.workdir || ''),
                         [findRow(a), ...(await branches(a, '.', rows, 0))]);
   const git = await gitSection(a);
+  // Only when something is different. This runs on the three-second poll, so every message
+  // arriving in the conversation rebuilt the whole pane — the tree, the git card, the branch
+  // select, the per-file menus — for a workspace where nothing had changed. Visible as a flicker,
+  // and worse than a flicker: a rebuilt select is a select whose open menu shuts, and a row being
+  // pointed at moves out from under the pointer.
+  //
+  // Compared on the INPUTS, not on the markup: everything drawn here comes from the listings, the
+  // git state, which directories are open and which file is showing, and a string of those is
+  // cheap next to serialising a tree of several hundred rows.
+  const now = JSON.stringify([a.workdir, treeAt.seen, gitSection.raw, [...openDirs].sort(), cardShows, findQ]);
+  if (now === loadTree.drawn && filesEl.children.length) return;
+  loadTree.drawn = now;
   filesEl.replaceChildren(tree, ...git);
 }
 
@@ -5465,6 +5488,7 @@ function paneCard(key, title, kids) {
 // saying so would be a heading over an emptiness.
 async function gitSection(a) {
   const g = await fetchOne('/git' + qFor(a));
+  gitSection.raw = JSON.stringify(g || null);
   if (!g || !g.repo) return [];
   const box = cell('gitinner');
   const top = cell('gittop');
@@ -5681,8 +5705,13 @@ const GIT_KIND = {staged: 'git.staged', unstaged: 'git.unstaged', both: 'git.bot
 
 async function treeAt(a, path) {
   const got = await fetchList('/files' + qFor(a) + '&path=' + encodeURIComponent(path));
+  // Written down as it arrives, for the comparison in loadTree. The pane is a function of several
+  // requests — the root, every directory the reader has opened, the git state — and this is the
+  // only place all of them pass through.
+  if (Array.isArray(got)) treeAt.seen.push(path + ':' + got.map(e => e.name + (e.isDir ? '/' : '')).join(','));
   return Array.isArray(got) ? got : null;
 }
+treeAt.seen = [];
 
 // branches renders one directory, and the ones the reader has opened under it.
 //

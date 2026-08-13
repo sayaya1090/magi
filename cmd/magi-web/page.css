@@ -672,7 +672,12 @@
   @media (prefers-reduced-motion:reduce) {
     body[nav="open"] #rail .sub { animation-delay:0s !important; }
   }
-  body[nav-wide] .raili .words { display:grid; gap:2px; min-width:0; }
+  /* The words box is never wider than the item it is in. Collapsed, the rail is 96px and "People
+     and permissions" is 172 — without this the label ran out of the item on both sides and the
+     rail clipped it mid-word, because the ellipsis on .lbl only works if something above it says
+     how much room there is. Measured: x = -39 in a 96px rail. */
+  .raili .words { min-width:0; max-width:100%; overflow:hidden; }
+  body[nav-wide] .raili .words { display:grid; gap:2px; }
   /* The label waits for the room. It is revealed the instant the drawer is ASKED to open, and at
      that instant the rail is still 80px wide — the item has no lane for a word beside a 24dp icon,
      so it grew to 66px and came back to 56 as the rail caught up. Ten pixels of flinch on every
@@ -2212,7 +2217,14 @@
          reflows. Left to shrink, every line in the pane re-wrapped on the way through — the
          content got taller as it got narrower and a scrollbar flashed in and out for the length
          of the movement, which is the one thing an animation must not do. */
-      width:var(--magi-comp-side-w); box-sizing:border-box;
+      /* Pinned, but never wider than the column it is in. The pin is what stops every line in the
+         pane re-wrapping while the column animates open or shut — content getting taller as it
+         gets narrower, with a scrollbar flashing in and out for the length of the movement. What
+         it must not do is hide half the pane when the column is at its floor: at 1024 the column
+         is 176px and the pane was still 352, so 215px of it was off the side of the screen with
+         no way to reach it. The max() keeps the pin during the animation, where 100% is on its
+         way to zero, and the min() gives the column its say when the column is what is small. */
+      width:max(11rem, min(var(--magi-comp-side-w), 100%)); box-sizing:border-box;
       /* Down, never sideways. A session id and a workspace path are long unbreakable strings, and
          with overflow:auto they gave this column a horizontal scrollbar — drawn across the bottom
          of the pane, scrolling content that has somewhere better to go: the cards wrap it. A
@@ -2247,7 +2259,9 @@
       overflow:hidden;
     }
     #files {
-      flex:1 1 auto; min-height:0; width:var(--magi-comp-files-w); box-sizing:border-box;
+      flex:1 1 auto; min-height:0; box-sizing:border-box;
+      /* Same pin, same escape: see #side. */
+      width:max(11rem, min(var(--magi-comp-files-w), 100%));
       /* The COLUMN does not scroll; the cards in it do. A scrollbar out here would scroll the two
          together, which is the thing having two cards is for. */
       overflow:hidden;
@@ -2457,7 +2471,13 @@
   .panelic .split {
     transition:transform var(--magi-sys-dur-short4) var(--magi-sys-ease-emphasized);
   }
-  body[side="shut"] .panelic .split { transform:translateX(5.6px); }
+  /* Each handle draws ITS OWN pane. One rule drove both: the state pane shutting slid the divider
+     in the file pane's icon as well, and the file pane's own state moved nothing at all — so the
+     left-hand button was a readout of the right-hand pane.
+     And they slide opposite ways, because the two icons are mirror images: the leading pane's
+     divider leaves past the left edge, the trailing one past the right. */
+  body[side="shut"] #sideToggle .panelic .split { transform:translateX(5.6px); }
+  body[files="shut"] #filesToggle .panelic .split { transform:translateX(-5.6px); }
   /* The one icon that turns, and only while something is actually running — a spinner on a still
      screen is a screen pretending to work. Reduced motion is handled globally: the rule there
      restricts transitions and animations to a hair, which stops this without a second switch. */
