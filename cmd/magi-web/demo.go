@@ -411,6 +411,50 @@ const demoScript = `
       changes: '+++ docs/empty-states.md\n+ ## Empty states\n+ Use --surface-dim.',
       keep: true},
 
+    // Two meetings: one going on, one finished. The live one is caught mid-round with the floor
+    // held, an unreachable participant, and one companion resting after two passes — the three
+    // states the screen exists to show, none of which a happy-path fixture would ever draw. The
+    // finished one carries the point of the whole feature: each participant left with something to
+    // do, and one of them with nothing, which is an ordinary outcome.
+    '/meet': [
+      {id: 'm20260813-090400-0', topic: 'how long may the fleet table take to load, and who owns it',
+       round: 2, max: 3, holder: 'you', held: true,
+       trouble: 'ops: no daemon at /demo/ops.sock',
+       speakers: [
+         {name: 'design', socket: '/demo/design.sock'},
+         {name: 'api', socket: '/demo/api.sock', next: true},
+         {name: 'ops', socket: '/demo/ops.sock', passes: 2},
+         {name: 'you', person: true},
+       ],
+       said: [
+         {who: 'design', round: 1, at: '2026-08-13T09:04:10Z',
+          text: 'It is 900ms today and most of that is the roster, not the render. Anything over 200ms and people stop trusting the state column — they refresh instead of reading it.'},
+         {who: 'api', round: 1, at: '2026-08-13T09:05:02Z',
+          text: 'The roster is mine. 200ms is reachable if I stop resolving each workspace path on the way out; that is a lookup per companion and it is not what anybody is reading.'},
+         {who: 'ops', round: 1, pass: true, at: '2026-08-13T09:05:40Z',
+          text: 'there is no number to hold anybody to yet'},
+         {who: 'you', round: 1, at: '2026-08-13T09:06:11Z',
+          text: 'Take 200ms as the budget. @ops, what does it cost to watch it?'},
+         {who: 'design', round: 2, at: '2026-08-13T09:07:30Z',
+          text: 'Then the table renders whatever has arrived and marks the rest as still coming, rather than waiting for the slowest machine.'},
+       ]},
+      {id: 'm20260812-161500-0', topic: 'what to do about the empty state nobody specified',
+       round: 2, max: 2, closed: true,
+       speakers: [
+         {name: 'design', socket: '/demo/design.sock'},
+         {name: 'buttons', socket: '/demo/buttons.sock'},
+         {name: 'you', person: true},
+       ],
+       said: [
+         {who: 'design', round: 1, at: '2026-08-12T16:15:20Z',
+          text: 'Three components invent their own empty state and two of them invent a colour for it.'},
+         {who: 'buttons', round: 1, pass: true, at: '2026-08-12T16:16:02Z'},
+       ],
+       tasks: [
+         {who: 'design', what: 'Write the empty-state spec, naming the token each surface uses, and put it in docs/empty-states.md.'},
+         {who: 'buttons', what: ''},
+       ]},
+    ],
     '/handoffs': [
       {from: 'design', to: 'buttons', socket: '/demo/buttons.sock', state: 'idle',
        request: 'make the toggle read its state from the store',
@@ -586,6 +630,19 @@ const demoScript = `
       return {ok: true, status: 200, json: async () => ({out: out, exit: 0}),
               text: async () => JSON.stringify({out: out, exit: 0})};
     }
+    // The meeting's three actions, named rather than swept up by the branch below, because what
+    // they would have done is the interesting part: taking the floor hushes a room, wrapping up
+    // ends a discussion, and sending a conclusion is the one thing in the whole feature that
+    // reaches a workspace. A demo that reported all three as "would have sent: POST" teaches that
+    // they are the same act.
+    if (init && init.method === 'POST' &&
+        (url === '/meet-say' || url === '/meet-close' || url === '/meet-hand')) {
+      const said = {'/meet-say': 'would have taken the floor and said it',
+                    '/meet-close': 'would have ended the discussion and asked each of them what they will do',
+                    '/meet-hand': 'would have sent that conclusion to the companion as work, in its own session'}[url];
+      banner.textContent = 'demo — ' + said;
+      return {ok: true, status: 204, text: async () => ''};
+    }
     if (init && init.method === 'POST') {
       // Actions say what they would have done rather than pretending they did it: a demo that
       // silently accepts a delete teaches the wrong thing about the real console.
@@ -595,6 +652,16 @@ const demoScript = `
     }
       // History is per companion, so it is answered from the FULL path rather than the stripped one:
     // a board with the same four cards in every lane would be showing the mock, not the shape.
+    // A meeting is answered as the list or as one of them, by the same route, exactly as the real
+    // console does it: without the second branch the room would be handed an array and draw
+    // nothing, which is a demo teaching that the screen is broken.
+    if (url === '/meet') {
+      const id = new URLSearchParams(String(path).split('?')[1] || '').get('id') || '';
+      const all = answers['/meet'];
+      const body = id ? all.find(m => m.id === id) : all;
+      if (!body) return {ok: false, status: 404, text: async () => 'no meeting by that name here'};
+      return {ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body)};
+    }
     if (url === '/history') {
       const who = new URLSearchParams(String(path).split('?')[1] || '').get('d') || '';
       const runs = HISTORY[who] || [];
