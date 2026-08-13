@@ -1,6 +1,7 @@
 {
   "access.add": "Add somebody",
   "access.add_companion": "Add a companion (Enter)",
+  "access.add_first": "Who is coming in, and as what. The first person has to be able to admin: a console with people on it and nobody who may admin refuses to start.",
   "access.add_who": "The name your gateway reports (e.g. lee@corp.com)",
   "access.everywhere": "On every companion here",
   "access.exceptions": "Individual exceptions",

@@ -1,6 +1,7 @@
 {
   "access.add": "사용자 추가",
   "access.add_companion": "컴패니언 추가 (엔터)",
+  "access.add_first": "누가 들어오고, 어떤 역할인지. 첫 사용자는 admin 권한이 있어야 합니다 — 사용자는 있는데 admin이 없는 콘솔은 아예 기동하지 않습니다.",
   "access.add_who": "게이트웨이가 알려주는 이름 (예: lee@corp.com)",
   "access.everywhere": "이 콘솔의 모든 컴패니언에서",
   "access.exceptions": "개별 사용자 (그룹의 예외)",

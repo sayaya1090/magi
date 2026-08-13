@@ -453,6 +453,7 @@ const askDialog = document.getElementById('askDialog');
 const askK = document.getElementById('askK'), askBody = document.getElementById('askBody');
 const askField = document.getElementById('askField');
 const askCancel = document.getElementById('askCancel'), askGo = document.getElementById('askGo');
+const askPick = document.getElementById('askPick');
 const stopK = document.getElementById('stopK'), stopBody = document.getElementById('stopBody');
 const stopCancel = document.getElementById('stopCancel'), stopGo = document.getElementById('stopGo');
 const mcpFormEl = document.getElementById('mcpForm');
@@ -966,10 +967,32 @@ function askLine(q) {
   withMark(askCancel, '#i-sl-xmark');
   askGo.textContent = q.doIt;
   withMark(askGo, q.doMark || '#i-sl-check');
+  // The second half of a question, when it has one: a list to choose from beside the line to type.
+  // Rebuilt each time rather than kept, because the choices belong to the question and a stale
+  // option list is a control that offers something the caller never meant.
+  askPick.replaceChildren();
+  askPick.hidden = !q.pick;
+  if (q.pick) {
+    askPick.setAttribute('label', q.pick.label || '');
+    for (const name of (q.pick.options || [])) {
+      const o = document.createElement('md-select-option');
+      o.value = name;
+      if (name === q.pick.value) o.selected = true;
+      const t = document.createElement('div');
+      t.slot = 'headline';
+      t.textContent = name;
+      o.append(t);
+      askPick.append(o);
+    }
+    askPick.value = q.pick.value || '';
+  }
   const go = () => {
     const said = (askField.value || '').trim();
+    // Read before the dialog closes: a component asked for its value after it has gone is asked
+    // about something that is no longer on the screen.
+    const chose = q.pick ? (askPick.value || q.pick.value || '') : '';
     askDialog.close('go');
-    if (said) q.go(said);
+    if (said) q.go(said, chose);
   };
   askCancel.onclick = () => askDialog.close('cancel');
   askGo.onclick = go;
@@ -3579,7 +3602,8 @@ async function loadAccess() {
   // what to do about it. So the button is not offered, and the empty state carries the sentence
   // instead, where there is room for all of it.
   const mayAdd = got.configured || got.named;
-  const head = sectionHead('nav.access', mayAdd ? addPersonButton(roles) : null);
+  const head = sectionHead('nav.access',
+                           mayAdd ? addPersonButton(got.roles || [], !got.configured) : null);
   // Whose list this is, before the list. Drawn on both branches: "nobody is listed" is a statement
   // about one instance too, and on a page that shows companions from several machines it was the
   // branch most likely to be read as a statement about all of them.
@@ -3871,13 +3895,27 @@ function scopeSection(p) {
   return box;
 }
 
-function addPersonButton(roles) {
+// The way in, and what the person coming in may do.
+//
+// The role used to be chosen here rather than asked for — viewer, or whatever came first — which
+// was wrong twice. Silently, because somebody adding a colleague was not told what they had just
+// granted; and outright on a console with nobody on it yet, where the first person MUST be able to
+// admin: a console with people and no admin refuses to start, so the server refuses to create one,
+// and the only offered path always ended in that refusal. Now it is asked, and the answer it
+// starts on is the one that will not be turned down.
+function addPersonButton(roles, first) {
+  const names = roles.map(r => r.name);
+  const admin = (roles.find(r => (r.can || []).includes('admin')) || {}).name;
+  const usual = names.includes('viewer') ? 'viewer' : (names[0] || '');
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-plus'),
                   tr('access.add'));
   b.onclick = () => askLine({
-    head: tr('access.add'), body: tr('access.add_who'), label: tr('access.who'),
+    head: tr('access.add'),
+    body: first && admin ? tr('access.add_first') : tr('access.add_who'),
+    label: tr('access.who'),
+    pick: {label: tr('access.role'), options: names, value: first ? (admin || usual) : usual},
     doIt: tr('access.add'), doMark: '#i-sl-plus',
-    go: who => setPerson(who, roles.includes('viewer') ? 'viewer' : (roles[0] || ''), ''),
+    go: (who, role) => setPerson(who, role || usual, ''),
   });
   return b;
 }

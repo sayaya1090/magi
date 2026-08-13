@@ -4367,6 +4367,58 @@ console.log(JSON.stringify({sent: sent}));`)
 // Two halves of the same rule: the markup carries data-may="admin" so the screen is not offered to
 // somebody who would be refused, and the server refuses regardless — hiding is for the person who
 // would otherwise press a control that answers 403.
+// The dialog asks what the person may do, and starts on an answer that will not be refused.
+//
+// It used to decide by itself — viewer, or whatever came first — and on a console with nobody on
+// it yet that is the one answer the server always turns down: a console with people and no admin
+// refuses to start, so the first person has to be able to admin. The only offered path ended in
+// that refusal every time.
+func TestTheAddDialogAsksForARoleAndStartsOnOneThatWorks(t *testing.T) {
+	page := `
+const theRoles = [{name: 'operator', can: ['read','admin']}, {name: 'responder', can: ['read','answer']},
+                  {name: 'viewer', can: ['read']}];
+const openAdd = (first) => {
+  const b = addPersonButton(theRoles, first);
+  b.onclick();
+  return {offered: byId.askPick.children.map(o => o.value), on: byId.askPick.value,
+          hidden: !!byId.askPick.hidden, said: byId.askBody.textContent};
+};
+const empty = openAdd(true);
+const already = openAdd(false);
+// And the role that was chosen is the one that is sent.
+const sent = [];
+const wasFetch = globalThis.fetch;
+globalThis.fetch = async (u, o) => { sent.push(String((o && o.body) || '')); return {ok: true, text: async () => ''}; };
+byId.askField.value = 'kim@corp.com';
+byId.askPick.value = 'responder';
+await byId.askGo.onclick();
+globalThis.fetch = wasFetch;
+console.log(JSON.stringify({empty: empty, already: already, posted: sent}));
+`
+	got := runPage(t, `[]`, "?v=access", page)
+	empty, _ := got["empty"].(map[string]any)
+	already, _ := got["already"].(map[string]any)
+	if fmt.Sprint(empty["offered"]) != "[operator responder viewer]" {
+		t.Errorf("the dialog offers %v", empty["offered"])
+	}
+	if empty["hidden"] == true {
+		t.Error("the picker is not shown, so the role is still being chosen for somebody")
+	}
+	if empty["on"] != "operator" {
+		t.Errorf("the first person starts as %v, which the server refuses: nobody could admin", empty["on"])
+	}
+	if s, _ := empty["said"].(string); !strings.Contains(s, "admin") {
+		t.Errorf("the dialog does not say why the first person is different: %q", s)
+	}
+	// Once somebody can admin, the safe default is the smallest role rather than the largest.
+	if already["on"] != "viewer" {
+		t.Errorf("adding a second person starts as %v", already["on"])
+	}
+	if p := fmt.Sprint(got["posted"]); !strings.Contains(p, "role=responder") {
+		t.Errorf("the chosen role was not the one sent: %v", p)
+	}
+}
+
 // A console that cannot name anybody is not offered the one control that names somebody.
 //
 // Adding the first person turns the gate on for everybody, and a console with no gateway in front

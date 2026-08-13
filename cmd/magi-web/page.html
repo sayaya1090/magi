@@ -468,6 +468,11 @@
   <div slot="content">
     <div id="askBody"></div>
     <md-outlined-text-field id="askField"></md-outlined-text-field>
+    <!-- Some questions have a second half. Adding somebody asks who AND as what: the role decided
+         itself before this existed, and on a console with nobody on it yet the one it chose was
+         always refused — the first person has to be able to admin or the console would refuse to
+         start without them. A dialog that picks silently is a dialog that can pick wrongly. -->
+    <md-outlined-select id="askPick" hidden></md-outlined-select>
   </div>
   <div slot="actions">
     <md-text-button id="askCancel"></md-text-button>
