@@ -449,6 +449,10 @@ const prefsEl = document.getElementById('prefs');
 const prefsDialog = document.getElementById('prefsDialog');
 const mcpDialog = document.getElementById('mcpDialog');
 const stopDialog = document.getElementById('stopDialog');
+const askDialog = document.getElementById('askDialog');
+const askK = document.getElementById('askK'), askBody = document.getElementById('askBody');
+const askField = document.getElementById('askField');
+const askCancel = document.getElementById('askCancel'), askGo = document.getElementById('askGo');
 const stopK = document.getElementById('stopK'), stopBody = document.getElementById('stopBody');
 const stopCancel = document.getElementById('stopCancel'), stopGo = document.getElementById('stopGo');
 const mcpFormEl = document.getElementById('mcpForm');
@@ -947,6 +951,36 @@ function confirmStop(who, go) {
 // The shape is the guide's and does not vary: a headline that poses the question concretely rather
 // than "Are you sure?", the dismissive action on the LEFT, and a confirming label that says what
 // will happen instead of "OK".
+// askLine is confirmThis with a field in it: one line of text, or nothing if they change their
+// mind. The five places that wanted a name used the browser's own prompt() — a modal this page
+// cannot style, cannot translate and cannot put a hint under, and one that some browsers simply
+// refuse. It answers through a callback rather than returning, because a dialog is not a function
+// call that blocks; that is the whole difference from prompt().
+function askLine(q) {
+  askK.textContent = q.head;
+  askBody.textContent = q.body || '';
+  askBody.hidden = !q.body;
+  askField.setAttribute('label', q.label || q.head);
+  askField.value = q.value || '';
+  askCancel.textContent = tr('action.cancel');
+  withMark(askCancel, '#i-sl-xmark');
+  askGo.textContent = q.doIt;
+  withMark(askGo, q.doMark || '#i-sl-check');
+  const go = () => {
+    const said = (askField.value || '').trim();
+    askDialog.close('go');
+    if (said) q.go(said);
+  };
+  askCancel.onclick = () => askDialog.close('cancel');
+  askGo.onclick = go;
+  // Enter is what a person presses in a one-field dialog; without it the field is a box that eats
+  // the key that would have finished the job.
+  askField.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+  askDialog.show();
+  // Focus after the dialog has opened, or it lands on a box that is not on screen yet.
+  requestAnimationFrame(() => { if (askField.focus) askField.focus(); });
+}
+
 function confirmThis(q) {
   stopK.textContent = q.head;
   stopBody.textContent = q.body;
@@ -3832,11 +3866,11 @@ function scopeSection(p) {
 function addPersonButton(roles) {
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-plus'),
                   tr('access.add'));
-  b.onclick = () => {
-    const who = prompt(tr('access.add_who'));
-    if (!who || !who.trim()) return;
-    setPerson(who.trim(), roles.includes('viewer') ? 'viewer' : (roles[0] || ''), '');
-  };
+  b.onclick = () => askLine({
+    head: tr('access.add'), body: tr('access.add_who'), label: tr('access.who'),
+    doIt: tr('access.add'), doMark: '#i-sl-plus',
+    go: who => setPerson(who, roles.includes('viewer') ? 'viewer' : (roles[0] || ''), ''),
+  });
   return b;
 }
 
@@ -5711,8 +5745,9 @@ function gitBranchActs(a, g) {
     act('git.unstash', '#i-sl-arrows-rotate', () => gitRun(a, 'unstash'));
   }
   act('git.new_branch', '#i-sl-plus', () => {
-    const name = prompt(tr('git.new_branch_who'));
-    if (name && name.trim()) gitRun(a, 'new-branch', {message: name.trim()});
+    askLine({head: tr('git.new_branch'), body: tr('git.new_branch_who'), label: tr('git.branch'),
+             doIt: tr('git.new_branch'), doMark: '#i-sl-plus',
+             go: name => gitRun(a, 'new-branch', {message: name})});
   });
   return box;
 }
@@ -5867,16 +5902,19 @@ function rowMenu(a, e, path) {
     a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
   const under = e.isDir ? path + '/' : (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
   item('files.new_file', () => {
-    const name = prompt(tr('files.new_file_who'), under);
-    if (name && name.trim()) send('new-file', {path: name.trim()}).then(() => openFile(a, name.trim()));
+    askLine({head: tr('files.new_file'), body: tr('files.new_file_who'), label: tr('files.path'),
+             value: under, doIt: tr('files.new_file'), doMark: '#i-sl-plus',
+             go: name => send('new-file', {path: name}).then(() => openFile(a, name))});
   }, '#i-sl-plus');
   item('files.new_dir', () => {
-    const name = prompt(tr('files.new_dir_who'), under);
-    if (name && name.trim()) send('new-dir', {path: name.trim()});
+    askLine({head: tr('files.new_dir'), body: tr('files.new_dir_who'), label: tr('files.path'),
+             value: under, doIt: tr('files.new_dir'), doMark: '#i-sl-plus',
+             go: name => send('new-dir', {path: name})});
   }, '#i-sl-plus');
   item('files.rename', () => {
-    const to = prompt(tr('files.rename_who'), path);
-    if (to && to.trim() && to.trim() !== path) send('rename', {to: to.trim()});
+    askLine({head: tr('files.rename'), body: tr('files.rename_who'), label: tr('files.path'),
+             value: path, doIt: tr('files.rename'), doMark: '#i-sl-pen-to-square',
+             go: to => { if (to !== path) send('rename', {to}); }});
   }, '#i-sl-pen-to-square');
   item('files.copy_path', () => {
     if (navigator.clipboard) navigator.clipboard.writeText(path).then(() => says(tr('files.copied')));

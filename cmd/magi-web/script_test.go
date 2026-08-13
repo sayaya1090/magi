@@ -159,3 +159,25 @@ func TestARequestNamesItsCompanionOnce(t *testing.T) {
 		t.Errorf("postText is given a path with two queries: %v", m)
 	}
 }
+
+// The page asks its own questions.
+//
+// Five places wanted one line of text — somebody to add to the permissions list, a branch name, a
+// new file, a new folder, a rename — and all five called the browser's prompt(). That is a modal
+// this page cannot style, cannot put its own words in, cannot translate, and which some browsers
+// refuse outright; it is also invisible to everything that drives this page, which is how "Add
+// somebody" looked like a button that did nothing at all.
+func TestThePageDoesNotUseTheBrowsersOwnPrompt(t *testing.T) {
+	// Comments stripped first, or this finds the paragraph explaining why the calls are gone.
+	src := regexp.MustCompile(`(?m)//.*$`).ReplaceAllString(scriptBody(t, indexHTML), "")
+	if m := regexp.MustCompile(`(^|[^.\w])prompt\(`).FindAllString(src, -1); len(m) > 0 {
+		t.Errorf("%d call(s) to the browser's prompt(): %v", len(m), m)
+	}
+	// And the dialog it uses instead is in the markup, where a live region has to be before it can
+	// be shown.
+	for _, id := range []string{"askDialog", "askField", "askGo"} {
+		if !strings.Contains(indexHTML, `id="`+id+`"`) {
+			t.Errorf("the page asks through #%s and the markup has no such element", id)
+		}
+	}
+}

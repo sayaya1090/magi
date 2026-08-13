@@ -457,6 +457,24 @@
   </div>
 </md-dialog>
 
+<!-- Asking for one line of text, in the page's own dialog.
+     Five places wanted a name — somebody to add to the permissions list, a branch, a new file, a
+     new folder, something renamed — and all five used the browser's prompt(). Which is a modal
+     the page cannot style, cannot label in the reader's language, cannot put a hint under, and
+     which some browsers refuse outright in a page that has not been interacted with. The rest of
+     this console asks with md-dialog; this is the same dialog with a field in it. -->
+<md-dialog id="askDialog">
+  <div slot="headline" id="askK"></div>
+  <div slot="content">
+    <div id="askBody"></div>
+    <md-outlined-text-field id="askField"></md-outlined-text-field>
+  </div>
+  <div slot="actions">
+    <md-text-button id="askCancel"></md-text-button>
+    <md-text-button id="askGo"></md-text-button>
+  </div>
+</md-dialog>
+
 <!-- The shape of the report a companion has to fill in before it may put a decision to somebody.
      The sections are a contract — the tool refuses a report with one missing — and the person the
      report is FOR is the one who knows what belongs in it. Editing it meant writing a markdown file
