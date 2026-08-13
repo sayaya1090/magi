@@ -93,22 +93,40 @@ type Meeting struct {
 	// Round counts from 1. Everybody speaks in the first one; from the second, a speaker who has
 	// passed twice in a row is skipped.
 	Round int
-	// MaxRounds bounds the cost. Each pass of the token is one model turn per participant asked,
-	// so a meeting that could not end is a meeting that spends until somebody notices.
+	// MaxRounds is a BACKSTOP and not a plan.
+	//
+	// A meeting ends when nobody has anything left to add — the participants decide that, by
+	// passing, and a pass is exactly a vote to stop. Asking the convener for a number instead
+	// makes them guess before the discussion how long the discussion needs to be, which is the one
+	// thing they cannot know; and a number chosen that way is either a cap that cuts an argument
+	// in half or a floor that pays for two laps of "I agree with design".
+	//
+	// It exists because the other failure is real too: every lap is one model turn per participant
+	// asked, and a room that will not stop spends until somebody notices. So the count catches
+	// that and nothing else. When it is what ended a meeting, Spent says so — a discussion that
+	// converged and one that ran out of room are different outcomes, and a reader who cannot tell
+	// them apart cannot tell whether the conclusions are the whole answer.
 	MaxRounds int
-	Said      []Utterance
+	// Spent marks a meeting the backstop ended rather than the room.
+	Spent bool
+	Said  []Utterance
 	// Named is anybody called on by name since the last time they spoke: it puts a skipped speaker
 	// back in the round, which is what happens when a person says "@ops, what about the rollout".
 	Named map[string]bool
-	// Closed is set when the meeting has finished — everybody passed, the rounds ran out, or the
-	// convener ended it.
+	// Closed is set when the meeting has finished — everybody passed, the backstop stopped it, or
+	// the convener ended it.
 	Closed bool
 }
 
 // New starts a meeting on a topic with the speakers given, in the order they will first speak.
+//
+// maxRounds is the backstop; zero takes the default. Five rather than three: the count is not
+// meant to be what ends an ordinary meeting, and at three it was — a disagreement worth convening
+// three companions for is rarely settled in one lap of statements, one of objections and nothing
+// else.
 func New(topic string, speakers []Speaker, maxRounds int) *Meeting {
 	if maxRounds <= 0 {
-		maxRounds = 3
+		maxRounds = 5
 	}
 	return &Meeting{
 		Topic: topic, Speakers: append([]Speaker(nil), speakers...),
@@ -135,11 +153,16 @@ func (m *Meeting) Next() (Speaker, bool) {
 			}
 			return s, true
 		}
-		// The round is over. Everybody having passed means the discussion has stopped moving, which
-		// is a better reason to end than a count — and it ends here rather than after another lap
-		// of asking the same silent room.
-		if m.allPassedThisRound() || m.Round >= m.MaxRounds {
+		// The round is over, and there are two ways for that to be the end of it. Everybody having
+		// passed is the ordinary one: the discussion has stopped moving, which is a better reason
+		// to end than a count, and it ends here rather than after another lap of asking a silent
+		// room. Running out of rounds is the backstop, and it is recorded as such — see Spent.
+		if m.allPassedThisRound() {
 			m.Closed = true
+			return Speaker{}, false
+		}
+		if m.Round >= m.MaxRounds {
+			m.Closed, m.Spent = true, true
 			return Speaker{}, false
 		}
 		m.Round++

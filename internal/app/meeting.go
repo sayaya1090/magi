@@ -84,6 +84,13 @@ func meetingPrompt(who, topic, transcript string, closing bool) string {
 		"If you have nothing to add — the question does not touch what you work on, or somebody " +
 		"has already said what you would say — answer with PASS, and one short line saying why if " +
 		"there is one. Passing is a normal answer here.\n" +
+		// The one thing the participants could not know, and the reason a meeting needs no length
+		// set in advance: they are the ones who end it. Without this a model treats a pass as
+		// abstaining from a discussion that will go on regardless, so it keeps finding something
+		// to say and the round cap becomes what stops the room — a number nobody chose on purpose
+		// deciding when a question has been answered.
+		"THE MEETING ENDS WHEN NOBODY HAS ANYTHING LEFT TO ADD. A pass is how you say that, so " +
+		"pass as soon as it is true rather than filling a turn.\n" +
 		"Do not summarise what others said. Do not agree in order to have spoken.\n")
 	return b.String()
 }

@@ -54,6 +54,16 @@ func TestAParticipantIsGivenTheWholeDiscussion(t *testing.T) {
 	if !strings.Contains(p, "PASS") {
 		t.Error("nothing told the participant that passing is an answer")
 	}
+	// And what a pass DOES, which is the half a model cannot infer.
+	//
+	// The meeting ends when the room has nothing left to add, so passing is how a participant votes
+	// to end it. Told only that passing is "allowed", a model treats it as abstaining from a
+	// discussion that will continue regardless — so it finds something to say every time it is
+	// asked, and the round ceiling becomes what stops the room. A number nobody chose on purpose
+	// then decides when a question has been answered.
+	if !strings.Contains(p, "ENDS WHEN NOBODY HAS ANYTHING LEFT TO ADD") {
+		t.Errorf("the participant is not told that passing is what ends the meeting:\n%s", p)
+	}
 	// And the closing question is a different question: what will YOU do.
 	c := meetingPrompt("ops", "what to do about the empty state", said, true)
 	if !strings.Contains(c, "what YOU will do") {

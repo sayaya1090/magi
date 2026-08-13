@@ -115,6 +115,15 @@ func TestAWholeRoundOfPassesEndsIt(t *testing.T) {
 	if !m.Closed {
 		t.Error("it stopped asking and did not close")
 	}
+	// And it ended because the room ran out of things to say, not because a count stopped it. The
+	// two are different answers to "are these conclusions the whole answer", and a reader who
+	// cannot tell them apart is reading a summary of an argument that may have been cut in half.
+	if m.Spent {
+		t.Error("a meeting that converged is recorded as one that ran out of rounds")
+	}
+	if m.Round >= m.MaxRounds {
+		t.Errorf("it used all %d rounds, so this proves nothing about ending early", m.MaxRounds)
+	}
 }
 
 // The rounds are bounded, because each lap is a model turn per participant and a meeting that
@@ -130,6 +139,24 @@ func TestTheRoundsRunOut(t *testing.T) {
 	}
 	if _, ok := m.Next(); ok {
 		t.Error("a two-round meeting went to a third")
+	}
+	// Marked as what it is: the backstop, not the room. Nobody passed here — the participant had
+	// something to say every time it was asked.
+	if !m.Spent {
+		t.Error("the ceiling ended it and the meeting does not say so")
+	}
+}
+
+// The default is a backstop and not a plan, so it has to be loose enough that an ordinary
+// disagreement ends by being settled rather than by being cut off.
+//
+// Three was the default, and three is a statement, an objection and one reply — which is the shape
+// of a discussion that has just got interesting. The number is not a preference: it is the point at
+// which the console stops a room that will not stop itself.
+func TestTheDefaultCeilingIsNotWhatEndsAnOrdinaryMeeting(t *testing.T) {
+	m := New("what to do", []Speaker{{Name: "api", Socket: "/s/a"}}, 0)
+	if m.MaxRounds < 5 {
+		t.Errorf("the default ceiling is %d rounds", m.MaxRounds)
 	}
 }
 
