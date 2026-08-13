@@ -2313,8 +2313,6 @@
       transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard),
                  visibility 0s var(--magi-sys-dur-medium2);
     }
-    /* The transcript takes the width at the same pace the pane gives it up. */
-    #log { transition:max-width var(--magi-sys-dur-medium2) var(--magi-sys-ease-emphasized); }
     /* And the conversation actually takes the room.
        The column widened and the transcript did not: it is capped at the wide measure, and on any
        screen big enough to show a 22rem pane that cap was already the binding constraint — so
@@ -2324,7 +2322,12 @@
        Closing the pane is somebody asking for the width, so it is given, up to the page's own
        bound. Unbounded it would run to 300 characters on a large monitor, which is not a wider
        conversation — it is one nobody can read a line of. */
-    body[side="shut"] #log { max-width:var(--magi-sys-page); }
+    /* One cap, not two. Tying it to the pane tightened it from 170ch to 108ch at the very moment
+       the pane took the room away, so opening the side pane narrowed the conversation TWICE: the
+       column lost the pane's width and then the text lost 91px more to a cap that only bit once
+       the column was small. Measured at 1512: column 120..1121, text 120..1030. The pane does the
+       narrowing; the cap is only here to stop a line running to 300 characters on a big monitor,
+       which is what it still does with the panes shut. */
     /* Only where there is a pane to toggle. On the fleet list there is none, and a control that
        opens nothing is a control somebody presses once and distrusts afterwards. */
     /* flex:none, because the column it sits in is a flex column and the pane beside it wants the
@@ -2917,7 +2920,7 @@
      the window. It depends on which other panes are open, and judging it by the viewport is what
      produced the measurement that started this: at a 1000px window the text column was six
      characters wide. A container query asks the only question that matters. */
-  #log { max-width:var(--magi-sys-wide); container-type:inline-size; container-name:transcript; }
+  #log { max-width:var(--magi-sys-page); container-type:inline-size; container-name:transcript; }
   /* minmax(0, 1fr), not 1fr. A grid track's automatic minimum is its content, so one unbreakable
      line — a tool result naming forty tools, a path with no spaces in it — widened the column past
      the page and put a horizontal scrollbar under the whole console. The transcript scrolls
@@ -3213,7 +3216,11 @@
   }
   #prompt {
     background:var(--magi-ref-bg);
-    padding:var(--magi-sys-space-200) 0 var(--magi-sys-space-150);
+    /* The side padding lives HERE, not on the box that draws the rule. Inside .inner it was part
+       of that box, so the 2px line ran 24px wider than the conversation at each end — the bottom
+       of the page a little broader than everything above it, which reads as the footer being
+       indented. Measured on the published console: the bar 96 to 1497, the transcript 120 to 1473. */
+    padding:var(--magi-sys-space-200) var(--magi-sys-space-300) var(--magi-sys-space-150);
   }
   /* The rule belongs to the column, not to the window. Drawn on #prompt it ran the full width of
      the viewport while the words under it started 514px in, which reads as a divider for the whole
@@ -3230,8 +3237,14 @@
   /* The strip stands in the same column as the composer under it, for the reason written above:
      the padding is part of where a column starts, and a strip aligned to the dock instead sat 44px
      left of everything it belongs with. */
-  #prompt .inner, form, #strip:not([hidden]) {
-    max-width:var(--magi-sys-page); margin-inline:auto; width:100%; box-sizing:border-box;
+  #prompt .inner { max-width:var(--magi-sys-page); margin-inline:auto; width:100%; box-sizing:border-box; }
+  /* content-box, and the cap counts the TEXT. Everywhere else in this file a box is measured to
+     its border, but a reading measure is a count of characters, and the 24px on either side is not
+     text. Measured to the border these two came out 48px narrower than the transcript and started
+     24px left of it — the composer visibly not under the words it answers. The prompt bar above is
+     padded by its own box, so its inner needs none of this. */
+  form, #strip:not([hidden]) {
+    max-width:var(--magi-sys-page); margin-inline:auto; box-sizing:content-box;
     padding-left:var(--magi-sys-space-300); padding-right:var(--magi-sys-space-300);
   }
   /* Beside a companion the dock IS the middle column, so what is in it takes that column's width
@@ -3243,14 +3256,7 @@
   @media (min-width:52.5em) {
     body[at="agent"] #prompt .inner,
     body[at="agent"] form,
-    body[at="agent"] #strip:not([hidden]) {
-      max-width:var(--magi-sys-wide); margin-inline:0;
-    }
-    /* …and the conversation's own cap is lifted the same way when a pane is shut, so the two stay
-       the same width as the column changes. */
-    body[at="agent"][side="shut"] #prompt .inner,
-    body[at="agent"][side="shut"] form,
-    body[at="agent"][side="shut"] #strip:not([hidden]) { max-width:var(--magi-sys-page); }
+    body[at="agent"] #strip:not([hidden]) { margin-inline:0; }
   }
   #prompt .asking { font:600 var(--md-sys-typescale-body-medium-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-warn); overflow-wrap:anywhere; }
 
