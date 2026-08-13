@@ -1,0 +1,170 @@
+package meeting
+
+import (
+	"strings"
+	"testing"
+)
+
+func names(m *Meeting, n int) []string {
+	var out []string
+	for i := 0; i < n; i++ {
+		s, ok := m.Next()
+		if !ok {
+			out = append(out, "—")
+			break
+		}
+		out = append(out, s.Name)
+		m.Say(Utterance{Who: s.Name, Text: "something about " + s.Name})
+	}
+	return out
+}
+
+// Everybody speaks once before anybody speaks twice.
+//
+// The baseline of a meeting is hearing from each of them: a first round that skipped anybody would
+// be a meeting whose shape depended on who happened to be asked first.
+func TestTheFirstRoundAsksEverybody(t *testing.T) {
+	m := New("the empty state", []Speaker{
+		{Name: "design", Socket: "/s/d"}, {Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"},
+		{Name: "you"}, // the person: never asked, speaks when they want to
+	}, 3)
+	got := strings.Join(names(m, 3), " ")
+	if got != "design api ops" {
+		t.Fatalf("the first round went %q", got)
+	}
+	if m.Round != 1 {
+		t.Errorf("three of three spoke and it is round %d", m.Round)
+	}
+	// The person is not in the order at all.
+	for _, u := range m.Said {
+		if u.Who == "you" {
+			t.Error("the person was asked to speak")
+		}
+	}
+}
+
+// A speaker that reads the room and has nothing to add says so, and that is not the same as not
+// being asked. Two in a row and it is left out — the largest waste in a meeting is a turn spent on
+// a companion that has twice said this is not its business.
+func TestPassingTwiceLeavesYouOutUntilSomebodyNamesYou(t *testing.T) {
+	m := New("the billing endpoint", []Speaker{
+		{Name: "design", Socket: "/s/d"}, {Name: "api", Socket: "/s/a"},
+	}, 9)
+	// Round one: design speaks, api passes.
+	s, _ := m.Next()
+	m.Say(Utterance{Who: s.Name, Text: "the screen needs the error text"})
+	s, _ = m.Next()
+	if s.Name != "api" {
+		t.Fatalf("second to speak was %s", s.Name)
+	}
+	m.Say(Utterance{Who: "api", Pass: true})
+	// Round two: api passes again.
+	s, _ = m.Next()
+	m.Say(Utterance{Who: s.Name, Text: "and a code"})
+	s, _ = m.Next()
+	if s.Name != "api" {
+		t.Fatalf("api was skipped after ONE pass; it was %s", s.Name)
+	}
+	m.Say(Utterance{Who: "api", Pass: true, Text: "nothing in my workspace touches this"})
+	// Round three: api is not asked at all. design speaks, and the next question goes to design
+	// again in round four rather than to the companion that has twice said this is not its business.
+	s, ok := m.Next()
+	if !ok || s.Name != "design" {
+		t.Fatalf("round three began with %v (%v)", s.Name, ok)
+	}
+	m.Say(Utterance{Who: "design", Text: "then I will write it as it is"})
+	if s, ok = m.Next(); !ok || s.Name != "design" {
+		t.Fatalf("after two passes api was asked again: %v (%v)", s.Name, ok)
+	}
+	m.Say(Utterance{Who: "design", Text: "@api can you confirm the shape?"})
+	// …until it is named, which puts it back at the FRONT: being called on means being answered
+	// next, not eventually.
+	s, ok = m.Next()
+	if !ok || s.Name != "api" {
+		t.Fatalf("naming api did not bring it back: %v (%v)", s.Name, ok)
+	}
+	// And answering spends the naming, or one "@api?" would keep it in every round afterwards.
+	m.Say(Utterance{Who: "api", Text: "it is {code, message}"})
+	if m.Named["api"] {
+		t.Error("being named outlived the answer to it")
+	}
+	// Speaking also clears the two passes behind it.
+	for _, sp := range m.Speakers {
+		if sp.Name == "api" && sp.Passes != 0 {
+			t.Errorf("api spoke and still carries %d passes", sp.Passes)
+		}
+	}
+}
+
+// A room where everybody passed has stopped moving, and that ends it — a better reason than a
+// count, and it ends without another lap of asking the same silent room.
+func TestAWholeRoundOfPassesEndsIt(t *testing.T) {
+	m := New("the rollout", []Speaker{
+		{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"},
+	}, 9)
+	for i := 0; i < 2; i++ {
+		s, ok := m.Next()
+		if !ok {
+			t.Fatalf("it ended after %d", i)
+		}
+		m.Say(Utterance{Who: s.Name, Pass: true})
+	}
+	if _, ok := m.Next(); ok {
+		t.Error("everybody passed and it asked for more")
+	}
+	if !m.Closed {
+		t.Error("it stopped asking and did not close")
+	}
+}
+
+// The rounds are bounded, because each lap is a model turn per participant and a meeting that
+// cannot end is one that spends until somebody notices.
+func TestTheRoundsRunOut(t *testing.T) {
+	m := New("what to do about the flake", []Speaker{{Name: "api", Socket: "/s/a"}}, 2)
+	for i := 0; i < 2; i++ {
+		s, ok := m.Next()
+		if !ok {
+			t.Fatalf("it ended after %d rounds", i)
+		}
+		m.Say(Utterance{Who: s.Name, Text: "still thinking"})
+	}
+	if _, ok := m.Next(); ok {
+		t.Error("a two-round meeting went to a third")
+	}
+}
+
+// The person takes the floor when they want it and gives it back, and nothing about that is a turn.
+func TestThePersonTakesTheFloorAndGivesItBack(t *testing.T) {
+	m := New("naming", []Speaker{{Name: "design", Socket: "/s/d"}, {Name: "you"}}, 3)
+	m.Take("you")
+	if m.Holder != "you" {
+		t.Fatalf("the floor is with %q", m.Holder)
+	}
+	m.Say(Utterance{Who: "you", Text: "call it a companion, not an agent"})
+	if m.Holder != "" {
+		t.Errorf("saying it left the floor with %q", m.Holder)
+	}
+	// And what the person said is in what the next speaker reads.
+	if !strings.Contains(m.Transcript(), "not an agent") {
+		t.Errorf("the transcript is %q", m.Transcript())
+	}
+	s, ok := m.Next()
+	if !ok || s.Name != "design" {
+		t.Errorf("after the person, the floor went to %v (%v)", s.Name, ok)
+	}
+}
+
+// A pass is in the record, with its reason when there was one: silence from somebody who read the
+// discussion is information, and a reader of the transcript has to be able to tell it from absence.
+func TestTheTranscriptTellsSilenceFromAbsence(t *testing.T) {
+	m := New("the schema", []Speaker{{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"}}, 2)
+	m.Say(Utterance{Who: "api", Text: "add a column"})
+	m.Say(Utterance{Who: "ops", Pass: true, Text: "no deploy impact"})
+	got := m.Transcript()
+	if !strings.Contains(got, "api: add a column") {
+		t.Errorf("what was said is missing: %q", got)
+	}
+	if !strings.Contains(got, "ops passed: no deploy impact") {
+		t.Errorf("a pass with a reason reads as %q", got)
+	}
+}
