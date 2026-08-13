@@ -2341,6 +2341,17 @@ function paintSessions(sel, list, now) {
   }
 }
 
+// rowWords is everything a row says, gathered the same way in a browser and in the fake DOM the
+// page's tests run against.
+//
+// textContent alone would have done in a browser, where it already includes the descendants — and
+// it silently made the comparison above always say "nothing changed" under the tests, where a
+// node's textContent is its OWN text and the words live in its children.
+function rowWords(n) {
+  if (!n) return '';
+  return (n.textContent || '') + [...(n.children || [])].map(rowWords).join('');
+}
+
 function drawDetail(a) {
   const box = document.getElementById('detail');
   if (!a) { box.hidden = true; box.replaceChildren(); return; }
@@ -2348,9 +2359,41 @@ function drawDetail(a) {
   // carried a translation for it, and the panel is the one screen that answers "what am I looking
   // at" — the last place that should be answering it in a language the reader did not pick.
   const field = (key, v, cls) => {
-    const f = cell('f'); f.append(cell('k', tr(key)), cell('v ' + (cls || ''), v)); return f;
+    const f = cell('f');
+    // Named, so a redraw can find the same field again and write the new value into it rather than
+    // replacing the grid it lives in. See the reconciliation below.
+    f.dataset.k = key;
+    f.append(cell('k', tr(key)), cell('v ' + (cls || ''), v));
+    return f;
   };
-  const grid = cell('grid');
+  // The grid outlives the poll. It is assembled by several hands — this function, the context
+  // fetch that lands later, the children fetch after that — so it cannot be built fresh and
+  // swapped in: whichever hand finished first would be drawing into a box nobody is looking at.
+  // Instead the rows are put INTO it by key, and a row whose words have not changed is left alone.
+  // Which is what stops the two selects being re-parented every three seconds — and a re-parented
+  // select is one whose open menu shuts under the pointer.
+  const wrapNow = drawDetail.wrap;
+  const reuse = drawDetail.grid && drawDetail.for === a.socket &&
+                wrapNow && wrapNow.contains(drawDetail.grid);
+  const grid = reuse ? drawDetail.grid : cell('grid');
+  drawDetail.grid = grid;
+  drawDetail.for = a.socket;
+  const seen = new Set();
+  // put is the whole of the reconciliation: same key and same words, leave it; different words,
+  // replace that row; unknown key, append. The key is the row's own label when nothing named it.
+  const put = row => {
+    if (!row) return;
+    const label = row.querySelector && row.querySelector('.k');
+    const k = row.dataset && (row.dataset.k || (label ? 'k:' + label.textContent : ''));
+    if (!k) { grid.append(row); return; }
+    row.dataset.k = k;
+    seen.add(k);
+    if (drawDetail.late) row.dataset.late = '1';
+    const had = [...grid.children].find(c => c.dataset && c.dataset.k === k);
+    if (!had) { grid.append(row); return; }
+    if (rowWords(had) === rowWords(row)) return;
+    had.replaceWith(row);
+  };
   // The order answers questions in the order somebody asks them, and the grid packs in DOM order —
   // so this list IS the layout.
   //   1. what is it doing right now:      state, steps, last activity
@@ -2362,7 +2405,7 @@ function drawDetail(a) {
   // Wide fields span two columns rather than the whole row: a full-row span breaks the packing on
   // both sides and the card grew three near-empty rows, one of them holding a five-letter state.
   const wide = f => { f.className = 'f wide'; return f; };
-  grid.append(
+  [
     field('field.status', stateWord(a.state), 'state ' + a.state),
     field('field.steps', a.steps ? a.steps + '' : '—'),
     field('field.last_activity', ago(a.idle)),
@@ -2372,8 +2415,8 @@ function drawDetail(a) {
                   (a.pid ? ' · pid ' + a.pid : '')),
     wide(field('field.workspace', a.workdir)),
     sessionField(a),
-  );
-  grid.append(permField(a));
+  ].forEach(put);
+  put(permField(a));
   // A button, not a clickable div: this is the one control on the card and it has to be reachable
   // by keyboard and announce itself as pressed or not.
   const bar = document.createElement('button');
@@ -2402,7 +2445,14 @@ function drawDetail(a) {
   // no transition on the element at all. Kept, it is the same box each time and only its contents
   // are replaced.
   const wrap = drawDetail.wrap || (drawDetail.wrap = cell('foldwrap'));
-  wrap.replaceChildren(grid);
+  // Only when a field says something different. This runs on every fleet poll, and the grid holds
+  // the two selects — so a rebuild re-parents them, and re-parenting a select closes the menu
+  // somebody has open. Measured with a marker on each part: after a message arrived, everything on
+  // the page survived except this grid, three seconds at a time.
+  //
+  // On the words rather than on the row payload: the payload carries an idle counter that ticks
+  // every second, and comparing it would mean rebuilding once a second for a number the grid does
+  // not show to that precision.
   box.replaceChildren(bar, wrap);
   // What it can do and how the run is shaped — the two things the terminal answers with /tools and
   // /loop, which had no way in here at all. Buttons in the facts card rather than rows in the
@@ -2410,6 +2460,7 @@ function drawDetail(a) {
   // the transcript is already the one place where those two kinds of thing get mixed.
   {
     const row = cell('f');
+    row.dataset.k = 'field.what_it_has';
     row.append(cell('k', tr('field.what_it_has')));
     const v = cell('v');
     for (const [key, label] of [['tools', tr('insp.tools')], ['loop', tr('insp.loop')]]) {
@@ -2430,8 +2481,16 @@ function drawDetail(a) {
       v.append(b);
     }
     row.append(v);
-    grid.append(row);
+    put(row);
   }
+  // Anything that was here last time and is not here now has stopped being true — a role that was
+  // removed, a team it left. The rows that arrive later are exempt, or they would be swept away
+  // between the poll that builds the grid and the fetch that fills them in.
+  for (const row of [...grid.children]) {
+    const k = row.dataset && row.dataset.k;
+    if (k && !seen.has(k) && row.dataset.late !== '1') row.remove();
+  }
+  if (!reuse) wrap.replaceChildren(grid);
   // Children the turn spawned, reached from the facts rather than from the transcript. A child is
   // started inside a tool call and finishes inside the same one, so the transcript row that
   // produced it says "spawn" and nothing about what came back — there was no way in at all.
@@ -2439,8 +2498,12 @@ function drawDetail(a) {
   // Only when there are some: a button that leads to an empty list is a button that teaches people
   // not to press it.
   fetchList('/subagents' + qFor(a)).then(kids => {
+    drawDetail.late = true;
     if (!kids || !kids.length) return;
     const row = cell('f');
+    // Named and replaced rather than appended: the grid outlives the poll now, so a row added on
+    // every answer would stack a new copy of the children every three seconds.
+    row.dataset.k = 'detail.subagents';
     row.append(cell('k', tr('detail.subagents')));
     const v = cell('v');
     for (const k of kids) {
@@ -2451,7 +2514,10 @@ function drawDetail(a) {
       v.append(b);
     }
     row.append(v);
-    grid.append(row);
+    // Into the grid that is actually on screen, which after the reconciliation above may be the
+    // one from the previous poll.
+    put(row);
+    drawDetail.late = false;
   });
   setFolded(localStorage.getItem('facts') === 'folded');
   // Shown unless something else is standing in its place. This card is rebuilt by the fleet poll
@@ -2468,7 +2534,8 @@ function drawDetail(a) {
   // Returned rather than dropped: the caller does not wait for it, but a caller that WANTS to —
   // a test, or a later screen that needs the whole panel settled — has no other way to know when
   // the slow half landed, and a promise nobody can await is a promise nobody can check.
-  return drawContext(a, box, grid, field);
+  drawDetail.late = true;
+  return drawContext(a, box, grid, field, put).finally(() => { drawDetail.late = false; });
 }
 
 // ── one level in: a council seat, or a child the turn spawned ────────────────
@@ -2952,7 +3019,10 @@ function contextKey(a) {
   return (a.peer || '') + '\u0000' + a.socket + '\u0000' + (a.steps || 0) + '\u0000' + a.state;
 }
 
-async function drawContext(a, box, grid, field) {
+// put comes from drawDetail: these rows land after the grid is on screen, so they are placed by
+// key like the rest and marked as arriving late, or the next poll's sweep would remove them
+// between being asked for and answering.
+async function drawContext(a, box, grid, field, put) {
   const key = contextKey(a);
   let c = ctxHeld.key === key ? ctxHeld.data : null;
   if (!c) {
@@ -2993,10 +3063,10 @@ async function drawContext(a, box, grid, field) {
   // And a way to change it, which the terminal has had as /model since it had a slash command. The
   // list is asked of the companion's own daemon, so it offers what THAT process can reach; when
   // nobody could say, the field stays the plain reading it always was.
-  if (c.model) grid.append(modelField(a, c.model));
+  if (c.model) put(modelField(a, c.model));
   // Said once, where somebody would otherwise wonder why there is no cache figure at all.
   if (!c.cacheReported && !c.estimated) {
-    grid.append(field('field.cache', tr('context.no_cache_report')));
+    put(field('field.cache', tr('context.no_cache_report')));
   }
 
   const size = cell('v', '');
@@ -3047,7 +3117,7 @@ async function drawContext(a, box, grid, field) {
     f.append(bar);
   }
   f.append(fold);
-  grid.append(f);
+  put(f);
 
   // A compaction is the one moment a companion silently stops knowing something. Four of them in
   // one session is the reason its earlier reasoning cannot be assumed still there.
@@ -3067,7 +3137,7 @@ async function drawContext(a, box, grid, field) {
       cf.append(cell('v', c.topics.slice(0, 6).join(' · ') +
                           (c.topics.length > 6 ? ' +' + (c.topics.length - 6) : '')));
     }
-    grid.append(cf);
+    put(cf);
   }
 }
 
@@ -4929,6 +4999,13 @@ function drawRoom(m) {
   // is. Asked of the say box rather than of the screen — every other thing in here is focusable
   // too, and a rule about "focus is somewhere on this screen" is a rule that fires on a link.
   if (typingIn(meetSayField)) return;
+  // Nothing new, nothing redrawn. The room is polled every two seconds and rebuilt from scratch,
+  // which throws away the chips, the say box and the buttons — the same churn the workspace pane
+  // had. A meeting changes when somebody says something, when the floor moves, or when it ends,
+  // and all of that is in the answer.
+  const shape = JSON.stringify(m);
+  if (shape === drawRoom.shape && meetEl.children.length) return;
+  drawRoom.shape = shape;
   const box = cell('meetbox');
   box.append(sectionHead('meet.title', toBack()));
   // The question is the headline of this screen, so it is a heading and not a styled line: with
@@ -5092,6 +5169,13 @@ function sayBox(m) {
     held = false;
     loadMeet();
   };
+  // Stepping out. The meeting is driven by this console, not by the page — so leaving is exactly
+  // navigating away, and the only thing missing was somewhere to press that says so. Beside the
+  // other two because it is the third thing you might do with a room you are in.
+  const leave = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'),
+                      tr('meet.leave'));
+  tip(leave, tr('meet.leave_why'));
+  leave.onclick = () => { history.pushState({}, '', at(HREF.meet)); render(); };
   const stop = label(withMark(document.createElement('md-text-button'), '#i-sl-flag-checkered'),
                      tr('meet.wrap'));
   // Ending it is the convener's call and not a rule: the rounds are a ceiling, not a plan, and a
@@ -5104,7 +5188,7 @@ function sayBox(m) {
   // full-width field with its buttons stranded underneath — three parts of one control, drawn as
   // two unrelated things. The field takes the room and the buttons sit at the end of it, which is
   // the shape the page's own composer has had all along.
-  box.append(f, send, stop);
+  box.append(f, send, leave, stop);
   return box;
 }
 

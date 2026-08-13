@@ -5274,3 +5274,40 @@ console.log(JSON.stringify({
 		t.Error("the branch changing did not redraw the git card")
 	}
 }
+
+// The facts card keeps its own elements and changes the words in them.
+//
+// It is redrawn by every fleet poll. Rebuilding it threw away the two selects and built new ones
+// three seconds apart — and a select that is replaced is one whose open menu shuts under the
+// pointer, which is the whole reason this is worth the reconciliation. Measured on a live console
+// with a marker on each part: everything survived a message arriving except this grid.
+func TestTheFactsCardKeepsItsControlsAndUpdatesItsValues(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => {
+  if (String(p).startsWith('/context')) return {ok: true, json: async () => ({model: 'qwen3', window: 100, used: 40})};
+  return {ok: true, json: async () => []};
+};
+const agent = steps => ({socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1', steps});
+await drawDetail(agent(7));
+const grid = () => byId.detail.find(d => String(d.className) === 'grid')[0];
+const sel = () => byId.detail.find(d => d.tag === 'md-outlined-select')[0];
+const first = grid(), firstSel = sel();
+await drawDetail(agent(7));
+const heldOn = grid() === first && sel() === firstSel;
+await drawDetail(agent(9));
+const steps = grid().children.find(r => r.attrs['data-k'] === 'field.steps');
+console.log(JSON.stringify({
+  same: heldOn,
+  keptAcrossAChange: grid() === first,
+  steps: steps ? steps.find(() => true).map(x => x.textContent || '').join('') : null,
+}));`)
+	if got["same"] != true {
+		t.Error("a poll with nothing new rebuilt the card's grid and its selects")
+	}
+	if got["keptAcrossAChange"] != true {
+		t.Error("a changed value rebuilt the whole grid rather than the row it changed")
+	}
+	if s, _ := got["steps"].(string); !strings.Contains(s, "9") {
+		t.Errorf("the step count did not follow the companion: %q", s)
+	}
+}

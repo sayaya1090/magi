@@ -299,6 +299,8 @@
   "meet.handed": "sent",
   "meet.holding": "speaking",
   "meet.lap": "Round {n}",
+  "meet.leave": "Step out",
+  "meet.leave_why": "The meeting carries on without you — this console is what drives it",
   "meet.need_topic": "Write the question first.",
   "meet.need_two": "Pick at least two companions — with one it is a conversation, and its own page does that better.",
   "meet.next": "next",

@@ -299,6 +299,8 @@
   "meet.handed": "보냄",
   "meet.holding": "발언 중",
   "meet.lap": "{n}바퀴째",
+  "meet.leave": "나가기",
+  "meet.leave_why": "회의는 당신 없이도 계속됩니다 — 진행은 이 콘솔이 합니다",
   "meet.need_topic": "무엇을 논의할지 먼저 적으세요.",
   "meet.need_two": "컴패니언을 둘 이상 고르세요 — 하나면 회의가 아니라 대화이고, 그건 그 컴패니언의 화면이 더 잘합니다.",
   "meet.next": "다음 차례",

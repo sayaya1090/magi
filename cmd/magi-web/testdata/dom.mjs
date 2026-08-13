@@ -303,6 +303,14 @@ function element(tag) {
       walk(this);
       return out;
     },
+    // Does this box hold that one, at any depth. The page asks it before reusing a card it drew on
+    // a previous poll — a node that has been swapped out is a node it must not write into.
+    contains(n) {
+      if (!n) return false;
+      if (n === this) return true;
+      for (const k of this.children) { if (k && k.contains && k.contains(n)) return true; }
+      return false;
+    },
     find(t) {
       const hit = typeof t === 'function' ? t(this) : this.tag === t;
       const out = hit ? [this] : [];

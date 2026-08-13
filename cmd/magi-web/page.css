@@ -1943,6 +1943,28 @@
     display:flex; flex-wrap:wrap; align-items:center;
     gap:var(--magi-sys-space-150); margin-top:var(--magi-sys-space-150);
   }
+  /* A person is a ROW, not a form.
+     Four full-width blocks stacked — the name, the capabilities, the role and remove, the scope —
+     made one person 250 to 300 pixels tall in a 1350px row with nothing on the right of any of
+     them. Measured on the published console: 249px for the first, 298 for the second.
+     The name and the controls that act on that name share the top line, which is where the eye
+     looks for "who, and what are they"; the capabilities and the scope sit under it, full width,
+     because they wrap. Everything keeps the order it has in the markup, so nothing moves for a
+     screen reader. */
+  .acclist .person {
+    display:grid; grid-template-columns:minmax(0, 1fr) auto;
+    column-gap:var(--magi-sys-space-300); align-items:center;
+  }
+  .acclist .person > .accwho { grid-column:1; grid-row:1; }
+  .acclist .person > .acccontrols { grid-column:2; grid-row:1; justify-self:end; margin-top:0; }
+  .acclist .person > .acccaps { grid-column:1 / -1; grid-row:2; }
+  .acclist .person > .scopes { grid-column:1 / -1; grid-row:3; }
+  /* Narrow: the controls go back under the name rather than squeezing it to nothing. */
+  @media (max-width:52.4375em) {
+    .acclist .person { grid-template-columns:minmax(0, 1fr); }
+    .acclist .person > .acccontrols { grid-column:1; grid-row:auto; justify-self:start; }
+    .acclist .person > .acccaps, .acclist .person > .scopes { grid-row:auto; }
+  }
   .acccontrols md-outlined-select { flex:0 0 11rem; }
   .acccontrols md-outlined-text-field { flex:1 1 14rem; min-width:0; }
 
@@ -2182,6 +2204,12 @@
         minmax(min(33rem, 100%), 1fr)
         minmax(min(11rem, var(--magi-comp-side-w)), var(--magi-comp-side-w));
       align-items:start;
+      /* No column gap, because a gap is drawn between tracks whether or not the track has any
+         width — so with both panes shut the conversation sat 24px in from each edge while the
+         composer, fixed to the page, sat where the page's content starts. The two were out of line
+         by exactly that gap, and what a reader sees is the footer indented under everything above
+         it. The gutter is put on the middle column instead, on the side where a pane actually is. */
+      column-gap:0;
       /* The pane opens and closes rather than appearing and vanishing. Both tracks are lengths so
          the change interpolates — with auto on the shut side there is nothing to interpolate to,
          which is why this was a jump. */
@@ -2240,6 +2268,8 @@
     /* Shut is nothing at all now. The 2.5rem was the width of a handle standing in the column, and
        the handles are in the masthead: a shut pane that still held a 40px strip was 40px of nothing
        down each side of the conversation. */
+    body[files="open"] #stream { padding-inline-start:var(--magi-sys-space-300); }
+    body[side="open"] #stream { padding-inline-end:var(--magi-sys-space-300); }
     body[side="shut"] #agentview {
       grid-template-columns:
         minmax(min(11rem, var(--magi-comp-files-w)), var(--magi-comp-files-w))
