@@ -47,6 +47,7 @@
   "action.remove": "삭제",
   "action.save": "저장",
   "action.send": "보내기",
+  "action.working": "처리 중…",
   "action.write_down": "적어두기",
   "answer.instead": "위 질문에 답합니다. 다른 일을 시키려면 먼저 답하거나 중단하세요.",
   "answer.or_pick": "위 선택지 중 하나를 고르거나, 여기에 다른 답을 쓰세요",

@@ -5086,7 +5086,7 @@ function drawConvene(list, open) {
                    tr('meet.start'));
   go.className = 'meetgo';
   meetGoBtn = go;
-  go.onclick = async () => {
+  go.onclick = () => whileItRuns(go, async () => {
     const body = new URLSearchParams();
     body.set('topic', meetTopic);
     for (const s of meetPick) body.append('who', s);
@@ -5104,7 +5104,7 @@ function drawConvene(list, open) {
     meetPick = new Set();
     history.pushState({}, '', at(HREF.meet + '&m=' + encodeURIComponent(m.id)));
     render();
-  };
+  });
 
   // What this is, how it ends, then the form, then the one control that starts it. The button was
   // in the middle — between the chips and two lines of explanation — which put the act before the
@@ -5139,6 +5139,27 @@ function drawConvene(list, open) {
   }
   meetEl.replaceChildren(box);
   armConvene();
+}
+
+// whileItRuns locks a control for as long as the thing it started is in flight, and says so.
+//
+// A slow backend makes a press look like nothing happened. What a person does then is press again,
+// and the console gets two of everything — a live run convened the same meeting twice that way,
+// and it took a lock in the server to undo. This is the other half: the button says it heard you.
+//
+// Restored whatever happens, including a throw. A control left disabled by a failure is a screen
+// somebody has to reload.
+async function whileItRuns(btn, run) {
+  if (!btn) return run();
+  const was = btn.textContent;
+  btn.disabled = true;
+  if (was) btn.textContent = tr('action.working');
+  try {
+    return await run();
+  } finally {
+    btn.disabled = false;
+    if (was) btn.textContent = was;
+  }
 }
 
 // armConvene keeps the button honest about whether there is a meeting to start.
@@ -6390,22 +6411,18 @@ function drawCommit(a, g) {
   const acts = cell('commitacts');
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
-  draft.onclick = async () => {
-    draft.disabled = true;
+  draft.onclick = () => whileItRuns(draft, async () => {
     const said = await postText('/git-msg' + qFor(a), new URLSearchParams({}));
-    draft.disabled = false;
     if (said) { commitDraft = said; msg.value = said; if (msg.focus) msg.focus(); }
-  };
+  });
   const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-check'),
                    tr('git.commit'));
   go.disabled = !staged.length;
-  go.onclick = async () => {
+  go.onclick = () => whileItRuns(go, async () => {
     const text = String(msg.value || '').trim();
     if (!text) { says(tr('git.need_message')); return; }
-    go.disabled = true;
     const why = await post('/git-do', new URLSearchParams({do: 'commit', message: text}),
                            a.socket || '', a.peer || '');
-    go.disabled = false;
     if (why) return;
     // Committed: the message is spent and the workbench has nothing left to show.
     commitDraft = '';
@@ -6415,7 +6432,7 @@ function drawCommit(a, g) {
     drawCardTabs(a);
     if (cardShows === 'facts') showCard();
     loadTree(a);
-  };
+  });
   acts.append(draft, go);
   foot.append(msg, acts);
   box.append(foot);

@@ -47,6 +47,7 @@
   "action.remove": "Remove",
   "action.save": "Save",
   "action.send": "Send",
+  "action.working": "Working…",
   "action.write_down": "Write it down",
   "answer.instead": "Answering the question above; to ask for something else, answer it or interrupt first",
   "answer.or_pick": "Pick one above, or write a different answer here",

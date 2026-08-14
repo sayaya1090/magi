@@ -694,3 +694,52 @@ func TestAFloorNobodyIsUsingComesBack(t *testing.T) {
 	// And it really carries on: somebody speaks after the hold lapses.
 	until(t, "the next contribution", func() bool { return len(read(t, f, v.ID).Said) > 0 })
 }
+
+// Two presses a few milliseconds apart convene one meeting, not two.
+//
+// Finding the meeting a question is already in and making a new one used to be two calls with the
+// lock dropped between them, so two requests both looked, both saw nothing and both convened —
+// which is what a person does when the first press seems to do nothing, and what a live console
+// did: the same question in two rooms, each spending model turns on half the attention.
+func TestTwoPressesConveneOneMeeting(t *testing.T) {
+	m := &meetings{}
+	who := []meeting.Speaker{{Name: "api", Socket: "/s/a"}, {Name: "design", Socket: "/s/d"}}
+	socks := map[string]string{"api": "/s/a", "design": "/s/d"}
+
+	var wg sync.WaitGroup
+	got := make([]*meetingRun, 8)
+	fresh := make([]bool, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			run, isNew, err := m.start("who owns the retry budget", who, socks, 3)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			got[i], fresh[i] = run, isNew
+		}(i)
+	}
+	wg.Wait()
+
+	made := 0
+	for _, f := range fresh {
+		if f {
+			made++
+		}
+	}
+	if made != 1 {
+		t.Errorf("%d of eight presses convened a meeting of their own", made)
+	}
+	for i, r := range got {
+		if r == nil || r.id != got[0].id {
+			t.Fatalf("press %d landed in a different room", i)
+		}
+	}
+	// And a different room for the same question IS a different meeting.
+	other, isNew, err := m.start("who owns the retry budget", who, map[string]string{"api": "/s/a"}, 3)
+	if err != nil || !isNew || other.id == got[0].id {
+		t.Errorf("a meeting with a different roster folded into the first one (%v)", err)
+	}
+}

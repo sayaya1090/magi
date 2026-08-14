@@ -4387,6 +4387,54 @@ console.log(JSON.stringify({sent: sent}));`)
 // Two halves of the same rule: the markup carries data-may="admin" so the screen is not offered to
 // somebody who would be refused, and the server refuses regardless — hiding is for the person who
 // would otherwise press a control that answers 403.
+// A control that started something slow says it heard you, and cannot be pressed twice.
+//
+// A slow backend makes a press look like nothing happened, and what a person does then is press
+// again — a live run convened the same meeting twice that way. The server folds the duplicate now,
+// and this is the other half: while the request is in flight the button is disabled and says so,
+// and it comes back however the request ends, including badly.
+func TestAControlThatStartedSomethingSaysSo(t *testing.T) {
+	page := `
+const b = document.createElement('md-filled-button');
+b.textContent = 'Convene';
+let released;
+const held = new Promise(ok => { released = ok; });
+const ran = whileItRuns(b, async () => { await held; return 'done'; });
+const during = {disabled: !!b.disabled, label: b.textContent};
+released();
+const answered = await ran;
+const after = {disabled: !!b.disabled, label: b.textContent};
+
+// And a failure gives the control back rather than leaving the screen needing a reload.
+let blew;
+try { await whileItRuns(b, async () => { throw new Error('no'); }); } catch (e) { blew = String(e); }
+const afterThrow = {disabled: !!b.disabled, label: b.textContent};
+console.log(JSON.stringify({during, answered, after, blew: !!blew, afterThrow}));
+`
+	got := runPage(t, `[]`, "?v=meet", page)
+	during, _ := got["during"].(map[string]any)
+	if during["disabled"] != true {
+		t.Error("the button could be pressed again while its own request was in flight")
+	}
+	if during["label"] == "Convene" {
+		t.Errorf("the button said %v while it was working — the label is the feedback", during["label"])
+	}
+	if got["answered"] != "done" {
+		t.Errorf("the wrapper swallowed the answer: %v", got["answered"])
+	}
+	after, _ := got["after"].(map[string]any)
+	if after["disabled"] != false || after["label"] != "Convene" {
+		t.Errorf("the button did not come back: %v", after)
+	}
+	if got["blew"] != true {
+		t.Error("a failure inside was swallowed instead of reaching the caller")
+	}
+	afterThrow, _ := got["afterThrow"].(map[string]any)
+	if afterThrow["disabled"] != false || afterThrow["label"] != "Convene" {
+		t.Errorf("a failed press left the control disabled: %v", afterThrow)
+	}
+}
+
 // Who to ask, grouped by whose they are and coloured by which team they belong to.
 //
 // One row of chips is fine for four companions and stops being fine at fifteen. Two accounts on
