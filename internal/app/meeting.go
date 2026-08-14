@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -56,6 +57,144 @@ func (a *App) MeetingTurn(ctx context.Context, sid session.SessionID, who, topic
 // meetingSteps bounds one contribution. A participant that needs more than a few looks at its own
 // files to say what it thinks is a participant writing the work rather than discussing it.
 const meetingSteps = 8
+
+// MeetingPrepare gives a participant its own session for this meeting and a chance to get ready.
+//
+// # One session per participant, not one per turn
+//
+// Every contribution used to be a fresh child: a new session, a new context, everything the
+// companion had already read thrown away and read again. Three companions over five rounds was
+// fifteen children on the strip and fifteen cold starts — most of why a meeting with three agents
+// crawls, and why the same participant could contradict what it had said two turns earlier
+// without noticing. The session made here is reused for every turn of this meeting (see
+// MeetingSayIn), so a participant remembers its own reading and its own words.
+//
+// # Why there is a preparation turn at all
+//
+// A meeting where everybody arrives cold spends its first two rounds looking things up out loud.
+// The companion is asked to look BEFORE the room opens: what its working tree says, what its
+// recent history says, what its workspace makes true about the question. Nobody hears this turn —
+// what comes back is a readiness note for the screen.
+//
+// # Why git arrives as evidence rather than as a tool
+//
+// The participant keeps the four tools that look and nothing else. Git is read FOR it and handed
+// over in the prompt: a companion that could run git could run anything, and the meeting's whole
+// separation is that it decides and does not do. What it cannot get this way it can still read
+// out of its own files.
+func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, topic string) (
+	session.SessionID, string, error) {
+	s := a.sessionInfo(ctx, sid)
+	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: "meeting"}, port.SpawnSpec{
+		ToolName: "meeting",
+		System:   meetingSystem(who),
+		Prompt:   preparePrompt(who, topic, a.workNow(ctx, s.Workdir)),
+		Tools:    []string{"read", "glob", "grep", "list"},
+		// More than a turn gets, because this is the turn that does the reading.
+		MaxSteps: meetingPrepSteps,
+	}, nil)
+	if err != nil {
+		return session.SessionID(res.SessionID), "", err
+	}
+	return session.SessionID(res.SessionID), strings.TrimSpace(res.Text), nil
+}
+
+// MeetingSayIn is a turn taken in the session the participant already has.
+//
+// The same session as its preparation and its earlier turns, so what it read to get ready is still
+// there. Nothing is spawned: this is one more prompt in a conversation already going.
+func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, topic, transcript string,
+	closing bool) (meeting.Utterance, error) {
+	if strings.TrimSpace(string(child)) == "" {
+		return meeting.Utterance{}, fmt.Errorf("this participant has no session in the meeting")
+	}
+	s := a.sessionInfo(ctx, child)
+	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: "meeting"},
+		meetingPrompt(who, topic, transcript, closing)); err != nil {
+		return meeting.Utterance{}, err
+	}
+	agent := AgentSpec{Name: spawnAgentName, System: meetingSystem(who),
+		Tools: []string{"read", "glob", "grep", "list"}, Model: s.Model}
+	text, err := a.runLoop(ctx, s, agent, 1, meetingSteps, true)
+	if err != nil {
+		return meeting.Utterance{}, err
+	}
+	return readUtterance(who, text), nil
+}
+
+// meetingSystem is who the participant is, in every turn of the meeting including the first.
+func meetingSystem(who string) string {
+	return "You are " + who + ", taking part in a meeting between companions. You each work in " +
+		"a different workspace and know different things; that is why you are all here. Read " +
+		"your own files when you need to check something. You cannot change anything: this is " +
+		"a discussion, and the work is handed out afterwards."
+}
+
+// meetingPrepSteps bounds the reading a participant does before the room opens.
+const meetingPrepSteps = 14
+
+// workNow is what this workspace looks like right now, read for the participant rather than by it.
+//
+// Cheap and bounded: the branch, what is uncommitted, and the last few commits. It answers "what
+// have you been doing", which a companion arriving at a meeting has to have answered before it can
+// say anything worth hearing.
+func (a *App) workNow(ctx context.Context, workdir string) string {
+	if a.plat == nil || strings.TrimSpace(workdir) == "" {
+		return ""
+	}
+	var b strings.Builder
+	if g, err := a.GitFacts(ctx, workdir); err == nil && g.Repo {
+		b.WriteString("branch: " + g.Branch)
+		if g.Upstream != "" {
+			b.WriteString(" (tracking " + g.Upstream)
+			if g.Ahead > 0 || g.Behind > 0 {
+				b.WriteString(fmt.Sprintf(", %d ahead, %d behind", g.Ahead, g.Behind))
+			}
+			b.WriteString(")")
+		}
+		b.WriteString("\n")
+		if len(g.Changes) == 0 {
+			b.WriteString("working tree: clean\n")
+		} else {
+			b.WriteString(fmt.Sprintf("working tree: %d changed\n", len(g.Changes)))
+			for i, c := range g.Changes {
+				if i == 12 {
+					b.WriteString(fmt.Sprintf("  … and %d more\n", len(g.Changes)-i))
+					break
+				}
+				b.WriteString("  " + c.Kind + "  " + c.Path + "\n")
+			}
+		}
+	}
+	if res, err := a.plat.Exec(ctx, port.Cmd{Path: "git",
+		Args: []string{"log", "-n", "10", "--pretty=%h %ad %s", "--date=short"},
+		Dir:  workdir, MaxOutput: 8 << 10}); err == nil && res.ExitCode == 0 {
+		if out := strings.TrimSpace(string(res.Stdout)); out != "" {
+			b.WriteString("\nrecent commits:\n" + out + "\n")
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// preparePrompt is the homework: read your own state, then say what you bring.
+func preparePrompt(who, topic, work string) string {
+	var b strings.Builder
+	b.WriteString("A meeting is being called and you are in it. It has not started yet — this is " +
+		"your time to get ready, and nobody will hear this turn.\n\n")
+	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
+	if work != "" {
+		b.WriteString("YOUR WORKSPACE RIGHT NOW, read for you\n" + work + "\n\n")
+	}
+	b.WriteString("WHAT TO DO NOW\n" +
+		"Read what you need to read in your own workspace to answer this well: the files the " +
+		"question touches, what you changed recently, what is half-done. Check rather than " +
+		"remember.\n\n" +
+		"THEN ANSWER WITH\n" +
+		"Two or three lines, for the person who called the meeting: what you bring to this " +
+		"question, and anything you already know is a problem. Not a plan, not an offer to help — " +
+		"what you know that the others do not.\n")
+	return b.String()
+}
 
 // meetingPrompt is what a participant is given: the question, everything said so far, and the two
 // shapes an answer may take.

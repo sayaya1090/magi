@@ -213,3 +213,36 @@ func TestOpeningAPullRequestNeedsGhAndSaysSo(t *testing.T) {
 		t.Errorf("an untitled pull request answered %v", terr)
 	}
 }
+
+// What a participant is told about its own workspace before a meeting starts.
+//
+// Read FOR it rather than by it: the four tools it has all look at files, and a companion that
+// could run git could run anything — the meeting's whole separation is that it decides and does
+// not do. So the branch, what is uncommitted and the last few commits arrive as evidence in the
+// prompt, and the participant reads files from there.
+func TestAParticipantIsToldWhatItsWorkspaceLooksLikeNow(t *testing.T) {
+	dir := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "a.txt"}, {"commit", "-m", "first: add a"}} {
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	said := gitDiffApp(t).workNow(context.Background(), dir)
+	for _, want := range []string{"branch:", "working tree:", "b.txt", "recent commits:", "first: add a"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the briefing does not mention %q:\n%s", want, said)
+		}
+	}
+	// A workspace that is not a checkout is not an error and not a paragraph of nothing.
+	if plain := gitDiffApp(t).workNow(context.Background(), t.TempDir()); strings.Contains(plain, "branch:") {
+		t.Errorf("a directory with no repository was described as one: %q", plain)
+	}
+}

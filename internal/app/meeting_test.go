@@ -136,3 +136,47 @@ func TestAPassStillReadsAsOneWhenTheModelDressesItUp(t *testing.T) {
 		t.Error("a sentence about passing was read as a pass")
 	}
 }
+
+// Preparing and speaking are the same session, and it is still the read-only one.
+//
+// Every contribution used to be its own child: three companions over five rounds put fifteen
+// children on the strip, each starting cold. Read from the source, like the check above, because
+// what is being asserted is which door the code goes through — a behaviour test would need a model
+// to answer and would pass just as happily with fifteen spawns behind it.
+func TestAParticipantSpeaksInTheSessionItPreparedIn(t *testing.T) {
+	src, err := os.ReadFile("meeting.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := func(name string) string {
+		i := strings.Index(body, "func (a *App) "+name)
+		if i < 0 {
+			t.Fatalf("%s is gone", name)
+		}
+		out := body[i:]
+		if j := strings.Index(out, "\n}"); j > 0 {
+			out = out[:j]
+		}
+		return out
+	}
+	prep := fn("MeetingPrepare")
+	if !strings.Contains(prep, "spawnChild") {
+		t.Error("preparation does not make the child session the meeting reuses")
+	}
+	if !strings.Contains(prep, `Tools:    []string{"read", "glob", "grep", "list"}`) {
+		t.Error("the participant is prepared with something other than the four tools that look")
+	}
+	say := fn("MeetingSayIn")
+	if strings.Contains(say, "spawnChild") {
+		t.Error("a turn still spawns a child, so the meeting is back to one session per turn")
+	}
+	if !strings.Contains(say, "appendPromptText") || !strings.Contains(say, "runLoop") {
+		t.Error("a turn is not a prompt in the session that is already open")
+	}
+	for _, forbidden := range []string{`"bash"`, `"write"`, `"edit"`, `"multiedit"`} {
+		if strings.Contains(prep+say, forbidden) {
+			t.Errorf("a meeting participant may reach %s", forbidden)
+		}
+	}
+}
