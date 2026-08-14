@@ -474,7 +474,11 @@ func (s *server) clientFor(sock string) (*daemon.Client, error) {
 func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flusher) {
 	tick := time.NewTicker(700 * time.Millisecond)
 	defer tick.Stop()
-	last := ""
+	// A meeting screen watches one room, or the list of them. Same connection, same rule — a frame
+	// only when it is different — so the room that took two seconds to show a new sentence shows it
+	// as soon as the driver has written it.
+	room := strings.TrimSpace(r.URL.Query().Get("m"))
+	last, lastMeet := "", ""
 	for {
 		list := s.fleetList(r)
 		b, err := json.Marshal(list)
@@ -483,12 +487,39 @@ func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flu
 			fmt.Fprintf(w, "event: fleet\ndata: %s\n\n", b)
 			fl.Flush()
 		}
+		if mb, ok := s.meetFrame(r, room); ok && mb != lastMeet {
+			lastMeet = mb
+			fmt.Fprintf(w, "event: meet\ndata: %s\n\n", mb)
+			fl.Flush()
+		}
 		select {
 		case <-r.Context().Done():
 			return
 		case <-tick.C:
 		}
 	}
+}
+
+// meetFrame is what the meeting screen is watching: one room by id, or the list of them.
+//
+// Read through the same scope check the route uses — a stream is a door like any other, and a
+// meeting somebody may not watch must not arrive on it because they left a tab open.
+func (s *server) meetFrame(r *http.Request, room string) (string, bool) {
+	var v any
+	if room != "" {
+		run := s.meets.get(room)
+		if run == nil || !s.mayWatch(r, run) {
+			return "", false
+		}
+		v = run.view()
+	} else {
+		v = s.meets.list(func(run *meetingRun) bool { return s.mayWatch(r, run) })
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
 }
 
 func (s *server) target(r *http.Request) (daemon.Info, error) {

@@ -7767,20 +7767,28 @@ let es, fleetTimer, boardSub, fleetES;
 // The caller is handed the list. Screens that need more than the roster (the map's edges, a
 // meeting's transcript) fetch what they need when the event says something moved — which is still
 // nothing at all while a fleet is quiet.
-function watchFleet(onList) {
+function watchFleet(onList, extra, only) {
   stopFleetWatch();
-  fleetES = new EventSource('/events');
-  fleetES.addEventListener('fleet', e => {
-    let list = null;
-    try { list = JSON.parse(e.data); } catch { return; }
-    if (list) onList(list);
-  });
+  fleetES = new EventSource('/events' + (extra || ''));
+  // A meeting screen listens for its room and NOT for the roster.
+  //
+  // The roster carries how long each companion has been idle, which is a number that changes every
+  // second — so a screen that redrew on every roster frame re-read the meeting once a second, which
+  // is worse than the two-second poll it replaced. Measured: twenty requests in a quiet ten.
+  if (only !== 'meet') {
+    fleetES.addEventListener('fleet', e => {
+      let list = null;
+      try { list = JSON.parse(e.data); } catch { return; }
+      onList(list);
+    });
+  }
+  fleetES.addEventListener('meet', () => onList(null));
   // A console that restarts is ordinary, and so is a laptop waking up. Reconnect quietly, and only
   // while this screen is still the one that wanted it.
   fleetES.onerror = () => {
     const mine = fleetES;
     if (mine) mine.close();
-    if (fleetES === mine) { fleetES = null; setTimeout(() => { if (!fleetES) watchFleet(onList); }, 1500); }
+    if (fleetES === mine) { fleetES = null; setTimeout(() => { if (!fleetES) watchFleet(onList, extra); }, 1500); }
   };
 }
 
@@ -8212,12 +8220,14 @@ function render() {
     // finds something different. A meeting that has gone stops the poll rather than asking a
     // console that has already answered "no such meeting" once every two seconds for the evening.
     loadMeet();
-    fleetTimer = setInterval(() => {
-      // A meeting that has gone stops the poll, rather than asking a console that has already
-      // answered "no such meeting" once every two seconds for the rest of the evening.
-      if (meetGone) { clearInterval(fleetTimer); fleetTimer = null; return; }
-      loadMeet();
-    }, 2000);
+    // Watched, not polled. The room is where a turn lands, and it landed up to two seconds after
+    // the driver wrote it; the stream carries the room itself, so it lands when it happens.
+    //
+    // The frame is not drawn from here — loadMeet is called and does its own reading — because the
+    // room's redraw has rules of its own (it holds still while somebody is typing, and rebuilds
+    // only when the answer is different), and a second path into it would be a second set of them.
+    watchFleet(() => { if (!meetGone) loadMeet(); },
+               meetOf() ? '?m=' + encodeURIComponent(meetOf()) : '', 'meet');
     return;
   }
   if (v === 'access') {
@@ -8249,7 +8259,7 @@ function render() {
   // The other two poll: the fleet for its rows, a companion's page for the facts about itself that
   // its log cannot carry.
   loadFleet();
-  watchFleet(list => loadFleet(list));
+  watchFleet(list => { if (list) loadFleet(list); });
 }
 
 // nameOf is the crumb for a socket before the fleet has been fetched — the file name carries the
