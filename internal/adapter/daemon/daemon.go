@@ -298,6 +298,12 @@ type Reviewer interface {
 	// rather than with the git verbs because it is not git: it is a tool that may not be installed
 	// and a network round trip that can fail in ways a local command cannot.
 	OpenPR(ctx context.Context, title, body string) (string, error)
+	// PRFacts is what a pull request from this workspace would carry: the base it goes onto, the
+	// commits on this branch, and the difference against that base. A read, but it crosses here
+	// because it is a read of the DAEMON's workspace — same reason GitDiff does.
+	PRFacts(ctx context.Context) (out string, err error)
+	// DraftPR is the model writing that request's title and body from those same facts.
+	DraftPR(ctx context.Context) (string, error)
 	// DraftCommit is the same kind of thing about a different subject: what is staged, described.
 	// A draft only — the console puts it in a box somebody edits before anything is committed.
 	DraftCommit(ctx context.Context) (string, error)
@@ -1131,6 +1137,29 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "pr-facts" || req.Method == "pr-msg" {
+			rev, ok := eng.(Reviewer)
+			if !ok {
+				resp = Response{Err: "this daemon cannot answer about pull requests"}
+			} else {
+				var out string
+				var perr error
+				if req.Method == "pr-facts" {
+					out, perr = rev.PRFacts(ctx)
+				} else {
+					out, perr = rev.DraftPR(ctx)
+				}
+				if perr != nil {
+					resp = Response{Err: perr.Error()}
+				} else {
+					resp = Response{OK: true, Out: out}
+				}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "git-msg" {
 			rev, ok := eng.(Reviewer)
 			if !ok {
@@ -1715,6 +1744,27 @@ func (c *Client) LookOver(path, text string) (string, error) {
 // OpenPR pushes this companion's branch and opens a pull request, answering with its URL.
 func (c *Client) OpenPR(title, body string) (string, error) {
 	resp, err := c.exchange(Request{Method: "git-pr", Name: title, Text: body})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// PRFacts is what a pull request from this companion's branch would carry, as JSON.
+//
+// JSON over a string field rather than a shape in this package: the protocol carries text, the
+// console decodes it, and a struct here would be a third copy of the same fields to keep in step.
+func (c *Client) PRFacts() (string, error) {
+	resp, err := c.exchange(Request{Method: "pr-facts"})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// DraftPR asks the companion's model for that request's title and body. Nothing is opened.
+func (c *Client) DraftPR() (string, error) {
+	resp, err := c.exchange(Request{Method: "pr-msg"})
 	if err != nil {
 		return "", err
 	}

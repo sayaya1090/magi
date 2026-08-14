@@ -203,6 +203,52 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 // change to anything, but it is work asked of the backend on somebody's behalf, which is what that
 // capability is about. Read-only in every other sense — nothing is written, nothing is recorded,
 // and no turn is started.
+// prFacts is what a pull request from this companion would carry — the base, the commits and the
+// difference — so the screen can show it while somebody writes the request.
+func (s *server) prFacts(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, ferr := cl.PRFacts()
+		out = said
+		return ferr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	// Passed through as the JSON the daemon produced: this console does not know the shape and has
+	// no reason to learn it.
+	w.Header().Set("Content-Type", "application/json")
+	if strings.TrimSpace(out) == "" {
+		out = "{}"
+	}
+	if _, werr := w.Write([]byte(out)); werr != nil {
+		log.Printf("magi-web: writing what a pull request would carry: %v", werr)
+	}
+}
+
+// prMsg is the model's draft of that request. It opens nothing.
+func (s *server) prMsg(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	var out string
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, merr := cl.DraftPR()
+		out = said
+		return merr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	writeText(w, out)
+}
+
 // gitPR pushes the branch and opens a pull request, answering with the URL it got back.
 func (s *server) gitPR(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {

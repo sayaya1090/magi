@@ -321,6 +321,18 @@ const demoScript = `
       ]},
     // What changed in one file, as git wrote it: the console does not compute a diff, it shows the
     // one the repository agrees with.
+    // What a pull request from this branch would carry: two commits on it, and the difference
+    // against the base. Enough for the workbench to be judged rather than described.
+    '/pr': {repo: true, branch: 'engine-ui-split', base: 'origin/main', pushed: false,
+      commits: [
+        {sha: '4ffe258', subject: 'web: the dock stops covering the phone', when: '2026-08-14'},
+        {sha: 'c506e2e', subject: 'web: the workspace pane says it is reading', when: '2026-08-14'},
+      ],
+      diff: 'diff --git a/cmd/magi-web/page.css b/cmd/magi-web/page.css\n' +
+        '@@ -2300,6 +2300,9 @@\n' +
+        '   body[at="agent"][panel="state"] #stop { display:none; }\n' +
+        '+  body[at="agent"]:not([panel="talk"]) #strip { display:none; }\n' +
+        ' }\n'},
     '/diff': {path: 'internal/app/git.go', which: 'staged', text:
       'diff --git a/internal/app/git.go b/internal/app/git.go\n' +
       '@@ -64,6 +64,12 @@ type GitChange struct {\n' +
@@ -714,8 +726,9 @@ const demoScript = `
     }
     if (init && init.method === 'POST' &&
         (url === '/meet-say' || url === '/meet-close' || url === '/meet-hand' ||
-         url === '/meet-open')) {
-      const said = {'/meet-open': 'would have put the meeting back in session',
+         url === '/meet-open' || url === '/pr-msg')) {
+      const said = {'/pr-msg': 'web: keep the dock off the phone\n\nThe strip of running work belongs with the conversation. On the other three screens it was ninety pixels of somebody else\u2019s business over the thing the reader came to use, and the file card\u2019s own actions were drawn underneath it.',
+                    '/meet-open': 'would have put the meeting back in session',
                     '/meet-say': 'would have taken the floor and said it',
                     '/meet-close': 'would have ended the discussion and asked each of them what they will do',
                     '/meet-hand': 'would have sent that conclusion to the companion as work, in its own session'}[url];

@@ -2548,6 +2548,28 @@ func (d daemonEngine) OpenPR(ctx context.Context, title, body string) (string, e
 	return d.App.OpenPR(rctx, d.handover.at.now(), d.workdir, title, body, false)
 }
 
+// PRFacts is what a request from this workspace would carry, as JSON for the console to draw.
+func (d daemonEngine) PRFacts(ctx context.Context) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	st, err := d.App.PRFacts(rctx, d.workdir)
+	if err != nil {
+		return "", err
+	}
+	out, merr := json.Marshal(st)
+	if merr != nil {
+		return "", merr
+	}
+	return string(out), nil
+}
+
+// DraftPR is the model writing that request from the branch's own commits and difference.
+func (d daemonEngine) DraftPR(ctx context.Context) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	return d.App.DraftPR(rctx, d.handover.at.now(), d.workdir)
+}
+
 // DraftCommit is the same shoulder-reading, about what is staged rather than about a buffer.
 func (d daemonEngine) DraftCommit(ctx context.Context) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 45*time.Second)

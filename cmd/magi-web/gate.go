@@ -52,6 +52,9 @@ var mayWrite = map[string]auth.Capability{
 	// Opening a pull request pushes a branch and writes to the forge. That is the workspace's own
 	// capability, not the model's.
 	"/git-pr": auth.Shell,
+	// Reading what a request would carry is a read of the workspace; drafting it spends the model.
+	"/pr":     auth.Read,
+	"/pr-msg": auth.Prompt,
 	// Convening a meeting, speaking in one, ending it, and giving out what it concluded. All
 	// `prompt`: a meeting is model turns on several companions at once — the most expensive thing
 	// this console can start — and handing a conclusion out is giving one of them work, which is

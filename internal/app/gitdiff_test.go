@@ -246,3 +246,66 @@ func TestAParticipantIsToldWhatItsWorkspaceLooksLikeNow(t *testing.T) {
 		t.Errorf("a directory with no repository was described as one: %q", plain)
 	}
 }
+
+// What a pull request from this workspace would carry, read before anybody types a word.
+//
+// Three questions: which branch it goes onto, what is on this one that is not on that one, and the
+// whole difference between them. Without them the console's PR box was a title and a body over
+// nothing — the shape the commit message had before its workbench, and it produced the same
+// message.
+func TestWhatAPullRequestWouldCarryIsReadFromTheBranch(t *testing.T) {
+	dir := gitRepo(t)
+	run := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.txt", "one\n")
+	run("add", "a.txt")
+	run("commit", "-m", "first: add a")
+	// A remote that exists locally, which is what origin/main is to a checkout.
+	run("branch", "-f", "main")
+	run("update-ref", "refs/remotes/origin/main", "refs/heads/main")
+	run("checkout", "-q", "-b", "work")
+	write("b.txt", "two\n")
+	run("add", "b.txt")
+	run("commit", "-m", "work: add b")
+	write("c.txt", "three\n")
+	run("add", "c.txt")
+	run("commit", "-m", "work: add c")
+
+	st, err := gitDiffApp(t).PRFacts(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Repo || st.Branch != "work" || st.Base != "origin/main" {
+		t.Fatalf("the branch reads as %+v", st)
+	}
+	if len(st.Commits) != 2 || st.Commits[0].Subject != "work: add c" {
+		t.Errorf("the commits on this branch are %+v — newest first, and only this branch's", st.Commits)
+	}
+	// base...HEAD, not base..HEAD: what this branch changed, and nothing that happened on the base.
+	if !strings.Contains(st.Diff, "b.txt") || !strings.Contains(st.Diff, "c.txt") {
+		t.Errorf("the difference against the base is missing this branch's files:\n%s", st.Diff)
+	}
+	if strings.Contains(st.Diff, "a.txt") {
+		t.Errorf("the difference carries what was already on the base:\n%s", st.Diff)
+	}
+	if st.Pushed {
+		t.Error("a branch that has never been pushed reads as pushed")
+	}
+	// And a checkout with nothing to compare against says so rather than guessing.
+	plain := gitRepo(t)
+	if bare, berr := gitDiffApp(t).PRFacts(context.Background(), plain); berr != nil || bare.Base != "" {
+		t.Errorf("a repository with no remote answered base %q (%v)", bare.Base, berr)
+	}
+}

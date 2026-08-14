@@ -6078,21 +6078,9 @@ function gitBranchActs(a, g) {
   // A pull request is the end of the same errand as pushing, so it sits with push rather than in a
   // menu somewhere else. One box: the first line is the title and the rest is the body, which is
   // the shape everybody already writes a commit in — and gh reads them the same way round.
-  act('git.pr', '#i-sl-share-from-square', () => {
-    askLine({
-      head: tr('git.pr'), body: tr('git.pr_who'), label: tr('git.pr_text'), lines: 8,
-      doIt: tr('git.pr'), doMark: '#i-sl-share-from-square',
-      go: async text => {
-        const at = String(text).indexOf('\n');
-        const title = at < 0 ? text : text.slice(0, at).trim();
-        const body = at < 0 ? '' : text.slice(at + 1).trim();
-        const url = await postText('/git-pr' + qFor(a), new URLSearchParams({title: title, body: body}));
-        // The URL is the answer, and it is said where this page says everything else. A console
-        // that opened the browser for you would be deciding something it was not asked to.
-        if (url) says(url);
-      },
-    });
-  }, g.repo);
+  // Up into the slot, where what is being sent can be read. A request written without its own
+  // commits in front of it is the request that says "update".
+  act('git.pr', '#i-sl-share-from-square', () => openPR(a), g.repo);
   act('git.new_branch', '#i-sl-plus', () => {
     askLine({head: tr('git.new_branch'), body: tr('git.new_branch_who'), label: tr('git.branch'),
              doIt: tr('git.new_branch'), doMark: '#i-sl-plus',
@@ -6408,6 +6396,98 @@ async function openDiff(a, path, which) {
   if (cardShows !== key) return;
   drawDiff(path, which, got && typeof got.text === 'string' ? got.text : '');
   loadTree(a);
+}
+
+// The pull request workbench: which branch onto which, what is on it, and the request itself.
+//
+// The same shape as the commit workbench below, in the same slot, for the same reason: a request
+// is written while reading what it carries, and what it carries is a branch — its commits and the
+// whole difference against the base. The dialog it replaces was a title and a body over nothing,
+// which is how "update" gets written twice a day.
+const PR = 'pr:';
+let prDraft = '';   // the request as it is being typed, kept across redraws
+
+async function openPR(a) {
+  if (!openFiles.includes(PR)) openFiles.push(PR);
+  cardShows = PR;
+  toWorkspacePanel();
+  drawCardTabs(a);
+  const st = await fetchOne('/pr' + qFor(a));
+  if (cardShows !== PR) return;
+  drawPR(a, st || {});
+}
+
+function drawPR(a, st) {
+  const bar = cell('filebar');
+  bar.append(cell('filedir', tr('git.pr') + (st.branch && st.base
+    ? '  ·  ' + st.branch + ' → ' + st.base : '')));
+  const box = cell('commitbox');
+
+  // Left: what is going up. The commits, newest first, which is the order somebody writing the
+  // request reads them in.
+  const list = cell('commitfiles');
+  if (!st.repo) list.append(cell('filesnote', tr('git.not_a_repo')));
+  else if (!st.base) list.append(cell('filesnote', tr('pr.no_base')));
+  else if (!(st.commits || []).length) list.append(cell('filesnote', tr('pr.nothing_to_send')));
+  for (const c of (st.commits || [])) {
+    const row = cell('treerow state');
+    row.append(cell('gitkind', c.sha), cell('treename', c.subject));
+    if (c.when) tip(row, c.when);
+    list.append(row);
+  }
+  box.append(list);
+
+  // Right: the whole difference against the base, which is what a reviewer will see.
+  const diff = document.createElement('pre');
+  diff.className = 'filecode diffbody commitdiff';
+  fillDiff(diff, st.diff || '');
+  box.append(diff);
+
+  const foot = cell('commitfoot');
+  const msg = document.createElement('md-outlined-text-field');
+  msg.setAttribute('type', 'textarea');
+  msg.setAttribute('rows', '5');
+  msg.setAttribute('label', tr('git.pr_text'));
+  msg.className = 'commitmsg';
+  msg.value = prDraft;
+  msg.addEventListener('input', () => { prDraft = msg.value; });
+  const acts = cell('commitacts');
+  const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
+                      tr('git.draft'));
+  draft.onclick = () => whileItRuns(draft, async () => {
+    const said = await postText('/pr-msg' + qFor(a), new URLSearchParams({}));
+    if (said) { prDraft = said; msg.value = said; if (msg.focus) msg.focus(); }
+  });
+  const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-share-from-square'),
+                   tr('git.pr'));
+  go.disabled = !st.repo || !st.base || !(st.commits || []).length;
+  go.onclick = () => whileItRuns(go, async () => {
+    const text = String(msg.value || '').trim();
+    if (!text) { says(tr('pr.needs_words')); return; }
+    // The first line is the title and the rest is the body — the way a commit is written and the
+    // way gh reads it.
+    const at = text.indexOf('\n');
+    const title = at < 0 ? text : text.slice(0, at).trim();
+    const body = at < 0 ? '' : text.slice(at + 1).trim();
+    const url = await postText('/git-pr' + qFor(a), new URLSearchParams({title: title, body: body}));
+    if (!url) return;                      // the refusal is already on the screen
+    prDraft = '';
+    says(url);
+    openFiles = openFiles.filter(p => p !== PR);
+    cardShows = openFiles[openFiles.length - 1] || 'facts';
+    drawCardTabs(a);
+    if (cardShows === 'facts') showCard();
+    loadTree(a);
+  });
+  acts.append(draft, go);
+  // What pressing it will do, said before it is pressed: a branch nobody has pushed is pushed by
+  // this, which is a fact about the remote somebody should meet in advance.
+  if (st.repo && st.base && !st.pushed) foot.append(cell('filesnote', tr('pr.will_push')));
+  foot.append(msg, acts);
+  box.append(foot);
+  fileViewEl.classList.add('commitmode');
+  fileViewEl.replaceChildren(bar, box);
+  showCard();
 }
 
 // The commit workbench: what is staged, what changed in it, and the message.
@@ -6993,7 +7073,8 @@ function drawCardTabs(a) {
   tabs.push(facts);
   for (const path of openFiles) {
     const t = document.createElement('md-secondary-tab');
-    t.append(cell('tablbl', path === COMMIT ? tr('git.commit')
+    t.append(cell('tablbl', path === PR ? tr('git.pr')
+                           : path === COMMIT ? tr('git.commit')
                            : isDiff(path) ? baseName(diffPath(path)) + ' ±' : baseName(path)));
     // A way to shut it, on the tab, which is where an editor puts it. An icon button inside a tab
     // would be a target inside a target; this is a plain mark with its own click, and the tab
@@ -7007,6 +7088,7 @@ function drawCardTabs(a) {
         drawCardTabs(a);
         if (cardShows !== 'facts') {
           if (cardShows === COMMIT) openCommit(a);
+          else if (cardShows === PR) openPR(a);
           else if (isDiff(cardShows)) openDiff(a, diffPath(cardShows), diffWhich(cardShows));
           else openFile(a, cardShows);
         }
@@ -7016,6 +7098,7 @@ function drawCardTabs(a) {
     }
     t.onclick = () => {
       if (path === COMMIT) openCommit(a);
+      else if (path === PR) openPR(a);
       else if (isDiff(path)) openDiff(a, diffPath(path), diffWhich(path));
       else openFile(a, path);
     };

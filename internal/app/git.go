@@ -312,6 +312,138 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir st
 	return strings.Trim(strings.TrimSpace(out), "`\n "), nil
 }
 
+// PRState is what a pull request from this branch would carry: which branch it goes onto, what
+// commits are on this one that are not on that one, and the whole difference between them.
+//
+// The three questions somebody writing a pull request has, answered before they start typing.
+// Without them the console's PR box was a title and a body over nothing — the same shape the
+// commit message had before the workbench, and it produced the same message: "update".
+type PRState struct {
+	// Repo is false where there is no checkout, and Base is empty where this console cannot tell
+	// what the request would go onto — no remote, no origin/HEAD, nothing named main or master.
+	// Both are said rather than guessed: opening a request against the wrong branch is not a thing
+	// to find out afterwards.
+	Repo    bool        `json:"repo"`
+	Branch  string      `json:"branch,omitempty"`
+	Base    string      `json:"base,omitempty"`
+	Commits []GitCommit `json:"commits,omitempty"`
+	// Diff is base...HEAD — what this branch changed, not what has happened on the base since it
+	// left. Three dots on purpose: two would show somebody else's work as part of the request.
+	Diff string `json:"diff,omitempty"`
+	// Pushed is whether the branch is on the remote already. It changes what the button does — a
+	// branch that has never been pushed is pushed by opening the request — and a screen that did
+	// not say so surprised somebody.
+	Pushed bool `json:"pushed,omitempty"`
+}
+
+// GitCommit is one commit on the way up: what it is called and what it says.
+type GitCommit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
+	When    string `json:"when,omitempty"`
+}
+
+// PRFacts reads what a pull request from this workspace would be.
+func (a *App) PRFacts(ctx context.Context, workdir string) (PRState, error) {
+	if a.plat == nil {
+		return PRState{}, fmt.Errorf("platform unavailable")
+	}
+	git := func(args ...string) (string, bool) {
+		res, err := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: args, Dir: workdir, MaxOutput: diffCap})
+		if err != nil || res.ExitCode != 0 {
+			return "", false
+		}
+		return strings.TrimSpace(string(res.Stdout)), true
+	}
+	head, ok := git("rev-parse", "--abbrev-ref", "HEAD")
+	if !ok {
+		return PRState{}, nil // not a checkout, which is not an error — see GitFacts
+	}
+	out := PRState{Repo: true, Branch: head}
+	// What this request would go onto, asked in the order that is most likely to be right: what the
+	// remote itself says its default is, then the two names that are that default nearly everywhere.
+	for _, guess := range []string{"origin/HEAD", "origin/main", "origin/master"} {
+		if name, ok := git("rev-parse", "--abbrev-ref", guess); ok && name != "" && name != head {
+			out.Base = name
+			break
+		}
+	}
+	if out.Base == "" {
+		return out, nil // nothing to compare against; the screen says so
+	}
+	if _, ok := git("rev-parse", "--verify", "--quiet", "origin/"+head); ok {
+		out.Pushed = true
+	}
+	if log, ok := git("log", "--pretty=%h\x1f%s\x1f%ad", "--date=short", out.Base+"..HEAD"); ok && log != "" {
+		for _, line := range strings.Split(log, "\n") {
+			bits := strings.Split(line, "\x1f")
+			if len(bits) < 2 {
+				continue
+			}
+			c := GitCommit{SHA: bits[0], Subject: bits[1]}
+			if len(bits) > 2 {
+				c.When = bits[2]
+			}
+			out.Commits = append(out.Commits, c)
+		}
+	}
+	if diff, ok := git("diff", "--no-color", out.Base+"...HEAD"); ok {
+		if len(diff) >= diffCap {
+			diff += "\n… (this diff is longer than the console will carry; the rest is not shown)"
+		}
+		out.Diff = diff
+	}
+	return out, nil
+}
+
+// DraftPR asks the model for the title and body of a pull request for this branch.
+//
+// The same shape as DraftCommit and for the same reasons — outside the session, nothing written,
+// the repository's own recent subjects as the house style. What differs is the evidence: a request
+// is about a BRANCH, so what goes over is its commits and the whole difference against the base,
+// not what happens to be staged right now.
+func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir string) (string, error) {
+	st, err := a.PRFacts(ctx, workdir)
+	if err != nil {
+		return "", err
+	}
+	if !st.Repo || st.Base == "" || (len(st.Commits) == 0 && strings.TrimSpace(st.Diff) == "") {
+		return "", nil // nothing on this branch to describe
+	}
+	var b strings.Builder
+	b.WriteString("BRANCH: " + st.Branch + " onto " + st.Base + "\n\nCOMMITS ON IT\n")
+	for _, c := range st.Commits {
+		b.WriteString("  " + c.SHA + " " + c.Subject + "\n")
+	}
+	diff := st.Diff
+	if len(diff) > lookOverCap {
+		diff = diff[:lookOverCap] + "\n… (the rest of this diff was not sent)"
+	}
+	b.WriteString("\nTHE WHOLE DIFFERENCE AGAINST " + st.Base + "\n" + diff)
+
+	s := a.sessionInfo(ctx, sid)
+	agent := a.agentFor(s)
+	req := port.ChatRequest{
+		Model: s.Model.Model,
+		System: "Write the pull request for the branch below. Answer with the request and nothing " +
+			"else: no preamble, no code fences. The FIRST line is the title, in the imperative and " +
+			"under 72 characters. Then a blank line and the body: what changed and why, what a " +
+			"reviewer should look at first, and anything you can see is still open. Describe only " +
+			"what the commits and the diff show — no issue numbers, no names, nothing you cannot " +
+			"see here.",
+		Messages: []session.Message{{
+			Role:  session.RoleUser,
+			Parts: []session.Part{{Kind: session.PartText, Text: b.String()}},
+		}},
+	}
+	stream, serr := a.providerFor(agent).StreamChat(ctx, req)
+	if serr != nil {
+		return "", serr
+	}
+	out, _ := drainStream(stream)
+	return strings.Trim(strings.TrimSpace(out), "`\n "), nil
+}
+
 // OpenPR pushes this branch and opens a pull request for it.
 //
 // Two commands and a tool that may not be installed, which is why it is not one of GitDo's closed
