@@ -944,6 +944,38 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// A message that could not be sent is still in the box.
+//
+// The composer empties itself the moment you press send, which is right — the ordinary case is
+// that it went. Against a companion whose daemon has gone it did not: measured live, a 502, the
+// reason in the masthead, and the words a person had just typed gone from the box with no way to
+// get them back. The move-and-send path has always put them back; the ordinary path, which is how
+// everything else is sent, did not.
+func TestWordsThatCouldNotBeSentAreStillThere(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"abandoned","live":false,
+	   "session":"s1"}]`
+	got := runPage(t, one, "?d=%2Fs%2Fa.sock", `
+await loadFleet();
+const was = globalThis.fetch;
+globalThis.fetch = async (p, init) => {
+  if (String(p).startsWith('/submit')) {
+    return {ok: false, status: 502, text: async () => 'api is not running, so there is nothing to send to'};
+  }
+  return was(p, init);
+};
+byId.t.value = 'are you there';
+await f.onsubmit({preventDefault(){}});
+await Promise.resolve(); await Promise.resolve();
+console.log(JSON.stringify({field: byId.t.value, note: byId.note.textContent}));
+`)
+	if got["field"] != "are you there" {
+		t.Errorf("the words are %q after a send that was refused", got["field"])
+	}
+	if s, _ := got["note"].(string); !strings.Contains(s, "not running") {
+		t.Errorf("the refusal is not on screen: %q", s)
+	}
+}
+
 // Coming back to a screen reads it once. The subscription is not what needs restarting — the
 // screen is what needs catching up.
 //

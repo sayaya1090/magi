@@ -8951,7 +8951,12 @@ f.onsubmit = e => {
     const a = answering;
     t.value = ''; grow();
     post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text: v}), a.socket, a.peer)
-      .then(loadFleet);
+      .then(why => {
+        // An answer that did not land is worse than a message that did not: the companion is still
+        // stopped, waiting for it. Put it back so it can be sent again rather than retyped.
+        if (why && !t.value.trim()) { t.value = v; grow(); }
+        loadFleet();
+      });
     return;
   }
   // A leading bang runs the rest as a command, where the daemon is. The terminal has read this
@@ -8999,7 +9004,17 @@ f.onsubmit = e => {
     return;
   }
   // The composer is only on a companion's page, so there is one place the work can go.
-  t.value = ''; grow(); post('/submit', new URLSearchParams({text: v}));
+  //
+  // Emptied now and filled again if it was refused. Cleared-and-forgotten is what this did, and
+  // against a companion whose daemon has gone — measured live, a 502 — the words a person had just
+  // typed vanished from the box with the reason in the masthead and no way to get them back. The
+  // move-and-send path above has always put them back; this one, which is the ordinary way to send
+  // anything, did not.
+  t.value = ''; grow();
+  post('/submit', new URLSearchParams({text: v})).then(why => {
+    if (!why) return;
+    if (!t.value.trim()) { t.value = v; grow(); }
+  });
 };
 // Enter sends on a keyboard and inserts a newline on a phone: a soft keyboard's return key is the
 // only way to break a line there, and hijacking it leaves no way to write a second paragraph.
