@@ -795,92 +795,18 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		// The methods that ANSWER: one function each, and the lockstep write is here rather than
+		// repeated at the end of every one of them.
+		if answer, ok := answers[req.Method]; ok {
+			if enc.Encode(answer(ctx, eng, req)) != nil {
+				return // the peer is gone
+			}
+			continue
+		}
 		// status is answered here rather than in dispatch: it is the only method with a payload,
 		// and giving dispatch a return value for the sake of one caller would make every write
 		// site pretend to produce something.
 		var resp Response
-		if req.Method == "status" {
-			resp = Response{OK: true}
-			if ask, ok := eng.Waiting(session.SessionID(req.Session)); ok {
-				resp.Waiting = &Waiting{
-					ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args,
-					Reason: ask.Reason, Options: ask.Options, Report: ask.Report,
-					Index: ask.Index, Total: ask.Total,
-					Since: ask.Since.UTC().Format(time.RFC3339),
-				}
-			}
-			resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
-			if c, ok := eng.(Controller); ok {
-				resp.Permission = c.Permission()
-			}
-			if n, ok := eng.(UserNamer); ok {
-				resp.User = n.UserLabel(session.SessionID(req.Session))
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		// models is the list this companion could be put on, asked of its own backend.
-		if req.Method == "models" {
-			resp = Response{OK: true, Models: []string{}}
-			if l, ok := eng.(ModelLister); ok {
-				// A backend that is slow or down must not hold the socket: the caller is a screen
-				// drawing a menu, and no menu is a better answer than a stuck one.
-				mctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				names, err := l.ListModels(mctx)
-				cancel()
-				if err == nil {
-					resp.Models = names
-				} else {
-					resp.Why = err.Error()
-				}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		// tools is answered here too, and for the same reason.
-		if req.Method == "tools" {
-			resp = Response{OK: true, Tools: []string{}}
-			if t, ok := eng.(ToolLister); ok {
-				resp.Tools = t.ToolNames()
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		// jobs is answered here for the same reason status is: it carries a payload.
-		if req.Method == "jobs" {
-			resp = Response{OK: true, Jobs: &Jobs{}}
-			if j, ok := eng.(JobRunner); ok {
-				for _, b := range j.BackgroundJobs() {
-					resp.Jobs.Background = append(resp.Jobs.Background, BackgroundJob{
-						ID: b.ID, Command: b.Command, Running: b.Running, Killed: b.Killed,
-						Exit: b.Exit, Started: b.Started.UTC().Format(time.RFC3339),
-						Tail: j.BackgroundTail(b.ID, jobTailBytes),
-					})
-				}
-				resp.Jobs.Queued = j.QueuedWork()
-				for _, c := range j.SubagentJobs() {
-					out := ChildJob{
-						ID: c.ID, Tool: c.Tool, Task: c.Task, Running: c.Running,
-						Steps: c.Steps, Err: c.Err,
-						Started: c.Started.UTC().Format(time.RFC3339),
-					}
-					if !c.Ended.IsZero() {
-						out.Ended = c.Ended.UTC().Format(time.RFC3339)
-					}
-					resp.Jobs.Children = append(resp.Jobs.Children, out)
-				}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
 		// shutdown is answered here, like status, and the reply goes out BEFORE the stop.
 		//
 		// Not because the reply would otherwise be lost — closing a listener does not touch
@@ -903,52 +829,6 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			wrote := enc.Encode(Response{OK: true}) == nil
 			stop()
 			if !wrote {
-				return
-			}
-			continue
-		}
-		// about is answered here rather than in dispatch, like status and shell, because it has a
-		// payload. It is also the whole point of the relay: whoever is asking connected to THIS
-		// companion, so there is no name to resolve and no config directory to read — the process
-		// that knows answers about itself.
-		if req.Method == "about" {
-			d, ok := eng.(Describer)
-			if !ok {
-				resp = Response{Err: "this daemon cannot describe its companion"}
-			} else {
-				resp = Response{OK: true, Out: d.About()}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		// hand and hand-state are answered here for the same reason about is, and they are the
-		// reason the relay exists at all. Whoever is asking has connected to THIS companion, so
-		// there is no name to resolve against a config directory that may belong to another
-		// account and may not exist at all inside a container. The process doing the work says
-		// what became of it.
-		if req.Method == "hand" || req.Method == "hand-state" {
-			taker, ok := eng.(Taker)
-			switch {
-			case !ok:
-				resp = Response{Err: "this daemon cannot be handed work"}
-			case req.Method == "hand":
-				id, herr := taker.Hand(ctx, req.Name, req.Text, req.Looking)
-				if herr != nil {
-					resp = Response{Err: herr.Error()}
-				} else {
-					resp = Response{OK: true, Out: id}
-				}
-			default:
-				h, herr := taker.Handed(ctx, req.Name)
-				if herr != nil {
-					resp = Response{Err: herr.Error()}
-				} else {
-					resp = Response{OK: true, Handover: &h}
-				}
-			}
-			if enc.Encode(resp) != nil {
 				return
 			}
 			continue
@@ -996,236 +876,6 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			return // this connection was a stream; it ends with it
 		}
-		// A read-only tool, run where the workspace is. Answered here rather than in dispatch for the
-		// same reason shell is: it has a payload.
-		if req.Method == "tool" {
-			reader, ok := eng.(ToolReader)
-			switch {
-			case !ok:
-				resp = Response{Err: "this daemon cannot read its workspace"}
-			case strings.TrimSpace(req.Name) == "":
-				resp = Response{Err: "no tool named"}
-			default:
-				out, rerr := reader.ReadOnlyTool(ctx, req.Name, req.Args)
-				if rerr != nil {
-					resp = Response{Err: rerr.Error()}
-				} else {
-					resp = Response{OK: true, Out: out}
-				}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		// An edit, made where the workspace is, and written into the log as a person's own words.
-		if req.Method == "edit-file" {
-			writer, ok := eng.(ToolWriter)
-			switch {
-			case !ok:
-				resp = Response{Err: "this daemon cannot be asked to edit its workspace"}
-			case strings.TrimSpace(req.Name) == "":
-				resp = Response{Err: "no tool named"}
-			case req.Name == "patch":
-				if perr := writer.PatchFile(ctx, req.Text, req.Answer, req.Ask); perr != nil {
-					resp = Response{Err: perr.Error()}
-				} else {
-					resp = Response{OK: true}
-				}
-			default:
-				out, werr := writer.WriteTool(ctx, req.Name, req.Args, req.Ask)
-				if werr != nil {
-					resp = Response{Err: werr.Error()}
-				} else {
-					resp = Response{OK: true, Out: out}
-				}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "git" {
-			teller, ok := eng.(GitTeller)
-			if !ok {
-				resp = Response{Err: "this daemon cannot say what git makes of its workspace"}
-			} else if out, gerr := teller.Git(ctx); gerr != nil {
-				resp = Response{Err: gerr.Error()}
-			} else {
-				resp = Response{OK: true, Out: string(out)}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "file-do" {
-			keeper, ok := eng.(FileKeeper)
-			if !ok {
-				resp = Response{Err: "this daemon cannot make or remove files"}
-			} else if ferr := keeper.FileDo(ctx, req.Name, req.Text, req.Answer, req.Ask); ferr != nil {
-				resp = Response{Err: ferr.Error()}
-			} else {
-				resp = Response{OK: true}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "git-diff" {
-			teller, ok := eng.(GitTeller)
-			if !ok {
-				resp = Response{Err: "this daemon cannot show a diff"}
-			} else if out, derr := teller.GitDiff(ctx, req.Text, req.Decision == "staged",
-				req.Decision == "untracked"); derr != nil {
-				resp = Response{Err: derr.Error()}
-			} else {
-				resp = Response{OK: true, Out: out}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "git-do" {
-			doer, ok := eng.(GitDoer)
-			if !ok {
-				resp = Response{Err: "this daemon cannot run git commands"}
-			} else if out, gerr := doer.GitDo(ctx, req.Name, req.Text, req.Answer, req.Ask); gerr != nil {
-				resp = Response{Err: gerr.Error()}
-			} else {
-				resp = Response{OK: true, Out: out}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "meet-join" {
-			sp, ok := eng.(Speaker)
-			if !ok {
-				resp = Response{Err: "this daemon cannot take part in a meeting"}
-			} else if ready, room, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name); jerr != nil {
-				resp = Response{Err: jerr.Error()}
-			} else {
-				resp = Response{OK: true, Out: ready, Session: room}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "meet" {
-			sp, ok := eng.(Speaker)
-			if !ok {
-				resp = Response{Err: "this daemon cannot take part in a meeting"}
-			} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text,
-				req.Decision == "closing"); merr != nil {
-				resp = Response{Err: merr.Error()}
-			} else {
-				// A pass travels as a flag rather than as a word in the text, or a contribution
-				// that happens to begin with the word would arrive as a silence.
-				//
-				// The room travels on every turn and not only on the join: a daemon that restarted
-				// mid-meeting prepares again in a NEW session, and a viewer holding the old id
-				// would show an empty working rather than the one that produced the sentence in
-				// front of it.
-				resp = Response{OK: true, Out: c.Said, Exit: passFlag(c.Pass), Session: c.Room}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "git-pr" {
-			rev, ok := eng.(Reviewer)
-			if !ok {
-				resp = Response{Err: "this daemon cannot open a pull request"}
-			} else if url, perr := rev.OpenPR(ctx, req.Name, req.Text); perr != nil {
-				resp = Response{Err: perr.Error()}
-			} else {
-				resp = Response{OK: true, Out: url}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "pr-facts" || req.Method == "pr-msg" {
-			rev, ok := eng.(Reviewer)
-			if !ok {
-				resp = Response{Err: "this daemon cannot answer about pull requests"}
-			} else {
-				var out string
-				var perr error
-				if req.Method == "pr-facts" {
-					out, perr = rev.PRFacts(ctx)
-				} else {
-					out, perr = rev.DraftPR(ctx)
-				}
-				if perr != nil {
-					resp = Response{Err: perr.Error()}
-				} else {
-					resp = Response{OK: true, Out: out}
-				}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "git-msg" {
-			rev, ok := eng.(Reviewer)
-			if !ok {
-				resp = Response{Err: "this daemon cannot draft a commit message"}
-			} else if out, derr := rev.DraftCommit(ctx); derr != nil {
-				resp = Response{Err: derr.Error()}
-			} else {
-				resp = Response{OK: true, Out: out}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == "look-over" {
-			rev, ok := eng.(Reviewer)
-			if !ok {
-				resp = Response{Err: "this daemon cannot look over a file"}
-			} else if out, lerr := rev.LookOver(ctx, req.Name, req.Text); lerr != nil {
-				resp = Response{Err: lerr.Error()}
-			} else {
-				resp = Response{OK: true, Out: out}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
-		// shell is answered here rather than in dispatch, like status, because it has a payload:
-		// dispatch returns only an error, and giving it a return value for one caller would make
-		// every other write site pretend to produce something.
-		if req.Method == "shell" {
-			runner, ok := eng.(ShellRunner)
-			switch {
-			case !ok:
-				resp = Response{Err: "this daemon cannot run commands"}
-			case strings.TrimSpace(req.Text) == "":
-				resp = Response{Err: "no command"}
-			default:
-				out, code, rerr := runner.RunShellHere(ctx, req.Text)
-				if rerr != nil {
-					resp = Response{Err: rerr.Error()}
-				} else {
-					resp = Response{OK: true, Out: out, Exit: &code}
-				}
-			}
-			if enc.Encode(resp) != nil {
-				return
-			}
-			continue
-		}
 		err := dispatch(ctx, eng, req)
 		resp = Response{OK: err == nil}
 		if err != nil {
@@ -1235,6 +885,379 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			return // the peer is gone
 		}
 	}
+}
+
+// The methods that answer with something, one function each.
+//
+// serveConn used to hold all of them inline: nineteen blocks of `if req.Method == …`, each ending
+// in the same four lines that write the response and continue. That trailer was the bug surface —
+// a block that forgot it would answer nothing and then read the next request as though it had —
+// and 466 lines in one function is a place where the next method gets added by copying the one
+// above it.
+//
+// The two that are NOT here are the two that do more than answer: shutdown replies and then stops
+// the daemon, and watch gives the connection over to a stream and never returns to the loop.
+var answers = map[string]func(context.Context, Engine, Request) Response{
+	"status":     answerStatus,
+	"models":     answerModels,
+	"tools":      answerTools,
+	"jobs":       answerJobs,
+	"about":      answerAbout,
+	"hand":       answerHand,
+	"hand-state": answerHand,
+	"tool":       answerTool,
+	"edit-file":  answerEditFile,
+	"git":        answerGit,
+	"file-do":    answerFileDo,
+	"git-diff":   answerGitDiff,
+	"git-do":     answerGitDo,
+	"meet-join":  answerMeetJoin,
+	"meet":       answerMeet,
+	"git-pr":     answerGitPR,
+	"pr-facts":   answerPRFacts,
+	"pr-msg":     answerPRFacts,
+	"git-msg":    answerGitMsg,
+	"look-over":  answerLookOver,
+	"shell":      answerShell,
+}
+
+func answerStatus(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	resp = Response{OK: true}
+	if ask, ok := eng.Waiting(session.SessionID(req.Session)); ok {
+		resp.Waiting = &Waiting{
+			ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args,
+			Reason: ask.Reason, Options: ask.Options, Report: ask.Report,
+			Index: ask.Index, Total: ask.Total,
+			Since: ask.Since.UTC().Format(time.RFC3339),
+		}
+	}
+	resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
+	if c, ok := eng.(Controller); ok {
+		resp.Permission = c.Permission()
+	}
+	if n, ok := eng.(UserNamer); ok {
+		resp.User = n.UserLabel(session.SessionID(req.Session))
+	}
+	return resp
+}
+
+// models is the list this companion could be put on, asked of its own backend.
+func answerModels(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	resp = Response{OK: true, Models: []string{}}
+	if l, ok := eng.(ModelLister); ok {
+		// A backend that is slow or down must not hold the socket: the caller is a screen
+		// drawing a menu, and no menu is a better answer than a stuck one.
+		mctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		names, err := l.ListModels(mctx)
+		cancel()
+		if err == nil {
+			resp.Models = names
+		} else {
+			resp.Why = err.Error()
+		}
+	}
+	return resp
+}
+
+// tools is answered here too, and for the same reason.
+func answerTools(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	resp = Response{OK: true, Tools: []string{}}
+	if t, ok := eng.(ToolLister); ok {
+		resp.Tools = t.ToolNames()
+	}
+	return resp
+}
+
+// jobs is answered here for the same reason status is: it carries a payload.
+func answerJobs(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	resp = Response{OK: true, Jobs: &Jobs{}}
+	if j, ok := eng.(JobRunner); ok {
+		for _, b := range j.BackgroundJobs() {
+			resp.Jobs.Background = append(resp.Jobs.Background, BackgroundJob{
+				ID: b.ID, Command: b.Command, Running: b.Running, Killed: b.Killed,
+				Exit: b.Exit, Started: b.Started.UTC().Format(time.RFC3339),
+				Tail: j.BackgroundTail(b.ID, jobTailBytes),
+			})
+		}
+		resp.Jobs.Queued = j.QueuedWork()
+		for _, c := range j.SubagentJobs() {
+			out := ChildJob{
+				ID: c.ID, Tool: c.Tool, Task: c.Task, Running: c.Running,
+				Steps: c.Steps, Err: c.Err,
+				Started: c.Started.UTC().Format(time.RFC3339),
+			}
+			if !c.Ended.IsZero() {
+				out.Ended = c.Ended.UTC().Format(time.RFC3339)
+			}
+			resp.Jobs.Children = append(resp.Jobs.Children, out)
+		}
+	}
+	return resp
+}
+
+// about is answered here rather than in dispatch, like status and shell, because it has a
+// payload. It is also the whole point of the relay: whoever is asking connected to THIS
+// companion, so there is no name to resolve and no config directory to read — the process
+// that knows answers about itself.
+func answerAbout(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	d, ok := eng.(Describer)
+	if !ok {
+		resp = Response{Err: "this daemon cannot describe its companion"}
+	} else {
+		resp = Response{OK: true, Out: d.About()}
+	}
+	return resp
+}
+
+// hand and hand-state are answered here for the same reason about is, and they are the
+// reason the relay exists at all. Whoever is asking has connected to THIS companion, so
+// there is no name to resolve against a config directory that may belong to another
+// account and may not exist at all inside a container. The process doing the work says
+// what became of it.
+func answerHand(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	taker, ok := eng.(Taker)
+	switch {
+	case !ok:
+		resp = Response{Err: "this daemon cannot be handed work"}
+	case req.Method == "hand":
+		id, herr := taker.Hand(ctx, req.Name, req.Text, req.Looking)
+		if herr != nil {
+			resp = Response{Err: herr.Error()}
+		} else {
+			resp = Response{OK: true, Out: id}
+		}
+	default:
+		h, herr := taker.Handed(ctx, req.Name)
+		if herr != nil {
+			resp = Response{Err: herr.Error()}
+		} else {
+			resp = Response{OK: true, Handover: &h}
+		}
+	}
+	return resp
+}
+
+// A read-only tool, run where the workspace is. Answered here rather than in dispatch for the
+// same reason shell is: it has a payload.
+func answerTool(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	reader, ok := eng.(ToolReader)
+	switch {
+	case !ok:
+		resp = Response{Err: "this daemon cannot read its workspace"}
+	case strings.TrimSpace(req.Name) == "":
+		resp = Response{Err: "no tool named"}
+	default:
+		out, rerr := reader.ReadOnlyTool(ctx, req.Name, req.Args)
+		if rerr != nil {
+			resp = Response{Err: rerr.Error()}
+		} else {
+			resp = Response{OK: true, Out: out}
+		}
+	}
+	return resp
+}
+
+// An edit, made where the workspace is, and written into the log as a person's own words.
+func answerEditFile(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	writer, ok := eng.(ToolWriter)
+	switch {
+	case !ok:
+		resp = Response{Err: "this daemon cannot be asked to edit its workspace"}
+	case strings.TrimSpace(req.Name) == "":
+		resp = Response{Err: "no tool named"}
+	case req.Name == "patch":
+		if perr := writer.PatchFile(ctx, req.Text, req.Answer, req.Ask); perr != nil {
+			resp = Response{Err: perr.Error()}
+		} else {
+			resp = Response{OK: true}
+		}
+	default:
+		out, werr := writer.WriteTool(ctx, req.Name, req.Args, req.Ask)
+		if werr != nil {
+			resp = Response{Err: werr.Error()}
+		} else {
+			resp = Response{OK: true, Out: out}
+		}
+	}
+	return resp
+}
+
+func answerGit(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	teller, ok := eng.(GitTeller)
+	if !ok {
+		resp = Response{Err: "this daemon cannot say what git makes of its workspace"}
+	} else if out, gerr := teller.Git(ctx); gerr != nil {
+		resp = Response{Err: gerr.Error()}
+	} else {
+		resp = Response{OK: true, Out: string(out)}
+	}
+	return resp
+}
+
+func answerFileDo(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	keeper, ok := eng.(FileKeeper)
+	if !ok {
+		resp = Response{Err: "this daemon cannot make or remove files"}
+	} else if ferr := keeper.FileDo(ctx, req.Name, req.Text, req.Answer, req.Ask); ferr != nil {
+		resp = Response{Err: ferr.Error()}
+	} else {
+		resp = Response{OK: true}
+	}
+	return resp
+}
+
+func answerGitDiff(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	teller, ok := eng.(GitTeller)
+	if !ok {
+		resp = Response{Err: "this daemon cannot show a diff"}
+	} else if out, derr := teller.GitDiff(ctx, req.Text, req.Decision == "staged",
+		req.Decision == "untracked"); derr != nil {
+		resp = Response{Err: derr.Error()}
+	} else {
+		resp = Response{OK: true, Out: out}
+	}
+	return resp
+}
+
+func answerGitDo(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	doer, ok := eng.(GitDoer)
+	if !ok {
+		resp = Response{Err: "this daemon cannot run git commands"}
+	} else if out, gerr := doer.GitDo(ctx, req.Name, req.Text, req.Answer, req.Ask); gerr != nil {
+		resp = Response{Err: gerr.Error()}
+	} else {
+		resp = Response{OK: true, Out: out}
+	}
+	return resp
+}
+
+func answerMeetJoin(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	sp, ok := eng.(Speaker)
+	if !ok {
+		resp = Response{Err: "this daemon cannot take part in a meeting"}
+	} else if ready, room, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name); jerr != nil {
+		resp = Response{Err: jerr.Error()}
+	} else {
+		resp = Response{OK: true, Out: ready, Session: room}
+	}
+	return resp
+}
+
+func answerMeet(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	sp, ok := eng.(Speaker)
+	if !ok {
+		resp = Response{Err: "this daemon cannot take part in a meeting"}
+	} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text,
+		req.Decision == "closing"); merr != nil {
+		resp = Response{Err: merr.Error()}
+	} else {
+		// A pass travels as a flag rather than as a word in the text, or a contribution
+		// that happens to begin with the word would arrive as a silence.
+		//
+		// The room travels on every turn and not only on the join: a daemon that restarted
+		// mid-meeting prepares again in a NEW session, and a viewer holding the old id
+		// would show an empty working rather than the one that produced the sentence in
+		// front of it.
+		resp = Response{OK: true, Out: c.Said, Exit: passFlag(c.Pass), Session: c.Room}
+	}
+	return resp
+}
+
+func answerGitPR(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		resp = Response{Err: "this daemon cannot open a pull request"}
+	} else if url, perr := rev.OpenPR(ctx, req.Name, req.Text); perr != nil {
+		resp = Response{Err: perr.Error()}
+	} else {
+		resp = Response{OK: true, Out: url}
+	}
+	return resp
+}
+
+func answerPRFacts(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		resp = Response{Err: "this daemon cannot answer about pull requests"}
+	} else {
+		var out string
+		var perr error
+		if req.Method == "pr-facts" {
+			out, perr = rev.PRFacts(ctx)
+		} else {
+			out, perr = rev.DraftPR(ctx)
+		}
+		if perr != nil {
+			resp = Response{Err: perr.Error()}
+		} else {
+			resp = Response{OK: true, Out: out}
+		}
+	}
+	return resp
+}
+
+func answerGitMsg(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		resp = Response{Err: "this daemon cannot draft a commit message"}
+	} else if out, derr := rev.DraftCommit(ctx); derr != nil {
+		resp = Response{Err: derr.Error()}
+	} else {
+		resp = Response{OK: true, Out: out}
+	}
+	return resp
+}
+
+func answerLookOver(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		resp = Response{Err: "this daemon cannot look over a file"}
+	} else if out, lerr := rev.LookOver(ctx, req.Name, req.Text); lerr != nil {
+		resp = Response{Err: lerr.Error()}
+	} else {
+		resp = Response{OK: true, Out: out}
+	}
+	return resp
+}
+
+// shell is answered here rather than in dispatch, like status, because it has a payload:
+// dispatch returns only an error, and giving it a return value for one caller would make
+// every other write site pretend to produce something.
+func answerShell(ctx context.Context, eng Engine, req Request) Response {
+	var resp Response
+	runner, ok := eng.(ShellRunner)
+	switch {
+	case !ok:
+		resp = Response{Err: "this daemon cannot run commands"}
+	case strings.TrimSpace(req.Text) == "":
+		resp = Response{Err: "no command"}
+	default:
+		out, code, rerr := runner.RunShellHere(ctx, req.Text)
+		if rerr != nil {
+			resp = Response{Err: rerr.Error()}
+		} else {
+			resp = Response{OK: true, Out: out, Exit: &code}
+		}
+	}
+	return resp
 }
 
 // Describer is an engine that can say what its companion is for and what it can be asked to do.
