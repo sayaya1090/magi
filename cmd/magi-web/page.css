@@ -1584,6 +1584,11 @@
   /* The box and the two chips over the tree. The chips are one set with one selection — which of
      the two searches this is — and they are md-filter-chip because that is what they do: narrow a
      collection, with the selected one carrying the check. */
+  /* The room a slow answer will land in. A height, so the pane does not jump when the tree
+     arrives — measured on a live console the two cards settle around here — and the bar at the top
+     of it where the first row will be. */
+  .paneloading { display:grid; gap:var(--magi-sys-space-150); padding:var(--magi-sys-space-200) 0; min-height:6rem; align-content:start; }
+
   .filefind { display:grid; gap:var(--magi-sys-space-150); }
   .filefind md-outlined-text-field { width:100%; }
   /* Which of the two searches this is, ranged right for the same reason the git buttons are: they

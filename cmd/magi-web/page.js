@@ -5824,13 +5824,40 @@ function hitRow(a, hit) {
 // nobody can see is a request somebody's daemon served for nothing, four times a minute.
 async function loadTree(a) {
   if (!a || !filesOpen()) return;
-  // A companion known only by gossip has no socket this console can open — the path in its row is a
+  // waitingFor is the box a slow answer will land in: the room it needs, and a bar saying it is on
+// its way. Indeterminate, because nothing here knows how long a directory walk on somebody else's
+// machine takes — which is the case the guide reserves the indeterminate one for.
+function waitingFor(key) {
+  const box = cell('paneloading');
+  const bar = document.createElement('md-linear-progress');
+  bar.indeterminate = true;
+  bar.setAttribute('aria-label', tr(key));
+  box.append(bar, cell('filesnote', tr(key)));
+  return box;
+}
+
+// A companion known only by gossip has no socket this console can open — the path in its row is a
   // path on ITS filesystem, and the fleet door carries work rather than file contents. Say so, and
   // say the way round it: a magi-web running there is a peer, and a peer's companions come through
   // its own console with their files intact. A row with a peer on it is NOT this case.
   if (a.elsewhere) {
     filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.elsewhere'))]));
     return;
+  }
+  // Somewhere for the answer to appear, while it is on its way.
+  //
+  // The tree is a walk of a directory and the git card is a `git status`; on a workspace with a
+  // few files both come back before the frame is drawn, and on a big repository — or a companion
+  // reached over a link — they do not. Empty, the pane says "this companion has no files", which
+  // is a different thing and the reader believes it. So the cards are drawn with the room they
+  // will need and a bar saying it is coming.
+  //
+  // Only when there is nothing there yet. The guide is explicit that a loading indicator goes in
+  // the empty place the new content will appear and does not cover what is already on screen —
+  // and this runs on the poll, so covering would flash a bar over a tree somebody is reading.
+  if (!filesEl.children.length) {
+    filesEl.replaceChildren(paneCard('files', shortPath(a.workdir || ''), [waitingFor('files.reading')]),
+                            paneCard('git', tr('git.section'), [waitingFor('git.reading')]));
   }
   treeAt.seen = [];
   const rows = await treeAt(a, '.');
