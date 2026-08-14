@@ -260,16 +260,13 @@
        in the heading tree. Written here, hidden from the eye: the screens that already show a
        heading keep theirs and this one stays empty. -->
   <h2 class="sr-only" id="screenHead"></h2>
-  <md-tabs id="tabs" hidden>
-    <!-- The label is its own element because the badge is a sibling: writing the word with
-         textContent would take the badge with it, the way setting textContent replaces everything
-         a node holds. -->
-    <!-- Label and badge in ONE slotted element. A tab stacks what is slotted into it — it is built
-         for an icon above a word — so two siblings put the count on a line below the label. -->
-    <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="lblshort"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
-    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
-  </md-tabs>
-  <md-chip-set id="summary"></md-chip-set>
+  <!-- The strip of destinations that used to live here is gone.
+       It was `display:none` at every width — two rules, one on each side of the breakpoint, cover
+       the whole axis — while the javascript kept it in step: setting its active tab on every
+       destination change and writing its badge on every fleet poll. A second navigation carrying
+       two of the rail's four destinations, drawn nowhere, told nothing to a screen reader, and
+       reachable by no key. The rail and the phone's bar are the navigation. -->
+    <md-chip-set id="summary"></md-chip-set>
   <!-- Two things share this destination: what companions have learned, and the servers they can
        reach. On a phone that is two purposes on one screen, so the strip switches between them —
        and above the breakpoint it is not drawn, because both are in one column there. -->

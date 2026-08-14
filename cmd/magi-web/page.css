@@ -673,8 +673,13 @@
      Clipped rather than wrapped: the rail already hides its overflow, and a longer word in another
      language now runs out of the item instead of pushing the row apart. */
   #rail .lbl { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-  /* Only the phone's bar reads the short one. */
+  /* Only the phone's bar reads the short one — and the COLLAPSED rail, where the long one does not
+     fit either: "People and permissions" wants 172px in a 96dp rail and was drawn cut to "People
+     and", at every width from 600 up. The guide's word on a navigation label is that it is one or
+     two words and is not cut, so where the long one cannot fit the short one is the label. */
   .raili .lblshort { display:none; }
+  body:not([nav="open"]) #rail .raili:has(.lblshort:not(:empty)) .lbl { display:none; }
+  body:not([nav="open"]) #rail .raili .lblshort { display:block; }
   /* The second line, and only where there is room for one.
      Collapsed and open showed the same four words, so opening the rail bought width and spent it
      on making the same thing bigger. What an open rail has is room for the sentence that says what
@@ -2147,6 +2152,8 @@
     font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
   .scopes md-outlined-text-field { max-width:16rem; }
+
+  .scopechip.armed { --md-input-chip-label-text-color:var(--magi-ref-error); }
   .scopechip { --md-input-chip-label-text-font:var(--magi-ref-mono); }
   .acccontrols {
     display:flex; flex-wrap:wrap; align-items:center;
@@ -3426,7 +3433,10 @@
   .ho .req {
     font:var(--magi-sys-body-l) var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere;
     display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+    cursor:pointer;
   }
+  /* Pressed, it is the whole request. The clip is the list's rule; this is the other half of it. */
+  .ho .req.all { -webkit-line-clamp:none; }
   .ho .ans { grid-column:2; font-size:var(--md-sys-typescale-label-medium-size); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
   .ho.working .to { color:var(--magi-ref-primary); }
 
@@ -4406,6 +4416,10 @@
        through a 256px window — a scroller inside a scrolling page, which is the pair of scrollbars
        the guide's card rule exists to prevent. The page scrolls; this grows. */
     .meetnowrows { max-height:none; overflow-y:visible; }
+    /* The add-a-companion field takes the width here. Capped at 16rem it cut its own label —
+       "Add a companion (Enter)" needs 222px and the field gave it 188, so the part that says how
+       to commit a name is the part that went, at rest, which is the only time a label is read. */
+    .scopes md-outlined-text-field { max-width:none; }
     .prefrow.narrowonly { display:flex; }
     /* Two side panes do not fit beside a conversation on a phone, and stacking three columns is
        three screens of scrolling to reach the transcript. The file pane goes under it, opened by

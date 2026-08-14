@@ -382,7 +382,7 @@ for (const id of MARKUP_IDS.filter(i => i.toLowerCase().endsWith('dialog'))) {
     close(v) { this.open = false; if (v !== undefined) this.returnValue = String(v); },
   });
 }
-// The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
+// The tabs are children of their strip in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.
 // The two preference selects are md-outlined-select, and the fake mirrors a select's value→option
@@ -391,13 +391,10 @@ for (const id of MARKUP_IDS.filter(i => i.toLowerCase().endsWith('dialog'))) {
 byId.lang = element('md-outlined-select');
 // The dialog holds the controls it holds; a test asks the form what is in it.
 byId.prefsForm.append(byId.lang);
-for (const id of ['tabFleet', 'tabSkills']) byId.tabs.append(byId[id]);
 // md-tabs answers activeTabIndex from its CHILDREN, so a strip whose tabs were never appended
 // reports -1 for every selection and the page reads that as "the first one".
 for (const id of ['ptabTalk', 'ptabFacts', 'ptabFiles', 'ptabPlan']) byId.ptabs.append(byId[id]);
-// The companions tab holds a label element beside its badge, so the word can be rewritten without
-// taking the badge with it. Mirrored here for the same reason the rail's labels are.
-{ const wrap = element('span'); wrap.className = 'tablbl'; const l = element('span'); l.className = 'lbl'; wrap.append(l); wrap.append(byId.tabBadge); byId.tabFleet.append(wrap); }
+
 // The rail's destinations, under the two containers the markup puts them in: the two you live on
 // in #railNav, and the console's own screen at the foot in #railFoot. Which parent is not
 // decoration here — the page walks a container to find what is in it, and a foot the fake left
@@ -422,6 +419,15 @@ for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
     words.append(n);
   }
   byId[id].append(words);
+  // The companions destination carries the waiting badge, over its icon, in the wrapper the markup
+  // gives it. Mirrored here because a language change rewrites the WORD beside it — and a fake
+  // where the badge is not inside the item cannot tell whether that took the badge with it.
+  if (id === 'railFleet' && byId.railBadge) {
+    const wrap = element('span');
+    wrap.className = 'icwrap';
+    wrap.append(byId.railBadge);
+    byId[id].append(wrap);
+  }
 }
 
 // The computed style of an element, for the two things the page asks it: the root's font size

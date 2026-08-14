@@ -842,36 +842,11 @@ console.log(JSON.stringify({
 	}
 }
 
-// Switching tabs goes through md-tabs, because that is the only place the indicator is animated.
-//
-// Tabs.activateTab measures the outgoing tab's indicator and slides the incoming one from there,
-// and it runs only when the component changes its own selection — a page that writes active onto
-// each tab, or that prevents the click's default, lands on the right tab with no motion between
-// them. Neither is visible in the end state, so this asks how the selection got there. The
-// animation itself needs a real browser; what is fixed here is the path into it.
-func TestSwitchingTabsGoesThroughTheComponent(t *testing.T) {
-	got := runPage(t, `[]`, "", `
-globalThis.fetch = async () => ({ok: true, json: async () => []});
-byId.tabSkills.onclick({preventDefault() { throw new Error('the click default was prevented'); }});
-console.log(JSON.stringify({
-  where: location.search,
-  on: byId.tabs.activeTabIndex,
-  // tabMcp is not in the markup and never was — the fake's hand-kept id list answered for it
-  // anyway, so this filter has been reading a stub since it was written.
-  byHand: ['tabFleet', 'tabSkills'].filter(id => byId[id].setDirectly),
-}));
-`)
-	if got["where"] != "?v=skills" {
-		t.Errorf("clicking the lessons tab went to %q", got["where"])
-	}
-	if got["on"].(float64) != 1 {
-		t.Errorf("md-tabs has tab %v active, and experience is the second", got["on"])
-	}
-	if hand := got["byHand"].([]any); len(hand) > 0 {
-		t.Errorf("the page set active on %v itself; md-tabs animates its indicator only when it is "+
-			"the one selecting, so those tabs change with no motion", hand)
-	}
-}
+// The strip this test was about — a second navigation carrying two of the rail's destinations —
+// was removed: it was display:none at every width while the page kept writing its selection and
+// its badge. What it protected (the page must not set a tab's active state itself, or the
+// component never animates its indicator) is still true of the companion page's own strip, and is
+// covered by the tabs that drive drawPanels.
 
 // The page asks for the language its reader actually reads, from where the page is mounted.
 //
@@ -1463,13 +1438,18 @@ func TestTheWaitingCountRidesTheNavigation(t *testing.T) {
     ]`, "", `
 await loadFleet();
 console.log(JSON.stringify({rail: byId.railBadge.value, railHidden: byId.railBadge.hidden,
-  tab: byId.tabBadge.value, tabHidden: byId.tabBadge.hidden}));
+  name: byId.railFleet.attrs['aria-label']}));
 `)
-	if two["rail"] != "2" || two["tab"] != "2" {
-		t.Errorf("two agents are blocked and the badges read rail=%v tab=%v", two["rail"], two["tab"])
+	if two["rail"] != "2" {
+		t.Errorf("two agents are blocked and the badge reads %v", two["rail"])
 	}
-	if two["railHidden"] == true || two["tabHidden"] == true {
-		t.Error("the badges are hidden while two agents wait")
+	if two["railHidden"] == true {
+		t.Error("the badge is hidden while two agents wait")
+	}
+	// And it is spoken as well as drawn: an aria-label on an anchor wins over the badge's own text,
+	// so the count has to be in the name or it reaches nobody who cannot see the number.
+	if name, _ := two["name"].(string); !strings.Contains(name, "2") {
+		t.Errorf("the destination is named %q with two waiting", name)
 	}
 
 	none := runPage(t, `[
@@ -1477,11 +1457,10 @@ console.log(JSON.stringify({rail: byId.railBadge.value, railHidden: byId.railBad
        "task":"writing","steps":4,"idle":1}
     ]`, "", `
 await loadFleet();
-console.log(JSON.stringify({railHidden: byId.railBadge.hidden, tabHidden: byId.tabBadge.hidden,
-  value: byId.railBadge.value}));
+console.log(JSON.stringify({railHidden: byId.railBadge.hidden, value: byId.railBadge.value}));
 `)
-	if none["railHidden"] != true || none["tabHidden"] != true {
-		t.Errorf("nothing is waiting and the badges are still drawn: %+v", none)
+	if none["railHidden"] != true {
+		t.Errorf("nothing is waiting and the badge is still drawn: %+v", none)
 	}
 	if none["value"] != "" {
 		t.Errorf("the badge kept the value %q after the last agent unblocked", none["value"])
@@ -1493,23 +1472,24 @@ console.log(JSON.stringify({railHidden: byId.railBadge.hidden, tabHidden: byId.t
 // A tab holds a label and a badge, and textContent replaces everything a node holds — so writing
 // the word straight onto the tab deleted the count. Found by the fake DOM the day it was taught
 // what textContent actually does.
-func TestRepaintingATabKeepsItsBadge(t *testing.T) {
+func TestRepaintingADestinationKeepsItsBadge(t *testing.T) {
 	got := runPage(t, `[
       {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
        "asking":"rm -rf build","askId":"p1#1","askKind":"permission","steps":1,"idle":3}
     ]`, "", `
 await loadFleet();
 labels$.next({'nav.companions': '컴패니언'});
-console.log(JSON.stringify({word: byId.tabFleet.text, badge: byId.tabBadge.value,
-  // Anywhere inside the tab. The badge sits in a wrapper beside the label now, because a tab
-  // STACKS what is slotted into it and two siblings put the count on a line of its own.
-  still: byId.tabFleet.find(n => n === byId.tabBadge).length > 0}));
+console.log(JSON.stringify({word: byId.railFleet.text, badge: byId.railBadge.value,
+  // Anywhere inside the destination: the badge sits over the icon, in the wrapper the rail builds
+  // for it, and a language change rewrites the WORD beside it rather than the item's contents.
+  still: byId.railFleet.find(n => n === byId.railBadge).length > 0 ||
+         byId.railBadge.parentNode === byId.railFleet.querySelector('.icwrap')}));
 `)
 	if got["still"] != true || got["badge"] != "1" {
 		t.Errorf("the language change dropped the badge: %+v", got)
 	}
 	if !strings.Contains(got["word"].(string), "컴패니언") {
-		t.Errorf("the tab did not repaint: %q", got["word"])
+		t.Errorf("the destination did not repaint: %q", got["word"])
 	}
 }
 
@@ -1784,22 +1764,27 @@ console.log(JSON.stringify({opened, closed, before, after, again, round,
 	}
 }
 
-// The rail and the tabs are two ways to say the same thing, so they must say the same thing.
-func TestTheRailAgreesWithTheTabs(t *testing.T) {
+// The rail lights where you are, and says so as well as drawing it.
+//
+// This used to be "the rail and the tabs agree", when there were two navigations to keep in step.
+// There is one now, and what is left to check is that the one is right — drawn with an attribute
+// the stylesheet reads, and spoken with aria-current, which is the half a screen reader gets.
+func TestTheRailSaysWhereYouAre(t *testing.T) {
 	got := runPage(t, `[]`, "?v=mcp", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 console.log(JSON.stringify({
-  on: byId.tabs.activeTabIndex,
-  lit: ['railFleet','railSkills'].filter(id => byId[id].hasAttribute('selected')),
+  lit: ['railFleet','railSkills','railMeet','railAccess'].filter(id => byId[id].hasAttribute('selected')),
+  said: ['railFleet','railSkills','railMeet','railAccess'].filter(id => byId[id].attrs['aria-current']),
 }));
 `)
-	// ?v=mcp resolves to the shared destination, which is the second tab.
-	if got["on"].(float64) != 1 {
-		t.Errorf("the tabs have %v active and shared is the second", got["on"])
-	}
+	// ?v=mcp resolves to the shared destination.
 	lit := got["lit"].([]any)
 	if len(lit) != 1 || lit[0] != "railSkills" {
-		t.Errorf("the rail lights %v while the tabs are on the shared destination", lit)
+		t.Errorf("the rail lights %v on the shared destination", lit)
+	}
+	said := got["said"].([]any)
+	if len(said) != 1 || said[0] != "railSkills" {
+		t.Errorf("aria-current is on %v on the shared destination", said)
 	}
 }
 
@@ -1839,36 +1824,40 @@ console.log(JSON.stringify({head, rows: rows().map(cols)}));
 	}
 }
 
-// The tabs say which resource is on screen and switch without a reload — and a companion's own page
-// is neither of them, being one level in.
-func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {
+// The destination says which resource is on screen and switches without a reload — and a
+// companion's own page is neither of them, being one level in.
+func TestTheDestinationSaysWhichResourceIsShowing(t *testing.T) {
 	fleet := runPage(t, `[]`, "", `
-// Which tab is current is the component's own active property, not a class of ours.
-console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: !!byId.tabFleet.active,
-  ivOn: !!byId.tabSkills.active, fleetHidden: byId.fleet.hidden, ivsHidden: byId.skills.hidden}));
+console.log(JSON.stringify({fleetOn: byId.railFleet.hasAttribute('selected'),
+  ivOn: byId.railSkills.hasAttribute('selected'),
+  fleetHidden: byId.fleet.hidden, ivsHidden: byId.skills.hidden}));
 `)
-	if fleet["tabs"].(bool) || fleet["fleetOn"] != true || fleet["ivOn"] != false {
-		t.Errorf("on the fleet the tabs read %+v", fleet)
+	if fleet["fleetOn"] != true || fleet["ivOn"] != false {
+		t.Errorf("on the fleet the rail reads %+v", fleet)
 	}
 	if fleet["ivsHidden"] != true || fleet["fleetHidden"] != false {
 		t.Errorf("the fleet view shows the wrong list: %+v", fleet)
 	}
 	ivs := runPage(t, `[]`, "?v=skills", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
-console.log(JSON.stringify({fleetOn: !!byId.tabFleet.active, ivOn: !!byId.tabSkills.active,
+console.log(JSON.stringify({fleetOn: byId.railFleet.hasAttribute('selected'),
+  ivOn: byId.railSkills.hasAttribute('selected'),
   fleetHidden: byId.fleet.hidden, ivsHidden: byId.skills.hidden, summaryHidden: byId.summary.hidden}));
 `)
 	if ivs["ivOn"] != true || ivs["fleetOn"] != false {
-		t.Errorf("on the experience page the tabs read %+v", ivs)
+		t.Errorf("on the experience page the rail reads %+v", ivs)
 	}
 	if ivs["ivsHidden"] != false || ivs["fleetHidden"] != true || ivs["summaryHidden"] != true {
 		t.Errorf("the interventions view shows the wrong list: %+v", ivs)
 	}
+	// A companion's page is inside the companions destination, so that is what stays lit — and the
+	// panel strip above the conversation is the thing that is drawn there instead.
 	agent := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
-console.log(JSON.stringify({tabs: byId.tabs.hidden}));
+console.log(JSON.stringify({fleetOn: byId.railFleet.hasAttribute('selected'),
+  fleetHidden: byId.fleet.hidden}));
 `)
-	if agent["tabs"] != true {
-		t.Error("a companion's own page shows the resource tabs; it is one level in, not a resource list")
+	if agent["fleetOn"] != true || agent["fleetHidden"] != true {
+		t.Errorf("a companion's page reads %+v; it is inside companions, and the list is not drawn", agent)
 	}
 }
 
@@ -2320,18 +2309,18 @@ console.log(JSON.stringify({title, disabled: fold.disabled, asks,
 // at which point the harness answered "no" for four screens that were fine, because its pushState
 // was a no-op and the page navigates by pushing a url and re-reading it. A fake that cannot express
 // navigation cannot check navigation.
-func TestClickingATabLandsOnIt(t *testing.T) {
+func TestClickingADestinationLandsOnIt(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 const seen = [];
-for (const [name, el] of [['shared', tabSkills], ['companions', tabFleet]]) {
+for (const [name, el] of [['shared', byId.railSkills], ['companions', byId.railFleet]]) {
   el.onclick({preventDefault(){}});
   seen.push({name, search: location.search, crumb: back.text, href: back.attrs.href,
              ivs: byId.skills.hidden, skills: byId.skills.hidden, mcp: byId.mcp.hidden,
              fleet: byId.fleet.hidden});
 }
 // And the crumb itself, which names a section and must lead to the one it names.
-tabSkills.onclick({preventDefault(){}});
+byId.railSkills.onclick({preventDefault(){}});
 back.onclick({preventDefault(){}});
 console.log(JSON.stringify({seen, afterCrumb: location.search}));
 `)
@@ -2369,13 +2358,13 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 func TestTheLabelsComeFromTheLanguagePack(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 // The first paint uses the seed the server inlines — no dotted keys, no flash.
-const first = {tabs: [tabFleet.text, tabSkills.text],
+const first = {tabs: [byId.railFleet.text, byId.railSkills.text],
                ask: byId.t.attrs.label};
 // A pack arriving afterwards repaints what is already on screen.
 labels$.next({'nav.companions': '컴패니언', 'nav.shared': '공유', 'nav.lessons': '경험',
-              'nav.board': '보드', 'nav.connections': 'MCP',
+              'nav.board': '보드', 'nav.mcp': 'MCP',
               'label.ask': 'magi에게 요청'});
-const after = [tabFleet.text, tabSkills.text];
+const after = [byId.railFleet.text, byId.railSkills.text];
 const askAfter = byId.t.attrs.label;
 // Something drawn by hand before a pack lands must survive it.
 byId.detail.replaceChildren(cell('f', 'a thing somebody was reading'));
@@ -2384,15 +2373,17 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 `)
 	first := got["first"].(map[string]any)
 	tabs := first["tabs"].([]any)
-	if tabs[0] != "Companions" || tabs[1] != "Shared" {
+	// The rail's item holds a word, a short word and a sentence under it, so the text of the whole
+	// item begins with the name.
+	if !strings.HasPrefix(tabs[0].(string), "Companions") || !strings.HasPrefix(tabs[1].(string), "Shared") {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
 	if first["ask"] != "Ask magi" {
 		t.Errorf("the composer's label came from nowhere: %q", first["ask"])
 	}
 	after := got["after"].([]any)
-	if after[0] != "컴패니언" || after[1] != "공유" {
-		t.Errorf("a pack arriving later did not reach the tabs: %v", after)
+	if !strings.HasPrefix(after[0].(string), "컴패니언") || !strings.HasPrefix(after[1].(string), "공유") {
+		t.Errorf("a pack arriving later did not reach the destinations: %v", after)
 	}
 	if got["askAfter"] != "magi에게 요청" {
 		t.Errorf("a pack arriving later did not reach the label: %q", got["askAfter"])
@@ -2447,14 +2438,14 @@ func TestTheRouterKnowsWhereThePageIsMounted(t *testing.T) {
 	} {
 		got := runPageAt(t, tc.base, `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
-tabSkills.onclick({preventDefault(){}});
+byId.railSkills.onclick({preventDefault(){}});
 const pushed = location.search;
-const tabHref = tabSkills.attrs.href;
+const tabHref = byId.railSkills.attrs.href;
 go(null);
 console.log(JSON.stringify({tabHref, home: back.attrs.href, pushed}));
 `)
 		if got["tabHref"] != tc.wantTab {
-			t.Errorf("mounted at %s the tab links to %q, want %q", tc.base, got["tabHref"], tc.wantTab)
+			t.Errorf("mounted at %s the destination links to %q, want %q", tc.base, got["tabHref"], tc.wantTab)
 		}
 		if got["home"] != tc.wantHome {
 			t.Errorf("mounted at %s the crumb links to %q, want %q", tc.base, got["home"], tc.wantHome)

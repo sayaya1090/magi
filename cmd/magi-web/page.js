@@ -365,7 +365,6 @@ const fleetEl = document.getElementById('fleet'), log = document.getElementById(
 const state = document.getElementById('state'), sidEl = document.getElementById('sid');
 const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
-const tabsEl = document.getElementById('tabs');
 // ── the companion page's two panels, below the two-column width ──────────────
 // Which of a companion's two halves is on screen. Only meaningful under 840px, where the columns
 // have collapsed into a stack; above it both are visible and the strip is display:none.
@@ -397,6 +396,15 @@ function drawPanels() {
   if (!s || wide.matches) {
     // Both halves, as they were. Nothing may stay hidden from a previous narrow visit — and no
     // panel is showing, because they are all showing.
+    //
+    // The panel the reader was standing on becomes the pane that holds it. Widening a window from
+    // the workspace or from "going on" used to drop the panel and leave both panes shut, so the
+    // screen became the facts card and nothing else — measured, no conversation and no panel, from
+    // a phone-width screen that had both. A pane is where that content lives up here; opening it
+    // is the same answer to "where did my screen go".
+    const was = document.body.getAttribute('panel');
+    if (was === 'files' && paneSays.files) paneSays.files(true);
+    if (was === 'plan' && paneSays.side) paneSays.side(true);
     document.body.removeAttribute('panel');
     if (sideEl) sideEl.hidden = false;
     filesEl.hidden = false;
@@ -667,10 +675,15 @@ function onePane() {
 // is showing used to load it into a panel nobody was looking at — the press appeared to do
 // nothing, which is worse than the wedged card it replaced.
 function toWorkspacePanel() {
-  if (ptabs.hidden) return;
-  // Whatever was opened is what the workspace screen is showing now — the detail half of the
-  // list-detail this becomes on a phone. Going back is the control on the bar above it.
+  // What is open is recorded whatever the width, and only the MOVE is compact-only.
+  //
+  // wsShows is what the phone's workspace screen draws, and it was written here, below a return
+  // that fires above the breakpoint. So a file opened on a wide screen was in cardShows and not in
+  // wsShows — and a window narrowed afterwards drew the tree while the file sat in the DOM,
+  // undrawable, with the Workspace tab unable to bring it back. Measured crossing 1200 → 839.
   wsShows = cardShows;
+  if (ptabs.hidden) return;
+  // Going back is the control on the bar above it.
   if (panel === 'files') {
     drawPanels();
     return;
@@ -729,7 +742,7 @@ wide.addEventListener('change', drawPanels);
 // so it is a re-render rather than a re-layout.
 
 const intervenedEl = document.getElementById('intervened');
-const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
+const skillsEl = document.getElementById('skills');
 const boardEl = document.getElementById('board');
 const mapEl = document.getElementById('map');
 const meetEl = document.getElementById('meet');
@@ -738,7 +751,6 @@ const accessEl = document.getElementById('access');
 const screenHead = document.getElementById('screenHead');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
-const tabFleet = document.getElementById('tabFleet');
 const railEl = document.getElementById('rail');
 const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
@@ -799,7 +811,7 @@ const companionAlive = ok => {
     log.replaceChildren(emptyState('state.companion_gone', 'state.gone_how'));
   }
 };
-const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
+const railBadge = document.getElementById('railBadge');
 const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
 const whereamiEl = document.getElementById('whereami');
@@ -1587,7 +1599,7 @@ function markWaiting(n) {
   // Kept, because the language can change without the fleet doing anything: paint() rewrites the
   // four destination names from the pack, and the count has to go back on afterwards.
   markWaiting.n = n;
-  for (const b of [railBadge, tabBadge]) {
+  for (const b of [railBadge]) {
     // Four characters including the "+", which is what the badge container is drawn to hold.
     b.value = n ? (n > 999 ? '999+' : String(n)) : '';
     b.hidden = !n;
@@ -1614,7 +1626,7 @@ function markWaiting(n) {
   //
   // The name cannot simply come from content instead: collapsed, the rail hides both of its words
   // and a link named by an icon has no name at all.
-  for (const host of [railFleet, tabFleet]) {
+  for (const host of [railFleet]) {
     host.setAttribute('aria-label', tr('nav.companions') + said);
     host.querySelector('.srcount')?.remove();
   }
@@ -2620,12 +2632,14 @@ function teamHead(name, members) {
 // Folded or not, remembered. A preference somebody sets on one companion means the same thing on
 // the next one — it is a statement about how much of the screen they want the conversation to have,
 // not about this agent.
-function setFolded(want) {
+function setFolded(want, chosen) {
   const box = document.getElementById('detail');
   box.toggleAttribute('folded', want);
   const bar = box.querySelector('.foldbar');
   if (bar) bar.setAttribute('aria-expanded', want ? 'false' : 'true');
-  localStorage.setItem('facts', want ? 'folded' : 'open');
+  // Only a press is a preference. The default below is decided by the window, and writing that
+  // down would turn "this window is narrow today" into "this reader wants it folded".
+  if (chosen) localStorage.setItem('facts', want ? 'folded' : 'open');
   measureDock();
 }
 
@@ -2955,7 +2969,7 @@ function drawDetail(a) {
                tip(sum, stateWord(a.state) + ' · ' + a.workdir);
                return sum;
              })());
-  bar.onclick = () => setFolded(!box.hasAttribute('folded'));
+  bar.onclick = () => setFolded(!box.hasAttribute('folded'), true);
   // The facts sit in a wrapper of their own so folding can be a movement: a grid row going from
   // 1fr to 0fr is the one way to transition to content height without hard-coding what that height
   // is, and it needs a box around the thing being collapsed.
@@ -3040,7 +3054,15 @@ function drawDetail(a) {
     put(row);
     drawDetail.late = false;
   });
-  setFolded(localStorage.getItem('facts') === 'folded');
+  // Folded to start with, unless the window is wide enough to hold both.
+  //
+  // The card sits above the transcript in the middle column, and with every field open it is
+  // ~810px: measured at 840×768 and at 900×600 the conversation began at y=905 — a companion's
+  // page with no conversation on it, on first arrival, with nothing saying to scroll. Above 1200
+  // there is room for both, which is where it stays open by default. A reader who folds or opens
+  // it is remembered either way; this is only what happens before anybody has said.
+  const said = localStorage.getItem('facts');
+  setFolded(said === null ? (globalThis.innerWidth || 0) < 1200 : said === 'folded');
   // Shown unless something else is standing in its place. This card is rebuilt by the fleet poll
   // every three seconds, and an unconditional `hidden = false` here put it back over an open file
   // on every one of them — the file stayed in the DOM underneath and the card kept reappearing on
@@ -3473,7 +3495,27 @@ async function drawHandoffs(a) {
       to.setAttribute('href', at('?d=' + encodeURIComponent(peer.socket) +
         (peer.peer ? '&p=' + encodeURIComponent(peer.peer) : '')));
     }
-    row.append(to, cell('req', h.request));
+    // The request, clipped to three lines — and a press opens the rest of it.
+    //
+    // The clip is the list rule ("보조 텍스트는 1~3줄로 제한"); the other half of that rule is that
+    // the whole is one press away, and it was nowhere: no fold, no title, not clickable, and the
+    // card's own fold had been taken off at compact. A 312-character instruction showed its first
+    // three lines and the remaining 144px belonged to nobody.
+    const req = cell('req', h.request);
+    req.setAttribute('role', 'button');
+    req.setAttribute('tabindex', '0');
+    req.setAttribute('aria-expanded', 'false');
+    const flip = () => {
+      const open = req.classList.toggle('all');
+      req.setAttribute('aria-expanded', String(open));
+    };
+    req.onclick = flip;
+    req.onkeydown = ev => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      ev.preventDefault();
+      flip();
+    };
+    row.append(to, req);
     // The answer only when the work is over. Anything else would be reporting a sentence
     // mid-thought as a conclusion.
     row.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
@@ -4020,7 +4062,12 @@ async function loadSkills() {
       emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list));
     return;
   }
-  skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(), ...shown.map(sk => {
+  // Rules and memories are two kinds of thing and the screen said so nowhere: measured, the nine
+  // rules were appended under the twenty memories, in the same card with the same two controls,
+  // starting 3,845px into a 5,905px page, and the only tell was the word "rule" in the grey line at
+  // the BOTTOM of each one. Seven screenfuls past content the tab had named. Each kind gets its own
+  // heading; a search still draws one flat list, because there the order is the ranking.
+  const draw = sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
@@ -4099,7 +4146,17 @@ async function loadSkills() {
     top.insertBefore(more, drop);
     el.append(text);
     return el;
-  }), skillWrite(list));
+  };
+  const isRule = shown.filter(sk => sk.kind !== 'memory');
+  const isFact = shown.filter(sk => sk.kind === 'memory');
+  const parts = [sectionHead('nav.lessons'), skillFind()];
+  if (skillQuery.trim() || !isRule.length || !isFact.length) {
+    parts.push(...shown.map(draw));
+  } else {
+    parts.push(sectionHead('nav.rules'), ...isRule.map(draw),
+               sectionHead('nav.memories'), ...isFact.map(draw));
+  }
+  skillsEl.replaceChildren(...parts, skillWrite(list));
 }
 
 // ── what they can reach ──────────────────────────────────────────────────────
@@ -4398,12 +4455,40 @@ function scopeSection(p) {
   for (const name of on) {
     // An INPUT chip, which is the variant for a piece of information a person put there and can
     // take away — and it is the one the guide gives a trailing remove action.
+    const drop = () => setPerson(p.who, p.role, on.filter(n => n !== name).join(','));
+    // On a phone the whole chip is the control.
+    //
+    // An input chip's trailing × is its own action inside a 75dp chip: measured, 34×48 next to a
+    // 41×48, where the guide asks for 48 and 88dp of chip — and it says what to do about it at
+    // this width: "⚠ compact에서는 후행 아이콘 타겟이 너무 작다 — 칩 전체가 그 동작을 하게 만들 것."
+    // So the phone gets a chip that removes, and because removing somebody's access to a companion
+    // is not undoable, it asks first: the same two-press arm() every destructive control here uses.
+    if (onePane()) {
+      const c = document.createElement('md-input-chip');
+      c.setAttribute('label', name);
+      c.className = 'scopechip';
+      c.setAttribute('aria-label', tr('action.forget_named', {name}));
+      // The component's own trailing action goes: two targets in one chip is the defect.
+      c.removeAttribute('remove-only');
+      c.toggleAttribute('always-focusable', true);
+      let armed = false, timer = 0;
+      c.addEventListener('click', ev => {
+        ev.preventDefault();
+        if (armed) { clearTimeout(timer); drop(); return; }
+        armed = true;
+        c.setAttribute('label', tr('action.confirm'));
+        c.classList.add('armed');
+        timer = setTimeout(() => {
+          armed = false; c.setAttribute('label', name); c.classList.remove('armed');
+        }, 5000);
+      });
+      chips.append(c);
+      continue;
+    }
     const c = document.createElement('md-input-chip');
     c.setAttribute('label', name);
     c.className = 'scopechip';
-    c.addEventListener('remove', () => {
-      setPerson(p.who, p.role, on.filter(n => n !== name).join(','));
-    });
+    c.addEventListener('remove', drop);
     chips.append(c);
   }
   // And the way to add one. A name rather than a menu of what is running: a person can be scoped
@@ -8606,8 +8691,6 @@ function paint() {
   painted = true;
   // Built once and kept, so it is not redrawn by the thing that redraws the rest of that card.
   if (permField.el) paintPerm(permField.el);
-  tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
-  tabSkills.textContent = tr('nav.shared');
   document.getElementById('ptabTalk').textContent = tr('panel.talk');
   paintUnread();   // the label is rewritten wholesale, badge included
   document.getElementById('ptabFacts').textContent = tr('panel.facts');
@@ -8941,18 +9024,10 @@ function paintCrumbs(s, v) {
 // One place, so the rail and the tabs cannot come to disagree about where you are: they used to be
 // set at each of the four click handlers, which is exactly how they did.
 function showDestination(s, v) {
-  tabsEl.hidden = !!s;
   // Which kind of page this is, for the rules that differ between them. On a companion's page the
   // tabs are gone, so anything that leans on them being there has to know.
   document.body.setAttribute('at', s ? 'agent' : 'list');
   document.body.setAttribute('view', s ? '' : v);
-  // Which tab is current is asked of md-tabs, not written onto the tabs. Both leave the right tab
-  // selected, but only one of them moves: the indicator is animated inside Tabs.activateTab and
-  // nowhere else — it measures the outgoing tab's indicator and slides the incoming one from there
-  // — and activateTab runs only when the component is the one changing the selection. Setting
-  // each tab's active property, which this page did, arrived at the same picture with no motion
-  // between the two.
-  tabsEl.activeTabIndex = Math.max(0, TABS.indexOf(v));
   // The rail says the same thing the tabs do. A list item has no selected state of its own, so
   // this is an attribute of ours and the stylesheet draws it — said once here rather than at each
   // of the four click handlers, which is how the two used to fall out of step.
@@ -9476,6 +9551,10 @@ const sideToggle = document.getElementById('sideToggle');
 // the default could not be changed without also forgetting everybody's choice. The ATTRIBUTE is
 // always written, both ways: "the attribute is missing" as a third state is what let the two
 // predicates above disagree.
+// The two pane handles, by the attribute they own, so anything else that has to open a pane says
+// it through the control that owns it — the attribute, what is remembered and what is announced all
+// move together, which is the whole reason this function exists.
+const paneSays = {};
 function paneHandle(el, key, opened, words) {
   const say = open => {
     document.body.setAttribute(key, open ? 'open' : 'shut');
@@ -9497,6 +9576,7 @@ function paneHandle(el, key, opened, words) {
       tip(el, word);
     }
   };
+  paneSays[key] = say;
   const open = localStorage.getItem(key) === 'open';
   say(open);
   el.selected = open;
@@ -9694,15 +9774,6 @@ langEl.addEventListener('change', () => {
   loadPack();
 });
 
-for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills']]) {
-  // The href is set as well as the click: a middle-click or a copied link has to reach the same
-  // place, and on a project site an absolute one does not.
-  el.setAttribute('href', at(HREF[key]));
-  // Nothing is prevented here. A tab is a custom element and not a link, so there is no navigation
-  // to stop — and md-tabs skips its indicator animation on any click whose default was prevented,
-  // which is the second way this page had of standing still.
-  el.onclick = () => { history.pushState({}, '', at(HREF[key])); render(); };
-}
 addEventListener('popstate', render);
 
 async function post(path, body, socket, peer, quiet) {
