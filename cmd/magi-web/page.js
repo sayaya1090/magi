@@ -5347,21 +5347,26 @@ function drawRoom(m) {
   drawRoom.shape = shape;
   const box = cell('meetbox');
   box.append(sectionHead('meet.title', toBack()));
+  // The topic and the roster stay put while the transcript scrolls under them. Five rounds of four
+  // companions is several screens, and what the meeting is ABOUT — and who is speaking now — are
+  // the two things a reader needs at every point of it. They were at the top, so by the third lap
+  // they were two screens above the sentence being read.
+  const head = cell('meethead');
   // The question is the headline of this screen, so it is a heading and not a styled line: with
   // only the section's own h2 above it, everything below — the roster, the transcript, the
   // conclusions — hung off "Meeting" and a reader moving by headings never met the topic.
   const topic = document.createElement('h3');
   topic.className = 'meettopic';
   topic.textContent = m.topic;
-  box.append(topic);
-  box.append(cell('meetmeta', meetWhere(m)));
+  head.append(topic);
+  head.append(cell('meetmeta', meetWhere(m)));
   // Before the room opens, say so and say how far along it is. A meeting that has been convened
   // and is silent looks exactly like one that has hung, and the difference is minutes of model
   // time somebody is deciding whether to wait for.
   if (!m.opened && !m.closed) {
     const all = (m.speakers || []).filter(sp => !sp.person);
     const set = all.filter(sp => sp.ready || sp.trouble).length;
-    box.append(cell('meetgetting', tr('meet.getting', {n: set, of: all.length})));
+    head.append(cell('meetgetting', tr('meet.getting', {n: set, of: all.length})));
   }
   // Something is happening and it takes a minute. Without this the room is a still page between
   // turns — the same picture as a room that has stopped — and the guidance is explicit that a wait
@@ -5375,13 +5380,14 @@ function drawRoom(m) {
     bar.setAttribute('aria-label', !m.opened ? tr('meet.getting_ready')
       : m.collecting ? tr('meet.collecting')
       : tr('meet.waiting_on', {who: m.holder || upNextName(m) || ''}));
-    box.append(bar);
+    head.append(bar);
   }
   // What went wrong, where it happened, rather than in a log nobody has open. A participant whose
   // daemon has gone is a fact about this meeting.
-  if (m.trouble) box.append(cell('meettrouble', tr('meet.trouble', {why: m.trouble})));
+  if (m.trouble) head.append(cell('meettrouble', tr('meet.trouble', {why: m.trouble})));
 
-  box.append(roster(m));
+  head.append(roster(m));
+  box.append(head);
   box.append(transcript(m));
   meetSayField = null;
   if (!m.closed) box.append(sayBox(m));
@@ -5412,6 +5418,25 @@ function toFleet() {
   return b;
 }
 
+// Which colour each participant speaks in.
+//
+// Six, cycled, in the order they are in the room — the same trick the team chips use, and for the
+// same reason: a transcript of four companions in one voice is a wall of text somebody has to read
+// the attributions of to follow. The colour is never the only telling. The name is on every line,
+// and the roster says the name too.
+function speakerTints(m) {
+  const by = {};
+  let i = 0;
+  for (const sp of (m.speakers || [])) {
+    // The person is not one of the cycle. They already have a colour of their own on the roster,
+    // and taking a turn in the rotation meant the fourth companion and the person wore the same
+    // one — measured, both #FF7A1A.
+    if (sp.person) continue;
+    by[sp.name] = 'sp' + (i++ % 6);
+  }
+  return by;
+}
+
 // Who is in the room, and what each of them is doing about it.
 //
 // The token is the whole mechanism, so the screen draws it: whoever holds the floor is marked, and
@@ -5425,6 +5450,7 @@ function roster(m) {
   // is what the widest thing on the screen should be for.
   const box = document.createElement('md-chip-set');
   box.className = 'meetroster';
+  const tints = speakerTints(m);
   for (const s of (m.speakers || [])) {
     const holding = m.holder === s.name;
     // Before the room opens there is no floor and no turn — what there is, is homework. The chip
@@ -5440,7 +5466,7 @@ function roster(m) {
     // Speaking wins over next. While a companion is composing it is BOTH — it holds the floor and
     // it is still the one whose turn this round is — and a chip wearing two markers at once says
     // neither: the eye wants "this one now, that one after".
-    c.className = 'meetsp' + (holding ? ' holding' : '') + (s.next && !holding ? ' next' : '') +
+    c.className = 'meetsp ' + (tints[s.name] || '') + (holding ? ' holding' : '') + (s.next && !holding ? ' next' : '') +
                   (s.person ? ' person' : '') + (s.passes >= 2 ? ' resting' : '') +
                   (waiting && !s.ready && !s.trouble ? ' getting' : '') +
                   (waiting && s.ready ? ' set' : '') + (s.trouble ? ' lost' : '');
@@ -5496,14 +5522,20 @@ function roster(m) {
 // Everything said, in order, attributed.
 function transcript(m) {
   const box = cell('meetsaid');
+  const tints = speakerTints(m);
+  const rooms = {}, sockets = {}, turn = {};
+  for (const sp of (m.speakers || [])) { rooms[sp.name] = sp.room || ''; sockets[sp.name] = sp.socket || ''; }
   let round = 0;
   for (const u of (m.said || [])) {
     if (u.round !== round) {
       round = u.round;
       box.append(cell('meetlap', tr('meet.lap', {n: round})));
     }
-    const line = cell('meetline' + (u.pass ? ' passed' : ''));
+    const line = cell('meetline ' + (tints[u.who] || 'you') + (u.pass ? ' passed' : ''));
     line.append(cell('meetwho2', u.who));
+    // Which of this participant's turns this sentence came out of. Its conversation holds them in
+    // order — the preparation first, then one per time it was asked — so the count IS the address.
+    turn[u.who] = (turn[u.who] || 0) + 1;
     // A pass is a contribution: somebody read the room and had nothing to add, which is worth
     // seeing. Drawn quieter than a sentence, and never dropped.
     if (u.pass) {
@@ -5518,9 +5550,73 @@ function transcript(m) {
       // A second set of rules for the same job is how the two drift apart.
       line.append(md(cell('meettext txt'), u.text || ''));
     }
+    // …and how it got there. A participant reads its own files and thinks before it says anything,
+    // and none of that was anywhere on this screen: the room showed the sentence and a reader
+    // wondering where a claim came from had nowhere to look. Behind a control rather than in the
+    // transcript, because the thinking of four companions inline is not a discussion any more.
+    if (rooms[u.who] && sockets[u.who]) {
+      line.append(workingBox(u.who, sockets[u.who], rooms[u.who], turn[u.who]));
+    }
     box.append(line);
   }
   if (!(m.said || []).length) box.append(cell('meetwait', tr('meet.waiting')));
+  return box;
+}
+
+// roomRows is one participant's meeting conversation, fetched once and kept.
+//
+// Kept for the life of the screen: the transcript is redrawn whenever the room changes, and a
+// re-fetch per redraw would be a request per participant per turn for a fold nobody has opened.
+const roomRows = new Map();
+
+async function readRoom(socket, room) {
+  const key = socket + '|' + room;
+  if (!roomRows.has(key)) {
+    roomRows.set(key, await fetchList('/transcript?d=' + encodeURIComponent(socket) +
+                                      '&session=' + encodeURIComponent(room)) || []);
+  }
+  return roomRows.get(key);
+}
+
+// turnRows are the rows of one turn out of a conversation: everything after the nth thing it was
+// asked, up to the next one.
+//
+// The participant's conversation is a run of turns — the preparation, then one per time the room
+// asked it — so "the nth turn" is countable rather than guessed at. When the count does not reach
+// n the answer is nothing at all: an approximate span of somebody else's thinking, shown under a
+// sentence as though it produced it, is worse than a fold that opens on "not here".
+function turnRows(rows, n) {
+  const starts = [];
+  rows.forEach((r, i) => { if (r.who === 'user') starts.push(i); });
+  if (starts.length <= n) return [];
+  const from = starts[n] + 1;
+  const to = starts.length > n + 1 ? starts[n + 1] : rows.length;
+  return rows.slice(from, to);
+}
+
+// workingBox is the control and the box it opens: what this companion read and thought before it
+// said what it said.
+function workingBox(who, socket, room, nth) {
+  const box = cell('meetwork');
+  const rows = cell('meetworkrows');
+  rows.hidden = true;
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-down'),
+                  tr('meet.working'));
+  b.className = 'meetworkgo';
+  let read = false;
+  b.onclick = () => whileItRuns(b, async () => {
+    if (!rows.hidden) { rows.hidden = true; return; }
+    if (!read) {
+      read = true;
+      const got = turnRows(await readRoom(socket, room), nth);
+      // Everything except the answer itself, which is the line this box hangs under.
+      const steps = got.filter(r => r.who !== 'assistant');
+      rows.replaceChildren(...(steps.length ? steps.map(rowNode)
+                                            : [cell('dnote', tr('meet.working_gone'))]));
+    }
+    rows.hidden = false;
+  });
+  box.append(b, rows);
   return box;
 }
 
@@ -5988,6 +6084,22 @@ function waitingFor(key) {
 
 async function loadTree(a) {
   if (!a || !filesOpen()) return;
+  // One walk at a time per companion. Arriving at this screen asks for the tree, and so does the
+  // first frame that follows a second later — measured on the live console as two /files and two
+  // /git for one arrival, both answering the same question about the same directory. The second is
+  // not fresher for having been asked later; it is the same request, and on a big repository it is
+  // the same walk.
+  const key = (a.socket || '') + '|' + (a.peer || '');
+  if (loadTree.busy === key) return;
+  loadTree.busy = key;
+  try {
+    await walkTree(a);
+  } finally {
+    loadTree.busy = '';
+  }
+}
+
+async function walkTree(a) {
   // A companion known only by gossip has no socket this console can open — the path in its row is a
   // path on ITS filesystem, and the fleet door carries work rather than file contents. Say so, and
   // say the way round it: a magi-web running there is a peer, and a peer's companions come through

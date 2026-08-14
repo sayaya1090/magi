@@ -2908,6 +2908,33 @@
      transcript under it is a column of text with its own left edge — chips ranged against that
      edge read as the first line of the transcript. */
   .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); justify-content:center; }
+  /* The topic and the roster stay put while the transcript scrolls under them: five rounds of four
+     companions is several screens, and both are things a reader needs at every point of it.
+     Its own ground, or the lines would show through as they pass behind. */
+  .meethead {
+    position:sticky; top:0; z-index:2;
+    display:grid; gap:var(--magi-sys-space-150);
+    padding-bottom:var(--magi-sys-space-150);
+    background:var(--magi-ref-bg);
+    border-bottom:1px solid var(--magi-ref-outlineVariant);
+  }
+  /* A participant is a colour, in the roster and on everything it says. Six, cycled in the order
+     they are in the room. Never the only telling: the name is on the line and on the chip, and the
+     tooltip says what the state is — a colour nobody can read out is a colour that says nothing to
+     a reader who cannot see it. All six are hues this page already uses as text on its own ground,
+     both themes, so the pairs hold either way round. */
+  .meetsp.sp0 { --md-filter-chip-outline-color:var(--magi-ref-primary); --md-filter-chip-label-text-color:var(--magi-ref-primary); }
+  .meetsp.sp1 { --md-filter-chip-outline-color:var(--magi-ref-accent); --md-filter-chip-label-text-color:var(--magi-ref-accent); }
+  .meetsp.sp2 { --md-filter-chip-outline-color:var(--magi-ref-warn); --md-filter-chip-label-text-color:var(--magi-ref-warn); }
+  .meetsp.sp3 { --md-filter-chip-outline-color:var(--magi-ref-success); --md-filter-chip-label-text-color:var(--magi-ref-success); }
+  .meetsp.sp4 { --md-filter-chip-outline-color:var(--magi-ref-error); --md-filter-chip-label-text-color:var(--magi-ref-error); }
+  .meetsp.sp5 { --md-filter-chip-outline-color:var(--magi-ref-muted); --md-filter-chip-label-text-color:var(--magi-ref-muted); }
+  .meetline.sp0 { --spoke:var(--magi-ref-primary); }
+  .meetline.sp1 { --spoke:var(--magi-ref-accent); }
+  .meetline.sp2 { --spoke:var(--magi-ref-warn); }
+  .meetline.sp3 { --spoke:var(--magi-ref-success); }
+  .meetline.sp4 { --spoke:var(--magi-ref-error); }
+  .meetline.sp5 { --spoke:var(--magi-ref-muted); }
   /* Getting ready, ready, and could not. Three states before the room opens, and the words are in
      the tooltip as well — a colour that is the only telling is one nobody can read out. */
   .meetsp.getting { opacity:.75; }
@@ -2927,7 +2954,14 @@
   }
   /* Next in line, outlined in the accent: "who is being waited on" without reading anything. */
   .meetsp.next { --md-filter-chip-outline-color:var(--magi-ref-accent); }
-  .meetsp.person { --md-filter-chip-label-text-color:var(--magi-ref-primary); }
+  /* The person's own colour, and not one of the six: they are in the room differently from the
+     companions and the roster has always said so. (It also collided — with four companions the
+     fourth wore the person's hue.) */
+  .meetsp.person {
+    --md-filter-chip-label-text-color:var(--magi-ref-fg);
+    --md-filter-chip-outline-color:var(--magi-ref-fg);
+  }
+  .meetline.you { --spoke:var(--magi-ref-fg); }
   /* Asked twice, said no twice: in the room and not being asked. Dimmer, and the tooltip says why
      and what pressing it would do. */
   .meetsp.resting { --md-filter-chip-label-text-color:var(--magi-ref-muted); }
@@ -2938,8 +2972,24 @@
     letter-spacing:.05em; border-top:1px solid var(--magi-ref-outlineVariant);
     padding-top:var(--magi-sys-space-150);
   }
-  .meetline { display:grid; grid-template-columns:minmax(6rem, 9rem) 1fr; gap:var(--magi-sys-space-200); }
-  .meetwho2 { color:var(--magi-ref-accent); overflow-wrap:anywhere; }
+  .meetline {
+    display:grid; grid-template-columns:minmax(6rem, 9rem) 1fr; gap:var(--magi-sys-space-200);
+  }
+  /* The speaker's own colour, on their name and as a rule down the side of what they said. The
+     rule is what makes a run of turns readable at a glance; the name is what makes it readable at
+     all. Falls back to the one colour everybody used to share, for a line whose speaker is not in
+     the roster — somebody who left the room. */
+  .meetwho2 { color:var(--spoke, var(--magi-ref-accent)); overflow-wrap:anywhere; font-weight:600; }
+  /* The speaker's rule down the side. Its own declaration rather than folded into the grid rule
+     above, because that one is overridden at the narrow breakpoint and this must not be. */
+  .meetline {
+    border-inline-start:2px solid var(--spoke, var(--magi-ref-outlineVariant));
+    padding-inline-start:var(--magi-sys-space-200);
+  }
+  /* What the participant read and thought before it spoke, behind a control. Quiet: it is the
+     working, not the answer. */
+  .meetwork { grid-column:2; }
+  .meetworkrows { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); }
   .meettext { white-space:pre-wrap; overflow-wrap:anywhere; }
   /* A pass is quieter than a sentence and still there. Muted rather than hidden: silence from
      somebody who read the discussion is information. */

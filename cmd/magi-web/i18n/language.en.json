@@ -355,6 +355,8 @@
   "meet.waiting_on": "Waiting on {who}",
   "meet.who": "Who is being asked",
   "meet.why": "Ask several companions one question. They read each other's answers in turn, and each leaves with something to do — or with nothing, which is an ordinary outcome.",
+  "meet.working": "How it got there",
+  "meet.working_gone": "This turn is no longer in the companion’s log.",
   "meet.wrap": "Wrap up",
   "meet.you": "you, whenever you like",
   "meet.yours": "Waiting for you — say it, or leave the box empty to give the floor back",
