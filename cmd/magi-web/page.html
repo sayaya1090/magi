@@ -1,6 +1,12 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- interactive-widget=resizes-content: the on-screen keyboard shrinks the LAYOUT, not just the
+     visual viewport. Without it a phone's keyboard covers the bottom 300px and the page does not
+     know — measured on a full-screen dialog, the whole action row (584–664 of a 664px window) was
+     under the keyboard with nothing able to scroll it into view, because the dialog is 100dvh of a
+     viewport the keyboard never changed. With it, dvh and every fixed foot on this page — the
+     composer, the dialogs' actions, the navigation bar — sit above the keyboard. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#14110d">
 <link rel="manifest" href="/manifest.webmanifest">

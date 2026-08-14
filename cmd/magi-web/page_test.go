@@ -557,14 +557,22 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 		return i
 	}
 	nav := at("@media (min-width:37.5em)")
-	for _, earlier := range []string{
-		"@media (max-width:62.5em)", // the table's own collapse
-		"@media (max-width:40em)",   // the composer's
-	} {
-		// The LAST occurrence, since a query may appear more than once.
-		if last := strings.LastIndex(sheet, earlier); last > nav {
-			t.Errorf("%s is written after the rail's layout rules, so it overrides the page offset "+
-				"in the widths where both apply — the padding shorthand resets padding-left", earlier)
+	// What this guard is really about: the page offset the rail sets on the BODY must not be reset
+	// by a rule written later that happens to apply at the same width.
+	//
+	// It used to name two queries — 62.5em and 40em — and check they came earlier. Both are gone:
+	// they were numbers off M3's scale and became 52.4375em. strings.LastIndex answers -1 for a
+	// string that is not there and -1 is never greater than nav, so those two assertions had been
+	// passing by being about nothing at all. And the one that replaced them is deliberately later
+	// and deliberately narrower — it is nested INSIDE the rail's own block, so that the medium
+	// class can take back the header's side padding without touching the body's.
+	//
+	// So the check is the shorthand, not the order: after the rail sets the offset, nothing may
+	// write a `padding:` shorthand at `body`.
+	for _, bad := range []string{"body{padding:", "body {padding:"} {
+		if i := strings.Index(sheet[nav:], bad); i >= 0 {
+			t.Errorf("a padding shorthand on body is written after the rail's offset (at %d), "+
+				"which resets the padding-left the rail depends on", nav+i)
 		}
 	}
 	if compact := at("@media (max-width:37.4375em)"); compact < nav {

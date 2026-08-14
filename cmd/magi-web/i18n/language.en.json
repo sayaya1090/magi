@@ -39,6 +39,7 @@
   "action.copy": "Copy what was said",
   "action.deny": "Deny",
   "action.edit": "Edit",
+  "action.for_companion": "{action}, for {name}",
   "action.forget": "Forget",
   "action.forget_named": "Forget {name}",
   "action.interrupt": "Interrupt",

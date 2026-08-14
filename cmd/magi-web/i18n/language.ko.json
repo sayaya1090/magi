@@ -39,6 +39,7 @@
   "action.copy": "말한 내용 복사",
   "action.deny": "거부",
   "action.edit": "수정",
+  "action.for_companion": "{name}에 대해 {action}",
   "action.forget": "잊기",
   "action.forget_named": "{name} 잊기",
   "action.interrupt": "중단",

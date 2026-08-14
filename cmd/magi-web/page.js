@@ -475,6 +475,11 @@ function drawPanels() {
       }
     } else {
       planShows = '';   // above the breakpoint the cards are a column and nothing is chosen
+      // …and the phone's furniture goes with it. The list and the back row are removed at the top
+      // of this function only on the compact path, so a window widened from a drilled-in panel
+      // carried "Nothing is going on here" into the desk's side column, above the six cards it
+      // was standing in for.
+      for (const old of sideEl.querySelectorAll('.panelist, .panelback')) old.remove();
     }
     sideEl.setAttribute('data-shows', planShows || 'list');
   }
@@ -563,7 +568,10 @@ function planList() {
   // Inside the list rather than beside it — the stylesheet hides everything in this panel that is
   // not the list while the list is what is showing.
   if (!box.children.length) {
-    box.append(cell('panelnote', tr('going_on.none')), cell('panelnote why', tr('going_on.none_how')));
+    // The page's own empty state, not two new classes with no stylesheet behind them: emptyState
+    // picks the display face, the muted role and the centring, and every other empty place on this
+    // console already looks like it.
+    box.append(emptyState('going_on.none', 'going_on.none_how'));
   }
   return box;
 }
@@ -576,8 +584,15 @@ function planList() {
 // which says nothing to anyone listening. The guide asks a new screen to decide where focus lands.
 function intoPanel(word) {
   window.scrollTo(0, 0);
+  // After the component has upgraded. md-text-button is a Lit element with delegatesFocus, and in
+  // the tick it is created its shadow button does not exist yet — measured, .focus() left the
+  // document on <body>. The dialog next door already defers for the same reason.
   const back = sideEl.querySelector('.panelback md-text-button, .panelist .panelrow');
-  if (back && back.focus) back.focus();
+  if (back && back.focus) {
+    if (back.updateComplete && back.updateComplete.then) back.updateComplete.then(() => back.focus());
+    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => back.focus());
+    else back.focus();
+  }
   if (word) say(word);
 }
 
@@ -1032,14 +1047,35 @@ function label(btn, word) {
 //
 // cls, because the same shape is wanted on the team header, whose two parts are styled as tname
 // and thub rather than as a card's k — the marking is the same act either way.
-function markedKey(ref, text, cls) {
+// A way out at the top of a dialog that takes the whole screen.
+//
+// On a phone the five full-screen dialogs ARE the screen, and the guide answers "how do I leave"
+// with one control in the bar: "앱바의 유일한 내비게이션은 close X 하나여야 한다." They took the
+// shape and kept a basic dialog's bottom row, which on a 664px window sits at 584–664 — under the
+// on-screen keyboard, in the one variant that exists because a keyboard is about to appear. The
+// bottom row stays for a mouse; this is the door a thumb can reach, hidden above the breakpoint.
+//
+// Called wherever a headline is written, because writing textContent takes the button with it.
+function closeX(dlg, head) {
+  if (!dlg || !head || !head.querySelector) return;
+  let x = head.querySelector('.dlgclose');
+  if (!x) {
+    x = withMark(document.createElement('md-icon-button'), '#i-sl-xmark');
+    x.className = 'dlgclose';
+    x.onclick = () => dlg.close('cancel');
+    head.prepend(x);
+  }
+  x.setAttribute('aria-label', tr('action.close'));
+}
+
+function markedKey(ref, text, cls, markCls) {
   // The word goes in as the element's own text and the mark is PREPENDED, rather than both being
   // appended as nodes. A heading is read by anything that asks for its textContent — the tests do,
   // and so does a screen reader taking the accessible name — and split across two child nodes it
   // reads as empty in the fake DOM and as the icon plus the word everywhere else. One of those is
   // a test that lies.
   const k = cell(cls || 'k', text);
-  const m = icon(ref, {cls: 'mk hk'});
+  const m = icon(ref, {cls: 'mk hk' + (markCls ? ' ' + markCls : '')});
   if (m) k.prepend(m);
   return k;
 }
@@ -1252,6 +1288,7 @@ function confirmStop(who, go) {
 // call that blocks; that is the whole difference from prompt().
 function askLine(q) {
   askK.textContent = q.head;
+  closeX(askDialog, askK);
   askBody.textContent = q.body || '';
   askBody.hidden = !q.body;
   askField.setAttribute('label', q.label || q.head);
@@ -1556,6 +1593,15 @@ function markWaiting(n) {
 // srOnly is a phrase for the reader who is listening and not looking. Used where a number is
 // drawn as a badge or a bare count: the digit carries its meaning in where it sits, and where it
 // sits is exactly what does not survive into a screen reader.
+// Whether the reader asked for less movement. The stylesheet answers this for CSS animations and
+// transitions, and cannot answer it for a scroll asked for in JavaScript: `behavior:'smooth'` in an
+// options bag overrides `scroll-behavior:auto` in a rule. Measured under reduce, both the jump to
+// the next waiting companion and the scroll-to-top on re-tapping a destination still glided.
+function stillness() {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 'auto' : 'smooth';
+}
+
 function srOnly(text) {
   const s = document.createElement('span');
   s.className = 'sr-only';
@@ -1581,13 +1627,25 @@ function arm(btn, word, act) {
   let armed = false, timer = 0;
   // label(), not textContent: the word changes twice per press and the mark in front of it must
   // survive both.
+  //
+  // And the NAME changes with the word. Callers that name the row give this button an aria-label
+  // ("Forget mem-3nol…"), which wins over the label — so armed, the button showed "Confirm?" and
+  // still answered to "Forget", and the confirmation step was the one state assistive tech was not
+  // told about. The name keeps whatever the caller made of it and gains the state.
+  const named = () => btn.getAttribute('aria-label');
+  const was = named();
+  const say2 = w => { if (was) btn.setAttribute('aria-label', w === word ? was : w + ' — ' + was); };
   label(btn, word);
-  const reset = () => { armed = false; btn.className = btn.className.replace(' armed', ''); label(btn, word); };
+  const reset = () => {
+    armed = false; btn.className = btn.className.replace(' armed', '');
+    label(btn, word); say2(word);
+  };
   btn.onclick = () => {
     if (armed) { clearTimeout(timer); reset(); act(); return; }
     armed = true;
     btn.className += ' armed';
     label(btn, tr('action.confirm'));
+    say2(tr('action.confirm'));
     timer = setTimeout(reset, 5000);
   };
 }
@@ -1644,7 +1702,7 @@ function jumpToNextWaiting(justAnswered) {
           row.getAttribute('href').includes(encodeURIComponent(justAnswered))) {
         continue;
       }
-      if (row.scrollIntoView) row.scrollIntoView({block: 'center', behavior: 'smooth'});
+      if (row.scrollIntoView) row.scrollIntoView({block: 'center', behavior: stillness()});
       return;
     }
   });
@@ -1653,7 +1711,7 @@ function jumpToNextWaiting(justAnswered) {
 function jumpToFirstRow() {
   requestAnimationFrame(() => {
     const first = fleetEl.querySelector('.card');
-    if (first && first.scrollIntoView) first.scrollIntoView({block: 'start', behavior: 'smooth'});
+    if (first && first.scrollIntoView) first.scrollIntoView({block: 'start', behavior: stillness()});
   });
 }
 
@@ -1783,6 +1841,11 @@ function answerBox(a, freeText) {
       // button is measured from its outline. The four stay one weight as a group, which is the
       // point — a console that emphasised one of them would be answering for the person.
       const b = label(withMark(document.createElement('md-outlined-button'), mark), tr(key));
+      // Named for the companion it answers for. Two companions blocked at once put ten controls on
+      // the fleet screen with five names between them — "Allow", "Deny", "Allow", "Deny" — and the
+      // card that says whose they are is a link above them, which a reader tabbing control to
+      // control never hears. These are the highest-stakes presses on the page.
+      if (a.name) b.setAttribute('aria-label', tr('action.for_companion', {action: tr(key), name: a.name}));
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
       box.append(b);
     }
@@ -2399,7 +2462,13 @@ function drawFleetCount(list, waiting) {
   // Rebuilt only when it says something different. This is a polite live region and the fleet is
   // redrawn on every poll and on every destination change, so an unconditional replaceChildren
   // announced "3 agents" again for a page that had not changed — measured twice per tap.
-  if (state.textContent === said && !waiting) return void state.classList.toggle('asking', false);
+  // Compared including the part that is a button, because that part is what changes while somebody
+  // is waiting. Written as `textContent === said && !waiting` the guard switched itself off in
+  // exactly the state it was needed: measured with an observer, twelve rebuilds of a polite live
+  // region in ten seconds, all carrying the same sentence.
+  const whole = said + (waiting ? tr('state.waiting_on_you', {n: waiting}) : '');
+  if (drawFleetCount.said === whole) return;
+  drawFleetCount.said = whole;
   state.replaceChildren(document.createTextNode(said));
   if (waiting) {
     const go = document.createElement('md-text-button');
@@ -3630,6 +3699,10 @@ async function loadIntervened(a) {
 // line, so whichever answered second erased the other's count — the shape of every readout built
 // by two writers.
 const shared = {rules: 0, facts: 0, crossing: 0, servers: null, reachedFrom: 0};
+// Only from what actually answered. Written unconditionally, a 500 from /skills left the status
+// line resting on "0 rules · 0 remembered · 0 crossing every companion" — a positive claim about an
+// organisation's shared knowledge, made from the initialiser, over the top of the sentence that
+// said the request had been refused.
 function sayShared() {
   reach(true);
   const bits = [tr(shared.rules === 1 ? 'count.rule' : 'count.rules', {n: shared.rules}),
@@ -3640,7 +3713,16 @@ function sayShared() {
   if (shared.servers !== null) {
     bits.push(tr(shared.servers === 1 ? 'count.server' : 'count.servers', {n: shared.servers}));
   }
-  says(bits.join(' · '));
+  // Announced, not parked in the status line.
+  //
+  // This is a standing summary of a screen, and the status line is where something that just
+  // happened goes: written there it never cleared, so on a phone the bar permanently read
+  // "9 rules · 11 remembered · 0 cro…" — 22% of a sentence — while squeezing the connection dot to
+  // a 1.9px sliver and a companion's name to two letters, and while a real message (a refusal, a
+  // send that failed) had to fight it for the room. Two writers on one readout, which is the shape
+  // this page keeps finding. The counts are one glance down the screen they describe; the reader
+  // who cannot see that screen is told them here.
+  say(bits.join(' · '));
 }
 
 let skillQuery = '';
@@ -3766,8 +3848,10 @@ function says(text) {
 
 function say(text) {
   clearTimeout(sayTimer);
-  // Cleared first: repeating the same string into a live region is not a change, so the second
-  // search that lands on the same count would be silent.
+  // A different sentence is a change, and a live region announces changes — so it goes in now.
+  if (sayEl.textContent !== text) { sayEl.textContent = text; return; }
+  // The same sentence is not a change, so the second search landing on the same count would be
+  // silent. Cleared first, then written back a frame later, which the region does hear.
   sayEl.textContent = '';
   sayTimer = setTimeout(() => { sayEl.textContent = text; }, 60);
 }
@@ -3889,12 +3973,15 @@ async function loadSkills() {
     const order = rankByIDF(skillQuery, docs);
     shown = order.map(i => list[i]);
   }
+  // Said before the branch, not after it. The one search that has to be announced is the one that
+  // empties the list — a sighted reader watches it shrink, and the announcement lived past an
+  // early return, so zero hits was the single case that said nothing at all.
+  if (skillQuery) say(tr('find.results', {n: shown.length}));
   if (!shown.length) {
     skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(),
       emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list));
     return;
   }
-  if (skillQuery) say(tr('find.results', {n: shown.length}));
   skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(), ...shown.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
@@ -3966,7 +4053,10 @@ async function loadSkills() {
       open = !open;
       text.hidden = !open;
       more.textContent = tr(open ? 'action.collapse' : 'action.read');
-      more.setAttribute('aria-label', tr(open ? 'action.collapse' : 'action.read_named', {name: sk.name}));
+      // Named in BOTH states. action.collapse carries no {name}, so opening every row put twenty
+      // buttons called "Close" back on the screen — the same defect in the other state.
+      more.setAttribute('aria-label', open ? tr('action.collapse') + ' — ' + sk.name
+                                           : tr('action.read_named', {name: sk.name}));
     };
     top.insertBefore(more, drop);
     el.append(text);
@@ -4319,7 +4409,7 @@ function addPersonButton(roles, first) {
 
 async function loadMCP() {
   const list = await fetchList('/mcp');
-  if (!list) return;
+  if (!list) return void paneFailed(mcpEl);
   const reachedFrom = new Set(list.map(s => s.companion || 'every companion here'));
   reach(true);
   shared.servers = list.length;
@@ -4506,6 +4596,7 @@ async function loadMCP() {
     nameEl.toggleAttribute('readonly', !!sv);
     who.value = sv ? (sv.socket || '') : '';
     mcpDialogK.textContent = tr(sv ? 'label.edit_server' : 'label.add_server');
+    closeX(mcpDialog, mcpDialogK);
     mcpGo.textContent = tr(sv ? 'action.save' : 'action.add_or_replace');
     for (const f of fieldEls) { f.removeAttribute('error'); f.removeAttribute('error-text'); }
     mcpDialog.show();
@@ -5566,18 +5657,30 @@ function drawRoom(m) {
   // Before the room opens, say so and say how far along it is. A meeting that has been convened
   // and is silent looks exactly like one that has hung, and the difference is minutes of model
   // time somebody is deciding whether to wait for.
-  if (!m.opened && !m.closed) {
-    const all = (m.speakers || []).filter(sp => !sp.person);
-    const set = all.filter(sp => sp.ready || sp.trouble).length;
-    head.append(cell('meetgetting', tr('meet.getting', {n: set, of: all.length})));
-  }
+  const getting = !m.opened && !m.closed;
+  const all = (m.speakers || []).filter(sp => !sp.person);
+  const set = all.filter(sp => sp.ready || sp.trouble).length;
+  if (getting) head.append(cell('meetgetting', tr('meet.getting', {n: set, of: all.length})));
   // Something is happening and it takes a minute. Without this the room is a still page between
   // turns — the same picture as a room that has stopped — and the guidance is explicit that a wait
   // whose length nobody can predict gets an indeterminate indicator rather than nothing.
-  if (!m.closed || m.collecting) {
+  //
+  // Three narrower conditions than "the meeting is not over", each measured on a phone:
+  //
+  //  - Not while the floor is held by the PERSON. The bar ran under "waiting for you — say it, or
+  //    leave the box empty", which is a wait of zero: nothing is loading, and the guide's own
+  //    table says show nothing at all for that.
+  //  - Not while a companion is composing, because the block under this head already says "design
+  //    is working on it" with its own indicator, and the guide asks for one indicator per wait.
+  //  - Determinate while getting ready, because the numbers are right there in the sentence above
+  //    it: "1 of 2 have read their workspace" over an indeterminate bar is a page withholding what
+  //    it knows, and "정보가 생기면 indeterminate → determinate로 바뀌어야 한다".
+  const composing = m.holder && all.some(sp => sp.name === m.holder);
+  const heldByYou = m.holder && !composing;
+  if ((getting || m.collecting || (!m.closed && !composing && !heldByYou))) {
     const bar = document.createElement('md-linear-progress');
-    bar.indeterminate = true;
     bar.className = 'meetbar-progress';
+    if (getting && all.length) { bar.value = set / all.length; } else { bar.indeterminate = true; }
     // Named for what is being waited on, not "loading": whoever has the floor is the answer to
     // "why is nothing on the screen changing".
     bar.setAttribute('aria-label', !m.opened ? tr('meet.getting_ready')
@@ -5611,7 +5714,11 @@ function drawRoom(m) {
 function nowBlock(who) {
   const box = cell('meetnow');
   box.dataset.who = who;
-  box.append(markedKey('#i-sl-spinner-third', tr('meet.doing_now', {who: who})));
+  // A spinner that turns, since something is actually running. The class exists and this call
+  // was not passing it: measured, animationName "none" on a glyph drawn as a spinner, under a
+  // sentence saying a companion is working. The sibling that draws the same icon in the transcript
+  // asks for it; this one had the other half of the pair.
+  box.append(markedKey('#i-sl-spinner-third', tr('meet.doing_now', {who: who}), '', 'spin'));
   const rows = cell('meetnowrows');
   box.append(rows);
   const have = (roomLive.get(who) || []).filter(r => r.who !== 'user').slice(-liveTail);
@@ -7868,6 +7975,7 @@ async function openFormat(a, f) {
   // them. One word for both left the screen ambiguous about which of the two it was editing; the
   // code still says report, because the contract, the route and the file are named that.
   fmtK.textContent = tr('fmt.headline');
+  closeX(fmtDialog, fmtK);
   fmtForm.replaceChildren();
   // Supporting text, which is the part of a dialog the guide asks for and this one did without: a
   // headline states the subject and the sentence under it says what pressing save will mean. Here
@@ -8514,6 +8622,8 @@ function paint() {
     el.querySelector('.sub').textContent = tr(sub);
   }
   markWaiting(markWaiting.n || 0);
+  closeX(prefsDialog, prefsK);
+  closeX(mcpDialog, mcpDialogK);
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
   withMark(mcpCancel, '#i-sl-xmark');
@@ -8752,7 +8862,14 @@ function paintCrumbs(s, v) {
   if (rungs.length) rungs[rungs.length - 1].classList.add('leaf');
   // Only when it has somewhere to go. The last rung is where you are; the one before it is the way
   // out, and it is a link — except on a destination, where there is one rung and no way up.
-  if (rungs.length > 1) rungs[rungs.length - 2].classList.add('up');
+  if (rungs.length > 1) {
+    const up = rungs[rungs.length - 2];
+    up.classList.add('up');
+    // Named by its word, not by its glyph. The arrow is drawn with generated content, and a browser
+    // folds that into the name computed from contents — measured, the link read "←Companions", and
+    // many readers say "left arrow" for that character. The label wins over contents.
+    up.setAttribute('aria-label', (up.textContent || '').trim());
+  }
 }
 
 // showDestination hides everything that is not the screen being asked for, and lights the rail and
@@ -9167,6 +9284,7 @@ async function palAsk() {
 function openPalette() {
   if (palDialog.open) return;
   palK.textContent = tr('pal.head');
+  closeX(palDialog, palK);
   palField.setAttribute('label', tr('pal.label'));
   palField.value = '';
   palCancel.textContent = tr('action.cancel');
@@ -9242,7 +9360,7 @@ for (const [el, key] of RAILS) {
     // Pressing the destination you are already on scrolls back to the top, which is what the guide
     // asks a re-selected destination to do. Without it the press did nothing at all — the url was
     // already this one — and a control that answers nothing reads as broken.
-    if (!sock() && view() === key) { scrollTo({top: 0, behavior: 'smooth'}); return; }
+    if (!sock() && view() === key) { scrollTo({top: 0, behavior: stillness()}); return; }
     history.pushState({}, '', at(HREF[key]));
     render();
   };
@@ -9591,7 +9709,46 @@ function measureDock() {
   document.documentElement.style.setProperty('--dock', (dock.offsetHeight || 0) + 'px');
   if (stick) toBottom();
 }
-if (typeof ResizeObserver === 'function') new ResizeObserver(measureDock).observe(dock);
+// The two bars are measured, not assumed.
+//
+// Their heights were written as constants — 64 for the one at the top, 64+16+1 for the one at the
+// foot — and both are only true while every word fits on one line. At twice the text size the app
+// bar is 88px and the strip stuck "under" it was half behind it; at 320px "Companions" wraps and
+// the navigation bar is 93px against an 81px reservation, and at 2x it is 185 against 97. A bar
+// that grows for scaled text is what the guide asks for; the page has to know how far it grew.
+function measureBars() {
+  const set = (k, v) => document.documentElement.style.setProperty(k, v + 'px');
+  const bar = document.getElementById('masthead');
+  if (bar) set('--magi-comp-appbar-h', bar.offsetHeight || 64);
+  // Only while it IS a bar at the foot: above the breakpoint the rail is a column and the page
+  // reserves nothing for it.
+  const atFoot = typeof matchMedia === 'function' && matchMedia('(max-width:37.4375em)').matches;
+  set('--magi-comp-navbar-h', atFoot && railEl ? (railEl.offsetHeight || 81) : 0);
+}
+if (typeof ResizeObserver === 'function') {
+  new ResizeObserver(measureDock).observe(dock);
+  const bars = new ResizeObserver(measureBars);
+  const bar = document.getElementById('masthead');
+  if (bar) bars.observe(bar);
+  if (railEl) bars.observe(railEl);
+}
+addEventListener('resize', measureBars);
+measureBars();
+// The app bar fills when the page moves under it, which is the guide's own description of this
+// component and the only way it can be the page's colour at rest and still separate when there is
+// something behind it. An attribute rather than a class: the stylesheet reads body[scrolled] the
+// way it reads body[at] and body[panel].
+{
+  let was = false;
+  const mark = () => {
+    const now = (globalThis.scrollY || 0) > 0;
+    if (now === was) return;
+    was = now;
+    document.body.toggleAttribute('scrolled', now);
+  };
+  addEventListener('scroll', mark, {passive: true});
+  mark();
+}
 t.addEventListener('input', grow);
 f.onsubmit = e => {
   e.preventDefault();

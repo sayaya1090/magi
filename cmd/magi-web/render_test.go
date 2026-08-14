@@ -1899,7 +1899,9 @@ console.log(JSON.stringify({
   rows: rows.map(r => ({cls: r.className, text: r.text})),
   // The message, which is #note's now: #state carries the count and the poll rebuilds it, so a
   // notice written there lived for whatever was left of the interval.
-  state: byId.note.text,
+  // The counts are announced now rather than parked in the visible status line: the line is for
+  // what just happened, and a standing summary written there never cleared.
+  state: byId.say.text,
   afterOne,
   posts: RENDERED.filter(r => r.method === 'POST'),
 }));
