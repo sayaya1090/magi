@@ -2537,12 +2537,15 @@
   /* A pane card, laid out like the others: the heading on its own line, the chips wrapping under
      it. The ground and the fade that used to be here belonged to the dock — the chips sat in its
      transparent top edge and the transcript scrolled through them. There is no edge to sit in now.
-     */
-  #strip:not([hidden]) {
-    display:flex; flex-wrap:wrap; align-items:center; gap:var(--magi-sys-space-100);
-    padding:var(--magi-sys-space-200);
-  }
-  #strip > .k { flex-basis:100%; }
+
+     A GRID, and the chips in a box of their own. As a flex row the heading and the chips shared a
+     line: the heading took 146px of a 352px card and the chips ran off the right edge, clipped
+     mid-word. `flex-basis:100%` on the heading did not save it — this card is one column of
+     things, which is what the plan and the queue beside it are, and saying so is shorter than
+     making a row behave like one. */
+  #strip:not([hidden]) { display:grid; gap:var(--magi-sys-space-100); }
+  #strip > .k { margin-bottom:var(--magi-sys-space-50); }
+  .stripjobs { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); min-width:0; }
   /* Scoped to the strip. A scheduled job in the pane is also .job — an unscoped rule here gave
      every row of the schedule a chip's height and border, which is a list turned into a row of
      pills by a name collision. */
@@ -2579,8 +2582,23 @@
   #strip .job.press:hover::after { opacity:.08; }
   #strip .job.press:active::after, #strip .job.press:focus-visible::after { opacity:.12; }
   #strip .job.press:hover { color:var(--magi-ref-primary); border-color:var(--magi-ref-primary); }
-  #strip .job .jname { color:var(--magi-ref-fg); font-weight:600; }
-  #strip .job .jsay { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  /* The pressable chip is one text node, so the ellipsis goes on the chip itself. Without it the
+     words wrapped inside a box fixed at 32dp and came out cut through the middle of a line —
+     measured on the demo, in the card this now lives in. */
+  #strip .job.press { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block;
+    line-height:calc(2rem - 2px); text-align:start; }
+  /* One line each, and the name keeps its space before the tail gives way.
+     In the dock this chip sat on a bar as wide as the page; in a 352px card the label wrapped
+     inside a box fixed at 32dp and came out cut through the middle of a word — measured on the
+     demo, two lines of text in a one-line chip. The name is what identifies the thing running, so
+     it is the last to be shortened; the tail (what it last said) is what gives way. */
+  #strip .job .jname {
+    color:var(--magi-ref-fg); font-weight:600; flex:0 1 auto; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #strip .job .jsay {
+    flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;
+  }
   /* Finished, and quieter for it — but not below what the muted role can carry: this text is the
      only thing saying which command it was. */
   #strip .job.done { opacity:.75; }

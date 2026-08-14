@@ -7866,8 +7866,13 @@ async function loadJobs(a) {
   // Hidden when it has nothing to say, decided after the chips are built rather than from the
   // length of what came back: with fifteen finished children and none of them drawn, the strip
   // stayed on screen as a band of nothing.
+  // A heading and the chips under it, like every other card in this pane. The count went: the
+  // chips are two or three and countable by looking, and "· 2" beside a word is a number nobody
+  // asked for.
+  const box = cell('stripjobs');
+  box.append(...chips);
   stripEl.replaceChildren(...(chips.length
-    ? [markedKey('#i-sl-spinner-third', tr('field.running', {n: chips.length})), ...chips] : []));
+    ? [markedKey('#i-sl-spinner-third', tr('field.running')), box] : []));
   showSide(stripEl, chips.length > 0);
 }
 

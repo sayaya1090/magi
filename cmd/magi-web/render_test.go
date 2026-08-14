@@ -3329,14 +3329,14 @@ await loadFleet();
 await loadJobs({socket: '/s/a.sock'});
 // The fake's textContent is a node's OWN text, so a chip's words are gathered from its parts.
 const words = n => (n.textContent || '') + (n.children || []).map(words).join(' ');
-// The heading is the card's, not a chip: this is a card in the pane now, laid out like the plan
-// and the queue beside it.
+// The heading is the card's, and the chips are in a box under it: this is a card in the pane now,
+// laid out like the plan and the queue beside it — a column of things, not a row.
 const head = byId.strip.children[0];
-const chips = byId.strip.children.slice(1).map(c => ({
+const box = byId.strip.children[1];
+const chips = box.children.map(c => ({
   cls: c.className, tag: c.tag, text: words(c),
   dot: (c.children || []).some(k => (k.className || '') === 'jdot')}));
-chips.head = words(head);
-byId.strip.children[1].onclick();
+box.children[0].onclick();
 console.log(JSON.stringify({hidden: byId.strip.hidden, chips, head: words(head),
                             url: location.search}));`)
 	if got["hidden"] == true {
@@ -3353,8 +3353,10 @@ console.log(JSON.stringify({hidden: byId.strip.hidden, chips, head: words(head),
 	if dock := indexHTML[strings.Index(indexHTML, `<footer id="dock">`):]; strings.Contains(dock, `id="strip"`) {
 		t.Error("what is running is still in the dock, over every screen")
 	}
-	if !strings.Contains(fmt.Sprint(got["head"]), "3") {
-		t.Errorf("the card's heading does not count what is running: %q", got["head"])
+	// A heading, and no count in it: the chips are two or three and countable by looking, and "· 3"
+	// beside a word is a number nobody asked for.
+	if h := fmt.Sprint(got["head"]); h == "" || strings.ContainsAny(h, "0123456789") {
+		t.Errorf("the card's heading reads %q", h)
 	}
 	chips, _ := got["chips"].([]any)
 	// Three: the running child, the one that just failed, and the background command. The child

@@ -161,7 +161,7 @@
   "field.queued": "대기 중 ({n})",
   "field.report_format": "결재 요청 시 전달할 내용",
   "field.role": "역할",
-  "field.running": "실행 중 · {n}",
+  "field.running": "실행 중",
   "field.scheduled": "예정된 작업",
   "field.session": "세션",
   "field.status": "상태",

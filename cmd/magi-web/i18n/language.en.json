@@ -161,7 +161,7 @@
   "field.queued": "Waiting to run ({n})",
   "field.report_format": "What it brings you when it asks",
   "field.role": "Role",
-  "field.running": "Running now · {n}",
+  "field.running": "Running now",
   "field.scheduled": "Scheduled",
   "field.session": "Session",
   "field.status": "Status",
