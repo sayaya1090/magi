@@ -188,6 +188,19 @@ func TestAMeetingIsEachCompanionReadingWhatTheLastOneSaid(t *testing.T) {
 	if len(sent) != 1 || !strings.Contains(sent[0], "fleet table") {
 		t.Fatalf("what reached the companion was %v", sent)
 	}
+	// The task is the LAST thing in it, under a heading of its own. Reported from a live run: the
+	// meeting arrived and the task looked missing — it was one line above two thousand, where a
+	// reader skims and a model weights least.
+	head := strings.LastIndex(sent[0], "What you are to do")
+	if head < 0 {
+		t.Fatalf("the work does not say what is being asked: %q", sent[0])
+	}
+	if tail := strings.TrimSpace(sent[0][head:]); !strings.Contains(tail, "empty state") {
+		t.Errorf("the task is not under its own heading at the end: %q", tail)
+	}
+	if strings.Index(sent[0], "What was said") > head {
+		t.Error("the discussion comes after the instruction; the instruction must be last")
+	}
 	// …and the meeting comes with it. The task alone is the conclusion with everything that
 	// produced it thrown away: watched live, the companion that received one opened by asking what
 	// had been decided and why, of a person who had just spent an hour watching it be decided. It
@@ -197,7 +210,7 @@ func TestAMeetingIsEachCompanionReadingWhatTheLastOneSaid(t *testing.T) {
 	}
 	// And what the others took away, so two companions handed adjacent halves of one job do not
 	// each do both.
-	if !strings.Contains(sent[0], "What the others are doing") {
+	if !strings.Contains(sent[0], "What the others are taking away") {
 		t.Errorf("the work arrived with no idea what anybody else is doing: %q", sent[0])
 	}
 	if api.seen() != nil && len(api.seen()) != 0 {

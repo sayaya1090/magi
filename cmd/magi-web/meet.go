@@ -466,13 +466,21 @@ func (s *server) meetHand(w http.ResponseWriter, r *http.Request) {
 // to know the other half is being done rather than doing it again.
 func fromMeeting(topic, what, said, others string) string {
 	var b strings.Builder
-	b.WriteString("From the meeting about " + topic + ":\n\n" + what + "\n")
+	b.WriteString("From the meeting about " + topic + ".\n")
 	if strings.TrimSpace(said) != "" {
 		b.WriteString("\nWhat was said, in the room, in order:\n\n" + lastOf(said, meetCarry) + "\n")
 	}
 	if others != "" {
-		b.WriteString("\nWhat the others are doing about it:\n\n" + others + "\n")
+		b.WriteString("\nWhat the others are taking away:\n\n" + others + "\n")
 	}
+	// The instruction last, under a heading, and it is the last thing in the message.
+	//
+	// It used to be first, one line above a transcript of four companions arguing — and reported
+	// from a live run as work that arrived with the meeting attached and no task in it. Nothing was
+	// dropped: it was one line at the top of two thousand, in the position a reader skims and a
+	// model weights least. Context first and the request last is the order everything else in this
+	// tree hands work over in, for the same reason.
+	b.WriteString("\n── What you are to do ──\n\n" + strings.TrimSpace(what) + "\n")
 	return b.String()
 }
 

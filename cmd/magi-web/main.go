@@ -489,12 +489,34 @@ func (s *server) clientFor(sock string) (*daemon.Client, error) {
 func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flusher) {
 	tick := time.NewTicker(700 * time.Millisecond)
 	defer tick.Stop()
+	send := s.rosterFrames(r)
+	for {
+		send(w, fl)
+		select {
+		case <-r.Context().Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// rosterFrames is the roster and the meeting, as frames, for whichever loop is driving.
+//
+// A function rather than a loop of its own because a companion's page needs the same frames on the
+// SAME connection as its transcript. A browser allows six connections to one host, a console
+// window used to hold two streams, and three windows therefore consumed the whole budget: every
+// ordinary request from every window queued behind a stream that never ends. Measured — the third
+// window's first fetch never returned.
+//
+// The state it carries is what has already been sent, so a frame goes out when it is DIFFERENT and
+// not when it is asked for.
+func (s *server) rosterFrames(r *http.Request) func(io.Writer, http.Flusher) {
 	// A meeting screen watches one room, or the list of them. Same connection, same rule — a frame
 	// only when it is different — so the room that took two seconds to show a new sentence shows it
 	// as soon as the driver has written it.
 	room := strings.TrimSpace(r.URL.Query().Get("m"))
 	last, lastMeet := "", ""
-	for {
+	return func(w io.Writer, fl http.Flusher) {
 		list := s.rosterFor(r, true)
 		b, err := json.Marshal(list)
 		// Compared on what a screen would DRAW differently, which is not the same as the bytes.
@@ -513,11 +535,6 @@ func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flu
 			lastMeet = mb
 			fmt.Fprintf(w, "event: meet\ndata: %s\n\n", mb)
 			fl.Flush()
-		}
-		select {
-		case <-r.Context().Done():
-			return
-		case <-tick.C:
 		}
 	}
 }
@@ -1288,6 +1305,19 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	var lastSeq int64 = -1
 	tick := time.NewTicker(400 * time.Millisecond)
 	defer tick.Stop()
+	// The roster rides this connection too.
+	//
+	// It used to have one of its own: a companion's page opened a stream for the transcript and a
+	// second for the fleet. A browser allows six connections to one host and a stream never ends,
+	// so three windows filled the budget and every ordinary request — the file tree, the git card,
+	// sending a message — queued behind them for ever. Measured: with three windows open, the
+	// third one's first fetch never came back. It looked exactly like a deadlock, and from the
+	// page's point of view it was one.
+	//
+	// The frames are addressed by event name, so one connection carrying three kinds is what
+	// EventSource is for. Slower than the fleet's own loop by a tick and a half at worst, which is
+	// nothing beside not being able to open a second window.
+	roster := s.rosterFrames(r)
 	// This stream was addressed by COMPANION, and a companion can now be pointed at another of its
 	// own conversations from any console. So the session is re-read rather than resolved once: a
 	// page watching a companion that moved was left polling the conversation it left, for as long
@@ -1350,6 +1380,8 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 		}
+		// …and the roster, on the same connection, under its own "has it changed" rule.
+		roster(w, fl)
 		select {
 		case <-r.Context().Done():
 			return

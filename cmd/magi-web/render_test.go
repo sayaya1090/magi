@@ -428,11 +428,15 @@ console.log(JSON.stringify({posts, subscribed: RENDERED.filter(r => r.subscribed
 	if !strings.Contains(p["body"].(string), "do+it+again") {
 		t.Errorf("the text did not travel: %q", p["body"])
 	}
-	// Two streams on a companion's page, and they are two different things: the transcript for the
-	// conversation it is addressed at, and the roster — which is where "this one is blocked on a
-	// question" arrives, and used to be a three-second poll.
+	// ONE stream on a companion's page, carrying both things: the transcript for the conversation
+	// it is addressed at, and the roster — which is where "this one is blocked on a question"
+	// arrives, and used to be a three-second poll.
+	//
+	// One and not two, because a browser allows six connections to a host and a stream never ends:
+	// at two per window the third window could not make an ordinary request at all. Measured — its
+	// first fetch never came back.
 	subs := got["subscribed"].([]any)
-	if len(subs) != 2 || !strings.HasPrefix(subs[0].(string), "/events?d=") || subs[1] != "/events" {
+	if len(subs) != 1 || !strings.HasPrefix(subs[0].(string), "/events?d=") {
 		t.Errorf("the page subscribed to %v", subs)
 	}
 }
@@ -522,17 +526,17 @@ func TestAnAgentsPageWatchesTheRoster(t *testing.T) {
 console.log(JSON.stringify({
   subscribed: RENDERED.filter(r => r.subscribed).map(r => r.subscribed),
   intervals: RENDERED.filter(r => r.interval).map(r => r.interval),
+  listens: !!(es && es.listeners && es.listeners.fleet && es.listeners.fleet.length),
 }));
 `)
+	// The roster arrives on the connection the transcript opened — one per window — so what says
+	// this page is watching it is the LISTENER, not a second subscription.
 	subs := got["subscribed"].([]any)
-	watching := false
-	for _, u := range subs {
-		if u == "/events" {
-			watching = true
-		}
+	if len(subs) != 1 || !strings.HasPrefix(subs[0].(string), "/events?d=") {
+		t.Fatalf("an agent's page opened %v; it needs exactly one stream", subs)
 	}
-	if !watching {
-		t.Fatal("an agent's page does not watch the roster, so a prompt it blocks on would never appear")
+	if !got["listens"].(bool) {
+		t.Fatal("an agent's page does not listen for the roster, so a prompt it blocks on would never appear")
 	}
 	// And it does not ALSO poll for it. That poll ran every three seconds per viewer for as long as
 	// a tab was open; the stream sends when the roster is different and nothing when it is not.

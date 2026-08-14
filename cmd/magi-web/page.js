@@ -8040,7 +8040,18 @@ let es, fleetTimer, fleetES;
 // nothing at all while a fleet is quiet.
 function watchFleet(onList, extra, only) {
   stopFleetWatch();
-  fleetES = new EventSource('/events' + (extra || ''));
+  // On a companion's page the transcript's connection carries these frames too, so this listens to
+  // that one instead of opening a second.
+  //
+  // A browser allows six connections to one host and a stream never ends. Two per window meant
+  // three windows filled the budget and every ordinary request from every window queued behind a
+  // stream that would never finish: measured, the third window's first fetch never came back. It
+  // looked like a deadlock and, for the page, it was one.
+  //
+  // Only when there is nothing extra to ask for: a meeting screen addresses its room in the query,
+  // which is a different subscription from the one the transcript opened.
+  const shared = es && !extra;
+  fleetES = shared ? es : new EventSource('/events' + (extra || ''));
   // A meeting screen listens for its room and NOT for the roster.
   //
   // The roster carries how long each companion has been idle, which is a number that changes every
@@ -8056,17 +8067,29 @@ function watchFleet(onList, extra, only) {
   fleetES.addEventListener('meet', () => onList(null));
   // A console that restarts is ordinary, and so is a laptop waking up. Reconnect quietly, and only
   // while this screen is still the one that wanted it.
-  fleetES.onerror = () => {
-    const mine = fleetES;
-    if (mine) mine.close();
-    if (fleetES === mine) { fleetES = null; setTimeout(() => { if (!fleetES) watchFleet(onList, extra); }, 1500); }
-  };
+  // A shared connection is the transcript's to reconnect: connect() already does that, and two
+  // handlers racing to reopen one socket is how a page ends up with three.
+  if (!shared) {
+    // A console that restarts is ordinary, and so is a laptop waking up. Reconnect quietly, and
+    // only while this screen is still the one that wanted it.
+    fleetES.onerror = () => {
+      const mine = fleetES;
+      if (mine) mine.close();
+      if (fleetES === mine) { fleetES = null; setTimeout(() => { if (!fleetES) watchFleet(onList, extra); }, 1500); }
+    };
+  }
+  fleetShared = shared;
 }
+
+// Whether the roster frames are arriving on the transcript's connection. A shared one is not this
+// screen's to close — closing it would take the conversation with it.
+let fleetShared = false;
 
 function stopFleetWatch() {
   if (!fleetES) return;
   const going = fleetES;
   fleetES = null;
+  if (fleetShared) { fleetShared = false; return; }
   going.close();
 }
 function connect() {
@@ -8327,7 +8350,9 @@ function clearCompanionView() {
 }
 
 function render() {
-  if (es) { es.close(); es = null; }
+  // The transcript's connection goes, and with it any roster listener that was sharing it — said
+  // here rather than left to stopFleetWatch, which would otherwise be holding a closed socket.
+  if (es) { es.close(); es = null; fleetES = null; fleetShared = false; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
   const s = sock();
   const v = s ? '' : view();
@@ -8576,11 +8601,25 @@ function freshen() {
   loadFleet();
 }
 
-// Coming back to the tab is coming back to the screen. A console left open in another window for
-// an hour is showing an hour-old page — the frames it missed were sent to a document nobody was
-// rendering, and a background tab's connection is throttled besides.
+// A tab nobody is looking at gives its stream back, and takes it again on the way in.
+//
+// Two reasons, and the second is the one that bites. A hidden tab is not being drawn, so its frames
+// are work done for nobody. And a browser allows six connections to one host: a stream never ends,
+// so six console windows hold every connection there is and the seventh cannot make an ordinary
+// request at all — measured, its first fetch never came back. Windows left open in the background
+// are exactly the ones paying for that, and they are the ones that need it least.
+//
+// Coming back re-reads the screen, which is the same thing it would do for a tab that had been
+// hidden with its stream running: the frames that arrived while nobody was rendering were lost
+// either way.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) freshen();
+  if (document.hidden) {
+    if (es) { es.close(); es = null; }
+    stopFleetWatch();
+    conn('');
+    return;
+  }
+  render();
 });
 
 // nameOf is the crumb for a socket before the fleet has been fetched — the file name carries the
