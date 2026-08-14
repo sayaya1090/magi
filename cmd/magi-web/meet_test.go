@@ -273,6 +273,10 @@ func TestReadingAMeetingDoesNotAdvanceIt(t *testing.T) {
 	defer close(design.slow)
 	who.Set("topic", "what breaks if we ship on friday")
 	v := convene(t, f, who)
+	// Convening is not the room opening: everybody reads their own workspace first, and until they
+	// are back there is no floor and nobody is next. This test is about what REFRESHING does to a
+	// room in session, so it waits for one.
+	until(t, "the room to open", func() bool { return read(t, f, v.ID).Opened })
 
 	first := read(t, f, v.ID)
 	for i := 0; i < 20; i++ {
