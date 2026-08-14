@@ -620,6 +620,11 @@ const demoScript = `
   };
   banner.textContent = 'demo — the real page, answered by a mock. Nothing here is a running agent, ' +
                        'and every action reports what it would have sent.';
+  // …and again whenever the notice itself changes size. It is a fixed band and the page is pushed
+  // below it by a number measured once, so an action that rewrote the banner from three lines to
+  // two left a 17px hole above the app bar with the page scrolling through it. A resize listener
+  // does not fire for a text change; a ResizeObserver on the banner does.
+  if (typeof ResizeObserver === 'function') new ResizeObserver(pushBelowBanner).observe(banner);
   addEventListener('DOMContentLoaded', () => {
     document.body.prepend(banner);
     // AFTER it is in the document. Measured before, it is zero high, and the rail stayed under it —

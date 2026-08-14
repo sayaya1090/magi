@@ -526,8 +526,15 @@ let planShows = '';
 function planSections() {
   const count = el => {
     // The rows a reader would count, which is not the same as the children: every one of these
-    // cards begins with a heading.
-    const n = [...el.children].filter(k => !String(k.className || '').split(' ').includes('k')).length;
+    // cards begins with a heading, and the plan card also carries a progress bar and a line
+    // saying how far through it is. Counted as items, "2 todos" read as "Plan 4" — a number that
+    // is never right on the one section that has furniture between its heading and its rows.
+    const furniture = k => {
+      const cls = String(k.className || '').split(' ');
+      return cls.includes('k') || cls.includes('planbar') || cls.includes('plancount') ||
+             String(k.tagName || '').toLowerCase() === 'md-linear-progress';
+    };
+    const n = [...el.children].filter(k => !furniture(k)).length;
     return n > 0 ? String(n) : '';
   };
   return [['plan', tr('nav.plan')], ['strip', tr('nav.running')], ['handoffs', tr('nav.handoffs')],
@@ -620,6 +627,22 @@ function drawSharedTabs() {
   // owner; it says so, and it says which destination it switches.
   sharedTabs.setAttribute('role', 'tablist');
   sharedTabs.setAttribute('aria-label', tr('nav.shared'));
+  // A tablist answers the arrow keys. Saying `role="tablist"` and not answering them is a promise
+  // less kept than the orphan roles were: md-tabs installs this handler and there is no md-tabs
+  // here, so it is installed once, from the same place that claims the role. It does not wrap —
+  // the guide asks a tab set not to.
+  if (!drawSharedTabs.keys) {
+    drawSharedTabs.keys = true;
+    sharedTabs.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const tabs = [...sharedTabs.children];
+      const at = tabs.indexOf(document.activeElement);
+      if (at < 0) return;
+      const to = e.key === 'ArrowRight' ? Math.min(at + 1, tabs.length - 1) : Math.max(at - 1, 0);
+      e.preventDefault();
+      if (to !== at && tabs[to].focus) tabs[to].focus();
+    });
+  }
   const want = [['skills', 'nav.experience'], ['mcp', 'nav.mcp']];
   const same = [...sharedTabs.children].map(t => t.textContent).join('|') ===
                want.map(([, k]) => tr(k)).join('|');
@@ -768,6 +791,13 @@ const companionAlive = ok => {
   companionOK = ok;
   paintConn();
   says(ok ? '' : tr('state.companion_gone'));
+  // …and on the companion's own page, where a stopped daemon leaves a blank screen, the words go
+  // where the conversation was. Measured: 378px of nothing between the tab strip and a composer
+  // still offering Send, with the one sentence explaining it clipped in the status line.
+  const log = document.getElementById('log');
+  if (!ok && log && sock() && !log.querySelector('.empty')) {
+    log.replaceChildren(emptyState('state.companion_gone', 'state.gone_how'));
+  }
 };
 const railBadge = document.getElementById('railBadge'), tabBadge = document.getElementById('tabBadge');
 const themeToggle = document.getElementById('themeToggle');
@@ -3810,7 +3840,15 @@ addEventListener('pointerdown', () => { if (tipHost) { clearTimeout(tipTimer); t
     const host = e.target.closest && e.target.closest('[data-tip]');
     if (!host) return;
     holdFor = host;
-    holdAt = setTimeout(() => { if (holdFor) showTip(holdFor); holdAt = 0; }, 500);
+    holdAt = setTimeout(() => {
+      if (holdFor) showTip(holdFor);
+      holdAt = 0;
+      // And it leaves by itself. A touch never fires pointerout, so a tip opened by one stayed on
+      // the page — measured, still there after the dialog it belonged to had been cancelled, and
+      // only cleared by a tap somewhere else. The guide gives a tooltip 1.5s after the pointer
+      // leaves; this is the same 1.5s, counted from when there is no pointer to leave.
+      setTimeout(hideTip, 1500);
+    }, 500);
   }, {capture: true, passive: true});
   for (const on of ['touchmove', 'touchend', 'touchcancel']) {
     addEventListener(on, drop, {capture: true, passive: true});
@@ -4612,15 +4650,15 @@ async function loadMCP() {
   open.onclick = () => openMCP(null);
 
   if (!list.length) {
-    mcpEl.replaceChildren(sectionHead('nav.connections', open), emptyState('empty.no_servers', 'empty.no_servers_how'));
+    mcpEl.replaceChildren(sectionHead('nav.mcp', open), emptyState('empty.no_servers', 'empty.no_servers_how'));
     return;
   }
   if (!rows.length) {
-    mcpEl.replaceChildren(sectionHead('nav.connections', open), mcpFind(),
+    mcpEl.replaceChildren(sectionHead('nav.mcp', open), mcpFind(),
       emptyState('empty.no_match', 'empty.no_match_how'));
     return;
   }
-  mcpEl.replaceChildren(sectionHead('nav.connections', open), mcpFind(), ...rows);
+  mcpEl.replaceChildren(sectionHead('nav.mcp', open), mcpFind(), ...rows);
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
@@ -5609,6 +5647,10 @@ function meetWhere(m) {
     // ceiling stopped may have been mid-argument.
     return m.spent ? tr('meet.done_spent') : tr('meet.done');
   }
+  // Only when there are numbers. A room whose payload is missing those fields — an older daemon, a
+  // half-written record — interpolated them as they came and the screen read "Round undefined of
+  // undefined".
+  if (m.round === undefined || m.max === undefined) return '';
   return tr('meet.round', {n: m.round, of: m.max});
 }
 
@@ -5685,7 +5727,7 @@ function drawRoom(m) {
     // "why is nothing on the screen changing".
     bar.setAttribute('aria-label', !m.opened ? tr('meet.getting_ready')
       : m.collecting ? tr('meet.collecting')
-      : tr('meet.waiting_on', {who: m.holder || upNextName(m) || ''}));
+      : tr('meet.waiting_on', {who: m.holder || upNextName(m) || tr('meet.somebody')}));
     head.append(bar);
   }
   // What went wrong, where it happened, rather than in a log nobody has open. A participant whose
@@ -6451,6 +6493,9 @@ function backToList() {
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'),
                   tr('nav.files'));
   b.className = 'fileback';
+  // Named for what it does, like the panel's back row: the word on it is where it goes, and read
+  // aloud that is the same name as the tab this screen is under.
+  b.setAttribute('aria-label', tr('action.back_to', {name: tr('nav.files')}));
   b.onclick = () => toWorkspaceList('files');
   return b;
 }
@@ -6575,7 +6620,11 @@ async function walkTree(a, kept) {
     row.append(cell('panelword', tr('git.section')));
     if (g && g.repo) {
       row.append(cell('panelcount',
-        [g.branch, (g.changes || []).length ? tr('git.n_changed', {n: (g.changes || []).length}) : '']
+        // The branch, or the head it is detached at — the same fallback the card below uses. Written
+        // as `[g.branch, …].filter(Boolean)`, a detached HEAD (a rebase, a bisect) simply dropped
+        // out and the row read "4 changed", with two of those four being conflicts.
+        [g.branch || (g.head ? '@' + g.head : ''),
+         (g.changes || []).length ? tr('git.n_changed', {n: (g.changes || []).length}) : '']
           .filter(Boolean).join(' · ')));
     }
     const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
@@ -7426,8 +7475,11 @@ async function openFile(a, path) {
   // could not tell them apart: Edit was offered, pressing it put "This companion did not answer
   // for its workspace." into the editor as line 1, and Save would have written that sentence over
   // the file. Marked as a failure instead, and the viewer offers nothing to do with it.
-  drawFile(path, got && typeof got.text === 'string' ? got.text : tr('files.unreadable'),
-           !(got && typeof got.text === 'string'));
+  // Three states, three answers: a file, a file with nothing in it, and a read that failed. The
+  // middle one used to draw a 19px grey box that read the same as the other two.
+  const text = got && typeof got.text === 'string' ? got.text : null;
+  drawFile(path, text === null ? tr('files.unreadable') : text === '' ? tr('file.empty') : text,
+           text === null || text === '');
   loadTree(a);
 }
 
@@ -7864,8 +7916,19 @@ function drawCardTabs(a) {
     // A way to shut it, on the tab, which is where an editor puts it. An icon button inside a tab
     // would be a target inside a target; this is a plain mark with its own click, and the tab
     // keeps its own.
-    const x = iconOr('#i-sl-xmark', '×', 'tabclose');
-    if (x) {
+    // A button, not an svg with a handler on it.
+    //
+    // It was a 14×14 &lt;svg aria-hidden="true"&gt; carrying an onclick: a quarter of the 48dp a thumb
+    // needs, inside a 48dp tab whose own press switches file — so a miss switches instead of
+    // closing — with no role, no name, no tab stop, and an attribute asserting to a screen reader
+    // that it is not there. The one icon on this strip that does something was the one marked
+    // decoration.
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'tabclose hit48';
+    x.setAttribute('aria-label', tr('action.close_named', {name: tabName(path)}));
+    { const mark = iconOr('#i-sl-xmark', '×'); if (mark) x.append(mark); }
+    {
       x.onclick = ev => {
         ev.stopPropagation();
         openFiles = openFiles.filter(p => p !== path);

@@ -753,7 +753,10 @@ func TestTheTabsAreNamedAsPlaces(t *testing.T) {
 			t.Errorf("the router does not know %q", view)
 		}
 	}
-	for _, key := range []string{"nav.companions", "nav.lessons", "nav.board", "nav.connections"} {
+	// nav.mcp, not nav.connections: the servers half had two names, "Servers" on the strip that
+	// switches to it and "MCP" on the heading 48px below, which is one destination disagreeing
+	// with itself on the one screen where both are drawn.
+	for _, key := range []string{"nav.companions", "nav.lessons", "nav.board", "nav.mcp"} {
 		if v := packEntry(t, key); strings.TrimSpace(v) == "" {
 			t.Errorf("%s is empty in the pack; that destination has no name", key)
 		}

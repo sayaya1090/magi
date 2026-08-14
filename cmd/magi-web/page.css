@@ -1103,7 +1103,14 @@
      tier word is on the row to tell you. */
   .sk.team .tier { color:var(--magi-ref-primary); }
   .sk.project .tier { color:var(--magi-ref-accent); }
-  .sk .what { font:600 var(--md-sys-typescale-body-large-size)/1.35 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
+  /* Three lines in the list; the rest is behind Read, which is what Read is for.
+     Unclamped it drew up to twelve — measured, a 421px row, 74% of a phone's window, twenty of
+     them making the destination eleven screens deep. The guide's list rule is one to three lines,
+     cut by screen size, with the detail on the page the row opens. */
+  .sk .what {
+    font:600 var(--md-sys-typescale-body-large-size)/1.35 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  }
   /* A fact is quoted, not instructed: it reads as something the companion believes rather than
      something it was told to do, which is the difference a person is judging on this page. */
   .sk.fact .what { font:italic 400 var(--md-sys-typescale-body-large-size)/1.4 var(--magi-ref-display); }
@@ -1928,7 +1935,12 @@
     --md-secondary-tab-active-label-text-color:var(--magi-ref-primary);
     --md-secondary-tab-active-indicator-color:var(--magi-ref-primary);
   }
-  #cardtabs .tabclose { margin-left:var(--magi-sys-space-100); color:var(--magi-ref-muted); }
+  /* A real button now, drawn as the glyph it always was — it used to be an svg with a handler on
+     it, 14px of target inside a 48dp tab, unreachable by keyboard and hidden from the tree. */
+  #cardtabs .tabclose {
+    margin-left:var(--magi-sys-space-100); color:var(--magi-ref-muted);
+    background:none; border:0; padding:0; cursor:pointer; display:inline-flex; align-items:center;
+  }
   #cardtabs .tabclose:hover { color:var(--magi-ref-fg); }
 
   /* ── how the fleet is laid out ─────────────────────────────────────────────
@@ -2421,7 +2433,16 @@
   /* The Shared destination's own switch — experience, and the servers. One layer of tabs on a
      screen that has no others, which is what tabs are for; the destinations moved to the bar at
      the foot of the phone, so nothing sits above this. */
-  .onetabs { display:flex; gap:var(--magi-sys-space-100); }
+  /* A tab strip's own anatomy: the window's width, equal shares, and a divider under it.
+     Two tabs sitting at their content width used 215px of a 358px strip inset 16px from each edge,
+     with no line separating them from what they switch — three of the things the guide names in
+     one sentence about the container. */
+  .onetabs {
+    display:flex; gap:0;
+    margin-inline:calc(-1 * var(--magi-sys-space-200));
+    border-bottom:1px solid var(--magi-ref-outlineVariant);
+  }
+  .onetabs > * { flex:1 1 0; min-width:0; }
 
   /* Above the breakpoint there is room for both cards and nothing to switch between. */
 
@@ -4363,7 +4384,10 @@
        screen's bar became 133px of three rows with both buttons pushed to a third row at the
        leading edge. Measured at 390 and at 320. A bar whose height depends on what a page happens
        to be saying is not a bar the guide describes. So it shrinks and clips, like the count. */
-    #note { max-width:none; min-width:0; flex:0 1 auto; }
+    /* The message gives way before the headline does. Both can shrink and the headline was going
+       first: measured at 320, a companion's name rendered as one letter while the line beside it
+       kept 128 of its 246px. The name is what the screen is about. */
+    #note { min-width:0; flex:0 3 auto; max-width:45%; }
     body[at="agent"] #files > .filescard {
       border:0; border-radius:0; background:none;
     }
