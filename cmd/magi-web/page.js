@@ -9790,8 +9790,10 @@ function goto(href) {
 // is not a tab stop afterwards, which is what tabindex="-1" is for.
 function landOnScreen() {
   const h = document.getElementById('screenHead');
-  const leaf = document.querySelector('#crumbs .leaf');
-  const to = h && !h.hidden ? h : leaf;
+  // The leaf crumb by id, not a descendant selector: the render harness's DOM has no
+  // document.querySelector, and this now runs on every navigation rather than only the palette's.
+  const leaf = document.getElementById('crumbLeaf');
+  const to = h && !h.hidden ? h : (leaf && (leaf.textContent || '').trim() ? leaf : null);
   if (!to || !to.focus) return;
   to.setAttribute('tabindex', '-1');
   to.focus({preventScroll: true});
@@ -9855,11 +9857,14 @@ function palShow(row) {
   if (row && row.scrollIntoView) row.scrollIntoView({block: 'nearest'});
 }
 
+let palAtEl = null;
 function palDraw() {
+  palAtEl = null;
   palList.replaceChildren(...palRows.map((r, i) => {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'palrow' + (i === palAt ? ' at' : '');
+    row.id = 'palrow-' + i;
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', String(i === palAt));
     // The word for what this row IS, carried on the row rather than built from a key here: the
@@ -9869,10 +9874,18 @@ function palDraw() {
     row.append(cell('palname', r.name));
     if (r.hint) row.append(cell('palhint', r.hint));
     row.onclick = () => palRun(i);
+    if (i === palAt) palAtEl = row;
     return row;
   }));
   palNone.hidden = palRows.length > 0;
   palNone.textContent = tr('pal.nothing');
+  // Keep the marked row in view, and name it for a reader. Arrowing the selection 300px below the
+  // fold left the list scrolled to the top with no ring on screen; and with the rows now carrying
+  // ids, the field can point aria-activedescendant at the current one so a keystroke that moves
+  // the selection is announced.
+  palShow(palAtEl);
+  if (palAtEl) palField.setAttribute('aria-activedescendant', palAtEl.id);
+  else palField.removeAttribute('aria-activedescendant');
 }
 
 // palRun closes first and acts second: several of these draw the screen the palette is sitting on
@@ -9949,6 +9962,10 @@ function nameOf(socket) {
 function go(s, peer) {
   history.pushState({}, '', at(s ? '?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : ''));
   render();
+  // The new screen gets the focus, so a keyboard user is not left on <body> with no ring after
+  // every activation that re-renders. goto() does this for the palette; the card, crumb and rail
+  // paths render() straight and were leaving focus behind.
+  landOnScreen();
 }
 // The crumb goes where it SAYS it goes. It names the section you are standing in, so sending it to
 // the fleet regardless made the label and the click disagree — you would read "lessons" and land on
@@ -9958,6 +9975,7 @@ back.onclick = e => {
   const url = back.getAttribute('href') || '/';
   history.pushState({}, '', url);
   render();
+  landOnScreen();
 };
 // The rail's destinations, addressed the same way the tabs are. They are anchors with an href, so
 // the click is intercepted like every other in-page link, and a middle click or a copied address
@@ -9976,8 +9994,21 @@ for (const [el, key] of RAILS) {
     if (!sock() && view() === key) { scrollTo({top: 0, behavior: stillness()}); return; }
     history.pushState({}, '', at(HREF[key]));
     render();
+    landOnScreen();
   };
 }
+// The rail moves under the arrow keys, not only Tab. It is a set of destinations — a navigation
+// landmark — and a reader arrowing through one expects to land on the next, not to fall out of it.
+// Non-wrapping, like the tab strips: the guide asks a linear set not to loop.
+railEl.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = RAILS.map(([el]) => el).filter(el => el && !el.hidden && el.offsetParent !== null);
+  const at = items.indexOf(document.activeElement);
+  if (at < 0) return;
+  e.preventDefault();
+  const to = e.key === 'ArrowDown' ? Math.min(at + 1, items.length - 1) : Math.max(at - 1, 0);
+  if (to !== at && items[to].focus) items[to].focus();
+});
 
 // Widening the rail is a wide-screen idea only. On a phone the rail is not a drawer — it is a
 // section at the foot of the page — so there is nothing to open and nothing to close.
