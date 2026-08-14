@@ -635,6 +635,8 @@
      Clipped rather than wrapped: the rail already hides its overflow, and a longer word in another
      language now runs out of the item instead of pushing the row apart. */
   #rail .lbl { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  /* Only the phone's bar reads the short one. */
+  .raili .lblshort { display:none; }
   /* The second line, and only where there is room for one.
      Collapsed and open showed the same four words, so opening the rail bought width and spent it
      on making the same thing bigger. What an open rail has is room for the sentence that says what
@@ -2324,23 +2326,32 @@
   @media (max-width:52.4375em) {
     #files[data-shows="files"] .pane-git,
     #files[data-shows="git"] .pane-files { display:none; }
-    .wstabs { display:flex; gap:var(--magi-sys-space-100); }
+    /* The tree, with git one row above it — and when git is what is showing, the way back is that
+       row's place. Two secondary tabs used to live here, one of them repeating the word on the
+       primary tab above it. */
+    #files > .panelist { margin-bottom:var(--magi-sys-space-150); }
     /* The way back sits at the leading edge of the bar it is on, before the path it leaves. */
     .fileback { flex:none; }
   }
-  /* Above it there is room for both and nothing to switch between. */
-  @media (min-width:52.5em) {
-    .wstabs { display:none; }
-  }
+  /* The Shared destination's own switch — experience, and the servers. One layer of tabs on a
+     screen that has no others, which is what tabs are for; the destinations moved to the bar at
+     the foot of the phone, so nothing sits above this. */
+  .onetabs { display:flex; gap:var(--magi-sys-space-100); }
+
+  /* Above the breakpoint there is room for both cards and nothing to switch between. */
 
   /* And the plan screen is four things, so it is four screens. Measured on a phone: 2.2 screens of
      scrolling with cron and what-was-interrupted below two cards nobody scrolls past. */
   @media (max-width:52.4375em) {
-    #side[data-shows="plan"] > :not(#plan):not(.wstabs),
-    #side[data-shows="strip"] > :not(#strip):not(.wstabs),
-    #side[data-shows="handoffs"] > :not(#handoffs):not(.wstabs),
-    #side[data-shows="cron"] > :not(#cron):not(.wstabs),
-    #side[data-shows="intervened"] > :not(#intervened):not(.wstabs) { display:none; }
+    /* Showing one section means showing ONE: the others are behind the list, and the way back is
+       the control at the top. */
+    #side[data-shows="plan"] > :not(#plan):not(.panelback),
+    #side[data-shows="strip"] > :not(#strip):not(.panelback),
+    #side[data-shows="handoffs"] > :not(#handoffs):not(.panelback),
+    #side[data-shows="cron"] > :not(#cron):not(.panelback),
+    #side[data-shows="intervened"] > :not(#intervened):not(.panelback) { display:none; }
+    /* And the list screen is the list: the cards behind it are not drawn at all. */
+    #side[data-shows="list"] > :not(.panelist) { display:none; }
   }
 
   /* The pane handles are what the tabs are, below the breakpoint. Two controls for one thing is a
@@ -2641,6 +2652,28 @@
      the list screen is a 24px hole down the leading edge of the page. */
   body:not([at="agent"]) #filecol { display:none; }
   #side #plan, #side #handoffs { max-width:none; }
+
+  /* ── a panel you drill into, on a phone ──────────────────────────────────── */
+  /* A list of what the panel holds, each row opening as its own screen. It replaced a strip of up
+     to five secondary tabs under the four primary ones: the guide gives secondary tabs for a second
+     layer, and in the same breath says never more than four in a strip. The outer four are already
+     at that ceiling. */
+  .panelist { display:grid; gap:var(--magi-sys-space-50); }
+  .panelrow {
+    display:grid; grid-template-columns:1fr auto auto; align-items:center;
+    gap:var(--magi-sys-space-150); min-height:56px;
+    padding:var(--magi-sys-space-150) var(--magi-sys-space-200);
+    border:0; border-bottom:1px solid var(--magi-ref-outlineVariant); background:transparent;
+    text-align:start; font:inherit; color:var(--magi-ref-fg); cursor:pointer; width:100%;
+  }
+  .panelrow:last-child { border-bottom:0; }
+  .panelrow .panelword { font-size:var(--md-sys-typescale-body-large-size); }
+  .panelrow .panelcount {
+    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
+    color:var(--magi-ref-muted);
+  }
+  .panelrow .panelgo { color:var(--magi-ref-muted); flex:none; }
+  .panelback { display:flex; }
 
   /* ── the palette ─────────────────────────────────────────────────────────── */
   /* A field and a list of what it found. The list scrolls inside the dialog rather than growing it:
@@ -3876,14 +3909,96 @@
     /* The tab strip is a navigation, not a heading: it does not need the room a heading takes. */
   }
   @media (max-width:37.4375em) {
+    /* ── the phone's navigation: a bar at the bottom ─────────────────────────
+       The guide is explicit for this width and this count: "Navigation bars provide access to
+       three to five destinations", "Compact windows should always use a navigation bar", items
+       laid out vertically (icon over label), full width, at the bottom, in a fixed position.
+       This console has four destinations.
+
+       What was here instead: the rail hidden outright, with the two top tabs doing navigation —
+       so on a phone the MEETING and PEOPLE destinations could not be reached at all. Not a
+       styling defect: two of four doors were missing.
+
+       The same markup as the rail, restyled. One navigation to keep true rather than a second
+       set of links that has to be told when the first one changes. */
     #rail {
-      position:static; transform:none; width:auto; overflow:visible;
+      position:fixed; inset:auto 0 0 0; top:auto; z-index:5; width:auto; transform:none;
+      flex-direction:row; overflow:visible; gap:0;
       border-right:0; border-top:1px solid var(--magi-ref-outlineVariant);
-      background:none; padding:var(--magi-sys-space-300) var(--magi-sys-space-300) var(--magi-sys-space-400); margin-top:var(--magi-sys-space-300);
+      background:var(--magi-ref-surface-container);
+      padding:var(--magi-sys-space-100) var(--magi-sys-space-100)
+              calc(var(--magi-sys-space-100) + env(safe-area-inset-bottom));
     }
-    /* Nothing but navigation, and on this width the tabs do that — so the rail is not drawn at
-       all. The preferences it used to carry are in the dialog now. */
-    #rail { display:none; }
+    /* The rail's own furniture is a rail's, not a bar's: there is no drawer to widen here. The
+       FOOT is not furniture — it holds a destination — so it joins the row instead of going with
+       the button. Hidden with the menu, the console had three doors on a phone and the fourth
+       (people and permissions) could not be reached at all. */
+    #railMenu { display:none; }
+    #railNav, #railFoot { display:flex; flex-direction:row; flex:1 1 auto; gap:0;
+      border-top:0; padding-top:0; margin-top:0; }
+    #railFoot { flex:1 1 0; }
+    .raili {
+      flex:1 1 0; min-width:0; flex-direction:column; gap:2px;
+      align-items:center; justify-content:center; padding:var(--magi-sys-space-50) 0;
+      /* 48dp of target, and the label under the icon rather than beside it — the guide's own
+         compact item. */
+      min-height:48px; text-align:center;
+    }
+    /* The short word here, the full one everywhere else — the guide's rule is that a bar's label
+       is one or two words and is NOT squeezed or cut to fit. Four equal quarters of a 390px screen
+       is 97px each; "People and permissions" is 159 of them. */
+    .raili .lbl { display:none; }
+    .raili .lblshort { display:block; font-size:var(--md-sys-typescale-label-small-size); max-width:100%;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* The line under each destination is for a widened rail; four of them across a phone is four
+       paragraphs where there is room for four words. */
+    .raili .sub { display:none !important; }
+    /* And the page keeps its foot clear of it. */
+    body { padding-bottom:calc(56px + env(safe-area-inset-bottom)); }
+    /* One level in, the bar goes. A companion's page is the DETAIL half of a list-detail, which on
+       compact takes the whole window and offers the way back rather than the whole map — and the
+       composer lives at the foot of that screen, which is where the bar would be. The crumb in the
+       masthead is the way out; the bar comes back with the list. */
+    body[at="agent"] #rail { display:none; }
+    body[at="agent"] { padding-bottom:0; }
+    /* Two destinations at the top and four at the bottom is two navigations for one set of
+       places. The bar is the one that carries them all. */
+    #tabs { display:none !important; }
+
+    /* The dock takes at most half the phone, and the question inside it scrolls.
+       A companion blocked on a decision puts its whole question in the prompt bar — the grounds,
+       the options, the report — and measured on the demo that was 451px of a 664px screen, fixed
+       over everything: the panel behind it could not be read and none of its rows could be tapped.
+       The question is still the most important thing on the screen, so it keeps the largest share
+       any one thing gets here; what it may not do is take the screen and the controls with it. */
+    #dock { max-height:50vh; overflow:auto; overscroll-behavior:contain; }
+
+    /* Every panel keeps its foot clear of the dock, not just the conversation.
+       The dock is fixed and measured, and only #log reserved its height — so on a phone the last
+       rows of the workspace tree and of this panel's list sat under it. Measured on the demo,
+       where the companion is blocked and the dock is tall: the second row of the list could not be
+       tapped at all, because the prompt bar was over it. */
+    body[at="agent"] #side, body[at="agent"] #files {
+      padding-bottom:calc(var(--dock, 0px) + var(--magi-sys-space-300));
+    }
+
+    /* ── one card, one screen: the panel is the frame ────────────────────────
+       A card is a container for grouped content — it says "these things belong together, and this
+       is where they stop". Inside a compact panel the card IS the panel: the tab above it has
+       already drawn the boundary, and a second outline eight pixels inside the first is a frame
+       around a frame, spending width on saying twice what was said once.
+       So on a phone the cards in a panel keep their heading and give up their edge. Not the
+       COMMIT workbench or an open file, which are objects in a slot rather than sections of a
+       panel — those keep their box. */
+    body[at="agent"] #side md-outlined-card {
+      --md-outlined-card-outline-width:0px;
+      --md-outlined-card-container-shape:0px;
+      --md-outlined-card-container-color:transparent;
+      padding-inline:0;
+    }
+    body[at="agent"] #files > .filescard {
+      border:0; border-radius:0; background:none;
+    }
     .prefrow.narrowonly { display:flex; }
     /* Two side panes do not fit beside a conversation on a phone, and stacking three columns is
        three screens of scrolling to reach the transcript. The file pane goes under it, opened by

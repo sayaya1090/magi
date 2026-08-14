@@ -185,7 +185,7 @@
       <!-- The word and the sentence under it, in a box of their own: the item is a row of icon
            then words, and two loose spans would sit side by side in it. Collapsed, the box holds
            only the word — the sentence is not drawn — and the item stacks as it always did. -->
-      <span class="words"><span class="lbl"></span><span class="sub"></span></span>
+      <span class="words"><span class="lbl"></span><span class="lblshort"></span><span class="sub"></span></span>
     </a>
     <a id="railSkills" class="raili">
       <span class="icwrap">
@@ -200,7 +200,7 @@
       <!-- The word and the sentence under it, in a box of their own: the item is a row of icon
            then words, and two loose spans would sit side by side in it. Collapsed, the box holds
            only the word — the sentence is not drawn — and the item stacks as it always did. -->
-      <span class="words"><span class="lbl"></span><span class="sub"></span></span>
+      <span class="words"><span class="lbl"></span><span class="lblshort"></span><span class="sub"></span></span>
     </a>
     <!-- Companions talking to each other. A destination and not a control on the fleet: a meeting
          outlives the screen it was convened from, and somebody coming back to one an hour later
@@ -219,7 +219,7 @@
       <!-- The word and the sentence under it, in a box of their own: the item is a row of icon
            then words, and two loose spans would sit side by side in it. Collapsed, the box holds
            only the word — the sentence is not drawn — and the item stacks as it always did. -->
-      <span class="words"><span class="lbl"></span><span class="sub"></span></span>
+      <span class="words"><span class="lbl"></span><span class="lblshort"></span><span class="sub"></span></span>
     </a>
   </div>
 
@@ -240,7 +240,7 @@
       <!-- The word and the sentence under it, in a box of their own: the item is a row of icon
            then words, and two loose spans would sit side by side in it. Collapsed, the box holds
            only the word — the sentence is not drawn — and the item stacks as it always did. -->
-      <span class="words"><span class="lbl"></span><span class="sub"></span></span>
+      <span class="words"><span class="lbl"></span><span class="lblshort"></span><span class="sub"></span></span>
     </a>
   </div>
 
@@ -253,14 +253,14 @@
          a node holds. -->
     <!-- Label and badge in ONE slotted element. A tab stacks what is slotted into it — it is built
          for an icon above a word — so two siblings put the count on a line below the label. -->
-    <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
+    <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="lblshort"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
   </md-tabs>
   <md-chip-set id="summary"></md-chip-set>
   <!-- Two things share this destination: what companions have learned, and the servers they can
        reach. On a phone that is two purposes on one screen, so the strip switches between them —
        and above the breakpoint it is not drawn, because both are in one column there. -->
-  <div id="sharedTabs" class="wstabs" hidden></div>
+  <div id="sharedTabs" class="onetabs" hidden></div>
   <div id="skills" hidden></div>
   <div id="board" hidden></div>
   <!-- How the fleet is laid out and what is crossing between the parts of it. Not a destination of

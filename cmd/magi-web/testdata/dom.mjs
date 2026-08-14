@@ -415,7 +415,8 @@ for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],
   // into both by class, and a stub missing either throws where the browser would simply write.
   const words = element('span');
   words.className = 'words';
-  for (const cls of ['lbl', 'sub']) {
+  // lblshort is the phone bar's version of the same word — markup too, and paint() writes it.
+  for (const cls of ['lbl', 'lblshort', 'sub']) {
     const n = element('span');
     n.className = cls;
     words.append(n);

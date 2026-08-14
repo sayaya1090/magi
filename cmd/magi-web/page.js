@@ -456,13 +456,27 @@ function drawPanels() {
     cardTabs.hidden = true;
   }
   if (panel === 'plan') {
-    // The switch lives in the pane, above the cards it switches between, and is rebuilt with
-    // them: which of the four exist depends on what this companion is doing.
-    const had = sideEl.querySelector('.wstabs');
-    if (had) had.remove();
-    const tabs = planTabs();
-    if (tabs) sideEl.prepend(tabs);
-    sideEl.setAttribute('data-shows', planShows);
+    // Rebuilt with the cards, because which sections exist depends on what this companion is
+    // doing — and on a phone this panel is a list you drill into rather than a strip of tabs.
+    for (const old of sideEl.querySelectorAll('.panelist, .panelback')) old.remove();
+    if (onePane()) {
+      const sections = planSections();
+      const one = sections.length === 1 ? sections[0].id : '';
+      // One section needs no list: a list of one is a press that tells you nothing.
+      if (one) planShows = one;
+      else if (!sections.some(x => x.id === planShows)) planShows = '';
+      if (!planShows) {
+        const list = planList();
+        if (list) sideEl.prepend(list);
+      } else if (!one) {
+        const word = (sections.find(x => x.id === planShows) || {}).word || '';
+        sideEl.prepend(panelBack(tr('nav.going_on'), () => { planShows = ''; drawPanels(); }));
+        void word;
+      }
+    } else {
+      planShows = '';   // above the breakpoint the cards are a column and nothing is chosen
+    }
+    sideEl.setAttribute('data-shows', planShows || 'list');
   }
 }
 // What the companion said while somebody was on another half of its page.
@@ -488,27 +502,67 @@ function paintUnread() {
 // The guide draws the line here: "Compact and medium breakpoints: A single pane works best."
 // Which of the plan screen's four a phone is showing. Above the breakpoint it is not read: the
 // pane is a column and they are stacked in it, which is what a column is for.
-let planShows = 'plan';
+// Empty means the LIST — which is where a phone starts, because the panel is a list of what is
+// going on and the sections are what it drills into. It was 'plan', so the first thing a reader saw
+// was one section with a way back to a list they had never been shown.
+let planShows = '';
 
 // planTabs is that switch, drawn into the pane above the cards.
 //
 // Four cards — the plan, the work handed out, what is scheduled, and what somebody interrupted —
 // measured at 2.2 screens of scrolling on a phone with the last of them below two others nobody
 // scrolls to. They are four things, so they are four screens.
-function planTabs() {
-  const box = cell('wstabs');
-  const has = id => { const e = document.getElementById(id); return e && !e.hidden && e.children.length; };
-  const four = [['plan', 'nav.plan'], ['strip', 'nav.running'], ['handoffs', 'nav.handoffs'],
-                ['cron', 'nav.cron'], ['intervened', 'nav.intervened']].filter(([id]) => has(id));
-  if (four.length < 2) return null;   // one thing needs no switch
-  if (!four.some(([id]) => id === planShows)) planShows = four[0][0];
-  for (const [id, key] of four) {
-    const t = document.createElement('md-secondary-tab');
-    t.textContent = tr(key);
-    t.active = planShows === id;
-    t.onclick = () => { planShows = id; drawPanels(); };
-    box.append(t);
+// planSections is what this panel holds right now, in reading order, with what each has in it.
+//
+// Read off the cards themselves rather than from a list kept beside them: a card is drawn when its
+// loader found something, so "does this companion have scheduled work" is a question the DOM has
+// already answered. A list of five that offers two empty screens is a list that has to be checked
+// by pressing.
+function planSections() {
+  const count = el => {
+    // The rows a reader would count, which is not the same as the children: every one of these
+    // cards begins with a heading.
+    const n = [...el.children].filter(k => !String(k.className || '').split(' ').includes('k')).length;
+    return n > 0 ? String(n) : '';
+  };
+  return [['plan', tr('nav.plan')], ['strip', tr('nav.running')], ['handoffs', tr('nav.handoffs')],
+          ['cron', tr('nav.cron')], ['intervened', tr('nav.intervened')]]
+    .map(([id, word]) => ({id, word, el: document.getElementById(id)}))
+    .filter(x => x.el && !x.el.hidden && x.el.children.length)
+    .map(x => ({...x, n: count(x.el)}));
+}
+
+// On a phone this panel is a LIST of what is going on, and each row opens as its own screen.
+//
+// It was a row of secondary tabs — up to five of them, in a strip under the four primary tabs
+// above. Two layers of tabs is what the guide gives secondary tabs FOR, but it also says never
+// more than four in a strip, and the outer four already sit at that ceiling: a fifth thing to
+// choose from, drawn as a sixth-of-a-screen-wide word, is a control nobody reads.
+//
+// A list instead, which is the compact form of list-detail: the list and the detail take turns.
+// The row says what the section is and how much is in it, so choosing does not mean guessing.
+function planList() {
+  const box = cell('panelist');
+  for (const {id, word, n} of planSections()) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'panelrow state';
+    row.append(cell('panelword', word));
+    if (n) row.append(cell('panelcount', n));
+    const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
+    if (mark) row.append(mark);
+    row.onclick = () => { planShows = id; drawPanels(); };
+    box.append(row);
   }
+  return box.children.length ? box : null;
+}
+
+// The way back out of a section, at the top of it, where the file view already puts one.
+function panelBack(word, go) {
+  const box = cell('panelback');
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'), word);
+  b.onclick = go;
+  box.append(b);
   return box;
 }
 
@@ -6252,18 +6306,34 @@ async function walkTree(a, kept) {
   // Compared on the INPUTS, not on the markup: everything drawn here comes from the listings, the
   // git state, which directories are open and which file is showing, and a string of those is
   // cheap next to serialising a tree of several hundred rows.
-  // On a phone the two cards are two screens, switched here. Above the breakpoint both are in the
-  // pane and this is not drawn: there is room for them, and a tab that switches between two things
-  // you can already see is a control that does nothing.
-  const pick = onePane() ? cell('wstabs') : null;
-  if (pick) {
-    for (const [key, word] of [['files', tr('nav.files')], ['git', tr('git.section')]]) {
-      const t = document.createElement('md-secondary-tab');
-      t.textContent = word;
-      t.active = wsShows === key;
-      t.onclick = () => toWorkspaceList(key);
-      pick.append(t);
+  // On a phone the two cards are two screens, and moving between them is DEPTH rather than a second
+  // strip of tabs.
+  //
+  // It was a pair of secondary tabs reading "Workspace" and "Git" — under a primary tab already
+  // reading "Workspace", which is the same word twice on two levels, and a second tab layer for a
+  // choice between two things. The tree is what this screen is; git is one row at the top of it
+  // that opens as its own screen, with a way back. The row says what is there — the branch, and how
+  // many files are changed — so the press is informed rather than exploratory.
+  const pick = onePane() ? cell('panelist') : null;
+  if (pick && wsShows === 'git') {
+    pick.replaceChildren();
+    pick.append(panelBack(tr('nav.files_short'), () => toWorkspaceList('files')).firstChild);
+    pick.className = 'panelback';
+  } else if (pick) {
+    const g = (() => { try { return JSON.parse(gitSection.raw || 'null'); } catch { return null; } })();
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'panelrow state';
+    row.append(cell('panelword', tr('git.section')));
+    if (g && g.repo) {
+      row.append(cell('panelcount',
+        [g.branch, (g.changes || []).length ? tr('git.n_changed', {n: (g.changes || []).length}) : '']
+          .filter(Boolean).join(' · ')));
     }
+    const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
+    if (mark) row.append(mark);
+    row.onclick = () => toWorkspaceList('git');
+    pick.append(row);
   }
   const now = JSON.stringify([a.workdir, treeAt.seen, gitSection.raw, [...openDirs].sort(), cardShows, findQ, wsShows]);
   if (now === loadTree.drawn && filesEl.children.length) return;
@@ -8264,16 +8334,21 @@ function paint() {
   // Both keys written out rather than built as key + '_sub': the phrase pack's own audit finds
   // unused phrases by grepping for the literal, and a key assembled at runtime is invisible to it
   // — which would leave four translated lines nobody could tell were still reachable.
-  for (const [el, key, sub] of [[railFleet, 'nav.companions', 'nav.companions_sub'],
-                                [railSkills, 'nav.shared', 'nav.shared_sub'],
-                                [railMeet, 'nav.meet', 'nav.meet_sub'],
-                                [railAccess, 'nav.access', 'nav.access_sub']]) {
+  for (const [el, key, sub, short] of [[railFleet, 'nav.companions', 'nav.companions_sub', 'nav.companions'],
+                                      [railSkills, 'nav.shared', 'nav.shared_sub', 'nav.shared'],
+                                      [railMeet, 'nav.meet', 'nav.meet_sub', 'nav.meet'],
+                                      [railAccess, 'nav.access', 'nav.access_sub', 'nav.access_short']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
     // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
+    // The same destination in one or two words, for the bar at the bottom of a phone. The guide is
+    // explicit that a bar's label is not shrunk or truncated to fit — so where the long name does
+    // not fit in a quarter of a 390px screen, there is a short one, and where it does the two are
+    // the same word.
+    el.querySelector('.lblshort').textContent = tr(short);
     // And what is behind it, one line, drawn only when the rail is open. Open and closed carried
     // the same four words at two sizes, so widening the rail bought room and spent it on nothing —
     // while "shared" and "meeting" are exactly the two a newcomer cannot guess. The stylesheet

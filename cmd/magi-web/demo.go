@@ -137,6 +137,73 @@ const demoScript = `
             labels: labels,
             ago: current ? 0 : Math.round((Date.now() - en) / 1000), current: !!current};
   };
+  // The files the demo can actually open, by the path the tree and the git card name.
+  //
+  // Written out rather than generated, because what a reader is judging here is how the pane draws
+  // a file: the gutter's numbers are the read tool's own, the comment and the strings are marked,
+  // and a markdown file is drawn as text rather than rendered — the console shows what is IN the
+  // file, not what it would look like published.
+  const FILES = {
+    'internal/app/git.go':
+      '    64\t// GitFacts reads the workspace\'s git state, or reports that there is none.\n' +
+      '    65\tfunc (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {\n' +
+      '    66\t\tif a.plat == nil {\n' +
+      '    67\t\t\treturn GitState{}, fmt.Errorf("platform unavailable")\n' +
+      '    68\t\t}\n' +
+      '    69\t\tres, err := a.plat.Exec(ctx, port.Cmd{\n' +
+      '    70\t\t\tPath:      "git",\n' +
+      '    71\t\t\t// --porcelain=v2 is the format git documents for programs.\n' +
+      '    72\t\t\tArgs:      []string{"status", "--porcelain=v2", "--branch"},\n' +
+      '    73\t\t\tDir:       workdir,\n' +
+      '    74\t\t\tMaxOutput: 1048576,\n' +
+      '    75\t\t})\n' +
+      '    76\t\tif err != nil || res.ExitCode != 0 {\n' +
+      '    77\t\t\t// Not a checkout, no git, or a repository this account may not read.\n' +
+      '    78\t\t\treturn GitState{}, nil\n' +
+      '    79\t\t}\n' +
+      '    80\t\treturn parseGitStatus(string(res.Stdout)), nil\n' +
+      '    81\t}\n',
+    'README.md':
+      '     1\t# magi\n' +
+      '     2\t\n' +
+      '     3\tAn agent that runs where the work is: one companion per workspace, a daemon\n' +
+      '     4\tholding the conversation, and this console reading what they wrote down.\n' +
+      '     5\t\n' +
+      '     6\t## What it is not\n' +
+      '     7\t\n' +
+      '     8\tIt is not a chat window with a file browser bolted on. Everything on this page\n' +
+      '     9\tis derived from the event log the companion is already keeping.\n',
+    'go.mod':
+      '     1\tmodule github.com/sayaya1090/magi\n' +
+      '     2\t\n' +
+      '     3\tgo 1.26.4\n' +
+      '     4\t\n' +
+      '     5\trequire (\n' +
+      '     6\t\tcharm.land/bubbles/v2 v2.0.0\n' +
+      '     7\t\tcharm.land/bubbletea/v2 v2.0.0\n' +
+      '     8\t\tcharm.land/lipgloss/v2 v2.0.0\n' +
+      '     9\t)\n',
+    'docs/UI.md':
+      '     1\t# The console, and the rules it keeps\n' +
+      '     2\t\n' +
+      '     3\tDerive, never record. State, interventions and context all come out of events\n' +
+      '     4\talready on disk — no status file exists, so nothing can be stale.\n' +
+      '     5\t\n' +
+      '     6\tAn empty state names the thing that is absent and how it stops being absent.\n',
+    'cmd/magi-web/page.js':
+      '  1284\tfunction emptyState(whatKey, howKey) {\n' +
+      '  1285\t  // Two sentences: what is not here, and the one thing that would put something\n' +
+      '  1286\t  // here. A box that says "nothing yet" and stops is a dead end.\n' +
+      '  1287\t  const box = cell(\'empty\');\n' +
+      '  1288\t  box.append(cell(\'emptywhat\', tr(whatKey)));\n' +
+      '  1289\t  if (howKey) box.append(cell(\'emptyhow\', tr(howKey)));\n' +
+      '  1290\t  return box;\n' +
+      '  1291\t}\n',
+    'scratchpad/notes.md':
+      '     1\t- the empty states all name their token now\n' +
+      '     2\t- ask design which one the table should use\n',
+  };
+
   const HISTORY = {
     '/demo/design.sock': [
       ran('d1', 'spec the empty state for the fleet table, and name the exact tokens', 0, 9, 2, true, ['empty-state', 'tokens']),
@@ -281,25 +348,7 @@ const demoScript = `
     // pane does with code: the comment, the strings and the numbers are marked, and the line
     // numbers are the read tool's own — a person and their companion have to be able to point at
     // the same line 40.
-    '/file': {path: 'internal/app/git.go', text:
-      '    64\t// GitFacts reads the workspace\'s git state, or reports that there is none.\n' +
-      '    65\tfunc (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {\n' +
-      '    66\t\tif a.plat == nil {\n' +
-      '    67\t\t\treturn GitState{}, fmt.Errorf("platform unavailable")\n' +
-      '    68\t\t}\n' +
-      '    69\t\tres, err := a.plat.Exec(ctx, port.Cmd{\n' +
-      '    70\t\t\tPath:      "git",\n' +
-      '    71\t\t\t// --porcelain=v2 is the format git documents for programs.\n' +
-      '    72\t\t\tArgs:      []string{"status", "--porcelain=v2", "--branch"},\n' +
-      '    73\t\t\tDir:       workdir,\n' +
-      '    74\t\t\tMaxOutput: 1048576,\n' +
-      '    75\t\t})\n' +
-      '    76\t\tif err != nil || res.ExitCode != 0 {\n' +
-      '    77\t\t\t// Not a checkout, no git, or a repository this account may not read.\n' +
-      '    78\t\t\treturn GitState{}, nil\n' +
-      '    79\t\t}\n' +
-      '    80\t\treturn parseGitStatus(string(res.Stdout)), nil\n' +
-      '    81\t}\n'},
+    // The files themselves are in FILES above, answered by the path that was asked for.
     // A search over the workspace. Answered with content hits — "path:line:text", the shape the
     // agent's own grep produces — because that is the one whose result shape a reader cannot guess
     // from a list of paths.
@@ -754,6 +803,28 @@ const demoScript = `
       if (!body) return {ok: false, status: 404, text: async () => 'no meeting by that name here'};
       return {ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body)};
     }
+    // A file is answered by the path that was asked for.
+    //
+    // One fixture answered every path, so opening a second file put the first one's contents on
+    // screen under the second one's name — reported from the demo as "the tab opens and the file
+    // does not change". A demo that shows the wrong file is worse than one that shows none: it
+    // teaches that the console cannot open files, which is the opposite of true.
+    //
+    // Four are written out, because they are what the tree and the git card name. Anything else
+    // gets a stand-in that SAYS it is one, rather than somebody else's code.
+    if (url === '/file') {
+      const want = new URLSearchParams(String(path).split('?')[1] || '').get('path') || '';
+      const one = FILES[want];
+      if (one) return {ok: true, status: 200, json: async () => ({path: want, text: one}),
+                       text: async () => JSON.stringify({path: want, text: one})};
+      const stand = '     1\t' + want + '\n' +
+        '     2\t\n' +
+        '     3\tThis is the demo. The real console reads this file out of the companion\'s\n' +
+        '     4\tworkspace through its own read tool, line numbers and all — the same numbers\n' +
+        '     5\tthe agent sees, so a person and their companion can point at the same line.\n';
+      return {ok: true, status: 200, json: async () => ({path: want, text: stand}),
+              text: async () => JSON.stringify({path: want, text: stand})};
+    }
     if (url === '/history') {
       const who = new URLSearchParams(String(path).split('?')[1] || '').get('d') || '';
       const runs = HISTORY[who] || [];
@@ -835,6 +906,16 @@ const demoScript = `
       streams.add(this);
     }
     close() { clearTimeout(this.timer); streams.delete(this); }
+    // The named frames the real stream also carries. One connection per window carries the
+    // transcript AND the roster now, so a stub with only onmessage made every page that listens
+    // for a roster frame throw — measured on this demo: "fleetES.addEventListener is not a
+    // function", and with it the fleet stopped redrawing. A demo that throws is a demo of a broken
+    // console.
+    //
+    // Nothing is ever emitted through these here: the demo's fleet does not change while you look
+    // at it, and inventing movement would be inventing news. What they have to do is EXIST.
+    addEventListener(kind, fn) { (this.on || (this.on = {}))[kind] = fn; }
+    removeEventListener(kind) { if (this.on) delete this.on[kind]; }
   };
 })();
 </script>
