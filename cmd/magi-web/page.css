@@ -2306,6 +2306,7 @@
      scrolling with cron and what-was-interrupted below two cards nobody scrolls past. */
   @media (max-width:52.4375em) {
     #side[data-shows="plan"] > :not(#plan):not(.wstabs),
+    #side[data-shows="strip"] > :not(#strip):not(.wstabs),
     #side[data-shows="handoffs"] > :not(#handoffs):not(.wstabs),
     #side[data-shows="cron"] > :not(#cron):not(.wstabs),
     #side[data-shows="intervened"] > :not(#intervened):not(.wstabs) { display:none; }
@@ -2341,16 +2342,10 @@
     body[at="agent"][panel="facts"] #stop,
     body[at="agent"][panel="files"] #stop,
     body[at="agent"][panel="plan"] #stop { display:none; }
-    /* And the strip of what is running goes with the conversation too.
-       The dock is fixed, so everything it holds is height taken off the top of whatever screen is
-       showing: measured on a 390x844 phone it was 535px — 63% — and the file card's own actions
-       were drawn underneath it. Pressing Edit did nothing, because the press landed on a job chip
-       in the dock. The strip is a companion's own running work, which is a thing to read beside
-       the conversation; on the other three screens it is 90px of somebody else's business over the
-       thing they came to use.
-       The bar where the companion is ASKING something stays on every screen. That is a question
-       waiting for an answer, and hiding it behind a tab is how a fleet stalls. */
-    body[at="agent"]:not([panel="talk"]) #strip { display:none; }
+    /* The bar where the companion is ASKING something stays on every screen. That is a question
+       waiting for an answer, and hiding it behind a tab is how a fleet stalls. (What is RUNNING
+       used to be hidden here as well, because the dock held it and the dock is 535px of a 390x844
+       phone. It is in the pane now, which is the same answer said once instead of per screen.) */
   }
 
   @media (min-width:52.5em) {
@@ -2513,29 +2508,24 @@
      came from: reproducing it in a column beside the thing it led you to is drawing the previous
      step over the current one. The way back is the way in. */
 
-  /* The strip: one chip per thing running beside the turn, wrapping rather than scrolling, quiet
-     until you look at it. It sits in the dock so it is on screen wherever the transcript is
-     scrolled to — a panel that says "a build is running" is worth nothing if you have to scroll to
-     it. */
+  /* What is running beside the turn: one chip per thing, wrapping rather than scrolling. A card in
+     the pane like the plan and the queue beside it — it was a strip in the dock, on screen at every
+     width whatever you were doing, and the dock is not where a thing you consult belongs. */
   /* Chips, to the spec rather than to the eye.
      The guide gives one set of measurements for all four chip variants and this had none of them:
      a pill instead of the 8dp corner, whatever height the text made instead of 32dp, and paddings
      picked from the spacing scale rather than from the component. 8dp between chips, 8dp between
      the elements inside one, 16dp at the ends — 8dp on the end that has the leading dot, which is
      what the guide calls "left/right padding with icon". */
+  /* A pane card, laid out like the others: the heading on its own line, the chips wrapping under
+     it. The ground and the fade that used to be here belonged to the dock — the chips sat in its
+     transparent top edge and the transcript scrolled through them. There is no edge to sit in now.
+     */
   #strip:not([hidden]) {
-    display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150);
-    /* Its own ground, and the dock's fade moved above it.
-       The dock is transparent for its top 12% so the transcript dissolves into it rather than
-       being cut — and the strip sits exactly there, so the conversation scrolled THROUGH the chips
-       and their labels were unreadable over it. The chips get the page's background and the fade
-       is drawn just above them, which is where the edge of the dock now is. */
-    background:var(--magi-ref-bg); position:relative;
+    display:flex; flex-wrap:wrap; align-items:center; gap:var(--magi-sys-space-100);
+    padding:var(--magi-sys-space-200);
   }
-  #strip:not([hidden])::before {
-    content:''; position:absolute; left:0; right:0; bottom:100%; height:var(--magi-sys-space-300);
-    background:linear-gradient(to top, var(--magi-ref-bg), transparent); pointer-events:none;
-  }
+  #strip > .k { flex-basis:100%; }
   /* Scoped to the strip. A scheduled job in the pane is also .job — an unscoped rule here gave
      every row of the schedule a chip's height and border, which is a list turned into a row of
      pills by a name collision. */

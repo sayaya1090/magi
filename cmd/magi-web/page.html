@@ -324,6 +324,12 @@
     <div id="sidecol">
       <div id="sideGrip" class="grip lead" role="separator" aria-orientation="vertical" tabindex="0"></div>
       <aside id="side">
+        <!-- What is running beside the turn: a background command, a spawned child. It was a strip
+             in the dock, above the composer and on screen whatever you were doing — which on a
+             phone was 90px of somebody else's business over the thing you came to use, and on a
+             desktop a band that was there whether or not anything was running. It belongs with the
+             plan and the queue: things about the state of the work, read when you want them. -->
+        <md-outlined-card id="strip" hidden></md-outlined-card>
         <md-outlined-card id="plan" hidden></md-outlined-card>
         <md-outlined-card id="handoffs" hidden></md-outlined-card>
         <md-outlined-card id="queued" hidden></md-outlined-card>
@@ -508,11 +514,6 @@
 </md-dialog>
 
 <footer id="dock">
-  <!-- What is running beside the turn: a command left in the background, a child that was spawned.
-       Above the composer and always there, which is where the terminal has kept it since it had
-       one — the work that takes minutes is the work you want to see without going looking. Reaching
-       a child through a button buried in the facts card meant opening a card to find out that
-       something was happening at all. -->
   <!-- The dock's contents stand in the page's column, so they are inside a box with the page's
        geometry rather than pinned to the window. Fixed and full width, they hugged the left while
        main centred itself on a wide monitor: measured at 2488px, the conversation began at 339 and
@@ -520,7 +521,6 @@
        reading measure applies INSIDE it, left-aligned, exactly as the transcript does inside main.
        Not #dock itself, which stays full width so its fade still covers the whole foot of the page. -->
   <div class="bay">
-  <div id="strip" hidden></div>
   <div id="prompt" hidden></div>
   <form id="f" hidden><div class="composer">
     <md-outlined-text-field id="t" type="textarea" rows="1"

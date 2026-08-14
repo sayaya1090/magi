@@ -496,8 +496,8 @@ let planShows = 'plan';
 function planTabs() {
   const box = cell('wstabs');
   const has = id => { const e = document.getElementById(id); return e && !e.hidden && e.children.length; };
-  const four = [['plan', 'nav.plan'], ['handoffs', 'nav.handoffs'], ['cron', 'nav.cron'],
-                ['intervened', 'nav.intervened']].filter(([id]) => has(id));
+  const four = [['plan', 'nav.plan'], ['strip', 'nav.running'], ['handoffs', 'nav.handoffs'],
+                ['cron', 'nav.cron'], ['intervened', 'nav.intervened']].filter(([id]) => has(id));
   if (four.length < 2) return null;   // one thing needs no switch
   if (!four.some(([id]) => id === planShows)) planShows = four[0][0];
   for (const [id, key] of four) {
@@ -7446,9 +7446,11 @@ async function saveFormat() {
 // command is a PID in the daemon's process and a session log cannot say whether a child is still
 // going — so both are read from the daemon, on the poll that already runs.
 //
-// Drawn as a strip in the dock rather than as buttons inside the facts card. The card is a thing
-// you open to check on something; this is the answer to "is anything happening", and it has to be
-// on screen without being asked for. The terminal has kept it along the bottom since it had one.
+// A card in the pane, beside the plan and the queue. It was a strip in the dock, which put it over
+// every screen at every width: on a phone 90px of it sat above whatever you were doing, and the
+// file card's own actions were drawn underneath it. What is running is a fact about the state of
+// the work, like the plan and the queue — read when you want it, not held in front of the thing
+// you came to use.
 const stripEl = document.getElementById('strip');
 
 function jobChip(kind, name, say, opts) {
@@ -7541,7 +7543,7 @@ function taskLine(task) {
 }
 
 async function loadJobs(a) {
-  if (!a) { stripEl.hidden = true; stripEl.replaceChildren(); drawQueued(null); return; }
+  if (!a) { showSide(stripEl, false); stripEl.replaceChildren(); drawQueued(null); return; }
   const j = await fetchList('/jobs' + qFor(a)) || {};
   drawQueued(j.queued);
   const kids = j.children || [], bg = j.background || [];
@@ -7566,8 +7568,9 @@ async function loadJobs(a) {
   // Hidden when it has nothing to say, decided after the chips are built rather than from the
   // length of what came back: with fifteen finished children and none of them drawn, the strip
   // stayed on screen as a band of nothing.
-  stripEl.replaceChildren(...chips);
-  stripEl.hidden = chips.length === 0;
+  stripEl.replaceChildren(...(chips.length
+    ? [markedKey('#i-sl-spinner-third', tr('field.running', {n: chips.length})), ...chips] : []));
+  showSide(stripEl, chips.length > 0);
 }
 
 // pastRows is the transcript of the finished session currently open, for the screens that read a
