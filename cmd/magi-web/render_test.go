@@ -1143,6 +1143,56 @@ console.log(JSON.stringify(out));
 	}
 }
 
+// The tab and the screen under it are one answer, not two.
+//
+// Reported from a phone: reading the workspace, going to another destination, coming back — the
+// Workspace tab was still the marked one and the CONVERSATION was underneath it. Two pieces of
+// state for one question, written in four places and reset in one: leaving a companion put the
+// page's `panel` back to talk and left the strip where the reader had put it. This is the general
+// shape to guard against, so the check is that they AGREE, not that either holds a given value.
+func TestTheMarkedTabIsTheScreenYouGet(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+	   "task":"add the key","steps":3,"idle":4,"session":"s1"}]`
+	probe := `
+await loadFleet();
+const vis = id => !byId[id].hidden;
+const agree = () => ({at: byId.ptabs.activeTabIndex, log: vis('log'), files: vis('files')});
+const out = {};
+byId.ptabs.activeTabIndex = 2;
+byId.ptabs.dispatchEvent({type: 'change'});
+out.onWorkspace = agree();
+history.pushState({}, '', '/?v=board');
+render();
+await Promise.resolve();
+history.pushState({}, '', '/?d=%2Fs%2Fa.sock');
+render();
+await Promise.resolve();
+out.backAgain = agree();
+console.log(JSON.stringify(out));
+`
+	t.Setenv("NARROW", "1")
+	got := runPage(t, one, "?d=%2Fs%2Fa.sock", probe)
+	on, _ := got["onWorkspace"].(map[string]any)
+	if on["at"] != float64(2) || on["files"] != true {
+		t.Fatalf("the workspace tab did not open the workspace: %v — this guard has lost its subject", on)
+	}
+	back, _ := got["backAgain"].(map[string]any)
+	at, _ := back["at"].(float64)
+	shown := "the conversation"
+	if back["files"] == true {
+		shown = "the workspace"
+	}
+	if int(at) == 0 && back["log"] != true {
+		t.Errorf("the Conversation tab is marked and %s is on screen", shown)
+	}
+	if int(at) == 2 && back["files"] != true {
+		t.Errorf("the Workspace tab is marked and %s is on screen", shown)
+	}
+	if back["log"] == true && back["files"] == true {
+		t.Errorf("two screens at once: %v", back)
+	}
+}
+
 // Below the two-column width a companion is four screens, not one column of everything.
 //
 // It was two — the conversation, and "status" holding the rest — and status was measured on a

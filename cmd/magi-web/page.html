@@ -507,7 +507,12 @@
 <md-dialog id="palDialog">
   <div slot="headline" id="palK"></div>
   <div slot="content">
-    <md-outlined-text-field id="palField"></md-outlined-text-field>
+    <!-- autofocus, because the field is not the first focusable thing in here on a phone.
+         The dialog focuses `[autofocus]` if it finds one and otherwise the first control it can
+         see, and at compact that is the close x in the headline: measured at 390px, the palette
+         opened, three characters were typed, and the field still read "" with all ten rows
+         showing. The one thing this dialog is for is typing into it. -->
+    <md-outlined-text-field id="palField" autofocus></md-outlined-text-field>
     <!-- A listbox, and the rows are options: this is a chooser, and a screen reader that is told
          "list" hears a list of text rather than a set of things one of which is about to happen. -->
     <div id="palList" role="listbox" tabindex="-1"></div>

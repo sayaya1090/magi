@@ -47,6 +47,7 @@
   "action.keep": "Keep for this companion",
   "action.keep_running": "Leave it running",
   "action.move_and_send": "Move and send",
+  "action.pane_width": "How wide {panel} is",
   "action.read": "Read",
   "action.read_named": "Read {name}",
   "action.remove": "Remove",

@@ -377,6 +377,18 @@ const ptabs = document.getElementById('ptabs');
 const streamEl = document.getElementById('stream'), sideEl = document.getElementById('side');
 const detailEl = document.getElementById('detail');
 let panel = 'talk';
+// One writer for both halves.
+//
+// `panel` is the page's answer to "which half of a companion am I reading"; ptabs.activeTabIndex is
+// the strip's. They were written in four places and reset in one — leaving a companion put `panel`
+// back to talk and left the strip pointing at Workspace, so coming back drew the CONVERSATION under
+// a tab that said Workspace. Reported from a phone, and it is the general shape the reporter
+// suspected: the control keeps its state while the content behind it moves on.
+function setPanel(name) {
+  panel = name;
+  const at = ['talk', 'facts', 'files', 'plan'].indexOf(name);
+  if (at >= 0 && ptabs.activeTabIndex !== at) ptabs.activeTabIndex = at;
+}
 // A media query object rather than a width read: it fires on the change, so a window dragged past
 // the breakpoint re-lays out without waiting for anything else to happen.
 const wide = matchMedia('(min-width:52.5em)');
@@ -688,8 +700,7 @@ function toWorkspacePanel() {
     drawPanels();
     return;
   }
-  panel = 'files';
-  ptabs.activeTabIndex = 2;
+  setPanel('files');
   drawPanels();
 }
 
@@ -726,7 +737,12 @@ ptabs.addEventListener('keydown', e => {
 }, true);
 ptabs.addEventListener('change', () => {
   const was = ['talk', 'facts', 'files', 'plan'].indexOf(panel);
-  panel = ['talk', 'facts', 'files', 'plan'][ptabs.activeTabIndex] || 'talk';
+  const now = ['talk', 'facts', 'files', 'plan'][ptabs.activeTabIndex] || 'talk';
+  // The component dispatches change for a programmatic activation too, and everything below answers
+  // a PRESS: it slides the panel in from a direction, clears the unread count, re-reads the pane.
+  // Nothing moved means nobody pressed anything.
+  if (now === panel) return;
+  panel = now;
   if (panel === 'talk') unread = 0;
   paintUnread();
   drawPanels();
@@ -1107,6 +1123,37 @@ function label(btn, word) {
 // bottom row stays for a mouse; this is the door a thumb can reach, hidden above the breakpoint.
 //
 // Called wherever a headline is written, because writing textContent takes the button with it.
+// Nothing behind a modal moves.
+//
+// A wheel over the scrim scrolled the page underneath it — measured 801px on a phone with the
+// palette open — and closing the dialog then left the reader somewhere they had never scrolled to.
+// The bundle was checked before the page was blamed: `vendor/material.js` carries no scroll lock
+// and no `inert`, so Material Web does not do this for anybody. The guide's own table puts a
+// dialog at the top of the interruption scale and says it blocks the page until it is answered.
+//
+// Counted, not toggled: a confirm can open over a form, and the first of the two to close must not
+// unlock the page under the second.
+let modalsOpen = 0;
+function pageMoves(may) {
+  const root = document.documentElement;
+  if (!may) {
+    // What the scrollbar was taking, given back as padding, so the page does not jump sideways by
+    // its width on platforms that draw one. Zero where scrollbars are overlaid, which is most of
+    // them, and the property simply resolves to 0px there.
+    root.style.setProperty('--magi-comp-scrollbar-w', Math.max(0, innerWidth - root.clientWidth) + 'px');
+  }
+  root.classList.toggle('nomove', !may);
+}
+addEventListener('opened', e => {
+  if (!e.target || e.target.tagName !== 'MD-DIALOG') return;
+  if (modalsOpen++ === 0) pageMoves(false);
+}, true);
+addEventListener('closed', e => {
+  if (!e.target || e.target.tagName !== 'MD-DIALOG') return;
+  modalsOpen = Math.max(0, modalsOpen - 1);
+  if (!modalsOpen) pageMoves(true);
+}, true);
+
 function closeX(dlg, head) {
   if (!dlg || !head || !head.querySelector) return;
   let x = head.querySelector('.dlgclose');
@@ -1820,10 +1867,14 @@ function textAnswer(send) {
   i.addEventListener('input', arm);
   // The box sits inside a row that is a link, and inside the ask screen it sits under one. Neither
   // press is a navigation.
-  // stopPropagation only. preventDefault on a click that lands in a text field cancels the focus
-  // the browser was about to give it, so one tap on the answer box followed the card's link
-  // instead: the field's own press did nothing and the keyboard never came up.
-  i.onclick = e => { e.stopPropagation(); };
+  // Both, and then the focus by hand. stopPropagation alone was not enough and the reason it was
+  // written that way is a mistake about which event does what: a link's navigation is its DEFAULT
+  // ACTION, which runs off the event path and does not care that no ancestor listener fired — so
+  // one tap on this box left the page. preventDefault is what cancels a navigation, and it is
+  // mousedown, not click, whose default action gives a field its focus; cancelling the click
+  // therefore costs nothing. Measured on a phone: the tap used to land on /?d=…, activeElement
+  // <body>, no keyboard. focus() is kept anyway so the caret is certain rather than inferred.
+  i.onclick = e => { e.preventDefault(); e.stopPropagation(); i.focus(); };
   i.onkeydown = e => { if (e.key === 'Enter') go(e); };
   return [i, b];
 }
@@ -2462,7 +2513,12 @@ function councilWordOf(decision) {
 // loadFleet fetches the roster and draws everything read off it. The stream hands the list in
 // instead, so a push costs no request — see watchFleet.
 async function loadFleet(given) {
-  const list = given || await fetchList('/fleet');
+  // A roster, or nothing. Six callers reach this as `post(…).then(loadFleet)`, and post resolves
+  // the REFUSAL TEXT when the daemon says no — so a refused answer or interrupt arrived here as a
+  // truthy string and `list.filter` threw. The screen then kept the question, kept all four
+  // buttons live, and said only the first 80 characters of why in the status line. Anything that
+  // is not a list means the same thing an absent argument means: go and ask.
+  const list = Array.isArray(given) ? given : await fetchList('/fleet');
   // The companions screen is a pane like the others. Every loader beside it was given this and it
   // was not: measured with the roster refused, 105px of nothing between the app bar and the
   // navigation bar, and the only trace a status line clipped to "magi-web answered …".
@@ -2572,7 +2628,14 @@ function drawFleetCount(list, waiting) {
   // and a pressed filter chip left the previous one lit.
   const same = drawFleetCount.said === whole;
   drawFleetCount.said = whole;
-  if (!same) state.replaceChildren(document.createTextNode(said));
+  // The sentence in an element of its own, because it is the part that may be given up.
+  //
+  // As a bare text node it was an anonymous flex item, which text-overflow does not reach: the
+  // readout clipped mid-glyph ("3 agent" and a sliced s) instead of ellipsing, and the shrinking
+  // had to be done by the row's only other lever — squeezing the button beside it until its label
+  // was one letter and, at 2x text, until it laid out on top of the icon buttons and could not be
+  // pressed at all. Named, it can be the one that gives way.
+  if (!same) state.replaceChildren(cell('scount', said));
   if (waiting && !same) {
     const go = document.createElement('md-text-button');
     go.className = 'jump';
@@ -9274,7 +9337,7 @@ function paintCompanionChrome(s) {
   if (deepNow) document.getElementById('prompt').hidden = true;
   // Leaving a companion resets the panel: the next one is arrived at for its conversation, and
   // landing on the facts of an agent you just opened is a screen nobody asked for.
-  if (!s) panel = 'talk';
+  if (!s) setPanel('talk');
   drawPanels();
   // Leaving a companion, or arriving at a different one, empties everything drawn for the last.
   if (!s || s !== drawnFor) clearCompanionView();
@@ -9466,9 +9529,9 @@ function palVerbs() {
   const here = () => (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf());
   return [
     {word: tr('pal.kind_verb'), name: tr('pal.conversation'), when: !!s && (deepIn() || panel !== 'talk'),
-     go: () => { if (deepIn()) goDeep('past', null); panel = 'talk'; ptabs.activeTabIndex = 0; drawPanels(); }},
+     go: () => { if (deepIn()) goDeep('past', null); setPanel('talk'); drawPanels(); }},
     {word: tr('pal.kind_verb'), name: tr('pal.workspace'), when: !!s,
-     go: () => { panel = 'files'; ptabs.activeTabIndex = 2; drawPanels(); freshen(); }},
+     go: () => { setPanel('files'); drawPanels(); freshen(); }},
     {word: tr('pal.kind_verb'), name: tr('pal.find_file'), when: !!s, go: () => askFind(here() || {socket: s, peer: peerOf()})},
     {word: tr('pal.kind_verb'), name: tr('pal.interrupt'), when: !!s && mayEl(document.getElementById('stop')),
      go: () => confirmStop(nameOf(s), () => post('/interrupt', null).then(loadFleet))},
@@ -9487,6 +9550,23 @@ function palVerbs() {
 function goto(href) {
   history.pushState({}, '', at(href));
   render();
+  landOnScreen();
+}
+
+// A screen that arrives says where you are, to the keyboard as well as to the eye.
+//
+// Every activation that re-renders a region — opening a companion, the board, the map, answering a
+// blocked companion, confirming a search — left document.activeElement on <body>: no ring anywhere
+// on the new screen, nothing announced, and a reader who navigates by key starts again from a
+// position they cannot see. The heading is where a screen begins, so that is where focus goes; it
+// is not a tab stop afterwards, which is what tabindex="-1" is for.
+function landOnScreen() {
+  const h = document.getElementById('screenHead');
+  const leaf = document.querySelector('#crumbs .leaf');
+  const to = h && !h.hidden ? h : leaf;
+  if (!to || !to.focus) return;
+  to.setAttribute('tabindex', '-1');
+  to.focus({preventScroll: true});
 }
 
 // palMatch scores a row against what has been typed.
@@ -9540,6 +9620,13 @@ async function palGather(q) {
 }
 
 // palDraw puts the rows on screen and keeps the keyboard's place in range.
+// Bring the chosen row into view. The list is half the window tall over twice that in content, so
+// arrowing past the sixth row moved a selection nobody could see — and Enter then ran a command
+// off the bottom of the box.
+function palShow(row) {
+  if (row && row.scrollIntoView) row.scrollIntoView({block: 'nearest'});
+}
+
 function palDraw() {
   palList.replaceChildren(...palRows.map((r, i) => {
     const row = document.createElement('button');
@@ -9773,9 +9860,16 @@ lookSwitch.addEventListener('change', () => {
 //
 // A separator in the ARIA sense: it takes focus and arrow keys move it, which is the half of a
 // splitter that is always left out. Remembered, like whether the pane is open at all.
-function grip(el, prop, key, lead) {
+function grip(el, prop, key, lead, name) {
   const root = document.documentElement;
   const rem = parseFloat(getComputedStyle(root).fontSize) || 16;
+  // Named, and with a range, before anybody touches it. The attribute list was id, class, role,
+  // aria-orientation, tabindex — a separator with no name and no position, and aria-valuenow only
+  // appeared after the first arrow press. The handles beside these were given names for exactly
+  // this reason; the grips were missed.
+  if (name) el.setAttribute('aria-label', name);
+  el.setAttribute('aria-valuemin', '12');
+  el.setAttribute('aria-valuemax', '40');
   const saved = parseFloat(localStorage.getItem(key) || '');
   if (saved) root.style.setProperty(prop, saved + 'rem');
   const clamp = w => Math.max(12, Math.min(40, w));
@@ -9786,6 +9880,7 @@ function grip(el, prop, key, lead) {
     el.setAttribute('aria-valuenow', String(Math.round(at)));
   };
   const widthNow = () => parseFloat(getComputedStyle(root).getPropertyValue(prop)) || 18;
+  el.setAttribute('aria-valuenow', String(Math.round(widthNow())));
   el.addEventListener('pointerdown', ev => {
     ev.preventDefault();
     el.setPointerCapture(ev.pointerId);
@@ -9808,8 +9903,10 @@ function grip(el, prop, key, lead) {
     if (ev.key === 'ArrowRight') { ev.preventDefault(); setW(widthNow() + (lead ? -step : step)); }
   });
 }
-grip(document.getElementById('filesGrip'), '--magi-comp-files-w', 'files.w', false);
-grip(document.getElementById('sideGrip'), '--magi-comp-side-w', 'side.w', true);
+grip(document.getElementById('filesGrip'), '--magi-comp-files-w', 'files.w', false,
+  tr('action.pane_width', { panel: tr('panel.files') }));
+grip(document.getElementById('sideGrip'), '--magi-comp-side-w', 'side.w', true,
+  tr('action.pane_width', { panel: tr('panel.plan') }));
 
 // The masthead's real height, into the property the shell is sized from.
 //
@@ -9942,7 +10039,7 @@ langEl.addEventListener('change', () => {
   loadPack();
 });
 
-addEventListener('popstate', render);
+addEventListener('popstate', () => { render(); landOnScreen(); });
 
 async function post(path, body, socket, peer, quiet) {
   // Either half can stand alone: a companion is named by its socket, a console by its peer name,

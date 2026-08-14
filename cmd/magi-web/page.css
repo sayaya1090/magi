@@ -508,6 +508,8 @@
   /* The message sits after the count, in the same quiet role, and is allowed to be cut — it is the
      one thing on this line that has a tooltip carrying the rest. Empty it takes no room at all,
      which is why the masthead does not shift when something is said. */
+  /* While a modal is open. Set from the page, released when the last one closes. */
+  html.nomove { overflow:hidden; padding-right:var(--magi-comp-scrollbar-w, 0px); }
   #note {
     font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0533em;
     color:var(--magi-ref-muted); max-width:32ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -4278,7 +4280,14 @@
        words. */
     #state { flex:0 1 auto; min-width:10px; }
     #state::before { flex:none; }
-    #state .jump { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* The sentence gives way; the way to the blocked companion does not.
+       Both were shrinkable and the button lost: at 320 its label was a single orange "w", and at 2x
+       text it was laid out past its clipped container, 24 columns of it owned by the preferences
+       button underneath — a 0x0 target sitting on 23 of that button's 48 pixels. It is the only
+       control on this bar that goes to somebody who is waiting for an answer, so it is the last
+       thing on the bar to be given up, not the first. */
+    #state .scount { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #state .jump { flex:none; }
     /* The two icon buttons sit at the end of the same line, not on one of their own. Adding the
        gear pushed the masthead back onto two rows and the first agent from 337px to 393px —
        everything gained on this width, given straight back. */

@@ -47,6 +47,7 @@
   "action.keep": "이 컴패니언은 계속 허용",
   "action.keep_running": "그대로 두기",
   "action.move_and_send": "옮기고 보내기",
+  "action.pane_width": "{panel} 너비",
   "action.read": "내용",
   "action.read_named": "{name} 읽기",
   "action.remove": "삭제",
