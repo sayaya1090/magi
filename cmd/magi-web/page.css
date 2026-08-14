@@ -1441,6 +1441,12 @@
   @media (max-width:52.4375em) { .grip { display:none; } }
   body[files="shut"] #filesGrip, body[side="shut"] #sideGrip { display:none; }
 
+  /* The card's head and the controls that belong to the card rather than to its contents. The head
+     is the fold; anything beside it is its own target, so a press never does one of two things
+     depending on where in the row it lands. */
+  .panerow { display:flex; align-items:center; gap:var(--magi-sys-space-100); }
+  .panerow .panehead { flex:1 1 auto; min-width:0; }
+  .panerow .paneagain { flex:none; --md-icon-button-icon-size:18px; }
   .filescard {
     display:flex; flex-direction:column; min-height:0;
     border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-m);

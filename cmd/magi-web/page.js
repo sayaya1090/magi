@@ -435,7 +435,9 @@ function drawPanels() {
     // Asked for here, because the pane handle used to be what asked. Below the breakpoint the
     // handle is gone and the tab is what opens this — and a tab that opens an empty box is worse
     // than the handle it replaced: measured, 0px of workspace behind it.
-    if (lastDrawnFor) loadTree(lastDrawnFor);
+    // Only a redraw, so a listing read a moment ago will do. What arrives with a CHANGE — the
+    // roster frame — reads for itself.
+    if (lastDrawnFor) loadTree(lastDrawnFor, true);
     const open = wsShows !== 'files' && wsShows !== 'git' && openFiles.includes(wsShows);
     detailEl.hidden = true;
     filesEl.hidden = open;
@@ -2178,9 +2180,13 @@ async function loadFleet(given) {
     // The workspace beside the conversation. Redrawn on the poll like everything else on this
     // page: a file appearing in a directory while somebody watches is the thing a tree is for.
     lastDrawnFor = mine;
-    // The tree, unless somebody is looking at search results — a poll that redrew the tree under a
-    // reader every three seconds would take their results away mid-scroll.
-    if (!findQ.trim()) loadTree(mine);
+    // The tree, unless somebody is looking at search results — a redraw under a reader would take
+    // their results away mid-scroll.
+    //
+    // Read for itself when this came from a frame, which is the companion saying something
+    // happened; drawn from what is kept when it came from a read this page asked for, which is
+    // the same question again (arriving at the panel, coming back to the tab).
+    if (!findQ.trim()) loadTree(mine, !given);
     // The list is not on screen while a companion is open, at any width, so the rows below would
     // be built for nobody.
     return;
@@ -6093,7 +6099,9 @@ function waitingFor(key) {
 }
 
 
-async function loadTree(a) {
+// loadTree(a) reads the workspace. loadTree(a, true) may use what it read a moment ago — for the
+// walks that are only a redraw: arriving at the panel, coming back to the tab.
+async function loadTree(a, kept) {
   if (!a || !filesOpen()) return;
   // One walk at a time per companion. Arriving at this screen asks for the tree, and so does the
   // first frame that follows a second later — measured on the live console as two /files and two
@@ -6104,13 +6112,13 @@ async function loadTree(a) {
   if (loadTree.busy === key) return;
   loadTree.busy = key;
   try {
-    await walkTree(a);
+    await walkTree(a, kept);
   } finally {
     loadTree.busy = '';
   }
 }
 
-async function walkTree(a) {
+async function walkTree(a, kept) {
   // A companion known only by gossip has no socket this console can open — the path in its row is a
   // path on ITS filesystem, and the fleet door carries work rather than file contents. Say so, and
   // say the way round it: a magi-web running there is a peer, and a peer's companions come through
@@ -6135,7 +6143,7 @@ async function walkTree(a) {
                             paneCard('git', tr('git.section'), [waitingFor('git.reading')]));
   }
   treeAt.seen = [];
-  const rows = await treeAt(a, '.');
+  const rows = await treeAt(a, '.', kept);
   if (rows === null) {
     filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.unreadable'))]));
     return;
@@ -6148,7 +6156,8 @@ async function walkTree(a) {
   // being looked at for two different reasons, so they get two boxes with two scrollbars, and
   // neither moves when the other does.
   const tree = paneCard('files', shortPath(a.workdir || ''),
-                        [findRow(a), ...(await branches(a, '.', rows, 0))]);
+                        [findRow(a), ...(await branches(a, '.', rows, 0, kept))],
+                        async () => { forgetTree(a); loadTree.busy = ''; await loadTree(a); });
   const git = await gitSection(a);
   // Only when something is different. This runs on the three-second poll, so every message
   // arriving in the conversation rebuilt the whole pane — the tree, the git card, the branch
@@ -6198,7 +6207,7 @@ async function walkTree(a) {
 //
 // The heading is a button and says its state, so a keyboard reaches it and a screen reader is told
 // what pressing it does — which is the part that gets left out when this is built from a div.
-function paneCard(key, title, kids) {
+function paneCard(key, title, kids, again) {
   const shut = localStorage.getItem('pane.' + key) === 'shut';
   const card = cell('filescard pane-' + key + (shut ? ' shut' : ''));
   const head = document.createElement('button');
@@ -6214,9 +6223,27 @@ function paneCard(key, title, kids) {
     head.setAttribute('aria-expanded', String(!now));
     localStorage.setItem('pane.' + key, now ? 'shut' : 'open');
   };
+  const row = cell('panerow');
+  row.append(head);
+  // Read it again, now. The listings are kept for a few seconds so that four redraws in one second
+  // are one walk — which is right until somebody has just written a file in another window and is
+  // looking at a tree that does not have it. Then the answer is not "wait", it is a control.
+  //
+  // Beside the title rather than inside the button that folds the card: a control inside a control
+  // is a press that does one of two things depending on where in it you land.
+  if (again) {
+    const b = document.createElement('md-icon-button');
+    b.className = 'paneagain';
+    const m = iconOr('#i-sl-arrows-rotate', '⟳');
+    if (m) b.append(m);
+    b.setAttribute('aria-label', tr('files.again'));
+    tip(b, tr('files.again'));
+    b.onclick = e => { e.stopPropagation(); whileItRuns(b, again); };
+    row.append(b);
+  }
   const body = cell('panebody');
   body.append(...kids);
-  card.append(head, body);
+  card.append(row, body);
   return card;
 }
 
@@ -6471,12 +6498,47 @@ function commitRow(a, staged) {
 const GIT_KIND = {staged: 'git.staged', unstaged: 'git.unstaged', both: 'git.both',
                   untracked: 'git.untracked', conflict: 'git.conflict'};
 
-async function treeAt(a, path) {
+// What each directory held, and when it was read.
+//
+// A walk asks for the root and for every directory the reader has opened — six requests for a tree
+// with five folders open. Some of those walks are asking because something CHANGED, and some are
+// asking only because the page is being drawn again: arriving at the workspace panel, coming back
+// to the tab, a redraw for an unrelated reason. The second kind is the same answer again.
+//
+// So the caller says which it is. A walk that is following a change reads; a walk that is only
+// redrawing may use what was read, up to treeKept. The default is to READ — a cache that has to be
+// opted out of is one that goes stale in the place nobody thought about.
+//
+// Cleared outright by a mutation this console made (a save, a new file, a rename) and by the
+// refresh control, because those are the moments a kept listing is known to be wrong rather than
+// merely old.
+const treeSeen = new Map();
+const treeKept = 10000;
+
+function forgetTree(a) {
+  if (!a) { treeSeen.clear(); return; }
+  const from = (a.socket || '') + '|' + (a.peer || '') + '|';
+  for (const k of [...treeSeen.keys()]) if (k.startsWith(from)) treeSeen.delete(k);
+}
+
+async function treeAt(a, path, kept) {
+  const key = (a.socket || '') + '|' + (a.peer || '') + '|' + path;
+  const had = treeSeen.get(key);
+  if (kept && had && Date.now() - had.at < treeKept) {
+    // Recorded again, because the comparison in loadTree is over what THIS walk saw: a cached
+    // directory left out of it would read as a directory that had emptied.
+    treeAt.seen.push(path + ':' + had.line);
+    return had.rows;
+  }
   const got = await fetchList('/files' + qFor(a) + '&path=' + encodeURIComponent(path));
   // Written down as it arrives, for the comparison in loadTree. The pane is a function of several
   // requests — the root, every directory the reader has opened, the git state — and this is the
   // only place all of them pass through.
-  if (Array.isArray(got)) treeAt.seen.push(path + ':' + got.map(e => e.name + (e.isDir ? '/' : '')).join(','));
+  if (Array.isArray(got)) {
+    const line = got.map(e => e.name + (e.isDir ? '/' : '')).join(',');
+    treeAt.seen.push(path + ':' + line);
+    treeSeen.set(key, {rows: got, line, at: Date.now()});
+  }
   return Array.isArray(got) ? got : null;
 }
 treeAt.seen = [];
@@ -6485,14 +6547,14 @@ treeAt.seen = [];
 //
 // Depth is drawn as an indent rather than as a nested box: a tree of boxes at 18rem runs out of
 // width four levels down, and the indent is what every file tree has used since they existed.
-async function branches(a, dir, rows, depth) {
+async function branches(a, dir, rows, depth, kept) {
   const out = [];
   for (const e of rows) {
     const path = dir === '.' ? e.name : dir + '/' + e.name;
     out.push(treeRow(a, e, path, depth));
     if (e.isDir && openDirs.has(path)) {
-      const kids = await treeAt(a, path);
-      if (kids) out.push(...(await branches(a, path, kids, depth + 1)));
+      const kids = await treeAt(a, path, kept);
+      if (kids) out.push(...(await branches(a, path, kids, depth + 1, kept)));
     }
   }
   return out;
@@ -6577,7 +6639,13 @@ function rowMenu(a, e, path) {
   };
   const send = (what, extra) => post('/file-do',
     new URLSearchParams(Object.assign({do: what, path: path}, extra || {})),
-    a.socket || '', a.peer || '').then(why => { if (!why) loadTree(a); });
+    a.socket || '', a.peer || '').then(why => {
+      if (why) return why;
+      // A directory this console just changed is one whose kept listing is wrong, not merely old.
+      forgetTree(a);
+      loadTree(a);
+      return why;
+    });
   const under = e.isDir ? path + '/' : (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
   item('files.new_file', () => {
     askLine({head: tr('files.new_file'), body: tr('files.new_file_who'), label: tr('files.path'),
@@ -6642,7 +6710,10 @@ function treeRow(a, e, path, depth) {
     if (e.isDir) {
       if (openDirs.has(path)) openDirs.delete(path);
       else openDirs.add(path);
-      loadTree(a);
+      // Opening a folder is one directory to read, not the whole tree again: everything else on
+      // screen is what it was a moment ago. Measured before this — two folders opened cost five
+      // requests, three of them for directories already drawn.
+      loadTree(a, true);
       return;
     }
     openFile(a, path);
@@ -7121,6 +7192,9 @@ function editor(path, text, acts) {
     const why = await post('/save', body,
                            (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
     save.disabled = false;
+    // Saving can create the file as well as change it, so what the tree holds is out of date the
+    // moment this returns.
+    if (!why) forgetTree(lastDrawnFor);
     if (why) {
       // A refusal here is usually the file having moved: the companion edited it while this was
       // open. Said where the model's own remarks go, because it is about this buffer.

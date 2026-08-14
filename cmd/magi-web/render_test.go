@@ -5692,6 +5692,60 @@ console.log(JSON.stringify({
 	}
 }
 
+// Walking the workspace again, and not walking it again.
+//
+// A walk is the root plus every directory the reader has opened, and it happens for two different
+// reasons: something changed, or the page is being drawn again. The second kind used to cost the
+// same as the first — measured on the live console as two walks for one arrival — and the answer
+// it paid for was the answer it already had.
+//
+// So the caller says which it is, and the default is to read. The three things that must still be
+// true: a redraw-only walk asks for nothing, a walk following a change asks, and a mutation this
+// console made throws the kept listings away rather than showing a directory it has just changed.
+func TestTheTreeIsReadAgainWhenItMightHaveChanged(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+let tree = [{name: 'README.md'}, {name: 'docs', isDir: true}];
+let asked = 0;
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/files') { asked++; return {ok: true, json: async () => tree}; }
+  if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
+  if (path === '/fleet') return {ok: true, json: async () => ([])};
+  return {ok: true, json: async () => ([]), text: async () => ''};
+};
+const a = {socket: '/s/a.sock', workdir: '/w', name: 'design'};
+await loadTree(a);
+const first = asked;
+await loadTree(a, true);          // only a redraw: the panel was arrived at
+const afterRedraw = asked;
+await loadTree(a);                // something changed
+const afterChange = asked;
+// …and a mutation this console made is not "old", it is wrong: the kept answer goes.
+forgetTree(a);
+await loadTree(a, true);
+const afterMutation = asked;
+console.log(JSON.stringify({first, afterRedraw, afterChange, afterMutation}));
+`)
+	first, _ := got["first"].(float64)
+	redraw, _ := got["afterRedraw"].(float64)
+	change, _ := got["afterChange"].(float64)
+	mutated, _ := got["afterMutation"].(float64)
+	if first < 1 {
+		t.Fatalf("the first walk asked for %v directories", first)
+	}
+	if redraw != first {
+		t.Errorf("a redraw walked the workspace again: %v requests, against %v", redraw, first)
+	}
+	if change <= redraw {
+		t.Errorf("a walk following a change used a kept listing: still %v requests", change)
+	}
+	if mutated <= change {
+		t.Errorf("a directory this console changed was drawn from the listing before the change")
+	}
+}
+
 func TestTheWorkspacePaneIsRedrawnOnlyWhenItChanges(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 localStorage.setItem('files', 'open');
