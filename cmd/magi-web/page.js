@@ -2074,14 +2074,6 @@ async function loadBoard() {
 // What the board would draw, as one string. The poll below rebuilds only when this changes: the
 // cards come from every companion's history, and redrawing an identical board would blink the lane
 // somebody is reading and throw away the sideways scroll of the strip.
-async function boardSig() {
-  const list = await fetchList('/fleet');
-  if (!list) return null;
-  const runs = await Promise.all(list.map(a =>
-    fetchList('/history?d=' + encodeURIComponent(a.socket) + (a.peer ? '&p=' + encodeURIComponent(a.peer) : ''))
-      .then(h => h || [])));
-  return JSON.stringify(runs);
-}
 
 // A list from this console, or null when the console itself cannot be reached.
 //
@@ -7756,7 +7748,7 @@ async function runShell(cmd) {
   draw(lastRows);
 }
 
-let es, fleetTimer, boardSub, fleetES;
+let es, fleetTimer, fleetES;
 
 // The roster, pushed rather than asked for.
 //
@@ -8058,7 +8050,6 @@ function clearCompanionView() {
 function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
-  if (boardSub) { boardSub.unsubscribe(); boardSub = null; }
   const s = sock();
   const v = s ? '' : view();
   // Where you are, in the masthead: magi / lessons, or magi / companions / design. The crumb that
@@ -8192,14 +8183,18 @@ function render() {
     // is happening. rxjs because the page already speaks it, and because the guard belongs in the
     // pipe rather than in a flag somebody has to remember to clear.
     loadBoard();
-    boardSub = timer(3000, 3000).pipe(
-      switchMap(() => from(boardSig())),
-      onlyWhen(Boolean),
-      distinctUntilChanged(),
-      // A field with the caret in it is a field somebody is using. Rebuilding the header under
-      // them would take the focus and the half-typed date with it.
-      onlyWhen(() => !boardEl.contains(document.activeElement)),
-    ).subscribe(() => loadBoard());
+    // Watched, like the fleet beside it. It used to poll every three seconds by building a
+    // signature — the roster, and then every companion's history, one request each — so three
+    // companions cost four requests every three seconds for as long as the tab was open: measured,
+    // twenty-four in a quiet ten. A run finishing changes that companion's row, which is exactly
+    // what the roster frame is.
+    //
+    // The one thing the signature did that the stream does not is stay out of the way of somebody
+    // typing in the header, so that guard stays here.
+    watchFleet(() => {
+      if (boardEl.contains(document.activeElement)) return;
+      loadBoard();
+    });
     return;
   }
   if (v === 'map') {

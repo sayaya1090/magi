@@ -482,8 +482,15 @@ func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flu
 	for {
 		list := s.fleetList(r)
 		b, err := json.Marshal(list)
-		if err == nil && string(b) != last {
-			last = string(b)
+		// Compared on what a screen would DRAW differently, which is not the same as the bytes.
+		//
+		// Every row carries how long that companion has been idle, in seconds, so the bytes change
+		// once a second for ever — and a listener that redraws on the frame then re-reads
+		// everything it shows once a second. Measured: the map asked for the roster and the
+		// handovers ten times in a quiet ten seconds, worse than the three-second poll it replaced.
+		// The counter is drawn from the row when it lands and ticks on the page's own clock.
+		if key := fleetKey(list); err == nil && key != last {
+			last = key
 			fmt.Fprintf(w, "event: fleet\ndata: %s\n\n", b)
 			fl.Flush()
 		}
@@ -498,6 +505,18 @@ func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flu
 		case <-tick.C:
 		}
 	}
+}
+
+// fleetKey is the roster with the ticking parts left out: what changed, rather than what moved.
+func fleetKey(list []fleet.Agent) string {
+	var b strings.Builder
+	for _, a := range list {
+		// Everything a row is drawn from except Idle — and Idle is the only field on it that
+		// changes without anything happening.
+		fmt.Fprintf(&b, "%s\x1f%s\x1f%s\x1f%v\x1f%s\x1f%s\x1f%s\x1f%d\x1f%v\x1f%s\x1e",
+			a.Name, a.Peer, a.Socket, a.Live, a.State, a.Task, a.Session, a.Steps, a.Elsewhere, a.Asking)
+	}
+	return b.String()
 }
 
 // meetFrame is what the meeting screen is watching: one room by id, or the list of them.
