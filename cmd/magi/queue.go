@@ -68,6 +68,10 @@ type pending struct {
 	receipt string
 	session session.SessionID
 	text    string
+	// looking marks a piece the asker declared a question. Its session may only read, so it does
+	// not wait for the workspace — see startNext. Carried on the item because the decision about
+	// what it must wait for is made when it reaches the head, not when it arrives.
+	looking bool
 }
 
 // waiting is the queue itself. A pointer type, like the receipts beside it: the engine holding it
@@ -150,6 +154,21 @@ func (w *waiting) take(p pending) (ahead int, ok bool) {
 	w.announce(depth, hand)
 	w.wake()
 	return ahead, true
+}
+
+// peek is the head of the queue without taking it.
+//
+// What a piece has to wait for depends on what it IS — a question waits for nothing, a change
+// waits for the workspace — and that cannot be decided before looking at it. Taking it to look
+// would put a question that arrived second in front of a change that arrived first every time the
+// workspace was busy, which is a queue that reorders itself under load.
+func (w *waiting) peek() (pending, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.items) == 0 {
+		return pending{}, false
+	}
+	return w.items[0], true
 }
 
 // next takes the head of the queue, if there is one.

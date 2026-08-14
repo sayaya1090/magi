@@ -85,7 +85,7 @@ func (h Hand) handAcross(ctx context.Context, target fleet.Agent, a asked, env p
 	}
 	defer cl.Close()
 
-	receipt, herr := cl.Hand(h.label(target), a.text())
+	receipt, herr := cl.Hand(h.label(target), a.text(), a.Looking)
 	if herr != nil {
 		var refused daemon.Refused
 		if errors.As(herr, &refused) {

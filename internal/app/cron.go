@@ -273,6 +273,31 @@ func (a *App) Running() (session.SessionID, bool) {
 	return "", false
 }
 
+// WritingRun is Running for a caller that has to protect the WORKSPACE rather than the process.
+//
+// Two turns in one workspace can corrupt each other's files, and the guard that records what a turn
+// changed reads each file before and after an edit — which is only race-free when the writes are
+// serialised. That is the whole reason handed-over work waits for a turn to finish.
+//
+// A turn that cannot write is not part of that reason. A session opened for a question — the
+// looking role, whose tools are read, glob, grep and list and are enforced as such — has nothing to
+// serialise against, so waiting for it is waiting for nothing. Meeting turns are already outside
+// this: they never enter the run states at all.
+func (a *App) WritingRun() (session.SessionID, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for sid, st := range a.states {
+		if st == nil || st.cancel == nil {
+			continue
+		}
+		if m, ok := a.metaLocked(sid); ok && m.Agent == LookingAgent {
+			continue
+		}
+		return sid, true
+	}
+	return "", false
+}
+
 // ReloadCron tells a running scheduler that the job definitions have changed.
 //
 // Push, not poll. Jobs are written by the schedule tool, which runs inside this process, so the

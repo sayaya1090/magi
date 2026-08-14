@@ -144,7 +144,8 @@ func (Hand) Schema() json.RawMessage {
 		"to":{"type":"string","description":"which companion, by the name listed in this tool's description"},
 		"request":{"type":"string","description":"the whole instruction, standing on its own"},
 		"so_that":{"type":"string","description":"what this is for — the thing you will do with their answer. One clause. It is what lets them adapt when they hit something you did not foresee, which they cannot ask you about."},
-		"answer_as":{"type":"string","description":"the form the answer must come back in: write out the headings or fields you want filled, in the order you will read them. They fill it in. Not how to do the work — what the finished answer looks like. For example: \"- token name:\\n- hex value:\\n- contrast ratio, or why you could not measure it:\""}
+		"answer_as":{"type":"string","description":"the form the answer must come back in: write out the headings or fields you want filled, in the order you will read them. They fill it in. Not how to do the work — what the finished answer looks like. For example: \"- token name:\\n- hex value:\\n- contrast ratio, or why you could not measure it:\""},
+		"looking":{"type":"boolean","description":"true when this is a QUESTION about their workspace and nothing in it should change. They answer it with the four tools that only read, and — because such a turn cannot collide with anything — they can answer it while they are busy with something else. Set it whenever you are asking rather than asking for work: it is the difference between an answer now and an answer after their current turn."}
 	},"required":["to","request","so_that","answer_as"],"additionalProperties":false}`)
 }
 
@@ -191,6 +192,10 @@ type asked struct {
 	Request string
 	Purpose string
 	Form    string
+	// Looking is the asker saying this is a question: nothing in the receiver's workspace should
+	// change to answer it. What it buys is when rather than what — a question can be answered
+	// while its receiver is busy, because a turn that cannot write has nothing to wait for.
+	Looking bool
 }
 
 // text is the words that cross: the task, then what it is for, then the form.
@@ -223,6 +228,7 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 		Request  string `json:"request"`
 		SoThat   string `json:"so_that"`
 		AnswerAs string `json:"answer_as"`
+		Looking  bool   `json:"looking"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return errText("invalid arguments: " + err.Error()), nil
@@ -304,7 +310,7 @@ func (h Hand) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 	// job any more. The receipt is minted inside the receiving daemon, from a position it takes
 	// before it starts, so there is no gap to lose an answer in.
 	return h.handAcross(ctx, target, asked{
-		Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs}, env), nil
+		Request: in.Request, Purpose: in.SoThat, Form: in.AnswerAs, Looking: in.Looking}, env), nil
 }
 
 // who is what the label says. A companion that declared no name is identified by its workspace,

@@ -309,6 +309,16 @@ func toolText(raw json.RawMessage) string {
 // runs, spawns, or asks a person anything.
 var readOnlyTools = map[string]bool{"list": true, "glob": true, "read": true, "grep": true}
 
+// ReadOnlyToolNames is the same four, for a caller that needs the list rather than the check.
+func ReadOnlyToolNames() []string {
+	names := make([]string, 0, len(readOnlyTools))
+	for n := range readOnlyTools {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func readOnlyList() string {
 	names := make([]string, 0, len(readOnlyTools))
 	for n := range readOnlyTools {

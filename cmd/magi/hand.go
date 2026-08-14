@@ -69,6 +69,10 @@ type takes interface {
 	// CONVERSATION; the work is still one at a time, because two turns at once in one workspace
 	// are two agents editing the same files with nothing between them.
 	Running() (session.SessionID, bool)
+	// WritingRun is the same question narrowed to what the rule is actually about: a turn that can
+	// touch the workspace. A session that may only read collides with nothing, so a question handed
+	// over does not wait behind one — or behind anything else.
+	WritingRun() (session.SessionID, bool)
 	// PersonWaiting reports whether the person's own work is already parked, waiting for the turn
 	// in flight to end. Handed-over work stands aside for it — see startNext.
 	PersonWaiting() bool
@@ -121,7 +125,7 @@ type handover struct {
 // Every refusal here is an error, and every error is a refusal — the caller reached this daemon and
 // this daemon answered. A link that broke fails earlier, in the client, and reads differently there
 // on purpose: one is a companion to ask later, the other is a machine to go and fix.
-func (h handover) Hand(ctx context.Context, label, request string) (string, error) {
+func (h handover) Hand(ctx context.Context, label, request string, looking bool) (string, error) {
 	if strings.TrimSpace(request) == "" {
 		return "", errors.New("a request needs something to do")
 	}
@@ -139,7 +143,7 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 		// session rather than a new one every time.
 		label = fleet.DispatchedFrom("another companion", "")
 	}
-	sid, serr := h.sessionFor(ctx, label)
+	sid, serr := h.sessionFor(ctx, label, looking)
 	if serr != nil {
 		return "", serr
 	}
@@ -156,7 +160,8 @@ func (h handover) Hand(ctx context.Context, label, request string) (string, erro
 	// paths would be two places for "what happens to a piece of work" to differ.
 	ahead, took := h.queued.take(pending{
 		receipt: id, session: sid,
-		text: companion.Labelled(label, request),
+		text:    companion.Labelled(label, request),
+		looking: looking,
 	})
 	if h.note != nil {
 		// After the decision and never before it: what is recorded is what happened, and a note
@@ -185,18 +190,29 @@ func (h handover) startNext(ctx context.Context) (soon bool) {
 	if h.work == nil || h.queued == nil {
 		return false
 	}
-	if _, busy := h.work.Running(); busy {
-		return len(h.queued.list()) > 0
-	}
-	// And behind the person, not only behind the turn.
-	//
-	// Both wake at the same instant — the run goroutine drains its own queued interjection when a
-	// turn ends, and this drain is nudged by the same ending — so which one got the workspace was
-	// a race with no rule in it. Losing it means somebody who typed a correction while their agent
-	// worked now waits for a request that arrived from another machine. Work asked for by a person
-	// in front of the thing outranks work handed to it.
-	if h.work.PersonWaiting() {
+	// What the head of the queue is decides what it has to wait for. A piece of work that can
+	// write waits for the workspace to be free; a QUESTION does not, because a turn with only the
+	// four reading tools has nothing to collide with — which is the whole of why the wait exists.
+	// Peeked rather than taken: a piece that must wait has to stay at the head, or a question
+	// behind it would jump the queue every time the workspace was busy.
+	head, ok := h.queued.peek()
+	if !ok {
 		return false
+	}
+	if !head.looking {
+		if _, busy := h.work.WritingRun(); busy {
+			return len(h.queued.list()) > 0
+		}
+		// And behind the person, not only behind the turn.
+		//
+		// Both wake at the same instant — the run goroutine drains its own queued interjection when
+		// a turn ends, and this drain is nudged by the same ending — so which one got the workspace
+		// was a race with no rule in it. Losing it means somebody who typed a correction while
+		// their agent worked now waits for a request that arrived from another machine. Work asked
+		// for by a person in front of the thing outranks work handed to it.
+		if h.work.PersonWaiting() {
+			return false
+		}
 	}
 	p, ok := h.queued.next()
 	if !ok {
@@ -289,10 +305,19 @@ func (h handover) run(ctx context.Context) {
 //
 // Same workspace, so the skills, the experience store and the memory are all there — a request
 // borrows the capability. Only the conversation is its own.
-func (h handover) sessionFor(ctx context.Context, label string) (session.SessionID, error) {
+func (h handover) sessionFor(ctx context.Context, label string, looking bool) (session.SessionID, error) {
 	h.mine.mu.Lock()
 	defer h.mine.mu.Unlock()
-	if sid, ok := h.mine.by[label]; ok {
+	// A question and a piece of work from the same asker are two conversations, because they are
+	// two kinds of session: one may only read, and the tools are fixed when it is created. Keyed
+	// apart rather than converted, since a session cannot change what it is allowed to do
+	// half-way through.
+	key := label
+	role := ""
+	if looking {
+		key, role = label+"\n(looking)", app.LookingAgent
+	}
+	if sid, ok := h.mine.by[key]; ok {
 		return sid, nil
 	}
 	// Created under an actor that says where the work came from. The store lifts that into
@@ -301,12 +326,13 @@ func (h handover) sessionFor(ctx context.Context, label string) (session.Session
 	// themselves, which is exactly the distinction the floor is about.
 	sid, err := h.work.CreateSession(ctx, command.CreateSession{
 		Workdir: h.workdir,
+		Agent:   role,
 		Actor:   event.Actor{Kind: event.ActorUser, ID: app.HandoffActorID(label)},
 	})
 	if err != nil {
 		return "", fmt.Errorf("this companion could not open a conversation for the work: %w", err)
 	}
-	h.mine.by[label] = sid
+	h.mine.by[key] = sid
 	return sid, nil
 }
 

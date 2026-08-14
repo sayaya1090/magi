@@ -46,11 +46,15 @@ type heard struct {
 	parts []string
 	state daemon.Handover
 	given int
+	// looking is what the asker declared about the last request: a question, or work. The receiver
+	// is what acts on it, and this fake is the receiver.
+	looking bool
 }
 
-func (h *heard) Hand(_ context.Context, label, request string) (string, error) {
+func (h *heard) Hand(_ context.Context, label, request string, looking bool) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.looking = looking
 	h.parts = append(h.parts, companion.Labelled(label, request))
 	h.given++
 	return fmt.Sprintf("rcpt-%d", h.given), nil
@@ -272,6 +276,69 @@ func (tm *team) askWatching(tool companion.Hand, sid, to, request string) (sessi
 		tm.t.Fatal(err)
 	}
 	return res, watched
+}
+
+// Asking is not the same as asking for work, and the difference has to cross.
+//
+// A question runs read-only on the other side, which is what lets it be answered while that
+// companion is busy with something else. The asker declares it; the receiver enforces it. If the
+// declaration does not travel, it is a word in a prompt: every question queues behind whatever the
+// receiver happens to be doing, which is the wait this was built to remove.
+func TestAQuestionSaysSoOnTheWire(t *testing.T) {
+	tm := newTeam(t)
+	design := &heard{}
+	tm.member("d", "design", "the design system", design)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	tool := companion.Hand{Self: master, Called: "master"}
+	if res := tm.askKind(tool, "m", "design", "what do the tokens say", true); res.IsError {
+		t.Fatalf("a question was refused: %s", text(t, res))
+	}
+	if !design.asked() {
+		t.Error("the receiver was not told this was a question, so it will queue it like any other work")
+	}
+	// And work is still work — the flag is not set by accident on the ordinary path.
+	if res := tm.askKind(tool, "m", "design", "rename the tokens", false); res.IsError {
+		t.Fatalf("work was refused: %s", text(t, res))
+	}
+	if design.asked() {
+		t.Error("a change was announced as a question, which would let it run beside a turn that writes")
+	}
+}
+
+func (h *heard) asked() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.looking
+}
+
+// askKind is askWatching with the asker saying which kind of thing this is.
+func (tm *team) askKind(tool companion.Hand, sid, to, request string, looking bool) session.ToolResult {
+	tm.t.Helper()
+	tool.Reader = func() fleet.Reader { return tm.reader }
+	tool.ConfigDir = tm.cfgDir
+	tool.Cache = &fleet.Cache{}
+	if tool.Machine == "" {
+		tool.Machine = daemon.Host()
+	}
+	if tool.Reach == nil {
+		tool.Reach = (&crossing{}).reach()
+	}
+	args, err := json.Marshal(map[string]any{"to": to, "request": request,
+		"so_that":   "I can finish the part I am on",
+		"answer_as": "- what you found:\n- anything you could not check:",
+		"looking":   looking})
+	if err != nil {
+		tm.t.Fatal(err)
+	}
+	res, err := tool.Execute(context.Background(), args, port.ToolEnv{
+		SessionID: session.SessionID(sid),
+		Expect:    func(port.Elsewhere) error { return nil },
+	})
+	if err != nil {
+		tm.t.Fatal(err)
+	}
+	return res
 }
 
 func text(t *testing.T, r session.ToolResult) string {
@@ -990,13 +1057,14 @@ type farSide struct {
 	shown    []string // the receipts presented to it on the way back
 }
 
-func (f *farSide) Hand(_ context.Context, label, request string) (string, error) {
+func (f *farSide) Hand(_ context.Context, label, request string, looking bool) (string, error) {
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
 	if f.refuse != "" {
 		return "", errors.New(f.refuse)
 	}
 	f.labels, f.requests = append(f.labels, label), append(f.requests, request)
+	f.looking = looking
 	return "rcpt-9", nil
 }
 

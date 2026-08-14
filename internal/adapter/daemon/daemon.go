@@ -404,6 +404,9 @@ type Request struct {
 	// Named generically because the alternative is a field per method and a wire format that grows
 	// a column every time the engine gains a knob.
 	Name string `json:"name,omitempty"`
+	// Looking marks handed-over work the asker says is a question rather than a change: the
+	// receiver runs it read-only, and a read-only turn does not wait for the workspace.
+	Looking bool `json:"looking,omitempty"`
 	// Meeting is which meeting this belongs to, so the daemon can hand the same session back for
 	// every turn of it. Without an id every contribution was a new child: three companions over
 	// five rounds put fifteen of them on the strip, each one starting cold and knowing nothing of
@@ -931,7 +934,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			case !ok:
 				resp = Response{Err: "this daemon cannot be handed work"}
 			case req.Method == "hand":
-				id, herr := taker.Hand(ctx, req.Name, req.Text)
+				id, herr := taker.Hand(ctx, req.Name, req.Text, req.Looking)
 				if herr != nil {
 					resp = Response{Err: herr.Error()}
 				} else {
@@ -1276,7 +1279,11 @@ type Taker interface {
 	// Hand takes one piece of work under a label naming who asked, and returns the receipt it is
 	// asked about with. A refusal is an error — this companion is mid-turn, or not published —
 	// because a refusal is an answer and the wire has one place for sentences a caller reads.
-	Hand(ctx context.Context, label, request string) (receipt string, err error)
+	//
+	// looking says the asker declared this a QUESTION: the receiver runs it with the four tools
+	// that only read, and because such a turn cannot touch the workspace it need not wait for one
+	// that can. It is the receiver that enforces it, not the asker — an asker cannot bind anybody.
+	Hand(ctx context.Context, label, request string, looking bool) (receipt string, err error)
 	// Handed says what became of the work a receipt stands for. Read-only, and called by whoever
 	// is waiting, so it must stay cheap and must never make something happen.
 	//
@@ -1312,8 +1319,8 @@ func (r Refused) Error() string { return r.Why }
 var ErrGone = errors.New("that companion is not running")
 
 // Hand gives a companion a piece of work and takes the receipt for it.
-func (c *Client) Hand(label, request string) (string, error) {
-	resp, err := c.exchange(Request{Method: "hand", Name: label, Text: request})
+func (c *Client) Hand(label, request string, looking bool) (string, error) {
+	resp, err := c.exchange(Request{Method: "hand", Name: label, Text: request, Looking: looking})
 	if err != nil {
 		return "", err
 	}

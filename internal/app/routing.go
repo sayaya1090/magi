@@ -37,8 +37,24 @@ func (a *App) agentFor(s session.Session) AgentSpec {
 	// ever wrote the field, and the branch could not fire — so a worker's tools are its agent's,
 	// narrowed by toolSpecs' role and environment gates, which is what actually happened all
 	// along.
+	//
+	// One session role does carry an allowlist, and it is written at the moment the session is
+	// created: a conversation opened for a piece of handed-over work that was asked as a QUESTION.
+	// Its tools are the four that only look, which is what lets it run beside another turn — see
+	// WritingRun. The narrowing is enforced twice over, at advertising and at execution, by the
+	// same gate a spawned child's allowlist goes through.
+	if s.Agent == LookingAgent {
+		return AgentSpec{Name: LookingAgent, System: a.cfg.System, Tools: ReadOnlyToolNames()}
+	}
 	return AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
 }
+
+// LookingAgent is the role of a session that may only read.
+//
+// A role rather than a flag, because a role is already carried on the session, is already written
+// into the log at creation, and is already what decides an agent's tools. A second field saying
+// the same thing is a second thing to keep true.
+const LookingAgent = "looking"
 
 // SetModel changes a session's active (default) model at runtime. Session-scoped:
 // it updates the cached session so the next loop iteration uses it.

@@ -105,6 +105,10 @@ func shortSockDir(t *testing.T) string {
 // makes of this companion. Only starting a turn is stubbed, because a turn needs a model and this
 // is a test of the door.
 type recordingWork struct {
+	// made is every session this opened, in order, as it was asked for, and reads is which of them
+	// may only look — the fake's version of what the real App reads off a session's role.
+	made  []command.CreateSession
+	reads map[session.SessionID]bool
 	*app.App
 	ar   *arrival
 	side session.SessionID
@@ -113,7 +117,7 @@ type recordingWork struct {
 	// so an unguarded field here is a race in the fixture rather than a fact about the code. Found
 	// by CI, whose test run has -race and whose local gate does not.
 	mu     sync.Mutex
-	busy   session.SessionID
+	busy   map[session.SessionID]bool
 	opened int
 	// parked stands in for the person's own queued interjection: real state in the App, but
 	// putting one there needs a running turn to interject into, and what is under test is the
@@ -135,20 +139,32 @@ func (w *recordingWork) PersonWaiting() bool {
 }
 
 // setBusy and idle are what a turn starting and ending look like to this fake.
+//
+// A SET, not one slot. The real App runs a turn per session and knows about all of them at once —
+// a person's turn and a question handed over are two — and a single slot made the second one look
+// like the end of the first: the question's own Submit overwrote the person's turn, and freeing the
+// question then read as a free workspace.
 func (w *recordingWork) setBusy(sid session.SessionID) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.busy = sid
+	if sid == "" {
+		w.busy = nil // "nothing is running", which is what the empty string has always meant here
+		return
+	}
+	if w.busy == nil {
+		w.busy = map[session.SessionID]bool{}
+	}
+	w.busy[sid] = true
 }
 
 // freeIf clears the busy marker when sid is the session that held it, and reports whether it did.
 func (w *recordingWork) freeIf(sid string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if string(w.busy) != sid {
+	if !w.busy[session.SessionID(sid)] {
 		return false
 	}
-	w.busy = ""
+	delete(w.busy, session.SessionID(sid))
 	return true
 }
 
@@ -159,21 +175,55 @@ func (w *recordingWork) CreateSession(_ context.Context, c command.CreateSession
 	w.mu.Lock()
 	w.opened++
 	n := w.opened
+	// What each session was opened AS, so a test can ask whether a question got a conversation
+	// that may only read.
+	w.made = append(w.made, c)
 	w.mu.Unlock()
 	id := w.side
 	if n > 1 {
 		id = session.SessionID(fmt.Sprintf("%s%d", w.side, n))
+	}
+	if c.Agent == app.LookingAgent {
+		w.mu.Lock()
+		if w.reads == nil {
+			w.reads = map[session.SessionID]bool{}
+		}
+		w.reads[id] = true
+		w.mu.Unlock()
 	}
 	w.ar.append(string(id), ev(w.ar.t, event.TypeSessionCreated,
 		event.SessionCreatedData{Workdir: c.Workdir}))
 	return id, nil
 }
 
+func (w *recordingWork) sessions() []command.CreateSession {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]command.CreateSession(nil), w.made...)
+}
+
 // Running is what serialises the work. Nothing is running in these tests unless one says so.
 func (w *recordingWork) Running() (session.SessionID, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.busy, w.busy != ""
+	for sid := range w.busy {
+		return sid, true
+	}
+	return "", false
+}
+
+// WritingRun is Running minus the sessions that may only read, which is what the real one does:
+// it asks each running session what it was opened as. Here that is recorded at CreateSession.
+func (w *recordingWork) WritingRun() (session.SessionID, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for sid := range w.busy {
+		if w.reads[sid] {
+			continue
+		}
+		return sid, true
+	}
+	return "", false
 }
 
 // Submit records the prompt AND writes it to the log, which is what a real one does before it
@@ -374,7 +424,7 @@ func TestWorkArrivingFromAnotherMachineLandsInTheCompanionReached(t *testing.T) 
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
-	receipt, err := cl.Hand("— asked by master on mini, ...", "rewrite the settings screen")
+	receipt, err := cl.Hand("— asked by master on mini, ...", "rewrite the settings screen", false)
 	if err != nil {
 		t.Fatalf("it was refused: %v", err)
 	}
@@ -398,7 +448,7 @@ func TestAnArrivalWithNoLabelIsStillMarkedAsHandedOver(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
-	if _, err := cl.Hand("", "do it"); err != nil {
+	if _, err := cl.Hand("", "do it", false); err != nil {
 		t.Fatalf("it was refused: %v", err)
 	}
 	until(t, "the work to be started", func() bool { return len(ar.prompts()) == 1 })
@@ -417,7 +467,7 @@ func TestAnEarlierAnswerIsNotMistakenForThisOne(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
-	receipt, err := cl.Hand("— asked by master", "do it")
+	receipt, err := cl.Hand("— asked by master", "do it", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +498,7 @@ func TestAnEarlierAnswerIsNotMistakenForThisOne(t *testing.T) {
 func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	receipt, err := cl.Hand("— asked by master", "do it")
+	receipt, err := cl.Hand("— asked by master", "do it", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,11 +531,11 @@ func TestARefusalIsAnAnswerAndNotAFailedCall(t *testing.T) {
 	ar.work.setBusy("the-person-is-working") // so nothing drains and the queue fills
 
 	for i := 0; i < maxWaiting; i++ {
-		if _, err := cl.Hand("— asked by master", "do it"); err != nil {
+		if _, err := cl.Hand("— asked by master", "do it", false); err != nil {
 			t.Fatalf("piece %d was refused before the queue was full: %v", i, err)
 		}
 	}
-	_, err := cl.Hand("— asked by master", "one too many")
+	_, err := cl.Hand("— asked by master", "one too many", false)
 	if err == nil {
 		t.Fatal("a full companion took more work")
 	}
@@ -505,7 +555,7 @@ func TestARefusalIsAnAnswerAndNotAFailedCall(t *testing.T) {
 func TestTheFarSideAnswersOnlyOnceTheTurnHasFinished(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	receipt, err := cl.Hand("— asked by master", "do it")
+	receipt, err := cl.Hand("— asked by master", "do it", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +587,7 @@ func TestTheFarSideAnswersOnlyOnceTheTurnHasFinished(t *testing.T) {
 func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 	ar := newArrival(t)
 	cl, before := ar.publish("design", "s_design")
-	receipt, err := cl.Hand("— asked by master", "do it")
+	receipt, err := cl.Hand("— asked by master", "do it", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +615,7 @@ func TestACompanionThatRestartedDoesNotRecogniseTheOldReceipt(t *testing.T) {
 func TestTheAnswerIsPushedWhenTheTurnEnds(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	receipt, err := cl.Hand("— asked by master", "do it")
+	receipt, err := cl.Hand("— asked by master", "do it", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +692,7 @@ func TestTheAnswerIsPushedWhenTheTurnEnds(t *testing.T) {
 func TestAWatchEndsWhenThePeerHangsUp(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	receipt, err := cl.Hand("— asked by master", "do it")
+	receipt, err := cl.Hand("— asked by master", "do it", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +847,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	ar := newArrival(t)
 	cl, receipts := ar.publish("design", "s_design")
 
-	first, err := cl.Hand("— asked by master", "name the tokens")
+	first, err := cl.Hand("— asked by master", "name the tokens", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +860,7 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	}
 	// The same asker again continues where it left off — that is what makes a re-ask worth
 	// anything, and it is the same mechanism as the isolation rather than a second one.
-	second, err := cl.Hand("— asked by master", "and the contrast ratios")
+	second, err := cl.Hand("— asked by master", "and the contrast ratios", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -822,11 +872,11 @@ func TestWorkFromSomebodyElseGetsItsOwnConversation(t *testing.T) {
 	// A different asker does not.
 	other := handover{work: ar.work, at: newWhere("s_design"), workdir: ar.t.TempDir(),
 		configDir: ar.cfgDir, receipts: receipts, mine: newSideSessions(), queued: newWaiting(nil)}
-	mine, merr := other.sessionFor(context.Background(), "— asked by master")
+	mine, merr := other.sessionFor(context.Background(), "— asked by master", false)
 	if merr != nil {
 		t.Fatal(merr)
 	}
-	theirs, terr := other.sessionFor(context.Background(), "— asked by scribe")
+	theirs, terr := other.sessionFor(context.Background(), "— asked by scribe", false)
 	if terr != nil {
 		t.Fatal(terr)
 	}
@@ -847,7 +897,7 @@ func TestWorkIsQueuedWhileTheWorkspaceIsInUse(t *testing.T) {
 	cl, _ := ar.publish("design", "s_design")
 
 	ar.work.setBusy("the-person-is-working")
-	receipt, err := cl.Hand("— asked by master", "name the tokens")
+	receipt, err := cl.Hand("— asked by master", "name the tokens", false)
 	if err != nil {
 		t.Fatalf("work was refused instead of taken: %v", err)
 	}
@@ -872,6 +922,78 @@ func TestWorkIsQueuedWhileTheWorkspaceIsInUse(t *testing.T) {
 	}
 }
 
+// A question does not wait for the workspace, because it cannot touch it.
+//
+// The queue exists for one reason: two turns in one workspace are two agents editing the same
+// files with nothing between them. A request the asker marked as a question runs in a session
+// whose tools are the four that only read, so that reason does not apply to it — and waiting for
+// it anyway is a companion sitting on an answer it could have given at once, for the length of
+// somebody else's build.
+func TestAQuestionIsAnsweredWhileTheWorkspaceIsBusy(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+
+	ar.work.setBusy("the-person-is-working")
+	if _, err := cl.Hand("— asked by master", "what do the tokens say", true); err != nil {
+		t.Fatalf("a question was refused: %v", err)
+	}
+	until(t, "the question to be answered while the workspace is busy",
+		func() bool { return len(ar.prompts()) == 1 })
+
+	// …and a piece that CAN write still waits, with the same turn still running. Let the question
+	// finish first, so what holds the change back is the workspace and not the queue's own
+	// one-at-a-time rule.
+	ar.finishes(ar.side("s_design"), "the tokens say what they say")
+	if _, err := cl.Hand("— asked by master", "rename the tokens", false); err != nil {
+		t.Fatalf("work was refused: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := len(ar.prompts()); n != 1 {
+		t.Fatalf("%d prompts have gone in; a change must not start on top of a running turn: %v", n, ar.prompts())
+	}
+	// It goes when the workspace does free up.
+	ar.work.setBusy("")
+	until(t, "the change to start", func() bool { return len(ar.prompts()) == 2 })
+}
+
+// A question runs in a conversation of its own, and that conversation may only read.
+//
+// The asker says "this is a question"; the RECEIVER is what makes it true. Same asker, both kinds:
+// two sessions, because what a session is allowed to do is fixed when it is created and a
+// conversation cannot change half-way through.
+func TestAQuestionGetsAReadOnlySessionOfItsOwn(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+
+	if _, err := cl.Hand("— asked by master", "what do the tokens say", true); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the question to run", func() bool { return len(ar.prompts()) == 1 })
+	// Finished, so the change is held by nothing: the queue does one piece at a time whatever kind
+	// they are, and this test is about which SESSION each lands in.
+	ar.finishes(ar.side("s_design"), "the tokens say what they say")
+	if _, err := cl.Hand("— asked by master", "rename the tokens", false); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the change to run", func() bool { return len(ar.prompts()) == 2 })
+
+	made := ar.work.sessions()
+	if len(made) != 2 {
+		t.Fatalf("one asker's question and work went into %d sessions: %v", len(made), made)
+	}
+	var looking, ordinary int
+	for _, c := range made {
+		if c.Agent == app.LookingAgent {
+			looking++
+		} else {
+			ordinary++
+		}
+	}
+	if looking != 1 || ordinary != 1 {
+		t.Errorf("the sessions came out as %d read-only and %d ordinary: %v", looking, ordinary, made)
+	}
+}
+
 // The next piece starts when the turn before it ends, not when a timer next looks.
 //
 // The drain has a backstop tick for the one thing it cannot observe — the person's own turn ending
@@ -882,11 +1004,11 @@ func TestTheNextPieceStartsWhenTheOneBeforeItEnds(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
-	if _, err := cl.Hand("— asked by master", "first"); err != nil {
+	if _, err := cl.Hand("— asked by master", "first", false); err != nil {
 		t.Fatal(err)
 	}
 	until(t, "the first piece to start", func() bool { return len(ar.prompts()) == 1 })
-	if _, err := cl.Hand("— asked by scribe", "second"); err != nil {
+	if _, err := cl.Hand("— asked by scribe", "second", false); err != nil {
 		t.Fatal(err)
 	}
 	// Held: one at a time.
@@ -916,7 +1038,7 @@ func TestAWakeThatArrivesBeforeTheWorkspaceIsFreeDoesNotCostTheBackstop(t *testi
 	cl, _ := ar.publish("design", "s_design")
 	ar.work.setBusy("the-person-is-working")
 
-	if _, err := cl.Hand("— asked by master", "count the lines"); err != nil {
+	if _, err := cl.Hand("— asked by master", "count the lines", false); err != nil {
 		t.Fatal(err)
 	}
 	// The nudge for a turn that has ended, delivered while the workspace still reads busy. This is
@@ -946,12 +1068,12 @@ func TestAQueuedPieceGetsItsOwnAnswer(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 
-	first, err := cl.Hand("— asked by master", "count the lines")
+	first, err := cl.Hand("— asked by master", "count the lines", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	until(t, "the first piece to start", func() bool { return len(ar.prompts()) == 1 })
-	second, err := cl.Hand("— asked by master", "count the characters")
+	second, err := cl.Hand("— asked by master", "count the characters", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -989,11 +1111,11 @@ func TestEveryArrivalIsWrittenDownWithHowMuchWasAlreadyThere(t *testing.T) {
 	ar.work.setBusy("the-person-is-working") // so nothing drains and the queue fills
 
 	for i := 0; i < maxWaiting; i++ {
-		if _, err := cl.Hand("— asked by master", "do it"); err != nil {
+		if _, err := cl.Hand("— asked by master", "do it", false); err != nil {
 			t.Fatalf("piece %d was refused before the queue was full: %v", i, err)
 		}
 	}
-	if _, err := cl.Hand("— asked by master", "one too many"); err == nil {
+	if _, err := cl.Hand("— asked by master", "one too many", false); err == nil {
 		t.Fatal("a full companion took more work")
 	}
 
@@ -1028,7 +1150,7 @@ func TestEveryArrivalIsWrittenDownWithHowMuchWasAlreadyThere(t *testing.T) {
 func TestACompanionSaysWhenItIsInTheMiddleOfSomething(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
-	if _, err := cl.Hand("— asked by master", "do it"); err != nil {
+	if _, err := cl.Hand("— asked by master", "do it", false); err != nil {
 		t.Fatal(err)
 	}
 	until(t, "the piece to start", func() bool { _, h := ar.carrying(); return h })
@@ -1049,7 +1171,7 @@ func TestHandedOverWorkWaitsBehindThePerson(t *testing.T) {
 	ar := newArrival(t)
 	cl, _ := ar.publish("design", "s_design")
 	ar.work.setBusy("the-person-is-working") // so the piece is queued rather than started at once
-	if _, err := cl.Hand("— asked by master", "audit the config"); err != nil {
+	if _, err := cl.Hand("— asked by master", "audit the config", false); err != nil {
 		t.Fatalf("the piece was refused: %v", err)
 	}
 	sent := func() int {
