@@ -238,7 +238,7 @@ func (s *server) prMsg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
 		said, merr := cl.DraftPR()
 		out = said
 		return merr
@@ -263,7 +263,7 @@ func (s *server) gitPR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var url string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
 		out, perr := cl.OpenPR(title, r.FormValue("body"))
 		url = out
 		return perr
@@ -288,7 +288,7 @@ func (s *server) gitMsg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
 		said, merr := cl.DraftCommit()
 		out = said
 		return merr
@@ -313,7 +313,7 @@ func (s *server) look(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
 		said, lerr := cl.LookOver(path, text)
 		out = said
 		return lerr

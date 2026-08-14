@@ -813,6 +813,33 @@ func (s *server) withClient(r *http.Request, do func(*daemon.Client, session.Ses
 	return do(cl, sid)
 }
 
+// alone runs one call on a connection of its own, dialled and dropped.
+//
+// For the calls that run the companion's MODEL: drafting a commit message, drafting a request,
+// reading over somebody's shoulder, compacting. The pooled client holds one mutex across the whole
+// round trip, so a call that takes seconds is a call during which nothing else about that
+// companion can be asked. Measured on the live console: with a draft in flight, a request for the
+// file tree took 2.7 seconds against 0.6 milliseconds idle — it was not slow, it was queued behind
+// a model.
+//
+// The meeting has dialled its own connection for this reason since it existed; this is the same
+// answer for the rest of them. The daemon serves each connection in its own goroutine, so a second
+// one costs a socket and nothing else.
+//
+// No retry, unlike withClient: a fresh dial IS the retry that one exists for.
+func (s *server) alone(r *http.Request, do func(*daemon.Client, session.SessionID) error) error {
+	in, err := s.target(r)
+	if err != nil {
+		return err
+	}
+	cl, err := daemon.Dial(in.Socket)
+	if err != nil {
+		return notRunning(in, err)
+	}
+	defer cl.Close()
+	return do(cl, session.SessionID(in.Session))
+}
+
 // notRunning says what a companion that is not there means, rather than what the socket did.
 //
 // A daemon that is off leaves its record behind on purpose: the board still shows what it did, and

@@ -31,7 +31,7 @@ func (s *server) compact(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
 		return
 	}
-	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+	err := s.alone(r, func(cl *daemon.Client, sid session.SessionID) error {
 		return cl.Compact(context.Background(), command.Compact{SessionID: sid})
 	})
 	if err != nil {

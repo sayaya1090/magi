@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/app"
@@ -105,6 +107,85 @@ func TestTheWorkspaceIsReadThroughTheCompanion(t *testing.T) {
 		t.Errorf("the search found %v", found.Hits)
 	}
 }
+
+// A call that runs the model does not stop the console asking anything else about that companion.
+//
+// The pooled client holds one mutex across a whole round trip, so a drafted commit message — tens
+// of seconds of a model — was tens of seconds in which the tree, the git card and the queue could
+// not be read. Measured on the live console before this: with a draft in flight, a request for the
+// file tree took 2.7 seconds against 0.6 milliseconds idle. It was not slow; it was queued behind
+// a model.
+func TestAModelCallDoesNotBlockTheRestOfTheConsole(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	held := make(chan struct{})
+	eng := &slowModel{workspaceEngine: &workspaceEngine{recordingEngine: &recordingEngine{},
+		app: app.New(nil, nil, builtin.Default(), bus.New(), nil, app.Config{}), wd: wd},
+		held: held, started: make(chan struct{})}
+	sock := f.liveDaemon(t, wd, "s1", eng)
+	q := "?d=" + url.QueryEscape(sock)
+
+	// The slow one, still going.
+	drafted := make(chan int, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		f.srv.gitMsg(w, httptest.NewRequest(http.MethodPost, "/git-msg"+q, nil))
+		drafted <- w.Code
+	}()
+	// It has to be IN the call before the second request is made, or this proves nothing.
+	select {
+	case <-eng.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the draft never reached the daemon")
+	}
+
+	done := make(chan int, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		f.srv.files(w, httptest.NewRequest(http.MethodGet, "/files"+q, nil))
+		done <- w.Code
+	}()
+	select {
+	case code := <-done:
+		if code != http.StatusOK {
+			t.Errorf("the listing answered %d while a model call was in flight", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the file tree could not be read while the companion was drafting a message")
+	}
+	close(held)
+	if code := <-drafted; code != http.StatusOK {
+		t.Errorf("the draft answered %d", code)
+	}
+}
+
+// slowModel is a companion whose model takes as long as this test wants it to.
+type slowModel struct {
+	*workspaceEngine
+	held    chan struct{}
+	begin   sync.Once
+	started chan struct{}
+}
+
+func (e *slowModel) DraftCommit(ctx context.Context) (string, error) {
+	e.begin.Do(func() { close(e.started) })
+	<-e.held
+	return "a message", nil
+}
+
+// The rest of Reviewer, because the daemon routes by the whole interface: an engine missing one of
+// these is one that answers "this daemon cannot review" and never reaches the method under test.
+func (e *slowModel) LookOver(ctx context.Context, path, text string) (string, error) {
+	return "", nil
+}
+func (e *slowModel) OpenPR(ctx context.Context, title, body string) (string, error) {
+	return "", nil
+}
+func (e *slowModel) PRFacts(ctx context.Context) (string, error) { return "{}", nil }
+func (e *slowModel) DraftPR(ctx context.Context) (string, error) { return "", nil }
 
 // workspaceEngine is a daemon that can read its own workspace, which is what the real one is.
 type workspaceEngine struct {
