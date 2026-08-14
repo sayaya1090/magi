@@ -437,6 +437,18 @@ let FOCUSED = null;
 
 globalThis.document = {
   title: "",
+  // Whether this page is the one in front of somebody. The page reads it to decide whether coming
+  // back to the tab means re-reading the screen; a fake without it would send every test down the
+  // "just came back" path.
+  hidden: false,
+  // The document's own listeners — visibility, mostly. Kept rather than dropped so a test can fire
+  // one: `document.emit('visibilitychange')` is how you say "the tab came back".
+  listeners: {},
+  addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
+  removeEventListener(type, fn) {
+    this.listeners[type] = (this.listeners[type] || []).filter(f => f !== fn);
+  },
+  emit(type, ev) { for (const fn of this.listeners[type] || []) fn(ev || {type}); },
   // A live getter rather than a value: the page reads it in the middle of a redraw, after
   // something has been focused and often after the element has been replaced.
   get activeElement() { return FOCUSED; },

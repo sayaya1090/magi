@@ -575,6 +575,10 @@ ptabs.addEventListener('change', () => {
   paintUnread();
   drawPanels();
   revealPanel(was);
+  // What happened while this panel was the one nobody was looking at. The panes are drawn from
+  // frames, and a frame arriving while the workspace sits behind the conversation draws into a box
+  // off screen — so arriving at a panel reads once, and the stream carries on from there.
+  freshen();
   measureDock();
 });
 wide.addEventListener('change', drawPanels);
@@ -8313,6 +8317,41 @@ function render() {
   loadFleet();
   watchFleet(list => { if (list) loadFleet(list); });
 }
+
+// freshen reads the screen's content once, without touching what it is listening to.
+//
+// The page is event-driven now: frames arrive when something changes, and a screen nobody is
+// looking at is not redrawn. That is the right bargain for cost and the wrong one for coming back
+// — everything that happened while you were on another panel arrived as a frame that drew into a
+// hidden box, or as no frame at all, and the screen you return to is the one you left.
+//
+// So: a read on arrival, and the subscription carries on. Deliberately the same loaders render()
+// calls, rather than a second path that can answer differently — the failure this tree keeps
+// writing down is two ways to learn one fact.
+function freshen() {
+  const s = sock();
+  const v = s ? '' : view();
+  if (deepIn()) {
+    const known = (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf());
+    drawDeep(known || {socket: s, peer: peerOf()});
+    return;
+  }
+  if (v === 'board') { loadBoard(); return; }
+  if (v === 'map') { loadMap(); return; }
+  if (v === 'meet') { if (!meetGone) loadMeet(); return; }
+  if (v === 'access') { if (mayEl(accessEl)) loadAccess(); return; }
+  if (v === 'skills') { loadSkills(); loadMCP(); return; }
+  // The companion's page and the list are both this: one read of the roster, which is what draws
+  // the facts, the queue, what was handed out and the workspace beside them.
+  loadFleet();
+}
+
+// Coming back to the tab is coming back to the screen. A console left open in another window for
+// an hour is showing an hour-old page — the frames it missed were sent to a document nobody was
+// rendering, and a background tab's connection is throttled besides.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) freshen();
+});
 
 // nameOf is the crumb for a socket before the fleet has been fetched — the file name carries the
 // workspace's base name, which is what a person calls the agent.

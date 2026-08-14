@@ -944,6 +944,40 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// Coming back to a screen reads it once. The subscription is not what needs restarting — the
+// screen is what needs catching up.
+//
+// The page is event-driven: frames arrive when something changes, and a panel nobody is looking at
+// is not redrawn. So the panel you return to is the one you left, however long you were away, and
+// the tab you come back to after an hour in another window is an hour old. Both are fixed the same
+// way — one read on arrival, with the stream left alone.
+func TestArrivingAtAScreenReadsItAgain(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+	   "task":"add the key","steps":3,"idle":4,"session":"s1"}]`
+	probe := `
+await loadFleet();
+const reads = () => RENDERED.filter(r => String(r.fetched || '').startsWith('/fleet')).length;
+const out = {};
+out.before = reads();
+byId.ptabs.activeTabIndex = 1;
+byId.ptabs.dispatchEvent({type: 'change'});
+await Promise.resolve();
+out.afterSwitch = reads();
+document.emit('visibilitychange');
+await Promise.resolve();
+out.afterReturn = reads();
+console.log(JSON.stringify(out));
+`
+	got := runPage(t, one, "?d=%2Fs%2Fa.sock", probe)
+	before, sw, back := got["before"].(float64), got["afterSwitch"].(float64), got["afterReturn"].(float64)
+	if sw <= before {
+		t.Errorf("switching panels read the roster %v times, against %v before it", sw, before)
+	}
+	if back <= sw {
+		t.Errorf("coming back to the tab read the roster %v times, against %v before it", back, sw)
+	}
+}
+
 // Below the two-column width a companion is four screens, not one column of everything.
 //
 // It was two — the conversation, and "status" holding the rest — and status was measured on a
