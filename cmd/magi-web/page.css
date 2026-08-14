@@ -811,7 +811,12 @@
      worse than no count. */
   .tablbl { display:inline-flex; align-items:center; }
   .badgewrap { width:16px; height:16px; margin-left:var(--magi-sys-space-50); }
-  .badgewrap md-badge { position:absolute; inset:0; width:16px; height:16px; }
+  /* Shifted for the same reason the team count is: the pill rides at `left:calc(50% + 2px)` of its
+     host, which is a corner offset and not a place in a line. Here the wrapper IS the space the
+     count was given, so the drawing is moved back over it. */
+  .badgewrap md-badge {
+    position:absolute; inset:0; width:16px; height:16px; transform:translateX(calc(-50% - 2px));
+  }
   .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
      the icon is the only thing there. */
@@ -1273,8 +1278,17 @@
      into a flow it anchors to whatever ancestor happens to be positioned and lands somewhere
      unrelated". Static put it back: both team badges rendered at the same point 616px and 498px
      away from their rows, stacked on each other, as a stray number floating over the table head.
-     The inner box rides at left:50% of the host, so the host is widened to hold it instead. */
-  .teamhead md-badge { position:relative; width:26px; }
+
+     The pill rides at `left:calc(50% + 2px)` of the host, which is right for a badge on the corner
+     of an icon and wrong in a line of text: widening the host to 26px left the count sitting in the
+     right-hand half of its own box with ten pixels of nothing before it, reading as a number
+     shoved away from the word it counts. Measured: a 26px host with the pill drawn from +15 to +31,
+     hanging out of the box the layout had reserved.
+
+     The shadow root exposes no part, so the correction is on the host: the box is the pill's size,
+     and a transform slides what is DRAWN back over it. A transform moves the painting and leaves
+     the layout alone, which is exactly the half that was wrong. */
+  .teamhead md-badge { position:relative; width:16px; transform:translateX(calc(-50% - 2px)); }
 
   /* status */
   /* The column's word, for the width where the column heads are not drawn. */
