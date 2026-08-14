@@ -1307,7 +1307,10 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			rows := markPending(renderMessages(msgs))
+			// Whether this session has a turn open, from the same reader the fleet row reads it
+			// from — so the transcript and the row cannot say different things about one companion.
+			_, turning := s.reader.UnfinishedTurnOf(r.Context(), sid)
+			rows := markPending(renderMessages(msgs), turning)
 			// The council, put back where it happened. Its marks name the message they followed,
 			// so this is a splice and not a guess about ordering — and a mark whose anchor is not
 			// in the transcript (a compaction dropped it) goes at the end rather than nowhere.
@@ -1513,8 +1516,14 @@ func claimed(msgs []session.Message, callID string) bool {
 // Only the LAST one, and only "nothing has answered it". Queued and abandoned are states the
 // terminal knows because it watched them happen; they are not recoverable from the transcript
 // alone, and a page claiming them from a guess would be worse than a page saying less.
-func markPending(rows []line) []line {
-	if len(rows) == 0 {
+//
+// And only while a turn is actually open, which the transcript alone cannot say. A turn that was
+// INTERRUPTED ends with nothing answering the last thing asked — that is what interrupting is —
+// so this marked it as being worked on for ever. Measured live on 2026-08-14: the companion was
+// idle, the fleet row said idle, and its own transcript said "working on this" under a prompt
+// nothing was going to answer.
+func markPending(rows []line, open bool) []line {
+	if len(rows) == 0 || !open {
 		return rows
 	}
 	last := &rows[len(rows)-1]

@@ -157,7 +157,11 @@ func (s *server) transcript(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	rows := markPending(renderMessages(msgs))
+	// Same question as the live transcript asks: is there a turn open in THIS session? A finished
+	// child, or one whose turn was interrupted, ends with nothing answering the last thing it was
+	// asked — and marking that as work in progress is a spinner over something that stopped.
+	_, turning := s.reader.UnfinishedTurnOf(r.Context(), sid)
+	rows := markPending(renderMessages(msgs), turning)
 	// A child holds councils of its own when it declares itself finished, so its transcript gets
 	// them spliced back in exactly as the parent's does.
 	if marks, cerr := s.reader.CouncilMarks(r.Context(), sid); cerr == nil {

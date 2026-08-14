@@ -149,6 +149,13 @@ func post(t *testing.T, s *server, h http.HandlerFunc, path string, form url.Val
 // The prompt itself never reaches this process — it is transient and belongs to the daemon's bus —
 // so the id travelling with the status is the whole mechanism. A viewer that can show a pending
 // permission and not grant it has stopped somewhere worse than not showing it at all.
+// duringATurn is markPending as a companion with a turn open sees it.
+//
+// Every test below is about a live turn, and the flag has a second condition now: an interrupted
+// turn also ends with nothing answering the last prompt, and marking that one said "working on
+// this" under a prompt nothing was going to answer. That case has a test of its own.
+func duringATurn(rows []line) []line { return markPending(rows, true) }
+
 func TestAnsweringAPromptOverTheSocket(t *testing.T) {
 	f := newFleetFixture(t)
 	wd := shortTempDir(t)
@@ -416,18 +423,28 @@ func TestTheUnansweredPromptIsMarked(t *testing.T) {
 	ask := session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "do it"}}}
 	reply := session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartText, Text: "done"}}}
 
-	waiting := markPending(renderMessages([]session.Message{ask}))
+	waiting := duringATurn(renderMessages([]session.Message{ask}))
 	if len(waiting) != 1 || !waiting[0].Pending {
 		t.Errorf("a prompt with nothing after it is not marked: %+v", waiting)
 	}
-	answered := markPending(renderMessages([]session.Message{ask, reply}))
+	answered := duringATurn(renderMessages([]session.Message{ask, reply}))
 	for _, r := range answered {
 		if r.Pending {
 			t.Errorf("an answered prompt is marked as pending: %+v", answered)
 		}
 	}
+	// …and not at all once the turn is over. An interrupted turn ends with nothing answering the
+	// last thing asked — that is what interrupting IS — so a transcript read on its own cannot
+	// tell it from a companion still thinking. Measured live: the fleet row said idle and the
+	// transcript under it said "working on this", for ever.
+	stopped := markPending(renderMessages([]session.Message{ask}), false)
+	for _, r := range stopped {
+		if r.Pending {
+			t.Errorf("a prompt in a session with no turn open is marked as being worked on: %+v", stopped)
+		}
+	}
 	// And an earlier prompt is not marked just because a later one is.
-	two := markPending(renderMessages([]session.Message{ask, reply, ask}))
+	two := duringATurn(renderMessages([]session.Message{ask, reply, ask}))
 	if two[0].Pending {
 		t.Error("an older, answered prompt was marked pending")
 	}
@@ -663,7 +680,7 @@ func TestOnlyTheTrailingUnfinishedCallIsMarkedRunning(t *testing.T) {
 		return session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: id, Content: json.RawMessage(`"ok"`)}}
 	}
 	// One finished call, then one still open.
-	rows := markPending(renderMessages([]session.Message{{
+	rows := duringATurn(renderMessages([]session.Message{{
 		Role: session.RoleAssistant, Parts: []session.Part{call("a"), result("a"), call("b")},
 	}}))
 	if len(rows) != 2 {
@@ -677,7 +694,7 @@ func TestOnlyTheTrailingUnfinishedCallIsMarkedRunning(t *testing.T) {
 	}
 
 	// An open call with something after it is over, however it ended.
-	stranded := markPending(renderMessages([]session.Message{
+	stranded := duringATurn(renderMessages([]session.Message{
 		{Role: session.RoleAssistant, Parts: []session.Part{call("a")}},
 		{Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartText, Text: "moving on"}}},
 	}))
@@ -960,7 +977,7 @@ func TestAnEditCrossesAsItsDiff(t *testing.T) {
 // reads as a question the companion ignored, and being the last row it also got the "working on
 // it" mark: a spinner over work that will never happen.
 func TestAnAbandonedPromptSaysSoAndDoesNotSpin(t *testing.T) {
-	rows := markPending(renderMessages([]session.Message{
+	rows := duringATurn(renderMessages([]session.Message{
 		{ID: "m1", Role: session.RoleUser, Abandoned: true,
 			Parts: []session.Part{{Kind: session.PartText, Text: "never mind this one"}}},
 	}))
@@ -974,7 +991,7 @@ func TestAnAbandonedPromptSaysSoAndDoesNotSpin(t *testing.T) {
 		t.Error("a request that will never be answered is marked as being worked on")
 	}
 	// One that was NOT abandoned still is: this is a distinction, not a blanket.
-	live := markPending(renderMessages([]session.Message{
+	live := duringATurn(renderMessages([]session.Message{
 		{ID: "m2", Role: session.RoleUser,
 			Parts: []session.Part{{Kind: session.PartText, Text: "do this one"}}},
 	}))
