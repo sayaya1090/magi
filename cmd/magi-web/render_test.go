@@ -944,6 +944,46 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// A verdict read inside a past session is inside it, and the trail has to say so.
+//
+// Measured on the live console: standing in one, the crumbs read "api / ⚖ Melchior / s_8a30…",
+// which puts the session inside the vote — and the only link out of it went to the LIST of past
+// work rather than to the transcript being read. There was no way back to what you were reading
+// short of the browser's own button, which is not a control the page put there.
+func TestAVerdictInsideASessionSaysWhereItIs(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,"session":"s1"}]`
+	probe := `
+// The fake keeps each element on its own, so the trail is read from the four that make it up
+// rather than from the nav's text.
+const trail = () => ['back', 'crumbHere', 'crumbDeep', 'crumbLeaf']
+  .map(id => (byId[id].textContent || '').trim()).filter(Boolean);
+const out = {};
+out.session = trail();
+goVerdict(1, 'melchior');
+out.verdict = trail();
+out.back = byId.crumbDeep.attrs.href;
+console.log(JSON.stringify(out));
+`
+	got := runPage(t, one, "?d=%2Fs%2Fa.sock&past=s_old", probe)
+	session := fmt.Sprint(got["session"])
+	if !strings.Contains(session, "s_old") {
+		t.Fatalf("the trail into a session reads %v", session)
+	}
+	verdict := fmt.Sprint(got["verdict"])
+	// The session is still on the trail, and the vote is the leaf rather than the other way round.
+	if !strings.Contains(verdict, "s_old") || !strings.Contains(verdict, "melchior") {
+		t.Errorf("the trail inside a verdict reads %v", verdict)
+	}
+	if strings.Index(verdict, "s_old") > strings.Index(verdict, "melchior") {
+		t.Errorf("the trail puts the session inside the vote: %v", verdict)
+	}
+	// …and pressing it goes back to that transcript, not to the list of past work.
+	back := fmt.Sprint(got["back"])
+	if !strings.Contains(back, "past=s_old") {
+		t.Errorf("the way out of a verdict leads to %q", back)
+	}
+}
+
 // A message that could not be sent is still in the box.
 //
 // The composer empties itself the moment you press send, which is right — the ordinary case is

@@ -756,14 +756,26 @@ const goBackUp = () => goDeep('sub', null);
 // in past work: "companions / design / What it has done", with every other label around it in
 // Korean. paint() already repaints the first crumb for exactly this reason; the deeper one was
 // added later and missed.
-function paintDeepCrumb() {
-  crumbDeep.textContent = !deepIn() ? ''
-    : inspOf() === 'tools' ? '🛠 ' + tr('insp.tools')
+// deepWord is what the screen one level in is called.
+//
+// Its own function because the trail uses it in two places now: as the third crumb when a deep
+// screen is all there is, and as the FOURTH when that screen was opened inside a past session —
+// where the third belongs to the session it is inside.
+function deepWord() {
+  return inspOf() === 'tools' ? '🛠 ' + tr('insp.tools')
     : inspOf() === 'loop' ? '↻ ' + tr('insp.loop')
     : askOf() ? '⏸ ' + tr('ask.deciding')
     : crOf() ? '⚖ ' + crOf().split(':').slice(1).join(':')
     : pastOn() ? tr('field.history')
     : '◆ ' + tr('detail.subagent');
+}
+
+function paintDeepCrumb() {
+  if (!deepIn()) { crumbDeep.textContent = ''; return; }
+  // Inside a session, the third crumb is the session: it is the thing the fourth is part of, and
+  // the only way back to the transcript somebody was reading.
+  const inSession = pastOn() && pastOf() && (crOf() || subOf() || askOf() || inspOf());
+  crumbDeep.textContent = inSession ? pastOf() : deepWord();
 }
 
 // goVerdict opens one member's vote, KEEPING which session it was read in.
@@ -8343,13 +8355,25 @@ function render() {
   // crumb becomes the way back to the list and a fourth says which session. Without that, opening
   // one left the crumb saying "past work" while showing a transcript, with no way back to the list
   // short of the browser's own button.
-  const leaf = pastOn() && pastOf();
-  crumbDeep.setAttribute('href', leaf
-    ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') + '&past=')
-    : '');
+  // A verdict read inside a past session is INSIDE it, and the trail said the opposite: standing
+  // in one, the crumbs read "api / ⚖ Melchior / s_8a30…", which puts the session inside the vote,
+  // and the only link out went to the list of past work rather than to the transcript being read.
+  // Measured on the live console.
+  //
+  // So when something is open inside a session, the session takes the third slot and IS the way
+  // back to it, and the fourth says which of its things you are looking at. The list of past work
+  // is one press further — from the session, where the trail is the four levels again.
+  const inSession = pastOn() && pastOf();
+  const deeper = inSession && (crOf() || subOf() || askOf() || inspOf());
+  const backTo = tail => at('?d=' + encodeURIComponent(s) +
+    (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') + tail);
+  const leaf = inSession;
+  crumbDeep.setAttribute('href', !leaf ? ''
+    : deeper ? backTo('&past=' + encodeURIComponent(pastOf()))
+    : backTo('&past='));
   crumbDeep.className = leaf ? '' : 'here';
   crumbSep3.hidden = !leaf;
-  crumbLeaf.textContent = leaf ? pastOf() : '';
+  crumbLeaf.textContent = !leaf ? '' : deeper ? deepWord() : pastOf();
   back.className = s ? '' : 'here';
   tabsEl.hidden = !!s;
   // Which kind of page this is, for the rules that differ between them. On a companion's page the
