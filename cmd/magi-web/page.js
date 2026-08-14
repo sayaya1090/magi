@@ -470,7 +470,7 @@ function drawPanels() {
         if (list) sideEl.prepend(list);
       } else if (!one) {
         const word = (sections.find(x => x.id === planShows) || {}).word || '';
-        sideEl.prepend(panelBack(tr('nav.going_on'), () => { planShows = ''; drawPanels(); }));
+        sideEl.prepend(panelBack(tr('nav.going_on'), () => { planShows = ''; drawPanels(); intoPanel(tr('nav.going_on')); }));
         void word;
       }
     } else {
@@ -551,16 +551,44 @@ function planList() {
     if (n) row.append(cell('panelcount', n));
     const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
     if (mark) row.append(mark);
-    row.onclick = () => { planShows = id; drawPanels(); };
+    row.onclick = () => { planShows = id; drawPanels(); intoPanel(word); };
     box.append(row);
   }
-  return box.children.length ? box : null;
+  // A destination is never blank.
+  //
+  // With no plan, nothing running, nothing handed out and nothing scheduled, this returned null
+  // and the panel drew nothing at all: measured on two live companions, a 195px band of nothing
+  // between the tabs and the composer, with not one word in it. The workspace pane next door says
+  // "nothing here matches that" for the same situation, so the omission was local to this one.
+  // Inside the list rather than beside it — the stylesheet hides everything in this panel that is
+  // not the list while the list is what is showing.
+  if (!box.children.length) {
+    box.append(cell('panelnote', tr('going_on.none')), cell('panelnote why', tr('going_on.none_how')));
+  }
+  return box;
+}
+
+// Arriving on a screen one level in: put it at the top, name it out loud, and leave the way back
+// under the reader's hand.
+//
+// Drilling in kept the page's scroll, so a section entered from halfway down a list opened with
+// its back control 65px ABOVE the window — measured on the demo — and focus stayed on the body,
+// which says nothing to anyone listening. The guide asks a new screen to decide where focus lands.
+function intoPanel(word) {
+  window.scrollTo(0, 0);
+  const back = sideEl.querySelector('.panelback md-text-button, .panelist .panelrow');
+  if (back && back.focus) back.focus();
+  if (word) say(word);
 }
 
 // The way back out of a section, at the top of it, where the file view already puts one.
 function panelBack(word, go) {
   const box = cell('panelback');
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'), word);
+  // The word alone is where it GOES, and read aloud that is the same name as the tab you are
+  // standing on — two controls with one name on one screen, one of which leaves it. The label says
+  // what pressing it does; the word stays as what is written on it.
+  b.setAttribute('aria-label', tr('action.back_to', {name: word}));
   b.onclick = go;
   box.append(b);
   return box;
@@ -1467,6 +1495,9 @@ function grounds(a) {
 // present is one the eye stops reading. Both surfaces are set from here so the rail and the tabs
 // cannot end up claiming different numbers.
 function markWaiting(n) {
+  // Kept, because the language can change without the fleet doing anything: paint() rewrites the
+  // four destination names from the pack, and the count has to go back on afterwards.
+  markWaiting.n = n;
   for (const b of [railBadge, tabBadge]) {
     // Four characters including the "+", which is what the badge container is drawn to hold.
     b.value = n ? (n > 999 ? '999+' : String(n)) : '';
@@ -1482,13 +1513,21 @@ function markWaiting(n) {
   // is visible in the DOM, and does not reach the link. Measured both ways: the attribute stood
   // there reading "Companions, 2 waiting on you" while the tree still said "Companions".
   const said = n ? ', ' + tr('state.waiting_on_you', {n}) : '';
-  // Into the CONTENT of both, which is what names a link. It used to need a patch written into the
-  // list item's shadow root — the component put role="listitem" on the anchor it rendered, and a
-  // listitem takes no name from what is inside it. The rail is an anchor now and this is all it is.
+  // Onto the LABEL, because the label is what wins.
+  //
+  // This used to be written as content — a screen-reader-only span inside the link — with a
+  // comment saying an aria-label on the host does not reach the name. That was true when the host
+  // was a list item rendering its own anchor in a shadow root; the rail is a plain anchor now, and
+  // for a plain anchor aria-label overrides everything inside it. Measured in the tree: the
+  // destination read "Companions" with the badge showing, and read "3 Companions, 3 waiting on
+  // you" the moment the attribute was removed. So the span was being drowned by the label that was
+  // meant to be redundant, and the count — the whole reason for a badge — was never spoken.
+  //
+  // The name cannot simply come from content instead: collapsed, the rail hides both of its words
+  // and a link named by an icon has no name at all.
   for (const host of [railFleet, tabFleet]) {
-    let note = host.querySelector('.srcount');
-    if (!note) { note = srOnly(''); note.classList.add('srcount'); host.append(note); }
-    note.textContent = said;
+    host.setAttribute('aria-label', tr('nav.companions') + said);
+    host.querySelector('.srcount')?.remove();
   }
 }
 
@@ -1537,6 +1576,17 @@ function arm(btn, word, act) {
 //
 // The second line may carry markup (a command in <code>), which is why it is set as HTML. It comes
 // from a pack this binary serves and embeds; nothing a companion or the network says reaches here.
+// A pane that could not load says so, where the content would have been.
+//
+// Every one of these loaders answered a refusal by returning early and leaving the pane exactly as
+// it was — which on first load is EMPTY. Measured with the server answering 500: the board, the
+// people screen and the map each drew a completely blank window between the app bar and the
+// navigation bar, with the only trace of the failure four characters wide in the status line. A
+// blank pane and a pane still loading are the same picture, and one of them is a lie.
+function paneFailed(box) {
+  box.replaceChildren(emptyState('error.pane', 'error.pane_how'));
+}
+
 function emptyState(whatKey, howKey) {
   const e = document.createElement('div');
   e.className = 'empty';
@@ -1703,7 +1753,14 @@ function answerBox(a, freeText) {
       // toward approving, and a console that leans on a permission decision is worse than one that
       // draws it quietly. The colour stays neutral for the same reason; the question above them
       // already carries the warning colour.
-      const b = label(withMark(document.createElement('md-filled-tonal-button'), mark), tr(key));
+      // Outlined, not tonal. The tonal container this page gives them is a surface role one step
+      // off the page — measured 1.24:1 dark and 1.18:1 in the light theme, where the guide asks a
+      // filled or tonal button for 3:1 from its CONTAINER because four of them in a row have to be
+      // told from the page and from each other. No surface role in this palette reaches 3:1
+      // against the background; the outline role does (3.41 dark, 3.75 light), and an outlined
+      // button is measured from its outline. The four stay one weight as a group, which is the
+      // point — a console that emphasised one of them would be answering for the person.
+      const b = label(withMark(document.createElement('md-outlined-button'), mark), tr(key));
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
       box.append(b);
     }
@@ -1984,7 +2041,7 @@ let boardQuery = '';
 
 async function loadBoard() {
   const list = await fetchList('/fleet');
-  if (!list) return;
+  if (!list) return void paneFailed(boardEl);
   fleetSeen = list;
   if (!boardDay) boardDay = todayISO();
 
@@ -2193,8 +2250,16 @@ async function fetchList(path) {
   catch { reach(false); says(tr('error.unreachable')); return null; }
   if (!r.ok) {
     reach(false);
+    // What was refused and with what code — in this console's own words.
+    //
+    // The server's response BODY used to be the message, cut to 80 characters. Behind a proxy that
+    // is an HTML error page, so the status line read "<!doctype html><html><head><title>502 Bad
+    // Gateway" clipped at a quarter of its width, which says nothing and pushes the crumb and the
+    // instance name to nothing beside it. The body is still worth having, so it goes to the
+    // console where a whole line fits.
     const why = (await r.text().catch(() => '')).trim();
-    says(why ? why.slice(0, 80) : tr('error.unreachable'));
+    if (why) console.warn('magi-web', r.status, path, why);
+    says(tr('error.refused', {code: r.status, what: path.split('?')[0]}));
     return null;
   }
   try { return await r.json(); }
@@ -2307,9 +2372,13 @@ async function loadFleet(given) {
 function drawFleetCount(list, waiting) {
   // The count says somebody is blocked; pressing it goes there. It said so and did nothing before,
   // which is the readout every console has and the reason nobody presses it.
-  state.replaceChildren(document.createTextNode(
-    tr(list.length === 1 ? 'count.agent' : 'count.agents', {n: list.length}) +
-    (waiting ? ' · ' : '')));
+  const said = tr(list.length === 1 ? 'count.agent' : 'count.agents', {n: list.length}) +
+    (waiting ? ' · ' : '');
+  // Rebuilt only when it says something different. This is a polite live region and the fleet is
+  // redrawn on every poll and on every destination change, so an unconditional replaceChildren
+  // announced "3 agents" again for a page that had not changed — measured twice per tap.
+  if (state.textContent === said && !waiting) return void state.classList.toggle('asking', false);
+  state.replaceChildren(document.createTextNode(said));
   if (waiting) {
     const go = document.createElement('md-text-button');
     go.className = 'jump';
@@ -3644,6 +3713,11 @@ let sayTimer = 0;
 // and the guide is explicit: do not cut text off without giving people a way to see it — a tooltip
 // or a link is what it names. Now that this page draws its own tooltips, it can be the tooltip.
 function says(text) {
+  // Said once. This is a polite live region: writing the same sentence into it twice queues it
+  // twice, and the two callers that rebuild a summary — once from what is known, once when the
+  // server's count lands — did exactly that. Measured with an observer: two callbacks, identical
+  // strings, one for each tap of a destination.
+  if (noteEl.textContent === text) return;
   noteEl.textContent = text;
   if (text) tip(noteEl, text); else noteEl.removeAttribute('data-tip');
 }
@@ -3752,7 +3826,7 @@ function skillWrite(all) {
 
 async function loadSkills() {
   const list = await fetchList('/skills');
-  if (!list) return;
+  if (!list) return void paneFailed(skillsEl);
   const crossing = list.filter(s => s.tier === 'global').length;
   const rules = list.filter(s => s.kind !== 'memory').length;
   reach(true);
@@ -3867,7 +3941,7 @@ async function loadAccess() {
   // fetchList is the one fetch helper: it decodes whatever JSON came back, array or object, and
   // answers null when the server did not — see its note on why a refusal is not an exception.
   const got = await fetchList('/access');
-  if (!got) return;
+  if (!got) return void paneFailed(accessEl);
   const roles = (got.roles || []).map(r => r.name);
   // Adding the first person is the act that turns the gate on, so a console with nothing in front
   // of it to say who anybody is cannot do it: it would refuse everybody afterwards, starting with
@@ -4284,7 +4358,9 @@ async function loadMCP() {
     const i = document.createElement('md-outlined-text-field');
     i.name = name;
     i.dataset.kind = kind;
-    i.setAttribute('label', tr(labelKey) + (must ? ' *' : ''));
+    // One asterisk. The component adds its own for a required field — the bundle does it in
+    // renderLabel — so writing a second one into the label drew "Name **" on screen.
+    i.setAttribute('label', tr(labelKey));
     i.setAttribute('supporting-text', tr(hintKey));
     if (must) i.setAttribute('required', '');
     return i;
@@ -5012,7 +5088,7 @@ function rowNode(r) {
 // companion IS, and the first one already answers this page four times a minute.
 async function loadMap() {
   const [rows, hands] = await Promise.all([fetchList('/fleet'), fetchList('/handoffs')]);
-  if (!rows) return;
+  if (!rows) return void paneFailed(mapEl);
   const head = sectionHead('nav.map', toTable());
   const boxes = cell('places');
   // Two boundaries, two boxes. The outer one is the MACHINE, which is what a network reaches and
@@ -6168,7 +6244,17 @@ async function runFind(a) {
   else if (!hits.length) kids.push(cell('filesnote', tr('files.no_match')));
   for (const hit of hits) kids.push(hitRow(a, hit));
   if (got && got.more) kids.push(cell('filesnote', tr('files.more', {n: got.more})));
-  filesEl.replaceChildren(paneCard('files', tr('nav.files'), kids));
+  // The results replace the TREE, and only the tree.
+  //
+  // Written as replaceChildren on the whole pane, a search also deleted the git card and — on a
+  // phone — the list row that is the only way to the git screen. Measured on the live console:
+  // before a find the pane held [list, files, git]; after one it held [files], and it stayed that
+  // way through every poll, because the poll re-runs the search. So looking for a file put the
+  // branch, the changes and the way to them out of reach until somebody found Clear.
+  const card = paneCard('files', shortPath(a.workdir || '') || tr('nav.files'), kids,
+                        async () => { forgetTree(a); loadTree.busy = ''; await loadTree(a); });
+  const was = filesEl.querySelector('.pane-files');
+  if (was) was.replaceWith(card); else filesEl.replaceChildren(card);
 }
 
 // One result. A name search answers with paths; a content search answers "path:line:text", which
@@ -6293,8 +6379,14 @@ async function walkTree(a, kept) {
   // scrolled the tree away from wherever the reader had got to. They are two different things
   // being looked at for two different reasons, so they get two boxes with two scrollbars, and
   // neither moves when the other does.
+  // An empty directory says it is empty. Every other list on this page has an empty state and this
+  // one did not: measured with the walk answering [], the card drew a heading, the find control,
+  // and two hundred pixels of nothing — a console offering to search a list it never admitted was
+  // empty.
+  const branchRows = await branches(a, '.', rows, 0, kept);
   const tree = paneCard('files', shortPath(a.workdir || ''),
-                        [findRow(a), ...(await branches(a, '.', rows, 0, kept))],
+                        [findRow(a), ...(branchRows.length ? branchRows
+                                         : [emptyState('files.empty', 'files.empty_how')])],
                         async () => { forgetTree(a); loadTree.busy = ''; await loadTree(a); });
   const git = await gitSection(a);
   // Only when something is different. This runs on the three-second poll, so every message
@@ -7172,7 +7264,14 @@ async function openFile(a, path) {
   drawCardTabs(a);
   const got = await fetchOne('/file' + qFor(a) + '&path=' + encodeURIComponent(path));
   if (cardShows !== path) return;            // somebody moved on while it was fetching
-  drawFile(path, got && got.text ? got.text : tr('files.unreadable'));
+  // A file that could not be read is not a file with one sentence in it.
+  //
+  // The failure text used to be passed through the same argument as the contents, so the viewer
+  // could not tell them apart: Edit was offered, pressing it put "This companion did not answer
+  // for its workspace." into the editor as line 1, and Save would have written that sentence over
+  // the file. Marked as a failure instead, and the viewer offers nothing to do with it.
+  drawFile(path, got && typeof got.text === 'string' ? got.text : tr('files.unreadable'),
+           !(got && typeof got.text === 'string'));
   loadTree(a);
 }
 
@@ -7184,7 +7283,7 @@ async function openFile(a, path) {
 // changed in the meantime.
 let editing = null;
 
-function drawFile(path, text) {
+function drawFile(path, text, unreadable) {
   // The WHOLE path, not just the directory. The tab carries the name so the reader can find the
   // file among the open ones; this line is the one they copy into a message or a command, and half
   // a path is not something anybody can paste. It is a bar of its own — a surface a step up, ruled
@@ -7203,7 +7302,7 @@ function drawFile(path, text) {
   // Editing is offered only to somebody who may — the server refuses regardless, and a button that
   // answers 403 is one people learn not to press. `shell` is the gate: anybody who can run a
   // command in that workspace can already write any file in it.
-  if (may('shell') && editing !== path) {
+  if (may('shell') && editing !== path && !unreadable) {
     const go = withMark(document.createElement('md-text-button'), '#i-sl-pen-to-square');
     label(go, tr('action.edit'));
     go.onclick = () => { editing = path; drawFile(path, text); };
@@ -8261,7 +8360,15 @@ function stopFleetWatch() {
 }
 function connect() {
   es = new EventSource('/events' + q());
-  es.onopen = () => { conn('live'); says(tr('state.live')); };
+  // Connected is the steady state, and the steady state is the dot's job.
+  //
+  // This used to WRITE "Live" into the status line, where nothing ever cleared it: on a
+  // companion's page that line read "Live" for the life of the tab, beside a green dot saying the
+  // same thing. On a phone the bar cut it to "L…", which is a word that answers nothing and was
+  // taking the room the companion's own name needed. The line is for what has gone wrong or just
+  // happened — so opening CLEARS it (the "reconnecting" it replaces is over) and the fact is
+  // announced to anyone who cannot see the dot.
+  es.onopen = () => { conn('live'); says(''); say(tr('state.live')); };
   es.onmessage = e => { lastRows = JSON.parse(e.data); draw(lastRows); };
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
@@ -8344,6 +8451,8 @@ function paint() {
     // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
     el.querySelector('.lbl').textContent = tr(key);
+    // …and the companions door carries a count in its name when somebody is waiting, which this
+    // loop has just overwritten with the plain word. Put back below, after the loop.
     // The same destination in one or two words, for the bar at the bottom of a phone. The guide is
     // explicit that a bar's label is not shrunk or truncated to fit — so where the long name does
     // not fit in a quarter of a 390px screen, there is a short one, and where it does the two are
@@ -8355,6 +8464,7 @@ function paint() {
     // hides it collapsed; the text is written either way so a language change reaches it.
     el.querySelector('.sub').textContent = tr(sub);
   }
+  markWaiting(markWaiting.n || 0);
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
   withMark(mcpCancel, '#i-sl-xmark');
@@ -8528,6 +8638,13 @@ function clearCompanionView() {
 // Its own function because it is a self-contained answer to one question — the four slots and what
 // each of them links to — and because render() is a sequence of such answers rather than one long
 // procedure. Nothing here reads anything but the address.
+// An anchor whose href is the empty string is a link to this page — focusable, in the tab order,
+// and on a crumb
+// that is carrying no level, nameless. Measured on a companion's page: the third tab stop was an
+// empty link, on the one screen where the trail is the only way out. Empty means no href at all,
+// which makes it a plain span again.
+function leadsTo(el, to) { if (to) el.setAttribute('href', to); else el.removeAttribute('href'); }
+
 function paintCrumbs(s, v) {
   // Where you are, in the masthead: magi / lessons, or magi / companions / design. The crumb that
   // names the section IS the way back to it, so "where am I" and the way out are one thing.
@@ -8544,7 +8661,7 @@ function paintCrumbs(s, v) {
   // crumb says where you are. Without that the only way out of a detail screen is the browser's
   // back button, which is not a control the page put there.
   const deep = deepIn();
-  crumbHere.setAttribute('href', s ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '')) : '');
+  leadsTo(crumbHere, s ? at('?d=' + encodeURIComponent(s) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '')) : '');
   crumbHere.className = deep ? '' : 'here';
   crumbSep2.hidden = !deep;
   paintDeepCrumb();
@@ -8565,13 +8682,28 @@ function paintCrumbs(s, v) {
   const backTo = tail => at('?d=' + encodeURIComponent(s) +
     (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') + tail);
   const leaf = inSession;
-  crumbDeep.setAttribute('href', !leaf ? ''
+  leadsTo(crumbDeep, !leaf ? ''
     : deeper ? backTo('&past=' + encodeURIComponent(pastOf()))
     : backTo('&past='));
   crumbDeep.className = leaf ? '' : 'here';
   crumbSep3.hidden = !leaf;
   crumbLeaf.textContent = !leaf ? '' : deeper ? deepWord() : pastOf();
   back.className = s ? '' : 'here';
+  // The two ends of the trail, named — because a phone shows only those two.
+  //
+  // A compact app bar has room for a leading control and a headline, so the stylesheet draws the
+  // level ABOVE as a back arrow and the level you are ON as the headline, and hides the rest. Both
+  // are decided here rather than guessed in CSS from the shape of the markup: the trail is three
+  // rungs deep on a companion, four inside a past session, and one on a destination, and only this
+  // function knows which of the four elements are carrying a level at this moment.
+  //
+  // Appended after the className assignments above, all of which overwrite rather than add.
+  const rungs = [back, crumbHere, crumbDeep, crumbLeaf].filter(e => e.textContent.trim());
+  for (const e of rungs) e.classList.remove('up', 'leaf');
+  if (rungs.length) rungs[rungs.length - 1].classList.add('leaf');
+  // Only when it has somewhere to go. The last rung is where you are; the one before it is the way
+  // out, and it is a link — except on a destination, where there is one rung and no way up.
+  if (rungs.length > 1) rungs[rungs.length - 2].classList.add('up');
 }
 
 // showDestination hides everything that is not the screen being asked for, and lights the rail and
@@ -8601,7 +8733,18 @@ function showDestination(s, v) {
   // The map is the companions destination seen another way, so that is the one that stays lit
   // while you stand in it — the same reason a companion's own page keeps it lit.
   for (const [el, key] of RAILS) {
-    el.toggleAttribute('selected', s || v === 'map' ? key === 'fleet' : v === key);
+    // The board is a view of the companions destination, like the map: it is reached from that
+    // list and it shows that list's work. Left out of this test it matched no destination at all,
+    // so standing on the board the bar said you were nowhere — measured, all four unlit and no
+    // aria-current anywhere in the tree.
+    const on = s || v === 'map' || v === 'board' ? key === 'fleet' : v === key;
+    el.toggleAttribute('selected', on);
+    // Drawn AND said. `selected` is an attribute of ours that the stylesheet reads; it means
+    // nothing to anything else, so in the accessibility tree all four destinations looked alike
+    // and the one question a navigation answers — which of these am I on — had no answer for
+    // anybody listening. aria-current="page" is the standard word for it, and it goes on the four
+    // links whether they are drawn as a rail or as the bar at the foot of a phone.
+    if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
   }
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';

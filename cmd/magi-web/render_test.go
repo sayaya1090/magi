@@ -1317,7 +1317,7 @@ func TestAnsweringAdvancesToTheNextOneWaiting(t *testing.T) {
 await loadFleet();
 // Answer the FIRST one.
 globalThis.SCROLLED.length = 0;
-await rows()[0].find('md-filled-tonal-button')[0].onclick({preventDefault(){}, stopPropagation(){}});
+await rows()[0].find('md-outlined-button')[0].onclick({preventDefault(){}, stopPropagation(){}});
 for (let i = 0; i < 30; i++) await Promise.resolve();
 console.log(JSON.stringify({scrolled: globalThis.SCROLLED}));
 `)
@@ -4615,7 +4615,7 @@ globalThis.fetch = async (p, o) => {
   return base(p, o);
 };
 // The third button is the one that lasts; press it and see what travels.
-box.find('md-filled-tonal-button')[2].onclick({preventDefault(){}, stopPropagation(){}});
+box.find('md-outlined-button')[2].onclick({preventDefault(){}, stopPropagation(){}});
 for (let i = 0; i < 6; i++) await Promise.resolve();
 console.log(JSON.stringify({sent: sent}));`)
 
