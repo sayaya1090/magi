@@ -516,6 +516,14 @@ func (s *server) rosterFrames(r *http.Request) func(io.Writer, http.Flusher) {
 	// as soon as the driver has written it.
 	room := strings.TrimSpace(r.URL.Query().Get("m"))
 	last, lastMeet := "", ""
+	// What each participant is thinking, while it thinks it.
+	//
+	// Only for a meeting screen, because it is the only one watching several conversations at once
+	// — and only from HERE, because the console cannot open a stream per participant: three of
+	// those plus the page's own is the connection budget gone. The daemons write their rooms to
+	// the same store this process reads, so merging them into the one stream a meeting screen
+	// already has is a read, not a protocol.
+	rooms := s.roomFrames(r, room)
 	return func(w io.Writer, fl http.Flusher) {
 		list := s.rosterFor(r, true)
 		b, err := json.Marshal(list)
@@ -534,6 +542,52 @@ func (s *server) rosterFrames(r *http.Request) func(io.Writer, http.Flusher) {
 		if mb, ok := s.meetFrame(r, room); ok && mb != lastMeet {
 			lastMeet = mb
 			fmt.Fprintf(w, "event: meet\ndata: %s\n\n", mb)
+			fl.Flush()
+		}
+		rooms(w, fl)
+	}
+}
+
+// roomFrames streams what each participant of one meeting is doing in its own conversation.
+//
+// The same thing the conversation screen shows for one companion — the thinking, the tool calls,
+// what it said — for every participant at once, on the connection the meeting screen already has.
+// Built from the same two calls that screen uses (NewSince to ask whether anything happened,
+// SessionState to rebuild), so there is one way to read a transcript in this process rather than a
+// second that can disagree with it.
+//
+// Nothing at all when the meeting is not being watched, or when a participant has not said where
+// its room is: a companion on another machine keeps its conversation there, and this reads files.
+func (s *server) roomFrames(r *http.Request, id string) func(io.Writer, http.Flusher) {
+	if strings.TrimSpace(id) == "" {
+		return func(io.Writer, http.Flusher) {}
+	}
+	seen := map[string]int64{}
+	return func(w io.Writer, fl http.Flusher) {
+		run := s.meets.get(id)
+		if run == nil || !s.mayWatch(r, run) {
+			return
+		}
+		for who, sid := range run.roomsNow() {
+			at := session.SessionID(sid)
+			seq, changed, err := s.reader.NewSince(r.Context(), at, seen[who])
+			if err != nil || (!changed && seen[who] != 0) {
+				continue
+			}
+			seen[who] = seq
+			msgs, _, merr := s.reader.SessionState(r.Context(), at)
+			if merr != nil {
+				continue
+			}
+			// A room's turn is not "in flight" in the sense the conversation screen means: what
+			// says a participant is speaking is the meeting's own floor, which the meet frame
+			// beside this one carries.
+			rows := markPending(renderMessages(msgs), false)
+			b, jerr := json.Marshal(map[string]any{"who": who, "rows": rows})
+			if jerr != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: room\ndata: %s\n\n", b)
 			fl.Flush()
 		}
 	}

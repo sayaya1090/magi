@@ -5412,6 +5412,11 @@ function drawRoom(m) {
 
   head.append(roster(m));
   box.append(head);
+  // What whoever has the floor is doing while they compose. A meeting was a screen that said
+  // nothing for a minute at a time and then produced a paragraph; the participants are working the
+  // whole while, in conversations this console can already read.
+  const speaking = m.holder && (m.speakers || []).find(sp => sp.name === m.holder && !sp.person);
+  if (speaking && !m.closed) box.append(nowBlock(speaking.name));
   box.append(transcript(m));
   meetSayField = null;
   if (!m.closed) box.append(sayBox(m));
@@ -5421,6 +5426,18 @@ function drawRoom(m) {
   // minutes — so there is a way back in, and it carries the reason with it.
   if (m.closed) box.append(reopenBox(m));
   meetEl.replaceChildren(box);
+}
+
+// nowBlock is the working of whoever is speaking, live.
+function nowBlock(who) {
+  const box = cell('meetnow');
+  box.dataset.who = who;
+  box.append(markedKey('#i-sl-spinner-third', tr('meet.doing_now', {who: who})));
+  const rows = cell('meetnowrows');
+  box.append(rows);
+  const have = (roomLive.get(who) || []).filter(r => r.who !== 'user').slice(-liveTail);
+  rows.replaceChildren(...(have.length ? have.map(rowNode) : [cell('dnote', tr('meet.thinking'))]));
+  return box;
 }
 
 function toBack() {
@@ -5587,13 +5604,49 @@ function transcript(m) {
   return box;
 }
 
+// What each participant's own conversation says right now, pushed by the meeting's stream.
+//
+// Kept by name rather than by session id: the screen asks "what is design doing", and a daemon
+// that restarted mid-meeting answers in a new conversation without becoming a different companion.
+const roomLive = new Map();
+
+// paintRooms redraws the two places a participant's own working shows: the block under whoever is
+// speaking, and any fold somebody has opened.
+//
+// Rebuilt in place rather than through drawRoom, which throws the room away and builds it again —
+// that would take the fold, the say box and the caret with it, several times a minute.
+function paintRooms(who) {
+  const rows = roomLive.get(who) || [];
+  const now = document.querySelector('.meetnow[data-who="' + cssq(who) + '"] .meetnowrows');
+  if (now) {
+    const tail = rows.filter(r => r.who !== 'user').slice(-liveTail);
+    now.replaceChildren(...(tail.length ? tail.map(rowNode) : [cell('dnote', tr('meet.thinking'))]));
+  }
+  for (const box of document.querySelectorAll('.meetworkrows')) {
+    if (box.hidden || box.dataset.who !== who) continue;
+    const n = Number(box.dataset.turn || 0);
+    const steps = turnRows(rows, n).filter(r => r.who !== 'assistant');
+    box.replaceChildren(...(steps.length ? steps.map(rowNode) : [cell('dnote', tr('meet.working_gone'))]));
+  }
+}
+
+// How much of a participant's working is shown while it is speaking. Enough to see what it is
+// doing, not so much that three participants' reasoning becomes the screen.
+const liveTail = 6;
+
+// cssq escapes a name for an attribute selector — a companion may be called anything.
+const cssq = s => String(s).replace(/["\\]/g, '\\$&');
+
 // roomRows is one participant's meeting conversation, fetched once and kept.
 //
 // Kept for the life of the screen: the transcript is redrawn whenever the room changes, and a
 // re-fetch per redraw would be a request per participant per turn for a fold nobody has opened.
 const roomRows = new Map();
 
-async function readRoom(socket, room) {
+async function readRoom(socket, room, who) {
+  // What the stream has already delivered, when it has: the meeting's own connection carries every
+  // participant's conversation, so a fold that opened a second later has the rows in hand.
+  if (who && roomLive.has(who)) return roomLive.get(who);
   const key = socket + '|' + room;
   if (!roomRows.has(key)) {
     roomRows.set(key, await fetchList('/transcript?d=' + encodeURIComponent(socket) +
@@ -5635,9 +5688,11 @@ function workingBox(who, socket, room, nth) {
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-down'),
                   tr('meet.working'));
   b.className = 'meetworkgo';
+  rows.dataset.who = who;
+  rows.dataset.turn = String(nth);
   const fill = async () => {
     if (rows.children.length) return;
-    const got = turnRows(await readRoom(socket, room), nth);
+    const got = turnRows(await readRoom(socket, room, who), nth);
     // Everything except the answer itself, which is the line this box hangs under.
     const steps = got.filter(r => r.who !== 'assistant');
     rows.replaceChildren(...(steps.length ? steps.map(rowNode)
@@ -8065,6 +8120,15 @@ function watchFleet(onList, extra, only) {
     });
   }
   fleetES.addEventListener('meet', () => onList(null));
+  // What each participant is thinking, as it thinks it — the same rows the conversation screen
+  // draws, for everybody in the room, on this one connection.
+  fleetES.addEventListener('room', e => {
+    let f = null;
+    try { f = JSON.parse(e.data); } catch { return; }
+    if (!f || !f.who) return;
+    roomLive.set(f.who, f.rows || []);
+    paintRooms(f.who);
+  });
   // A console that restarts is ordinary, and so is a laptop waking up. Reconnect quietly, and only
   // while this screen is still the one that wanted it.
   // A shared connection is the transcript's to reconnect: connect() already does that, and two

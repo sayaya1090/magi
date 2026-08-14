@@ -2992,6 +2992,16 @@
     border-inline-start:2px solid var(--spoke, var(--magi-ref-outlineVariant));
     padding-inline-start:var(--magi-sys-space-200);
   }
+  /* What whoever has the floor is doing, while they do it. Its own block above the transcript
+     rather than a row in it: it is not something that was said, and it is replaced rather than
+     added to. */
+  .meetnow {
+    display:grid; gap:var(--magi-sys-space-100);
+    padding:var(--magi-sys-space-200);
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-m);
+    background:var(--magi-ref-surface-container-low);
+  }
+  .meetnowrows { display:grid; gap:var(--magi-sys-space-100); max-height:16rem; overflow-y:auto; }
   /* What the participant read and thought before it spoke, behind a control. Quiet: it is the
      working, not the answer. */
   .meetwork { grid-column:2; }

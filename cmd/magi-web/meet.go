@@ -73,6 +73,17 @@ type meetingRun struct {
 	stop       context.CancelFunc
 }
 
+// roomsNow is a copy of who is holding the meeting where, for a reader outside the lock.
+func (run *meetingRun) roomsNow() map[string]string {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	out := make(map[string]string, len(run.rooms))
+	for k, v := range run.rooms {
+		out[k] = v
+	}
+	return out
+}
+
 // roomOf records which conversation a participant is holding the meeting in. Called with the run
 // already locked, like everything else that writes to it.
 func (run *meetingRun) roomOf(name, room string) {
