@@ -180,3 +180,20 @@ func TestAParticipantSpeaksInTheSessionItPreparedIn(t *testing.T) {
 		}
 	}
 }
+
+// A readiness note is prose or it is nothing.
+//
+// A live run came back with `{"path": ".", "pattern": "fleet"}` as one companion's note — the
+// model's last tool call echoed as its answer — and the roster showed it to the reader. Silence is
+// not an error here: the note is a courtesy and the readiness is the fact.
+func TestAReadinessNoteIsNeverAToolCall(t *testing.T) {
+	for _, junk := range []string{`{"path": ".", "pattern": "fleet"}`, "  [\n  {\"a\":1}\n]  ", ""} {
+		if got := readyNote(junk); got != "" {
+			t.Errorf("readyNote(%q) kept %q", junk, got)
+		}
+	}
+	said := "The client assumes three tries; nothing here enforces it."
+	if got := readyNote("  " + said + "\n"); got != said {
+		t.Errorf("a real note came back as %q", got)
+	}
+}

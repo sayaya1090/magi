@@ -5865,7 +5865,18 @@ function paneCard(key, title, kids) {
 async function gitSection(a) {
   const g = await fetchOne('/git' + qFor(a));
   gitSection.raw = JSON.stringify(g || null);
-  if (!g || !g.repo) return [];
+  // A card that says why, rather than a card that is not there.
+  //
+  // Returning nothing was right about "there is no git here" and wrong about everything the reader
+  // then thinks: a companion whose workspace is not a checkout, one whose daemon has just gone, and
+  // one where the pane happens to be folded all looked identical — the git card simply absent, with
+  // the report coming back as "깃은 아예 보이지도 않네". Two of those three are facts worth saying.
+  if (!g) {
+    return [paneCard('git', tr('git.section'), [cell('filesnote', tr('git.unreachable'))])];
+  }
+  if (!g.repo) {
+    return [paneCard('git', tr('git.section'), [cell('filesnote', tr('git.not_a_repo'))])];
+  }
   const box = cell('gitinner');
   const top = cell('gittop');
   const mark = iconOr('#i-sl-layer-group', '⎇', 'gitmark');

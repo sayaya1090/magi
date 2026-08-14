@@ -96,7 +96,24 @@ func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, to
 	if err != nil {
 		return session.SessionID(res.SessionID), "", err
 	}
-	return session.SessionID(res.SessionID), strings.TrimSpace(res.Text), nil
+	return session.SessionID(res.SessionID), readyNote(res.Text), nil
+}
+
+// readyNote is what the screen shows about a participant that has finished getting ready.
+//
+// Prose, or nothing. A live run came back with `{"path": ".", "pattern": "fleet"}` as one
+// companion's note — the model's last tool call echoed as its answer — and a roster showing a
+// reader JSON they did not ask for is worse than a roster showing "ready" and no more. Silence
+// here is not an error: the note is a courtesy, the readiness is the fact.
+func readyNote(said string) string {
+	out := strings.TrimSpace(said)
+	if out == "" {
+		return ""
+	}
+	if strings.HasPrefix(out, "{") || strings.HasPrefix(out, "[") {
+		return ""
+	}
+	return out
 }
 
 // MeetingSayIn is a turn taken in the session the participant already has.
