@@ -6046,7 +6046,12 @@ function gitActs(a, c) {
 // knows — there is nothing to commit yet.
 function commitRow(a, staged) {
   const box = cell('gitcommit');
-  const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
+  // Tonal, not filled. The guide keeps filled for the action that ends the page's own flow and
+  // says to have one — measured on this screen there were three: this, the workbench's, and the
+  // composer's Send, which is the one that is always there and always the page's. Tonal is what
+  // the guide calls the step below: an action that needs more weight than an outline and is not
+  // the page's last word.
+  const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-check'),
                    tr('git.commit'));
   go.disabled = !staged;
   tip(go, staged ? tr('git.commit_who') : tr('git.nothing_staged'));
@@ -6373,7 +6378,7 @@ function drawCommit(a, g) {
     draft.disabled = false;
     if (said) { commitDraft = said; msg.value = said; if (msg.focus) msg.focus(); }
   };
-  const go = label(withMark(document.createElement('md-filled-button'), '#i-sl-check'),
+  const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-check'),
                    tr('git.commit'));
   go.disabled = !staged.length;
   go.onclick = async () => {
