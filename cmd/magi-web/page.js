@@ -546,7 +546,7 @@ function planSections() {
     return n > 0 ? String(n) : '';
   };
   return [['plan', tr('nav.plan')], ['strip', tr('nav.running')], ['handoffs', tr('nav.handoffs')],
-          ['cron', tr('nav.cron')], ['intervened', tr('nav.intervened')]]
+          ['cron', tr('nav.cron')]]
     .map(([id, word]) => ({id, word, el: document.getElementById(id)}))
     .filter(x => x.el && !x.el.hidden && x.el.children.length)
     .map(x => ({...x, n: count(x.el)}));
@@ -741,7 +741,6 @@ wide.addEventListener('change', drawPanels);
 // Dragging a window past this one changes which shape the page is in, not just how it is spaced,
 // so it is a re-render rather than a re-layout.
 
-const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills');
 const boardEl = document.getElementById('board');
 const mapEl = document.getElementById('map');
@@ -791,6 +790,10 @@ function paintConn() {
   const lost = !reachOK || !companionOK || streamAt === 'lost';
   state.classList.toggle('lost', lost);
   state.classList.toggle('live', !lost && streamAt === 'live');
+  // And it says which state it is in. On four of the seven screens this readout is the dot and
+  // nothing else — no text, no title — so for anybody who cannot see it the connection was told in
+  // colour alone, which is the one thing this file keeps saying not to do.
+  state.setAttribute('aria-label', lost ? tr('state.lost') : tr('state.live'));
 }
 let openMCP = () => {};
 const noteEl = document.getElementById('note');
@@ -806,8 +809,14 @@ const companionAlive = ok => {
   // …and on the companion's own page, where a stopped daemon leaves a blank screen, the words go
   // where the conversation was. Measured: 378px of nothing between the tab strip and a composer
   // still offering Send, with the one sentence explaining it clipped in the status line.
-  const log = document.getElementById('log');
-  if (!ok && log && sock() && !log.querySelector('.empty')) {
+  //
+  // Through the same door as every other emptying of this box. draw() reuses transcript rows BY
+  // POSITION against a cache of what it drew last time, so replaceChildren on its own detaches
+  // every node and leaves the cache full of them: the conversation could never come back when the
+  // daemon did — the next frame prefix-matched the whole window and appended nothing — and a
+  // shorter frame would have called removeChild on a node with no parent and thrown out of draw().
+  if (!ok && sock() && !log.querySelector('.empty')) {
+    forgetShownRows();
     log.replaceChildren(emptyState('state.companion_gone', 'state.gone_how'));
   }
 };
@@ -849,7 +858,7 @@ const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=acc
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
 // question about the past rather than one they live on.
-const TABS = ['fleet', 'skills'];
+
 
 const sock = () => new URLSearchParams(location.search).get('d');
 // One level in from a companion's conversation. Addresses, not state: a screen somebody is looking
@@ -1108,6 +1117,25 @@ function closeX(dlg, head) {
     head.prepend(x);
   }
   x.setAttribute('aria-label', tr('action.close'));
+  // …and the dialog keeps its own name. A dialog is named by its headline slot, so a control put
+  // INSIDE that slot folds into the name: measured, five dialogs announced themselves as "Close
+  // Preferences", "Close Go to, or do", "Close Add an MCP server". Written on the dialog itself,
+  // the label wins over the concatenation and says what the dialog is.
+  const words = (head.textContent || '').trim();
+  if (words) dlg.setAttribute('aria-label', words);
+}
+
+// A card's heading in the side column: a mark, the word, and — where there is one — how many.
+//
+// The five cards had five shapes: two with a mark and three without, one with its count folded
+// into the word ("Waiting to run (3)"), one with two counts written into the heading as a
+// sentence. They sit in one column, one above the other, so the eye reads them as a list and the
+// differences read as meaning. The count is a separate element in the quiet role, which also lets
+// the list on a phone count the rows rather than the furniture.
+function countedKey(ref, text, n) {
+  const k = markedKey(ref, text);
+  if (n) k.append(cell('knum', String(n)));
+  return k;
 }
 
 function markedKey(ref, text, cls, markCls) {
@@ -1705,8 +1733,17 @@ function arm(btn, word, act) {
 // people screen and the map each drew a completely blank window between the app bar and the
 // navigation bar, with the only trace of the failure four characters wide in the status line. A
 // blank pane and a pane still loading are the same picture, and one of them is a lie.
-function paneFailed(box) {
-  box.replaceChildren(emptyState('error.pane', 'error.pane_how'));
+function paneFailed(box, headKey) {
+  // Only where there is nothing to keep. A refusal on the FIRST load leaves a blank window and has
+  // to say so; a refusal on the poll that follows a good one must leave what is on screen alone —
+  // stale and said-so beats blank, which is the rule the fleet's own test has held since before
+  // this function existed. The status line carries the refusal either way.
+  if (box.children.length) return;
+  // With its heading, if it has one. Replacing the pane's children takes the section head with
+  // them, so a reader navigating by headings arrives at a pane with no name while the strip above
+  // still says which one it is.
+  box.replaceChildren(...(headKey ? [sectionHead(headKey)] : []),
+                      emptyState('error.pane', 'error.pane_how'));
 }
 
 function emptyState(whatKey, howKey) {
@@ -1744,6 +1781,10 @@ function jumpToNextWaiting(justAnswered) {
           row.getAttribute('href').includes(encodeURIComponent(justAnswered))) {
         continue;
       }
+      // …and only one this console can answer. A companion waiting on somebody at ANOTHER console
+      // is drawn "waiting" and carries no question and no buttons, and the queue was centring it —
+      // sending the reader to a card with nothing on it while skipping the answerable one.
+      if (!row.querySelector('.answer')) continue;
       if (row.scrollIntoView) row.scrollIntoView({block: 'center', behavior: stillness()});
       return;
     }
@@ -1779,7 +1820,10 @@ function textAnswer(send) {
   i.addEventListener('input', arm);
   // The box sits inside a row that is a link, and inside the ask screen it sits under one. Neither
   // press is a navigation.
-  i.onclick = e => { e.preventDefault(); e.stopPropagation(); };
+  // stopPropagation only. preventDefault on a click that lands in a text field cancels the focus
+  // the browser was about to give it, so one tap on the answer box followed the card's link
+  // instead: the field's own press did nothing and the keyboard never came up.
+  i.onclick = e => { e.stopPropagation(); };
   i.onkeydown = e => { if (e.key === 'Enter') go(e); };
   return [i, b];
 }
@@ -2168,7 +2212,7 @@ let boardQuery = '';
 
 async function loadBoard() {
   const list = await fetchList('/fleet');
-  if (!list) return void paneFailed(boardEl);
+  if (!list) return void paneFailed(boardEl, 'nav.board');
   fleetSeen = list;
   if (!boardDay) boardDay = todayISO();
 
@@ -2409,7 +2453,10 @@ function councilWordOf(decision) {
 // instead, so a push costs no request — see watchFleet.
 async function loadFleet(given) {
   const list = given || await fetchList('/fleet');
-  if (!list) return;
+  // The companions screen is a pane like the others. Every loader beside it was given this and it
+  // was not: measured with the roster refused, 105px of nothing between the app bar and the
+  // navigation bar, and the only trace a status line clipped to "magi-web answered …".
+  if (!list) return void paneFailed(fleetEl);
   reach(true);
   const waiting = list.filter(a => a.state === 'waiting').length;
   retitle(waiting);
@@ -2433,7 +2480,6 @@ async function loadFleet(given) {
     if (note !== liveNote || named !== userName) { liveNote = note; userName = named; draw(lastRows); }
     drawPrompt(mine);
     drawDetail(mine);
-    loadIntervened(mine);
     loadJobs(mine);
     // The workspace beside the conversation. Redrawn on the poll like everything else on this
     // page: a file appearing in a directory while somebody watches is the thing a tree is for.
@@ -2509,10 +2555,15 @@ function drawFleetCount(list, waiting) {
   // exactly the state it was needed: measured with an observer, twelve rebuilds of a polite live
   // region in ten seconds, all carrying the same sentence.
   const whole = said + (waiting ? tr('state.waiting_on_you', {n: waiting}) : '');
-  if (drawFleetCount.said === whole) return;
+  // The memo is about the LIVE REGION, and only about that. Written as an early return it also
+  // skipped summarise() at the foot of this function — the one thing that rebuilds the four state
+  // tiles and the ways to the other views — so while somebody was blocked (the case the old guard
+  // deliberately excluded) a companion moving between working and idle stopped changing the counts,
+  // and a pressed filter chip left the previous one lit.
+  const same = drawFleetCount.said === whole;
   drawFleetCount.said = whole;
-  state.replaceChildren(document.createTextNode(said));
-  if (waiting) {
+  if (!same) state.replaceChildren(document.createTextNode(said));
+  if (waiting && !same) {
     const go = document.createElement('md-text-button');
     go.className = 'jump';
     go.textContent = tr('state.waiting_on_you', {n: waiting});
@@ -2637,6 +2688,13 @@ function setFolded(want, chosen) {
   box.toggleAttribute('folded', want);
   const bar = box.querySelector('.foldbar');
   if (bar) bar.setAttribute('aria-expanded', want ? 'false' : 'true');
+  // The other card in the same slot folds with it. They take turns in one box — the facts and
+  // whatever file is open — so "how much of this screen do I want the conversation to have" is one
+  // question, not two, and answering it on one card and not the other leaves the slot jumping
+  // between two heights as you switch tabs.
+  fileViewEl.toggleAttribute('folded', want);
+  const fbar = fileViewEl.querySelector('.foldcaret');
+  if (fbar) fbar.setAttribute('aria-expanded', want ? 'false' : 'true');
   // Only a press is a preference. The default below is decided by the window, and writing that
   // down would turn "this window is narrow today" into "this reader wants it folded".
   if (chosen) localStorage.setItem('facts', want ? 'folded' : 'open');
@@ -3462,7 +3520,7 @@ async function drawPlan(a) {
   // a screen reader nothing the number did not already say.
   bar.setAttribute('aria-label', tr('plan.progress', {done: done, total: todos.length}));
   bar.className = 'planbar';
-  box.replaceChildren(cell('k', tr('field.plan')), bar,
+  box.replaceChildren(markedKey('#i-sl-chart-kanban', tr('field.plan')), bar,
     cell('plancount', tr('plan.progress', {done: done, total: todos.length})),
     ...todos.map(planRow));
   showSide(box, true);
@@ -3521,7 +3579,7 @@ async function drawHandoffs(a) {
     row.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
     return row;
   });
-  box.replaceChildren(markedKey('#i-sl-share-from-square', tr('field.handed_out')), ...rows);
+  box.replaceChildren(countedKey('#i-sl-share-from-square', tr('field.handed_out'), rows.length), ...rows);
   showSide(box, true);
 }
 
@@ -3555,7 +3613,7 @@ async function drawCron(a) {
     el.append(cell('jfile', j.file + (j.global ? ' · ' + tr('cron.machine') : '')));
     return el;
   });
-  box.replaceChildren(markedKey('#i-sl-calendar-clock', tr('field.scheduled')), ...rows);
+  box.replaceChildren(countedKey('#i-sl-calendar-clock', tr('field.scheduled'), rows.length), ...rows);
   showSide(box, true);
 }
 
@@ -3712,44 +3770,16 @@ function qFor(a) {
 }
 
 // ── what I had to step in and say ─────────────────────────────────────────────
-// On the companion it is about, and no longer a factory for rules.
+// The card that recorded what a person had to say mid-turn is gone.
 //
-// This began as a promotion pipeline: group what a person said mid-turn by the words, count the
-// repeats, offer to promote the repeated ones into the experience store. The premise does not hold.
-// What somebody says mid-turn is nearly always about THAT task — "no, the other file" is not a
-// rule — the few that generalise are rare, and the grouping only ever matched identical wording,
-// which people do not produce. Above all it needed somebody to visit a screen and curate, and the
-// agent's own remember tool already reaches the store without that.
-//
-// What survives is the part that was always true and never needed the words to match: a count of
-// how often this companion had to be corrected, and what was refused. That is a fact about the
-// companion, so it belongs on the companion's page.
-async function loadIntervened(a) {
-  if (!a) { showSide(intervenedEl, false); intervenedEl.replaceChildren(); return; }
-  const list = await fetchList('/interventions');
-  if (!list) return;
-  const mine = list.filter(m => m.socket === a.socket && (m.peer || '') === (a.peer || ''));
-  if (!mine.length) { showSide(intervenedEl, false); intervenedEl.replaceChildren(); return; }
+// It grouped corrections by wording and offered to promote the repeated ones into the experience
+// store, and the premise did not hold: what somebody says mid-turn is nearly always about THAT
+// task — "no, the other file" is not a rule — the few that generalise are rare, and the grouping
+// only ever matched identical wording, which people do not produce. The count that survived it
+// ("three steers, one refusal") is a number nobody acted on, in a card that took a request every
+// three seconds and a section in the phone's list. The corrections themselves are in the
+// transcript, where they happened, next to what they were about.
 
-  const box = cell('');
-  const steers = mine.filter(m => m.kind !== 'denied').length;
-  const refused = mine.length - steers;
-  const head = cell('k');
-  head.textContent = tr('field.intervened') + ' · ' +
-    (steers ? tr('iv.steers', {n: steers}) : '') +
-    (steers && refused ? ' · ' : '') +
-    (refused ? tr('iv.refused', {n: refused}) : '');
-  box.append(head);
-  for (const m of mine.slice(0, 12)) {
-    const row = cell('iv2' + (m.kind === 'denied' ? ' denied' : ''));
-    row.append(cell('when', (m.at || '').slice(0, 10)));
-    row.append(cell('said', m.kind === 'denied' ? tr('iv.refused_call', {what: m.text}) : m.text));
-    box.append(row);
-  }
-  intervenedEl.replaceChildren(box);
-  showSide(intervenedEl, true);
-  measureDock();
-}
 
 // ── what they have learned ───────────────────────────────────────────────────
 // What the organisation shares, and the two things a person does with it: find something, and
@@ -3777,6 +3807,11 @@ const shared = {rules: 0, facts: 0, crossing: 0, servers: null, reachedFrom: 0};
 // said the request had been refused.
 function sayShared() {
   reach(true);
+  // Only once the rules have actually answered. A refused /skills followed by a healthy /mcp
+  // announced "0 rules · 0 remembered · 0 crossing every companion" — the initialiser's numbers,
+  // spoken over the sentence that said the request had been refused. The server count is already
+  // held back by its own null until /mcp answers.
+  if (!sayShared.rules) return;
   const bits = [tr(shared.rules === 1 ? 'count.rule' : 'count.rules', {n: shared.rules}),
                 tr('count.remembered', {n: shared.facts}),
                 tr('count.crossing', {n: shared.crossing})];
@@ -3936,13 +3971,58 @@ function say(text) {
   sayTimer = setTimeout(() => { sayEl.textContent = text; }, 60);
 }
 
-function findBox(get, set) {
+// Redraw without throwing away the caret.
+//
+// replaceChildren removes every child before putting it back, and removing a focused node blurs
+// it — so a list that redraws from its own search field takes the keyboard away on the first
+// keystroke. Keeping the field is half the fix (the same element keeps its value); this puts the
+// focus back once the redraw has actually happened, which is after a fetch and therefore not on
+// the next frame.
+function keepingFocus(key, fn) {
+  // The field this screen filters by, if somebody is typing in it. Reading document.activeElement
+  // here is not enough: the redraw for one keystroke lands while the next is being typed, so by
+  // then the focus is already on <body> and there is nothing left to put back. The field remembers
+  // for itself, from focusin to focusout.
+  const box = findBoxes.get(key);
+  const keep = box && box.typing ? box.f : null;
+  fn();
+  if (!keep || !keep.isConnected || document.activeElement === keep) return;
+  keep.focus();
+}
+
+// The box outlives the list it filters.
+//
+// Both screens that use this redraw themselves from the input handler — loadSkills and loadMCP end
+// in replaceChildren — so a freshly built field was removed by the very keystroke typed into it:
+// measured, focus on <body> and the second character going nowhere. One character is also less
+// than the three the ranking needs, so the search could never return anything but everything.
+//
+// Kept per caller and reused, the way the facts card keeps its fold wrapper for the same reason.
+const findBoxes = new Map();
+function findBox(get, set, key) {
+  // Keyed by a NAME the caller gives. Keyed on the getter, every call built a fresh arrow function
+  // and therefore a fresh key — the cache never hit and the box was rebuilt exactly as before.
+  const had = findBoxes.get(key);
+  if (had) { if (document.activeElement !== had.f) had.f.value = get(); return had.box; }
   const box = cell('skfind');
   const f = withGlass(document.createElement('md-outlined-text-field'));
   f.setAttribute('label', tr('label.find'));
   f.value = get();
   f.addEventListener('input', () => set(f.value));
+  // Whether somebody is typing in it. The redraw for one keystroke can land while the next is
+  // being typed, so by then document.activeElement is already <body> and there is nothing left to
+  // put back — the field has to remember for itself.
+  f.addEventListener('focusin', () => { const b = findBoxes.get(key); if (b) b.typing = true; });
+  f.addEventListener('focusout', () => {
+    // Not when the redraw did it: a blur from replaceChildren is followed immediately by our own
+    // focus() call, a blur from a press somewhere else is not.
+    const b = findBoxes.get(key);
+    if (!b) return;
+    if (typeof requestAnimationFrame !== 'function') { b.typing = false; return; }
+    requestAnimationFrame(() => { if (document.activeElement !== f) b.typing = false; });
+  });
   box.append(f);
+  findBoxes.set(key, {box, f});
   return box;
 }
 
@@ -3952,6 +4032,11 @@ function sectionHead(key, action) {
   const h = document.createElement('h2');
   h.className = 'sectionhead';
   h.append(cell('', tr(key)));
+  // Named by its words. The action below is appended INSIDE the heading — which is what puts the
+  // two on one line — and a heading takes its name from everything in it: measured, "Meeting
+  // Companions", "How it is laid out As a table", "Servers Add a server". The control stays where
+  // it is drawn; the heading says what it is a heading for.
+  h.setAttribute('aria-label', tr(key));
   // A section's own action belongs at its head, not under everything it holds. Adding a server sat
   // at the BOTTOM of the list, so on a console with a dozen of them the way to add one was to
   // scroll past all twelve — and on the screen where the list is empty it was the only control
@@ -3965,8 +4050,8 @@ function sectionHead(key, action) {
 // Rebuilt on every load rather than kept, because the list behind it is — and a box whose value
 // survived while the rows under it were replaced is a box that lies about what it is filtering.
 // The typed text is held outside, in skillQuery, which is the part that must survive.
-const skillFind = () => findBox(() => skillQuery, v => { skillQuery = v; loadSkills(); });
-const mcpFind = () => findBox(() => mcpQuery, v => { mcpQuery = v; loadMCP(); });
+const skillFind = () => findBox(() => skillQuery, v => { skillQuery = v; loadSkills(); }, 'skills');
+const mcpFind = () => findBox(() => mcpQuery, v => { mcpQuery = v; loadMCP(); }, 'mcp');
 
 // Writing goes UNDER what you have read, not over it.
 //
@@ -4032,11 +4117,12 @@ function skillWrite(all) {
 
 async function loadSkills() {
   const list = await fetchList('/skills');
-  if (!list) return void paneFailed(skillsEl);
+  if (!list) return void paneFailed(skillsEl, 'nav.lessons');
   const crossing = list.filter(s => s.tier === 'global').length;
   const rules = list.filter(s => s.kind !== 'memory').length;
   reach(true);
   shared.rules = rules;
+  sayShared.rules = true;   // this half has answered at least once
   shared.facts = list.length - rules;
   shared.crossing = crossing;
   sayShared();
@@ -4058,8 +4144,8 @@ async function loadSkills() {
   // early return, so zero hits was the single case that said nothing at all.
   if (skillQuery) say(tr('find.results', {n: shown.length}));
   if (!shown.length) {
-    skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(),
-      emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list));
+    keepingFocus('skills', () => skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(),
+      emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list)));
     return;
   }
   // Rules and memories are two kinds of thing and the screen said so nowhere: measured, the nine
@@ -4156,7 +4242,7 @@ async function loadSkills() {
     parts.push(sectionHead('nav.rules'), ...isRule.map(draw),
                sectionHead('nav.memories'), ...isFact.map(draw));
   }
-  skillsEl.replaceChildren(...parts, skillWrite(list));
+  keepingFocus('skills', () => skillsEl.replaceChildren(...parts, skillWrite(list)));
 }
 
 // ── what they can reach ──────────────────────────────────────────────────────
@@ -4175,7 +4261,7 @@ async function loadAccess() {
   // fetchList is the one fetch helper: it decodes whatever JSON came back, array or object, and
   // answers null when the server did not — see its note on why a refusal is not an exception.
   const got = await fetchList('/access');
-  if (!got) return void paneFailed(accessEl);
+  if (!got) return void paneFailed(accessEl, 'nav.access');
   const roles = (got.roles || []).map(r => r.name);
   // Adding the first person is the act that turns the gate on, so a console with nothing in front
   // of it to say who anybody is cannot do it: it would refuse everybody afterwards, starting with
@@ -4463,32 +4549,38 @@ function scopeSection(p) {
     // this width: "⚠ compact에서는 후행 아이콘 타겟이 너무 작다 — 칩 전체가 그 동작을 하게 만들 것."
     // So the phone gets a chip that removes, and because removing somebody's access to a companion
     // is not undoable, it asks first: the same two-press arm() every destructive control here uses.
-    if (onePane()) {
-      const c = document.createElement('md-input-chip');
-      c.setAttribute('label', name);
-      c.className = 'scopechip';
-      c.setAttribute('aria-label', tr('action.forget_named', {name}));
-      // The component's own trailing action goes: two targets in one chip is the defect.
-      c.removeAttribute('remove-only');
-      c.toggleAttribute('always-focusable', true);
-      let armed = false, timer = 0;
-      c.addEventListener('click', ev => {
-        ev.preventDefault();
-        if (armed) { clearTimeout(timer); drop(); return; }
-        armed = true;
-        c.setAttribute('label', tr('action.confirm'));
-        c.classList.add('armed');
-        timer = setTimeout(() => {
-          armed = false; c.setAttribute('label', name); c.classList.remove('armed');
-        }, 5000);
-      });
-      chips.append(c);
-      continue;
-    }
     const c = document.createElement('md-input-chip');
     c.setAttribute('label', name);
     c.className = 'scopechip';
+    // The chip's own × always removes. It is the component's trailing action and it is drawn
+    // whatever the page says: `remove-only` decides whether the LABEL is a button, not whether the
+    // × exists, and its handler stops the event inside the shadow root before anything on the host
+    // can hear it — so a compact branch that listened for a click on the host and not for `remove`
+    // left a × that took the chip off the screen and told the server nothing. Somebody's access
+    // looked revoked and was not, until the next redraw brought it back.
     c.addEventListener('remove', drop);
+    if (!onePane()) { chips.append(c); continue; }
+    // …and on a phone the whole chip does it too, because 34×48 inside a 75dp chip is the target
+    // the guide names at this width: "⚠ compact에서는 후행 아이콘 타겟이 너무 작다 — 칩 전체가
+    // 그 동작을 하게 만들 것." Removing somebody's access is not undoable, so the big target asks
+    // first — the two presses every destructive control on this page uses — while the small one
+    // stays what it has always been.
+    const named = word => {
+      c.setAttribute('label', word);
+      // The name follows the word. A label written on the host wins over its contents, so a chip
+      // reading "Confirm?" and answering to "Forget api" is the split arm() was fixed for.
+      c.setAttribute('aria-label', word === name ? tr('action.forget_named', {name}) : word);
+    };
+    named(name);
+    let armed = false, timer = 0;
+    c.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (armed) { clearTimeout(timer); drop(); return; }
+      armed = true;
+      c.classList.add('armed');
+      named(tr('action.confirm'));
+      timer = setTimeout(() => { armed = false; c.classList.remove('armed'); named(name); }, 5000);
+    });
     chips.append(c);
   }
   // And the way to add one. A name rather than a menu of what is running: a person can be scoped
@@ -4532,10 +4624,11 @@ function addPersonButton(roles, first) {
 
 async function loadMCP() {
   const list = await fetchList('/mcp');
-  if (!list) return void paneFailed(mcpEl);
+  if (!list) return void paneFailed(mcpEl, 'nav.mcp');
   const reachedFrom = new Set(list.map(s => s.companion || 'every companion here'));
   reach(true);
   shared.servers = list.length;
+  sayShared.servers = true;
   sayShared();
   shared.reachedFrom = reachedFrom.size;
 
@@ -4739,11 +4832,11 @@ async function loadMCP() {
     return;
   }
   if (!rows.length) {
-    mcpEl.replaceChildren(sectionHead('nav.mcp', open), mcpFind(),
-      emptyState('empty.no_match', 'empty.no_match_how'));
+    keepingFocus('mcp', () => mcpEl.replaceChildren(sectionHead('nav.mcp', open), mcpFind(),
+      emptyState('empty.no_match', 'empty.no_match_how')));
     return;
   }
-  mcpEl.replaceChildren(sectionHead('nav.mcp', open), mcpFind(), ...rows);
+  keepingFocus('mcp', () => mcpEl.replaceChildren(sectionHead('nav.mcp', open), mcpFind(), ...rows));
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
@@ -5351,7 +5444,10 @@ function rowNode(r) {
 // companion IS, and the first one already answers this page four times a minute.
 async function loadMap() {
   const [rows, hands] = await Promise.all([fetchList('/fleet'), fetchList('/handoffs')]);
-  if (!rows) return void paneFailed(mapEl);
+  // Both halves. `hands || []` drew a complete-looking map with no wires on it and the full legend
+  // underneath — answered, in flight, cannot be reached — for a request that had been refused. A
+  // furnished lie is worse than a blank pane.
+  if (!rows || !hands) return void paneFailed(mapEl, 'nav.map');
   const head = sectionHead('nav.map', toTable());
   const boxes = cell('places');
   // Two boundaries, two boxes. The outer one is the MACHINE, which is what a network reaches and
@@ -5735,7 +5831,10 @@ function meetWhere(m) {
   // Only when there are numbers. A room whose payload is missing those fields — an older daemon, a
   // half-written record — interpolated them as they came and the screen read "Round undefined of
   // undefined".
-  if (m.round === undefined || m.max === undefined) return '';
+  // Falsy, not absent. Go writes an int with no omitempty, so the "older daemon" this guards
+  // against sends `"round":0,"max":0` rather than leaving the keys out — and the screen read
+  // "Round 0 of 0". A meeting's rounds start at one.
+  if (!m.round || !m.max) return '';
   return tr('meet.round', {n: m.round, of: m.max});
 }
 
@@ -7563,8 +7662,10 @@ async function openFile(a, path) {
   // Three states, three answers: a file, a file with nothing in it, and a read that failed. The
   // middle one used to draw a 19px grey box that read the same as the other two.
   const text = got && typeof got.text === 'string' ? got.text : null;
-  drawFile(path, text === null ? tr('files.unreadable') : text === '' ? tr('file.empty') : text,
-           text === null || text === '');
+  // Empty is a state of the FILE; unreadable is a state of the read. Collapsing them into one flag
+  // took the editor away from an empty file, so `touch note.md` produced something this console
+  // would show and never let anybody write into.
+  drawFile(path, text === null ? tr('files.unreadable') : text, text === null, text === '');
   loadTree(a);
 }
 
@@ -7576,7 +7677,7 @@ async function openFile(a, path) {
 // changed in the meantime.
 let editing = null;
 
-function drawFile(path, text, unreadable) {
+function drawFile(path, text, unreadable, empty) {
   // The WHOLE path, not just the directory. The tab carries the name so the reader can find the
   // file among the open ones; this line is the one they copy into a message or a command, and half
   // a path is not something anybody can paste. It is a bar of its own — a surface a step up, ruled
@@ -7598,7 +7699,7 @@ function drawFile(path, text, unreadable) {
   if (may('shell') && editing !== path && !unreadable) {
     const go = withMark(document.createElement('md-text-button'), '#i-sl-pen-to-square');
     label(go, tr('action.edit'));
-    go.onclick = () => { editing = path; drawFile(path, text); };
+    go.onclick = () => { editing = path; drawFile(path, text, false, empty); };
     acts.append(go);
   }
   if (editing === path) {
@@ -7608,9 +7709,25 @@ function drawFile(path, text, unreadable) {
     return;
   }
   const box = cell('filebody');
-  box.append(...codeBlocks(text, path));
+  // An empty file says so where its first line would be, and keeps its Edit: a grey rectangle
+  // reads the same as a file still loading and the same as a read that failed.
+  if (empty) box.append(cell('filesnote', tr('file.empty')));
+  else box.append(...codeBlocks(text, path));
+  // …and the file folds, from the same control and the same preference as the facts card beside
+  // it. A file open in the slot is 60vh of the screen whether or not anybody is reading it right
+  // now, and the way to put it away was to close it and open it again.
+  const caret = document.createElement('button');
+  caret.type = 'button';
+  caret.className = 'foldcaret hit48';
+  caret.setAttribute('aria-expanded', fileViewEl.hasAttribute('folded') ? 'false' : 'true');
+  caret.setAttribute('aria-label', tr('field.facts'));
+  { const c = iconOr('#i-sl-chevron-down', '▾', 'caret'); if (c) caret.append(c); }
+  caret.onclick = () => setFolded(!fileViewEl.hasAttribute('folded'), true);
+  bar.prepend(caret);
+  const wrap = cell('foldwrap');
+  wrap.append(box);
   fileViewEl.classList.remove('commitmode');
-  fileViewEl.replaceChildren(bar, box);
+  fileViewEl.replaceChildren(bar, wrap);
   showCard();
 }
 
@@ -8012,6 +8129,9 @@ function drawCardTabs(a) {
     x.type = 'button';
     x.className = 'tabclose hit48';
     x.setAttribute('aria-label', tr('action.close_named', {name: tabName(path)}));
+    // And the tab is named by the file, not by the file plus its close button: a tab takes its
+    // name from its contents, so this one was reading "README.md Close README.md".
+    t.setAttribute('aria-label', tabName(path));
     { const mark = iconOr('#i-sl-xmark', '×'); if (mark) x.append(mark); }
     {
       x.onclick = ev => {
@@ -8284,7 +8404,7 @@ function drawQueued(items) {
     row.append(what);
     return row;
   });
-  box.replaceChildren(markedKey('#i-sl-layer-group', tr('field.queued', {n: items.length})), ...rows);
+  box.replaceChildren(countedKey('#i-sl-layer-group', tr('field.queued'), items.length), ...rows);
   showSide(box, true);
 }
 
@@ -8346,7 +8466,7 @@ async function loadJobs(a) {
   const box = cell('stripjobs');
   box.append(...chips);
   stripEl.replaceChildren(...(chips.length
-    ? [markedKey('#i-sl-spinner-third', tr('field.running')), box] : []));
+    ? [markedKey('#i-ss-play', tr('field.running')), box] : []));
   showSide(stripEl, chips.length > 0);
 }
 
@@ -8678,7 +8798,12 @@ function connect() {
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
   es.onerror = () => { conn('lost'); says(tr('state.reconnecting'));
-                       es.close(); if (sock()) setTimeout(connect, 1500); };
+                       es.close();
+                       // Not while the fleet says this companion is gone. A socket that no longer
+                       // exists answers 404 to every attempt, and the page was making one every
+                       // 1.5 seconds for as long as the tab stayed open — saying "Reconnecting…"
+                       // over a page that had already said the companion has stopped.
+                       if (sock() && companionOK) setTimeout(connect, 1500); };
 }
 
 // ── routing ──────────────────────────────────────────────────────────────────
@@ -8904,6 +9029,16 @@ let drawnFor = '';
 //
 // It clears the transcript's memory too, not only its nodes: the rows are reused by position now,
 // and rows left over from another conversation are rows the next frame would try to keep.
+// What draw() remembers about the transcript it drew last: the rows and the nodes it made for
+// them, and where the window sits. Anything that empties #log behind draw()'s back has to say so
+// here, or the next frame reuses nodes that are no longer in the document.
+function forgetShownRows() {
+  shown.rows = [];
+  shown.nodes = [];
+  winFrom = 0;
+  above = 0;
+}
+
 function clearCompanionView() {
   for (const card of document.getElementById('side').children) card.hidden = true;
   for (const el of [stripEl, document.getElementById('prompt'), document.getElementById('detail')]) {
@@ -8911,10 +9046,7 @@ function clearCompanionView() {
     el.replaceChildren();
   }
   log.replaceChildren();
-  shown.rows = [];
-  shown.nodes = [];
-  winFrom = 0;
-  above = 0;
+  forgetShownRows();
   keepRows = rowCap;
   droppedH.length = 0;
   lastRows = [];
@@ -9052,7 +9184,10 @@ function showDestination(s, v) {
   }
   // The screen's name in the heading tree. Only where nothing else says it: the meeting, people
   // and shared screens draw their own h2, and a second one would be the same word twice.
-  const named = s ? nameOf(s) : v === 'fleet' ? tr('nav.companions') : '';
+  // The board draws team names and, on a quiet day, no heading at all — so it needs this one. The
+  // three screens that draw their own section head are the exceptions, not the rule.
+  const OWN_HEAD = {skills: 1, access: 1, meet: 1, map: 1};
+  const named = s ? nameOf(s) : OWN_HEAD[v] ? '' : (SECTION[v] || tr('nav.companions'));
   screenHead.textContent = named;
   screenHead.hidden = !named;
   fleetEl.hidden = !!s || v !== 'fleet';
@@ -9751,7 +9886,15 @@ document.getElementById('accessGo').onclick = () => {
 // Painted when it OPENS, not before. A dialog does not render what is slotted into it until then,
 // so a select told its value while the dialog was closed had no options to resolve it against and
 // showed an empty field over a value it was holding.
-prefsDialog.addEventListener('opened', () => { if (painted) paint(); paintNotify(); });
+prefsDialog.addEventListener('opened', () => {
+  if (painted) paint();
+  paintNotify();
+  // Focus lands inside, by hand. The component focuses `[autofocus]` and otherwise leaves it to
+  // the browser's own fix-up — which a <form slot="content" method="dialog"> defeats: measured,
+  // this one opened with the document on <body> while the other four landed on a control.
+  const first = prefsDialog.querySelector('.dlgclose') || document.getElementById('themeToggle');
+  if (first && first.focus) requestAnimationFrame(() => first.focus());
+});
 // The toggle writes the SAME preference the select does, so the two are one setting with two
 // controls rather than two settings. Pressing it leaves 'system' behind on purpose: asking for the
 // other theme is a choice, and pretending it was still deferring to the machine would mean the
@@ -9853,18 +9996,33 @@ function measureDock() {
 function measureBars() {
   const set = (k, v) => document.documentElement.style.setProperty(k, v + 'px');
   const bar = document.getElementById('masthead');
-  if (bar) set('--magi-comp-appbar-h', bar.offsetHeight || 64);
+  // Where the bar ENDS, not how tall it is. Everything that sticks under it — the panel strip, the
+  // meeting's head — offsets by this, and the bar is sticky at `top:0` on the console and at the
+  // height of a notice on the demo. Measured as a height, the strip on the demo stuck 69px too
+  // high and spent every scrolled moment behind the bar.
+  //
+  // getBoundingClientRect, not offsetHeight: a ResizeObserver watches the CONTENT box and the
+  // scrolled bar grows a 1px border, so the one change this value has at runtime was the one
+  // offsetHeight-from-an-observer could not see.
+  if (bar) {
+    const top = parseFloat(getComputedStyle(bar).top) || 0;
+    const box = bar.getBoundingClientRect ? bar.getBoundingClientRect().height : bar.offsetHeight;
+    set('--magi-comp-appbar-h', Math.round((box || 0) + top) || 64);
+  }
   // Only while it IS a bar at the foot: above the breakpoint the rail is a column and the page
   // reserves nothing for it.
   const atFoot = typeof matchMedia === 'function' && matchMedia('(max-width:37.4375em)').matches;
-  set('--magi-comp-navbar-h', atFoot && railEl ? (railEl.offsetHeight || 81) : 0);
+  const bay = atFoot && railEl && railEl.getBoundingClientRect
+    ? railEl.getBoundingClientRect().height : (railEl && railEl.offsetHeight) || 0;
+  set('--magi-comp-navbar-h', atFoot ? Math.round(bay) || 81 : 0);
 }
 if (typeof ResizeObserver === 'function') {
   new ResizeObserver(measureDock).observe(dock);
   const bars = new ResizeObserver(measureBars);
   const bar = document.getElementById('masthead');
-  if (bar) bars.observe(bar);
-  if (railEl) bars.observe(railEl);
+  // The border box, because that is what the things below it have to clear.
+  if (bar) bars.observe(bar, {box: 'border-box'});
+  if (railEl) bars.observe(railEl, {box: 'border-box'});
 }
 addEventListener('resize', measureBars);
 measureBars();
@@ -9879,6 +10037,8 @@ measureBars();
     if (now === was) return;
     was = now;
     document.body.toggleAttribute('scrolled', now);
+    // The fill brings a hairline with it, so the bar is a pixel taller scrolled than at rest.
+    measureBars();
   };
   addEventListener('scroll', mark, {passive: true});
   mark();

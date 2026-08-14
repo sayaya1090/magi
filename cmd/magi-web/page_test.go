@@ -568,12 +568,23 @@ func TestTheLayoutQueriesComeLast(t *testing.T) {
 	// class can take back the header's side padding without touching the body's.
 	//
 	// So the check is the shorthand, not the order: after the rail sets the offset, nothing may
-	// write a `padding:` shorthand at `body`.
-	for _, bad := range []string{"body{padding:", "body {padding:"} {
-		if i := strings.Index(sheet[nav:], bad); i >= 0 {
-			t.Errorf("a padding shorthand on body is written after the rail's offset (at %d), "+
-				"which resets the padding-left the rail depends on", nav+i)
-		}
+	// write a `padding:` shorthand at a selector ending in `body`.
+	//
+	// Written as two literal strings — "body{padding:" and "body {padding:" — this was a third
+	// vacuous assertion in a row: neither can occur, because every rule in this file is written
+	// with a space after the brace AND the property, so the shorthand would read "body { padding:"
+	// and match nothing. A pattern, and one proven against a line that does exist.
+	shorthand := regexp.MustCompile(`(?m)^[^{}\n]*\bbody\b[^{}\n]*\{[^}]*?\bpadding\s*:`)
+	if m := shorthand.FindString(sheet[nav:]); m != "" {
+		t.Errorf("a padding shorthand on body is written after the rail's offset: %q — it resets "+
+			"the padding-left the rail depends on", strings.TrimSpace(m))
+	}
+	// …and the pattern is not one that can never fire: the same expression, asked for the
+	// longhand this file does use, finds it.
+	longhand := regexp.MustCompile(`(?m)^[^{}\n]*\bbody\b[^{}\n]*\{[^}]*?\bpadding-left\s*:`)
+	if longhand.FindString(sheet[nav:]) == "" {
+		t.Error("the guard's own pattern matches nothing at all — body's padding-left is written " +
+			"after the rail's offset and this should have found it")
 	}
 	if compact := at("@media (max-width:37.4375em)"); compact < nav {
 		t.Error("the compact rules come before the rail's; they must be able to undo them")

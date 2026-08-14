@@ -402,7 +402,7 @@ for (const id of ['ptabTalk', 'ptabFacts', 'ptabFiles', 'ptabPlan']) byId.ptabs.
 // The pane's cards, under the pane. The page asks the CONTAINER whether any of them has something
 // in it — a control that opens an empty column reads as broken — and a bag of loose stubs makes
 // that question unanswerable here while it answers fine in a browser.
-for (const id of ['plan', 'handoffs', 'queued', 'cron', 'intervened']) {
+for (const id of ['plan', 'handoffs', 'queued', 'cron']) {
   if (byId[id]) byId.side.append(byId[id]);
 }
 for (const [id, parent] of [['railFleet', 'railNav'], ['railSkills', 'railNav'],

@@ -489,10 +489,15 @@
     max-width:var(--magi-sys-page); margin-inline:auto; padding-right:var(--magi-sys-space-500);
   }
   /* Scrolled: the bar and whatever is stuck to it fill together, so they stay one block. */
-  body[scrolled] header, body[scrolled] #ptabs {
-    background:var(--magi-ref-surface-container);
-    border-bottom:1px solid var(--magi-ref-outlineVariant);
-  }
+  body[scrolled] header { border-bottom:1px solid var(--magi-ref-outlineVariant); }
+  /* The strip fills with the bar but keeps its own divider — a second one here took a pixel off
+     every tab, which is the whole margin a 48dp tab has. */
+  /* surface-container-LOW, not container. The brand is drawn in primary, and primary on
+     surface-container measures 4.27:1 in the light theme — the very number the navigation bar was
+     moved off primary for. One step down clears it at 4.54 and still reads as a fill against the
+     page, with the hairline doing the rest. It is also the tone the rail uses at every width, so
+     the navigation area does not change surface across a breakpoint. */
+  body[scrolled] header, body[scrolled] #ptabs { background:var(--magi-ref-surface-container-low); }
   .mark {
     font:600 var(--magi-sys-headline-s) var(--magi-ref-display); letter-spacing:.01em; color:var(--magi-ref-primary);
     font-feature-settings:"liga" 1;
@@ -581,7 +586,10 @@
      A transcript row carries content-visibility:auto, which contains paint — so an expander centred
      on a control at the very top of a row has its upper half clipped away by the row's own box, and
      the copy control measured 38px of the 48 it asks for. Anchored to the top, all 48 are inside. */
-  .who .copy.hit48::after { top:0; transform:none; }
+  /* Anchored to the top, still centred across. `transform:none` took the translateX with it while
+     left:50% stayed, so the 48px box ran from +12 to +60 of a 24px glyph — 36px of press area
+     lying over the first line of the message beside it. */
+  .who .copy.hit48::after { top:0; transform:translateX(-50%); }
   .hit48::after {
     content:''; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
     /* Wide as well as tall. left/right:0 gave the expander the element's own width, so a 24px
@@ -601,8 +609,12 @@
      text they are made of — 16px tall, measured. They are the way back out of a detail screen, so
      the one rule that made the first crumb pressable applies to them too; .here marks the level
      you are standing on, which is not a link and gets no target. */
-  #crumbHere:not(.here), #crumbDeep:not(.here) { display:inline-block; position:relative; }
-  #crumbHere:not(.here)::after, #crumbDeep:not(.here)::after {
+  /* Every rung, including the one you are standing on. The exclusion below said ".here is not a
+     link and gets no target" — but paintCrumbs gives crumbHere an href before it marks it .here,
+     and back keeps one on every list screen, so both were live links with a 21px target. Either
+     the href goes or the target comes; the href is what a middle-click and a copied address use. */
+  #crumbHere, #crumbDeep { display:inline-block; position:relative; }
+  #crumbHere::after, #crumbDeep::after {
     content:''; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
     width:100%; min-width:48px; height:48px;
   }
@@ -860,18 +872,9 @@
   /* On a tab the host is NOT positioned: a tab lays its label out itself, and giving the badge a
      relative box of its own dropped it onto a line below the word. Absolute inside the tab instead,
      riding the label's top-right the way it rides the icon in the rail. */
-  /* In the flow, in a wrapper of its own, exactly like the rail's. Absolutely placed over the tab
-     it clipped the word it was counting for — "컴패니⓶" — and a count that eats its own label is
-     worse than no count. */
+  /* The label inside a tab. `.badgewrap` went with the destination strip that was deleted — it was
+     the wrapper that held that strip's waiting count, and nothing else ever used it. */
   .tablbl { display:inline-flex; align-items:center; }
-  .badgewrap { width:16px; height:16px; margin-left:var(--magi-sys-space-50); }
-  /* Shifted for the same reason the team count is: the pill rides at `left:calc(50% + 2px)` of its
-     host, which is a corner offset and not a place in a line. Here the wrapper IS the space the
-     count was given, so the drawing is moved back over it. */
-  .badgewrap md-badge {
-    position:absolute; inset:0; width:16px; height:16px; transform:translateX(calc(-50% - 2px));
-  }
-  .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
      the icon is the only thing there. */
   .icwrap { position:relative; display:inline-flex; width:24px; height:24px; }
@@ -1062,15 +1065,6 @@
     body[at="agent"] #dock .bay { max-width:var(--magi-sys-page-wide); }
   }
 
-  /* ── tabs: the resources this console shows ─────────────────────────────── */
-  /* Wrapping, because these are sentences and there are three of them now: at 390px the three
-     labels are wider than the column, and a nav that overflows takes the whole page sideways with
-     it — the one scroll direction a phone should never get. */
-  /* The divider under the strip. The spec draws it as part of the tab container — 1dp of
-     outline-variant, separating the tabs from what they switch — and neither the bundle nor this
-     page had it. Without it the strip and the content below read as one block. */
-  #tabs { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100) var(--magi-sys-space-300); padding:var(--magi-sys-space-200) 0 0;
-          border-bottom:1px solid var(--magi-ref-outlineVariant); }
 
   /* ── what I had to say ───────────────────────────────────────────────────── */
   /* Grouped by what was said, because the repetition IS the finding: one correction is a remark,
@@ -1119,7 +1113,10 @@
   /* A fact is quoted, not instructed: it reads as something the companion believes rather than
      something it was told to do, which is the difference a person is judging on this page. */
   .sk.fact .what { font:italic 400 var(--md-sys-typescale-body-large-size)/1.4 var(--magi-ref-display); }
-  .sk .meta { margin-top:var(--magi-sys-space-50); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--magi-ref-muted); }
+  /* A rule's name has no spaces in it — skill-hand_off_read_and_summarize — and at twice the text
+     size it is wider than a phone: measured, 99px of sideways page scroll at 320, which took a
+     navigation destination off the screen with it. */
+  .sk .meta { margin-top:var(--magi-sys-space-50); font-size:var(--md-sys-typescale-label-small-size); letter-spacing:.05em; color:var(--magi-ref-muted); overflow-wrap:anywhere; }
   .sk .drop { margin-left:auto; }
   .sk .fold { margin-left:auto; }
   .sk .fold + .drop { margin-left:0; }
@@ -1163,7 +1160,14 @@
   /* Wraps rather than pushing the page sideways. The action beside a section's name is a component
      whose label does not break, and at twice the text size "Companions" is 223px — measured, the
      meeting's head resolved to 373px in a 326px column and the document grew with it. */
-  .sectionhead { display:flex; align-items:center; gap:var(--magi-sys-space-200); flex-wrap:wrap; min-width:0; }
+  /* A heading, in the reading face, above the rows it heads — it was inheriting the body's 14px
+     mono and coming out smaller and lighter than the list items under it. Chosen by role, which is
+     what the type scale is for: this is title-medium's job. */
+  .sectionhead {
+    display:flex; align-items:center; gap:var(--magi-sys-space-200); flex-wrap:wrap; min-width:0;
+    font:600 var(--md-sys-typescale-title-medium-size)/1.4 var(--magi-ref-display);
+    color:var(--magi-ref-fg);
+  }
   .sectionhead .mcpopen { margin-left:auto; }
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
@@ -1488,6 +1492,13 @@
      button standing in a group. The outline role clears it. Same words, same weight, same order. */
   .answer md-outlined-button {
     --md-outlined-button-label-text-color:var(--magi-ref-fg);
+    /* The layer goes with the label. The component's default is primary, so a page that moved the
+       label to on-surface and left the layer alone washed these four in orange on press — a state
+       layer is the surface's own `on-` colour at a fixed opacity, not a second hue. */
+    --md-outlined-button-hover-state-layer-color:var(--magi-ref-fg);
+    --md-outlined-button-pressed-state-layer-color:var(--magi-ref-fg);
+    --md-outlined-button-hover-label-text-color:var(--magi-ref-fg);
+    --md-outlined-button-pressed-label-text-color:var(--magi-ref-fg);
     --md-outlined-button-label-text-font:var(--magi-ref-mono);
     --md-outlined-button-outline-color:var(--magi-ref-outline);
     letter-spacing:0.05em;
@@ -1625,7 +1636,9 @@
   /* Ranged right, under the branch they act on. Left, they sat in the middle of the column with
      the empty half of the row beside them — measured 352..524 in a card whose contents run to 614
      — and read as the start of a list rather than as the card's own controls. */
-  .gitbranchacts { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:var(--magi-sys-space-50); }
+  /* 16dp between 40dp buttons, because each carries a 48dp press area: at 8 they abut and at the
+     4 this had they OVERLAP, and two of these five stash work and open a pull request. */
+  .gitbranchacts { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:var(--magi-sys-space-200); }
   .gitgroup {
     margin-top:var(--magi-sys-space-100);
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-display);
@@ -2153,7 +2166,15 @@
   }
   .scopes md-outlined-text-field { max-width:16rem; }
 
-  .scopechip.armed { --md-input-chip-label-text-color:var(--magi-ref-error); }
+  /* All four states, not one. The component swaps the label to on-surface-variant on hover and
+     on press, so the error colour — the only colour saying this press revokes somebody's access —
+     was cancelled at exactly the moment before the press. */
+  .scopechip.armed {
+    --md-input-chip-label-text-color:var(--magi-ref-error);
+    --md-input-chip-hover-label-text-color:var(--magi-ref-error);
+    --md-input-chip-pressed-label-text-color:var(--magi-ref-error);
+    --md-input-chip-focus-label-text-color:var(--magi-ref-error);
+  }
   .scopechip { --md-input-chip-label-text-font:var(--magi-ref-mono); }
   .acccontrols {
     display:flex; flex-wrap:wrap; align-items:center;
@@ -2303,6 +2324,19 @@
     transition:grid-template-rows var(--magi-sys-dur-short4) var(--magi-sys-ease-standard);
   }
   #detail[folded] .foldwrap { grid-template-rows:0fr; }
+  /* The file in the slot folds with the same movement and the same stored answer. */
+  #fileview .foldwrap {
+    display:grid; grid-template-rows:1fr;
+    transition:grid-template-rows var(--magi-sys-dur-short4) var(--magi-sys-ease-standard);
+  }
+  #fileview[folded] .foldwrap { grid-template-rows:0fr; }
+  #fileview .foldwrap > .filebody { overflow:hidden; min-height:0; }
+  .foldcaret {
+    background:none; border:0; padding:0; margin-inline-end:var(--magi-sys-space-100);
+    color:var(--magi-ref-muted); cursor:pointer; display:inline-flex; align-items:center;
+  }
+  .foldcaret .caret { transition:transform 200ms var(--magi-sys-ease-standard); }
+  #fileview[folded] .foldcaret .caret { transform:rotate(-90deg); }
   /* Shut, the card is a bar and its own padding, and nothing between them.
      The gap belongs to the card — 16px between the bar and the fields — and a collapsed wrapper is
      still a flex item, so the gap stayed and the shut card measured 71px for a 23px line: 16 above,
@@ -2433,7 +2467,8 @@
     /* The tree, with git one row above it — and when git is what is showing, the way back is that
        row's place. Two secondary tabs used to live here, one of them repeating the word on the
        primary tab above it. */
-    #files > .panelist { margin-bottom:var(--magi-sys-space-150); }
+    /* No margin on the child: the column already has a 24dp gap, and the two together made 36 —
+     which is not on the 8dp scale and is not what either of them meant. */
     /* The way back sits at the leading edge of the bar it is on, before the path it leaves. */
     .fileback { flex:none; }
   }
@@ -2462,7 +2497,6 @@
     #side[data-shows="strip"] > :not(#strip):not(.panelback),
     #side[data-shows="handoffs"] > :not(#handoffs):not(.panelback),
     #side[data-shows="cron"] > :not(#cron):not(.panelback),
-    #side[data-shows="intervened"] > :not(#intervened):not(.panelback) { display:none; }
     /* And the list screen is the list: the cards behind it are not drawn at all. */
     #side[data-shows="list"] > :not(.panelist) { display:none; }
   }
@@ -3107,7 +3141,10 @@
   .meettrouble { color:var(--magi-ref-warn); }
   /* Groups down, chips across. */
   .meetwho { display:grid; gap:var(--magi-sys-space-100); }
-  .meetwho md-chip-set { display:flex; flex-wrap:wrap; }
+  /* 16dp between ROWS, like the roster next door. The set's own 8dp gap is right across a row and
+     wrong down one: a 32dp chip carries a 48dp press area, so two wrapped rows 8dp apart overlap by
+     8 — measured, a press three pixels under "design" selected "ops". */
+  .meetwho md-chip-set { display:flex; flex-wrap:wrap; row-gap:var(--magi-sys-space-200); }
   .meetowner {
     font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted);
     margin-top:var(--magi-sys-space-50);
@@ -3155,7 +3192,7 @@
      aimed at the foot of one chip called on the one below it, which spends a model turn on the
      wrong companion. The board's cards already carry this fix and its reasoning; the roster is the
      same shape and did not. */
-  .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-200) var(--magi-sys-space-100); justify-content:center; }
+  .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-300) var(--magi-sys-space-100); justify-content:center; }
   /* The topic and the roster stay put while the transcript scrolls under them: five rounds of four
      companions is several screens, and both are things a reader needs at every point of it.
      Its own ground, or the lines would show through as they pass behind. */
@@ -3258,7 +3295,9 @@
      at the end of it, the same shape the page's composer has. Wrapping, because on a phone three of
      them do not fit and the buttons belong under the box rather than squeezed beside it. */
   .meetsay {
-    display:flex; gap:var(--magi-sys-space-150); align-items:center; flex-wrap:wrap;
+    /* 16dp down, 12 across: these buttons are 40dp with a 48dp press area, so a 12dp row gap
+       leaves 4 between targets where the guide asks for 8. */
+    display:flex; gap:var(--magi-sys-space-200) var(--magi-sys-space-150); align-items:center; flex-wrap:wrap;
   }
   .meetsay > md-outlined-text-field { flex:1 1 18rem; min-width:0; }
 
@@ -3291,7 +3330,30 @@
     font-size:var(--md-sys-typescale-title-medium-size);
   }
 
+  /* The About tab is the disclosure wherever the tab strip is drawn — which is every width below
+     840, not only a phone. In landscape (664×390, the medium class) the fold was still there and
+     the panel opened as a single 55px line with nothing under it: the exact picture these two
+     rules were written to end, in the band they did not cover. */
   @media (max-width:52.4375em) {
+    /* The live tail is not a box that scrolls on a phone — in either orientation. Eight tool calls
+       is 543px through a 256px window, a scroller inside a scrolling page, and in landscape that
+       nested box is two thirds of the window. The page scrolls; this grows. */
+    .meetnowrows { max-height:none; overflow-y:visible; }
+    body[at="agent"] #detail .foldbar, body[at="agent"] #fileview .foldcaret { display:none; }
+    body[at="agent"] #detail[folded] .foldwrap,
+    body[at="agent"] #fileview[folded] .foldwrap { grid-template-rows:1fr; }
+    /* P3: a diff is code and it wraps here too, for the same reason an open file does — measured
+       at 664, one diff took the document to 1156px and tipped the page into the desk layout. */
+    #fileview .diffbody, #fileview .filecode { white-space:pre-wrap; overflow-wrap:anywhere; }
+    /* The workbenches keep their own scroller and their own cap below 840, where the desk's rule
+       stops applying: without it the commit screen is 14,129px tall on a phone and its message box
+       and Commit button are twenty-one screens down. */
+    body[at="agent"] #fileview.commitmode {
+      max-height:min(78%, 78vh); display:flex; flex-direction:column; overflow:hidden;
+    }
+    .commitfoot { grid-template-columns:minmax(0, 1fr); }
+    .commitfiles { overflow-x:auto; }
+
     /* The name over the words rather than beside them: at 390px a nine-rem column leaves a
        sentence four words wide. */
     .meetline, .meettask { grid-template-columns:1fr; }
@@ -3341,6 +3403,9 @@
     border-radius:var(--magi-sys-shape-full); padding:0 var(--magi-sys-space-150);
   }
   .wcard .wlabel:hover { background:color-mix(in srgb, var(--magi-ref-primary) 22%, transparent); }
+  /* The words on that tint are on-surface. Primary on a 12% wash of itself is 3.88:1 in the light
+     theme and 3.38 with the hover wash — the tint is the badge, the ink does not have to be. */
+  .wcard .wlabel { color:var(--magi-ref-fg); }
   /* The arrows sit level with the field's box, not with the row's centre — the field is 56dp tall
      and carries a floating label above its text, so centring on the row puts them over the label. */
   .boardhead md-icon-button { align-self:end; }
@@ -3786,7 +3851,10 @@
     max-width:var(--magi-sys-page); margin-inline:auto;
     /* The fade is the conversation's, so it is drawn on the conversation's box and clipped to it:
        over a pane it would put a wash across the last rows of a list somebody is reading. */
-    background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
+    /* …and it fades to the tone the boxes on it take, not to the page. Faded to the page colour,
+       the composer — the half of this bar that is always there — was still painted the page while
+       the question box beside it had a surface, so the dock banded down the middle. */
+    background:linear-gradient(to top, var(--magi-ref-surface-container-low) 88%, transparent);
     background-clip:content-box;
   }
   /* The answer stays under the thumb however long the question is.
@@ -4040,7 +4108,8 @@
 
      LAST in the stylesheet, and that is load-bearing. A media query adds no specificity, so these
      rules only win by coming after the ones they override — and they did not. Written above the
-     sections they contradict, the wide rule lost to a later "#tabs { display:flex }" and the page
+     sections they contradict, the wide rule lost to a later display rule for the strip that used
+     to sit above the page, and the page
      offset lost to a later "padding:" shorthand, which resets the padding-left this sets. The
      result was both navigations at once on a desktop and, on a narrow screen, a fixed rail sitting
      on top of the page it was supposed to stand beside. */
@@ -4080,7 +4149,6 @@
     #dock { padding-left:var(--magi-comp-rail-w); }
     /* Open, it is a floating panel. Closed, it is part of the furniture. */
 
-    #tabs { display:none; }
     }
   /* Compact (below 600px, M3's own boundary): the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
      an invitation to look in the wrong place. What is left behind the button is the preferences,
@@ -4113,7 +4181,7 @@
       --magi-comp-navbar-h:calc(64px + 2 * var(--magi-sys-space-100) + 1px);
     }
     header {
-      min-height:64px; align-items:center;
+      align-items:center;
       padding-top:calc(var(--magi-sys-space-100) + env(safe-area-inset-top)); padding-bottom:var(--magi-sys-space-100);
       /* 16dp, which is the compact layout margin the page's own content uses — so the leading
          control lines up with the first word under it instead of standing 8px further in. */
@@ -4168,8 +4236,14 @@
        character summary into the status line, and the two of them are the row's only shrinkable
        items — so there the dot was drawn 1.9px wide at 390 and 1.0px at 320, which leaves a state
        told by colour alone. The dot is six pixels; the sentence beside it can give them up. */
-    #state { flex:none; }
+    /* It gives room up, down to the dot. `flex:none` pinned it, and then a "3 agents · 1 waiting
+       on you" pushed the preferences button 18px past the edge of a 390px screen and 88 past a
+       320 one — taking a navigation destination off the glass with it, since the fixed bar
+       stretches to the document. The floor is the dot, the one part of this readout that is not
+       words. */
+    #state { flex:0 1 auto; min-width:10px; }
     #state::before { flex:none; }
+    #state .jump { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* The two icon buttons sit at the end of the same line, not on one of their own. Adding the
        gear pushed the masthead back onto two rows and the first agent from 337px to 393px —
        everything gained on this width, given straight back. */
@@ -4239,6 +4313,10 @@
          the top and a 48dp target answered as 40. The guide's line for exactly this: "필요하면
          타겟이 보이는 컨테이너 밖으로 뻗어도 된다" — it may stick out, so the box has to let it. */
       padding-top:var(--magi-sys-space-100); padding-bottom:var(--magi-sys-space-150);
+      /* …including at the leading edge, where the first control's 48dp expander was cut to 44 by
+         the scroller's own clip. Pulled back by the same amount so the row still begins on the
+         page's margin. */
+      padding-inline:var(--magi-sys-space-100); margin-inline:calc(-1 * var(--magi-sys-space-100));
     }
     #summary::-webkit-scrollbar { display:none; }
     .tile { flex:0 0 auto; }
@@ -4247,8 +4325,8 @@
        any of them on screen, in a strip whose scrollbar is hidden and which a vertical wheel does
        not move. They are the only doors to the board and the map anywhere in the console; the
        filters they were sitting behind are the thing you scroll for. */
-    .toview.lead { order:-1; margin-left:0; }
     .toview { order:-1; }
+    .toview.lead { margin-left:0; }
     /* And 8dp of clear space between their press areas, which are 48dp around 40dp of ink. */
     .toview + .toview { margin-inline-start:var(--magi-sys-space-100); }
     /* The ways to the other views keep their size in a row that scrolls.
@@ -4274,6 +4352,10 @@
        set of links that has to be told when the first one changes. */
     #rail {
       position:fixed; inset:auto 0 0 0; top:auto; z-index:5; width:auto; transform:none;
+      /* The cutout is on a long edge when the phone is sideways, and viewport-fit=cover draws the
+         page under it. Only the top and bottom insets were being honoured. */
+      padding-inline:calc(var(--magi-sys-space-100) + env(safe-area-inset-left))
+                     calc(var(--magi-sys-space-100) + env(safe-area-inset-right));
       flex-direction:row; overflow:visible; gap:0;
       border-right:0; border-top:1px solid var(--magi-ref-outlineVariant);
       background:var(--magi-ref-surface-container);
@@ -4321,9 +4403,6 @@
        masthead is the way out; the bar comes back with the list. */
     body[at="agent"] #rail { display:none; }
     body[at="agent"] { padding-bottom:0; }
-    /* Two destinations at the top and four at the bottom is two navigations for one set of
-       places. The bar is the one that carries them all. */
-    #tabs { display:none !important; }
 
     /* The dock takes at most half the phone, and the question inside it scrolls.
        A companion blocked on a decision puts its whole question in the prompt bar — the grounds,
@@ -4364,8 +4443,6 @@
        the folded state is remembered and the desk is where it gets folded.
        So here the facts are simply the panel: no bar, nothing to unfold. The two fields the bar
        summarised (the state and the workspace) are rows in the grid it was hiding. */
-    body[at="agent"] #detail .foldbar { display:none; }
-    body[at="agent"] #detail[folded] .foldwrap { grid-template-rows:1fr; }
 
     /* The tab strip belongs to the bar above it, not to the content below it.
        Tabs attached to a component move with it and read as one block; floating 16px under the app
@@ -4407,15 +4484,17 @@
        scrolling, and sideways as well: a code line ran 359px through a 326px window with the ends
        of the lines reachable only by dragging inside the card. Lines wrap here instead, which is
        what a phone does with a long line of prose and there is no room to do anything else with. */
-    #fileview .filebody { max-height:none; overflow:visible; }
+    /* The READING view only. The editor's box carries both classes, so this took away the one
+       scroller it has and `.editstack` then sized itself to the longest line: measured, pressing
+       Edit on an ordinary file took the document from 390px to 5149 and put the composer 2586px
+       down. A card that scrolls is wrong on a phone; an editor is not that card. */
+    #fileview .filebody:not(.editbody) { max-height:none; overflow:visible; }
+    #fileview .editbody { overflow:auto; }
     /* And a token with nowhere to break breaks anyway. pre-wrap only wraps at spaces, so one URL
        or one base64 line neither wrapped nor scrolled nor clipped — it widened the DOCUMENT, from
        390 to 636px, and took the fixed composer with it while the bars stayed at 390. */
     #fileview .filecode { white-space:pre-wrap; overflow-wrap:anywhere; }
-    /* The live tail is not a box that scrolls on a phone. Six tool calls at 57px each is 381px
-       through a 256px window — a scroller inside a scrolling page, which is the pair of scrollbars
-       the guide's card rule exists to prevent. The page scrolls; this grows. */
-    .meetnowrows { max-height:none; overflow-y:visible; }
+
     /* The add-a-companion field takes the width here. Capped at 16rem it cut its own label —
        "Add a companion (Enter)" needs 222px and the field gave it 188, so the part that says how
        to commit a name is the part that went, at rest, which is the only time a label is read. */
@@ -4454,6 +4533,13 @@
        half the window it scrolled 766px through 332 in a 664px box with 100px of empty dialog
        under it — the very shape the full-screen change was made to end. */
     #palList { max-height:none; overflow-y:visible; }
+    /* And the strip fills with the bar it is stuck to. `body[scrolled] #ptabs`, written at the top
+       of this file, is an exact specificity tie with the compact rule above — one id, one
+       attribute and one type each — so source order decided it and the later one won. The strip is
+       sticky ONLY here, so the one place the fill was written for is the one place it never
+       reached; between 600 and 839 it applied to a strip that does not stick. */
+    body[scrolled][at="agent"] #ptabs { background:var(--magi-ref-surface-container-low); }
+
     /* The close control, and the headline moves over to make room for it. */
     .dlgclose { display:inline-flex; margin-inline-start:calc(-1 * var(--magi-sys-space-100)); }
     #mcpDialogK, #palK, #prefsK, #askK, #fmtK { display:flex; align-items:center; gap:var(--magi-sys-space-100); }

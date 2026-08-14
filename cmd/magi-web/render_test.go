@@ -761,9 +761,17 @@ func TestTheTabsAreNamedAsPlaces(t *testing.T) {
 			t.Errorf("%s is empty in the pack; that destination has no name", key)
 		}
 	}
-	// The strip itself, not the whole page: the same phrases are section headings in the CSS and
-	// the javascript, where they are prose about the code rather than labels somebody reads.
-	strip := indexHTML[strings.Index(indexHTML, "<md-tabs id="):]
+	// The companion page's panel strip, named explicitly.
+	//
+	// This used to slice from the first `<md-tabs id=` in the document, which was the destination
+	// strip — and when that strip was deleted the slice silently became this one, so the assertion
+	// went on passing about an element that never carried the labels it looks for. The id is
+	// written down now, and the slice fails loudly if it is not there.
+	from := strings.Index(indexHTML, `<md-tabs id="ptabs"`)
+	if from < 0 {
+		t.Fatal(`the page has no <md-tabs id="ptabs"> — this guard has lost its subject`)
+	}
+	strip := indexHTML[from:]
 	strip = strip[:strings.Index(strip, "</md-tabs>")]
 	for _, gone := range []string{"what I had to say", "what they have learned", "what they can reach"} {
 		if strings.Contains(strip, gone) {
@@ -1657,49 +1665,12 @@ console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.t
 	}
 }
 
-// What a person had to step in and say, on the companion it is about.
+// The card that recorded what a person had to say mid-turn is gone, and so is the test for it.
 //
-// This replaces a promotion pipeline: group the words, count the repeats, offer to make the
-// repeated ones permanent. The premise did not hold — what somebody says mid-turn is nearly always
-// about that task, the grouping only matched identical wording, and it needed somebody to visit a
-// screen and curate. What survives is the part that never needed the words to match: how often this
-// companion had to be corrected, and what was refused.
-func TestACompanionsPageSaysWhatYouHadToStepInAndSay(t *testing.T) {
-	got := runPage(t, `[
-      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
-       "task":"x","steps":2,"idle":3}
-    ]`, "?d=%2Fs%2Fa.sock", `
-globalThis.fetch = async (p) => ({ok: true, json: async () => String(p).startsWith('/interventions') ? [
-  {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"use the tokens","at":"2026-08-08T04:00:00Z","afterSec":8},
-  {"companion":"api","socket":"/s/a.sock","kind":"denied","text":"call_31","at":"2026-08-07T04:00:00Z","afterSec":95},
-  {"companion":"other","socket":"/s/z.sock","kind":"steer","text":"not this one","at":"2026-08-08T04:00:00Z","afterSec":5}
-] : String(p).startsWith('/fleet') ? [
-  {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,"task":"x","steps":2,"idle":3}
-] : []});
-await loadFleet();
-await new Promise(r => { let n = 0; const tick = () => (++n > 20 ? r() : Promise.resolve().then(tick)); tick(); });
-console.log(JSON.stringify({hidden: byId.intervened.hidden, text: byId.intervened.text,
-  rows: byId.intervened.find('div').filter(d => String(d.className).startsWith('iv2')).length}));
-`)
-	if got["hidden"] == true {
-		t.Fatal("the panel is hidden while this companion has been corrected twice")
-	}
-	txt := got["text"].(string)
-	if !strings.Contains(txt, "use the tokens") {
-		t.Errorf("what was said is not on the page: %q", txt)
-	}
-	if strings.Contains(txt, "not this one") {
-		t.Errorf("another companion's correction is on this one's page: %q", txt)
-	}
-	if got["rows"].(float64) != 2 {
-		t.Errorf("%v rows for two interventions on this companion", got["rows"])
-	}
-	// A count that does not depend on the words matching, which is the whole reason this replaced
-	// the grouping.
-	if !strings.Contains(txt, "1") {
-		t.Errorf("the heading does not count them: %q", txt)
-	}
-}
+// It grouped corrections by wording and offered to promote the repeated ones into the experience
+// store; the premise did not hold, and the count that survived it was a number nobody acted on in
+// a card that cost a request every three seconds. The corrections are in the transcript, where
+// they happened and next to what they were about.
 
 // The rail widens, and the theme has a control of its own.
 //
@@ -5997,5 +5968,125 @@ console.log(JSON.stringify({
 	}
 	if s, _ := got["steps"].(string); !strings.Contains(s, "9") {
 		t.Errorf("the step count did not follow the companion: %q", s)
+	}
+}
+
+// A chip that takes somebody's access away must take it away.
+//
+// The compact branch of the scope chip was built to make the WHOLE chip the control — the guide's
+// answer to a 34px trailing target — and it listened on the host for a click. The component's own
+// × is drawn whatever the page asks: `remove-only` decides whether the LABEL is a button, not
+// whether the × exists, and the ×'s handler calls stopPropagation inside the shadow root before
+// dispatching `remove`. So on a phone the × removed the chip from the screen, the host handler
+// never ran, nobody listened for `remove`, and the server was never told: access looked revoked and
+// was not, until the next poll drew it again.
+//
+// Both ends are checked here. The × posts; the body asks first and posts on the second press.
+func TestTakingACompanionOutOfSomebodysScopeReachesTheServer(t *testing.T) {
+	const screen = `
+const base = globalThis.fetch;
+globalThis.fetch = async (p, o) => {
+  const path = String(p).split('?')[0];
+  if (path === '/me') return {ok: true, json: async () => ({can: CAN})};
+  // The GET only. A POST to the same path is the thing under test and has to reach the fake
+  // fetch to be recorded — answering it here would blind the probe to what it is measuring.
+  if (path === '/access' && !(o && o.method)) return {ok: true, json: async () => ({configured: true,
+    instance: {who: 'you@studio', configDir: '/c'},
+    groups: [],
+    roles: [{name: 'viewer', can: ['read']}],
+    people: [{who: 'lee@corp.com', role: 'viewer', companions: ['docs'], can: ['read']}]})};
+  return base(p, o);
+};
+await loadMe();
+history.pushState({}, '', '/?v=access');
+render();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+const chip = byId.access.find('md-input-chip')[0];
+`
+	// Wide: the component's own × is the control, and it posts.
+	wide := runPage(t, `[]`, "", screen+`
+chip.dispatchEvent({type: 'remove'});
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST').map(r => r.body)}));
+`)
+	if n := len(wide["posts"].([]any)); n != 1 {
+		t.Errorf("the chip's own × sent %d requests, want 1 — it removes the chip from the screen "+
+			"either way, so a press that sends nothing is a revocation that did not happen", n)
+	}
+
+	// Narrow: the whole chip is the control, it asks first, and the × still posts.
+	t.Setenv("NARROW", "1")
+	narrow := runPage(t, `[]`, "", screen+`
+const seen = {};
+chip.dispatchEvent({type: 'click', preventDefault(){}});
+for (let i = 0; i < 4; i++) await Promise.resolve();
+seen.afterOne = {posts: RENDERED.filter(r => r.method === 'POST').length,
+                 label: chip.attrs.label, said: chip.attrs['aria-label']};
+chip.dispatchEvent({type: 'click', preventDefault(){}});
+for (let i = 0; i < 8; i++) await Promise.resolve();
+seen.afterTwo = {posts: RENDERED.filter(r => r.method === 'POST').length};
+console.log(JSON.stringify(seen));
+`)
+	// …and the × on the SAME chip, at the same width, still reaches the server. This is the half
+	// that regressed: the compact branch listened on the host for a click, and the component's
+	// trailing action stops the event inside its own shadow root before dispatching `remove`.
+	x := runPage(t, `[]`, "", screen+`
+chip.dispatchEvent({type: 'remove'});
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST').length}));
+`)
+	if x["posts"].(float64) != 1 {
+		t.Errorf("on a phone the chip's own × sent %v requests, want 1 — it takes the chip off the "+
+			"screen either way, so access looks revoked and is not", x["posts"])
+	}
+
+	one := narrow["afterOne"].(map[string]any)
+	if one["posts"].(float64) != 0 {
+		t.Errorf("the first press already revoked: %+v", one)
+	}
+	// The word and the name change together — a chip reading "Confirm?" that answers to "Forget
+	// api" is the split arm() was fixed for, reproduced by hand.
+	if one["label"] == "docs" || one["label"] != one["said"] {
+		t.Errorf("armed, the chip says %q and answers to %q", one["label"], one["said"])
+	}
+	if narrow["afterTwo"].(map[string]any)["posts"].(float64) != 1 {
+		t.Errorf("the second press sent %v requests, want 1", narrow["afterTwo"])
+	}
+}
+
+// A companion that stops does not take its transcript with it for good.
+//
+// draw() reuses transcript rows by POSITION against a cache of what it drew last time. The card
+// that says "this companion has stopped" empties #log — and emptying it without clearing that
+// cache leaves every node detached and still remembered, so when the daemon comes back the next
+// frame prefix-matches the whole window, appends nothing, and the conversation is gone until the
+// reader leaves the page. A shorter frame would have called removeChild on a node with no parent
+// and thrown out of draw() entirely.
+func TestATranscriptComesBackWhenTheCompanionDoes(t *testing.T) {
+	const rows = `[{"who":"user","text":"first"},{"who":"assistant","text":"second"}]`
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/a","state":"idle","live":true,"idle":1}]`,
+		"?d=/s/a.sock", `
+draw(`+rows+`);
+const before = byId.log.children.length;
+// The daemon goes: the fleet answers without it, which is what companionAlive reads.
+await loadFleet([]);
+for (let i = 0; i < 8; i++) await Promise.resolve();
+const gone = {rows: byId.log.children.length, empty: byId.log.find('div').filter(d => String(d.className) === 'empty').length};
+// …and comes back, with the same transcript it had.
+await loadFleet([{socket: '/s/a.sock', name: 'api', workdir: '/w/a', state: 'idle', live: true, idle: 1}]);
+draw(`+rows+`);
+for (let i = 0; i < 8; i++) await Promise.resolve();
+console.log(JSON.stringify({before, gone, back: byId.log.children.length,
+  text: byId.log.text}));
+`)
+	if got["before"].(float64) < 2 {
+		t.Fatalf("the transcript did not draw in the first place: %v", got["before"])
+	}
+	g := got["gone"].(map[string]any)
+	if g["empty"].(float64) != 1 {
+		t.Errorf("a stopped companion left %+v where the conversation was", g)
+	}
+	if got["back"].(float64) < 2 || !strings.Contains(got["text"].(string), "second") {
+		t.Errorf("the conversation did not come back with the companion: %+v", got)
 	}
 }

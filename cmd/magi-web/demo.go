@@ -299,14 +299,6 @@ const demoScript = `
     // key". Nothing can be subscribed here — there is no server to post to and the mock refuses
     // writes — but the reason a reader sees is then the browser's own, which is the true one.
     '/push': {key: 'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8', count: 0},
-    '/interventions': [
-      {companion: 'design', socket: '/demo/design.sock', kind: 'steer', afterSec: 8,
-       text: 'use the tokens from the scale, not hand-written spacing', at: now},
-      {companion: 'buttons', socket: '/demo/buttons.sock', kind: 'steer', afterSec: 1140,
-       text: 'use the tokens from the scale, not hand-written spacing', at: now},
-      {companion: 'api', socket: '/demo/api.sock', kind: 'denied', afterSec: 95,
-       text: 'call_31', at: now},
-    ],
     '/skills': [
       {name: 'skill-tests-before-done', kind: 'skill', tier: 'global', observed: 6,
        firstSeen: '2026-06-30', lastSeen: '2026-08-07',
