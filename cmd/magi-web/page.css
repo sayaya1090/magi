@@ -1589,8 +1589,15 @@
      of it where the first row will be. */
   .paneloading { display:grid; gap:var(--magi-sys-space-150); padding:var(--magi-sys-space-200) 0; min-height:6rem; align-content:start; }
 
-  .filefind { display:grid; gap:var(--magi-sys-space-150); }
-  .filefind md-outlined-text-field { width:100%; }
+  /* One line: what is being searched for, and the two ways out of it. The box itself is a dialog
+     now — in an 18rem pane it was three rows of control above the forty filenames somebody came to
+     read. */
+  .filefind { display:flex; align-items:center; flex-wrap:wrap; gap:var(--magi-sys-space-100); }
+  .filefind .findnow {
+    flex:1 1 8rem; min-width:0; color:var(--magi-ref-muted);
+    font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
   /* Which of the two searches this is, ranged right for the same reason the git buttons are: they
      belong to the box above them rather than to the list below, and the list starts at the left. */
   .filefind md-chip-set { justify-content:flex-end; }

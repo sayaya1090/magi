@@ -5840,30 +5840,53 @@ let findIn = 'names';
 let findAt = 0;             // the query this page is waiting on, so a slow answer cannot overwrite a fast one
 
 // findRow builds the box and the two chips over the tree.
+// The way into a search, and what it found — not the search itself.
+//
+// The box and its two chips lived at the top of the tree, so a pane 18rem wide gave three of its
+// rows to a control used a few times a day: a field, a chip for names, a chip for contents, above
+// the forty filenames somebody is actually reading. It is a dialog now — the question is asked in
+// one place, with room for the whole of it, and the pane goes back to being the tree.
+//
+// What stays here is the state of a search that is running: a line saying what was searched for
+// and a way to drop it, because a tree showing eleven of four hundred files with nothing saying
+// why is the worst version of this.
 function findRow(a) {
   const box = cell('filefind');
-  const f = withGlass(document.createElement('md-outlined-text-field'));
-  f.setAttribute('label', tr('files.find'));
-  f.value = findQ;
-  // Typed rather than submitted, and debounced: a name search is cheap and reading the tree
-  // narrow as you type is the whole point. A content search waits for the pause too — it is the
-  // expensive one and the pause is what keeps it from running on every keystroke.
-  f.addEventListener('input', () => {
-    findQ = f.value;
-    const mine = ++findAt;
-    setTimeout(() => { if (mine === findAt) runFind(a); }, 250);
-  });
-  box.append(f);
-  const chips = document.createElement('md-chip-set');
-  for (const [kind, key] of [['names', 'files.by_name'], ['text', 'files.by_text']]) {
-    const c = document.createElement('md-filter-chip');
-    c.setAttribute('label', tr(key));
-    c.selected = findIn === kind;
-    c.onclick = () => { findIn = kind; runFind(a); };
-    chips.append(c);
+  if (!findQ.trim()) {
+    const open = label(withMark(document.createElement('md-text-button'), '#i-sl-magnifying-glass'),
+                       tr('files.find'));
+    open.onclick = () => askFind(a);
+    box.append(open);
+    return box;
   }
-  box.append(chips);
+  const said = cell('findnow', tr(findIn === 'text' ? 'files.found_in_text' : 'files.found_in_names',
+                                  {q: findQ.trim()}));
+  const again = label(withMark(document.createElement('md-text-button'), '#i-sl-magnifying-glass'),
+                      tr('files.find_again'));
+  again.onclick = () => askFind(a);
+  const clear = label(withMark(document.createElement('md-text-button'), '#i-sl-xmark'), tr('files.find_clear'));
+  clear.onclick = () => { findQ = ''; loadTree(a); };
+  box.append(said, cell('findacts', ''), again, clear);
   return box;
+}
+
+// askFind is the search itself: what to look for, and whether to look at names or at contents.
+//
+// Not typed-as-you-go any more. That was right when the box was in the pane and wrong for a dialog
+// — a dialog that searched on every keystroke would redraw the thing behind it while somebody is
+// still typing the word.
+function askFind(a) {
+  askLine({
+    head: tr('files.find'), body: tr('files.find_who'), label: tr('files.find'), value: findQ,
+    pick: {label: tr('files.find_where'), options: [tr('files.by_name'), tr('files.by_text')],
+           value: tr(findIn === 'text' ? 'files.by_text' : 'files.by_name')},
+    doIt: tr('files.find'), doMark: '#i-sl-magnifying-glass',
+    go: (q, where) => {
+      findQ = q;
+      findIn = where === tr('files.by_text') ? 'text' : 'names';
+      runFind(a);
+    },
+  });
 }
 
 // runFind replaces the tree with what was found, or puts the tree back when the box is empty.
