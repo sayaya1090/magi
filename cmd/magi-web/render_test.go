@@ -969,15 +969,25 @@ globalThis.fetch = async (p, init) => {
   return was(p, init);
 };
 const a = {socket: '/s/a.sock', workdir: '/w', name: 'api'};
-findQ = 'txt';
-await runFind(a);
 const rows = () => byId.files.find(e => String(e.className).split(' ').includes('treerow'));
 const words = r => r.find(() => true).map(k => k.textContent || '').join('');
+// The fixture proves itself first: with no query, this pane IS the tree. Without that, a test
+// where nothing redraws at all would pass whatever the code did.
+await loadTree(a);
+const plain = rows().map(words);
+findQ = 'txt';
+await runFind(a);
 const before = rows().map(words);
 await openFile(a, 'one.txt');
-await Promise.resolve(); await Promise.resolve();
-console.log(JSON.stringify({before, after: rows().map(words)}));
+// openFile does not await the redraw it starts, and the fake's timers do not run — so the probe
+// has to let the microtasks drain, or it reads the pane before anything has been drawn into it and
+// passes whatever the code does.
+for (let i = 0; i < 40; i++) await Promise.resolve();
+console.log(JSON.stringify({plain, before, after: rows().map(words)}));
 `)
+	if plain := fmt.Sprint(got["plain"]); !strings.Contains(plain, "a-directory") {
+		t.Fatalf("the fixture never draws the tree, so this proves nothing: %v", plain)
+	}
 	before, _ := got["before"].([]any)
 	if len(before) != 2 {
 		t.Fatalf("the search drew %v", before)
