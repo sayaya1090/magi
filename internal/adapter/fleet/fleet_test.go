@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -126,6 +127,62 @@ func (f *fleetFixture) session(sid, workdir, prompt string, steps int, finished 
 		evs = append(evs, ev(event.TypeTurnFinished, event.TurnFinishedData{}))
 	}
 	if _, err := f.store.Append(ctx, session.SessionID(sid), evs...); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// answered appends what a companion said out loud, as an assistant message with words in it.
+func (f *fleetFixture) answered(sid, text string) {
+	f.t.Helper()
+	b, err := json.Marshal(event.PartAppendedData{
+		MessageID: sid + "-said", Role: session.RoleAssistant,
+		Part: session.Part{Kind: session.PartText, Text: text}})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := f.store.Append(context.Background(), session.SessionID(sid),
+		event.Event{Type: event.TypePartAppended, Data: b, TS: time.Now()}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// handedTurn numbers the messages handed writes, so two requests in one conversation are two
+// messages rather than one message with two parts.
+var handedTurn int
+
+// handed writes the conversation a piece of handed-over work actually runs in.
+//
+// Its own session, opened under an actor that says who it came from — which is what the store
+// lifts onto SessionMeta.Origin and what the ledger finds it by. The attach session that session
+// helper writes is a different thing, and reading only that one is the defect this covers.
+func (f *fleetFixture) handed(sid, workdir, asker, request, answer string) {
+	f.t.Helper()
+	ev := func(t event.Type, actor event.Actor, d any) event.Event {
+		b, err := json.Marshal(d)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		return event.Event{Type: t, Data: b, TS: time.Now(), Actor: actor}
+	}
+	// Each request is its own message, as it is in a real log: one session holds every request
+	// from one asker, and two sharing a message id would be one message with two parts.
+	handedTurn++
+	id := fmt.Sprintf("h%d", handedTurn)
+	evs := []event.Event{
+		ev(event.TypeSessionCreated, event.Actor{Kind: event.ActorUser, ID: app.HandoffActorID(asker)},
+			event.SessionCreatedData{Workdir: workdir}),
+		ev(event.TypePromptSubmitted, event.Actor{}, event.PromptSubmittedData{
+			MessageID: id + "-asked", Parts: []session.Part{{Kind: session.PartText,
+				Text: fleet.DispatchedBy(asker) + "\n\n" + request}}}),
+	}
+	if answer != "" {
+		evs = append(evs,
+			ev(event.TypePartAppended, event.Actor{}, event.PartAppendedData{
+				MessageID: id + "-said", Role: session.RoleAssistant,
+				Part: session.Part{Kind: session.PartText, Text: answer}}),
+			ev(event.TypeTurnFinished, event.Actor{}, event.TurnFinishedData{}))
+	}
+	if _, err := f.store.Append(context.Background(), session.SessionID(sid), evs...); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -555,6 +612,10 @@ func TestHandoffsReadTheAnswersOffTheReceiversLogs(t *testing.T) {
 
 	f.session("design", done, fleet.DispatchedBy("master")+"\n\nspec the empty state", 1, true)
 	f.session("api", busy, fleet.DispatchedBy("master")+"\n\nadd the idempotency key", 2, false)
+	// What the finished one said. Without it there is no answer to report — and the ledger used to
+	// report one anyway, by taking the last line of text in the log, which in a conversation that
+	// said nothing is the request itself: the question handed back as its own answer.
+	f.answered("design", "the empty state is a title, a line and one action")
 
 	var cache fleet.Cache
 	list, err := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "master", &cache)
@@ -579,9 +640,11 @@ func TestHandoffsReadTheAnswersOffTheReceiversLogs(t *testing.T) {
 	if finished.From != "master" {
 		t.Errorf("who asked came back as %q", finished.From)
 	}
-	// An idle receiver's last line IS the answer: there is no reply channel.
-	if finished.Answer == "" {
-		t.Errorf("a finished handoff carries no answer: %+v", finished)
+	// An idle receiver's last line IS the answer: there is no reply channel. What it SAID, though
+	// — not the last text in the log, which is the request when the companion answered in tool
+	// calls alone.
+	if finished.Answer != "the empty state is a title, a line and one action" {
+		t.Errorf("a finished handoff came back with %q as the answer", finished.Answer)
 	}
 	// A line taken mid-turn is whatever it happened to be saying, which reads as a conclusion and
 	// is not one.
@@ -596,6 +659,72 @@ func TestHandoffsReadTheAnswersOffTheReceiversLogs(t *testing.T) {
 	// And with nobody named, everything handed around here.
 	if all, aerr := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "", &cache); aerr != nil || len(all) != 2 {
 		t.Errorf("the unfiltered view came back as %+v (%v)", all, aerr)
+	}
+}
+
+// Handed-over work runs in a conversation of its own, and that is where the ledger has to look.
+//
+// This is the shape live traffic actually has: hand_off opens one session per asker under a
+// handoff actor and runs the work there, while the session a person attaches to carries on being
+// about whatever the person is doing. Read only the attach session — which is what this did — and
+// every real handoff is invisible: measured on 2026-08-14 with three companions, one hand-off
+// completed and answered, and a ledger reporting nothing had been handed to anybody.
+func TestHandoffsFindWorkRunningInItsOwnConversation(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "design", true)
+	// The attach session: what the PERSON is doing here, with no handoff in it at all.
+	f.session("design", wd, "have a look at the tokens", 1, true)
+	// And the conversation the handed-over work runs in.
+	f.handed("design-side", wd, "api", "read README.md and summarise it in one line",
+		"the design system: empty states and the tokens they use")
+
+	var cache fleet.Cache
+	list, err := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "api", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("the handoff came back as %d rows: %+v", len(list), list)
+	}
+	got := list[0]
+	if got.From != "api" || got.To == "" || got.Socket == "" {
+		t.Errorf("it reads as %s → %s at %q", got.From, got.To, got.Socket)
+	}
+	if got.Request != "read README.md and summarise it in one line" {
+		t.Errorf("the request came back as %q", got.Request)
+	}
+	if got.Answer != "the design system: empty states and the tokens they use" {
+		t.Errorf("the answer came back as %q", got.Answer)
+	}
+	// The state is the state of THIS work, not of the companion: it finished what it was handed
+	// even if a person has it busy with something else.
+	if got.State != fleet.Idle {
+		t.Errorf("finished work reads as %q", got.State)
+	}
+}
+
+// A second request in the same conversation gets its own answer.
+//
+// One side session holds everything one asker ever handed over, so an answer taken as "the last
+// thing this companion said" is the newest answer stamped onto every earlier request.
+func TestEachRequestKeepsItsOwnAnswer(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "design", true)
+	f.handed("design-side", wd, "api", "summarise the README", "it is about empty states")
+	f.handed("design-side", wd, "api", "and the CHANGELOG", "three entries, all this week")
+
+	var cache fleet.Cache
+	list, err := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "api", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("two requests came back as %d: %+v", len(list), list)
+	}
+	if list[0].Answer != "it is about empty states" || list[1].Answer != "three entries, all this week" {
+		t.Errorf("the answers came back as %q and %q", list[0].Answer, list[1].Answer)
 	}
 }
 

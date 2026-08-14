@@ -909,30 +909,34 @@ func Handoffs(ctx context.Context, r Reader, configDir, from string, cache *Cach
 	}
 	out := []Handoff{}
 	for _, a := range agents {
-		if a.Session == "" {
-			continue
-		}
-		msgs, _, merr := r.SessionState(ctx, session.SessionID(a.Session))
-		if merr != nil {
-			continue // one unreadable log is not a reason to answer nothing
-		}
-		for _, m := range msgs {
-			if m.Role != session.RoleUser {
-				continue
+		for _, sid := range handoffSessions(ctx, r, a) {
+			msgs, _, merr := r.SessionState(ctx, sid)
+			if merr != nil {
+				continue // one unreadable log is not a reason to answer nothing
 			}
-			for _, p := range m.Parts {
-				who, req, ok := parseHandoff(p.Text)
-				if !ok || (from != "" && !strings.EqualFold(who, from)) {
-					continue
-				}
-				h := Handoff{From: who, To: a.Name, Socket: a.Socket, Request: Clip(req, 400),
-					State: a.State}
+			// Whether THIS conversation has a turn open, not whether the companion does. They are
+			// different questions and the answer hangs on it: a companion working on something a
+			// person asked it is idle as far as handed-over work goes, and one that has closed
+			// the handed work and moved on is not still running it.
+			_, isOpen, _, _ := fromLog(ctx, r, cache, sid)
+			state := Idle
+			switch {
+			case a.Live && isOpen:
+				state = Working
+			case isOpen:
+				state = Abandoned
+			case !a.Live:
+				state = Stopped
+			}
+			for _, h := range handoffsIn(msgs, from) {
+				h.To, h.Socket, h.State = a.Name, a.Socket, state
 				// The answer only when the work is over. A line taken mid-turn is whatever it
-				// happened to be saying, which reads as a conclusion and is not one.
-				if a.State == Idle || a.State == Stopped {
-					h.Answer = Clip(a.Task, 400)
+				// happened to be saying, which reads as a conclusion and is not one — and only
+				// the LAST request in a conversation can be the one still running.
+				if state == Working && h.last {
+					h.Answer = ""
 				}
-				out = append(out, h)
+				out = append(out, h.Handoff)
 			}
 		}
 	}
@@ -940,6 +944,92 @@ func Handoffs(ctx context.Context, r Reader, configDir, from string, cache *Cach
 	// which is the only ordering the seam actually knows.
 	sort.SliceStable(out, func(i, j int) bool { return out[i].To < out[j].To })
 	return out, nil
+}
+
+// handoffSessions is every conversation of one companion's that handed-over work could be in.
+//
+// It is not the session a person attaches to, which is what this used to read and why the view was
+// empty for every real handoff: work handed over runs in a conversation of its OWN, one per asker
+// (cmd/magi/hand.go), so the attach session contains the label only in the tests that put it there.
+// Measured live on 2026-08-14 — api handed design a piece of work, design did it and answered, and
+// the ledger said nothing had been handed to anybody.
+//
+// Both are read. The attach session because a companion CAN be handed work into the conversation
+// somebody is watching — a meeting says its piece there — and the side conversations because that
+// is where hand_off puts it. Told apart by the actor the session was opened under, which the store
+// already lifts onto every SessionMeta.
+func handoffSessions(ctx context.Context, r Reader, a Agent) []session.SessionID {
+	var out []session.SessionID
+	seen := map[session.SessionID]bool{}
+	add := func(id session.SessionID) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	add(session.SessionID(a.Session))
+	if a.Workdir == "" {
+		return out
+	}
+	metas, err := r.ListSessions(ctx, a.Workdir)
+	if err != nil {
+		return out
+	}
+	for _, m := range metas {
+		if _, handed := app.HandoffOrigin(m.Origin); handed {
+			add(m.ID)
+		}
+	}
+	return out
+}
+
+// handedOver is one request read out of a transcript, and whether it is the last one in it.
+//
+// The flag is what decides whether an unfinished conversation's silence belongs to THIS request:
+// a side conversation holds every request one asker ever handed over, and the four before the one
+// running now were all answered.
+type handedOver struct {
+	Handoff
+	last bool
+}
+
+// handoffsIn reads one conversation as a run of requests and the answers between them.
+//
+// The answer to a request is the last thing the companion said before the NEXT request arrived,
+// which is what makes a re-ask readable: two questions in one conversation used to share whatever
+// the companion happened to have said most recently.
+func handoffsIn(msgs []session.Message, from string) []handedOver {
+	var out []handedOver
+	for _, m := range msgs {
+		switch m.Role {
+		case session.RoleUser:
+			for _, p := range m.Parts {
+				who, req, ok := parseHandoff(p.Text)
+				if !ok || (from != "" && !strings.EqualFold(who, from)) {
+					continue
+				}
+				out = append(out, handedOver{Handoff: Handoff{From: who, Request: Clip(req, 400)}})
+			}
+		case session.RoleAssistant:
+			if len(out) == 0 {
+				continue
+			}
+			said := ""
+			for _, p := range m.Parts {
+				if t := strings.TrimSpace(p.Text); t != "" {
+					said = t
+				}
+			}
+			if said != "" {
+				out[len(out)-1].Answer = Clip(said, 400)
+			}
+		}
+	}
+	if len(out) > 0 {
+		out[len(out)-1].last = true
+	}
+	return out
 }
 
 // parseHandoff splits a labelled request back into who asked and what they asked.
