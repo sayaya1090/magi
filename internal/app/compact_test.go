@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -23,6 +24,62 @@ func TestEstimateTokens(t *testing.T) {
 	}}}
 	if got := estimateTokens("SYSTEM12", msgs); got != 6 {
 		t.Errorf("estimateTokens = %d, want 6", got)
+	}
+	// Reasoning is persisted but never sent on the wire (joinText emits only PartText), so it must
+	// not be counted — counting it folded thinking-model sessions away at a fraction of real use.
+	withReasoning := []session.Message{{Parts: []session.Part{
+		{Kind: session.PartText, Text: "abcd"},
+		{Kind: session.PartReasoning, Text: "this is a long private deliberation the model never sees again"},
+	}}}
+	if got := estimateTokens("SYSTEM12", withReasoning); got != estimateTokens("SYSTEM12", []session.Message{{Parts: []session.Part{{Kind: session.PartText, Text: "abcd"}}}}) {
+		t.Errorf("estimateTokens counted a reasoning part that the wire drops: %d", got)
+	}
+}
+
+// flattenForSummary renders tool structure as prose so the summarizer request carries no tool_use
+// blocks — a strict backend rejects those when the request declares no tools, which silently broke
+// every auto-fold on such a route.
+func TestFlattenForSummary(t *testing.T) {
+	msgs := []session.Message{
+		{Role: session.RoleAssistant, Parts: []session.Part{
+			{Kind: session.PartText, Text: "let me look"},
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "read", Args: json.RawMessage(`{"path":"a.go"}`)}},
+		}},
+		{Role: session.RoleTool, Parts: []session.Part{
+			{Kind: session.PartToolResult, ToolResult: &session.ToolResult{Content: json.RawMessage(`"package main"`)}},
+		}},
+		{Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartReasoning, Text: "private"}}},
+	}
+	out := flattenForSummary(msgs)
+	for _, m := range out {
+		for _, p := range m.Parts {
+			if p.Kind != session.PartText {
+				t.Errorf("a non-text part survived flattening: %q", p.Kind)
+			}
+			if p.ToolCall != nil || p.ToolResult != nil {
+				t.Error("tool structure survived flattening")
+			}
+		}
+		if m.Role != session.RoleAssistant && m.Role != session.RoleUser {
+			t.Errorf("an illegal role reached the summarizer: %q", m.Role)
+		}
+	}
+	// The tool result's message was role "tool"; with nothing to answer it must ride in as user.
+	if len(out) < 2 || out[1].Role != session.RoleUser {
+		t.Errorf("the tool-result message was not demoted to user: %+v", out)
+	}
+	// A reasoning-only message has no wire content, so it drops out entirely.
+	joined := ""
+	for _, m := range out {
+		for _, p := range m.Parts {
+			joined += p.Text + "\n"
+		}
+	}
+	if strings.Contains(joined, "private") {
+		t.Error("reasoning leaked into the summary request")
+	}
+	if !strings.Contains(joined, "read") || !strings.Contains(joined, "package main") {
+		t.Errorf("the tool call and result did not survive as prose:\n%s", joined)
 	}
 }
 

@@ -87,6 +87,13 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 		Shards:          shards,
 	})
 	a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d)
+	// The real prompt count is now a measurement of a context that no longer exists — and it is
+	// the LARGER number, so the trigger (which takes max of the real count and the estimate) would
+	// keep firing on the emptied window. The log-derived reader already zeroes it after a fold for
+	// exactly this reason; the in-memory trigger was left reading the dead value and re-folding the
+	// tail of what little remained, once per turn that ended before a fresh request could refresh
+	// it. Cleared here so the next step measures the folded context.
+	a.setPromptTokens(s.ID, 0)
 	return true
 }
 
@@ -227,18 +234,71 @@ func truncateAt(evs []event.Event, boundary int64) []event.Event {
 	return out
 }
 
+// flattenForSummary renders a conversation as plain text: every tool call and tool result becomes
+// a PartText line, so the summarizer request carries no tool_use structure and needs no Tools
+// declared. Roles are preserved; only the shape of each part changes.
+func flattenForSummary(msgs []session.Message) []session.Message {
+	out := make([]session.Message, 0, len(msgs))
+	for _, m := range msgs {
+		var text []string
+		for _, p := range m.Parts {
+			switch {
+			case p.Kind == session.PartText && p.Text != "":
+				text = append(text, p.Text)
+			case p.ToolCall != nil:
+				text = append(text, fmt.Sprintf("[called %s %s]", p.ToolCall.Name, string(p.ToolCall.Args)))
+			case p.ToolResult != nil:
+				text = append(text, fmt.Sprintf("[result: %s]", string(p.ToolResult.Content)))
+			}
+		}
+		joined := strings.TrimSpace(strings.Join(text, "\n"))
+		if joined == "" {
+			continue
+		}
+		// The assistant's own turns stay the assistant's; a tool-result message would be an
+		// illegal tool role with no tool_call to answer once flattened, so it rides in as user
+		// context — which is all a summarizer needs it to be.
+		role := m.Role
+		if role != session.RoleAssistant {
+			role = session.RoleUser
+		}
+		out = append(out, session.Message{Role: role, Parts: []session.Part{{Kind: session.PartText, Text: joined}}})
+	}
+	return out
+}
+
 // summarizeViaLLM asks the model to summarize prior conversation into a compact
 // brief that preserves decisions, facts, and open tasks. It uses the agent's own
 // provider so compaction runs on the same backend the agent is routed to.
 func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Session, msgs []session.Message) string {
+	prov := a.providerFor(agent)
+	if prov == nil {
+		// The same guard generate_step grew: a reader-only App has no backend, and dereferencing
+		// nil here took the process down. Nothing to summarize on is a failure to report, not a
+		// crash.
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
+			"compact: no model backend to summarize with, so this fold was skipped")
+		return ""
+	}
 	req := port.ChatRequest{
 		Model: s.Model.Model,
 		System: "Summarize the following conversation into a concise brief that preserves key facts, " +
 			"decisions, file changes, and any unfinished tasks. Write only the summary.",
-		Messages: msgs,
+		// Tool calls and results flattened to plain text. The request carries no Tools, and a strict
+		// backend (Anthropic via a gateway) rejects a message holding tool_use blocks with no tools
+		// declared — so every auto-fold on such a route failed silently, forever. The summarizer
+		// only needs to READ the conversation; rendered as prose it says the same thing and goes out
+		// legally on any backend.
+		Messages: flattenForSummary(msgs),
 	}
-	stream, err := a.providerFor(agent).StreamChat(ctx, req)
+	stream, err := prov.StreamChat(ctx, req)
 	if err != nil {
+		// A provider error here is not "nothing to fold" — which is what returning "" tells the
+		// caller. Left silent, the caller re-tried the same doomed call every step and the turn
+		// died with a raw overflow no one could connect to a failing compaction. Reported, and
+		// still returns "" so the caller keeps the history rather than replacing it with nothing.
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
+			fmt.Sprintf("compact: the summarizer was refused (%v) — history kept, not folded", err))
 		return ""
 	}
 	text, cut := drainStream(stream)
@@ -275,11 +335,21 @@ func (a *App) contextTokens(sid session.SessionID, sys string, msgs []session.Me
 }
 
 // estimateTokens approximates the token count of a request (≈4 chars/token).
+//
+// It must count what the WIRE carries, not what the session holds. Reasoning parts are persisted
+// every step and rebuilt on replay, but the openai adapter's joinText sends only PartText — so
+// counting a reasoning part's Text here inflated the estimate by the bulk of a thinking model's
+// output (routinely several times the text), and the trigger takes max(real, estimate). The result
+// was a session folded away at 15-20% of real window use, and re-folded on later turns for the
+// same phantom reason. Count PartText, tool calls and tool results; skip the reasoning that never
+// leaves the machine.
 func estimateTokens(sys string, msgs []session.Message) int {
 	chars := len(sys)
 	for _, m := range msgs {
 		for _, p := range m.Parts {
-			chars += len(p.Text)
+			if p.Kind == session.PartText {
+				chars += len(p.Text)
+			}
 			if p.ToolCall != nil {
 				chars += len(p.ToolCall.Name) + len(p.ToolCall.Args)
 			}

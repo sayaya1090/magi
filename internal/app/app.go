@@ -782,7 +782,13 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 		TokensAfter:  estimateTokens(summary, nil),
 		Shards:       shards,
 	})
-	return a.appendFact(ctx, c.SessionID, event.TypeCompaction, c.Actor, data)
+	if err := a.appendFact(ctx, c.SessionID, event.TypeCompaction, c.Actor, data); err != nil {
+		return err
+	}
+	// The measured prompt count now describes the pre-fold window; clear it so the trigger and the
+	// TUI /context both re-measure rather than reading the larger, dead value.
+	a.setPromptTokens(c.SessionID, 0)
+	return nil
 }
 
 // Subscribe replays persisted events from fromSeq, then streams live events,
