@@ -829,7 +829,8 @@ window could not make an ordinary request at all.
 
 A field, and under it what this console can name: its own verbs, the companions, and — once there
 are two characters to search on — the files of the workspace on screen. Arrows move, `Enter` takes
-the row, `Escape` leaves.
+the row, `Escape` leaves. There is a control for it in the masthead as well: a phone has no modifier
+key, and a shortcut nobody has been told about is a shortcut nobody uses.
 
 Nothing in it is a capability of its own. Every entry ends in the same call the control on the
 screen makes, so there is no second path to anything and no second set of rules about who may. A

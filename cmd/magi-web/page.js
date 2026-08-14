@@ -8250,6 +8250,8 @@ function paint() {
   document.getElementById('themeK').textContent = tr('pref.theme');
   paintTheme();
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
+  palOpen.setAttribute('aria-label', tr('pal.head'));
+  tip(palOpen, tr('pal.head'));
   document.getElementById('lookK').textContent = tr('files.look');
   document.getElementById('lookWhy').textContent = tr('files.look_why');
   document.getElementById('accessK').textContent = tr('nav.access');
@@ -8919,6 +8921,11 @@ palField.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); palRun(palAt); }
 });
 palCancel.onclick = () => palDialog.close('cancel');
+// The door in the masthead. A phone has no modifier key, and a shortcut nobody has been told about
+// is a shortcut nobody uses — the same reason every editor that has a palette also has a way to
+// press it.
+const palOpen = document.getElementById('palOpen');
+palOpen.onclick = () => openPalette();
 // Ctrl+K, or ⌘+K where that is the modifier. Not a bare key: this page has a text box on every
 // screen, and a palette that opened on a letter would open while somebody was writing to their
 // companion.
