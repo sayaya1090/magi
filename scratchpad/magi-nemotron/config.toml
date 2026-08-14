@@ -1,0 +1,26 @@
+# magi against a local MLX model, for trying one out without touching your real config.
+#
+#   MAGI_CONFIG_DIR=scratchpad/magi-nemotron magi
+#   MAGI_CONFIG_DIR=scratchpad/magi-nemotron magi -daemon
+#
+# The endpoint is whatever scratchpad/serve-mlx.sh is serving. Two lines are the whole of it: magi
+# speaks one backend protocol — POST <base_url>/chat/completions with {model, messages, tools} —
+# so anything OpenAI-compatible is a config change and not a code change. Ollama, mlx-lm,
+# llama-server, LM Studio, vLLM on a remote box: same two lines.
+#
+# The model id is sent verbatim. For mlx-lm that is the repo id it was started with.
+model = "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit"
+base_url = "http://localhost:8000/v1"
+
+# No api_key: mlx-lm asks for none, and an empty string is not the same as an absent header for
+# every backend — leave it out rather than setting it to "".
+
+# ⚠ The thing to watch on this model, before judging it.
+#
+# mlx-lm applies no tool parser. NVIDIA's own quick start for Nemotron 3.5 Lightning names two
+# (nemotron_v3 for reasoning, qwen3_coder for tools), and magi calls a tool on nearly every step —
+# so if tool calls come back as prose, nothing this model scores means anything for agent work.
+# serve-mlx.sh checks exactly that, once, at startup and says so in one line.
+#
+# The other known gap: the model ships Multi-Token Prediction layers for native speculative
+# decoding, and the MLX conversion drops them. Some of the published speed is not on the table here.
