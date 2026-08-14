@@ -2428,6 +2428,10 @@ function permField(a) {
   if (sel) sel.toggleAttribute('disabled', !may('configure'));
   if (!sel) {
     sel = permField.el = document.createElement('md-outlined-select');
+    // Named for a reader who cannot see the word beside it. The field's own heading is a div next
+    // to the control, not a label bound to it, so without this the control announces as an
+    // unnamed combobox — measured on the facts card, three of them.
+    sel.setAttribute('aria-label', tr('field.permission'));
     sel.className = 'permsel';
     paintPerm(sel);
     sel.addEventListener('change', async () => {
@@ -2474,6 +2478,7 @@ function modelField(a, now) {
   let sel = modelField.el;
   if (!sel || modelField.key !== key) {
     sel = modelField.el = document.createElement('md-outlined-select');
+    sel.setAttribute('aria-label', tr('field.model'));
     modelField.key = key;
     modelField.list = null;
     sel.className = 'permsel';
@@ -2550,6 +2555,7 @@ function sessionField(a) {
   let sel = sessionField.el;
   if (!sel || sessionField.key !== a.socket) {
     sel = sessionField.el = document.createElement('md-outlined-select');
+    sel.setAttribute('aria-label', tr('field.session'));
     sessionField.key = a.socket;
     sessionField.list = null;
     sel.className = 'permsel';
@@ -8640,13 +8646,26 @@ const sideToggle = document.getElementById('sideToggle');
 // the default could not be changed without also forgetting everybody's choice. The ATTRIBUTE is
 // always written, both ways: "the attribute is missing" as a third state is what let the two
 // predicates above disagree.
-function paneHandle(el, key, opened) {
+function paneHandle(el, key, opened, words) {
   const say = open => {
     document.body.setAttribute(key, open ? 'open' : 'shut');
     localStorage.setItem(key, open ? 'open' : 'shut');
     // What a screen reader is told, from the same fact the drawing comes from, so the two cannot
     // come apart. The markup says "false" until this runs, which is the safe thing to have said.
     el.setAttribute('aria-expanded', String(open));
+    // And WHAT it is: an icon button with no text and no label is a control a screen reader can
+    // only announce as "button". The state pane's handle had one because a separate function
+    // rewrote it whenever the pane's contents changed; the workspace handle, which has no such
+    // function, had nothing at all — measured, the one unnamed control on a companion's page.
+    //
+    // Given by the caller rather than built from the key, because the phrase pack is checked by
+    // reading literal tr() calls out of this file: a phrase addressed as key + '.show' is a
+    // phrase the check cannot see anybody asking for.
+    if (words) {
+      const word = open ? words.hide : words.show;
+      el.setAttribute('aria-label', word);
+      tip(el, word);
+    }
   };
   const open = localStorage.getItem(key) === 'open';
   say(open);
@@ -8659,7 +8678,10 @@ function paneHandle(el, key, opened) {
   });
 }
 // Asked for the first time when it opens: a pane nobody has opened has never cost a request.
-paneHandle(filesToggle, 'files', () => loadTree(lastDrawnFor));
+paneHandle(filesToggle, 'files', () => loadTree(lastDrawnFor),
+           {show: tr('files.show'), hide: tr('files.hide')});
+// The state pane's handle says more than open and shut — it also says when there is nothing to
+// open — so its words stay with the function that knows that: refreshSideToggle.
 paneHandle(sideToggle, 'side');
 
 // The look-over preference, wired where the other two preferences are. Remembered rather than
