@@ -2299,7 +2299,20 @@
      composer keeps its line and gives up what belongs to the other half — the interrupt, which is
      about a turn you are watching, not about the file you are in. */
   @media (max-width:52.4375em) {
-    body[at="agent"][panel="state"] #stop { display:none; }
+    body[at="agent"][panel="state"] #stop,
+    body[at="agent"][panel="facts"] #stop,
+    body[at="agent"][panel="files"] #stop,
+    body[at="agent"][panel="plan"] #stop { display:none; }
+    /* And the strip of what is running goes with the conversation too.
+       The dock is fixed, so everything it holds is height taken off the top of whatever screen is
+       showing: measured on a 390x844 phone it was 535px — 63% — and the file card's own actions
+       were drawn underneath it. Pressing Edit did nothing, because the press landed on a job chip
+       in the dock. The strip is a companion's own running work, which is a thing to read beside
+       the conversation; on the other three screens it is 90px of somebody else's business over the
+       thing they came to use.
+       The bar where the companion is ASKING something stays on every screen. That is a question
+       waiting for an answer, and hiding it behind a tab is how a fleet stalls. */
+    body[at="agent"]:not([panel="talk"]) #strip { display:none; }
   }
 
   @media (min-width:52.5em) {

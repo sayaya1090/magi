@@ -5886,6 +5886,17 @@ function waitingFor(key) {
   // cheap next to serialising a tree of several hundred rows.
   const now = JSON.stringify([a.workdir, treeAt.seen, gitSection.raw, [...openDirs].sort(), cardShows, findQ]);
   if (now === loadTree.drawn && filesEl.children.length) return;
+  // Not while a menu is open in it.
+  //
+  // The pane is rebuilt when the workspace changes, and in a workspace an agent is working in
+  // something changes every few seconds — so a person who right-clicked a file and was reading
+  // the menu had it vanish under the pointer. The menu is a child of the row that opened it, and
+  // rebuilding the tree takes both. Same rule as the meeting room's "not while somebody is
+  // typing": a redraw waits for the person, not the other way round.
+  //
+  // The next poll draws it: this drops the frame, it does not drop the change — loadTree.drawn is
+  // left as it was, so the comparison still says there is something new to draw.
+  if (filesEl.querySelector('.showing')) return;
   loadTree.drawn = now;
   filesEl.replaceChildren(tree, ...git);
 }

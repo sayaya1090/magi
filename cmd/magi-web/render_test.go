@@ -5498,6 +5498,55 @@ console.log(JSON.stringify({
 // card, the branch select and every per-file menu for a workspace where nothing had happened. A
 // rebuilt select is a select whose open menu shuts under the pointer, and a rebuilt row is one
 // that moves out from under it.
+// A redraw waits for the person, not the other way round.
+//
+// The pane is rebuilt when the workspace changes, and in a workspace an agent is working in
+// something changes every few seconds. A reader who right-clicked a file and was reading the menu
+// had it vanish under the pointer: the menu is a child of the row that opened it, and rebuilding
+// the tree takes both. The change is not lost — the next poll draws it once the menu is shut.
+func TestThePaneDoesNotRebuildUnderAnOpenMenu(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+let tree = [{name: 'README.md'}, {name: 'docs', isDir: true}];
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/files') return {ok: true, json: async () => tree};
+  if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
+  if (path === '/fleet') return {ok: true, json: async () => ([])};
+  return {ok: true, json: async () => ([]), text: async () => ''};
+};
+const a = {socket: '/s/a.sock', workdir: '/w', name: 'design'};
+await loadTree(a);
+const before = byId.files.children[0];
+
+// A menu is open: the holder carries the class popMenu puts on it while its menu is showing.
+const holder = byId.files.find(e => String(e.className).split(' ').includes('rowmenu'))[0];
+holder.classList.add('showing');
+tree = tree.concat([{name: 'new.go'}]);   // and the workspace changes under it
+await loadTree(a);
+const during = byId.files.children[0];
+
+// Shut it, and the change arrives on the next poll rather than being lost.
+holder.classList.remove('showing');
+await loadTree(a);
+const after = byId.files.children[0];
+console.log(JSON.stringify({
+  keptWhileOpen: before === during,
+  drewOnceShut: during !== after,
+  rows: byId.files.find(e => String(e.className).split(' ').includes('treerow')).length,
+}));`)
+	if got["keptWhileOpen"] != true {
+		t.Error("the pane was rebuilt under an open menu, which takes the menu with it")
+	}
+	if got["drewOnceShut"] != true {
+		t.Error("the change was dropped rather than deferred: shutting the menu did not draw it")
+	}
+	if n, _ := got["rows"].(float64); n < 3 {
+		t.Errorf("the file that appeared while the menu was open is not in the tree: %v rows", n)
+	}
+}
+
 func TestTheWorkspacePaneIsRedrawnOnlyWhenItChanges(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 localStorage.setItem('files', 'open');
