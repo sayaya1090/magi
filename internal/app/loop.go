@@ -382,8 +382,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// deterministic sequential order.
 		usedTools = true // this turn did real work → the council gate applies
 		if len(toolCalls) > 1 && a.allParallelSafe(toolCalls) {
+			// The turn can be cut while a batch is being launched, and the sequential branch below
+			// checks for it between calls. This one did not: an interrupted turn still started
+			// every remaining call in the batch, and each of them then discovered the cancelled
+			// context for itself. Checked here so the two branches stop for the same reason.
 			var wg sync.WaitGroup
 			for _, tc := range toolCalls {
+				if ctx.Err() != nil {
+					break
+				}
 				wg.Add(1)
 				go func(tc *session.ToolCall) {
 					defer wg.Done()
@@ -391,6 +398,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				}(tc)
 			}
 			wg.Wait()
+			if ctx.Err() != nil {
+				return lastText, ctx.Err()
+			}
 		} else {
 			for _, tc := range toolCalls {
 				if ctx.Err() != nil {
@@ -651,12 +661,18 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 			return false
 		}
 		// A subagent runs a whole child turn, which writes files under the PARENT's guard — and the
-		// guard's before/after capture assumes writes to a file are serialised. It also blocks for
-		// as long as the child takes, and the parallel path does not re-check the context between
-		// launches, so two of them would hold the step open together with no way to cut it short.
+		// guard's before/after capture assumes writes to a file are serialised.
+		//
+		// Unless the children cannot write. A tool that declares ReadOnlyChildren has every spawn
+		// checked against that claim at the moment it is made (see spawnFnFor), so two of them have
+		// nothing to race over — and running them one after the other is two whole child turns of
+		// wall clock for work that shares nothing.
 		if a.tools != nil {
-			if t, ok := a.tools.Get(tc.Name); ok && port.ToolMetaOf(t).Subagent {
-				return false
+			if t, ok := a.tools.Get(tc.Name); ok {
+				m := port.ToolMetaOf(t)
+				if m.Subagent && !m.ReadOnlyChildren {
+					return false
+				}
 			}
 		}
 		// A tool that blocks on the PERSON is not parallel-safe however read-only it is: there is
