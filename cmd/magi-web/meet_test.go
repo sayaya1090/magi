@@ -40,15 +40,17 @@ type talker struct {
 // Joining is what the real one does before the room opens: it prepares in a session it keeps.
 // The fake records that it was asked, so a test can tell a meeting that gathered everybody from
 // one that started talking to strangers.
-func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string) (string, error) {
+func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string) (string, string, error) {
 	t.mu.Lock()
 	t.joined = append(t.joined, meeting)
 	t.mu.Unlock()
-	return "ready", nil
+	// The room it prepared in travels back with the answer: the screen offers what a participant
+	// read before it spoke, and the id can only come from the companion holding the conversation.
+	return "ready", "s_room_" + meeting, nil
 }
 
 func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
-	string, bool, error) {
+	daemon.Contribution, error) {
 	if t.started != nil {
 		select {
 		case t.started <- struct{}{}:
@@ -59,7 +61,7 @@ func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript str
 		select {
 		case <-t.slow:
 		case <-ctx.Done():
-			return "", false, ctx.Err()
+			return daemon.Contribution{}, ctx.Err()
 		}
 	}
 	t.mu.Lock()
@@ -68,10 +70,11 @@ func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript str
 		t.closes++
 	}
 	t.mu.Unlock()
+	room := "s_room_" + meeting
 	if closing {
-		return "I will " + t.say, false, nil
+		return daemon.Contribution{Said: "I will " + t.say, Room: room}, nil
 	}
-	return t.say, t.pass, nil
+	return daemon.Contribution{Said: t.say, Pass: t.pass, Room: room}, nil
 }
 
 func (t *talker) heard() []string {
@@ -184,6 +187,18 @@ func TestAMeetingIsEachCompanionReadingWhatTheLastOneSaid(t *testing.T) {
 	sent := design.seen()
 	if len(sent) != 1 || !strings.Contains(sent[0], "fleet table") {
 		t.Fatalf("what reached the companion was %v", sent)
+	}
+	// …and the meeting comes with it. The task alone is the conclusion with everything that
+	// produced it thrown away: watched live, the companion that received one opened by asking what
+	// had been decided and why, of a person who had just spent an hour watching it be decided. It
+	// was in the room; its own session was not.
+	if !strings.Contains(sent[0], "design:") || !strings.Contains(sent[0], "api:") {
+		t.Errorf("the discussion did not travel with the work: %q", sent[0])
+	}
+	// And what the others took away, so two companions handed adjacent halves of one job do not
+	// each do both.
+	if !strings.Contains(sent[0], "What the others are doing") {
+		t.Errorf("the work arrived with no idea what anybody else is doing: %q", sent[0])
 	}
 	if api.seen() != nil && len(api.seen()) != 0 {
 		t.Errorf("the other companion was given work nobody handed it: %v", api.seen())

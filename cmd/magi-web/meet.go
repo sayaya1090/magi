@@ -48,7 +48,14 @@ type meetingRun struct {
 	id      string
 	m       *meeting.Meeting
 	sockets map[string]string // speaker name -> socket
-	tasks   []meeting.Task
+	// rooms is the conversation each participant is holding the meeting in, as the daemon reported
+	// it. The screen offers what a participant read and thought on the way to a sentence, and this
+	// is the only place that id can come from: the room is opened inside the daemon.
+	//
+	// Written on every turn as well as on the join, because a daemon that restarted mid-meeting
+	// prepares again in a new one.
+	rooms map[string]string
+	tasks []meeting.Task
 	// held is set while the person has the floor: nobody else is asked to speak until they let it
 	// go, which is the hush a room gives somebody who has started talking.
 	held bool
@@ -64,6 +71,18 @@ type meetingRun struct {
 	// tasks are appearing one at a time instead of looking stuck.
 	collecting bool
 	stop       context.CancelFunc
+}
+
+// roomOf records which conversation a participant is holding the meeting in. Called with the run
+// already locked, like everything else that writes to it.
+func (run *meetingRun) roomOf(name, room string) {
+	if strings.TrimSpace(room) == "" {
+		return
+	}
+	if run.rooms == nil {
+		run.rooms = map[string]string{}
+	}
+	run.rooms[name] = room
 }
 
 // meetView is what the screen reads: everything about one meeting, in one answer.
@@ -115,6 +134,10 @@ type meetSpeaker struct {
 	Ready   bool   `json:"ready,omitempty"`
 	Brief   string `json:"brief,omitempty"`
 	Trouble string `json:"trouble,omitempty"`
+	// Room is the conversation this participant is holding the meeting in, on its own machine.
+	// With it the screen can offer what a companion read and thought before it spoke; without it
+	// the room shows the sentence and nothing behind it.
+	Room string `json:"room,omitempty"`
 }
 
 type meetLine struct {
@@ -390,6 +413,10 @@ func (s *server) meetHand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	socket, topic := run.sockets[who], run.m.Topic
+	// The discussion the task came out of, and what everybody else is doing about it. Read under
+	// the same lock as the task, so what is handed over is one consistent picture of the meeting
+	// rather than a task from one moment and a transcript from another.
+	said, others := run.m.Transcript(), otherTasks(run.tasks, who)
 	run.mu.Unlock()
 	if what == "" || socket == "" {
 		http.Error(w, "there is nothing for "+who+" to do in that meeting", http.StatusBadRequest)
@@ -418,14 +445,64 @@ func (s *server) meetHand(w http.ResponseWriter, r *http.Request) {
 	// know where the work came from, and the meeting's transcript is not in their log.
 	err = cl.Steer(r.Context(), command.SubmitPrompt{
 		SessionID: session.SessionID(in.Session),
-		Parts: []session.Part{{Kind: session.PartText,
-			Text: "From the meeting about " + topic + ":\n\n" + what}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: fromMeeting(topic, what, said, others)}},
 	})
 	if err != nil {
 		http.Error(w, err.Error(), daemonSaysNo(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// fromMeeting is the work a meeting hands out, with the meeting attached to it.
+//
+// It used to be the topic and the one task: "From the meeting about the retry budget: add the
+// idempotency key." Which is the conclusion with everything that produced it thrown away — so the
+// companion receiving it opened by asking what had been decided and why, of a person who had just
+// watched an hour of it being decided. The participant was IN the room; its own session was not.
+//
+// So the task first, because it is the instruction, and then what was said and who else is doing
+// what. The last of those is not decoration: two companions handed adjacent halves of one job need
+// to know the other half is being done rather than doing it again.
+func fromMeeting(topic, what, said, others string) string {
+	var b strings.Builder
+	b.WriteString("From the meeting about " + topic + ":\n\n" + what + "\n")
+	if strings.TrimSpace(said) != "" {
+		b.WriteString("\nWhat was said, in the room, in order:\n\n" + lastOf(said, meetCarry) + "\n")
+	}
+	if others != "" {
+		b.WriteString("\nWhat the others are doing about it:\n\n" + others + "\n")
+	}
+	return b.String()
+}
+
+// meetCarry bounds the transcript a piece of handed-over work carries. Generous — this is context
+// somebody's whole task hangs on, and a meeting of four for five rounds is a few thousand bytes.
+const meetCarry = 12000
+
+// lastOf keeps the END of a long text, marked. The end of a discussion is where it was settled;
+// clipping the tail would hand over the opening positions and drop the conclusion.
+func lastOf(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := s[len(s)-n:]
+	if i := strings.IndexByte(cut, '\n'); i >= 0 {
+		cut = cut[i+1:] // never start mid-sentence
+	}
+	return "(the earlier rounds are not repeated here)\n\n" + cut
+}
+
+// otherTasks is what the rest of the room is taking away, so nobody does a neighbour's half twice.
+func otherTasks(tasks []meeting.Task, mine string) string {
+	var b strings.Builder
+	for _, t := range tasks {
+		if t.Who == mine || strings.TrimSpace(t.What) == "" {
+			continue
+		}
+		b.WriteString(t.Who + ": " + strings.TrimSpace(t.What) + "\n")
+	}
+	return b.String()
 }
 
 // drive is the meeting happening: ask whoever is next, record what they said, repeat.
@@ -477,13 +554,14 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 			run.collect(ctx, s, topic)
 			return
 		}
-		said, passed, err := s.speakTo(ctx, sock, run.id, topic, transcript, false)
+		c, err := s.speakTo(ctx, sock, run.id, topic, transcript, false)
 		run.mu.Lock()
 		if err != nil {
 			run.trouble = next.Name + ": " + err.Error()
 			run.m.Say(meeting.Utterance{Who: next.Name, Pass: true, Text: "could not be reached"})
 		} else {
-			run.m.Say(meeting.Utterance{Who: next.Name, Text: said, Pass: passed})
+			run.m.Say(meeting.Utterance{Who: next.Name, Text: c.Said, Pass: c.Pass})
+			run.roomOf(next.Name, c.Room)
 		}
 		// Recording an utterance moves the floor on, which is right for the speaker and wrong for
 		// somebody who started typing while that speaker was still composing: their hold would be
@@ -507,8 +585,12 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 		if sp.Person() {
 			continue
 		}
-		said, passed, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, true)
+		c, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, true)
+		said, passed := c.Said, c.Pass
 		run.mu.Lock()
+		if c.Room != "" {
+			run.roomOf(sp.Name, c.Room)
+		}
 		switch {
 		case err != nil:
 			run.trouble = sp.Name + ": " + err.Error()
@@ -554,13 +636,14 @@ func (run *meetingRun) getReady(ctx context.Context, s *server) {
 		wg.Add(1)
 		go func(w who) {
 			defer wg.Done()
-			brief, err := s.joinMeeting(ctx, w.sock, id, topic)
+			brief, room, err := s.joinMeeting(ctx, w.sock, id, topic)
 			run.mu.Lock()
 			defer run.mu.Unlock()
 			if err != nil {
 				run.m.Prepared(w.name, "", err.Error())
 				return
 			}
+			run.roomOf(w.name, room)
 			run.m.Prepared(w.name, brief, "")
 		}(w)
 	}
@@ -573,33 +656,34 @@ func (run *meetingRun) getReady(ctx context.Context, s *server) {
 // joinMeeting is one companion getting ready, on a connection of its own for the same reason
 // speakTo uses one: this is minutes of model time and the pooled client serialises everything else
 // sent to that daemon behind it.
-func (s *server) joinMeeting(ctx context.Context, socket, id, topic string) (string, error) {
+func (s *server) joinMeeting(ctx context.Context, socket, id, topic string) (ready, room string, err error) {
 	if strings.TrimSpace(socket) == "" {
-		return "", errNoDoor
+		return "", "", errNoDoor
 	}
 	cl, err := daemon.Dial(socket)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer cl.Close()
 	type answer struct {
 		said string
+		room string
 		err  error
 	}
 	done := make(chan answer, 1)
 	go func() {
-		said, err := cl.Join(id, topic)
-		done <- answer{said, err}
+		said, room, err := cl.Join(id, topic)
+		done <- answer{said, room, err}
 	}()
 	late := time.NewTimer(6 * time.Minute)
 	defer late.Stop()
 	select {
 	case a := <-done:
-		return a.said, a.err
+		return a.said, a.room, a.err
 	case <-late.C:
-		return "", errors.New("this companion did not finish getting ready")
+		return "", "", errors.New("this companion did not finish getting ready")
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return "", "", ctx.Err()
 	}
 }
 
@@ -609,24 +693,23 @@ func (s *server) joinMeeting(ctx context.Context, socket, id, topic string) (str
 // client serialises everything sent to that daemon, so holding it would stall every dashboard poll
 // for that companion behind a sentence somebody is composing.
 func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript string, closing bool) (
-	string, bool, error) {
+	daemon.Contribution, error) {
 	if strings.TrimSpace(socket) == "" {
-		return "", false, errNoDoor
+		return daemon.Contribution{}, errNoDoor
 	}
 	cl, err := daemon.Dial(socket)
 	if err != nil {
-		return "", false, err
+		return daemon.Contribution{}, err
 	}
 	defer cl.Close()
 	type answer struct {
-		said string
-		pass bool
+		said daemon.Contribution
 		err  error
 	}
 	done := make(chan answer, 1)
 	go func() {
-		said, pass, err := cl.Meet(id, topic, transcript, closing)
-		done <- answer{said, pass, err}
+		said, err := cl.Meet(id, topic, transcript, closing)
+		done <- answer{said, err}
 	}()
 	// Bounded, a little above the daemon's own limit on a contribution. The companion stops itself
 	// after five minutes; this is for the case where it never gets that far — a wedged process
@@ -636,11 +719,11 @@ func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript stri
 	defer late.Stop()
 	select {
 	case a := <-done:
-		return a.said, a.pass, a.err
+		return a.said, a.err
 	case <-late.C:
-		return "", false, errText("no answer in six minutes")
+		return daemon.Contribution{}, errText("no answer in six minutes")
 	case <-ctx.Done():
-		return "", false, ctx.Err()
+		return daemon.Contribution{}, ctx.Err()
 	}
 }
 
@@ -828,6 +911,7 @@ func (run *meetingRun) viewLocked() meetView {
 			// A person is ready by being here; everybody else has homework, and the screen says
 			// which of the two states they are in until the room opens.
 			Ready: sp.Person() || sp.Ready, Brief: sp.Brief, Trouble: sp.Trouble,
+			Room: run.rooms[sp.Name],
 		})
 	}
 	for _, u := range run.m.Said {
