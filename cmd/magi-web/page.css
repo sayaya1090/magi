@@ -1680,6 +1680,17 @@
      (2026-08-14). The comment here used to claim the guide allowed 40 for a mouse; it does not. */
   @media (hover:none) {
     .treerow { min-height:40px; }
+    /* …and the controls a pointer reveals by hovering are simply there.
+       A finger cannot hover, and the other way in — right-click — is not a gesture either. So on a
+       phone the row menu and the per-file git actions existed on the page and could not be reached
+       at all: measured on an iPhone 13, twelve row menus and twenty-nine git actions, none of them
+       visible. Everything they offer — rename, copy path, discard, stage, unstage, the diff — was
+       desktop-only by accident.
+       Sized to the row rather than to the 48 the guide asks of a touch target: the row itself is
+       the recorded 40dp compromise (deviations.md), and a 48 control inside a 40 row would push
+       the list back to eight names a screen, which is the trade that was already made and settled. */
+    .rowmenu, .gitacts { visibility:visible; }
+    .rowmenu md-icon-button, .gitacts md-icon-button { width:40px; height:40px; }
   }
   .treerow .treename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   .treerow.dir .treename { color:var(--magi-ref-fg); font-weight:600; }
