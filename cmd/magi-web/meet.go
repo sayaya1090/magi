@@ -429,7 +429,7 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 			run.collect(ctx, s, topic)
 			return
 		}
-		said, passed, err := s.speakTo(ctx, sock, topic, transcript, false)
+		said, passed, err := s.speakTo(ctx, sock, run.id, topic, transcript, false)
 		run.mu.Lock()
 		if err != nil {
 			run.trouble = next.Name + ": " + err.Error()
@@ -459,7 +459,7 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 		if sp.Person() {
 			continue
 		}
-		said, passed, err := s.speakTo(ctx, run.sockets[sp.Name], topic, transcript, true)
+		said, passed, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, true)
 		run.mu.Lock()
 		switch {
 		case err != nil:
@@ -484,7 +484,7 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 // Its own connection, dialled and dropped: a meeting turn is minutes of model time and the pooled
 // client serialises everything sent to that daemon, so holding it would stall every dashboard poll
 // for that companion behind a sentence somebody is composing.
-func (s *server) speakTo(ctx context.Context, socket, topic, transcript string, closing bool) (
+func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript string, closing bool) (
 	string, bool, error) {
 	if strings.TrimSpace(socket) == "" {
 		return "", false, errNoDoor
@@ -501,7 +501,7 @@ func (s *server) speakTo(ctx context.Context, socket, topic, transcript string, 
 	}
 	done := make(chan answer, 1)
 	go func() {
-		said, pass, err := cl.Meet(topic, transcript, closing)
+		said, pass, err := cl.Meet(id, topic, transcript, closing)
 		done <- answer{said, pass, err}
 	}()
 	// Bounded, a little above the daemon's own limit on a contribution. The companion stops itself

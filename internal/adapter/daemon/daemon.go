@@ -329,7 +329,11 @@ type FileKeeper interface {
 // touched, and so a meeting cannot change three workspaces while its subject is still being argued
 // about.
 type Speaker interface {
-	MeetingTurn(ctx context.Context, topic, transcript string, closing bool) (said string, pass bool, err error)
+	// MeetingJoin is the participant getting ready, before the room opens: it reads its own
+	// workspace and history and answers with what it brings. The session it makes is the one every
+	// turn of this meeting then happens in.
+	MeetingJoin(ctx context.Context, meeting, topic string) (ready string, err error)
+	MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (said string, pass bool, err error)
 }
 
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
@@ -394,7 +398,12 @@ type Request struct {
 	// Named generically because the alternative is a field per method and a wire format that grows
 	// a column every time the engine gains a knob.
 	Name string `json:"name,omitempty"`
-	N    int    `json:"n,omitempty"`
+	// Meeting is which meeting this belongs to, so the daemon can hand the same session back for
+	// every turn of it. Without an id every contribution was a new child: three companions over
+	// five rounds put fifteen of them on the strip, each one starting cold and knowing nothing of
+	// what this participant had already said.
+	Meeting string `json:"meeting,omitempty"`
+	N       int    `json:"n,omitempty"`
 	// Args is the tool method's arguments, verbatim, as the tool's own schema spells them. Raw
 	// JSON rather than a field per argument: the caller and the tool already agree on a schema,
 	// and re-declaring it here would be a third copy to keep in step with the other two.
@@ -1077,11 +1086,25 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			continue
 		}
+		if req.Method == "meet-join" {
+			sp, ok := eng.(Speaker)
+			if !ok {
+				resp = Response{Err: "this daemon cannot take part in a meeting"}
+			} else if ready, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name); jerr != nil {
+				resp = Response{Err: jerr.Error()}
+			} else {
+				resp = Response{OK: true, Out: ready}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		if req.Method == "meet" {
 			sp, ok := eng.(Speaker)
 			if !ok {
 				resp = Response{Err: "this daemon cannot take part in a meeting"}
-			} else if said, passed, merr := sp.MeetingTurn(ctx, req.Name, req.Text,
+			} else if said, passed, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text,
 				req.Decision == "closing"); merr != nil {
 				resp = Response{Err: merr.Error()}
 			} else {
@@ -1646,12 +1669,23 @@ func (c *Client) Git() (string, error) {
 //
 // topic is the question, transcript is everything said so far, and closing asks the other
 // question — what this participant will DO about it — which is what a meeting is for.
-func (c *Client) Meet(topic, transcript string, closing bool) (said string, pass bool, err error) {
+// Join is this companion getting ready for a meeting: it reads its own workspace and answers with
+// what it brings. The session it opens is the one its turns then happen in.
+func (c *Client) Join(meeting, topic string) (string, error) {
+	resp, err := c.exchange(Request{Method: "meet-join", Meeting: meeting, Name: topic})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+func (c *Client) Meet(meeting, topic, transcript string, closing bool) (said string, pass bool, err error) {
 	which := ""
 	if closing {
 		which = "closing"
 	}
-	resp, err := c.exchange(Request{Method: "meet", Name: topic, Text: transcript, Decision: which})
+	resp, err := c.exchange(Request{Method: "meet", Meeting: meeting, Name: topic, Text: transcript,
+		Decision: which})
 	if err != nil {
 		return "", false, err
 	}

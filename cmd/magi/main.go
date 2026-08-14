@@ -1249,7 +1249,7 @@ func run() int {
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.
 		taking := handover{work: a, at: newWhere(sid), workdir: wd, configDir: plat.ConfigDir(),
-			receipts: daemon.NewReceipts(), mine: newSideSessions(),
+			receipts: daemon.NewReceipts(), mine: newSideSessions(), rooms: newSideSessions(),
 			// What it is carrying goes into this companion's own published record, which is where
 			// every roster reads it from — including one on another machine, a gossip round later.
 			queued: newWaiting(func(n int, handling bool) {
@@ -2468,11 +2468,63 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 //
 // Longer than the other bounds here: a participant reads its own files before it says anything,
 // which is the reason it is worth asking rather than asking one model to imagine three.
-func (d daemonEngine) MeetingTurn(ctx context.Context, topic, transcript string, closing bool) (string, bool, error) {
+// MeetingJoin gets this companion ready and remembers the session it prepared in.
+//
+// One session per meeting, not per turn. Every contribution used to be its own child — fifteen of
+// them for three companions over five rounds, each starting cold — which is most of why a meeting
+// with three agents crawls and why a participant could contradict itself two turns later.
+func (d daemonEngine) MeetingJoin(ctx context.Context, meeting, topic string) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	u, err := d.App.MeetingTurn(rctx, d.handover.at.now(), nameOr(d.card().Name, d.workdir),
-		topic, transcript, closing)
+	child, ready, err := d.App.MeetingPrepare(rctx, d.handover.at.now(),
+		nameOr(d.card().Name, d.workdir), topic)
+	if err != nil {
+		return "", err
+	}
+	d.handover.remember(meeting, child)
+	return ready, nil
+}
+
+// remember and roomFor are the meeting's session, kept for as long as this daemon runs.
+//
+// Not written down anywhere: a daemon that restarts has forgotten how to be in the meeting it was
+// in, and the honest answer is to prepare again — which the next turn does — rather than resume a
+// conversation whose context is gone.
+func (h handover) remember(meeting string, child session.SessionID) {
+	if h.rooms == nil || strings.TrimSpace(meeting) == "" {
+		return
+	}
+	h.rooms.mu.Lock()
+	defer h.rooms.mu.Unlock()
+	h.rooms.by[meeting] = child
+}
+
+func (h handover) roomFor(meeting string) session.SessionID {
+	if h.rooms == nil {
+		return ""
+	}
+	h.rooms.mu.Lock()
+	defer h.rooms.mu.Unlock()
+	return h.rooms.by[meeting]
+}
+
+func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (string, bool, error) {
+	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	who := nameOr(d.card().Name, d.workdir)
+	child := d.handover.roomFor(meeting)
+	if child == "" {
+		// Nobody joined, or this daemon has restarted since. Prepare now rather than answer a
+		// question this participant has not read its own workspace about — one slow turn is
+		// better than a contribution made up out of nothing.
+		got, _, err := d.App.MeetingPrepare(rctx, d.handover.at.now(), who, topic)
+		if err != nil {
+			return "", false, err
+		}
+		child = got
+		d.handover.remember(meeting, child)
+	}
+	u, err := d.App.MeetingSayIn(rctx, child, who, topic, transcript, closing)
 	if err != nil {
 		return "", false, err
 	}

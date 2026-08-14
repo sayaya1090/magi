@@ -104,6 +104,11 @@ type handover struct {
 	note func(full bool, ahead int)
 	// mine is one side session per ASKER, keyed by the label they send.
 	mine *sideSessions
+	// rooms is the same idea for meetings: one session per MEETING, keyed by its id. The same
+	// type because it is the same shape — a conversation this companion keeps for somebody else's
+	// sake, found again by a label they send. It is what stops every contribution being a fresh
+	// child: fifteen of them for three companions over five rounds, each starting cold.
+	rooms *sideSessions
 	// queued is work taken and not started. See queue.go.
 	queued *waiting
 	// receipts is what this daemon has taken, and the only way to ask about any of it. nil is

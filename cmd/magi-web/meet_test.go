@@ -33,10 +33,21 @@ type talker struct {
 
 	mu     sync.Mutex
 	asked  []string // the transcripts it was given, in order
+	joined []string // the meetings it was asked to get ready for
 	closes int
 }
 
-func (t *talker) MeetingTurn(ctx context.Context, topic, transcript string, closing bool) (
+// Joining is what the real one does before the room opens: it prepares in a session it keeps.
+// The fake records that it was asked, so a test can tell a meeting that gathered everybody from
+// one that started talking to strangers.
+func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string) (string, error) {
+	t.mu.Lock()
+	t.joined = append(t.joined, meeting)
+	t.mu.Unlock()
+	return "ready", nil
+}
+
+func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
 	string, bool, error) {
 	if t.started != nil {
 		select {
