@@ -436,7 +436,9 @@ const demoScript = `
          {who: 'you', round: 1, at: '2026-08-13T09:06:11Z',
           text: 'Take 200ms as the budget. @ops, what does it cost to watch it?'},
          {who: 'design', round: 2, at: '2026-08-13T09:07:30Z',
-          text: 'Then the table renders whatever has arrived and marks the rest as still coming, rather than waiting for the slowest machine.'},
+          // Markdown, because that is what a model writes and what this pane now renders. No
+          // fences here: this file is a Go raw string and a backtick would end it.
+          text: 'Then the table renders whatever has arrived and marks the rest as still coming, rather than waiting for the slowest machine.\n\n**What that costs**\n\n- one more state per row, which the colour already has room for\n- the empty table says *waiting for the roster* rather than *no companions*\n\n> and the slow machine stops deciding when everybody else sees the list'},
        ]},
       {id: 'm20260814-081500-0', topic: 'should the console keep polling for the fleet, or stream it',
        opened: false, round: 1, max: 5,
@@ -711,8 +713,10 @@ const demoScript = `
         'called nothing at all. It says the sha now, and says that is what it is.'};
     }
     if (init && init.method === 'POST' &&
-        (url === '/meet-say' || url === '/meet-close' || url === '/meet-hand')) {
-      const said = {'/meet-say': 'would have taken the floor and said it',
+        (url === '/meet-say' || url === '/meet-close' || url === '/meet-hand' ||
+         url === '/meet-open')) {
+      const said = {'/meet-open': 'would have put the meeting back in session',
+                    '/meet-say': 'would have taken the floor and said it',
                     '/meet-close': 'would have ended the discussion and asked each of them what they will do',
                     '/meet-hand': 'would have sent that conclusion to the companion as work, in its own session'}[url];
       banner.textContent = 'demo — ' + said;

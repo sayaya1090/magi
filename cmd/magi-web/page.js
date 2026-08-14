@@ -5278,6 +5278,10 @@ function drawRoom(m) {
   meetSayField = null;
   if (!m.closed) box.append(sayBox(m));
   if (m.closed && (m.tasks || []).length) box.append(conclusions(m));
+  // A closed room, and a person who was not here for the end of it. The participants stop when
+  // they have nothing left to add, which is also what happens while somebody is away for two
+  // minutes — so there is a way back in, and it carries the reason with it.
+  if (m.closed) box.append(reopenBox(m));
   meetEl.replaceChildren(box);
 }
 
@@ -5394,11 +5398,47 @@ function transcript(m) {
     line.append(cell('meetwho2', u.who));
     // A pass is a contribution: somebody read the room and had nothing to add, which is worth
     // seeing. Drawn quieter than a sentence, and never dropped.
-    line.append(cell('meettext', u.pass ? (u.text ? tr('meet.passed_why', {why: u.text})
-                                                  : tr('meet.passed')) : u.text));
+    if (u.pass) {
+      line.append(cell('meettext', u.text ? tr('meet.passed_why', {why: u.text}) : tr('meet.passed')));
+    } else {
+      // Rendered, because the participants are models and models write markdown: the first live
+      // meetings came back with lists, bold and fenced code, and this pane showed the asterisks
+      // and the backticks. The same renderer the conversation uses — one markdown on this page,
+      // not two — which also means the raw-HTML token is handled the one way it is handled there.
+      // `txt` as well as `meettext`: the markdown styling on this page belongs to that class —
+      // paragraphs, lists, fences, tables, and the pre-wrap that a rendered block must give up.
+      // A second set of rules for the same job is how the two drift apart.
+      line.append(md(cell('meettext txt'), u.text || ''));
+    }
     box.append(line);
   }
   if (!(m.said || []).length) box.append(cell('meetwait', tr('meet.waiting')));
+  return box;
+}
+
+// Putting a finished meeting back into session.
+//
+// One line and one button, in the room where it ended. The line is not optional: a round reopened
+// without a reason is a round answering nothing, and the participants have all just said they had
+// nothing to add — what changes their minds is what the person types here.
+function reopenBox(m) {
+  const box = cell('meetsay');
+  const f = document.createElement('md-outlined-text-field');
+  f.setAttribute('label', tr('meet.reopen_why'));
+  f.setAttribute('type', 'textarea');
+  f.setAttribute('rows', '2');
+  const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-play'),
+                   tr('meet.reopen'));
+  go.onclick = () => whileItRuns(go, async () => {
+    const why = String(f.value || '').trim();
+    if (!why) { says(tr('meet.reopen_needs_why')); return; }
+    const r = await fetch('/meet-open',
+      {method: 'POST', body: new URLSearchParams({id: m.id, why: why})});
+    if (!r.ok) { says((await r.text()).trim().slice(0, 120)); return; }
+    f.value = '';
+    loadMeet();
+  });
+  box.append(f, go);
   return box;
 }
 

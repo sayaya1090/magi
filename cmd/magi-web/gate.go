@@ -59,7 +59,9 @@ var mayWrite = map[string]auth.Capability{
 	"/meet":       auth.Prompt,
 	"/meet-say":   auth.Prompt,
 	"/meet-close": auth.Prompt,
-	"/meet-hand":  auth.Prompt,
+	// Reopening spends model turns, like saying something does.
+	"/meet-open": auth.Prompt,
+	"/meet-hand": auth.Prompt,
 	// Changing a file in the workspace from the console. Behind `shell` rather than a capability of
 	// its own: anybody who may run a command there can already write any file in it, so this widens
 	// nothing — and two capabilities permitting one act would make granting either meaningless.

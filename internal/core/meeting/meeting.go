@@ -272,6 +272,34 @@ func (m *Meeting) Say(u Utterance) {
 // Close ends the meeting, which is the convener saying it is time to write down who does what.
 func (m *Meeting) Close() { m.Closed = true; m.Holder = "" }
 
+// Reopen puts a finished meeting back into session, with something new to answer.
+//
+// A room ends when nobody has anything left to add, and the participants decide that by passing —
+// which is right, and is also how a person who stepped away for two minutes comes back to a
+// meeting that talked among itself and stopped. There has to be a way to say "no, keep going, and
+// here is why", and it has to be a person who says it: nothing here reopens itself.
+//
+// What it takes to actually restart:
+//   - Closed goes back to false, and Spent with it: whatever ended it, this is not that any more.
+//   - The pass counts are cleared. Two passes in a row is what stops a participant being asked,
+//     and everybody who is here has just passed — leaving those in place would reopen a room in
+//     which nobody may speak.
+//   - The ceiling moves up by as much as it was, so the backstop is not standing on the door.
+//   - The reason travels as a contribution from the person, because that is what it is: the
+//     transcript has to say why the room came back or the next round is answering nothing.
+func (m *Meeting) Reopen(who, why string) {
+	m.Closed, m.Spent = false, false
+	m.Holder = ""
+	for i := range m.Speakers {
+		m.Speakers[i].Passes = 0
+	}
+	m.MaxRounds += m.MaxRounds
+	if strings.TrimSpace(why) != "" {
+		m.Say(Utterance{Who: who, Text: strings.TrimSpace(why)})
+		m.Named[who] = true
+	}
+}
+
 // Transcript is what a speaker about to take its turn has to read: everything said so far, in
 // order, attributed. The whole of it and not a summary — a meeting where the fourth speaker reads
 // a précis of the first three is a meeting whose point has been thrown away.

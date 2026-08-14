@@ -317,6 +317,40 @@ func (s *server) meetSay(w http.ResponseWriter, r *http.Request) {
 
 // meetClose ends the discussion, which is the convener saying it is time to write down who does
 // what. The closing round runs on the driver, so this answers straight away.
+// meetOpen puts a finished meeting back into session, because a person said to.
+//
+// The room stops when the participants have nothing left to add, which is right and is also what
+// happens while somebody is away for two minutes: they come back to a discussion that talked among
+// itself and closed. This is how they say "no, keep going" — and it carries a reason, because a
+// round reopened without one is a round answering nothing.
+func (s *server) meetOpen(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	run := s.meets.get(strings.TrimSpace(r.FormValue("id")))
+	if run == nil || !s.mayWatch(r, run) {
+		http.Error(w, "no meeting by that name here", http.StatusNotFound)
+		return
+	}
+	why := text.Clip(strings.TrimSpace(r.FormValue("why")), meetSaid)
+	me := s.personHere(r)
+	run.mu.Lock()
+	if !run.m.Closed {
+		run.mu.Unlock()
+		writeJSON(w, "meeting", run.view())
+		return
+	}
+	run.m.Reopen(me, why)
+	// The conclusions belonged to the ending that has just been undone. Kept, the screen would
+	// show a room in session with its answer already written under it.
+	run.tasks = nil
+	run.mu.Unlock()
+	// A new driver: the old one returned when the meeting closed, and a meeting in session with
+	// nobody asking is the hang this whole screen exists to make visible.
+	go run.drive(context.Background(), s)
+	writeJSON(w, "meeting", run.view())
+}
+
 func (s *server) meetClose(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {
 		return

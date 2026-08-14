@@ -896,6 +896,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/meet":          s.meet,
 		"/meet-say":      s.meetSay,
 		"/meet-close":    s.meetClose,
+		"/meet-open":     s.meetOpen,
 		"/meet-hand":     s.meetHand,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,
