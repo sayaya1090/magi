@@ -5924,6 +5924,72 @@ console.log(JSON.stringify({
 // something changes every few seconds. A reader who right-clicked a file and was reading the menu
 // had it vanish under the pointer: the menu is a child of the row that opened it, and rebuilding
 // the tree takes both. The change is not lost — the next poll draws it once the menu is shut.
+// Coming back to a companion draws its workspace again, instead of the two loading bars.
+//
+// clearCompanionView empties the pane but the draw memo (loadTree.drawn) is a signature of what
+// was last painted. Left standing, a second visit to the same companion found a matching signature
+// and returned early — and because two loading placeholders are inserted before the comparison,
+// the "there are children so draw" escape hatch was defeated and the placeholders became the
+// pane's permanent contents. Measured on the live console: tree gone on the second visit, forever.
+// An approval mode change goes to the companion on screen, not the first one ever drawn.
+//
+// permField cached its select across redraws (so an open menu survives a poll) but installed the
+// change listener once, closed over whichever companion the card was first drawn for. Change the
+// mode while looking at companion B and the POST went to A; B's next poll reverted the readout, so
+// it looked like the click did nothing while A's approval mode silently changed.
+func TestApprovalGoesToTheCompanionOnScreen(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+const posts = [];
+globalThis.fetch = async (p, init) => {
+  const path = String(p).split('?')[0];
+  if ((init && init.method) === 'POST') { posts.push(String(p)); return {ok: true, text: async () => ''}; }
+  if (path === '/context') return {ok: true, json: async () => ({used: 5000, messages: 3, compactions: 0})};
+  return {ok: true, json: async () => ([]), text: async () => ''};
+};
+// First companion draws the field and installs the listener.
+await drawDetail({socket: '/s/a.sock', peer: '', name: 'api', state: 'idle', workdir: '/w/api', session: 's1', permission: 'allow'});
+// Then the reader moves to a second companion; the field is reused.
+await drawDetail({socket: '/s/b.sock', peer: '', name: 'ops', state: 'idle', workdir: '/w/ops', session: 's2', permission: 'ask'});
+const sel = permField.el;
+sel.value = 'refuse';
+sel.dispatchEvent({type: 'change'});
+await Promise.resolve(); await Promise.resolve();
+console.log(JSON.stringify({posts}));`)
+	posts, _ := got["posts"].([]any)
+	if len(posts) != 1 {
+		t.Fatalf("the change sent %d posts: %v", len(posts), posts)
+	}
+	if to := posts[0].(string); !strings.Contains(to, "b.sock") {
+		t.Errorf("the approval change went to %q — not the companion on screen", to)
+	}
+}
+
+func TestComingBackToACompanionDrawsItsWorkspaceAgain(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/files') return {ok: true, json: async () => ([{name: 'README.md'}, {name: 'main.go'}])};
+  if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
+  return {ok: true, json: async () => ([]), text: async () => ''};
+};
+const a = {socket: '/s/a.sock', workdir: '/w', name: 'api'};
+const rows = () => byId.files.find(e => String(e.className).split(' ').includes('treerow')).length;
+await loadTree(a);
+const first = rows();
+// Leave the companion — exactly what a navigation away does — then come straight back to it.
+clearCompanionView();
+await loadTree(a);
+console.log(JSON.stringify({first, back: rows()}));`)
+	if got["first"].(float64) < 1 {
+		t.Fatalf("the first visit drew no tree: %v", got["first"])
+	}
+	if got["back"] != got["first"] {
+		t.Errorf("coming back drew %v rows against %v the first time — the pane did not recover", got["back"], got["first"])
+	}
+}
+
 func TestThePaneDoesNotRebuildUnderAnOpenMenu(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 localStorage.setItem('files', 'open');

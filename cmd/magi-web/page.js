@@ -1610,7 +1610,14 @@ function summarise(list) {
     .map(([k, n]) => {
     const b = document.createElement('md-filter-chip');
     b.className = 'tile ' + k;
-    b.disabled = n === 0;
+    // Soft-disabled, not disabled, and never the one that is on. A hard-disabled chip is
+    // pointer-events:none and out of the tab order — so a filter chip left selected after its
+    // count fell to zero (leave the destination and come back, the roster has moved on) could not
+    // be un-pressed, and the table under it was empty with no way out. soft-disabled dims a zero
+    // chip while keeping it announced, and the ACTIVE filter is never dimmed, so it can always be
+    // cleared. Both are the bundle's own properties (checked: soft-disabled, always-focusable).
+    b.softDisabled = n === 0 && filter !== k;
+    b.alwaysFocusable = true;
     // The chip's own selected state, not an aria attribute of ours. It toggles itself on click and
     // this list is rebuilt from filter on the next render, so the two cannot drift.
     b.selected = filter === k;
@@ -2656,6 +2663,20 @@ async function loadFleet(given) {
   // down should not leave its row in a map that grows for the life of the tab.
   const alive = new Set(list.map(a => (a.peer || '') + ' ' + a.socket));
   for (const key of [...shownCards.keys()]) if (!alive.has(key)) shownCards.delete(key);
+  // A filter that now matches nothing says so and offers the way out. A roster of six narrowed to
+  // zero used to draw a bare table head under a lit chip, with no word about why and — since the
+  // chip had gone hard-disabled — no way to clear it. This is the shape the access screen already
+  // uses for its capability filter: name what is being shown, and a control to show everything.
+  if (filter && !rows.length && !here) {
+    const note = cell('capnote');
+    note.append(cell('', tr('filter.only', {state: stateWord(filter)})));
+    const all = document.createElement('md-text-button');
+    label(all, tr('action.show_all'));
+    all.onclick = () => { filter = null; render(); };
+    note.append(all);
+    fleetEl.replaceChildren(tableHead(), note);
+    return;
+  }
   // The ways to the other views of this destination sit in the summary row with the board's, where
   // they are one row of matching controls rather than three shapes in three places. See summarise.
   fleetEl.replaceChildren(...(here ? [] : [tableHead()]), ...grouped(rows));
@@ -2882,6 +2903,12 @@ function permField(a) {
   const f = cell('f');
   f.append(cell('k', tr('field.permission')));
   const v = cell('v');
+  // The companion this field speaks for, kept live. The element is cached across redraws so an
+  // open menu is not thrown away by a poll — but the change listener is installed once and closed
+  // over whichever `a` was first, so a mode changed on companion B was POSTed to companion A
+  // (measured), and B's next poll reverted the readout so it looked like the click did nothing.
+  // The listener reads permField.a, which every draw updates to the companion on screen.
+  permField.a = a;
   let sel = permField.el;
   if (sel) sel.toggleAttribute('disabled', !may('configure'));
   if (!sel) {
@@ -2894,15 +2921,20 @@ function permField(a) {
     paintPerm(sel);
     sel.addEventListener('change', async () => {
       const want = sel.value;
+      const to = permField.a || a;
       // Said by the daemon, not assumed by the page: the next poll paints whatever it reports, so
       // a refused change reverts visibly instead of leaving the console claiming a mode nobody is
       // on. Kept as the pending value until then so the poll in between does not fight the click.
       permField.want = want;
-      const why = await post('/permission', new URLSearchParams({mode: want}), a.socket, a.peer);
+      const why = await post('/permission', new URLSearchParams({mode: want}), to.socket, to.peer);
       permField.want = '';
       if (!why) loadFleet();
     });
   }
+  // The name is re-set on every draw, not only at creation: written once, it froze in whatever
+  // language was loaded when the element was first made — measured as "Approvals" among Korean
+  // fields after a pack landed later.
+  sel.setAttribute('aria-label', tr('field.permission'));
   const now = permField.want || a.permission || '';
   if (now && sel.value !== now && document.activeElement !== sel) {
     sel.value = now;
@@ -5467,9 +5499,19 @@ function rowNode(r) {
     // the thing it is attached to.
     //
     // The preference is still remembered per kind, and still decides how the NEXT rows arrive.
+    //
+    // Only a PRESS writes it. Setting det.open above fires a toggle too — asynchronously, so the
+    // listener attached synchronously here still catches it — and that echo was writing the
+    // preference: every failed tool call, which starts open, silently set "open all tool calls"
+    // for a reader who never touched one. Measured: fold.tool flipped shut→open on a render, and
+    // the next visit brought unopened grep rows up open. The flag is armed on the task AFTER the
+    // programmatic toggle has flushed, so the echo is ignored and a real click is not.
+    let userToggle = false;
     det.addEventListener('toggle', () => {
+      if (!userToggle) return;
       localStorage.setItem('fold.' + r.who, det.open ? 'open' : 'shut');
     });
+    setTimeout(() => { userToggle = true; }, 0);
     det.dataset.kind = r.who;
     const head = el('summary');
     const mk = summaryMark(r);
@@ -9285,10 +9327,23 @@ function clearCompanionView() {
   lastDrawnFor = null;
   openFiles = [];
   cardShows = 'facts';
+  wsShows = 'files';
   editing = null;
   drafts.clear();
   openDirs.clear();
   findQ = '';
+  // The tree's draw memo belongs to the companion that was open. It is a signature of what was
+  // last painted, and emptying filesEl above without clearing it meant coming BACK to the same
+  // companion found a matching signature and returned early — leaving the two loading placeholders
+  // that get inserted before the comparison as the pane's permanent contents, with no in-page way
+  // back. Measured on the live console: second visit to any companion, tree gone, two bars
+  // forever. The whole group of per-companion drafts and picks is reset here so none outlives its
+  // companion: a commit message, a PR body, a staged-file pick were each keyed to nobody and
+  // carried across a companion switch.
+  loadTree.drawn = null;
+  commitDraft = '';
+  prDraft = '';
+  commitPick = '';
   filesEl.replaceChildren();
   fileViewEl.replaceChildren();
   fileViewEl.hidden = true;
