@@ -389,6 +389,15 @@ function setPanel(name) {
   const at = ['talk', 'facts', 'files', 'plan'].indexOf(name);
   if (at >= 0 && ptabs.activeTabIndex !== at) ptabs.activeTabIndex = at;
 }
+// A panel move is a step the Back button can take back — on the phone, where the four are whole
+// screens. Reported: reading the workspace, Back went past the companion entirely, because the
+// four screens were one history entry. The entry carries the panel in STATE and not in the URL,
+// deliberately: a link somebody shares still lands on the conversation, and a reload still
+// arrives at the conversation — what changes is only where Back goes.
+function notePanelMove() {
+  if (ptabs.hidden) return;
+  history.pushState({panel: panel}, '', location.href);
+}
 // A media query object rather than a width read: it fires on the change, so a window dragged past
 // the breakpoint re-lays out without waiting for anything else to happen.
 const wide = matchMedia('(min-width:52.5em)');
@@ -670,7 +679,15 @@ function drawSharedTabs() {
     sharedTabs.replaceChildren(...want.map(([key, word]) => {
       const t = document.createElement('md-secondary-tab');
       t.textContent = tr(word);
-      t.onclick = () => { sharedShows = key; render(); };
+      t.onclick = () => {
+        if (sharedShows === key) return;
+        sharedShows = key;
+        // A step Back can take back, same as the companion's panels: on a phone these two are
+        // whole screens, and switching them was invisible to the history — Back from the servers
+        // half left the destination entirely. State only; the URL people share stays clean.
+        history.pushState({shared: key}, '', location.href);
+        render();
+      };
       return t;
     }));
   }
@@ -701,6 +718,7 @@ function toWorkspacePanel() {
     return;
   }
   setPanel('files');
+  notePanelMove();
   drawPanels();
 }
 
@@ -727,14 +745,19 @@ function revealPanel(fromIndex) {
 // loop a tab set … this can trap users who are navigating linearly with a screen reader" — and a
 // four-tab strip on a phone is exactly where somebody meets it. Stopped here rather than in the
 // bundle: the component is vendored and patching it would be a fork to carry forever.
-ptabs.addEventListener('keydown', e => {
-  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-  const tabs = [...ptabs.querySelectorAll('md-primary-tab')].filter(t => !t.hidden);
-  const at = tabs.indexOf(document.activeElement);
-  if (at < 0) return;
-  const end = e.key === 'ArrowRight' ? tabs.length - 1 : 0;
-  if (at === end) { e.preventDefault(); e.stopPropagation(); }
-}, true);
+// Written once and given to both strips: the card slot's grows to a dozen file tabs on the desk,
+// which is longer than the four this was first written for and wraps the same way.
+function unloop(strip, kind) {
+  strip.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const tabs = [...strip.querySelectorAll(kind)].filter(t => !t.hidden);
+    const at = tabs.indexOf(document.activeElement);
+    if (at < 0) return;
+    const end = e.key === 'ArrowRight' ? tabs.length - 1 : 0;
+    if (at === end) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+}
+unloop(ptabs, 'md-primary-tab');
 ptabs.addEventListener('change', () => {
   const was = ['talk', 'facts', 'files', 'plan'].indexOf(panel);
   const now = ['talk', 'facts', 'files', 'plan'][ptabs.activeTabIndex] || 'talk';
@@ -743,6 +766,7 @@ ptabs.addEventListener('change', () => {
   // Nothing moved means nobody pressed anything.
   if (now === panel) return;
   panel = now;
+  notePanelMove();
   if (panel === 'talk') unread = 0;
   paintUnread();
   drawPanels();
@@ -1144,6 +1168,24 @@ function pageMoves(may) {
   }
   root.classList.toggle('nomove', !may);
 }
+// The dialogs' own motion is WAAPI, which no stylesheet reaches.
+//
+// The reduced-motion block kills every CSS animation on the page, and the test that guards it says
+// so in its comment — but md-dialog drives a 500ms translateY(-50px) through element.animate(),
+// measured unchanged under `reduce`. The component carries the off switch itself: `quick` skips
+// the open and close animations entirely. Kept in step with the setting, both ways.
+{
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  // Named one by one — the six are static markup — because the fake DOM's querySelectorAll
+  // deliberately refuses tag selectors rather than flattering the page with an empty answer.
+  const calm = () => {
+    for (const id of ['prefsDialog', 'mcpDialog', 'stopDialog', 'palDialog', 'askDialog', 'fmtDialog']) {
+      document.getElementById(id).quick = still.matches;
+    }
+  };
+  calm();
+  still.addEventListener('change', calm);
+}
 addEventListener('opened', e => {
   if (!e.target || e.target.tagName !== 'MD-DIALOG') return;
   if (modalsOpen++ === 0) pageMoves(false);
@@ -1156,20 +1198,22 @@ addEventListener('closed', e => {
 
 function closeX(dlg, head) {
   if (!dlg || !head || !head.querySelector) return;
-  let x = head.querySelector('.dlgclose');
+  // In the CONTENT slot, not the headline. md-dialog names itself from its headline slot —
+  // aria-labelledby pointing at the shadow h2 that wraps it — so a control put in that slot folds
+  // into the name: measured, five dialogs announced themselves as "Close Preferences", "Close Go
+  // to, or do". Writing aria-label on the host does not help; labelledby wins. Slotted into the
+  // content and pinned to the corner by the stylesheet (the compact dialogs are the whole screen,
+  // so fixed IS the corner), the name is the title again — and the first focusable thing in the
+  // dialog is a field rather than the way out.
+  let x = dlg.querySelector('.dlgclose');
   if (!x) {
     x = withMark(document.createElement('md-icon-button'), '#i-sl-xmark');
     x.className = 'dlgclose';
+    x.setAttribute('slot', 'content');
     x.onclick = () => dlg.close('cancel');
-    head.prepend(x);
+    dlg.append(x);
   }
   x.setAttribute('aria-label', tr('action.close'));
-  // …and the dialog keeps its own name. A dialog is named by its headline slot, so a control put
-  // INSIDE that slot folds into the name: measured, five dialogs announced themselves as "Close
-  // Preferences", "Close Go to, or do", "Close Add an MCP server". Written on the dialog itself,
-  // the label wins over the concatenation and says what the dialog is.
-  const words = (head.textContent || '').trim();
-  if (words) dlg.setAttribute('aria-label', words);
 }
 
 // A card's heading in the side column: a mark, the word, and — where there is one — how many.
@@ -2090,9 +2134,17 @@ function answerMode(a) {
   const send = document.getElementById('send');
   label(send, tr(a ? 'action.answer' : 'action.send'));
   withMark(send, a ? '#i-sl-reply' : '#i-ss-paper-plane');
-  // The old text was addressed at magi and the new question is not the same subject. Carrying it
-  // over would put a half-written request in front of somebody as though it were their answer.
-  if (!!a !== wasAnswering) { t.value = ''; }
+  // The old text is PARKED, not deleted. It used to be cleared on the flip — but the flip arrives
+  // on a background frame, and a frame that lands mid-sentence was erasing 39 typed characters
+  // with no undo, which is the thing the guide will not even let the Escape key do. The words come
+  // back when the mode does: an answer being typed when the question is withdrawn is kept for the
+  // next question, a request being typed when a question arrives is back the moment it is dealt
+  // with. Each mode owns its own draft, so neither is ever offered as the other.
+  if (!!a !== wasAnswering) {
+    const parked = answerMode.parked || '';
+    answerMode.parked = t.value;
+    t.value = parked;
+  }
   wasAnswering = !!a;
   composerReach();
 }
@@ -2263,7 +2315,10 @@ let boardQuery = '';
 
 async function loadBoard() {
   const list = await fetchList('/fleet');
-  if (!list) return void paneFailed(boardEl, 'nav.board');
+  // No heading key: the board is the one destination whose name is already in the app bar's own
+  // h2 (it draws team names, not a section head), so a failure that added its own "Board" put the
+  // same word in the heading tree twice.
+  if (!list) return void paneFailed(boardEl);
   fleetSeen = list;
   if (!boardDay) boardDay = todayISO();
 
@@ -2726,7 +2781,9 @@ function grouped(rows) {
 // The hub is on the header rather than on its own row: which companion speaks for a team is a fact
 // about the team, and a badge buried in one row is a fact somebody has to go looking for.
 function teamHead(name, members) {
-  const h = document.createElement('h2');
+  // h3: the screen's own h2 ("Companions") is above these, and a team is a section of that list,
+  // not a peer of it.
+  const h = document.createElement('h3');
   h.className = 'teamhead';
   h.append(markedKey('#i-sl-people-group', name || tr('team.none'), 'tname'));
   // Every companion claiming to speak for the team, not the first one found. Two is a
@@ -2902,11 +2959,22 @@ function modelField(a, now) {
     fetchList('/model' + qFor(a)).then(names => {
       modelField.list = names || [];
       paintModels(sel, modelField.list, modelField.now || now);
+      // The list arriving is the moment the count becomes real; disable from the same rule the
+      // synchronous path uses, or a menu of one stays pressable until the next poll.
+      const at = modelField.now || now;
+      const n = modelField.list.filter(m => m).length + (at && !modelField.list.includes(at) ? 1 : 0);
+      sel.disabled = !may('configure') || n < 2;
     });
   }
   modelField.now = modelField.want || now;
-  paintModels(sel, modelField.list || [], modelField.now);
-  sel.toggleAttribute('disabled', !may('configure'));
+  const models = modelField.list || [];
+  paintModels(sel, models, modelField.now);
+  // One writer for two reasons. paintModels shut the select when there was nothing to change to
+  // (a real /model answered `null`, so a menu of one); this line then re-opened it for anybody
+  // who may configure — toggleAttribute(false) REMOVES the attribute. Disabled if EITHER holds:
+  // you cannot change it, or there is nothing to change it to.
+  const optionCount = models.filter(n => n).length + (modelField.now && !models.includes(modelField.now) ? 1 : 0);
+  sel.disabled = !may('configure') || optionCount < 2;
   v.append(sel);
   f.append(v);
   return f;
@@ -2934,8 +3002,8 @@ function paintModels(sel, names, now) {
     sel.value = now;
     if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
   }
-  // One model and nothing to change to is a menu that only wastes a press.
-  sel.disabled = want.length < 2;
+  // Whether to disable is the CALLER's call: it also knows whether this reader may configure at
+  // all, and two functions writing sel.disabled with different reasons left the state flapping.
 }
 
 // sessionField is which session this companion is in, and the way to the others.
@@ -3819,9 +3887,14 @@ async function drawContext(a, box, grid, field, put) {
     const v = cell('v', c.compactions === 1 ? tr('context.fold')
                                        : tr('context.folds', {n: c.compactions}));
     const s2 = document.createElement('small');
+    // Local time through the same helper the rest of the page uses, not slice(11,16)+'Z'. A real
+    // daemon marshals its time WITH the host offset, so pinning "Z" on it printed a time that was
+    // wrong by the machine's UTC offset (9h here). And the connective words are from the pack, not
+    // raw ' · last '/' at ' English inside a Korean sentence.
     s2.textContent = ' · ' + tr('context.shed', {n: (c.shed || 0).toLocaleString()}) +
-                     (c.lastBefore ? ' · last ' + c.lastBefore.toLocaleString() + '→' + c.lastAfter.toLocaleString() : '') +
-                     (c.lastAt ? ' at ' + c.lastAt.slice(11, 16) + 'Z' : '');
+                     (c.lastBefore ? ' · ' + tr('context.last_run',
+                        {before: c.lastBefore.toLocaleString(), after: (c.lastAfter || 0).toLocaleString()}) : '') +
+                     (c.lastAt && hhmm(c.lastAt) ? ' · ' + tr('context.at', {time: hhmm(c.lastAt)}) : '');
     v.append(s2);
     const cf = cell('f');
     cf.append(cell('k', tr('field.summarised_away')), v);
@@ -4101,8 +4174,12 @@ function findBox(get, set, key) {
 
 // A heading over each half of the shared destination. Two lists under one tab need to say which is
 // which, and the destination's own name is now the pair rather than either.
-function sectionHead(key, action) {
-  const h = document.createElement('h2');
+function sectionHead(key, action, level) {
+  // h3 where the section sits INSIDE another one: the shared screen put its two sub-lists at the
+  // same level as the pane that holds them — three h2s for a two-level structure — while the
+  // access screen next door already used h3 for exactly this shape. Content hierarchy, not
+  // visual style, is what picks the number.
+  const h = document.createElement(level === 3 ? 'h3' : 'h2');
   h.className = 'sectionhead';
   h.append(cell('', tr(key)));
   // Named by its words. The action below is appended INSIDE the heading — which is what puts the
@@ -4312,8 +4389,8 @@ async function loadSkills() {
   if (skillQuery.trim() || !isRule.length || !isFact.length) {
     parts.push(...shown.map(draw));
   } else {
-    parts.push(sectionHead('nav.rules'), ...isRule.map(draw),
-               sectionHead('nav.memories'), ...isFact.map(draw));
+    parts.push(sectionHead('nav.rules', null, 3), ...isRule.map(draw),
+               sectionHead('nav.memories', null, 3), ...isFact.map(draw));
   }
   keepingFocus('skills', () => skillsEl.replaceChildren(...parts, skillWrite(list)));
 }
@@ -4718,9 +4795,10 @@ async function loadMCP() {
   const rows = show.map(sv => {
     const el = cell('srv ' + sv.tier);
     const top = cell('top');
-    // ⚠ Hardcoded English, not from the pack — so it missed the sentence-case pass and it does not
-    // translate. Cased here to match the rest; the missing translation is recorded separately.
-    top.append(cell('tier', sv.tier === 'global' ? 'Every companion here' : 'Only ' + sv.companion));
+    // From the pack — the two phrases already existed there for the access screen; this line was
+    // the console's one hardcoded English string, sitting in Korean pages untranslated.
+    top.append(cell('tier', sv.tier === 'global' ? tr('access.everywhere')
+                                                 : tr('reach.only', {name: sv.companion})));
     top.append(cell('what', sv.name));
     // Editing one meant typing all of it into the add form again and trusting the name matched —
     // the write is by name, so a typo made a SECOND server rather than changing the first.
@@ -6611,6 +6689,7 @@ function path(svg, d, cls) {
 const filesEl = document.getElementById('files');
 const fileViewEl = document.getElementById('fileview');
 const cardTabs = document.getElementById('cardtabs');
+unloop(cardTabs, 'md-secondary-tab');
 const filesToggle = document.getElementById('filesToggle');
 
 // What is open, and which of them is showing. Paths, not contents: the file is fetched when its
@@ -7727,7 +7806,13 @@ function drawDiff(path, which, text) {
     body.append(row);
   }
   fileViewEl.classList.remove('commitmode');
-  fileViewEl.replaceChildren(bar, body);
+  // In the same scroller the file viewer uses. Appended bare, the <pre> made the CARD the thing
+  // that scrolls — measured: the path bar and the way back slid 220px off the left edge while the
+  // reader was still in the first hunk, because a bar that is sticky in a box that does not scroll
+  // pins against nothing.
+  const wrap = cell('filebody diffscroll');
+  wrap.append(body);
+  fileViewEl.replaceChildren(bar, wrap);
   showCard();
 }
 
@@ -7764,6 +7849,11 @@ async function openFile(a, path) {
 // "cancel" can put back exactly what was there rather than re-fetching a file the agent may have
 // changed in the meantime.
 let editing = null;
+// What has been typed and not saved, by path. The buffer used to live only in the DOM that
+// drawFile destroys, so switching card tabs threw the typing away without a word — measured: type
+// a marker, press another tab, come back, the marker is gone and the toolbar still says Save.
+// The draft outlives the DOM; Save and Cancel are what end it.
+const drafts = new Map();
 
 function drawFile(path, text, unreadable, empty) {
   // The WHOLE path, not just the directory. The tab carries the name so the reader can find the
@@ -7808,7 +7898,9 @@ function drawFile(path, text, unreadable, empty) {
   caret.type = 'button';
   caret.className = 'foldcaret hit48';
   caret.setAttribute('aria-expanded', fileViewEl.hasAttribute('folded') ? 'false' : 'true');
-  caret.setAttribute('aria-label', tr('field.facts'));
+  // Named by what it folds. It carried the About card's heading — a label naming a different
+  // panel on a control that folds this file.
+  caret.setAttribute('aria-label', tr('action.fold_named', {name: path}));
   { const c = iconOr('#i-sl-chevron-down', '▾', 'caret'); if (c) caret.append(c); }
   caret.onclick = () => setFolded(!fileViewEl.hasAttribute('folded'), true);
   bar.prepend(caret);
@@ -7855,7 +7947,9 @@ function editor(path, text, acts) {
   area.setAttribute('spellcheck', 'false');
   area.setAttribute('wrap', 'off');
   area.setAttribute('aria-label', path);
-  area.value = plainText(text);
+  // The draft first: coming back to a half-edited file is coming back to the half-edit, not to
+  // the file as it was.
+  area.value = drafts.has(path) ? drafts.get(path) : plainText(text);
   // The same marking as the reading view, behind the text being typed.
   //
   // A textarea cannot hold coloured runs — it holds a string — so the colour goes on a copy of the
@@ -7920,6 +8014,7 @@ function editor(path, text, acts) {
   // sent five times and short enough that stopping to think gets an answer while it is still about
   // what you were thinking.
   area.addEventListener('input', () => {
+    drafts.set(path, area.value);
     repaint();
     const mine = ++lookAt;
     setTimeout(() => { if (mine === lookAt) { lookAt = mine - 1; ask(); } }, 2000);
@@ -7954,6 +8049,7 @@ function editor(path, text, acts) {
       return;
     }
     editing = null;
+    drafts.delete(path);
     // Read back rather than drawn from what was typed: the file on disk is the fact, the tool may
     // have written it differently (a missing final newline), and the companion has just been told
     // in its own log that this happened.
@@ -7961,7 +8057,7 @@ function editor(path, text, acts) {
   };
   const stop = withMark(document.createElement('md-text-button'), '#i-sl-xmark');
   label(stop, tr('action.cancel'));
-  stop.onclick = () => { editing = null; drawFile(path, text); };
+  stop.onclick = () => { editing = null; drafts.delete(path); drawFile(path, text); };
   // Into the bar at the top, where the edit button was: the control that starts this and the two
   // that end it are the same control in three states, and a control that moves is one you look for.
   acts.append(save, stop);
@@ -8224,16 +8320,36 @@ function drawCardTabs(a) {
     {
       x.onclick = ev => {
         ev.stopPropagation();
-        openFiles = openFiles.filter(p => p !== path);
-        if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
-        drawCardTabs(a);
-        if (cardShows !== 'facts') {
-          if (cardShows === COMMIT) openCommit(a);
-          else if (cardShows === PR) openPR(a);
-          else if (isDiff(cardShows)) openDiff(a, diffPath(cardShows), diffWhich(cardShows));
-          else openFile(a, cardShows);
+        const shut = () => {
+          // Closing the editor's tab ends the edit. Left set, `editing` outlived the tab: the
+          // next opening of the same file from the tree landed straight in the editor — a mode
+          // nobody asked for, with a buffer reset to the file.
+          if (editing === path) { editing = null; drafts.delete(path); }
+          openFiles = openFiles.filter(p => p !== path);
+          if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
+          drawCardTabs(a);
+          if (cardShows !== 'facts') {
+            if (cardShows === COMMIT) openCommit(a);
+            else if (cardShows === PR) openPR(a);
+            else if (isDiff(cardShows)) openDiff(a, diffPath(cardShows), diffWhich(cardShows));
+            else openFile(a, cardShows);
+          }
+          loadTree(a);
+        };
+        // Unsaved typing is asked about before it is discarded — the basic dialog the guide puts
+        // in front of exactly this. Only when there IS typing: an editor opened and left alone
+        // closes without a question.
+        if (editing === path && drafts.has(path)) {
+          confirmThis({
+            head: tr('edit.discard_headline', {name: tabName(path)}),
+            body: tr('edit.discard_body'),
+            keep: tr('action.keep_editing'), keepMark: '#i-sl-pen-to-square',
+            doIt: tr('action.discard'), doMark: '#i-sl-xmark',
+            go: shut,
+          });
+          return;
         }
-        loadTree(a);
+        shut();
       };
       t.append(x);
     }
@@ -8938,6 +9054,11 @@ function paint() {
   // for, and a lookup through a data attribute is invisible to it.
   railEl.setAttribute('aria-label', tr('nav.destinations'));
   document.getElementById('crumbs').setAttribute('aria-label', tr('nav.where'));
+  // The two side columns are both `complementary`, and a landmark list offering the same word
+  // twice with nothing to tell them apart is the case the guide names. Same words the pane
+  // toggles and the tab strip already use for them.
+  filesEl.setAttribute('aria-label', tr('panel.files'));
+  sideEl.setAttribute('aria-label', tr('panel.plan'));
   // The label beside it, and the one it announces. Both from the pack: the row in the dialog is a
   // preference like the two below it and has to say which.
   document.getElementById('themeK').textContent = tr('pref.theme');
@@ -8957,16 +9078,20 @@ function paint() {
   // Both keys written out rather than built as key + '_sub': the phrase pack's own audit finds
   // unused phrases by grepping for the literal, and a key assembled at runtime is invisible to it
   // — which would leave four translated lines nobody could tell were still reachable.
-  for (const [el, key, sub, short] of [[railFleet, 'nav.companions', 'nav.companions_sub', 'nav.companions'],
-                                      [railSkills, 'nav.shared', 'nav.shared_sub', 'nav.shared'],
-                                      [railMeet, 'nav.meet', 'nav.meet_sub', 'nav.meet'],
-                                      [railAccess, 'nav.access', 'nav.access_sub', 'nav.access_short']]) {
+  // The access door's VISIBLE label is the short word at both widths — the guide wants one-word
+  // navigation labels, and three of the four already were. The three-word name stays as the
+  // accessible one, which is the arrangement the guide itself blesses (a more descriptive label
+  // where the visible words are terse), and it stays on the crumb, the title and the heading.
+  for (const [el, key, lbl, sub, short] of [[railFleet, 'nav.companions', 'nav.companions', 'nav.companions_sub', 'nav.companions'],
+                                      [railSkills, 'nav.shared', 'nav.shared', 'nav.shared_sub', 'nav.shared'],
+                                      [railMeet, 'nav.meet', 'nav.meet', 'nav.meet_sub', 'nav.meet'],
+                                      [railAccess, 'nav.access', 'nav.access_short', 'nav.access_sub', 'nav.access_short']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
     // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
-    el.querySelector('.lbl').textContent = tr(key);
+    el.querySelector('.lbl').textContent = tr(lbl);
     // …and the companions door carries a count in its name when somebody is waiting, which this
     // loop has just overwritten with the plain word. Put back below, after the loop.
     // The same destination in one or two words, for the bar at the bottom of a phone. The guide is
@@ -9015,9 +9140,21 @@ loadMe();   // its two labels are words too
   if (!repaintable) return;
   if (view() === 'skills') { loadSkills(); loadMCP(); }
   else if (view() === 'access' && mayEl(accessEl)) loadAccess();
-
   else if (view() === 'board') loadBoard();
+  // Map and meet had no branch here, so `!sock()` was true on both and the loader repainted a
+  // HIDDEN fleet list while the visible screen kept its seeded English — measured on the demo in
+  // Korean: title and crumb 배치도, body "Where the fleet is running…".
+  else if (view() === 'map') loadMap();
+  else if (view() === 'meet') loadMeet();
   else if (!sock()) loadFleet();
+  // The screen's own name in the heading tree is words from the pack too: a Korean console read
+  // its every destination out as English to anybody listening, because this heading was written
+  // only by showDestination.
+  if (!sock() && !screenHead.hidden) {
+    const OWN = {skills: 1, access: 1, meet: 1, map: 1};
+    screenHead.textContent = OWN[view()] ? '' : (SECTION[view()] || tr('nav.companions'));
+    screenHead.hidden = !screenHead.textContent;
+  }
   // The crumb and the tab title are written by render() and are words too. The title is the one a
   // reader sees without looking at the page at all, which makes it the last place worth leaving in
   // a language they did not pick.
@@ -9149,6 +9286,7 @@ function clearCompanionView() {
   openFiles = [];
   cardShows = 'facts';
   editing = null;
+  drafts.clear();
   openDirs.clear();
   findQ = '';
   filesEl.replaceChildren();
@@ -9886,7 +10024,14 @@ function grip(el, prop, key, lead, name) {
     el.setPointerCapture(ev.pointerId);
     el.classList.add('gripping');
     const from = ev.clientX, was = widthNow();
-    const move = m => setW(was + (lead ? (from - m.clientX) : (m.clientX - from)) / rem);
+    // A drag survives the window narrowing past the breakpoint that hides the handle — pointer
+    // capture keeps the events coming — and it kept writing, and persisting, a width for a column
+    // that no longer existed. No handle on screen, no drag: offsetParent is null exactly while
+    // display:none takes it out of the layout.
+    const move = m => {
+      if (!el.offsetParent) return done();
+      setW(was + (lead ? (from - m.clientX) : (m.clientX - from)) / rem);
+    };
     const done = () => {
       el.classList.remove('gripping');
       el.removeEventListener('pointermove', move);
@@ -10014,7 +10159,9 @@ prefsDialog.addEventListener('opened', () => {
   // Focus lands inside, by hand. The component focuses `[autofocus]` and otherwise leaves it to
   // the browser's own fix-up — which a <form slot="content" method="dialog"> defeats: measured,
   // this one opened with the document on <body> while the other four landed on a control.
-  const first = prefsDialog.querySelector('.dlgclose') || document.getElementById('themeToggle');
+  // The first PREFERENCE, not the way out: the guide's initial-focus example is a control inside
+  // — a text input, an edit button — and landing on Close read as "this dialog is for leaving".
+  const first = document.getElementById('themeToggle');
   if (first && first.focus) requestAnimationFrame(() => first.focus());
 });
 // The toggle writes the SAME preference the select does, so the two are one setting with two
@@ -10039,7 +10186,37 @@ langEl.addEventListener('change', () => {
   loadPack();
 });
 
-addEventListener('popstate', () => { render(); landOnScreen(); });
+addEventListener('popstate', e => {
+  // The shared destination's two phone halves are history steps the same way the companion's
+  // panels are. No state means the entry from before the first switch: the experience half.
+  sharedShows = (e.state && e.state.shared) || (view() === 'skills' ? 'skills' : sharedShows);
+  // A panel entry first: Back inside a companion's four phone screens moves between them. The
+  // state is the panel the entry was PUSHED from; no state on a companion page means the entry
+  // under the first move, which is the conversation.
+  const wasPanel = ['talk', 'facts', 'files', 'plan'].indexOf(panel);
+  const p = (e.state && e.state.panel) || 'talk';
+  if (!ptabs.hidden && sock() && p !== panel) {
+    setPanel(p);
+    if (panel === 'talk') unread = 0;
+    paintUnread();
+    drawPanels();
+    revealPanel(wasPanel);
+    freshen();
+    measureDock();
+    return;
+  }
+  render();
+  // Arriving at a companion from OUTSIDE it (Back from another destination), the entry may still
+  // name the panel it was made on; the strip only exists after render, so it is honoured here.
+  if (!ptabs.hidden && sock() && p !== panel) {
+    setPanel(p);
+    drawPanels();
+    revealPanel();
+    freshen();
+    measureDock();
+  }
+  landOnScreen();
+});
 
 async function post(path, body, socket, peer, quiet) {
   // Either half can stand alone: a companion is named by its socket, a console by its peer name,
@@ -10077,10 +10254,23 @@ async function postText(path, body) {
 }
 
 const t = document.getElementById('t');
-// The field grows itself: it is a component with its own textarea in a shadow root, so measuring
-// scrollHeight from out here reads the host and not the text. All that is left to do is re-measure
-// the dock, because the transcript reserves whatever the dock is actually occupying.
-const grow = () => measureDock();
+// The field grows with the text — up to six rows, then it scrolls.
+//
+// The old comment here claimed the component grows itself. It does not: rows stayed 1, and 300
+// typed characters were a 24px window onto ten lines — measured, the visible text was the last
+// eleven characters. The real textarea lives in the component's shadow root, so the size is read
+// there (rows=1 first so the scrollHeight is the text's, not the box's), and only the ROWS
+// property is written back — the component keeps owning its own box. Fails soft: no shadow root
+// (the render tests' fake) means rows stays 1, which is where it started.
+const grow = () => {
+  const inner = t.shadowRoot && t.shadowRoot.querySelector && t.shadowRoot.querySelector('textarea');
+  if (inner) {
+    t.rows = 1;
+    const line = parseFloat(getComputedStyle(inner).lineHeight) || 24;
+    t.rows = Math.max(1, Math.min(6, Math.round(inner.scrollHeight / line)));
+  }
+  measureDock();
+};
 
 // The transcript reserves whatever the dock is actually occupying. Its height changes with the
 // composer as you type and with the prompt bar appearing, and a guessed constant either wastes a

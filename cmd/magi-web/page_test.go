@@ -547,6 +547,28 @@ func withoutComments(src string) string {
 //
 // Checked by position rather than by effect because the fake DOM has no CSS and a browser is not
 // in this suite. Position is what was wrong all three times.
+// Every dialog is on the reduced-motion list.
+//
+// md-dialog's open and close are WAAPI — element.animate(), which the stylesheet's reduced-motion
+// block cannot reach — so the page turns each one's `quick` on by name. A name list drifts the day
+// a seventh dialog is added, and this is what notices.
+func TestEveryDialogIsOnTheReducedMotionList(t *testing.T) {
+	inPage := regexp.MustCompile(`<md-dialog id="([A-Za-z]+)"`).FindAllStringSubmatch(indexHTML, -1)
+	if len(inPage) < 3 {
+		t.Fatalf("only %d dialogs found in the markup; the pattern has lost its subject", len(inPage))
+	}
+	listAt := strings.Index(indexHTML, "// Named one by one")
+	if listAt < 0 {
+		t.Fatal("the reduced-motion dialog list is gone from the page script")
+	}
+	list := indexHTML[listAt : strings.Index(indexHTML[listAt:], "]")+listAt]
+	for _, m := range inPage {
+		if !strings.Contains(list, "'"+m[1]+"'") {
+			t.Errorf("<md-dialog id=%q> is not on the reduced-motion quick list — it will slide 50px under prefers-reduced-motion", m[1])
+		}
+	}
+}
+
 func TestTheLayoutQueriesComeLast(t *testing.T) {
 	sheet := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
 	at := func(q string) int {

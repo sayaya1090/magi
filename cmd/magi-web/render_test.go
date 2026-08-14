@@ -227,7 +227,7 @@ func TestTheDashboardDrawsACardPerAgent(t *testing.T) {
 	if !strings.Contains(second, "2h ago") {
 		t.Errorf("the stopped agent's age is not readable: %q", second)
 	}
-	if s := got["state"].(string); !strings.Contains(s, "2 agents") {
+	if s := got["state"].(string); !strings.Contains(s, "2 companions") {
 		t.Errorf("the header says %q", s)
 	}
 }
@@ -1034,6 +1034,74 @@ console.log(JSON.stringify({plain, before, after: rows().map(words)}));
 	}
 	if all := fmt.Sprint(after); !strings.Contains(all, "two.txt") {
 		t.Errorf("the other hits are gone: %v", all)
+	}
+}
+
+// Half-typed edits survive the tab strip; closing the tab is the only discard, and it asks.
+//
+// The buffer lived only in the DOM that drawFile destroys, so switching card tabs threw the typing
+// away without a word: type a marker, press the other tab, come back — the marker was gone and the
+// toolbar still said Save. And `editing` outlived a closed tab, so reopening the file from the
+// tree landed straight in the editor. Both measured on the live desk before this existed.
+func TestTypingSurvivesTheTabStrip(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w","state":"idle","live":true,"session":"s1","does":["shell"],"permission":"allow"}]`
+	got := runPage(t, one, "?d=%2Fs%2Fa.sock", `
+const was = globalThis.fetch;
+globalThis.fetch = async (p, init) => {
+  const path = String(p).split('?')[0];
+  if (path === '/file') return {ok: true, json: async () => ({text: '1\thello'})};
+  if (path === '/files') return {ok: true, json: async () => ([])};
+  if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
+  return was(p, init);
+};
+const a = {socket: '/s/a.sock', workdir: '/w', name: 'api'};
+lastDrawnFor = a;
+const drain = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+const boxIn = el => el.find(x => String(x.className).includes('fileeditarea'))[0] || null;
+await openFile(a, 'one.txt'); await drain();
+await openFile(a, 'two.txt'); await drain();
+// Into the editor on one.txt, and type.
+await openFile(a, 'one.txt'); await drain();
+editing = 'one.txt';
+drawFile('one.txt', '1\thello', false, false);
+const area = boxIn(byId.fileview);
+area.value = 'hello MARKER';
+area.dispatchEvent({type: 'input'});
+// Away to the other tab and back.
+await openFile(a, 'two.txt'); await drain();
+await openFile(a, 'one.txt'); await drain();
+const cameBack = boxIn(byId.fileview);
+const out = {kept: cameBack ? cameBack.value : null};
+// Closing the editing tab with a draft asks first; keeping the edit changes nothing.
+const xs = byId.cardtabs.find(x => String(x.className || '').includes('tabclose'));
+xs[0].onclick({stopPropagation(){}});
+out.asked = !byId.stopK ? null : (byId.stopK.textContent || '');
+// The dismissive path: nothing closed, still editing.
+byId.stopCancel.onclick();
+out.stillOpen = openFiles.includes('one.txt');
+// The confirming path: the tab goes, the edit ends, and reopening is READING, not editing.
+xs[0].onclick({stopPropagation(){}});
+byId.stopGo.onclick();
+await drain();
+out.gone = !openFiles.includes('one.txt');
+await openFile(a, 'one.txt'); await drain();
+out.reopenEditing = !!boxIn(byId.fileview);
+console.log(JSON.stringify(out));
+`)
+	if got["kept"] != "hello MARKER" {
+		t.Errorf("the typing did not survive the tab switch: %q", got["kept"])
+	}
+	if asked := fmt.Sprint(got["asked"]); !strings.Contains(asked, "one.txt") {
+		t.Errorf("closing a tab with a draft asked %q — it must name the file", asked)
+	}
+	if got["stillOpen"] != true {
+		t.Errorf("keeping the edit closed the tab anyway")
+	}
+	if got["gone"] != true {
+		t.Errorf("confirming the discard left the tab open")
+	}
+	if got["reopenEditing"] != false {
+		t.Errorf("reopening the file landed in the editor: `editing` outlived the closed tab")
 	}
 }
 
@@ -1997,7 +2065,11 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
   handed: byId.handoffs.text,
   // Text and marks: a tick that became a drawing is invisible to a reader of text alone.
   // Text and marks: a tick that became a drawing is invisible to a reader of text alone.
-  plan: byId.plan.text + ' ' + (byId.plan.find('use') || []).map(u => u.attrs.href || '').join(' ')}));
+  plan: byId.plan.text + ' ' + (byId.plan.find('use') || []).map(u => u.attrs.href || '').join(' '),
+  // The fold time, rendered in local time by the same helper the page uses — asserted this way
+  // rather than as a literal because it is TZ-dependent by design (a real daemon stamps its offset,
+  // and pinning "Z" on it printed a time wrong by the machine's offset).
+  foldAt: hhmm('2026-08-07T04:31:07Z')}));
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"82,000 / 100,000 tokens", "Measured", "41 messages", "2 folds",
@@ -2009,13 +2081,18 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 		// which is the reason a supervisor opens this panel at all when something is wedged.
 		"mini · 10.0.0.4 · pid 4127",
 		// What the backend served from its own cache, when it says at all.
-		"75% of it cached",
-		// And when the last fold happened: "twice" says nothing about whether it was this
-		// minute or yesterday.
-		"04:31Z"} {
+		"75% of it cached"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the detail does not say %q:\n%s", want, text)
 		}
+	}
+	// And when the last fold happened, in local time and with no bogus "Z". "twice" says nothing
+	// about whether it was this minute or yesterday.
+	if at := got["foldAt"].(string); at == "" || !strings.Contains(text, "· at "+at) {
+		t.Errorf("the detail does not say the fold time %q:\n%s", at, text)
+	}
+	if strings.Contains(text, "04:31Z") {
+		t.Errorf("the fold time is still stamped with a hardcoded Z:\n%s", text)
 	}
 	// The bar is drawn only because a window is known. An empty track for an unknown window reads
 	// as "nearly empty", which is the opposite of what it would mean.
@@ -2105,7 +2182,7 @@ console.log(JSON.stringify({
 	if got["after"] != got["before"] {
 		t.Errorf("losing the console redrew the table as %q", got["after"])
 	}
-	if got["state"] != "Can't reach magi-web" || got["cls"] != "lost" {
+	if got["state"] != "Cannot reach magi-web" || got["cls"] != "lost" {
 		t.Errorf("the page does not say it lost the console: %+v", got)
 	}
 }
@@ -2228,7 +2305,7 @@ drops[1].onclick();   // acts
 console.log(JSON.stringify({text, state: byId.state.text, posts: RENDERED.filter(r => r.to)}));
 `)
 	text := got["text"].(string)
-	for _, want := range []string{"Every companion here", "Only api", "npx -y figma-mcp",
+	for _, want := range []string{"On every companion here", "Only api", "npx -y figma-mcp",
 		"needs FIGMA_TOKEN", "/w/a/.magi/config.toml"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the list does not say %q:\n%s", want, text)
@@ -2274,7 +2351,7 @@ console.log(JSON.stringify({text: byId.detail.text}));
 	if strings.Contains(text, "% of it cached") {
 		t.Errorf("a figure was drawn for a backend that reported none:\n%s", text)
 	}
-	if !strings.Contains(text, "doesn't report it") {
+	if !strings.Contains(text, "does not report it") {
 		t.Errorf("the panel does not say why there is no figure:\n%s", text)
 	}
 }

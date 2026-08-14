@@ -589,7 +589,12 @@ Object.defineProperty(globalThis.navigator, 'languages', {value: tags, configura
 Object.defineProperty(globalThis.navigator, 'serviceWorker', {
   get() { return globalThis.__sw; }, configurable: true});
 
-globalThis.location = { search: process.env.QUERY ?? '', pathname: process.env.BASE ?? '/' };
+globalThis.location = { search: process.env.QUERY ?? '', pathname: process.env.BASE ?? '/',
+  // href, because the page re-pushes the CURRENT address when it records a panel move in history
+  // state. Without it, pushState(String(undefined)) wiped the query and the test's companion with
+  // it — the fake was turning a no-op navigation into a navigation.
+  get href() { return this.pathname + this.search; },
+};
 globalThis.history = {
   pushState(_state, _title, url) {
     const q = String(url).indexOf('?');

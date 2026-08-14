@@ -56,13 +56,28 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 	// Every `opacity:N` in the stylesheet, with the colour declared alongside it in the same rule.
 	// The selector comes along, because whether an opacity dims TEXT depends on what it is on.
 	rule := regexp.MustCompile(`(?s)([^{}]*)\{([^{}]*opacity:[^{}]*)\}`)
-	colour := regexp.MustCompile(`color:var\(--([a-zA-Z]+)\)`)
+	// The whole var name, hyphens included: written `[a-zA-Z]+` this could not cross a `-`, so
+	// `color:var(--magi-ref-on-surface)` matched nothing and every rule fell back to "muted" —
+	// silently, because the fallback is also a legal answer.
+	colour := regexp.MustCompile(`color:var\(--magi-ref-([A-Za-z][A-Za-z-]*)\)`)
 	op := regexp.MustCompile(`opacity:([0-9.]+)`)
 	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
 	// Keyframes first. This check is about text that RESTS at an unreadable opacity; a keyframe is a
 	// tenth of a second on the way somewhere, and "from { opacity:0 }" is what an entrance IS. A
 	// keyframe that ended dimmed would still be caught, because whatever it left the element at is
 	// also written in an ordinary rule.
+	// Infinite animations first, BEFORE keyframes are stripped: a keyframe on the way somewhere is
+	// a tenth of a second, but an animation that never ends RESTS at its trough twice a cycle — the
+	// running chip measured 2.18:1 in light this way, and the stripping below made the test blind
+	// to it. Any rule that both loops forever and animates opacity has to keep its floor readable,
+	// so the cheap, honest check is: no `opacity` inside a keyframe block that an
+	// `animation:… infinite` rule uses.
+	for _, im := range regexp.MustCompile(`animation:([a-zA-Z][a-zA-Z0-9-]*)[^;}]*\binfinite\b`).FindAllStringSubmatch(css, -1) {
+		kf := regexp.MustCompile(`(?s)@keyframes ` + regexp.QuoteMeta(im[1]) + `\s*\{.*?\}\s*\}`).FindString(css)
+		if kf != "" && strings.Contains(kf, "opacity:") {
+			t.Errorf("@keyframes %s animates opacity and runs forever — its trough is a resting state the rest of this test cannot see", im[1])
+		}
+	}
 	css = regexp.MustCompile(`(?s)@keyframes[^{]*\{.*?\}\s*\}`).ReplaceAllString(css, "")
 	checked := 0
 	for _, m := range rule.FindAllStringSubmatch(css, -1) {
@@ -104,7 +119,12 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 		for theme, roles := range map[string]map[string]string{"dark": dark, "light": light} {
 			hex, ok := roles[role]
 			if !ok {
-				continue // a colour that is not one of the themed roles
+				// Said, not skipped. This continue used to be how a whole class of rules left the
+				// test without a word: the role pattern could not read hyphenated names, this
+				// lookup failed for all of them, and the walker moved on.
+				t.Errorf("a dimmed rule names --magi-ref-%s, which the %s palette does not define as a colour:\n%s",
+					role, theme, strings.TrimSpace(body))
+				continue
 			}
 			if got := contrast(blend(hex, roles["bg"], a), roles["bg"]); got < 4.5 {
 				t.Errorf("%s at opacity %s is %.2f:1 in the %s theme:\n%s",
@@ -127,7 +147,10 @@ func themeRoles(t *testing.T) (dark, light map[string]string) {
 	}
 	// The reference layer wears its namespace now, and the role is what follows it — the pattern
 	// that read a bare name found none and reported every role missing from both themes.
-	pair := regexp.MustCompile(`--magi-ref-([A-Za-z]+):(#[0-9A-Fa-f]{6})`)
+	// `[A-Za-z]+` cannot cross a hyphen, which silently dropped eleven roles per theme — every
+	// `on-*` pair and every tonal surface — from the map. The camelCase ones matched, which is what
+	// made the gap invisible.
+	pair := regexp.MustCompile(`--magi-ref-([A-Za-z][A-Za-z-]*):(#[0-9A-Fa-f]{6})`)
 	read := func(s string) map[string]string {
 		out := map[string]string{}
 		for _, m := range pair.FindAllStringSubmatch(s, -1) {

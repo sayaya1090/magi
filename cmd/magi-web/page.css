@@ -570,7 +570,13 @@
   /* Where you are is not a link and does not look like one, but it is the thing being read: the
      on-surface role, not the divider's. */
   #crumbLeaf, #crumbs .here { color:var(--magi-ref-fg); border-bottom-color:transparent; }
-  #back:hover, #crumbHere:hover, #crumbDeep:hover { color:var(--magi-ref-primary); border-bottom-color:var(--magi-ref-primary); }
+  /* Two indicators, and a pressed state: the colour swap alone is the hover the checklist calls
+     not-M3, and one of the two readers it fails is anybody who cannot tell the two hues apart. */
+  #back:hover, #crumbHere:hover, #crumbDeep:hover {
+    color:var(--magi-ref-primary); border-bottom-color:var(--magi-ref-primary);
+    background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent);
+  }
+  #back:active, #crumbHere:active, #crumbDeep:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
 
   /* A press must find 48dp even where the control is drawn smaller.
      The library does this inside its own shadow root with a .touch span; these are hand-built, so
@@ -1397,7 +1403,6 @@
 
   /* name + workspace, the way a console stacks a resource over its namespace */
   .card .name { font:600 var(--md-sys-typescale-body-large-size)/1.3 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
-  .card:hover .name { color:var(--magi-ref-primary); }
   /* …and a row with nowhere to go says nothing. A companion on somebody else's console is drawn as
      an anchor with no href, and it was still lighting its state layer and turning its name primary
      under the pointer — two indicators, both pointing at a press that does nothing. */
@@ -1498,7 +1503,11 @@
   /* Answering is the one place on the fleet where a person types, so it is the library's field and
      the library's buttons: focus ring, state layers and a 48dp target all come with them. What is
      said here is that the choice is the warning colour, because the agent is stopped until it. */
-  .answer { display:flex; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); flex-wrap:wrap; align-items:center; }
+  /* 16dp apart, because the targets are wider than the buttons: each 40dp button carries a 48dp
+     press target that bleeds 4dp past each edge, so at the 8dp visual gap the guide's minimum the
+     TARGETS were edge to edge — Allow and Deny sharing a boundary pixel. 16 visual = 8 between
+     the things a finger actually hits. */
+  .answer { display:flex; gap:var(--magi-sys-space-200); margin-top:var(--magi-sys-space-100); flex-wrap:wrap; align-items:center; }
   /* Outlined, because a tonal container in this palette cannot be told from the page: measured
      1.24:1 dark and 1.18:1 light where the guide wants 3:1 from the container of a filled or tonal
      button standing in a group. The outline role clears it. Same words, same weight, same order. */
@@ -1550,10 +1559,14 @@
   .grip.lead { right:auto; left:-3px; }
   .grip::after {
     content:''; position:absolute; inset:0 2px; border-radius:var(--magi-sys-shape-full);
-    background:var(--magi-ref-outlineVariant); opacity:0;
+    /* outline, not outline-variant: this bar is the only hover affordance a drag target has, and
+       the variant role measures 1.46:1 against the light page — the colour-roles page names
+       defining a target's boundary in outline-variant as a Don't. */
+    background:var(--magi-ref-outline); opacity:0;
     transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
   }
   .grip:hover::after, .grip:focus-visible::after, .grip.gripping::after { opacity:1; }
+  .grip:active::after { background:var(--magi-ref-fg); opacity:1; }
   .grip:focus-visible { outline:3px solid var(--md-sys-color-secondary, var(--magi-ref-accent)); outline-offset:1px; }
   /* No handle where there is no column to resize: below the two-pane breakpoint the panes are
      above and below the conversation, and a vertical splitter would move nothing. */
@@ -1608,11 +1621,15 @@
      max-content on the basis so a SHORT card (a clean tree, a clean status) gives its slack to the
      other one rather than holding a share it does not need. */
   #files > .filescard { flex:1 1 auto; flex-basis:max-content; min-height:5rem; }
-  /* Git is as tall as what is in it, and no taller. What it holds is a branch and a list of
-     changed files — a short, countable thing — so a share of the leftover space is a box with
-     nothing in the bottom half. The tree is the one with more to show than fits, so the leftover
-     is the tree's. */
-  #files > .pane-git { flex:0 0 auto; min-height:0; }
+  /* Git is as tall as what is in it, up to half the column, then it scrolls inside itself.
+     The old premise — "a branch and a short, countable list" — is a fixture's premise: a real
+     checkout mid-feature had 29 changed files, the git card grew to 1307px in a 1229px column
+     with flex:0 0 auto, the tree was pinned at its 80px floor showing nothing, and the Commit
+     button at the bottom of git was 182px outside a column with overflow:hidden and no scrollbar.
+     Both cards are shrinkable now and both have a floor, so a long status yields to the tree and
+     scrolls its own overflow (.panebody already does), and neither is ever squeezed to just its
+     heading. */
+  #files > .pane-git { flex:1 1 auto; flex-basis:max-content; min-height:5rem; max-height:60%; }
   /* Shut, it is its heading and nothing else, and it must not take a share at all. */
   #files > .filescard.shut { flex:0 0 auto; min-height:0; }
   .fileshead {
@@ -1921,9 +1938,15 @@
      entirely one colour is unreadable in the light theme and unprintable in either; the marker and
      the text carry it, and the background is a tint you can read through. */
   .diffbody { display:block; }
-  .diffbody .dl { display:block; }
-  .diffbody .add { color:var(--magi-ref-fg); background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent); }
-  .diffbody .cut { color:var(--magi-ref-muted); background:color-mix(in srgb, var(--magi-ref-warn) 12%, transparent); }
+  /* A rule of colour at the line's start, on every line so the columns do not shift. In the light
+     theme the two washes measure 1.00:1 apart — two tints that mean opposite things and carry the
+     same luminance — so the edge is the indicator that survives any palette, on top of the +/-
+     the diff itself spells. */
+  .diffbody .dl { display:block; border-inline-start:3px solid transparent; }
+  .diffbody .add { color:var(--magi-ref-fg); border-inline-start-color:var(--magi-ref-primary); background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent); }
+  /* fg, not muted: muted is the on-role of the plain surface, and this line sits on a warn wash —
+     label and container from different pairs is the one the colour page calls a hard rule. */
+  .diffbody .cut { color:var(--magi-ref-fg); border-inline-start-color:var(--magi-ref-warn); background:color-mix(in srgb, var(--magi-ref-warn) 12%, transparent); }
   .diffbody .at { color:var(--magi-ref-accent); }
 
   /* The parts of a file that are not code. Three marks and a gutter — see paintCode(): this is a
@@ -1943,6 +1966,8 @@
     font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-mono);
     color:var(--magi-ref-fg); tab-size:4;
   }
+  /* The diff has no number column, so its scroller is the same box without the grid. */
+  .filebody.diffscroll { display:block; }
   .filegutter, .filecode { margin:0; white-space:pre; font:inherit; }
   /* Not selectable, and not scrolled away. A drag across the code copies the code — with one run
      of text the numbers came with it and every pasted line had a number welded to its front — and
@@ -2337,6 +2362,11 @@
     display:flex; align-items:baseline; gap:var(--magi-sys-space-150); width:100%; cursor:pointer;
     background:none; border:0; padding:0; color:inherit; text-align:left; font:inherit;
   }
+  /* It answers the pointer. Rest, hover and press were the same image — a control that folds the
+     whole card and looked exactly like a heading. The layer is the surface's own ink at the two
+     opacities everything else on this page uses. */
+  #detail .foldbar:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
+  #detail .foldbar:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
   #detail .foldbar .caret { color:var(--magi-ref-muted); transition:transform 200ms var(--magi-sys-ease-standard); }
   #detail[folded] .foldbar .caret { transform:rotate(-90deg); }
   #detail .foldbar .sum {
@@ -2449,13 +2479,25 @@
        to 6 and the open file from 412 to 85. The tabs are chrome — they are the same height with
        one line of conversation or a thousand — and the file has its own cap and its own scroll.
        The transcript is the one that takes what is left, which it already asks for. */
-    body[at="agent"] #cardtabs, body[at="agent"] #detail, body[at="agent"] #fileview {
+    body[at="agent"] #cardtabs, body[at="agent"] #fileview {
       flex:0 0 auto;
     }
+    /* The facts card holds its size only while the column can afford it.
+       Written flex:0 0 auto with the others, a card taller than the column — 860px of facts in a
+       770px column at 1280 with both panes open — pushed the transcript to literally nothing:
+       #log's box was exactly its own dock padding, the card's last rows were clipped by the
+       column's overflow:hidden with no scrollbar anywhere, and no combination of panes brought
+       the conversation back. This is the same defect as the git card starving the file tree, one
+       column over. The tabs are chrome and keep their size; the card yields past the transcript's
+       floor and scrolls inside itself for the rest. */
+    body[at="agent"] #detail { flex:0 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; }
     /* The transcript is the one thing in the middle column that moves. Everything above it — the
        tabs, the card, an open file — stays where it was put. */
     body[at="agent"] #log {
-      flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain;
+      /* The floor is what makes the card above yield: the dock padding is inside this box
+         (border-box), so it is written on top of the padding — four lines of transcript at the
+         worst, not a hairline. */
+      flex:1 1 auto; min-height:calc(var(--dock, 0px) + 8rem); overflow:auto; overscroll-behavior:contain;
       padding-bottom:calc(var(--dock, 0px) + var(--magi-sys-space-300));
     }
     /* A deep screen is a page of its own inside the column. */
@@ -2816,16 +2858,29 @@
   #strip .job.bad { border-color:var(--magi-ref-error); color:var(--magi-ref-error); }
   /* Running, on the chip that cannot hold a dot — the pressable one, whose label is one string —
      said by its outline, which breathes the same way the dot does. */
-  #strip .job.live:not(:has(.jdot)) { border-color:var(--magi-ref-primary); animation:jpulse 1.6s ease-in-out infinite; }
+  /* The OUTLINE breathes, not the chip: animated as whole-chip opacity, the label rested at
+     2.79:1 (dark) and 2.18:1 (light) twice every 1.6s, forever — an infinite animation has no
+     "on the way somewhere", its trough is a resting state. The words never dim now. */
+  #strip .job.live:not(:has(.jdot)) { border-color:var(--magi-ref-primary); animation:jbreathe 1.6s ease-in-out infinite; }
   @media (prefers-reduced-motion:reduce) { #strip .job.live:not(:has(.jdot)) { animation:none; } }
+  @keyframes jbreathe {
+    0%, 100% { border-color:color-mix(in srgb, var(--magi-ref-primary) 35%, transparent); }
+    50% { border-color:var(--magi-ref-primary); }
+  }
   /* Running, said by something that moves: a strip of still chips does not distinguish the build
      that is going from the one that ended four minutes ago. */
+  /* The dot breathes in colour, like the border above: opacity was how the WHOLE chip once
+     pulsed, and the contrast test now refuses any forever-animation of opacity outright — colour
+     cannot dim a label that happens to share the rule. */
   #strip .job .jdot {
     width:.5rem; height:.5rem; border-radius:var(--magi-sys-shape-full); background:var(--magi-ref-primary); flex:none;
-    animation:jpulse 1.6s ease-in-out infinite;
+    animation:jdotpulse 1.6s ease-in-out infinite;
   }
-  @keyframes jpulse { 0%, 100% { opacity:.35; } 50% { opacity:1; } }
-  @media (prefers-reduced-motion:reduce) { #strip .job .jdot { animation:none; opacity:.8; } }
+  @keyframes jdotpulse {
+    0%, 100% { background-color:color-mix(in srgb, var(--magi-ref-primary) 35%, transparent); }
+    50% { background-color:var(--magi-ref-primary); }
+  }
+  @media (prefers-reduced-motion:reduce) { #strip .job .jdot { animation:none; } }
 
 
   #stream, #side, #sidecol, #files, #filecol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
@@ -2879,8 +2934,29 @@
     text-align:start; font:inherit; color:var(--magi-ref-fg); width:100%;
   }
   /* The row the keyboard is on, and the row the pointer is on, are the same state drawn one way. */
-  .palrow:hover, .palrow.at { background:var(--magi-ref-surface-container); }
-  .palrow.at { outline:2px solid var(--magi-ref-primary); outline-offset:-2px; }
+  /* Hover is a layer and selection is a fill, so the two can be told apart AND stack.
+     They were one rule — the same tonal swap for both — which read wrong twice: in dark the fill
+     was a step DOWN the elevation scale, so hovering made a row darker than the sheet it sits on,
+     and with the pointer anywhere on the list there was no telling which row Enter would run,
+     because hover and selection were the same pixel value. A state layer over its own surface is
+     what the guide gives hover; selected keeps its fill and takes the layer on top like anything
+     else ("상태는 겹칠 수 있다 — 선택 + 호버"). */
+  .palrow:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, var(--magi-ref-surface-container-high)); }
+  .palrow:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, var(--magi-ref-surface-container-high)); }
+  /* A tint of the role whose outline already marks it — not a lower tonal surface, which in dark
+     inverted the elevation order. */
+  .palrow.at {
+    background:color-mix(in srgb, var(--magi-ref-primary) 12%, var(--magi-ref-surface-container-high));
+    outline:2px solid var(--magi-ref-primary); outline-offset:-2px;
+  }
+  .palrow.at:hover {
+    background:color-mix(in srgb, var(--magi-ref-fg) 8%,
+               color-mix(in srgb, var(--magi-ref-primary) 12%, var(--magi-ref-surface-container-high)));
+  }
+  .palrow.at:active {
+    background:color-mix(in srgb, var(--magi-ref-fg) 12%,
+               color-mix(in srgb, var(--magi-ref-primary) 12%, var(--magi-ref-surface-container-high)));
+  }
   .palrow .palkind {
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); letter-spacing:0.06em;
     color:var(--magi-ref-muted); text-transform:lowercase;
@@ -3001,6 +3077,7 @@
     display:inline-block;
   }
   .deeper:hover { background:color-mix(in srgb, var(--magi-ref-primary) 8%, transparent); }
+  .deeper:active { background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent); }
   .deeper:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
   /* The handle says which way it is. It carried aria-expanded from the start, so a screen reader
      was told and an eye was not: the same icon in the same colour whether the pane was open or
@@ -3410,7 +3487,8 @@
      at the middle of a four-line title landed on the card behind it and did nothing — measured, the
      centre answered .wcard and only a press on the first line navigated. */
   .wcard .wwhat { color:inherit; text-decoration:none; cursor:pointer; display:block; }
-  .wcard .wwhat:hover { text-decoration:underline; }
+  .wcard .wwhat:hover { text-decoration:underline; background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
+  .wcard .wwhat:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
   .wcard .wlong { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   .wcard .wmodel {
     font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-accent); overflow-wrap:anywhere;
@@ -3433,7 +3511,17 @@
     color:var(--magi-ref-primary); background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent);
     border-radius:var(--magi-sys-shape-full); padding:0 var(--magi-sys-space-150);
   }
-  .wcard .wlabel:hover { background:color-mix(in srgb, var(--magi-ref-primary) 22%, transparent); }
+  /* A layer over the container, not a re-tint of it: 22% is not a value on the state scale, and
+     swapping the wash is the colour-change the checklist names as not-M3. The layer is the ink's
+     own colour over the chip's own 12% wash, and pressed exists. */
+  .wcard .wlabel:hover {
+    background:color-mix(in srgb, var(--magi-ref-fg) 8%,
+               color-mix(in srgb, var(--magi-ref-primary) 12%, transparent));
+  }
+  .wcard .wlabel:active {
+    background:color-mix(in srgb, var(--magi-ref-fg) 12%,
+               color-mix(in srgb, var(--magi-ref-primary) 12%, transparent));
+  }
   /* The words on that tint are on-surface. Primary on a 12% wash of itself is 3.88:1 in the light
      theme and 3.38 with the hover wash — the tint is the badge, the ink does not have to be. */
   .wcard .wlabel { color:var(--magi-ref-fg); }
@@ -3509,7 +3597,8 @@
     width:100%; text-align:left; background:none; border:0; border-radius:var(--magi-sys-shape-xs);
     color:inherit; font:inherit; cursor:pointer;
   }
-  .hs:hover { background:color-mix(in srgb, var(--magi-ref-fg) 6%, transparent); }
+  .hs:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
+  .hs:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
   .hs:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
   .hs + .hs { border-top:1px solid var(--magi-ref-outlineVariant); }
   .hs .when { font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); text-align:right; }
@@ -3529,6 +3618,10 @@
     gap:var(--magi-sys-space-50) var(--magi-sys-space-200); padding:var(--magi-sys-space-100) 0;
   }
   .ho .to { font:600 var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono); letter-spacing:.08em; color:var(--magi-ref-accent); text-align:right; }
+  /* Both of this card's controls answer the pointer; they answered with nothing — a link to
+     another companion and a clipped request that expands, each with only a cursor to say so. */
+  a.to:hover, .ho .req:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
+  a.to:active, .ho .req:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
   /* Three lines of what was asked, not nine. The guide caps a list item's supporting text at one
      to three lines and says to cut it by screen size; measured on a phone, two handed-out requests
      came to 881px in a 664px window. */
@@ -3604,7 +3697,8 @@
        pixels across and the expander only stretches what is there. */
     min-width:1.5rem;
   }
-  .who .copy:hover, .who .copy:focus-visible { color:var(--magi-ref-primary); }
+  .who .copy:hover, .who .copy:focus-visible { color:var(--magi-ref-primary); background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
+  .who .copy:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
   .who .copy.done { color:var(--magi-ref-success); }
   /* The stand-in for what is not in the page. It has no content and is not read out; its only job
      is to be as tall as the rows it replaces, so the scrollbar means what it says. */
@@ -3699,7 +3793,11 @@
     transition:transform var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
   }
   .fold[open] > summary::before { transform:rotate(90deg); }
-  .fold > summary:hover { background:color-mix(in srgb, var(--magi-ref-fg) 6%, transparent); }
+  /* Declared a step above the scale because the row it lives in carries opacity:.8 — 10% and 15%
+     PAINT as the 8% and 12% every component on this page uses. Measured before this: the declared
+     6% painted 4.8%, two multiplications under the number the bundle uses. */
+  .fold > summary:hover { background:color-mix(in srgb, var(--magi-ref-fg) 10%, transparent); }
+  .fold > summary:active { background:color-mix(in srgb, var(--magi-ref-fg) 15%, transparent); }
   .fold > summary:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
   /* min-width:0 for the same reason as the row above: this is a grid item, and without it the
      preformatted block inside decides how wide the transcript is. */
@@ -4584,7 +4682,12 @@
        reached; between 600 and 839 it applied to a strip that does not stick. */
     body[scrolled][at="agent"] #ptabs { background:var(--magi-ref-surface-container-low); }
 
-    /* The close control, and the headline moves over to make room for it. */
-    .dlgclose { display:inline-flex; margin-inline-start:calc(-1 * var(--magi-sys-space-100)); }
-    #mcpDialogK, #palK, #prefsK, #askK, #fmtK { display:flex; align-items:center; gap:var(--magi-sys-space-100); }
+    /* The close control, pinned to the corner the headline leaves room for. It lives in the
+       content slot so the dialog's name stays the title (see closeX); the dialog is the whole
+       screen here, so fixed positioning IS its own corner, scroller or no scroller. */
+    .dlgclose { display:inline-flex; position:fixed; top:var(--magi-sys-space-150); inset-inline-start:var(--magi-sys-space-100); z-index:1; }
+    #mcpDialogK, #palK, #prefsK, #askK, #fmtK {
+      display:flex; align-items:center; gap:var(--magi-sys-space-100);
+      padding-inline-start:var(--magi-sys-space-500);
+    }
   }
