@@ -2268,14 +2268,33 @@
      the thumb, with the file's own Save five hundred pixels above the composer. Below the pane
      breakpoint the strip switches between them — the conversation is one of its tabs — and the
      other one is not drawn. */
-  /* The box for talking to the companion belongs to the half with the conversation in it.
-     On the workspace half of a stacked companion it was a composer fixed over a file somebody is
-     reading — two places to type on one screen, and on a phone it took a third of what the
-     question bar left. What is NOT hidden with it: the bar where the companion is asking
-     something, and the strip of what is running. Those are the companion speaking, and a question
-     hidden behind a tab is a question nobody answers. */
+  /* The pane handles are what the tabs are, below the breakpoint. Two controls for one thing is a
+     screen that cannot say which of them is the truth — and it showed: with the files pane toggled
+     shut, its tab held nothing at all. */
   @media (max-width:52.4375em) {
-    body[at="agent"][panel="state"] #dock form { display:none; }
+    body[at="agent"] #filesToggle, body[at="agent"] #sideToggle { display:none; }
+  }
+
+  /* How many words arrived on the other half. A badge is the guide's own answer to "something
+     happened over there": the large one, 16dp, label-small, in the error role — which is the only
+     place this page uses that role for something that is not an error, because "unread" is what a
+     badge IS and inventing a second colour for it would be inventing a second badge. */
+  .tabbadge {
+    display:inline-flex; align-items:center; justify-content:center; margin-left:var(--magi-sys-space-100);
+    min-width:16px; height:16px; padding:0 4px; border-radius:var(--magi-sys-shape-full);
+    background:var(--magi-ref-primary); color:var(--magi-ref-bg);
+    font:500 var(--md-sys-typescale-label-small-size)/1 var(--magi-ref-display); letter-spacing:.02em;
+  }
+
+  /* The box for talking to the companion stays on both halves, and gets smaller on the one it is
+     not the point of.
+     Hiding it while somebody edits a file was wrong: telling the agent something WHILE reading its
+     work is half of why the file is on the screen at all, and the model reading over your shoulder
+     answers into the same conversation. So on the workspace half of a stacked companion the
+     composer keeps its line and gives up what belongs to the other half — the interrupt, which is
+     about a turn you are watching, not about the file you are in. */
+  @media (max-width:52.4375em) {
+    body[at="agent"][panel="state"] #stop { display:none; }
   }
 
   @media (min-width:52.5em) {

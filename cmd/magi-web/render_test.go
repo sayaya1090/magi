@@ -928,23 +928,27 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
-// Below the two-column width a companion is two screens, not one column of six cards.
+// Below the two-column width a companion is four screens, not one column of everything.
 //
-// Stacked, the order was: the facts, then the conversation, then four cards of which three are
-// history. Measured at 430px the transcript began 1073px down a 900px screen — off it — and the
-// composer, fixed at the foot, was nowhere near the words it answers. Above the breakpoint both
-// columns are visible and there is nothing to switch between, so the strip must not appear there.
-func TestOnANarrowScreenACompanionIsTwoPanels(t *testing.T) {
+// It was two — the conversation, and "status" holding the rest — and status was measured on a
+// phone at 1289px of facts plus 1161px of plan, handoffs and cron, 3.7 screens of scrolling, with
+// the file tree hidden behind a toggle inside it. They are peers, so they are tabs: the
+// conversation, what this companion is, its workspace, and what is going on. Above the breakpoint
+// all of them are on screen at once and the strip must not appear.
+func TestOnANarrowScreenACompanionIsFourScreens(t *testing.T) {
 	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
 	   "task":"add the key","steps":3,"idle":4,"session":"s1"}]`
 	probe := `
 await loadFleet();
 const vis = id => !byId[id].hidden;
-const out = {tabs: !byId.ptabs.hidden, talk: {log: vis('log'), detail: vis('detail'), side: vis('side')}};
+const shot = () => ({log: vis('log'), detail: vis('detail'), files: vis('files'), side: vis('side')});
+const out = {tabs: !byId.ptabs.hidden, talk: shot(), panels: []};
 if (!byId.ptabs.hidden) {
-  byId.ptabs.activeTabIndex = 1;
-  byId.ptabs.dispatchEvent({type: 'change'});
-  out.state = {log: vis('log'), detail: vis('detail'), side: vis('side')};
+  for (const i of [1, 2, 3]) {
+    byId.ptabs.activeTabIndex = i;
+    byId.ptabs.dispatchEvent({type: 'change'});
+    out.panels.push(shot());
+  }
 }
 console.log(JSON.stringify(out));
 `
@@ -952,28 +956,44 @@ console.log(JSON.stringify(out));
 		t.Setenv("NARROW", "1")
 		got := runPage(t, one, "?d=%2Fs%2Fa.sock", probe)
 		if got["tabs"] != true {
-			t.Fatal("no way to reach the other half: the strip is hidden on a stacked layout")
+			t.Fatal("no way to reach the other screens: the strip is hidden on a stacked layout")
 		}
 		talk := got["talk"].(map[string]any)
-		if talk["log"] != true || talk["detail"] != false || talk["side"] != false {
-			t.Errorf("the conversation panel shows %v — it must be the conversation and nothing above it", talk)
+		if talk["log"] != true || talk["detail"] != false || talk["files"] != false || talk["side"] != false {
+			t.Errorf("the conversation screen shows %v — it must be the conversation and nothing else", talk)
 		}
-		state, ok := got["state"].(map[string]any)
-		if !ok {
-			t.Fatal("switching panels produced nothing")
+		panels, _ := got["panels"].([]any)
+		if len(panels) != 3 {
+			t.Fatalf("switching produced %d screens", len(panels))
 		}
-		if state["log"] != false || state["detail"] != true || state["side"] != true {
-			t.Errorf("the status panel shows %v", state)
+		// One thing on each, and it is the thing the tab is named after.
+		want := []struct {
+			what string
+			on   string
+		}{{"about", "detail"}, {"workspace", "files"}, {"going on", "side"}}
+		for i, w := range want {
+			p := panels[i].(map[string]any)
+			if p[w.on] != true {
+				t.Errorf("the %s screen does not show %s: %v", w.what, w.on, p)
+			}
+			if p["log"] != false {
+				t.Errorf("the %s screen still shows the conversation: %v", w.what, p)
+			}
+			for _, other := range []string{"detail", "files", "side"} {
+				if other != w.on && p[other] == true {
+					t.Errorf("the %s screen also shows %s, so it is not one screen: %v", w.what, other, p)
+				}
+			}
 		}
 	})
 	t.Run("wide", func(t *testing.T) {
 		got := runPage(t, one, "?d=%2Fs%2Fa.sock", probe)
 		if got["tabs"] != false {
-			t.Error("the strip is drawn where both columns already fit")
+			t.Error("the strip is drawn where every screen already fits at once")
 		}
 		talk := got["talk"].(map[string]any)
 		if talk["log"] != true || talk["detail"] != true || talk["side"] != true {
-			t.Errorf("the two-column layout hid something: %v", talk)
+			t.Errorf("the wide layout hides something: %v", talk)
 		}
 	})
 }

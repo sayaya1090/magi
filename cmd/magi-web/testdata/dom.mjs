@@ -394,7 +394,7 @@ byId.prefsForm.append(byId.lang);
 for (const id of ['tabFleet', 'tabSkills']) byId.tabs.append(byId[id]);
 // md-tabs answers activeTabIndex from its CHILDREN, so a strip whose tabs were never appended
 // reports -1 for every selection and the page reads that as "the first one".
-for (const id of ['ptabTalk', 'ptabState']) byId.ptabs.append(byId[id]);
+for (const id of ['ptabTalk', 'ptabFacts', 'ptabFiles', 'ptabPlan']) byId.ptabs.append(byId[id]);
 // The companions tab holds a label element beside its badge, so the word can be rewritten without
 // taking the badge with it. Mirrored here for the same reason the rail's labels are.
 { const wrap = element('span'); wrap.className = 'tablbl'; const l = element('span'); l.className = 'lbl'; wrap.append(l); wrap.append(byId.tabBadge); byId.tabFleet.append(wrap); }

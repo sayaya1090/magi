@@ -395,8 +395,11 @@ function drawPanels() {
   const s = sock();
   ptabs.hidden = !s || wide.matches;
   if (!s || wide.matches) {
-    // Both halves, as they were. Nothing may stay hidden from a previous narrow visit.
+    // Both halves, as they were. Nothing may stay hidden from a previous narrow visit — and no
+    // panel is showing, because they are all showing.
+    document.body.removeAttribute('panel');
     if (sideEl) sideEl.hidden = false;
+    filesEl.hidden = false;
     log.hidden = !s;
     // The facts card is not simply "shown on a companion's page" any more: it shares its slot with
     // an open file, and which of the two is showing is the tab strip's answer. Said through
@@ -405,9 +408,11 @@ function drawPanels() {
     else showCard();
     return;
   }
+  // One of the four, and nothing else. The names are the tabs': talk, facts, files, plan.
   const talk = panel === 'talk';
   log.hidden = !talk;
-  sideEl.hidden = talk;
+  sideEl.hidden = panel !== 'plan';
+  filesEl.hidden = panel !== 'files';
   // The file slot belongs to the workspace half, not above the conversation.
   //
   // It was drawn by showCard alone, which knows which card is showing and not which PANEL is — so
@@ -415,25 +420,53 @@ function drawPanels() {
   // off the screen: measured at 390x844, 0px of conversation visible and 1636px of page under the
   // thumb, with the file's own Save five hundred pixels above the composer that answers the
   // companion. Two places to type on one screen, and neither near its own words.
-  if (talk) {
+  if (panel === 'files') {
+    // The workspace: the tree and the git card, and whatever is open above them.
+    //
+    // Asked for here, because the pane handle used to be what asked. Below the breakpoint the
+    // handle is gone and the tab is what opens this — and a tab that opens an empty box is worse
+    // than the handle it replaced: measured, 0px of workspace behind it.
+    if (lastDrawnFor) loadTree(lastDrawnFor);
+    cardTabs.hidden = !openFiles.length;
+    detailEl.hidden = true;
+    fileViewEl.hidden = !(cardShows !== 'facts' && openFiles.includes(cardShows));
+  } else if (panel === 'facts') {
+    cardTabs.hidden = true;
+    fileViewEl.hidden = true;
+    detailEl.hidden = !detailEl.children.length;
+  } else {
     detailEl.hidden = true;
     fileViewEl.hidden = true;
     cardTabs.hidden = true;
-  } else {
-    cardTabs.hidden = !openFiles.length;
-    showCard();
   }
   document.body.setAttribute('panel', panel);
 }
+// What the companion said while somebody was on another half of its page.
+//
+// The composer is on every panel — telling the agent something while reading its work is half of
+// why the file is on the screen — but the transcript is not, and on a phone an answer arriving
+// while you edit lands on a screen nobody is looking at. The count is the only thing that says so.
+let unread = 0;
+function paintUnread() {
+  const tab = document.getElementById('ptabTalk');
+  if (!tab) return;
+  const had = tab.querySelector('.tabbadge');
+  if (had) had.remove();
+  if (!unread || panel === 'talk') return;
+  const b = cell('tabbadge', unread > 9 ? '9+' : String(unread));
+  b.setAttribute('aria-label', tr('panel.unread', {n: unread}));
+  tab.append(b);
+}
+
 // toWorkspacePanel puts the reader where the thing they just opened is.
 //
 // Only where the two halves are two screens. Opening a file from the tree while the conversation
 // is showing used to load it into a panel nobody was looking at — the press appeared to do
 // nothing, which is worse than the wedged card it replaced.
 function toWorkspacePanel() {
-  if (ptabs.hidden || panel === 'state') return;
-  panel = 'state';
-  ptabs.activeTabIndex = 1;
+  if (ptabs.hidden || panel === 'files') return;
+  panel = 'files';
+  ptabs.activeTabIndex = 2;
   drawPanels();
 }
 
@@ -442,16 +475,18 @@ function toWorkspacePanel() {
 // in from the right and going back to talk comes in from the left — which is what tells somebody
 // these two are peers rather than one being under the other.
 function revealPanel(fromIndex) {
-  const how = fromIndex === undefined ? 'enter'
-            : (panel === 'state' ? 'slideL' : 'slideR');
-  reveal(panel === 'talk' ? log : detailEl, how);
-  if (panel !== 'talk') reveal(sideEl, how);
+  const at = ['talk', 'facts', 'files', 'plan'].indexOf(panel);
+  const how = fromIndex === undefined ? 'enter' : (at > fromIndex ? 'slideL' : 'slideR');
+  reveal(panel === 'talk' ? log : panel === 'facts' ? detailEl
+         : panel === 'files' ? filesEl : sideEl, how);
 }
 ptabs.addEventListener('change', () => {
-  const was = panel;
-  panel = ptabs.activeTabIndex === 1 ? 'state' : 'talk';
+  const was = ['talk', 'facts', 'files', 'plan'].indexOf(panel);
+  panel = ['talk', 'facts', 'files', 'plan'][ptabs.activeTabIndex] || 'talk';
+  if (panel === 'talk') unread = 0;
+  paintUnread();
   drawPanels();
-  revealPanel(was === panel ? undefined : 0);
+  revealPanel(was);
   measureDock();
 });
 wide.addEventListener('change', drawPanels);
@@ -5617,7 +5652,14 @@ let cardShows = 'facts';
 const openDirs = new Set();
 
 // The attribute is written both ways by paneHandle, so this is the whole of the question.
-const filesOpen = () => document.body.getAttribute('files') !== 'shut';
+// Whether the workspace is being shown at all, whichever thing is saying so.
+//
+// The handle, on a screen wide enough to have one; the tab, below that — where the handle is
+// hidden and the panel IS the answer. Reading only the handle left the workspace tab loading
+// nothing: the attribute still said "shut" from the last time somebody folded the pane on a
+// desktop, and a tab that opens an empty box is worse than the handle it replaced.
+const filesOpen = () => document.body.getAttribute('panel') === 'files' ||
+  (!document.body.hasAttribute('panel') && document.body.getAttribute('files') !== 'shut');
 
 // What is being searched for in the workspace, and which of the two searches it is.
 //
@@ -7294,6 +7336,12 @@ function draw(rows) {
     shown.nodes.push(n);
     log.append(n);
   }
+  if (win.length > i && panel !== 'talk' && !ptabs.hidden) {
+    // Only what was added at the end. A compaction rewrites the head and rebuilds rows nobody has
+    // to be told about.
+    unread += Math.max(0, win.length - Math.max(i, shown.rows.length));
+    paintUnread();
+  }
   shown.rows = win;
   if (recovered) {
     let back = 0;
@@ -7393,7 +7441,10 @@ function paint() {
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
   tabSkills.textContent = tr('nav.shared');
   document.getElementById('ptabTalk').textContent = tr('panel.talk');
-  document.getElementById('ptabState').textContent = tr('panel.state');
+  paintUnread();   // the label is rewritten wholesale, badge included
+  document.getElementById('ptabFacts').textContent = tr('panel.facts');
+  document.getElementById('ptabFiles').textContent = tr('panel.files');
+  document.getElementById('ptabPlan').textContent = tr('panel.plan');
   // label, not placeholder. Material Web floats the LABEL into the outline's notch when the field
   // takes focus or holds a value; a placeholder is the grey hint inside an empty one and never
   // moves. Written as placeholders here, the fields had no notch and nothing to float — which is
@@ -7410,7 +7461,9 @@ function paint() {
   // A secondary tab's indicator spans the tab; a primary tab's hugs its label. The bundle keeps
   // that as a reactive @state with no attribute behind it, so it is set as a property — assigning
   // it re-renders the tab with the indicator on the button instead of on the content.
-  for (const id of ['ptabTalk', 'ptabState']) document.getElementById(id).fullWidthIndicator = true;
+  for (const id of ['ptabTalk', 'ptabFacts', 'ptabFiles', 'ptabPlan']) {
+    document.getElementById(id).fullWidthIndicator = true;
+  }
   // The waiting badge changes parent with the rail, per the spec: on the icon while collapsed,
   // beside the label once there is one.
   refreshSideToggle();

@@ -274,9 +274,15 @@
        Stacked, the transcript was 1335px down a 1267px screen — off it — behind five cards of which
        three are history. So the conversation is the page and the facts stand beside it, and on a
        narrow screen the conversation comes first with the rest underneath. -->
+  <!-- One companion, four screens, where the window can only hold one of them. Status used to be
+       a single tab holding everything that is not the conversation: measured on a phone, 1289px of
+       facts and 1161px of plan and handoffs and cron stacked behind it, 3.7 screens of scrolling,
+       with the file tree hidden behind a toggle inside that. They are peers, so they are tabs. -->
   <md-tabs id="ptabs" hidden>
     <md-primary-tab id="ptabTalk"></md-primary-tab>
-    <md-primary-tab id="ptabState"></md-primary-tab>
+    <md-primary-tab id="ptabFacts"></md-primary-tab>
+    <md-primary-tab id="ptabFiles"></md-primary-tab>
+    <md-primary-tab id="ptabPlan"></md-primary-tab>
   </md-tabs>
   <div id="agentview">
     <!-- The workspace, on the leading side, opposite the state pane. Two panes and not one:
