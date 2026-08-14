@@ -409,6 +409,14 @@ function drawPanels() {
     return;
   }
   // One of the four, and nothing else. The names are the tabs': talk, facts, files, plan.
+  //
+  // Said on the body FIRST, because the panes read it to decide whether they are on screen — and
+  // the workspace tab loads its tree from inside this function. Written last, that load asked
+  // "is the workspace showing?" while the body still said "talk", answered no, and returned:
+  // an empty pane behind the tab until something else happened to redraw it. Nothing else does
+  // any more — the roster arrives as a frame when it CHANGES rather than as a poll every three
+  // seconds — so the empty pane was the end state, measured at 390x844 as 0 children after 10s.
+  document.body.setAttribute('panel', panel);
   const talk = panel === 'talk';
   log.hidden = !talk;
   sideEl.hidden = panel !== 'plan';
@@ -454,7 +462,6 @@ function drawPanels() {
     if (tabs) sideEl.prepend(tabs);
     sideEl.setAttribute('data-shows', planShows);
   }
-  document.body.setAttribute('panel', panel);
 }
 // What the companion said while somebody was on another half of its page.
 //
