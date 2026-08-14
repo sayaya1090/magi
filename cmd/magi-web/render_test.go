@@ -428,8 +428,11 @@ console.log(JSON.stringify({posts, subscribed: RENDERED.filter(r => r.subscribed
 	if !strings.Contains(p["body"].(string), "do+it+again") {
 		t.Errorf("the text did not travel: %q", p["body"])
 	}
+	// Two streams on a companion's page, and they are two different things: the transcript for the
+	// conversation it is addressed at, and the roster — which is where "this one is blocked on a
+	// question" arrives, and used to be a three-second poll.
 	subs := got["subscribed"].([]any)
-	if len(subs) != 1 || !strings.HasPrefix(subs[0].(string), "/events?d=") {
+	if len(subs) != 2 || !strings.HasPrefix(subs[0].(string), "/events?d=") || subs[1] != "/events" {
 		t.Errorf("the page subscribed to %v", subs)
 	}
 }
@@ -514,16 +517,29 @@ console.log(JSON.stringify({title: document.title}));
 // The prompt an agent is blocked on reaches the browser through /fleet and nowhere else — it is
 // not in the log and there is no event for it. Stop polling when a viewer opens an agent and the
 // bar appears once, if the timing is lucky, and never again.
-func TestAnAgentsPageKeepsPolling(t *testing.T) {
+func TestAnAgentsPageWatchesTheRoster(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
-console.log(JSON.stringify({intervals: RENDERED.filter(r => r.interval).map(r => r.interval)}));
+console.log(JSON.stringify({
+  subscribed: RENDERED.filter(r => r.subscribed).map(r => r.subscribed),
+  intervals: RENDERED.filter(r => r.interval).map(r => r.interval),
+}));
 `)
-	iv := got["intervals"].([]any)
-	if len(iv) == 0 {
-		t.Fatal("an agent's page arms no poll, so a prompt it blocks on would never appear")
+	subs := got["subscribed"].([]any)
+	watching := false
+	for _, u := range subs {
+		if u == "/events" {
+			watching = true
+		}
 	}
-	if ms := iv[0].(float64); ms > 5000 {
-		t.Errorf("the poll is every %gms; a person waiting to be asked notices that", ms)
+	if !watching {
+		t.Fatal("an agent's page does not watch the roster, so a prompt it blocks on would never appear")
+	}
+	// And it does not ALSO poll for it. That poll ran every three seconds per viewer for as long as
+	// a tab was open; the stream sends when the roster is different and nothing when it is not.
+	for _, ms := range got["intervals"].([]any) {
+		if n, ok := ms.(float64); ok && n <= 5000 {
+			t.Errorf("something still polls every %gms beside the stream", n)
+		}
 	}
 }
 

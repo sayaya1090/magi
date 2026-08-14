@@ -634,7 +634,21 @@ globalThis.setTimeout = () => 0;
 // never happens — while one that never called it at all made the caller throw.
 globalThis.requestAnimationFrame = (fn) => { fn(); return 0; };
 globalThis.EventSource = class {
-  constructor(url) { RENDERED.push({ subscribed: url }); this.close = () => {}; }
+  // Enough of one to be wired up: the page listens for named events on the roster stream, and a
+  // stub with no addEventListener made every screen that opens one throw while rendering.
+  constructor(url) {
+    RENDERED.push({ subscribed: url });
+    this.listeners = {};
+    this.close = () => { RENDERED.push({ closed: url }); };
+  }
+  addEventListener(kind, fn) { (this.listeners[kind] ||= []).push(fn); }
+  removeEventListener(kind, fn) {
+    this.listeners[kind] = (this.listeners[kind] || []).filter((f) => f !== fn);
+  }
+  // What the server pushing a frame looks like from in here.
+  emit(kind, data) {
+    for (const fn of this.listeners[kind] || []) fn({ data: JSON.stringify(data) });
+  }
 };
 // Every fetch is answered from the environment, so a scenario is one JSON blob and no server.
 globalThis.fetch = async (path, init) => {

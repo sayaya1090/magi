@@ -2121,8 +2121,10 @@ function councilWordOf(decision) {
   return key ? tr(key) : decision;
 }
 
-async function loadFleet() {
-  const list = await fetchList('/fleet');
+// loadFleet fetches the roster and draws everything read off it. The stream hands the list in
+// instead, so a push costs no request — see watchFleet.
+async function loadFleet(given) {
+  const list = given || await fetchList('/fleet');
   if (!list) return;
   reach(true);
   const waiting = list.filter(a => a.state === 'waiting').length;
@@ -7754,7 +7756,40 @@ async function runShell(cmd) {
   draw(lastRows);
 }
 
-let es, fleetTimer, boardSub;
+let es, fleetTimer, boardSub, fleetES;
+
+// The roster, pushed rather than asked for.
+//
+// The fleet screens polled every three seconds: one request per screen per viewer, for ever, and a
+// companion that started work took up to three seconds to say so. This is the same connection the
+// transcript uses, addressed at nobody, and it sends only when the list is different.
+//
+// The caller is handed the list. Screens that need more than the roster (the map's edges, a
+// meeting's transcript) fetch what they need when the event says something moved — which is still
+// nothing at all while a fleet is quiet.
+function watchFleet(onList) {
+  stopFleetWatch();
+  fleetES = new EventSource('/events');
+  fleetES.addEventListener('fleet', e => {
+    let list = null;
+    try { list = JSON.parse(e.data); } catch { return; }
+    if (list) onList(list);
+  });
+  // A console that restarts is ordinary, and so is a laptop waking up. Reconnect quietly, and only
+  // while this screen is still the one that wanted it.
+  fleetES.onerror = () => {
+    const mine = fleetES;
+    if (mine) mine.close();
+    if (fleetES === mine) { fleetES = null; setTimeout(() => { if (!fleetES) watchFleet(onList); }, 1500); }
+  };
+}
+
+function stopFleetWatch() {
+  if (!fleetES) return;
+  const going = fleetES;
+  fleetES = null;
+  going.close();
+}
 function connect() {
   es = new EventSource('/events' + q());
   es.onopen = () => { conn('live'); says(tr('state.live')); };
@@ -8164,7 +8199,8 @@ function render() {
     // nothing if it is a picture of five minutes ago. Same interval as the fleet poll, and the
     // same clean-up path — render() clears fleetTimer on the way out of every view.
     loadMap();
-    fleetTimer = setInterval(loadMap, 3000);
+    // The picture is worth nothing five minutes old, and it costs nothing while nothing moves.
+    watchFleet(() => loadMap());
     return;
   }
   if (v === 'meet') {
@@ -8213,7 +8249,7 @@ function render() {
   // The other two poll: the fleet for its rows, a companion's page for the facts about itself that
   // its log cannot carry.
   loadFleet();
-  fleetTimer = setInterval(loadFleet, 3000);
+  watchFleet(list => loadFleet(list));
 }
 
 // nameOf is the crumb for a socket before the fleet has been fetched — the file name carries the

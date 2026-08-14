@@ -461,6 +461,36 @@ func (s *server) clientFor(sock string) (*daemon.Client, error) {
 // target resolves the ?d= socket a request is about, defaulting to the directory this viewer was
 // started in. Only sockets List already found are accepted: the parameter comes from a page and a
 // path from a page must not become a path this process will dial.
+// fleetStream is the roster, pushed when it changes.
+//
+// The lists were three-second polls in the browser: one request per screen per three seconds per
+// viewer, and a companion that started work took up to three seconds to say so. This is the same
+// answer /fleet gives, on the connection the transcript already uses.
+//
+// Honest about what it is: the loop here polls too — it reads the records this machine keeps and
+// compares them. What it removes is the round trip and the wait, not the polling. The records are
+// files a daemon rewrites; watching them would be a third mechanism for a saving nobody can see at
+// this tick rate.
+func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flusher) {
+	tick := time.NewTicker(700 * time.Millisecond)
+	defer tick.Stop()
+	last := ""
+	for {
+		list := s.fleetList(r)
+		b, err := json.Marshal(list)
+		if err == nil && string(b) != last {
+			last = string(b)
+			fmt.Fprintf(w, "event: fleet\ndata: %s\n\n", b)
+			fl.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
 func (s *server) target(r *http.Request) (daemon.Info, error) {
 	want := r.URL.Query().Get("d")
 	if want == "" {
@@ -1059,10 +1089,18 @@ func (s *server) svg(w http.ResponseWriter, body string) {
 // surfaces answering "what is that agent doing?" from two copies of the same reasoning is a pair
 // that disagrees later, when only one of them is updated.
 func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, "fleet", s.fleetList(r))
+}
+
+// fleetList is the roster this person may see, from this machine and its peers.
+//
+// One function because there are two doors onto it now — the route above and the stream — and two
+// copies of "which companions, and which of them may be seen" is how a scope comes to mean one
+// thing on one screen and another on the next.
+func (s *server) fleetList(r *http.Request) []fleet.Agent {
 	list, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil
 	}
 	// The local companions are answered first and the peers are added to them, so a console with an
 	// unreachable peer still shows this machine rather than an error page.
@@ -1070,7 +1108,7 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 	// And then only the ones this person may see. This is the list every other screen is read from
 	// — the board, the count in the masthead, the dispatch roster — so a scope that left it whole
 	// hid nothing: it carries every companion's name, workspace path, host and current task.
-	writeJSON(w, "fleet", onlySeen(s, r, list, func(a fleet.Agent) (string, string) { return a.Name, a.Peer }))
+	return onlySeen(s, r, list, func(a fleet.Agent) (string, string) { return a.Name, a.Peer })
 }
 
 // events streams the transcript as server-sent events, re-reading the log as it grows.
@@ -1093,9 +1131,16 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Addressed at nobody: the fleet screens watch the same stream rather than asking every three
+	// seconds. The transcript half of this loop is skipped there — there is no conversation — and
+	// what goes out is the roster, when it changes.
 	in, err := s.target(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		if r.URL.Query().Get("d") != "" || r.URL.Query().Get("p") != "" {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		s.fleetStream(w, r, fl)
 		return
 	}
 	sid := session.SessionID(in.Session)
