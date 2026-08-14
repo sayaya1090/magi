@@ -248,6 +248,10 @@
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
   </md-tabs>
   <md-chip-set id="summary"></md-chip-set>
+  <!-- Two things share this destination: what companions have learned, and the servers they can
+       reach. On a phone that is two purposes on one screen, so the strip switches between them —
+       and above the breakpoint it is not drawn, because both are in one column there. -->
+  <div id="sharedTabs" class="wstabs" hidden></div>
   <div id="skills" hidden></div>
   <div id="board" hidden></div>
   <!-- How the fleet is laid out and what is crossing between the parts of it. Not a destination of

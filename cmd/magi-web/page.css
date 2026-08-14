@@ -2289,6 +2289,15 @@
     .wstabs { display:none; }
   }
 
+  /* And the plan screen is four things, so it is four screens. Measured on a phone: 2.2 screens of
+     scrolling with cron and what-was-interrupted below two cards nobody scrolls past. */
+  @media (max-width:52.4375em) {
+    #side[data-shows="plan"] > :not(#plan):not(.wstabs),
+    #side[data-shows="handoffs"] > :not(#handoffs):not(.wstabs),
+    #side[data-shows="cron"] > :not(#cron):not(.wstabs),
+    #side[data-shows="intervened"] > :not(#intervened):not(.wstabs) { display:none; }
+  }
+
   /* The pane handles are what the tabs are, below the breakpoint. Two controls for one thing is a
      screen that cannot say which of them is the truth — and it showed: with the files pane toggled
      shut, its tab held nothing at all. */

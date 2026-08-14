@@ -445,6 +445,15 @@ function drawPanels() {
     fileViewEl.hidden = true;
     cardTabs.hidden = true;
   }
+  if (panel === 'plan') {
+    // The switch lives in the pane, above the cards it switches between, and is rebuilt with
+    // them: which of the four exist depends on what this companion is doing.
+    const had = sideEl.querySelector('.wstabs');
+    if (had) had.remove();
+    const tabs = planTabs();
+    if (tabs) sideEl.prepend(tabs);
+    sideEl.setAttribute('data-shows', planShows);
+  }
   document.body.setAttribute('panel', panel);
 }
 // What the companion said while somebody was on another half of its page.
@@ -468,6 +477,51 @@ function paintUnread() {
 // asked of the window rather than assumed, because a phone turned sideways is not a phone.
 //
 // The guide draws the line here: "Compact and medium breakpoints: A single pane works best."
+// Which of the plan screen's four a phone is showing. Above the breakpoint it is not read: the
+// pane is a column and they are stacked in it, which is what a column is for.
+let planShows = 'plan';
+
+// planTabs is that switch, drawn into the pane above the cards.
+//
+// Four cards — the plan, the work handed out, what is scheduled, and what somebody interrupted —
+// measured at 2.2 screens of scrolling on a phone with the last of them below two others nobody
+// scrolls to. They are four things, so they are four screens.
+function planTabs() {
+  const box = cell('wstabs');
+  const has = id => { const e = document.getElementById(id); return e && !e.hidden && e.children.length; };
+  const four = [['plan', 'nav.plan'], ['handoffs', 'nav.handoffs'], ['cron', 'nav.cron'],
+                ['intervened', 'nav.intervened']].filter(([id]) => has(id));
+  if (four.length < 2) return null;   // one thing needs no switch
+  if (!four.some(([id]) => id === planShows)) planShows = four[0][0];
+  for (const [id, key] of four) {
+    const t = document.createElement('md-secondary-tab');
+    t.textContent = tr(key);
+    t.active = planShows === id;
+    t.onclick = () => { planShows = id; drawPanels(); };
+    box.append(t);
+  }
+  return box;
+}
+
+// Which half of the shared destination a phone is showing.
+let sharedShows = 'skills';
+const sharedTabs = document.getElementById('sharedTabs');
+
+function drawSharedTabs() {
+  const want = [['skills', 'nav.experience'], ['mcp', 'nav.mcp']];
+  const same = [...sharedTabs.children].map(t => t.textContent).join('|') ===
+               want.map(([, k]) => tr(k)).join('|');
+  if (!same) {
+    sharedTabs.replaceChildren(...want.map(([key, word]) => {
+      const t = document.createElement('md-secondary-tab');
+      t.textContent = tr(word);
+      t.onclick = () => { sharedShows = key; render(); };
+      return t;
+    }));
+  }
+  [...sharedTabs.children].forEach((t, i) => { t.active = want[i][0] === sharedShows; });
+}
+
 function onePane() {
   return typeof matchMedia === 'function' && matchMedia('(max-width:52.4375em)').matches;
 }
@@ -8021,14 +8075,22 @@ function render() {
   }
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
-  skillsEl.hidden = !!s || v !== 'skills';
+  // Two things share this destination — what companions have learned, and the servers they can
+  // reach — and on a phone that is two purposes on one screen. Measured: 2.2 screens of scrolling
+  // with thirteen controls. The strip in the destination's own head switches them there; above the
+  // breakpoint they are one column and both are drawn.
+  const sharedOne = onePane();
+  skillsEl.hidden = !!s || v !== 'skills' || (sharedOne && sharedShows !== 'skills');
   boardEl.hidden = !!s || v !== 'board';
   mapEl.hidden = !!s || v !== 'map';
   // Hidden by the view AND by the capability, like the access screen: a meeting spends model turns
   // on several companions at once, so somebody who may not prompt should not arrive at the form by
   // editing the address either. The server refuses regardless.
   meetEl.hidden = !!s || v !== 'meet' || !mayEl(meetEl);
-  mcpEl.hidden = !!s || v !== 'skills';
+  mcpEl.hidden = !!s || v !== 'skills' || (sharedOne && sharedShows !== 'mcp');
+  // The switch, drawn once and only where it means something.
+  sharedTabs.hidden = !!s || v !== 'skills' || !sharedOne;
+  if (!sharedTabs.hidden) drawSharedTabs();
   // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
   // be able to arrive at by editing the address either.
   accessEl.hidden = !!s || v !== 'access' || !mayEl(accessEl);
