@@ -599,6 +599,12 @@ let sharedShows = 'skills';
 const sharedTabs = document.getElementById('sharedTabs');
 
 function drawSharedTabs() {
+  // A tab role belongs to a tab SET. These are two md-secondary-tabs in a plain div, so the
+  // accessibility tree held two `tab` nodes with no `tablist` around them — a role whose whole
+  // contract (one of two, arrow keys, a current one) has no owner to keep it. The strip is the
+  // owner; it says so, and it says which destination it switches.
+  sharedTabs.setAttribute('role', 'tablist');
+  sharedTabs.setAttribute('aria-label', tr('nav.shared'));
   const want = [['skills', 'nav.experience'], ['mcp', 'nav.mcp']];
   const same = [...sharedTabs.children].map(t => t.textContent).join('|') ===
                want.map(([, k]) => tr(k)).join('|');
@@ -652,6 +658,21 @@ function revealPanel(fromIndex) {
   reveal(panel === 'talk' ? log : panel === 'facts' ? detailEl
          : panel === 'files' ? filesEl : sideEl, how);
 }
+// The tab set does not wrap.
+//
+// The component's roving tabindex loops both ends: ArrowRight from the last tab lands on the
+// first, ArrowLeft from the first on the last. The guide says not to — "it's not recommended to
+// loop a tab set … this can trap users who are navigating linearly with a screen reader" — and a
+// four-tab strip on a phone is exactly where somebody meets it. Stopped here rather than in the
+// bundle: the component is vendored and patching it would be a fork to carry forever.
+ptabs.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const tabs = [...ptabs.querySelectorAll('md-primary-tab')].filter(t => !t.hidden);
+  const at = tabs.indexOf(document.activeElement);
+  if (at < 0) return;
+  const end = e.key === 'ArrowRight' ? tabs.length - 1 : 0;
+  if (at === end) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 ptabs.addEventListener('change', () => {
   const was = ['talk', 'facts', 'files', 'plan'].indexOf(panel);
   panel = ['talk', 'facts', 'files', 'plan'][ptabs.activeTabIndex] || 'talk';
@@ -676,6 +697,7 @@ const mapEl = document.getElementById('map');
 const meetEl = document.getElementById('meet');
 const mcpEl = document.getElementById('mcp');
 const accessEl = document.getElementById('access');
+const screenHead = document.getElementById('screenHead');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet');
@@ -3692,6 +3714,26 @@ addEventListener('pointermove', e => {
   if (!tipHost.isConnected || !tipHost.contains(e.target)) hideTip();
 }, true);
 addEventListener('pointerdown', () => { if (tipHost) { clearTimeout(tipTimer); tipTimer = 0; tipEl.hidden = true; tipHost = null; } }, true);
+// A touch has no hover, so it gets the other way in: a long press.
+//
+// "여는 법: 데스크톱 호버, 모바일 길게 누르기." Without this half, everything on a phone that
+// ellipses — the status line, a workspace path, a cut summary — carried a tooltip with the rest of
+// its words and no way to open it: a tap fires pointerover and then pointerdown, and the line
+// above hides the tip in the same gesture. Half a second of holding still shows it; moving or
+// lifting before that cancels, so it never fights a scroll or a tap.
+{
+  let holdAt = 0, holdFor = null;
+  const drop = () => { clearTimeout(holdAt); holdAt = 0; holdFor = null; };
+  addEventListener('touchstart', e => {
+    const host = e.target.closest && e.target.closest('[data-tip]');
+    if (!host) return;
+    holdFor = host;
+    holdAt = setTimeout(() => { if (holdFor) showTip(holdFor); holdAt = 0; }, 500);
+  }, {capture: true, passive: true});
+  for (const on of ['touchmove', 'touchend', 'touchcancel']) {
+    addEventListener(on, drop, {capture: true, passive: true});
+  }
+}
 for (const [on, fn] of [['pointerover', showTip], ['focusin', showTip], ['pointerout', hideTip], ['focusout', hideTip]]) {
   addEventListener(on, e => {
     const host = e.target.closest && e.target.closest('[data-tip]');
@@ -3866,6 +3908,11 @@ async function loadSkills() {
     drop.className = 'drop';
     tip(drop, tr('hint.forget'));
     withMark(drop, '#i-sl-eraser');
+    // The word on it is "Forget"; the name it answers to says what it forgets. Measured in the
+    // accessibility tree, this screen offered twenty controls called "Read" and twenty called
+    // "Forget" — the guide names a page with several "Save"s as the case that needs labels, and
+    // this is that case twenty times over.
+    drop.setAttribute('aria-label', tr('action.forget_named', {name: sk.name}));
     arm(drop, tr('action.forget'), () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
       // peer name is how this one knows which machine to ask; a global rule has no socket and the
@@ -3913,11 +3960,13 @@ async function loadSkills() {
     more.className = 'fold';
     let open = false;
     more.textContent = tr('action.read');
+    more.setAttribute('aria-label', tr('action.read_named', {name: sk.name}));
     withMark(more, '#i-sl-file-lines');
     more.onclick = () => {
       open = !open;
       text.hidden = !open;
       more.textContent = tr(open ? 'action.collapse' : 'action.read');
+      more.setAttribute('aria-label', tr(open ? 'action.collapse' : 'action.read_named', {name: sk.name}));
     };
     top.insertBefore(more, drop);
     el.append(text);
@@ -8746,6 +8795,11 @@ function showDestination(s, v) {
     // links whether they are drawn as a rail or as the bar at the foot of a phone.
     if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
   }
+  // The screen's name in the heading tree. Only where nothing else says it: the meeting, people
+  // and shared screens draw their own h2, and a second one would be the same word twice.
+  const named = s ? nameOf(s) : v === 'fleet' ? tr('nav.companions') : '';
+  screenHead.textContent = named;
+  screenHead.hidden = !named;
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   // Two things share this destination — what companions have learned, and the servers they can

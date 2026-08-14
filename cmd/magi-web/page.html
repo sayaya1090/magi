@@ -247,6 +247,13 @@
 </nav>
 
 <main>
+  <!-- The screen's name, for somebody who navigates by heading.
+       Assistive tech jumps a page by its headings, and two of the four screens had exactly one —
+       the product's name in the masthead, identical on every screen. A companion's page in
+       particular put its subject only inside a crumb, so "which companion is this" had no answer
+       in the heading tree. Written here, hidden from the eye: the screens that already show a
+       heading keep theirs and this one stays empty. -->
+  <h2 class="sr-only" id="screenHead"></h2>
   <md-tabs id="tabs" hidden>
     <!-- The label is its own element because the badge is a sibling: writing the word with
          textContent would take the badge with it, the way setting textContent replaces everything
