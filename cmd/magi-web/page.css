@@ -2642,6 +2642,37 @@
   body:not([at="agent"]) #filecol { display:none; }
   #side #plan, #side #handoffs { max-width:none; }
 
+  /* ── the palette ─────────────────────────────────────────────────────────── */
+  /* A field and a list of what it found. The list scrolls inside the dialog rather than growing it:
+     a dialog that resizes as you type moves the row under the cursor while you are aiming at it. */
+  #palDialog md-outlined-text-field { width:100%; }
+  #palList {
+    display:grid; gap:var(--magi-sys-space-50); margin-top:var(--magi-sys-space-200);
+    max-height:min(50vh, 22rem); overflow-y:auto;
+  }
+  .palrow {
+    display:grid; grid-template-columns:5.5rem 1fr; align-items:baseline;
+    gap:var(--magi-sys-space-150) var(--magi-sys-space-200);
+    /* 48dp: this is a list of things one press away, which is the size the guide gives a list item
+       and a touch target both. */
+    min-height:48px; padding:var(--magi-sys-space-100) var(--magi-sys-space-200);
+    border:0; border-radius:var(--magi-sys-shape-s); background:transparent; cursor:pointer;
+    text-align:start; font:inherit; color:var(--magi-ref-fg); width:100%;
+  }
+  /* The row the keyboard is on, and the row the pointer is on, are the same state drawn one way. */
+  .palrow:hover, .palrow.at { background:var(--magi-ref-surface-container); }
+  .palrow.at { outline:2px solid var(--magi-ref-primary); outline-offset:-2px; }
+  .palrow .palkind {
+    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); letter-spacing:0.06em;
+    color:var(--magi-ref-muted); text-transform:lowercase;
+  }
+  .palrow .palname { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
+  .palrow .palhint {
+    grid-column:2; font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
+    color:var(--magi-ref-muted); overflow-wrap:anywhere;
+  }
+  #palNone { margin-top:var(--magi-sys-space-200); color:var(--magi-ref-muted); }
+
   /* ── one level in: a verdict, or a child ─────────────────────────────────── */
   /* A page, not a card: what is in here is a transcript or the material a vote stood on, and both
      are things you scroll and copy out of. It takes the conversation's measure so the prose in it

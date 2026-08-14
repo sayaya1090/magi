@@ -482,6 +482,24 @@
      the page cannot style, cannot label in the reader's language, cannot put a hint under, and
      which some browsers refuse outright in a page that has not been interacted with. The rest of
      this console asks with md-dialog; this is the same dialog with a field in it. -->
+<!-- One keystroke to anything. Ctrl/⌘+K, and the list under the field is the page's own verbs and
+     whatever this console can name: companions, the files of the workspace on screen, meetings,
+     past sessions. It is a dialog like the others rather than a bar of its own because it is a
+     short task that interrupts nothing, which is what the guide gives a dialog for. -->
+<md-dialog id="palDialog">
+  <div slot="headline" id="palK"></div>
+  <div slot="content">
+    <md-outlined-text-field id="palField"></md-outlined-text-field>
+    <!-- A listbox, and the rows are options: this is a chooser, and a screen reader that is told
+         "list" hears a list of text rather than a set of things one of which is about to happen. -->
+    <div id="palList" role="listbox" tabindex="-1"></div>
+    <div id="palNone" hidden></div>
+  </div>
+  <div slot="actions">
+    <md-text-button id="palCancel"></md-text-button>
+  </div>
+</md-dialog>
+
 <md-dialog id="askDialog">
   <div slot="headline" id="askK"></div>
   <div slot="content">

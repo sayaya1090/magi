@@ -948,6 +948,56 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// One keystroke to anything: the palette.
+//
+// Every control on this page is reachable by eye and slow by hand — another companion is rail →
+// list → row — and the verbs that have no home on the screen you are standing on are not reachable
+// at all without leaving it. What the palette lists is what this console can already name, and
+// every entry ends in a call the page already had.
+//
+// The three things worth holding: it offers a verb only where that verb means something, typing
+// narrows it, and Enter takes the row the keyboard is on.
+func TestThePaletteGoesWhereItSays(t *testing.T) {
+	const two = `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,"session":"s1"},
+	   {"socket":"/s/d.sock","name":"design","role":"the design system","workdir":"/w/d","state":"idle","live":true,"session":"s2"}]`
+	probe := `
+await loadFleet();
+const words = () => byId.palList.find(() => true)
+  .filter(r => String(r.className).includes('palrow'))
+  .map(r => r.find(() => true).map(k => k.textContent || '').join(' '));
+const out = {};
+openPalette();
+await Promise.resolve(); await Promise.resolve();
+out.onTheList = words();
+// Typing narrows it, and a companion is one of the things it can name.
+byId.palField.value = 'design';
+byId.palField.dispatchEvent({type: 'input'});
+for (let i = 0; i < 10; i++) await Promise.resolve();
+out.forDesign = words();
+// Enter takes the row the keyboard is on.
+byId.palField.dispatchEvent({type: 'keydown', key: 'Enter', preventDefault(){}});
+await Promise.resolve();
+out.went = location.search;
+console.log(JSON.stringify(out));
+`
+	got := runPage(t, two, "", probe)
+	all := fmt.Sprint(got["onTheList"])
+	// On the LIST screen there is no companion open, so the verbs that act on one are not offered.
+	if strings.Contains(all, "Interrupt") {
+		t.Errorf("the palette offers interrupting a companion with none on screen: %v", all)
+	}
+	if !strings.Contains(all, "Meetings") || !strings.Contains(all, "design") {
+		t.Errorf("the palette does not list what it can reach: %v", all)
+	}
+	forDesign := fmt.Sprint(got["forDesign"])
+	if !strings.Contains(forDesign, "design") || strings.Contains(forDesign, "Meetings") {
+		t.Errorf("typing a name did not narrow the list: %v", forDesign)
+	}
+	if went := fmt.Sprint(got["went"]); !strings.Contains(went, "d.sock") {
+		t.Errorf("pressing Enter went to %q", went)
+	}
+}
+
 // A search stays on the screen when a hit is opened.
 //
 // Everything that changes the workspace redraws the pane, and each of those put the plain tree back

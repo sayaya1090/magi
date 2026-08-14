@@ -8749,6 +8749,186 @@ document.addEventListener('visibilitychange', () => {
   render();
 });
 
+// ── one keystroke to anything ────────────────────────────────────────────────
+//
+// Every control on this page is reachable by eye and slow by hand: another companion is rail →
+// list → row, a file is pane → tree → scroll, and the verbs that have no home on the screen you
+// are standing on (convene, compact, interrupt) are not reachable at all without leaving it.
+//
+// What it lists is what this console can already name — nothing here is a new capability, and
+// every entry ends in a call the page already had. Four sources, in the order somebody means them:
+// the verbs, the companions, the files of the workspace on screen, and what has been talked about
+// (meetings, and this companion's past sessions).
+const palDialog = document.getElementById('palDialog');
+const palK = document.getElementById('palK'), palField = document.getElementById('palField');
+const palList = document.getElementById('palList'), palNone = document.getElementById('palNone');
+const palCancel = document.getElementById('palCancel');
+
+// What the palette is showing right now, and which row the keyboard is on.
+let palRows = [], palAt = 0, palAsked = 0;
+
+// palVerbs is the page's own actions, each with the condition under which offering it is honest.
+//
+// `when` is not decoration: a palette that lists "interrupt" on a screen with no companion is a
+// palette that teaches somebody to press things that do nothing. Every one of these is the same
+// call the control on the screen makes — there is no second path to any of them.
+function palVerbs() {
+  const s = sock();
+  const here = () => (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf());
+  return [
+    {word: tr('pal.kind_verb'), name: tr('pal.conversation'), when: !!s && (deepIn() || panel !== 'talk'),
+     go: () => { if (deepIn()) goDeep('past', null); panel = 'talk'; ptabs.activeTabIndex = 0; drawPanels(); }},
+    {word: tr('pal.kind_verb'), name: tr('pal.workspace'), when: !!s,
+     go: () => { panel = 'files'; ptabs.activeTabIndex = 2; drawPanels(); freshen(); }},
+    {word: tr('pal.kind_verb'), name: tr('pal.find_file'), when: !!s, go: () => askFind(here() || {socket: s, peer: peerOf()})},
+    {word: tr('pal.kind_verb'), name: tr('pal.interrupt'), when: !!s && mayEl(document.getElementById('stop')),
+     go: () => confirmStop(nameOf(s), () => post('/interrupt', null).then(loadFleet))},
+    {word: tr('pal.kind_verb'), name: tr('pal.compact'), when: !!s, go: () => post('/compact', null).then(loadFleet)},
+    {word: tr('pal.kind_verb'), name: tr('pal.commit'), when: !!s, go: () => openCommit(here() || {socket: s, peer: peerOf()})},
+    {word: tr('pal.kind_verb'), name: tr('pal.meetings'), when: mayEl(meetEl), go: () => goto(HREF.meet)},
+    {word: tr('pal.kind_verb'), name: tr('nav.companions'), go: () => goto(HREF.fleet)},
+    {word: tr('pal.kind_verb'), name: tr('nav.shared'), go: () => goto(HREF.skills)},
+    {word: tr('pal.kind_verb'), name: tr('nav.board'), go: () => goto(HREF.board)},
+    {word: tr('pal.kind_verb'), name: tr('pal.prefs'), go: () => prefsDialog.show()},
+  ].filter(v => v.when !== false);
+}
+
+// goto is the palette's way of moving between destinations — the same pushState + render the rail
+// does, so an address reached from here is an address that can be copied out of the bar.
+function goto(href) {
+  history.pushState({}, '', at(href));
+  render();
+}
+
+// palMatch scores a row against what has been typed.
+//
+// Substring first, then a subsequence — "cmt" finds "commit" — and a match at the start of the
+// name outranks one in the middle, because that is where people aim. Nothing clever: the list is
+// tens of rows, not thousands, and a ranking nobody can predict is worse than a short list.
+function palMatch(name, q) {
+  const hay = String(name).toLowerCase(), needle = q.toLowerCase();
+  if (!needle) return 0;
+  const at = hay.indexOf(needle);
+  if (at === 0) return 3;
+  if (at > 0) return 2;
+  let i = 0;
+  for (const ch of hay) if (ch === needle[i]) i++;
+  return i === needle.length ? 1 : -1;
+}
+
+// palGather is everything the palette can offer for one query.
+//
+// The verbs and the companions are already in this page's memory, so they answer instantly and
+// without asking anybody. The rest is asked for only when there is a query to ask about — a
+// palette that fetched the file list of every companion on open would be a keystroke that costs a
+// walk of somebody's repository.
+async function palGather(q) {
+  const rows = [];
+  for (const v of palVerbs()) {
+    const score = q ? palMatch(v.name, q) : 3;
+    if (score > 0) rows.push({...v, score});
+  }
+  for (const a of (fleetSeen || [])) {
+    if (a.elsewhere) continue;
+    const score = q ? palMatch(a.name + ' ' + (a.role || ''), q) : 2;
+    if (score > 0) {
+      rows.push({word: tr('pal.kind_companion'), name: a.name, hint: a.role || a.workdir, score,
+                 go: () => go(a.socket, a.peer)});
+    }
+  }
+  const s = sock();
+  if (q.length >= 2 && s) {
+    const a = (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf()) ||
+              {socket: s, peer: peerOf()};
+    const got = await fetchOne('/find' + qFor(a) + '&in=names&q=' + encodeURIComponent(q));
+    for (const hit of ((got && got.hits) || []).slice(0, 8)) {
+      rows.push({word: tr('pal.kind_file'), name: baseName(hit), hint: hit, score: 2,
+                 go: () => openFile(a, hit)});
+    }
+  }
+  rows.sort((x, y) => y.score - x.score);
+  return rows.slice(0, 20);
+}
+
+// palDraw puts the rows on screen and keeps the keyboard's place in range.
+function palDraw() {
+  palList.replaceChildren(...palRows.map((r, i) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'palrow' + (i === palAt ? ' at' : '');
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(i === palAt));
+    // The word for what this row IS, carried on the row rather than built from a key here: the
+    // phrase pack is checked by reading literal tr() calls out of this file, and a key assembled
+    // at runtime is a phrase the check cannot see anybody asking for.
+    row.append(cell('palkind', r.word));
+    row.append(cell('palname', r.name));
+    if (r.hint) row.append(cell('palhint', r.hint));
+    row.onclick = () => palRun(i);
+    return row;
+  }));
+  palNone.hidden = palRows.length > 0;
+  palNone.textContent = tr('pal.nothing');
+}
+
+// palRun closes first and acts second: several of these draw the screen the palette is sitting on
+// top of, and a dialog closing after that is a redraw somebody watches happen twice.
+function palRun(i) {
+  const row = palRows[i];
+  if (!row) return;
+  palDialog.close('go');
+  row.go();
+}
+
+async function palAsk() {
+  const q = String(palField.value || '').trim();
+  const mine = ++palAsked;
+  const rows = await palGather(q);
+  if (mine !== palAsked) return;   // a later keystroke is already on its way
+  palRows = rows;
+  palAt = 0;
+  palDraw();
+}
+
+function openPalette() {
+  if (palDialog.open) return;
+  palK.textContent = tr('pal.head');
+  palField.setAttribute('label', tr('pal.label'));
+  palField.value = '';
+  palCancel.textContent = tr('action.cancel');
+  withMark(palCancel, '#i-sl-xmark');
+  palRows = []; palAt = 0;
+  palDraw();
+  palDialog.show();
+  if (palField.focus) palField.focus();
+  palAsk();
+}
+
+palField.addEventListener('input', palAsk);
+// The keys a chooser has to answer: move, take, and leave. Handled on the FIELD, because that is
+// where the caret is — a listener on the dialog would fire after the field had already used the
+// arrow to move the caret in the text.
+palField.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!palRows.length) return;
+    palAt = (palAt + (e.key === 'ArrowDown' ? 1 : palRows.length - 1)) % palRows.length;
+    palDraw();
+    return;
+  }
+  if (e.key === 'Enter') { e.preventDefault(); palRun(palAt); }
+});
+palCancel.onclick = () => palDialog.close('cancel');
+// Ctrl+K, or ⌘+K where that is the modifier. Not a bare key: this page has a text box on every
+// screen, and a palette that opened on a letter would open while somebody was writing to their
+// companion.
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    openPalette();
+  }
+});
+
 // nameOf is the crumb for a socket before the fleet has been fetched — the file name carries the
 // workspace's base name, which is what a person calls the agent.
 function nameOf(socket) {
