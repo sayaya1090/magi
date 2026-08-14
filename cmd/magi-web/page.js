@@ -2274,6 +2274,16 @@ async function loadBoard() {
       .then(h => h || [])));
 
   const lanes = cell('lanes');
+  // A wheel with no horizontal axis still reaches the lanes past the edge. A plain mouse — the
+  // commonest pointer on a wide screen — could not move this strip at all: the page behind it has
+  // nothing to scroll, so the wheel did nothing and four of nine teams stayed invisible with no
+  // scrollbar to say they were there.
+  lanes.addEventListener('wheel', e => {
+    if (e.deltaX || !e.deltaY) return;                 // a real horizontal wheel: leave it alone
+    if (lanes.scrollWidth <= lanes.clientWidth) return; // nothing to reach
+    lanes.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, {passive: false});
   let anything = false;
   // A lane per TEAM, not per companion.
   //
@@ -5491,7 +5501,8 @@ async function loadMap() {
   const canvas = cell('mapcanvas');
   canvas.append(wires, boxes);
   mapEl.replaceChildren(head, cell('accsay', tr('map.lead')), canvas, legend);
-  drawWires(canvas, wires, rows, hands || []);
+  drawWires(canvas, wires, rows, hands);
+  watchWires(canvas, () => drawWires(canvas, wires, rows, hands));
 }
 
 // accountOf is the half of an instance that is not the machine. The machine is already the box
@@ -6415,6 +6426,20 @@ function mapNode(a) {
 // travels there, and comes up into the other one — orthogonal, one lane per edge so two of them
 // never sit on top of each other. Inside a box the two nodes are stacked a few pixels apart and a
 // short curve to the side is unambiguous, so that stays a curve.
+// Redrawn when the box they are drawn against changes size.
+//
+// The paths are absolute coordinates measured from getBoundingClientRect at the moment the map was
+// built, inside an <svg width="100%"> — so a window resized afterwards scales every coordinate by
+// whatever the width ratio happens to be. Measured 1920 → 1280: the same viewBox, squeezed to 81%,
+// with one end of a wire inside a box and the other 50px short of its node.
+let wiresWatch = null;
+function watchWires(canvas, redraw) {
+  if (typeof ResizeObserver !== 'function' || !canvas) return;
+  if (wiresWatch) wiresWatch.disconnect();
+  wiresWatch = new ResizeObserver(() => redraw());
+  wiresWatch.observe(canvas);
+}
+
 function drawWires(canvas, svg, rows, hands) {
   if (typeof canvas.getBoundingClientRect !== 'function') return 0;
   const frame = canvas.getBoundingClientRect();

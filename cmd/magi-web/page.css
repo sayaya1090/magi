@@ -1293,6 +1293,10 @@
      Measured: the row's content box ends at 1970 and the head's ended at 1982. So the head gives
      back 12 on the RIGHT — the left edges already agree, and padding both sides would have moved
      the labels off the values by the same 12 in the other direction. */
+  /* The head stays while the list scrolls under it. With twenty-five companions the document is
+     2777px and by row twelve the reader is looking at bare numbers — "8 · 5h ago" — with no label
+     anywhere on screen. The masthead above it is sticky for the same reason. */
+  .thead { position:sticky; top:var(--magi-comp-appbar-h, 64px); z-index:1; background:var(--magi-ref-bg); }
   .thead {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
     /* Out to the row's own edge, then back in by the same amount. A row's box is 12px wider on the
@@ -1302,7 +1306,7 @@
        the labels still stand over their columns. */
     margin-inline-start:calc(-1 * var(--magi-sys-space-150));
     padding:var(--magi-sys-space-200) var(--magi-sys-space-150) var(--magi-sys-space-100) var(--magi-sys-space-150);
-    border-bottom:1px solid var(--magi-ref-fg);
+    border-bottom:1px solid var(--magi-ref-outlineVariant);
   }
   /* The way OUT of the list, at the far end of the row of filters that are about it. Beside them it
      read as a fifth chip; at the other edge it reads as what it is — the counts are on the left
@@ -1339,7 +1343,7 @@
        with the band a row lights up when the cursor is on it. */
     margin:var(--magi-sys-space-300) 0 var(--magi-sys-space-50) calc(-1 * var(--magi-sys-space-150));
     padding:0 var(--magi-sys-space-150) var(--magi-sys-space-50) var(--magi-sys-space-150);
-    border-bottom:1px solid var(--magi-ref-fg);
+    border-bottom:1px solid var(--magi-ref-outlineVariant);
   }
   /* The first team sits closer to the table head above it. Written :first-of-type it matched
      nothing — the table head is a div too, and it is the first one — so all three headers carried
@@ -1392,6 +1396,12 @@
   /* name + workspace, the way a console stacks a resource over its namespace */
   .card .name { font:600 var(--md-sys-typescale-body-large-size)/1.3 var(--magi-ref-display); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   .card:hover .name { color:var(--magi-ref-primary); }
+  /* …and a row with nowhere to go says nothing. A companion on somebody else's console is drawn as
+     an anchor with no href, and it was still lighting its state layer and turning its name primary
+     under the pointer — two indicators, both pointing at a press that does nothing. */
+  a.card:not([href]) { cursor:default; }
+  a.card:not([href]):hover::after, a.card:not([href]):focus-visible::after { opacity:0; }
+  a.card:not([href]):hover .name { color:inherit; }
   .card .plan {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.05em; color:var(--magi-ref-muted); align-self:center;
   }
@@ -1971,6 +1981,21 @@
      that put them behind the boxes hid every line the moment it crossed one — which is most of
      them. Inert to the pointer, so being on top costs the nodes nothing. */
   .wires { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; z-index:1; }
+  /* The machine, drawn. machineBox() builds .machine / .machinetop / .machinename / .machineaddr /
+     .accounts and the stylesheet had a rule for none of them — so the outer boundary the map exists
+     to show ("this account and that one are on the same kernel") was a line of text above an
+     ungrouped stack, with the two accounts' rounded corners touching at 0px. */
+  .machine {
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-m);
+    padding:var(--magi-sys-space-200); background:var(--magi-ref-surface-container-lowest);
+  }
+  .machinetop {
+    display:flex; align-items:baseline; gap:var(--magi-sys-space-200); flex-wrap:wrap;
+    margin-bottom:var(--magi-sys-space-200);
+  }
+  .machinename { font:600 var(--md-sys-typescale-title-small-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-fg); }
+  .machineaddr { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  .accounts { display:grid; gap:var(--magi-sys-space-200); }
   .places { position:relative; }
   .wire { fill:none; stroke-width:2; stroke-linecap:round; }
   /* Answered, in flight, and unreachable — three states somebody acts on differently, so three
@@ -1983,7 +2008,11 @@
      discovered: a lane drawn into space the layout did not leave lands on the legend. */
   .mapcanvas { padding-bottom:var(--magi-sys-space-700); }
   .places {
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+    /* A track has a ceiling. auto-fit collapses the empty tracks, so a console with a single host
+       drew one 1385px-wide box and twelve full-width bars inside it, each carrying a name and a
+       state word with 1235px of nothing between them. */
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(min(22rem, 100%), 34rem));
+    justify-content:start;
     gap:var(--magi-sys-space-300); align-items:start;
   }
   /* One magi. The outline is the boundary the whole system is arranged around — one config
@@ -3415,7 +3444,12 @@
   /* A fixed lane width, and it has to be spelled out three ways: flex-basis alone loses to the
      content's own minimum, so a long title widened its lane and a short one narrowed it, and the
      columns stopped lining up — which is the one thing a board is for. */
-  .lane { flex:0 0 15rem; width:15rem; min-width:15rem; }
+  /* The lane grows with the window, to a limit. Pinned at 15rem it was 240px at 1280 and 240px at
+     2560 — three lanes using 768 of a 1385px strip with 43% of it blank, and a card's line 25
+     characters long at every width where the guide asks for 40–60 at all of them. The floor keeps
+     the columns lining up when there are enough teams to fill the strip; the ceiling keeps a
+     single team from becoming a full-width bar. */
+  .lane { flex:1 1 15rem; min-width:15rem; max-width:26rem; }
   /* Only when there is more board than room. Without this a single lane still drew a scrollbar,
      which reads as "there is more over there" when there is not. */
   /* The lanes scroll, so the strip must reach the page's edge rather than stopping at the reading
@@ -3427,14 +3461,15 @@
   .lanes::after { content:""; flex:0 0 1.4rem; }   /* the last lane gets a right edge too */
   .lanehead {
     display:flex; gap:var(--magi-sys-space-100); align-items:baseline;
-    border-bottom:1px solid var(--magi-ref-fg); padding-bottom:var(--magi-sys-space-50); margin-bottom:var(--magi-sys-space-100);
+    border-bottom:1px solid var(--magi-ref-outlineVariant); padding-bottom:var(--magi-sys-space-50); margin-bottom:var(--magi-sys-space-100);
   }
   .lanehead .lname {
     font:600 var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0467em; color:var(--magi-ref-fg);
   }
   .lanehead .lcount { margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); }
   .wcard {
-    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-s);
+    /* 12dp: the card's step on the shape scale. 8 is the chip's. */
+    border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-m);
     padding:var(--magi-sys-space-100) var(--magi-sys-space-150); margin-bottom:var(--magi-sys-space-100); background:var(--magi-ref-surface-container-low);
   }
   /* Who did it, beside when. Named in the companion's own colour so it reads as an attribution
