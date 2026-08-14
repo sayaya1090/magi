@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -319,5 +320,41 @@ func TestAWorkspaceOnAnotherMachineIsReadThroughItsOwnConsole(t *testing.T) {
 	// Asked of the other console, with the socket it uses on ITS machine — not opened here.
 	if len(seen) != 2 || !strings.HasPrefix(seen[0], "files /there/a.sock") {
 		t.Errorf("the far console saw %v", seen)
+	}
+}
+
+// The other machines are asked on a clock this console keeps, not once per viewer per frame.
+//
+// The local half of a roster is a directory read; this half is an HTTP request per peer. It had no
+// floor, which was survivable while a browser polled every three seconds and stopped being
+// survivable when the roster became a stream: the loop behind it looks every 700ms, so one open tab
+// asked every peer 1.4 times a second — paid by the machine at the other end, multiplied by every
+// viewer. The cluster's own gossip is explicit about this shape of cost (a round a minute, two
+// hosts, capabilities capped); a console with no floor is the same bill with nobody counting it.
+func TestPeersAreAskedOnAClockNotOncePerViewer(t *testing.T) {
+	// Its own peer, which counts what it is asked. The shared fake records the action routes and
+	// several tests assert on exactly what is in that list.
+	var asked int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fleet" {
+			atomic.AddInt32(&asked, 1)
+		}
+		_ = json.NewEncoder(w).Encode([]fleet.Agent{
+			{Socket: "/there/a.sock", Name: "fuzzer", Workdir: "/w/fuzzer", State: fleet.Working, Live: true},
+		})
+	}))
+	t.Cleanup(remote.Close)
+	f := federatedServer(t, peer{Name: "laptop", Base: remote.URL})
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "local1", true)
+
+	for i := 0; i < 12; i++ {
+		if list := f.get(); len(list) != 2 {
+			t.Fatalf("read %d came back with %d rows", i, len(list))
+		}
+	}
+	// Twelve reads in well under the floor: one trip, and every reader saw the same answer.
+	if n := atomic.LoadInt32(&asked); n != 1 {
+		t.Errorf("twelve reads made %d requests to the peer", n)
 	}
 }

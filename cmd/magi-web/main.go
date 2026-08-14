@@ -421,6 +421,21 @@ type server struct {
 	// What a dashboard refresh would otherwise re-derive every three seconds for every idle agent:
 	// the last thing it said, which by definition is not changing while it is idle.
 	fleetCache fleet.Cache
+	// rosterAt is this machine's own roster, shared by every viewer — see rosterNow.
+	rosterAt struct {
+		mu   sync.Mutex
+		when time.Time
+		list []fleet.Agent
+		err  error
+		done bool
+	}
+	// peerAt is the last answer from the other machines, shared by every viewer — see peerFleet.
+	peerAt struct {
+		mu   sync.Mutex
+		when time.Time
+		list []fleet.Agent
+		done bool
+	}
 
 	// Notifications, or nil when the key could not be read. Nil is a working console without them
 	// rather than a console that refuses to start: being unable to buzz a phone is not a reason to
@@ -480,7 +495,7 @@ func (s *server) fleetStream(w http.ResponseWriter, r *http.Request, fl http.Flu
 	room := strings.TrimSpace(r.URL.Query().Get("m"))
 	last, lastMeet := "", ""
 	for {
-		list := s.fleetList(r)
+		list := s.rosterFor(r, true)
 		b, err := json.Marshal(list)
 		// Compared on what a screen would DRAW differently, which is not the same as the bytes.
 		//
@@ -1142,13 +1157,61 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "fleet", s.fleetList(r))
 }
 
+// rosterNow is this machine's companions, computed at most every rosterEvery and shared.
+//
+// ListCached caches the per-session reads inside it, not the walk: every call still lists the
+// records directory and the sessions of every distinct workspace. That was once per browser poll
+// and is now once per stream tick per viewer — ten tabs on one console is fourteen directory walks
+// a second for a list that changes when somebody starts work.
+//
+// The scope is NOT cached with it. What a person may see is theirs, and a shared list with one
+// reader's permissions baked in is how a roster leaks; the filtering happens per request, in
+// memory, against this shared answer.
+func (s *server) rosterNow(r *http.Request) ([]fleet.Agent, error) {
+	s.rosterAt.mu.Lock()
+	if s.rosterAt.done && time.Since(s.rosterAt.when) < rosterEvery {
+		list, err := s.rosterAt.list, s.rosterAt.err
+		s.rosterAt.mu.Unlock()
+		return list, err
+	}
+	s.rosterAt.mu.Unlock()
+
+	list, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
+	s.rosterAt.mu.Lock()
+	s.rosterAt.list, s.rosterAt.err, s.rosterAt.when, s.rosterAt.done = list, err, time.Now(), true
+	s.rosterAt.mu.Unlock()
+	return list, err
+}
+
+// rosterEvery is the floor under how often this machine's own records are walked.
+//
+// Half the stream's tick, so a frame is never waiting on a stale answer for longer than it takes to
+// draw one, and ten viewers cost what two do.
+const rosterEvery = 350 * time.Millisecond
+
 // fleetList is the roster this person may see, from this machine and its peers.
 //
 // One function because there are two doors onto it now — the route above and the stream — and two
 // copies of "which companions, and which of them may be seen" is how a scope comes to mean one
 // thing on one screen and another on the next.
 func (s *server) fleetList(r *http.Request) []fleet.Agent {
-	list, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
+	return s.rosterFor(r, false)
+}
+
+// rosterFor is the roster, either read now or taken from the shared answer.
+//
+// shared is for the STREAM, which asks on a clock: there, one walk serves every viewer and being a
+// third of a second behind is invisible. A route is somebody asking a question — often right after
+// doing something — and it reads now, because "I dropped two items and the row still says three"
+// is the report that comes back otherwise.
+func (s *server) rosterFor(r *http.Request, shared bool) []fleet.Agent {
+	var list []fleet.Agent
+	var err error
+	if shared {
+		list, err = s.rosterNow(r)
+	} else {
+		list, err = fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
+	}
 	if err != nil {
 		return nil
 	}

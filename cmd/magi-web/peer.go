@@ -155,7 +155,38 @@ func (s *server) fleetOf(ctx context.Context, p peer) ([]fleet.Agent, error) {
 // that hides it. The row carries the reason, so "the tunnel is down" and "the console is up and has
 // nothing" do not look the same.
 func (s *server) federated(ctx context.Context, local []fleet.Agent) []fleet.Agent {
-	out := local
+	return append(local, s.peerFleet(ctx)...)
+}
+
+// peerFleet is the other machines' companions, asked for at most every peerEvery.
+//
+// The local half of a roster is a directory read and costs nothing; this half is one HTTP request
+// per peer per call, and it had no floor. That was survivable while a browser polled every three
+// seconds and stopped being survivable when the roster became a stream: the loop behind it looks
+// every 700ms, so one open tab was asking every peer 1.4 times a second — four times what the poll
+// cost, paid by the machine at the other end, and multiplied by every viewer.
+//
+// The cluster's own gossip is explicit about this shape of cost: a round a minute, two hosts at
+// random, capabilities capped, "because a member list is exchanged by every daemon every minute
+// and anything per-member is paid N times by N machines". A console that asks every peer for
+// everything, per viewer, per frame, is the same bill with nobody counting it.
+//
+// So the answer is shared and has a floor. A hundred viewers cost what one costs, and what they
+// see is at most peerEvery old — which is inside the grain of the thing it describes: a companion
+// picking up work is news for as long as the work takes.
+func (s *server) peerFleet(ctx context.Context) []fleet.Agent {
+	if len(s.peers) == 0 {
+		return nil
+	}
+	s.peerAt.mu.Lock()
+	if time.Since(s.peerAt.when) < peerEvery && s.peerAt.done {
+		list := s.peerAt.list
+		s.peerAt.mu.Unlock()
+		return list
+	}
+	s.peerAt.mu.Unlock()
+
+	var out []fleet.Agent
 	for _, r := range fanOut(ctx, s.peers, s.fleetOf) {
 		if r.Err != nil {
 			out = append(out, unreachable(r.Peer, r.Err))
@@ -163,8 +194,17 @@ func (s *server) federated(ctx context.Context, local []fleet.Agent) []fleet.Age
 		}
 		out = append(out, r.List...)
 	}
+	s.peerAt.mu.Lock()
+	s.peerAt.list, s.peerAt.when, s.peerAt.done = out, time.Now(), true
+	s.peerAt.mu.Unlock()
 	return out
 }
+
+// peerEvery is the floor under how often this console asks other machines for their companions.
+//
+// Three seconds, which is what the browser's own poll used to be — the number was fine, what was
+// wrong was that it was paid per viewer and per frame rather than once by the console.
+const peerEvery = 3 * time.Second
 
 // unreachable is the row a peer gets when it does not answer.
 func unreachable(p peer, err error) fleet.Agent {
