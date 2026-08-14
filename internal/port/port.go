@@ -689,10 +689,20 @@ type SpawnResult struct {
 // nothing to add does not implement MetaTool and gets the zero value, which is the behaviour every
 // built-in has always had.
 type ToolMetadata struct {
-	// Subagent marks a tool that runs a child agent. It puts the tool in the /subagents list and
-	// forces it to run alone: a child writes files, and the parent's guard captures each file's
-	// before/after around an edit, which is only race-free when writes are serialised.
+	// Subagent marks a tool that runs a child agent. It puts the tool in the /subagents list and,
+	// unless the tool also declares ReadOnlyChildren, forces it to run alone: a child writes files,
+	// and the parent's guard captures each file's before/after around an edit, which is only
+	// race-free when writes are serialised.
 	Subagent bool
+	// ReadOnlyChildren says every child this tool spawns can only look: no writing tool, no shell,
+	// nothing that asks a person. Two of those have nothing to race over, so a step that calls this
+	// tool twice runs both at once instead of paying for them one after the other.
+	//
+	// It is not taken on trust. A tool that declares it has its spawns CHECKED at the moment they
+	// are made — a spec asking for a tool that can write is refused, naming the tool — so the
+	// declaration cannot become false by editing the plugin's execute function. Without that this
+	// would be a promise in a comment, and the thing it is promising about is file corruption.
+	ReadOnlyChildren bool
 	// Group is a plugin-declared label for the /subagents list. Purely for display and bulk
 	// toggling — the enabled state lives per tool, never per group, so the two cannot disagree.
 	Group string

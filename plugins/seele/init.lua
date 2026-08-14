@@ -38,6 +38,9 @@ local PLANNER_SYSTEM = [[
 magi.register_tool{
   name = "seele_plan",
   subagent = true,
+  -- 자식은 읽기 전용이다(아래 tools 참고). 호스트가 이 선언을 spawn 시점에 검사하므로,
+  -- 여기에 적어 두면 한 스텝에서 seele_plan 이 두 번 불릴 때 둘이 동시에 돈다.
+  readonly_children = true,
   enabled = false,   -- 기본 꺼짐. /subagents 에서 켠다.
   group = "planning",
   -- 설명이 "언제 부를지"까지 말한다. 이게 이 서브에이전트가 초반에 도는 유일한 장치다 — 호스트에

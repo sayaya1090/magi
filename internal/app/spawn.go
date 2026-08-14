@@ -224,6 +224,32 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 // A child with no hook cannot spawn, which makes recursion impossible by construction rather than
 // bounded by a counter somebody has to remember to check. It is a named method so a test can ask
 // the question directly instead of inferring it from a tool call that never happens.
+// onlyLooks holds a tool to its declaration: if it said its children are read-only, the child it is
+// starting may ask for nothing but the four tools that look.
+//
+// An empty list is refused for the same reason a write tool is: it means "everything this companion
+// has", which is a child that can write.
+func onlyLooks(reg port.ToolRegistry, toolName string, want []string) error {
+	if reg == nil || toolName == "" {
+		return nil
+	}
+	t, ok := reg.Get(toolName)
+	if !ok || !port.ToolMetaOf(t).ReadOnlyChildren {
+		return nil
+	}
+	if len(want) == 0 {
+		return fmt.Errorf("spawn: %s says its children only read, so it must name their tools "+
+			"(any of %s) rather than leaving them the whole set", toolName, readOnlyList())
+	}
+	for _, n := range want {
+		if !readOnlyTools[n] {
+			return fmt.Errorf("spawn: %s says its children only read, and %q is not one of the "+
+				"tools that only read (%s)", toolName, n, readOnlyList())
+		}
+	}
+	return nil
+}
+
 func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID, toolName string) (
 	func(context.Context, port.SpawnSpec) (port.SpawnResult, error),
 	func(context.Context, string) ([]port.ChildStep, error),
@@ -279,6 +305,17 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		// belongs where the user can see and change it — not in a plugin's own config section,
 		// which the /subagents screen has no way to edit.
 		spec.ToolName = toolName // the host names it, not the plugin
+		// A tool that claims its children only look has that claim checked here, at the one place a
+		// child's tools are decided. Refused rather than narrowed: a spawn that quietly loses the
+		// tool it asked for is a child that fails later, somewhere else, for a reason nobody can
+		// see from the call.
+		//
+		// This is what makes ReadOnlyChildren a mechanism instead of a promise — the loop runs two
+		// of these at once on the strength of it, and what it is promising about is two children
+		// writing the same file at the same time.
+		if err := onlyLooks(a.tools, toolName, spec.Tools); err != nil {
+			return port.SpawnResult{}, err
+		}
 		if m, pv := a.subagentOverride(toolName); m != "" || pv != "" {
 			if m != "" {
 				spec.Model = m

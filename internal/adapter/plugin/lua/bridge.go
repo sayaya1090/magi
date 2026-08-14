@@ -121,6 +121,9 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 	meta := port.ToolMetadata{
 		Subagent: lua.LVAsBool(spec.RawGetString("subagent")),
 		Internal: lua.LVAsBool(spec.RawGetString("internal")),
+		// A subagent whose children only look. Two of those can run at once; the host checks each
+		// spawn against the claim rather than believing it.
+		ReadOnlyChildren: lua.LVAsBool(spec.RawGetString("readonly_children")),
 	}
 	// enabled=false ships it switched off. Absent means on, which is what every tool has always
 	// been — only a tool that says otherwise starts unticked.
