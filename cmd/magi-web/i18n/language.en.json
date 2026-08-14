@@ -401,6 +401,7 @@
   "pr.needs_words": "A pull request needs a title — the first line is it",
   "pr.no_base": "Nothing to open a request against — this checkout has no origin, and no main or master on it.",
   "pr.nothing_to_send": "This branch has no commits the base does not already have.",
+  "pr.unreachable": "This companion did not answer about pull requests. It may be older than this console, or it may have stopped.",
   "pr.will_push": "This branch is not on the remote yet; opening the request pushes it first.",
   "pref.lang": "Language",
   "pref.lang.en": "English",

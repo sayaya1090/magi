@@ -401,6 +401,7 @@
   "pr.needs_words": "PR에는 제목이 필요합니다 — 첫 줄이 제목입니다",
   "pr.no_base": "요청을 올릴 대상이 없습니다 — 이 체크아웃에 origin도, main이나 master도 없습니다.",
   "pr.nothing_to_send": "베이스에 없는 커밋이 이 브랜치에 없습니다.",
+  "pr.unreachable": "이 컴패니언이 PR에 대해 답하지 않았습니다. 이 콘솔보다 오래된 빌드이거나, 멈췄을 수 있습니다.",
   "pr.will_push": "이 브랜치는 아직 원격에 없습니다. 요청을 올리면 먼저 푸시합니다.",
   "pref.lang": "언어",
   "pref.lang.en": "English",

@@ -6523,7 +6523,11 @@ async function openPR(a) {
   drawCardTabs(a);
   const st = await fetchOne('/pr' + qFor(a));
   if (cardShows !== PR) return;
-  drawPR(a, st || {});
+  // null is "this console got no answer" and {} is "a companion that answered with nothing".
+  // Kept apart, because drawPR turns an empty answer into "this workspace is not a checkout" —
+  // which is a sentence, and a wrong one: a live run showed it for a companion running an older
+  // build that had never heard of the question.
+  drawPR(a, st === null ? {unreachable: true} : st);
 }
 
 function drawPR(a, st) {
@@ -6536,7 +6540,8 @@ function drawPR(a, st) {
   // Left: what is going up. The commits, newest first, which is the order somebody writing the
   // request reads them in.
   const list = cell('commitfiles');
-  if (!st.repo) list.append(cell('filesnote', tr('git.not_a_repo')));
+  if (st.unreachable) list.append(cell('filesnote', tr('pr.unreachable')));
+  else if (!st.repo) list.append(cell('filesnote', tr('git.not_a_repo')));
   else if (!st.base) list.append(cell('filesnote', tr('pr.no_base')));
   else if (!(st.commits || []).length) list.append(cell('filesnote', tr('pr.nothing_to_send')));
   for (const c of (st.commits || [])) {
@@ -6570,7 +6575,7 @@ function drawPR(a, st) {
   });
   const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-share-from-square'),
                    tr('git.pr'));
-  go.disabled = !st.repo || !st.base || !(st.commits || []).length;
+  go.disabled = !!st.unreachable || !st.repo || !st.base || !(st.commits || []).length;
   go.onclick = () => whileItRuns(go, async () => {
     const text = String(msg.value || '').trim();
     if (!text) { says(tr('pr.needs_words')); return; }
