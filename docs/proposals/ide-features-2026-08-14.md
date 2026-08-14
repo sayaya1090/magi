@@ -1,6 +1,6 @@
 # What an IDE has that this console does not — and which of it is worth taking
 
-Status: **survey and shortlist.** Nothing here is built. The point is to decide what belongs in a
+Status: **survey and shortlist.** §2.1 is built (MANUAL §12.4); the rest is not. The point is to decide what belongs in a
 console for **supervising companions** rather than to reproduce an editor.
 
 The filter used throughout: magi's console exists so that a person can (a) understand what an agent
@@ -35,7 +35,7 @@ document is only about the gaps.
 
 ## 2. The shortlist — worth building, in order
 
-### 2.1 A command palette — one keystroke to anything
+### 2.1 A command palette — one keystroke to anything · **BUILT** (2026-08-14)
 
 Every IDE has it (`Cmd+P`, `Cmd+Shift+P`) and this console has eleven screens, four panels, a rail,
 two tab strips and a growing number of row menus. The controls are discoverable by eye and slow by
@@ -142,7 +142,7 @@ line this survey will not cross.
 
 ## 5. Suggested order
 
-1. **Command palette** (2.1) — makes everything else reachable
+1. ~~**Command palette** (2.1)~~ — built: verbs, companions, and files once there is a query
 2. **Hunk-level staging** (2.2) — the reviewer's loop, and the biggest daily saving
 3. **Problems panel** (2.3) — turns output already on the screen into something to act on
 4. **Keyboard shortcuts** (2.6) — small, and multiplies 1–3

@@ -825,7 +825,22 @@ you land on. Each window holds ONE event stream, and a tab you are not looking a
 browser allows six connections to a host, a stream never ends, and at two per window the third
 window could not make an ordinary request at all.
 
-### 12.4 Meetings — several companions on one question
+### 12.4 One keystroke to anything — `Ctrl`/`⌘` + `K`
+
+A field, and under it what this console can name: its own verbs, the companions, and — once there
+are two characters to search on — the files of the workspace on screen. Arrows move, `Enter` takes
+the row, `Escape` leaves.
+
+Nothing in it is a capability of its own. Every entry ends in the same call the control on the
+screen makes, so there is no second path to anything and no second set of rules about who may. A
+verb is offered only where it means something: interrupting is not on the list when no companion is
+open, and the meetings entry is absent for somebody who may not convene one.
+
+The files are asked for only when there is a query. A palette that fetched a file list on open would
+make a keystroke cost a walk of somebody's repository; the companions and the verbs are already in
+the page's memory and answer without asking anybody.
+
+### 12.5 Meetings — several companions on one question
 
 Reached from the rail, or from the companions list once there are two of them. A meeting is the
 console asking several companions the same question in turn and letting each read what the others
@@ -871,7 +886,7 @@ participants have all just said they had nothing to add, and what changes their 
 type there. The conclusions are cleared with it — they belonged to the ending that has just been
 undone — and the round ceiling doubles.
 
-### 12.5 The routes, if you are automating
+### 12.6 The routes, if you are automating
 
 `GET` unless marked. Everything takes `?socket=` (or `?d=`) to name a companion, and `?peer=` to
 name a federated console.

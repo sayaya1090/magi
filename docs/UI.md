@@ -616,7 +616,11 @@ phone for months.
    a walk that is only a redraw may use what was read in the last ten seconds. A mutation this
    console made throws the kept listings away — that is not old, it is wrong — and the ⟳ control in
    the card's head is for the file that appeared because of something the console cannot see.
-13. **A control that only a pointer can reach is a control a phone does not have.** Row menus and
+13. **The palette is a way IN, never a second way to do something.** Ctrl/⌘+K lists what this
+   console can name and every entry ends in the call the on-screen control makes. It offers a verb
+   only where that verb means something — a list that includes what does nothing teaches people to
+   press things that do nothing — and it asks the server for nothing until there is a query.
+14. **A control that only a pointer can reach is a control a phone does not have.** Row menus and
    per-file git actions appear on hover, with focus-within for a keyboard; on touch there is
    neither, so where there is no hover they are simply shown. Measured on an iPhone 13: twelve row
    menus and twenty-nine git actions, none of them reachable.
