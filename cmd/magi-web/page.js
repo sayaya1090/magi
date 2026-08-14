@@ -5226,6 +5226,14 @@ function drawRoom(m) {
   topic.textContent = m.topic;
   box.append(topic);
   box.append(cell('meetmeta', meetWhere(m)));
+  // Before the room opens, say so and say how far along it is. A meeting that has been convened
+  // and is silent looks exactly like one that has hung, and the difference is minutes of model
+  // time somebody is deciding whether to wait for.
+  if (!m.opened && !m.closed) {
+    const all = (m.speakers || []).filter(sp => !sp.person);
+    const set = all.filter(sp => sp.ready || sp.trouble).length;
+    box.append(cell('meetgetting', tr('meet.getting', {n: set, of: all.length})));
+  }
   // Something is happening and it takes a minute. Without this the room is a still page between
   // turns — the same picture as a room that has stopped — and the guidance is explicit that a wait
   // whose length nobody can predict gets an indeterminate indicator rather than nothing.
@@ -5235,7 +5243,8 @@ function drawRoom(m) {
     bar.className = 'meetbar-progress';
     // Named for what is being waited on, not "loading": whoever has the floor is the answer to
     // "why is nothing on the screen changing".
-    bar.setAttribute('aria-label', m.collecting ? tr('meet.collecting')
+    bar.setAttribute('aria-label', !m.opened ? tr('meet.getting_ready')
+      : m.collecting ? tr('meet.collecting')
       : tr('meet.waiting_on', {who: m.holder || upNextName(m) || ''}));
     box.append(bar);
   }
@@ -5285,6 +5294,10 @@ function roster(m) {
   box.className = 'meetroster';
   for (const s of (m.speakers || [])) {
     const holding = m.holder === s.name;
+    // Before the room opens there is no floor and no turn — what there is, is homework. The chip
+    // says which of the three states this participant is in, because a reader watching a blank
+    // meeting cannot otherwise tell preparation from a hang.
+    const waiting = !m.opened && !s.person;
     // Assist chips: each one does something. Not filter chips — nothing here is being filtered, and
     // a filter chip's tick would say "included" about a participant who is in the room either way.
     // A filter chip, because the bundle has those and assist chips are not in it — and the
@@ -5295,11 +5308,16 @@ function roster(m) {
     // it is still the one whose turn this round is — and a chip wearing two markers at once says
     // neither: the eye wants "this one now, that one after".
     c.className = 'meetsp' + (holding ? ' holding' : '') + (s.next && !holding ? ' next' : '') +
-                  (s.person ? ' person' : '') + (s.passes >= 2 ? ' resting' : '');
+                  (s.person ? ' person' : '') + (s.passes >= 2 ? ' resting' : '') +
+                  (waiting && !s.ready && !s.trouble ? ' getting' : '') +
+                  (waiting && s.ready ? ' set' : '') + (s.trouble ? ' lost' : '');
     c.setAttribute('label', s.name);
     c.selected = holding;
     // The state in words as well as in colour, where a colour alone would be the only telling.
-    const what = holding ? tr('meet.holding')
+    const what = s.trouble ? s.trouble
+      : waiting && !s.ready ? tr('meet.getting_ready')
+      : waiting ? tr('meet.ready')
+      : holding ? tr('meet.holding')
       : s.next ? tr('meet.next')
       // Two passes and the rules stop asking. Said here rather than left as silence: a reader
       // watching a companion be skipped needs to know it is a rule and not a fault — and that

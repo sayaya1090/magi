@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -73,7 +74,10 @@ type meetView struct {
 	Max    int    `json:"max"`
 	Holder string `json:"holder,omitempty"`
 	Held   bool   `json:"held,omitempty"`
-	Closed bool   `json:"closed,omitempty"`
+	// Opened is false while everybody is still getting ready. The room has no floor and no turns
+	// until it is true.
+	Opened bool `json:"opened,omitempty"`
+	Closed bool `json:"closed,omitempty"`
 	// Spent marks a meeting the backstop ended rather than the room: a discussion that converged
 	// and one that ran out of laps are different outcomes, and the screen says which.
 	Spent      bool          `json:"spent,omitempty"`
@@ -105,6 +109,12 @@ type meetSpeaker struct {
 	// Next marks whoever is being asked right now, so the roster shows where the token is instead
 	// of making somebody read to the end of the transcript to work out whose turn it is.
 	Next bool `json:"next,omitempty"`
+	// Ready is whether this one has finished reading its own workspace, Brief is what it said it
+	// brings, and Trouble is why it could not get ready. Until the room opens these three are the
+	// screen: a reader watching a blank meeting cannot otherwise tell preparation from a hang.
+	Ready   bool   `json:"ready,omitempty"`
+	Brief   string `json:"brief,omitempty"`
+	Trouble string `json:"trouble,omitempty"`
 }
 
 type meetLine struct {
@@ -392,6 +402,7 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 	run.stop = cancel
 	run.mu.Unlock()
 	defer cancel()
+	run.getReady(ctx, s)
 	for {
 		if ctx.Err() != nil {
 			return
@@ -477,6 +488,82 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 	run.mu.Lock()
 	run.collecting = false
 	run.mu.Unlock()
+}
+
+// getReady sends everybody off to read their own workspace, and opens the room when they are back.
+//
+// All at once, because they are reading different machines and there is nothing to serialise: the
+// wait is as long as the slowest participant rather than the sum of them. What each brings is kept
+// on their row, which is what the screen draws while it says "getting ready".
+//
+// A participant that cannot get ready does not hold the room — no daemon, a model that failed, a
+// workspace that has gone. Its trouble is recorded and the meeting opens without it, because a
+// room that never opens is worse than one that opens a voice short and says why.
+func (run *meetingRun) getReady(ctx context.Context, s *server) {
+	run.mu.Lock()
+	id, topic := run.id, run.m.Topic
+	type who struct{ name, sock string }
+	var going []who
+	for _, sp := range run.m.Speakers {
+		if sp.Person() {
+			continue
+		}
+		going = append(going, who{sp.Name, run.sockets[sp.Name]})
+	}
+	run.mu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, w := range going {
+		wg.Add(1)
+		go func(w who) {
+			defer wg.Done()
+			brief, err := s.joinMeeting(ctx, w.sock, id, topic)
+			run.mu.Lock()
+			defer run.mu.Unlock()
+			if err != nil {
+				run.m.Prepared(w.name, "", err.Error())
+				return
+			}
+			run.m.Prepared(w.name, brief, "")
+		}(w)
+	}
+	wg.Wait()
+	run.mu.Lock()
+	run.m.Open()
+	run.mu.Unlock()
+}
+
+// joinMeeting is one companion getting ready, on a connection of its own for the same reason
+// speakTo uses one: this is minutes of model time and the pooled client serialises everything else
+// sent to that daemon behind it.
+func (s *server) joinMeeting(ctx context.Context, socket, id, topic string) (string, error) {
+	if strings.TrimSpace(socket) == "" {
+		return "", errNoDoor
+	}
+	cl, err := daemon.Dial(socket)
+	if err != nil {
+		return "", err
+	}
+	defer cl.Close()
+	type answer struct {
+		said string
+		err  error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		said, err := cl.Join(id, topic)
+		done <- answer{said, err}
+	}()
+	late := time.NewTimer(6 * time.Minute)
+	defer late.Stop()
+	select {
+	case a := <-done:
+		return a.said, a.err
+	case <-late.C:
+		return "", errors.New("this companion did not finish getting ready")
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 // speakTo asks one companion for one contribution.
@@ -686,6 +773,7 @@ func (run *meetingRun) viewLocked() meetView {
 	out := meetView{
 		ID: run.id, Topic: run.m.Topic, Round: run.m.Round, Max: run.m.MaxRounds,
 		Holder: run.m.Holder, Held: run.held, Closed: run.m.Closed, Spent: run.m.Spent,
+		Opened:     run.m.Opened,
 		Collecting: run.collecting,
 		Trouble:    run.trouble, Speakers: []meetSpeaker{}, Said: []meetLine{},
 	}
@@ -696,6 +784,9 @@ func (run *meetingRun) viewLocked() meetView {
 		out.Speakers = append(out.Speakers, meetSpeaker{
 			Name: sp.Name, Socket: sp.Socket, Person: sp.Person(), Passes: sp.Passes,
 			Next: sp.Name == run.upNext(),
+			// A person is ready by being here; everybody else has homework, and the screen says
+			// which of the two states they are in until the room opens.
+			Ready: sp.Person() || sp.Ready, Brief: sp.Brief, Trouble: sp.Trouble,
 		})
 	}
 	for _, u := range run.m.Said {

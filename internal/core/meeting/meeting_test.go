@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+// opened is a meeting whose participants have all finished getting ready.
+//
+// Every test in this file is about what happens IN the room — who speaks, who is skipped, when it
+// ends — and none is about the door. Written once here rather than as a line in each, so the
+// preparation gate reads as a precondition instead of being smuggled into seven setups.
+func opened(m *Meeting) *Meeting {
+	for i := range m.Speakers {
+		m.Speakers[i].Ready = true
+	}
+	m.Open()
+	return m
+}
+
 func names(m *Meeting, n int) []string {
 	var out []string
 	for i := 0; i < n; i++ {
@@ -24,10 +37,10 @@ func names(m *Meeting, n int) []string {
 // The baseline of a meeting is hearing from each of them: a first round that skipped anybody would
 // be a meeting whose shape depended on who happened to be asked first.
 func TestTheFirstRoundAsksEverybody(t *testing.T) {
-	m := New("the empty state", []Speaker{
+	m := opened(New("the empty state", []Speaker{
 		{Name: "design", Socket: "/s/d"}, {Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"},
 		{Name: "you"}, // the person: never asked, speaks when they want to
-	}, 3)
+	}, 3))
 	got := strings.Join(names(m, 3), " ")
 	if got != "design api ops" {
 		t.Fatalf("the first round went %q", got)
@@ -47,9 +60,9 @@ func TestTheFirstRoundAsksEverybody(t *testing.T) {
 // being asked. Two in a row and it is left out — the largest waste in a meeting is a turn spent on
 // a companion that has twice said this is not its business.
 func TestPassingTwiceLeavesYouOutUntilSomebodyNamesYou(t *testing.T) {
-	m := New("the billing endpoint", []Speaker{
+	m := opened(New("the billing endpoint", []Speaker{
 		{Name: "design", Socket: "/s/d"}, {Name: "api", Socket: "/s/a"},
-	}, 9)
+	}, 9))
 	// Round one: design speaks, api passes.
 	s, _ := m.Next()
 	m.Say(Utterance{Who: s.Name, Text: "the screen needs the error text"})
@@ -99,9 +112,9 @@ func TestPassingTwiceLeavesYouOutUntilSomebodyNamesYou(t *testing.T) {
 // A room where everybody passed has stopped moving, and that ends it — a better reason than a
 // count, and it ends without another lap of asking the same silent room.
 func TestAWholeRoundOfPassesEndsIt(t *testing.T) {
-	m := New("the rollout", []Speaker{
+	m := opened(New("the rollout", []Speaker{
 		{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"},
-	}, 9)
+	}, 9))
 	for i := 0; i < 2; i++ {
 		s, ok := m.Next()
 		if !ok {
@@ -129,7 +142,7 @@ func TestAWholeRoundOfPassesEndsIt(t *testing.T) {
 // The rounds are bounded, because each lap is a model turn per participant and a meeting that
 // cannot end is one that spends until somebody notices.
 func TestTheRoundsRunOut(t *testing.T) {
-	m := New("what to do about the flake", []Speaker{{Name: "api", Socket: "/s/a"}}, 2)
+	m := opened(New("what to do about the flake", []Speaker{{Name: "api", Socket: "/s/a"}}, 2))
 	for i := 0; i < 2; i++ {
 		s, ok := m.Next()
 		if !ok {
@@ -154,7 +167,7 @@ func TestTheRoundsRunOut(t *testing.T) {
 // of a discussion that has just got interesting. The number is not a preference: it is the point at
 // which the console stops a room that will not stop itself.
 func TestTheDefaultCeilingIsNotWhatEndsAnOrdinaryMeeting(t *testing.T) {
-	m := New("what to do", []Speaker{{Name: "api", Socket: "/s/a"}}, 0)
+	m := opened(New("what to do", []Speaker{{Name: "api", Socket: "/s/a"}}, 0))
 	if m.MaxRounds < 5 {
 		t.Errorf("the default ceiling is %d rounds", m.MaxRounds)
 	}
@@ -162,7 +175,7 @@ func TestTheDefaultCeilingIsNotWhatEndsAnOrdinaryMeeting(t *testing.T) {
 
 // The person takes the floor when they want it and gives it back, and nothing about that is a turn.
 func TestThePersonTakesTheFloorAndGivesItBack(t *testing.T) {
-	m := New("naming", []Speaker{{Name: "design", Socket: "/s/d"}, {Name: "you"}}, 3)
+	m := opened(New("naming", []Speaker{{Name: "design", Socket: "/s/d"}, {Name: "you"}}, 3))
 	m.Take("you")
 	if m.Holder != "you" {
 		t.Fatalf("the floor is with %q", m.Holder)
@@ -184,7 +197,7 @@ func TestThePersonTakesTheFloorAndGivesItBack(t *testing.T) {
 // A pass is in the record, with its reason when there was one: silence from somebody who read the
 // discussion is information, and a reader of the transcript has to be able to tell it from absence.
 func TestTheTranscriptTellsSilenceFromAbsence(t *testing.T) {
-	m := New("the schema", []Speaker{{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"}}, 2)
+	m := opened(New("the schema", []Speaker{{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"}}, 2))
 	m.Say(Utterance{Who: "api", Text: "add a column"})
 	m.Say(Utterance{Who: "ops", Pass: true, Text: "no deploy impact"})
 	got := m.Transcript()
@@ -193,5 +206,46 @@ func TestTheTranscriptTellsSilenceFromAbsence(t *testing.T) {
 	}
 	if !strings.Contains(got, "ops passed: no deploy impact") {
 		t.Errorf("a pass with a reason reads as %q", got)
+	}
+}
+
+// Nobody speaks until everybody has read their own workspace.
+//
+// A meeting where the participants arrive cold spends its first two rounds looking things up out
+// loud, and a reader watching the screen cannot tell that from a slow model. The room waits — and
+// a participant that could NOT get ready does not hold it, because a room that never opens is
+// worse than one that opens a voice short and says so.
+func TestTheRoomWaitsUntilEverybodyIsReady(t *testing.T) {
+	m := New("who owns the retry budget", []Speaker{
+		{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"}, {Name: "you"},
+	}, 3)
+	if _, ok := m.Next(); ok {
+		t.Fatal("somebody was asked to speak before the room opened")
+	}
+	if m.Open() {
+		t.Fatal("the room opened with nobody ready")
+	}
+	m.Prepared("api", "the client assumes three tries", "")
+	if m.Open() {
+		t.Fatal("the room opened with one of two ready")
+	}
+	if _, ok := m.Next(); ok {
+		t.Fatal("a prepared participant was asked while the other was still reading")
+	}
+	// The one that could not get ready is not a reason to wait for ever.
+	m.Prepared("ops", "", "no daemon at /s/o")
+	if !m.Open() {
+		t.Fatal("the room did not open once everybody had answered one way or the other")
+	}
+	who, ok := m.Next()
+	if !ok || who.Name != "api" {
+		t.Fatalf("the first turn went to %q (%v)", who.Name, ok)
+	}
+	// What each of them brought is on the record, which is what the screen draws.
+	if m.Speakers[0].Brief == "" || !m.Speakers[0].Ready {
+		t.Errorf("the prepared participant reads as %+v", m.Speakers[0])
+	}
+	if m.Speakers[1].Ready || m.Speakers[1].Trouble == "" {
+		t.Errorf("the one that failed reads as %+v", m.Speakers[1])
 	}
 }

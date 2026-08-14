@@ -5179,7 +5179,7 @@ await loadMeet();
 // participant who mysteriously never spoke.
 func TestTheMeetingScreenSaysWhereTheTokenIs(t *testing.T) {
 	got := meetPage(t, `{
-    id: 'm1', topic: 'who owns the retry budget', round: 2, max: 3, holder: 'design',
+    id: 'm1', topic: 'who owns the retry budget', opened: true, round: 2, max: 3, holder: 'design',
     trouble: 'ops: no daemon at /s/ops.sock',
     speakers: [{name: 'design', socket: '/s/d'}, {name: 'api', socket: '/s/a', next: true},
                {name: 'ops', socket: '/s/o', passes: 2}, {name: 'you', person: true}],

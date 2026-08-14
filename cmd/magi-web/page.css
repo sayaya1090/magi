@@ -2862,6 +2862,14 @@
      transcript under it is a column of text with its own left edge — chips ranged against that
      edge read as the first line of the transcript. */
   .meetroster { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); justify-content:center; }
+  /* Getting ready, ready, and could not. Three states before the room opens, and the words are in
+     the tooltip as well — a colour that is the only telling is one nobody can read out. */
+  .meetsp.getting { opacity:.75; }
+  .meetsp.set { --md-filter-chip-outline-color:var(--magi-ref-ok, var(--magi-ref-accent)); }
+  .meetsp.lost { --md-filter-chip-outline-color:var(--magi-ref-warn);
+                 --md-filter-chip-label-text-color:var(--magi-ref-warn); }
+  .meetgetting { color:var(--magi-ref-muted); }
+
   /* Whoever holds the floor: a container role and the `on-` colour that belongs to it, rather than
      two colours that happen to sit together. Written as primary-on-surface first, and the light
      theme measured 4.01:1 on the one name a reader is looking for. */

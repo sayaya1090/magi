@@ -48,6 +48,17 @@ type Speaker struct {
 	// somebody names them: the largest waste in a meeting is a turn spent on a companion that has
 	// already said twice that this is not its business.
 	Passes int
+	// Ready is whether this participant has finished getting ready — read its own workspace, its
+	// history and the question — and Brief is what it said it brings. Nobody speaks until
+	// everybody is ready: a meeting where people arrive cold spends its first two rounds looking
+	// things up out loud, and the reader watching the screen cannot tell that from a slow model.
+	//
+	// A person is ready the moment they are in the room; there is nothing for them to prepare.
+	Ready bool
+	Brief string
+	// Trouble is why this participant could not get ready, when that is what happened. It is not
+	// a reason to hold the room: the meeting opens without them and says so.
+	Trouble string
 }
 
 // Person reports whether this speaker is the human in the room.
@@ -113,6 +124,9 @@ type Meeting struct {
 	// Named is anybody called on by name since the last time they spoke: it puts a skipped speaker
 	// back in the round, which is what happens when a person says "@ops, what about the rollout".
 	Named map[string]bool
+	// Opened is false while the participants are still getting ready. The floor does not move and
+	// nothing is asked until it is true — see Ready on each speaker.
+	Opened bool
 	// Closed is set when the meeting has finished — everybody passed, the backstop stopped it, or
 	// the convener ended it.
 	Closed bool
@@ -140,7 +154,10 @@ func New(topic string, speakers []Speaker, maxRounds int) *Meeting {
 // to answer. Everybody else is asked in order — all of them in the first round, and from the second
 // only those who have something to say, judged by what they have done with their last two turns.
 func (m *Meeting) Next() (Speaker, bool) {
-	if m.Closed {
+	if m.Closed || !m.Opened {
+		// A room that has not opened has nobody to ask. The participants are reading their own
+		// workspaces; asking one of them now would be asking it to answer a question it has not
+		// finished looking at, which is the thing the preparation turn exists to prevent.
 		return Speaker{}, false
 	}
 	for {
@@ -166,6 +183,40 @@ func (m *Meeting) Next() (Speaker, bool) {
 			return Speaker{}, false
 		}
 		m.Round++
+	}
+}
+
+// Open reports whether everybody has finished getting ready, and opens the room when they have.
+//
+// Everybody, not most: the reason to wait at all is that the first speaker should be answering a
+// question the others have already read their own workspaces about. A participant that could not
+// get ready — no daemon, a model that failed — does not hold the room; it carries its Trouble and
+// the meeting opens without it, because the alternative is a room that never opens and a screen
+// that cannot say why.
+func (m *Meeting) Open() bool {
+	if m.Opened {
+		return true
+	}
+	for _, s := range m.Speakers {
+		if s.Person() || s.Ready || s.Trouble != "" {
+			continue
+		}
+		return false
+	}
+	m.Opened = true
+	return true
+}
+
+// Prepared marks what a participant came back with, and whether it managed to.
+func (m *Meeting) Prepared(who, brief, trouble string) {
+	for i := range m.Speakers {
+		if m.Speakers[i].Name != who {
+			continue
+		}
+		m.Speakers[i].Ready = trouble == ""
+		m.Speakers[i].Brief = brief
+		m.Speakers[i].Trouble = trouble
+		return
 	}
 }
 

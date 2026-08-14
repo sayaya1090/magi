@@ -418,7 +418,7 @@ const demoScript = `
     // do, and one of them with nothing, which is an ordinary outcome.
     '/meet': [
       {id: 'm20260813-090400-0', topic: 'how long may the fleet table take to load, and who owns it',
-       round: 2, max: 5, holder: 'you', held: true,
+       opened: true, round: 2, max: 5, holder: 'you', held: true,
        trouble: 'ops: no daemon at /demo/ops.sock',
        speakers: [
          {name: 'design', socket: '/demo/design.sock'},
@@ -438,8 +438,18 @@ const demoScript = `
          {who: 'design', round: 2, at: '2026-08-13T09:07:30Z',
           text: 'Then the table renders whatever has arrived and marks the rest as still coming, rather than waiting for the slowest machine.'},
        ]},
+      {id: 'm20260814-081500-0', topic: 'should the console keep polling for the fleet, or stream it',
+       opened: false, round: 1, max: 5,
+       speakers: [
+         {name: 'api', socket: '/demo/api.sock', ready: true,
+          brief: 'The stream is already there for the transcript; the fleet is the only poll left on my side.'},
+         {name: 'design', socket: '/demo/design.sock'},
+         {name: 'ops', socket: '/demo/ops.sock', trouble: 'no daemon at /demo/ops.sock'},
+         {name: 'you', person: true},
+       ],
+       said: []},
       {id: 'm20260813-142000-0', topic: 'the retry budget: who owns it and what happens when it runs out',
-       round: 1, max: 5, holder: 'api',
+       opened: true, round: 1, max: 5, holder: 'api',
        speakers: [
          {name: 'api', socket: '/demo/api.sock'},
          {name: 'ops', socket: '/demo/ops.sock', next: true},
@@ -450,7 +460,7 @@ const demoScript = `
           text: 'Two hundred milliseconds and three tries is what the client assumes today. Nothing enforces either number and both are written in two places.'},
        ]},
       {id: 'm20260813-101200-0', topic: 'do we keep the fleet table or make it a list on narrow screens',
-       round: 3, max: 5, holder: 'design', held: true,
+       opened: true, round: 3, max: 5, holder: 'design', held: true,
        speakers: [
          {name: 'design', socket: '/demo/design.sock'},
          {name: 'buttons', socket: '/demo/buttons.sock', passes: 2},
@@ -466,7 +476,7 @@ const demoScript = `
           text: 'nothing here touches a control of mine'},
        ]},
       {id: 'm20260811-093000-0', topic: 'why the console asks twice before it stops a turn',
-       round: 2, max: 3, closed: true,
+       opened: true, round: 2, max: 3, closed: true,
        speakers: [
          {name: 'api', socket: '/demo/api.sock'},
          {name: 'ops', socket: '/demo/ops.sock'},
@@ -483,7 +493,7 @@ const demoScript = `
          {who: 'api', what: 'Make the stop path answer "already finished" instead of an error.'},
        ]},
       {id: 'm20260812-161500-0', topic: 'what to do about the empty state nobody specified',
-       round: 2, max: 2, closed: true,
+       opened: true, round: 2, max: 2, closed: true,
        speakers: [
          {name: 'design', socket: '/demo/design.sock'},
          {name: 'buttons', socket: '/demo/buttons.sock'},

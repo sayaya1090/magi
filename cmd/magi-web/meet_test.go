@@ -308,6 +308,12 @@ func TestRefreshingAtTheEndOfARoundDoesNotStartTheNextOne(t *testing.T) {
 	run := &meetingRun{m: meeting.New("what to do", []meeting.Speaker{
 		{Name: "design", Socket: "/s/d"}, {Name: "api", Socket: "/s/a"}, {Name: "you"},
 	}, 3)}
+	// The room is open: this test is about refreshing a meeting that is under way, and a meeting
+	// only has rounds once everybody has finished getting ready.
+	for i := range run.m.Speakers {
+		run.m.Prepared(run.m.Speakers[i].Name, "ready", "")
+	}
+	run.m.Open()
 	run.m.Say(meeting.Utterance{Who: "design", Text: "one"})
 	run.m.Say(meeting.Utterance{Who: "api", Text: "two"})
 
