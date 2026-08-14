@@ -6176,6 +6176,17 @@ function waitingFor(key) {
 // walks that are only a redraw: arriving at the panel, coming back to the tab.
 async function loadTree(a, kept) {
   if (!a || !filesOpen()) return;
+  // A search is what the pane is showing, and it stays showing it.
+  //
+  // Everything that changes the workspace redraws this pane — opening a file, renaming one, the
+  // refresh control — and each of those threw the results away and put the plain tree back. Live:
+  // search, open the first hit, and the list you were working through is gone; the second hit is
+  // now a directory that expands when you press where it was. Reported as "the second file does
+  // not open".
+  if (findQ.trim()) {
+    await runFind(a);
+    return;
+  }
   // One walk at a time per companion. Arriving at this screen asks for the tree, and so does the
   // first frame that follows a second later — measured on the live console as two /files and two
   // /git for one arrival, both answering the same question about the same directory. The second is
@@ -7524,7 +7535,7 @@ function drawCardTabs(a) {
     const t = document.createElement('md-secondary-tab');
     t.append(cell('tablbl', path === PR ? tr('git.pr')
                            : path === COMMIT ? tr('git.commit')
-                           : isDiff(path) ? baseName(diffPath(path)) + ' ±' : baseName(path)));
+                           : isDiff(path) ? tabName(diffPath(path)) + ' ±' : tabName(path)));
     // A way to shut it, on the tab, which is where an editor puts it. An icon button inside a tab
     // would be a target inside a target; this is a plain mark with its own click, and the tab
     // keeps its own.
@@ -7586,6 +7597,23 @@ function showCard() {
 }
 
 function baseName(p) { return String(p).split('/').pop() || p; }
+
+// tabName is what a tab is called: the file's name, and as much of the path as it takes to tell it
+// from the others that are open.
+//
+// Three tabs reading "SKILL.md" is three tabs nobody can choose between — measured, opening three
+// changed files from the git card. The names are how a reader finds the file they were in, and a
+// name shared by all of them is not one.
+function tabName(path) {
+  const name = baseName(path);
+  const clash = openFiles.some(other => {
+    const p = isDiff(other) ? diffPath(other) : other;
+    return p !== path && baseName(p) === name;
+  });
+  if (!clash) return name;
+  const parts = String(path).split('/');
+  return parts.length > 1 ? parts[parts.length - 2] + '/' + name : name;
+}
 
 // shortPath is a workspace path with the home directory folded away — the head of a tree is a
 // label, and /Users/somebody/work/thing takes the width of the pane to say "thing".

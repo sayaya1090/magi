@@ -948,6 +948,49 @@ console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div
 	}
 }
 
+// A search stays on the screen when a hit is opened.
+//
+// Everything that changes the workspace redraws the pane, and each of those put the plain tree back
+// in place of the results. Live: search, open the first hit, and the list you were working through
+// is gone — the row where the second hit was is a directory now, so pressing it expands a folder
+// instead of opening the file. Reported as "the second file does not open".
+func TestOpeningAHitKeepsTheSearchOnScreen(t *testing.T) {
+	const one = `[{"socket":"/s/a.sock","name":"api","workdir":"/w","state":"idle","live":true,"session":"s1"}]`
+	got := runPage(t, one, "?d=%2Fs%2Fa.sock", `
+localStorage.setItem('files', 'open');
+document.body.setAttribute('files', 'open');
+const was = globalThis.fetch;
+globalThis.fetch = async (p, init) => {
+  const path = String(p).split('?')[0];
+  if (path === '/find') return {ok: true, json: async () => ({hits: ['one.txt', 'two.txt']})};
+  if (path === '/file') return {ok: true, json: async () => ({text: '1\tsomething'})};
+  if (path === '/files') return {ok: true, json: async () => ([{name: 'a-directory', isDir: true}])};
+  if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
+  return was(p, init);
+};
+const a = {socket: '/s/a.sock', workdir: '/w', name: 'api'};
+findQ = 'txt';
+await runFind(a);
+const rows = () => byId.files.find(e => String(e.className).split(' ').includes('treerow'));
+const words = r => r.find(() => true).map(k => k.textContent || '').join('');
+const before = rows().map(words);
+await openFile(a, 'one.txt');
+await Promise.resolve(); await Promise.resolve();
+console.log(JSON.stringify({before, after: rows().map(words)}));
+`)
+	before, _ := got["before"].([]any)
+	if len(before) != 2 {
+		t.Fatalf("the search drew %v", before)
+	}
+	after, _ := got["after"].([]any)
+	if len(after) != 2 {
+		t.Fatalf("opening a hit left %d rows: %v — the results were replaced by the tree", len(after), after)
+	}
+	if all := fmt.Sprint(after); !strings.Contains(all, "two.txt") {
+		t.Errorf("the other hits are gone: %v", all)
+	}
+}
+
 // A verdict read inside a past session is inside it, and the trail has to say so.
 //
 // Measured on the live console: standing in one, the crumbs read "api / ⚖ Melchior / s_8a30…",
