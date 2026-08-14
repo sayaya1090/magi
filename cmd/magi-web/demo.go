@@ -603,11 +603,15 @@ const demoScript = `
     if (h === bannerWas) return;
     bannerWas = h;
     document.documentElement.style.setProperty('--demo-banner', h + 'px');
-    // Out of the flow, so the space it used to take has to be given back — to the page, and to the
-    // rail, which is fixed to the top of the window and knows nothing about a notice above it.
+    // Out of the flow, so the space it used to take has to be given back to the page.
+    //
+    // To the page and NOT to the rail. The rail used to be told from here, with an inline
+    // padding-top, and an inline style is one no media query can take back: on a phone the rail is
+    // a bar at the FOOT of the window, and 69px of padding at its top turned a 81px bar into a
+    // 595px one that covered the screen from the masthead down. Every tap on the demo landed in
+    // the bar's empty padding and did nothing, which is exactly how it was reported. The offset is
+    // a rule in the demo's stylesheet now, where the width can decide whether it applies.
     document.body.style.paddingTop = h + 'px';
-    const rail = document.getElementById('rail');
-    if (rail) rail.style.paddingTop = 'calc(' + h + 'px + .7rem)';
     // The page sizes its app shell from where its content actually begins, and this just moved it.
     // It re-measures on resize, so saying "the geometry changed" in the language it already speaks
     // keeps the banner's knowledge here, in the demo, rather than teaching the page about a notice
@@ -939,7 +943,17 @@ const demoScript = `
      level pushed them 124px down instead, and the demo grew a band of nothing above the file tree
      and the plan that the real console never had. */
   body:has(.demo-banner) header { top:var(--demo-banner, 0px); }
-  body:has(.demo-banner) #rail { top:var(--demo-banner, 0px); }
+  /* The rail's offset, only where the rail is a column pinned to the TOP of the window. Below
+     600px it is a navigation bar at the foot: it has no business knowing about a notice at the
+     top, and a top offset there stretched it — top:69px with bottom:0 is a 595px bar — into a
+     sheet over the whole page that swallowed every tap. The banner is the demo's, so the demo is
+     also where the rule about which layout it applies to belongs. */
+  @media (min-width:37.5em) {
+    body:has(.demo-banner) #rail {
+      top:var(--demo-banner, 0px);
+      padding-top:calc(var(--demo-banner, 0px) + var(--magi-sys-space-150));
+    }
+  }
   .demo-banner {
     position:fixed; inset:0 0 auto 0; z-index:60; padding:.55rem 1.2rem;
     background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);
