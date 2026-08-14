@@ -338,8 +338,8 @@ type Speaker interface {
 	// MeetingJoin is the participant getting ready, before the room opens: it reads its own
 	// workspace and history and answers with what it brings. The session it makes is the one every
 	// turn of this meeting then happens in.
-	MeetingJoin(ctx context.Context, meeting, topic string) (ready string, err error)
-	MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (said string, pass bool, err error)
+	MeetingJoin(ctx context.Context, meeting, topic string) (ready, room string, err error)
+	MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (Contribution, error)
 }
 
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
@@ -454,6 +454,13 @@ type Response struct {
 	// Why carries a reason with an otherwise-empty answer — the backend refused, or timed out —
 	// so a caller can tell "nothing to offer" from "could not ask".
 	Why string `json:"why,omitempty"`
+	// Session is the conversation an answer was produced in, when the caller has a use for it.
+	//
+	// Only the meeting methods set it, and the use is one the screen has: a participant speaks from
+	// a session of its own, and what it thought and read on the way to a sentence is in there. The
+	// console cannot know that id any other way — the room is opened inside the daemon — so a
+	// viewer that wanted to show the working had nothing to ask for.
+	Session string `json:"session,omitempty"`
 	// Handover answers hand-state. Its own object rather than four more columns here, because
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
@@ -1096,10 +1103,10 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			sp, ok := eng.(Speaker)
 			if !ok {
 				resp = Response{Err: "this daemon cannot take part in a meeting"}
-			} else if ready, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name); jerr != nil {
+			} else if ready, room, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name); jerr != nil {
 				resp = Response{Err: jerr.Error()}
 			} else {
-				resp = Response{OK: true, Out: ready}
+				resp = Response{OK: true, Out: ready, Session: room}
 			}
 			if enc.Encode(resp) != nil {
 				return
@@ -1110,13 +1117,18 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			sp, ok := eng.(Speaker)
 			if !ok {
 				resp = Response{Err: "this daemon cannot take part in a meeting"}
-			} else if said, passed, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text,
+			} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text,
 				req.Decision == "closing"); merr != nil {
 				resp = Response{Err: merr.Error()}
 			} else {
 				// A pass travels as a flag rather than as a word in the text, or a contribution
 				// that happens to begin with the word would arrive as a silence.
-				resp = Response{OK: true, Out: said, Exit: passFlag(passed)}
+				//
+				// The room travels on every turn and not only on the join: a daemon that restarted
+				// mid-meeting prepares again in a NEW session, and a viewer holding the old id
+				// would show an empty working rather than the one that produced the sentence in
+				// front of it.
+				resp = Response{OK: true, Out: c.Said, Exit: passFlag(c.Pass), Session: c.Room}
 			}
 			if enc.Encode(resp) != nil {
 				return
@@ -1700,15 +1712,27 @@ func (c *Client) Git() (string, error) {
 // question — what this participant will DO about it — which is what a meeting is for.
 // Join is this companion getting ready for a meeting: it reads its own workspace and answers with
 // what it brings. The session it opens is the one its turns then happen in.
-func (c *Client) Join(meeting, topic string) (string, error) {
+func (c *Client) Join(meeting, topic string) (ready, room string, err error) {
 	resp, err := c.exchange(Request{Method: "meet-join", Meeting: meeting, Name: topic})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return resp.Out, nil
+	return resp.Out, resp.Session, nil
 }
 
-func (c *Client) Meet(meeting, topic, transcript string, closing bool) (said string, pass bool, err error) {
+// Contribution is one participant's turn in a meeting: what it said, whether that was a pass, and
+// the conversation it said it in.
+//
+// One value rather than three returns because they are one answer, and because the third was not
+// there at all — the room is opened inside the daemon, so a console showing the meeting had no way
+// to offer what the participant read and thought on its way to the sentence.
+type Contribution struct {
+	Said string
+	Pass bool
+	Room string
+}
+
+func (c *Client) Meet(meeting, topic, transcript string, closing bool) (Contribution, error) {
 	which := ""
 	if closing {
 		which = "closing"
@@ -1716,9 +1740,10 @@ func (c *Client) Meet(meeting, topic, transcript string, closing bool) (said str
 	resp, err := c.exchange(Request{Method: "meet", Meeting: meeting, Name: topic, Text: transcript,
 		Decision: which})
 	if err != nil {
-		return "", false, err
+		return Contribution{}, err
 	}
-	return resp.Out, resp.Exit != nil && *resp.Exit == 1, nil
+	return Contribution{Said: resp.Out, Pass: resp.Exit != nil && *resp.Exit == 1,
+		Room: resp.Session}, nil
 }
 
 // passFlag carries "this was a pass" in the one field a Response has for a small number. Named

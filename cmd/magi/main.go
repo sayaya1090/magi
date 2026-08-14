@@ -2473,16 +2473,19 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 // One session per meeting, not per turn. Every contribution used to be its own child — fifteen of
 // them for three companions over five rounds, each starting cold — which is most of why a meeting
 // with three agents crawls and why a participant could contradict itself two turns later.
-func (d daemonEngine) MeetingJoin(ctx context.Context, meeting, topic string) (string, error) {
+func (d daemonEngine) MeetingJoin(ctx context.Context, meeting, topic string) (string, string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	child, ready, err := d.App.MeetingPrepare(rctx, d.handover.at.now(),
 		nameOr(d.card().Name, d.workdir), topic)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	d.handover.remember(meeting, child)
-	return ready, nil
+	// The room travels back with the answer. What this participant reads and thinks on its way to
+	// a sentence happens in there, and a console holding the meeting cannot learn that id any
+	// other way: the conversation is opened here, in this process.
+	return ready, string(child), nil
 }
 
 // remember and roomFor are the meeting's session, kept for as long as this daemon runs.
@@ -2508,7 +2511,8 @@ func (h handover) roomFor(meeting string) session.SessionID {
 	return h.rooms.by[meeting]
 }
 
-func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (string, bool, error) {
+func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
+	daemon.Contribution, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	who := nameOr(d.card().Name, d.workdir)
@@ -2519,16 +2523,19 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 		// better than a contribution made up out of nothing.
 		got, _, err := d.App.MeetingPrepare(rctx, d.handover.at.now(), who, topic)
 		if err != nil {
-			return "", false, err
+			return daemon.Contribution{}, err
 		}
 		child = got
 		d.handover.remember(meeting, child)
 	}
 	u, err := d.App.MeetingSayIn(rctx, child, who, topic, transcript, closing)
 	if err != nil {
-		return "", false, err
+		return daemon.Contribution{}, err
 	}
-	return u.Text, u.Pass, nil
+	// Which room, every time — not only on the join. The branch above is a daemon that restarted
+	// mid-meeting: it is in a new conversation now, and a viewer still holding the old id would
+	// draw an empty working beside a sentence that plainly took some.
+	return daemon.Contribution{Said: u.Text, Pass: u.Pass, Room: string(child)}, nil
 }
 
 // LookOver is the model reading over somebody's shoulder — see app.LookOver. Bounded harder than

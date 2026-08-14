@@ -21,19 +21,19 @@ type roomEngine struct {
 	turns  []string // the meeting id each turn arrived with
 }
 
-func (e *roomEngine) MeetingJoin(ctx context.Context, meeting, topic string) (string, error) {
+func (e *roomEngine) MeetingJoin(ctx context.Context, meeting, topic string) (string, string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.joined = append(e.joined, meeting)
-	return "ready: " + topic, nil
+	return "ready: " + topic, "s_" + meeting, nil
 }
 
 func (e *roomEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
-	string, bool, error) {
+	Contribution, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.turns = append(e.turns, meeting)
-	return "said something", false, nil
+	return Contribution{Said: "said something", Room: "s_" + meeting}, nil
 }
 
 func TestAMeetingTurnCarriesWhichMeetingItIs(t *testing.T) {
@@ -42,16 +42,26 @@ func TestAMeetingTurnCarriesWhichMeetingItIs(t *testing.T) {
 	cl := dialWhenUp(t, sock)
 	defer cl.Close()
 
-	ready, err := cl.Join("m-1", "who owns the retry budget")
+	ready, room, err := cl.Join("m-1", "who owns the retry budget")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(ready, "retry budget") {
 		t.Errorf("joining answered %q — it is what the participant brings", ready)
 	}
+	// Which conversation it is holding the meeting in, so a viewer can offer what the participant
+	// read and thought on the way to a sentence. It is opened in the daemon and nowhere else, so
+	// this is the only way across.
+	if room != "s_m-1" {
+		t.Errorf("joining came back with the room %q", room)
+	}
 	for _, id := range []string{"m-1", "m-1", "m-2"} {
-		if _, _, err := cl.Meet(id, "topic", "so far", false); err != nil {
+		c, err := cl.Meet(id, "topic", "so far", false)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if c.Room != "s_"+id {
+			t.Errorf("a turn in %s came back with the room %q", id, c.Room)
 		}
 	}
 	eng.mu.Lock()
