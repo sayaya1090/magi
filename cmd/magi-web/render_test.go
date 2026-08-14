@@ -5964,6 +5964,41 @@ console.log(JSON.stringify({posts}));`)
 	}
 }
 
+// A diff paints file headers as headers, not as added and removed lines.
+//
+// +++ b/path and --- a/path begin with the same +/- as content, so classifying on the first
+// character alone made every red line a header on a real multi-file diff and 12% of the "added"
+// lines too. The headers get their own quiet class.
+func TestDiffHeadersAreNotContentLines(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+const box = el('div');
+fillDiff(box, [
+  'diff --git a/util.go b/util.go',
+  'index 0000000..92d11d8',
+  '--- a/util.go',
+  '+++ b/util.go',
+  '@@ -1,2 +1,3 @@',
+  ' unchanged',
+  '-gone',
+  '+added',
+].join('\n'));
+const cls = box.find(e => String(e.className).split(' ')[0] === 'dl').map(r => {
+  const c = r.className.split(' ');
+  return c[1] || 'ctx';
+});
+console.log(JSON.stringify({cls}));`)
+	cls, _ := got["cls"].([]any)
+	want := []string{"dfile", "dfile", "dfile", "dfile", "at", "ctx", "cut", "add"}
+	if len(cls) != len(want) {
+		t.Fatalf("classified %d lines: %v", len(cls), cls)
+	}
+	for i, w := range want {
+		if cls[i] != w {
+			t.Errorf("line %d classed %q, wanted %q (full: %v)", i, cls[i], w, cls)
+		}
+	}
+}
+
 func TestComingBackToACompanionDrawsItsWorkspaceAgain(t *testing.T) {
 	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
 localStorage.setItem('files', 'open');

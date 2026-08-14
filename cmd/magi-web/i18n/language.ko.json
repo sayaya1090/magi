@@ -323,6 +323,8 @@
   "map.edge_down": "닿지 않음",
   "map.edge_ok": "답이 왔음",
   "map.edge_working": "진행 중",
+  "map.empty": "배치할 기계가 없습니다",
+  "map.empty_how": "여기서 컴패니언이 돌거나 다른 곳에서 들어오면 이 배치도에 나타납니다.",
   "map.here": "이 머신",
   "map.lead": "이 함대가 어디서 돌고 있고, 그 사이를 무엇이 오가는지. 상자 하나가 magi 하나입니다 — 한 머신의 한 계정, 자기 설정 디렉터리·정책·키를 가진 단위.",
   "map.trust_admitted": "승인됨",

@@ -1948,6 +1948,9 @@
      label and container from different pairs is the one the colour page calls a hard rule. */
   .diffbody .cut { color:var(--magi-ref-fg); border-inline-start-color:var(--magi-ref-warn); background:color-mix(in srgb, var(--magi-ref-warn) 12%, transparent); }
   .diffbody .at { color:var(--magi-ref-accent); }
+  /* File headers (+++/---/diff/index), not content. Painted as add/cut they made every red line a
+     header on a real multi-file diff; quiet and bold like the transcript's own diff renderer. */
+  .diffbody .dfile { color:var(--magi-ref-muted); font-weight:600; background:none; border-inline-start-color:transparent; }
 
   /* The parts of a file that are not code. Three marks and a gutter — see paintCode(): this is a
      scan, not a parser, and it colours only what cannot be got wrong in a way that misleads.

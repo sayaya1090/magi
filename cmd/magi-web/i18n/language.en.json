@@ -323,6 +323,8 @@
   "map.edge_down": "cannot be reached",
   "map.edge_ok": "answered",
   "map.edge_working": "in flight",
+  "map.empty": "No machines to lay out",
+  "map.empty_how": "When a companion is running here or admitted from elsewhere, it appears on this map.",
   "map.here": "this machine",
   "map.lead": "Where the fleet is running, and what is crossing between its parts. A box is one magi — one account on one machine, with its own config directory, policy and key.",
   "map.trust_admitted": "admitted here",

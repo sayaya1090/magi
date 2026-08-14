@@ -3665,9 +3665,26 @@ function refreshSideToggle() {
   // exception three lines above the loop that writes them.
   let any = false;
   for (const c of Array.from(sideEl.children || [])) {
-    if (!c.hidden) any = true;
+    // The empty-state placeholder this function manages does not count as content — counting it
+    // would make it hide itself and then reappear, a flip every call.
+    if (!c.hidden && !(c.classList && c.classList.contains('sideempty'))) any = true;
   }
   sideToggle.disabled = !any;
+  // A desk pane that is open and empty says so, instead of being a blank column. On a phone the
+  // "Going on" tab draws going_on.none for exactly this; the desk side column had nothing. Kept as
+  // one managed child so it comes and goes with the cards rather than stacking.
+  let blank = refreshSideToggle.blank;
+  if (!any) {
+    if (!blank) {
+      blank = refreshSideToggle.blank = emptyState('going_on.none', 'going_on.none_how');
+      blank.classList.add('sideempty');
+      sideEl.append(blank);
+    }
+    blank.hidden = false;
+  } else if (blank) {
+    blank.remove();
+    refreshSideToggle.blank = null;
+  }
   // What it would do, or why it will not. Said on the tooltip and to a screen reader, because a
   // greyed-out control with no explanation is the least useful state a control can be in.
   const word = !any ? 'side.nothing' : (document.body.getAttribute('side') === 'shut' ? 'side.show' : 'side.hide');
@@ -5648,6 +5665,14 @@ async function loadMap() {
   // policy, a key and a session store. Nesting them says both without a word of explanation — and
   // it says the thing a flat list of "you@studio, sam@studio, you@buildbox" makes a reader
   // assemble for themselves: that two of those share a kernel and two share an owner.
+  // Nothing to lay out is its own state, not a legend over an empty canvas. The map drew its lead
+  // paragraph and the wire legend — "answered · in flight · cannot be reached" — over no boxes at
+  // all, a key for a picture that was not there. Every other destination names its own emptiness.
+  if (!rows.length) {
+    mapEl.replaceChildren(sectionHead('nav.map', toTable()),
+                          emptyState('map.empty', 'map.empty_how'));
+    return;
+  }
   const rank = {own: 0, admitted: 1, unknown: 2};
   const machines = new Map();
   for (const a of rows) {
@@ -7730,6 +7755,16 @@ async function openCommit(a) {
 // fillDiff paints a unified diff into a box: + is added, - is removed, @@ is where, and everything
 // else is context. The same reading drawDiff does, factored out because the workbench needs it in
 // a box of its own rather than in the whole pane.
+// The class one diff line belongs to. A unified diff's first characters carry the meaning — but
+// the file headers begin with the same +/- as content, and painting `+++ b/path` as an added line
+// and `--- a/path` as a removed one meant, on a real multi-file diff, that EVERY red line was a
+// header and 12% of the "added" lines were too. The headers get their own quiet class instead.
+function diffLineClass(line) {
+  if (/^(diff --git |index |--- |\+\+\+ |old mode |new mode |deleted file |new file |rename |similarity |copy |Binary )/.test(line)) return 'dl dfile';
+  const c = line[0];
+  return 'dl' + (c === '+' ? ' add' : c === '-' ? ' cut' : c === '@' ? ' at' : '');
+}
+
 function fillDiff(into, text) {
   into.replaceChildren();
   if (!String(text).trim()) {
@@ -7738,8 +7773,7 @@ function fillDiff(into, text) {
   }
   for (const line of String(text).split('\n')) {
     const row = document.createElement('span');
-    const c = line[0];
-    row.className = 'dl' + (c === '+' ? ' add' : c === '-' ? ' cut' : c === '@' ? ' at' : '');
+    row.className = diffLineClass(line);
     row.textContent = line + '\n';
     into.append(row);
   }
@@ -7842,8 +7876,7 @@ function drawDiff(path, which, text) {
   }
   for (const line of lines) {
     const row = document.createElement('span');
-    const c = line[0];
-    row.className = 'dl' + (c === '+' ? ' add' : c === '-' ? ' cut' : c === '@' ? ' at' : '');
+    row.className = diffLineClass(line);
     row.textContent = line + '\n';
     body.append(row);
   }
@@ -9307,7 +9340,9 @@ function forgetShownRows() {
 }
 
 function clearCompanionView() {
-  for (const card of document.getElementById('side').children) card.hidden = true;
+  const sideCol = document.getElementById('side');
+  if (refreshSideToggle.blank) { refreshSideToggle.blank.remove(); refreshSideToggle.blank = null; }
+  for (const card of sideCol.children) card.hidden = true;
   for (const el of [stripEl, document.getElementById('prompt'), document.getElementById('detail')]) {
     el.hidden = true;
     el.replaceChildren();
