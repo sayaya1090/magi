@@ -1304,6 +1304,12 @@
   .card .plan {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.05em; color:var(--magi-ref-muted); align-self:center;
   }
+  /* What a neighbour asked this companion for. Muted rather than coloured: the state's colour
+     belongs to the state, and this is a second fact about the same row, not a second state. */
+  .card .badge .load {
+    font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-display);
+    letter-spacing:normal; color:var(--magi-ref-muted); align-self:center;
+  }
   .card .role {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:.04em; color:var(--magi-ref-accent);
     overflow-wrap:anywhere; margin-top:var(--magi-sys-space-50);

@@ -292,6 +292,8 @@
   "label.reach": "컴패니언",
   "label.reaches": "범위",
   "label.write_down": "적어둘 내용",
+  "load.in_hand": "받은 일 1건",
+  "load.waiting": "{n}건 대기",
   "map.as_table": "표로 보기",
   "map.edge_down": "닿지 않음",
   "map.edge_ok": "답이 왔음",

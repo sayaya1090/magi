@@ -292,6 +292,8 @@
   "label.reach": "Companion",
   "label.reaches": "Reaches",
   "label.write_down": "Write something down",
+  "load.in_hand": "1 handed over",
+  "load.waiting": "{n} waiting",
   "map.as_table": "As a table",
   "map.edge_down": "cannot be reached",
   "map.edge_ok": "answered",

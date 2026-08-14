@@ -972,6 +972,20 @@ function iconOr(ref, glyph, cls) {
 // index would report the whole table as changed the moment one of them left.
 const wasState = new Map();
 
+// carrying is what a companion has been handed by its neighbours: one piece in hand, and however
+// many are queued behind it.
+//
+// Both halves or neither, the way the terminal says it (fleet.Carrying): one in hand with nothing
+// queued means the next request waits a turn, three queued means something else entirely, and one
+// number without the other cannot tell those apart. Silent when there is nothing — "0 waiting" on
+// every idle companion is a column of noise.
+function carrying(a) {
+  const parts = [];
+  if (a.handling) parts.push(tr('load.in_hand'));
+  if (a.waiting > 0) parts.push(tr('load.waiting', {n: a.waiting}));
+  return parts.join(', ');
+}
+
 // card is one row of the table. The class list is the state, so the left rule and the status colour
 // come from one place, and the row is a link because opening it is the common case.
 function card(a) {
@@ -1001,6 +1015,13 @@ function card(a) {
   // the task landed in the step count's 72px, and the actions wrapped onto a line of their own.
   // A conditional cell in a fixed template is a row that reads differently depending on its data.
   if (a.planTotal) badge.append(cell('plan', a.planDone + '/' + a.planTotal));
+  // …and what somebody ELSE asked it for. Work handed over runs in a conversation of its own, so
+  // the state — which is read from the session a person attaches to — says idle while the
+  // companion is busy answering a neighbour. The terminal has said this since handing work over
+  // existed (fleet.Carrying); this screen never did, and a row reading "idle" while its companion
+  // works is the one reading somebody acts on.
+  const load = carrying(a);
+  if (load) badge.append(cell('load', load));
   el.append(badge);
 
   const who = cell('who-col');
@@ -2633,7 +2654,8 @@ function drawDetail(a) {
   // both sides and the card grew three near-empty rows, one of them holding a five-letter state.
   const wide = f => { f.className = 'f wide'; return f; };
   [
-    field('field.status', stateWord(a.state), 'state ' + a.state),
+    field('field.status', stateWord(a.state) + (carrying(a) ? ' · ' + carrying(a) : ''),
+          'state ' + a.state),
     field('field.steps', a.steps ? a.steps + '' : '—'),
     field('field.last_activity', ago(a.idle)),
     ...(a.role ? [wide(field('field.role', a.role))] : []),
