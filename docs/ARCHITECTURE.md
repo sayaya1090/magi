@@ -579,9 +579,18 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   up behind whoever had been elected.
 - **Depth is bounded by shape, not by a counter.** Work handed to a companion cannot be handed on.
   The rule is read off a label in the transcript, which survives restarts, attaches and resumes.
-- **Conversations are isolated; the workspace is not.** Each asker gets a side session, so nobody's
-  request lands in the conversation a person is having — but one turn runs at a time per workspace,
-  the person's included, because two turns in one tree are two writers with nothing between them.
+- **Conversations are isolated; the workspace is not — unless the work cannot write.** Each asker
+  gets a side session, so nobody's request lands in the conversation a person is having — and one
+  turn runs at a time per workspace, the person's included, because two turns in one tree are two
+  writers with nothing between them. That rule is about WRITING, and applying it to everything cost
+  an answer that could have been given at once: a companion asked "what does your README say" sat
+  behind somebody's build. So `hand_off` takes `looking`, the asker's statement that this is a
+  question; the receiver opens the side session in the **looking role**, whose tools are fixed at
+  the four that only read (`app.LookingAgent`, enforced where every other allowlist is), and the
+  drain gate asks `WritingRun` rather than `Running` — is anything in flight that could touch the
+  workspace. The asker declares and the receiver enforces: an asker cannot bind anybody, and a flag
+  that only travelled would be a promise rather than a mechanism. A question and a piece of work
+  from one asker are two conversations, because what a session may do is fixed when it is opened.
   A busy companion therefore queues (bounded, four) rather than refusing, and a receipt is minted at
   ACCEPT while the log position is taken at START: taken at accept, a piece that waited would have
   had somebody else's finished turn returned as its answer, which is a plausible wrong answer rather
@@ -607,6 +616,20 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   dropped. It is a runtime file rather than configuration because configuration does not go out of
   date on its own, and this machine's own companions are never written into it — they are read from
   the published records every time.
+- **A call that runs the model gets its own connection.** The console keeps one client per daemon
+  and the client holds a mutex across the whole round trip, so a call that takes seconds is seconds
+  in which nothing else about that companion can be asked. Measured live: with a drafted commit
+  message in flight, the file tree took 2.7s against 0.6ms idle — it was not slow, it was queued
+  behind a model. The five that run one (`/look`, `/git-msg`, `/pr-msg`, `/git-pr`, `/compact`) dial
+  a connection of their own and drop it, which is what a meeting turn has always done. The daemon
+  serves each connection in its own goroutine, so the second one costs a socket.
+- **One stream per window, and none from a window nobody is looking at.** A browser allows six
+  connections to one host and a stream never ends. Two per window — the transcript and the roster —
+  meant three windows consumed the whole budget and every ordinary request queued behind a stream
+  that would never finish: measured, the third window's first fetch never returned, and at six the
+  sixth window could not load the document. The roster rides the transcript's connection as a named
+  frame, a meeting screen opens its own (it watches a room rather than a companion), and a hidden
+  tab closes its stream and re-reads the screen when it comes back.
 - **What the console serves**, all of it derived or forwarded: `/fleet` (the list), `/events` (a
   transcript, streamed), `/context` `/plan` `/handoffs` (one companion, read off its log),
   `/interventions` `/skills` `/forget` `/remember` (the supervision loop), `/history` and `/search`

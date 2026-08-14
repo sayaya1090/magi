@@ -499,6 +499,48 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- 에이전트를 �
 
 ---
 
+### 3.9 `magi.spawn` — 서브에이전트, 그리고 `readonly_children`
+
+magi는 **자기 에이전트를 싣지 않는다**. 싣는 것은 이음매다: 플러그인이 서브에이전트를 선언하고 사용자가
+켠다(`plugin.toml`의 `"spawn"` 능력, 툴 호출 안에서만 도달 가능).
+
+```lua
+magi.register_tool{
+  name = "scout", subagent = true, readonly_children = true,
+  description = "트리를 읽고 무엇이 있는지 보고한다. 아무것도 바꾸지 않는다.",
+  schema = { type = "object", properties = { about = { type = "string" } }, required = {"about"} },
+  execute = function(args)
+    local r = magi.spawn{
+      system = SCOUT, prompt = args.about,
+      tools  = {"read", "grep", "glob", "list"},   -- 이 밖의 것은 거부된다
+      max_steps = 25, timeout = 300,
+    }
+    return r.text
+  end,
+}
+```
+
+등록 옵션 중 배치를 정하는 넷:
+
+| 필드 | 효과 |
+|---|---|
+| `internal = true` | 허용목록이 이름을 댄 에이전트에게만 광고 — 메인 에이전트 요청에서 빠진다 |
+| `subagent = true` | `/subagents`에 올라가 사용자가 켜고 끄고 모델을 고른다 |
+| `readonly_children = true` | 이 툴이 띄우는 자식은 **읽기만** 한다. 그러면 한 스텝의 두 호출이 **동시에** 돈다 |
+| `enabled = false` | 꺼진 채로 배포 — 사용자만 켠다 |
+
+**`readonly_children`으로 호스트가 하는 일.** 한 스텝이 읽기 전용 툴 여러 개를 요청하면 동시에 돈다.
+서브에이전트는 늘 거기서 빠졌고 이유는 하나였다 — 자식이 파일을 쓰고, 부모의 가드가 편집 전후로 파일을
+읽는데 그건 쓰기가 직렬일 때만 경합이 없다. **쓰기 툴이 없는 자식에는 해당하지 않는 이유**이고, 해당하는
+척한 대가는 한 스텝이 둘을 요청할 때마다 자식 턴 하나만큼의 벽시계다.
+
+선언은 **믿지 않고 검사한다.** 그 툴의 모든 `magi.spawn`은 자식의 툴이 정해지는 지점에서 검사되고,
+`read`·`grep`·`glob`·`list` 밖을 요구하면 무엇 때문인지 이름을 대며 거부된다. `tools`가 비었거나 없어도
+거부다 — 그건 "아무것도"가 아니라 "이 컴패니언이 가진 전부"라는 뜻이다. 조용히 깎지 않고 거부하는 이유는,
+요청한 툴을 소리 없이 잃은 자식은 나중에 다른 곳에서 호출만 봐서는 알 수 없는 이유로 실패하기 때문이다.
+
+내장 `seele` 플래너가 이것을 선언한다 — 원래 띄우던 자식이 이미 읽기 전용이었다.
+
 ## 더 보기
 
 - 자체 **툴/훅**을 코드 없이 추가 → Lua 플러그인 (MANUAL §9, `plugins/examples/wordcount`)

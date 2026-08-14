@@ -766,6 +766,249 @@ sequenceDiagram
 
 ---
 
+## L10 — 콘솔, 시퀀스로
+
+L0.5가 프로세스를 그린다면 여기는 **프로세스 사이에서 일어나는 일**을 일어나는 순서대로 그린다. 전부
+사람이 실제로 조작하는 경로이고, 전부 한 번씩은 틀렸던 모양이며, 지금은 테스트가 붙잡고 있다. 각각을
+찾아낸 실측은 그 수정 커밋에 적혀 있다.
+
+### L10.1 — 창 하나에 스트림 하나
+
+브라우저는 한 호스트에 연결 6개까지만 열고 스트림은 끝나지 않는다. 콘솔 창 하나가 둘(대화·로스터)을
+잡고 있었으므로 창 3개가 예산 전부를 먹었고, 모든 창의 일반 요청이 끝나지 않을 스트림 뒤에 줄을 섰다
+(실측: 창 3개에서 세 번째 창의 첫 fetch가 영영 돌아오지 않음). 숨은 탭은 스트림을 반납한다 — 아무도
+그리지 않는 문서에 보내는 프레임은 버려지는 일이다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant B as browser window
+  participant W as magi-web
+  participant L as event logs
+  participant D as daemon
+
+  B->>W: GET /events?d=<socket>
+  activate W
+  loop every 400ms
+    W->>L: NewSince(session, seq)
+    alt something was appended
+      L-->>W: seq', changed
+      W->>L: SessionState → renderMessages
+      W-->>B: data: [transcript rows]
+    end
+    W->>W: rosterFrames: list, compare fleetKey
+    alt the roster reads differently
+      W-->>B: event: fleet
+    end
+  end
+  B->>B: tab hidden
+  B->>W: (connection closed)
+  deactivate W
+  Note over B,W: nothing is streamed to a window nobody is looking at
+  B->>B: tab shown → render() → one read, then subscribe again
+  B->>W: POST /submit (ordinary request, a free connection)
+  W->>D: Steer
+```
+
+### L10.2 — 모델을 도는 호출이 컴패니언 전체를 잠그지 않는다
+
+콘솔은 데몬당 클라이언트 하나를 유지하고, 클라이언트는 왕복 전체에 뮤텍스를 잡는다. 모델을 도는
+호출은 그동안 그 컴패니언에 대해 아무것도 물을 수 없는 시간이었다 — 실측으로 파일 트리 2.7초, 유휴일
+때 0.6밀리초. 모델을 도는 다섯은 자기 연결을 열고 닫으며, 데몬은 연결마다 고루틴을 띄운다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant P as page
+  participant W as magi-web
+  participant C1 as pooled client
+  participant C2 as its own connection
+  participant D as daemon
+
+  P->>W: POST /git-msg (draft a commit message)
+  W->>C2: Dial(socket)
+  C2->>D: git-msg
+  activate D
+  P->>W: GET /files?path=.
+  W->>C1: list (the pooled client, free)
+  C1->>D: read-only tool
+  D-->>C1: entries
+  W-->>P: the tree, in about a millisecond
+  D-->>C2: the drafted message
+  deactivate D
+  W->>C2: Close
+  W-->>P: the draft
+```
+
+### L10.3 — 일을 넘기기, 그리고 질문하기
+
+쓸 수 있는 요청은 워크스페이스를 기다린다: 한 트리에서 두 턴은 같은 파일을 고치는 두 에이전트다.
+`looking`으로 표시된 요청은 역할이 툴을 읽기 전용 넷으로 고정하는 세션에서 돌므로 충돌할 것이 없고,
+워크스페이스가 바쁜 동안에도 시작된다. **선언은 요청자가, 강제는 수신자가** 한다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant A as asker (a companion)
+  participant DA as its daemon
+  participant DB as the receiver's daemon
+  participant Q as its queue
+  participant S as a side session
+
+  A->>DA: hand_off(to, request, so_that, answer_as, looking?)
+  DA->>DB: hand{label, text, looking}
+  DB->>S: CreateSession(agent: "looking" when it is a question)
+  DB->>Q: take(pending{receipt, session, looking})
+  DB-->>DA: receipt
+  DA-->>A: "handed over — carry on, the answer comes back here"
+  loop the drain
+    Q->>DB: peek the head
+    alt it can write
+      DB->>DB: WritingRun? person waiting? → wait
+    else it only looks
+      DB->>DB: start it now, beside whatever is running
+    end
+    DB->>S: Submit(the labelled request)
+    S-->>DB: the answer, when the turn ends
+  end
+  DB-->>DA: watch → the answer
+  DA-->>A: folded into the asker's own turn
+```
+
+### L10.4 — 회의: 소집에서 업무 배분까지
+
+의장이 콘솔인 이유는 하나다 — 순서를 정하는 참가자는 자기가 논쟁하는 회의를 진행하는 셈이다. 준비는
+전원 동시에 하고, 준비하지 못한 참가자가 방을 붙잡지 않는다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant U as person
+  participant W as magi-web (the chair)
+  participant D1 as design
+  participant D2 as api
+  participant D3 as ops
+
+  U->>W: POST /meet {topic, who[]}
+  par everybody at once
+    W->>D1: meet-join
+    and
+    W->>D2: meet-join
+    and
+    W->>D3: meet-join
+  end
+  D1-->>W: ready + brief + room session
+  D2-->>W: ready + brief + room session
+  D3-->>W: could not get ready (recorded, the room still opens)
+  W->>W: Open()
+  loop while the room has something to say
+    W->>D1: meet{transcript so far}
+    D1-->>W: what it says (or a pass) + its room
+    W->>W: Say(...) — the floor moves
+  end
+  W->>W: the room converges, or the rounds run out
+  par the closing round
+    W->>D1: meet{closing: true}
+    and
+    W->>D2: meet{closing: true}
+  end
+  U->>W: POST /meet-hand {who}
+  W->>D1: Steer — the discussion, what the others took away, then the task
+```
+
+### L10.5 — 각 참가자가 지금 무엇을 생각하는지
+
+데몬들은 방 대화를 콘솔이 읽는 같은 저장소에 쓴다. 회의 스트림이 그것을 **합쳐서** 나른다: 네 개의
+대화를 보는 화면에 연결은 하나.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant P as the meeting screen
+  participant W as magi-web
+  participant L as event logs
+  participant D as a participant's daemon
+
+  P->>W: GET /events?m=<meeting>
+  activate W
+  D->>L: thinking · tool call · what it said
+  loop every 700ms
+    W->>W: meetFrame — only when the room reads differently
+    W-->>P: event: meet
+    loop each participant's room
+      W->>L: NewSince(room, seq)
+      alt it moved
+        W->>L: SessionState → renderMessages
+        W-->>P: event: room {who, rows}
+      end
+    end
+  end
+  deactivate W
+  Note over P: the block under whoever holds the floor,<br/>and any "how it got there" fold that is open
+```
+
+### L10.6 — 워크스페이스: 레이지, 보관, 그리고 강제 재조회
+
+요청당 디렉토리 하나, 펼친 폴더만. **변화를 따라온** 순회는 읽고, 단순 재그리기는 10초 안에 읽은 것을
+쓴다. 이 콘솔이 한 변경은 보관분을 나이가 아니라 오답으로 보고 즉시 버린다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant P as page
+  participant W as magi-web
+  participant D as daemon
+
+  P->>W: GET /files?path=.
+  W->>D: list(".")
+  D-->>W: entries
+  W-->>P: the root, and nothing under it
+  P->>P: a folder is unfolded → loadTree(kept)
+  P->>W: GET /files?path=deep
+  Note over P: the root comes from what was kept — one request, not the whole tree
+  P->>P: arriving at the panel · coming back to the tab
+  Note over P: kept listings, no requests at all
+  P->>W: POST /file-do {rename}
+  W->>D: the change
+  P->>P: forgetTree → the next walk reads
+  P->>W: press ⟳ (read this workspace again)
+  P->>W: GET /files?path=. · /files?path=deep · /git
+```
+
+### L10.7 — 막힌 컴패니언에게 답하기
+
+프롬프트는 로그에 없다 — 무엇이 일어났는지의 기록이 아니라 무엇을 해야 하는지의 질문이라서 — 그래서
+로스터 프레임에 실려 온다. 답은 물어본 데몬에게 콜 id로 간다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant D as daemon
+  participant W as magi-web
+  participant P as page
+  participant U as person
+
+  D->>D: ask_user / a permission gate — the turn blocks
+  W->>D: status (on the roster walk)
+  D-->>W: waiting{id, kind, question, options, report}
+  W-->>P: event: fleet — the row is "waiting", with the question on it
+  P-->>U: the question, its options, and the grounds
+  U->>P: picks one
+  P->>W: POST /answer {call, kind, text}
+  W->>D: answer
+  D->>D: the turn continues
+  Note over P,W: the words stay in the box until the post succeeds —<br/>a companion still waiting is worse than a message to retype
+```
+
+---
+
 ## 부록 — A/B 플래그 기본값 (`plan_flags.go`)
 
 | 플래그 | 기본 | 제어 대상 |

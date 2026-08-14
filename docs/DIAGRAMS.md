@@ -16,6 +16,7 @@ to the class diagrams (L5–L9):**
 | [L7](#l7--app-core-classes-internalapp) | inside `internal/app` | **structs and methods** |
 | [L8](#l8--the-tool-layer) | the tool layer | **interfaces and implementations** |
 | [L9](#l9--one-tool-call-as-a-sequence) | one tool call | **call order** |
+| [L10](#l10--the-console-as-sequences) | the console's own paths — streams, hand-offs, meetings, the workspace | **call order** |
 
 GitHub renders mermaid directly. Every threshold and default is the code's to state (the constants
 in `guard.go`, `plan_flags.go`); this document copies them. The class diagrams do **not** carry every
@@ -778,6 +779,254 @@ Three contracts to read out of that sequence:
   The reader **cannot ask about what it does not know is missing.**
 - **A nudge is a `prompt.submitted`** with actor `{system, loop}`, not a `part.appended`. To count
   nudges by parsing the log, filter on that actor.
+
+---
+
+## L10 — The console, as sequences
+
+L0.5 draws the processes. This draws what happens BETWEEN them, in the order it happens, for the
+paths a person actually drives. Every one of these is a shape that was got wrong at least once and
+is now held by a test; the measurement that found each is in the commit that fixed it.
+
+### L10.1 — One window, one stream
+
+A browser allows six connections to one host and a stream never ends. A console window used to hold
+two — the transcript and the roster — so three windows consumed the whole budget and every ordinary
+request from every window queued behind a stream that would never finish (measured: with three
+windows open, the third one's first fetch never came back). A hidden tab hands its stream back,
+because a document nobody is rendering is a document the frames are wasted on.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant B as browser window
+  participant W as magi-web
+  participant L as event logs
+  participant D as daemon
+
+  B->>W: GET /events?d=<socket>
+  activate W
+  loop every 400ms
+    W->>L: NewSince(session, seq)
+    alt something was appended
+      L-->>W: seq', changed
+      W->>L: SessionState → renderMessages
+      W-->>B: data: [transcript rows]
+    end
+    W->>W: rosterFrames: list, compare fleetKey
+    alt the roster reads differently
+      W-->>B: event: fleet
+    end
+  end
+  B->>B: tab hidden
+  B->>W: (connection closed)
+  deactivate W
+  Note over B,W: nothing is streamed to a window nobody is looking at
+  B->>B: tab shown → render() → one read, then subscribe again
+  B->>W: POST /submit (ordinary request, a free connection)
+  W->>D: Steer
+```
+
+### L10.2 — A model-backed call does not lock the companion
+
+The console keeps one connection per daemon and the client holds a mutex across the whole round
+trip. A call that runs the model is seconds during which nothing else about that companion could be
+asked: measured, a file tree took 2.7s against 0.6ms idle. The five that run a model dial their own
+connection; the daemon serves each connection in its own goroutine.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant P as page
+  participant W as magi-web
+  participant C1 as pooled client
+  participant C2 as its own connection
+  participant D as daemon
+
+  P->>W: POST /git-msg (draft a commit message)
+  W->>C2: Dial(socket)
+  C2->>D: git-msg
+  activate D
+  P->>W: GET /files?path=.
+  W->>C1: list (the pooled client, free)
+  C1->>D: read-only tool
+  D-->>C1: entries
+  W-->>P: the tree, in about a millisecond
+  D-->>C2: the drafted message
+  deactivate D
+  W->>C2: Close
+  W-->>P: the draft
+```
+
+### L10.3 — Handing work over, and asking a question
+
+A request that can write waits for the workspace: two turns in one tree are two agents editing the
+same files. A request the asker marks `looking` runs in a session whose role fixes its tools to the
+four that only read, so it has nothing to collide with and starts while the workspace is busy. The
+receiver enforces it; the asker cannot bind anybody.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant A as asker (a companion)
+  participant DA as its daemon
+  participant DB as the receiver's daemon
+  participant Q as its queue
+  participant S as a side session
+
+  A->>DA: hand_off(to, request, so_that, answer_as, looking?)
+  DA->>DB: hand{label, text, looking}
+  DB->>S: CreateSession(agent: "looking" when it is a question)
+  DB->>Q: take(pending{receipt, session, looking})
+  DB-->>DA: receipt
+  DA-->>A: "handed over — carry on, the answer comes back here"
+  loop the drain
+    Q->>DB: peek the head
+    alt it can write
+      DB->>DB: WritingRun? person waiting? → wait
+    else it only looks
+      DB->>DB: start it now, beside whatever is running
+    end
+    DB->>S: Submit(the labelled request)
+    S-->>DB: the answer, when the turn ends
+  end
+  DB-->>DA: watch → the answer
+  DA-->>A: folded into the asker's own turn
+```
+
+### L10.4 — A meeting, from convening to work handed out
+
+The console holds the floor because a participant that also decided the order would be chairing a
+discussion it is arguing in. Everybody prepares in parallel; a participant that cannot get ready
+does not hold the room.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant U as person
+  participant W as magi-web (the chair)
+  participant D1 as design
+  participant D2 as api
+  participant D3 as ops
+
+  U->>W: POST /meet {topic, who[]}
+  par everybody at once
+    W->>D1: meet-join
+    and
+    W->>D2: meet-join
+    and
+    W->>D3: meet-join
+  end
+  D1-->>W: ready + brief + room session
+  D2-->>W: ready + brief + room session
+  D3-->>W: could not get ready (recorded, the room still opens)
+  W->>W: Open()
+  loop while the room has something to say
+    W->>D1: meet{transcript so far}
+    D1-->>W: what it says (or a pass) + its room
+    W->>W: Say(...) — the floor moves
+  end
+  W->>W: the room converges, or the rounds run out
+  par the closing round
+    W->>D1: meet{closing: true}
+    and
+    W->>D2: meet{closing: true}
+  end
+  U->>W: POST /meet-hand {who}
+  W->>D1: Steer — the discussion, what the others took away, then the task
+```
+
+### L10.5 — What each participant is thinking, live
+
+The daemons write their room conversations to the same store the console reads. The meeting's own
+stream carries them, merged: one connection for a screen watching four conversations.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant P as the meeting screen
+  participant W as magi-web
+  participant L as event logs
+  participant D as a participant's daemon
+
+  P->>W: GET /events?m=<meeting>
+  activate W
+  D->>L: thinking · tool call · what it said
+  loop every 700ms
+    W->>W: meetFrame — only when the room reads differently
+    W-->>P: event: meet
+    loop each participant's room
+      W->>L: NewSince(room, seq)
+      alt it moved
+        W->>L: SessionState → renderMessages
+        W-->>P: event: room {who, rows}
+      end
+    end
+  end
+  deactivate W
+  Note over P: the block under whoever holds the floor,<br/>and any "how it got there" fold that is open
+```
+
+### L10.6 — The workspace: lazy, kept, and read again on demand
+
+One directory per request, and only the folders somebody opened. A walk that FOLLOWS a change reads;
+a walk that is only a redraw may use what was read in the last ten seconds. A mutation this console
+made throws the kept listings away rather than ageing them out.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant P as page
+  participant W as magi-web
+  participant D as daemon
+
+  P->>W: GET /files?path=.
+  W->>D: list(".")
+  D-->>W: entries
+  W-->>P: the root, and nothing under it
+  P->>P: a folder is unfolded → loadTree(kept)
+  P->>W: GET /files?path=deep
+  Note over P: the root comes from what was kept — one request, not the whole tree
+  P->>P: arriving at the panel · coming back to the tab
+  Note over P: kept listings, no requests at all
+  P->>W: POST /file-do {rename}
+  W->>D: the change
+  P->>P: forgetTree → the next walk reads
+  P->>W: press ⟳ (read this workspace again)
+  P->>W: GET /files?path=. · /files?path=deep · /git
+```
+
+### L10.7 — Answering what a companion is blocked on
+
+The prompt is not in the log — it is a question about what should happen, not a record of what did —
+so it rides the roster frame. Answering goes to the daemon that asked, by call id.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant D as daemon
+  participant W as magi-web
+  participant P as page
+  participant U as person
+
+  D->>D: ask_user / a permission gate — the turn blocks
+  W->>D: status (on the roster walk)
+  D-->>W: waiting{id, kind, question, options, report}
+  W-->>P: event: fleet — the row is "waiting", with the question on it
+  P-->>U: the question, its options, and the grounds
+  U->>P: picks one
+  P->>W: POST /answer {call, kind, text}
+  W->>D: answer
+  D->>D: the turn continues
+  Note over P,W: the words stay in the box until the post succeeds —<br/>a companion still waiting is worse than a message to retype
+```
 
 ---
 

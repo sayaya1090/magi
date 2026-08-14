@@ -599,6 +599,27 @@ phone for months.
 9. **A demo is not the product.** `-emit-demo` writes a static copy answered by a mock in the
    browser. It hid a dead console for weeks (§5), so a change to this page is confirmed against a
    running `magi-web` before it is believed.
+10. **One stream per window, and none from a window nobody is looking at.** A browser allows six
+   connections to one host and a stream never ends, so streams are a budget the page is spending.
+   The roster arrives as a named frame on the transcript's connection rather than on one of its
+   own; a meeting screen opens its own, because it watches a room rather than a companion; and a
+   hidden tab closes its stream, re-reading the screen when it comes back. Measured before this:
+   with three windows open the third one's first fetch never returned, and at six the sixth window
+   could not load the document at all.
+11. **Coming back to a screen reads it once, and the subscription is left alone.** Frames arrive
+   when something changes, so a panel nobody was looking at was never redrawn and a tab left in the
+   background was as old as the moment it was left. Arriving at a panel and returning to the tab
+   both go through the same loaders `render()` uses — a second path to the same fact is how two
+   answers about one companion start to differ.
+12. **What is kept is said, and there is a way to overrule it.** The workspace tree is one
+   directory per request and only the folders somebody opened; a walk that follows a CHANGE reads,
+   a walk that is only a redraw may use what was read in the last ten seconds. A mutation this
+   console made throws the kept listings away — that is not old, it is wrong — and the ⟳ control in
+   the card's head is for the file that appeared because of something the console cannot see.
+13. **A control that only a pointer can reach is a control a phone does not have.** Row menus and
+   per-file git actions appear on hover, with focus-within for a keyboard; on touch there is
+   neither, so where there is no hover they are simply shown. Measured on an iPhone 13: twelve row
+   menus and twenty-nine git actions, none of them reachable.
 
 ## 5. How it is verified
 

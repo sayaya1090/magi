@@ -581,8 +581,44 @@ Four optional fields decide where the tool is offered:
 |---|---|
 | `internal = true` | offered only to an agent whose allowlist names it — a helper for your own subagent, kept off the main agent's request |
 | `subagent = true` | listed in `/subagents`, where a user switches it on and off and picks its model |
+| `readonly_children = true` | every child this tool spawns can only look. Two calls to it in one step then run **at once** — see below |
 | `group = "…"` | groups it under a heading there, so several can be managed together |
 | `enabled = false` | ships switched **off**; only a user turns it on |
+
+#### `readonly_children` — and what the host does with it
+
+A step that asks for several read-only tools runs them concurrently. A subagent was always excluded
+from that, for one reason: a child writes files, and the parent's guard reads each file before and
+after an edit, which is only race-free when the writes are serialised. That reason does not apply to
+a child with no writing tool — and pretending it does costs a whole child turn of wall clock every
+time a step asks for two.
+
+Declaring `readonly_children` says your children only look. **magi does not take it on trust.**
+Every `magi.spawn` that tool makes is checked at the moment a child's tools are decided, and a spec
+asking for anything outside `read`, `grep`, `glob` and `list` is refused, naming the tool that broke
+it. An absent or empty `tools` list is refused too: it does not mean "nothing", it means everything
+this companion has.
+
+Refused rather than quietly narrowed. A child that silently loses the tool it asked for fails later,
+somewhere else, for a reason nobody can see from the call.
+
+```lua
+magi.register_tool{
+  name = "scout", subagent = true, readonly_children = true,
+  description = "Read the tree and report what is there. Changes nothing.",
+  schema = { type = "object", properties = { about = { type = "string" } }, required = {"about"} },
+  execute = function(args)
+    local r = magi.spawn{
+      system = SCOUT, prompt = args.about,
+      tools  = {"read", "grep", "glob", "list"},   -- anything else here is refused
+      max_steps = 25, timeout = 300,
+    }
+    return r.text
+  end,
+}
+```
+
+The bundled `seele` planner declares it, which was already true of the child it started.
 
 ### 3.9 `magi.spawn` / `child_steps` / `restore_child` — subagents and loops
 

@@ -800,17 +800,78 @@ whether you left it open. It holds, top to bottom:
 
 | Card | What it is |
 |---|---|
-| What this is | state, workspace, role, team (and whether it speaks for the team), host · IP · pid, steps, last activity, session id — folded to one line until you want it |
+| What this is | state, workspace, role, team (and whether it speaks for the team), host · IP · pid, steps, last activity, session id — folded to one line until you want it. The state line also says what this companion is carrying for others ("1 handed over, 2 waiting"): its state is read from the session a person attaches to, and handed-over work runs elsewhere, so without that line a companion answering a neighbour reads as idle |
+| Running now | what is going on beside the turn — a background command with its last line, a spawned child that can be opened. It was a strip over the composer, on screen at every width whatever you were doing; it is a card here because it is a thing you consult |
 | Plan | the agent's own todo list as it last recorded it, with a progress bar. Read out of the log, so it is right for a companion that is stopped, resumed elsewhere, or was working while you were not watching |
-| Handed out | what this companion gave to others and what came back |
+| Handed out | what this companion gave to others and what came back. Read out of the conversations the work actually ran in — one per asker, opened under an actor that says who asked — rather than out of the session a person attaches to, where it never was |
 | Scheduled | its unattended jobs (§14): the line, when each next fires, and whether it is on |
 | What you had to say | the interjections a person made, over the last week by default — the record of where it needed steering |
 | What it has done | earlier sessions, searchable by word (`/search?q=`), each opening to its transcript |
 
-Below 840px there is no room for two panes, so the two become tabs and the conversation is the one
-you land on.
+**The workspace, on the left.** The tree is read one directory at a time and only the folders you
+open; what has been read is kept for a few seconds so that arriving at the panel, coming back to the
+tab or unfolding a folder does not walk it again. Two things throw that away rather than ageing it
+out: a change this console made (a save, a new file, a rename), and the ⟳ control in the card's
+head, which is for the file that appeared because of something the console cannot see. Finding a
+file is a dialog — a field and a choice between names and contents — and while a search is on, the
+pane IS the search: opening a hit no longer puts the plain tree back under your next press.
 
-### 12.4 The routes, if you are automating
+On a touch screen the per-row controls (a file's menu, a changed file's stage/unstage/discard/diff)
+are simply there. They appear on hover for a pointer and there is no hover on a phone, so they were
+unreachable — the features existed and could not be used.
+
+Below 840px there is no room for two panes, so the two become tabs and the conversation is the one
+you land on. Each window holds ONE event stream, and a tab you are not looking at gives it back: a
+browser allows six connections to a host, a stream never ends, and at two per window the third
+window could not make an ordinary request at all.
+
+### 12.4 Meetings — several companions on one question
+
+Reached from the rail, or from the companions list once there are two of them. A meeting is the
+console asking several companions the same question in turn and letting each read what the others
+said. It is not a group chat and not a vote: it produces a transcript, and then one task per
+participant that you decide whether to hand out.
+
+**The console holds the floor.** Somebody has to say who speaks next, and it cannot be one of the
+participants — a companion that also decided the order would be chairing a discussion it is arguing
+in. The console has nothing to say, which is what makes it the right chair. It drives the room in a
+goroutine of its own, so closing the tab does not end the meeting; the room lives as long as the
+console does and no longer, because the record that outlives it is each participant's own log.
+
+**Nobody speaks until everybody has read their own workspace.** Convening sends each participant
+away to prepare — in a conversation of its own, with read-only tools and its git state handed to it
+as prose — and the room opens when they are all back. A participant that could not get ready (no
+daemon, a workspace that has gone) does not hold the room: its trouble is recorded and the meeting
+opens a voice short, saying so. Preparation is parallel, so the wait is the slowest one rather than
+the sum.
+
+**What the screen shows while it runs:**
+
+| On the screen | What it is |
+|---|---|
+| the topic and the roster | pinned at the top: five rounds of four companions is several screens, and what the meeting is about and who is speaking now are the two things you need at every point of it |
+| each participant's own colour | on their chip and down the side of everything they say. The name is on every line as well — a colour is never the only telling |
+| "X is working on it" | the last few steps of what whoever holds the floor is doing right now: what it read, what it grepped, what it is thinking. The daemons write their room conversations to the same store this console reads, and the meeting's own stream carries them merged |
+| how it got there | under every line, a fold with the thinking and tool calls that produced that sentence. It stays open across redraws |
+| a pass, with its reason | silence from a companion that READ the discussion is information, and the transcript keeps it. Two passes in a row and the rules stop asking that one until somebody names it |
+| the floor | pressing a participant's chip calls on them next; typing in the box takes the floor and hushes the room until you send |
+
+**How it ends.** The room stops when nobody has anything to add — a whole round of passes — or when
+the rounds run out, and the screen says which of the two it was. Then each participant is asked, in
+one closing round, what it will do about the discussion. Those are the conclusions.
+
+**Handing one out** sends that task to that companion as ordinary work, and it carries the meeting
+with it: what was said in the room, what the others are taking away, and then the task itself under
+a heading at the end. The task used to go alone, and a companion that had been in the room for an
+hour received a one-line instruction with none of it — its session was not in the room even though
+it was.
+
+**Reopening.** A closed room can be put back in session with a reason, which is required: the
+participants have all just said they had nothing to add, and what changes their minds is what you
+type there. The conclusions are cleared with it — they belonged to the ending that has just been
+undone — and the round ceiling doubles.
+
+### 12.5 The routes, if you are automating
 
 `GET` unless marked. Everything takes `?socket=` (or `?d=`) to name a companion, and `?peer=` to
 name a federated console.
@@ -830,6 +891,9 @@ name a federated console.
 | `/answer` (POST) | resolve the permission or question it is blocked on, by call id |
 | `/shell` (POST) | run a command in that workspace |
 | `/dispatch` (POST) | address work by name, role or team, resolved by §13's rules |
+| `/meet` (GET/POST) | the meetings this console holds; POST convenes one (`topic`, `who` repeated, `rounds`) |
+| `/meet-say` (POST) · `/meet-hand` (POST) | say something in the room, or send one participant its task |
+| `/meet-close` (POST) · `/meet-open` (POST) | end it, or put it back in session with a reason |
 | `/console` | what this console is: its config dir, its host, its embedding model |
 | `/push` (POST) | subscribe this browser to notifications, when the console was started with keys for them |
 
@@ -878,7 +942,7 @@ round, since it cannot be handed anything either.
 ### 13.3 Handing a piece over — `hand_off`
 
 ```
-hand_off(to, request, so_that, answer_as)
+hand_off(to, request, so_that, answer_as, looking?)
 ```
 
 It **returns at once** with a receipt. The asker keeps working; the answer arrives in its
@@ -893,6 +957,7 @@ All four fields are required, and the last two are the ones that make the differ
 | `request` | the whole instruction, standing on its own. They cannot see your conversation, your files or your reasoning |
 | `so_that` | what the answer is for, in one clause. It is what lets them adapt when they hit something you did not foresee — **and they cannot ask you**, which is the asymmetry that makes this worth a field |
 | `answer_as` | the **form** the answer comes back in: the headings you will read, in order. They fill it in |
+| `looking` | optional, and it changes WHEN rather than what. `true` says this is a question about their workspace and nothing in it should change |
 
 `answer_as` is a form and not a sentence about being finished. "Done when the tokens are named" is
 checked afterwards by reading carefully; a form is checked by looking. It also changes what a gap
@@ -900,6 +965,19 @@ looks like — a part that could not be done comes back **as that part**, marked
 paragraph about why the whole thing was hard. magi rejects a form that is one word (observed: a
 model filling the field with `"text"`), and goes no further: whether a form is a *good* one is a
 judgement about the task.
+
+**Asking is not the same as asking for work.** A companion does one piece of handed-over work at a
+time and, if it can write, waits for the workspace to be free — two turns in one tree are two agents
+editing the same files. A request marked `looking` is not part of that: the receiver runs it in a
+conversation whose tools are fixed at the four that only read, so it collides with nothing and is
+answered **while that companion is busy with something else**. Set it whenever you are asking rather
+than asking for work; it is the difference between an answer now and an answer after their current
+turn.
+
+The asker declares it and the **receiver enforces it**. The session is opened in a role whose
+allowlist is read, glob, grep and list, checked in the same place every other allowlist is — so the
+flag cannot become false by wording, and a question that turns out to need a change comes back
+saying so rather than making one.
 
 **No chaining.** Work handed to you cannot be handed on. The rule is read off the label left in the
 transcript, so it survives a restart, an attach from elsewhere, and a resumed session.
