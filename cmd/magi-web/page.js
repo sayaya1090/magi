@@ -421,15 +421,21 @@ function drawPanels() {
   // thumb, with the file's own Save five hundred pixels above the composer that answers the
   // companion. Two places to type on one screen, and neither near its own words.
   if (panel === 'files') {
-    // The workspace: the tree and the git card, and whatever is open above them.
+    // The workspace, one thing at a time: the tree, or the git card, or the file that was opened
+    // out of one of them — never all three stacked.
     //
     // Asked for here, because the pane handle used to be what asked. Below the breakpoint the
     // handle is gone and the tab is what opens this — and a tab that opens an empty box is worse
     // than the handle it replaced: measured, 0px of workspace behind it.
     if (lastDrawnFor) loadTree(lastDrawnFor);
-    cardTabs.hidden = !openFiles.length;
+    const open = wsShows !== 'files' && wsShows !== 'git' && openFiles.includes(wsShows);
     detailEl.hidden = true;
-    fileViewEl.hidden = !(cardShows !== 'facts' && openFiles.includes(cardShows));
+    filesEl.hidden = open;
+    cardTabs.hidden = !open;
+    fileViewEl.hidden = !open;
+    // The list shows one card. Both were stacked, so the git card began below a tree of forty
+    // names and nobody scrolled to it.
+    filesEl.setAttribute('data-shows', wsShows);
   } else if (panel === 'facts') {
     cardTabs.hidden = true;
     fileViewEl.hidden = true;
@@ -458,15 +464,36 @@ function paintUnread() {
   tab.append(b);
 }
 
+// onePane is true where the window holds one thing at a time — the same breakpoint the panes use,
+// asked of the window rather than assumed, because a phone turned sideways is not a phone.
+//
+// The guide draws the line here: "Compact and medium breakpoints: A single pane works best."
+function onePane() {
+  return typeof matchMedia === 'function' && matchMedia('(max-width:52.4375em)').matches;
+}
+
 // toWorkspacePanel puts the reader where the thing they just opened is.
 //
 // Only where the two halves are two screens. Opening a file from the tree while the conversation
 // is showing used to load it into a panel nobody was looking at — the press appeared to do
 // nothing, which is worse than the wedged card it replaced.
 function toWorkspacePanel() {
-  if (ptabs.hidden || panel === 'files') return;
+  if (ptabs.hidden) return;
+  // Whatever was opened is what the workspace screen is showing now — the detail half of the
+  // list-detail this becomes on a phone. Going back is the control on the bar above it.
+  wsShows = cardShows;
+  if (panel === 'files') {
+    drawPanels();
+    return;
+  }
   panel = 'files';
   ptabs.activeTabIndex = 2;
+  drawPanels();
+}
+
+// toWorkspaceList is the way back out of an open file: the list it was opened from.
+function toWorkspaceList(which) {
+  wsShows = which || 'files';
   drawPanels();
 }
 
@@ -5727,6 +5754,13 @@ let openFiles = [];
 // next poll. Set where the page draws a companion, cleared when it leaves.
 let lastDrawnFor = null;
 let cardShows = 'facts';
+// On a phone the workspace is a list you drill into, not a column of everything.
+//
+// "Compact and medium breakpoints: A single pane works best" — and list-detail's compact form is
+// the list and the detail taking turns. So this says which of the three the workspace screen is
+// showing: the tree, the git card, or whatever was opened out of them. Above the breakpoint it is
+// not read at all; there both cards are in the pane and the open thing is in the slot beside them.
+let wsShows = 'files';
 // Which directories the reader has opened, so a redraw does not close the tree under them.
 const openDirs = new Set();
 
@@ -5822,9 +5856,20 @@ function hitRow(a, hit) {
 
 // loadTree draws the workspace root, and nothing when the pane is shut: a fetch whose answer
 // nobody can see is a request somebody's daemon served for nothing, four times a minute.
-async function loadTree(a) {
-  if (!a || !filesOpen()) return;
-  // waitingFor is the box a slow answer will land in: the room it needs, and a bar saying it is on
+// backToList is the way out of an open file on a phone: to the list it was opened from.
+//
+// Only where the list and the detail take turns. On a wide screen the tree is still on the left
+// and a back button would be pointing at something already on the screen.
+function backToList() {
+  if (!onePane()) return null;
+  const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-left'),
+                  tr('nav.files'));
+  b.className = 'fileback';
+  b.onclick = () => toWorkspaceList('files');
+  return b;
+}
+
+// waitingFor is the box a slow answer will land in: the room it needs, and a bar saying it is on
 // its way. Indeterminate, because nothing here knows how long a directory walk on somebody else's
 // machine takes — which is the case the guide reserves the indeterminate one for.
 function waitingFor(key) {
@@ -5836,7 +5881,10 @@ function waitingFor(key) {
   return box;
 }
 
-// A companion known only by gossip has no socket this console can open — the path in its row is a
+
+async function loadTree(a) {
+  if (!a || !filesOpen()) return;
+  // A companion known only by gossip has no socket this console can open — the path in its row is a
   // path on ITS filesystem, and the fleet door carries work rather than file contents. Say so, and
   // say the way round it: a magi-web running there is a peer, and a peer's companions come through
   // its own console with their files intact. A row with a peer on it is NOT this case.
@@ -5884,7 +5932,20 @@ function waitingFor(key) {
   // Compared on the INPUTS, not on the markup: everything drawn here comes from the listings, the
   // git state, which directories are open and which file is showing, and a string of those is
   // cheap next to serialising a tree of several hundred rows.
-  const now = JSON.stringify([a.workdir, treeAt.seen, gitSection.raw, [...openDirs].sort(), cardShows, findQ]);
+  // On a phone the two cards are two screens, switched here. Above the breakpoint both are in the
+  // pane and this is not drawn: there is room for them, and a tab that switches between two things
+  // you can already see is a control that does nothing.
+  const pick = onePane() ? cell('wstabs') : null;
+  if (pick) {
+    for (const [key, word] of [['files', tr('nav.files')], ['git', tr('git.section')]]) {
+      const t = document.createElement('md-secondary-tab');
+      t.textContent = word;
+      t.active = wsShows === key;
+      t.onclick = () => toWorkspaceList(key);
+      pick.append(t);
+    }
+  }
+  const now = JSON.stringify([a.workdir, treeAt.seen, gitSection.raw, [...openDirs].sort(), cardShows, findQ, wsShows]);
   if (now === loadTree.drawn && filesEl.children.length) return;
   // Not while a menu is open in it.
   //
@@ -5898,7 +5959,7 @@ function waitingFor(key) {
   // left as it was, so the comparison still says there is something new to draw.
   if (filesEl.querySelector('.showing')) return;
   loadTree.drawn = now;
-  filesEl.replaceChildren(tree, ...git);
+  filesEl.replaceChildren(...(pick ? [pick] : []), tree, ...git);
 }
 
 // One section of the pane: a heading you can press, and what is under it.
@@ -6419,6 +6480,7 @@ async function openPR(a) {
 
 function drawPR(a, st) {
   const bar = cell('filebar');
+  { const back = backToList(); if (back) bar.append(back); }
   bar.append(cell('filedir', tr('git.pr') + (st.branch && st.base
     ? '  ·  ' + st.branch + ' → ' + st.base : '')));
   const box = cell('commitbox');
@@ -6539,6 +6601,7 @@ function fillDiff(into, text) {
 function drawCommit(a, g) {
   const staged = (g.changes || []).filter(c => c.kind === 'staged' || c.kind === 'both');
   const bar = cell('filebar');
+  { const back = backToList(); if (back) bar.append(back); }
   bar.append(cell('filedir', tr('git.commit') + (g.branch ? '  ·  ' + g.branch : '')));
   const box = cell('commitbox');
 
@@ -6618,6 +6681,7 @@ function drawCommit(a, g) {
 // tried to understand more would be a second implementation of the thing git just did.
 function drawDiff(path, which, text) {
   const bar = cell('filebar');
+  { const back = backToList(); if (back) bar.append(back); }
   bar.append(cell('filedir', path + (which ? '  ·  ' + tr(DIFF_WHICH[which] || 'diff.unstaged')
                                             : '  ·  ' + tr('diff.unstaged'))));
   const body = document.createElement('pre');
@@ -6675,6 +6739,7 @@ function drawFile(path, text) {
   // the thing they had just typed to reach the button for it. A toolbar over the document is what
   // every editor does with the same problem.
   const bar = cell('filebar');
+  { const back = backToList(); if (back) bar.append(back); }
   bar.append(cell('filedir', path));
   const acts = cell('fileacts');
   bar.append(acts);
@@ -7067,10 +7132,15 @@ function drawCardTabs(a) {
     return;
   }
   const tabs = [];
-  const facts = document.createElement('md-secondary-tab');
-  facts.textContent = tr('field.facts');
-  facts.onclick = () => { cardShows = 'facts'; showCard(); drawCardTabs(a); };
-  tabs.push(facts);
+  // Not on a phone: "what this is" has a screen of its own there — the About tab — and offering it
+  // again inside the workspace's own strip is the same card in two places, which is what a reader
+  // asked about ("why is this companion's card in the workspace tab?").
+  if (!onePane()) {
+    const facts = document.createElement('md-secondary-tab');
+    facts.textContent = tr('field.facts');
+    facts.onclick = () => { cardShows = 'facts'; showCard(); drawCardTabs(a); };
+    tabs.push(facts);
+  }
   for (const path of openFiles) {
     const t = document.createElement('md-secondary-tab');
     t.append(cell('tablbl', path === PR ? tr('git.pr')
@@ -7116,7 +7186,8 @@ function drawCardTabs(a) {
   // The children carry the state instead, before they are handed over, which is the same rule the
   // pane handles and the chips follow — the component owns what it draws, and it reads `active`
   // off the tabs when it adopts them.
-  const at = cardShows === 'facts' ? 0 : openFiles.indexOf(cardShows) + 1;
+  const first = onePane() ? 0 : 1;   // the facts tab is only there on a wide screen
+  const at = cardShows === 'facts' ? 0 : openFiles.indexOf(cardShows) + first;
   const which = at < 0 ? 0 : at;
   tabs.forEach((t, i) => { t.active = i === which; });
   cardTabs.replaceChildren(...tabs);
