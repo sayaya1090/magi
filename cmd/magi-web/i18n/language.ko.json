@@ -181,6 +181,7 @@
   "files.find": "이 워크스페이스에서 찾기",
   "files.find_again": "다시 찾기",
   "files.find_clear": "지우기",
+  "files.find_go": "찾기",
   "files.find_where": "어디에서",
   "files.find_who": "파일 이름, 또는 파일 안에 적힌 것. 내용 검색은 파일을 읽으므로 더 걸립니다.",
   "files.found_in_names": "이름에 “{q}”",

@@ -181,6 +181,7 @@
   "files.find": "Find in this workspace",
   "files.find_again": "Search again",
   "files.find_clear": "Clear",
+  "files.find_go": "Search",
   "files.find_where": "Look at",
   "files.find_who": "A name, or something written in the files. Contents takes longer — it reads them.",
   "files.found_in_names": "Names matching “{q}”",

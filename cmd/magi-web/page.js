@@ -5594,27 +5594,38 @@ function turnRows(rows, n) {
   return rows.slice(from, to);
 }
 
+// Which of these boxes are open, across redraws.
+//
+// The room is rebuilt whenever something is said, and a fold somebody opened is inside what gets
+// thrown away: measured live — opened it, the next participant spoke two seconds later, and it was
+// shut again with no way to tell it from a press that did not land. Remembered by speaker and turn
+// rather than by element, because the element is exactly the thing that does not survive.
+const workOpen = new Set();
+
 // workingBox is the control and the box it opens: what this companion read and thought before it
 // said what it said.
 function workingBox(who, socket, room, nth) {
+  const key = who + '|' + nth;
   const box = cell('meetwork');
   const rows = cell('meetworkrows');
-  rows.hidden = true;
   const b = label(withMark(document.createElement('md-text-button'), '#i-sl-chevron-down'),
                   tr('meet.working'));
   b.className = 'meetworkgo';
-  let read = false;
+  const fill = async () => {
+    if (rows.children.length) return;
+    const got = turnRows(await readRoom(socket, room), nth);
+    // Everything except the answer itself, which is the line this box hangs under.
+    const steps = got.filter(r => r.who !== 'assistant');
+    rows.replaceChildren(...(steps.length ? steps.map(rowNode)
+                                          : [cell('dnote', tr('meet.working_gone'))]));
+  };
+  rows.hidden = !workOpen.has(key);
+  if (!rows.hidden) fill();       // rebuilt with it open: fill it again, from the kept answer
   b.onclick = () => whileItRuns(b, async () => {
-    if (!rows.hidden) { rows.hidden = true; return; }
-    if (!read) {
-      read = true;
-      const got = turnRows(await readRoom(socket, room), nth);
-      // Everything except the answer itself, which is the line this box hangs under.
-      const steps = got.filter(r => r.who !== 'assistant');
-      rows.replaceChildren(...(steps.length ? steps.map(rowNode)
-                                            : [cell('dnote', tr('meet.working_gone'))]));
-    }
+    if (!rows.hidden) { rows.hidden = true; workOpen.delete(key); return; }
+    await fill();
     rows.hidden = false;
+    workOpen.add(key);
   });
   box.append(b, rows);
   return box;
@@ -6002,7 +6013,7 @@ function askFind(a) {
     head: tr('files.find'), body: tr('files.find_who'), label: tr('files.find'), value: findQ,
     pick: {label: tr('files.find_where'), options: [tr('files.by_name'), tr('files.by_text')],
            value: tr(findIn === 'text' ? 'files.by_text' : 'files.by_name')},
-    doIt: tr('files.find'), doMark: '#i-sl-magnifying-glass',
+    doIt: tr('files.find_go'), doMark: '#i-sl-magnifying-glass',
     go: (q, where) => {
       findQ = q;
       findIn = where === tr('files.by_text') ? 'text' : 'names';

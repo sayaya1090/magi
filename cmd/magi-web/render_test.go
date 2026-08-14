@@ -5287,6 +5287,82 @@ await loadMeet();
 `+epilogue)
 }
 
+// What a participant read and thought before it spoke, and the box that shows it staying open.
+//
+// Two things at once, because the second is what the first is worth nothing without: a live room is
+// rebuilt every time somebody says anything, and the box is inside what gets thrown away. Measured
+// on the live console — opened it, the next participant spoke two seconds later, and it was shut
+// again with no way to tell that from a press that never landed.
+func TestTheWorkingBehindASentenceOpensAndStaysOpen(t *testing.T) {
+	got := meetPage(t, `{
+    id: 'm1', topic: 'who owns the retry budget', opened: true, round: 1, max: 3,
+    speakers: [{name: 'design', socket: '/s/d', room: 's_room_d'}, {name: 'you', person: true}],
+    said: [{who: 'design', round: 1, text: 'the budget is mine above 200ms'}],
+  }`, `
+// The participant's own conversation: the preparation it did before the room opened, then the turn
+// that produced the line on screen. The rows of a turn are everything after the nth thing it was
+// asked — so which turn a box shows is countable rather than guessed at.
+globalThis.ROOM = [
+  {who: 'user', text: 'get ready for the meeting'},
+  {who: 'thinking', text: 'the preparation, which belongs to no line'},
+  {who: 'assistant', text: 'ready'},
+  {who: 'user', text: 'the meeting so far…'},
+  {who: 'thinking', text: 'checking what the retry budget is here'},
+  {who: 'tool', name: 'read', text: 'budget.go'},
+  {who: 'assistant', text: 'the budget is mine above 200ms'},
+];
+const was = globalThis.fetch;
+globalThis.fetch = async (p, init) => {
+  if (String(p).startsWith('/transcript')) {
+    return {ok: true, status: 200, json: async () => ROOM, text: async () => ''};
+  }
+  return was(p, init);
+};
+const cls = c => byId.meet.find(d => String(d.className).split(' ')[0] === c);
+const rowsOf = () => cls('meetworkrows').map(r => ({hidden: !!r.hidden, n: (r.children || []).length,
+                       kinds: (r.children || []).map(k => String(k.className))}));
+const out = {before: rowsOf()};
+await cls('meetworkgo')[0].onclick();
+out.opened = rowsOf();
+// …and now somebody else speaks. The room is redrawn from scratch, which is what took the box away.
+MEETING.said = MEETING.said.concat([{who: 'design', round: 2, text: 'and below it, nobody'}]);
+await loadMeet();
+out.afterAnotherTurn = rowsOf();
+console.log(JSON.stringify(out));
+`)
+	before, _ := got["before"].([]any)
+	if len(before) != 1 {
+		t.Fatalf("the line offered %d ways to see the working", len(before))
+	}
+	if b, _ := before[0].(map[string]any); b["hidden"] != true {
+		t.Errorf("the working is showing before anybody asked for it: %v", b)
+	}
+	opened, _ := got["opened"].([]any)
+	first, _ := opened[0].(map[string]any)
+	if first["hidden"] != false {
+		t.Fatalf("pressing it did not open the working: %v", first)
+	}
+	// The turn's own rows, and only those: the preparation is a different turn, and the answer is
+	// the line this box hangs under.
+	kinds := fmt.Sprint(first["kinds"])
+	if !strings.Contains(kinds, "thinking") || !strings.Contains(kinds, "tool") {
+		t.Errorf("the working holds %v — it is what the companion thought and ran", kinds)
+	}
+	if strings.Contains(kinds, "assistant") {
+		t.Errorf("the working repeats the sentence it hangs under: %v", kinds)
+	}
+	if n, _ := first["n"].(float64); n != 2 {
+		t.Errorf("the working has %v rows; this turn had two before the answer", n)
+	}
+	after, _ := got["afterAnotherTurn"].([]any)
+	if len(after) < 2 {
+		t.Fatalf("the redraw produced %d lines with workings", len(after))
+	}
+	if a, _ := after[0].(map[string]any); a["hidden"] != false {
+		t.Errorf("somebody else speaking shut the working that was open: %v", a)
+	}
+}
+
 // The screen says where the token is, because the token is the whole mechanism.
 //
 // A transcript alone answers "what has been said" and not "why is nothing happening" — the second
