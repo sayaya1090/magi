@@ -8441,13 +8441,12 @@ function clearCompanionView() {
   cardTabs.replaceChildren();
 }
 
-function render() {
-  // The transcript's connection goes, and with it any roster listener that was sharing it — said
-  // here rather than left to stopFleetWatch, which would otherwise be holding a closed socket.
-  if (es) { es.close(); es = null; fleetES = null; fleetShared = false; }
-  if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
-  const s = sock();
-  const v = s ? '' : view();
+// paintCrumbs writes the trail in the masthead: where you are, and every level that is a way back.
+//
+// Its own function because it is a self-contained answer to one question — the four slots and what
+// each of them links to — and because render() is a sequence of such answers rather than one long
+// procedure. Nothing here reads anything but the address.
+function paintCrumbs(s, v) {
   // Where you are, in the masthead: magi / lessons, or magi / companions / design. The crumb that
   // names the section IS the way back to it, so "where am I" and the way out are one thing.
   //
@@ -8455,7 +8454,6 @@ function render() {
   // connections tab answered a question nobody asked and offered a way back to somewhere you had
   // not been.
   const section = s ? tr('nav.companions') : SECTION[v] || tr('nav.companions');
-  retitle(0);
   back.textContent = section;
   back.setAttribute('href', at(s ? '' : HREF[v] || ''));
   crumbSep.hidden = !s;
@@ -8492,6 +8490,14 @@ function render() {
   crumbSep3.hidden = !leaf;
   crumbLeaf.textContent = !leaf ? '' : deeper ? deepWord() : pastOf();
   back.className = s ? '' : 'here';
+}
+
+// showDestination hides everything that is not the screen being asked for, and lights the rail and
+// the tabs to match.
+//
+// One place, so the rail and the tabs cannot come to disagree about where you are: they used to be
+// set at each of the four click handlers, which is exactly how they did.
+function showDestination(s, v) {
   tabsEl.hidden = !!s;
   // Which kind of page this is, for the rules that differ between them. On a companion's page the
   // tabs are gone, so anything that leans on them being there has to know.
@@ -8536,6 +8542,14 @@ function render() {
   // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
   // be able to arrive at by editing the address either.
   accessEl.hidden = !!s || v !== 'access' || !mayEl(accessEl);
+}
+
+// paintCompanionChrome is what a companion's page has that a list does not: the composer, the
+// interrupt, the panels, and the reveal of whichever body of content this navigation arrived at.
+//
+// Returns true when the screen is one level in (a subagent, a verdict, a past session), because
+// that is the one case where render() stops before starting a destination.
+function paintCompanionChrome(s) {
   // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
@@ -8583,87 +8597,108 @@ function render() {
     // there is not.
     const known = (fleetSeen || []).find(x => x.socket === s && (x.peer || '') === peerOf());
     drawDeep(known || {socket: s, peer: peerOf()});
-    return;
+    return true;
   }
-  if (v === 'board') {
+  return false;
+}
+
+// render draws the whole page for the address in the bar: the trail, which destination is showing,
+// a companion's own chrome, and then the screen itself.
+//
+// The four are in that order because each depends on the one before it — the panels need the body
+// attribute the destination sets, and the screen's own read needs the panels to exist. What it is
+// NOT any more is a procedure: each step is a function that answers one question, and the last of
+// them is a table (SCREENS) rather than a chain of ifs.
+function render() {
+  // The transcript's connection goes, and with it any roster listener that was sharing it — said
+  // here rather than left to stopFleetWatch, which would otherwise be holding a closed socket.
+  if (es) { es.close(); es = null; fleetES = null; fleetShared = false; }
+  if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
+  const s = sock();
+  const v = s ? '' : view();
+  retitle(0);
+  paintCrumbs(s, v);
+  showDestination(s, v);
+  if (paintCompanionChrome(s)) return;   // one level in: drawDeep has the screen
+  const screen = SCREENS[v] || SCREENS.fleet;
+  screen.read();
+  screen.watch?.();
+}
+
+// What each destination reads, and what it listens to.
+//
+// One table rather than an if-chain in render() and a second copy of the same list in freshen():
+// arriving at a screen and coming back to it are the same question asked twice, and the two lists
+// drifted the moment one of them was edited. `read` is the one-shot — it is also exactly what
+// coming back to a tab needs — and `watch` is the subscription, which only render() starts.
+const SCREENS = {
+  board: {
     // Live, like the fleet beside it. A board that showed the day as it stood when you opened it
     // went stale the moment an agent finished something — and the day you watch it is the day work
-    // is happening. rxjs because the page already speaks it, and because the guard belongs in the
-    // pipe rather than in a flag somebody has to remember to clear.
-    loadBoard();
-    // Watched, like the fleet beside it. It used to poll every three seconds by building a
-    // signature — the roster, and then every companion's history, one request each — so three
-    // companions cost four requests every three seconds for as long as the tab was open: measured,
-    // twenty-four in a quiet ten. A run finishing changes that companion's row, which is exactly
-    // what the roster frame is.
+    // is happening.
+    read: () => loadBoard(),
+    // Watched rather than polled. It used to poll every three seconds by building a signature —
+    // the roster, and then every companion's history, one request each — so three companions cost
+    // four requests every three seconds for as long as the tab was open: measured, twenty-four in
+    // a quiet ten. A run finishing changes that companion's row, which is what the roster frame is.
     //
     // The one thing the signature did that the stream does not is stay out of the way of somebody
     // typing in the header, so that guard stays here.
-    watchFleet(() => {
+    watch: () => watchFleet(() => {
       if (boardEl.contains(document.activeElement)) return;
       loadBoard();
-    });
-    return;
-  }
-  if (v === 'map') {
-    // Live, like the table it is another view of: a picture of who is talking to whom is worth
-    // nothing if it is a picture of five minutes ago. Same interval as the fleet poll, and the
-    // same clean-up path — render() clears fleetTimer on the way out of every view.
-    loadMap();
-    // The picture is worth nothing five minutes old, and it costs nothing while nothing moves.
-    watchFleet(() => loadMap());
-    return;
-  }
-  if (v === 'meet') {
-    // Polled, and only while the meeting is still somewhere. A turn takes a minute, so two seconds
-    // is well inside the grain of what changes — and a stream would arrive no sooner.
+    }),
+  },
+  map: {
+    // A picture of who is talking to whom is worth nothing if it is a picture of five minutes ago —
+    // and it costs nothing while nothing moves.
+    read: () => loadMap(),
+    watch: () => watchFleet(() => loadMap()),
+  },
+  meet: {
+    // The room is where a turn lands. The stream carries the room itself, so a sentence appears
+    // when the driver writes it rather than up to two seconds later.
     //
-    // The redraw does not take the box out from under a person mid-sentence: the topic and what is
-    // being typed live outside the render, and the room is only rebuilt when the poll actually
-    // finds something different. A meeting that has gone stops the poll rather than asking a
-    // console that has already answered "no such meeting" once every two seconds for the evening.
-    loadMeet();
-    // Watched, not polled. The room is where a turn lands, and it landed up to two seconds after
-    // the driver wrote it; the stream carries the room itself, so it lands when it happens.
-    //
-    // The frame is not drawn from here — loadMeet is called and does its own reading — because the
-    // room's redraw has rules of its own (it holds still while somebody is typing, and rebuilds
-    // only when the answer is different), and a second path into it would be a second set of them.
-    watchFleet(() => { if (!meetGone) loadMeet(); },
-               meetOf() ? '?m=' + encodeURIComponent(meetOf()) : '', 'meet');
-    return;
-  }
-  if (v === 'access') {
-    // Read once and not polled: this list changes when somebody joins or leaves, which is not on a
+    // The frame is not drawn from the listener — loadMeet is called and does its own reading —
+    // because the room's redraw has rules of its own (it holds still while somebody is typing, and
+    // rebuilds only when the answer is different), and a second path into it would be a second set
+    // of them. A meeting that has gone stops the reading rather than asking a console that has
+    // already answered "no such meeting" once every two seconds for the evening.
+    read: () => { if (!meetGone) loadMeet(); },
+    watch: () => watchFleet(() => { if (!meetGone) loadMeet(); },
+                            meetOf() ? '?m=' + encodeURIComponent(meetOf()) : '', 'meet'),
+  },
+  access: {
+    // Read once and not watched: this list changes when somebody joins or leaves, which is not on a
     // three-second clock — and a table that reorders itself while an admin is picking a role is
     // worse than one a minute old.
     //
     // Not asked for at all when it may not be had. The server refuses either way; a fetch that
     // exists only to be refused is a 403 in somebody's audit record with nothing behind it.
-    if (mayEl(accessEl)) loadAccess();
-    return;
-  }
-  if (v === 'skills') {
+    read: () => { if (mayEl(accessEl)) loadAccess(); },
+  },
+  skills: {
     // Both halves of the same story, in the order it happens: what has been said often enough to
-    // become a rule, then the rules. Not polled — this is read and thought about, and a list that
-    // reorders itself under the cursor while somebody decides what to promote is worse than one a
-    // minute old.
+    // become a rule, then the rules, then the servers those companions can reach. Not watched —
+    // this is read and thought about, and a list that reorders itself under the cursor while
+    // somebody decides what to promote is worse than one a minute old.
     //
-    // BOTH halves, from here. There used to be a separate v === 'mcp' branch above this one, and
-    // it could not run: view() folds mcp into skills (RENAMED), so the test never matched while the
-    // element beside it was shown by the same fold. The servers arrived only when something else
-    // happened to call loadMCP — a language change, or adding one — which is why the list was there
-    // on one visit and empty on the next.
-    loadSkills();
-    // The server picker names companions, so the fleet is read before the list is drawn.
-    fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
-    return;
-  }
-  // The other two poll: the fleet for its rows, a companion's page for the facts about itself that
-  // its log cannot carry.
-  loadFleet();
-  watchFleet(list => { if (list) loadFleet(list); });
-}
+    // BOTH halves, from here. There used to be a separate mcp branch: view() folds mcp into skills,
+    // so it could not run, and the servers arrived only when something else happened to call
+    // loadMCP — which is why the list was there on one visit and empty on the next.
+    read: () => {
+      loadSkills();
+      // The server picker names companions, so the fleet is read before the list is drawn.
+      fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
+    },
+  },
+  fleet: {
+    // The list, and a companion's own page: both are the roster, which carries the facts about a
+    // companion that its log cannot.
+    read: () => loadFleet(),
+    watch: () => watchFleet(list => { if (list) loadFleet(list); }),
+  },
+};
 
 // freshen reads the screen's content once, without touching what it is listening to.
 //
@@ -8683,14 +8718,9 @@ function freshen() {
     drawDeep(known || {socket: s, peer: peerOf()});
     return;
   }
-  if (v === 'board') { loadBoard(); return; }
-  if (v === 'map') { loadMap(); return; }
-  if (v === 'meet') { if (!meetGone) loadMeet(); return; }
-  if (v === 'access') { if (mayEl(accessEl)) loadAccess(); return; }
-  if (v === 'skills') { loadSkills(); loadMCP(); return; }
-  // The companion's page and the list are both this: one read of the roster, which is what draws
-  // the facts, the queue, what was handed out and the workspace beside them.
-  loadFleet();
+  // The same one-shot render() starts the screen with. A second list of the destinations here is
+  // what made the two disagree the first time one of them was edited.
+  (SCREENS[v] || SCREENS.fleet).read();
 }
 
 // A tab nobody is looking at gives its stream back, and takes it again on the way in.
