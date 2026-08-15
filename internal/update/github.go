@@ -187,8 +187,23 @@ func (g *GitHubSource) Download(ctx context.Context, url string) ([]byte, error)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github: download status %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	// Bounded, like the checksums read above: the binary is read fully into memory BEFORE its
+	// checksum is verified, so a compromised or redirected asset host that passes TLS could stream
+	// unbounded bytes and OOM the process before the check runs. maxAsset is far past any real magi
+	// build; a truncated download that hits the cap then fails the SHA256 verify and is discarded.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAsset))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) == maxAsset {
+		return nil, fmt.Errorf("github: download exceeded %d bytes — refusing", maxAsset)
+	}
+	return body, nil
 }
+
+// maxAsset caps a downloaded release asset. A CGO-free magi is tens of MB; 512 MiB is a ceiling no
+// real build reaches and a stream a compromised host can't grow past.
+const maxAsset = 512 << 20
 
 // apiBase returns the configured REST API root or the public default.
 func (g *GitHubSource) apiBase() string {

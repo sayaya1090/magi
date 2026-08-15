@@ -247,3 +247,16 @@ func TestInstallRejectsNonPluginRepo(t *testing.T) {
 		t.Error("failed install should not leave a directory behind")
 	}
 }
+
+// Install refuses a url or ref that begins with '-' — git would parse it as an option
+// (--upload-pack=<cmd> is argument-injection to command execution), and the `--` after ref in
+// checkout does not guard the ref itself.
+func TestInstallRefusesAnOptionShapedURLOrRef(t *testing.T) {
+	dest := t.TempDir()
+	if _, err := Install(context.Background(), "-oProxyCommand=x", "", dest); err == nil {
+		t.Error("Install accepted a url beginning with '-'")
+	}
+	if _, err := Install(context.Background(), "https://example.com/x.git", "--upload-pack=evil", dest); err == nil {
+		t.Error("Install accepted a ref beginning with '-'")
+	}
+}

@@ -128,6 +128,17 @@ func Install(ctx context.Context, url, ref, destRoot string) (Managed, error) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return Managed{}, fmt.Errorf("git not installed")
 	}
+	// A url or ref beginning with '-' would be parsed by git as an OPTION, not an argument — the
+	// `--upload-pack=<cmd>` argument-injection route to command execution. These are operator-typed
+	// (-plugin-install / -plugin-pin), so this is a low-severity footgun, but the guard is trivial
+	// and the `--` after ref in checkout does not protect the ref itself. Same guard git.go puts on
+	// a ref before it reaches argv.
+	if strings.HasPrefix(url, "-") {
+		return Managed{}, fmt.Errorf("refusing a plugin url that begins with '-': %q", url)
+	}
+	if strings.HasPrefix(ref, "-") {
+		return Managed{}, fmt.Errorf("refusing a plugin ref that begins with '-': %q", ref)
+	}
 	name := repoName(url)
 	if name == "" {
 		return Managed{}, fmt.Errorf("cannot derive plugin name from %q", url)
