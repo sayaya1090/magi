@@ -9253,8 +9253,13 @@ function paint() {
   document.getElementById('themeK').textContent = tr('pref.theme');
   paintTheme();
   prefsEl.setAttribute('aria-label', tr('nav.preferences'));
+  // The palette opens on ⌘K/Ctrl+K, and a shortcut written down nowhere is one nobody finds — the
+  // page's own principle. Named in the tooltip (the platform's own chord) and to assistive tech.
   palOpen.setAttribute('aria-label', tr('pal.head'));
-  tip(palOpen, tr('pal.head'));
+  palOpen.setAttribute('aria-keyshortcuts', 'Meta+K Control+K');
+  const nav = typeof navigator !== 'undefined' ? navigator : {};
+  const cmdKey = /mac|iphone|ipad/i.test(nav.platform || nav.userAgent || '') ? '⌘K' : 'Ctrl+K';
+  tip(palOpen, tr('pal.head') + '  ·  ' + cmdKey);
   document.getElementById('lookK').textContent = tr('files.look');
   document.getElementById('lookWhy').textContent = tr('files.look_why');
   document.getElementById('accessK').textContent = tr('nav.access');
