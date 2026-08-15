@@ -8751,7 +8751,7 @@ function drawCardTabs(a) {
           // Closing the editor's tab ends the edit. Left set, `editing` outlived the tab: the
           // next opening of the same file from the tree landed straight in the editor — a mode
           // nobody asked for, with a buffer reset to the file.
-          if (editing === path) { editing = null; drafts.delete(path); }
+          if (editing === path) { editing = null; lookClearActive = null; drafts.delete(path); }
           openFiles = openFiles.filter(p => p !== path);
           if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
           drawCardTabs(a);

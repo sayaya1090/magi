@@ -230,8 +230,10 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 	// Bounded. A person can open a 40,000-line file in the console, and the buffer travels on every
 	// pause in typing — an unbounded prompt here is somebody's context window and their bill. Cut on
 	// a line boundary, not mid-line: the payload is numbered lines (`<n><TAB>code`) and the prompt
-	// tells the model so, so a truncation must not leave a number with half its code or an
-	// un-numbered tail — every line that survives is a whole one.
+	// tells the model so, so a truncation should not leave a number with half its code or an
+	// un-numbered tail. The one exception is a single line longer than the whole cap (no newline in
+	// the slice): there is no boundary to cut on, so the last line is left truncated — rare, and the
+	// model tolerates a cut trailing token.
 	if len(text) > lookOverCap {
 		text = text[:lookOverCap]
 		if i := strings.LastIndexByte(text, '\n'); i > 0 {
