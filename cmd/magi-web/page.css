@@ -1059,6 +1059,17 @@
   /* Before the label JS runs, an unpopulated header is an empty bordered div; hide it so there is no
      flash of a stray divider on load. (A group hidden by data-may is hidden by `hidden`, not by this.) */
   .prefgroup:empty { display:none; }
+  /* The profile editor list + add form. Each row is name · meta · edit · remove; the add form is a
+     column of fields so a base_url and a key are not squeezed onto one line. */
+  .proflist { display:grid; gap:var(--magi-sys-space-100); width:100%; }
+  .profrow { display:grid; grid-template-columns:minmax(0,auto) minmax(0,1fr) auto auto;
+    gap:var(--magi-sys-space-100); align-items:center; }
+  .profrow .profnm { font-weight:600; white-space:nowrap; }
+  .profrow .profmeta { color:var(--magi-ref-muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .profempty { color:var(--magi-ref-muted); font-size:.85rem; }
+  .profadd { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); }
+  .profadd md-outlined-text-field { width:100%; }
+  .profadd md-text-button { justify-self:end; }
   /* A row that belongs to the width where the rail is not drawn. The default is hidden and the
      narrow query puts it back, so the phone case is the exception that has to be stated — the
      other way round, a new width would inherit "show it" and quietly give the screen two doors. */
@@ -4131,14 +4142,16 @@
      than the conversation and off its axis. Same cap and same left edge as #log, which is what
      "under the text it answers" means. */
   @media (min-width:52.5em) {
-    /* The transcript keeps the reading measure, but the WIDE one (108ch) — the same cap deviations.md
-       sanctions for it. With a pane open the pane is the binding constraint and the column already
-       sits under this; the cap only bites when BOTH panes are shut, which is the default, where an
-       uncapped #log ran a prose line to 178ch on a 1920 screen — past the point a line can be read.
-       (It was max-width:none, chosen to fill the column; that filled it with unreadable lines. The
-       whitespace a cap leaves at the very wide end is the guide's answer, not a gap to close.) The
-       composer and strip still take the whole track — they are controls, not prose. */
-    body[at="agent"] #log { max-width:var(--magi-sys-wide); }
+    /* The transcript's reading measure, deliberately overridden to FILL the column when the room is
+       there. The guide (deviations.md) sanctions the 108ch cap, and its whitespace at the very wide
+       end is the guide's own answer — but the operator asked for the width instead: a wide, mostly-
+       empty right on a big monitor read to them as a layout fault, not as intended breathing room,
+       and it left the prose narrower than the full-width cards above it. So below 108ch of room the
+       cap still holds (a laptop keeps the reading measure), and above it the transcript grows to the
+       column, bounded at 132rem so a truly enormous monitor does not run one line clear across it.
+       The trade the guide warned about — a line past ~110ch is harder to read — is taken knowingly.
+       The composer and strip still take the whole track: they are controls, not prose. */
+    body[at="agent"] #log { max-width:max(var(--magi-sys-wide), min(100%, 132rem)); }
     body[at="agent"] #prompt .inner,
     body[at="agent"] form,
     body[at="agent"] #strip:not([hidden]) { max-width:none; margin-inline:0; }
