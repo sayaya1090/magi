@@ -104,6 +104,25 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	changes := truncateForCouncil(buildCouncilChanges(guardChanges), councilDiffCap)
 	lastText := lastTurnAssistantText(evs)
 
+	// A re-declaration with nothing changed is not worth an endless fresh fan-out. When the agent
+	// declares complete again with a byte-identical report and the same edits — it did no work,
+	// just re-asked — the members are polled again (a median ~87s and three model calls each) to
+	// reach the same "no" on the same evidence. Observed live: nine councils on one unchanged
+	// sentence. The FIRST repeat still runs, because the members now see their own prior objection
+	// fed back and may hold or refine it; from the second identical rejection on, the answer will
+	// not move, so it is short-circuited. Only for a completion declaration; a question always runs.
+	if complete && identicalRejections(evs, lastText, changes) >= 2 {
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: 1, Decision: string(council.Continue),
+			Note: "the agent declared finished again without changing anything since the last councils said no",
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		return "The council has already read this exact report twice and did not accept it, and nothing " +
+			"has changed since — no new edits, no new result. Do the work the last feedback asked for, or " +
+			"state a genuinely different result, then declare completion again. Re-declaring the same thing " +
+			"will not change the answer." + notesTail(a.turnNotesBlock(sid)), nil
+	}
+
 	labels := make([]string, len(members))
 	for i, m := range members {
 		labels[i] = m.Name
@@ -200,6 +219,42 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	return "The council does NOT accept this as finished yet. Address what follows and declare " +
 		"completion again when you believe it is done." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 		renderCouncilAdvice(delib, "What the members said:"), nil
+}
+
+// identicalRejections counts how many of the most recent consecutive councils REJECTED a finish on
+// this exact report and these exact changes. It pairs each council.decided with the council.convened
+// that preceded it, walks from the end, and stops at the first council that either accepted or judged
+// different evidence — so a genuine change (new edits, a new result) resets the count to zero and the
+// next declaration runs a fresh fan-out.
+func identicalRejections(evs []event.Event, report, changes string) int {
+	type outcome struct {
+		decision, report, changes string
+	}
+	var seq []outcome
+	var lastConvened *event.CouncilConvenedData
+	for _, e := range evs {
+		switch e.Type {
+		case event.TypeCouncilConvened:
+			var d event.CouncilConvenedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				dd := d
+				lastConvened = &dd
+			}
+		case event.TypeCouncilDecided:
+			var d event.CouncilDecidedData
+			if json.Unmarshal(e.Data, &d) == nil && lastConvened != nil {
+				seq = append(seq, outcome{d.Decision, lastConvened.Report, lastConvened.Changes})
+			}
+		}
+	}
+	n := 0
+	for i := len(seq) - 1; i >= 0; i-- {
+		if seq[i].decision != "continue" || seq[i].report != report || seq[i].changes != changes {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 // renderCouncilAdvice turns the members' verdicts into what the agent reads: one block per member,
