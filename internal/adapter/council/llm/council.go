@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,27 @@ func New(resolve func(provider string) port.LLMProvider, defaultModel string) *C
 // cutting a slow one off is a worse verdict. It is here to stop a turn dying, not to hurry anybody.
 // A var and not a const so a test can lower it: the thing being tested is that a silent member is
 // survived, and waiting three real minutes to see that is not a test anybody runs.
-var memberDeadline = 3 * time.Minute
+//
+// The prefill allowance rides on top, from the same knob the main loop's first-token bound reads
+// (MAGI_FIRST_TOKEN; this package cannot import internal/app, so the env is read again here). A
+// member's vote begins with prefilling the whole evidence prompt, and on the slow local backend
+// that bound exists for — measured ~3min to first token — a flat 3-minute deadline was spent
+// ENTIRELY in prefill: every member "did not answer", every vote became an abstention, and the
+// finish gate degenerated into a rubber stamp on exactly the hardware that most needs it. Members
+// on a fast backend still answer in seconds; the deadline only binds on the pathological case,
+// where a wrong abstain is worse than a longer wait.
+var memberDeadline = 3*time.Minute + firstTokenAllowance()
+
+// firstTokenAllowance mirrors internal/app's firstTokenTimeout default and env override — see
+// memberDeadline for why it is read here rather than imported.
+func firstTokenAllowance() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("MAGI_FIRST_TOKEN")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 300 * time.Second
+}
 
 func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
 	members := req.Members

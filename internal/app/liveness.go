@@ -71,14 +71,14 @@ func (a *App) leaveTool(sid session.SessionID) { a.live(sid).tools.Add(-1) }
 func (a *App) enterGen(sid session.SessionID) { a.live(sid).gens.Add(1) }
 func (a *App) leaveGen(sid session.SessionID) { a.live(sid).gens.Add(-1) }
 
-// noteGenToken records that this session's current generation just produced output, and genFresh
-// reports whether it did so recently enough to still count as producing.
+// noteGenToken records that this session's current generation just produced output.
 //
-// "In a generation" is not by itself evidence of work: a wedged backend holds an open stream that
-// emits nothing, and extending a lease for that would keep exactly the runaway the cap exists to
-// stop. Tokens arriving is the difference, and it is the same line the stream watchdog draws — a
-// stream silent past streamStallTimeout is aborted and re-issued as hung. So the lease extends
-// while output is flowing and hands a silent stream back to the judge.
+// Write-only since the lease machinery came out (2bd1fb68 removed the EXTEND/KILL judge that read
+// this through genFresh): nothing consumes lastToken today. Kept because it is the one place "the
+// model is actually emitting" is observed, which the next supervisor that needs the fact will want
+// — but read the fields, not the old comments, before building on them: the earlier text here
+// described a lease that no longer exists, and the silence bounds it referenced have since split
+// (firstTokenBound for the pre-first-token wait, streamStallTimeout between tokens).
 func (a *App) noteGenToken(sid session.SessionID) {
 	a.live(sid).lastToken.Store(time.Now().UnixNano())
 }

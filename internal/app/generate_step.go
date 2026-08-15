@@ -88,11 +88,12 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		if serr != nil {
 			return stepResponse{}, serr
 		}
-		// Stall-retry: the stream produced NO output for streamStallTimeout (a hung/silent backend).
+		// Stall-retry: the stream produced NO output for firstTokenBound() (a hung/silent backend).
 		// Re-issue the SAME request rather than strand the turn until the wall clock — a transient
-		// stall recovers on retry, and nothing was committed (the guard fires only before the first
-		// token), so re-generating is safe. noteStep charges the wasted attempt so a permanently
-		// silent backend still trips the step budget instead of looping.
+		// stall recovers on retry, and nothing was committed (the stall fires only before the first
+		// token), so re-generating is safe. maxStreamStallRetries is the only bound on this ladder:
+		// there is no step budget to charge (the step cap came out with the delegation machinery),
+		// so a permanently silent backend surfaces as the error below after the retries, not sooner.
 		if res.stalled && sAttempt < maxStreamStallRetries && ctx.Err() == nil {
 			a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("no response for %s — retrying the request", firstTokenBound()))
 			continue

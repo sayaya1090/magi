@@ -96,7 +96,9 @@ var streamStallTimeout = func() time.Duration {
 // and prefilling, just not emitting yet (observed live: Qwen3.8-27B on an M4 Pro, each turn erroring
 // "no response after 3 stalled attempts"). A stall here is still retryable and still bounds a truly
 // dead backend, only with more headroom. Var, not const, so tests can shrink it. MAGI_FIRST_TOKEN
-// overrides (0 disables → falls back to streamStallTimeout).
+// overrides. NOTE the zero semantics differ from MAGI_STREAM_STALL's: 0 here does not mean "no
+// bound", it means "no SEPARATE first-token bound" — the inter-token bound then applies from the
+// start, which is the pre-split behaviour (see firstTokenBound).
 var firstTokenTimeout = func() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("MAGI_FIRST_TOKEN")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -200,11 +202,14 @@ func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentAct
 		finished bool
 		finishAt time.Time
 	)
-	if streamStallTimeout > 0 || firstTokenTimeout > 0 || streamDiag {
+	if streamStallTimeout > 0 || firstTokenBound() > 0 || streamDiag {
 		tick := 15 * time.Second
 		// The tick must be no coarser than the smallest active bound, or a test that shrinks either
-		// timeout to milliseconds would never wake in time to fire it.
-		for _, b := range []time.Duration{streamStallTimeout, firstTokenTimeout} {
+		// timeout to milliseconds would never wake in time to fire it. Derived from the same
+		// expressions the bound checks below use (firstTokenBound, not the raw var) — the provider
+		// guard once sized itself from a different expression than the bound it backstopped, and
+		// that aliasing is exactly how the two came apart.
+		for _, b := range []time.Duration{streamStallTimeout, firstTokenBound()} {
 			if b > 0 && b < tick {
 				tick = b
 			}

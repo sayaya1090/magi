@@ -86,13 +86,24 @@ func GuardProvider(p port.LLMProvider) port.LLMProvider {
 }
 
 // providerGuardIdle / providerGuardCap are the safety-net bounds — deliberately ABOVE the main loop's
-// streamStallTimeout / reasoningSpinCap so consumeStream's behavioural handling fires first for the main
-// generate; the guard then only catches paths with no handling of their own. 0 disables the arm.
+// bounds so consumeStream's behavioural handling fires first for the main generate; the guard then
+// only catches paths with no handling of their own. 0 disables the arm.
+//
+// Above BOTH of the main loop's silence bounds, which came apart once: sized from streamStallTimeout
+// alone (2×120s=240s), the guard sat BELOW the 300s first-token bound — so a slow prefill was killed
+// at 240s by the guard instead of handled at 300s by consumeStream, and killed WORSE: the guard's
+// cancel closes the stream without the idle tick ever firing, so `stalled` was never set, the retry
+// ladder was unreachable, and the turn ended as an error-free empty answer. The net was the exact
+// hang-fix being undone one layer up, silently.
 func providerGuardIdle() time.Duration {
-	if streamStallTimeout <= 0 {
+	inner := streamStallTimeout
+	if b := firstTokenBound(); b > inner {
+		inner = b
+	}
+	if inner <= 0 {
 		return 0
 	}
-	return 2 * streamStallTimeout
+	return 2 * inner
 }
 
 func providerGuardCap() int {

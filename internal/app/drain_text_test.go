@@ -42,13 +42,16 @@ func (spinLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.
 	return ch, nil
 }
 
-// GuardProvider must abort a SILENT stream at its idle bound (2x streamStallTimeout) — not hang until
-// the turn wall clock — so a hung planner/council/side-call generate unwinds in seconds. This is the
-// universal guard that replaces the per-consumer watchdogs.
+// GuardProvider must abort a SILENT stream at its idle bound (2x the larger of the two stream
+// bounds) — not hang until the turn wall clock — so a hung planner/council/side-call generate
+// unwinds in seconds. This is the universal guard that replaces the per-consumer watchdogs.
 func TestGuardProviderAbortsSilentStream(t *testing.T) {
-	old := streamStallTimeout
-	streamStallTimeout = 20 * time.Millisecond // providerGuardIdle = 40ms
-	defer func() { streamStallTimeout = old }()
+	// BOTH bounds shrunk: the guard sizes itself from max(streamStallTimeout, firstTokenBound()),
+	// so shrinking only the first left the 300s first-token default in charge and this test sat for
+	// ten real minutes — the exact single-var trap the guard's own sizing bug came from.
+	oldS, oldF := streamStallTimeout, firstTokenTimeout
+	streamStallTimeout, firstTokenTimeout = 20*time.Millisecond, 20*time.Millisecond // providerGuardIdle = 40ms
+	defer func() { streamStallTimeout, firstTokenTimeout = oldS, oldF }()
 
 	stream, err := GuardProvider(stallLLM{}).StreamChat(context.Background(), port.ChatRequest{})
 	if err != nil {

@@ -103,3 +103,28 @@ func TestConsumeStreamMidGenerationFreezeNotRetryable(t *testing.T) {
 		t.Errorf("the partial output must be preserved, got %q", res.text)
 	}
 }
+
+// The provider guard is the safety net UNDER consumeStream's handling, so its idle bound must sit
+// ABOVE both of the main loop's silence bounds — above the inter-token one AND the first-token one.
+// Sized from streamStallTimeout alone it sat at 240s, below the 300s first-token bound: a slow
+// prefill was killed by the guard at 240s instead of handled at 300s, and killed in the worst way —
+// the guard's cancel closes the stream without the idle tick firing, so `stalled` is never set, the
+// retry ladder is unreachable, and the turn ends as an error-free empty answer.
+func TestProviderGuardIdleSitsAboveBothStreamBounds(t *testing.T) {
+	oldS, oldF := streamStallTimeout, firstTokenTimeout
+	defer func() { streamStallTimeout, firstTokenTimeout = oldS, oldF }()
+
+	streamStallTimeout, firstTokenTimeout = 120*time.Second, 300*time.Second
+	if got := providerGuardIdle(); got <= firstTokenBound() {
+		t.Errorf("guard idle %v is not above the first-token bound %v — a slow prefill dies to the "+
+			"guard before consumeStream can handle it", got, firstTokenBound())
+	}
+	streamStallTimeout, firstTokenTimeout = 120*time.Second, 0 // no separate first-token bound
+	if got := providerGuardIdle(); got <= streamStallTimeout {
+		t.Errorf("guard idle %v is not above the inter-token bound %v", got, streamStallTimeout)
+	}
+	streamStallTimeout, firstTokenTimeout = 0, 0 // everything off
+	if got := providerGuardIdle(); got != 0 {
+		t.Errorf("guard idle %v with both bounds disabled — the old fully-off behaviour is gone", got)
+	}
+}
