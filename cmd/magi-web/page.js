@@ -7039,7 +7039,13 @@ async function walkTree(a, kept) {
 // The heading is a button and says its state, so a keyboard reaches it and a screen reader is told
 // what pressing it does — which is the part that gets left out when this is built from a div.
 function paneCard(key, title, kids, again) {
-  const shut = localStorage.getItem('pane.' + key) === 'shut';
+  // Git starts collapsed until someone opens it. Where the tree and git stack (the desk column, a
+  // phone in landscape) an expanded git card of a busy repo pushed the tree — the thing a person
+  // came to the workspace for — down to a strip; the tree leads, and git is a heading you open. An
+  // explicit choice, either way, is remembered. (On a compact PHONE git is not a card here at all
+  // but a summary row above the tree, so this only bears on the stacked layouts.)
+  const stored = localStorage.getItem('pane.' + key);
+  const shut = stored === 'shut' || (stored === null && key === 'git');
   const card = cell('filescard pane-' + key + (shut ? ' shut' : ''));
   const head = document.createElement('button');
   head.type = 'button';
