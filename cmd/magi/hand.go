@@ -247,18 +247,22 @@ func (h handover) startNext(ctx context.Context) (soon bool) {
 	// The next piece waits for it to end. Watching the session it went into
 	// is how that is noticed without polling — the tick in run() is only for the turn this did not
 	// start, which is the person's own.
-	go h.wakeWhenDone(ctx, p.session)
+	go h.wakeWhenDone(ctx, p.session, since)
 	return false
 }
 
-// wakeWhenDone nudges the drain when the turn just started has ended.
-func (h handover) wakeWhenDone(ctx context.Context, sid session.SessionID) {
+// wakeWhenDone nudges the drain when the turn just started has ended. since is where the log stood
+// as THIS piece began — subscribing from there, not from 0, so a reused per-asker session's EARLIER
+// piece's turn.finished (replayed on a from-0 subscribe) does not fire immediately and clear inHand
+// while this second piece is still running, which advertised a busy companion as free and drew more
+// team work onto it. Watch already threads its receipt's start position for the same reason.
+func (h handover) wakeWhenDone(ctx context.Context, sid session.SessionID, since int64) {
 	// Every way out of here, including the ones that mean this daemon has lost sight of the piece
 	// rather than seen it finish. A flag left set would say "busy" forever with nothing to clear
 	// it; a flag cleared early costs an asker one wait, and the workspace is still protected by
 	// the check that refuses to start two turns at once.
 	defer h.queued.ended()
-	events, stop, err := h.work.Subscribe(ctx, sid, 0)
+	events, stop, err := h.work.Subscribe(ctx, sid, since)
 	if err != nil {
 		return // the tick will find it
 	}
