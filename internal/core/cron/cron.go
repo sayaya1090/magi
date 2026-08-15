@@ -301,7 +301,16 @@ func (s Schedule) next(t time.Time) (time.Time, int) {
 			continue
 		}
 		if !bit(s.hour, next.Hour()) {
-			next = time.Date(next.Year(), next.Month(), next.Day(), next.Hour(), 0, 0, 0, loc).Add(time.Hour)
+			cand := time.Date(next.Year(), next.Month(), next.Day(), next.Hour(), 0, 0, 0, loc).Add(time.Hour)
+			// Strict progress. On a fall-back DST day the wall-hour repeats (01:00 occurs twice), and
+			// time.Date resolves the ambiguous hour to the EARLIER instant — so cand could land on the
+			// same absolute time as next and the search would spin here forever for any ordinary
+			// schedule ("0 3 * * *") evaluated during those early hours. If the coarse skip did not
+			// move forward in absolute time, step by an hour from next itself, which always does.
+			if !cand.After(next) {
+				cand = next.Add(time.Hour)
+			}
+			next = cand
 			continue
 		}
 		if !bit(s.min, next.Minute()) {

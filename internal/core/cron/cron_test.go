@@ -256,6 +256,28 @@ func TestAnHourThatHappensTwiceFiresTwice(t *testing.T) {
 	}
 }
 
+// A schedule whose hour does NOT match the repeated fall-back hour still terminates — it used to
+// spin forever, because the coarse hour-skip landed on the earlier ambiguous instant and never
+// advanced in absolute time. An ordinary "3am daily" evaluated during the early hours of the
+// fall-back day is the everyday case that hung the cron goroutine.
+func TestAnOrdinaryScheduleDoesNotHangOnTheFallBackDay(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skipf("no tzdata: %v", err)
+	}
+	s := mustParse(t, "0 3 * * *") // 3am daily — hour 3 is not the repeated 1am
+	done := make(chan time.Time, 1)
+	go func() { done <- s.Next(time.Date(2026, 11, 1, 0, 0, 0, 0, ny)) }()
+	select {
+	case got := <-done:
+		if got.Hour() != 3 || got.Minute() != 0 || got.Day() != 1 {
+			t.Fatalf("next fire %s is not 03:00 on the fall-back day", got.Format(time.RFC3339))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Next did not return within 2s — the fall-back hour-skip is spinning")
+	}
+}
+
 func TestTheSearchSkipsWholeMonthsAndDaysRatherThanCrawling(t *testing.T) {
 	// Counted, not timed. The first version of this test gave Next two seconds of wall clock and
 	// passed with the coarse skipping removed — crawling five years a minute at a time is ~2.6M
