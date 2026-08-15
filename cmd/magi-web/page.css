@@ -3474,6 +3474,13 @@
     /* P3: a diff is code and it wraps here too, for the same reason an open file does — measured
        at 664, one diff took the document to 1156px and tipped the page into the desk layout. */
     #fileview .diffbody, #fileview .filecode { white-space:pre-wrap; overflow-wrap:anywhere; }
+    /* And the line-number gutter goes: once the code wraps, one number per source line no longer
+       sits beside its line — measured, a 240-char line added 8 visual rows and every number below
+       it pointed at the wrong line. A number that lies is worse than no number, so on the phone,
+       where the code wraps to fit, the gutter is dropped and the code takes the whole width. The
+       editor keeps its gutter — it scrolls rather than wraps, so the numbers still track. */
+    #fileview .filebody:not(.editbody) { grid-template-columns:minmax(0, 1fr); }
+    #fileview .filebody:not(.editbody) .filegutter { display:none; }
     /* The workbenches keep their own scroller and their own cap below 840, where the desk's rule
        stops applying: without it the commit screen is 14,129px tall on a phone and its message box
        and Commit button are twenty-one screens down. */
