@@ -991,6 +991,7 @@ func run() int {
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
+		CouncilVerify:       cfg.Council.Verify,
 		TimeBudget:          *timeBudget,
 		Observer:            obs,
 	})

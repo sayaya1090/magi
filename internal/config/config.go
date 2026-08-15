@@ -187,6 +187,14 @@ type CouncilConfig struct {
 	// council call instead of three, for everyday chat-speed use. Explicit members
 	// override the preset.
 	Preset string `toml:"preset"` // "" | "full" | "light"
+	// Verify is a command magi runs ITSELF at the finish gate — the fixed harness the agent
+	// cannot subvert. Its exit code is authoritative: a non-zero exit refuses the finish whatever
+	// the members voted, and its output is shown to them as magi-run evidence rather than the
+	// agent's self-report. Opt-in (empty = off), because it runs on every completion declaration.
+	// The one thing it cannot catch on its own is a suite the agent disabled so the command still
+	// exits 0 (a TestMain that skips everything); for a `go test` command magi also checks that
+	// tests actually ran and refuses a pass that executed none.
+	Verify string `toml:"verify"` // e.g. "go test ./..."
 }
 
 // SubagentConfig is one subagent's user settings. Enabled is a POINTER: nil means "no choice
@@ -387,10 +395,11 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # [council]
 # enabled    = false        # the council is on by default; uncomment to disable
 # rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
-# verify     = "go test ./..."   # opt-in: run each round, fed to the council as evidence
-# [[council.signal]]             # more named checks (test/lint/typecheck), all fed as evidence
-# name = "lint"
-# command = "golangci-lint run"
+# verify     = "go test ./..."   # magi runs this ITSELF at the finish gate — the fixed harness the
+#                                # agent cannot subvert. Non-zero exit refuses the finish whatever
+#                                # the members voted; the output is shown to them as magi-run
+#                                # evidence. For a go-test command, magi also refuses a pass that
+#                                # ran no tests (a suite disabled so the command still exits 0).
 # [[council.member]]        # omit members to use the MAGI defaults
 # name = "Melchior"
 # lens = "correctness"      # correctness | verification | completeness
