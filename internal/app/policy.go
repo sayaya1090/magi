@@ -93,20 +93,19 @@ func newPolicy(allow, deny, allowDomains []string) *Policy {
 			p.allow = append(p.allow, pr)
 		}
 	}
-	// Default secret protections come first, then user deny rules.
+	// Default secret protections come first, then user deny rules. Built directly rather than through
+	// parseRule so the regex is compiled with a case fold (compileGlob(g, true)) — see compileGlob.
 	for _, g := range secretGlobs {
+		re := compileGlob(g, true)
 		for _, t := range []string{"read", "write", "edit", "multiedit"} {
-			if pr, ok := parseRule(t + "(" + g + ")"); ok {
-				p.deny = append(p.deny, pr)
-			}
+			p.deny = append(p.deny, policyRule{tool: t, raw: g, re: re})
 		}
 	}
-	// Writes only: see guardrailGlobs.
+	// Writes only: see guardrailGlobs. Folded for the same reason as the secrets.
 	for _, g := range guardrailGlobs {
+		re := compileGlob(g, true)
 		for _, t := range []string{"write", "edit", "multiedit"} {
-			if pr, ok := parseRule(t + "(" + g + ")"); ok {
-				p.deny = append(p.deny, pr)
-			}
+			p.deny = append(p.deny, policyRule{tool: t, raw: g, re: re})
 		}
 	}
 	for _, r := range deny {
@@ -134,8 +133,15 @@ func parseRule(s string) (policyRule, bool) {
 	}
 	// A "cmd:*" suffix → ':' is a soft separator and the trailing
 	// "*" means "any args", i.e. a prefix match on the (literal) command.
+	//
+	// Anchored to a command boundary, not a bare prefix. `^git` (no boundary) matched every
+	// program whose name merely BEGINS with the prefix — bash(git:*) covered github, gitleaks,
+	// git-crypt; bash(ls:*) covered lsof, lsblk — silently granting programs the operator never
+	// approved. `^git(\s|$)` matches "git" alone and "git status …" but not "github". (The
+	// dangerous-tail case, "git status && rm -rf", is caught by the scanner-forced prompt in
+	// gatePermission, which an allow rule no longer waives — this anchor is the sibling-name half.)
 	if prefix, ok := strings.CutSuffix(spec, ":*"); ok {
-		pr.re = regexp.MustCompile("^" + regexp.QuoteMeta(prefix))
+		pr.re = regexp.MustCompile("^" + regexp.QuoteMeta(prefix) + `(\s|$)`)
 		return pr, true
 	}
 	pr.re = globToRegexp(spec)
@@ -146,8 +152,20 @@ func parseRule(s string) (policyRule, bool) {
 // segment, "**" crosses segments, and "**/" matches zero or more leading
 // directories (so "**/.env" catches both ".env" and "a/b/.env"). "?" matches one
 // non-separator char.
-func globToRegexp(g string) *regexp.Regexp {
+func globToRegexp(g string) *regexp.Regexp { return compileGlob(g, false) }
+
+// compileGlob is globToRegexp with an optional case fold. The secret and guardrail deny rules are
+// folded (fold=true): the read tool resolves a path case-insensitively — findByBase lowercases both
+// sides and walks the tree, so `read {"path":"ID_RSA"}` misses a case-sensitive `**/id_rsa` deny and
+// then finds the real key — and on a case-insensitive filesystem (macOS) os.Stat("ID_RSA") opens it
+// directly. A case-sensitive floor over a case-insensitive resolver is not a floor. Allow rules and
+// user-written rules are NOT folded: there, case-insensitivity would GRANT siblings (a rule for
+// build.sh would also cover BUILD.SH), which is the opposite of safe.
+func compileGlob(g string, fold bool) *regexp.Regexp {
 	var b strings.Builder
+	if fold {
+		b.WriteString("(?i)")
+	}
 	b.WriteString("^")
 	for i := 0; i < len(g); i++ {
 		switch c := g[i]; c {

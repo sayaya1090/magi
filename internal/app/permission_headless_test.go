@@ -103,3 +103,26 @@ func TestRequestPermissionInteractiveStillPrompts(t *testing.T) {
 		t.Fatal("no resolution after RespondPermission")
 	}
 }
+
+// An allow rule pre-approves a program, but it does NOT waive a scanner-forced prompt on a
+// dangerous invocation chained after it. bash(git:*) trusts git; "git status && rm -rf build" both
+// matches that prefix AND carries a destructive tail — the gate must still stop it. Headless "auto"
+// resolves a forced prompt as a deny, so gatePermission returns true (stop). Reverting execute.go
+// to `(danger || forcePrompt) && !AllowedByRule` lets the allow rule suppress the prompt and the
+// chained case proceeds, failing this test.
+func TestGatePromptsChainedDestructiveDespiteAllowRule(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "auto", Interactive: false, Allow: []string{"Bash(git:*)"}})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	actor := event.Actor{Kind: event.ActorUser, ID: "u"}
+
+	// The rule really does cover a plain git command: no forced prompt, so the gate proceeds.
+	plain := &session.ToolCall{CallID: "g1", Name: "bash", Args: json.RawMessage(`{"command":"git status --porcelain"}`)}
+	if stop := a.gatePermission(context.Background(), sid, actor, plain, "m1"); stop {
+		t.Fatal("a plain git command under bash(git:*) should proceed, not be stopped")
+	}
+	// The chained destructive tail must be stopped despite the same rule matching its prefix.
+	chained := &session.ToolCall{CallID: "g2", Name: "bash", Args: json.RawMessage(`{"command":"git status && rm -rf build_out"}`)}
+	if stop := a.gatePermission(context.Background(), sid, actor, chained, "m2"); !stop {
+		t.Fatal("git status && rm -rf must be gated even though bash(git:*) matches its prefix")
+	}
+}

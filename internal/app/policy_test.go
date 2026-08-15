@@ -132,6 +132,39 @@ func TestPolicyAllowRuleBypassesPrompt(t *testing.T) {
 	}
 }
 
+// A ":*" prefix rule is anchored to a command boundary, so it grants the program it names and not
+// every program whose name merely begins with it. Reverting the anchor to a bare "^git" makes the
+// sibling cases match and fails this test.
+func TestPolicyPrefixRuleBoundary(t *testing.T) {
+	p := newPolicy([]string{"Bash(git:*)"}, nil, nil)
+	for _, c := range []string{"git status", "git", "git push origin main"} {
+		if !p.AllowedByRule("bash", args(map[string]string{"command": c})) {
+			t.Errorf("%q should be allowed by bash(git:*)", c)
+		}
+	}
+	for _, c := range []string{"github-cli login", "gitleaks detect", "git-crypt unlock"} {
+		if p.AllowedByRule("bash", args(map[string]string{"command": c})) {
+			t.Errorf("%q must NOT match bash(git:*) — a different program", c)
+		}
+	}
+}
+
+// Secret-path deny is case-insensitive, because the read tool resolves paths case-insensitively
+// (findByBase) and on macOS the filesystem is too — so a case variant that a case-sensitive rule
+// misses still reaches the real key. Reverting compileGlob's fold makes these reads slip through.
+func TestPolicySecretDenyCaseInsensitive(t *testing.T) {
+	p := newPolicy(nil, nil, nil)
+	for _, path := range []string{"ID_RSA", ".ENV", "CREDENTIALS.JSON", "a/b/Id_Ed25519", "x/.AWS/credentials"} {
+		if v, _ := p.Decide("read", args(map[string]string{"path": path})); v != "deny" {
+			t.Errorf("read %q should be denied (secret, case-folded), got %q", path, v)
+		}
+	}
+	// A non-secret path is still readable — the fold denies secrets, not everything.
+	if v, _ := p.Decide("read", args(map[string]string{"path": "README.md"})); v == "deny" {
+		t.Error("README.md must not be denied")
+	}
+}
+
 func TestPolicyExplicitDenyRule(t *testing.T) {
 	p := newPolicy(nil, []string{"Bash(*)"}, nil)
 	v, _ := p.Decide("bash", args(map[string]string{"command": "echo hi"}))

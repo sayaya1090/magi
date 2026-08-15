@@ -56,7 +56,14 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 	if !forcePrompt {
 		reason = "" // routine danger-tool confirmation, not a policy hit
 	}
-	if (a.cfg.DangerTools[tc.Name] || forcePrompt) && !a.policy.AllowedByRule(tc.Name, tc.Args) {
+	// A scanner-forced "ask" (a destructive invocation, an egress command, a pipe-to-shell, a
+	// secret-path reference) is NOT waived by an allow rule. An allow rule pre-approves a program
+	// for ordinary use — `bash(git:*)` trusts git — but "git status && rm -rf build" both matches
+	// that rule (it begins "git ") AND carries a destructive tail the scanner flagged, and a broad
+	// prefix rule persisted from one benign approval must not become a standing waiver for the
+	// dangerous invocation chained after it. So forcePrompt prompts regardless of the rule; the
+	// rule only skips the prompt for a routine danger-tool call the scanner did not flag.
+	if forcePrompt || (a.cfg.DangerTools[tc.Name] && !a.policy.AllowedByRule(tc.Name, tc.Args)) {
 		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt, reason)
 		decision := "allow"
 		if !allowed {
