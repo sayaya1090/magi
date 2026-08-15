@@ -2343,7 +2343,8 @@ async function loadBoard() {
     if (!work.length) return;
     anything = true;
     const lane = cell('lane');
-    const title = document.createElement('h2');
+    // h3: a lane is a section of the board's own h2, not a peer of it — the same rule teamHead uses.
+    const title = document.createElement('h3');
     title.className = 'lanehead';
     title.append(cell('lname', key));
     // The head is the team's name and a count, and nothing else. It used to carry the companion's
@@ -4628,6 +4629,7 @@ function personRow(p, roles) {
   pick.addEventListener('change', () => setPerson(p.who, pick.value, (p.companions || []).join(',')));
   const drop = withMark(document.createElement('md-text-button'), '#i-sl-trash-can');
   label(drop, tr('action.remove'));
+  drop.setAttribute('aria-label', tr('action.remove_named', {name: p.who}));
   drop.onclick = () => confirmThis({
     head: tr('access.remove_head', {who: p.who}),
     body: tr('access.remove_body'),
@@ -4776,12 +4778,14 @@ async function loadMCP() {
     const edit = document.createElement('md-text-button');
     edit.className = 'srvedit';
     edit.textContent = tr('action.edit');
+    edit.setAttribute('aria-label', tr('action.edit_named', {name: sv.name}));
     withMark(edit, '#i-sl-pen-to-square');
     tip(edit, tr('hint.edit_server', {file: sv.file}));
     edit.onclick = () => openMCP(sv);
     top.append(edit);
     const drop = document.createElement('md-text-button');
     drop.className = 'drop';
+    drop.setAttribute('aria-label', tr('action.remove_named', {name: sv.name}));
     tip(drop, tr('hint.remove_server', {file: sv.file}));
     withMark(drop, '#i-ss-trash-can');
     arm(drop, tr('action.remove'), () => {
@@ -5930,7 +5934,7 @@ function drawConvene(list, open) {
   const done = (open || []).filter(m => m.closed && (m.tasks || []).length);
   for (const [key, rooms] of [['meet.open', going], ['meet.finished', done]]) {
     if (!rooms.length) continue;
-    box.append(sectionHead(key));
+    box.append(sectionHead(key, null, 3));
     const l = cell('meetlist');
     for (const m of rooms) l.append(meetRow(m));
     box.append(l);
@@ -6486,7 +6490,7 @@ function sayBox(m) {
 // What each participant leaves with, and the one control that makes any of it happen.
 function conclusions(m) {
   const box = cell('meettasks');
-  box.append(sectionHead('meet.tasks'));
+  box.append(sectionHead('meet.tasks', null, 3));
   for (const t of (m.tasks || [])) {
     const row = cell('meettask' + (t.what ? '' : ' nothing'));
     row.append(cell('meettaskwho', t.who));
@@ -9858,6 +9862,23 @@ function palDraw() {
   palShow(palAtEl);
   if (palAtEl) palField.setAttribute('aria-activedescendant', palAtEl.id);
   else palField.removeAttribute('aria-activedescendant');
+  palAria(palAtEl ? palAtEl.id : '');
+}
+
+// The combobox semantics have to reach the input AT actually focuses, which is inside the field's
+// shadow root — set on the host, aria-activedescendant is inert (the component does not forward it,
+// and delegatesFocus puts real focus on the inner input). So they are written on the inner input
+// directly. No shadow root (the render harness) means nothing to do, which is fine there.
+function palAria(activeId) {
+  const input = palField.shadowRoot && palField.shadowRoot.querySelector &&
+    palField.shadowRoot.querySelector('input, textarea');
+  if (!input) return;
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-controls', 'palList');
+  input.setAttribute('aria-expanded', palRows.length ? 'true' : 'false');
+  input.setAttribute('aria-autocomplete', 'list');
+  if (activeId) input.setAttribute('aria-activedescendant', activeId);
+  else input.removeAttribute('aria-activedescendant');
 }
 
 // palRun closes first and acts second: several of these draw the screen the palette is sitting on
@@ -9884,6 +9905,7 @@ function openPalette() {
   palK.textContent = tr('pal.head');
   closeX(palDialog, palK);
   palField.setAttribute('label', tr('pal.label'));
+  palList.setAttribute('aria-label', tr('pal.results'));
   palField.value = '';
   palCancel.textContent = tr('action.cancel');
   withMark(palCancel, '#i-sl-xmark');
@@ -9891,6 +9913,9 @@ function openPalette() {
   palDraw();
   palDialog.show();
   if (palField.focus) palField.focus();
+  // After show(), the field's shadow input exists to carry the combobox role.
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => palAria(''));
+  else palAria('');
   palAsk();
 }
 
