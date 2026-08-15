@@ -3620,9 +3620,31 @@ function sideCardSame(box, a, list) {
   return false;
 }
 
+// A side card's data is refetched only when the companion it belongs to has ADVANCED — not on every
+// fleet frame. sideCardSame gates the DOM rebuild, but the fetch and its JSON.parse ran before it,
+// unconditionally: a frame is pushed to an open page whenever ANY companion steps, so the open one's
+// /plan /handoffs /cron /jobs were re-fetched several times a minute off a busy neighbour even though
+// this companion's data could not have changed. Keyed like the context panel (contextKey: identity +
+// steps + state), so a real advance re-fetches and a neighbour's frame is a memory hit. labelVer is
+// in the key so a late language pack still redraws. Keyed by CARD id, so at most four entries live,
+// each holding the last-drawn companion's payload — switching companions changes the key and
+// re-fetches, so there is no stale cross-companion data and no growth.
+const sideHeld = {};
+async function sideFetch(id, a, path) {
+  const key = contextKey(a) + '\0' + labelVer;
+  const held = sideHeld[id];
+  if (held && held.key === key) return held.data;
+  const data = await fetchList(path);
+  // A failed fetch (null) is not cached: keep the last good payload so a blip does not blank the card
+  // and the next frame tries again. null with nothing held reads as "no data", the empty state.
+  if (data === null) return held ? held.data : null;
+  sideHeld[id] = {key, data};
+  return data;
+}
+
 async function drawPlan(a) {
   const box = document.getElementById('plan');
-  const todos = await fetchList('/plan' + qFor(a));
+  const todos = await sideFetch('plan', a, '/plan' + qFor(a));
   if (sideCardSame(box, a, todos)) return;
   if (!todos || !todos.length) { showSide(box, false); box.replaceChildren(); return; }
   // How much of the plan is behind it. Determinate, because the counts are known — an
@@ -3651,7 +3673,7 @@ async function drawPlan(a) {
 // walk, done once, under the transcript of whoever handed it out.
 async function drawHandoffs(a) {
   const box = document.getElementById('handoffs');
-  const list = await fetchList('/handoffs' + qFor(a));
+  const list = await sideFetch('handoffs', a, '/handoffs' + qFor(a));
   if (sideCardSame(box, a, list)) return;
   if (!list || !list.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = list.map(h => {
@@ -3714,7 +3736,7 @@ async function drawHandoffs(a) {
 // running?", which is a question with no answer at all until it is on a screen.
 async function drawCron(a) {
   const box = document.getElementById('cron');
-  const list = await fetchList('/cron' + qFor(a));
+  const list = await sideFetch('cron', a, '/cron' + qFor(a));
   if (sideCardSame(box, a, list)) return;
   if (!list || !list.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = list.map(j => {

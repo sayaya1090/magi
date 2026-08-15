@@ -127,6 +127,8 @@ func fetchPathsIn(page string) []string {
 		regexp.MustCompile(`fetch\('(/[a-z0-9-]+)`),
 		regexp.MustCompile(`fetchList\('(/[a-z0-9-]+)`),
 		regexp.MustCompile(`fetchOne\('(/[a-z0-9-]+)`),
+		// sideFetch(id, a, '/path' …) — the keyed side-card hold, whose path is the third argument.
+		regexp.MustCompile(`sideFetch\('[a-z]+', [^,]+, '(/[a-z0-9-]+)`),
 	} {
 		for _, m := range re.FindAllStringSubmatch(page, -1) {
 			out = append(out, m[1])
