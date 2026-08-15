@@ -65,3 +65,37 @@ func TestPersistPreservesUnicode(t *testing.T) {
 		t.Fatal("prompt.submitted not found after reopen")
 	}
 }
+
+// encodeWorkdir maps '/' and '-' (and other non-word runes) to the same byte, so /x/a-b and /x/a/b
+// share one on-disk directory. ListSessions must still return only the sessions that RECORDED the
+// queried workdir, not everything that landed in the collided directory. Reverting the workdir
+// filter in scanSessions makes each project see the other's session.
+func TestListSessionsDoesNotLeakAcrossAWorkdirCollision(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ts := time.Now()
+	// Two distinct workdirs whose encodings collide.
+	if enc1, enc2 := encodeWorkdir("/x/a-b"), encodeWorkdir("/x/a/b"); enc1 != enc2 {
+		t.Skipf("encoding no longer collides (%q vs %q) — the filter guards a bug that is gone", enc1, enc2)
+	}
+	if _, err := s.Append(ctx, "dash", created("/x/a-b", ts)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, "slash", created("/x/a/b", ts)); err != nil {
+		t.Fatal(err)
+	}
+	dash, err := s.ListSessions(ctx, "/x/a-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dash) != 1 || dash[0].ID != "dash" || dash[0].Workdir != "/x/a-b" {
+		t.Errorf("/x/a-b saw %+v — want only its own 'dash' session labelled /x/a-b", dash)
+	}
+	slash, err := s.ListSessions(ctx, "/x/a/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slash) != 1 || slash[0].ID != "slash" || slash[0].Workdir != "/x/a/b" {
+		t.Errorf("/x/a/b saw %+v — want only its own 'slash' session labelled /x/a/b", slash)
+	}
+}

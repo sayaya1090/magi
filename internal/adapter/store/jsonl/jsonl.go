@@ -660,6 +660,17 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 			m.Origin = evs[0].Actor.ID
 			var d event.SessionCreatedData
 			if json.Unmarshal(evs[0].Data, &d) == nil {
+				// The directory this scan reads can hold another project's sessions: encodeWorkdir
+				// maps '/' and '-' (and space, and every other non-word rune) to the same byte, so
+				// /x/a-b and /x/a/b resolve to one directory. Trust the workdir the session RECORDED,
+				// not the one that named the directory — skip a session that belongs to a different
+				// workdir, so ListSessions/ChildSessions never relabel one project's work as another's.
+				if d.Workdir != "" && d.Workdir != workdir {
+					continue
+				}
+				if d.Workdir != "" {
+					m.Workdir = d.Workdir
+				}
 				m.Agent = d.Agent
 				m.Parent = d.Parent
 				m.Model = d.Model.Model
