@@ -11,8 +11,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// redeemMu serializes Redeem's read-modify-write of the invitations file. Without it two concurrent
+// joins bearing the SAME token both read it present, both match, and both write the file without it —
+// admitting two different keys on a one-use invitation. The TLS server handles joins concurrently
+// (a goroutine per request), so this race is reachable; the mutex makes "one use" hold.
+var redeemMu sync.Mutex
 
 // TokenFile holds the invitations this machine has open.
 //
@@ -73,6 +80,8 @@ func Mint(configDir, label string) (string, error) {
 // One use. An invitation that stayed valid after being taken would be a password with a
 // fifteen-minute life rather than an introduction, and the difference matters on a shared terminal.
 func Redeem(configDir, token string) (label string, ok bool) {
+	redeemMu.Lock()
+	defer redeemMu.Unlock()
 	want := hashToken(token)
 	lines := tokenLines(configDir)
 	var kept []string

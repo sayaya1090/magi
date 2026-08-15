@@ -4,8 +4,38 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
+
+// A one-use invitation survives exactly one of many concurrent redeems. The TLS server handles
+// joins in parallel, so two bearing the same token once both read it present and both wrote the file
+// without it — admitting two keys. redeemMu serializes the read-modify-write. Without it this counts
+// more than one success.
+func TestAnInvitationSurvivesExactlyOneOfManyConcurrentRedeems(t *testing.T) {
+	dir := t.TempDir()
+	tok, err := Mint(dir, "lee")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 32
+	var wg sync.WaitGroup
+	var success atomic.Int64
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, ok := Redeem(dir, tok); ok {
+				success.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := success.Load(); got != 1 {
+		t.Errorf("a one-use invitation was redeemed %d times concurrently, want exactly 1", got)
+	}
+}
 
 // An invitation is a secret that stands briefly and is spent once.
 func TestAnInvitationIsSpentOnce(t *testing.T) {
