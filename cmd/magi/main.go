@@ -1696,6 +1696,15 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	if proj.Templates != (config.TemplatesConfig{}) {
 		held = append(held, "commit/PR draft rules")
 	}
+	// The council's verify command is a shell command magi runs ITSELF at the finish gate — RUNS, in
+	// the plainest sense, and on by default. A committed one from a repo nobody vouched for is the
+	// same clone-delivered code-execution the hooks strip prevents, only more direct (it needs no
+	// tool event; it fires on every completion). Held back like the rest; the council's other keys
+	// (rule, preset, members) do not execute a command and a member's provider falls through to the
+	// default backend, so only the command is withheld.
+	if proj.Council.Verify != "" {
+		held = append(held, "a verification command")
+	}
 	if len(held) > 0 {
 		*said = append(*said, "carries "+strings.Join(held, ", ")+" and this workspace is not one "+
 			"you have trusted, so none of it was taken — `magi --trust` here if the file is yours")
@@ -1705,6 +1714,7 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	proj.BaseURL, proj.ExperienceDir = "", ""
 	proj.LLM.Headers, proj.LLM.Profiles, proj.Routing = nil, nil, nil
 	proj.Autocomplete, proj.Templates = config.AutocompleteConfig{}, config.TemplatesConfig{}
+	proj.Council.Verify = ""
 	return proj
 }
 
