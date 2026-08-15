@@ -8187,6 +8187,10 @@ function drawFile(path, text, unreadable, empty) {
 // Off unless somebody turns it on, and remembered: it spends the backend on every pause in typing,
 // which is a cost the person doing the typing should choose rather than discover.
 let lookOn = localStorage.getItem('lookover') === 'on';
+// The open editor's note-clearer, so the Preferences switch can wipe remarks already drawn the
+// moment look-over is turned off — the flag alone only stops the NEXT review. null when no editor
+// is open. Set by editor(), cleared when it closes.
+let lookClearActive = null;
 let lookAt = 0;
 // Inline code completion and composer suggestion, both on by default and remembered — unlike
 // look-over, which is a bill on every pause, these are cheap (the server does nothing until a fast
@@ -8329,6 +8333,7 @@ function editor(path, text, acts) {
     repaint();
   };
   const clearNotes = () => { notes = null; said.hidden = true; repaint(); };
+  lookClearActive = clearNotes; // so the Preferences switch can wipe this editor's notes when turned off
   // The switch, and the only thing that turns this on. A model reading over somebody's shoulder is
   // a good idea and a bill; which of the two it is depends on whether they asked for it.
   const ask = async () => {
@@ -8348,6 +8353,7 @@ function editor(path, text, acts) {
     const out = await postText('/look' + qFor(lastDrawnFor || {socket: ''}),
                                new URLSearchParams({path: path, text: payload}));
     if (mine !== lookAt) return;             // they kept typing; this answer is about older text
+    if (!lookOn) { clearNotes(); return; }   // turned off while this was in flight — do not paint it
     // Silence is the answer when there is nothing worth saying. No notes, no "looks good" — a
     // reviewer that always finds three things is one people stop reading.
     applyNotes(out);
@@ -8408,7 +8414,8 @@ function editor(path, text, acts) {
   area.addEventListener('input', () => {
     drafts.set(path, area.value);
     dismiss();
-    notes = null;   // the remarks were about the text before this keystroke; ask() refreshes on the pause
+    notes = null;        // the remarks were about the text before this keystroke; ask() refreshes on the pause
+    said.hidden = true;  // and so was any prose in the block above it — don't leave it up until the next pause
     repaint();
     pushOpen();
     const mine = ++lookAt;
@@ -8468,6 +8475,7 @@ function editor(path, text, acts) {
       return;
     }
     editing = null;
+    lookClearActive = null; // this editor is going away; the switch has nothing here to clear
     drafts.delete(path);
     // Read back rather than drawn from what was typed: the file on disk is the fact, the tool may
     // have written it differently (a missing final newline), and the companion has just been told
@@ -8476,7 +8484,7 @@ function editor(path, text, acts) {
   };
   const stop = withMark(document.createElement('md-text-button'), '#i-sl-xmark');
   label(stop, tr('action.cancel'));
-  stop.onclick = () => { editing = null; drafts.delete(path); drawFile(path, text); };
+  stop.onclick = () => { editing = null; lookClearActive = null; drafts.delete(path); drawFile(path, text); };
   // Into the bar at the top, where the edit button was: the control that starts this and the two
   // that end it are the same control in three states, and a control that moves is one you look for.
   acts.append(save, stop);
@@ -9546,7 +9554,7 @@ function paint() {
   ariaLabel('ambientSwitch', 'ac.ambient');
   ariaLabel('crossSwitch', 'ac.cross');
   // The group subheaders look like headings; expose them as headings so AT can navigate the groups.
-  for (const id of ['grpAppearance', 'grpNotify', 'grpAssist', 'grpComplete', 'grpConsole']) {
+  for (const id of ['grpAppearance', 'grpNotify', 'grpAssist', 'grpComplete', 'grpConsole', 'grpProfiles']) {
     const g = document.getElementById(id);
     if (g) { g.setAttribute('role', 'heading'); g.setAttribute('aria-level', '3'); }
   }
@@ -10554,6 +10562,9 @@ lookSwitch.selected = lookOn;
 lookSwitch.addEventListener('change', () => {
   lookOn = !!lookSwitch.selected;
   localStorage.setItem('lookover', lookOn ? 'on' : 'off');
+  // Turning it off clears what is already on screen, not just the next review — an editor open right
+  // now obeys at once, the way the completion switches below promise for their ghost text.
+  if (!lookOn && lookClearActive) lookClearActive();
 });
 
 // The two completion switches, wired the same way and flipping their module-scope flags live so an

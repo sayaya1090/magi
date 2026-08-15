@@ -1064,7 +1064,7 @@
   .proflist { display:grid; gap:var(--magi-sys-space-100); width:100%; }
   .profrow { display:grid; grid-template-columns:minmax(0,auto) minmax(0,1fr) auto auto;
     gap:var(--magi-sys-space-100); align-items:center; }
-  .profrow .profnm { font-weight:600; white-space:nowrap; }
+  .profrow .profnm { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .profrow .profmeta { color:var(--magi-ref-muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .profempty { color:var(--magi-ref-muted); font-size:.85rem; }
   .profadd { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); }
