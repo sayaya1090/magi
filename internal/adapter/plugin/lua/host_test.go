@@ -209,3 +209,37 @@ func TestExamplePlugin(t *testing.T) {
 		t.Errorf("got %q want 'f.txt has 3 words'", got)
 	}
 }
+
+// resolve is lexical AND symlink-aware: a link INSIDE the workspace pointing out of it (a cloned
+// repo can ship one) is refused, because os.ReadFile would otherwise follow it. Reverting the
+// EvalSymlinks re-check lets the read through.
+func TestFsResolveRejectsASymlinkOutOfTheWorkdir(t *testing.T) {
+	dir := writePlugin(t,
+		`name="peek3"`+"\n"+`capabilities=["tool"]`+"\n"+`permissions=["fs:read:."]`,
+		`magi.register_tool{name="peek3", execute=function(a)
+		   local c, err = magi.read_file(a.path)
+		   if c == nil then return err, true end
+		   return c
+		 end}`,
+	)
+	reg := builtin.NewRegistry()
+	h := NewHostWithConfig(HostConfig{ToolSink: reg})
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "id_rsa"), []byte("PRIVATE KEY"), 0o600)
+	wd := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(wd, "link")); err != nil {
+		t.Fatal(err)
+	}
+	tool, _ := reg.Get("peek3")
+	if got, isErr := execTool(t, tool, `{"path":"link/id_rsa"}`, wd); !isErr {
+		t.Fatalf("read followed a symlink out of the workspace: %q", got)
+	}
+	// An in-workspace read still works.
+	os.WriteFile(filepath.Join(wd, "ok.txt"), []byte("hello"), 0o644)
+	if got, isErr := execTool(t, tool, `{"path":"ok.txt"}`, wd); isErr || got != "hello" {
+		t.Errorf("an in-workspace read was refused: %q err=%v", got, isErr)
+	}
+}

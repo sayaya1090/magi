@@ -1025,6 +1025,23 @@ func (p *plugin) resolve(rel string) (string, bool) {
 	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return "", false
 	}
+	// Lexical containment is not enough: a symlink INSIDE the workdir pointing out of it — common in
+	// a cloned/untrusted repo — is lexically clean, but os.ReadFile/os.WriteFile/os.RemoveAll follow
+	// it out. Resolve the real path (the link itself if it exists, else its deepest existing
+	// ancestor for a not-yet-created write) and re-check against the resolved base — real path vs
+	// real path, the guard the builtin file tools already use.
+	target := abs
+	if _, lerr := os.Lstat(abs); lerr != nil {
+		target = filepath.Dir(abs)
+	}
+	if realBase, e1 := filepath.EvalSymlinks(base); e1 == nil {
+		if realTarget, e2 := filepath.EvalSymlinks(target); e2 == nil {
+			if rr, rerr := filepath.Rel(realBase, realTarget); rerr != nil || rr == ".." ||
+				strings.HasPrefix(rr, ".."+string(filepath.Separator)) {
+				return "", false
+			}
+		}
+	}
 	return abs, true
 }
 

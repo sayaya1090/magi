@@ -181,13 +181,22 @@ func TestConfigKeyUnitHelpers(t *testing.T) {
 	}
 	// council.verify runs a shell command at the finish gate, so the whole council section is
 	// deny-listed to a plugin the same as hooks/mcp — otherwise config:write is code execution.
-	for _, k := range []string{"mcp", "mcp.servers", "hooks.stop", "allow", "deny", "council", "council.verify"} {
+	// api_key/base_url are denied at the LEAF (a backend secret / a credential-redirect) wherever
+	// they appear, so a config:read wildcard can't sweep in the key and a write can't redirect the
+	// credentialed backend.
+	for _, k := range []string{
+		"mcp", "mcp.servers", "hooks.stop", "allow", "deny", "council", "council.verify",
+		"api_key", "base_url", "llm.profiles.fast.api_key", "llm.profiles.fast.base_url", "API_KEY",
+	} {
 		if !configKeyDenied(k) {
 			t.Errorf("%q should be deny-listed", k)
 		}
 	}
-	if configKeyDenied("routing.model") {
-		t.Error("routing.model should not be deny-listed")
+	// The legitimate reads must still be allowed — the leaf rule must not over-reach.
+	for _, k := range []string{"routing.model", "model", "llm.headers", "theme.dark.primary"} {
+		if configKeyDenied(k) {
+			t.Errorf("%q should NOT be deny-listed", k)
+		}
 	}
 }
 

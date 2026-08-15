@@ -107,11 +107,25 @@ func configKeyMatch(grants []string, key string) bool {
 // configKeyDenied reports whether a dotted config key falls under a never-allowed section
 // (its first segment is in denyConfigSections) — blocked even with a matching grant.
 func configKeyDenied(key string) bool {
-	first := key
-	if i := strings.IndexByte(key, '.'); i >= 0 {
-		first = key[:i]
+	k := strings.ToLower(key) // over-deny on case is the safe direction
+	first := k
+	if i := strings.IndexByte(k, '.'); i >= 0 {
+		first = k[:i]
 	}
-	return denyConfigSections[strings.ToLower(first)] // TOML matches sections case-insensitively
+	if denyConfigSections[first] {
+		return true
+	}
+	// A secret or a credential-redirect at the LEAF, under any table: top-level api_key/base_url, or
+	// llm.profiles.<name>.{api_key,base_url}. First-segment matching cannot reach these (their first
+	// segment is `api_key`/`base_url`/`llm`, and denying all of `llm` would also block the legitimate
+	// llm.headers read). Denied at the leaf wherever they appear, so a `config:read:llm.*` (or `*`)
+	// wildcard cannot sweep in the backend key, and `config:write:base_url` cannot point the
+	// credentialed backend at an attacker's endpoint. A dotless api_key/base_url is its own leaf.
+	leaf := k
+	if i := strings.LastIndexByte(k, '.'); i >= 0 {
+		leaf = k[i+1:]
+	}
+	return leaf == "api_key" || leaf == "base_url"
 }
 
 func underAny(prefixes []string, rel string) bool {

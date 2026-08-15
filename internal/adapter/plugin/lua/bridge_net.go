@@ -144,7 +144,21 @@ func (p *plugin) bridgeHTTP(L *lua.LState) int {
 		})
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// A redirect must land on a host the plugin is ALSO allowed to reach. Go's default client
+	// follows up to 10 redirects and never re-runs the caller's check, so an allow-listed endpoint
+	// (or an open redirect on it) could bounce the request to 169.254.169.254 / localhost / an
+	// internal service and return its body — defeating the net allow-list entirely. This client
+	// re-checks allowNet on every hop.
+	client := &http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("http: stopped after 10 redirects")
+		}
+		if !p.perms.allowNet(r.URL.Hostname()) {
+			return fmt.Errorf("http: redirect to a host you may not reach: %s", r.URL.Hostname())
+		}
+		return nil
+	}}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fail(L, "http: "+err.Error())
 	}
