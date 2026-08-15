@@ -28,7 +28,10 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		"Submit": true, "Steer": true, "Interrupt": true,
 		"RespondPermission": true, "RespondQuestion": true,
 		"Rewind": true, "Compact": true, "SetModel": true, "SetPermission": true,
-		"Subscribe": true, // polls the shared log rather than the local bus
+		// Composer suggestion spends the daemon's profile and reads its current session — run here it
+		// would answer from a provider-less App. Forwarded to Client.Suggest.
+		"SuggestPrompt": true,
+		"Subscribe":     true, // polls the shared log rather than the local bus
 		// The registers of work running BESIDE the turn. A background command is a PID the daemon
 		// is waiting on and the child register is what a session log cannot say — a log does not
 		// know it is over — so both live in that process's memory and a viewer read its own empty

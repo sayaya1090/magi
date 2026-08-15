@@ -60,6 +60,10 @@ type Engine interface {
 	SessionDiff(ctx context.Context, aSid, bSid session.SessionID) (string, error)
 	SessionModel(sid session.SessionID) string
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
+	// SuggestPrompt is the composer's ghost text: how the person is likely to finish the instruction
+	// they are typing, on the composer profile. Returns "" when composer suggestion is off or no
+	// profile is routed. See app.SuggestPrompt.
+	SuggestPrompt(ctx context.Context, sid session.SessionID, prefix string) (string, error)
 	SetContextWindow(ctx context.Context, sid session.SessionID, id string, tokens int) (string, error)
 	SetGroupEnabled(group string, on bool) error
 	SetModel(sid session.SessionID, modelID string)

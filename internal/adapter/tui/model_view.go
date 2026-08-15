@@ -178,6 +178,13 @@ func (m Model) View() tea.View {
 		inputContentW = m.ta.Width() + lipgloss.Width(m.ta.Prompt) + 5 // +1 slack: the EOL cursor cell widens a full row by one
 	}
 	input := inputStyle.Width(inputContentW).Render(m.ta.View())
+	// The composer suggestion, when one is standing: one dim line under the box, taken with Tab.
+	// Not on the splash, whose input is centred inside the viewport and has no room beneath it.
+	if !splash {
+		if hint := m.suggestHint(inputContentW); hint != "" {
+			input = lipgloss.JoinVertical(lipgloss.Left, input, hint)
+		}
+	}
 
 	// Transcript area (viewport + tiled subagent panes) = left column; the status
 	// panel, if any, sits to its right at a fixed width.

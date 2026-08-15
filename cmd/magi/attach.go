@@ -224,6 +224,14 @@ func (a attached) Compact(ctx context.Context, c command.Compact) error {
 	return a.c.Compact(ctx, c)
 }
 
+// SuggestPrompt spends the daemon's composer profile and reads the daemon's current session, so it
+// goes to the daemon — done here it would run against this process's throwaway App, which has no
+// provider, and return nothing while the daemon holds the model that could answer. The daemon uses
+// its own current session; the prefix is all the wire needs.
+func (a attached) SuggestPrompt(ctx context.Context, sid session.SessionID, prefix string) (string, error) {
+	return a.c.Suggest(prefix)
+}
+
 // SetModel and SetPermission change how the engine runs, and locally they changed a copy nobody was
 // using: the daemon kept generating with the old model while the header showed the new name. A
 // control that reports success and does nothing is the worst shape a control has.

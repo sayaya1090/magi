@@ -148,6 +148,14 @@ type Model struct {
 	ta textarea.Model
 	sp spinner.Model
 
+	// Composer suggestion (see suggest.go): the model's guess at how the instruction being typed
+	// ends, shown as a dim hint under the composer and taken with Tab. suggestBase is the text the
+	// standing suggestion was fetched for (so an arrow key does not refetch); suggestTok drops the
+	// answer to a keystroke that has been overtaken.
+	suggestion  string
+	suggestBase string
+	suggestTok  int
+
 	glam      *glamour.TermRenderer
 	glamWidth int // transcript width the glam renderer was built for
 
@@ -607,6 +615,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case suggestTickMsg:
+		// The pause elapsed with no newer keystroke: fetch. A stale token (they kept typing) is
+		// dropped, and a "/" that arrived since is a command, not an instruction.
+		if msg.tok != m.suggestTok {
+			return m, nil
+		}
+		if v := strings.TrimSpace(m.ta.Value()); v == "" || strings.HasPrefix(v, "/") {
+			return m, nil
+		}
+		return m, m.fetchSuggest(m.ta.Value(), msg.tok)
+
+	case suggestReadyMsg:
+		// Kept only if it is still the current request and the composer still holds exactly the text
+		// it was about — otherwise it is ghost text for something no longer on the screen.
+		if msg.tok == m.suggestTok && msg.text != "" && m.ta.Value() == msg.prefix {
+			m.suggestion = msg.text
+			m.refresh()
+		}
+		return m, nil
+
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
 		return m, m.handleMouse(msg)
 
@@ -624,6 +652,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(tea.KeyPressMsg); ok {
 		m.ta, cmd = m.ta.Update(msg)
 		cmds = append(cmds, cmd)
+		if sc := m.onComposerChanged(); sc != nil { // schedule a composer suggestion on a pause
+			cmds = append(cmds, sc)
+		}
 		m.refresh() // re-flow for palette/queue height changes
 	} else {
 		m.ta, cmd = m.ta.Update(msg)

@@ -503,6 +503,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.vp.ScrollDown(1)
 		return nil, true
 	case "tab":
+		// The model's suggestion first, when there is one standing: Tab is what takes it, and only
+		// then does it fall through to history completion and pane cycling.
+		if m.acceptSuggestion() {
+			m.syncTaViewport()
+			m.refresh()
+			return nil, true
+		}
 		// History autocomplete: complete the typed prefix to the most recent
 		// matching prior prompt (repeat tab cycles older matches).
 		if val := m.ta.Value(); val != "" && !strings.HasPrefix(val, "/") {
