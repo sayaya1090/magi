@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -292,6 +293,14 @@ type Config struct {
 	// Providers are named LLM profiles (per-agent endpoint/key routing): an
 	// AgentSpec.Provider names one of these to run on a different backend.
 	Providers map[string]port.LLMProvider
+
+	// Autocomplete carries the IDE-helper toggles and the two profile names (code / composer) the
+	// thin completion calls route to. Templates carries the commit/PR house style injected into the
+	// draft generators. Both are the config sections verbatim so the resolved On()/AmbientOn()
+	// helpers and the profile names stay in one place; the daemon fills them, the web reader leaves
+	// them zero (it relays every model call to the daemon and runs none itself).
+	Autocomplete config.AutocompleteConfig
+	Templates    config.TemplatesConfig
 
 	// ProfileModels maps a profile name to its model, so the /route menu can
 	// switch an agent to a profile (setting both provider and model) at runtime.

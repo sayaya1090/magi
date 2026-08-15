@@ -975,6 +975,8 @@ func run() int {
 		Workflow:            *workflow,
 		VerifyCmd:           *verifyCmd,
 		Providers:           providers,
+		Autocomplete:        cfg.Autocomplete,
+		Templates:           cfg.Templates,
 		Models:              modelReg,
 		ContextWindowProber: llm.ProbeContextWindow, // lazy-probe unseeded models used after a runtime /route switch
 		ProfileModels:       profileModels(cfg.LLM.Profiles),
@@ -1607,6 +1609,38 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 			cfg.Subagents = map[string]config.SubagentConfig{}
 		}
 		cfg.Subagents[k] = v
+	}
+	// [autocomplete] merges field-by-field like [council]/[limits] above: a project that only pins,
+	// say, its own composer profile must not zero the toggles the machine set. Each pointer toggle
+	// crosses only when the project actually set it; the two profile names when non-empty.
+	if proj.Autocomplete.Enabled != nil {
+		cfg.Autocomplete.Enabled = proj.Autocomplete.Enabled
+	}
+	if proj.Autocomplete.Ambient != nil {
+		cfg.Autocomplete.Ambient = proj.Autocomplete.Ambient
+	}
+	if proj.Autocomplete.Code != nil {
+		cfg.Autocomplete.Code = proj.Autocomplete.Code
+	}
+	if proj.Autocomplete.Composer != nil {
+		cfg.Autocomplete.Composer = proj.Autocomplete.Composer
+	}
+	if proj.Autocomplete.CrossSession != nil {
+		cfg.Autocomplete.CrossSession = proj.Autocomplete.CrossSession
+	}
+	if proj.Autocomplete.CodeProfile != "" {
+		cfg.Autocomplete.CodeProfile = proj.Autocomplete.CodeProfile
+	}
+	if proj.Autocomplete.ComposerProfile != "" {
+		cfg.Autocomplete.ComposerProfile = proj.Autocomplete.ComposerProfile
+	}
+	// [templates] — a repo's commit/PR house style travels with the repo, same as the last-five-
+	// subjects evidence DraftCommit already pulls from the log. Project wins when it sets one.
+	if proj.Templates.Commit != "" {
+		cfg.Templates.Commit = proj.Templates.Commit
+	}
+	if proj.Templates.PR != "" {
+		cfg.Templates.PR = proj.Templates.PR
 	}
 	return cfg, append(said, projectBrought(proj)...)
 }

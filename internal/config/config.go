@@ -91,6 +91,14 @@ type Config struct {
 	Limits   LimitsConfig   `toml:"limits"`   // token caps (per-request output, context budget)
 	Sampling SamplingConfig `toml:"sampling"` // temperature / top_p / top_k sent with every request
 
+	// Autocomplete configures the low-latency, no-council completion helpers: inline code
+	// completion in the console editor, next-instruction suggestion in the composer, and the
+	// file-being-edited ambient context. See AutocompleteConfig.
+	Autocomplete AutocompleteConfig `toml:"autocomplete"`
+	// Templates carries user-defined house style for the draft generators (commit message, PR
+	// body) — the rules a person would otherwise re-type into the box every time.
+	Templates TemplatesConfig `toml:"templates"`
+
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
 	// plugin reads via magi.store_get. The host passes each plugin only its
 	// own section.
@@ -195,6 +203,52 @@ type CouncilConfig struct {
 	// exits 0 (a TestMain that skips everything); for a `go test` command magi also checks that
 	// tests actually ran and refuses a pass that executed none.
 	Verify string `toml:"verify"` // e.g. "go test ./..."
+}
+
+// AutocompleteConfig configures magi's IDE-style helpers. All three are model calls that fire on a
+// pause in typing, so they must be cheap and cancellable — they run as thin one-shot completions on
+// a routed profile, NOT as council-gated subagent turns (a keystroke cannot wait seconds for a
+// finish vote). Each toggle is a POINTER so an absent key means ON: the default is that these help.
+//
+//   - Ambient  — the file the user has open in the console editor rides into the agent's per-turn
+//     context, so a question about "this" is answered against the unsaved buffer, not stale disk.
+//   - Code     — inline ghost-text completion inside the console file editor.
+//   - Composer — next-instruction ghost text in the prompt composer (web + TUI).
+//
+// CodeProfile and ComposerProfile name an [llm.profiles.*] backend (see LLMConfig): the two are
+// split on purpose — code completion wants a small fast fill-in-the-middle model, while composer
+// suggestion reads the conversation and the user's phrasing and wants a slightly stronger one. A
+// surface whose profile is unset self-disables rather than silently billing the main model on every
+// keystroke. CrossSession lets composer suggestion mine this user's PAST sessions' prompts for their
+// phrasing patterns — a read across the session boundary, hence its own switch.
+type AutocompleteConfig struct {
+	Enabled         *bool  `toml:"enabled"`          // nil = on (master switch for all three)
+	Ambient         *bool  `toml:"ambient"`          // nil = on
+	Code            *bool  `toml:"code"`             // nil = on
+	Composer        *bool  `toml:"composer"`         // nil = on
+	CodeProfile     string `toml:"code_profile"`     // [llm.profiles.*] name; empty = code completion off
+	ComposerProfile string `toml:"composer_profile"` // [llm.profiles.*] name; empty = composer suggestion off
+	CrossSession    *bool  `toml:"cross_session"`    // nil = on: learn from past sessions' prompts
+}
+
+func (a AutocompleteConfig) On() bool { return a.Enabled == nil || *a.Enabled }
+
+// AmbientOn / CodeOn / ComposerOn fold in the master switch: a surface is on only if it is not
+// itself disabled AND autocomplete as a whole is on.
+func (a AutocompleteConfig) AmbientOn() bool  { return a.On() && (a.Ambient == nil || *a.Ambient) }
+func (a AutocompleteConfig) CodeOn() bool     { return a.On() && (a.Code == nil || *a.Code) }
+func (a AutocompleteConfig) ComposerOn() bool { return a.On() && (a.Composer == nil || *a.Composer) }
+
+// CrossSessionOn reports whether composer suggestion may read past sessions. Default on, but
+// meaningless unless ComposerOn — the caller checks both.
+func (a AutocompleteConfig) CrossSessionOn() bool { return a.CrossSession == nil || *a.CrossSession }
+
+// TemplatesConfig is the house style injected into the draft generators (DraftCommit, DraftPR).
+// Empty leaves the generators exactly as they were — the templates are additive rules ("layer the
+// commits", "no issue numbers", a required trailer), not a replacement for the base prompt.
+type TemplatesConfig struct {
+	Commit string `toml:"commit"`
+	PR     string `toml:"pr"`
 }
 
 // SubagentConfig is one subagent's user settings. Enabled is a POINTER: nil means "no choice
