@@ -447,6 +447,38 @@
       <div class="prefsay"><div class="k" id="sugK"></div><div class="say" id="sugWhy"></div></div>
       <md-switch id="sugSwitch" touch-target="wrapper"></md-switch>
     </div>
+    <!-- The completion settings the DAEMON reads: which fast profile does each kind, whether the
+         edited file rides into context, the draft house rules. Configuration of a running companion,
+         so data-may="configure" and written to its config.toml (the block loads and saves against
+         whichever companion the console is looking at, or the global config). -->
+    <div class="prefsay" data-may="configure" id="acsBlock">
+      <div class="k" id="acsK"></div>
+      <div class="say" id="acsWhy"></div>
+    </div>
+    <div class="prefrow" data-may="configure">
+      <div class="prefsay"><div class="k" id="ambientK"></div><div class="say" id="ambientWhy"></div></div>
+      <md-switch id="ambientSwitch" touch-target="wrapper"></md-switch>
+    </div>
+    <div class="prefrow" data-may="configure">
+      <div class="prefsay"><div class="k" id="crossK"></div><div class="say" id="crossWhy"></div></div>
+      <md-switch id="crossSwitch" touch-target="wrapper"></md-switch>
+    </div>
+    <div class="prefrow" data-may="configure">
+      <div class="prefsay"><div class="k" id="codeProfK"></div><div class="say" id="codeProfWhy"></div></div>
+      <md-outlined-select id="codeProfSel"></md-outlined-select>
+    </div>
+    <div class="prefrow" data-may="configure">
+      <div class="prefsay"><div class="k" id="compProfK"></div><div class="say" id="compProfWhy"></div></div>
+      <md-outlined-select id="compProfSel"></md-outlined-select>
+    </div>
+    <div class="prefsay" data-may="configure">
+      <div class="k" id="commitTplK"></div>
+      <md-outlined-text-field id="commitTpl" type="textarea" rows="3"></md-outlined-text-field>
+    </div>
+    <div class="prefsay" data-may="configure">
+      <div class="k" id="prTplK"></div>
+      <md-outlined-text-field id="prTpl" type="textarea" rows="3"></md-outlined-text-field>
+    </div>
     <!-- The phone's way to the access screen, and only the phone's. The rail carries it at every
          other width; below 37.4375em the rail is not drawn at all, and without this row the screen
          would be reachable only by typing ?v=access — a screen nobody finds, which is how "is it

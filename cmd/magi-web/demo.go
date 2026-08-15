@@ -329,6 +329,16 @@ const demoScript = `
        command: 'npx', args: ['-y', 'figma-mcp'], envNames: ['FIGMA_TOKEN'],
        file: '/Users/you/work/design-system/.magi/config.toml'},
     ],
+    // The completion settings the Preferences dialog loads: which fast profile does each kind, the
+    // ambient file, the draft rules. A profile assigned to each, so the demo shows the on state.
+    '/autocomplete': {
+      ambient: true, crossSession: true,
+      codeProfile: 'fast', composerProfile: 'balanced',
+      commitTemplate: 'Layer the commits: docs, then core, then the outward change.\nDescribe only what the diff shows — no issue numbers.',
+      prTemplate: '',
+      profiles: ['balanced', 'fast'],
+      file: '/Users/you/work/design-system/.magi/config.toml',
+    },
     // The workspace, as the companion's own read-only tools answer it: a directory listing, and a
     // file rendered the way the agent sees it — line-numbered, because a person and their
     // companion pointing at different line 40s is what tidying that up would cost.

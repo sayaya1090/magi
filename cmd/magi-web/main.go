@@ -1092,6 +1092,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/complete":      s.complete,
 		"/open-file":     s.openFile,
 		"/suggest":       s.suggest,
+		"/autocomplete":  s.autocomplete,
 		"/git-do":        s.gitDo,
 		"/git-msg":       s.gitMsg,
 		"/git-pr":        s.gitPR,

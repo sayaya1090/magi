@@ -177,7 +177,15 @@ func (s *server) mcpWrite(w http.ResponseWriter, r *http.Request) {
 //
 // The path comes from the published record, never from the request. A page that could name the file
 // could name any file, and this writes to it.
-func (s *server) mcpFileFor(r *http.Request) (string, error) {
+func (s *server) mcpFileFor(r *http.Request) (string, error) { return s.configFileFor(r) }
+
+// configFileFor is which config a write lands in: a named companion's project file, or this
+// console's global one when nothing is named. Shared by every config-editing screen (MCP servers,
+// completion settings) so they resolve the target the same way.
+//
+// The path comes from the published record, never from the request. A page that could name the file
+// could name any file, and this writes to it.
+func (s *server) configFileFor(r *http.Request) (string, error) {
 	if r.URL.Query().Get("d") == "" && r.FormValue("tier") == "global" {
 		return filepath.Join(s.cfgDir, "config.toml"), nil
 	}

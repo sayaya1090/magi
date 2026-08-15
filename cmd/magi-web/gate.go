@@ -96,6 +96,9 @@ var mayWrite = map[string]auth.Capability{
 	"/permission": auth.Configure,
 	"/cron":       auth.Configure,
 	"/mcp":        auth.Configure,
+	// Which fast profile does completion, whether the edited file rides into context, the draft
+	// house rules. Configuration of a running companion, read and written — same as MCP and cron.
+	"/autocomplete": auth.Configure,
 	// A command in the workspace, outside the permission policy a tool call goes through. On a
 	// console started with -exposed the route refuses before this is reached (see refuseWhenShared)
 	// — this is what governs the console that is NOT shared but has more than one person on it.

@@ -9366,6 +9366,22 @@ function paint() {
   document.getElementById('acWhy').textContent = tr('pref.autocomplete_why');
   document.getElementById('sugK').textContent = tr('pref.suggest');
   document.getElementById('sugWhy').textContent = tr('pref.suggest_why');
+  document.getElementById('acsK').textContent = tr('ac.head');
+  document.getElementById('acsWhy').textContent = tr('ac.head_why');
+  document.getElementById('ambientK').textContent = tr('ac.ambient');
+  document.getElementById('ambientWhy').textContent = tr('ac.ambient_why');
+  document.getElementById('crossK').textContent = tr('ac.cross');
+  document.getElementById('crossWhy').textContent = tr('ac.cross_why');
+  document.getElementById('codeProfK').textContent = tr('ac.code_profile');
+  document.getElementById('codeProfWhy').textContent = tr('ac.code_profile_why');
+  document.getElementById('compProfK').textContent = tr('ac.composer_profile');
+  document.getElementById('compProfWhy').textContent = tr('ac.composer_profile_why');
+  document.getElementById('commitTplK').textContent = tr('ac.commit_tpl');
+  document.getElementById('prTplK').textContent = tr('ac.pr_tpl');
+  if (codeProfSel) codeProfSel.setAttribute('label', tr('ac.profile_pick'));
+  if (compProfSel) compProfSel.setAttribute('label', tr('ac.profile_pick'));
+  if (commitTpl) commitTpl.setAttribute('label', tr('ac.commit_tpl'));
+  if (prTpl) prTpl.setAttribute('label', tr('ac.pr_tpl'));
   document.getElementById('accessK').textContent = tr('nav.access');
   document.getElementById('accessWhy').textContent = tr('access.why');
   label(document.getElementById('accessGo'), tr('access.open'));
@@ -10386,6 +10402,61 @@ if (sugSwitch) {
   });
 }
 
+// The server-side completion settings — which fast profile does each kind, the ambient file, the
+// draft rules. Loaded from and saved to the config of whichever companion the console is looking at
+// (or the global config), the same file the MCP screen writes. Loaded when the dialog opens; each
+// control saves its own field so flipping one does not rewrite the templates.
+const ambientSwitch = document.getElementById('ambientSwitch');
+const crossSwitch = document.getElementById('crossSwitch');
+const codeProfSel = document.getElementById('codeProfSel');
+const compProfSel = document.getElementById('compProfSel');
+const commitTpl = document.getElementById('commitTpl');
+const prTpl = document.getElementById('prTpl');
+// Where the read and the write go: the companion in front of the reader, or the global config when
+// there is none.
+const acQ = () => { const f = lastDrawnFor || {}; return f.socket ? qFor(f) : '?tier=global'; };
+const acSave = (field, value) => {
+  const f = lastDrawnFor || {};
+  const body = new URLSearchParams();
+  body.set(field, value);
+  if (!f.socket) body.set('tier', 'global');   // the global config is not addressed by a socket
+  return post('/autocomplete', body, f.socket || null, f.peer || null);
+};
+const fillProfiles = (sel, profiles, current) => {
+  if (!sel) return;
+  sel.replaceChildren();
+  const opt = (value, label) => {
+    const o = document.createElement('md-select-option');
+    o.value = value;
+    const h = document.createElement('div');
+    h.slot = 'headline';
+    h.textContent = label;
+    o.append(h);
+    if (value === (current || '')) o.selected = true;
+    sel.append(o);
+  };
+  opt('', tr('ac.profile_none'));
+  for (const p of (profiles || [])) opt(p, p);
+  sel.value = current || '';
+};
+async function loadAutocomplete() {
+  if (!may('configure')) return;
+  const got = await fetchOne('/autocomplete' + acQ());
+  if (!got) return;
+  if (ambientSwitch) ambientSwitch.selected = got.ambient !== false; // absent/true = default on
+  if (crossSwitch) crossSwitch.selected = got.crossSession !== false;
+  fillProfiles(codeProfSel, got.profiles, got.codeProfile);
+  fillProfiles(compProfSel, got.profiles, got.composerProfile);
+  if (commitTpl) commitTpl.value = got.commitTemplate || '';
+  if (prTpl) prTpl.value = got.prTemplate || '';
+}
+if (ambientSwitch) ambientSwitch.addEventListener('change', () => acSave('ambient', ambientSwitch.selected ? 'on' : 'off'));
+if (crossSwitch) crossSwitch.addEventListener('change', () => acSave('crossSession', crossSwitch.selected ? 'on' : 'off'));
+if (codeProfSel) codeProfSel.addEventListener('change', () => acSave('codeProfile', codeProfSel.value || ''));
+if (compProfSel) compProfSel.addEventListener('change', () => acSave('composerProfile', compProfSel.value || ''));
+if (commitTpl) commitTpl.addEventListener('change', () => acSave('commitTemplate', commitTpl.value || ''));
+if (prTpl) prTpl.addEventListener('change', () => acSave('prTemplate', prTpl.value || ''));
+
 // The two grips: the edge of each pane, dragged.
 //
 // What they write is the custom property the grid track is made of, so the column and the pane
@@ -10538,7 +10609,7 @@ railMenu.onclick = () => {
 
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
-prefsEl.onclick = () => prefsDialog.show();
+prefsEl.onclick = () => { prefsDialog.show(); loadAutocomplete(); };
 // Preferences is where the way to the people screen lives; see the markup for why it is not in the
 // navigation. Closing the dialog first, because leaving a modal open over the screen it just took
 // somebody to is the one thing a link out of a dialog must not do.
