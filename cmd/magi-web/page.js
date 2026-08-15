@@ -2861,6 +2861,36 @@ function paintPerm(sel) {
   }
 }
 
+// updateControl is the "update this companion" row on the facts card: a button that tells a
+// same-machine daemon to update itself to the latest release and restart onto it (/update → the
+// daemon's own update, which downloads, commits with rollback, and re-execs). The daemon's one-line
+// account is shown beside it — what it did, or that it was already current, or why it could not.
+// Disabled without the configure capability, like the permission control above it. Same-machine only
+// is enforced by the caller (a.trust==='own') and by /update itself.
+function updateControl(a) {
+  const f = cell('f');
+  f.append(cell('k', tr('field.update')));
+  const v = cell('v');
+  const btn = withMark(document.createElement('md-text-button'), '#i-sl-cloud-arrow-down');
+  label(btn, tr('action.update'));
+  btn.disabled = !may('configure');
+  const say = cell('updsay');
+  say.hidden = true;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    say.hidden = false;
+    say.textContent = tr('update.working');
+    // On success the daemon replies before it drains to restart, so the account arrives; a failure
+    // (a rollback, or the socket already gone) comes back empty, said as a generic line.
+    const out = await postText('/update' + qFor(a), new URLSearchParams());
+    say.textContent = out || tr('update.failed');
+    btn.disabled = !may('configure');
+  };
+  v.append(btn, say);
+  f.append(v);
+  return f;
+}
+
 function permField(a) {
   // Changing how a companion runs is `configure`; reading which mode it is on is not. So the field
   // is drawn and disabled rather than removed: a viewer who cannot see the approval mode cannot
@@ -3150,6 +3180,14 @@ function drawDetail(a) {
     sessionField(a),
   ].forEach(put);
   put(permField(a));
+  // Only a same-machine companion, and only when it reports a build: updating swaps the binary and
+  // restarts it over its own local socket (see /update), which is meaningless for a row this console
+  // reached by a sighting rather than a dial. The daemon says "already up to date" when there is
+  // nothing newer, so the button is offered whenever it COULD do something, not only when the page
+  // has worked out that it would.
+  if (a.trust === 'own' && !a.elsewhere && a.version) {
+    put(updateControl(a));
+  }
   // A button, not a clickable div: this is the one control on the card and it has to be reachable
   // by keyboard and announce itself as pressed or not.
   const bar = document.createElement('button');

@@ -1094,6 +1094,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/suggest":       s.suggest,
 		"/autocomplete":  s.autocomplete,
 		"/profiles":      s.profilesList,
+		"/update":        s.update,
 		"/git-do":        s.gitDo,
 		"/git-msg":       s.gitMsg,
 		"/git-pr":        s.gitPR,

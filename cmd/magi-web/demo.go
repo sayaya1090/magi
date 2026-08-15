@@ -820,6 +820,11 @@ const demoScript = `
     if (init && init.method === 'POST' && url === '/open-file') {
       return {ok: true, status: 204, text: async () => ''}; // ambient push; nothing to show, say nothing
     }
+    if (init && init.method === 'POST' && url.indexOf('/update') === 0) {
+      // The update button on a local companion that is behind: the real daemon downloads, commits
+      // with rollback, and restarts, replying with what it did. The demo shows that reply.
+      return {ok: true, status: 200, text: async () => 'updated v0.22.0 → v0.23.0, restarting'};
+    }
     if (init && init.method === 'POST' && url === '/look') {
       // The look-over answer is per-line: '<line><TAB><clause>', drawn against the line it names.
       // The console sends the region around the caret numbered with real line numbers, so the mock

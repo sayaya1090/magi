@@ -59,6 +59,7 @@
   "action.save": "저장",
   "action.send": "보내기",
   "action.show_all": "전체 보기",
+  "action.update": "최신으로 업데이트",
   "action.working": "처리 중…",
   "action.write_down": "적어두기",
   "answer.instead": "위 질문에 답합니다. 다른 일을 시키려면 먼저 답하거나 중단하세요.",
@@ -163,6 +164,7 @@
   "error.pane_how": "콘솔이 요청했지만 거절당했습니다. 이 화면 뒤의 것은 멀쩡할 수 있습니다 — 다시 시도해 보고, 계속 실패하면 콘솔 로그를 보세요.",
   "error.refused": "magi-web가 {what} 요청에 {code}으로 답했습니다",
   "error.garbled": "magi-web가 답했지만, 응답을 읽을 수 없습니다",
+  "field.update": "업데이트",
   "loading.roster": "컴패니언을 읽는 중…",
   "loading.board": "보드를 읽는 중…",
   "loading.skills": "배운 것을 읽는 중…",
@@ -553,5 +555,7 @@
   "prof.none": "아직 프로파일이 없습니다",
   "prof.no_model": "모델 없음",
   "prof.keyed": "키 설정됨",
-  "prof.need_name": "프로파일에 이름이 필요합니다"
+  "prof.need_name": "프로파일에 이름이 필요합니다",
+  "update.failed": "업데이트 실행 안 됨 — 다시 시도하거나 데몬을 확인하세요",
+  "update.working": "확인 중…"
 }

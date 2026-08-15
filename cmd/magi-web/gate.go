@@ -102,6 +102,9 @@ var mayWrite = map[string]auth.Capability{
 	// The named LLM backends ([llm.profiles.*]): an endpoint and a key this machine sends prompts to.
 	// Configuration, read and written — same as MCP. The write also refuses on a shared console.
 	"/profiles": auth.Configure,
+	// Updating a same-machine companion's binary and restarting it. A change to the machine, so
+	// Configure — and the handler also refuses on a shared console and refuses a peer-scoped request.
+	"/update": auth.Configure,
 	// A command in the workspace, outside the permission policy a tool call goes through. On a
 	// console started with -exposed the route refuses before this is reached (see refuseWhenShared)
 	// — this is what governs the console that is NOT shared but has more than one person on it.
