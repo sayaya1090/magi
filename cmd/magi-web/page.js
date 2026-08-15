@@ -2455,8 +2455,16 @@ async function fetchList(path) {
     says(tr('error.refused', {code: r.status, what: path.split('?')[0]}));
     return null;
   }
+  // A 200 with a body that will not parse is NOT "cannot reach magi-web" — the console reached it
+  // and it answered; the answer was garbled (a truncated stream, a proxy that rewrote the body). The
+  // connection is real, so the dot does not go red for it, and the message says what actually
+  // happened. The body goes to the console, where the whole of it fits, like the refusal path above.
   try { return await r.json(); }
-  catch { reach(false); says(tr('error.unreachable')); return null; }
+  catch (e) {
+    console.warn('magi-web', 'garbled', path, e);
+    says(tr('error.garbled'));
+    return null;
+  }
 }
 
 // fetchOne is fetchList for something that is not a list. Same failure handling, because the
@@ -10390,13 +10398,23 @@ async function post(path, body, socket, peer, quiet) {
   if (socket) parts.push('d=' + encodeURIComponent(socket));
   if (peer) parts.push('p=' + encodeURIComponent(peer));
   const target = parts.length ? '?' + parts.join('&') : q();
-  const r = await fetch(path + target, {method:'POST', body});
+  // A dropped connection IS a disconnection — the daemon went away mid-action. fetch only rejects
+  // when the request never completed, so this is the same outage the GET path catches, and it must
+  // say so rather than throw uncaught into a caller (send/permission/git-do) that has no .catch and
+  // would surface nothing at all.
+  let r;
+  try { r = await fetch(path + target, {method:'POST', body}); }
+  catch { reach(false); if (!quiet) says(tr('error.unreachable')); return tr('error.unreachable'); }
   if (r.ok) return '';
   // A refusal is not a disconnection. The daemon answered — it answered NO — and painting the
   // connection dot red for that says the console cannot hear a machine it is talking to.
   const why = (await r.text()).trim();
-  // Returned so the caller can put it where it belongs. Said out loud only when nobody takes it:
-  // a form has a field to hang this on and a fleet action does not.
+  // The whole reason goes to the console, where a line fits — the status line shows only its head,
+  // and a long refusal ("this operator may not approve …") was cut mid-word with the tail lost. Now
+  // the tail is recoverable, the same way the GET path keeps its refused body.
+  if (why.length > 80) console.warn('magi-web', r.status, path, why);
+  // Returned whole so the caller can put it where it belongs. Said out loud only when nobody takes
+  // it: a form has a field to hang this on and a fleet action does not.
   if (!quiet) says(why.slice(0, 80));
   return why;
 }

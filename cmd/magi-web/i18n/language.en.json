@@ -162,6 +162,7 @@
   "error.pane": "This did not load",
   "error.pane_how": "The console asked and was refused. What is behind this screen may still be fine — try again, and if it keeps failing look at what the console's own log says.",
   "error.refused": "magi-web answered {code} for {what}",
+  "error.garbled": "magi-web answered, but the reply could not be read",
   "error.unreachable": "Cannot reach magi-web",
   "field.cache": "Cache",
   "field.config": "Config",
