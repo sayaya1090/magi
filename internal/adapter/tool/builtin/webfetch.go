@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -52,9 +53,30 @@ func (w WebFetch) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 
 	client := w.HTTP
 	if client == nil {
-		client = &http.Client{
+		// The guard that matters is on the CONNECTED address, not on a name resolved a moment
+		// earlier. linkLocalURL resolves the host, and http.Client resolves it again to dial — a
+		// name that answers benign on the first lookup and 169.254.169.254 on the second (a
+		// rebind) would slip past the pre-check and the redirect re-check alike. The dialer's
+		// Control hook runs with the exact ip:port about to be connected, so rejecting there checks
+		// the address that is actually used.
+		dialer := &net.Dialer{
 			Timeout: 30 * time.Second,
-			// Re-check each redirect hop so a redirect can't bounce to a metadata address.
+			Control: func(network, address string, c syscall.RawConn) error {
+				host, _, err := net.SplitHostPort(address)
+				if err != nil {
+					return err
+				}
+				if ip := net.ParseIP(host); ip != nil && isLinkLocal(ip) {
+					return fmt.Errorf("blocked: link-local/metadata address is not allowed")
+				}
+				return nil
+			},
+		}
+		client = &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: &http.Transport{DialContext: dialer.DialContext},
+			// Re-check each redirect hop so a redirect can't bounce to a metadata address (the
+			// dialer catches the connect, this catches the hop before it and gives a clear reason).
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return fmt.Errorf("stopped after 10 redirects")

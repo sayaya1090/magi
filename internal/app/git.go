@@ -571,10 +571,19 @@ func (a *App) GitDo(ctx context.Context, sid session.SessionID, workdir, what, p
 		}
 		args, needsPath = []string{"switch", "--", strings.TrimSpace(message)}, false
 	case "new-branch":
-		if strings.TrimSpace(message) == "" {
+		name := strings.TrimSpace(message)
+		if name == "" {
 			return "", fmt.Errorf("a branch needs a name")
 		}
-		args, needsPath = []string{"switch", "--create", strings.TrimSpace(message)}, false
+		// Rejected, not protected. The new-branch name is --create's argument, not a pathspec, so a
+		// trailing -- (which every other case here uses) does not shield it — git would still read a
+		// leading-dash name as an option. Every legal branch name that a person would type is
+		// dash-free at the start (git itself forbids a component starting with -); so a name that
+		// does is refused rather than handed to switch as a flag.
+		if strings.HasPrefix(name, "-") {
+			return "", fmt.Errorf("a branch name may not start with a dash")
+		}
+		args, needsPath = []string{"switch", "--create", name}, false
 	case "pull":
 		// --ff-only: a pull that merges is a pull that can leave a conflicted tree behind a button
 		// press. If it will not fast-forward, git says so and the person decides in a terminal.

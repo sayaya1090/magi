@@ -186,6 +186,9 @@ func TestTheNotificationCarriesTheQuestionAndDeadSubscriptionsAreDropped(t *test
 	for _, sub := range subs {
 		p.subs[sub.Endpoint] = sub
 	}
+	// The guarded send dialer refuses loopback (the SSRF fix); these test servers are loopback, so
+	// the test uses an unguarded client to exercise the send/drop logic against them.
+	p.http = live.Client()
 	s := &server{pushes: p, http: live.Client()}
 	s.notify(fleet.Agent{
 		Socket: "/s/design.sock", Name: "design",
@@ -354,5 +357,26 @@ func TestOnlyTheOwnerCanRemoveASubscription(t *testing.T) {
 	}
 	if _, still := s.pushes.subs["e1"]; still {
 		t.Error("the owner's removal did nothing")
+	}
+}
+
+// A push endpoint this process will later POST to must be a public https URL — a caller who could
+// store an internal address turned the console into a blind SSRF hop. The deterministic rejections
+// (scheme, IP literal) are checked here; a public host needs DNS and is left to integration.
+func TestSafePushEndpointRefusesInternalTargets(t *testing.T) {
+	bad := []string{
+		"http://push.example.com/x",      // not https
+		"https://127.0.0.1/x",            // loopback IP literal
+		"https://169.254.169.254/latest", // metadata IP literal
+		"https://[::1]/x",                // loopback IPv6 literal
+		"https://10.0.0.5/x",             // private IP literal
+		"ftp://push.example.com/x",       // wrong scheme
+		"https:///nohost",                // no host
+		"not a url",                      // unparseable-as-endpoint
+	}
+	for _, e := range bad {
+		if err := safePushEndpoint(e); err == nil {
+			t.Errorf("safePushEndpoint(%q) allowed an internal/invalid endpoint", e)
+		}
 	}
 }

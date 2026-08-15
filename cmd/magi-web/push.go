@@ -3,13 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
@@ -48,6 +52,10 @@ import (
 type pushState struct {
 	keys *webpush.Keys
 	file string
+	// A client of its own for sending, with an SSRF-guarded dialer that rejects a connection to an
+	// internal address. Not the server's shared s.http, which peer forwarding uses and which may be
+	// pointed at an internal peer by the operator on purpose.
+	http *http.Client
 
 	mu   sync.Mutex
 	subs map[string]webpush.Subscription // by endpoint
@@ -114,6 +122,7 @@ func newPush(cfgDir string) (*pushState, error) {
 	}
 
 	p := &pushState{
+		http: &http.Client{Timeout: 5 * time.Minute, Transport: &http.Transport{DialContext: safePushDialer()}},
 		keys: keys,
 		file: filepath.Join(cfgDir, "push-subscriptions.json"),
 		subs: map[string]webpush.Subscription{},
@@ -192,6 +201,18 @@ func (s *server) push(w http.ResponseWriter, r *http.Request) {
 		if sub.Endpoint == "" || sub.P256dh == "" || sub.Auth == "" {
 			http.Error(w, "a subscription needs an endpoint, a key and an auth secret", http.StatusBadRequest)
 			return
+		}
+		// A push endpoint is a URL this process will later POST an encrypted payload to, so a
+		// caller who could store an internal address (169.254.169.254, 127.0.0.1:port, a private
+		// host) turned the console into a blind SSRF hop the moment a companion in their scope
+		// started waiting. A real push service is always a public https URL; anything else is
+		// refused here, before it is ever stored — and only on delete is that skipped, since a
+		// delete removes by the exact string and reaches nothing.
+		if r.FormValue("delete") != "1" {
+			if err := safePushEndpoint(sub.Endpoint); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		p.mu.Lock()
 		if r.FormValue("delete") == "1" {
@@ -424,7 +445,7 @@ func (s *server) send(body []byte, subs []webpush.Subscription) {
 	for _, sub := range subs {
 		// Five minutes. "Somebody is waiting for you" is worth nothing an hour later, and a
 		// notification that arrives after the question was answered teaches people to ignore them.
-		switch err := s.pushes.keys.Send(s.http, sub, body, 5*time.Minute); {
+		switch err := s.pushes.keys.Send(s.pushes.http, sub, body, 5*time.Minute); {
 		case err == nil:
 		case err == webpush.Gone:
 			s.pushes.mu.Lock()
@@ -483,3 +504,53 @@ self.addEventListener('notificationclick', e => {
   }));
 });
 `
+
+// safePushEndpoint refuses, at subscribe time and WITHOUT a DNS lookup, an endpoint that could
+// never be a real web-push target: a non-https scheme, no host, or an IP literal (FCM/Mozilla/Apple
+// endpoints are named, not numbered — and an IP literal is how a caller would name an internal
+// service directly). The DNS-dependent case — a name that resolves to an internal address, including
+// a rebind that answers benign now and internal at send — is caught authoritatively by the send
+// dialer (safePushDialer), which checks the address actually connected. Keeping this half DNS-free
+// means it needs no network and cannot be defeated by resolution timing.
+func safePushEndpoint(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("that endpoint is not a URL")
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("a push endpoint must be https")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("that endpoint has no host")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return fmt.Errorf("a push endpoint must be a hostname, not an address")
+	}
+	return nil
+}
+
+// safePushDialer is the http.Client dialer for push sends: it rejects a connection whose resolved
+// address is internal (loopback/link-local/private/unspecified), so a subscription whose hostname
+// resolves — now or later, benign or rebound — to an internal target cannot be reached. This is the
+// authoritative SSRF guard; the subscribe check is only an early, DNS-free refusal.
+func safePushDialer() func(context.Context, string, string) (net.Conn, error) {
+	d := &net.Dialer{
+		Timeout: peerTimeout,
+		Control: func(network, address string, c syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				return fmt.Errorf("push endpoint did not resolve to an address")
+			}
+			if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				return fmt.Errorf("push endpoint resolved to a non-public address")
+			}
+			return nil
+		},
+	}
+	return d.DialContext
+}

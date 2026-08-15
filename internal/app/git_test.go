@@ -390,3 +390,24 @@ func TestAPatchRefusesWhenTheFileMovedUnderIt(t *testing.T) {
 		t.Errorf("the path was refused by git rather than by the jail: %v", perr)
 	}
 }
+
+// A new-branch name may not begin with a dash: that name is git switch --create's argument, not a
+// pathspec, so a trailing -- would not shield it — git would read a leading-dash name as an option.
+func TestGitNewBranchRefusesADashName(t *testing.T) {
+	st, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(st, nil, builtin.Default(), bus.New(), platform.OS{}, Config{})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, gerr := a.GitDo(context.Background(), sid, t.TempDir(), "new-branch", "", "--force", false); gerr == nil {
+		t.Error("a branch name starting with a dash was accepted — it reaches git switch as an option")
+	}
+	// A normal name is not refused by this check (it may still fail for lack of a repo, which is fine).
+	if _, gerr := a.GitDo(context.Background(), sid, t.TempDir(), "new-branch", "", "feature/ok", false); gerr != nil && strings.Contains(gerr.Error(), "start with a dash") {
+		t.Error("a normal branch name was refused by the dash guard")
+	}
+}
