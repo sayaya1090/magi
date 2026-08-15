@@ -1270,11 +1270,13 @@ func run() int {
 		// it; and only when [update] auto is on and the operator has not opted out. Same lifetime as
 		// the schedule and gossip — a stopped companion stops reaching out, including for updates.
 		if cfg.Update.AutoOn() && !*noUpdateCheck {
+			// The loop refuses a dev build and an unknown exe path itself (and says so once); the
+			// error is deliberately not fatal — a daemon that cannot self-update still serves.
 			exe, _ := os.Executable()
 			// running() is true while any session has a turn in flight — App.Running returns the
 			// running session and a bool; only the bool matters here.
 			busy := func() bool { _, ok := a.Running(); return ok }
-			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, busy, serving.Restart)
+			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, sockPath, busy, serving.Restart)
 		}
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the
@@ -2594,11 +2596,23 @@ func (d daemonEngine) Version() string { return version.Version }
 // uses. It does NOT restart; the `update` method restarts after, so committing the binary and
 // relaunching onto it stay separable and the relaunch reuses the daemon's own drain (see B2).
 func (d daemonEngine) Update(ctx context.Context) (daemon.UpdateResult, error) {
+	// A dev build refuses, the same fail-safe the auto loop and the interactive startup check have:
+	// IsNewer treats an unparseable version as older-than-anything so an EXPLICIT `magi -update` can
+	// move a dev install onto a release, and without this guard one console button press silently
+	// replaced a developer's local build with the latest GitHub release.
+	if !update.SelfUpdatable(version.Version) {
+		return daemon.UpdateResult{Message: "this is a dev build (" + version.Version + ") — it does not " +
+			"self-update; run `magi -update` on that machine to move it onto a release deliberately"}, nil
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return daemon.UpdateResult{}, err
 	}
-	res, err := update.RunCommit(ctx, newReleaseSource(), version.Version, exe)
+	// Bounded here because the connection's ctx is not: a console button press rides a connection
+	// with no deadline, and a wedged download would otherwise hold its handler goroutine forever.
+	uctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	res, err := update.RunCommit(uctx, newReleaseSource(), version.Version, exe)
 	if err != nil {
 		return daemon.UpdateResult{}, err
 	}

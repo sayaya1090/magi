@@ -236,6 +236,8 @@ func TestEveryConfigFieldIsEitherMergedOrKnowinglyNotMerged(t *testing.T) {
 	// that must NOT cross.
 	notMerged := map[string]string{
 		"APIKey": "a key in a committed file is a leaked key — a project must not push one onto the machine",
+		"Update": "self-update is a fact about the MACHINE's binary, not a workspace's — and a cloned repo " +
+			"must not be able to re-enable auto-update the operator turned off",
 	}
 
 	base := config.Config{}

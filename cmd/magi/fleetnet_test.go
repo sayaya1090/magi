@@ -100,7 +100,11 @@ func TestTheFleetDoorOverTLSAdmitsOnlyWhatWasAdmitted(t *testing.T) {
 // And the same three methods, over this pipe too: the rule is the door's, not the transport's.
 func TestTheTLSDoorRefusesTheSameMethods(t *testing.T) {
 	dir := t.TempDir()
-	for _, m := range []string{"submit", "shell", "set-model", "watch"} {
+	for _, m := range []string{"submit", "shell", "set-model", "watch",
+		// The lifecycle verbs, by name: update swaps this machine's binary and restart/shutdown end
+		// the process, and the update design's same-machine scope rests on none of them crossing a
+		// door. Asserted here so adding one to the allowlist is a decision, not a drive-by.
+		"update", "restart", "shutdown"} {
 		if doorAllows(m) {
 			t.Errorf("%s is carried", m)
 		}

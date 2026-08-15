@@ -34,19 +34,40 @@ var (
 // is on and the operator has not opted out (--no-update-check), so a benchmark — a headless one-shot,
 // never a daemon — cannot reach it, and an operator who turned it off gets only the manual push.
 //
+// Dev-safe too: a build whose version does not parse (a locally built "dev") never auto-updates —
+// IsNewer deliberately lets an EXPLICIT `magi -update` move a dev install onto a release, and this
+// loop inheriting that would silently replace a developer's own build within hours of `go build &&
+// ./magi --daemon`. The interactive startup check has the same fail-safe via UpdatePolicy.
+//
 // Idle-gated on purpose: a restart mid-turn throws away the in-flight step (the log keeps the rest),
 // so once a build is committed the restart waits for `running` to report nothing in flight. The
 // binary is already on disk, so even if the daemon never idles the update is there for the next start.
-// The initial delay is jittered per-daemon (a hash of the exe path) so a machine's daemons stagger
-// rather than all check and restart together.
-func daemonAutoUpdate(ctx context.Context, configDir, current, exe string, running func() bool, restart func()) {
-	stamp := filepath.Join(configDir, ".daemon-update-check")
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(exe))
+// The initial delay is jittered per-daemon — seeded from the SOCKET path, which is the one string
+// distinct per daemon on a machine (they usually share one exe) — and scaled across a quarter of the
+// TTL, so a machine's daemons stagger rather than all check together. The stamp file carries the
+// same per-daemon suffix: shared, one daemon's check silenced every other's for the whole TTL, and
+// the others then never restarted onto a build the first had already committed.
+func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string, running func() bool, restart func()) {
+	if !update.SelfUpdatable(current) {
+		fmt.Fprintf(os.Stderr, "magi: auto-update off: %q is not a release build\n", current)
+		return
+	}
+	if exe == "" {
+		fmt.Fprintln(os.Stderr, "magi: auto-update off: the running binary's path is unknown")
+		return
+	}
+	h := fnv.New64a()
+	h.Write([]byte(sock)) //nolint:errcheck // hash.Hash never errors
+	stamp := filepath.Join(configDir, fmt.Sprintf(".daemon-update-check-%016x", h.Sum64()))
 	quarter := daemonAutoUpdateTTL / 4
+	// A 64-bit hash modulo the window. The two obvious 32-bit spellings are both wrong: a uint32
+	// read directly as a Duration is at most ~4.3 SECONDS of nanoseconds (so `sum32 % quarter` was a
+	// no-op), and scaling as `quarter*sum32>>32` overflows uint64 at any quarter past ~4.3s — which
+	// collapsed the spread right back to [0, 4.3s). Sum64 % quarter cannot overflow (both operands
+	// fit) and its modulo bias over a 1.5h window is nanoseconds — irrelevant here.
 	jitter := time.Duration(0)
 	if quarter > 0 {
-		jitter = time.Duration(h.Sum32()) % quarter
+		jitter = time.Duration(h.Sum64() % uint64(quarter))
 	}
 	timer := time.NewTimer(jitter)
 	defer timer.Stop()
@@ -58,10 +79,10 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe string, runni
 		}
 		timer.Reset(daemonAutoUpdateTTL)
 		if !updateCheckDue(stamp, daemonAutoUpdateTTL-time.Minute, time.Now()) {
-			continue // a very recent restart already checked; do not hammer the network
+			continue // this daemon's own recent restart already checked; do not hammer the network
 		}
 		touchStamp(stamp)
-		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		res, err := update.RunCommit(cctx, latestSource(), current, exe)
 		cancel()
 		if err != nil || !res.Updated {
@@ -74,6 +95,11 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe string, runni
 				return
 			case <-time.After(daemonIdleCheckInterval):
 			}
+		}
+		// The daemon may have begun stopping while we polled (Restart itself refuses after a stop
+		// has begun, but respect our own ctx too rather than racing it).
+		if ctx.Err() != nil {
+			return
 		}
 		restart()
 		return
