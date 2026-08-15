@@ -2873,18 +2873,48 @@ function updateControl(a) {
   const v = cell('v');
   const btn = withMark(document.createElement('md-text-button'), '#i-sl-cloud-arrow-down');
   label(btn, tr('action.update'));
-  btn.disabled = !may('configure');
+  // The outcome lives at MODULE scope, per socket, and the row is drawn FROM it — not from this
+  // build's local variables. The facts grid keeps a row whose words did not change (rowWords) and
+  // replaces one whose words did, so state that only lived in a closure was destroyed by the poll:
+  // a rebuild mid-download swapped in a disabled button the finished fetch could never re-enable
+  // (its nodes were detached), and the daemon's account of a SUCCESS was written to a dead node or
+  // wiped by the next frame. Drawn from shared state, every transition changes the row's words and
+  // the reconciler replaces it correctly; the same pattern commitRules uses across card rebuilds.
+  const states = updateControl.state || (updateControl.state = new Map());
+  const st = states.get(a.socket);
+  btn.disabled = !may('configure') || !!(st && st.working);
   const say = cell('updsay');
-  say.hidden = true;
+  say.hidden = !(st && st.text);
+  if (st && st.text) say.textContent = st.text;
   btn.onclick = async () => {
+    if (states.get(a.socket) && states.get(a.socket).working) return;
+    states.set(a.socket, {working: true, text: tr('update.working')});
     btn.disabled = true;
     say.hidden = false;
     say.textContent = tr('update.working');
-    // On success the daemon replies before it drains to restart, so the account arrives; a failure
-    // (a rollback, or the socket already gone) comes back empty, said as a generic line.
-    const out = await postText('/update' + qFor(a), new URLSearchParams());
+    // The body is shown WHATEVER the status: a refusal here carries its own instruction ("run it on
+    // the machine that companion is on", "do it from a terminal") and collapsing it to a generic
+    // "try again" pointed people at a healthy daemon. Only a transport failure — no reply at all,
+    // e.g. the socket already gone mid-restart — falls back to the generic line. The abort signal
+    // guarantees the promise settles even against a wedged daemon, so the working flag cannot leak
+    // and pin the button disabled forever.
+    let out = '';
+    try {
+      const r = await fetch('/update' + qFor(a), {method: 'POST', signal: AbortSignal.timeout(15 * 60 * 1000)});
+      out = (await r.text()).trim();
+    } catch { /* transport failure; the generic line below */ }
+    states.set(a.socket, {working: false, text: out || tr('update.failed')});
+    // These nodes may be detached by now (the poll rebuilds the card); writing them is free and
+    // right when they are still live, and the state above repaints the rebuilt row either way.
     say.textContent = out || tr('update.failed');
     btn.disabled = !may('configure');
+    // The console panel's own build line ("this console / companions") answers "why hasn't the thing
+    // I shipped shown up", and it was loaded once at startup. Refreshed AFTER the restart settles,
+    // not at the reply: the reply lands before the daemon drains, so an instant refresh read the OLD
+    // record — or, mid-drain, no live daemon at all — and the panel contradicted the reply just
+    // shown. One early refresh for the fast case, one later for a slow republish.
+    setTimeout(loadConsole, 4000);
+    setTimeout(loadConsole, 12000);
   };
   v.append(btn, say);
   f.append(v);
@@ -3185,7 +3215,11 @@ function drawDetail(a) {
   // reached by a sighting rather than a dial. The daemon says "already up to date" when there is
   // nothing newer, so the button is offered whenever it COULD do something, not only when the page
   // has worked out that it would.
-  if (a.trust === 'own' && !a.elsewhere && a.version) {
+  // !a.peer as well as trust: a federated console's /fleet rows arrive with the PEER's own trust
+  // stamped on them ("own", from its point of view), so trust alone drew this button on another
+  // machine's companion — where /update correctly refuses. a.peer is the fact about THIS console:
+  // set exactly when the row came from a peer rather than a local dial.
+  if (a.trust === 'own' && !a.elsewhere && !a.peer && a.version) {
     put(updateControl(a));
   }
   // A button, not a clickable div: this is the one control on the card and it has to be reachable
@@ -9836,6 +9870,14 @@ function clearCompanionView() {
   // companion re-fetches its own rather than inheriting the one before it.
   commitRules = '';
   prRules = '';
+  // The update button's last outcome likewise: a finished line has said its piece — the next visit
+  // starts clean. In-flight entries stay, though: glancing at another companion while an update
+  // downloads must not re-arm the button, or coming back mid-download could fire a second POST.
+  if (updateControl.state) {
+    for (const [k, s] of updateControl.state) {
+      if (!s.working) updateControl.state.delete(k);
+    }
+  }
   commitRulesOpen = false;
   prRulesOpen = false;
   commitPick = '';

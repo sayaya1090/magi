@@ -76,7 +76,9 @@ func (s *server) console(w http.ResponseWriter, r *http.Request) {
 	if list, err := daemon.List(s.cfgDir); err == nil {
 		seen := map[string]bool{}
 		for _, in := range list {
-			if in.Version == "" || seen[in.Version] {
+			// Live only: a SIGKILLed daemon leaves its record behind, and the line is about what IS
+			// running — a dead process's build sat in this list looking like a second version.
+			if !in.Live || in.Version == "" || seen[in.Version] {
 				continue
 			}
 			seen[in.Version] = true
