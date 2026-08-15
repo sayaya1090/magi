@@ -2552,6 +2552,11 @@ func (d daemonEngine) About() string {
 	return mcpserve.Describe(d.card())
 }
 
+// Version satisfies daemon.Versioner: the running binary's version, for the `about` handshake. The
+// process that IS this version reports it, rather than a caller inferring it — the point of the
+// handshake is that a peer can then negotiate against what this daemon actually speaks.
+func (d daemonEngine) Version() string { return version.Version }
+
 // ReadOnlyTool is the console's way into this workspace: the companion's own read-only tools, run
 // where the workspace is, outside the turn. See daemon.ToolReader for why it is done this way and
 // not by whoever is looking.

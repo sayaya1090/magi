@@ -479,6 +479,14 @@ type Response struct {
 	// "not finished, and here is why not" is one fact with parts and reading it out of flat
 	// fields would let a caller act on half of it.
 	Handover *Handover `json:"handover,omitempty"`
+	// Version, Proto and Caps answer the `about` handshake: who the far side is and what it speaks,
+	// so a caller can negotiate rather than guess. Version is the binary's (e.g. "v0.22.2"), Proto
+	// the wire-protocol version (ProtoVersion), Caps the negotiable capabilities (Caps()). A daemon
+	// that predates the handshake sets none of them; a caller reads that as proto 0 / no caps and
+	// holds to the pre-negotiation behaviour. Additive and omitempty — an older client ignores them.
+	Version string   `json:"version,omitempty"`
+	Proto   int      `json:"proto,omitempty"`
+	Caps    []string `json:"caps,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -1018,12 +1026,16 @@ func answerJobs(ctx context.Context, eng Engine, req Request) Response {
 // companion, so there is no name to resolve and no config directory to read — the process
 // that knows answers about itself.
 func answerAbout(ctx context.Context, eng Engine, req Request) Response {
-	var resp Response
 	d, ok := eng.(Describer)
 	if !ok {
-		resp = Response{Err: "this daemon cannot describe its companion"}
-	} else {
-		resp = Response{OK: true, Out: d.About()}
+		return Response{Err: "this daemon cannot describe its companion"}
+	}
+	// The rendered description as before, plus the structured handshake so a caller can negotiate:
+	// the wire protocol and capabilities this build speaks, and — when the engine carries it — the
+	// binary version. All additive and omitempty, so an older client that only reads Out is unaffected.
+	resp := Response{OK: true, Out: d.About(), Proto: ProtoVersion, Caps: Caps()}
+	if v, ok := eng.(Versioner); ok {
+		resp.Version = v.Version()
 	}
 	return resp
 }
@@ -1325,6 +1337,25 @@ type Describer interface {
 	About() string
 }
 
+// Versioner is an optional Engine capability: the running binary's version, for the `about`
+// handshake (Response.Version). Optional like Describer — a test double has no build metadata to
+// report, and answerAbout simply omits the field when the engine does not carry it.
+type Versioner interface{ Version() string }
+
+// ProtoVersion is the daemon wire-protocol version, carried in the `about` handshake
+// (Response.Proto). It is bumped when the Request/Response shape gains a capability peers negotiate
+// on, so a newer and an older instance can each learn what the other speaks and one can down-convert
+// for the other. It is NOT the binary version (that is Response.Version).
+const ProtoVersion = 1
+
+// Caps names the negotiable protocol capabilities this build speaks, carried in the `about`
+// handshake (Response.Caps). A sender checks a peer's advertised set (PeerInfo.Supports / a Client's
+// PeerSupports) before using a newer method or field, so it never sends what an older peer would
+// silently drop — encoding/json ignores unknown fields, which would turn a shape mismatch into wrong
+// behaviour rather than an error. The list grows as gated features land; "handshake" marks a build
+// that answers this versioned about at all (every build from this one on).
+func Caps() []string { return []string{"handshake"} }
+
 // About asks a companion to describe itself.
 func (c *Client) About() (string, error) {
 	resp, err := c.exchange(Request{Method: "about"})
@@ -1335,6 +1366,36 @@ func (c *Client) About() (string, error) {
 		return "", errors.New(resp.Err)
 	}
 	return resp.Out, nil
+}
+
+// Hello runs the `about` handshake and returns what the far side is — its version, wire protocol and
+// capabilities. The result is cached on the client, so PeerSupports can gate later sends without a
+// second round trip. A daemon that predates the handshake answers with proto 0 and no caps, which the
+// caller reads as "hold to the pre-negotiation behaviour."
+func (c *Client) Hello() (PeerInfo, error) {
+	resp, err := c.exchange(Request{Method: "about"})
+	if err != nil {
+		return PeerInfo{}, err
+	}
+	if !resp.OK {
+		return PeerInfo{}, errors.New(resp.Err)
+	}
+	p := PeerInfo{Version: resp.Version, Proto: resp.Proto, Caps: resp.Caps}
+	c.mu.Lock()
+	c.peer = &p
+	c.mu.Unlock()
+	return p, nil
+}
+
+// PeerSupports reports whether the far side advertised a capability, from the cached handshake. It is
+// false before the first Hello and for a peer that predates the handshake — both of which mean "do
+// not send the newer form." A sender gates a new method or field on this so it never ships what an
+// older peer would silently drop.
+func (c *Client) PeerSupports(capability string) bool {
+	c.mu.Lock()
+	p := c.peer
+	c.mu.Unlock()
+	return p != nil && p.Supports(capability)
 }
 
 // Handover is what became of one piece of work handed to a companion.
@@ -1559,6 +1620,30 @@ type Client struct {
 	// decides how long a thing takes. Non-zero for a probe, where the caller is asking about a
 	// process that may be wedged and must not be dragged down with it.
 	deadline time.Duration
+	// peer is what the about handshake learned about the far side (Hello), cached so PeerSupports
+	// can gate a newer send without a second round trip. nil until the first Hello; a peer that
+	// predates the handshake caches as proto 0 / no caps, which reads as "hold to old behaviour".
+	peer *PeerInfo
+}
+
+// PeerInfo is what the `about` handshake learned about the far side: its binary version, the wire
+// protocol it speaks, and the capabilities it advertised. Supports gates a newer method or field so
+// a sender never ships what an older peer would silently drop (encoding/json ignores unknown fields,
+// turning a shape mismatch into wrong behaviour rather than an error).
+type PeerInfo struct {
+	Version string
+	Proto   int
+	Caps    []string
+}
+
+// Supports reports whether the far side advertised a capability in its handshake.
+func (p PeerInfo) Supports(capability string) bool {
+	for _, c := range p.Caps {
+		if c == capability {
+			return true
+		}
+	}
+	return false
 }
 
 // Dial connects to a daemon, or says plainly that none is there.
