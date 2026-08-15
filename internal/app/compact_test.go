@@ -1,7 +1,14 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/model"
 	"strings"
 	"testing"
 
@@ -80,6 +87,32 @@ func TestFlattenForSummary(t *testing.T) {
 	}
 	if !strings.Contains(joined, "read") || !strings.Contains(joined, "package main") {
 		t.Errorf("the tool call and result did not survive as prose:\n%s", joined)
+	}
+}
+
+// maybeCompact does not fold when the messages already fit the budget — the overage is then the
+// system prompt, which no fold can shrink, and folding every step was measured spinning uselessly.
+func TestMaybeCompactSkipsWhenMessagesAlreadyFit(t *testing.T) {
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "tiny", ContextWindow: 400, Tools: true}) // budget 400*0.8 = 320 tokens
+	store, _ := jsonl.New(t.TempDir())
+	a := New(store, &usageLLM{text: "ok"}, builtin.Default(), bus.New(), nil, Config{
+		Permission: "allow", Models: reg, CompactRatio: 0.8,
+	})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "tiny"}})
+	// Ten small fact events — enough to be foldable (> keepRecentEvents+1) — reconstructed into
+	// small messages that fit the budget, plus a huge system prompt that does not. The overage is
+	// entirely the prompt; folding the messages cannot help, so no compaction event may appear.
+	for i := 0; i < 10; i++ {
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: fmt.Sprintf("m%d", i), Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: "short"}})
+		a.appendFact(context.Background(), sid, event.TypePartAppended, event.Actor{}, d)
+	}
+	evs, _ := store.Read(context.Background(), sid, 0)
+	msgs := reconstruct(evs)
+	hugeSys := strings.Repeat("x", 4000) // ~1000 tokens, over the 320 budget on its own
+	sess := a.sessionInfo(context.Background(), sid)
+	if a.maybeCompact(context.Background(), sess, a.agentFor(sess), event.Actor{}, evs, msgs, hugeSys) {
+		t.Error("folded when the messages already fit — the overage was the system prompt, which a fold cannot shrink")
 	}
 }
 

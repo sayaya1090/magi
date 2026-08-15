@@ -1354,7 +1354,7 @@ func run() int {
 	}
 
 	// One-shot headless run: stream fact events to stdout, errors to stderr.
-	return runHeadless(ctx, a, sid, promptText, *output == "json", os.Stdout, os.Stderr)
+	return runHeadless(ctx, a, sid, promptText, *output == "json", *workflow, os.Stdout, os.Stderr)
 }
 
 // A project may tighten the guardrails and may not loosen them.
@@ -1724,7 +1724,7 @@ type headlessApp interface {
 //	    provider failure); the code and message are printed to stderr
 //	    as "error[<code>]: <message>".
 //	2 — magi itself could not run the prompt (subscribe/submit failure).
-func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, promptText string, jsonOut bool, out, errw io.Writer) int {
+func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, promptText string, jsonOut, workflow bool, out, errw io.Writer) int {
 	sub, cancel, err := a.Subscribe(ctx, sid, 0)
 	if err != nil {
 		fmt.Fprintln(errw, "magi: subscribe:", err)
@@ -1771,8 +1771,17 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 		} else {
 			renderText(out, errw, e)
 		}
-		if e.Type == event.TypeTurnFinished {
+		// In workflow mode each of the five phases appends its own turn.finished, so breaking on
+		// the first would stop after LOCALIZE with the task untouched. The whole pipeline emits one
+		// terminal marker (workflow.phase phase="workflow" status="done"); wait for that instead.
+		if e.Type == event.TypeTurnFinished && !workflow {
 			break
+		}
+		if workflow && e.Type == event.TypeWorkflowPhase {
+			var d event.WorkflowPhaseData
+			if json.Unmarshal(e.Data, &d) == nil && d.Phase == "workflow" && d.Status == "done" {
+				break
+			}
 		}
 		if e.Type == event.TypeError {
 			exit = 1

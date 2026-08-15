@@ -91,11 +91,19 @@ func (a *App) runPreToolHooks(ctx context.Context, workdir, tool, path string) s
 // runPostToolHooks runs the built-in harness action (auto-format on edit) plus
 // configured PostToolUse hooks, returning combined feedback (empty if clean).
 func (a *App) runPostToolHooks(ctx context.Context, workdir, tool, path string) string {
-	// Built-in harness: auto-format Go files on save.
-	if a.cfg.Harness && fileModifiers[tool] && filepath.Ext(path) == ".go" && a.plat != nil {
-		_, _ = a.plat.Exec(ctx, port.Cmd{Path: "gofmt", Args: []string{"-w", path}, Dir: workdir})
-	}
 	var fb []string
+	// Built-in harness: auto-format Go files on save — and SAY SO when it changed the bytes.
+	// gofmt rewrites indentation silently, so a model that wrote four-space indent and then tried
+	// an exact-string edit against what it wrote got "old string not present" and lost a step. A
+	// `gofmt -l` first tells us whether the file will change; if so, the note points the model at
+	// re-reading before it edits.
+	if a.cfg.Harness && fileModifiers[tool] && filepath.Ext(path) == ".go" && a.plat != nil {
+		listed, _ := a.plat.Exec(ctx, port.Cmd{Path: "gofmt", Args: []string{"-l", path}, Dir: workdir})
+		_, _ = a.plat.Exec(ctx, port.Cmd{Path: "gofmt", Args: []string{"-w", path}, Dir: workdir})
+		if strings.TrimSpace(string(listed.Stdout)) != "" {
+			fb = append(fb, "[harness] gofmt reformatted "+path+" — its whitespace now differs from what you wrote; read it again before an exact-match edit.")
+		}
+	}
 	for _, h := range a.cfg.Hooks {
 		if !h.matches("PostToolUse", tool) {
 			continue

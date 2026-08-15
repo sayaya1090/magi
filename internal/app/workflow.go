@@ -68,6 +68,12 @@ func codingPhases() (localize, implement, verify, review, summarize wfPhase) {
 
 // runWorkflow executes the deterministic coding pipeline on a session.
 func (a *App) runWorkflow(ctx context.Context, s session.Session) error {
+	// One terminal marker for the whole pipeline. Each phase runs its own turn and appends its own
+	// turn.finished, so a headless runner that stopped at the first would exit after LOCALIZE with
+	// code 0 and the task untouched. This fires once, whatever exit the pipeline takes, and the
+	// headless runner keys off it in workflow mode. Deferred so a phase error or a cancel still
+	// releases the runner instead of hanging it.
+	defer a.emitPhase(s.ID, workflowDonePhase, "done", "")
 	localize, implement, verify, review, summarize := codingPhases()
 	loops := a.cfg.WorkflowMaxLoops
 	if loops <= 0 {
@@ -267,6 +273,10 @@ func (a *App) injectWorkflow(ctx context.Context, sid session.SessionID, text st
 }
 
 // emitPhase publishes a (transient) workflow-phase event for observers.
+// workflowDonePhase is the Phase value on the single event that marks the whole pipeline finished,
+// as distinct from any one phase's own turn.finished. The headless runner breaks on it.
+const workflowDonePhase = "workflow"
+
 func (a *App) emitPhase(sid session.SessionID, phase, status, detail string) {
 	d, _ := json.Marshal(event.WorkflowPhaseData{Phase: phase, Status: status, Detail: detail})
 	a.publishTransient(sid, event.TypeWorkflowPhase, event.Actor{Kind: event.ActorSystem, ID: "workflow"}, d)

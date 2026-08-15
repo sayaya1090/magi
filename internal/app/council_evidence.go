@@ -35,6 +35,13 @@ func evidenceLine(b toolCallBrief, status, result string) string {
 	if req := strings.TrimSpace(clipLine(b.args, evidenceArgsCap)); req != "" {
 		head += " " + req
 	}
+	// The read tool prefixes every line with "N⇥" (a line-number gutter), and the flattener turns
+	// that into "1\t1 ⏎ 2\t2 ⏎ …" — which three members read as "the file has duplicated numbers"
+	// and rejected a byte-perfect file over. Say once that the leading number is the gutter, not
+	// the content.
+	if b.name == "read" {
+		head += " [each line is prefixed 'N⇥' by the read tool — that leading number is a line number, not file content]"
+	}
 	return head + ": " + clipLine(result, councilActionCap)
 }
 

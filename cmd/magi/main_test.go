@@ -93,7 +93,7 @@ func TestRunHeadlessReasoningHeartbeat(t *testing.T) {
 		{Type: event.TypeTurnFinished},
 	}}
 	var out, errw bytes.Buffer
-	if exit := runHeadless(context.Background(), f, "sid", "p", false, &out, &errw); exit != 0 {
+	if exit := runHeadless(context.Background(), f, "sid", "p", false, false, &out, &errw); exit != 0 {
 		t.Fatalf("exit = %d, want 0", exit)
 	}
 	if beats := strings.Count(errw.String(), "⋯ thinking"); beats != 1 {
@@ -108,6 +108,34 @@ func TestRunHeadlessReasoningHeartbeat(t *testing.T) {
 	}
 }
 
+// In workflow mode each phase appends its own turn.finished, so runHeadless must NOT stop at the
+// first — it waits for the single terminal marker (workflow.phase phase="workflow" status="done")
+// that runWorkflow emits once for the whole pipeline. Without this it exited after LOCALIZE with the
+// task untouched.
+func TestRunHeadlessWorkflowWaitsForTheWholePipeline(t *testing.T) {
+	phase := func(name, status string) event.Event {
+		b, _ := json.Marshal(event.WorkflowPhaseData{Phase: name, Status: status})
+		return event.Event{Type: event.TypeWorkflowPhase, Data: b}
+	}
+	f := &fakeHeadless{events: []event.Event{
+		phase("localize", "start"),
+		{Type: event.TypeTurnFinished}, // LOCALIZE's own turn — must be ignored
+		phase("implement", "start"),
+		{Type: event.TypeTurnFinished},
+		partEvent(t, session.Part{Kind: session.PartText, Text: "SUMMARY-MARKER"}),
+		{Type: event.TypeTurnFinished},
+		phase("workflow", "done"), // the terminal marker — break here
+	}}
+	var out, errw bytes.Buffer
+	if exit := runHeadless(context.Background(), f, "sid", "p", false, true, &out, &errw); exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	// It ran to the end of the stream, not stopping at the first turn.finished.
+	if !strings.Contains(out.String(), "SUMMARY-MARKER") {
+		t.Errorf("workflow stopped before the final phase; stdout:\n%s", out.String())
+	}
+}
+
 // runHeadless in text mode renders each part to out, submits the prompt, and exits
 // 0 at TurnFinished.
 func TestRunHeadlessText(t *testing.T) {
@@ -118,7 +146,7 @@ func TestRunHeadlessText(t *testing.T) {
 		{Type: event.TypeTurnFinished},
 	}}
 	var out, errw bytes.Buffer
-	exit := runHeadless(context.Background(), f, "sid", "do a thing", false, &out, &errw)
+	exit := runHeadless(context.Background(), f, "sid", "do a thing", false, false, &out, &errw)
 	if exit != 0 {
 		t.Errorf("exit = %d, want 0", exit)
 	}
@@ -143,7 +171,7 @@ func TestRunHeadlessJSON(t *testing.T) {
 		{Type: event.TypeTurnFinished},
 	}}
 	var out, errw bytes.Buffer
-	if exit := runHeadless(context.Background(), f, "sid", "p", true, &out, &errw); exit != 0 {
+	if exit := runHeadless(context.Background(), f, "sid", "p", true, false, &out, &errw); exit != 0 {
 		t.Fatalf("exit = %d, want 0", exit)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -160,7 +188,7 @@ func TestRunHeadlessJSON(t *testing.T) {
 func TestRunHeadlessError(t *testing.T) {
 	f := &fakeHeadless{events: []event.Event{errEvent(t, "boom")}}
 	var out, errw bytes.Buffer
-	if exit := runHeadless(context.Background(), f, "sid", "p", false, &out, &errw); exit != 1 {
+	if exit := runHeadless(context.Background(), f, "sid", "p", false, false, &out, &errw); exit != 1 {
 		t.Errorf("exit = %d, want 1 on error event", exit)
 	}
 	if !strings.Contains(errw.String(), "boom") {
@@ -172,14 +200,14 @@ func TestRunHeadlessError(t *testing.T) {
 // before streaming — the documented headless contract.
 func TestRunHeadlessSetupErrors(t *testing.T) {
 	var out, errw bytes.Buffer
-	if exit := runHeadless(context.Background(), &fakeHeadless{subErr: errors.New("nosub")}, "s", "p", false, &out, &errw); exit != 2 {
+	if exit := runHeadless(context.Background(), &fakeHeadless{subErr: errors.New("nosub")}, "s", "p", false, false, &out, &errw); exit != 2 {
 		t.Errorf("subscribe error exit = %d, want 2", exit)
 	}
 	if !strings.Contains(errw.String(), "subscribe") {
 		t.Errorf("stderr missing subscribe error: %q", errw.String())
 	}
 	errw.Reset()
-	if exit := runHeadless(context.Background(), &fakeHeadless{submitErr: errors.New("nosubmit")}, "s", "p", false, &out, &errw); exit != 2 {
+	if exit := runHeadless(context.Background(), &fakeHeadless{submitErr: errors.New("nosubmit")}, "s", "p", false, false, &out, &errw); exit != 2 {
 		t.Errorf("submit error exit = %d, want 2", exit)
 	}
 	if !strings.Contains(errw.String(), "submit") {
@@ -433,7 +461,7 @@ func TestRunHeadlessErrorCodeOnStderr(t *testing.T) {
 	b, _ := json.Marshal(event.ErrorData{Message: "stopped: no real progress", Code: "stall_guard"})
 	f := &fakeHeadless{events: []event.Event{{Type: event.TypeError, Data: b}}}
 	var out, errw bytes.Buffer
-	if exit := runHeadless(context.Background(), f, "s", "p", false, &out, &errw); exit != 1 {
+	if exit := runHeadless(context.Background(), f, "s", "p", false, false, &out, &errw); exit != 1 {
 		t.Fatalf("agent-level error exit = %d, want 1", exit)
 	}
 	if !strings.Contains(errw.String(), "error[stall_guard]: stopped: no real progress") {

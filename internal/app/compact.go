@@ -37,6 +37,16 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	if tokens <= budget {
 		return false
 	}
+	// Folding can only shrink the messages, never the system prompt. When the messages ALONE
+	// already fit the budget, the overage is the system prompt (or the real-count lag) and no fold
+	// gets under it — without this guard the trigger fired every step, each paying a summarizer
+	// call that reclaimed nothing: 18 folds for 25 tool calls was measured, messages sitting at
+	// ~800 tokens against a 6000 budget while the prompt alone was ~6000. The backend's own limit
+	// stays the authority there (the reactive fold on a provider rejection still runs); this stops
+	// the estimate from spinning. Messages that are themselves over budget still fold.
+	if estimateTokens("", msgs) <= budget {
+		return false
+	}
 	return a.compactNow(ctx, s, agent, actor, evs)
 }
 
