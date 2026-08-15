@@ -16,9 +16,11 @@ import (
 // stalled so the caller can retry. This is the cobol-modernization 45-minute hang in miniature.
 func TestConsumeStreamAbortsSilentStream(t *testing.T) {
 	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
-	old := streamStallTimeout
-	streamStallTimeout = 40 * time.Millisecond
-	defer func() { streamStallTimeout = old }()
+	// A stream with NO output is bounded by the first-token wait now, so shrink that one; keep the
+	// inter-token bound small too so neither strands the test.
+	oldS, oldF := streamStallTimeout, firstTokenTimeout
+	streamStallTimeout, firstTokenTimeout = 40*time.Millisecond, 40*time.Millisecond
+	defer func() { streamStallTimeout, firstTokenTimeout = oldS, oldF }()
 
 	stream := make(chan port.ProviderEvent) // never sends → perpetually silent
 	var cancelled atomic.Bool
@@ -39,6 +41,41 @@ func TestConsumeStreamAbortsSilentStream(t *testing.T) {
 	}
 	if elapsed > time.Second {
 		t.Errorf("stall abort took %s; it should fire around streamStallTimeout (40ms), not hang", elapsed)
+	}
+}
+
+// A stream that stays silent LONGER than the inter-token bound but shorter than the first-token
+// bound, then emits — the PREFILL case — must NOT be aborted or marked stalled. No first token yet is
+// "still prefilling", not a hang: a big prompt on a slow local backend legitimately takes minutes to
+// its first token. This is the Qwen3.8-on-an-M4-Pro turn the old single-bound watchdog killed.
+func TestConsumeStreamToleratesASlowFirstTokenPrefill(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
+	oldS, oldF := streamStallTimeout, firstTokenTimeout
+	streamStallTimeout = 30 * time.Millisecond // inter-token bound: short
+	firstTokenTimeout = 5 * time.Second        // first-token bound: generous
+	defer func() { streamStallTimeout, firstTokenTimeout = oldS, oldF }()
+
+	stream := make(chan port.ProviderEvent, 2)
+	go func() {
+		time.Sleep(120 * time.Millisecond) // silent for 4x the inter-token bound: a "prefill"
+		stream <- port.ProviderEvent{Type: port.ProviderText, Text: "hello"}
+		stream <- port.ProviderEvent{Type: port.ProviderFinish}
+		close(stream)
+	}()
+	var cancelled atomic.Bool
+	res, err := a.consumeStream(context.Background(), session.SessionID("s_prefill"), event.Actor{}, stream, "m",
+		func() { cancelled.Store(true) })
+	if err != nil {
+		t.Fatalf("a slow first token must not error: %v", err)
+	}
+	if res.stalled {
+		t.Error("a slow prefill (first token late) must NOT be marked stalled — it was alive, just prefilling")
+	}
+	if cancelled.Load() {
+		t.Error("the stream was cancelled during prefill — the first-token bound was not honoured")
+	}
+	if res.text != "hello" {
+		t.Errorf("the output after the slow first token was lost: %q", res.text)
 	}
 }
 

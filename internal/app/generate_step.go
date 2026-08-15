@@ -94,11 +94,11 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		// token), so re-generating is safe. noteStep charges the wasted attempt so a permanently
 		// silent backend still trips the step budget instead of looping.
 		if res.stalled && sAttempt < maxStreamStallRetries && ctx.Err() == nil {
-			a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("no response for %s — retrying the request", streamStallTimeout))
+			a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("no response for %s — retrying the request", firstTokenBound()))
 			continue
 		}
 		if res.stalled {
-			serr := fmt.Errorf("llm: no response after %d stalled attempt(s) (backend silent ~%s each)", sAttempt+1, streamStallTimeout)
+			serr := fmt.Errorf("llm: no response after %d stalled attempt(s) (backend silent ~%s each)", sAttempt+1, firstTokenBound())
 			a.emitError(ctx, sid, agentActor, serr.Error())
 			return stepResponse{}, serr
 		}

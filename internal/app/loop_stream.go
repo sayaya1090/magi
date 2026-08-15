@@ -70,14 +70,14 @@ const cutByLostStreamNote = "Your last reply did not end because you finished it
 	"sentence, and any tool call, that was still being written is missing. Nothing about the task " +
 	"changed and nothing you did was lost. Continue from where it stopped rather than starting over."
 
-// streamStallTimeout bounds how long a response stream may stay SILENT — no event of any kind — before
-// consumeStream aborts it. A hung or wedged backend accepts the request, returns 200, then streams
-// nothing; without this the read blocks on the turn's ctx, which for a main generate is the whole
-// task wall clock (a 45-minute silent hang observed on a stuck local backend, cobol-modernization).
-// It is INACTIVITY-based (reset by every event), so a slow-but-alive model that streams tokens or
-// reasoning is never tripped — only a truly dead stream is. A stall BEFORE the first token is
-// retryable (streamStep.stalled); a freeze mid-generation just ends the stream with the partial
-// output. Var, not const, so tests can shrink it. MAGI_STREAM_STALL overrides (0 disables).
+// streamStallTimeout bounds INTER-TOKEN silence — how long a stream that has ALREADY produced output
+// may then stay silent before consumeStream aborts it. A hung or wedged backend accepts the request,
+// returns 200, then streams nothing; without this the read blocks on the turn's ctx, which for a main
+// generate is the whole task wall clock (a 45-minute silent hang observed on a stuck local backend,
+// cobol-modernization). It is INACTIVITY-based (reset by every event). A freeze mid-generation ends
+// the stream with the partial output; the wait BEFORE the first token is a different silence with its
+// own, longer bound (firstTokenTimeout) — see there. Var, not const, so tests can shrink it.
+// MAGI_STREAM_STALL overrides (0 disables).
 var streamStallTimeout = func() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("MAGI_STREAM_STALL")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -86,6 +86,35 @@ var streamStallTimeout = func() time.Duration {
 	}
 	return 120 * time.Second
 }()
+
+// firstTokenTimeout bounds silence BEFORE the first output token — the wait that on a big prompt is
+// dominated by PREFILL and can legitimately run to minutes on a slow local backend (a 27B model
+// prefilling magi's ~20k-token context on a laptop was measured at ~3 minutes). It is kept separate
+// from streamStallTimeout because the two silences mean different things: no first token yet is "still
+// prefilling", a gap BETWEEN tokens is a mid-generation freeze. Using the 120s inter-token bound for
+// the first-token wait falsely killed every turn on a slow strong local model — the backend was alive
+// and prefilling, just not emitting yet (observed live: Qwen3.8-27B on an M4 Pro, each turn erroring
+// "no response after 3 stalled attempts"). A stall here is still retryable and still bounds a truly
+// dead backend, only with more headroom. Var, not const, so tests can shrink it. MAGI_FIRST_TOKEN
+// overrides (0 disables → falls back to streamStallTimeout).
+var firstTokenTimeout = func() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("MAGI_FIRST_TOKEN")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 300 * time.Second
+}()
+
+// firstTokenBound is the effective silence bound while a stream has produced NO output yet: the
+// first-token wait when configured, else the inter-token bound (so disabling firstTokenTimeout keeps
+// the old single-bound behaviour).
+func firstTokenBound() time.Duration {
+	if firstTokenTimeout > 0 {
+		return firstTokenTimeout
+	}
+	return streamStallTimeout
+}
 
 // maxStreamStallRetries bounds how many times a main generate re-issues a request that stalled before
 // its first token, before surfacing the hang as an error rather than retrying forever.
@@ -171,10 +200,14 @@ func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentAct
 		finished bool
 		finishAt time.Time
 	)
-	if streamStallTimeout > 0 || streamDiag {
+	if streamStallTimeout > 0 || firstTokenTimeout > 0 || streamDiag {
 		tick := 15 * time.Second
-		if streamStallTimeout > 0 && streamStallTimeout < tick {
-			tick = streamStallTimeout
+		// The tick must be no coarser than the smallest active bound, or a test that shrinks either
+		// timeout to milliseconds would never wake in time to fire it.
+		for _, b := range []time.Duration{streamStallTimeout, firstTokenTimeout} {
+			if b > 0 && b < tick {
+				tick = b
+			}
 		}
 		t := time.NewTicker(tick)
 		defer t.Stop()
@@ -195,11 +228,18 @@ loop:
 			a.noteGenToken(sid)
 		case now := <-idleC:
 			gap := now.Sub(last)
-			// Silent past the bound → abort so a wedged backend can't hold the turn to the wall clock.
-			// No output yet ⇒ mark it retryable (the caller re-issues the request); a mid-generation
-			// freeze just ends the stream with whatever partial output already arrived.
-			if streamStallTimeout > 0 && gap >= streamStallTimeout {
-				if text.Len()+reasoning.Len() == 0 && len(res.toolCalls) == 0 {
+			// Which silence is this? No output yet ⇒ still waiting for the first token (prefill), bound
+			// by firstTokenBound; output already flowing ⇒ a mid-generation freeze, bound by
+			// streamStallTimeout. Both abort so a wedged backend can't hold the turn to the wall clock,
+			// but the first-token wait gets the longer bound so a slow prefill is not mistaken for a
+			// hang. Only the no-output case is retryable (re-issuing after output would double-generate).
+			noOutput := text.Len()+reasoning.Len() == 0 && len(res.toolCalls) == 0
+			bound := streamStallTimeout
+			if noOutput {
+				bound = firstTokenBound()
+			}
+			if bound > 0 && gap >= bound {
+				if noOutput {
 					res.stalled = true
 				}
 				if cancel != nil {
