@@ -1,4 +1,6 @@
-# magi — Detailed design (for the M1 start)
+# magi — Detailed design (historical)
+
+[English](DESIGN.md) · [한국어](DESIGN.ko.md) · [↑ Docs](README.md)
 
 > ⚠️ **This document is the design intent *as of* the M1 start.** The implementation grew a great
 > deal after it, and much of that growth was later torn back out — the procedural planner, delegation

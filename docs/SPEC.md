@@ -1,6 +1,6 @@
-# magi — feature specification (with test cases)
+# magi — Feature specification (historical)
 
-> Korean edition: [`SPEC.ko.md`](SPEC.ko.md).
+[English](SPEC.md) · [한국어](SPEC.ko.md) · [↑ Docs](README.md)
 
 > ⚠️ **This is a history document.** Much of what it describes — the procedural planner, delegation
 > to subagents and curated workers, authored acceptance checks and step gates, the council that

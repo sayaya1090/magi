@@ -1,6 +1,8 @@
-# magi system diagrams
+# magi — System diagrams
 
-> Korean edition: [`DIAGRAMS.ko.md`](DIAGRAMS.ko.md).
+[English](DIAGRAMS.md) · [한국어](DIAGRAMS.ko.md) · [↑ Docs](README.md)
+
+> **Current reference.** The visual companion to ARCHITECTURE — one axis, from the process boundary down to the class diagrams. All mermaid.
 
 The visual summary of [ARCHITECTURE.md](ARCHITECTURE.md). **One axis, from the top level (L0) down
 to the class diagrams (L5–L9):**

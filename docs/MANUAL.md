@@ -1,6 +1,8 @@
-# magi User Manual
+# magi — User Manual
 
-[English](MANUAL.md) · [한국어](MANUAL.ko.md)
+[English](MANUAL.md) · [한국어](MANUAL.ko.md) · [↑ Docs](README.md)
+
+> **User guide.** Install, run, configure; the TUI and the web console, end to end.
 
 An extensible terminal AI coding agent client. Provider-agnostic (OpenAI-compatible),
 multi-agent, with Lua plugins, MCP, and shared memory.

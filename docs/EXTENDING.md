@@ -1,6 +1,8 @@
-# magi extension guide — MCP servers & shared experience (RAG)
+# magi — Extension guide (MCP & shared experience)
 
-> Korean edition: [`EXTENDING.ko.md`](EXTENDING.ko.md).
+[English](EXTENDING.md) · [한국어](EXTENDING.ko.md) · [↑ Docs](README.md)
+
+> **Current reference.** Attaching external tools (MCP) and team-shared memory/skills (the experience store) to magi.
 
 How to attach **external tools (MCP)** and **team-shared memory/skills (the experience store, D13)**
 to magi, step by step. For the concepts read [`ARCHITECTURE.md`](ARCHITECTURE.md) §11 (Extension

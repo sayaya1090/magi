@@ -1,6 +1,8 @@
-# magi 사용자 매뉴얼
+# magi — 사용자 매뉴얼
 
-[English](MANUAL.md) · [한국어](MANUAL.ko.md)
+[English](MANUAL.md) · [한국어](MANUAL.ko.md) · [↑ Docs](README.ko.md)
+
+> **사용 안내서.** 설치·실행·설정, TUI와 웹 콘솔을 처음부터 끝까지.
 
 확장형 터미널 AI 코딩 에이전트 클라이언트. 공급자 무관(OpenAI 호환), 멀티에이전트,
 Lua 플러그인, MCP, 공유 메모리를 지원한다.

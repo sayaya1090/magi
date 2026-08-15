@@ -1,4 +1,8 @@
-# magi — Architecture (current)
+# magi — Architecture
+
+[English](ARCHITECTURE.md) · [한국어](ARCHITECTURE.ko.md) · [↑ Docs](README.md)
+
+> **Current reference.** The as-built system, and the one that wins when the design documents disagree with it.
 
 This is the **as-built** reference for developing on magi. `DESIGN.md` and `SPEC.md` are the
 original design intent (kept for rationale, decisions D1–D13); where they disagree with this file,

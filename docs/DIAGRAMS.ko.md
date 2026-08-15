@@ -1,6 +1,8 @@
-# magi 시스템 구조도
+# magi — 시스템 구조도
 
-> 영문판: [`DIAGRAMS.md`](DIAGRAMS.md).
+[English](DIAGRAMS.md) · [한국어](DIAGRAMS.ko.md) · [↑ Docs](README.ko.md)
+
+> **현행 참조.** ARCHITECTURE의 시각적 짝 — 프로세스 경계에서 클래스 다이어그램까지 한 축. 전부 mermaid.
 
 [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md)의 시각 요약. **탑레벨(L0)에서 클래스 다이어그램(L5–L9)까지**
 한 축으로 내려간다:

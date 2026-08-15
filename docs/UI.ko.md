@@ -1,7 +1,11 @@
-# magi의 화면들 — 웹 콘솔과 TUI
+# magi — 화면 (웹 콘솔 & TUI)
+
+[English](UI.md) · [한국어](UI.ko.md) · [↑ Docs](README.ko.md)
+
+> **현행 참조.** 두 표면 — 각 화면의 구성, 지키는 디자인 규칙, 그리고 왜인가.
 
 두 표면의 구성·디자인 규칙·판단 근거. §1–5가 **웹 콘솔**(`cmd/magi-web`), §6이 **터미널 UI**
-(`internal/adapter/tui`). 영문: [`UI.md`](UI.md). 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
+(`internal/adapter/tui`). 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
 (§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11.
 
 > **직접 보기:** <https://sayaya1090.github.io/magi/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.

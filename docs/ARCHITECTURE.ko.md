@@ -1,4 +1,8 @@
-# magi — 아키텍처 (현행)
+# magi — 아키텍처
+
+[English](ARCHITECTURE.md) · [한국어](ARCHITECTURE.ko.md) · [↑ Docs](README.ko.md)
+
+> **현행 참조.** 지어진 그대로의 시스템. 설계 문서와 어긋나면 이 문서가 이긴다.
 
 이 문서는 magi를 개발하기 위한 **as-built(실제로 지어진 대로)** 레퍼런스다. `DESIGN.md`와
 `SPEC.md`는 최초 설계 의도이며(근거와 결정 D1–D13을 남겨두기 위해 보존),

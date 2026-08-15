@@ -1,7 +1,11 @@
-# magi's screens — the web console and the TUI
+# magi — Screens (web console & TUI)
+
+[English](UI.md) · [한국어](UI.ko.md) · [↑ Docs](README.md)
+
+> **Current reference.** The two surfaces — what is on each screen, the design rules they keep, and why.
 
 Both surfaces: what is on them, the design rules, and why. §1–5 are the **web console**
-(`cmd/magi-web`); §6 is the **terminal UI** (`internal/adapter/tui`). Korean: [`UI.ko.md`](UI.ko.md).
+(`cmd/magi-web`); §6 is the **terminal UI** (`internal/adapter/tui`).
 How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
 

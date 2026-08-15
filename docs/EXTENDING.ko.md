@@ -1,6 +1,8 @@
-# magi 확장 가이드 — MCP 서버 & 공유 경험(RAG)
+# magi — 확장 가이드 (MCP & 공유 경험)
 
-> 영문판: [`EXTENDING.md`](EXTENDING.md).
+[English](EXTENDING.md) · [한국어](EXTENDING.ko.md) · [↑ Docs](README.ko.md)
+
+> **현행 참조.** 외부 툴(MCP)과 팀 공유 메모리/스킬(experience store)을 magi에 붙이기.
 
 magi에 **외부 툴(MCP)** 과 **팀 공유 메모리/스킬(experience store, D13)** 을 붙이는 단계별
 방법. 개념 개요는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11(확장 지점)·§7, 전체 사용법은
