@@ -288,6 +288,15 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir st
 				"this project writes them:\n" + strings.TrimSpace(string(res.Stdout))
 		}
 	}
+	// The person's own house rules, if they wrote any ([templates] commit). Additive to the base
+	// prompt and placed LAST so they win where they conflict — this is where "layer the commits",
+	// a required trailer, or a banned word lives, and it is a decision the operator made rather than
+	// one baked in here.
+	rules := ""
+	if r := strings.TrimSpace(a.cfg.Templates.Commit); r != "" {
+		rules = "\n\nThis project's own rules for commit messages, which take precedence over the " +
+			"instructions above where they differ:\n" + r
+	}
 	s := a.sessionInfo(ctx, sid)
 	agent := a.agentFor(s)
 	req := port.ChatRequest{
@@ -296,7 +305,7 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir st
 			"nothing else: no preamble, no code fences, no quotation marks. A subject line in the " +
 			"imperative under 72 characters, then — only if the change needs it — a blank line and " +
 			"a short body saying WHY. Describe only what the diff shows: no issue numbers, no " +
-			"names, nothing you cannot see here." + house,
+			"names, nothing you cannot see here." + house + rules,
 		Messages: []session.Message{{
 			Role:  session.RoleUser,
 			Parts: []session.Part{{Kind: session.PartText, Text: diff}},
@@ -421,6 +430,14 @@ func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir string
 	}
 	b.WriteString("\nTHE WHOLE DIFFERENCE AGAINST " + st.Base + "\n" + diff)
 
+	// House rules for pull requests ([templates] pr), if any — additive and last so they win on a
+	// conflict. A required section, a checklist, a template the team fills in: the operator's, not
+	// baked in here.
+	rules := ""
+	if r := strings.TrimSpace(a.cfg.Templates.PR); r != "" {
+		rules = "\n\nThis project's own rules for pull requests, which take precedence over the " +
+			"instructions above where they differ:\n" + r
+	}
 	s := a.sessionInfo(ctx, sid)
 	agent := a.agentFor(s)
 	req := port.ChatRequest{
@@ -430,7 +447,7 @@ func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir string
 			"under 72 characters. Then a blank line and the body: what changed and why, what a " +
 			"reviewer should look at first, and anything you can see is still open. Describe only " +
 			"what the commits and the diff show — no issue numbers, no names, nothing you cannot " +
-			"see here.",
+			"see here." + rules,
 		Messages: []session.Message{{
 			Role:  session.RoleUser,
 			Parts: []session.Part{{Kind: session.PartText, Text: b.String()}},
