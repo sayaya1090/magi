@@ -107,19 +107,54 @@ func TestAChildRunsInItsOwnSessionAndReturnsItsText(t *testing.T) {
 	}
 }
 
-// The child inherits the parent's scratch pointer. Without it scratchFor returns nil for the child
-// and every tool it runs is handed empty log/tmp paths — a failure that shows up only inside tools.
-func TestAChildInheritsTheParentsScratch(t *testing.T) {
-	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
-	sc := newTurnScratch()
-	a.setScratch(parent.ID, sc)
-
+// A finished child leaves nothing behind in the live maps. Its state entry (up to eight maps) and
+// its per-session usage line are evicted when the run ends — a daemon that spawns children
+// continuously must not grow one dead entry per spawn. The grand total keeps the child's spend,
+// because that is the bill. Reverting the delete in spawn's finish defer fails this.
+func TestAFinishedChildIsEvictedFromState(t *testing.T) {
+	a, parent, _ := spawnApp(t, &usageLLM{text: "done", in: 10, out: 5})
+	before := a.UsageTotal()
 	res, err := a.spawnChild(context.Background(), parent, event.Actor{Kind: event.ActorAgent, ID: "coder"},
 		port.SpawnSpec{Prompt: "do it"}, nil)
 	if err != nil {
 		t.Fatalf("spawnChild: %v", err)
 	}
-	if got := a.scratchFor(session.SessionID(res.SessionID)); got != sc {
+	child := session.SessionID(res.SessionID)
+
+	a.mu.Lock()
+	_, hasState := a.stateIf(child)
+	a.mu.Unlock()
+	if hasState {
+		t.Error("the child's state entry outlived its run — states grows one entry per spawn")
+	}
+	if u := a.UsageFor(child); u.In != 0 || u.Out != 0 {
+		t.Errorf("the child's per-session usage line outlived its run: %+v", u)
+	}
+	// The bill still has what the child spent.
+	if after := a.UsageTotal(); after.In <= before.In {
+		t.Errorf("the grand total lost the child's spend: before=%+v after=%+v", before, after)
+	}
+}
+
+// The child inherits the parent's scratch pointer. Without it scratchFor returns nil for the child
+// and every tool it runs is handed empty log/tmp paths — a failure that shows up only inside tools.
+// Captured through the Review callback, which runs mid-run while the child's state is still live —
+// its tools read the scratch through exactly that window; the entry is evicted once the run ends.
+func TestAChildInheritsTheParentsScratch(t *testing.T) {
+	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
+	sc := newTurnScratch()
+	a.setScratch(parent.ID, sc)
+
+	var got *turnScratch
+	_, err := a.spawnChild(context.Background(), parent, event.Actor{Kind: event.ActorAgent, ID: "coder"},
+		port.SpawnSpec{Prompt: "do it", Review: func(round int, text string, spent int, child string) (string, error) {
+			got = a.scratchFor(session.SessionID(child))
+			return "", nil // accept, so the run ends after this one round
+		}}, nil)
+	if err != nil {
+		t.Fatalf("spawnChild: %v", err)
+	}
+	if got != sc {
 		t.Errorf("the child got scratch %v, want the parent's %v", got, sc)
 	}
 }

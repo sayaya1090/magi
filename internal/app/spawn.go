@@ -138,7 +138,15 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
-		a.stateLocked(child).cancel = nil
+		// Evict the child's whole state entry, not just its cancel. A child is spawned for one bounded
+		// task and is never resumed (restore.go deletes its journal for the same reason), and the
+		// parent takes the child's result through the SpawnResult return — its text, its step count
+		// off the store — not through this map, so nothing reads states[child] after the run ends.
+		// Left in, every spawned child leaked a sessionState (with up to eight maps) for the process
+		// lifetime; a daemon that spawns subagents continuously grew without bound. A stray later
+		// access simply recreates an empty entry through stateLocked, so the delete cannot panic.
+		delete(a.states, child)
+		a.usage.forget(child)
 		a.mu.Unlock()
 		a.wg.Done()
 	}()

@@ -174,6 +174,17 @@ func (l *usageLedger) forSession(sid session.SessionID) event.Usage {
 	return l.bySession[sid]
 }
 
+// forget drops a session's per-session line. The grand total is unaffected — record() already added
+// this session's spend to it unconditionally, and the total is the bill. Called when a spawned child
+// ends: its per-session cost was reported while it ran, and nothing reads a finished child's line
+// (UsageFor serves the session being run or the one a human is attached to), so keeping it only grew
+// bySession by one dead entry per child for the process lifetime.
+func (l *usageLedger) forget(sid session.SessionID) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.bySession, sid)
+}
+
 // UsageTotal reports every token this process has spent, on any session or none. This is the
 // billing number: it counts each request's prompt, not the last one's.
 func (a *App) UsageTotal() event.Usage { return a.usage.grandTotal() }
