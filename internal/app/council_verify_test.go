@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -75,5 +76,24 @@ func TestVerifyRefusesAGoTestMaskingAFailure(t *testing.T) {
 	}
 	if !strings.Contains(evidence, "FAILED") {
 		t.Errorf("the evidence does not name the masked failure:\n%s", evidence)
+	}
+}
+
+// A `go test` that exits 0 but whose -json re-run magi could NOT run (no output, an error) is not
+// verified — exit 0 is unconfirmed, not a pass. Reverting the ran<0 guard false-accepts it.
+func TestVerifyDoesNotAcceptWhenTheReRunCannotRun(t *testing.T) {
+	// call 0 = verify command exits 0; call 1 = the -json re-run errors with no output → ran==-1.
+	plat := &scriptPlatform{codes: []int{0, 0}, errs: []error{nil, errors.New("go: cannot find main module")}}
+	a, _, wd := newWorkflowApp(t, nil, plat, Config{Permission: "allow", CouncilVerify: "go test ./..."})
+
+	evidence, ok, ran := a.councilVerify(context.Background(), wd)
+	if ok {
+		t.Fatal("a go test whose -json re-run could not run was accepted as verified")
+	}
+	if !ran {
+		t.Error("ran should be true — the verify command itself did run")
+	}
+	if !strings.Contains(evidence, "could not re-run") {
+		t.Errorf("the evidence does not explain the unconfirmed pass:\n%s", evidence)
 	}
 }

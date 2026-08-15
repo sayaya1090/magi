@@ -145,7 +145,10 @@ type scriptPlatform struct {
 	// outs, when an entry is set for a call, is that call's stdout — for the tests that are about
 	// WHAT a command printed (e.g. the -json test events the verify gate re-reads). Empty entries
 	// and calls past the slice fall back to the default "verify output".
-	outs  []string
+	outs []string
+	// errs, when an entry is set for a call, makes that call return an error with empty stdout — for
+	// the tests about a command that could not be RUN at all (vs one that ran and printed).
+	errs  []error
 	calls int
 	// onExec, when set, is handed every command this platform is asked to run — for the tests
 	// that are about WHAT was started rather than what it printed.
@@ -163,11 +166,15 @@ func (p *scriptPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult,
 	if p.calls < len(p.outs) && p.outs[p.calls] != "" {
 		out = p.outs[p.calls]
 	}
+	var err error
+	if p.calls < len(p.errs) && p.errs[p.calls] != nil {
+		err, out = p.errs[p.calls], ""
+	}
 	p.calls++
 	if p.onExec != nil {
 		p.onExec(c)
 	}
-	return port.ExecResult{Stdout: []byte(out), ExitCode: code}, nil
+	return port.ExecResult{Stdout: []byte(out), ExitCode: code}, err
 }
 func (p *scriptPlatform) ConfigDir() string           { return "" }
 func (p *scriptPlatform) DataDir() string             { return "" }

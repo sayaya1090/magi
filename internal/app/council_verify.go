@@ -45,6 +45,13 @@ func (a *App) councilVerify(ctx context.Context, workdir string) (evidence strin
 	// (catches 2 as failed>0). Either one refuses the finish, whatever the masked exit said.
 	if isGoTest(cmd) {
 		ran, failed := a.goTestsExecuted(ctx, workdir)
+		if ran < 0 {
+			// The command exited 0 but magi could not RE-RUN it under -json to confirm the tests
+			// actually ran and passed — so the exit-0 is unconfirmed, not verified. Not a failure
+			// (the -1 is "could not run the check"), but not an accepted pass either.
+			return head + "passed (exit 0), but magi could not re-run the suite under -json to confirm " +
+				"the tests ran and passed — the finish is not verified on this evidence.\n" + clipLine(out, 2000), false, true
+		}
 		if ran == 0 {
 			return head + "passed (exit 0) but executed NO tests — the suite is empty or has been " +
 				"disabled (e.g. a TestMain that skips everything). A pass that ran nothing does not " +
