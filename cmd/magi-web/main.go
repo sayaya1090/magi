@@ -644,6 +644,15 @@ func (s *server) target(r *http.Request) (daemon.Info, error) {
 		}
 		return daemon.Info{}, err
 	}
+	// The single seam every TARGETED route crosses to name its companion — so scope is enforced on
+	// the RESOLVED name here, not only on the raw `d` in mayDo. mayDo waved an EMPTY `d` through
+	// (withinScope treats "" as in-scope, which the console-level list routes legitimately need), but
+	// an empty `d` here resolves to the console's own `here` companion — so a caller scoped away from
+	// it could act on it by simply omitting `d`. The list routes never reach target(); they filter
+	// their own output via onlySeen. On a one-operator console seen() is always true.
+	if !s.seen(r, in.Name, "") {
+		return daemon.Info{}, fmt.Errorf("that companion is not one you may act on here")
+	}
 	return in, nil
 }
 
