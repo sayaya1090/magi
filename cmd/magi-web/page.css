@@ -1056,7 +1056,9 @@
     color:var(--magi-ref-primary);
   }
   .prefgroup:first-child { margin-top:0; padding-top:0; border-top:none; }
-  .prefgroup:empty { display:none; }   /* a group hidden by data-may leaves no floating divider */
+  /* Before the label JS runs, an unpopulated header is an empty bordered div; hide it so there is no
+     flash of a stray divider on load. (A group hidden by data-may is hidden by `hidden`, not by this.) */
+  .prefgroup:empty { display:none; }
   /* A row that belongs to the width where the rail is not drawn. The default is hidden and the
      narrow query puts it back, so the phone case is the exception that has to be stated — the
      other way round, a new width would inherit "show it" and quietly give the screen two doors. */

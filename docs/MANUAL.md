@@ -257,6 +257,10 @@ primary = "#B45309"
 [autocomplete]             # IDE-style helpers: thin, no-council model calls on a FAST routed profile,
                            # fired on a pause in typing. Each field is optional; a surface with no
                            # profile shows nothing rather than spending the main model on a keystroke.
+# enabled          = true       # (default on) master switch for all three helpers below
+# code             = true       # (default on) inline code completion (the web editor's on/off switch is
+                           #                per-browser; this is the daemon-side gate)
+# composer         = true       # (default on) composer suggestion, likewise
 # ambient          = true       # (default on) the file open in the web editor — with unsaved changes —
                            #                rides into the agent's context, so a question about it is
                            #                answered against the buffer, not stale disk.

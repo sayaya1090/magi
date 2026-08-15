@@ -7736,6 +7736,8 @@ async function openDiff(a, path, which) {
 // which is how "update" gets written twice a day.
 const PR = 'pr:';
 let prDraft = '';   // the request as it is being typed, kept across redraws
+let prRules = '';   // the PR draft rules as edited, kept across redraws (empty = not loaded yet)
+let prRulesOpen = false;
 
 async function openPR(a) {
   if (!openFiles.includes(PR)) openFiles.push(PR);
@@ -7794,8 +7796,10 @@ function drawPR(a, st) {
   rulesField.setAttribute('rows', '3');
   rulesField.setAttribute('label', tr('git.rules'));
   rulesField.className = 'commitrules';
+  rulesField.value = prRules;
+  rulesField.addEventListener('input', () => { prRules = rulesField.value; });
   const rulesWrap = cell('commitruleswrap');
-  rulesWrap.hidden = true;
+  rulesWrap.hidden = !prRulesOpen;
   const rulesRow = cell('commitrulesrow');
   rulesRow.append(rulesField);
   if (may('configure')) {
@@ -7810,11 +7814,15 @@ function drawPR(a, st) {
     rulesRow.append(rulesSave);
   }
   rulesWrap.append(rulesRow);
-  fetchOne('/autocomplete' + qFor(a)).then(got => { if (got) rulesField.value = got.prTemplate || ''; });
+  if (!prRules) {
+    fetchOne('/autocomplete' + (a.socket ? qFor(a) : '?tier=global')).then(got => {
+      if (got && !prRules) { prRules = got.prTemplate || ''; rulesField.value = prRules; }
+    });
+  }
   const acts = cell('commitacts');
   const rulesToggle = label(withMark(document.createElement('md-text-button'), '#i-sl-sliders'),
                             tr('git.rules'));
-  rulesToggle.onclick = () => { rulesWrap.hidden = !rulesWrap.hidden; };
+  rulesToggle.onclick = () => { prRulesOpen = rulesWrap.hidden; rulesWrap.hidden = !rulesWrap.hidden; };
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
   draft.onclick = () => whileItRuns(draft, async () => {
@@ -7864,6 +7872,8 @@ function drawPR(a, st) {
 const COMMIT = 'commit:';
 let commitPick = '';     // which staged file is being read; '' is everything at once
 let commitDraft = '';    // the message as it is being typed, kept across redraws
+let commitRules = '';    // the commit draft rules as edited, kept across redraws (empty = not loaded yet)
+let commitRulesOpen = false;
 
 async function openCommit(a) {
   if (!openFiles.includes(COMMIT)) openFiles.push(COMMIT);
@@ -7958,8 +7968,10 @@ function drawCommit(a, g) {
   rulesField.setAttribute('rows', '3');
   rulesField.setAttribute('label', tr('git.rules'));
   rulesField.className = 'commitrules';
+  rulesField.value = commitRules;   // kept across a card rebuild (picking a file to inspect rebuilds it)
+  rulesField.addEventListener('input', () => { commitRules = rulesField.value; });
   const rulesWrap = cell('commitruleswrap');
-  rulesWrap.hidden = true;
+  rulesWrap.hidden = !commitRulesOpen;
   const rulesRow = cell('commitrulesrow');
   rulesRow.append(rulesField);
   if (may('configure')) {
@@ -7974,12 +7986,17 @@ function drawCommit(a, g) {
     rulesRow.append(rulesSave);
   }
   rulesWrap.append(rulesRow);
-  // The saved template pre-fills the field, so it starts from what is configured.
-  fetchOne('/autocomplete' + qFor(a)).then(got => { if (got) rulesField.value = got.commitTemplate || ''; });
+  // The saved template pre-fills the field the FIRST time only — never over an edit the person is in
+  // the middle of (a rebuild would otherwise wipe it and put the default back).
+  if (!commitRules) {
+    fetchOne('/autocomplete' + (a.socket ? qFor(a) : '?tier=global')).then(got => {
+      if (got && !commitRules) { commitRules = got.commitTemplate || ''; rulesField.value = commitRules; }
+    });
+  }
   const acts = cell('commitacts');
   const rulesToggle = label(withMark(document.createElement('md-text-button'), '#i-sl-sliders'),
                             tr('git.rules'));
-  rulesToggle.onclick = () => { rulesWrap.hidden = !rulesWrap.hidden; };
+  rulesToggle.onclick = () => { commitRulesOpen = rulesWrap.hidden; rulesWrap.hidden = !rulesWrap.hidden; };
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
   draft.onclick = () => whileItRuns(draft, async () => {
@@ -9694,6 +9711,12 @@ function clearCompanionView() {
   loadTree.drawn = null;
   commitDraft = '';
   prDraft = '';
+  // The draft rules were this companion's too — its config template, pre-fetched. Cleared so the next
+  // companion re-fetches its own rather than inheriting the one before it.
+  commitRules = '';
+  prRules = '';
+  commitRulesOpen = false;
+  prRulesOpen = false;
   commitPick = '';
   // The past-work search is this companion's, like the drafts above: left set, opening B's history
   // after typing on A's showed A's words in the field and pre-filtered B's sessions by A's term.

@@ -181,6 +181,9 @@ func (a *App) pastPrompts(ctx context.Context, workdir string, exclude session.S
 	var out []string
 	seen := map[string]bool{}
 	for _, m := range metas {
+		if m.ID == exclude {
+			continue // the current session is the caller's job (from live events); never from here
+		}
 		sp, ok := wp.perSession[m.ID]
 		if !ok {
 			continue
