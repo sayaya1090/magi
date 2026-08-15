@@ -44,7 +44,7 @@ func (a *App) councilVerify(ctx context.Context, workdir string) (evidence strin
 	// (catches 1 as ran==0) AND a `fail` event for every test that failed before the exit was masked
 	// (catches 2 as failed>0). Either one refuses the finish, whatever the masked exit said.
 	if isGoTest(cmd) {
-		ran, failed := a.goTestsExecuted(ctx, workdir)
+		ran, failed := a.goTestsExecuted(ctx, workdir, cmd)
 		if ran < 0 {
 			// The command exited 0 but magi could not RE-RUN it under -json to confirm the tests
 			// actually ran and passed — so the exit-0 is unconfirmed, not verified. Not a failure
@@ -71,6 +71,27 @@ var goTestRe = regexp.MustCompile(`\bgo\s+test\b`)
 
 func isGoTest(cmd string) bool { return goTestRe.MatchString(cmd) }
 
+// goTestReRunArgs derives the -json re-run's arguments from the operator's OWN verify command, so the
+// re-run covers the same packages and flags the operator chose. A hardcoded `./...` tested a
+// different scope than the command: it false-REFUSED a finish the operator's `go test ./pkg/...`
+// passed (a failure in another package under ./...), and it false-passed the empty-suite guard when
+// the operator's scope was narrower than the module (some other package had tests). Only a plain
+// `go test …` invocation is parsed — a command wrapped in a shell (a pipe, &&, ;, cd, a substitution,
+// make/gotestsum) falls back to `./...`, since its real scope can't be read off the string. `go test`
+// with no package keeps go's own default (the workdir package), matching the operator.
+func goTestReRunArgs(cmd string) []string {
+	c := strings.TrimSpace(cmd)
+	fallback := []string{"test", "-json", "./..."}
+	if strings.ContainsAny(c, "|&;<>`$(){}\n") || strings.Contains(c, "cd ") {
+		return fallback
+	}
+	fields := strings.Fields(c)
+	if len(fields) < 2 || fields[0] != "go" || fields[1] != "test" {
+		return fallback
+	}
+	return append([]string{"test", "-json"}, fields[2:]...)
+}
+
 // goTestsExecuted re-runs `go test -json ./...` in the workdir and reports how many test functions
 // actually ran and how many of those failed. Uses -json because a neutering TestMain still prints
 // `ok <pkg>` on the plain output, indistinguishable from a real pass; -json emits a per-test event
@@ -81,7 +102,7 @@ func isGoTest(cmd string) bool { return goTestRe.MatchString(cmd) }
 // go test exits non-zero when a test fails, so a non-zero exit / Exec error is EXPECTED here and is
 // not treated as "could not run": the per-test events on stdout are the evidence. Only an outright
 // absence of output with an error is "could not run".
-func (a *App) goTestsExecuted(ctx context.Context, workdir string) (ran, failed int) {
+func (a *App) goTestsExecuted(ctx context.Context, workdir, cmd string) (ran, failed int) {
 	if a.plat == nil {
 		return -1, 0
 	}
@@ -93,7 +114,7 @@ func (a *App) goTestsExecuted(ctx context.Context, workdir string) (ran, failed 
 		ctx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
-	res, err := a.plat.Exec(ctx, port.Cmd{Path: "go", Args: []string{"test", "-json", "./..."}, Dir: workdir})
+	res, err := a.plat.Exec(ctx, port.Cmd{Path: "go", Args: goTestReRunArgs(cmd), Dir: workdir})
 	if strings.TrimSpace(string(res.Stdout)) == "" && err != nil {
 		return -1, 0
 	}

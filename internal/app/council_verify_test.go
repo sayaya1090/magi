@@ -97,3 +97,34 @@ func TestVerifyDoesNotAcceptWhenTheReRunCannotRun(t *testing.T) {
 		t.Errorf("the evidence does not explain the unconfirmed pass:\n%s", evidence)
 	}
 }
+
+// The -json re-run scope is taken from the operator's own command, not a hardcoded ./..., so it
+// tests the same packages/flags — otherwise it false-refuses a finish the operator's narrower scope
+// passed, and false-passes the empty-suite guard when the module has other tests.
+func TestGoTestReRunArgsMatchTheOperatorScope(t *testing.T) {
+	for _, c := range []struct {
+		cmd  string
+		want []string
+	}{
+		{"go test ./...", []string{"test", "-json", "./..."}},
+		{"go test ./pkg/...", []string{"test", "-json", "./pkg/..."}},
+		{"go test -short -tags integration ./svc/...", []string{"test", "-json", "-short", "-tags", "integration", "./svc/..."}},
+		{"  go test  ", []string{"test", "-json"}},                      // no package: go's own default (the workdir pkg)
+		{"make test", []string{"test", "-json", "./..."}},               // wrapped: fall back
+		{"cd sub && go test ./...", []string{"test", "-json", "./..."}}, // shell: fall back
+		{"go test ./... | tee out", []string{"test", "-json", "./..."}}, // pipe: fall back
+		{"gotestsum -- ./...", []string{"test", "-json", "./..."}},      // not `go test`: fall back
+	} {
+		got := goTestReRunArgs(c.cmd)
+		if len(got) != len(c.want) {
+			t.Errorf("%q → %v, want %v", c.cmd, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%q → %v, want %v", c.cmd, got, c.want)
+				break
+			}
+		}
+	}
+}
