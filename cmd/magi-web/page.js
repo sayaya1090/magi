@@ -2058,26 +2058,41 @@ let answering = null;
 // under it, and where pressing the button sends what was typed.
 function answerMode(a) {
   answering = a;
-  t.setAttribute('label', tr(a ? 'label.answer' : 'label.ask'));
-  const note = document.getElementById('cnote');
-  note.textContent = a ? tr((a.askOptions || []).length ? 'answer.or_pick' : 'answer.instead') : '';
-  note.hidden = !a;
-  // The word AND the mark, and both change with the mode: a paper plane for putting something into
-  // the conversation, a reply arrow for answering the question above it.
-  const send = document.getElementById('send');
-  label(send, tr(a ? 'action.answer' : 'action.send'));
-  withMark(send, a ? '#i-sl-reply' : '#i-ss-paper-plane');
-  // The old text is PARKED, not deleted. It used to be cleared on the flip — but the flip arrives
-  // on a background frame, and a frame that lands mid-sentence was erasing 39 typed characters
-  // with no undo, which is the thing the guide will not even let the Escape key do. The words come
-  // back when the mode does: an answer being typed when the question is withdrawn is kept for the
-  // next question, a request being typed when a question arrives is back the moment it is dealt
-  // with. Each mode owns its own draft, so neither is ever offered as the other.
-  if (!!a !== wasAnswering) {
+  // The mode-dependent chrome — the field's floating label, the send button's word AND its mark (a
+  // paper plane for putting something into the conversation, a reply arrow for answering the question
+  // above it) — changes ONLY when the mode flips. drawPrompt calls this every fleet frame, and
+  // label()/withMark() tear down and rebuild the button's text node and slotted icon each time, so
+  // an idle companion churned ~80 send-button mutations a minute for a word that never changed. Gated
+  // on the same flip the parked-draft swap uses.
+  const flip = !!a !== wasAnswering;
+  // Re-render the mode chrome on a mode flip OR when the language pack version moved (a pack that
+  // arrives after the first paint must reach these labels). labelVer starts !== the unset sentinel,
+  // so this also covers the very first render, where there is no flip.
+  if (flip || answerMode.lver !== labelVer) {
+    t.setAttribute('label', tr(a ? 'label.answer' : 'label.ask'));
+    const send = document.getElementById('send');
+    label(send, tr(a ? 'action.answer' : 'action.send'));
+    withMark(send, a ? '#i-sl-reply' : '#i-ss-paper-plane');
+    answerMode.lver = labelVer;
+  }
+  if (flip) {
+    // The old text is PARKED, not deleted. It used to be cleared on the flip — but the flip arrives
+    // on a background frame, and a frame that lands mid-sentence was erasing 39 typed characters
+    // with no undo, which is the thing the guide will not even let the Escape key do. The words come
+    // back when the mode does: an answer being typed when the question is withdrawn is kept for the
+    // next question, a request being typed when a question arrives is back the moment it is dealt
+    // with. Each mode owns its own draft, so neither is ever offered as the other.
     const parked = answerMode.parked || '';
     answerMode.parked = t.value;
     t.value = parked;
   }
+  // The note's text can change WITHOUT a flip (a question with options replacing one without), so it
+  // is not gated on the flip — but it is only written when it actually changed, so an unchanged one
+  // costs nothing.
+  const note = document.getElementById('cnote');
+  const noteText = a ? tr((a.askOptions || []).length ? 'answer.or_pick' : 'answer.instead') : '';
+  if (note.textContent !== noteText) note.textContent = noteText;
+  note.hidden = !a;
   wasAnswering = !!a;
   composerReach();
 }
