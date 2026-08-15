@@ -236,13 +236,28 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 	// — not a second opinion from whatever this process's default happens to be.
 	s := a.sessionInfo(ctx, sid)
 	agent := a.agentFor(s)
+	// The lines arrive prefixed with their real (absolute) line number and a tab: the console sends
+	// the region around the caret, not the whole file, and numbers it so a finding anchors to an
+	// actual line rather than the model's count. The reply keeps that shape — `<line><TAB><clause>`,
+	// one per finding — so the console can draw each remark against the line it is about instead of
+	// a paragraph over the top of the file. See LookOver's caller (cmd/magi-web) and app_state's
+	// lookLang for the language cache.
+	sys := "A person is editing " + path + " and has not saved it. The lines below are the region " +
+		"around where they are working; each is prefixed with its line number and a tab. Report " +
+		"ONLY what is wrong, missing or about to break: a bug, a typo in an identifier, a case not " +
+		"handled, something that contradicts the rest. At most three findings. Answer with each " +
+		"finding on its own line as the line number, a tab, and one short clause and NOTHING else — " +
+		"`<line-number><TAB><what is wrong>`, using the numbers shown. If there is nothing worth " +
+		"saying, answer with an empty message — do not summarise, do not praise, do not suggest " +
+		"style, do not add any line that is not a numbered finding."
+	// The clause in the reader's language, the numbers untouched — the language directive keeps code,
+	// identifiers and paths as-is, and a line number is none of those.
+	if dir := a.lookLangDirective(ctx, sid); dir != "" {
+		sys = dir + "\n\n" + sys
+	}
 	req := port.ChatRequest{
-		Model: s.Model.Model,
-		System: "A person is editing " + path + " and has not saved it. Read it and say ONLY what " +
-			"is wrong, missing or about to break: a bug, a typo in an identifier, a case not " +
-			"handled, something that contradicts the rest of the file. At most three short lines, " +
-			"each naming the line it is about. If there is nothing worth saying, answer with an " +
-			"empty message — do not summarise the file, do not praise it, do not suggest style.",
+		Model:  s.Model.Model,
+		System: sys,
 		Messages: []session.Message{{
 			Role:  session.RoleUser,
 			Parts: []session.Part{{Kind: session.PartText, Text: text}},
@@ -254,6 +269,26 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 	}
 	out, _ := drainStream(stream)
 	return strings.TrimSpace(out), nil
+}
+
+// lookLangDirective returns the "reply in the reader's language" directive for LookOver, detected
+// from this session's genuine user prompts and cached (see sessionState.lookLang for why this one
+// caches where the turn loop's language lock does not). Empty means English/undetermined.
+func (a *App) lookLangDirective(ctx context.Context, sid session.SessionID) string {
+	a.mu.Lock()
+	if st := a.stateLocked(sid); st.lookLangSet {
+		dir := st.lookLang
+		a.mu.Unlock()
+		return dir
+	}
+	a.mu.Unlock()
+	evs, _ := a.store.Read(ctx, sid, 0)
+	dir := langDirective(lastUserPromptText(evs))
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.lookLang, st.lookLangSet = dir, true
+	a.mu.Unlock()
+	return dir
 }
 
 // DraftCommit asks the companion's model for a commit message for what is staged.

@@ -22,7 +22,15 @@ type sessionState struct {
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
 	meta   session.Session    // session metadata cache
-	todos  []session.Todo     // per-session plan
+	// lookLang is the "reply in the reader's language" directive for LookOver, computed once
+	// from this session's genuine user prompts and cached. LookOver fires on every pause in
+	// typing, so — unlike the turn loop's language lock, which recomputes each step — reading
+	// the whole event log per keystroke-pause is the cost this avoids. A session's user does
+	// not switch language mid-edit; lookLangSet distinguishes "computed, English" (empty) from
+	// "not computed yet".
+	lookLang    string
+	lookLangSet bool
+	todos       []session.Todo // per-session plan
 	// turnNotes are what the AGENT itself asked to be reminded of before this turn ends
 	// (remember{scope:"turn"}). magi stores them verbatim and hands them back at the finish
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request
