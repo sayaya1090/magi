@@ -161,6 +161,17 @@ unsure of, and it ends nothing.
 *One companion's page: the live transcript with true exit codes, and a dangerous command held for your approval.*
 </div>
 
+<table>
+<tr>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=meet"><img src="docs/img/console-meeting.png" alt="The Meetings page — pick two or more companions, ask one question, and convene a room; active meetings show below" width="100%"></a><br><b>Meetings.</b> Put several companions on one question until each knows what to do.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=board"><img src="docs/img/console-board.png" alt="The Board — a day of work as cards, one column per team, grouped by the label the agent gave each piece" width="100%"></a><br><b>Board.</b> A day of work as cards, a column per team, grouped by label.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=skills"><img src="docs/img/console-shared.png" alt="The Shared page — the team's learned rules and remembered facts, each with the scope it reaches and Read/Forget controls" width="100%"></a><br><b>Shared brain.</b> The rules the team has learned and the facts they remember — each scoped to who it reaches.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/"><img src="docs/img/console-phone.png" alt="The console on a phone — a bottom nav bar and a card stack, answering a permission prompt from the smaller screen" width="100%"></a><br><b>On your phone.</b> The same console, so you can approve or answer from anywhere.</td>
+</tr>
+</table>
+
 One magi bound to one workspace is a **companion**. Give it a name and a role and it becomes
 addressable by what it is *for*:
 

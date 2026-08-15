@@ -158,6 +158,17 @@ verify = "go test ./..."   # magi가 종료 게이트에서 이것을 직접 실
 *한 컴패니언의 페이지: 진짜 종료 코드가 담긴 라이브 트랜스크립트, 그리고 승인을 위해 잡아둔 위험 명령.*
 </div>
 
+<table>
+<tr>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=meet"><img src="docs/img/console-meeting.png" alt="회의 페이지 — 둘 이상의 컴패니언을 골라 하나의 질문을 던지고 방을 연다; 진행 중인 회의가 아래에 보인다" width="100%"></a><br><b>회의.</b> 여러 컴패니언을 하나의 질문에 붙여 각자가 무엇을 할지 알 때까지 논의시킨다.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=board"><img src="docs/img/console-board.png" alt="보드 — 하루치 일이 카드로, 팀별 한 열씩, 에이전트가 붙인 라벨로 묶여 있다" width="100%"></a><br><b>보드.</b> 하루치 일을 카드로, 팀별 한 열씩, 라벨로 묶어서.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=skills"><img src="docs/img/console-shared.png" alt="공유 페이지 — 팀이 학습한 규칙과 기억한 사실, 각각 도달 범위와 Read/Forget 컨트롤" width="100%"></a><br><b>공유 두뇌.</b> 팀이 학습한 규칙과 기억한 사실 — 각각 누구에게 도달하는지로 범위가 정해진다.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/"><img src="docs/img/console-phone.png" alt="휴대폰에서의 콘솔 — 하단 내비게이션 바와 카드 스택, 작은 화면에서 승인 프롬프트에 답한다" width="100%"></a><br><b>휴대폰에서.</b> 같은 콘솔 — 어디서든 승인하고 답할 수 있다.</td>
+</tr>
+</table>
+
 한 작업공간에 묶인 하나의 magi가 **컴패니언**이다. 이름과 역할을 주면 *무엇을 위한 것인지*로
 부를 수 있게 된다:
 
