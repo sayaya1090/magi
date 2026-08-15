@@ -49,3 +49,31 @@ func TestVerifyRefusesAGoTestThatRanNoTests(t *testing.T) {
 		t.Errorf("the refusal is not surfaced:\n%s", out)
 	}
 }
+
+// A `go test` whose exit was FORCED to 0 over a real failure — the second neutering (a TestMain
+// that runs the tests, sees them fail, and os.Exit(0)s) — is refused. The -json re-run still carries
+// the per-test `fail` event, so the gate sees the failure the masked exit hid. Reverting the
+// failed>0 check in councilVerify accepts (ok=true) this finish.
+func TestVerifyRefusesAGoTestMaskingAFailure(t *testing.T) {
+	// call 0 = the verify command, masked to exit 0. call 1 = the -json re-run, also exit 0 (the
+	// mask), but its stdout carries a failing test event and a passing one — the failure the mask hid.
+	plat := &scriptPlatform{
+		codes: []int{0, 0},
+		outs: []string{"", `{"Action":"run","Test":"TestA"}
+{"Action":"fail","Test":"TestA"}
+{"Action":"run","Test":"TestB"}
+{"Action":"pass","Test":"TestB"}`},
+	}
+	a, _, wd := newWorkflowApp(t, nil, plat, Config{Permission: "allow", CouncilVerify: "go test ./..."})
+
+	evidence, ok, ran := a.councilVerify(context.Background(), wd)
+	if ok {
+		t.Fatal("a go test that masked a failure with os.Exit(0) verified ok — the mask was accepted")
+	}
+	if !ran {
+		t.Error("ran should be true — the command did run")
+	}
+	if !strings.Contains(evidence, "FAILED") {
+		t.Errorf("the evidence does not name the masked failure:\n%s", evidence)
+	}
+}
