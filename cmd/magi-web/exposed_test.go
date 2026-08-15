@@ -130,7 +130,8 @@ role = "operator"
 func TestTheSharedRefusalCoversTheRoutesThatSpawnProcesses(t *testing.T) {
 	shared := &server{exposed: true}
 	// What is refused, by the path a caller uses.
-	mustRefuse := map[string]http.HandlerFunc{"/shell": shared.shell, "/mcp": shared.mcp}
+	mustRefuse := map[string]http.HandlerFunc{"/shell": shared.shell, "/mcp": shared.mcp,
+		"/profiles": shared.profilesList, "/autocomplete": shared.autocomplete}
 	for path, h := range mustRefuse {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, path, nil)
@@ -223,6 +224,7 @@ role = "operator"
 	}
 	for name, h := range map[string]http.HandlerFunc{
 		"/shell": withPeople.shell, "/mcp": withPeople.mcp,
+		"/profiles": withPeople.profilesList, "/autocomplete": withPeople.autocomplete,
 	} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, name, nil)

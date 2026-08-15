@@ -155,3 +155,12 @@ func stripControl(s string) string {
 		}
 	}, s)
 }
+
+// hasControl reports whether s carries any ASCII control character (below space, or DEL). A config
+// NAME becomes a bare TOML table header written by raw concatenation (config.SetKey's %q escaping
+// covers values, not the section header), so a control character — a newline above all — would
+// split or break the header. Names carrying one are refused rather than mapped: see profilesWrite
+// and mcpWrite.
+func hasControl(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0
+}
