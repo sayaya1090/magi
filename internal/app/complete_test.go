@@ -226,6 +226,67 @@ func TestAmbientOpenFileEntersContext(t *testing.T) {
 	}
 }
 
+// Composer suggestion self-disables with no composer profile routed — no output, no model.
+func TestSuggestPromptSelfDisablesWithoutAProfile(t *testing.T) {
+	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{}, nil, nil)
+	got, err := a.SuggestPrompt(context.Background(), sid, "fix the ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("a suggestion came back with no composer profile: %q", got)
+	}
+}
+
+// Routed, the suggestion goes to the composer profile (not the default), carries this workspace's
+// past prompts as few-shot, and includes what the person has typed so far.
+func TestSuggestPromptLearnsFromPastPrompts(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cap := &acCapLLM{text: "failing tests"}
+	a := closeAfter(t, New(store, acFailLLM{t}, builtin.Default(), bus.New(), nil, Config{
+		Autocomplete:  config.AutocompleteConfig{ComposerProfile: "smart"},
+		Providers:     map[string]port.LLMProvider{"smart": cap},
+		ProfileModels: map[string]string{"smart": "smart-model"},
+	}))
+	wd := t.TempDir()
+	past, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prior = "run the flaky integration tests again"
+	if err := a.SeedForTest(context.Background(), past, prior, "done"); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.SuggestPrompt(context.Background(), cur, "run the flaky ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "failing tests" {
+		t.Errorf("suggestion text not returned: %q", out)
+	}
+	if !cap.called() {
+		t.Fatal("the composer profile was never called")
+	}
+	req := cap.request()
+	if req.Model != "smart-model" {
+		t.Errorf("composer profile's model not used: %q", req.Model)
+	}
+	body := req.Messages[0].Parts[0].Text
+	if !strings.Contains(body, prior) {
+		t.Errorf("this user's past prompt was not offered as few-shot:\n%s", body)
+	}
+	if !strings.Contains(body, "run the flaky ") {
+		t.Errorf("what the user typed was not in the prompt:\n%s", body)
+	}
+}
+
 func acRun(dir, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir

@@ -49,6 +49,12 @@ type App struct {
 	// half-typed buffer does not belong in the event log. Guarded by mu.
 	openFiles map[session.SessionID]openFile
 
+	// promptMu guards promptIndex, the per-workdir cache of past sessions' user prompts that composer
+	// suggestion learns this person's phrasing from. Its own mutex, not mu: it is read on a pause in
+	// typing and must never contend with a running turn. See suggest.go.
+	promptMu    sync.Mutex
+	promptIndex map[string]*workdirPrompts
+
 	mu     sync.Mutex
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
 	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)
