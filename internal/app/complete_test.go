@@ -91,6 +91,52 @@ func TestCompleteCodeSelfDisablesWithoutAProfile(t *testing.T) {
 	}
 }
 
+// A profile NAMED but not registered (a typo, or a since-removed [llm.profiles.*]) must self-disable
+// — not fall through to the default provider, which is the main model billed on every keystroke.
+func TestCompleteCodeSelfDisablesWithAnUnregisteredProfile(t *testing.T) {
+	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "ghost"}, nil, nil)
+	got, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("an unregistered profile still produced a completion (fell through to default?): %q", got)
+	}
+}
+
+// A registered provider with no model to send also self-disables — we cannot know what to ask it for,
+// and sending the session's model to a different backend is wrong.
+func TestCompleteCodeSelfDisablesWhenProfileHasNoModel(t *testing.T) {
+	cap := &acCapLLM{text: "x"}
+	a, sid := completeApp(t, acFailLLM{t},
+		config.AutocompleteConfig{CodeProfile: "fast"},
+		map[string]port.LLMProvider{"fast": cap}, nil) // provider registered, but no ProfileModels
+	got, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" || cap.called() {
+		t.Errorf("a profile with no model still ran: got=%q called=%v", got, cap.called())
+	}
+}
+
+// A whole ```lang … ``` wrapper the model adds anyway is stripped; a backtick that is part of the
+// code is not.
+func TestCompleteCodeStripsAFenceButKeepsCodeBackticks(t *testing.T) {
+	fence := &acCapLLM{text: "```go\n\treturn 0\n```"}
+	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
+		map[string]port.LLMProvider{"fast": fence}, map[string]string{"fast": "m"})
+	if got, _ := a.CompleteCode(context.Background(), sid, "m.go", "func f() int {", "}"); strings.TrimSpace(got) != "return 0" {
+		t.Errorf("fence not stripped cleanly: %q", got)
+	}
+	tick := &acCapLLM{text: "`) + suffix"}
+	b, sid2 := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
+		map[string]port.LLMProvider{"fast": tick}, map[string]string{"fast": "m"})
+	if got, _ := b.CompleteCode(context.Background(), sid2, "m.go", "s := fmt.Sprintf(`x", ""); got != "`) + suffix" {
+		t.Errorf("a code backtick was eaten: %q", got)
+	}
+}
+
 // The master switch off is the same: nothing, and no provider call, even if a profile is named.
 func TestCompleteCodeSelfDisablesWhenTurnedOff(t *testing.T) {
 	off := false

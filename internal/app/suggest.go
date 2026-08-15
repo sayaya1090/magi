@@ -50,9 +50,12 @@ type sessionPrompts struct {
 // prefix is what they have typed so far. It self-disables (returns "") when composer suggestion is
 // off or no composer profile is routed, so the main model is never spent on a keystroke.
 func (a *App) SuggestPrompt(ctx context.Context, sid session.SessionID, prefix string) (string, error) {
-	profile := a.cfg.Autocomplete.ComposerProfile
-	if !a.cfg.Autocomplete.ComposerOn() || profile == "" {
+	if !a.cfg.Autocomplete.ComposerOn() {
 		return "", nil
+	}
+	model, ready := a.completeReady(a.cfg.Autocomplete.ComposerProfile)
+	if !ready {
+		return "", nil // no composer profile routed — never fall through to the main model
 	}
 	s := a.sessionInfo(ctx, sid)
 	evs, _ := a.store.Read(ctx, sid, 0)
@@ -72,7 +75,11 @@ func (a *App) SuggestPrompt(ctx context.Context, sid session.SessionID, prefix s
 		if strings.TrimSpace(q) == "" {
 			q = snapshot
 		}
-		docs := a.pastPrompts(ctx, s.Workdir)
+		// This session's own prompts come from the events already read; the workspace's PAST sessions
+		// from the cache, which excludes the current session — its log is being written as the person
+		// types, so re-reading it on every keystroke (its LastActivity keeps moving) is the one scan
+		// worth avoiding. Current first so a re-typed instruction dedupes to the live phrasing.
+		docs := dedupePrompts(append(promptsFromEvents(evs), a.pastPrompts(ctx, s.Workdir, sid)...))
 		for _, h := range topHits(rank.ByIDF(q, docs), maxExamples) {
 			examples = append(examples, docs[h.Index])
 		}
@@ -99,22 +106,32 @@ func (a *App) SuggestPrompt(ctx context.Context, sid session.SessionID, prefix s
 		"continues from where they stopped typing — no preamble, no quotation marks, no restating what " +
 		"they already typed. If the instruction already reads as complete, or you cannot tell what they " +
 		"mean, output nothing at all."
-	out, err := a.complete(ctx, profile, a.completeModel(profile, s.Model.Model), system, b.String())
+	out, err := a.complete(ctx, a.cfg.Autocomplete.ComposerProfile, model, system, b.String())
 	if err != nil {
-		return "", err
+		return "", nil // a cut/cancelled/failed suggestion offers nothing
 	}
-	return strings.Trim(out, "`\n \""), nil
+	// Models like to wrap a suggested instruction in quotes; drop a wrapping pair. Backticks are left
+	// alone — an instruction may legitimately name `a.file`.
+	return strings.Trim(strings.TrimSpace(out), "\""), nil
 }
 
 // pastPrompts returns this workspace's past user prompts, most-recent sessions first, from the cache
 // — reading only the sessions whose LastActivity moved since last time. Cron-origin sessions are
 // skipped: an unattended job's prompt is not this person's phrasing.
-func (a *App) pastPrompts(ctx context.Context, workdir string) []string {
+func (a *App) pastPrompts(ctx context.Context, workdir string, exclude session.SessionID) []string {
 	metas, err := a.store.ListSessions(ctx, workdir)
 	if err != nil {
 		return nil
 	}
-	sort.Slice(metas, func(i, j int) bool { return metas[i].LastActivity.After(metas[j].LastActivity) })
+	// Stable, with the session id as the tiebreak, so two sessions sharing a LastActivity keep a
+	// fixed order — otherwise the docs slice fed to ByIDF reorders run to run and defeats the stable
+	// tie-break that makes the same corpus + query return the same examples.
+	sort.SliceStable(metas, func(i, j int) bool {
+		if !metas[i].LastActivity.Equal(metas[j].LastActivity) {
+			return metas[i].LastActivity.After(metas[j].LastActivity)
+		}
+		return metas[i].ID < metas[j].ID
+	})
 	if len(metas) > maxIndexSessions {
 		metas = metas[:maxIndexSessions]
 	}
@@ -136,8 +153,8 @@ func (a *App) pastPrompts(ctx context.Context, workdir string) []string {
 	var stale []todo
 	live := make(map[session.SessionID]bool, len(metas))
 	for _, m := range metas {
-		if strings.HasPrefix(m.Origin, "cron:") {
-			continue
+		if m.ID == exclude || strings.HasPrefix(m.Origin, "cron:") {
+			continue // the current session is read from its live events by the caller, not here
 		}
 		live[m.ID] = true
 		if c, ok := wp.perSession[m.ID]; !ok || c.seen.Before(m.LastActivity) {
@@ -185,6 +202,17 @@ func (a *App) readPrompts(ctx context.Context, sid session.SessionID) []string {
 	if err != nil {
 		return nil
 	}
+	return promptsFromEvents(evs)
+}
+
+// maxPromptLen caps how much of one prompt is kept in the corpus. A pasted multi-KB prompt is not
+// phrasing to learn from, and 300 sessions of them held verbatim is a memory leak in a long-lived
+// daemon; the tail is dropped on a rune boundary.
+const maxPromptLen = 2000
+
+// promptsFromEvents pulls the user-typed prompts out of a session's events. Resurfaced (re-emitted
+// queued) prompts are skipped so a drained interjection is not counted twice.
+func promptsFromEvents(evs []event.Event) []string {
 	var out []string
 	for _, ev := range evs {
 		if ev.Type != event.TypePromptSubmitted {
@@ -195,7 +223,21 @@ func (a *App) readPrompts(ctx context.Context, sid session.SessionID) []string {
 			continue
 		}
 		if t := strings.TrimSpace(partsText(d.Parts)); t != "" {
-			out = append(out, t)
+			out = append(out, clampHeadUTF8(t, maxPromptLen))
+		}
+	}
+	return out
+}
+
+// dedupePrompts removes exact repeats while keeping first-seen order (the current session's phrasing,
+// which comes first, wins over an older identical one).
+func dedupePrompts(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := in[:0:0]
+	for _, p := range in {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
 	}
 	return out
@@ -209,19 +251,20 @@ func topHits(hits []rank.Hit, n int) []rank.Hit {
 	return hits
 }
 
-// clipTail keeps the LAST max bytes — for a running snapshot the recent end is what matters.
+// clipTail keeps the LAST max bytes — for a running snapshot the recent end is what matters — on a
+// rune boundary so the result is valid UTF-8.
 func clipTail(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return "…\n" + s[len(s)-max:]
+	return "…\n" + clampTailUTF8(s, max)
 }
 
 // exampleLine renders one past prompt as a single capped line for the few-shot list.
 func exampleLine(s string) string {
 	s = oneLine(s)
 	if len(s) > 200 {
-		s = s[:200] + "…"
+		return clampHeadUTF8(s, 200) + "…"
 	}
 	return s
 }

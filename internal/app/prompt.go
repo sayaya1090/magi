@@ -155,7 +155,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 		if f, ok := a.openFileFor(s.ID); ok {
 			txt := f.text
 			if len(txt) > completeCap {
-				txt = txt[:completeCap] + "\n… (the rest of this file is not shown)"
+				txt = clampHeadUTF8(txt, completeCap) + "\n… (the rest of this file is not shown)"
 			}
 			b.WriteString("\n\n# File open in the editor (unsaved)\nThe user has " + f.path +
 				" open and is editing it; this is their current buffer, which may differ from disk:\n" + txt)
