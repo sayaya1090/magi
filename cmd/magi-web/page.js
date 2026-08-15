@@ -7325,7 +7325,10 @@ function gitActs(a, c) {
   const open = document.createElement('md-icon-button');
   const dots = icon('#i-sl-sliders');
   if (dots) open.append(dots);
-  open.setAttribute('aria-label', tr('files.more'));
+  // Named by its row, like the skills screen's per-item actions: a menu opened by one of five
+  // identical "More" buttons in a list is "More" five times to a screen reader with no way to tell
+  // which file it acts on. The tooltip stays the short word; the accessible name carries the target.
+  open.setAttribute('aria-label', tr('files.more_named', {name: baseName(c.path)}));
   tip(open, tr('files.more'));
   const menu = popMenu(document.createElement('md-menu'), box);
   const id = 'ga' + (gitActs.n = (gitActs.n || 0) + 1);
@@ -7522,7 +7525,9 @@ function rowMenu(a, e, path) {
   const open = document.createElement('md-icon-button');
   const m = icon('#i-sl-sliders');
   if (m) open.append(m);
-  open.setAttribute('aria-label', tr('files.more'));
+  // Named by its row (see gitActs): "More" repeated down a tree of forty names tells a screen
+  // reader nothing about which one it opens. The tooltip keeps the short word.
+  open.setAttribute('aria-label', tr('files.more_named', {name: baseName(path)}));
   tip(open, tr('files.more'));
   const menu = popMenu(document.createElement('md-menu'), box);
   const id = 'rm' + (rowMenu.n = (rowMenu.n || 0) + 1);

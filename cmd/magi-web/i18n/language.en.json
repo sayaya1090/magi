@@ -213,6 +213,7 @@
   "files.look": "Let the model read the file I am editing",
   "files.look_why": "In the file editor only, and while you are typing: on a pause it says what looks wrong in the buffer — a bug, a typo in a name, a case not handled — and says nothing when there is nothing to say. It spends the companion’s model on every pause, and it never saves or sends anything.",
   "files.more": "More",
+  "files.more_named": "More — {name}",
   "files.new_dir": "New folder",
   "files.new_dir_who": "Path for the new folder",
   "files.new_file": "New file",
