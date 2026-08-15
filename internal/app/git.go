@@ -699,6 +699,16 @@ func (a *App) GitDiffOf(ctx context.Context, workdir, path string, staged, untra
 	if a.plat == nil {
 		return "", fmt.Errorf("platform unavailable")
 	}
+	// The untracked branch runs `git diff --no-index` on the path as a real filesystem path, which
+	// reads any file the daemon user can — and this method is reached by the read-classified /diff
+	// endpoint with no jail of its own, so a low-privilege console/relay/peer caller could ask for
+	// /etc/passwd. Confine a named path to the workspace here, at the one seam every caller crosses.
+	// The empty path (the whole-tree diff below) is the review of "everything staged" and is allowed.
+	if strings.TrimSpace(path) != "" {
+		if _, err := insideWorkdir(workdir, path); err != nil {
+			return "", err
+		}
+	}
 	args := []string{"diff", "--no-color"}
 	switch {
 	case untracked:

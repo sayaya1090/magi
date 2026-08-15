@@ -227,22 +227,15 @@ func TestEveryConfigFieldIsEitherMergedOrKnowinglyNotMerged(t *testing.T) {
 	// Fields that do not cross from a project file, with the reason. A new entry here should be a
 	// decision somebody made, not a place to put a field to make this test quiet.
 	//
-	// Everything below was already unmerged when this guard was written. None of it has been
-	// reviewed: the guard's job today is to stop the list GROWING by accident, and the list itself
-	// is the record of what to look at. Several look like plain omissions — a repo that pins its
-	// model cannot pin the sampling that model needs.
+	// Fields that deliberately do not cross from a project file, with the reason. A new entry here
+	// should be a decision somebody made, not a place to put a field to make this test quiet.
+	//
+	// The list used to hold embed_model, [limits], [sampling] and [subagents] as "unreviewed
+	// omissions" — a repo that pins its model could not pin the sampling that model needs. Those
+	// were reviewed and merged (field-by-field for the two structs); the one that remains is the one
+	// that must NOT cross.
 	notMerged := map[string]string{
-		"APIKey":          "a key in a committed file is a leaked key — plausibly deliberate, unreviewed",
-		"EmbedModel":      "unreviewed",
-		"Subagents":       "written by /subagents for this user, not for the repo — plausibly deliberate",
-		"Limits":          "unreviewed",
-		"Sampling":        "unreviewed",
-		"MaxOutputTokens": "unreviewed",
-		"ContextTokens":   "unreviewed",
-		"CompactRatio":    "unreviewed",
-		"Temperature":     "unreviewed",
-		"TopP":            "unreviewed",
-		"TopK":            "unreviewed",
+		"APIKey": "a key in a committed file is a leaked key — a project must not push one onto the machine",
 	}
 
 	base := config.Config{}
@@ -461,5 +454,47 @@ func TestATrustedWorkspaceIsTakenAsWritten(t *testing.T) {
 		if strings.Contains(line, "not one you have trusted") {
 			t.Errorf("a trusted workspace was told it is not trusted: %q", line)
 		}
+	}
+}
+
+// The sections that were silently dropped from the project merge now land — the same class as the
+// [council] verify bug. A struct override is field-by-field: a project setting one limit must not
+// zero the globals it left alone; a project profile must merge in (routing, merged above, would
+// otherwise point at nothing).
+func TestMergeProjectConfig_PreviouslyDroppedSections(t *testing.T) {
+	temp := 0.2
+	base := config.Config{
+		EmbedModel: "global-embed",
+		Limits:     config.LimitsConfig{MaxOutputTokens: 100, ContextTokens: 1000},
+		LLM:        config.LLMConfig{Profiles: map[string]config.LLMProfile{"a": {}}},
+	}
+	proj := config.Config{
+		EmbedModel: "proj-embed",
+		Limits:     config.LimitsConfig{CompactRatio: 0.9}, // only ratio set
+		Sampling:   config.SamplingConfig{Temperature: &temp},
+		LLM:        config.LLMConfig{Profiles: map[string]config.LLMProfile{"b": {}}},
+		Subagents:  map[string]config.SubagentConfig{"x": {}},
+	}
+	got := mergeProjectConfig(base, proj)
+	if got.EmbedModel != "proj-embed" {
+		t.Errorf("embed_model not merged: %q", got.EmbedModel)
+	}
+	if got.Limits.CompactRatio != 0.9 {
+		t.Error("compact_ratio not merged")
+	}
+	if got.Limits.MaxOutputTokens != 100 || got.Limits.ContextTokens != 1000 {
+		t.Errorf("a partial project [limits] clobbered the globals it did not set: %+v", got.Limits)
+	}
+	if got.Sampling.Temperature == nil || *got.Sampling.Temperature != 0.2 {
+		t.Error("[sampling] temperature not merged")
+	}
+	if _, ok := got.LLM.Profiles["a"]; !ok {
+		t.Error("global profile lost")
+	}
+	if _, ok := got.LLM.Profiles["b"]; !ok {
+		t.Error("project profile not merged — [routing] would point at nothing")
+	}
+	if _, ok := got.Subagents["x"]; !ok {
+		t.Error("[subagents] not merged")
 	}
 }

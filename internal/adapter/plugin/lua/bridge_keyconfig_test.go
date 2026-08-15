@@ -179,7 +179,9 @@ func TestConfigKeyUnitHelpers(t *testing.T) {
 	if !p.allowConfigRead("llm.headers") || p.allowConfigRead("llm.profiles") {
 		t.Error("exact config:read grant matched wrong keys")
 	}
-	for _, k := range []string{"mcp", "mcp.servers", "hooks.stop", "allow", "deny"} {
+	// council.verify runs a shell command at the finish gate, so the whole council section is
+	// deny-listed to a plugin the same as hooks/mcp — otherwise config:write is code execution.
+	for _, k := range []string{"mcp", "mcp.servers", "hooks.stop", "allow", "deny", "council", "council.verify"} {
 		if !configKeyDenied(k) {
 			t.Errorf("%q should be deny-listed", k)
 		}

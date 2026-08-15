@@ -23,12 +23,16 @@ type perms struct {
 }
 
 // denyConfigSections are config.toml areas a plugin may never read or write, even with a
-// matching grant: they can run commands (mcp/hooks) or relax the security posture
+// matching grant: they can run commands (mcp/hooks/council) or relax the security posture
 // (allow/deny/permission/sandbox/profile/allow_domains). Matched (lower-cased) on the
 // dotted key's first segment.
+//
+// council is here because council.verify is a shell command magi runs at the finish gate — a
+// config:write plugin setting it would be code execution by the same route hooks/mcp are denied for.
 var denyConfigSections = map[string]bool{
 	"mcp": true, "hooks": true, "allow": true, "deny": true,
 	"permission": true, "sandbox": true, "profile": true, "allow_domains": true,
+	"council": true,
 }
 
 // configKeyRe is the strict charset a config key must match: dot-separated segments of

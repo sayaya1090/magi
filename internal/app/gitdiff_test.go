@@ -309,3 +309,24 @@ func TestWhatAPullRequestWouldCarryIsReadFromTheBranch(t *testing.T) {
 		t.Errorf("a repository with no remote answered base %q (%v)", bare.Base, berr)
 	}
 }
+
+// The untracked diff runs `git diff --no-index` on the path as a real filesystem path, so an
+// absolute or climbing path would read any file the daemon user can — and /diff is a read-classified
+// endpoint reachable by a low-privilege console/relay/peer caller. GitDiffOf confines a named path to
+// the workspace before it runs. Reverting that guard lets these escapes through.
+func TestGitDiffRefusesAPathOutsideTheWorkspace(t *testing.T) {
+	dir := gitRepo(t)
+	a := gitDiffApp(t)
+	for _, p := range []string{"/etc/hosts", "../../../../../../etc/hosts"} {
+		if _, err := a.GitDiffOf(context.Background(), dir, p, false, true); err == nil {
+			t.Errorf("GitDiffOf read %q from outside the workspace", p)
+		}
+	}
+	// An in-workspace untracked file still diffs.
+	if werr := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("hi\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	if _, err := a.GitDiffOf(context.Background(), dir, "new.txt", false, true); err != nil {
+		t.Errorf("an in-workspace untracked file was refused: %v", err)
+	}
+}

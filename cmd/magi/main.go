@@ -1565,6 +1565,49 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	if proj.Council.Verify != "" {
 		cfg.Council.Verify = proj.Council.Verify
 	}
+	// The same drop class as verify was: sections a project (or a companion) may set that this merge
+	// never copied, so a repo configuring them saw nothing happen. Scalars override when set; maps
+	// merge key-by-key like MCP/routing above; the two structs merge FIELD by field so a project that
+	// sets one knob keeps the global value of the others (a project setting only compact_ratio must
+	// not zero the global max_output_tokens).
+	if proj.EmbedModel != "" {
+		cfg.EmbedModel = proj.EmbedModel
+	}
+	if proj.Limits.MaxOutputTokens != 0 {
+		cfg.Limits.MaxOutputTokens = proj.Limits.MaxOutputTokens
+	}
+	if proj.Limits.ContextTokens != 0 {
+		cfg.Limits.ContextTokens = proj.Limits.ContextTokens
+	}
+	if proj.Limits.CompactRatio != 0 {
+		cfg.Limits.CompactRatio = proj.Limits.CompactRatio
+	}
+	if proj.Sampling.Temperature != nil {
+		cfg.Sampling.Temperature = proj.Sampling.Temperature
+	}
+	if proj.Sampling.TopP != nil {
+		cfg.Sampling.TopP = proj.Sampling.TopP
+	}
+	if proj.Sampling.TopK != nil {
+		cfg.Sampling.TopK = proj.Sampling.TopK
+	}
+	if proj.Sampling.ReasoningEffort != "" {
+		cfg.Sampling.ReasoningEffort = proj.Sampling.ReasoningEffort
+	}
+	// Profiles merged BEFORE their consumers matter: [routing] is already merged above, so a project
+	// that adds a profile and routes to it needs the profile to land or the route points at nothing.
+	for k, v := range proj.LLM.Profiles {
+		if cfg.LLM.Profiles == nil {
+			cfg.LLM.Profiles = map[string]config.LLMProfile{}
+		}
+		cfg.LLM.Profiles[k] = v
+	}
+	for k, v := range proj.Subagents {
+		if cfg.Subagents == nil {
+			cfg.Subagents = map[string]config.SubagentConfig{}
+		}
+		cfg.Subagents[k] = v
+	}
 	return cfg, append(said, projectBrought(proj)...)
 }
 
