@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -141,9 +143,12 @@ func TestCompleteCodeStripsAFenceButKeepsCodeBackticks(t *testing.T) {
 func TestCompleteCodeSelfDisablesWhenTurnedOff(t *testing.T) {
 	off := false
 	cap := &acCapLLM{text: "SHOULD NOT RUN"}
+	// A fully usable profile (registered + a model), so the ONLY thing stopping the call is the master
+	// switch. Without the model this passed for the wrong reason — completeReady's no-model guard, not
+	// Enabled=false — and deleting the CodeOn() check would not have failed it.
 	a, sid := completeApp(t, acFailLLM{t},
 		config.AutocompleteConfig{Enabled: &off, CodeProfile: "fast"},
-		map[string]port.LLMProvider{"fast": cap}, nil)
+		map[string]port.LLMProvider{"fast": cap}, map[string]string{"fast": "m"})
 	got, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
 	if err != nil {
 		t.Fatal(err)
@@ -330,6 +335,73 @@ func TestSuggestPromptLearnsFromPastPrompts(t *testing.T) {
 	}
 	if !strings.Contains(body, "run the flaky ") {
 		t.Errorf("what the user typed was not in the prompt:\n%s", body)
+	}
+}
+
+// acPartialThenErrLLM emits some text and THEN a stream error — a backend connection cut mid-answer.
+type acPartialThenErrLLM struct{}
+
+func (acPartialThenErrLLM) StreamChat(_ context.Context, _ port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent, 3)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "retur"}
+	ch <- port.ProviderEvent{Type: port.ProviderError, Err: errors.New("connection reset")}
+	close(ch)
+	return ch, nil
+}
+
+// A cut stream must insert NOTHING — a partial completion spliced mid-token is worse than none. This
+// is the feature's explicit safety contract; without it "retur" would land in the buffer.
+func TestCompleteCodeInsertsNothingOnACutStream(t *testing.T) {
+	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
+		map[string]port.LLMProvider{"fast": acPartialThenErrLLM{}}, map[string]string{"fast": "m"})
+	got, err := a.CompleteCode(context.Background(), sid, "x.go", "func f() int { ", "}")
+	if err != nil {
+		t.Fatalf("a cut is not the caller's error to see: %v", err)
+	}
+	if got != "" {
+		t.Errorf("partial text from a cut stream was returned for insertion: %q", got)
+	}
+}
+
+// A non-empty one-off rules override REPLACES the saved config template for that draft; it does not
+// append to it, and the config one is not also present.
+func TestDraftCommitRulesOverrideReplacesConfig(t *testing.T) {
+	dir := gitRepo(t, []string{"commit", "--allow-empty", "-q", "-m", "init"})
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := acRun(dir, "git", "add", "a.txt"); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	store, _ := jsonl.New(t.TempDir())
+	cap := &acCapLLM{text: "add a.txt"}
+	a := closeAfter(t, New(store, cap, builtin.Default(), bus.New(), platform.New(), Config{
+		Templates: config.TemplatesConfig{Commit: "SAVED-DEFAULT-RULE"},
+	}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if _, err := a.DraftCommit(context.Background(), sid, dir, "ONE-OFF-RULE-FOR-THIS-DRAFT"); err != nil {
+		t.Fatal(err)
+	}
+	sys := cap.request().System
+	if !strings.Contains(sys, "ONE-OFF-RULE-FOR-THIS-DRAFT") {
+		t.Errorf("the one-off rule did not reach the prompt:\n%s", sys)
+	}
+	if strings.Contains(sys, "SAVED-DEFAULT-RULE") {
+		t.Errorf("the one-off did not replace the saved template; both are present:\n%s", sys)
+	}
+}
+
+// The byte caps must never split a multibyte rune — a large CJK file would otherwise send invalid
+// UTF-8 to the model.
+func TestClampUTF8KeepsValidRunes(t *testing.T) {
+	big := strings.Repeat("가나다", 20000) // 9 bytes per repeat, ~180 KB, all multibyte
+	for _, got := range []string{clampHeadUTF8(big, completeCap), clampTailUTF8(big, completeCap)} {
+		if !utf8.ValidString(got) {
+			t.Error("a clamp produced invalid UTF-8 (split a rune)")
+		}
+		if len(got) > completeCap {
+			t.Errorf("a clamp exceeded the cap: %d > %d", len(got), completeCap)
+		}
 	}
 }
 

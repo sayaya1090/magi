@@ -1144,7 +1144,7 @@ func run() int {
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
 		// No KillBackgroundProcesses here, and no CloseLSPPool: those belong to the process that
 		// STARTED them. Detaching a viewer must not reap the daemon's work.
-		if err := tui.Run(ctx, attached{App: a, c: cl, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
+		if err := tui.Run(ctx, attached{App: a, c: cl, sock: sockPath, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
 			session.SessionID(joined), modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
 			fmt.Fprintln(os.Stderr, "magi: attach:", err)
 			return 1
@@ -2669,12 +2669,17 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 	return d.App.LookOver(rctx, d.handover.at.now(), path, text)
 }
 
+// completeDeadline bounds a keystroke-fired completion/suggestion. Tighter than LookOver's 45s
+// because this timeout is the ONLY real bound: a client that hangs up (the browser aborts, the person
+// types on) does NOT propagate a cancel to this running model call — the socket read is not tied to
+// the request's context — so the daemon spends the model until this deadline whatever the client
+// does. A completion a person waits ten seconds for is already worthless, so the deadline both caps
+// the wasted spend and frees the connection (web s.alone socket, or the daemon goroutine) sooner.
+const completeDeadline = 12 * time.Second
+
 // CompleteCode is inline completion at the cursor on the fast profile — see app.CompleteCode.
-// Bounded like LookOver, for the same reason: asked on a pause in typing, an answer overtaken by the
-// next keystroke is worth nothing. The client also cancels it by dropping the request when the
-// person types on, which drops this context with it.
 func (d daemonEngine) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error) {
-	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	rctx, cancel := context.WithTimeout(ctx, completeDeadline)
 	defer cancel()
 	return d.App.CompleteCode(rctx, d.handover.at.now(), path, prefix, suffix)
 }
@@ -2686,11 +2691,10 @@ func (d daemonEngine) SetOpenFile(ctx context.Context, path, text string) error 
 	return nil
 }
 
-// SuggestPrompt is the composer's ghost text on the composer profile — see app.SuggestPrompt.
-// Bounded like completion: a suggestion for the composer that arrives after the person has typed on
-// is worth nothing, and the client drops it by cancelling anyway.
+// SuggestPrompt is the composer's ghost text on the composer profile — see app.SuggestPrompt. Bounded
+// by completeDeadline for the same reason as CompleteCode: the timeout is the only real bound.
 func (d daemonEngine) SuggestPrompt(ctx context.Context, prefix string) (string, error) {
-	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	rctx, cancel := context.WithTimeout(ctx, completeDeadline)
 	defer cancel()
 	return d.App.SuggestPrompt(rctx, d.handover.at.now(), prefix)
 }

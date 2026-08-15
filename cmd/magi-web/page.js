@@ -7822,7 +7822,12 @@ function drawPR(a, st) {
   const acts = cell('commitacts');
   const rulesToggle = label(withMark(document.createElement('md-text-button'), '#i-sl-sliders'),
                             tr('git.rules'));
-  rulesToggle.onclick = () => { prRulesOpen = rulesWrap.hidden; rulesWrap.hidden = !rulesWrap.hidden; };
+  rulesToggle.setAttribute('aria-expanded', String(!rulesWrap.hidden));
+  rulesToggle.onclick = () => {
+    prRulesOpen = rulesWrap.hidden;
+    rulesWrap.hidden = !rulesWrap.hidden;
+    rulesToggle.setAttribute('aria-expanded', String(prRulesOpen));
+  };
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
   draft.onclick = () => whileItRuns(draft, async () => {
@@ -7996,7 +8001,12 @@ function drawCommit(a, g) {
   const acts = cell('commitacts');
   const rulesToggle = label(withMark(document.createElement('md-text-button'), '#i-sl-sliders'),
                             tr('git.rules'));
-  rulesToggle.onclick = () => { commitRulesOpen = rulesWrap.hidden; rulesWrap.hidden = !rulesWrap.hidden; };
+  rulesToggle.setAttribute('aria-expanded', String(!rulesWrap.hidden));
+  rulesToggle.onclick = () => {
+    commitRulesOpen = rulesWrap.hidden;
+    rulesWrap.hidden = !rulesWrap.hidden;
+    rulesToggle.setAttribute('aria-expanded', String(commitRulesOpen));
+  };
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
   draft.onclick = () => whileItRuns(draft, async () => {
@@ -9476,6 +9486,19 @@ function paint() {
   if (compProfSel) compProfSel.setAttribute('label', tr('ac.profile_pick'));
   if (commitTpl) commitTpl.setAttribute('label', tr('ac.commit_tpl'));
   if (prTpl) prTpl.setAttribute('label', tr('ac.pr_tpl'));
+  // A switch's visible label is a sibling div, not a <label for> — so give each an accessible name
+  // (the way notifySwitch already gets one), or a screen reader announces a nameless "switch".
+  const ariaLabel = (id, key) => { const el = document.getElementById(id); if (el) el.setAttribute('aria-label', tr(key)); };
+  ariaLabel('lookSwitch', 'files.look');
+  ariaLabel('acSwitch', 'pref.autocomplete');
+  ariaLabel('sugSwitch', 'pref.suggest');
+  ariaLabel('ambientSwitch', 'ac.ambient');
+  ariaLabel('crossSwitch', 'ac.cross');
+  // The group subheaders look like headings; expose them as headings so AT can navigate the groups.
+  for (const id of ['grpAppearance', 'grpNotify', 'grpAssist', 'grpComplete', 'grpConsole']) {
+    const g = document.getElementById(id);
+    if (g) { g.setAttribute('role', 'heading'); g.setAttribute('aria-level', '3'); }
+  }
   document.getElementById('accessK').textContent = tr('nav.access');
   document.getElementById('accessWhy').textContent = tr('access.why');
   label(document.getElementById('accessGo'), tr('access.open'));
@@ -10956,8 +10979,15 @@ const sugHint = document.createElement('div');
 sugHint.className = 'sughint';
 sugHint.hidden = true;
 sugHint.setAttribute('aria-hidden', 'true');
-if (t.insertAdjacentElement) t.insertAdjacentElement('afterend', sugHint);
-else if (t.parentNode) t.parentNode.appendChild(sugHint);
+// BELOW the composer row, not inside it: .composer is a nowrap flex row (field + buttons), so a hint
+// placed between them cannot take its own line on a phone — it would squeeze the field. Placed after
+// the composer box, it is a full-width line under it at every width.
+{
+  const composerBox = (t.closest && t.closest('.composer')) || t.parentNode;
+  if (composerBox && composerBox.insertAdjacentElement) composerBox.insertAdjacentElement('afterend', sugHint);
+  else if (t.insertAdjacentElement) t.insertAdjacentElement('afterend', sugHint);
+  else if (t.parentNode) t.parentNode.appendChild(sugHint);
+}
 const sugClear = () => { if (sugText || !sugHint.hidden) { sugText = ''; sugHint.hidden = true; sugHint.textContent = ''; } };
 // Take it: append to what they typed, since the suggestion continues from where they stopped.
 const sugAccept = () => {

@@ -29,6 +29,9 @@ import (
 type attached struct {
 	*app.App
 	c *daemon.Client
+	// sock is the daemon socket path, kept so a call that must NOT hold the pooled connection (a slow
+	// model call) can dial a one-shot of its own — the same reason the web console has s.alone.
+	sock string
 	// seen is the last answer to "what is running beside the turn", kept for a moment.
 	//
 	// The strip asks three questions per tick — which jobs, what has each written, which children —
@@ -226,10 +229,23 @@ func (a attached) Compact(ctx context.Context, c command.Compact) error {
 
 // SuggestPrompt spends the daemon's composer profile and reads the daemon's current session, so it
 // goes to the daemon — done here it would run against this process's throwaway App, which has no
-// provider, and return nothing while the daemon holds the model that could answer. The daemon uses
-// its own current session; the prefix is all the wire needs.
+// provider, and return nothing while the daemon holds the model that could answer.
+//
+// On a DEDICATED one-shot connection, not the pooled a.c: this is a model call bounded at seconds,
+// and the pooled client holds its mutex across the whole round trip — routed through a.c, a slow
+// composer profile would freeze the jobs-strip poll, submit and status behind it for the daemon's
+// whole deadline. The web console avoids exactly this with s.alone; the attached TUI does the same
+// here. Falls back to the pooled client only when there is no socket to dial (a test).
 func (a attached) SuggestPrompt(ctx context.Context, sid session.SessionID, prefix string) (string, error) {
-	return a.c.Suggest(prefix)
+	if a.sock == "" {
+		return a.c.Suggest(prefix)
+	}
+	cl, err := daemon.Dial(a.sock)
+	if err != nil {
+		return "", err
+	}
+	defer cl.Close()
+	return cl.Suggest(prefix)
 }
 
 // SetModel and SetPermission change how the engine runs, and locally they changed a copy nobody was

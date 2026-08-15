@@ -1064,7 +1064,10 @@
      other way round, a new width would inherit "show it" and quietly give the screen two doors. */
   .prefrow.narrowonly { display:none; }
   .prefrow > .prefsay { flex:1 1 auto; min-width:0; }
-  .prefrow > md-outlined-select { flex:0 0 11rem; }
+  /* Shrinkable and capped: 0 0 11rem cannot shrink and, in rem, grows with the reader's text size —
+     at 200% it is 352px and clips off the edge of the full-width prefs dialog. Same guard the skills
+     select carries. */
+  .prefrow > md-outlined-select { flex:0 1 11rem; max-width:100%; }
 
   /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
      composer itself grows with what you type. A constant padding here either wastes a screen of

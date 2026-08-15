@@ -153,8 +153,15 @@ func (a *App) pastPrompts(ctx context.Context, workdir string, exclude session.S
 	var stale []todo
 	live := make(map[session.SessionID]bool, len(metas))
 	for _, m := range metas {
-		if m.ID == exclude || strings.HasPrefix(m.Origin, "cron:") {
-			continue // the current session is read from its live events by the caller, not here
+		// The current session is read from its live events by the caller, not here. Cron sessions are
+		// an unattended job's words, not this person's. Hand-off / read-only "looking" side sessions
+		// carry ANOTHER companion's asker's request text — learning that as "how this user phrases
+		// instructions" is both wrong and a small cross-asker disclosure into this user's ghost text.
+		if m.ID == exclude ||
+			strings.HasPrefix(m.Origin, cronOriginPrefix) ||
+			strings.HasPrefix(m.Origin, handoffOriginPrefix) ||
+			m.Agent == LookingAgent {
+			continue
 		}
 		live[m.ID] = true
 		if c, ok := wp.perSession[m.ID]; !ok || c.seen.Before(m.LastActivity) {

@@ -197,12 +197,6 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// look asks the companion's model what it makes of a file somebody is editing.
-//
-// A POST because it carries a buffer, and behind `prompt` because it spends the model: it is not a
-// change to anything, but it is work asked of the backend on somebody's behalf, which is what that
-// capability is about. Read-only in every other sense — nothing is written, nothing is recorded,
-// and no turn is started.
 // prFacts is what a pull request from this companion would carry — the base, the commits and the
 // difference — so the screen can show it while somebody writes the request.
 func (s *server) prFacts(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +295,12 @@ func (s *server) gitMsg(w http.ResponseWriter, r *http.Request) {
 	writeText(w, out)
 }
 
+// look asks the companion's model what it makes of a file somebody is editing.
+//
+// A POST because it carries a buffer, and behind `prompt` because it spends the model: it is not a
+// change to anything, but it is work asked of the backend on somebody's behalf, which is what that
+// capability is about. Read-only in every other sense — nothing is written, nothing is recorded,
+// and no turn is started.
 func (s *server) look(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {
 		return

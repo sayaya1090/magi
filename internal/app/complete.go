@@ -137,7 +137,9 @@ func (a *App) SetOpenFile(sid session.SessionID, path, text string) {
 	if a.openFiles == nil {
 		a.openFiles = map[session.SessionID]openFile{}
 	}
-	a.openFiles[sid] = openFile{path: path, text: text}
+	// Stored clamped, not just clamped on read: volatileContext shows at most completeCap of it, so
+	// holding the whole of a 40MB buffer per session for the daemon's life is memory for nothing.
+	a.openFiles[sid] = openFile{path: path, text: clampHeadUTF8(text, completeCap)}
 }
 
 // openFileFor returns the session's open editor buffer, if any.

@@ -795,6 +795,20 @@ const demoScript = `
       banner.textContent = 'demo — ' + said;
       return {ok: true, status: 204, text: async () => ''};
     }
+    // The completion helpers fire on a PAUSE in typing — the composer and the editor, the two most-
+    // used controls. Swept into the branch below, every keystroke-pause rewrote the marketing banner
+    // with "would have sent: POST /suggest prefix=<whatever the visitor typed>". So they are answered
+    // here, quietly (no banner) and with a small sample, so a visitor who types sees the feature —
+    // ghost text and a composer hint — instead of the plumbing echoing their input.
+    if (init && init.method === 'POST' && url === '/complete') {
+      return {ok: true, status: 200, text: async () => '\n\treturn nil, fmt.Errorf("demo: %w", err)'};
+    }
+    if (init && init.method === 'POST' && url === '/suggest') {
+      return {ok: true, status: 200, text: async () => ' and show me the failing ones'};
+    }
+    if (init && init.method === 'POST' && url === '/open-file') {
+      return {ok: true, status: 204, text: async () => ''}; // ambient push; nothing to show, say nothing
+    }
     if (init && init.method === 'POST') {
       // Actions say what they would have done rather than pretending they did it: a demo that
       // silently accepts a delete teaches the wrong thing about the real console.
