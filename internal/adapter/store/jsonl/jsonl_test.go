@@ -3,6 +3,7 @@ package jsonl
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -54,6 +55,55 @@ func TestAppendSeq(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != 2 || got[1] != 3 {
 		t.Fatalf("append-2: seq=%v, want [2 3]", got)
+	}
+}
+
+// The read-through cache is an LRU capped at cacheCap: reading many sessions does not grow it
+// without bound, the session read most recently stays warm, and a session evicted to make room still
+// reads back correctly from its file. Reverting the warmCacheLocked cap lets the cache hold them all.
+func TestReadCacheIsCappedLRU(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ts := time.Now()
+
+	n := cacheCap + 20
+	ids := make([]session.SessionID, n)
+	for i := range ids {
+		sid := session.SessionID(fmt.Sprintf("s%04d", i))
+		ids[i] = sid
+		if _, err := s.Append(ctx, sid, created(wd, ts)); err != nil {
+			t.Fatalf("append %s: %v", sid, err)
+		}
+		if _, err := s.Read(ctx, sid, 0); err != nil { // warms the cache for this session
+			t.Fatalf("read %s: %v", sid, err)
+		}
+	}
+
+	s.mu.Lock()
+	cacheLen, usedLen := len(s.cache), len(s.used)
+	_, firstWarm := s.cache[ids[0]]  // read long ago → should have aged out
+	_, lastWarm := s.cache[ids[n-1]] // read most recently → should still be warm
+	s.mu.Unlock()
+
+	if cacheLen > cacheCap {
+		t.Errorf("cache holds %d sessions, over the cap of %d", cacheLen, cacheCap)
+	}
+	if usedLen != cacheLen {
+		t.Errorf("used map (%d) and cache (%d) disagree — a tick outlived its entry", usedLen, cacheLen)
+	}
+	if firstWarm {
+		t.Error("the first session read is still cached after cacheCap+20 others — nothing was evicted")
+	}
+	if !lastWarm {
+		t.Error("the most-recently-read session was evicted — the LRU dropped the wrong one")
+	}
+	// The evicted session still reads back correctly, re-parsed from its file.
+	evs, err := s.Read(ctx, ids[0], 0)
+	if err != nil {
+		t.Fatalf("re-read evicted session: %v", err)
+	}
+	if len(evs) != 1 || evs[0].Type != event.TypeSessionCreated {
+		t.Errorf("evicted session re-read wrong: %+v", evs)
 	}
 }
 

@@ -39,7 +39,24 @@ type Store struct {
 	// connected. Observed exactly that way. Comparing this against the file size on each Read
 	// turns "the only writer" into "the only writer I know of".
 	read map[session.SessionID]int64
+	// used is the last-access tick of each cached session, and tick the counter that stamps it.
+	// The cache is an LRU capped at cacheCap: without a bound it held the full parsed transcript of
+	// every session this process ever read for its whole lifetime — and the loop re-reads its own
+	// log every step, so every spawned child was warmed with its entire transcript and never
+	// dropped. The active session is read (and written) constantly, so it keeps the top ticks and
+	// stays warm; a session a viewer read once ages out and its next Read re-parses from the file,
+	// which is the same cold path a never-read session already takes. used holds exactly the keys in
+	// cache — every place that drops a cache entry drops its tick too — so it cannot grow past the
+	// cap either. seqs and paths are NOT capped: they are one int64 / one short string per session,
+	// and seq numbering must stay monotonic across a session's whole life.
+	used map[session.SessionID]uint64
+	tick uint64
 }
+
+// cacheCap bounds how many sessions' parsed logs the read-through cache holds at once. A few hundred
+// is far more than are ever live together, and each eviction costs only a re-parse on the evicted
+// session's next Read.
+const cacheCap = 256
 
 // New opens (or initializes) a Store rooted at root, indexing any existing logs
 // so seq numbering and lookups survive process restarts.
@@ -50,6 +67,7 @@ func New(root string) (*Store, error) {
 		paths: make(map[session.SessionID]string),
 		cache: make(map[session.SessionID][]event.Event),
 		read:  make(map[session.SessionID]int64),
+		used:  make(map[session.SessionID]uint64),
 	}
 	if err := s.index(); err != nil {
 		return nil, err
@@ -164,8 +182,7 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 		// Bytes may already be on disk but our in-memory state isn't updated — drop any
 		// warm cache so the next Read re-derives truth from the file instead of serving a
 		// stale view that silently omits the just-flushed events.
-		delete(s.cache, sid)
-		delete(s.read, sid)
+		s.dropCacheLocked(sid)
 		return nil, err
 	}
 	s.seqs[sid] = seq
@@ -179,9 +196,9 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 		// somebody else's tail and parse them a second time.
 		if size, err := fileSize(path); err == nil {
 			s.read[sid] = size
+			s.warmCacheLocked(sid) // a write is an access — keep the active session at the top
 		} else {
-			delete(s.cache, sid) // cannot say what the cache reflects — make the next Read reload
-			delete(s.read, sid)
+			s.dropCacheLocked(sid) // cannot say what the cache reflects — make the next Read reload
 		}
 	}
 	return out, nil
@@ -261,7 +278,39 @@ func (s *Store) Read(ctx context.Context, sid session.SessionID, fromSeq int64) 
 		}
 		s.cache[sid], s.read[sid] = evs, off
 	}
+	// A read is an access. Touch even the no-op case (size unchanged): the session is being looked
+	// at, which is what should keep it warm and evict something colder instead. cache[sid] is set on
+	// every branch that reaches here, so this both stamps it and holds the cache to its cap.
+	s.warmCacheLocked(sid)
 	return filterFrom(evs, fromSeq), nil
+}
+
+// dropCacheLocked forgets a session's cached log — its events, the byte offset they reflect, and its
+// recency tick — together, so `used` never outlives `cache`. The caller MUST hold s.mu.
+func (s *Store) dropCacheLocked(sid session.SessionID) {
+	delete(s.cache, sid)
+	delete(s.read, sid)
+	delete(s.used, sid)
+}
+
+// warmCacheLocked marks a session as most-recently-used and, if the cache is now over cap, evicts the
+// least-recently-used sessions until it fits. The just-touched session holds the top tick, so it is
+// never the one evicted. The caller MUST hold s.mu and must have just populated s.cache[sid].
+func (s *Store) warmCacheLocked(sid session.SessionID) {
+	s.tick++
+	s.used[sid] = s.tick
+	for len(s.cache) > cacheCap {
+		var oldest session.SessionID
+		var oldestTick uint64
+		first := true
+		for id := range s.cache {
+			t := s.used[id]
+			if first || t < oldestTick {
+				oldest, oldestTick, first = id, t, false
+			}
+		}
+		s.dropCacheLocked(oldest)
+	}
 }
 
 // locate finds a session's log on disk when the in-memory index has never seen it.
@@ -445,8 +494,7 @@ func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int6
 	if err := archiveThenReplace(path, tmp, path+".archive"); err != nil {
 		return err
 	}
-	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
-	delete(s.read, sid)
+	s.dropCacheLocked(sid) // log rewritten — drop the stale cache; next Read reloads it
 	return nil
 }
 
@@ -531,8 +579,7 @@ func (s *Store) Truncate(ctx context.Context, sid session.SessionID, upToSeq int
 		return err
 	}
 	s.seqs[sid] = last
-	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
-	delete(s.read, sid)
+	s.dropCacheLocked(sid) // log rewritten — drop the stale cache; next Read reloads it
 	return nil
 }
 
