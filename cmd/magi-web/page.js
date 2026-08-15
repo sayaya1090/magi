@@ -3707,9 +3707,25 @@ function refreshSideToggle() {
   tip(sideToggle, tr(word));
 }
 
+// A side card is redrawn only when what it draws changed.
+//
+// drawPlan/drawHandoffs/drawCron/loadJobs each fetch and then replaceChildren every fleet frame —
+// and a frame is pushed to every open companion page whenever ANY companion in the fleet takes a
+// step, so a card that changes rarely was rebuilding its whole subtree several times a minute off a
+// busy neighbour. The signature is the fetched data plus the companion and the label version, so a
+// real change (and a late language pack) still redraws. Cleared per card in clearCompanionView so a
+// return to the same companion, whose box was emptied, draws again.
+function sideCardSame(box, a, list) {
+  const sig = (a.peer || '') + '\0' + (a.socket || '') + '\0' + labelVer + '\0' + JSON.stringify(list || []);
+  if (box._sideSig === sig) return true;
+  box._sideSig = sig;
+  return false;
+}
+
 async function drawPlan(a) {
   const box = document.getElementById('plan');
   const todos = await fetchList('/plan' + qFor(a));
+  if (sideCardSame(box, a, todos)) return;
   if (!todos || !todos.length) { showSide(box, false); box.replaceChildren(); return; }
   // How much of the plan is behind it. Determinate, because the counts are known — an
   // indeterminate bar here would say "something is happening" to somebody who can already see
@@ -3738,6 +3754,7 @@ async function drawPlan(a) {
 async function drawHandoffs(a) {
   const box = document.getElementById('handoffs');
   const list = await fetchList('/handoffs' + qFor(a));
+  if (sideCardSame(box, a, list)) return;
   if (!list || !list.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = list.map(h => {
     // `row`, not `el`: this scope used to call its row el, which shadows the page's own el() —
@@ -3800,6 +3817,7 @@ async function drawHandoffs(a) {
 async function drawCron(a) {
   const box = document.getElementById('cron');
   const list = await fetchList('/cron' + qFor(a));
+  if (sideCardSame(box, a, list)) return;
   if (!list || !list.length) { showSide(box, false); box.replaceChildren(); return; }
   const rows = list.map(j => {
     const el = cell('job' + (j.enabled ? '' : ' off') + (j.problem ? ' broken' : ''));
@@ -5875,8 +5893,18 @@ async function meetGet(path) {
   } catch { return null; }
 }
 
+let lastMeetShown = '';
 async function loadMeet() {
   const id = meetOf();
+  // Leaving a meeting, or switching to another, drops the last one's per-participant caches. They
+  // are keyed by speaker and were never cleared, so a long-lived tab that visited many meetings
+  // kept every participant's live rows, fetched conversation and open-work flags for all of them.
+  if (id !== lastMeetShown) {
+    roomLive.clear();
+    roomRows.clear();
+    workOpen.clear();
+    lastMeetShown = id;
+  }
   if (!id) {
     const [list, open] = await Promise.all([fetchList('/fleet'), meetGet('/meet')]);
     drawConvene(list || [], open || []);
@@ -9397,7 +9425,7 @@ function forgetShownRows() {
 function clearCompanionView() {
   const sideCol = document.getElementById('side');
   if (refreshSideToggle.blank) { refreshSideToggle.blank.remove(); refreshSideToggle.blank = null; }
-  for (const card of sideCol.children) card.hidden = true;
+  for (const card of sideCol.children) { card.hidden = true; card._sideSig = null; }
   for (const el of [stripEl, document.getElementById('prompt'), document.getElementById('detail')]) {
     el.hidden = true;
     el.replaceChildren();

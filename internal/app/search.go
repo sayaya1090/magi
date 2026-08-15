@@ -292,10 +292,31 @@ func (a *App) turnsOf(ctx context.Context, m session.SessionMeta) ([]turnDoc, er
 	if a.searchCache == nil {
 		a.searchCache = map[session.SessionID]cachedTurns{}
 	}
+	// Bounded, because the value is every turn of a session and the map was keyed by session with no
+	// eviction — searching a workspace that has accumulated sessions (cron, forks, subagents) held
+	// the full text of all of them for the life of the process. Over the cap, the least-recently-
+	// active entry is dropped; it is re-derived from the log on the next search that needs it.
+	if len(a.searchCache) >= searchCacheCap {
+		var oldest session.SessionID
+		var oldestAt time.Time
+		for id, c := range a.searchCache {
+			if oldest == "" || c.at.Before(oldestAt) {
+				oldest, oldestAt = id, c.at
+			}
+		}
+		if oldest != "" && oldest != m.ID {
+			delete(a.searchCache, oldest)
+		}
+	}
 	a.searchCache[m.ID] = cachedTurns{at: m.LastActivity, turns: turns}
 	a.searchMu.Unlock()
 	return turns, nil
 }
+
+// searchCacheCap bounds how many sessions' turns are held in memory at once. Each entry is a whole
+// session's text, so this is the difference between a warm search cache and a slow memory leak on a
+// long-lived daemon whose workspace keeps gaining sessions.
+const searchCacheCap = 256
 
 // isTurnStart reports whether an event begins a new top-level turn. Only a user prompt does —
 // magi's own injected prompts carry a system actor and are part of the turn they were injected
