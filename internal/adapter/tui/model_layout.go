@@ -158,6 +158,9 @@ func (m *Model) baseChromeHeight() int {
 		inputRows = 1
 	}
 	h := 2 + (inputRows + 2) + 1 // header(2) + bordered input(rows+border) + footer
+	if m.suggestion != "" {
+		h++ // the composer suggestion hint is one dim line under the input (model_view.go); reserve it
+	}
 	if m.perm != nil {
 		// Reserve the modal's *rendered* height, not a nominal row count: a long
 		// tool line, policy reason, or the hint can wrap at narrow widths, and an

@@ -235,6 +235,7 @@
   "ac.commit_tpl": "커밋 메시지 규칙",
   "ac.pr_tpl": "PR 규칙",
   "ac.profile_none": "없음 (끔)",
+  "ac.profile_missing": "정의 안 됨",
   "ac.profile_pick": "프로파일",
   "files.more": "더보기",
   "files.more_named": "{name} 더보기",

@@ -678,6 +678,10 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 		m.forkOrigin = ""
 		// The offer belonged to the conversation being left, and following it is what this is.
 		m.movedTo = ""
+		// A composer suggestion is drawn from the LEFT session's context; carried over, its dim hint
+		// would sit under the new session's composer and Tab would insert the wrong session's text.
+		// Drop it, and bump the token so a suggestion still in flight for the old session is ignored.
+		m.suggestion, m.suggestBase, m.suggestTok = "", m.ta.Value(), m.suggestTok+1
 	}
 	m.sid = sid
 	m.blocks = rebuildBlocks(msgs)

@@ -2085,6 +2085,9 @@ function answerMode(a) {
     const parked = answerMode.parked || '';
     answerMode.parked = t.value;
     t.value = parked;
+    // The box content just changed under any standing suggestion, without an input event to clear it.
+    // Left up, the hint is about the parked draft and Tab would append it to the swapped-in text.
+    if (typeof sugClear === 'function') sugClear();
   }
   // The note's text can change WITHOUT a flip (a question with options replacing one without), so it
   // is not gated on the flip — but it is only written when it actually changed, so an unchanged one
@@ -8232,12 +8235,17 @@ function editor(path, text, acts) {
   // ghost only ever lived in the mirror, so this is the first time it becomes real text.
   const accept = () => {
     if (!ghost || !ghost.text) return false;
+    // Only where the ghost actually sits. If the caret moved since the completion arrived — a mouse
+    // click, a key we did not catch — splicing at ghost.at would drop the text far from where the
+    // person is working, so bail and clear instead.
+    if (area.selectionStart != null && area.selectionStart !== ghost.at) { dismiss(); return false; }
     const at = Math.min(ghost.at, area.value.length);
     area.value = area.value.slice(0, at) + ghost.text + area.value.slice(at);
     area.selectionStart = area.selectionEnd = at + ghost.text.length;
     ghost = null;
     drafts.set(path, area.value);
     repaint();
+    pushOpen();   // the buffer changed; keep the companion's ambient copy in step
     return true;
   };
   const complete = async () => {
@@ -8284,13 +8292,22 @@ function editor(path, text, acts) {
   // Tab takes the ghost when there is one (and only then — otherwise Tab is a tab); Escape and any
   // caret move drop it, since it was about where the caret was.
   area.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab' && ghost && ghost.text) { e.preventDefault(); accept(); return; }
+    if (e.key === 'Tab' && ghost && ghost.text) {
+      // Take it only if the caret is still where the ghost is; otherwise let Tab be a tab.
+      if (area.selectionStart == null || area.selectionStart === ghost.at) { e.preventDefault(); accept(); return; }
+      dismiss();
+      return;
+    }
     if (e.key === 'Escape' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
-        e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
+        e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End' ||
+        e.key === 'PageUp' || e.key === 'PageDown') {
       dismiss();
     }
   });
   area.addEventListener('blur', dismiss);
+  // A mouse click repositions the caret without a keystroke or a blur, which would leave the grey
+  // ghost stranded at the old spot; drop it so the next Tab is a tab, not a mis-placed splice.
+  area.addEventListener('pointerdown', dismiss);
   // Tell the companion this file is open the moment the editor is (before any typing), so a question
   // asked straight away is still answered against the buffer.
   pushOpen();
@@ -10436,7 +10453,11 @@ const fillProfiles = (sel, profiles, current) => {
     sel.append(o);
   };
   opt('', tr('ac.profile_none'));
-  for (const p of (profiles || [])) opt(p, p);
+  const have = profiles || [];
+  for (const p of have) opt(p, p);
+  // A profile assigned but no longer defined (deleted from [llm.profiles.*]) would otherwise render
+  // as a blank select, hiding the stale assignment. Show it, marked, so the operator can see and fix it.
+  if (current && have.indexOf(current) < 0) opt(current, current + ' — ' + tr('ac.profile_missing'));
   sel.value = current || '';
 };
 async function loadAutocomplete() {
@@ -10447,15 +10468,22 @@ async function loadAutocomplete() {
   if (crossSwitch) crossSwitch.selected = got.crossSession !== false;
   fillProfiles(codeProfSel, got.profiles, got.codeProfile);
   fillProfiles(compProfSel, got.profiles, got.composerProfile);
-  if (commitTpl) commitTpl.value = got.commitTemplate || '';
-  if (prTpl) prTpl.value = got.prTemplate || '';
+  if (commitTpl) { commitTpl.value = got.commitTemplate || ''; commitTpl._saved = commitTpl.value; }
+  if (prTpl) { prTpl.value = got.prTemplate || ''; prTpl._saved = prTpl.value; }
 }
+// A textarea saves on 'change', which for a multiline field is blur — so an edit followed by Escape
+// (dismissing the dialog while the field is still focused) could be lost. Flush on close catches it.
+const flushTpl = (el, field) => {
+  if (el && el.value !== el._saved) { acSave(field, el.value || ''); el._saved = el.value; }
+};
 if (ambientSwitch) ambientSwitch.addEventListener('change', () => acSave('ambient', ambientSwitch.selected ? 'on' : 'off'));
 if (crossSwitch) crossSwitch.addEventListener('change', () => acSave('crossSession', crossSwitch.selected ? 'on' : 'off'));
 if (codeProfSel) codeProfSel.addEventListener('change', () => acSave('codeProfile', codeProfSel.value || ''));
 if (compProfSel) compProfSel.addEventListener('change', () => acSave('composerProfile', compProfSel.value || ''));
-if (commitTpl) commitTpl.addEventListener('change', () => acSave('commitTemplate', commitTpl.value || ''));
-if (prTpl) prTpl.addEventListener('change', () => acSave('prTemplate', prTpl.value || ''));
+if (commitTpl) commitTpl.addEventListener('change', () => flushTpl(commitTpl, 'commitTemplate'));
+if (prTpl) prTpl.addEventListener('change', () => flushTpl(prTpl, 'prTemplate'));
+// Escape/backdrop dismiss does not blur first, so flush the templates when the dialog closes.
+prefsDialog.addEventListener('close', () => { flushTpl(commitTpl, 'commitTemplate'); flushTpl(prTpl, 'prTemplate'); });
 
 // The two grips: the edge of each pane, dragged.
 //

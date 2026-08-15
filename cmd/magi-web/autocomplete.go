@@ -120,7 +120,7 @@ func (s *server) autocompleteWrite(w http.ResponseWriter, r *http.Request) {
 		if did != nil || !r.Form.Has(field) {
 			return
 		}
-		did = config.SetKey(path, section, key, strings.TrimSpace(r.FormValue(field)))
+		did = config.SetKey(path, section, key, stripControl(strings.TrimSpace(r.FormValue(field))))
 	}
 
 	boolField("ambient", "ambient")
@@ -136,4 +136,22 @@ func (s *server) autocompleteWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	writeText(w, "Saved to "+path+". It takes effect when that companion's daemon next starts — this "+
 		"changed the file, not a running process.")
+}
+
+// stripControl removes characters that config.SetKey's %q would escape into TOML the parser then
+// rejects: BurntSushi's decoder (default mode) does not accept \x.., \a or \v, so a control byte in a
+// pasted template would write a config.toml that fails to re-parse — bricking the daemon's next start
+// and this console's own reads. Tab and newline are kept (a template is often multi-line); a stray CR
+// is dropped so CRLF pastes normalise to LF. Everything else below space, and DEL, is removed.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		default:
+			return r
+		}
+	}, s)
 }

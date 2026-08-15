@@ -235,6 +235,7 @@
   "ac.commit_tpl": "Commit message rules",
   "ac.pr_tpl": "Pull request rules",
   "ac.profile_none": "None (off)",
+  "ac.profile_missing": "not defined",
   "ac.profile_pick": "Profile",
   "files.more": "More",
   "files.more_named": "More — {name}",

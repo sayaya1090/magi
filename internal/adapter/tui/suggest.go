@@ -50,7 +50,11 @@ const suggestDebounce = 400 * time.Millisecond
 func (m *Model) onComposerChanged() tea.Cmd {
 	v := m.ta.Value()
 	if v == m.suggestBase {
-		return nil // an arrow or a modifier — the text the suggestion is about did not change
+		// A caret move or a modifier: the text did not change, but the caret may have. A standing
+		// suggestion appends at the end, so once the caret has moved it would land wrong — drop it
+		// rather than offer a mis-placed insert. Do not refetch (the text is the same).
+		m.suggestion = ""
+		return nil
 	}
 	m.suggestBase = v
 	m.suggestion = ""
