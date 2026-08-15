@@ -253,7 +253,25 @@ primary = "#FF7A1A"        # role: primary·accent·muted·outline·error·succe
 accent  = "#5CD8E6"        #       surface·primaryContainer·outlineVariant·warn
 [theme.light]
 primary = "#B45309"
+
+[autocomplete]             # IDE-style helpers: thin, no-council model calls on a FAST routed profile,
+                           # fired on a pause in typing. Each field is optional; a surface with no
+                           # profile shows nothing rather than spending the main model on a keystroke.
+# ambient          = true       # (default on) the file open in the web editor — with unsaved changes —
+                           #                rides into the agent's context, so a question about it is
+                           #                answered against the buffer, not stale disk.
+# code_profile     = "fast"     # [llm.profiles.*] for inline code completion in the web editor (unset = off)
+# composer_profile = "balanced" # [llm.profiles.*] for composer next-instruction suggestion, web + TUI (unset = off)
+# cross_session    = true       # (default on) composer suggestion learns this user's phrasing from the
+                           #                workspace's past sessions; off = current conversation only.
+
+[templates]                # house rules folded into the draft generators (commit message, PR body).
+                           # Additive to the base prompt and take precedence where they differ. Empty
+                           # leaves the generators exactly as they were.
+# commit = "Layer the commits: docs, then core, then the outward change. No issue numbers."
+# pr     = "Fill the review checklist; name what a reviewer should look at first."
 ```
+> **Autocomplete & suggestions** (`[autocomplete]`): three low-latency helpers, each a single no-council model call on a routed profile — never a subagent turn, so a keystroke never waits on a finish vote. **Inline code completion** shows ghost text at the cursor in the web file editor (Tab takes it). **Composer suggestion** offers how you'll finish an instruction, in both the web composer (a dim hint) and the TUI composer (a line under the box, Tab), learned from your own past prompts via lexical ranking. **Ambient open-file** puts the file you're editing — unsaved — into the agent's next-turn context. Code and composer get **separate profiles** on purpose (a small fast model for code, a slightly stronger one for the composer); a surface with no profile self-disables rather than billing the main model. All of it is toggled and assigned from the web console's **Preferences** (the on/off switches are per-browser; the profile assignments, ambient, cross-session and the two `[templates]` rule editors are written to config), and persists to this file.
 > The `[routing]` / `[llm.profiles.*]` / `model` above can **also be edited via the `/route` editor** and are saved to this file.
 > **The council (the MAGI: Melchior · Balthasar · Casper · on by default)**: three members the agent reaches through the `council` tool. `question` gets their reading on something it is unsure of and ends nothing; `complete: true` **declares the task finished** and is answered — accepted (the turn ends) or handed back with what is still undone (§6). What they read is magi's own record: every command it granted and how that command really ended (a pipeline whose failure hid behind a zero exit is filed as failed), the paths its tools wrote, **the agent's own edits this turn** as a per-file before→after diff (reconstructed from the write/edit calls, git-independent, so a human or external change is never credited to the agent), and — on a declaration — a **fresh read of the workspace**: files modified since the task began, background commands still alive, and any path the record claims was written that is not on disk. A member objects only when its lens identifies a **concrete defect**, accepts when satisfied, and **abstains** when there is no evidence to judge by. `rule` sets the consensus method. Give each `[[council.member]]` a `provider` (an `[llm.profiles.*]` backend) and `model` so **each member can deliberate on a different model** (a mix of cheap + strong); unset, they use the session model. In the TUI, deliberation is shown live as a **header chip** (`⚖ council rN: <member>`) and transcript lines (convene · per-member one-liner: member-colored `●` + name + verdict icon · tally). **Clicking a member line opens a detail modal** (lens · rationale · feedback · confidence). Per-member colors are themable (`[theme.dark] melchior/balthasar/casper`). The council is inactive in workflow mode (the pipeline uses its own verify gate).
 > Color themes can be defined externally per role in `[theme.dark]` / `[theme.light]` (default = NERV/MAGI). Pick the mode (auto/dark/light) with `--theme`.
