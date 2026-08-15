@@ -49,9 +49,9 @@ import (
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/envflag"
+	"github.com/sayaya1090/magi/internal/graceful"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/update"
-	"github.com/sayaya1090/magi/internal/graceful"
 	"github.com/sayaya1090/magi/internal/version"
 
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -142,12 +142,13 @@ func runCoreUpdate() int {
 
 // main is the process entry point: it calls run and exits with its status.
 //
-//coverage:ignore the entry point — a test could only duplicate this one line
 // restartOnExit is set by run() when the daemon was asked to relaunch (daemon.Restart) rather than
 // stop. Read here, AFTER run() has returned and all its deferred cleanup — unpublishing the record,
 // releasing the socket and lock — has executed, so the re-exec starts with nothing left to hand over.
 // syscall.Exec would skip any pending defer, which is exactly why the relaunch happens out here and
 // not inside run().
+//
+//coverage:ignore the entry point — a test could only duplicate this one line
 var restartOnExit bool
 
 func main() {
