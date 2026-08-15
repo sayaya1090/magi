@@ -1183,6 +1183,9 @@ function iconOr(ref, glyph, cls) {
   return icon(ref, {cls: cls, fallback: () => {
     const s = el('span', glyph);
     s.className = 'gl ' + (cls || '');
+    // Decorative, like the sprite icon() it stands in for — without this, a no-sprite build read the
+    // fallback glyph (a chevron "›", a caret) into the accessible name of the control it sits in.
+    s.setAttribute('aria-hidden', 'true');
     return s;
   }});
 }
@@ -2597,6 +2600,11 @@ async function loadFleet(given) {
   // down should not leave its row in a map that grows for the life of the tab.
   const alive = new Set(list.map(a => (a.peer || '') + ' ' + a.socket));
   for (const key of [...shownCards.keys()]) if (!alive.has(key)) shownCards.delete(key);
+  // wasState is keyed by socket alone (it drives the arrival chime, which is per companion, not per
+  // peer view), so it is pruned against the live sockets rather than the peer+socket keys above —
+  // otherwise it grew one entry per distinct socket ever seen, for the life of the tab.
+  const aliveSockets = new Set(list.map(a => a.socket));
+  for (const s of [...wasState.keys()]) if (!aliveSockets.has(s)) wasState.delete(s);
   // A filter that now matches nothing says so and offers the way out. A roster of six narrowed to
   // zero used to draw a bare table head under a lit chip, with no word about why and — since the
   // chip had gone hard-disabled — no way to clear it. This is the shape the access screen already
@@ -8496,7 +8504,10 @@ function drawCardTabs(a) {
             head: tr('edit.discard_headline', {name: tabName(path)}),
             body: tr('edit.discard_body'),
             keep: tr('action.keep_editing'), keepMark: '#i-sl-pen-to-square',
-            doIt: tr('action.discard'), doMark: '#i-sl-xmark',
+            // Eraser, not ✕. Everywhere else in the app ✕ means dismiss/cancel/close; the one place
+            // it sat on a DESTRUCTIVE button was here, throwing away unsaved edits. The eraser is the
+            // mark git-discard already uses for "throw the change away", so ✕ stays "close" alone.
+            doIt: tr('action.discard'), doMark: '#i-sl-eraser',
             go: shut,
           });
           return;

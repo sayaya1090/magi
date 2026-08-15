@@ -919,7 +919,11 @@
      keeps dividers for uncontained or complex ones, "only when a stronger visual separation is
      necessary". A line between every row of four is a fence where a space does the work. */
   #prefsForm {
-    display:flex; flex-direction:column; gap:var(--magi-sys-space-300); min-width:16rem;
+    /* min-width in rem grows with the reader's text: at 200% 16rem is 512px, wider than the compact
+       full-screen dialog's 360px surface — whose scroller is overflow-x:hidden, so the trailing edge
+       of every settings row (the switches and selects) was CLIPPED and unreachable. The same bug the
+       skills field and #mcpForm already guard against; guarded here the same way. */
+    display:flex; flex-direction:column; gap:var(--magi-sys-space-300); min-width:min(16rem, 100%);
   }
   /* Both rows lay their controls out on one line and wrap on a narrow screen. .sktools had no
      display at all — four controls in a block, no gap, no shared baseline — which is what "the
@@ -3278,7 +3282,9 @@
      ordinary text at ordinary weight. */
   #meet { display:block; max-width:var(--magi-sys-page); }
   .meetbox { display:grid; gap:var(--magi-sys-space-200); }
-  .meetwhy, .meetnote { color:var(--magi-ref-muted); }
+  /* Capped to the house prose measure like .accsay: uncapped these helper sentences ran 132–163ch
+     on a wide screen, past the guide's 120ch ceiling for large displays. */
+  .meetwhy, .meetnote { color:var(--magi-ref-muted); max-width:var(--magi-sys-measure); }
   .meetlbl { color:var(--magi-ref-muted); margin-top:var(--magi-sys-space-100); }
   /* A heading, so it is drawn as one: the h3 default would be a browser size off the type scale
      entirely. */
@@ -3319,7 +3325,7 @@
     --md-filter-chip-selected-label-text-color:var(--magi-ref-bg);
     --md-filter-chip-icon-selected-color:var(--magi-ref-bg);
   }
-  .meetends { color:var(--magi-ref-muted); }
+  .meetends { color:var(--magi-ref-muted); max-width:var(--magi-sys-measure); }
   /* The action on its own line, centred, and wide.
      It has been every way round: flush left and small, which read as another field that had lost
      its label; pushed to the trailing end, alone at the far side of a wide screen with the note
@@ -4101,12 +4107,14 @@
      than the conversation and off its axis. Same cap and same left edge as #log, which is what
      "under the text it answers" means. */
   @media (min-width:52.5em) {
-    /* One cap for the column, and it is main's. Beside a companion the conversation already sits
-       inside main's own bound and between whatever panes are open, and a second cap inside that
-       only opened a gap: at 2488px the column ran to 2230 and the text stopped at 1772, so a third
-       of the page was blank to the right of every line. The transcript, the composer and the strip
-       take the track. */
-    body[at="agent"] #log { max-width:none; }
+    /* The transcript keeps the reading measure, but the WIDE one (108ch) — the same cap deviations.md
+       sanctions for it. With a pane open the pane is the binding constraint and the column already
+       sits under this; the cap only bites when BOTH panes are shut, which is the default, where an
+       uncapped #log ran a prose line to 178ch on a 1920 screen — past the point a line can be read.
+       (It was max-width:none, chosen to fill the column; that filled it with unreadable lines. The
+       whitespace a cap leaves at the very wide end is the guide's answer, not a gap to close.) The
+       composer and strip still take the whole track — they are controls, not prose. */
+    body[at="agent"] #log { max-width:var(--magi-sys-wide); }
     body[at="agent"] #prompt .inner,
     body[at="agent"] form,
     body[at="agent"] #strip:not([hidden]) { max-width:none; margin-inline:0; }
