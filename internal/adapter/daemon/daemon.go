@@ -889,6 +889,42 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 			}
 			continue
 		}
+		// update runs a self-update and, if it committed a new build, restarts onto it — B1 wiring
+		// B5 (Commit, with rollback) to B2 (restart). Answered inline because it does I/O (a download)
+		// and the caller waits for the outcome. Only reached over the LOCAL socket: `update` is not on
+		// the fleet-door allowlist, so no other machine can trigger it.
+		if req.Method == "update" {
+			u, ok := eng.(Updater)
+			if !ok {
+				if enc.Encode(Response{Err: "this daemon cannot update itself"}) != nil {
+					return
+				}
+				continue
+			}
+			res, uerr := u.Update(ctx)
+			if uerr != nil {
+				if enc.Encode(Response{Err: uerr.Error()}) != nil {
+					return
+				}
+				continue
+			}
+			if res.Updated && restart != nil {
+				wrote := enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To + ", restarting"}) == nil
+				restart()
+				if !wrote {
+					return
+				}
+				continue
+			}
+			msg := res.Message
+			if msg == "" {
+				msg = "already up to date"
+			}
+			if enc.Encode(Response{OK: true, Out: msg}) != nil {
+				return
+			}
+			continue
+		}
 		// watch turns this connection into a stream, which no other method does.
 		//
 		// One request, then a frame every time something changes, then the end. The daemon writes
@@ -1379,6 +1415,25 @@ type Describer interface {
 // report, and answerAbout simply omits the field when the engine does not carry it.
 type Versioner interface{ Version() string }
 
+// Updater is an optional Engine capability: run a self-update — download the latest release and put
+// it on disk with rollback (see internal/update.RunCommit) — and report what happened. The daemon's
+// `update` method calls it and, when it actually updated, restarts onto the new binary. Optional like
+// the others: a test double has no release to fetch. It is only reached over the LOCAL socket (the
+// `update` method is not on the fleet-door allowlist), so it cannot be triggered from another machine.
+type Updater interface {
+	Update(ctx context.Context) (UpdateResult, error)
+}
+
+// UpdateResult is what a self-update did: Updated with From→To when a new build was committed, or a
+// Message ("already up to date") when nothing changed. On a failed pre-flight the update rolled back
+// and Update returns an error instead.
+type UpdateResult struct {
+	Updated bool
+	From    string
+	To      string
+	Message string
+}
+
 // ProtoVersion is the daemon wire-protocol version, carried in the `about` handshake
 // (Response.Proto). It is bumped when the Request/Response shape gains a capability peers negotiate
 // on, so a newer and an older instance can each learn what the other speaks and one can down-convert
@@ -1615,7 +1670,7 @@ func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, jobs, tools, models, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown, restart", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, jobs, tools, models, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown, restart, update", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
@@ -2090,6 +2145,21 @@ func (c *Client) Shutdown() error { return c.call(Request{Method: "shutdown"}) }
 // a re-exec into the new build instead of an exit. Used to finish a self-update. The reply arrives
 // before the drain; the socket then goes briefly as the successor rebinds.
 func (c *Client) Restart() error { return c.call(Request{Method: "restart"}) }
+
+// Update asks a same-machine daemon to update itself to the latest release and restart onto it. It
+// returns the daemon's one-line account (what it did, or "already up to date"), or an error when the
+// update failed and rolled back. It blocks for the download; on a successful update the connection
+// then drops as the daemon drains to restart, which is not an error.
+func (c *Client) Update() (string, error) {
+	resp, err := c.exchange(Request{Method: "update"})
+	if err != nil {
+		return "", err
+	}
+	if !resp.OK {
+		return "", errors.New(resp.Err)
+	}
+	return resp.Out, nil
+}
 
 func (c *Client) call(r Request) error {
 	_, err := c.exchange(r)

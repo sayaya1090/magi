@@ -2578,6 +2578,22 @@ func (d daemonEngine) About() string {
 // handshake is that a peer can then negotiate against what this daemon actually speaks.
 func (d daemonEngine) Version() string { return version.Version }
 
+// Update satisfies daemon.Updater: download the latest release and put it on disk with rollback
+// (update.RunCommit — pre-flight + restore-on-failure), from the same source every self-update path
+// uses. It does NOT restart; the `update` method restarts after, so committing the binary and
+// relaunching onto it stay separable and the relaunch reuses the daemon's own drain (see B2).
+func (d daemonEngine) Update(ctx context.Context) (daemon.UpdateResult, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return daemon.UpdateResult{}, err
+	}
+	res, err := update.RunCommit(ctx, newReleaseSource(), version.Version, exe)
+	if err != nil {
+		return daemon.UpdateResult{}, err
+	}
+	return daemon.UpdateResult{Updated: res.Updated, From: res.From, To: res.To, Message: res.Skipped}, nil
+}
+
 // ReadOnlyTool is the console's way into this workspace: the companion's own read-only tools, run
 // where the workspace is, outside the turn. See daemon.ToolReader for why it is done this way and
 // not by whoever is looking.

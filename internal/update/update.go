@@ -61,6 +61,33 @@ func Run(ctx context.Context, src Source, currentVersion, execPath string) (Resu
 	return Result{Updated: true, From: currentVersion, To: rel.Version}, nil
 }
 
+// RunCommit is Run with rollback: it puts the new binary in through Commit (pre-flight + restore on
+// failure) instead of a bare Apply, so a broken release never becomes the binary on disk. The daemon
+// self-update uses it and then restarts onto the result; the startup path keeps Run, whose tests
+// stand in a fake binary that would not survive Commit's real --version pre-flight.
+func RunCommit(ctx context.Context, src Source, currentVersion, execPath string) (Result, error) {
+	rel, err := src.Latest(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	if !IsNewer(currentVersion, rel.Version) {
+		return Result{Skipped: "already up to date", From: currentVersion, To: rel.Version}, nil
+	}
+	bin, err := src.Download(ctx, rel.URL)
+	if err != nil {
+		return Result{}, err
+	}
+	if rel.SHA256 != "" {
+		if err := verifySHA256(bin, rel.SHA256); err != nil {
+			return Result{}, err
+		}
+	}
+	if err := Commit(bin, execPath); err != nil {
+		return Result{}, err
+	}
+	return Result{Updated: true, From: currentVersion, To: rel.Version}, nil
+}
+
 // Apply writes newBin over target atomically. It writes to a temp file in the
 // same directory (so rename is atomic), then swaps it in. On Windows the running
 // binary is moved aside first because it cannot be overwritten while executing.
