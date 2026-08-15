@@ -485,7 +485,12 @@
     box-sizing:border-box; min-height:64px;
     padding:var(--magi-sys-space-150) var(--magi-sys-space-300) var(--magi-sys-space-100);
     padding-top:calc(var(--magi-sys-space-150) + env(safe-area-inset-top));
-    display:flex; gap:var(--magi-sys-space-200); align-items:baseline; flex-wrap:wrap;
+    /* Centred, not baseline. The text elements baseline-align among themselves cleanly, but an
+       icon button has no text baseline, so under align-items:baseline the trailing icon cluster
+       centred in the bar and sat ~8px above the crumb and brand it shares the line with — measured
+       at every width from 600 up, while the compact bar (which already centres) was consistent.
+       One optical line for text and icons alike. */
+    display:flex; gap:var(--magi-sys-space-200); align-items:center; flex-wrap:wrap;
     max-width:var(--magi-sys-page); margin-inline:auto; padding-right:var(--magi-sys-space-500);
   }
   /* Scrolled: the bar and whatever is stuck to it fill together, so they stay one block. */
