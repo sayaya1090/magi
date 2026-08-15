@@ -7016,6 +7016,10 @@ async function walkTree(a, kept) {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'panelrow state';
+    // A leading mark for what is behind the press — the workspace's version history — so the row
+    // says what it opens rather than only naming it. The word "Git" carries the metaphor for a
+    // reader who knows it; the mark and the chevron carry it for one who reads the screen as shapes.
+    { const m = iconOr('#i-sl-clock-rotate-left', '', 'panelmark'); if (m) row.append(m); }
     row.append(cell('panelword', tr('git.section')));
     if (g && g.repo) {
       row.append(cell('panelcount',
@@ -8461,6 +8465,17 @@ function drawCardTabs(a) {
 // showCard draws whichever of the two the tab strip says.
 function showCard() {
   const file = cardShows !== 'facts' && openFiles.includes(cardShows);
+  // On a phone the workspace is one pane and the facts are a screen of their own — the About tab —
+  // so standing the facts card in the empty slot (the wide-screen fallback when no file is open) is
+  // wrong here: closing the last file must land on the workspace LIST, not on the info card, which
+  // is what a reader means by "작업공간 탭 내용이 정보 내용으로 바뀜". drawPanels is the panel
+  // authority; it shows the list and keeps #detail hidden while panel==='files'. Safe from
+  // recursion — drawPanels calls neither showCard nor drawCardTabs.
+  if (!file && onePane() && panel === 'files') {
+    wsShows = 'files';
+    drawPanels();
+    return;
+  }
   fileViewEl.hidden = !file;
   // The facts card folds its own body away; here it goes altogether, because something else is
   // standing in its place. Empty means there is no companion drawn yet, and an empty card is not
@@ -9565,8 +9580,14 @@ function paintCompanionChrome(s) {
   // exists because the screen might not be.
   if (deepNow) document.getElementById('prompt').hidden = true;
   // Leaving a companion resets the panel: the next one is arrived at for its conversation, and
-  // landing on the facts of an agent you just opened is a screen nobody asked for.
-  if (!s) setPanel('talk');
+  // landing on the facts — or the workspace — of an agent you just opened is a screen nobody asked
+  // for. The reset fires on arriving at a DIFFERENT companion too, not only on leaving to the
+  // fleet: a companion→companion jump (the palette row, a history owner link) kept the last one's
+  // panel, so you landed on the new agent's Workspace with its conversation hidden. Same condition
+  // as clearCompanionView below, since it is the same event — the content moved on, so the control
+  // over it must not keep its old position. unread belongs to the companion left behind, so it goes
+  // with the panel rather than painting a badge from A onto B's Talk tab.
+  if (!s || s !== drawnFor) { setPanel('talk'); unread = 0; }
   drawPanels();
   // Leaving a companion, or arriving at a different one, empties everything drawn for the last.
   if (!s || s !== drawnFor) clearCompanionView();

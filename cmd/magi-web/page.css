@@ -2923,15 +2923,28 @@
      to five secondary tabs under the four primary ones: the guide gives secondary tabs for a second
      layer, and in the same breath says never more than four in a strip. The outer four are already
      at that ceiling. */
-  .panelist { display:grid; gap:var(--magi-sys-space-50); }
+  .panelist { display:grid; gap:var(--magi-sys-space-100); }
+  /* A tappable tile, not a divider row. It was a full-width button with a transparent ground and a
+     hairline under it — indistinguishable from a heading, so the one press this screen offers
+     "누르는것처럼 생기지도 않았다". Now it carries a resting surface and a rounded box the way a card
+     does, a leading mark for what it is (the changes behind it), and a state layer for the press —
+     an M3 list item that navigates: [mark] word · count [›]. */
   .panelrow {
-    display:grid; grid-template-columns:1fr auto auto; align-items:center;
+    display:grid; grid-template-columns:auto 1fr auto auto; align-items:center;
     gap:var(--magi-sys-space-150); min-height:56px;
     padding:var(--magi-sys-space-150) var(--magi-sys-space-200);
-    border:0; border-bottom:1px solid var(--magi-ref-outlineVariant); background:transparent;
+    border:0; border-radius:var(--magi-sys-shape-m); background:var(--magi-ref-surface-container-high);
     text-align:start; font:inherit; color:var(--magi-ref-fg); cursor:pointer; width:100%;
+    position:relative; overflow:hidden;
   }
-  .panelrow:last-child { border-bottom:0; }
+  /* State layer, the on-surface colour over the tile at the guide's opacities — not a colour swap. */
+  .panelrow::after {
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:currentColor; opacity:0; transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
+  }
+  .panelrow:hover::after { opacity:.08; }
+  .panelrow:active::after, .panelrow:focus-visible::after { opacity:.12; }
+  .panelrow .panelmark { width:1.25em; height:1.25em; color:var(--magi-ref-muted); flex:none; }
   .panelrow .panelword { font-size:var(--md-sys-typescale-body-large-size); }
   .panelrow .panelcount {
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
@@ -3137,10 +3150,18 @@
     --md-linear-progress-track-color:var(--magi-ref-outlineVariant);
   }
   #plan .plancount { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100); }
-  #plan .k {
+  /* The five Going-on section headings share one label: plan, running (in the strip), waiting to
+     run, scheduled, handed out. They were styled per container and only #plan and #handoffs had a
+     rule, so the other three fell back to an unstyled .k and inherited body size — the same kind of
+     heading at three different sizes down one column, which is what a reader sees as "제각각". One
+     rule now, so they cannot drift apart again. */
+  #plan .k, #strip > .k, #queued .k, #cron .k, #handoffs .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
-    color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
+    color:var(--magi-ref-muted);
   }
+  /* Space below the heading. The strip is a grid with its own gap so it asks for less; the block
+     cards carry the whole gap on the heading. */
+  #plan .k, #queued .k, #cron .k, #handoffs .k { margin-bottom:var(--magi-sys-space-100); }
   .td { display:grid; grid-template-columns:1.2rem 1fr; gap:var(--magi-sys-space-100); padding:var(--magi-sys-space-50) 0; }
   .td .mark { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); text-align:center; }
   .td .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
@@ -3636,10 +3657,7 @@
   .hs .what { font-size:var(--md-sys-typescale-body-medium-size); color:var(--magi-ref-fg); overflow-wrap:anywhere; }
   /* The one it is in now is work too, and it is the newest row. Marked rather than left off. */
   .hs.now .when { color:var(--magi-ref-success); font-weight:600; }
-  #handoffs .k {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
-    color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
-  }
+  /* #handoffs .k is styled with the other four Going-on headings, up beside #plan .k. */
   /* The name takes what the name needs, and the work takes the rest.
      A fixed 8rem column gave a five-letter companion the same room as the sentence describing what
      it was asked to do — half the card, in a pane 22rem wide, holding one short word. fit-content
@@ -4235,20 +4253,15 @@
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
        which also puts them under the thumb rather than beside it. */
-    /* Two rows, not three. Measured at 390px: the dock was 261px, 36% of the screen, because the
-       address, the box and the button each took a line of their own. The box gets its row and the
-       other two share the next one — the send button is a word, and a word does not need a row.
-       Ordered rather than reordered in the markup: the tab order that reads to → message → send is
-       the right one, and only where they SIT changes. */
-    .composer { flex-wrap:wrap; align-items:center; }
-    .composer md-outlined-text-field#t { order:1; }
-      .composer md-filled-button, .composer md-filled-tonal-button { order:3; flex:0 0 auto; }
-    /* The component, not the element it replaced. These two rules named "textarea" and "button",
-       which the composer has not held since it became Material Web — dead selectors, so on a phone
-       the field never took its own row and was squeezed to a third of one. The same slip as the
-       host rules that could not reach a label: a migration that leaves the old CSS behind leaves
-       it pointing at nothing. */
-    .composer md-outlined-text-field#t { flex:1 0 100%; }
+    /* One row. The field flexes and the two buttons keep their size beside it — the field can go
+       narrow because a textarea scrolls its own text, and on a phone the keyboard covers the
+       transcript anyway, so the room the field needs is a few words and not the whole message.
+       It used to give the field a row of its own (flex:1 0 100%) and drop the buttons below, which
+       read as a two-line dock for what is one action. Vertically centred on the field, not
+       bottom-aligned. The markup order (field → send → interrupt) is the tab order, kept. */
+    .composer { flex-wrap:nowrap; align-items:center; }
+    .composer md-outlined-text-field#t { flex:1 1 0; min-width:0; }
+    .composer md-filled-button, .composer md-filled-tonal-button { flex:0 0 auto; }
     header { padding-left:var(--magi-sys-space-200); padding-right:var(--magi-sys-space-200); }
     main { padding:var(--magi-sys-space-200) var(--magi-sys-space-200) calc(var(--dock, var(--magi-sys-space-1600)) + var(--magi-sys-space-300)); }
     .card .name { font:600 var(--magi-sys-title-l) var(--magi-ref-display); }
@@ -4459,7 +4472,11 @@
        page could be scrolled 1px sideways. The crumb is the one item here made of text that can
        be cut, so it is the one that yields. */
     #crumbs { font-size:var(--md-sys-typescale-label-small-size); min-width:0; overflow:hidden; }
-    #crumbs #back { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+    /* Only when #back is a text crumb. When it is the arrow (paintCrumbs marks the way-out rung
+       .up, and on a companion page that rung IS #back), the .up rule below must win — this rule's
+       two-ID specificity would otherwise beat .up's display:grid and drop the glyph to the top of
+       the box. The display is left to the .up/.leaf rules and to flex-item blockification. */
+    #crumbs #back:not(.up) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* ── the trail, as a phone can carry it: an arrow and a headline ─────────
        A breadcrumb is a wide-screen thing — it spends a word on every level and reads left to
        right. The guide's compact app bar spends the leading slot on ONE control ("선행 버튼:
