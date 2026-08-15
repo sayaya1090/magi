@@ -189,6 +189,17 @@ func abandonedDeferrals(evs []event.Event) map[string]bool {
 			if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" {
 				resolved[d.ResurfacedFrom] = true
 			}
+		case event.TypeInterjectionAnswered:
+			// The model answered it inline. The ledger's Resolved:true is written later, at the
+			// finish boundary (settleAnsweredClaims), so a reload in the window between the answered
+			// claim and its settlement used to see a deferred entry with no resolution and mask the
+			// interjection as abandoned — silently dropping a request the model had addressed. The
+			// display layer (answeredInline) already treats this event as resolution; reconstruct
+			// now agrees.
+			var d event.InterjectionAnsweredData
+			if json.Unmarshal(e.Data, &d) == nil && d.MessageID != "" {
+				resolved[d.MessageID] = true
+			}
 		}
 	}
 	for id := range resolved {

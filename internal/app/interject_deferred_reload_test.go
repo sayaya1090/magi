@@ -19,6 +19,15 @@ import (
 // Ollama-free: they drive the ledger, the reconstruction, and the reload masks directly.
 
 // deferMark builds an InterjectionDeferred ledger event for a msgID.
+func answeredEv(t *testing.T, msgID string) event.Event {
+	t.Helper()
+	d, err := json.Marshal(event.InterjectionAnsweredData{MessageID: msgID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event.Event{Type: event.TypeInterjectionAnswered, Data: d}
+}
+
 func deferMark(t *testing.T, msgID string, resolved bool) event.Event {
 	t.Helper()
 	d, err := json.Marshal(event.InterjectionDeferredData{MessageID: msgID, Resolved: resolved})
@@ -70,6 +79,14 @@ func TestAbandonedDeferrals(t *testing.T) {
 		{
 			"resolved-only-no-deferred",
 			[]event.Event{deferMark(t, "a", true)},
+			nil,
+		},
+		{
+			// The model answered it inline; the ledger's Resolved:true is written later at the
+			// finish boundary, so a reload before then must NOT mask it as abandoned — the
+			// answered event resolves it, matching the display layer.
+			"answered-but-unsettled-not-abandoned",
+			[]event.Event{deferMark(t, "a", false), answeredEv(t, "a")},
 			nil,
 		},
 		{
