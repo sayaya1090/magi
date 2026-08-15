@@ -8102,6 +8102,13 @@ function drawFile(path, text, unreadable, empty) {
 // which is a cost the person doing the typing should choose rather than discover.
 let lookOn = localStorage.getItem('lookover') === 'on';
 let lookAt = 0;
+// Inline code completion and composer suggestion, both on by default and remembered — unlike
+// look-over, which is a bill on every pause, these are cheap (the server does nothing until a fast
+// profile is routed) and are the kind of help people expect on by default. Module-scope so the
+// Preferences switches can flip them live, the way lookOn is flipped. Read where the editor and the
+// composer decide whether to ask.
+let acOn = localStorage.getItem('autocomplete') !== 'off';
+let sugOn = localStorage.getItem('suggest') !== 'off';
 
 function editor(path, text, acts) {
   const box = cell('fileedit');
@@ -8216,10 +8223,9 @@ function editor(path, text, acts) {
     said.textContent = (out || '').trim();
     said.hidden = !said.textContent;
   };
-  // Inline completion, on by default and remembered (Preferences can turn it off). The server also
-  // self-disables when no fast profile is routed — it returns nothing before spending any model — so
-  // a console with none configured simply never shows ghost text rather than billing the main model.
-  let acOn = localStorage.getItem('autocomplete') !== 'off';
+  // Inline completion is on by default and remembered; acOn is module-scope (Preferences flips it).
+  // The server also self-disables when no fast profile is routed — it returns nothing before spending
+  // any model — so a console with none configured simply never shows ghost text.
   let compAt = 0;
   const dismiss = () => { if (ghost) { ghost = null; repaint(); } };
   // Take the offered text: splice it into the buffer at the caret and move the caret past it. The
@@ -9356,6 +9362,10 @@ function paint() {
   tip(palOpen, tr('pal.head') + '  ·  ' + cmdKey);
   document.getElementById('lookK').textContent = tr('files.look');
   document.getElementById('lookWhy').textContent = tr('files.look_why');
+  document.getElementById('acK').textContent = tr('pref.autocomplete');
+  document.getElementById('acWhy').textContent = tr('pref.autocomplete_why');
+  document.getElementById('sugK').textContent = tr('pref.suggest');
+  document.getElementById('sugWhy').textContent = tr('pref.suggest_why');
   document.getElementById('accessK').textContent = tr('nav.access');
   document.getElementById('accessWhy').textContent = tr('access.why');
   label(document.getElementById('accessGo'), tr('access.open'));
@@ -10356,6 +10366,26 @@ lookSwitch.addEventListener('change', () => {
   localStorage.setItem('lookover', lookOn ? 'on' : 'off');
 });
 
+// The two completion switches, wired the same way and flipping their module-scope flags live so an
+// editor or composer already open obeys at once. On by default; storing 'off' is the only state
+// worth writing, and absence reads as on.
+const acSwitch = document.getElementById('acSwitch');
+if (acSwitch) {
+  acSwitch.selected = acOn;
+  acSwitch.addEventListener('change', () => {
+    acOn = !!acSwitch.selected;
+    localStorage.setItem('autocomplete', acOn ? 'on' : 'off');
+  });
+}
+const sugSwitch = document.getElementById('sugSwitch');
+if (sugSwitch) {
+  sugSwitch.selected = sugOn;
+  sugSwitch.addEventListener('change', () => {
+    sugOn = !!sugSwitch.selected;
+    localStorage.setItem('suggest', sugOn ? 'on' : 'off');
+  });
+}
+
 // The two grips: the edge of each pane, dragged.
 //
 // What they write is the custom property the grid track is made of, so the column and the pane
@@ -10738,7 +10768,7 @@ t.addEventListener('input', grow);
 // root, so there is no plain field to splice inline ghost text into the way the file editor has; the
 // suggestion shows dimmed under the box and Tab takes it. On by default and remembered; the server
 // self-disables when no composer profile is routed, so a console with none never shows a hint.
-let sugOn = localStorage.getItem('suggest') !== 'off';
+// sugOn is module-scope (Preferences flips it live), declared with the other helper flags above.
 let sugAt = 0, sugText = '';
 const sugHint = document.createElement('div');
 sugHint.className = 'sughint';

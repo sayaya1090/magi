@@ -436,6 +436,17 @@
       <div class="prefsay"><div class="k" id="lookK"></div><div class="say" id="lookWhy"></div></div>
       <md-switch id="lookSwitch" touch-target="wrapper"></md-switch>
     </div>
+    <!-- Inline code completion in the editor, and next-instruction suggestion in the composer. Both
+         spend a fast profile on a pause in typing, so data-may="prompt" like look-over; both do
+         nothing until a fast profile is routed, which the block below assigns. -->
+    <div class="prefrow" data-may="prompt">
+      <div class="prefsay"><div class="k" id="acK"></div><div class="say" id="acWhy"></div></div>
+      <md-switch id="acSwitch" touch-target="wrapper"></md-switch>
+    </div>
+    <div class="prefrow" data-may="prompt">
+      <div class="prefsay"><div class="k" id="sugK"></div><div class="say" id="sugWhy"></div></div>
+      <md-switch id="sugSwitch" touch-target="wrapper"></md-switch>
+    </div>
     <!-- The phone's way to the access screen, and only the phone's. The rail carries it at every
          other width; below 37.4375em the rail is not drawn at all, and without this row the screen
          would be reachable only by typing ?v=access — a screen nobody finds, which is how "is it
