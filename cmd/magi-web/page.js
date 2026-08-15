@@ -1123,6 +1123,13 @@ function countedKey(ref, text, n) {
   return k;
 }
 
+// head3 marks a Going-on section title as a level-3 heading. They are the only headings on a
+// companion's page below its name, and drawn as .k divs the page had none — a screen reader could
+// not jump between plan / running / waiting / scheduled / handed-out. Applied at the call sites
+// rather than folded into markedKey, because that helper also draws the meet "doing now" status
+// line and the team group titles, which are not section headings.
+function head3(el) { el.setAttribute('role', 'heading'); el.setAttribute('aria-level', '3'); return el; }
+
 function markedKey(ref, text, cls, markCls) {
   // The word goes in as the element's own text and the mark is PREPENDED, rather than both being
   // appended as nodes. A heading is read by anything that asks for its textContent — the tests do,
@@ -3681,7 +3688,7 @@ async function drawPlan(a) {
   // a screen reader nothing the number did not already say.
   bar.setAttribute('aria-label', tr('plan.progress', {done: done, total: todos.length}));
   bar.className = 'planbar';
-  box.replaceChildren(markedKey('#i-sl-chart-kanban', tr('field.plan')), bar,
+  box.replaceChildren(head3(markedKey('#i-sl-chart-kanban', tr('field.plan'))), bar,
     cell('plancount', tr('plan.progress', {done: done, total: todos.length})),
     ...todos.map(planRow));
   showSide(box, true);
@@ -3741,7 +3748,7 @@ async function drawHandoffs(a) {
     row.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
     return row;
   });
-  box.replaceChildren(countedKey('#i-sl-share-from-square', tr('field.handed_out'), rows.length), ...rows);
+  box.replaceChildren(head3(countedKey('#i-sl-share-from-square', tr('field.handed_out'), rows.length)), ...rows);
   showSide(box, true);
 }
 
@@ -3776,7 +3783,7 @@ async function drawCron(a) {
     el.append(cell('jfile', j.file + (j.global ? ' · ' + tr('cron.machine') : '')));
     return el;
   });
-  box.replaceChildren(countedKey('#i-sl-calendar-clock', tr('field.scheduled'), rows.length), ...rows);
+  box.replaceChildren(head3(countedKey('#i-sl-calendar-clock', tr('field.scheduled'), rows.length)), ...rows);
   showSide(box, true);
 }
 
@@ -5907,6 +5914,12 @@ function drawConvene(list, open) {
   // has never dialled — see Elsewhere — so putting it in the room would be offering a turn nobody
   // here can spend.
   const here = (list || []).filter(a => !a.elsewhere && !a.peer);
+  // A companion that has left the fleet must leave the selection with it. meetPick was only emptied
+  // on a successful convene, so a pick that went offline kept Convene enabled (armConvene reads
+  // meetPick.size) with no chip to see or clear, and its dead socket was still POSTed to /meet.
+  // Intersect the pick with who is actually here, every draw.
+  const hereSet = new Set(here.map(a => a.socket));
+  for (const s of [...meetPick]) if (!hereSet.has(s)) meetPick.delete(s);
   // Grouped by whose they are, coloured by which team they belong to.
   //
   // One row of chips was fine for four companions and stops being fine at fifteen: the two facts a
@@ -8758,7 +8771,7 @@ function drawQueued(items) {
     row.append(what);
     return row;
   });
-  box.replaceChildren(countedKey('#i-sl-layer-group', tr('field.queued'), items.length), ...rows);
+  box.replaceChildren(head3(countedKey('#i-sl-layer-group', tr('field.queued'), items.length)), ...rows);
   showSide(box, true);
 }
 
@@ -8820,7 +8833,7 @@ async function loadJobs(a) {
   const box = cell('stripjobs');
   box.append(...chips);
   stripEl.replaceChildren(...(chips.length
-    ? [markedKey('#i-ss-play', tr('field.running')), box] : []));
+    ? [head3(markedKey('#i-ss-play', tr('field.running'))), box] : []));
   showSide(stripEl, chips.length > 0);
 }
 
@@ -9454,6 +9467,9 @@ function clearCompanionView() {
   commitDraft = '';
   prDraft = '';
   commitPick = '';
+  // The past-work search is this companion's, like the drafts above: left set, opening B's history
+  // after typing on A's showed A's words in the field and pre-filtered B's sessions by A's term.
+  findQuery = '';
   filesEl.replaceChildren();
   fileViewEl.replaceChildren();
   fileViewEl.hidden = true;
@@ -9646,7 +9662,10 @@ function paintCompanionChrome(s) {
   // as clearCompanionView below, since it is the same event — the content moved on, so the control
   // over it must not keep its old position. unread belongs to the companion left behind, so it goes
   // with the panel rather than painting a badge from A onto B's Talk tab.
-  if (!s || s !== drawnFor) { setPanel('talk'); unread = 0; }
+  // Zeroing the count is not enough — the previous companion's badge is a node on the Talk tab, and
+  // nothing repaints it here (draw() only repaints the badge while panel!=='talk', and we just set
+  // it to talk), so A's "6" sat frozen on B's tab until an unrelated repaint. Clear the node too.
+  if (!s || s !== drawnFor) { setPanel('talk'); unread = 0; paintUnread(); }
   drawPanels();
   // Leaving a companion, or arriving at a different one, empties everything drawn for the last.
   if (!s || s !== drawnFor) clearCompanionView();

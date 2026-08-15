@@ -2914,8 +2914,11 @@
   #sidecol, #filecol { gap:0; }
   #sidecol, #filecol { position:relative; }
   /* And the column with it: a grid track holding one hidden control still takes its gap, which on
-     the list screen is a 24px hole down the leading edge of the page. */
-  body:not([at="agent"]) #filecol { display:none; }
+     the list screen is a 24px hole down the leading edge of the page. #sidecol goes with it — the
+     Going-on aside belongs to a companion, and refreshSideToggle draws its "nothing is going on"
+     empty card unconditionally, so off a companion it hung a stray card (and an extra labelled
+     complementary landmark) off the bottom of the fleet/board/skills lists. */
+  body:not([at="agent"]) #filecol, body:not([at="agent"]) #sidecol { display:none; }
   #side #plan, #side #handoffs { max-width:none; }
 
   /* ── a panel you drill into, on a phone ──────────────────────────────────── */
