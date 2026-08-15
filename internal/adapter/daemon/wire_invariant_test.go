@@ -60,6 +60,12 @@ func TestWireStructsAreAdditiveOnly(t *testing.T) {
 	requireFields(t, "cluster.Member", reflect.TypeOf(cluster.Member{}),
 		"host", "socket", "name", "role", "team", "hub", "state", "account", "workdir", "can", "does",
 		"waiting", "handling", "version", "seen", "by", "sig")
+	// The published record is a cross-BUILD contract on one machine: a newer magi-web reads an older
+	// daemon's record and vice versa (the console's Build line, the update button, the roster all
+	// hang off it), so its field names are held the same way the socket protocol's are.
+	requireFields(t, "daemon.Info", reflect.TypeOf(Info{}),
+		"socket", "workdir", "session", "name", "role", "team", "hub", "can", "does", "waiting",
+		"handling", "pid", "started", "host", "addr", "state", "account", "version")
 }
 
 // handshakeEngine is an Engine (via the embedded fake) that also describes and versions itself — what

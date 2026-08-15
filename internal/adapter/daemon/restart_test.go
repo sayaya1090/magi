@@ -79,8 +79,18 @@ func TestShutdownDoesNotFlagARelaunch(t *testing.T) {
 	if err := cl.Shutdown(); err != nil {
 		t.Fatalf("shutdown refused: %v", err)
 	}
-	<-done
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a shutdown request did not drain the daemon")
+	}
 	if d.Restarting() {
 		t.Error("a shutdown flagged a relaunch — the process would re-exec when it was asked to stop")
+	}
+	// And a Restart AFTER the stop began must not resurrect it: the auto-update loop can poll its way
+	// here during a drain, and the flag flipping late would re-exec a daemon the operator stopped.
+	d.Restart()
+	if d.Restarting() {
+		t.Error("Restart() after a shutdown set the relaunch flag — stop must win")
 	}
 }

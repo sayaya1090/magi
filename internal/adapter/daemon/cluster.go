@@ -68,6 +68,15 @@ func Mine(configDir string, now time.Time) []cluster.Member {
 		if !in.Live {
 			continue
 		}
+		// A live socket with NO readable record is a daemon mid-startup: the update restart unpublishes
+		// on the way down and the successor is dialable for seconds before it republishes (a context
+		// probe sits in between). List rightly shows it — something IS there — but gossiping it would
+		// sign an identity-less member (no name, role, team, version) that overwrites peers' good rows
+		// for a whole gossip cycle and can even re-elect a team's hub. Skip it; the next round carries
+		// the republished record. A real record always names its session, so that is the marker.
+		if in.Session == "" {
+			continue
+		}
 		m := cluster.Member{
 			Host: host, Socket: in.Socket, Name: in.Name, Role: in.Role,
 			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Account: in.Account,

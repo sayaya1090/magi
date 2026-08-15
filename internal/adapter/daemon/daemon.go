@@ -685,7 +685,11 @@ func Listen(path string) (*Daemon, error) {
 		release()
 		return nil, fmt.Errorf("daemon: %w", err)
 	}
-	return &Daemon{ln: ln, path: path, release: release}, nil
+	// The stop channel is made HERE, not lazily in Serve: Stop/Restart/stopped are reachable from
+	// other goroutines (the auto-update loop holds Restart before Serve is even entered), and a lazy
+	// init raced them — a Stop that won the race consumed the sync.Once against a nil channel and
+	// the daemon became unstoppable over the socket.
+	return &Daemon{ln: ln, path: path, release: release, stop: make(chan struct{})}, nil
 }
 
 // Close drops the socket without ever having served on it — for a caller that binds and then fails
@@ -706,7 +710,7 @@ func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 		d.release()
 	}()
 	if d.stop == nil {
-		d.stop = make(chan struct{})
+		d.stop = make(chan struct{}) // zero-value Daemon in a test; Listen always makes it
 	}
 
 	var wg sync.WaitGroup
@@ -776,7 +780,15 @@ func (d *Daemon) Stop() {
 // a different ending. The caller (the daemon loop) reads Restarting after Serve to choose re-exec
 // over exit. Ordering is deliberate: set the intent before draining, so Serve cannot return and the
 // flag be read before it is set.
+//
+// A daemon already stopping is left stopping: the auto-update loop polls for an idle moment and then
+// calls this, and without the guard that poll could land during the drain a SHUTDOWN started — the
+// flag would flip after the fact and a daemon the operator asked to stop would come back up. Stop
+// wins; the committed binary waits on disk for the next start.
 func (d *Daemon) Restart() {
+	if d.stopped() {
+		return
+	}
 	d.restart.Store(true)
 	d.Stop()
 }
@@ -891,8 +903,14 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 		}
 		// update runs a self-update and, if it committed a new build, restarts onto it — B1 wiring
 		// B5 (Commit, with rollback) to B2 (restart). Answered inline because it does I/O (a download)
-		// and the caller waits for the outcome. Only reached over the LOCAL socket: `update` is not on
-		// the fleet-door allowlist, so no other machine can trigger it.
+		// and the caller waits for the outcome. Not on the fleet-door allowlist, so the narrowed
+		// remote entry cannot carry it; what remains is the local socket and anything the operator
+		// has deliberately piped to it (--relay over their own ssh) — the same boundary shutdown has.
+		//
+		// The restart here is IMMEDIATE, unlike the auto loop's idle-gated one, and that asymmetry is
+		// chosen: this is an operator pressing a button and watching, and holding their reply hostage
+		// to an idle moment that may be minutes away would read as a hang. A restart mid-turn costs
+		// the in-flight step; the log keeps the rest and the session resumes.
 		if req.Method == "update" {
 			u, ok := eng.(Updater)
 			if !ok {
@@ -909,7 +927,11 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 				continue
 			}
 			if res.Updated && restart != nil {
-				wrote := enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To + ", restarting"}) == nil
+				// "or on the next start": Restart refuses when a stop is already draining (stop wins),
+				// and this reply has already gone out by then — so it must not promise more than the
+				// binary being on disk guarantees.
+				wrote := enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To +
+					" — restarting (or on the next start, if this daemon is already stopping)"}) == nil
 				restart()
 				if !wrote {
 					return
@@ -917,7 +939,13 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 				continue
 			}
 			msg := res.Message
-			if msg == "" {
+			switch {
+			case res.Updated:
+				// Updated but nobody wired a restarter (an embedder without one): saying "up to
+				// date" would hide that the binary on disk changed and this process did not.
+				msg = "updated " + res.From + " → " + res.To + ", but this daemon cannot restart " +
+					"itself — restart it by hand to run the new build"
+			case msg == "":
 				msg = "already up to date"
 			}
 			if enc.Encode(Response{OK: true, Out: msg}) != nil {
@@ -1418,8 +1446,10 @@ type Versioner interface{ Version() string }
 // Updater is an optional Engine capability: run a self-update — download the latest release and put
 // it on disk with rollback (see internal/update.RunCommit) — and report what happened. The daemon's
 // `update` method calls it and, when it actually updated, restarts onto the new binary. Optional like
-// the others: a test double has no release to fetch. It is only reached over the LOCAL socket (the
-// `update` method is not on the fleet-door allowlist), so it cannot be triggered from another machine.
+// the others: a test double has no release to fetch. The `update` method is not on the fleet-door
+// allowlist, so the narrowed remote entry cannot carry it; its boundary is the owner-only local
+// socket plus whatever the operator deliberately pipes to it (--relay over their own ssh) — the same
+// boundary shutdown and restart have.
 type Updater interface {
 	Update(ctx context.Context) (UpdateResult, error)
 }
