@@ -96,6 +96,14 @@ func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, to
 	if err != nil {
 		return session.SessionID(res.SessionID), "", err
 	}
+	// A model failure during prepare (a 429, a stream drop) is stashed in res.Err, not returned as
+	// err — spawnChild always returns err=nil. Ignored, a participant whose prepare turn never ran
+	// was reported ready with an empty brief, and the room opened as if it had read its workspace.
+	// Meeting.Open's own doc names "a model that failed" as a participant that must carry Trouble;
+	// this is what makes that true.
+	if res.Err != "" {
+		return session.SessionID(res.SessionID), "", fmt.Errorf("%s", res.Err)
+	}
 	return session.SessionID(res.SessionID), readyNote(res.Text), nil
 }
 

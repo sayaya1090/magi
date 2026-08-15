@@ -274,11 +274,22 @@ func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 		drained++
 	}
 
-	if mid != "" {
-		if evs, err := a.store.Read(ctx, sid, 0); err == nil && promptUnanswered(evs, mid) {
-			d, _ := json.Marshal(event.PromptAbandonedData{MsgID: mid})
+	// Every unanswered user prompt in the log, not just the seed and the detected queue. A message
+	// Steer'd into the log a moment before the interrupt is in neither activeSeedMsgID nor
+	// pendingInterject — the loop had not reached the step boundary that detects it — so it survived
+	// the cancel and ran later, ahead of the user's newer request. Cancel means reset this context;
+	// draining the whole unanswered set is what makes that true.
+	// Read AFTER the queue loop's abandonments above, so the detected interjections are already
+	// marked and excluded here — this catches the seed and any undetected Steer'd prompt without
+	// double-abandoning what the queue already handled.
+	if evs, err := a.store.Read(ctx, sid, 0); err == nil {
+		for _, id := range unansweredUserPromptIDs(evs) {
+			d, _ := json.Marshal(event.PromptAbandonedData{MsgID: id})
 			_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
+			if id != mid {
+				drained++ // an undetected queued prompt; count it toward the "N queued also cleared" note
+			}
 		}
 	}
 	// Tell the user their queue was cleared, so the cancel's wider effect is not silent
