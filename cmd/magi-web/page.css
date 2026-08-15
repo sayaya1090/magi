@@ -2013,6 +2013,10 @@
   /* The inline completion the model offered, drawn in the mirror the caret sits in front of: muted,
      so it reads as a suggestion the way every editor's ghost text does, and Tab takes it. */
   .filecode .editcomplete { color:var(--magi-ref-muted); opacity:.75; }
+  /* The look-over remark, drawn at the end of the line it is about — amber, the way an editor marks
+     something worth a second look, and never so loud it competes with the code it trails. It rides
+     the mirror behind the caret, so it scrolls with the line and clears the moment you type. */
+  .filecode .linenote { color:var(--magi-ref-warn); font-style:italic; }
   /* Line numbers come from the tool, so the body is one preformatted block and the numbers are
      part of the text. Scrolled in both directions inside its own box: a long line in a source file
      is not something to reflow, and the page must not scroll sideways because of it. */

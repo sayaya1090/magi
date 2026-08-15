@@ -8239,6 +8239,11 @@ function editor(path, text, acts) {
   // reader sees, never in area.value, so it is text the person can take (Tab) or type past and it is
   // gone. See complete()/accept() below.
   let ghost = null;
+  // What the model made of the region, keyed by absolute line number → one short clause. Drawn at
+  // the end of the line it is about (a grey/amber note in the mirror, the way editors show an
+  // end-of-line diagnostic), so the remark sits where the code is instead of a paragraph over the
+  // top. null when there is nothing to say. See ask()/applyNotes below.
+  let notes = null;
   const repaint = () => {
     const src = String(area.value || '');
     const comment = commentMark(path);
@@ -8265,7 +8270,9 @@ function editor(path, text, acts) {
     // running char index locates the caret across lines so the ghost lands exactly where the model
     // was asked to continue.
     let pos = 0;
+    let ln = 0;
     for (const line of src.split('\n')) {
+      ln++;
       let col = pos;
       for (const part of codeParts(line, comment)) {
         const t = part.text;
@@ -8279,6 +8286,14 @@ function editor(path, text, acts) {
         col += t.length;
       }
       if (!placed && gAt === col) ghostSpan(); // caret at the (possibly empty) line's end
+      // The remark for this line, after its code and before the newline: it rides the same mirror,
+      // scrolls with the line, and cannot drift off it because it IS on it.
+      if (notes && notes.has(ln)) {
+        const nspan = document.createElement('span');
+        nspan.className = 'linenote';
+        nspan.textContent = '  ‹ ' + notes.get(ln);
+        behind.append(nspan);
+      }
       behind.append(document.createTextNode('\n'));
       pos = col + 1; // + the newline
     }
@@ -8292,22 +8307,50 @@ function editor(path, text, acts) {
       nums.textContent = g;
     }
   };
-  // What the model made of it, above the buffer: it is about what is on the screen, and putting it
-  // under a 28rem editor is putting it off the bottom of the pane.
+  // The fallback line for anything the model says that is NOT a numbered finding — a stray sentence
+  // it added despite the format. Above the buffer; empty (hidden) in the normal case, where every
+  // remark went inline against its line.
   const said = cell('looksaid');
   said.hidden = true;
+  // Fold the model's answer into per-line notes. Each finding is `<line><TAB><clause>` (or a colon
+  // where a model used one); a line that does not parse is not dropped — it goes to the block above,
+  // so a model that ignores the format still says its piece.
+  const applyNotes = (out) => {
+    notes = new Map();
+    const extra = [];
+    for (const raw of String(out || '').split('\n')) {
+      const m = raw.match(/^\s*(\d+)\s*[\t:·]\s*(.+?)\s*$/);
+      if (m) notes.set(parseInt(m[1], 10), m[2]);
+      else if (raw.trim()) extra.push(raw.trim());
+    }
+    if (notes.size === 0) notes = null;
+    said.textContent = extra.join('\n');
+    said.hidden = !said.textContent;
+    repaint();
+  };
+  const clearNotes = () => { notes = null; said.hidden = true; repaint(); };
   // The switch, and the only thing that turns this on. A model reading over somebody's shoulder is
   // a good idea and a bill; which of the two it is depends on whether they asked for it.
   const ask = async () => {
-    if (!lookOn || !may('prompt')) { said.hidden = true; return; }
+    if (!lookOn || !may('prompt')) { clearNotes(); return; }
     const mine = ++lookAt;
+    // Only the region around the caret, and numbered with its real line numbers: a 40,000-line file
+    // is not sent on every pause (their context window and their bill), and the model cites a line
+    // that exists rather than counting from the top. Sixty lines each way is what a reviewer would
+    // read around the change without asking to see the rest.
+    const caret = area.selectionStart == null ? area.value.length : area.selectionStart;
+    const all = area.value.split('\n');
+    const caretLine = area.value.slice(0, caret).split('\n').length; // 1-based
+    const R = 60;
+    const from = Math.max(1, caretLine - R), to = Math.min(all.length, caretLine + R);
+    let payload = '';
+    for (let i = from; i <= to; i++) payload += i + '\t' + all[i - 1] + '\n';
     const out = await postText('/look' + qFor(lastDrawnFor || {socket: ''}),
-                               new URLSearchParams({path: path, text: area.value}));
+                               new URLSearchParams({path: path, text: payload}));
     if (mine !== lookAt) return;             // they kept typing; this answer is about older text
-    // Silence is the answer when there is nothing worth saying. No panel, no "looks good" — a
+    // Silence is the answer when there is nothing worth saying. No notes, no "looks good" — a
     // reviewer that always finds three things is one people stop reading.
-    said.textContent = (out || '').trim();
-    said.hidden = !said.textContent;
+    applyNotes(out);
   };
   // Inline completion is on by default and remembered; acOn is module-scope (Preferences flips it).
   // The server also self-disables when no fast profile is routed — it returns nothing before spending
@@ -8365,6 +8408,7 @@ function editor(path, text, acts) {
   area.addEventListener('input', () => {
     drafts.set(path, area.value);
     dismiss();
+    notes = null;   // the remarks were about the text before this keystroke; ask() refreshes on the pause
     repaint();
     pushOpen();
     const mine = ++lookAt;

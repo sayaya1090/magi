@@ -820,6 +820,19 @@ const demoScript = `
     if (init && init.method === 'POST' && url === '/open-file') {
       return {ok: true, status: 204, text: async () => ''}; // ambient push; nothing to show, say nothing
     }
+    if (init && init.method === 'POST' && url === '/look') {
+      // The look-over answer is per-line: '<line><TAB><clause>', drawn against the line it names.
+      // The console sends the region around the caret numbered with real line numbers, so the mock
+      // reads the first number it was given and hangs its two sample remarks a few lines in — they
+      // land on lines the visitor can actually see, wherever in the file they are editing.
+      const t = new URLSearchParams(init.body ? init.body.toString() : '').get('text') || '';
+      const first = (t.match(/^\s*(\d+)\t/) || [])[1];
+      if (!first) return {ok: true, status: 200, text: async () => ''};
+      const n = parseInt(first, 10);
+      return {ok: true, status: 200, text: async () =>
+        (n + 2) + '\tthis error is swallowed — return it to the caller\n' +
+        (n + 5) + '\tthis can be nil here; the check two lines up does not cover it'};
+    }
     if (init && init.method === 'POST') {
       // Actions say what they would have done rather than pretending they did it: a demo that
       // silently accepts a delete teaches the wrong thing about the real console.
