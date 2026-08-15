@@ -244,6 +244,8 @@
   "git.changed": "changed",
   "git.clean": "Nothing uncommitted.",
   "git.commit": "Commit",
+  "git.commit_do": "Commit what is staged",
+  "git.commit_open": "Review and commit",
   "git.commit_who": "What changed, and why. The subject line is the one that gets read.",
   "git.conflict": "conflict",
   "git.detached": "no branch",

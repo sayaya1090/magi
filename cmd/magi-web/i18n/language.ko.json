@@ -244,6 +244,8 @@
   "git.changed": "변경됨",
   "git.clean": "커밋 안 된 변경 없음.",
   "git.commit": "커밋",
+  "git.commit_do": "스테이지된 것을 커밋",
+  "git.commit_open": "검토 후 커밋",
   "git.commit_who": "무엇이 바뀌었고 왜 바꿨는지. 읽히는 것은 첫 줄입니다.",
   "git.conflict": "충돌",
   "git.detached": "브랜치 없음",

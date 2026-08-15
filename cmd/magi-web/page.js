@@ -7222,7 +7222,16 @@ function gitLine(a, c) {
   tip(name, c.path);
   row.append(name);
   row.onclick = () => openFile(a, c.path);
-  line.append(row, gitActs(a, c));
+  const acts = gitActs(a, c);
+  line.append(row, acts);
+  // The right button opens the same menu, the way the tree rows do — a changed-file row is where
+  // a person reaches for stage/unstage/discard first, and it had no secondary click at all.
+  line.addEventListener('contextmenu', ev => {
+    const opener = acts.children && acts.children[0];
+    if (!opener || !opener.onclick) return;
+    ev.preventDefault();
+    opener.onclick(ev);
+  });
   return line;
 }
 
@@ -7354,6 +7363,10 @@ function commitRow(a, staged) {
   const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-check'),
                    tr('git.commit'));
   go.disabled = !staged;
+  // Two "Commit" buttons are on screen once the workbench is open — this one opens the review,
+  // the workbench's one writes the commit. Same word, different act, so they carry different names
+  // for a reader who cannot see which is which.
+  go.setAttribute('aria-label', tr('git.commit_open'));
   tip(go, staged ? tr('git.commit_who') : tr('git.nothing_staged'));
   // Up into the slot, where there is room to read what is being committed. A message written
   // without the diff in front of it is the message this console kept getting.
@@ -7831,6 +7844,7 @@ function drawCommit(a, g) {
   const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-check'),
                    tr('git.commit'));
   go.disabled = !staged.length;
+  go.setAttribute('aria-label', tr('git.commit_do'));
   go.onclick = () => whileItRuns(go, async () => {
     const text = String(msg.value || '').trim();
     if (!text) { says(tr('git.need_message')); return; }

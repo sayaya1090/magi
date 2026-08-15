@@ -3877,8 +3877,12 @@
   /* The name is a control on a council row, so it brings a button's own font and background with
      it and has to be told to be the gutter it looks like. */
   .who.whoin {
-    background:none; border:0; padding:0; margin:0; font:inherit; color:inherit;
-    letter-spacing:inherit; cursor:pointer; width:100%;
+    /* The gutter's own type, spelled out — NOT font:inherit. A button inherits from its parent
+       .row, whose font is the 14px/400 body face, so every council seat name rendered larger and
+       lighter than magi/council/you two rows away. The name is a .who; it must read as one. */
+    background:none; border:0; padding:0; margin:0;
+    font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
+    color:inherit; letter-spacing:0.0533em; cursor:pointer; width:100%;
     /* Right, spelled out, and NOT inherit. A button's own text-align is center, so it has to be
        overridden — but inherit takes the ROW's value, not the .who beside it, and the row is left.
        So every council name sat at the wrong end of the gutter while every other name lined up on
@@ -4300,6 +4304,11 @@
      agent, and a fleet page that shows one and a half rows is a list you scroll to read rather than
      one you glance at. Everything below is that 455 coming down. */
   @media (max-width:37.4375em) {
+    /* On a phone a 15rem board lane is 240px and its cards read at 22 characters a line — below the
+       floor. The board scrolls sideways, so a lane can afford most of the screen: it nearly fills
+       the viewport and snaps, giving the card text a readable measure and one lane to a thumb. */
+    .lanes { scroll-snap-type:x mandatory; }
+    .lane { flex:0 0 auto; min-width:min(22rem, 85vw); max-width:none; scroll-snap-align:start; }
     /* ── the app bar, at the height an app bar has ───────────────────────────
        The guide gives the small top app bar a height and says to keep it: "기본 높이를 그대로 쓰고
        창 전체 폭을 차지한다. 기본보다 낮게 만들지 말 것" — 64dp. This one was 60px of a row whose
