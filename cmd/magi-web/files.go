@@ -379,6 +379,29 @@ func (s *server) openFile(w http.ResponseWriter, r *http.Request) {
 	writeText(w, "")
 }
 
+// suggest answers the composer's ghost text: how the person is likely to finish the instruction
+// they are typing. Same relay as /complete — this process holds no model — through s.alone so a slow
+// suggestion does not hold the pooled connection. prefix is what they have typed so far.
+func (s *server) suggest(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	prefix := r.FormValue("prefix")
+	var out string
+	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, serr := cl.Suggest(prefix)
+		out = said
+		return serr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	writeText(w, out)
+}
+
 // diff answers what changed in one file, as git wrote it.
 //
 // `which` says WHICH question: what a commit would take (staged), what has changed since it was

@@ -190,6 +190,9 @@ func (e *slowModel) CompleteCode(ctx context.Context, path, prefix, suffix strin
 	return "", nil
 }
 func (e *slowModel) SetOpenFile(ctx context.Context, path, text string) error { return nil }
+func (e *slowModel) SuggestPrompt(ctx context.Context, prefix string) (string, error) {
+	return "", nil
+}
 
 // workspaceEngine is a daemon that can read its own workspace, which is what the real one is.
 type workspaceEngine struct {

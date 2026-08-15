@@ -53,6 +53,10 @@ var mayWrite = map[string]auth.Capability{
 	// than a read: a viewer who may not steer should not be feeding the agent its context either.
 	"/complete":  auth.Prompt,
 	"/open-file": auth.Prompt,
+	// Suggesting how to finish a prompt spends the composer profile on a pause in typing, and reads
+	// this person's past prompts to do it. `prompt`, like the others: it is model spend on their
+	// behalf, and a viewer who may not steer should not set it going.
+	"/suggest": auth.Prompt,
 	// Drafting a message spends the model, like /look, and is not a change to the workspace.
 	"/git-msg": auth.Prompt,
 	// Opening a pull request pushes a branch and writes to the forge. That is the workspace's own

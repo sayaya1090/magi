@@ -313,6 +313,9 @@ type Reviewer interface {
 	// SetOpenFile records the file the editor has open and its unsaved buffer, so the agent's next
 	// turn sees it as ambient context. Nothing is generated or recorded — see app.SetOpenFile.
 	SetOpenFile(ctx context.Context, path, text string) error
+	// SuggestPrompt is the composer's ghost text: how the person is likely to finish the instruction
+	// they are typing, on the composer profile — see app.SuggestPrompt. prefix is what they typed.
+	SuggestPrompt(ctx context.Context, prefix string) (string, error)
 }
 
 // GitDoer is an engine that will run one of a short, closed list of git commands in its workspace.
@@ -926,6 +929,7 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"look-over":  answerLookOver,
 	"complete":   answerComplete,
 	"open-file":  answerOpenFile,
+	"suggest":    answerSuggest,
 	"shell":      answerShell,
 }
 
@@ -1273,6 +1277,18 @@ func answerOpenFile(ctx context.Context, eng Engine, req Request) Response {
 		return Response{Err: err.Error()}
 	}
 	return Response{OK: true}
+}
+
+func answerSuggest(ctx context.Context, eng Engine, req Request) Response {
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		return Response{Err: "this daemon cannot suggest a prompt"}
+	}
+	out, err := rev.SuggestPrompt(ctx, req.Text)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Out: out}
 }
 
 // shell is answered here rather than in dispatch, like status, because it has a payload:
@@ -1852,6 +1868,17 @@ func (c *Client) CompleteCode(path, prefix, suffix string) (string, error) {
 func (c *Client) SetOpenFile(path, text string) error {
 	_, err := c.exchange(Request{Method: "open-file", Name: path, Text: text})
 	return err
+}
+
+// Suggest asks the daemon for the composer's ghost text: how the person is likely to finish the
+// instruction whose prefix is given, on the composer profile. The relay for the composer, and the
+// endpoint an IDE extension would call for the same.
+func (c *Client) Suggest(prefix string) (string, error) {
+	resp, err := c.exchange(Request{Method: "suggest", Text: prefix})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
 }
 
 // completeArgs is the cursor-sides payload for a "complete" request.

@@ -2658,6 +2658,15 @@ func (d daemonEngine) SetOpenFile(ctx context.Context, path, text string) error 
 	return nil
 }
 
+// SuggestPrompt is the composer's ghost text on the composer profile — see app.SuggestPrompt.
+// Bounded like completion: a suggestion for the composer that arrives after the person has typed on
+// is worth nothing, and the client drops it by cancelling anyway.
+func (d daemonEngine) SuggestPrompt(ctx context.Context, prefix string) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return d.App.SuggestPrompt(rctx, d.handover.at.now(), prefix)
+}
+
 // OpenPR is the console asking for a pull request. Longer than the others on purpose: it pushes
 // and then talks to GitHub, and neither is a local command's worth of waiting.
 func (d daemonEngine) OpenPR(ctx context.Context, title, body string) (string, error) {
