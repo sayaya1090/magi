@@ -59,7 +59,7 @@ func TestWireStructsAreAdditiveOnly(t *testing.T) {
 		"session", "handover", "version", "proto", "caps")
 	requireFields(t, "cluster.Member", reflect.TypeOf(cluster.Member{}),
 		"host", "socket", "name", "role", "team", "hub", "state", "account", "workdir", "can", "does",
-		"waiting", "handling", "seen", "by", "sig")
+		"waiting", "handling", "version", "seen", "by", "sig")
 }
 
 // handshakeEngine is an Engine (via the embedded fake) that also describes and versions itself — what

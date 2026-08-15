@@ -124,6 +124,13 @@ type Member struct {
 	// Handling is whether it was in the middle of a piece of handed-over work when last seen.
 	// Never borrowed either, and for the same reason.
 	Handling bool `json:"handling,omitempty"`
+	// Version is the magi build the companion runs, so a roster can show who is behind and an
+	// operator can update a lagging one. Deliberately NOT in Signable: a change to the signed set
+	// makes an older daemon's records — signed without the new field — fail verification on a newer
+	// one and vanish until they re-gossip, exactly during the rolling upgrade when the roster most
+	// needs to show both versions. It is advisory (a spoofed version misleads a display, nothing
+	// more), so it travels unsigned. Empty from a daemon too old to report it.
+	Version string `json:"version,omitempty"`
 	// Seen is when somebody last had it answer. Not when this entry was written: an entry copied
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.

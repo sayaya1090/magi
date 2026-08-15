@@ -411,3 +411,17 @@ func TestSignableCoversTheRoutingLoad(t *testing.T) {
 		t.Error("Signable ignores Handling — a relay could forge team-routing load")
 	}
 }
+
+// Version must NOT be in Signable, or adding it to the roster would make an older daemon's records —
+// signed before the field existed — fail verification on a newer daemon and vanish during the rolling
+// upgrade, exactly when the roster is meant to show both versions. It is advisory, so it travels
+// unsigned: setting it must not change the signed bytes.
+func TestSignableIgnoresVersionSoARollingUpgradeSurvives(t *testing.T) {
+	base := Member{Host: "h", Socket: "s", Name: "n"}
+	newer := base
+	newer.Version = "v0.23.0"
+	if string(Signable(base)) != string(Signable(newer)) {
+		t.Error("Signable covers Version — an older peer's records would fail verification and drop " +
+			"out of the roster mid-upgrade, which is exactly what carrying the version unsigned avoids")
+	}
+}
