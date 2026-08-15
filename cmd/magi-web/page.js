@@ -9383,7 +9383,11 @@ function paint() {
   document.getElementById('acWhy').textContent = tr('pref.autocomplete_why');
   document.getElementById('sugK').textContent = tr('pref.suggest');
   document.getElementById('sugWhy').textContent = tr('pref.suggest_why');
-  document.getElementById('acsK').textContent = tr('ac.head');
+  document.getElementById('grpAppearance').textContent = tr('pref.grp.appearance');
+  document.getElementById('grpNotify').textContent = tr('pref.grp.notify');
+  document.getElementById('grpAssist').textContent = tr('pref.grp.assist');
+  document.getElementById('grpComplete').textContent = tr('ac.head');
+  document.getElementById('grpConsole').textContent = tr('pref.grp.console');
   document.getElementById('acsWhy').textContent = tr('ac.head_why');
   document.getElementById('ambientK').textContent = tr('ac.ambient');
   document.getElementById('ambientWhy').textContent = tr('ac.ambient_why');

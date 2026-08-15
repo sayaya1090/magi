@@ -1045,6 +1045,18 @@
      order, at the same three places on each row, so the eye finds the next control where it found
      the last one. The name column is fixed so the sentences start on one line down the dialog. */
   .prefrow { display:flex; align-items:center; gap:var(--magi-sys-space-200); }
+  /* A settings subheader (M3 list group header): the small primary-tinted label that names a group
+     of preferences, with a divider above it so the groups read as blocks rather than one long list.
+     The first one in the dialog carries neither — nothing precedes it to divide from. */
+  .prefgroup {
+    margin:var(--magi-sys-space-300) 0 0;
+    padding-top:var(--magi-sys-space-200);
+    border-top:1px solid var(--magi-ref-outline);
+    font-size:.72rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--magi-ref-primary);
+  }
+  .prefgroup:first-child { margin-top:0; padding-top:0; border-top:none; }
+  .prefgroup:empty { display:none; }   /* a group hidden by data-may leaves no floating divider */
   /* A row that belongs to the width where the rail is not drawn. The default is hidden and the
      narrow query puts it back, so the phone case is the exception that has to be stated — the
      other way round, a new width would inherit "show it" and quietly give the screen two doors. */
