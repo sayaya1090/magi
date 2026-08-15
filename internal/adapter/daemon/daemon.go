@@ -52,6 +52,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/app"
@@ -624,6 +625,10 @@ type Daemon struct {
 	// claim go — so there is one way a daemon stops and not two.
 	stop     chan struct{}
 	stopOnce sync.Once
+	// restart marks that the daemon was asked to relaunch onto a new binary rather than simply stop,
+	// so the process re-execs once Serve has drained and returned and the socket and claim are
+	// released — the same drain as a shutdown, a different ending. Read after Serve returns.
+	restart atomic.Bool
 	// conns are the connections currently being served. Stop closes them as well as the listener:
 	// closing a listener does not touch what has already been accepted, and Serve waits for its
 	// handlers — so a client that asked to shut down and then sat there holding the connection open
@@ -742,7 +747,7 @@ func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 			defer wg.Done()
 			defer d.untrack(conn)
 			defer conn.Close()
-			serveConn(ctx, eng, conn, d.Stop)
+			serveConn(ctx, eng, conn, d.Stop, d.Restart)
 		}()
 	}
 }
@@ -765,6 +770,19 @@ func (d *Daemon) Stop() {
 		d.connMu.Unlock()
 	})
 }
+
+// Restart drains the daemon exactly like Stop, but marks that the process should relaunch onto the
+// binary now on disk once Serve has returned and the socket and claim are released — the same drain,
+// a different ending. The caller (the daemon loop) reads Restarting after Serve to choose re-exec
+// over exit. Ordering is deliberate: set the intent before draining, so Serve cannot return and the
+// flag be read before it is set.
+func (d *Daemon) Restart() {
+	d.restart.Store(true)
+	d.Stop()
+}
+
+// Restarting reports whether Restart, rather than Stop, ended the daemon. Read after Serve returns.
+func (d *Daemon) Restarting() bool { return d.restart.Load() }
 
 func (d *Daemon) track(c net.Conn) {
 	d.connMu.Lock()
@@ -799,7 +817,7 @@ func (d *Daemon) stopped() bool {
 
 // serveConn reads requests until the peer hangs up. One bad request answers with an error and the
 // connection stays open: a UI that mistypes a method should get told, not disconnected.
-func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
+func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart func()) {
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20) // a steer can be long; the default 64K is not enough
 	enc := json.NewEncoder(conn)
@@ -847,6 +865,25 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop func()) {
 			}
 			wrote := enc.Encode(Response{OK: true}) == nil
 			stop()
+			if !wrote {
+				return
+			}
+			continue
+		}
+		// restart is shutdown with a successor: the same drain, then the process re-execs onto the
+		// binary now on disk instead of exiting. Answered before the drain for the same honesty as
+		// shutdown — OK means "accepted, and I am on my way down to come back up". The relaunch itself
+		// happens in the daemon loop after Serve returns and the socket and claim are released.
+		if req.Method == "restart" {
+			if restart == nil {
+				resp = Response{Err: "this daemon cannot be restarted remotely"}
+				if enc.Encode(resp) != nil {
+					return
+				}
+				continue
+			}
+			wrote := enc.Encode(Response{OK: true}) == nil
+			restart()
 			if !wrote {
 				return
 			}
@@ -1578,7 +1615,7 @@ func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, jobs, tools, models, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, jobs, tools, models, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown, restart", r.Method)
 }
 
 // control runs one of the calls that change how the engine behaves.
@@ -2048,6 +2085,11 @@ func (c *Client) GitDo(what, path, message string, ask bool) (string, error) {
 // deleted while its daemon kept running would leave work happening that nothing on screen could
 // account for.
 func (c *Client) Shutdown() error { return c.call(Request{Method: "shutdown"}) }
+
+// Restart asks the daemon to relaunch onto the binary now on disk — the same drain as Shutdown, then
+// a re-exec into the new build instead of an exit. Used to finish a self-update. The reply arrives
+// before the drain; the socket then goes briefly as the successor rebinds.
+func (c *Client) Restart() error { return c.call(Request{Method: "restart"}) }
 
 func (c *Client) call(r Request) error {
 	_, err := c.exchange(r)

@@ -117,16 +117,25 @@ version and the companion self-pulls.
 2. **release signing** — none; B1 is a signal, each companion self-pulls + SHA256-verifies
    from the official release. (Defer minisign/cosign unless a compromised release host
    becomes a concern.)
-3. **restart mechanism** — cross-platform, one `graceful.Upgrade()` seam, build-tag split:
-   - **Unix (darwin/linux)**: zero-gap in-place `syscall.Exec`, inheriting the listener
-     socket fd + lock fd (clear `FD_CLOEXEC`) so the upgraded process keeps the same
-     socket and lock — same PID, no downtime window. Drain first. (The nginx/haproxy/
-     `tableflip` pattern; `tableflip` is explicitly Unix-only for this reason.)
-   - **Windows**: no `execve` — `Apply` already renames the running `.exe` aside, then
-     the daemon drains, releases the socket + lock, spawns the new `.exe` detached, and
-     exits; the new process rebinds. A sub-second socket-down window is accepted.
-   - **Optional**: under launchd/systemd/Windows-Service, prefer "exit and let the
-     supervisor restart," detected and deferred to.
+3. **restart mechanism** — cross-platform, one `graceful.Reexec()` seam, build-tag split.
+   **Drain, release, then re-exec** — deliberately NOT zero-gap fd-inheritance:
+   - The daemon reuses its existing shutdown drain: a `restart` request signals Stop, so
+     Serve drains its connections and its deferred cleanup releases the socket and the
+     lock, exactly as a shutdown does. Then, instead of exiting, the process re-execs.
+   - **Unix (darwin/linux)**: `syscall.Exec` replaces the image (same PID). The socket
+     was already released, so the successor **binds fresh** — no fd hand-off. This drops
+     the fragile part of the `tableflip`/nginx pattern (extracting the listener fd,
+     clearing `FD_CLOEXEC`, re-listening on an inherited fd) for a sub-second window
+     where the socket is unavailable, which a client rides out by retrying. For a
+     personal agent daemon whose restart is a rare deliberate event, that trade is right;
+     zero-gap fd-inheritance would be over-engineering and the riskiest code in the plan.
+   - **Windows**: no `execve` — spawn the new binary detached and exit; the successor
+     rebinds. Same sub-second window.
+   - The re-exec runs from `main()` AFTER `run()` returns, so the daemon's deferred
+     cleanup (unpublish the record, release socket + lock) executes first — `syscall.Exec`
+     would skip any pending defer, which is why it happens out there and not inside `run()`.
+   - **Optional (deferred)**: under launchd/systemd/Windows-Service, prefer "exit and let
+     the supervisor restart." Not built yet.
 4. **triggers** — **automatic** (per-companion `[update] auto` toggle, bench/CI-excluded,
    with rollback) **plus** a **manual** push from the companion list. The toggle gates
    only auto; a manual push works even when auto is off.

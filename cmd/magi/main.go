@@ -51,6 +51,7 @@ import (
 	"github.com/sayaya1090/magi/internal/envflag"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/update"
+	"github.com/sayaya1090/magi/internal/graceful"
 	"github.com/sayaya1090/magi/internal/version"
 
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -142,8 +143,23 @@ func runCoreUpdate() int {
 // main is the process entry point: it calls run and exits with its status.
 //
 //coverage:ignore the entry point — a test could only duplicate this one line
+// restartOnExit is set by run() when the daemon was asked to relaunch (daemon.Restart) rather than
+// stop. Read here, AFTER run() has returned and all its deferred cleanup — unpublishing the record,
+// releasing the socket and lock — has executed, so the re-exec starts with nothing left to hand over.
+// syscall.Exec would skip any pending defer, which is exactly why the relaunch happens out here and
+// not inside run().
+var restartOnExit bool
+
 func main() {
-	os.Exit(run())
+	code := run()
+	if restartOnExit {
+		// Does not return on success (the image is replaced). If it fails, the update simply did not
+		// take effect this time — log and exit with run()'s code rather than hang.
+		if err := graceful.Reexec(); err != nil {
+			fmt.Fprintln(os.Stderr, "magi: restart:", err)
+		}
+	}
+	os.Exit(code)
 }
 
 // validateEnumFlags checks the enum-valued CLI flags and returns a non-empty
@@ -1316,6 +1332,10 @@ func run() int {
 			fmt.Fprintln(os.Stderr, "magi:", serveErr)
 			return 1
 		}
+		// Relaunch onto the new binary rather than exit, when a client asked the daemon to restart
+		// (a self-update). main() does the re-exec after this function returns, so the deferred
+		// unpublish/socket release above run first — see restartOnExit.
+		restartOnExit = serving.Restarting()
 		// Its own background commands and language servers are this process's to reap, unlike an
 		// attached viewer's.
 		builtin.KillBackgroundProcesses()
