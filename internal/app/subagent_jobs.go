@@ -68,6 +68,25 @@ func (r *subagentJobs) finish(id session.SessionID, steps int, errText string) {
 	r.evictLocked()
 }
 
+// forget removes one child from the registry outright, whatever its state. The meeting-close reap
+// uses it so a room's ephemeral participant session does not linger among the finished subagents
+// after the room ends — unlike eviction, which waits for the cap and drops oldest-first.
+func (r *subagentJobs) forget(id session.SessionID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sid := string(id)
+	if _, ok := r.byID[sid]; !ok {
+		return
+	}
+	delete(r.byID, sid)
+	for i, o := range r.order {
+		if o == sid {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+}
+
 // evictLocked drops the oldest FINISHED children past the cap. A running one is never dropped: it
 // is the thing the strip exists to show, and forgetting it would leave a pane that never ends.
 func (r *subagentJobs) evictLocked() {
@@ -109,3 +128,7 @@ func (r *subagentJobs) list() []SubagentJob {
 // SubagentJobs returns the children running now and the ones that just finished, oldest first —
 // what the pane strip polls, mirroring BackgroundJobs.
 func (a *App) SubagentJobs() []SubagentJob { return a.subJobs.list() }
+
+// ForgetSubagent drops a child from the strip immediately — the meeting-close reap uses it so a
+// room's participant sessions do not sit among the subagents once the room has ended.
+func (a *App) ForgetSubagent(id session.SessionID) { a.subJobs.forget(id) }

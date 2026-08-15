@@ -2633,6 +2633,17 @@ func (h handover) roomFor(meeting string) session.SessionID {
 	return h.rooms.by[meeting]
 }
 
+// forget drops a room once it has ended, so a later turn for the same meeting (a reopen) prepares a
+// fresh participant session rather than reusing one that was reaped when the room closed.
+func (h handover) forget(meeting string) {
+	if h.rooms == nil {
+		return
+	}
+	h.rooms.mu.Lock()
+	defer h.rooms.mu.Unlock()
+	delete(h.rooms.by, meeting)
+}
+
 func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
 	daemon.Contribution, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -2653,6 +2664,14 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 	u, err := d.App.MeetingSayIn(rctx, child, who, topic, transcript, closing)
 	if err != nil {
 		return daemon.Contribution{}, err
+	}
+	if closing {
+		// The room is ending for this participant. Its session was ephemeral — spun up only to take
+		// part in the discussion — so it is dropped from the subagent strip now rather than left to
+		// age out behind the cap, and the room is forgotten so a reopen prepares a fresh one. The
+		// transcript still exists in the store; only the live "running beside the turn" entry goes.
+		d.App.ForgetSubagent(child)
+		d.handover.forget(meeting)
 	}
 	// Which room, every time — not only on the join. The branch above is a daemon that restarted
 	// mid-meeting: it is in a new conversation now, and a viewer still holding the old id would
