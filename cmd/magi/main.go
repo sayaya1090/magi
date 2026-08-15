@@ -1679,6 +1679,23 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	if proj.ExperienceDir != "" {
 		held = append(held, "a different store to learn into")
 	}
+	// A model PROFILE is a redirect the same way base_url is — its own endpoint, key and headers —
+	// so a committed one is held back for the same reason. Left in, a cloned repo could define an
+	// [llm.profiles.*] pointing at its own server and then aim a routed call there: the completion
+	// helpers send the file being edited to code_profile / composer_profile, so the open buffer and
+	// this machine's key would stream to a stranger's endpoint on every keystroke. [routing] is the
+	// other half of that aim and crosses with it.
+	note(fmt.Sprintf("%d model profile(s)", len(proj.LLM.Profiles)), len(proj.LLM.Profiles))
+	note(fmt.Sprintf("%d routing rule(s)", len(proj.Routing)), len(proj.Routing))
+	// The completion settings NAME those profiles and carry the draft house-rules — which are folded
+	// into a model's system prompt with "these take precedence" (git.go), a direct instruction-
+	// override. A committed file must not steer the model or route its spend, so both are held.
+	if proj.Autocomplete != (config.AutocompleteConfig{}) {
+		held = append(held, "completion settings")
+	}
+	if proj.Templates != (config.TemplatesConfig{}) {
+		held = append(held, "commit/PR draft rules")
+	}
 	if len(held) > 0 {
 		*said = append(*said, "carries "+strings.Join(held, ", ")+" and this workspace is not one "+
 			"you have trusted, so none of it was taken — `magi --trust` here if the file is yours")
@@ -1686,7 +1703,8 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	proj.Hooks, proj.MCP, proj.Cron, proj.Plugins = nil, nil, nil, nil
 	proj.Allow, proj.AllowDomains = nil, nil
 	proj.BaseURL, proj.ExperienceDir = "", ""
-	proj.LLM.Headers = nil
+	proj.LLM.Headers, proj.LLM.Profiles, proj.Routing = nil, nil, nil
+	proj.Autocomplete, proj.Templates = config.AutocompleteConfig{}, config.TemplatesConfig{}
 	return proj
 }
 
