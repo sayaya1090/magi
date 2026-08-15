@@ -1978,6 +1978,9 @@
   .filecode .tok-note { color:var(--magi-ref-muted); font-style:italic; }
   .filecode .tok-text { color:var(--magi-ref-accent); }
   .filecode .tok-num { color:var(--magi-ref-primary); }
+  /* The inline completion the model offered, drawn in the mirror the caret sits in front of: muted,
+     so it reads as a suggestion the way every editor's ghost text does, and Tab takes it. */
+  .filecode .editcomplete { color:var(--magi-ref-muted); opacity:.75; }
   /* Line numbers come from the tool, so the body is one preformatted block and the numbers are
      part of the text. Scrolled in both directions inside its own box: a long line in a source file
      is not something to reflow, and the page must not scroll sideways because of it. */

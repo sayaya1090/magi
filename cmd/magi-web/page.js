@@ -8141,22 +8141,53 @@ function editor(path, text, acts) {
   nums.className = 'filegutter';
   nums.setAttribute('aria-hidden', 'true');
   let lines = -1;
+  // The inline completion the model offered, spliced into the mirror at the caret so it reads as
+  // grey text the caret sits in front of — null when there is none. It lives on the buffer copy the
+  // reader sees, never in area.value, so it is text the person can take (Tab) or type past and it is
+  // gone. See complete()/accept() below.
+  let ghost = null;
   const repaint = () => {
     const src = String(area.value || '');
     const comment = commentMark(path);
     behind.replaceChildren();
+    const gAt = ghost && ghost.text ? Math.min(ghost.at, src.length) : -1;
+    let placed = false;
+    const emit = (text, cls) => {
+      if (!cls) { behind.append(document.createTextNode(text)); return; }
+      const m = document.createElement('span');
+      m.className = cls;
+      m.textContent = text;
+      behind.append(m);
+    };
+    const ghostSpan = () => {
+      const g = document.createElement('span');
+      g.className = 'editcomplete';
+      g.textContent = ghost.text;
+      behind.append(g);
+      placed = true;
+    };
     // Line by line, because the scanner is: a comment runs to the end of ITS line, and handing it
     // the whole buffer made the first `//` in the file swallow everything after it — one grey span
-    // where the reading view had ten marks. The reading view has always painted it this way.
+    // where the reading view had ten marks. The reading view has always painted it this way. A
+    // running char index locates the caret across lines so the ghost lands exactly where the model
+    // was asked to continue.
+    let pos = 0;
     for (const line of src.split('\n')) {
+      let col = pos;
       for (const part of codeParts(line, comment)) {
-        if (!part.cls) { behind.append(document.createTextNode(part.text)); continue; }
-        const m = document.createElement('span');
-        m.className = part.cls;
-        m.textContent = part.text;
-        behind.append(m);
+        const t = part.text;
+        if (gAt >= col && gAt <= col + t.length && !placed) {
+          emit(t.slice(0, gAt - col), part.cls);
+          ghostSpan();
+          emit(t.slice(gAt - col), part.cls);
+        } else {
+          emit(t, part.cls);
+        }
+        col += t.length;
       }
+      if (!placed && gAt === col) ghostSpan(); // caret at the (possibly empty) line's end
       behind.append(document.createTextNode('\n'));
+      pos = col + 1; // + the newline
     }
     // Only when the count changed: typing inside a line is most of what typing is, and rebuilding
     // a two-thousand-line column for each keystroke is work nobody asked for.
@@ -8185,15 +8216,78 @@ function editor(path, text, acts) {
     said.textContent = (out || '').trim();
     said.hidden = !said.textContent;
   };
-  // On a pause, not on a keystroke. Two seconds is long enough that a sentence being typed is not
-  // sent five times and short enough that stopping to think gets an answer while it is still about
-  // what you were thinking.
-  area.addEventListener('input', () => {
+  // Inline completion, on by default and remembered (Preferences can turn it off). The server also
+  // self-disables when no fast profile is routed — it returns nothing before spending any model — so
+  // a console with none configured simply never shows ghost text rather than billing the main model.
+  let acOn = localStorage.getItem('autocomplete') !== 'off';
+  let compAt = 0;
+  const dismiss = () => { if (ghost) { ghost = null; repaint(); } };
+  // Take the offered text: splice it into the buffer at the caret and move the caret past it. The
+  // ghost only ever lived in the mirror, so this is the first time it becomes real text.
+  const accept = () => {
+    if (!ghost || !ghost.text) return false;
+    const at = Math.min(ghost.at, area.value.length);
+    area.value = area.value.slice(0, at) + ghost.text + area.value.slice(at);
+    area.selectionStart = area.selectionEnd = at + ghost.text.length;
+    ghost = null;
     drafts.set(path, area.value);
     repaint();
+    return true;
+  };
+  const complete = async () => {
+    if (!acOn || !may('prompt')) return;
+    const caret = area.selectionStart;
+    if (caret == null) return;
+    const prefix = area.value.slice(0, caret);
+    const suffix = area.value.slice(caret);
+    if (!prefix.trim() && !suffix.trim()) return;
+    const mine = ++compAt;
+    const out = await postText('/complete' + qFor(lastDrawnFor || {socket: ''}),
+                               new URLSearchParams({path: path, prefix: prefix, suffix: suffix}));
+    if (mine !== compAt) return;               // a newer request has superseded this one
+    if (area.selectionStart !== caret) return; // the caret moved while we waited
+    const t = (out || '');
+    ghost = t ? {at: caret, text: t} : null;
+    repaint();
+  };
+  // Which file is open, and what is in the buffer that is not on disk, so the companion's next turn
+  // can answer about the unsaved edit (the ambient context). Debounced like the rest.
+  let openAt = 0;
+  const pushOpen = () => {
+    if (!may('prompt')) return;
+    const mine = ++openAt;
+    setTimeout(() => {
+      if (mine !== openAt) return;
+      post('/open-file', new URLSearchParams({path: path, text: area.value}),
+           (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
+    }, 600);
+  };
+  // On a pause, not on a keystroke. The review waits two seconds — long enough that a sentence being
+  // typed is not sent five times; completion waits less, because a suggestion that arrives after you
+  // have moved on is worth nothing. Typing dismisses any standing ghost first: it is about older text.
+  area.addEventListener('input', () => {
+    drafts.set(path, area.value);
+    dismiss();
+    repaint();
+    pushOpen();
     const mine = ++lookAt;
     setTimeout(() => { if (mine === lookAt) { lookAt = mine - 1; ask(); } }, 2000);
+    const cm = ++compAt;
+    setTimeout(() => { if (cm === compAt) { compAt = cm - 1; complete(); } }, 350);
   });
+  // Tab takes the ghost when there is one (and only then — otherwise Tab is a tab); Escape and any
+  // caret move drop it, since it was about where the caret was.
+  area.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && ghost && ghost.text) { e.preventDefault(); accept(); return; }
+    if (e.key === 'Escape' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+        e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
+      dismiss();
+    }
+  });
+  area.addEventListener('blur', dismiss);
+  // Tell the companion this file is open the moment the editor is (before any typing), so a question
+  // asked straight away is still answered against the buffer.
+  pushOpen();
   const save = label(withMark(document.createElement('md-filled-button'), '#i-sl-floppy-disk'),
                      tr('action.save'));
   const opened = plainText(text);
