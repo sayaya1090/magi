@@ -256,3 +256,29 @@ func TestFileEditsSinceRequiresSuccessfulResult(t *testing.T) {
 		t.Error("a SUCCESSFUL write must count as a file edit")
 	}
 }
+
+// The workflow verify gate rejects a `go test` masked pass the same way councilVerify does — an
+// exit 0 whose -json re-run shows a neutered/failed suite does not count as verified, so an agent
+// that authored a passing-looking test config can't get the pipeline to report success on an
+// unfixed tree. Without the hardening it would accept attempt 1 and stop.
+func TestWorkflowGoTestGateRejectsAMaskedPass(t *testing.T) {
+	llm := &workflowLLM{}
+	// Each attempt is two platform calls: the verify command (exit 0) then the -json re-run (exit 0
+	// but carrying a fail event).
+	plat := &scriptPlatform{
+		codes: []int{0, 0, 0, 0},
+		outs: []string{
+			"", `{"Action":"fail","Test":"TestA"}`,
+			"", `{"Action":"fail","Test":"TestA"}`,
+		},
+	}
+	a, sid, _ := newWorkflowApp(t, llm, plat, Config{
+		Permission: "allow", System: "base", VerifyCmd: "go test ./...", WorkflowMaxLoops: 2,
+	})
+	if err := a.runWorkflow(context.Background(), a.sessionInfo(context.Background(), sid)); err != nil {
+		t.Fatalf("workflow: %v", err)
+	}
+	if llm.implementCalls < 2 {
+		t.Errorf("a masked go-test pass was accepted — implement entered %d times, want >=2 (looped)", llm.implementCalls)
+	}
+}

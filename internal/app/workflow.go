@@ -112,15 +112,30 @@ func (a *App) runWorkflow(ctx context.Context, s session.Session) error {
 		}
 		a.emitPhase(s.ID, "verify", "start", cmd)
 		out, code := a.runVerifyCmd(ctx, s.Workdir, cmd)
-		if code == 0 {
+		// Exit 0 is not proof for a `go test` — and the workflow's command is often auto-detected from
+		// a Makefile/package.json the IMPLEMENT phase can write, so `test: exit 0` or a TestMain that
+		// os.Exit(0)s over failures would report "verified" on an unfixed tree. Apply the same -json
+		// re-run councilVerify uses: reject a pass that ran no tests or masked a failure. (make/npm
+		// targets have no such check and stay exit-code-only best-effort, as they always were.)
+		masked := false
+		if code == 0 && isGoTest(cmd) {
+			if ran, failed := a.goTestsExecuted(ctx, s.Workdir, cmd); ran <= 0 || failed > 0 {
+				masked = true
+			}
+		}
+		if code == 0 && !masked {
 			a.emitPhase(s.ID, "verify", "pass", cmd)
 			verified = true
 			break
 		}
-		a.emitPhase(s.ID, "verify", "fail", fmt.Sprintf("exit %d (attempt %d/%d)", code, attempt, loops))
+		why := fmt.Sprintf("exit %d", code)
+		if masked {
+			why = "exit 0 but its tests did not actually run and pass (re-run under -json: neutered suite or a masked failure)"
+		}
+		a.emitPhase(s.ID, "verify", "fail", fmt.Sprintf("%s (attempt %d/%d)", why, attempt, loops))
 		lspDiag := a.collectLSPDiagnostics(ctx, s.Workdir)
-		feedback = fmt.Sprintf("Verification command `%s` FAILED (exit %d). Fix the root cause.\n\nBuild output:\n%s",
-			cmd, code, truncateOutput(out, 3000))
+		feedback = fmt.Sprintf("Verification command `%s` FAILED (%s). Fix the root cause.\n\nBuild output:\n%s",
+			cmd, why, truncateOutput(out, 3000))
 		if lspDiag != "" {
 			feedback += "\n\n" + lspDiag
 		}
