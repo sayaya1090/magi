@@ -235,7 +235,7 @@ func TestDraftCommitInjectsTemplateRules(t *testing.T) {
 		Templates: config.TemplatesConfig{Commit: rule},
 	}))
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
-	if _, err := a.DraftCommit(context.Background(), sid, dir); err != nil {
+	if _, err := a.DraftCommit(context.Background(), sid, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	if !cap.called() {

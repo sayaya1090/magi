@@ -170,7 +170,7 @@ type slowModel struct {
 	started chan struct{}
 }
 
-func (e *slowModel) DraftCommit(ctx context.Context) (string, error) {
+func (e *slowModel) DraftCommit(ctx context.Context, rules string) (string, error) {
 	e.begin.Do(func() { close(e.started) })
 	<-e.held
 	return "a message", nil
@@ -184,8 +184,8 @@ func (e *slowModel) LookOver(ctx context.Context, path, text string) (string, er
 func (e *slowModel) OpenPR(ctx context.Context, title, body string) (string, error) {
 	return "", nil
 }
-func (e *slowModel) PRFacts(ctx context.Context) (string, error) { return "{}", nil }
-func (e *slowModel) DraftPR(ctx context.Context) (string, error) { return "", nil }
+func (e *slowModel) PRFacts(ctx context.Context) (string, error)               { return "{}", nil }
+func (e *slowModel) DraftPR(ctx context.Context, rules string) (string, error) { return "", nil }
 func (e *slowModel) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error) {
 	return "", nil
 }

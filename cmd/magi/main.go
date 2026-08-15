@@ -2709,17 +2709,17 @@ func (d daemonEngine) PRFacts(ctx context.Context) (string, error) {
 }
 
 // DraftPR is the model writing that request from the branch's own commits and difference.
-func (d daemonEngine) DraftPR(ctx context.Context) (string, error) {
+func (d daemonEngine) DraftPR(ctx context.Context, rules string) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	return d.App.DraftPR(rctx, d.handover.at.now(), d.workdir)
+	return d.App.DraftPR(rctx, d.handover.at.now(), d.workdir, rules)
 }
 
 // DraftCommit is the same shoulder-reading, about what is staged rather than about a buffer.
-func (d daemonEngine) DraftCommit(ctx context.Context) (string, error) {
+func (d daemonEngine) DraftCommit(ctx context.Context, rules string) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	return d.App.DraftCommit(rctx, d.handover.at.now(), d.workdir)
+	return d.App.DraftCommit(rctx, d.handover.at.now(), d.workdir, rules)
 }
 
 // GitDo runs one of the four from the console — see app.GitDo for the list and for which of them

@@ -302,11 +302,13 @@ type Reviewer interface {
 	// commits on this branch, and the difference against that base. A read, but it crosses here
 	// because it is a read of the DAEMON's workspace — same reason GitDiff does.
 	PRFacts(ctx context.Context) (out string, err error)
-	// DraftPR is the model writing that request's title and body from those same facts.
-	DraftPR(ctx context.Context) (string, error)
+	// DraftPR is the model writing that request's title and body from those same facts. rules is a
+	// one-off house-rules override for this draft only (empty = the saved [templates] pr).
+	DraftPR(ctx context.Context, rules string) (string, error)
 	// DraftCommit is the same kind of thing about a different subject: what is staged, described.
-	// A draft only — the console puts it in a box somebody edits before anything is committed.
-	DraftCommit(ctx context.Context) (string, error)
+	// A draft only — the console puts it in a box somebody edits before anything is committed. rules
+	// is a one-off override for this draft only (empty = the saved [templates] commit).
+	DraftCommit(ctx context.Context, rules string) (string, error)
 	// CompleteCode is inline completion text at the cursor: prefix and suffix are the buffer either
 	// side of it. The same no-turn shape as LookOver, on a fast routed profile — see app.CompleteCode.
 	CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error)
@@ -1213,7 +1215,7 @@ func answerPRFacts(ctx context.Context, eng Engine, req Request) Response {
 		if req.Method == "pr-facts" {
 			out, perr = rev.PRFacts(ctx)
 		} else {
-			out, perr = rev.DraftPR(ctx)
+			out, perr = rev.DraftPR(ctx, req.Text)
 		}
 		if perr != nil {
 			resp = Response{Err: perr.Error()}
@@ -1229,7 +1231,7 @@ func answerGitMsg(ctx context.Context, eng Engine, req Request) Response {
 	rev, ok := eng.(Reviewer)
 	if !ok {
 		resp = Response{Err: "this daemon cannot draft a commit message"}
-	} else if out, derr := rev.DraftCommit(ctx); derr != nil {
+	} else if out, derr := rev.DraftCommit(ctx, req.Text); derr != nil {
 		resp = Response{Err: derr.Error()}
 	} else {
 		resp = Response{OK: true, Out: out}
@@ -1909,8 +1911,8 @@ func (c *Client) PRFacts() (string, error) {
 }
 
 // DraftPR asks the companion's model for that request's title and body. Nothing is opened.
-func (c *Client) DraftPR() (string, error) {
-	resp, err := c.exchange(Request{Method: "pr-msg"})
+func (c *Client) DraftPR(rules string) (string, error) {
+	resp, err := c.exchange(Request{Method: "pr-msg", Text: rules})
 	if err != nil {
 		return "", err
 	}
@@ -1918,8 +1920,8 @@ func (c *Client) DraftPR() (string, error) {
 }
 
 // DraftCommit asks the companion's model to describe what is staged. Nothing is committed.
-func (c *Client) DraftCommit() (string, error) {
-	resp, err := c.exchange(Request{Method: "git-msg"})
+func (c *Client) DraftCommit(rules string) (string, error) {
+	resp, err := c.exchange(Request{Method: "git-msg", Text: rules})
 	if err != nil {
 		return "", err
 	}

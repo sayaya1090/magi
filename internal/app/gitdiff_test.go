@@ -165,7 +165,7 @@ func TestACommitMessageIsDraftedFromWhatIsStaged(t *testing.T) {
 	a := New(store, llm, builtin.Default(), bus.New(), platform.New(), Config{})
 
 	// Nothing staged: the file is there but git has not been told about it.
-	if said, derr := a.DraftCommit(context.Background(), "s1", dir); derr != nil || said != "" {
+	if said, derr := a.DraftCommit(context.Background(), "s1", dir, ""); derr != nil || said != "" {
 		t.Fatalf("an unstaged workspace drafted %q (%v)", said, derr)
 	}
 	if llm.call != 0 {
@@ -177,7 +177,7 @@ func TestACommitMessageIsDraftedFromWhatIsStaged(t *testing.T) {
 	if out, aerr := add.CombinedOutput(); aerr != nil {
 		t.Fatalf("git add: %v\n%s", aerr, out)
 	}
-	said, derr := a.DraftCommit(context.Background(), "s1", dir)
+	said, derr := a.DraftCommit(context.Background(), "s1", dir, "")
 	if derr != nil {
 		t.Fatal(derr)
 	}

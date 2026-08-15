@@ -1752,6 +1752,10 @@
   .commitfoot { grid-column:1 / -1; display:grid; gap:var(--magi-sys-space-150); }
   .commitfoot .commitmsg { width:100%; }
   .commitacts { display:flex; gap:var(--magi-sys-space-150); justify-content:flex-end; }
+  /* The inline draft-rules editor: the field full width, its Save under it at the trailing end. */
+  .commitruleswrap { display:grid; gap:var(--magi-sys-space-100); }
+  .commitruleswrap .commitrules { width:100%; }
+  .commitruleswrap .commitrulesrow { display:grid; gap:var(--magi-sys-space-100); justify-items:end; }
   @media (max-width:52.4375em) {
     /* One column on a phone, the list first: at 390px a 10rem column beside a diff is neither. */
     .commitbox { grid-template-columns:minmax(0, 1fr); }

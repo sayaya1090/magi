@@ -266,7 +266,7 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 // style — what goes in the first word, whether there is a scope, how long the subject runs — and
 // a model shown five real examples matches it, where one told "be conventional" invents a
 // convention. They are evidence from the repository rather than a rule somebody typed here.
-func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir string) (string, error) {
+func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir, rules string) (string, error) {
 	diff, err := a.GitDiffOf(ctx, workdir, "", true, false)
 	if err != nil {
 		return "", err
@@ -288,13 +288,17 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir st
 				"this project writes them:\n" + strings.TrimSpace(string(res.Stdout))
 		}
 	}
-	// The person's own house rules, if they wrote any ([templates] commit). Additive to the base
-	// prompt and placed LAST so they win where they conflict — this is where "layer the commits",
-	// a required trailer, or a banned word lives, and it is a decision the operator made rather than
-	// one baked in here.
-	rules := ""
-	if r := strings.TrimSpace(a.cfg.Templates.Commit); r != "" {
-		rules = "\n\nThis project's own rules for commit messages, which take precedence over the " +
+	// The person's own house rules ([templates] commit), if any. Additive to the base prompt and
+	// placed LAST so they win where they conflict — this is where "layer the commits", a required
+	// trailer, or a banned word lives. The draft screen may hand a ONE-OFF override for this draft
+	// only (rules); non-empty, it stands in for the saved template without changing it.
+	tmpl := a.cfg.Templates.Commit
+	if strings.TrimSpace(rules) != "" {
+		tmpl = rules
+	}
+	ruleBlock := ""
+	if r := strings.TrimSpace(tmpl); r != "" {
+		ruleBlock = "\n\nThis project's own rules for commit messages, which take precedence over the " +
 			"instructions above where they differ:\n" + r
 	}
 	s := a.sessionInfo(ctx, sid)
@@ -305,7 +309,7 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir st
 			"nothing else: no preamble, no code fences, no quotation marks. A subject line in the " +
 			"imperative under 72 characters, then — only if the change needs it — a blank line and " +
 			"a short body saying WHY. Describe only what the diff shows: no issue numbers, no " +
-			"names, nothing you cannot see here." + house + rules,
+			"names, nothing you cannot see here." + house + ruleBlock,
 		Messages: []session.Message{{
 			Role:  session.RoleUser,
 			Parts: []session.Part{{Kind: session.PartText, Text: diff}},
@@ -411,7 +415,7 @@ func (a *App) PRFacts(ctx context.Context, workdir string) (PRState, error) {
 // the repository's own recent subjects as the house style. What differs is the evidence: a request
 // is about a BRANCH, so what goes over is its commits and the whole difference against the base,
 // not what happens to be staged right now.
-func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir string) (string, error) {
+func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir, rules string) (string, error) {
 	st, err := a.PRFacts(ctx, workdir)
 	if err != nil {
 		return "", err
@@ -430,12 +434,16 @@ func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir string
 	}
 	b.WriteString("\nTHE WHOLE DIFFERENCE AGAINST " + st.Base + "\n" + diff)
 
-	// House rules for pull requests ([templates] pr), if any — additive and last so they win on a
-	// conflict. A required section, a checklist, a template the team fills in: the operator's, not
-	// baked in here.
-	rules := ""
-	if r := strings.TrimSpace(a.cfg.Templates.PR); r != "" {
-		rules = "\n\nThis project's own rules for pull requests, which take precedence over the " +
+	// House rules for pull requests ([templates] pr), additive and last so they win on a conflict.
+	// The PR screen may hand a one-off override (rules) for this draft only; non-empty, it stands in
+	// for the saved template without changing it.
+	tmpl := a.cfg.Templates.PR
+	if strings.TrimSpace(rules) != "" {
+		tmpl = rules
+	}
+	ruleBlock := ""
+	if r := strings.TrimSpace(tmpl); r != "" {
+		ruleBlock = "\n\nThis project's own rules for pull requests, which take precedence over the " +
 			"instructions above where they differ:\n" + r
 	}
 	s := a.sessionInfo(ctx, sid)
@@ -447,7 +455,7 @@ func (a *App) DraftPR(ctx context.Context, sid session.SessionID, workdir string
 			"under 72 characters. Then a blank line and the body: what changed and why, what a " +
 			"reviewer should look at first, and anything you can see is still open. Describe only " +
 			"what the commits and the diff show — no issue numbers, no names, nothing you cannot " +
-			"see here." + rules,
+			"see here." + ruleBlock,
 		Messages: []session.Message{{
 			Role:  session.RoleUser,
 			Parts: []session.Part{{Kind: session.PartText, Text: b.String()}},

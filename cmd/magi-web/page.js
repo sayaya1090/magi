@@ -7787,11 +7787,38 @@ function drawPR(a, st) {
   msg.className = 'commitmsg';
   msg.value = prDraft;
   msg.addEventListener('input', () => { prDraft = msg.value; });
+  // The PR house rules, editable inline like the commit card: this draft as typed, savable as the
+  // default for whoever may configure.
+  const rulesField = document.createElement('md-outlined-text-field');
+  rulesField.setAttribute('type', 'textarea');
+  rulesField.setAttribute('rows', '3');
+  rulesField.setAttribute('label', tr('git.rules'));
+  rulesField.className = 'commitrules';
+  const rulesWrap = cell('commitruleswrap');
+  rulesWrap.hidden = true;
+  const rulesRow = cell('commitrulesrow');
+  rulesRow.append(rulesField);
+  if (may('configure')) {
+    const rulesSave = label(withMark(document.createElement('md-text-button'), '#i-sl-floppy-disk'),
+                            tr('git.rules_save'));
+    rulesSave.onclick = () => whileItRuns(rulesSave, async () => {
+      const body = new URLSearchParams({prTemplate: rulesField.value || ''});
+      if (!a.socket) body.set('tier', 'global');
+      const why = await post('/autocomplete', body, a.socket || '', a.peer || '');
+      if (!why) says(tr('git.rules_saved'));
+    });
+    rulesRow.append(rulesSave);
+  }
+  rulesWrap.append(rulesRow);
+  fetchOne('/autocomplete' + qFor(a)).then(got => { if (got) rulesField.value = got.prTemplate || ''; });
   const acts = cell('commitacts');
+  const rulesToggle = label(withMark(document.createElement('md-text-button'), '#i-sl-sliders'),
+                            tr('git.rules'));
+  rulesToggle.onclick = () => { rulesWrap.hidden = !rulesWrap.hidden; };
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
   draft.onclick = () => whileItRuns(draft, async () => {
-    const said = await postText('/pr-msg' + qFor(a), new URLSearchParams({}));
+    const said = await postText('/pr-msg' + qFor(a), new URLSearchParams({rules: rulesField.value || ''}));
     if (said) { prDraft = said; msg.value = said; if (msg.focus) msg.focus(); }
   });
   const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-share-from-square'),
@@ -7815,11 +7842,11 @@ function drawPR(a, st) {
     if (cardShows === 'facts') showCard();
     loadTree(a);
   });
-  acts.append(draft, go);
+  acts.append(rulesToggle, draft, go);
   // What pressing it will do, said before it is pressed: a branch nobody has pushed is pushed by
   // this, which is a fact about the remote somebody should meet in advance.
   if (st.repo && st.base && !st.pushed) foot.append(cell('filesnote', tr('pr.will_push')));
-  foot.append(msg, acts);
+  foot.append(msg, rulesWrap, acts);
   box.append(foot);
   fileViewEl.classList.add('commitmode');
   fileViewEl.replaceChildren(bar, box);
@@ -7923,11 +7950,40 @@ function drawCommit(a, g) {
   msg.className = 'commitmsg';
   msg.value = commitDraft;
   msg.addEventListener('input', () => { commitDraft = msg.value; });
+  // The house rules the draft follows, editable right here: pre-filled from the saved [templates]
+  // commit, used for THIS draft as typed, and — for somebody who may configure — savable as the new
+  // default. Hidden until asked for, so the common case (just draft) stays one button.
+  const rulesField = document.createElement('md-outlined-text-field');
+  rulesField.setAttribute('type', 'textarea');
+  rulesField.setAttribute('rows', '3');
+  rulesField.setAttribute('label', tr('git.rules'));
+  rulesField.className = 'commitrules';
+  const rulesWrap = cell('commitruleswrap');
+  rulesWrap.hidden = true;
+  const rulesRow = cell('commitrulesrow');
+  rulesRow.append(rulesField);
+  if (may('configure')) {
+    const rulesSave = label(withMark(document.createElement('md-text-button'), '#i-sl-floppy-disk'),
+                            tr('git.rules_save'));
+    rulesSave.onclick = () => whileItRuns(rulesSave, async () => {
+      const body = new URLSearchParams({commitTemplate: rulesField.value || ''});
+      if (!a.socket) body.set('tier', 'global');
+      const why = await post('/autocomplete', body, a.socket || '', a.peer || '');
+      if (!why) says(tr('git.rules_saved'));
+    });
+    rulesRow.append(rulesSave);
+  }
+  rulesWrap.append(rulesRow);
+  // The saved template pre-fills the field, so it starts from what is configured.
+  fetchOne('/autocomplete' + qFor(a)).then(got => { if (got) rulesField.value = got.commitTemplate || ''; });
   const acts = cell('commitacts');
+  const rulesToggle = label(withMark(document.createElement('md-text-button'), '#i-sl-sliders'),
+                            tr('git.rules'));
+  rulesToggle.onclick = () => { rulesWrap.hidden = !rulesWrap.hidden; };
   const draft = label(withMark(document.createElement('md-text-button'), '#i-sl-wand-magic-sparkles'),
                       tr('git.draft'));
   draft.onclick = () => whileItRuns(draft, async () => {
-    const said = await postText('/git-msg' + qFor(a), new URLSearchParams({}));
+    const said = await postText('/git-msg' + qFor(a), new URLSearchParams({rules: rulesField.value || ''}));
     if (said) { commitDraft = said; msg.value = said; if (msg.focus) msg.focus(); }
   });
   const go = label(withMark(document.createElement('md-filled-tonal-button'), '#i-sl-check'),
@@ -7949,8 +8005,8 @@ function drawCommit(a, g) {
     if (cardShows === 'facts') showCard();
     loadTree(a);
   });
-  acts.append(draft, go);
-  foot.append(msg, acts);
+  acts.append(rulesToggle, draft, go);
+  foot.append(msg, rulesWrap, acts);
   box.append(foot);
   // The card is taller in this mode and holds its own scrolling boxes — see the rule in the stylesheet.
   fileViewEl.classList.add('commitmode');

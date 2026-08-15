@@ -237,9 +237,10 @@ func (s *server) prMsg(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
+	rules := r.FormValue("rules") // a one-off house-rules override for this draft only
 	var out string
 	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
-		said, merr := cl.DraftPR()
+		said, merr := cl.DraftPR(rules)
 		out = said
 		return merr
 	}); derr != nil {
@@ -287,9 +288,10 @@ func (s *server) gitMsg(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
+	rules := r.FormValue("rules") // a one-off house-rules override for this draft only
 	var out string
 	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
-		said, merr := cl.DraftCommit()
+		said, merr := cl.DraftCommit(rules)
 		out = said
 		return merr
 	}); derr != nil {
