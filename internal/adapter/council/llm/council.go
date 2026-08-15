@@ -159,6 +159,13 @@ func (c *Council) rebut(ctx context.Context, req port.DeliberationRequest, membe
 	for _, v := range indep {
 		byName[v.Member] = v
 	}
+	// Bounded exactly like the independent round: a member whose backend accepts the rebuttal request
+	// and then goes silent must not wedge Deliberate to the turn's wall clock. Passing the raw turn
+	// ctx here (as it once did) reopened the very hang the round-1 deadline was written to close — the
+	// turn ctx does not fire until the wall clock even for a well-behaved, cancellation-honouring
+	// provider. A member cut off keeps the vote it already cast: it revised nothing.
+	rctx, cancel := context.WithTimeout(ctx, memberDeadline)
+	defer cancel()
 	out := make([]council.Verdict, len(members))
 	var wg sync.WaitGroup
 	for i, m := range members {
@@ -167,7 +174,10 @@ func (c *Council) rebut(ctx context.Context, req port.DeliberationRequest, membe
 			defer wg.Done()
 			prior := byName[m.Name]
 			peers := peerDigest(indep, m.Name)
-			rv := c.pollRebut(ctx, req, m, prior, peers)
+			rv := c.pollRebut(rctx, req, m, prior, peers)
+			if rctx.Err() != nil {
+				rv = prior
+			}
 			out[i] = rv
 		}(i, m)
 	}

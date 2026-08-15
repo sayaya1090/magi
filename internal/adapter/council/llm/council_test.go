@@ -845,3 +845,53 @@ func (h hangFor) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	close(ch)
 	return ch, nil
 }
+
+// The rebuttal round is bounded like the independent round: a member that accepts the rebuttal
+// request and then goes silent must not wedge Deliberate. Round 1 splits Done (Melchior dissents,
+// triggering debate); the rebuttal hangs. With the bound, the turn returns and Melchior keeps its
+// prior vote; without it, the raw ctx (Background here) never fires and this hangs to the test's
+// timeout.
+func TestARebuttalRoundDoesNotHangTheTurn(t *testing.T) {
+	was := memberDeadline
+	memberDeadline = 150 * time.Millisecond
+	defer func() { memberDeadline = was }()
+
+	c := New(only(rebuttalHang{}), "m")
+	done := make(chan council.Deliberation, 1)
+	go func() {
+		d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+			Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: true,
+		})
+		done <- d
+	}()
+	select {
+	case d := <-done:
+		got := map[string]council.Decision{}
+		for _, v := range d.Verdicts {
+			got[v.Member] = v.Decision
+		}
+		if got["Melchior"] != council.Continue {
+			t.Errorf("a member cut off in the rebuttal did not keep its prior vote: %+v", d.Verdicts)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("Deliberate never returned — the rebuttal round hangs to the turn wall clock")
+	}
+}
+
+type rebuttalHang struct{}
+
+func (rebuttalHang) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent, 2)
+	if strings.Contains(textOf(r), "Council disagreement") {
+		go func() { <-ctx.Done(); close(ch) }() // the rebuttal is accepted, then silent
+		return ch, nil
+	}
+	vote := `{"decision":"done","rationale":"tests pass"}`
+	if memberIn(r, "Melchior") {
+		vote = `{"decision":"continue","rationale":"looks incomplete"}`
+	}
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: vote}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}
