@@ -118,6 +118,11 @@ func TestAProfileNameThatWouldBreakTheFileIsRefused(t *testing.T) {
 		{"a newline", "foo\nbar"},
 		{"a carriage return", "foo\rbar"},
 		{"a NUL", "foo\x00bar"},
+		{"a comma", "a,b"},
+		{"a colon", "a:b"},
+		{"an equals", "a=b"},
+		{"a slash", "a/b"},
+		{"a non-ASCII letter", "café"},
 		{"no name at all", ""},
 	} {
 		w := post(t, f.srv, f.srv.profilesList, q, url.Values{
@@ -128,5 +133,11 @@ func TestAProfileNameThatWouldBreakTheFileIsRefused(t *testing.T) {
 	}
 	if list := f.profiles(t); len(list) != 0 {
 		t.Errorf("a refused name was written anyway: %+v", list)
+	}
+	// The allowlist must not over-reject: a bare-key name (letters, digits, hyphen, underscore) is
+	// exactly what a model profile is usually called, and it is accepted.
+	if w := post(t, f.srv, f.srv.profilesList, q, url.Values{
+		"name": {"code-fast_2"}, "baseUrl": {"http://localhost:11434/v1"}}); w.Code != http.StatusOK {
+		t.Errorf("a valid bare-key name was refused: %d (%s)", w.Code, w.Body.String())
 	}
 }

@@ -115,12 +115,12 @@ func (s *server) mcpWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" || strings.ContainsAny(name, " \t[]\"'#.") || hasControl(name) {
-		// The name becomes a TOML table header, so it has to be one. Refused rather than sanitised:
-		// a name quietly rewritten is a server the person cannot find again in their own file. A
-		// control character (a newline especially) would split the header and break the file.
-		http.Error(w, "a server needs a name, and the name cannot contain spaces, quotes, "+
-			"brackets, a hash, a dot or a control character", http.StatusBadRequest)
+	if !bareName(name) {
+		// The name becomes a bare TOML table header, so it is held to that set. Refused rather than
+		// sanitised: a name quietly rewritten is a server the person cannot find again in their own
+		// file. An allowlist ([A-Za-z0-9_-]) — anything else would split or break the header.
+		http.Error(w, "a server needs a name, and the name can only contain letters, numbers, "+
+			"hyphens and underscores", http.StatusBadRequest)
 		return
 	}
 	path, err := s.mcpFileFor(r)

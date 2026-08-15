@@ -91,12 +91,13 @@ func (s *server) profilesWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" || strings.ContainsAny(name, " \t[]\"'#.") || hasControl(name) {
-		// The name becomes a TOML table header, so it has to be one — refused rather than sanitised.
-		// A control character (a newline especially) would split the header across lines and leave
-		// the file unparseable, so it is rejected here rather than reaching config.SetKey.
-		http.Error(w, "a profile needs a name, and the name cannot contain spaces, quotes, brackets, "+
-			"a hash, a dot or a control character", http.StatusBadRequest)
+	if !bareName(name) {
+		// The name becomes a bare TOML table header, so it is held to that set — refused rather than
+		// sanitised. An allowlist ([A-Za-z0-9_-]): anything else (a space, dot, bracket, control
+		// character, comma, non-ASCII letter) would split or break the header and leave the file
+		// unparseable, so it is rejected here rather than reaching config.SetKey.
+		http.Error(w, "a profile needs a name, and the name can only contain letters, numbers, "+
+			"hyphens and underscores", http.StatusBadRequest)
 		return
 	}
 	path, err := s.configFileFor(r)

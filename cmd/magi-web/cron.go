@@ -116,11 +116,13 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" || strings.ContainsAny(name, " \t[]\"'#.") {
-		// The name becomes a TOML table header, so it has to be one. Refused rather than sanitised:
-		// a name quietly rewritten is a job the person cannot find again in their own file.
-		http.Error(w, "a job needs a name, and the name cannot contain spaces, quotes, "+
-			"brackets, a hash or a dot", http.StatusBadRequest)
+	if !bareName(name) {
+		// The name becomes a bare TOML table header ([cron.<name>]), so it is held to that set — the
+		// same allowlist ([A-Za-z0-9_-]) profilesWrite and mcpWrite use. Refused rather than
+		// sanitised: a name quietly rewritten is a job the person cannot find again in their own
+		// file, and a newline or other stray character would break the whole config.toml.
+		http.Error(w, "a job needs a name, and the name can only contain letters, numbers, "+
+			"hyphens and underscores", http.StatusBadRequest)
 		return
 	}
 	in, err := s.target(r)

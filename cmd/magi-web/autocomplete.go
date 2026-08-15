@@ -156,11 +156,26 @@ func stripControl(s string) string {
 	}, s)
 }
 
-// hasControl reports whether s carries any ASCII control character (below space, or DEL). A config
-// NAME becomes a bare TOML table header written by raw concatenation (config.SetKey's %q escaping
-// covers values, not the section header), so a control character — a newline above all — would
-// split or break the header. Names carrying one are refused rather than mapped: see profilesWrite
-// and mcpWrite.
-func hasControl(s string) bool {
-	return strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0
+// bareName reports whether s is a valid TOML bare key: non-empty, and every rune in [A-Za-z0-9_-].
+//
+// A profile, MCP server or cron job NAME becomes a bare TOML table header — `[llm.profiles.<name>]`
+// — written by raw concatenation (config.SetKey's %q escaping covers values, not the section
+// header). Anything outside the bare-key set either splits the header (a newline) or makes it fail
+// to parse (a space, dot, bracket, comma, colon, any non-ASCII letter), and either way leaves the
+// whole config.toml unloadable so the target daemon cannot start. This is an allowlist on purpose:
+// the earlier denylist kept missing characters — a newline, then a comma — that each reopened the
+// same corruption, whereas the bare-key set is exactly what TOML accepts for a header written this
+// way. Used by profilesWrite, mcpWrite and cronWrite.
+func bareName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
