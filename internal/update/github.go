@@ -179,7 +179,22 @@ func (g *GitHubSource) Download(ctx context.Context, url string) ([]byte, error)
 		req.Header.Set("Accept", "application/octet-stream")
 	}
 	g.authorize(req)
-	resp, err := g.client().Do(req)
+	// The metadata client's 30s whole-request Timeout is right for Latest and wrong here: it covers
+	// the BODY read too, so a ~30MB asset needed ~1MB/s sustained or the download failed on every
+	// cycle — a slow link could never update at all, however patient the caller's ctx was. So the
+	// flat deadline is dropped for the download (shared Transport, only the value field changed) —
+	// but NOT unboundedly: a caller whose ctx carries no deadline (the CLI's `magi -update`, the
+	// interactive startup install) gets a generous default here, or a stalled asset host would hang
+	// it forever with nothing but ctrl-c to get out.
+	if _, bounded := ctx.Deadline(); !bounded {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
+	dl := *g.client()
+	dl.Timeout = 0
+	resp, err := dl.Do(req)
 	if err != nil {
 		return nil, err
 	}

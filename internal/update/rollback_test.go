@@ -42,6 +42,12 @@ func TestVerifyAcceptsARunnableBinaryAndRejectsBadOnes(t *testing.T) {
 	if err := Verify(filepath.Join(dir, "nonexistent")); err == nil {
 		t.Error("a missing binary passed pre-flight")
 	}
+	// Execs cleanly but prints nothing — not a runnable magi (--version always says something).
+	mute := filepath.Join(dir, "mute")
+	writeExec(t, mute, []byte("#!/bin/sh\nexit 0\n"))
+	if err := Verify(mute); err == nil {
+		t.Error("a binary that prints nothing for --version passed pre-flight")
+	}
 
 	// A hang is caught by the timeout, not left to stall the update — even when the hung binary left
 	// a child holding the output pipe (WaitDelay bounds that).
@@ -112,5 +118,26 @@ func TestKeepPreviousRestoresTheExactBinary(t *testing.T) {
 	discard()
 	if _, err := os.Stat(target + ".prev"); !os.IsNotExist(err) {
 		t.Error("discard did not remove the saved copy")
+	}
+}
+
+// SelfUpdatable accepts only an exact release tag. The dangerous case is not "dev" — it is the
+// git-describe stamp the Makefile actually produces ("v0.22.2-13-gabc1234-dirty"), whose semver
+// PREFIX parses: a guard that merely parsed let the normal source build auto-update over itself.
+func TestSelfUpdatableAcceptsOnlyAnExactReleaseTag(t *testing.T) {
+	for v, want := range map[string]bool{
+		"v1.2.3":                    true,
+		"1.2.3":                     true,
+		"v0.22.2":                   true,
+		"dev":                       false,
+		"":                          false,
+		"v0.22.2-13-gabc1234":       false,
+		"v0.22.2-13-gabc1234-dirty": false,
+		"v1.2.3-rc1":                false,
+		"v1.2.3+meta":               false,
+	} {
+		if got := SelfUpdatable(v); got != want {
+			t.Errorf("SelfUpdatable(%q) = %v, want %v", v, got, want)
+		}
 	}
 }

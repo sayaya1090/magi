@@ -61,6 +61,32 @@ func Run(ctx context.Context, src Source, currentVersion, execPath string) (Resu
 	return Result{Updated: true, From: currentVersion, To: rel.Version}, nil
 }
 
+// SelfUpdatable reports whether current names an EXACT release build — a bare tag like "v1.2.3",
+// nothing after it. IsNewer deliberately treats an unparseable current ("dev") as older-than-
+// anything so an explicit `magi -update` can move a dev install onto a release; the DAEMON paths
+// must not inherit that: a developer's locally built `./magi --daemon` would otherwise have its
+// binary silently replaced by the latest GitHub release — by the auto loop within hours, or by one
+// press of the console's update button.
+//
+// Stricter than parseSemver on purpose: the Makefile stamps `git describe --tags --always --dirty`,
+// so the NORMAL source build is "v0.22.2-13-gabc1234-dirty" — and parseSemver truncates at the
+// first '-', reading that as the release v0.22.2. A guard built on parseSemver alone protected only
+// the bare `go build` ("dev") and missed the documented build path entirely. Anything carrying a
+// suffix is somebody's own build, and their binary is not ours to replace.
+func SelfUpdatable(current string) bool {
+	s := strings.TrimPrefix(strings.TrimSpace(current), "v")
+	if _, ok := parseSemver(s); !ok {
+		return false
+	}
+	// An exact tag is three dot-separated numbers and nothing else.
+	for _, r := range s {
+		if r != '.' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 // RunCommit is Run with rollback: it puts the new binary in through Commit (pre-flight + restore on
 // failure) instead of a bare Apply, so a broken release never becomes the binary on disk. The daemon
 // self-update uses it and then restarts onto the result; the startup path keeps Run, whose tests
@@ -108,6 +134,13 @@ func Apply(newBin []byte, target string) error {
 		tmp.Close()
 		return err
 	}
+	// fsync before the rename: on filesystems with delayed allocation the rename can be
+	// metadata-durable while the data is not, and a power cut then leaves a truncated binary at a
+	// path everything treats as successfully installed.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
@@ -117,7 +150,16 @@ func Apply(newBin []byte, target string) error {
 
 	if runtime.GOOS == "windows" {
 		old := target + ".old"
-		_ = os.Remove(old)
+		// The remove fails whenever .old is the RUNNING image — the previous self-update in this
+		// process put it there, and Windows will not delete a mapped executable. Left there, the
+		// rename-aside below fails too and every later update in this process's lifetime errors.
+		// A running image CAN be renamed, so shunt it to a unique name instead; it is cleaned up by
+		// a later update once that process is gone.
+		if rmErr := os.Remove(old); rmErr != nil && !os.IsNotExist(rmErr) {
+			if mvErr := os.Rename(old, fmt.Sprintf("%s.%d", old, os.Getpid())); mvErr != nil {
+				return fmt.Errorf("the previous update's %s is in the way and cannot be moved: %w", old, mvErr)
+			}
+		}
 		if err := os.Rename(target, old); err != nil {
 			return err
 		}
