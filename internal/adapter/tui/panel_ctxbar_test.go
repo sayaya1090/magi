@@ -25,6 +25,11 @@ func TestThePanelDrawsHowFullTheContextWindowIs(t *testing.T) {
 	if !strings.Contains(box, "Context") {
 		t.Errorf("the panel does not say what the section is:\n%s", box)
 	}
+	// Exactly once. A bounded window drew the heading twice — the method's bar up top and a second
+	// free-function bar below — so the panel repeated "Context" back to back.
+	if n := strings.Count(box, "Context"); n != 1 {
+		t.Errorf("the Context section is drawn %d times, want 1:\n%s", n, box)
+	}
 	if !strings.Contains(box, "━") {
 		t.Errorf("the panel states the number and does not draw it:\n%s", box)
 	}

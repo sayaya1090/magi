@@ -213,10 +213,10 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 	}
 
-	if m.ctxPct > 0 {
-		sep()
-		lines = append(lines, panelHead("Context"), ctxBar(m.ctxPct, inner))
-	}
+	// The Context section is drawn once, up with the plan bar via m.ctxBar(inner) — the method with
+	// the negative clamp, the colour thresholds and the gauge words. This block drew it a SECOND time
+	// (a different ▓/░ bar under a second "Context" heading) whenever a bounded window was running, so
+	// the panel showed the heading twice back to back. Removed.
 
 	lines = clipPanelRows(lines, m.height)
 	body := strings.Join(lines, "\n")
@@ -454,15 +454,4 @@ func todoLine(t session.Todo, width, depth int) string {
 	default:
 		return indent + lipgloss.NewStyle().Foreground(colMuted).Render("☐ "+text)
 	}
-}
-
-// ctxBar renders a compact context-usage meter.
-func ctxBar(pct float64, width int) string {
-	barW := max(4, width-6)
-	filled := int(pct / 100 * float64(barW))
-	if filled > barW {
-		filled = barW
-	}
-	bar := strings.Repeat("▓", filled) + strings.Repeat("░", barW-filled)
-	return lipgloss.NewStyle().Foreground(colPrimary).Render(bar) + fmt.Sprintf(" %2.0f%%", pct)
 }
