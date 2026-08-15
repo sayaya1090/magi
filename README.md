@@ -2,33 +2,47 @@
 
 # magi
 
-**A terminal AI coding agent that doesn't decide it's done on its own.**
+### A terminal AI coding agent that doesn't decide it's done on its own.
 
 Most agents let a single model call its own work finished — so they stop early, or churn forever.
-**magi puts termination to a vote.** Three specialists, each with a different lens, deliberate on
-every turn and only let the loop end when they agree.
+**magi puts the decision to a vote.** Three specialists, each with a different lens, read what
+*actually* happened and only let the turn end when they agree — and a verification command **magi
+runs itself** can veto a "done" the tests don't back up.
+
+[English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md) · [Live demo](https://sayaya1090.github.io/magi/)
 
 [![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sayaya1090/magi/badges/coverage.json)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
-
-[English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md)
-
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache--2.0-blue)
-[![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
 ![Single binary](https://img.shields.io/badge/build-CGO__free%20single%20binary-success)
 
 </div>
 
 ---
 
-## Why magi?
+<div align="center">
 
-An agent loop has one hard question: **when is the turn actually finished?**
+### Run one in your terminal. Watch a whole team of them from your browser.
+
+<a href="https://sayaya1090.github.io/magi/">
+  <img src="docs/img/console-companions.png" alt="The magi web console — a roster of companions across two teams, one waiting on a permission prompt, one on a question, with live status, steps and hosts" width="900">
+</a>
+
+*The console — every magi on your machines, what each is doing, and the two that need you.
+[Try the live demo →](https://sayaya1090.github.io/magi/) (the real page, mocked data, no server.)*
+
+</div>
+
+---
+
+## The one idea
+
+An agent loop has exactly one hard question: **when is the turn actually finished?**
 
 Leave it implicit — the turn ends when the model stops calling tools — and a turn that trailed off
-mid-thought is indistinguishable from one that is actually done. magi makes ending an **act**: the
-agent declares it, and a council reads what actually happened before the turn is allowed to close.
+mid-thought looks identical to one that is genuinely done. magi makes ending an **act**: the agent
+*declares* it, and a council reads the record of what happened before the turn is allowed to close.
 
 ```text
 you ▸ add a --dry-run flag to the deploy command
@@ -54,18 +68,30 @@ you ▸ add a --dry-run flag to the deploy command
 
 The decision to stop is taken away from any single model and given to a **consensus council**. That
 one change is the project's whole reason to exist; everything else is built to make that loop
-observable, steerable, and reproducible.
+**observable, steerable, and reproducible** — and to let you run and supervise many of them at once.
 
 ---
 
-## The Council
+## What you get
+
+|  | Feature | What it means |
+|---|---|---|
+| 🗳️ | **Consensus termination** | Three members vote *done / reject / abstain*; a pure, unit-tested rule tallies them. A `reject` feeds their aggregated feedback back in as the next instruction. |
+| 🔒 | **A verify command magi runs itself** | Point `[council] verify` at your test command. magi runs it at the finish gate — a non-zero exit **refuses** the finish whatever the members voted. For `go test` it even catches a suite disabled or a failure masked behind a forced `exit 0`. |
+| 🧾 | **A record, not a claim** | magi grants every tool call, so it knows which commands ran, their *real* exit (including which stage of a pipe failed), and which files they wrote — plus a fresh read of the workspace on every "done". |
+| 🖥️ | **A web console for many agents** | Supervise every companion on your machines from a browser: interrupt, answer a question, approve a command, read what they've learned, get pinged on your phone when one blocks. |
+| 🤝 | **Companions & hand-off** | Give a workspace a name and a role; address it by what it *is*. `hand_off` gives a specialist a piece of the work and keeps going — the answer arrives in your conversation when it's done. |
+| 🗣️ | **Meetings** | Several companions talk through one question, read-only, until each knows what to do — then the work is handed out. |
+| ⏮️ | **An inspectable loop** | Every turn is event-sourced to append-only JSONL, so you can `/rewind`, `/fork`, `/replay`, and `/loopdiff` — the loop is a real object, not a black box. |
+| 📦 | **One static binary** | Pure Go, CGO-free. Local-first on [Ollama](https://ollama.com)'s free cloud tier — no GPU, `ollama signin` once — or any OpenAI-compatible endpoint. |
+
+---
+
+## The council
 
 At the moment the loop would naturally end, a council of members votes **done**, **reject**, or
-**abstain**. A pure, unit-tested consensus rule tallies the votes into one decision. A `reject`
-doesn't just stop the agent — it feeds the members' aggregated feedback back into the loop as the
-next instruction.
-
-The three default members — the **MAGI** — each judge through a different lens:
+**abstain**, and a pure consensus rule turns those votes into one decision. The three default
+members — the **MAGI** — each judge through a different lens:
 
 | Member | Lens | Asks |
 |---|---|---|
@@ -83,88 +109,100 @@ The three default members — the **MAGI** — each judge through a different le
 | `weighted:θ` | the done-weight share meets threshold θ |
 | `veto:Name` | a named member can veto any finish |
 
-**Built to never trap or rubber-stamp the loop:**
+**Built so it can never trap or rubber-stamp the loop:** a tie, an unmet quorum, no voters, or an
+error all resolve to *continue* — it finishes only on affirmative agreement, never on ambiguity.
+No-progress detection stops it churning, rounds are capped, and a member that errors or returns
+garbage **abstains** rather than blocking the gate.
 
-- A **tie, an unmet quorum, no voters, or an error** all resolve to *continue* — the council never
-  finishes on ambiguity, only on affirmative agreement.
-- **No-progress detection** stops the gate when feedback goes empty or repeats, so it can't churn.
-- Rounds are **capped** (`max_rounds`, default 3); hitting the cap finishes with a noted "unresolved".
-- A member that errors or returns garbage **abstains** (dropped from the denominator) rather than
-  blocking the gate.
-
-**Evidence, not vibes.** Members judge the agent's *report* against the *task* and *plan* on what
-magi itself recorded: every command it granted and how that command really ended, the agent's own
-edits this turn as a per-file before→after diff, and — on a completion claim — a fresh read of the
-workspace. A read-only
-or investigation turn that changed nothing is recognized as such (`NoChanges`), so the council judges
-the *answer* on its merits instead of demanding a diff that was never going to exist.
-
-```toml
-[council]
-# enabled  = true         # on by default; set false for a plain single-model loop
-rule       = "majority"   # unanimous | majority | quorum:k | weighted:θ | veto:Name
-max_rounds = 3
-# criteria = true              # elicit explicit acceptance criteria as the contract
-
-# Customize the bench — or keep the MAGI default
-[[council.member]]
-name = "Melchior"
-lens = "correctness"
-# model / provider can route a member to a cheaper or stronger backend
-```
-
-> The consensus logic lives in `internal/core/council` as **pure domain code** — no I/O, no LLM. That
-> separation is what lets *"the council decides, not one model"* be a tested invariant instead of a
-> hopeful prompt.
+> The consensus logic lives in `internal/core/council` as **pure domain code** — no I/O, no LLM.
+> That separation is what lets *"the council decides, not one model"* be a tested invariant instead
+> of a hopeful prompt.
 
 ---
 
-## How a turn ends
+## The record — and a check the agent can't fake
 
-A turn does not end by going quiet. When the agent believes the work is finished it says so —
-`council{complete: true}` — and three members read the record before the turn is allowed to close:
-what commands actually ran and how they ended, what the workspace holds *right now*, what the agent
-itself said. They either accept, and the turn is over, or they name what is still undone and the
-agent keeps working.
+Members don't judge on vibes. They judge the agent's *report* against the *task* on what **magi
+itself recorded**: every command it granted and how that command really ended, the agent's own edits
+this turn as a per-file before→after diff, and — on a completion claim — a fresh read of the
+workspace (files modified since the task began, background jobs still alive, any path the record says
+was written that isn't on disk).
 
-That record is the point. magi grants every tool call, so it knows which commands ran, what their
-real exit was (including which stage of a pipeline failed, which the reported exit hides), and
-which paths they wrote. On a declaration it also takes a fresh read of the workspace — files
-modified since the task began, background commands still alive, and any path the record claims was
-written that is not on disk. A check written in advance can be wrong about the work; a record of
-what was granted cannot be wrong about what was granted, and where it is incomplete it says so.
+On top of that record sits a **fixed verification harness the agent cannot subvert**:
 
-The same record rides every step, re-rendered, so the agent is never working from memory alone.
+```toml
+[council]
+verify = "go test ./..."   # magi runs THIS itself at the finish gate
+```
 
-Asking is separate from declaring: `council{question}` gets their reading on something you are
+Its exit code is authoritative. A non-zero exit **refuses** the finish whatever the members voted,
+and its output is shown to them as magi-run evidence rather than the agent's self-report. For a
+`go test` command magi goes further and re-runs it under `-json`, so the two classic ways to fake a
+green suite are both caught:
+
+- a `TestMain` that **runs nothing** (an empty/disabled suite that still exits 0), and
+- a `TestMain` that runs the tests, sees them fail, and **forces `os.Exit(0)`** over the failure.
+
+Either one turns a "done" vote into *continue*, with evidence naming the failure. A check written in
+advance can be wrong about the work; a record of what was granted cannot be wrong about what ran.
+
+Asking is separate from declaring: `council{question}` gets the members' reading on something you're
 unsure of, and it ends nothing.
 
 ---
 
-## One agent
+## The console — and a team of companions
 
-magi used to spawn subagents, plan the work into steps, author executable checks for each step,
-and hold the turn open until a council voted the checks satisfied. All of it is gone, and out of
-the box there is still one agent: **magi ships none of its own.**
+<div align="center">
+<a href="https://sayaya1090.github.io/magi/">
+  <img src="docs/img/console-companion-detail.png" alt="A single companion's page in the console — its status, model and workspace, a live transcript showing a failing go test with its real exit and message, and a pending permission prompt for a dangerous command" width="820">
+</a>
 
-The reason is in the logs. Every one of those stages decided something *before* the work existed,
-and the defects that cost the most were of exactly one kind: magi believing a judgement it had made
-in advance over the record of what actually happened — a probe that passed only when the server was
-down, a grep demanding a hyphen where the generator writes an underscore, a brief paraphrased until
-the graded identifier was gone. What is left is the loop, the tools, the record, and a council the
-agent calls when it wants one.
+*One companion's page: the live transcript with true exit codes, and a dangerous command held for your approval.*
+</div>
 
-**A subagent, if you want one, comes from a plugin.** magi provides the seam and no policy: a plugin
-declares one, `/subagents` is where a user switches it on and picks its model, and with no such
-plugin installed there is no way to reach it. Nothing is summarised on the way in — the child gets
-the plugin's prompt and the tool's own arguments verbatim — because a paraphrased brief is exactly
-what the record above condemns. A plugin can read what its child actually did and put its file
-changes back, and both are its own call, never magi's. One example ships, switched off: **Seele**, a
-planner with no write tools at all.
+One magi bound to one workspace is a **companion**. Give it a name and a role and it becomes
+addressable by what it is *for*:
 
-## Loop Engineering Toolkit
+```toml
+# .magi/config.toml — travels with the repo
+[companion]
+name = "design"
+role = "the design system: component specs and visual review"
+team = "frontend"     # optional
+```
 
-The loop is a first-class, inspectable object — not a black box between you and the model.
+- **`companions`** lists the others — including what each workspace has *learned*, which is how a
+  specialist becomes visible.
+- **`companion_can`** asks one of them what it can actually do.
+- **`hand_off`** gives it a piece of the work and keeps going; the request carries its purpose and
+  the **form** the answer must come back in, and the answer lands in your conversation when it
+  finishes. A companion does **one turn at a time** and **queues** what arrives meanwhile — how much
+  is queued rides in its published record, so whoever is choosing can see who is free.
+- **Meetings** put several companions on one question until each knows what to do.
+
+**No registry, no gateway, no open port.** Every daemon publishes a record beside its socket, and
+that directory *is* the membership. Across machines it's the same records, traded over **ssh** —
+`magi --join-cluster <host>` once, then the daemons keep each other current and forget anyone they
+haven't seen for an hour. Work crosses the same way, so magi opens no port of its own and holds no
+credential of its own.
+
+Watch it all from your terminal, or from the browser:
+
+```sh
+./magi --daemon                # the engine with no UI — keeps working while nothing watches
+./magi --attach                # attach a terminal UI to this workspace's daemon
+./magi --agents                # every magi on this machine, and what each is doing
+./magi-web                     # the same in a browser (127.0.0.1:7777) — interrupt, answer,
+                               # read what they've learned, be pinged on your phone when one blocks
+./magi-web -exposed            # behind an authenticating proxy: no shell, no MCP writes, every change logged
+```
+
+---
+
+## The loop is a first-class object
+
+Not a black box between you and the model — a thing you can inspect, branch, and replay.
 
 | Command | What it gives you |
 |---|---|
@@ -175,29 +213,30 @@ The loop is a first-class, inspectable object — not a black box between you an
 | `/replay` | re-run the last turn on a branch |
 | `/loopdiff` | compare a branch against its fork origin |
 
-Every turn is **event-sourced** to an append-only JSONL log, which is what makes rewind, fork, and
-replay possible — the loop is observable and reproducible, not ephemeral.
+Every turn is **event-sourced** to an append-only JSONL log — which is exactly what makes rewind,
+fork, and replay possible. The loop is observable and reproducible, not ephemeral.
 
 ---
 
-## Quick Start
+## Quick start
 
 ### Requirements
 
-- **Go 1.26+** (to build)
-- **An OpenAI-compatible LLM backend.** [Ollama](https://ollama.com) is recommended. The default model
-  is **`gpt-oss:120b-cloud`**, a strong model on Ollama's **free cloud tier** — no GPU needed, just sign
-  in once:
+- **Go 1.26+** (to build).
+- **An OpenAI-compatible LLM backend.** [Ollama](https://ollama.com) is recommended. The default
+  model is **`gpt-oss:120b-cloud`**, a strong model on Ollama's **free cloud tier** — no GPU, just
+  sign in once:
   ```sh
   ollama signin                   # free tier; the default gpt-oss:120b-cloud runs in Ollama's cloud
   ```
   Prefer to run **fully local**? Pull a model and point magi at it:
   ```sh
   ollama pull qwen3-coder:30b
-  ./magi --model qwen3-coder:30b  # strongest local coder (24 GB GPU); or MAGI_MODEL=…
+  ./magi --model qwen3-coder:30b  # strongest local coder (~24 GB GPU); or MAGI_MODEL=…
   ```
-  > Any OpenAI-compatible endpoint works (vLLM, LiteLLM, hosted APIs) — see Configuration. Very small
-  > models (e.g. `llama3.1:8b`) tend to emit tool-call JSON even when greeting you, so they're a poor fit.
+  > Any OpenAI-compatible endpoint works (vLLM, LiteLLM, hosted APIs) — see Configuration. Very
+  > small models (e.g. `llama3.1:8b`) tend to emit tool-call JSON even when greeting you, so they're
+  > a poor fit.
 
 ### Install
 
@@ -219,91 +258,19 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
 
 Pure Go — a single static binary, no CGo. Copy it anywhere and run.
 
-The console's icons are the one thing not in this repository. They are Font Awesome Pro, whose
-licence permits using them in something you deploy and not republishing them as files, so the page
-holds the names and the art is baked in at build time — optional, and absent by default:
-
-```sh
-MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web   # then build as above
-```
-
-A build without it is a working build: every mark falls back to the character or the hand-drawn
-shape the page had before, and the test suite is run both ways. See `docs/UI.md` §3.1b.
-
 ### Run
 
 ```sh
 ./magi                         # interactive TUI
+./magi -p "explain main.go"    # headless, one-shot (add --output json for a JSONL event stream)
 ./magi --version               # print version
 ./magi --update                # update the binary AND managed plugins (checksum-verified)
-./magi --update-core           # update only the binary
-./magi --update-plugins        # update only managed (git) plugins
 ```
 
-On an interactive terminal, magi checks for a newer release at most once a day: a patch
-release just shows a banner, a minor/major release installs automatically (cancellable),
-then asks you to restart. Non-interactive runs (`-p`, pipes, CI) never check. Opt out with
-`--no-update-check`.
-
-**In the TUI:** **Enter** sends · **Esc** interrupts the running turn · **Ctrl+Q** / `/quit` exits (Ctrl+C is left free for drag-copy).
+**In the TUI:** **Enter** sends · **Esc** interrupts the running turn · **Ctrl+Q** / `/quit` exits.
 Dangerous tools (`write`/`edit`/`bash`) ask before they run (`y` allow · `a` always · `n` deny).
-Markdown and syntax highlighting adapt to dark/light terminals automatically.
-
-### Leaving it running, and watching several
-
-```sh
-./magi --daemon                # the engine with no UI — it keeps working while nothing watches
-./magi --attach                # attach a terminal UI to this workspace's daemon
-./magi --agents                # every magi on this machine, and what each is doing
-./magi-web                     # the same, in a browser (127.0.0.1:7777) — interrupt, answer,
-                               # read what they have learned, and be told on your phone when one
-                               # of them blocks; -peer adds another machine
-./magi-web -exposed            # behind a proxy that authenticates: no shell, no MCP writes, and
-                               # every change recorded (-user-header names who)
-```
-
-The console has a clickable demo — the real page, mocked data, no server:
-<https://sayaya1090.github.io/magi/>
-
-One magi bound to one workspace is a **companion**; a person watching several of them is
-supervising rather than operating. See [MANUAL §12](docs/MANUAL.md) and the design record in
-[proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).
-
-### A team of companions
-
-```toml
-# .magi/config.toml — travels with the repo
-[companion]
-name = "design"
-role = "the design system: component specs and visual review"
-team = "frontend"                       # optional
-```
-
-Declared this way, a companion can be addressed by what it is for. `companions` lists the others —
-including what each workspace has learned, which is how a specialist becomes visible —
-`companion_can` asks one of them what it can actually do, and `hand_off` gives it a piece of the
-work and keeps going; the answer arrives in your conversation when it finishes. The request carries
-its purpose and the **form** the answer must come back in, so a part that could not be done comes
-back as that part rather than as a paragraph about why it was hard.
-
-No registry and no gateway: every daemon publishes a record beside its socket, and that directory
-is the membership. Across machines it is the same records, traded over **ssh** —
-`magi --join-cluster <host>` once, then the daemons keep each other current and forget anybody they
-have not seen for an hour. Work crosses the same way, so magi opens no port of its own and holds no
-credential of its own.
-
-A companion does one turn at a time and **queues** what arrives meanwhile; how much is queued and
-whether one is in hand ride in its published record, so whoever is choosing can see who is free.
-Every arrival is also written down, and `magi --agents` sums the week — which is the evidence for
-running a second copy of whatever keeps turning work away. [MANUAL §13](docs/MANUAL.md).
-
-### Headless (scripts & CI)
-
-```sh
-./magi -p "list the Go files and summarize the architecture"
-./magi -p "create hello.txt containing: hi" --output json   # JSONL event stream
-echo "explain main.go" | ./magi -p -                        # stdin
-```
+Markdown and syntax highlighting adapt to dark/light terminals automatically. Type `/` for an
+autocompleting command palette.
 
 ---
 
@@ -320,7 +287,7 @@ A commented `config.toml` is generated on first run (and never clobbered after).
 | `--output` | — | `text` | `text` \| `json` (headless) |
 | — | `MAGI_API_KEY` | *(none)* | key for remote backends (Ollama needs none) |
 
-**Per-agent model & backend routing** — run cheap models for grunt work, strong ones where it counts:
+**Per-agent model & backend routing** — cheap models for grunt work, strong ones where it counts:
 
 ```toml
 [routing]
@@ -333,62 +300,41 @@ api_key  = "${FAST_KEY}"
 model    = "gpt-oss:20b"
 ```
 
+Full reference in the [Manual](docs/MANUAL.md#3-configuration).
+
 ---
 
-## Tools
+## Tools & extending
 
-**Built-in tools:**
-
-`read` · `write` · `edit` · `multiedit` (atomic multi-hunk) · `grep` · `glob` · `list` ·
-`bash` (timeout · exit code · `background` for long-running commands) · `bash_output` ·
-`bash_input` · `bash_kill` · `wait_for` · `port_owner` ·
-`recall_context` · `recall_memory` ·
-`webfetch` · `websearch` (DuckDuckGo, or Brave/Tavily with an API key) ·
-`todowrite` · `council` (ask for a reading, or declare the task finished) · `remember` (shared
-memory) · `skill` · `ask_user` and `route_interjection` (interactive runs only)
+**Built-in tools:** `read` · `write` · `edit` · `multiedit` · `grep` · `glob` · `list` · `bash`
+(timeout · exit code · `background`) · `bash_output` · `bash_input` · `bash_kill` · `wait_for` ·
+`port_owner` · `recall_context` · `recall_memory` · `webfetch` · `websearch` · `todowrite` ·
+`council` (ask for a reading, or declare finished) · `remember` (shared memory) · `skill` ·
+`companions` · `companion_can` · `hand_off` · `ask_user` and `route_interjection` (interactive only).
 
 After an edit, **diagnostic feedback** (gofmt / go vet / py_compile / LSP) flows back so the agent
 self-corrects. Read-only tools run in parallel within a turn.
 
-**Slash commands** — type `/` for an autocompleting palette (aliases search by prefix):
-
-`/help` `/route` (`/model`) `/tools` `/sessions` `/resume` `/rewind` `/image` `/diff`
-`/loop` `/context` `/fork` `/replay` `/loopdiff` `/init` `/ultra` `/permission` `/compact` `/clear`
-`/quit`
-
----
-
-## Context, Memory & Extensions
-
-- **Project memory** — `AGENTS.md` (plus `.magi/AGENTS.md` and a global one) is injected into the
-  system prompt as durable context that *survives compaction* (the CLAUDE.md equivalent).
-- **Context-aware auto-compaction** — when real token usage passes ~80% of the model window, older
-  turns are summarized while recent ones are preserved. A `ctx 42%` meter sits in the header.
-- **Shared experience** — a git-backed memory/skill store (`<config>/experience`) the team can share;
-  the `remember` tool contributes to a review queue.
-- **Lua plugins** — drop a `plugin.toml` + `init.lua` into `<config>/plugins/`; auto-loaded, hot-reloaded,
-  sandboxed. See [plugins/examples/wordcount](plugins/examples/wordcount).
-- **MCP servers** — declare them in `config.toml` and their tools register at startup:
-  ```toml
-  [mcp.filesystem]
-  command = "npx"
-  args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
-  ```
+- **One agent by default.** magi ships no subagents of its own; a subagent, if you want one, comes
+  from a plugin (`/subagents` switches it on). One example ships, off: **Seele**, a planner with no
+  write tools.
+- **Project memory** — `AGENTS.md` (plus `.magi/AGENTS.md` and a global one) is durable context that
+  *survives compaction*.
+- **Context-aware auto-compaction** — past ~80% of the model window, older turns are summarized while
+  recent ones are kept; a `ctx 42%` meter sits in the header.
+- **Shared experience** — a git-backed memory/skill store the team can share; the `remember` tool
+  feeds a review queue.
+- **Lua plugins** — drop a `plugin.toml` + `init.lua` into `<config>/plugins/`; auto-loaded,
+  hot-reloaded, sandboxed. See [plugins/examples/wordcount](plugins/examples/wordcount).
+- **MCP servers** — declare them in `config.toml` and their tools register at startup.
+- **Unattended work** — `schedule` / `[cron]` run jobs while nothing is watching.
 
 ---
 
 ## Architecture
 
 magi is **ports & adapters (hexagonal)**: the core domain knows nothing about the UI, the LLM, or
-plugins — adapters plug into it. Dependency direction is always inward.
-
-| Choice | Why |
-|---|---|
-| **Go** | one static binary, trivial cross-compile, easy self-update, goroutine concurrency |
-| **Bubble Tea (Charm)** | the standard for polished TUIs; markdown/code rendering turnkey |
-| **Lua (gopher-lua)** | pure-Go embed (keeps the CGo-free build), natural hot-reload + sandbox |
-| **Event-sourced JSONL** | an observable, replayable, fork-able loop |
-| **OpenAI-compatible LLM** | one protocol adapter → local (Ollama/vLLM) or any hosted endpoint, incl. Claude/Gemini compatibility APIs |
+plugins — adapters plug into it, and the dependency direction is always inward.
 
 ```
 cmd/magi            entrypoint (wiring)
@@ -398,13 +344,20 @@ internal/port       ports (interfaces) — LLM, Store, Council, PluginHost …
 internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
                     daemon (the engine over a socket) · fleet (what every magi is doing)
 plugins/examples    example Lua plugins
-docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
+docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING · DIAGRAMS
 ```
+
+| Choice | Why |
+|---|---|
+| **Go** | one static binary, trivial cross-compile, easy self-update, goroutine concurrency |
+| **Bubble Tea (Charm)** | the standard for polished TUIs; markdown/code rendering turnkey |
+| **Lua (gopher-lua)** | pure-Go embed (keeps the CGo-free build), natural hot-reload + sandbox |
+| **Event-sourced JSONL** | an observable, replayable, fork-able loop |
+| **OpenAI-compatible LLM** | one protocol adapter → local (Ollama/vLLM) or any hosted endpoint |
 
 Deeper reading: [ARCHITECTURE](docs/ARCHITECTURE.md) · [UI](docs/UI.md) · [DESIGN](docs/DESIGN.md) ·
 [EXTENDING](docs/EXTENDING.md) · [SPEC](docs/SPEC.md) · [DIAGRAMS](docs/DIAGRAMS.md).
-Korean editions: [ARCHITECTURE](docs/ARCHITECTURE.ko.md) · [DESIGN](docs/DESIGN.ko.md) ·
-[EXTENDING](docs/EXTENDING.ko.md) · [SPEC](docs/SPEC.ko.md) · [DIAGRAMS](docs/DIAGRAMS.ko.md).
+Korean editions live beside each (`*.ko.md`).
 
 ---
 

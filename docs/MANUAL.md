@@ -57,6 +57,7 @@ A turn can take twenty minutes. Closing the terminal used to end it.
 ./magi --daemon        # run the engine with no UI; it keeps working while nothing is watching
 ./magi --attach        # attach a terminal UI to the daemon running in THIS directory
 ./magi --agents        # every magi daemon on this machine, and what each is doing
+./magi --stop          # stop the daemon holding THIS workspace (and its scheduled work with it)
 ```
 
 A daemon is also what makes a companion addressable: only a resident one can be handed work, keep a
@@ -74,6 +75,11 @@ schedule, or be seen by another machine. The rest of that surface — `--join-cl
 - `--agents` prints one line per daemon: state, what it is doing, how long it has been idle, and
   whether it is waiting for an answer. It dials each socket in parallel with a short deadline, so a
   wedged daemon costs a line, not the listing.
+- **`--stop` is how you end a resident daemon** without hunting for its process id. Run it in the
+  daemon's workspace directory: it asks that one daemon to shut down, which cancels the run, lets it
+  unwind, drops the socket, and **stops its schedule with it** (a companion you have stopped should
+  not go on firing its nightly job — §14). Use it when you are done supervising a workspace, or before
+  starting a fresh daemon there. It only ever touches the daemon of the directory you run it in.
 
 ### Environment check
 ```sh
@@ -147,6 +153,8 @@ Flags / environment variables (precedence: flag > env > default):
 | `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
 | `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
+| — | `MAGI_EMBED_BASE_URL` | (chat base URL) | endpoint for the **embedding** model (`embed_model`), when it lives on a different backend than the chat model — the semantic half of `recall_memory` / the shared brain |
+| — | `MAGI_EMBED_API_KEY` | (none) | key for that embedding endpoint |
 | `[sampling] reasoning_effort` | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
 | — | `MAGI_TEMPERATURE` | (config `[sampling]`, else model default) | sampling temperature sent with every request; overrides `[sampling] temperature` |
 | — | `MAGI_TOP_P` | (config `[sampling]`, else model default) | nucleus sampling cutoff; overrides `[sampling] top_p` |
@@ -189,6 +197,21 @@ model = "gpt-oss:120b-cloud"   # default: Ollama free cloud (ollama signin). For
 base_url = "http://localhost:11434/v1"
 permission = "ask"
 experience_dir = "/path/to/team/experience"   # shared brain (a git repo → shared with the team)
+embed_model = "nomic-embed-text"   # model that turns text into vectors for the SEMANTIC half of
+                                   # search (recall_memory, the shared brain). Optional — unset, magi
+                                   # falls back to lexical (BM25) search. It is a SECOND model to
+                                   # install, and its endpoint is often not the chat one:
+                                   # MAGI_EMBED_BASE_URL / MAGI_EMBED_API_KEY point it elsewhere.
+
+[limits]                   # token caps — a safety valve against runaway generation. All optional.
+# max_output_tokens = 8192 # per-request output cap sent to the LLM (0/unset = provider default).
+                           # Set it when a weak model rambles, or to bound cost per turn.
+# context_tokens   = 128000 # override the model's context-window budget used for compaction sizing
+                           # (same as `/context <model> <tokens>`, but persisted). Set it when magi's
+                           # guess for a model's window is wrong.
+# compact_ratio    = 0.8   # share of the window that may fill before auto-compaction runs (§7).
+                           # Lower it to compact earlier (safer headroom); raise it to keep more raw
+                           # history live before summarizing.
 
 [routing]                  # per-agent routing (profile name or model name); an "agent" here is a
 Melchior = "fast"          # named council member or a workflow phase → [llm.profiles.fast]
@@ -354,6 +377,7 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/init` | analyze the project then write AGENTS.md |
 | `/ultra <task>` | **ultra work mode** — work the task through thoroughly and verify by running it |
 | `/permission` | cycle permission mode (ask→auto→allow→deny) |
+| `/cron` | **scheduled jobs for this workspace** — list the `[cron]` jobs (§14), see when each next runs, and add/edit/remove one without hand-editing `config.toml`. Use it to set up unattended work (a nightly test run, an hourly sync) or to check what is already scheduled |
 | `/compact` | summarize/shrink the context (re-hydratable — see below) |
 | `/clear` | clear the screen |
 | `/quit` (=`/exit`) | exit |
@@ -821,6 +845,28 @@ pane IS the search: opening a hit no longer puts the plain tree back under your 
 On a touch screen the per-row controls (a file's menu, a changed file's stage/unstage/discard/diff)
 are simply there. They appear on hover for a pointer and there is no hover on a phone, so they were
 unreachable — the features existed and could not be used.
+
+**Git, commits and pull requests — from the page.** The workspace card is not read-only. Beyond
+stage / unstage / discard / diff on a changed file, the console can take the change all the way out:
+
+- **A file preview** opens any file's current contents without leaving the page (the same read a
+  tool would do) — for glancing at what changed before you act on it.
+- **Generate a commit message** asks the companion to write one from the staged diff, so you are not
+  composing it by hand; you can edit it and commit from the page.
+- **Open a pull request** creates a GitHub PR for the branch, and **generate a PR body** drafts its
+  description from the commits — the facts (branch, base, commits) are gathered for you first.
+
+Use these when you have been supervising a companion's work and want to land it — review the diff,
+have it write the commit or PR text, and push — without dropping to a terminal. They are the same
+capabilities a person with the `configure`/write role has; a viewer-only console shows the diff but
+not the buttons.
+
+**The report format (a `curate` capability).** `ask_user` — the tool a companion uses to ask *you* a
+question mid-turn — is held to a **report contract**: the shape an answer, or a blocked part, must
+come back in, so "the part I couldn't do" returns as that part rather than as a paragraph about why
+it was hard. The console has a small editor for that contract (reached from the companion's curate
+controls). Edit it when your companions' questions or hand-off answers keep coming back in a shape
+that is awkward to act on; leave it alone and a sensible default applies.
 
 Below 840px there is no room for two panes, so the two become tabs and the conversation is the one
 you land on. Each window holds ONE event stream, and a tab you are not looking at gives it back: a
