@@ -3145,6 +3145,7 @@ function drawDetail(a) {
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
     field('field.host', (a.instance || a.host || tr('map.here')) + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
+    ...(a.version ? [field('field.version', a.version)] : []),
     wide(field('field.workspace', a.workdir)),
     sessionField(a),
   ].forEach(put);

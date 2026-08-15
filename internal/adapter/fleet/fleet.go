@@ -155,6 +155,10 @@ type Agent struct {
 	Team string `json:"team,omitempty"`
 	Hub  bool   `json:"hub,omitempty"`
 	Host string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
+	// Version is the magi build this companion runs, so a row can show one that is behind and an
+	// operator can update a lagging same-machine one. From the daemon's own record for a local row,
+	// from the gossiped member for a remote one; empty from a daemon too old to report it.
+	Version string `json:"version,omitempty"`
 	// Elsewhere marks a row this console did not dial: it came from a member record another machine
 	// signed, so nothing here has spoken to it.
 	//
@@ -271,7 +275,8 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
 			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
 			Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
-			Does: in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
+			Version: in.Version,
+			Does:    in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
 			Permission: in.Permission, User: in.User,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
@@ -339,7 +344,7 @@ func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
 		}
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
-			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host,
+			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host, Version: m.Version,
 			Instance: instanceOf(m.Account, m.Host), Trust: trustIn(configDir, m.By),
 			Does: m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
 			// Live is "believed reachable", and for a companion on another machine the evidence

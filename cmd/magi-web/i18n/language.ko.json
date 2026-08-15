@@ -179,6 +179,7 @@
   "field.handed_out": "넘긴 일",
   "field.history": "지나온 작업",
   "field.host": "호스트",
+  "field.version": "빌드",
   "field.last_activity": "마지막 활동",
   "field.model": "모델",
   "field.permission": "승인",

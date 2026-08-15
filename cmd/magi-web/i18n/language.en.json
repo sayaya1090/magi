@@ -179,6 +179,7 @@
   "field.handed_out": "Handed out",
   "field.history": "What it has done",
   "field.host": "Host",
+  "field.version": "Build",
   "field.last_activity": "Last activity",
   "field.model": "Model",
   "field.permission": "Approvals",

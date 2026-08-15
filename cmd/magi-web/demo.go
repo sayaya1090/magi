@@ -55,13 +55,13 @@ const demoScript = `
      // The mode it is on, so the approvals control in the facts has something to show. Without it
      // the demo draws an empty select, which is what a companion too old to answer looks like —
      // the wrong thing to teach on the screen most people meet first.
-     permission: 'auto', user: 'you'},
+     permission: 'auto', user: 'you', version: 'v0.23.0'},
     {socket: '/demo/api.sock', name: 'api', role: 'the billing API and its contracts',
      team: 'backend', hub: true, workdir: '/Users/you/work/billing', session: 'a1',
      state: 'waiting', live: true, asking: 'run: psql -c "drop table staging_invoices"',
      askId: 'call_42', askKind: 'permission', task: 'add the idempotency key', steps: 3,
      planDone: 1, planTotal: 4, idle: 4, host: 'studio', instance: 'you@studio', trust: 'own',
-     addr: '10.0.0.4', pid: 4128},
+     addr: '10.0.0.4', pid: 4128, version: 'v0.23.0'},
     // A question rather than a permission, so the demo shows the other prompt and the report a
     // person is meant to decide on. Its sections are the default contract's — a console whose
     // operator has written their own decision-report skill would show theirs.
@@ -82,7 +82,7 @@ const demoScript = `
      host: 'studio', instance: 'you@studio', trust: 'own', addr: '10.0.0.4', pid: 4129},
     {socket: '/demo/ops.sock', name: 'ops', role: 'deploys and alerting', workdir: '/Users/you/work/infra',
      session: 'o1', state: 'stopped', live: false, task: 'rotated the staging certificates', idle: 90000,
-     host: 'studio', instance: 'you@studio', trust: 'own', addr: '10.0.0.4'},
+     host: 'studio', instance: 'you@studio', trust: 'own', addr: '10.0.0.4', version: 'v0.22.0'},
 
     // ── the three other kinds of instance ───────────────────────────────────
     // A fleet is not one machine and not one person, and the four combinations behave differently
