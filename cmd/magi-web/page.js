@@ -1729,12 +1729,30 @@ function arm(btn, word, act) {
 // people screen and the map each drew a completely blank window between the app bar and the
 // navigation bar, with the only trace of the failure four characters wide in the status line. A
 // blank pane and a pane still loading are the same picture, and one of them is a lie.
+// reading paints a wait cue where a list will go, while its first load is in flight — the same
+// indeterminate bar the workspace panes use (waitingFor), generalized to the six destinations that
+// had nothing: measured, a slow or hung /fleet /board /skills /mcp /access /map left a blank window
+// for the whole wait, indistinguishable from an empty one. Only when the pane is EMPTY (first load,
+// or a slow link): a poll that follows a good load has content and this does nothing, and the draw's
+// replaceChildren clears the cue. paneFailed treats a lone cue as "nothing to keep" so a refusal
+// still replaces it. Named for the content it is loading, per the guide's progress-label rule.
+function reading(box, key) {
+  if (box.children.length) return;
+  box.replaceChildren(waitingFor(key));
+}
+// paneLoadingOnly reports whether the pane holds nothing but a loading cue — a placeholder to be
+// replaced, not content to keep.
+function paneLoadingOnly(box) {
+  return box.children.length === 1 && /\bpaneloading\b/.test(box.children[0].className || '');
+}
+
 function paneFailed(box, headKey) {
   // Only where there is nothing to keep. A refusal on the FIRST load leaves a blank window and has
   // to say so; a refusal on the poll that follows a good one must leave what is on screen alone —
   // stale and said-so beats blank, which is the rule the fleet's own test has held since before
-  // this function existed. The status line carries the refusal either way.
-  if (box.children.length) return;
+  // this function existed. The status line carries the refusal either way. A lone loading cue is a
+  // placeholder, not content, so it does not count as "something to keep".
+  if (box.children.length && !paneLoadingOnly(box)) return;
   // With its heading, if it has one. Replacing the pane's children takes the section head with
   // them, so a reader navigating by headings arrives at a pane with no name while the strip above
   // still says which one it is.
@@ -2219,6 +2237,7 @@ let boardDay = '';
 let boardQuery = '';
 
 async function loadBoard() {
+  reading(boardEl, 'loading.board');
   const list = await fetchList('/fleet');
   // No heading key: the board is the one destination whose name is already in the app bar's own
   // h2 (it draws team names, not a section head), so a failure that added its own "Board" put the
@@ -2487,6 +2506,7 @@ async function loadFleet(given) {
   // truthy string and `list.filter` threw. The screen then kept the question, kept all four
   // buttons live, and said only the first 80 characters of why in the status line. Anything that
   // is not a list means the same thing an absent argument means: go and ask.
+  if (!Array.isArray(given)) reading(fleetEl, 'loading.roster');
   const list = Array.isArray(given) ? given : await fetchList('/fleet');
   // The companions screen is a pane like the others. Every loader beside it was given this and it
   // was not: measured with the roster refused, 105px of nothing between the app bar and the
@@ -4268,6 +4288,7 @@ function skillWrite(all) {
 }
 
 async function loadSkills() {
+  reading(skillsEl, 'loading.skills');
   const list = await fetchList('/skills');
   if (!list) return void paneFailed(skillsEl, 'nav.lessons');
   const crossing = list.filter(s => s.tier === 'global').length;
@@ -4420,6 +4441,7 @@ async function loadSkills() {
 async function loadAccess() {
   // fetchList is the one fetch helper: it decodes whatever JSON came back, array or object, and
   // answers null when the server did not — see its note on why a refusal is not an exception.
+  reading(accessEl, 'loading.access');
   const got = await fetchList('/access');
   if (!got) return void paneFailed(accessEl, 'nav.access');
   const roles = (got.roles || []).map(r => r.name);
@@ -4795,6 +4817,7 @@ function addPersonButton(roles, first) {
 }
 
 async function loadMCP() {
+  reading(mcpEl, 'loading.servers');
   const list = await fetchList('/mcp');
   if (!list) return void paneFailed(mcpEl, 'nav.mcp');
   const reachedFrom = new Set(list.map(s => s.companion || 'every companion here'));
@@ -5654,6 +5677,7 @@ function rowNode(r) {
 // A third endpoint assembling a graph server-side would be a second place that decides what a
 // companion IS, and the first one already answers this page four times a minute.
 async function loadMap() {
+  reading(mapEl, 'loading.map');
   const [rows, hands] = await Promise.all([fetchList('/fleet'), fetchList('/handoffs')]);
   // Both halves. `hands || []` drew a complete-looking map with no wires on it and the full legend
   // underneath — answered, in flight, cannot be reached — for a request that had been refused. A
