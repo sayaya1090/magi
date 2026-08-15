@@ -158,16 +158,20 @@ type Member struct {
 // can do. Those are the fields that decide where work is sent and who a caller is talking to, and
 // nothing between here and there is allowed to rewrite them.
 //
-// Seen is deliberately NOT signed, and neither are Waiting and Handling. Merge clamps a sighting
-// from the future — a clock running fast is not news — and those two are moments that are never
-// carried from an older entry. Signing a field the design rewrites would break the signature on
-// exactly the machines the rewrite exists for, which is the loudest possible way to be wrong about
-// nothing.
+// Waiting and Handling ARE signed, because they decide where team-addressed work goes: fleet.Resolve
+// routes a team address to the lightest companion, and load is Waiting + (1 if Handling). Left
+// unsigned (as they once were, on the theory they were display-only "moments"), an admitted relay
+// could rewrite them on any record it forwarded — including a third machine's — and starve a victim
+// (Waiting high, never lightest) or steer team work to a colluder (Waiting 0), with the signature
+// still verifying. They are set by the OWNER (daemon/cluster.go Mine) and signed there; a relay only
+// forwards, so signing them costs no legitimate rewrite. (During a rolling upgrade an old daemon's
+// records, signed without these, fail verification on a new one until it re-gossips — a transient the
+// constant re-publish clears within a cycle, the same shape as any signed-format change.)
 //
-// The cost is stated plainly: freshness is a relay's claim, not the owner's. An admitted peer can
-// keep a companion that HAS existed looking alive for as long as it keeps repeating the record.
-// What it cannot do is invent one, move one to a socket of its choosing, or change what one claims
-// to be — which is the class of thing a roster is acted on for.
+// Seen remains NOT signed: Merge clamps a sighting from the future, and freshness is legitimately a
+// relay's claim (an admitted peer keeps a companion that HAS existed looking alive by repeating the
+// record). What a relay cannot do — invent one, move one to a socket of its choosing, change what it
+// claims to be, or now forge its load — is the class of thing a roster is acted on for.
 func Signable(m Member) []byte {
 	var b strings.Builder
 	put := func(s string) {
@@ -184,6 +188,8 @@ func Signable(m Member) []byte {
 	put(m.Workdir)
 	put(strconv.Itoa(m.Can))
 	put(strings.Join(m.Does, "\x00"))
+	put(strconv.Itoa(m.Waiting))
+	put(strconv.FormatBool(m.Handling))
 	return []byte(b.String())
 }
 

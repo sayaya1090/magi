@@ -394,3 +394,20 @@ func TestASignedRecordIsNotFilledInFromAnOlderOne(t *testing.T) {
 		t.Error("a bare sighting stopped being filled in, which is what it is for")
 	}
 }
+
+// Signable must cover Waiting and Handling: they drive team-address routing (fleet.load), so if the
+// signature ignored them an admitted relay could forge a companion's load — starve a victim or steal
+// its team work — with the signature still verifying. Reverting the two puts makes these equal.
+func TestSignableCoversTheRoutingLoad(t *testing.T) {
+	base := Member{Host: "h", Socket: "s", Name: "n"}
+	hi := base
+	hi.Waiting = 5
+	busy := base
+	busy.Handling = true
+	if string(Signable(base)) == string(Signable(hi)) {
+		t.Error("Signable ignores Waiting — a relay could forge team-routing load")
+	}
+	if string(Signable(base)) == string(Signable(busy)) {
+		t.Error("Signable ignores Handling — a relay could forge team-routing load")
+	}
+}
