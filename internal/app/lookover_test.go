@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -66,6 +67,34 @@ func TestLookOverRepliesInTheReadersLanguage(t *testing.T) {
 	}
 	if edit >= 0 && ko > edit {
 		t.Errorf("the language directive is not ahead of the review prompt:\n%s", sys)
+	}
+}
+
+// Over the cap, the region is trimmed on a line boundary — never mid-line — so the model is never
+// handed a line number with half its code (the payload is `<n><TAB>code` and the prompt says so).
+func TestLookOverTrimsAnOverCapPayloadOnALineBoundary(t *testing.T) {
+	cap := &acCapLLM{text: ""}
+	a, sid := completeApp(t, cap, config.AutocompleteConfig{}, nil, nil)
+	// Build a numbered region well past the cap, every line complete and identical.
+	var b strings.Builder
+	for i := 1; b.Len() <= lookOverCap+4096; i++ {
+		fmt.Fprintf(&b, "%d\tsome code on this line\n", i)
+	}
+	text := b.String()
+	if _, err := a.LookOver(context.Background(), sid, "x.go", text); err != nil {
+		t.Fatal(err)
+	}
+	sent := cap.request().Messages[0].Parts[0].Text
+	if len(sent) > lookOverCap {
+		t.Errorf("the trimmed payload (%d) exceeds the cap (%d)", len(sent), lookOverCap)
+	}
+	if len(sent) >= len(text) {
+		t.Fatalf("the payload was not trimmed at all: sent=%d, text=%d", len(sent), len(text))
+	}
+	// The cut lands exactly before a newline — the next byte in the original is '\n' — so the last
+	// line sent is whole, not a number with half its code.
+	if text[len(sent)] != '\n' {
+		t.Errorf("the trim cut mid-line: the byte after the sent region is %q, not a newline", text[len(sent)])
 	}
 }
 
