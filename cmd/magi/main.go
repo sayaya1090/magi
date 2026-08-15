@@ -2641,6 +2641,23 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 	return d.App.LookOver(rctx, d.handover.at.now(), path, text)
 }
 
+// CompleteCode is inline completion at the cursor on the fast profile — see app.CompleteCode.
+// Bounded like LookOver, for the same reason: asked on a pause in typing, an answer overtaken by the
+// next keystroke is worth nothing. The client also cancels it by dropping the request when the
+// person types on, which drops this context with it.
+func (d daemonEngine) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return d.App.CompleteCode(rctx, d.handover.at.now(), path, prefix, suffix)
+}
+
+// SetOpenFile records the editor's open buffer for the agent's next turn. No model call, no wait —
+// it stores a string, so it takes the caller's context unbounded.
+func (d daemonEngine) SetOpenFile(ctx context.Context, path, text string) error {
+	d.App.SetOpenFile(d.handover.at.now(), path, text)
+	return nil
+}
+
 // OpenPR is the console asking for a pull request. Longer than the others on purpose: it pushes
 // and then talks to GitHub, and neither is a local command's worth of waiting.
 func (d daemonEngine) OpenPR(ctx context.Context, title, body string) (string, error) {

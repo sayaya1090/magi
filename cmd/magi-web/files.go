@@ -324,6 +324,61 @@ func (s *server) look(w http.ResponseWriter, r *http.Request) {
 	writeText(w, out)
 }
 
+// complete answers inline completion text at the cursor in a file the person is editing.
+//
+// The same relay as look: this process holds no model (main.go builds its reader with a nil
+// provider), so the completion is one call forwarded to the companion daemon, on the fast profile
+// the daemon routes it to. Through s.alone, like /look and /git-msg, so a slow generation does not
+// hold the pooled connection. path in the query is the file; prefix and suffix are the buffer either
+// side of the cursor.
+func (s *server) complete(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	path := strings.TrimSpace(r.FormValue("path"))
+	prefix := r.FormValue("prefix")
+	suffix := r.FormValue("suffix")
+	if strings.TrimSpace(prefix)+strings.TrimSpace(suffix) == "" {
+		writeText(w, "")
+		return
+	}
+	var out string
+	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
+		said, cerr := cl.CompleteCode(path, prefix, suffix)
+		out = said
+		return cerr
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	writeText(w, out)
+}
+
+// openFile tells the companion which file the editor has open and its unsaved buffer, so the agent's
+// next turn sees it as ambient context (app.SetOpenFile). Nothing is generated or recorded — it
+// stores a string — so it goes through the pooled client rather than s.alone. An empty buffer clears
+// it, which is how the editor says a file was closed.
+func (s *server) openFile(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	path := strings.TrimSpace(r.FormValue("path"))
+	text := r.FormValue("text")
+	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		return cl.SetOpenFile(path, text)
+	}); derr != nil {
+		http.Error(w, derr.Error(), http.StatusBadGateway)
+		return
+	}
+	writeText(w, "")
+}
+
 // diff answers what changed in one file, as git wrote it.
 //
 // `which` says WHICH question: what a commit would take (staged), what has changed since it was

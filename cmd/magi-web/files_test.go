@@ -186,6 +186,10 @@ func (e *slowModel) OpenPR(ctx context.Context, title, body string) (string, err
 }
 func (e *slowModel) PRFacts(ctx context.Context) (string, error) { return "{}", nil }
 func (e *slowModel) DraftPR(ctx context.Context) (string, error) { return "", nil }
+func (e *slowModel) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error) {
+	return "", nil
+}
+func (e *slowModel) SetOpenFile(ctx context.Context, path, text string) error { return nil }
 
 // workspaceEngine is a daemon that can read its own workspace, which is what the real one is.
 type workspaceEngine struct {

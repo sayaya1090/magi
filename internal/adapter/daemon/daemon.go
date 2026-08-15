@@ -307,6 +307,12 @@ type Reviewer interface {
 	// DraftCommit is the same kind of thing about a different subject: what is staged, described.
 	// A draft only — the console puts it in a box somebody edits before anything is committed.
 	DraftCommit(ctx context.Context) (string, error)
+	// CompleteCode is inline completion text at the cursor: prefix and suffix are the buffer either
+	// side of it. The same no-turn shape as LookOver, on a fast routed profile — see app.CompleteCode.
+	CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error)
+	// SetOpenFile records the file the editor has open and its unsaved buffer, so the agent's next
+	// turn sees it as ambient context. Nothing is generated or recorded — see app.SetOpenFile.
+	SetOpenFile(ctx context.Context, path, text string) error
 }
 
 // GitDoer is an engine that will run one of a short, closed list of git commands in its workspace.
@@ -918,6 +924,8 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"pr-msg":     answerPRFacts,
 	"git-msg":    answerGitMsg,
 	"look-over":  answerLookOver,
+	"complete":   answerComplete,
+	"open-file":  answerOpenFile,
 	"shell":      answerShell,
 }
 
@@ -1236,6 +1244,35 @@ func answerLookOver(ctx context.Context, eng Engine, req Request) Response {
 		resp = Response{OK: true, Out: out}
 	}
 	return resp
+}
+
+func answerComplete(ctx context.Context, eng Engine, req Request) Response {
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		return Response{Err: "this daemon cannot complete code"}
+	}
+	var a completeArgs
+	if len(req.Args) > 0 {
+		if err := json.Unmarshal(req.Args, &a); err != nil {
+			return Response{Err: err.Error()}
+		}
+	}
+	out, err := rev.CompleteCode(ctx, req.Name, a.Prefix, a.Suffix)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Out: out}
+}
+
+func answerOpenFile(ctx context.Context, eng Engine, req Request) Response {
+	rev, ok := eng.(Reviewer)
+	if !ok {
+		return Response{Err: "this daemon cannot track an open file"}
+	}
+	if err := rev.SetOpenFile(ctx, req.Name, req.Text); err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true}
 }
 
 // shell is answered here rather than in dispatch, like status, because it has a payload:
@@ -1794,6 +1831,33 @@ func (c *Client) LookOver(path, text string) (string, error) {
 		return "", err
 	}
 	return resp.Out, nil
+}
+
+// CompleteCode asks the daemon for inline completion text at the cursor. path in Name, and the two
+// sides of the cursor in Args (raw JSON, the same way the tool methods carry their arguments) — a
+// completion needs both, and Text alone carries one. The relay for the console editor's ghost text,
+// and the endpoint a future IDE extension would call for the same thing.
+func (c *Client) CompleteCode(path, prefix, suffix string) (string, error) {
+	args, _ := json.Marshal(completeArgs{Prefix: prefix, Suffix: suffix})
+	resp, err := c.exchange(Request{Method: "complete", Name: path, Args: args})
+	if err != nil {
+		return "", err
+	}
+	return resp.Out, nil
+}
+
+// SetOpenFile tells the daemon which file the editor has open and its unsaved buffer, so the agent's
+// next turn sees it (app.SetOpenFile). Fire-and-forget from the caller's view: an empty buffer
+// clears it. Errors are the transport's, not the model's — nothing is generated here.
+func (c *Client) SetOpenFile(path, text string) error {
+	_, err := c.exchange(Request{Method: "open-file", Name: path, Text: text})
+	return err
+}
+
+// completeArgs is the cursor-sides payload for a "complete" request.
+type completeArgs struct {
+	Prefix string `json:"prefix"`
+	Suffix string `json:"suffix"`
 }
 
 // OpenPR pushes this companion's branch and opens a pull request, answering with its URL.

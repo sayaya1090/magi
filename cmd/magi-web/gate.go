@@ -47,6 +47,12 @@ var mayWrite = map[string]auth.Capability{
 	// Asking the model to look at a file somebody is editing. It changes nothing and records
 	// nothing — but it spends the backend on their behalf, which is what `prompt` is about.
 	"/look": auth.Prompt,
+	// Inline completion spends the backend on a pause in typing, exactly like /look, and changes
+	// nothing. Telling the companion which file is open shapes what its next turn sees — the same
+	// influence a prompt has, fired on the same keystrokes — so it sits behind `prompt` too rather
+	// than a read: a viewer who may not steer should not be feeding the agent its context either.
+	"/complete":  auth.Prompt,
+	"/open-file": auth.Prompt,
 	// Drafting a message spends the model, like /look, and is not a change to the workspace.
 	"/git-msg": auth.Prompt,
 	// Opening a pull request pushes a branch and writes to the forge. That is the workspace's own
