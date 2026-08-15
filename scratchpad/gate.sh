@@ -16,4 +16,6 @@ fi
 go build ./...
 GOOS=windows go build ./cmd/magi ./cmd/magi-web
 GOOS=linux GOARCH=amd64 go vet ./internal/... ./cmd/...
-go test ./internal/... ./cmd/... -skip 'TestE2E|TestEvalSuite' -count=1 "$@"
+# -race matches CI's race job, so a data race or a race-only flake is caught here and not two
+# pushes later. It needs cgo (default on) and roughly doubles the test wall time — worth it.
+go test ./internal/... ./cmd/... -skip 'TestE2E|TestEvalSuite' -race -count=1 "$@"
