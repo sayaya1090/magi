@@ -34,6 +34,37 @@ func TestAChildIsVisibleWhileItRunsAndAfterItEnds(t *testing.T) {
 	}
 }
 
+// forget drops exactly one child, whatever its state, and leaves the rest of the register intact —
+// this is the meeting-close reap. Unlike eviction it does not wait for the cap and does not spare a
+// running one (a closing room's participant is finished by the time it is forgotten, but forget is
+// state-agnostic on purpose). A forget of an absent id is a harmless no-op with no order/byID
+// desync, so a double close cannot corrupt the register.
+func TestForgetDropsExactlyOneChildAndIsSafeToRepeat(t *testing.T) {
+	var r subagentJobs
+	r.start("keep", "looper", "still here")
+	r.start("reap", "meeting", "in the room")
+	r.finish("reap", 3, "")
+
+	r.forget("reap")
+	got := r.list()
+	if len(got) != 1 || got[0].ID != "keep" {
+		t.Fatalf("forget did not drop exactly the one child: %+v", got)
+	}
+
+	// Idempotent: forgetting it again, and forgetting an id that was never registered, do nothing.
+	r.forget("reap")
+	r.forget("never-existed")
+	if got := r.list(); len(got) != 1 || got[0].ID != "keep" {
+		t.Errorf("a repeated / absent forget disturbed the register: %+v", got)
+	}
+
+	// State-agnostic: a still-running child can be forgotten (the reap does not wait for it to end).
+	r.forget("keep")
+	if got := r.list(); len(got) != 0 {
+		t.Errorf("forget did not drop a running child: %+v", got)
+	}
+}
+
 // The register is bounded. A loop-engineering plugin can start a great many children in one turn,
 // and a map that only grows is a defect this tree has already paid for.
 func TestTheRegisterDropsOldFinishedChildrenAndNeverARunningOne(t *testing.T) {

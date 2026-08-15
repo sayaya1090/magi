@@ -141,6 +141,20 @@ func (a *App) stateLocked(sid session.SessionID) *sessionState {
 	return st
 }
 
+// ForgetSessionState frees a session's in-memory state (its per-session maps) and usage counters.
+// Used where a session is finished and will never be resumed: a spawned child evicts its own entry
+// inline at the end of its run (spawn.go), and the meeting-close reap calls this on the participant
+// session, which a reopen never reuses (it prepares a fresh one). Without it, a long-lived daemon
+// keeps one sessionState per meeting participant for its whole life. Safe: a stray later access
+// recreates an empty entry through stateLocked, so the delete cannot panic, and the transcript in
+// the store is untouched — only the live in-memory state goes.
+func (a *App) ForgetSessionState(sid session.SessionID) {
+	a.mu.Lock()
+	delete(a.states, sid)
+	a.usage.forget(sid)
+	a.mu.Unlock()
+}
+
 // stateIf returns the session's state without creating one — the read/liveness path that
 // preserves the old "key absent" semantics (ok==false means nothing was ever recorded).
 // The caller MUST hold a.mu.

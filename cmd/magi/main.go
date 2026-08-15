@@ -2668,9 +2668,12 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 	if closing {
 		// The room is ending for this participant. Its session was ephemeral — spun up only to take
 		// part in the discussion — so it is dropped from the subagent strip now rather than left to
-		// age out behind the cap, and the room is forgotten so a reopen prepares a fresh one. The
-		// transcript still exists in the store; only the live "running beside the turn" entry goes.
+		// age out behind the cap, its in-memory state is freed (a reopen prepares a fresh session, so
+		// this one is never resumed — without this the daemon keeps one state per participant for
+		// life), and the room is forgotten. The transcript still exists in the store; only the live
+		// in-memory pieces go.
 		d.App.ForgetSubagent(child)
+		d.App.ForgetSessionState(child)
 		d.handover.forget(meeting)
 	}
 	// Which room, every time — not only on the join. The branch above is a daemon that restarted
