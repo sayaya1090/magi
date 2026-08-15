@@ -1265,6 +1265,17 @@ func run() int {
 		})
 		serving := bound
 		bound = nil // Serve owns the socket from here, including releasing the claim
+		// The daemon's self-update loop: on a schedule it picks up a new release, commits it with
+		// rollback, and restarts onto it once idle. --daemon only, so a headless bench never reaches
+		// it; and only when [update] auto is on and the operator has not opted out. Same lifetime as
+		// the schedule and gossip — a stopped companion stops reaching out, including for updates.
+		if cfg.Update.AutoOn() && !*noUpdateCheck {
+			exe, _ := os.Executable()
+			// running() is true while any session has a turn in flight — App.Running returns the
+			// running session and a bool; only the bool matters here.
+			busy := func() bool { _, ok := a.Running(); return ok }
+			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, busy, serving.Restart)
+		}
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the
 		// directory would be a way to run commands anywhere on this machine from a page.

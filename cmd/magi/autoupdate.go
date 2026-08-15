@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"os/signal"
@@ -15,6 +16,69 @@ import (
 // updateCheckTTL bounds how often the interactive startup check hits the network:
 // at most once per this window (tracked by the stamp file's mtime).
 const updateCheckTTL = 24 * time.Hour
+
+// daemonAutoUpdateTTL bounds how often a running daemon checks for a new release; daemonIdleCheckInterval
+// is how often, after a build is committed, it re-checks whether the daemon has gone idle enough to
+// restart. Vars so a test can shrink them.
+var (
+	daemonAutoUpdateTTL     = 6 * time.Hour
+	daemonIdleCheckInterval = 10 * time.Second
+)
+
+// daemonAutoUpdate is the daemon's self-update loop. On a schedule, if a newer release exists it
+// downloads and commits it with rollback (update.RunCommit), then — once the daemon is idle —
+// restarts onto it. It returns after triggering the restart (the process is re-exec'd) or when ctx is
+// done.
+//
+// Bench-safe by construction: it is started ONLY from the --daemon path and ONLY when [update] auto
+// is on and the operator has not opted out (--no-update-check), so a benchmark — a headless one-shot,
+// never a daemon — cannot reach it, and an operator who turned it off gets only the manual push.
+//
+// Idle-gated on purpose: a restart mid-turn throws away the in-flight step (the log keeps the rest),
+// so once a build is committed the restart waits for `running` to report nothing in flight. The
+// binary is already on disk, so even if the daemon never idles the update is there for the next start.
+// The initial delay is jittered per-daemon (a hash of the exe path) so a machine's daemons stagger
+// rather than all check and restart together.
+func daemonAutoUpdate(ctx context.Context, configDir, current, exe string, running func() bool, restart func()) {
+	stamp := filepath.Join(configDir, ".daemon-update-check")
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(exe))
+	quarter := daemonAutoUpdateTTL / 4
+	jitter := time.Duration(0)
+	if quarter > 0 {
+		jitter = time.Duration(h.Sum32()) % quarter
+	}
+	timer := time.NewTimer(jitter)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		timer.Reset(daemonAutoUpdateTTL)
+		if !updateCheckDue(stamp, daemonAutoUpdateTTL-time.Minute, time.Now()) {
+			continue // a very recent restart already checked; do not hammer the network
+		}
+		touchStamp(stamp)
+		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		res, err := update.RunCommit(cctx, latestSource(), current, exe)
+		cancel()
+		if err != nil || !res.Updated {
+			continue // offline, already current, or rolled back — try again next cycle
+		}
+		// A new build is committed to disk; wait for an idle moment, then restart onto it.
+		for running() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(daemonIdleCheckInterval):
+			}
+		}
+		restart()
+		return
+	}
+}
 
 // Seams overridable in tests: the release source, the force-install action, and
 // the force countdown. Production defaults hit GitHub / run the real installer.

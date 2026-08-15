@@ -98,6 +98,9 @@ type Config struct {
 	// Templates carries user-defined house style for the draft generators (commit message, PR
 	// body) — the rules a person would otherwise re-type into the box every time.
 	Templates TemplatesConfig `toml:"templates"`
+	// Update governs automatic self-update for a daemon: whether it picks up a new release on its
+	// own and restarts onto it. See UpdateConfig.
+	Update UpdateConfig `toml:"update"`
 
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
 	// plugin reads via magi.store_get. The host passes each plugin only its
@@ -250,6 +253,18 @@ type TemplatesConfig struct {
 	Commit string `toml:"commit"`
 	PR     string `toml:"pr"`
 }
+
+// UpdateConfig governs whether a daemon updates itself automatically. Auto defaults ON (nil = on):
+// the operator chose automatic rollout, so a daemon picks up a new release on its own, verifies it,
+// and restarts onto it. Turning it off leaves only the manual push from the console — which the
+// toggle does NOT gate, since that is a deliberate, explicit action. The auto path never runs outside
+// --daemon and honours --no-update-check, so a benchmark (which runs a headless one-shot, not a
+// daemon) never auto-updates.
+type UpdateConfig struct {
+	Auto *bool `toml:"auto"` // nil = on
+}
+
+func (u UpdateConfig) AutoOn() bool { return u.Auto == nil || *u.Auto }
 
 // SubagentConfig is one subagent's user settings. Enabled is a POINTER: nil means "no choice
 // made", which is a different thing from false and is what lets the tool's own default stand.
