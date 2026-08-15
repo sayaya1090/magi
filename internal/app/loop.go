@@ -289,6 +289,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// park left to skip, so only the handled count is carried.
 			handledUserPrompts, _ = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
 		}
+		// The council tool may run inside this step; give it the task the loop is actually
+		// answering (a redirect re-anchors it) rather than letting it recompute from a transcript
+		// view that hides the redirect and falls back to the abandoned original.
+		a.setLiveTurnTask(sid, turnTask)
 
 		// One model response for this step, with the two recoveries that belong to getting it:
 		// a context too large to send, and a backend that goes silent (see generateStep).

@@ -40,3 +40,22 @@ func TestARepeatedIdenticalCouncilDoesNotFanOutAgain(t *testing.T) {
 		t.Errorf("four identical declarations polled the council %d times, want 2 (first repeat runs, rest short-circuit)", fc.calls)
 	}
 }
+
+// After a redirect interjection re-anchors the goal, the council judges the NEW task — not the
+// abandoned original. The redirect masks its own prompt from the transcript view the council
+// recomputes from, so without the live-task override the council fell back to the original goal
+// and vetoed completion forever (a livelock observed live).
+func TestCouncilJudgesTheRedirectedTask(t *testing.T) {
+	fc := &recordingCouncil{}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
+	a.cfg.Workflow = false
+	ctx := context.Background()
+
+	a.setLiveTurnTask(sid, "create REDIRECTED.txt with the word DONE")
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if fc.got.Task != "create REDIRECTED.txt with the word DONE" {
+		t.Errorf("the council judged %q, not the re-anchored redirect goal", fc.got.Task)
+	}
+}

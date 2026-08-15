@@ -87,6 +87,13 @@ type sessionState struct {
 	// handler guards against staleness by re-checking it is still the unanswered seed, so
 	// it is safe outside the turn-scoped reset block.
 	activeSeedMsgID string
+	// liveTurnTask is the task the loop is CURRENTLY answering, kept where the council tool can read
+	// it. The council recomputes the task from the transcript, and a redirect interjection masks its
+	// own prompt from that view — so after a redirect the council judged against the ABANDONED
+	// original goal and vetoed completion forever (a livelock, observed live). The loop writes the
+	// re-anchored task here each step; the council prefers it over the recomputed one. Empty outside
+	// a turn.
+	liveTurnTask string
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	scratch       *turnScratch    // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
 	interjectSeen map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
@@ -230,7 +237,26 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.turnNotes = nil
 	st.doing, st.doingCall = "", ""
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
+	st.liveTurnTask = ""
 	a.mu.Unlock()
+}
+
+// setLiveTurnTask records the task the loop is answering this step, so the council tool judges
+// against the current goal (including a redirect's re-anchored one) rather than recomputing it from
+// a transcript view that hides the redirect. turnTaskNow reads it back.
+func (a *App) setLiveTurnTask(sid session.SessionID, task string) {
+	a.mu.Lock()
+	a.stateLocked(sid).liveTurnTask = task
+	a.mu.Unlock()
+}
+
+func (a *App) turnTaskNow(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.liveTurnTask
+	}
+	return ""
 }
 
 // setActiveSeed records the MessageID of the prompt seeding the current top-level turn,

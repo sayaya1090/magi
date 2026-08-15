@@ -57,6 +57,13 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	evs, _ := a.store.Read(ctx, sid, 0)
 	evs = a.taskEvents(sid, evs)
 	task := lastUserPromptText(evs)
+	// The task the loop is actually answering wins when it is known. A redirect interjection
+	// re-anchors the goal and masks its own prompt from taskEvents, so lastUserPromptText above
+	// falls back to the ABANDONED original — and the council then vetoes completion forever
+	// (livelock, observed live). turnTaskNow carries the re-anchored goal.
+	if live := strings.TrimSpace(a.turnTaskNow(sid)); live != "" {
+		task = live
+	}
 	if q := strings.TrimSpace(question); q != "" {
 		// The agent's question leads, with the turn's task behind it: a member asked only the
 		// narrow question cannot tell whether the answer serves the work.
