@@ -10733,12 +10733,58 @@ measureBars();
   mark();
 }
 t.addEventListener('input', grow);
+// Composer suggestion — how the model thinks this person will finish the instruction, learned from
+// their own past prompts. The composer is an md component whose real textarea lives in its shadow
+// root, so there is no plain field to splice inline ghost text into the way the file editor has; the
+// suggestion shows dimmed under the box and Tab takes it. On by default and remembered; the server
+// self-disables when no composer profile is routed, so a console with none never shows a hint.
+let sugOn = localStorage.getItem('suggest') !== 'off';
+let sugAt = 0, sugText = '';
+const sugHint = document.createElement('div');
+sugHint.className = 'sughint';
+sugHint.hidden = true;
+sugHint.setAttribute('aria-hidden', 'true');
+if (t.insertAdjacentElement) t.insertAdjacentElement('afterend', sugHint);
+else if (t.parentNode) t.parentNode.appendChild(sugHint);
+const sugClear = () => { if (sugText || !sugHint.hidden) { sugText = ''; sugHint.hidden = true; sugHint.textContent = ''; } };
+// Take it: append to what they typed, since the suggestion continues from where they stopped.
+const sugAccept = () => {
+  if (!sugText) return false;
+  t.value = String(t.value || '') + sugText;
+  sugClear();
+  grow();
+  if (t.focus) t.focus();
+  return true;
+};
+const suggest = async () => {
+  if (!sugOn || !may('prompt')) return;
+  const v = String(t.value || '');
+  if (!v.trim()) { sugClear(); return; }   // an empty box is not a place to guess; it is annoying
+  const mine = ++sugAt;
+  const out = await postText('/suggest' + qFor(lastDrawnFor || {socket: ''}),
+                             new URLSearchParams({prefix: v}));
+  if (mine !== sugAt) return;               // superseded by a newer request
+  if (String(t.value || '') !== v) return;  // they kept typing
+  sugText = (out || '').trim();
+  if (sugText) { sugHint.textContent = sugText; sugHint.hidden = false; }
+  else sugClear();
+};
+t.addEventListener('input', () => {
+  sugClear();                               // what they typed changed; the standing hint is stale
+  const mine = ++sugAt;
+  setTimeout(() => { if (mine === sugAt) { sugAt = mine - 1; suggest(); } }, 400);
+});
+t.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && sugText) { e.preventDefault(); sugAccept(); return; }
+  if (e.key === 'Escape') sugClear();
+});
+t.addEventListener('blur', sugClear);
 f.onsubmit = e => {
   e.preventDefault();
   const v = t.value.trim(); if (!v) return;
   if (answering) {
     const a = answering;
-    t.value = ''; grow();
+    t.value = ''; grow(); sugClear();
     post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text: v}), a.socket, a.peer)
       .then(why => {
         // An answer that did not land is worse than a message that did not: the companion is still
@@ -10754,7 +10800,7 @@ f.onsubmit = e => {
   if (v.startsWith('!')) {
     const cmd = v.slice(1).trim();
     if (!cmd) return;
-    t.value = ''; grow();
+    t.value = ''; grow(); sugClear();
     runShell(cmd);
     return;
   }
@@ -10771,7 +10817,7 @@ f.onsubmit = e => {
       keep: tr('action.cancel'), keepMark: '#i-sl-xmark',
       doIt: tr('action.move_and_send'), doMark: '#i-ss-paper-plane',
       go: () => {
-        t.value = ''; grow();
+        t.value = ''; grow(); sugClear();
         // Sequential on purpose: the send is only correct once the move has happened, and the move
         // can be refused — mid-turn, or a conversation this companion does not own. post() reports
         // the refusal itself, and returning here leaves what was typed unsent rather than sending
@@ -10799,7 +10845,7 @@ f.onsubmit = e => {
   // typed vanished from the box with the reason in the masthead and no way to get them back. The
   // move-and-send path above has always put them back; this one, which is the ordinary way to send
   // anything, did not.
-  t.value = ''; grow();
+  t.value = ''; grow(); sugClear();
   post('/submit', new URLSearchParams({text: v})).then(why => {
     if (!why) return;
     if (!t.value.trim()) { t.value = v; grow(); }

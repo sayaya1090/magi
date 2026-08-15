@@ -4203,6 +4203,15 @@
     --md-icon-button-pressed-state-layer-color: var(--magi-ref-error);
   }
   md-outlined-text-field#t { flex:1; }
+  /* The composer's suggestion, dimmed under the box: how the model thinks the instruction ends,
+     with the key that takes it. One line — a suggestion that fills the screen is one nobody reads. */
+  .sughint {
+    flex-basis:100%; min-width:0; margin:2px 6px 0; padding:2px 8px;
+    font-size:.82rem; line-height:1.35; color:var(--magi-ref-muted);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    border-left:2px solid var(--magi-ref-outline);
+  }
+  .sughint::before { content:"⇥ "; opacity:.7; font-weight:600; }
   md-outlined-text-field {
     --md-sys-color-primary: var(--magi-ref-primary);
     --md-sys-color-on-surface: var(--magi-ref-on-surface);
