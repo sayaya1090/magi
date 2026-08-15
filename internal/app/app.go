@@ -609,10 +609,26 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		// `{"in":0,"out":0}`, so anything reading the LAST one (the fork boundary, the meter) reads
 		// a turn that spent nothing. A run that ended any other way already ended it: a clean finish
 		// writes turn.finished itself, and a provider error writes an error event.
-		if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
+		//
+		// A provider error is the OTHER end that ends without a terminal turn.finished: the loop
+		// writes a TypeError and returns, no finish. That is invisible to a handed-over piece's
+		// asker — handoffAnswer keys on a PERSISTED turn.finished, so a run killed by a 429/5xx left
+		// the asker told "still thinking" forever, its receipt orphaned. So a cancel AND a provider
+		// error both get the terminal event here; only the cancel also abandons its seed prompt (the
+		// work was abandoned), where the error leaves it as-is (the work failed). A clean finish
+		// (lastErr == nil) wrote its own and must not get a second — the double this block once
+		// produced is what the runCtx.Err() note above is about.
+		writeFinish := false
+		switch {
+		case errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded):
 			// Mark the cancelled turn's seed prompt abandoned so an unrelated next request
 			// isn't anchored onto it (and a follow-up that augments it still seeds on itself).
 			a.abandonSeedOnCancel(context.WithoutCancel(runCtx), sid)
+			writeFinish = true
+		case lastErr != nil:
+			writeFinish = true
+		}
+		if writeFinish {
 			d, _ := json.Marshal(event.TurnFinishedData{})
 			_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypeTurnFinished,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)

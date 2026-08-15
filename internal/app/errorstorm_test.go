@@ -51,3 +51,33 @@ func TestNoRetryStormOnPersistentError(t *testing.T) {
 		t.Errorf("LLM called %d times — re-run storm on persistent error (want ~1)", n)
 	}
 }
+
+// A run killed by a persistent provider error still writes a terminal turn.finished. handoffAnswer
+// keys on a PERSISTED turn.finished, so without this a handed-over piece whose worker hit a 429/5xx
+// left the asker told "still thinking" forever, its receipt orphaned. The loop writes only a
+// TypeError on that path; the run's retirement adds the finish. Reverting that fails this.
+func TestAProviderErrorStillWritesATurnFinished(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := closeAfter(t, New(store, &erroringLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	a.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: "hi"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		evs, _ := store.Read(ctx, sid, 0)
+		if countType(evs, event.TypeError) >= 1 && countType(evs, event.TypeTurnFinished) >= 1 {
+			return // an error AND a terminal finish — a handoff asker resolves
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	evs, _ := store.Read(ctx, sid, 0)
+	t.Fatalf("no turn.finished after a provider error — a handoff asker would wait forever; events=%v", typesOf(evs))
+}
