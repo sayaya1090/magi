@@ -160,6 +160,16 @@ func TestAnUnusableServerDefinitionIsRefused(t *testing.T) {
 			url.Values{"name": {"x"}, "url": {"http://a"}, "command": {"npx"}}, http.StatusBadRequest},
 		{"a name that is not a table header",
 			url.Values{"name": {"my server"}, "command": {"npx"}}, http.StatusBadRequest},
+		// The allowlist ([A-Za-z0-9_-]) shared with profiles/cron: a newline (the corruption vuln),
+		// and characters the old denylist let through — each would split or break the TOML header.
+		{"a newline in the name",
+			url.Values{"name": {"foo\nbar"}, "command": {"npx"}}, http.StatusBadRequest},
+		{"a comma in the name",
+			url.Values{"name": {"a,b"}, "command": {"npx"}}, http.StatusBadRequest},
+		{"a colon in the name",
+			url.Values{"name": {"a:b"}, "command": {"npx"}}, http.StatusBadRequest},
+		{"a non-ASCII letter in the name",
+			url.Values{"name": {"café"}, "command": {"npx"}}, http.StatusBadRequest},
 		{"no name at all", url.Values{"command": {"npx"}}, http.StatusBadRequest},
 	} {
 		if w := post(t, f.srv, f.srv.mcp, q, tc.vals); w.Code != tc.want {
