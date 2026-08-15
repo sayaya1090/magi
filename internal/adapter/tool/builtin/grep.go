@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -133,11 +132,23 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 		rel, _ := filepath.Rel(env.Workdir, p)
 		rel = filepath.ToSlash(rel)
-		sc := bufio.NewScanner(bytes.NewReader(data))
+		// Split on newlines directly rather than bufio.Scanner. The whole file is already in memory,
+		// and the scanner's 64KB per-line cap made sc.Scan() return false at the FIRST longer line (a
+		// minified bundle, a base64 or JSON blob) and set an error the loop never checked — so every
+		// match after that line was silently dropped, and a search that gave up looked exactly like
+		// one that found nothing. This has no line-length limit.
+		rest := data
 		line := 0
-		for sc.Scan() {
+		for len(rest) > 0 {
 			line++
-			text := sc.Text()
+			var raw []byte
+			if i := bytes.IndexByte(rest, '\n'); i < 0 {
+				raw, rest = rest, nil
+			} else {
+				raw, rest = rest[:i], rest[i+1:]
+			}
+			raw = bytes.TrimSuffix(raw, []byte("\r")) // match ScanLines: strip a trailing CR
+			text := string(raw)
 			hay := text
 			if normUni {
 				hay = norm.NFC.String(text)

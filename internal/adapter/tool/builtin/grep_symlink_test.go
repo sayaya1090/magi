@@ -42,3 +42,20 @@ func TestGrepSymlinkJail(t *testing.T) {
 		t.Errorf("grep should still match the in-workdir file: %q", out)
 	}
 }
+
+// grep must find matches AFTER a line longer than bufio.Scanner's 64KB token cap (a minified
+// bundle, a base64/JSON blob). The scanner stopped there and set an unchecked error, silently
+// dropping every later match; the newline split has no length limit.
+func TestGrepFindsMatchesAfterALongLine(t *testing.T) {
+	wd := t.TempDir()
+	long := strings.Repeat("x", 70000)
+	if err := os.WriteFile(filepath.Join(wd, "big.txt"), []byte(long+"\nNEEDLE_HERE\nplain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := Grep{}.Execute(context.Background(),
+		json.RawMessage(`{"pattern":"NEEDLE_HERE","path":"."}`), port.ToolEnv{Workdir: wd})
+	out := resultText(t, res)
+	if !strings.Contains(out, "NEEDLE_HERE") || !strings.Contains(out, "big.txt:2") {
+		t.Errorf("grep dropped the match after a >64KB line: %q", out)
+	}
+}

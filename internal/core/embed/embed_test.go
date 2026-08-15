@@ -181,3 +181,30 @@ func TestFusionPutsWhatBothAgreeOnFirst(t *testing.T) {
 		t.Errorf("nothing fused to %v", got)
 	}
 }
+
+// A backend that OMITS the index field must not collapse every vector onto slot 0. A plain int
+// decoded the missing field to 0, so the loop mapped all rows to text[0] (leaving the rest nil and
+// caching the wrong vector under text[0]'s key). With the index absent, order is positional.
+func TestOmittedIndexFallsBackToPositionalOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Three rows, embedding only — no "index".
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+			{"embedding": []float32{1, 0}},
+			{"embedding": []float32{0, 1}},
+			{"embedding": []float32{1, 1}},
+		}})
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL + "/v1", APIKey: "k", Model: "any-embed", CacheDir: t.TempDir(), HTTP: srv.Client()}
+	got, err := c.Embed(context.Background(), []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]float32{{1, 0}, {0, 1}, {1, 1}}
+	for i := range want {
+		if len(got[i]) != 2 || got[i][0] != want[i][0] || got[i][1] != want[i][1] {
+			t.Errorf("vector %d = %v, want %v — omitted index collapsed the batch", i, got[i], want[i])
+		}
+	}
+}

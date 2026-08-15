@@ -171,7 +171,10 @@ func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error)
 	defer resp.Body.Close()
 	var parsed struct {
 		Data []struct {
-			Index     int       `json:"index"`
+			// A POINTER so an omitted index stays distinct from an explicit 0: a plain int decoded a
+			// missing field to 0, and the loop below then mapped EVERY vector onto slot 0 (leaving the
+			// rest nil and caching the wrong vector under text[0]'s key). See the useIndex guard.
+			Index     *int      `json:"index"`
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 		Error *struct {
@@ -193,11 +196,21 @@ func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error)
 		// reading the results could detect.
 		return nil, fmt.Errorf("asked for %d embeddings and got %d", len(missing), len(parsed.Data))
 	}
-	// Indexed by the response's own index where it gives one, because the spec allows any order.
+	// Indexed by the response's own index — but only when EVERY row carries one. A backend that omits
+	// index (some OpenAI-compatible servers do) would otherwise collapse the whole batch onto slot 0.
+	// If any row is missing it, the field is not being given; fall back to positional order (the count
+	// already matched above), which is the order the request was sent in.
+	useIndex := true
+	for i := range parsed.Data {
+		if parsed.Data[i].Index == nil {
+			useIndex = false
+			break
+		}
+	}
 	for pos, d := range parsed.Data {
 		at := pos
-		if d.Index >= 0 && d.Index < len(missing) {
-			at = d.Index
+		if useIndex && *d.Index >= 0 && *d.Index < len(missing) {
+			at = *d.Index
 		}
 		out[where[at]] = d.Embedding
 		c.writeCached(missing[at], d.Embedding)
