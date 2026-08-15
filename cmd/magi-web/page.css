@@ -2189,6 +2189,15 @@
      The one thing said from outside is the face: these words are literals from auth.toml, and the
      rest of the page sets literals in mono. */
   .capchip { --md-filter-chip-label-text-font:var(--magi-ref-mono); }
+  /* A display tag on a row — not a control. An outlined pill in the chip's own shape and the mono
+     face the file uses, but nothing pressable: it says what this row may do, and the legend below
+     is where a capability is chosen to filter. Admin reads in warn, the one grant that hands out. */
+  .captag {
+    display:inline-flex; align-items:center; min-height:2rem; padding:0 var(--magi-sys-space-150);
+    border:1px solid var(--magi-ref-outline); border-radius:var(--magi-sys-shape-s);
+    font:var(--md-sys-typescale-label-large-size)/1 var(--magi-ref-mono); color:var(--magi-ref-fg);
+  }
+  .captag[data-cap="admin"] { color:var(--magi-ref-warn); border-color:var(--magi-ref-warn); }
   /* The one that can grant the others reads differently, because it IS different: everything else
      on this screen can be handed back, and this one hands out. Through the component's own tokens
      rather than a colour on the host, which would not reach the label inside its shadow root. */

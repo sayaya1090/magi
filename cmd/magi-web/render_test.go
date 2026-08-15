@@ -1968,7 +1968,7 @@ globalThis.fetch = async (p, init) => {
 };
 await loadSkills();
 // The tools row is the screen's own controls — find, reach, write down — not a rule.
-const rows = byId.skills.children.filter(r => r.className !== 'sectionhead' && r.className !== 'skfind' && r.className !== 'skwrite');
+const rows = byId.skills.children.filter(r => !['sectionhead','skfind','skwrite','accsay','filesnote'].includes(r.className));
 const drop = rows[1].find('md-text-button')[0];
 // Once asks. A destructive control that acts on the first press has no confirmation at all, and
 // the error colour it used to rely on lives on :hover, which a touch screen does not have.
@@ -5012,7 +5012,7 @@ console.log(JSON.stringify({
   // check that only asks whether the class appears somewhere on the screen.
   // Chips are md-filter-chip now — a component, and a control that answers "who else may do this?"
   // — so they are counted as elements rather than as divs.
-  rowchips: byId.access.find('md-filter-chip').length,
+  rowchips: byId.access.find(e => e.attrs && e.attrs['data-cap'] !== undefined).length,
   scopechips: byId.access.find('md-input-chip').length,
 }));
 `

@@ -4357,7 +4357,15 @@ async function loadSkills() {
   };
   const isRule = shown.filter(sk => sk.kind !== 'memory');
   const isFact = shown.filter(sk => sk.kind === 'memory');
-  const parts = [sectionHead('nav.lessons'), skillFind()];
+  const parts = [sectionHead('nav.lessons')];
+  // A lead sentence, so the section reads as itself at rest rather than as a heading over an empty
+  // find box — every other destination has one and this did not. Only when nothing is typed: a
+  // filtered list wants the count, not the description.
+  if (!skillQuery.trim()) parts.push(cell('accsay', tr('shared.lead')));
+  parts.push(skillFind());
+  // And when filtering, the count in words under the box — the live region already announces it,
+  // this is the same for the eye, so a search that shrinks the list says so on screen.
+  if (skillQuery.trim()) parts.push(cell('filesnote', tr('find.results', {n: shown.length})));
   if (skillQuery.trim() || !isRule.length || !isFact.length) {
     parts.push(...shown.map(draw));
   } else {
@@ -4503,6 +4511,17 @@ function rosterHead(key, whyKey) {
 // all one selection mode falls out of there being one selection.
 let capFilter = null;
 
+// A capability as a DISPLAY tag on a row — what this group or person may do, not a control. It was
+// an md-filter-chip like the legend's, so a grant shown on a row was also a roster filter: press a
+// group's "admin" and every "admin" tag on the screen lit and the list narrowed, which reads as
+// editing that group rather than filtering. The row shows; the legend at the foot is where a
+// capability is PICKED to filter. Non-interactive, so it announces as text, not a toggle.
+function capTag(word) {
+  const t = cell('captag', word);
+  t.setAttribute('data-cap', word);
+  return t;
+}
+
 // A capability, as the component rather than a div wearing its shape.
 //
 // It was a div, on the argument that every chip variant the library ships is a control and a
@@ -4553,7 +4572,7 @@ function capsLine(can, companions) {
   // showed one word while the file wanted another would teach somebody the wrong name for the
   // thing they are editing.
   const caps = cell('caps');
-  for (const c of (can || [])) caps.append(capChip(c));
+  for (const c of (can || [])) caps.append(capTag(c));
   box.append(caps);
   // A group's scope stays on the line, because a group has no sub-section: it is read-only here —
   // membership belongs to the directory — and a section with nothing to press in it is a heading.
