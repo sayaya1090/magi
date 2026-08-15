@@ -43,6 +43,12 @@ type App struct {
 	cfg              Config
 	contextProviders []port.ContextProvider // RAG-like context injectors
 
+	// openFiles is the file each session's console editor currently has open: the unsaved buffer,
+	// pushed from the web editor as the person types and injected into the next turn's volatile
+	// context (see volatileContext). Ephemeral and never persisted — LookOver's philosophy, that a
+	// half-typed buffer does not belong in the event log. Guarded by mu.
+	openFiles map[session.SessionID]openFile
+
 	mu     sync.Mutex
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
 	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)

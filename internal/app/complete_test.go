@@ -200,6 +200,32 @@ func TestDraftCommitInjectsTemplateRules(t *testing.T) {
 	}
 }
 
+// The file the console editor has open rides into the agent's per-turn context by default, is gone
+// when [autocomplete] ambient is turned off, and is gone once the editor closes it (empty text).
+func TestAmbientOpenFileEntersContext(t *testing.T) {
+	a, sid := completeApp(t, completingLLM{}, config.AutocompleteConfig{}, nil, nil) // ambient default on
+	a.SetOpenFile(sid, "/w/foo.go", "package main\n\nvar X = brokenHere")
+	s := a.sessionInfo(context.Background(), sid)
+	ctx := func(a *App) string {
+		return a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 1, 0, 0)
+	}
+	if vc := ctx(a); !strings.Contains(vc, "foo.go") || !strings.Contains(vc, "brokenHere") {
+		t.Errorf("the open buffer did not enter the context:\n%s", vc)
+	}
+	// Turned off, it must not be injected.
+	off := false
+	a.cfg.Autocomplete.Ambient = &off
+	if vc := ctx(a); strings.Contains(vc, "brokenHere") {
+		t.Errorf("ambient off still injected the buffer:\n%s", vc)
+	}
+	// Back on, but the editor closed the file (empty text clears it).
+	a.cfg.Autocomplete.Ambient = nil
+	a.SetOpenFile(sid, "/w/foo.go", "")
+	if vc := ctx(a); strings.Contains(vc, "brokenHere") {
+		t.Errorf("a closed file still rode into the context:\n%s", vc)
+	}
+}
+
 func acRun(dir, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir

@@ -47,6 +47,37 @@ func (a *App) complete(ctx context.Context, profile, model, system, user string)
 	return out, nil
 }
 
+// openFile is the console editor's current unsaved buffer for a session.
+type openFile struct {
+	path string
+	text string
+}
+
+// SetOpenFile records the file a session's console editor has open, so the agent's next turn sees
+// the unsaved buffer as ambient context (volatileContext injects it when [autocomplete] ambient is
+// on). An empty path or text clears it — the editor closed the file, and stale drafts must not keep
+// riding into the context after the person moved on. Never persisted.
+func (a *App) SetOpenFile(sid session.SessionID, path, text string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(text) == "" {
+		delete(a.openFiles, sid)
+		return
+	}
+	if a.openFiles == nil {
+		a.openFiles = map[session.SessionID]openFile{}
+	}
+	a.openFiles[sid] = openFile{path: path, text: text}
+}
+
+// openFileFor returns the session's open editor buffer, if any.
+func (a *App) openFileFor(sid session.SessionID) (openFile, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	f, ok := a.openFiles[sid]
+	return f, ok
+}
+
 // completeModel resolves the model name a profile runs: the profile's own model (ProfileModels,
 // filled from [llm.profiles.*]) when known, else the fallback the caller passes (the session's
 // model). The provider is chosen by profile name in providerFor; the model still travels in the
