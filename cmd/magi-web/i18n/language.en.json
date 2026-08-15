@@ -541,5 +541,16 @@
   "team.none": "No team",
   "team.speaks": "Speaks for it",
   "team.spoken_for": "{name} speaks for it",
-  "time.ago": "{d} ago"
+  "time.ago": "{d} ago",
+  "prof.head": "Model profiles",
+  "prof.head_why": "The backends the profiles above choose from — an endpoint, a model, and optionally a key. Written to config and applied on the daemon's next start; the key is never shown back, only whether one is set.",
+  "prof.name": "Name",
+  "prof.base_url": "Base URL",
+  "prof.model": "Model",
+  "prof.api_key": "API key (optional; ${ENV_VAR} recommended)",
+  "prof.add": "Save profile",
+  "prof.none": "No profiles yet",
+  "prof.no_model": "no model",
+  "prof.keyed": "key set",
+  "prof.need_name": "A profile needs a name"
 }

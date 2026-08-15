@@ -99,6 +99,9 @@ var mayWrite = map[string]auth.Capability{
 	// Which fast profile does completion, whether the edited file rides into context, the draft
 	// house rules. Configuration of a running companion, read and written — same as MCP and cron.
 	"/autocomplete": auth.Configure,
+	// The named LLM backends ([llm.profiles.*]): an endpoint and a key this machine sends prompts to.
+	// Configuration, read and written — same as MCP. The write also refuses on a shared console.
+	"/profiles": auth.Configure,
 	// A command in the workspace, outside the permission policy a tool call goes through. On a
 	// console started with -exposed the route refuses before this is reached (see refuseWhenShared)
 	// — this is what governs the console that is NOT shared but has more than one person on it.

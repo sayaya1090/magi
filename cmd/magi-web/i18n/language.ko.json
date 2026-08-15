@@ -541,5 +541,16 @@
   "team.none": "팀 없음",
   "team.speaks": "대표",
   "team.spoken_for": "{name}이(가) 대표",
-  "time.ago": "{d} 전"
+  "time.ago": "{d} 전",
+  "prof.head": "모델 프로파일",
+  "prof.head_why": "위 프로파일이 고르는 백엔드 — 엔드포인트·모델·(선택)키. config에 기록되어 데몬 다음 시작에 적용되고, 키는 되돌려 보여주지 않고 설정 여부만 표시합니다.",
+  "prof.name": "이름",
+  "prof.base_url": "Base URL",
+  "prof.model": "모델",
+  "prof.api_key": "API 키 (선택, ${ENV_VAR} 권장)",
+  "prof.add": "프로파일 저장",
+  "prof.none": "아직 프로파일이 없습니다",
+  "prof.no_model": "모델 없음",
+  "prof.keyed": "키 설정됨",
+  "prof.need_name": "프로파일에 이름이 필요합니다"
 }

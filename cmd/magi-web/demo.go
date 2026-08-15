@@ -329,6 +329,17 @@ const demoScript = `
        command: 'npx', args: ['-y', 'figma-mcp'], envNames: ['FIGMA_TOKEN'],
        file: '/Users/you/work/design-system/.magi/config.toml'},
     ],
+    // The named LLM backends the profile editor lists. A key on one, so the demo shows the "set,
+    // never shown" state — the value is never sent, only that it exists.
+    '/profiles': [
+      {name: 'balanced', tier: 'global', baseUrl: 'http://localhost:11434/v1', model: 'qwen3-coder:30b',
+       hasKey: false, file: '~/.config/magi/config.toml'},
+      {name: 'fast', tier: 'global', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-coder:1.5b',
+       hasKey: false, file: '~/.config/magi/config.toml'},
+      {name: 'cloud', tier: 'project', companion: 'design', socket: '/demo/design.sock',
+       baseUrl: 'https://api.example.com/v1', model: 'big-model', hasKey: true,
+       file: '/Users/you/work/design-system/.magi/config.toml'},
+    ],
     // The completion settings the Preferences dialog loads: which fast profile does each kind, the
     // ambient file, the draft rules. A profile assigned to each, so the demo shows the on state.
     '/autocomplete': {

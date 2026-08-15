@@ -9486,6 +9486,13 @@ function paint() {
   if (compProfSel) compProfSel.setAttribute('label', tr('ac.profile_pick'));
   if (commitTpl) commitTpl.setAttribute('label', tr('ac.commit_tpl'));
   if (prTpl) prTpl.setAttribute('label', tr('ac.pr_tpl'));
+  { const g = document.getElementById('grpProfiles'); if (g) g.textContent = tr('prof.head'); }
+  { const e = document.getElementById('profWhy'); if (e) e.textContent = tr('prof.head_why'); }
+  if (profName) profName.setAttribute('label', tr('prof.name'));
+  if (profBase) profBase.setAttribute('label', tr('prof.base_url'));
+  if (profModel) profModel.setAttribute('label', tr('prof.model'));
+  if (profKey) profKey.setAttribute('label', tr('prof.api_key'));
+  if (profSave) label(profSave, tr('prof.add'));
   // A switch's visible label is a sibling div, not a <label for> — so give each an accessible name
   // (the way notifySwitch already gets one), or a screen reader announces a nameless "switch".
   const ariaLabel = (id, key) => { const el = document.getElementById(id); if (el) el.setAttribute('aria-label', tr(key)); };
@@ -10591,6 +10598,59 @@ if (prTpl) prTpl.addEventListener('change', () => flushTpl(prTpl, 'prTemplate'))
 // Escape/backdrop dismiss does not blur first, so flush the templates when the dialog closes.
 prefsDialog.addEventListener('close', () => { flushTpl(commitTpl, 'commitTemplate'); flushTpl(prTpl, 'prTemplate'); });
 
+// The profile editor — define/edit/remove the [llm.profiles.*] the pickers above choose from, so a
+// fast completion backend can be set up here rather than in config.toml or the TUI. The key is
+// write-only: it is never sent back (hasKey only), and a save leaves it untouched unless a new one is
+// typed.
+const profList = document.getElementById('profList');
+const profName = document.getElementById('profName');
+const profBase = document.getElementById('profBase');
+const profModel = document.getElementById('profModel');
+const profKey = document.getElementById('profKey');
+const profSave = document.getElementById('profSave');
+const profWrite = (body) => {
+  const f = lastDrawnFor || {};
+  if (!f.socket) body.set('tier', 'global');
+  return post('/profiles', body, f.socket || '', f.peer || '');
+};
+function renderProfiles(list) {
+  if (!profList) return;
+  profList.replaceChildren();
+  for (const p of (list || [])) {
+    const row = cell('profrow');
+    const name = cell('profnm');
+    name.textContent = p.name;
+    const meta = cell('profmeta');
+    meta.textContent = [p.model || tr('prof.no_model'), p.hasKey ? tr('prof.keyed') : '',
+      p.tier === 'project' ? (p.companion || '') : tr('cron.machine')].filter(Boolean).join('  ·  ');
+    const edit = label(document.createElement('md-text-button'), tr('action.edit'));
+    edit.onclick = () => { profName.value = p.name; profBase.value = p.baseUrl || ''; profModel.value = p.model || ''; profKey.value = ''; if (profName.focus) profName.focus(); };
+    const del = label(withMark(document.createElement('md-text-button'), '#i-sl-trash-can'), tr('action.remove'));
+    del.onclick = () => whileItRuns(del, async () => {
+      const why = await profWrite(new URLSearchParams({name: p.name, delete: '1'}));
+      if (!why) { loadProfiles(); loadAutocomplete(); }
+    });
+    row.append(name, meta, edit, del);
+    profList.append(row);
+  }
+  if (!(list || []).length) { const e = cell('profempty'); e.textContent = tr('prof.none'); profList.append(e); }
+}
+async function loadProfiles() {
+  if (!may('configure') || !profList) return;
+  renderProfiles(await fetchList('/profiles' + acQ()) || []);
+}
+if (profSave) profSave.onclick = () => whileItRuns(profSave, async () => {
+  const nm = (profName.value || '').trim();
+  if (!nm) { says(tr('prof.need_name')); return; }
+  const body = new URLSearchParams({name: nm, baseUrl: profBase.value || '', model: profModel.value || ''});
+  if ((profKey.value || '').trim()) body.set('apiKey', profKey.value);
+  const why = await profWrite(body);
+  if (why) return;
+  profName.value = profBase.value = profModel.value = profKey.value = '';
+  loadProfiles();       // the list
+  loadAutocomplete();   // and the pickers above, so a new profile is immediately assignable
+});
+
 // The two grips: the edge of each pane, dragged.
 //
 // What they write is the custom property the grid track is made of, so the column and the pane
@@ -10743,7 +10803,7 @@ railMenu.onclick = () => {
 
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
-prefsEl.onclick = () => { prefsDialog.show(); loadAutocomplete(); };
+prefsEl.onclick = () => { prefsDialog.show(); loadAutocomplete(); loadProfiles(); };
 // Preferences is where the way to the people screen lives; see the markup for why it is not in the
 // navigation. Closing the dialog first, because leaving a modal open over the screen it just took
 // somebody to is the one thing a link out of a dialog must not do.

@@ -484,6 +484,19 @@
       <div class="k" id="prTplK"></div>
       <md-outlined-text-field id="prTpl" type="textarea" rows="3"></md-outlined-text-field>
     </div>
+    <!-- The named LLM backends the profile pickers above choose from — defined and edited right here,
+         so a fast profile can be set up without opening config.toml or the TUI's /route editor. The
+         key is write-only: it is never sent back, only whether one is set. -->
+    <div class="prefgroup" id="grpProfiles" data-may="configure"></div>
+    <div class="prefsay" data-may="configure"><div class="say" id="profWhy"></div></div>
+    <div class="prefsay" data-may="configure"><div id="profList" class="proflist"></div></div>
+    <div class="profadd" data-may="configure">
+      <md-outlined-text-field id="profName"></md-outlined-text-field>
+      <md-outlined-text-field id="profBase"></md-outlined-text-field>
+      <md-outlined-text-field id="profModel"></md-outlined-text-field>
+      <md-outlined-text-field id="profKey"></md-outlined-text-field>
+      <md-text-button id="profSave" type="button"></md-text-button>
+    </div>
     <!-- The phone's way to the access screen, and only the phone's. The rail carries it at every
          other width; below 37.4375em the rail is not drawn at all, and without this row the screen
          would be reachable only by typing ?v=access — a screen nobody finds, which is how "is it
