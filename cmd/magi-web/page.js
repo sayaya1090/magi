@@ -490,32 +490,14 @@ function drawPanels() {
     cardTabs.hidden = true;
   }
   if (panel === 'plan') {
-    // Rebuilt with the cards, because which sections exist depends on what this companion is
-    // doing — and on a phone this panel is a list you drill into rather than a strip of tabs.
+    // One scrollable stack, phone and desk alike — the sections read as titled blocks, the way the
+    // desk side column already shows them. It was a list you drilled into (tab → list → detail, a
+    // three-level walk to see the plan) grouping four unlike things under one vague word; flattened,
+    // every section is there at once with its own heading, and refreshSideToggle's own empty state
+    // covers "nothing is going on". The cards manage their own visibility (each hides when empty),
+    // so nothing here has to choose which one shows.
     for (const old of sideEl.querySelectorAll('.panelist, .panelback')) old.remove();
-    if (onePane()) {
-      const sections = planSections();
-      const one = sections.length === 1 ? sections[0].id : '';
-      // One section needs no list: a list of one is a press that tells you nothing.
-      if (one) planShows = one;
-      else if (!sections.some(x => x.id === planShows)) planShows = '';
-      if (!planShows) {
-        const list = planList();
-        if (list) sideEl.prepend(list);
-      } else if (!one) {
-        const word = (sections.find(x => x.id === planShows) || {}).word || '';
-        sideEl.prepend(panelBack(tr('nav.going_on'), () => { planShows = ''; drawPanels(); intoPanel(tr('nav.going_on')); }));
-        void word;
-      }
-    } else {
-      planShows = '';   // above the breakpoint the cards are a column and nothing is chosen
-      // …and the phone's furniture goes with it. The list and the back row are removed at the top
-      // of this function only on the compact path, so a window widened from a drilled-in panel
-      // carried "Nothing is going on here" into the desk's side column, above the six cards it
-      // was standing in for.
-      for (const old of sideEl.querySelectorAll('.panelist, .panelback')) old.remove();
-    }
-    sideEl.setAttribute('data-shows', planShows || 'list');
+    sideEl.removeAttribute('data-shows');
   }
 }
 // What the companion said while somebody was on another half of its page.
@@ -544,99 +526,6 @@ function paintUnread() {
 // Empty means the LIST — which is where a phone starts, because the panel is a list of what is
 // going on and the sections are what it drills into. It was 'plan', so the first thing a reader saw
 // was one section with a way back to a list they had never been shown.
-let planShows = '';
-
-// planTabs is that switch, drawn into the pane above the cards.
-//
-// Four cards — the plan, the work handed out, what is scheduled, and what somebody interrupted —
-// measured at 2.2 screens of scrolling on a phone with the last of them below two others nobody
-// scrolls to. They are four things, so they are four screens.
-// planSections is what this panel holds right now, in reading order, with what each has in it.
-//
-// Read off the cards themselves rather than from a list kept beside them: a card is drawn when its
-// loader found something, so "does this companion have scheduled work" is a question the DOM has
-// already answered. A list of five that offers two empty screens is a list that has to be checked
-// by pressing.
-function planSections() {
-  const count = el => {
-    // The rows a reader would count, which is not the same as the children: every one of these
-    // cards begins with a heading, and the plan card also carries a progress bar and a line
-    // saying how far through it is. Counted as items, "2 todos" read as "Plan 4" — a number that
-    // is never right on the one section that has furniture between its heading and its rows.
-    const furniture = k => {
-      const cls = String(k.className || '').split(' ');
-      return cls.includes('k') || cls.includes('planbar') || cls.includes('plancount') ||
-             String(k.tagName || '').toLowerCase() === 'md-linear-progress';
-    };
-    const n = [...el.children].filter(k => !furniture(k)).length;
-    return n > 0 ? String(n) : '';
-  };
-  return [['plan', tr('nav.plan')], ['strip', tr('nav.running')], ['handoffs', tr('nav.handoffs')],
-          ['cron', tr('nav.cron')]]
-    .map(([id, word]) => ({id, word, el: document.getElementById(id)}))
-    .filter(x => x.el && !x.el.hidden && x.el.children.length)
-    .map(x => ({...x, n: count(x.el)}));
-}
-
-// On a phone this panel is a LIST of what is going on, and each row opens as its own screen.
-//
-// It was a row of secondary tabs — up to five of them, in a strip under the four primary tabs
-// above. Two layers of tabs is what the guide gives secondary tabs FOR, but it also says never
-// more than four in a strip, and the outer four already sit at that ceiling: a fifth thing to
-// choose from, drawn as a sixth-of-a-screen-wide word, is a control nobody reads.
-//
-// A list instead, which is the compact form of list-detail: the list and the detail take turns.
-// The row says what the section is and how much is in it, so choosing does not mean guessing.
-function planList() {
-  const box = cell('panelist');
-  for (const {id, word, n} of planSections()) {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'panelrow state';
-    row.append(cell('panelword', word));
-    if (n) row.append(cell('panelcount', n));
-    const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
-    if (mark) row.append(mark);
-    row.onclick = () => { planShows = id; drawPanels(); intoPanel(word); };
-    box.append(row);
-  }
-  // A destination is never blank.
-  //
-  // With no plan, nothing running, nothing handed out and nothing scheduled, this returned null
-  // and the panel drew nothing at all: measured on two live companions, a 195px band of nothing
-  // between the tabs and the composer, with not one word in it. The workspace pane next door says
-  // "nothing here matches that" for the same situation, so the omission was local to this one.
-  // Inside the list rather than beside it — the stylesheet hides everything in this panel that is
-  // not the list while the list is what is showing.
-  if (!box.children.length) {
-    // The page's own empty state, not two new classes with no stylesheet behind them: emptyState
-    // picks the display face, the muted role and the centring, and every other empty place on this
-    // console already looks like it.
-    box.append(emptyState('going_on.none', 'going_on.none_how'));
-  }
-  return box;
-}
-
-// Arriving on a screen one level in: put it at the top, name it out loud, and leave the way back
-// under the reader's hand.
-//
-// Drilling in kept the page's scroll, so a section entered from halfway down a list opened with
-// its back control 65px ABOVE the window — measured on the demo — and focus stayed on the body,
-// which says nothing to anyone listening. The guide asks a new screen to decide where focus lands.
-function intoPanel(word) {
-  window.scrollTo(0, 0);
-  // After the component has upgraded. md-text-button is a Lit element with delegatesFocus, and in
-  // the tick it is created its shadow button does not exist yet — measured, .focus() left the
-  // document on <body>. The dialog next door already defers for the same reason.
-  const back = sideEl.querySelector('.panelback md-text-button, .panelist .panelrow');
-  if (back && back.focus) {
-    if (back.updateComplete && back.updateComplete.then) back.updateComplete.then(() => back.focus());
-    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => back.focus());
-    else back.focus();
-  }
-  if (word) say(word);
-}
-
 // The way back out of a section, at the top of it, where the file view already puts one.
 function panelBack(word, go) {
   const box = cell('panelback');

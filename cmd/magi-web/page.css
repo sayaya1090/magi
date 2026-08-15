@@ -2582,18 +2582,6 @@
 
   /* Above the breakpoint there is room for both cards and nothing to switch between. */
 
-  /* And the plan screen is four things, so it is four screens. Measured on a phone: 2.2 screens of
-     scrolling with cron and what-was-interrupted below two cards nobody scrolls past. */
-  @media (max-width:52.4375em) {
-    /* Showing one section means showing ONE: the others are behind the list, and the way back is
-       the control at the top. */
-    #side[data-shows="plan"] > :not(#plan):not(.panelback),
-    #side[data-shows="strip"] > :not(#strip):not(.panelback),
-    #side[data-shows="handoffs"] > :not(#handoffs):not(.panelback),
-    #side[data-shows="cron"] > :not(#cron):not(.panelback),
-    /* And the list screen is the list: the cards behind it are not drawn at all. */
-    #side[data-shows="list"] > :not(.panelist) { display:none; }
-  }
 
   /* The pane handles are what the tabs are, below the breakpoint. Two controls for one thing is a
      screen that cannot say which of them is the truth — and it showed: with the files pane toggled
