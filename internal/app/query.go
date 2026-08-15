@@ -277,6 +277,9 @@ func (a *App) ReadOnlyTool(ctx context.Context, workdir, name string, args json.
 	if !ok {
 		return "", fmt.Errorf("%q is not a tool this companion has", name)
 	}
+	if err := a.denyFloor(name, args); err != nil {
+		return "", err
+	}
 	res, err := t.Execute(ctx, args, port.ToolEnv{Workdir: workdir})
 	if err != nil {
 		return "", err
@@ -289,6 +292,25 @@ func (a *App) ReadOnlyTool(ctx context.Context, workdir, name string, args json.
 		return "", fmt.Errorf("%s", toolText(res.Content))
 	}
 	return toolText(res.Content), nil
+}
+
+// denyFloor applies the policy's HARD deny to a non-turn tool call. ReadOnlyTool and WriteTool reach
+// the same tools the agent uses but are called by the console file viewer, a relay, or a peer — none
+// of which pass through gatePermission, where Decide is consulted. So the secret-path deny that stops
+// the agent reading .env / id_rsa / credentials.json (and the guardrail deny on .magi/config.toml for
+// writes) was skipped here: a teammate granted only `read` could fetch workspace secrets through the
+// viewer that the more-trusted agent is refused. This puts the same floor on every caller.
+//
+// Only the "deny" verdict applies. There is no human on this path to answer an "ask", and none of the
+// read/write tools are danger tools, so the one verdict that comes back is a secret/guardrail deny.
+func (a *App) denyFloor(name string, args json.RawMessage) error {
+	if a.policy == nil {
+		return nil
+	}
+	if v, reason := a.policy.Decide(name, args); v == "deny" {
+		return fmt.Errorf("blocked by policy: %s", reason)
+	}
+	return nil
 }
 
 // toolText is a tool result as text. The payload is JSON — a quoted string for the ones that
@@ -357,6 +379,9 @@ func (a *App) WriteTool(ctx context.Context, sid session.SessionID, workdir, nam
 	t, ok := a.tools.Get(name)
 	if !ok {
 		return "", fmt.Errorf("%q is not a tool this companion has", name)
+	}
+	if err := a.denyFloor(name, args); err != nil {
+		return "", err
 	}
 	res, err := t.Execute(ctx, args, port.ToolEnv{Workdir: workdir, SessionID: sid})
 	if err != nil {

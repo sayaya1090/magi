@@ -80,6 +80,47 @@ func TestOnlyToolsThatLookCanBeRunOutsideATurn(t *testing.T) {
 	}
 }
 
+// The secret-path deny that stops the AGENT reading .env / keys guards the console/relay/peer path
+// too. That path (ReadOnlyTool/WriteTool) reaches the same tools but never passes through
+// gatePermission, where Decide is consulted — so without a deny floor a teammate granted only `read`
+// could fetch workspace secrets the more-trusted agent is refused. Reverting denyFloor lets these
+// reads through.
+func TestSecretPathsAreDeniedOnTheConsolePath(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, ".env"), []byte("SECRET=shh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, serr := jsonl.New(t.TempDir())
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	a := New(st, nil, builtin.Default(), bus.New(), nil, Config{})
+	ctx := context.Background()
+
+	if _, err := a.ReadOnlyTool(ctx, wd, "read", json.RawMessage(`{"path":".env"}`)); err == nil {
+		t.Error("the console read .env — the secret-path deny does not guard the read path")
+	}
+	// Case variation, because the deny is case-folded and the read tool resolves case-insensitively.
+	if _, err := a.ReadOnlyTool(ctx, wd, "read", json.RawMessage(`{"path":".ENV"}`)); err == nil {
+		t.Error("the console read .ENV — the fold does not reach the console path")
+	}
+	// An ordinary file still reads: the floor denies secrets, not everything.
+	if _, err := a.ReadOnlyTool(ctx, wd, "read", json.RawMessage(`{"path":"note.txt"}`)); err != nil {
+		t.Errorf("an ordinary file was refused through the read path: %v", err)
+	}
+	// The write path denies a secret too (and, being the same floor, the guardrail globs).
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.WriteTool(ctx, sid, wd, "write", json.RawMessage(`{"path":".env","content":"x"}`), false); err == nil {
+		t.Error("the console wrote .env — the secret-path deny does not guard the write path")
+	}
+}
+
 // An edit made from a console is written into the companion's log as the person's own words.
 //
 // This is the condition the whole write path exists under. Without it the next turn overwrites the

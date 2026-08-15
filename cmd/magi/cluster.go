@@ -150,6 +150,13 @@ func joinTheCluster(out, errOut io.Writer, configDir, host string) int {
 // reached without a person says so immediately, which is a thing that can be reported. A person
 // running --join-cluster by hand gets the prompt, because there is somebody to answer it.
 func sshMembers(ctx context.Context, host string, mine []cluster.Member, batch bool) ([]cluster.Member, error) {
+	// host reaches ssh's argv; a value beginning with '-' would be parsed as an option (see
+	// relayTo's sshSafeArg) — for a gossip-driven join that is remote-influenced local command
+	// execution, and for a hand-typed one it is a typo that should fail loudly, not run ssh with a
+	// stray flag.
+	if !sshSafeArg(host) {
+		return nil, fmt.Errorf("refusing to ssh to %q: a host cannot begin with '-'", host)
+	}
 	body, err := json.Marshal(mine)
 	if err != nil {
 		return nil, err
