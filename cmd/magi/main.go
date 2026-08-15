@@ -1558,6 +1558,13 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	if proj.Council.Preset != "" {
 		cfg.Council.Preset = proj.Council.Preset
 	}
+	// The fixed verification command is a project's to set — it names that project's checks (`go
+	// test ./...`, `make test`). Left out of this merge, a `[council] verify` in a project's
+	// .magi/config.toml was silently dropped and only the global one took effect, so the finish
+	// gate a repo configured for itself never ran.
+	if proj.Council.Verify != "" {
+		cfg.Council.Verify = proj.Council.Verify
+	}
 	return cfg, append(said, projectBrought(proj)...)
 }
 

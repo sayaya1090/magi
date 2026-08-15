@@ -124,13 +124,15 @@ func TestMergeProjectConfig_MapsMergeIntoNilBase(t *testing.T) {
 func TestMergeProjectConfig_Council(t *testing.T) {
 	enabled := true
 	base := config.Config{Council: config.CouncilConfig{
-		Rule: "majority",
+		Rule:   "majority",
+		Verify: "global-check",
 	}}
 	proj := config.Config{Council: config.CouncilConfig{
 		Enabled: &enabled,
 		Rule:    "unanimous",
 		Preset:  "light",
 		Members: []config.CouncilMember{{}, {}},
+		Verify:  "go test ./...",
 	}}
 	got := mergeProjectConfig(base, proj)
 	c := got.Council
@@ -143,10 +145,15 @@ func TestMergeProjectConfig_Council(t *testing.T) {
 	if len(c.Members) != 2 {
 		t.Errorf("Members should be replaced by project's 2, got %d", len(c.Members))
 	}
+	// A project names its own verification command — dropped from this merge, the finish gate a repo
+	// configured for itself never ran.
+	if c.Verify != "go test ./..." {
+		t.Errorf("project Verify not applied: %q", c.Verify)
+	}
 
 	// An empty project council must not clobber global council settings.
 	got2 := mergeProjectConfig(base, config.Config{})
-	if got2.Council.Rule != "majority" || got2.Council.Enabled != nil {
+	if got2.Council.Rule != "majority" || got2.Council.Enabled != nil || got2.Council.Verify != "global-check" {
 		t.Errorf("empty project council clobbered global: %+v", got2.Council)
 	}
 }
