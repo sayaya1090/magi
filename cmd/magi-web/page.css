@@ -520,6 +520,12 @@
     color:var(--magi-ref-muted); max-width:32ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   #note:not(:empty) { padding-left:var(--magi-sys-space-100); border-left:1px solid var(--magi-ref-outlineVariant); }
+  /* Gone when empty, not just invisible. An empty flex child still eats the row's gap on both
+     sides — measured, the count readout's gap to the palette icon was 16px against the 8px between
+     the two icons, which is the "misaligned" the header looked. The comment above always claimed
+     this ("empty it takes no room") and the rule that makes it true was missing; .whereami already
+     has it. #sid is the same, latent behind margin-left:auto — fixed for consistency. */
+  #note:empty, #sid:empty { display:none; }
   #state {
     margin-left:auto; font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.0533em;
     color:var(--magi-ref-muted); display:flex; align-items:center; gap:var(--magi-sys-space-100);
@@ -4321,7 +4327,10 @@
        floor. The board scrolls sideways, so a lane can afford most of the screen: it nearly fills
        the viewport and snaps, giving the card text a readable measure and one lane to a thumb. */
     .lanes { scroll-snap-type:x mandatory; }
-    .lane { flex:0 0 auto; min-width:min(22rem, 85vw); max-width:none; scroll-snap-align:start; }
+    /* A bounded basis, not just a floor: with flex:0 0 auto + only a min-width the lane grew to its
+       widest single-line card (measured 422px on a 390 screen, wider than the viewport, defeating
+       the one-lane-to-a-thumb snap). A fixed basis makes the card wrap to the lane instead. */
+    .lane { flex:0 0 min(22rem, 85vw); max-width:85vw; scroll-snap-align:start; }
     /* ── the app bar, at the height an app bar has ───────────────────────────
        The guide gives the small top app bar a height and says to keep it: "기본 높이를 그대로 쓰고
        창 전체 폭을 차지한다. 기본보다 낮게 만들지 말 것" — 64dp. This one was 60px of a row whose
