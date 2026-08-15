@@ -83,7 +83,7 @@ you ▸ deploy 명령에 --dry-run 플래그 추가해줘
 | 🤝 | **컴패니언과 hand-off** | 작업공간에 이름과 역할을 주면 *무엇을 위한 것인지*로 부를 수 있다. `hand_off`는 전문가에게 일 한 조각을 넘기고 계속 진행한다 — 답은 끝나면 내 대화로 돌아온다. |
 | 🗣️ | **회의(Meetings)** | 여러 컴패니언이 하나의 질문을 두고, 읽기 전용으로, 각자가 무엇을 할지 알 때까지 논의한 뒤 일이 배분된다. |
 | ⏮️ | **들여다볼 수 있는 루프** | 매 턴이 append-only JSONL로 이벤트 소싱되어 `/rewind`·`/fork`·`/replay`·`/loopdiff`가 가능하다 — 루프는 블랙박스가 아니라 실체 있는 객체다. |
-| 📦 | **단일 정적 바이너리** | 순수 Go, CGO 없음. [Ollama](https://ollama.com) 무료 클라우드 티어로 로컬 우선 — GPU 불필요, `ollama signin` 한 번 — 또는 OpenAI 호환 엔드포인트 아무거나. |
+| 📦 | **자립형 바이너리** | 순수 Go, CGO 없음 — 에이전트, 그리고 선택적 브라우저 콘솔, 각각 정적 바이너리. [Ollama](https://ollama.com) 무료 클라우드 티어로 로컬 우선 — GPU 불필요, `ollama signin` 한 번 — 또는 OpenAI 호환 엔드포인트 아무거나. |
 
 ---
 
@@ -254,11 +254,14 @@ brew install sayaya1090/tap/magi
 
 ```sh
 make build        # CGO_ENABLED=0, 버전 주입 → ./magi
-# 또는
-CGO_ENABLED=0 go build -o magi ./cmd/magi
+make web          # 브라우저 콘솔 → ./magi-web
+# 또는 직접:
+CGO_ENABLED=0 go build -o magi     ./cmd/magi
+CGO_ENABLED=0 go build -o magi-web ./cmd/magi-web
 ```
 
-순수 Go — 단일 정적 바이너리, CGo 없음. 어디든 복사해서 실행.
+순수 Go, CGo 없음 — 각각 자립형 정적 바이너리. `magi`는 에이전트(TUI와 데몬),
+`magi-web`은 선택적 브라우저 콘솔. 어느 쪽이든 복사해서 실행.
 
 ### 실행
 

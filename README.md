@@ -83,7 +83,7 @@ one change is the project's whole reason to exist; everything else is built to m
 | 🤝 | **Companions & hand-off** | Give a workspace a name and a role; address it by what it *is*. `hand_off` gives a specialist a piece of the work and keeps going — the answer arrives in your conversation when it's done. |
 | 🗣️ | **Meetings** | Several companions talk through one question, read-only, until each knows what to do — then the work is handed out. |
 | ⏮️ | **An inspectable loop** | Every turn is event-sourced to append-only JSONL, so you can `/rewind`, `/fork`, `/replay`, and `/loopdiff` — the loop is a real object, not a black box. |
-| 📦 | **One static binary** | Pure Go, CGO-free. Local-first on [Ollama](https://ollama.com)'s free cloud tier — no GPU, `ollama signin` once — or any OpenAI-compatible endpoint. |
+| 📦 | **Self-contained binaries** | Pure Go, CGO-free — the agent, plus an optional browser console, each a static binary. Local-first on [Ollama](https://ollama.com)'s free cloud tier — no GPU, `ollama signin` once — or any OpenAI-compatible endpoint. |
 
 ---
 
@@ -263,11 +263,15 @@ brew install sayaya1090/tap/magi
 
 ```sh
 make build        # CGO_ENABLED=0, version injected → ./magi
-# or
-CGO_ENABLED=0 go build -o magi ./cmd/magi
+make web          # the browser console → ./magi-web
+# or, directly:
+CGO_ENABLED=0 go build -o magi     ./cmd/magi
+CGO_ENABLED=0 go build -o magi-web ./cmd/magi-web
 ```
 
-Pure Go — a single static binary, no CGo. Copy it anywhere and run.
+Pure Go, no CGo — each is a self-contained static binary. `magi` is the agent
+(the TUI and the daemon); `magi-web` is the optional browser console. Copy either
+anywhere and run.
 
 ### Run
 
