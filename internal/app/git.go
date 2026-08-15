@@ -228,9 +228,15 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 		return "", nil
 	}
 	// Bounded. A person can open a 40,000-line file in the console, and the buffer travels on every
-	// pause in typing — an unbounded prompt here is somebody's context window and their bill.
+	// pause in typing — an unbounded prompt here is somebody's context window and their bill. Cut on
+	// a line boundary, not mid-line: the payload is numbered lines (`<n><TAB>code`) and the prompt
+	// tells the model so, so a truncation must not leave a number with half its code or an
+	// un-numbered tail — every line that survives is a whole one.
 	if len(text) > lookOverCap {
-		text = text[:lookOverCap] + "\n… (the rest of this file was not sent)"
+		text = text[:lookOverCap]
+		if i := strings.LastIndexByte(text, '\n'); i > 0 {
+			text = text[:i]
+		}
 	}
 	// The companion's own agent and model, so what answers is the thing the person is working with
 	// — not a second opinion from whatever this process's default happens to be.
@@ -282,8 +288,22 @@ func (a *App) lookLangDirective(ctx context.Context, sid session.SessionID) stri
 		return dir
 	}
 	a.mu.Unlock()
-	evs, _ := a.store.Read(ctx, sid, 0)
-	dir := langDirective(lastUserPromptText(evs))
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		// A transient read failure is not evidence the session is English — don't cache it, or a
+		// look-over that happened to fire during the failure would lock the wrong language in for
+		// the whole session. Return English for this call and recompute on the next.
+		return ""
+	}
+	prompt := lastUserPromptText(evs)
+	if prompt == "" {
+		// The editor can fire a look-over before the person has sent any chat prompt (they opened a
+		// file and started typing). There is no genuine prompt to read the language from yet, so
+		// don't commit "English" — leaving lookLangSet false means a later prompt, perhaps in
+		// another language, still sets it. Only a session with an actual prompt is cached.
+		return ""
+	}
+	dir := langDirective(prompt)
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.lookLang, st.lookLangSet = dir, true

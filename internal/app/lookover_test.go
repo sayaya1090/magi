@@ -69,6 +69,43 @@ func TestLookOverRepliesInTheReadersLanguage(t *testing.T) {
 	}
 }
 
+// A look-over can fire before the person has sent any chat prompt (they opened a file and started
+// typing). There is no genuine prompt to read the language from yet, so the "English" result must
+// NOT be cached — otherwise a later Korean prompt would never change the review's language. This
+// pins the cache to only commit once a real prompt exists.
+func TestLookOverDoesNotLockEnglishBeforeAnyPrompt(t *testing.T) {
+	cap := &acCapLLM{text: ""}
+	a, sid := completeApp(t, cap, config.AutocompleteConfig{}, nil, nil)
+	// First look-over: the session has no genuine user prompt yet.
+	if _, err := a.LookOver(context.Background(), sid, "x.go", "1\tvar x int\n"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cap.request().System, "# Language") {
+		t.Fatalf("a directive appeared before any prompt existed:\n%s", cap.request().System)
+	}
+	// Now the person sends a Korean prompt.
+	data, err := json.Marshal(event.PromptSubmittedData{
+		Parts: []session.Part{{Kind: session.PartText, Text: "이 파일 검토해줘"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.Append(context.Background(), sid, event.Event{
+		Type:  event.TypePromptSubmitted,
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"},
+		Data:  data,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The next look-over must pick up Korean — the earlier empty result was not cached.
+	if _, err := a.LookOver(context.Background(), sid, "x.go", "1\tvar x int\n"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cap.request().System, "Korean") {
+		t.Errorf("the language did not update after the first genuine prompt (English was cached):\n%s",
+			cap.request().System)
+	}
+}
+
 // English (or any Latin script) leaves the prompt as it was — no directive, no wasted primacy line.
 func TestLookOverAddsNoDirectiveForEnglish(t *testing.T) {
 	cap := &acCapLLM{text: ""}
