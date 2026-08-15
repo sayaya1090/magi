@@ -5969,6 +5969,38 @@ console.log(JSON.stringify({posts}));`)
 // +++ b/path and --- a/path begin with the same +/- as content, so classifying on the first
 // character alone made every red line a header on a real multi-file diff and 12% of the "added"
 // lines too. The headers get their own quiet class.
+// A tool result is the JSON encoding of its value; a string result must be shown as the text it
+// stands for, not with literal backslash-t and wrapping quotes.
+func TestToolResultTextIsDecoded(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+const cases = {
+  jsonString: decodeToolText('"1\\t# title\\n2\\t\\n"'),
+  scalarArray: decodeToolText('["a.go","b.go"]'),
+  plain: decodeToolText('already plain'),
+  object: decodeToolText('{"path":"a.go"}'),
+  summary: answerLine('"1\\t# title\\n"'),
+};
+console.log(JSON.stringify(cases));`)
+	if got["jsonString"] != "1\t# title\n2\t\n" {
+		t.Errorf("a JSON-string result was not decoded: %q", got["jsonString"])
+	}
+	if got["scalarArray"] != "a.go\nb.go" {
+		t.Errorf("a scalar array was not decoded to one-per-line: %q", got["scalarArray"])
+	}
+	if got["plain"] != "already plain" {
+		t.Errorf("plain text was altered: %q", got["plain"])
+	}
+	// An object is left for jsonPairs — decodeToolText returns it unchanged.
+	if s, _ := got["object"].(string); !strings.Contains(s, "path") {
+		t.Errorf("an object result was mangled: %q", s)
+	}
+	// The summary line shows the real first line, no backslashes or quotes (oneLine collapses the
+	// decoded tab to a space).
+	if s, _ := got["summary"].(string); strings.Contains(s, "\\t") || strings.Contains(s, "\"") {
+		t.Errorf("the summary line still carries JSON escaping: %q", s)
+	}
+}
+
 func TestDiffHeadersAreNotContentLines(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 const box = el('div');

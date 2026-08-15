@@ -31,7 +31,12 @@ const at = query => BASE + (query || '');
 // came back, which is a flash of debug output on somebody's dashboard.
 const labels$ = new BehaviorSubject(globalThis.__LANG || {});
 let L = {};
-labels$.subscribe(v => { L = v; });
+// Bumped whenever the label pack changes. A row's cache signature includes it, so a language that
+// lands after a row was first drawn invalidates the cached (wrong-language) node — measured: a
+// Korean console kept English status badges on rows drawn before the pack arrived, because the
+// signature was the companion's data only.
+let labelVer = 0;
+labels$.subscribe(v => { L = v; labelVer++; });
 // t('nav.lessons') — the key IS the fallback, so a missing entry shows the key rather than a blank
 // space, which is the difference between "somebody forgot to translate this" and "this is empty".
 // A companion's state in the reader's language. Not tr() directly: tr falls back to the KEY, which
@@ -1562,8 +1567,12 @@ function rowActions(a) {
   // the two things that were actually wrong are the glyph and the colour.
   const stop = document.createElement('md-icon-button');
   stop.className = 'stop';
-  stop.setAttribute('aria-label', tr('action.interrupt'));
-  tip(stop, tr('action.interrupt'));
+  // Named by its target: five running rows put five "Interrupt" buttons on one screen, and a
+  // reader hears the same word five times with nothing to say which agent each halts. Same
+  // pattern the permission buttons use.
+  const stopName = tr('action.for_companion', {action: tr('action.interrupt'), name: nameOf(a.socket) || a.name || ''});
+  stop.setAttribute('aria-label', stopName);
+  tip(stop, stopName);
   stop.innerHTML = '<svg data-i="#i-ss-circle-stop" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
     '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>';
   dressIcons(stop);
@@ -2715,7 +2724,13 @@ function drawFleetCount(list, waiting) {
   if (waiting && !same) {
     const go = document.createElement('md-text-button');
     go.className = 'jump';
-    go.textContent = tr('state.waiting_on_you', {n: waiting});
+    // A full-sentence label ("3 waiting on you") overflowed the icon buttons on a narrow bar —
+    // measured 25px onto the palette icon at 390. Two spans: the sentence where there is room, a
+    // compact "3 ⏸" where there is not (the stylesheet swaps them at compact), and the full
+    // sentence stays the accessible name either way.
+    go.append(cell('jfull', tr('state.waiting_on_you', {n: waiting})),
+              cell('jshort', tr('state.waiting_short', {n: waiting})));
+    go.setAttribute('aria-label', tr('state.waiting_on_you', {n: waiting}));
     go.onclick = () => { filter = 'waiting'; render(); jumpToFirstRow(); };
     state.append(go);
   }
@@ -2756,7 +2771,7 @@ function drawFleetCount(list, waiting) {
 // same values card() reads, in one place, and a new one added to the row belongs in it.
 const shownCards = new Map();
 function cardSig(a) {
-  return [a.state, a.name, a.role, a.team, a.hub, a.workdir, a.session, a.steps, a.idle,
+  return [labelVer, a.state, a.name, a.role, a.team, a.hub, a.workdir, a.session, a.steps, a.idle,
           a.task, a.doing, a.asking, a.askId, a.askKind, a.planDone, a.planTotal,
           a.host, a.addr, a.pid, a.peer, a.live, a.permission, a.user,
           (a.report || []).map(x => x.key + ':' + x.text).join('|')].join('\u0001');
@@ -5282,7 +5297,9 @@ function todosOf(args) {
 // answerLine is the one line of a result that fits beside the call that produced it: the first
 // thing it said, which for a build is the headline and for a grep is the first hit.
 function answerLine(out) {
-  const t = String(out || '').replace(/^"|"$/g, '').trim();
+  // Decode the JSON encoding first: stripping the outer quotes left the inner \t and \n as literal
+  // backslashes in the summary line. decodeToolText turns "\"1\\t# title\\n\"" into real text.
+  const t = decodeToolText(out).trim();
   if (!t) return '';
   const first = t.split('\n').find(l => l.trim()) || '';
   return oneLine(first, 44);
@@ -5359,6 +5376,26 @@ function summaryFor(r) {
 // Only an object, and only when it parses. An array is a list of things with no names to put
 // beside them, and anything that is not JSON at all — most tool OUTPUT — is prose or a diff and
 // belongs in the block it already had.
+// A tool result arrives as the JSON encoding of its value: a string comes wrapped in quotes with
+// its newlines and tabs backslash-escaped ("\"1\\t# title\\n\""), an array as "[…]". Shown raw,
+// the reader sees the backslashes and the quotes. Decode a JSON scalar or array to the text it
+// stands for; objects are left for jsonPairs, and anything that is not JSON is returned unchanged.
+function decodeToolText(text) {
+  const t = String(text || '');
+  const trimmed = t.trim();
+  if (!trimmed || (trimmed[0] !== '"' && trimmed[0] !== '[')) return t;
+  let v;
+  try { v = JSON.parse(trimmed); } catch { return t; }
+  if (typeof v === 'string') return v;                 // the string it encodes, with real newlines
+  if (Array.isArray(v)) {
+    // A list of scalars reads as one per line; a list of objects keeps its JSON, which is the least
+    // bad rendering of structure without a schema.
+    if (v.every(x => x === null || typeof x !== 'object')) return v.map(x => String(x)).join('\n');
+    return v.map(x => JSON.stringify(x)).join('\n');
+  }
+  return t;
+}
+
 function jsonPairs(text) {
   const t = String(text || '').trim();
   if (!t.startsWith('{')) return null;      // cheap reject before handing a transcript to the parser
@@ -5566,10 +5603,14 @@ function rowNode(r) {
       if (r.out) parts.push(['fold.answered', r.out, looksLikeDiff(r.out)]);
       // A row with neither — a result whose call was compacted away — is just its text.
       if (!parts.length) parts.push(['', r.text, looksLikeDiff(r.text)]);
-      for (const [key, text, asDiff] of parts) {
+      for (const [key, rawText, asDiff] of parts) {
         // One block needs no label: with nothing to tell it apart from, a word above it is noise.
         if (key && parts.length > 1) body.append(cell('foldk', tr(key)));
-        const pairs = asDiff ? null : jsonPairs(text);
+        // A tool result is a JSON-encoded value; the arguments are already an object jsonPairs
+        // reads, but a bare string or array result was shown with its escapes and quotes. Decoded
+        // to the text it stands for — after the diff check, which the raw form also confused.
+        const pairs = asDiff ? null : jsonPairs(rawText);
+        const text = (asDiff || pairs) ? rawText : decodeToolText(rawText);
         if (asDiff) {
           const pre = el('pre');
           pre.className = 'diff';

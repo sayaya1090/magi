@@ -521,6 +521,7 @@
   }
   #state::before { content:""; width:6px; height:6px; border-radius:var(--magi-sys-shape-full); background:var(--magi-ref-outline); }
   /* The count is a readout; this part of it is a control, and it says so by being one. */
+  .jump .jshort { display:none; }
   #state .jump {
     --md-text-button-label-text-color:var(--magi-ref-warn);
     --md-text-button-hover-label-text-color:var(--magi-ref-warn);
@@ -4397,7 +4398,11 @@
        control on this bar that goes to somebody who is waiting for an answer, so it is the last
        thing on the bar to be given up, not the first. */
     #state .scount { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* The compact form of the way-to-the-blocked button: a count and a pause glyph, so it cannot
+       overflow the icon buttons beside it while the full sentence stays its accessible name. */
     #state .jump { flex:none; }
+    #state .jump .jfull { display:none; }
+    #state .jump .jshort { display:inline; }
     /* The two icon buttons sit at the end of the same line, not on one of their own. Adding the
        gear pushed the masthead back onto two rows and the first agent from 337px to 393px —
        everything gained on this width, given straight back. */

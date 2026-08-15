@@ -500,6 +500,7 @@
   "state.stopped": "Stopped",
   "state.waiting": "Waiting",
   "state.waiting_on_you": "{n} waiting on you",
+  "state.waiting_short": "{n} ⏸",
   "state.working": "Working",
   "stop.body": "The turn stops where it is. What it has already written stays, and you can say something new.",
   "stop.headline": "Interrupt {name}?",

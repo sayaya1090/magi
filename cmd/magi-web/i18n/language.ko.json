@@ -500,6 +500,7 @@
   "state.stopped": "정지",
   "state.waiting": "대기 중",
   "state.waiting_on_you": "{n}건이 당신을 기다립니다",
+  "state.waiting_short": "{n} ⏸",
   "state.working": "작업 중",
   "stop.body": "하던 턴이 그 자리에서 멈춥니다. 이미 쓴 것은 그대로 남고, 새로 말을 걸 수 있습니다.",
   "stop.headline": "{name} 작업을 중단할까요?",
