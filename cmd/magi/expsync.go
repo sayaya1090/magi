@@ -163,22 +163,31 @@ func expSyncContentOK(p, content string) bool {
 }
 
 // expSyncDiff answers both halves of the union for one exchange.
+//
+// Membership is judged CASE-FOLDED, not by exact path string. On a case-insensitive filesystem
+// an absorbed legacy-cased path ("Auth-Flow/…") lands inside the existing folded directory
+// entry, so the local inventory reports it under the other spelling — with exact matching the
+// path stayed in `want` FOREVER: the peer re-sent the full bytes every round, absorb counted 0,
+// and the never-empty reply kept every sweep burning all its rounds (round 5, empirically
+// confirmed). Folding is lossless here: a wire path is dir + "seq-editor-hash.md", so two paths
+// that differ only by case name the same content (same hash) placed for the same title — holding
+// either one is holding the revision.
 func expSyncDiff(dir string, theirHave []string) (want []string, files map[string]string) {
 	mine := map[string]bool{}
 	for _, p := range expSyncInventory(dir) {
-		mine[p] = true
+		mine[strings.ToLower(p)] = true
 	}
 	theirs := map[string]bool{}
 	for _, p := range theirHave {
-		theirs[p] = true
-		if !mine[p] && expSyncPathOK(p) && len(want) < expSyncWantCap {
+		theirs[strings.ToLower(p)] = true
+		if !mine[strings.ToLower(p)] && expSyncPathOK(p) && len(want) < expSyncWantCap {
 			want = append(want, p)
 		}
 	}
 	files = map[string]string{}
 	total := 0
-	for p := range mine {
-		if theirs[p] {
+	for _, p := range expSyncInventory(dir) {
+		if theirs[strings.ToLower(p)] {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))

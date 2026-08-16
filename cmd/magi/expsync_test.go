@@ -162,3 +162,25 @@ func TestExpSyncRefusesAnUnknownTeam(t *testing.T) {
 		t.Fatalf("an unknown team must be refused by name, got %v", err)
 	}
 }
+
+// Round 5: digest membership is case-folded. On a case-insensitive filesystem an absorbed
+// legacy-cased path lands inside the folded directory entry, so the local inventory reports the
+// other spelling — exact matching kept the path in `want` forever, and the peer re-sent the full
+// bytes every round while absorb counted zero.
+func TestSyncDoesNotWantOrResendACaseVariantItHolds(t *testing.T) {
+	dir := t.TempDir()
+	rev := filepath.Join(dir, "wiki", "revisions", "auth-flow")
+	if err := os.MkdirAll(rev, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rev, "0001-m-x.md"), []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want, files := expSyncDiff(dir, []string{"wiki/revisions/Auth-Flow/0001-m-x.md"})
+	if len(want) != 0 {
+		t.Errorf("a case variant of a held revision must not be wanted, got %v", want)
+	}
+	if len(files) != 0 {
+		t.Errorf("a case variant the peer declared must not be re-sent, got %d files", len(files))
+	}
+}

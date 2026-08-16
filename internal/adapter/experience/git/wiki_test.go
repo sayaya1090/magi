@@ -329,6 +329,14 @@ func TestAnEditOutranksALegacyChainInAThirdDir(t *testing.T) {
 	if !strings.Contains(pages[0].Body, "NEW:") {
 		t.Errorf("the correction must outrank the whole bucket, legacy dirs included; current page:\n%s", pages[0].Body)
 	}
+	// And ONE page: if reader bucketing ever re-splits the chain, the exact-title boost would
+	// still rank the correction first — the old claim would hide one slot below as a second
+	// "current" page, which is exactly the resurrection this design exists to prevent.
+	for _, p := range pages[1:] {
+		if strings.Contains(p.Body, "OLD:") {
+			t.Errorf("the legacy chain surfaced as a second page beside the correction:\n%s", p.Body)
+		}
+	}
 }
 
 // Round 4: the cache orphan sweep must not delete the page it just wrote. On a case-insensitive

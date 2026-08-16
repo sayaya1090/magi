@@ -195,3 +195,59 @@ func TestProbeEngramUndoWindowsAreIndependent(t *testing.T) {
 		t.Errorf("session A's denial must not touch session B's skill: %v", err)
 	}
 }
+
+// Round 5: the ledger parser honors its own writer's escaping. sanitize_cell writes a cell's "|"
+// as "\|"; splitting on it anyway shifted every later cell by one — the digest introduced the
+// wrong column as the lesson, and paraphrase dedup read the wrong cell.
+func TestProbeEngramDigestKeepsEscapedPipesInOneCell(t *testing.T) {
+	wd := t.TempDir()
+	seed := "# 작업 이력 및 교훈 기록 (팀 공유)\n\n" +
+		"| 일시 | 사용자 | 분류 | 작업 | 시도한 접근 | 결과 | 교훈 |\n" +
+		"| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n" +
+		"| 2026-08-01T09:00:00Z | user | 디버깅 | grep a\\| 패턴 | 이스케이프 접근 | ✅ 성공 | 파이프는 이스케이프한다 |\n"
+	if err := os.WriteFile(filepath.Join(wd, "SESSION_SUMMARY.md"), []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := &syncLog{}
+	fa := &fakeAnalyzer{reply: `{"lesson":null,"skill":null}`}
+	h := loadEngram(t, wd, fa, log)
+
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "grep 패턴 질문"})
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "해결", "outcome": "verified"})
+	h.DrainEvents(5 * time.Second)
+
+	if !strings.Contains(fa.text, `grep a\| 패턴 / 이스케이프 접근 [✅ 성공] → 파이프는 이스케이프한다`) {
+		t.Errorf("the digest shifted cells across an escaped pipe; sidecar saw:\n%s", fa.text)
+	}
+}
+
+// Round 5: a demoted correction must also face the token-similarity backstop — the signature
+// guard alone misses the common case where the sidecar paraphrased the approach but repeated the
+// lesson verbatim.
+func TestProbeEngramDemotedCorrectionFacesTheSimilarityBackstop(t *testing.T) {
+	wd := t.TempDir()
+	seed := "# 작업 이력 및 교훈 기록 (팀 공유)\n\n" +
+		"| 일시 | 사용자 | 분류 | 작업 | 시도한 접근 | 결과 | 교훈 |\n" +
+		"| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n" +
+		"| 2026-08-01T09:00:00Z | user | 기타 | 알파 | 베타 | ✅ 성공 | 감마 |\n" +
+		"| 2026-08-02T09:00:00Z | user | 설정 | 포트 점검 | ss 명령 사용 | ✅ 성공 | 포트 점유는 port_owner 도구로 확인해 푼다 |\n"
+	if err := os.WriteFile(filepath.Join(wd, "SESSION_SUMMARY.md"), []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := &syncLog{}
+	// Same lesson text, paraphrased approach, mis-pointed replaces:1 (no tokens shared with 알파).
+	fa := &fakeAnalyzer{reply: `{"lesson":{"task":"포트 점검","approach":"port_owner 도구","outcome":"success","lesson":"포트 점유는 port_owner 도구로 확인해 푼다","category":"설정","replaces":1},"skill":null}`}
+	h := loadEngram(t, wd, fa, log)
+
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "포트 점검 좀"})
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "port_owner로 확인 완료", "outcome": "verified"})
+	h.DrainEvents(5 * time.Second)
+
+	b, err := os.ReadFile(filepath.Join(wd, "SESSION_SUMMARY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); got != seed {
+		t.Errorf("a demoted correction repeating an existing lesson must be refused; diff:\n--- seed ---\n%s\n--- got ---\n%s", seed, got)
+	}
+}

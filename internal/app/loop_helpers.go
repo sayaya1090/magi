@@ -312,8 +312,12 @@ func wikiPointer(ctx context.Context, w port.WikiStore, q string) string {
 			if p.Stale {
 				continue
 			}
+			sep := ""
+			if b.Len() > 0 {
+				sep = "\n" // no leading blank line when the index half rendered nothing
+			}
 			hook := text.Clip(firstNonBlankLine(p.Body), 160)
-			b.WriteString("\nwiki page likely relevant to this request: [" + text.Clip(p.Title, 80) + "] " + hook +
+			b.WriteString(sep + "wiki page likely relevant to this request: [" + text.Clip(p.Title, 80) + "] " + hook +
 				" — recall_memory pulls the full page")
 			break
 		}

@@ -225,9 +225,15 @@ end
 -- (Lua 패턴에 lazy 빈 캡처 함정이 있어 비지 않은 세그먼트만 뽑는다.)
 local function ledger_cells(line)
   if not is_data_row(line) then return nil end
+  -- 작성기(sanitize_cell)가 셀 안의 |를 \|로 이스케이프한다 — 분해도 같은 규약을 지킨다:
+  -- \|에서 쪼개면 파이프를 품은 셀(셸 파이프라인이 흔한 내용이다)이 한 칸씩 밀려,
+  -- 다이제스트가 엉뚱한 열을 교훈이라 소개하고 중복 판정이 엉뚱한 셀을 읽었다(5라운드).
+  -- 자리표시 바이트로 가렸다가 셀 단위로 복원한다.
+  local masked = string.gsub(string.gsub(line, "^%s+", ""), "\\|", "\1")
   local cols = {}
-  for c in string.gmatch(string.gsub(line, "^%s+", ""), "[^|]+") do
-    cols[#cols + 1] = string.gsub(c, "^%s*(.-)%s*$", "%1")
+  for c in string.gmatch(masked, "[^|]+") do
+    c = string.gsub(c, "^%s*(.-)%s*$", "%1")
+    cols[#cols + 1] = string.gsub(c, "\1", "\\|")
   end
   if #cols < 7 then return nil end
   if not string.match(cols[1], "^%d%d%d%d%-%d%d%-%d%d") then return nil end
@@ -359,10 +365,14 @@ local function append_lesson(entry, replaces)
       anchored = true
     end
   end
-  -- 정정이 일반 추가로 강등되는 순간, 정정이라서 면제했던 중복 가드가 다시 선다: 이 행은
-  -- 중복 검사를 통과한 적이 없다. 강등된 채 그냥 덧붙이면 옛 주장과 미정정 새 주장이
-  -- 나란히 남는다 — 원장이 스스로 최악이라 부르는 상태다.
-  if replaces and not anchored and string.find(active, signature, 1, true) then return false end
+  -- 정정이 일반 추가로 강등되는 순간, 정정이라서 면제했던 중복 가드 **둘 다** 다시 선다:
+  -- 이 행은 어느 중복 검사도 통과한 적이 없다. 시그니처(작업|접근|결과)는 사이드카가 접근을
+  -- 패러프레이즈하면 못 잡으므로, 교훈 텍스트의 토큰 유사도 백스톱(lesson_is_duplicate)까지
+  -- 함께 세운다 — 강등된 채 그냥 덧붙이면 옛 주장과 미정정 새 주장이 나란히 남는다.
+  if replaces and not anchored
+    and (string.find(active, signature, 1, true) or lesson_is_duplicate(entry.lesson)) then
+    return false
+  end
   lines[#lines + 1] = "| " .. table.concat(row, " | ") .. " |"
 
   -- 상한: 오래된 데이터 행부터 아카이브로. (원장 행만 — 사람이 쓴 다른 표는 건드리지 않는다)
@@ -481,6 +491,13 @@ local function save_skill(skill)
       body[#body + 1] = verify
     end
     body[#body + 1] = ""
+  end
+  if verify == "" or #verify <= 200 then
+    -- 머지 저장이 부속 스크립트에서 인라인(또는 무검증)으로 돌아오면, 이전 판의 verify.sh는
+    -- 본문이 더는 가리키지 않는 고아다 — 지운다. 취소 스냅샷은 저장 전에 떠 있으므로
+    -- undo가 되살린다.
+    local vpath = SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh"
+    if magi.read_file(vpath) then magi.remove_file(vpath) end
   end
   local avoid = tostring(skill.avoid or "")
   if avoid ~= "" then
@@ -858,8 +875,9 @@ magi.register_context_provider{
     local rows = {}
     for line in string.gmatch(raw, "[^\n]+") do
       local t = string.gsub(line, "^%s+", "")
-      if string.sub(t, 1, 1) == "|" and not string.find(t, "일시 | 사용자", 1, true)
-        and not string.match(t, "^|%s*:?%-%-") then
+      -- 행 판정은 원장의 단일 판정(ledger_cells)이다 — 4라운드가 사이드카 다이제스트에서
+      -- 막은 사람 표가 리콜 주입으로는 그대로 새고 있었다(5라운드).
+      if ledger_cells(line) then
         if qn >= 3 then
           -- 행 토큰이 질의 문자열의 부분문자열로 나타나는지로 겹침을 센다:
           -- 한국어 조사("포트가" vs "포트") 때문에 토큰 동등 비교는 오탐 필터링한다.
