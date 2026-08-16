@@ -34,10 +34,11 @@ var (
 // is on and the operator has not opted out (--no-update-check), so a benchmark — a headless one-shot,
 // never a daemon — cannot reach it, and an operator who turned it off gets only the manual push.
 //
-// Dev-safe too: a build whose version does not parse (a locally built "dev") never auto-updates —
-// IsNewer deliberately lets an EXPLICIT `magi -update` move a dev install onto a release, and this
-// loop inheriting that would silently replace a developer's own build within hours of `go build &&
-// ./magi --daemon`. The interactive startup check has the same fail-safe via UpdatePolicy.
+// Dev-safe too: only a clean release tag auto-updates (SelfUpdatable) — a "dev" build or a
+// git-describe source build ("v0.22.2-13-g…") is somebody's own binary, and IsNewer deliberately
+// lets only an EXPLICIT `magi -update` move it onto a release. This loop inheriting that would
+// silently replace a developer's own build within hours of `go build && ./magi --daemon`. The
+// interactive startup check carries the same SelfUpdatable gate before its force-install.
 //
 // Idle-gated on purpose: a restart mid-turn throws away the in-flight step (the log keeps the rest),
 // so once a build is committed the restart waits for `running` to report nothing in flight. The
@@ -176,6 +177,17 @@ func maybeUpdateOnStartup(ctx context.Context, configDir, current, exe string, o
 		fmt.Fprintf(out, "\nmagi %s is available (you have %s) — run `magi -update`\n\n", rel.Version, current)
 		return false
 	case update.PolicyForce:
+		// A forced install REPLACES the running binary, and only a clean release tag is ours to
+		// replace. A source build carries a git-describe suffix ("v0.22.2-13-gabc1234-dirty") that
+		// parseSemver truncates at the '-', so UpdatePolicy read it as the release it was built PAST
+		// and would force it out from under the developer — with no .prev, since this seam uses
+		// Run/Apply. SelfUpdatable is the same gate the daemon paths carry (daemonAutoUpdate,
+		// daemonEngine.Update); this path was the one that skipped it. A non-release build still gets
+		// the notice — the information without the surprise install.
+		if !update.SelfUpdatable(current) {
+			fmt.Fprintf(out, "\nmagi %s is available (you have %s) — run `magi -update`\n\n", rel.Version, current)
+			return false
+		}
 		fmt.Fprintf(out, "\nmagi %s is a required update (you have %s). Installing… press ctrl-c to cancel.\n", rel.Version, current)
 		// A real signal-cancellable context so ctrl-c aborts both the countdown and
 		// the install itself, rather than relying on the default SIGINT hard-kill

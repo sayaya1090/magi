@@ -108,6 +108,31 @@ func TestMaybeUpdateMinorForces(t *testing.T) {
 	}
 }
 
+// A source build (git-describe stamp) is NEVER force-installed, even on a minor bump: parseSemver
+// truncates the suffix and would read it as the release it was built past, so UpdatePolicy says
+// Force — but SelfUpdatable rejects it, and the startup check must downgrade to a notice rather than
+// replace the developer's own binary (with no .prev, since this seam uses Run/Apply). This is the
+// exact case rollback_test.go calls "the dangerous case"; before the gate it force-installed here.
+func TestMaybeUpdateDoesNotForceOverASourceBuild(t *testing.T) {
+	calls := swapSeams(t, update.Release{Version: "0.23.0"}, nil,
+		update.Result{Updated: true, From: "x", To: "0.23.0"}, nil)
+	var out bytes.Buffer
+	installed := maybeUpdateOnStartup(context.Background(), t.TempDir(), "v0.22.2-13-gabc1234-dirty", "/x/magi", &out)
+	if installed {
+		t.Fatal("a source build was force-installed on a minor bump — the SelfUpdatable gate is missing")
+	}
+	if *calls != 0 {
+		t.Fatalf("forceInstall called %d times over a source build, want 0", *calls)
+	}
+	// It still tells the developer a release exists — the information, not the surprise.
+	if !strings.Contains(out.String(), "0.23.0 is available") {
+		t.Fatalf("expected a notice for the source build, got %q", out.String())
+	}
+	if strings.Contains(out.String(), "required update") {
+		t.Fatalf("a source build must not see the force-install notice: %q", out.String())
+	}
+}
+
 // A failed install must not wedge startup: swallow the error, keep running (false).
 func TestMaybeUpdateForceFailureContinues(t *testing.T) {
 	swapSeams(t, update.Release{Version: "2.0.0"}, nil, update.Result{}, context.DeadlineExceeded)
