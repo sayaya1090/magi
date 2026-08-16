@@ -46,7 +46,7 @@ func councilDoing(members, answered int) string {
 	return fmt.Sprintf("waiting on the council: %d of %d have answered", answered, members)
 }
 
-func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, question string, complete bool) (string, error) {
+func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool) (string, error) {
 	if a.cfg.Council == nil {
 		return "", fmt.Errorf("no council is configured for this run")
 	}
@@ -135,6 +135,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 			Note: "the agent declared finished again without changing anything since the last councils said no",
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		// A byte-identical re-declaration is the purest no-progress rejection there is, so it
+		// counts toward the cap like any other — without this, an agent pinned here could still
+		// loop to the step backstop.
+		if landed, msg := a.noteCouncilRejection(sid, epoch, ""); landed {
+			return msg + notesTail(a.turnNotesBlock(sid)), nil
+		}
 		return "The council has already read this exact report twice and did not accept it, and nothing " +
 			"has changed since — no new edits, no new result. Do the work the last feedback asked for, or " +
 			"state a genuinely different result, then declare completion again. Re-declaring the same thing " +
@@ -247,6 +253,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 	if accepted {
+		a.resetCouncilRejections(sid)
 		// The loop reads this at its next step and ends the turn. Signalled rather than returned
 		// because the tool result must still reach the transcript: the agent's last word should be
 		// its own, not a truncated call.
@@ -260,9 +267,84 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 			"Fix what the verification reports (shown in the evidence above) and declare completion again." +
 			notesTail(a.turnNotesBlock(sid)) + "\n\n" + renderCouncilAdvice(delib, "What the members said:"), nil
 	}
+	if landed, msg := a.noteCouncilRejection(sid, epoch, feedback); landed {
+		return msg + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+			renderCouncilAdvice(delib, "What the members said, for the record:"), nil
+	}
 	return "The council does NOT accept this as finished yet. Address what follows and declare " +
 		"completion again when you believe it is done." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 		renderCouncilAdvice(delib, "What the members said:"), nil
+}
+
+// The rejection cap: how many times one turn's completion declarations may be turned away before
+// magi lands the turn UNVERIFIED as it stands.
+//
+// The consensus gate exists to stop a false "done"; unbounded, it also stopped a TRUE "I could
+// not". Measured live, twice in one wave: a task made impossible by the run's own permission mode
+// was declared honestly, rejected 0/3, re-declared, rejected — eighteen consecutive rounds over
+// forty-six minutes, with the retries the feedback provoked in between, until an external kill.
+// The manual promises that an honest failure is a correct outcome; a gate that can only say
+// "continue" makes that promise unkeepable whenever the environment withholds the means. The old
+// finish-boundary gate had exactly this valve (CouncilMaxRounds → an UNVERIFIED landing, noted);
+// the tool-form council lost it.
+//
+// Two thresholds, because rejection during honest iteration is the gate WORKING: a turn whose
+// declarations are separated by real file mutations gets the longer rope, and only a stretch of
+// rejections with nothing changing between them — the livelock shape — trips the short one. The
+// landing is not an acceptance: the turn ends UNVERIFIED with the reason on the record, the same
+// honest shape an undeclared turn gets, and the work stands.
+const (
+	councilRejectCapStuck = 3 // consecutive rejections with NO mutation between them
+	councilRejectCapTotal = 8 // rejections in one turn, mutations or not — the absolute valve
+)
+
+// noteCouncilRejection counts one rejected declaration and reports whether the cap landed the
+// turn, with the message the agent reads in place of "declare again".
+func (a *App) noteCouncilRejection(sid session.SessionID, epoch int, feedback string) (bool, string) {
+	if !councilRejectCapEnabled() {
+		return false, ""
+	}
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.councilRejects++
+	if st.councilRejects == 1 || epoch != st.councilRejectEpoch {
+		st.councilNoProgress = 1 // first rejection, or real work happened since the last one
+	} else {
+		st.councilNoProgress++
+	}
+	st.councilRejectEpoch = epoch
+	stuck, total := st.councilNoProgress, st.councilRejects
+	a.mu.Unlock()
+	if stuck < councilRejectCapStuck && total < councilRejectCapTotal {
+		return false, ""
+	}
+	reason := fmt.Sprintf("the council rejected %d completion declarations (%d in a row with no "+
+		"change between them) and the turn was landed UNVERIFIED as it stood", total, stuck)
+	a.signalTurnControl(sid, func(tc *turnControl) {
+		tc.finish = true
+		tc.unverifiedReason = reason
+	})
+	msg := fmt.Sprintf("The council has now rejected %d declarations this turn", total)
+	if stuck >= councilRejectCapStuck {
+		msg += fmt.Sprintf(", the last %d with nothing changing in between", stuck)
+	}
+	msg += ". magi is landing the turn here, recorded as UNVERIFIED: the work stands as it is, and " +
+		"the record says the council did not accept it. Write your final answer now — state plainly " +
+		"what was done, what was not, and why. An honest account of what could not be done is a " +
+		"correct outcome; do not claim completion the record does not back."
+	if fb := strings.TrimSpace(feedback); fb != "" {
+		msg += "\n\nWhat was still unmet, for your account:\n" + fb
+	}
+	return true, msg
+}
+
+// resetCouncilRejections clears the cap's counters — on an accepted finish here, and at each new
+// top-level turn in resetForNewTopLevel.
+func (a *App) resetCouncilRejections(sid session.SessionID) {
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.councilRejects, st.councilNoProgress, st.councilRejectEpoch = 0, 0, 0
+	a.mu.Unlock()
 }
 
 // identicalRejections counts how many of the most recent consecutive councils REJECTED a finish on

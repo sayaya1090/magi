@@ -287,6 +287,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// HERE or it is thrown away before the finish check ever sees it.
 			if ctrl.finish {
 				ts.declared = true
+				if ctrl.unverifiedReason != "" {
+					ts.unverifiedReason = ctrl.unverifiedReason // the rejection cap's landing, not an acceptance
+				}
 			}
 			if tc := ctrl; tc.route != "" {
 				// Absorb a routed interjection now, so it isn't also re-surfaced as its own
@@ -391,8 +394,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// it ends the way every other turn ends. Returning from here directly would skip the finish
 		// path itself: no turn.finished, no finalize stage, and a steer that landed during the
 		// declaration left stranded instead of picked up as its own turn.
-		if ts.declared || a.finishDeclared(sid) {
-			ts.declared = true
+		if a.finishDeclared(&ts, sid) {
 			toolCalls = a.callsAfterDeclaring(ctx, sid, toolCalls, &ts)
 		}
 		if len(toolCalls) == 0 {

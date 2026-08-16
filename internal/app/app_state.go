@@ -43,12 +43,18 @@ type sessionState struct {
 	// which is the only way a DELETED file — or a write that preserved its mtime — shows up at
 	// all. Replaced each turn; nil until one starts.
 	worldBase        fileIndex
-	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
-	foldedInterject  []string               // waiting messages folded into the turn now running (paired at finish)
-	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
-	turnControl      turnControl            // pending mid-turn routing / finish signal
-	perms            map[string]chan string // pending permission decisions by call id
-	questions        map[string]chan string // pending ask_user picks by call id
+	observedEvents   int                   // event high-water mark of the last turn_finished observation (stale-answer guard)
+	foldedInterject  []string              // waiting messages folded into the turn now running (paired at finish)
+	pendingInterject []pendingInterjection // interjections queued to run as their own turn
+	turnControl      turnControl           // pending mid-turn routing / finish signal
+	// councilRejects counts this turn's rejected completion declarations, and councilNoProgress
+	// the CONSECUTIVE rejections with no file mutation between them (councilRejectEpoch is the
+	// guard epoch at the last one). They power the rejection cap — see noteCouncilRejection.
+	councilRejects     int
+	councilNoProgress  int
+	councilRejectEpoch int
+	perms              map[string]chan string // pending permission decisions by call id
+	questions          map[string]chan string // pending ask_user picks by call id
 	// asking is what those two are waiting FOR, so another process can be told. The channels
 	// above are enough to deliver an answer and say nothing about the question; a viewer in a
 	// different process cannot see the transient event that announced it, because a transient
@@ -214,10 +220,14 @@ type turnControl struct {
 	route   string // "", "queue", "redirect", or "append"
 	routeID string // the request id the route targets (route_interjection request_id); "" = oldest queued
 	// finish is set when the agent declared the task complete (the council tool) and the council
-	// accepted. The loop ends the turn at its next step — a turn ends because someone decided to
-	// end it, not because the model happened to stop calling tools.
+	// accepted — or when the rejection cap landed the turn over the members' heads. The loop ends
+	// the turn at its next step — a turn ends because someone decided to end it, not because the
+	// model happened to stop calling tools.
 	finish bool
-	reason string
+	// unverifiedReason rides with finish when the landing is the CAP's, not an acceptance: the
+	// turn ends UNVERIFIED with this reason on the record. Empty on an accepted finish.
+	unverifiedReason string
+	reason           string
 }
 
 // realPromptTokens returns the actual prompt token count from the last turn (0
@@ -264,6 +274,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.doing, st.doingCall = "", ""
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	st.liveTurnTask = ""
+	st.councilRejects, st.councilNoProgress, st.councilRejectEpoch = 0, 0, 0 // a new turn gets a fresh gate
 	a.mu.Unlock()
 }
 

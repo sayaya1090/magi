@@ -32,7 +32,7 @@ func TestARepeatedIdenticalCouncilDoesNotFanOutAgain(t *testing.T) {
 	// First two identical declarations both run — the second lets the members see their own prior
 	// objection fed back. From the third on, the answer will not move, so it is short-circuited.
 	for i := 0; i < 4; i++ {
-		if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+		if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -52,7 +52,7 @@ func TestCouncilJudgesTheRedirectedTask(t *testing.T) {
 	ctx := context.Background()
 
 	a.setLiveTurnTask(sid, "create REDIRECTED.txt with the word DONE")
-	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true); err != nil {
 		t.Fatal(err)
 	}
 	if fc.got.Task != "create REDIRECTED.txt with the word DONE" {

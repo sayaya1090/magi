@@ -121,6 +121,47 @@ func (a *App) observe(ctx context.Context, sid session.SessionID) observedRun {
 	return observeEvents(a.readEventsBestEffort(ctx, sid))
 }
 
+// observedResult is what came back for one call, as the ledger needs it: the content, and the two
+// flags that decide whether the call is evidence of anything having happened.
+type observedResult struct {
+	content  string
+	isError  bool
+	advisory bool
+	present  bool
+}
+
+// neverRan reports whether a call was REFUSED before it executed — by the permission gate (the
+// decided fact carries the denial), or by one of the other gates, whose refusals are magi's own
+// fixed sentences at the head of the result.
+//
+// The check exists because the ledger's header says "the calls it granted, the paths they wrote" —
+// and it was counting calls that were never granted. Measured live (the deny-mode wave test): a
+// run whose every write/edit/bash was refused still read `changed: x.txt · authored more than
+// once: x.txt ×2 · commands: echo "hello" > x.txt`, the model quoted that harness-authoritative
+// line as proof it had done the work, and the council spent eighteen rounds rejecting a claim
+// magi's own record kept feeding. An observation cannot be wrong about what it observed — so what
+// was refused must not be observed as done.
+func neverRan(res observedResult, denied bool) bool {
+	if denied {
+		return true
+	}
+	if !res.present || !res.isError {
+		return false
+	}
+	s := strings.TrimSpace(decodeResultText(res.content))
+	for _, p := range []string{
+		"blocked by policy:", "blocked by hook:", "tool not permitted for agent",
+		"unknown tool:", "not run — ", "denied by user", "magi crashed while running",
+	} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	// The categorical headless denial names the tool first ("bash is unavailable in this headless
+	// run: …"), so it is matched inside the head of the sentence rather than as a prefix.
+	return strings.Contains(clipLine(s, 120), "is unavailable in this headless run")
+}
+
 // observeEvents is observe over events already in hand. The per-step state block has just read the
 // session to build the request; reading it again there turns a cheap block into the loop's dominant
 // cost, which is how a block meant to be free stops being worth having.
@@ -131,14 +172,25 @@ func observeEvents(all []event.Event) observedRun {
 		if len(evs) > observedScanCap {
 			evs = evs[len(evs)-observedScanCap:]
 		}
-		results := map[string]string{}
+		results := map[string]observedResult{}
+		denied := map[string]bool{}
 		for _, e := range evs {
+			if e.Type == event.TypePermissionDecided {
+				var pd event.PermissionDecidedData
+				if json.Unmarshal(e.Data, &pd) == nil && pd.Decision == "deny" {
+					denied[pd.CallID] = true
+				}
+				continue
+			}
 			var d event.PartAppendedData
 			if e.Type != event.TypePartAppended || json.Unmarshal(e.Data, &d) != nil {
 				continue
 			}
 			if d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil {
-				results[d.Part.ToolResult.CallID] = string(d.Part.ToolResult.Content)
+				r := d.Part.ToolResult
+				results[r.CallID] = observedResult{
+					content: string(r.Content), isError: r.IsError, advisory: r.Advisory, present: true,
+				}
 			}
 		}
 		for _, e := range evs {
@@ -153,11 +205,22 @@ func observeEvents(all []event.Event) observedRun {
 			name := strings.ToLower(strings.TrimSpace(tc.Name))
 			switch name {
 			case "read", "grep", "glob", "list":
+				if neverRan(results[tc.CallID], denied[tc.CallID]) {
+					continue // refused, so nothing was looked at
+				}
 				var args struct{ Path string }
 				if json.Unmarshal(tc.Args, &args) == nil {
 					out.noteLook(args.Path)
 				}
 			case "write", "edit", "multiedit":
+				// Counted only when the write LANDED: an errored result that is not advisory means
+				// the file tools wrote nothing — a refusal, a jail denial, an edit whose anchor was
+				// not found. (A landed write that then failed diagnostics is IsError AND Advisory,
+				// and stays counted: the file on disk changed.) A call still in flight has no result
+				// yet and keeps the old benefit of the doubt.
+				if res := results[tc.CallID]; res.present && res.isError && !res.advisory {
+					continue
+				}
 				var args struct{ Path string }
 				if json.Unmarshal(tc.Args, &args) == nil && strings.TrimSpace(args.Path) != "" {
 					p := strings.TrimSpace(args.Path)
@@ -171,6 +234,10 @@ func observeEvents(all []event.Event) observedRun {
 					out.wrote[p]++
 				}
 			case "bash":
+				res := results[tc.CallID]
+				if neverRan(res, denied[tc.CallID]) {
+					continue // refused before it ran: not a command, not a write, not a repeat
+				}
 				var args struct{ Command string }
 				if json.Unmarshal(tc.Args, &args) != nil {
 					continue
@@ -182,8 +249,7 @@ func observeEvents(all []event.Event) observedRun {
 					}
 				}
 				out.noteRerun(args.Command)
-				res := results[tc.CallID]
-				exit, known := exitOfBashResult(res)
+				exit, known := exitOfBashResult(res.content)
 				// A pipeline's exit is its last stage's, so `make … | tail` used to land in "status
 				// unknown" — magi could see the shape and not the outcome. bash reports every stage
 				// now, and when the note says the head of the pipe failed, that is not a shrug: the
@@ -192,7 +258,7 @@ func observeEvents(all []event.Event) observedRun {
 				// the note's prose as one bit — "did the head fail" — and turned into a synthetic
 				// exit 1. That bit was a reading, and it broke silently the moment the note stopped
 				// making it. The numbers are the fact; the record carries them and adds nothing.
-				stages := stagesOfBashResult(res)
+				stages := stagesOfBashResult(res.content)
 				out.cmds = append(out.cmds, observedCmd{
 					cmd:    args.Command,
 					exit:   exit,

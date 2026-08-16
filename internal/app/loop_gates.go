@@ -260,16 +260,24 @@ func notesTail(block string) string {
 }
 
 // finishDeclared reports (and consumes) the signal the council tool leaves when the agent declared
-// the task finished and the members accepted. It is read where the loop decides whether the step
-// produced work, so a declared finish takes the same path a silent one does — the difference is
-// that this one was decided.
-func (a *App) finishDeclared(sid session.SessionID) bool {
-	declared := false
-	a.signalTurnControl(sid, func(tc *turnControl) {
-		declared = tc.finish
-		tc.finish = false
-	})
-	return declared
+// the task finished and the members accepted — or the rejection cap landed the turn. It adopts the
+// signal into ts, carrying the cap's UNVERIFIED reason with it: consuming the flag here and leaving
+// the reason to a later drain lost it, because the drain empties fields this already took. It is
+// read where the loop decides whether the step produced work, so a declared finish takes the same
+// path a silent one does — the difference is that this one was decided.
+func (a *App) finishDeclared(ts *turnState, sid session.SessionID) bool {
+	if !ts.declared {
+		a.signalTurnControl(sid, func(tc *turnControl) {
+			if tc.finish {
+				ts.declared = true
+				if tc.unverifiedReason != "" {
+					ts.unverifiedReason = tc.unverifiedReason
+				}
+			}
+			tc.finish, tc.unverifiedReason = false, ""
+		})
+	}
+	return ts.declared
 }
 
 // askWhatTheAnswersWereWorth asks a finishing turn to judge the answers other companions gave it.

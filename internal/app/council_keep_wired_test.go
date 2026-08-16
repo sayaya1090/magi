@@ -32,7 +32,7 @@ func TestTheCouncilIsAskedWhatToKeep(t *testing.T) {
 	a.cfg.Workflow = false
 	ctx := context.Background()
 
-	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "is this done?", false); err != nil {
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "is this done?", false); err != nil {
 		t.Fatal(err)
 	}
 	if !fc.got.Keep {
@@ -40,7 +40,7 @@ func TestTheCouncilIsAskedWhatToKeep(t *testing.T) {
 	}
 	// The flag is the A/B knob the comment advertises — off means off, not ignored.
 	t.Setenv("MAGI_COUNCIL_KEEP", "0")
-	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "again?", false); err != nil {
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "again?", false); err != nil {
 		t.Fatal(err)
 	}
 	if fc.got.Keep {

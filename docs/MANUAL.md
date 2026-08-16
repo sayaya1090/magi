@@ -644,6 +644,8 @@ So ending is an act. The agent calls `council{complete: true}`, and the members 
 
 They accept, and the turn is over; or they name what is still undone, and the agent keeps working. Asking is separate: `council{question}` gets a reading and ends nothing.
 
+**Rejection is bounded.** The gate exists to stop a false "done"; unbounded, it also stopped a true "I could not" — measured live, an honest declaration on a task the run's own permission mode made impossible was rejected for eighteen straight rounds until an external kill. After three consecutive rejections with **no file mutation between them** (or eight in one turn regardless), magi lands the turn **UNVERIFIED** with the reason on the record: the work stands, the agent is asked for its honest final account, and nothing pretends the council accepted. Real iteration is unaffected — a declaration separated from the last by actual work gets the longer rope. `MAGI_COUNCIL_REJECT_CAP=0` restores the uncapped loop for A/B.
+
 If the agent never declares, magi reminds it — up to three times — and then lands the work as it stands, recorded as ending undeclared rather than as finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
 
 Set `[council] enabled = false` to remove the tool entirely; with nobody to declare to, the requirement cannot apply and the loop finishes passively.

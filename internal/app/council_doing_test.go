@@ -41,7 +41,7 @@ func TestACouncilInSessionSaysSoToAnotherProcess(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	fc.app, fc.sid = a, sid
 
-	if _, err := a.councilAdvice(context.Background(), a.sessionInfo(context.Background(), sid), nil, "", true); err != nil {
+	if _, err := a.councilAdvice(context.Background(), a.sessionInfo(context.Background(), sid), nil, 0, "", true); err != nil {
 		t.Fatalf("declaring completion: %v", err)
 	}
 

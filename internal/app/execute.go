@@ -383,7 +383,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		RestoreChild: restoreChildFn,
 		MergeChild:   mergeChildFn,
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
-			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)
+			return a.councilAdvice(cctx, s, guardChanges(guard), guardEpoch(guard), question, complete)
 		},
 		RouteInterjection: routeInterjectionFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),

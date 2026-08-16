@@ -84,7 +84,7 @@ func TestDeclaringCompletionIsAnsweredByTheCouncil(t *testing.T) {
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
 
-	out, err := a.councilAdvice(ctx, s, nil, "", true)
+	out, err := a.councilAdvice(ctx, s, nil, 0, "", true)
 	if err != nil {
 		t.Fatalf("declaring completion: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestDeclaringCompletionIsAnsweredByTheCouncil(t *testing.T) {
 		t.Fatal("a rejected declaration must NOT end the turn")
 	}
 
-	out, err = a.councilAdvice(ctx, s, nil, "", true)
+	out, err = a.councilAdvice(ctx, s, nil, 0, "", true)
 	if err != nil {
 		t.Fatalf("second declaration: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestAskingAdviceDoesNotEndTheTurn(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	ctx := context.Background()
 
-	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "is the empty input handled?", false)
+	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "is the empty input handled?", false)
 	if err != nil {
 		t.Fatalf("asking: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestAcceptedDeclarationRecordsTheTally(t *testing.T) {
 	}}}
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	ctx := context.Background()
-	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true); err != nil {
 		t.Fatalf("declaring completion: %v", err)
 	}
 	evs, err := a.store.Read(ctx, sid, 0)
@@ -251,7 +251,7 @@ func TestAcceptedDeclarationRecordsTheRebuttal(t *testing.T) {
 		fc := &fakeCouncil{delibs: []council.Deliberation{d}}
 		a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 		ctx := context.Background()
-		if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+		if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true); err != nil {
 			t.Fatalf("declaring completion: %v", err)
 		}
 		evs, err := a.store.Read(ctx, sid, 0)

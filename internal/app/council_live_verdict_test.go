@@ -50,7 +50,7 @@ func TestEachVerdictIsShownWhenItLandsWithoutChangingTheRecord(t *testing.T) {
 		}
 	}()
 
-	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true); err != nil {
 		t.Fatalf("declaring completion: %v", err)
 	}
 

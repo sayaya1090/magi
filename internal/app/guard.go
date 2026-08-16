@@ -971,6 +971,15 @@ func stripEchoTail(cmd string) string {
 	}
 }
 
+// guardEpoch is the guard's mutation epoch, or zero when there is no guard — the rejection cap
+// reads it to tell "rejected again after real work" from "rejected again after nothing".
+func guardEpoch(g *runGuard) int {
+	if g == nil {
+		return 0
+	}
+	return g.mutationEpoch()
+}
+
 // guardChanges is the guard's change set, or nothing when there is no guard — the council tool can
 // be called from a path that has none, and a nil guard must render an empty diff rather than panic.
 func guardChanges(g *runGuard) []fileChange {

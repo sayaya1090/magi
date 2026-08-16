@@ -17,7 +17,7 @@ func TestVerifyVetoesAFinishTheMembersAccepted(t *testing.T) {
 	a.cfg.Workflow = false
 	ctx := context.Background()
 
-	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true)
+	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestVerifyRefusesAGoTestThatRanNoTests(t *testing.T) {
 	a.cfg.Workflow = false
 	ctx := context.Background()
 
-	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true)
+	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

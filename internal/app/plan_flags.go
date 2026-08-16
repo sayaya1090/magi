@@ -77,6 +77,14 @@ func stallNoveltyEnabled() bool { return envflag.Enabled("MAGI_STALL_NOVELTY", t
 // tool call, for A/B.
 func declareFinishEnabled() bool { return envflag.Enabled("MAGI_DECLARE_FINISH", true) }
 
+// councilRejectCapEnabled gates the rejection cap (see noteCouncilRejection): after enough
+// rejected completion declarations — three in a row with no mutation between them, or eight in
+// one turn — the turn lands UNVERIFIED as it stands instead of cycling declare→reject to the
+// step backstop. It restores the valve the old finish-boundary gate had (CouncilMaxRounds) and
+// the manual's promise that an honest "could not" is a terminal outcome. Default ON;
+// MAGI_COUNCIL_REJECT_CAP=0 restores the uncapped loop for A/B.
+func councilRejectCapEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_REJECT_CAP", true) }
+
 // declareAskCap bounds how many times one turn is told to declare completion. Small on purpose: the
 // ask exists for an agent that forgot the form, and repeating it at one that cannot produce it only
 // spends the session's remaining time looking busy.

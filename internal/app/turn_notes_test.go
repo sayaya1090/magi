@@ -27,7 +27,7 @@ func TestTurnNotesComeBackVerbatimAtTheFinish(t *testing.T) {
 	a.noteForTurn(sid, note)
 
 	// A rejected declaration carries them: the agent keeps working and needs them most here.
-	out, err := a.councilAdvice(ctx, s, nil, "", true)
+	out, err := a.councilAdvice(ctx, s, nil, 0, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestTurnNotesComeBackVerbatimAtTheFinish(t *testing.T) {
 		t.Errorf("a rejected declaration must hand the notes back:\n%s", out)
 	}
 	// …and so does an accepted one, before the agent writes its final answer.
-	out, err = a.councilAdvice(ctx, s, nil, "", true)
+	out, err = a.councilAdvice(ctx, s, nil, 0, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
