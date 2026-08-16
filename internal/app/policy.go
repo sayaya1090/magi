@@ -236,8 +236,19 @@ func (p *Policy) Decide(toolName string, args json.RawMessage) (verdict, reason 
 		case "bash", "wait_for":
 			// wait_for executes its condition through the shell, so its subject is
 			// scanned for egress exactly like a bash command.
+			//
+			// Two strengths, honestly split. A LITERAL URL naming an off-list host is a hard
+			// deny — the same verdict webfetch gets, because the host is right there to check.
+			// Everything else the egress scan catches only FORCES A PROMPT: a shell command can
+			// reach the network through a variable, a config file, or a bare hostname this scan
+			// cannot read, so "the allowlist is enforced" would be a claim string-scanning cannot
+			// keep — and under a headless `allow` run a forced prompt resolves to allow, which is
+			// that posture's meaning. The deny is the half that holds everywhere.
+			if h := offListURLHost(subj, p.allowDomains); h != "" {
+				return "deny", "host " + h + " not in egress allowlist"
+			}
 			if bashEgress.MatchString(subj) {
-				return "ask", "network egress command (host allowlist enforced)"
+				return "ask", "network egress command (host allowlist checked where a URL is literal)"
 			}
 		}
 	}
@@ -313,6 +324,27 @@ func subjectOf(tool string, args json.RawMessage) string {
 	default:
 		return get("path")
 	}
+}
+
+// offListURLHost returns the first host a command names in a LITERAL URL that is not on the
+// allowlist, or "" when every literal URL is covered (or none is present).
+//
+// Literal URLs only — a token carrying "://" — because that is the case the string can actually
+// answer. A bare hostname argument (`curl example.com`), a variable, or a host read from a file is
+// out of reach here by construction; those fall to the forced prompt beside this. Quotes are
+// stripped the way the secret-path scan strips them, so `curl "https://x"` reads the same as the
+// unquoted form.
+func offListURLHost(cmd string, allow []string) string {
+	for _, tok := range strings.Fields(cmd) {
+		tok = strings.Trim(tok, `"'`)
+		if !strings.Contains(tok, "://") {
+			continue
+		}
+		if h := hostOf(tok); h != "" && !anyHost(allow, h) {
+			return h
+		}
+	}
+	return ""
 }
 
 // --- host helpers ---

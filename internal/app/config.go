@@ -283,12 +283,12 @@ type Config struct {
 	VerifyCmd        string
 	WorkflowMaxLoops int
 
-	// AutoOrchestrate triggers automatic orchestration mode when context usage
-	// exceeds the threshold. -1 = disabled (user can toggle off), 0 = use default (0.6),
-	// 0.0 < x <= 1.0 = custom threshold (e.g., 0.7 = 70%).
-	// When triggered, the system injects a directive forcing the agent to
-	// decompose work and delegate to subagents.
-	AutoOrchestrate float64 // default 0.6 (60%)
+	// There is no AutoOrchestrate field any more. It promised a directive that forced the agent to
+	// decompose and delegate to subagents past a context threshold — machinery that went out with
+	// the delegation stack — and for a while the knob outlived the mechanism: a threshold nothing
+	// read, defaulted at 0.6, documented as doing something. A field that advertises a behaviour
+	// the application does not have teaches a reader something untrue, which is the same reason the
+	// ToolEnv's dead Ask/Report fields went.
 
 	// Providers are named LLM profiles (per-agent endpoint/key routing): an
 	// AgentSpec.Provider names one of these to run on a different backend.
@@ -398,10 +398,6 @@ func (c Config) withDefaults() Config {
 	}
 	if c.WorkflowMaxLoops == 0 {
 		c.WorkflowMaxLoops = 3
-	}
-	// AutoOrchestrate: 0 = use default, -1 = explicitly disabled
-	if c.AutoOrchestrate == 0 {
-		c.AutoOrchestrate = 0.6 // 60% context usage triggers auto-orchestration
 	}
 	return c
 }

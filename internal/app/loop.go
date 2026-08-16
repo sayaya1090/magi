@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -249,14 +250,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		guard.resetStall()
 	}
 
-	// No ceiling. A turn ends when the model stops calling tools, when the agent declares completion
-	// and the council accepts it, when the caller's context is cancelled, or when whoever launched
-	// magi stops waiting — the endings that were always real. The step cap was one more, and the
-	// only one that ended a run on magi's own arithmetic rather than on something that happened.
+	// No pacing ceiling — but there IS a backstop. A turn ends when the model stops calling tools,
+	// when the agent declares completion and the council accepts it, when the caller's context is
+	// cancelled, or when whoever launched magi stops waiting; the guards that used to force-stop a
+	// run on magi's own arithmetic are gone (measured: the runs they stopped produced no pass).
+	// What remains is cfg.MaxSteps (default 240) as a runaway backstop, sized far above any
+	// productive turn — and when it fires at the top level, the landing below writes the honest
+	// turn.finished, because falling out of this loop in silence left an open turn every reader
+	// (the fleet row, UnfinishedTurnOf, a handoff's asker) read as "still working", forever.
 	//
-	// A workflow PHASE is the exception, because it declares its own budget as part of the
-	// pipeline's shape (localize gets 14 steps, summarize gets 3), and a phase that ignores its
-	// budget is a phase without a boundary. maxSteps<=0 means the caller set none.
+	// A workflow PHASE budget is different in kind: it declares its own budget as part of the
+	// pipeline's shape (localize gets 14 steps, summarize gets 3), spending it is ordinary, and the
+	// engine simply moves to the next phase. maxSteps<=0 means the caller set none.
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
@@ -435,23 +440,26 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 		}
 
-		// Explicit output contract: a subagent that filed a report has delivered its final
-		// result and its turn ends now — no more steps, no bash-echo looping. handleReport may
-		// refuse an unverified "done" once (loopContinue) or finish the turn (loopFinish, with
-		// The SAME accounting the other finish path uses. This built its own from the agent's stream
-		// alone, so a turn that ended here published the last prompt where the bill was — measured on
-		// a headless run that printed `tokens in 1721335` beside a turn.finished carrying `"in":48519`,
-		// the two outputs agreeing and the inputs thirty-five fold apart. Two finish paths must not
-		// have two accountings.
-		u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
-		_ = u
-
 		// Corrective re-grounding: before any force-stop, give a thrashing agent ONE nudge to
 		// re-read the task and change approach — far cheaper than burning the rest of the budget.
 		a.injectStuckNudge(ctx, tc, turnTask, evs)
 	}
-	// Only a workflow phase reaches here: it spent the budget its own pipeline gave it. The work
-	// stands; the phase simply stops, and the engine moves on to the next one.
+	// The step budget is spent. For a workflow phase and for a child that is ordinary: the phase's
+	// engine moves on, and a child's result is read by the tool call that spawned it. A TOP-LEVEL
+	// turn reaching here hit the runaway backstop, and it must not end in silence: nothing after
+	// this writes a persisted turn.finished (the run goroutine's teardown covers only cancels and
+	// errors), so without this the log kept an open turn that the fleet row, UnfinishedTurnOf and a
+	// handoff's asker all read as "still working" — forever. The work stands as it was left; the
+	// finish says so, UNVERIFIED, the same honest landing an undeclared turn gets.
+	if depth == 0 && !a.cfg.Workflow {
+		d, _ := json.Marshal(event.TurnFinishedData{
+			Usage:      turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost),
+			Unverified: true,
+			Reason: fmt.Sprintf("the turn spent the %d-step runaway backstop without finishing — "+
+				"the work stands as it was left", maxSteps),
+		})
+		a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
+	}
 	return lastText, nil
 }
 
@@ -525,12 +533,11 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 
 // buildStepRequest assembles one step's model request: the byte-stable system prompt
 // (durable AGENTS.md memory, cached across steps within a turn), context-aware auto-
-// compaction, auto-orchestration, and the reconstructed message history with the
-// per-step-volatile context (live plan/experience/RAG) appended as an ephemeral trailing
-// user message — never persisted, so it stays out of the event log, language lock, and
-// council snapshot. Compaction and auto-orchestration can inject events and re-read the
-// log, so the possibly-refreshed evs is returned alongside the request. Also publishes the
-// live context-usage meter. Extracted from runLoop's step loop; behavior unchanged.
+// compaction, and the reconstructed message history with the per-step-volatile context
+// (live plan/experience/RAG) appended as an ephemeral trailing user message — never
+// persisted, so it stays out of the event log, language lock, and council snapshot.
+// Compaction can inject events and re-read the log, so the possibly-refreshed evs is
+// returned alongside the request. Also publishes the live context-usage meter.
 func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Event, step, cumOut int) (port.ChatRequest, []event.Event) {
 	s, agent, agentActor := tc.s, tc.agent, tc.actor
 	sid := s.ID
@@ -684,7 +691,11 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		// DangerTools set: the council change-capture and self-regression history read
 		// each file's before/after around the edit, which is only race-free when writes
 		// to the same file are serialized.
-		if fileModifiers[tc.Name] || a.cfg.DangerTools[tc.Name] {
+		//
+		// dangerGated rather than the raw map, so an MCP tool is serialized too: it can
+		// prompt (there is one modal slot), and what it does on its server is not
+		// something magi can prove read-only.
+		if fileModifiers[tc.Name] || a.dangerGated(tc.Name) {
 			return false
 		}
 		// A subagent runs a whole child turn, which writes files under the PARENT's guard — and the

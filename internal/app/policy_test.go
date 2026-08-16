@@ -226,3 +226,33 @@ func TestPersistRuleNarrowsBash(t *testing.T) {
 		}
 	}
 }
+
+// The egress allowlist's bash half, split by what a string can actually answer: a LITERAL URL
+// naming an off-list host is hard-denied (the same verdict webfetch gets), while every other
+// egress command still forces a prompt — a variable or a bare hostname is out of a string scan's
+// reach, and claiming otherwise is how "restricted" quietly stops being true under headless allow.
+func TestPolicyAllowDomainsDeniesOffListBashURL(t *testing.T) {
+	p := newPolicy(nil, nil, []string{"api.example.com"})
+	cases := []struct {
+		cmd  string
+		want string // expected verdict
+	}{
+		{"curl https://evil.example.org/x", "deny"},                 // literal off-list URL → hard deny
+		{`curl "https://evil.example.org/x"`, "deny"},               // quoted the same
+		{"curl https://api.example.com/x", "ask"},                   // on-list → still confirmed (egress)
+		{"curl https://api.example.com/a https://bad.io/b", "deny"}, // one off-list host is enough
+		{"curl example.com", "ask"},                                 // bare hostname: unreadable → prompt
+		{"curl $HOST/x", "ask"},                                     // a variable: unreadable → prompt
+		{"go test ./...", ""},                                       // no egress at all
+	}
+	for _, c := range cases {
+		v, r := p.Decide("bash", args(map[string]string{"command": c.cmd}))
+		if v != c.want {
+			t.Errorf("bash %q: verdict=%q reason=%q, want %q", c.cmd, v, r, c.want)
+		}
+	}
+	// wait_for's condition gets the same treatment.
+	if v, _ := p.Decide("wait_for", args(map[string]string{"condition": "curl https://bad.io/health"})); v != "deny" {
+		t.Errorf("wait_for off-list URL: verdict=%q, want deny", v)
+	}
+}

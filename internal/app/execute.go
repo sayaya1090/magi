@@ -41,6 +41,21 @@ func (a *App) gateAllowlist(ctx context.Context, s session.Session, agent AgentS
 	return true
 }
 
+// dangerGated reports whether a tool needs approval before it runs: prompted under ask/auto,
+// refused under deny, waved through under allow.
+//
+// Two sources, because the set is not fixed at startup. The configured map covers the built-ins
+// (and anything cmd wires in). An MCP tool is danger-gated BY CONSTRUCTION, read off the
+// `mcp__<server>__<tool>` namespace the manager enforces: the set of MCP tools changes while the
+// process runs (a server registered by a plugin, one that dies mid-session), so a map filled at
+// startup cannot know them — and it didn't, which meant every MCP tool ran without a prompt in
+// every mode, `deny` included, while EXTENDING promised the opposite. An external tool is a
+// process this binary did not write doing whatever it does; "ask first" is the only default that
+// matches what the mode names mean.
+func (a *App) dangerGated(name string) bool {
+	return a.cfg.DangerTools[name] || strings.HasPrefix(name, "mcp__")
+}
+
 // gatePermission applies the guardrail policy (a hard deny blocks regardless of mode) and
 // prompts for dangerous or policy-forced tool calls, recording the PermissionDecided fact.
 // Returns true to stop (policy deny, or the user denied the prompt).
@@ -63,7 +78,7 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 	// prefix rule persisted from one benign approval must not become a standing waiver for the
 	// dangerous invocation chained after it. So forcePrompt prompts regardless of the rule; the
 	// rule only skips the prompt for a routine danger-tool call the scanner did not flag.
-	if forcePrompt || (a.cfg.DangerTools[tc.Name] && !a.policy.AllowedByRule(tc.Name, tc.Args)) {
+	if forcePrompt || (a.dangerGated(tc.Name) && !a.policy.AllowedByRule(tc.Name, tc.Args)) {
 		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt, reason)
 		decision := "allow"
 		if !allowed {
