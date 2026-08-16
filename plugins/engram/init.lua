@@ -89,6 +89,8 @@ end
 
 local function sanitize_cell(v)
   v = tostring(v or "")
+  v = string.gsub(v, "%z", "")
+  v = string.gsub(v, "\1", "") -- ledger_cells의 이스케이프 마스크 바이트 — 셀이 위조하면 안 된다
   v = string.gsub(v, "|", "\\|")
   v = string.gsub(v, "\r?\n", " ")
   return (string.gsub(v, "^%s*(.-)%s*$", "%1"))
@@ -371,6 +373,9 @@ local function append_lesson(entry, replaces)
   -- 함께 세운다 — 강등된 채 그냥 덧붙이면 옛 주장과 미정정 새 주장이 나란히 남는다.
   if replaces and not anchored
     and (string.find(active, signature, 1, true) or lesson_is_duplicate(entry.lesson)) then
+    -- 무음이면 안 된다: 정정이 여기서 죽으면 낡은 주장이 원장의 현재로 남는데, 로그가 없으면
+    -- 그 손실을 아무도 못 본다. 다음 검증 턴이 번호를 제대로 짚으면 정정은 여전히 착지한다.
+    magi.log("engram: 정정 강등+중복으로 미기록(대상 행 불일치) — " .. string.sub(sanitize_cell(entry.lesson), 1, 80))
     return false
   end
   lines[#lines + 1] = "| " .. table.concat(row, " | ") .. " |"

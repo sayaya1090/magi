@@ -169,9 +169,11 @@ func expSyncContentOK(p, content string) bool {
 // entry, so the local inventory reports it under the other spelling — with exact matching the
 // path stayed in `want` FOREVER: the peer re-sent the full bytes every round, absorb counted 0,
 // and the never-empty reply kept every sweep burning all its rounds (round 5, empirically
-// confirmed). Folding is lossless here: a wire path is dir + "seq-editor-hash.md", so two paths
-// that differ only by case name the same content (same hash) placed for the same title — holding
-// either one is holding the revision.
+// confirmed). What folding trades away is bounded and metadata-only: the filename hash covers
+// the parsed BODY, so a crafted case-variant pair could differ in frontmatter (ts/stale/summary)
+// and the second copy is never fetched — the same divergence an exact-path collision inside one
+// directory already tolerates, against a confirmed infinite re-send on the other side of the
+// trade.
 func expSyncDiff(dir string, theirHave []string) (want []string, files map[string]string) {
 	mine := map[string]bool{}
 	for _, p := range expSyncInventory(dir) {
