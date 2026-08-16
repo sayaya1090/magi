@@ -251,10 +251,25 @@ advertises a contract the application never fulfils is how a reader — or a mod
 the tool surface — learns something untrue about the system. They are gone.
 
 It carries four fields for the spawn seam instead, and each is `nil` unless the host offers it:
-`Spawn` runs a child to completion, `ChildSteps` returns what that child actually did, and
-`RestoreChild` puts its file changes back. All three are scoped to the tool call in flight — a call
-can only read or restore a child it started — and `Spawn` is `nil` **inside** a child, which is what
+`Spawn` runs a child to completion, `ChildSteps` returns what that child actually did,
+`RestoreChild` puts its file changes back, and `MergeChild` applies an isolated child's commit
+range onto the parent's tree. All four are scoped to the tool call in flight — a call can only
+read, restore or merge a child it started — and `Spawn` is `nil` **inside** a child, which is what
 makes recursion impossible by construction rather than bounded by a counter someone has to check.
+
+A child works in the parent's directory unless its spec says `workspace:"clone"` — then it gets
+its **own checkout** (`workspace.go`: a `--local` git clone carrying the parent's uncommitted
+work, pinned to a baseline commit so `base..HEAD` is exactly what the child did), its shell is
+pinned to the `workspace-write` OS sandbox with the **temp allowance narrowed to its own scratch**
+(the shared temp trees hold every sibling's clone — measured escape route, closed), and its log is
+filed under the **parent's project** (`Project` on `session.created`; keyed by the clone path it
+would land where no child listing scans). Merging back is `MergeChild`, never automatic.
+
+Parallelism follows from isolation, not from trust: a subagent tool runs alone unless it declares
+`readonly_children` (its spawns are checked against the claim) or `isolated_children` (each
+writing child is given the clone at the one place a workspace is decided) — either way two of its
+calls in one step have nothing to collide over, so they run at once, and `magi.spawn_all` fans a
+batch out under a per-call gate (`spawnMaxParallel`) instead of a goroutine per child.
 
 ---
 
@@ -366,6 +381,18 @@ stands (files modified since the task began, directories that churned collapsed 
 background commands still alive, and the one contradiction a record can never surface on its own:
 paths the record says were written that are not on disk.
 
+Inside the evidence list itself, a **repeated call's older result is superseded**: the same call
+asked again means the older answer is stale by definition, so only the newest keeps its output and
+the earlier occurrence collapses to a stub that keeps its status (an error-then-ok history stays
+legible) — measured live, members handed three reads of one file anchored on the first, biggest
+snapshot and rejected already-correct work three rounds running. The list states its own reading
+rule up front (time order; a later result outranks an earlier one about the same file or command).
+
+Rejection is bounded the same way acceptance is earned: a declaration rejected repeatedly **with
+nothing changing in between** trips a cap (three no-change rejections, eight per turn overall) and
+the turn lands recorded as UNVERIFIED with the reason — an honest failure is a terminal outcome,
+not a loop. Real iteration between declarations resets the count.
+
 ## 6. Guardrails & workflow
 
 **Guardrail policy (`app/policy.go`)** sits above interactive permission prompting:
@@ -437,10 +464,11 @@ diagnostics (`app/diagnose.go` → `builtin.AutoDiagnose`), which fire without t
 
 Background commands: `bash` with `background=true` starts a detached process
 (registry in `bgproc.go`) and returns an id; `bash_output` polls new output, `bash_kill`
-stops it. **`port_owner`** (`portowner.go`) finds which process is bound to a TCP port by
-scanning `/proc/net/tcp{,6}` + `/proc/<pid>/fd` and can kill it — a portable way to free a
-port squatted by a stale/leftover server when `pkill`/`lsof`/`ss`/`fuser` are absent
-(exit 127) in a stripped container (Linux only; a stub reports unsupported elsewhere).
+stops it. **`port_owner`** (`portowner.go`) finds which process is bound to a TCP port and can
+kill it — by scanning `/proc/net/tcp{,6}` + `/proc/<pid>/fd` on Linux (portable where
+`pkill`/`lsof`/`ss`/`fuser` are absent, exit 127, in a stripped container) and by asking `lsof`
+on macOS (matching the LOCAL port, so it names the server side and never a mere client); a stub
+reports unsupported elsewhere.
 Post-edit diagnostics use the gopls CLI for Go and a minimal stdio JSON-RPC client
 (`lspclient.go`) for other languages (typescript-language-server, pyright,
 rust-analyzer, clangd), degrading gracefully when a server is absent. `websearch`
@@ -449,7 +477,9 @@ uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY
 Notes: file tools are jailed to the workdir (`pathutil.go:resolvePath`); `read`
 recovers imprecise paths by basename and prefixes each line with `N⇥` — the 1-based
 number and a tab, cat -n style — so the gutter reads as metadata rather than as file
-content and a later edit can address a line by number. `edit` takes **either** a text
+content and a later edit can address a line by number (a ONE-line file gets no gutter:
+a single line needs no anchor, and weaker models were observed absorbing the `1⇥` into
+the quoted content). `edit` takes **either** a text
 match (`old`/`new`: exact → line-ending-normalized → trailing-whitespace-tolerant,
 leading indentation never guessed, plus a salvage tier that strips a pasted read
 gutter before retrying) **or** an **anchor** (`at:"N"`, optional `to:` for a line
