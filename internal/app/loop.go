@@ -679,9 +679,15 @@ func (a *App) appendToolResult(ctx context.Context, sid session.SessionID, actor
 }
 
 func (a *App) emitError(ctx context.Context, sid session.SessionID, actor event.Actor, msg string) {
-	// Every emitError site is a provider/stream failure; carry the machine code so
-	// the headless contract ("error[<code>]: …" on stderr) holds for them too.
-	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: "provider"})
+	a.emitErrorKind(ctx, sid, actor, msg, false)
+}
+
+// emitErrorKind records a provider/stream failure, saying whether the RUN kept going past it.
+// Every site carries the machine code so the headless contract ("error[<code>]: …" on stderr)
+// holds; `recovered` is the separate question of whether the turn is over, which a reader must
+// not infer from the presence of an error event alone.
+func (a *App) emitErrorKind(ctx context.Context, sid session.SessionID, actor event.Actor, msg string, recovered bool) {
+	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: "provider", Recovered: recovered})
 	a.appendFact(ctx, sid, event.TypeError, actor, d)
 }
 
@@ -755,4 +761,14 @@ func turnUsage(a *App, sid session.SessionID, start event.Usage, lastIn, cumOut 
 		u.Cost = cumCost
 	}
 	return u
+}
+
+// errorRecovered reports whether an error event is one the run kept working past. Readers that
+// treat an error as a turn boundary (the fork split, the unfinished-turn scan, the outcome the
+// observer sees) must ask this rather than the event's presence: since the loop learned to carry
+// on past a cut or guard-aborted stream, "an error happened" and "the turn ended" are no longer
+// the same statement.
+func errorRecovered(e event.Event) bool {
+	var d event.ErrorData
+	return json.Unmarshal(e.Data, &d) == nil && d.Recovered
 }

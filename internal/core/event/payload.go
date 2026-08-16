@@ -223,6 +223,13 @@ type Usage struct {
 type ErrorData struct {
 	Message string `json:"message"`
 	Code    string `json:"code,omitempty"`
+	// Recovered marks an error the RUN ITSELF handled and kept working past — a cut stream whose
+	// prefix stands, a repetition loop magi aborted on purpose. It is recorded because it happened,
+	// not because the turn is over, and a reader that stops at the first error event stops in the
+	// middle of a working turn. The headless CLI did exactly that: the loop's "a cut stream is not
+	// a failed request" recovery was undone one layer up, and a nearly-finished build-pmars trial
+	// exited 1 three seconds into an otherwise healthy reply (TB 2.1, 2026-08-16).
+	Recovered bool `json:"recovered,omitempty"`
 }
 
 // A "diagnostic" event once recorded a reply the run could not parse and recovered from —

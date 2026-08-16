@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/envflag"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -138,6 +141,24 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 		}
 		t := time.NewTicker(tick)
 		defer t.Stop()
+		// abort ends the stream the way the loop can read: ONE error carrying ErrStreamAborted,
+		// then the cancel. Cancelling alone let the inner adapter's read fail with a bare "context
+		// canceled" that the loop could only treat as a dead request, so the net that exists to
+		// save a spinning turn ended it instead. `unit` (the repeated bytes, when there are any)
+		// rides the message: the guard's own evidence used to die with the stream — the deltas are
+		// transient and the reply is never appended — leaving a log that says a loop happened and
+		// cannot say what looped.
+		abort := func(why string, unit []byte) {
+			if u := strings.TrimSpace(string(unit)); u != "" {
+				why += " — the repeated unit was " + strconv.Quote(text.Clip(u, 200))
+			}
+			select {
+			case out <- port.ProviderEvent{Type: port.ProviderError,
+				Err: fmt.Errorf("%w: %s", port.ErrStreamAborted, why)}:
+			case <-ctx.Done():
+			}
+			cancel()
+		}
 		for {
 			select {
 			case ev, ok := <-inner:
@@ -153,7 +174,8 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 				}
 				if byteCap > 0 && streamed > byteCap {
 					fmt.Fprintf(os.Stderr, "magi: stream-guard aborted a runaway generation (%d bytes, no completion — likely a reasoning spin)\n", streamed)
-					cancel()
+					abort(fmt.Sprintf("a runaway generation (%d bytes streamed with no completion — likely a reasoning spin)", streamed), nil)
+					return
 				}
 				if repCap && len(ev.Text) > 0 {
 					tail = append(tail, ev.Text...)
@@ -164,14 +186,16 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 						sinceRepCheck = 0
 						if p := degenerateRepeat(tail); p > 0 {
 							fmt.Fprintf(os.Stderr, "magi: stream-guard aborted a degenerate repetition loop (a %d-byte unit repeated)\n", p)
-							cancel()
+							abort(fmt.Sprintf("a degenerate repetition loop (a %d-byte unit repeated)", p), tail[len(tail)-p:])
+							return
 						}
 					}
 				}
 			case now := <-t.C:
 				if idle > 0 && now.Sub(last) >= idle {
 					fmt.Fprintf(os.Stderr, "magi: stream-guard aborted a silent stream (no data for %s — hung backend)\n", now.Sub(last).Round(time.Second))
-					cancel()
+					abort(fmt.Sprintf("a silent stream (no data for %s — hung backend)", now.Sub(last).Round(time.Second)), nil)
+					return
 				}
 			case <-ctx.Done():
 				return

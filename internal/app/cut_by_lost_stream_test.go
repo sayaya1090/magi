@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -137,6 +138,71 @@ func TestTheLostStreamNoteIsSilentOnACleanReply(t *testing.T) {
 	for _, e := range waitForFinish(t, a, sid) {
 		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "connection to the model ended") {
 			t.Error("a reply that ended cleanly was reported as cut")
+		}
+	}
+}
+
+// The guard's OWN abort must land the turn too. The repetition backstop exists to stop a model
+// spinning; ending the run over its intervention loses the task the guard was saving — measured
+// on TB 2.1 (regex-log, 2026-08-16): the guard fired 19 seconds into the first reply, magi exited
+// 1, and the trial recorded NonZeroAgentExitCode with nothing to show for it.
+func TestAGuardAbortedStreamLandsTheTurnInsteadOfEndingTheRun(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{{
+		{Type: port.ProviderText, Text: "the the the the "},
+		{Type: port.ProviderError, Err: fmt.Errorf("%w: a degenerate repetition loop (a 4-byte unit repeated)",
+			port.ErrStreamAborted)},
+	}}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	a.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: "write the regex"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+	})
+	got := waitForFinish(t, a, sid) // fails outright if the run ended on the abort
+
+	logged, recovered := false, false
+	for _, e := range got {
+		if e.Type != event.TypeError {
+			continue
+		}
+		var d event.ErrorData
+		if json.Unmarshal(e.Data, &d) != nil || !strings.Contains(d.Message, "repetition loop") {
+			continue
+		}
+		logged = true
+		recovered = d.Recovered
+	}
+	if !logged {
+		t.Error("the guard's abort was swallowed — it has to stay in the record")
+	}
+	if !recovered {
+		t.Error("the abort must be marked recovered, or every reader of the log quits mid-turn")
+	}
+}
+
+// The mark is what readers key on, and the readers that treat an error as a turn boundary must
+// ask for it. An ordinary provider failure stays unmarked, so nothing about the existing endings
+// changes.
+func TestOnlyRecoveredErrorsAreMarked(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		{{Type: port.ProviderError, Err: errors.New("401 unauthorized")}},
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	a.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: "go"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+	})
+	for _, e := range waitForTerminal(t, a, sid) {
+		if e.Type != event.TypeError {
+			continue
+		}
+		if errorRecovered(e) {
+			t.Errorf("a plain provider failure must not be marked recovered: %s", e.Data)
 		}
 	}
 }

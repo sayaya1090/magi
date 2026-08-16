@@ -281,7 +281,12 @@ loop:
 			finishAt = time.Now()
 			res.finishReason = ev.FinishReason
 		case port.ProviderError:
-			a.emitError(ctx, sid, agentActor, ev.Err.Error())
+			// Recorded either way; what differs is whether it ENDS the run. A cut stream and a
+			// stream magi itself aborted both leave a usable prefix, so they are marked recovered
+			// — the flag is what stops a reader (the headless CLI) from quitting in the middle of
+			// a turn the loop is still working.
+			recovered := errors.Is(ev.Err, port.ErrStreamCut) || errors.Is(ev.Err, port.ErrStreamAborted)
+			a.emitErrorKind(ctx, sid, agentActor, ev.Err.Error(), recovered)
 			// A CUT stream is not a failed request. The reply arrived and then the connection
 			// ended without declaring an end, which makes what was recorded a prefix — the same
 			// fact finish_reason "length" states, reached by a dropped connection instead of a
@@ -289,7 +294,11 @@ loop:
 			// observed live (fix-ocaml-gc, 2026-08-01) fifteen minutes in, mid-diagnosis, magi
 			// exited 1 and the trial recorded NonZeroAgentExitCode. It is recorded as an error
 			// either way; only the run-ending part is dropped.
-			if errors.Is(ev.Err, port.ErrStreamCut) {
+			if recovered {
+				// ErrStreamAborted joins ErrStreamCut here: the guard fires ON PURPOSE, and
+				// ending the run over its own intervention is the failure the guard exists to
+				// prevent — measured, a task lost 19 seconds into its first reply while the
+				// prefix and every earlier step stood.
 				res.cut = true
 				break
 			}

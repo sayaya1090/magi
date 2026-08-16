@@ -70,6 +70,12 @@ func unfinishedTurn(evs []event.Event) (UnfinishedTurn, bool) {
 		case event.TypeError:
 			// An error the loop recorded is an ending: the turn stopped for a reason that is in the
 			// log, and the user saw it. Resuming that is re-running a failure, not rescuing work.
+			// UNLESS the run recovered from it — a cut stream, a guard-aborted repetition — where
+			// the turn carried on and calling it closed would strand work that never stopped.
+			var d event.ErrorData
+			if json.Unmarshal(e.Data, &d) == nil && d.Recovered {
+				break
+			}
 			open = false
 		case event.TypePartAppended:
 			var d event.PartAppendedData

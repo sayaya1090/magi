@@ -593,3 +593,36 @@ type fakeProbe struct{ name, status, detail string }
 
 func (f fakeProbe) Name() string                         { return f.name }
 func (f fakeProbe) Run(context.Context) (string, string) { return f.status, f.detail }
+
+// A RECOVERED error does not end the watch. The loop deliberately carries on past a cut stream
+// and past a stream its own guard aborted; quitting at the error event undid that one layer up,
+// and two TB 2.1 trials died of it (2026-08-16) — build-pmars three seconds into a healthy reply
+// with the binary already built, and regex-log on the guard's own intervention. The line is still
+// printed: it happened, and the record says so.
+func TestRunHeadlessKeepsWatchingAfterARecoveredError(t *testing.T) {
+	rec, _ := json.Marshal(event.ErrorData{
+		Message: "the model stream ended without finishing", Code: "provider", Recovered: true})
+	fin, _ := json.Marshal(event.TurnFinishedData{})
+	f := &fakeHeadless{events: []event.Event{
+		{Type: event.TypeError, Data: rec},
+		{Type: event.TypeTurnFinished, Data: fin},
+	}}
+	var out, errw bytes.Buffer
+	if exit := runHeadless(context.Background(), f, "s", "p", false, false, &out, &errw); exit != 0 {
+		t.Fatalf("a recovered error must not fail the run, exit = %d", exit)
+	}
+	if !strings.Contains(errw.String(), "ended without finishing") {
+		t.Errorf("the recovered error must still be reported: %q", errw.String())
+	}
+}
+
+// And an UNrecovered error still ends it with exit 1 — the rule is about one marked shape, not
+// about ignoring the provider.
+func TestRunHeadlessStillFailsOnAnUnrecoveredError(t *testing.T) {
+	b, _ := json.Marshal(event.ErrorData{Message: "401 unauthorized", Code: "provider"})
+	f := &fakeHeadless{events: []event.Event{{Type: event.TypeError, Data: b}}}
+	var out, errw bytes.Buffer
+	if exit := runHeadless(context.Background(), f, "s", "p", false, false, &out, &errw); exit != 1 {
+		t.Fatalf("an ordinary provider failure must still exit 1, got %d", exit)
+	}
+}

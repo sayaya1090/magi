@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -69,4 +71,57 @@ type noopProvider struct{}
 
 func (noopProvider) StreamChat(context.Context, port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	return nil, nil
+}
+
+// spinProvider streams a repeating unit forever until its context is cancelled — the shape the
+// repetition backstop exists for.
+type spinProvider struct{ unit string }
+
+func (p spinProvider) StreamChat(ctx context.Context, _ port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent)
+	go func() {
+		defer close(ch)
+		for {
+			select {
+			case ch <- port.ProviderEvent{Type: port.ProviderText, Text: p.unit}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}
+
+// When the guard stops a stream it must SAY SO in the stream: one error carrying ErrStreamAborted,
+// so the loop can tell magi's own intervention from a dead connection. Cancelling alone reached the
+// loop as a bare "context canceled" — a failed request — and the safety net ended the run it was
+// meant to save. The repeated unit rides the message because the guard's evidence otherwise dies
+// with the stream: deltas are transient and an aborted reply is never appended, leaving a log that
+// says a loop happened and cannot say what looped.
+func TestTheGuardSaysItStoppedTheStreamAndWhat(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ch, err := GuardProvider(spinProvider{unit: "the server is now running on port 5328. "}).
+		StreamChat(ctx, port.ChatRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotErr error
+	for ev := range ch {
+		if ev.Type == port.ProviderError {
+			gotErr = ev.Err
+		}
+	}
+	if gotErr == nil {
+		t.Fatal("the guard cut the stream without a word — the loop cannot tell that from a dropped connection")
+	}
+	if !errors.Is(gotErr, port.ErrStreamAborted) {
+		t.Errorf("the abort must carry ErrStreamAborted, got %v", gotErr)
+	}
+	if !strings.Contains(gotErr.Error(), "repetition loop") {
+		t.Errorf("the abort must name what it saw, got %v", gotErr)
+	}
+	if !strings.Contains(gotErr.Error(), "port 5328") {
+		t.Errorf("the abort must carry the repeated unit as evidence, got %v", gotErr)
+	}
 }

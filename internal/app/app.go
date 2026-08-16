@@ -363,6 +363,9 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 			if json.Unmarshal(e.Data, &d) != nil {
 				continue
 			}
+			if d.Recovered {
+				continue // the run kept working past it; the turn's outcome is decided later
+			}
 			if d.Code == "loop_guard" || d.Code == "stall_guard" {
 				sawGuard, reasonGuard = true, d.Code
 			} else {

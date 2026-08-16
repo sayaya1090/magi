@@ -1991,7 +1991,17 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 				break
 			}
 		}
+		// An error the RUN recovered from does not end the watch. The loop deliberately keeps
+		// working past a cut stream and past a stream the guard aborted (the prefix stands, the
+		// steps before it stand), and quitting here undid that one layer up: a build-pmars trial
+		// that had already built the binary exited 1 three seconds into an otherwise healthy reply
+		// (TB 2.1, 2026-08-16), and a repetition-loop abort — magi's own safety net — ended the
+		// task it was meant to save. The event is still printed; only the quitting is dropped.
 		if e.Type == event.TypeError {
+			var d event.ErrorData
+			if json.Unmarshal(e.Data, &d) == nil && d.Recovered {
+				continue
+			}
 			exit = 1
 			break
 		}

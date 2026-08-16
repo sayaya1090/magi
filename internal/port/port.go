@@ -62,6 +62,14 @@ const (
 // test it with errors.Is; the message stays on the wrapped error so the log still reads plainly.
 var ErrStreamCut = errors.New("the model stream ended without finishing")
 
+// ErrStreamAborted marks a stream THIS PROCESS ended on purpose: the provider guard saw a
+// degenerate repetition loop and cut the connection. Without its own sentinel the abort reached
+// the loop as a bare "context canceled" — indistinguishable from a transport failure — so the
+// safety net ended the run it was meant to save (regex-log, TB 2.1 2026-08-16: the guard fired 19
+// seconds into the first reply and the task was lost whole). What was streamed before the abort
+// is a prefix, exactly as with ErrStreamCut, so the loop treats the two the same way.
+var ErrStreamAborted = errors.New("magi stopped the model stream")
+
 // ProviderEvent is one normalized item from an LLM stream.
 type ProviderEvent struct {
 	Type     ProviderEventType

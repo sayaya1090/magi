@@ -76,7 +76,7 @@ func (a *App) Replay(ctx context.Context, sid session.SessionID) (session.Sessio
 	expectStart := true // the first user prompt (after session.created) starts a turn
 	for _, e := range evs {
 		switch {
-		case e.Type == event.TypeTurnFinished || e.Type == event.TypeError:
+		case e.Type == event.TypeTurnFinished || (e.Type == event.TypeError && !errorRecovered(e)):
 			expectStart = true
 		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
 			if expectStart {
