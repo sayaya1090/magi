@@ -374,6 +374,8 @@ Both ends check the same thing: the public key that arrived against the list of 
 
 A machine with an address on its admitted line is reached over TLS; one without is reached over ssh. Same door either way.
 
+**Machines that hold each other's key also share what their teams learned.** The TLS door carries one machine-level method, `exp-sync`: for every team with a footprint on both machines, the two doors exchange the team store's immutable files — wiki revisions and memories — as a **set union**, on start and on a slow tick. Nothing is ever overwritten (the files are content-addressed) and deletions do not cross, because they do not exist: a retired wiki page is a stale revision, which is itself a file that replicates. A page written on one machine is on the other's next `recall_memory` within minutes, with no shared git remote to operate. A machine no companion of that team runs on refuses the team by name.
+
 **Or provision it in one line each.** Carrying a fingerprint by hand is four steps across two machines, and the last one is the one people skip:
 
 ```
@@ -592,8 +594,8 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 ### Memory
 | Tool | Description | Permission |
 |---|---|---|
-| `recall_memory` | pull saved team memories/skills from the shared experience store by keyword | — |
-| `remember` | contribute a lesson to shared memory (lands in `pending/` for review) | — |
+| `recall_memory` | pull saved team memories/skills — and **wiki pages** (a title match fetches the page, with its editor, tier and staleness) — from the shared experience store by keyword | — |
+| `remember` | contribute a lesson to shared memory, or — with `page` — write/update a canonical **wiki page in place** (team-wide by default; `summary` says what changed) | — |
 | `skill` | load a named skill's body to follow it | — |
 | `search_sessions` | search **this workspace's earlier sessions** by keyword — conversations from other days, with the matching turns restorable verbatim | — |
 
@@ -681,10 +683,17 @@ magi bundles one example, **Seele** — a planner that reads and analyses and re
   are injected into the system prompt and **preserved even through compaction**. Auto-generate with `/init`.
 - **Auto-compaction**: when token count (the larger of the backend's real count and the live estimate) exceeds 80% of the model window, older turns are summarized (recent ones preserved). The window is **per model** (different agents can run different models, each with its own window), resolved from the model registry; for an unseeded model magi **probes the backend** for its real context length (vLLM `max_model_len`, LiteLLM `/model/info`, Ollama `/api/show`) — at startup for the initial model, and **lazily the first time any other model is used** (e.g. after a runtime `/route` switch). Claude/Gemini expose no such endpoint, so they rely on the seeded table. A `:tag` variant with no exact seed **inherits its base model's window** (e.g. `qwen3-coder:480b-cloud` → the `qwen3-coder` family's largest seeded window), used immediately — including while an exact-window probe runs in the background — so a known family isn't mis-treated as unlimited. A model with no usable window (no exact seed, no family match, no probe result) is treated as **unlimited** (no % gauge, no ratio compaction) rather than mis-sized to a tiny fallback; override any model's window with `/context <model> <tokens>`.
 - **Tool-result cap**: a single tool result is capped (~64KB) before it enters the context, so one huge output (e.g. reading a 500KB file) can't blow the window past what compaction can recover — the agent is told to narrow its read/command.
-- **Shared brain (D13)**: the `memories/` · `skills/` in `<config>/experience` (or `experience_dir`) are
-  recalled and injected at session start. The `remember` tool contributes to `pending/` (moved to `memories/` after review).
-  Make the directory a git repo and commit/pull to share with the team.
-  Step-by-step bootstrap / file format / review procedure: [`EXTENDING.md`](EXTENDING.md) §2.
+- **Shared brain (D13)**: three tiers, most specific first — `<workspace>/.magi/experience` (that
+  workspace and its repo), `<config>/teams/<name>/experience` (every companion on this machine that
+  declared that team), `<config>/experience` (all of this person's magi). The `remember` tool writes
+  straight into them — there is no review queue. Make a directory a git repo and commit/pull to
+  share it by hand; machines that hold each other's fleet key share the team tier automatically
+  (`exp-sync`, §13). Bootstrap / file format: [`EXTENDING.md`](EXTENDING.md) §2.
+- **Shared wiki**: beside the append-only memories, the team tier holds **canonical pages** — the
+  current truth about one topic each, written and CORRECTED in place with `remember{page:…}`, read
+  through `recall_memory`, advertised as a title index in the agent's context. A page that stopped
+  being true is marked stale with the reason, never deleted. The web console's **Knowledge** screen
+  shows every page with its editor, tier and edit summary, including the stale tombstones.
 
 ## 8. Skills
 
