@@ -47,22 +47,20 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	}
 	slug := wikiSlug(title)
 	revDir := filepath.Join(s.dir, "wiki", "revisions", slug)
-	// One-time migration for a chain created under the pre-hash lossy slug: rename it under the
-	// new name rather than letting the same title fork into two "current" pages.
-	if legacy := filepath.Join(s.dir, "wiki", "revisions", sanitize(title)); legacy != revDir {
-		if _, err := os.Stat(revDir); os.IsNotExist(err) {
-			if _, lerr := os.Stat(legacy); lerr == nil {
-				if rerr := os.Rename(legacy, revDir); rerr != nil { //nolint:staticcheck // best-effort
-					// A failed rename just means this title starts a fresh chain and the
-					// legacy one retires on the forgetting horizon.
-				}
-			}
-		}
-	}
+	// No renaming of a pre-fold legacy chain: a rename raced the set-union sync (a peer still
+	// holding the legacy files re-offered them, absorb recreated the dir, and the page came back
+	// twice) and behaved differently on case-insensitive filesystems. Chains that fold to one
+	// title are instead UNIFIED AT READ TIME (wikiPages buckets revisions by their title's slug),
+	// which no rename can race. New revisions land in the folded dir; the seq continues from the
+	// whole bucket, legacy included, so an edit always outranks the chain it corrects.
 	if err := os.MkdirAll(revDir, 0o755); err != nil {
 		return err
 	}
 	revs := readWikiRevisions(revDir)
+	if legacy := filepath.Join(s.dir, "wiki", "revisions", sanitize(title)); legacy != revDir {
+		revs = append(revs, readWikiRevisions(legacy)...)
+		sortWikiRevisions(revs)
+	}
 	seq := 1
 	if len(revs) > 0 {
 		seq = revs[0].seq + 1
@@ -80,7 +78,9 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	var links []string
 	seen := map[string]bool{}
 	for _, l := range append(append([]string{}, e.Links...), wikiLinksIn(body)...) {
-		l = oneLine(l)
+		// Commas fold to spaces along with newlines: the frontmatter renders links comma-joined,
+		// so a comma inside one link would split it into two on the next parse.
+		l = oneLine(strings.ReplaceAll(l, ",", " "))
 		if k := strings.ToLower(l); l != "" && !seen[k] {
 			seen[k] = true
 			links = append(links, l)
@@ -94,7 +94,7 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	if err := atomicfile.Write(filepath.Join(revDir, name), []byte(renderWikiRevision(rev)), 0o644); err != nil {
 		return err
 	}
-	s.refreshWikiPage(slug)
+	s.WikiRefreshPages()
 	return nil
 }
 
@@ -190,30 +190,30 @@ func wikiOverlap(terms map[string]bool, text string) int {
 // assumption into a property.
 func ContentID(text string) string { return memoryID(text) }
 
+// RevisionParts splits a wiki revision file the way THIS store's parser does, for the door sync's
+// verification. One extractor, exported, because two implementations of "where does the body
+// start" is exactly how the round-2 hash check was bypassed: the sync cut at the first "\n---\n"
+// ANYWHERE while the parser demands the file open with "---\n", so a prefix pasted above the
+// frontmatter passed the hash and became the parsed body. ok is false when the shape is not a
+// revision at all.
+func RevisionParts(content string) (title, body string, ok bool) {
+	r := parseWikiRevision(content)
+	if !strings.HasPrefix(content, "---\n") || r.Title == "" {
+		return "", "", false
+	}
+	return r.Title, r.Body, true
+}
+
+// SlugOf exposes the page-directory naming (and its legacy pre-fold form) so the sync can check
+// that a received revision actually belongs to the chain directory it arrived addressed to.
+func SlugOf(title string) (current, legacy string) { return wikiSlug(title), sanitize(title) }
+
 // oneLine folds a frontmatter value to a single trimmed line — see wikiWrite for why folding, not
 // escaping.
 func oneLine(s string) string {
 	return strings.TrimSpace(strings.Join(strings.FieldsFunc(s, func(r rune) bool {
 		return r == '\n' || r == '\r'
 	}), " "))
-}
-
-// refreshWikiPage rewrites the human-facing page cache from the revision set. Best-effort: the
-// revisions are the source of truth and every reader derives from them, so a failed cache write
-// loses nothing but git-diff convenience.
-func (s *Store) refreshWikiPage(slug string) {
-	revs := readWikiRevisions(filepath.Join(s.dir, "wiki", "revisions", slug))
-	if len(revs) == 0 {
-		return
-	}
-	cur := revs[0]
-	pageDir := filepath.Join(s.dir, "wiki", "pages")
-	if err := os.MkdirAll(pageDir, 0o755); err != nil {
-		return
-	}
-	if err := atomicfile.Write(filepath.Join(pageDir, slug+".md"), []byte(renderWikiRevision(cur)), 0o644); err != nil {
-		return // the revisions are the truth and every reader derives from them; only the human-facing cache is lost
-	}
 }
 
 // WikiSearch implements port.WikiStore: up to n current pages matching the query, best first. An
@@ -373,19 +373,49 @@ func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {
 	return pages, nil
 }
 
-// WikiRefreshPages rewrites every page cache from its revision set — what the door sync calls
-// after absorbing foreign revisions, so the human/git view under pages/ does not keep showing the
-// pre-sync winner until somebody happens to edit locally. Readers never depend on it (they derive
-// from revisions); this is for the humans and the diffs.
+// WikiRefreshPages rewrites the whole pages/ cache from the bucketed revision sets — after a
+// local write and after the door sync absorbs foreign revisions, so the human/git view never
+// keeps showing a pre-merge winner. It also removes cache files whose bucket no longer exists
+// under that name (a legacy chain unified into its folded successor), so the humans do not see a
+// page twice that the readers correctly see once. Best-effort throughout: readers derive from
+// revisions; only the human-facing cache is at stake.
 func (s *Store) WikiRefreshPages() {
 	root := filepath.Join(s.dir, "wiki", "revisions")
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		return
 	}
+	buckets := map[string][]wikiRevision{}
 	for _, e := range ents {
-		if e.IsDir() {
-			s.refreshWikiPage(e.Name())
+		if !e.IsDir() {
+			continue
+		}
+		for _, r := range readWikiRevisions(filepath.Join(root, e.Name())) {
+			key := wikiSlug(r.Title)
+			if strings.TrimSpace(r.Title) == "" {
+				key = e.Name()
+			}
+			buckets[key] = append(buckets[key], r)
+		}
+	}
+	pageDir := filepath.Join(s.dir, "wiki", "pages")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		return
+	}
+	for key, revs := range buckets {
+		sortWikiRevisions(revs)
+		if err := atomicfile.Write(filepath.Join(pageDir, key+".md"), []byte(renderWikiRevision(revs[0])), 0o644); err != nil { //nolint:staticcheck
+			// Cache only; the revisions remain the truth.
+		}
+	}
+	if cached, err := os.ReadDir(pageDir); err == nil {
+		for _, f := range cached {
+			name := strings.TrimSuffix(f.Name(), ".md")
+			if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") && len(buckets[name]) == 0 {
+				if rerr := os.Remove(filepath.Join(pageDir, f.Name())); rerr != nil { //nolint:staticcheck
+					// An orphan cache file that will not leave costs a duplicate in the human view only.
+				}
+			}
 		}
 	}
 }
@@ -398,22 +428,34 @@ func (s *Store) WikiList(ctx context.Context) []port.WikiPage {
 	return pages
 }
 
-// wikiPages derives every current page from its revision set.
+// wikiPages derives every current page from the revision sets, BUCKETED by each revision's own
+// title slug: chains that fold to one title — a pre-fold legacy dir beside its folded successor,
+// a case-variant dir a sync delivered from a differently-cased filesystem — are one page, with
+// one winner computed over the union. Read-time unification is what a rename-based migration
+// could not be: nothing races it, nothing resurrects, and every replica computes it identically
+// from whatever set of directories it happens to hold.
 func (s *Store) wikiPages() []port.WikiPage {
 	root := filepath.Join(s.dir, "wiki", "revisions")
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		return nil
 	}
-	var out []port.WikiPage
+	buckets := map[string][]wikiRevision{}
 	for _, e := range ents {
 		if !e.IsDir() {
 			continue
 		}
-		revs := readWikiRevisions(filepath.Join(root, e.Name()))
-		if len(revs) == 0 {
-			continue
+		for _, r := range readWikiRevisions(filepath.Join(root, e.Name())) {
+			key := wikiSlug(r.Title)
+			if strings.TrimSpace(r.Title) == "" {
+				key = e.Name() // a titleless revision can only belong to the dir it sits in
+			}
+			buckets[key] = append(buckets[key], r)
 		}
+	}
+	var out []port.WikiPage
+	for _, revs := range buckets {
+		sortWikiRevisions(revs)
 		cur := revs[0]
 		out = append(out, port.WikiPage{
 			Title: cur.Title, Body: cur.Body, Links: cur.Links, Stale: cur.Stale,
@@ -476,6 +518,14 @@ func readWikiRevisions(dir string) []wikiRevision {
 		r.file = base
 		out = append(out, r)
 	}
+	sortWikiRevisions(out)
+	return out
+}
+
+// sortWikiRevisions orders a revision set winner-first — shared by the per-directory read and the
+// cross-directory bucket merge, because the winner must be the same function of the set wherever
+// the set was assembled.
+func sortWikiRevisions(out []wikiRevision) {
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].seq != out[j].seq {
 			return out[i].seq > out[j].seq
@@ -494,7 +544,6 @@ func readWikiRevisions(dir string) []wikiRevision {
 		}
 		return out[i].file > out[j].file
 	})
-	return out
 }
 
 func parseWikiRevision(text string) wikiRevision {

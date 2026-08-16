@@ -291,12 +291,33 @@ local function append_lesson(entry, replaces)
   local signature = row[4] .. " | " .. row[5] .. " | " .. row[6]
   if not replaces and string.find(active, signature, 1, true) then return false end
 
-  -- 활성부를 줄 단위로 해체해 데이터 행 위치를 잡는다.
-  local lines, data_at = {}, {}
-  for line in string.gmatch(active, "[^\n]+") do
-    lines[#lines + 1] = line
-    if is_data_row(line) then data_at[#data_at + 1] = #lines end
+  -- 활성부를 줄 단위로 해체해 데이터 행 위치를 잡는다. 빈 줄을 **보존**하는 분해다 —
+  -- "[^\n]+"는 빈 줄을 삼켜, 수제 산문의 문단 나눔과 헤딩 앞 공백을 첫 기록에 전부
+  -- 뭉개버렸다. 그리고 데이터 행 판정은 원장 파싱(ledger_rows)과 **같은 7컬럼 기준**이어야
+  -- 한다: 다이제스트의 (n)은 7컬럼 행만 세는데 여기서 아무 |줄이나 세면 번호가 어긋나
+  -- replaces가 옆 행을, 상한 정리가 사람이 쓴 다른 표의 행을 아카이브했다.
+  local function is_ledger_row(line)
+    if not is_data_row(line) then return false end
+    local cols = 0
+    for _ in string.gmatch(line, "[^|]+") do cols = cols + 1 end
+    return cols >= 7
   end
+  local lines, data_at = {}, {}
+  local rest = active
+  while rest ~= "" do
+    local nl = string.find(rest, "\n", 1, true)
+    local line
+    if nl then
+      line = string.sub(rest, 1, nl - 1)
+      rest = string.sub(rest, nl + 1)
+    else
+      line = rest
+      rest = ""
+    end
+    lines[#lines + 1] = line
+    if is_ledger_row(line) then data_at[#data_at + 1] = #lines end
+  end
+  while #lines > 0 and lines[#lines] == "" do table.remove(lines) end
   if #data_at == 0 and not string.find(active, LEDGER_HEADER, 1, true) then
     -- 표가 없으면 표 골격을 **덧붙인다** — 통째 교체는 사람이 손으로 써 둔 산문(표 없는
     -- SESSION_SUMMARY.md)을 첫 교훈 기록에 통째로 날려버렸다.
@@ -315,19 +336,31 @@ local function append_lesson(entry, replaces)
   end
 
   if replaces and data_at[replaces] then
-    to_archive(lines[data_at[replaces]], "정정됨(" .. row[1] .. ")")
-    table.remove(lines, data_at[replaces])
+    -- 내용 앵커: 번호는 사이드카 호출 **전**의 다이제스트에서 왔고, 느린 호출 동안 다른
+    -- 턴이나 사람이 원장을 고치면 번호가 밀린다(위치 주소의 숙명). 대상 행이 새 교훈과
+    -- 토큰을 실제로 공유할 때만 정정으로 믿고, 아니면 일반 추가로 강등한다 — 엉뚱한 행을
+    -- 아카이브하는 것보다 중복 한 줄이 낫다.
+    local target = lines[data_at[replaces]]
+    local a = tokenize(sanitize_cell(entry.task) .. " " .. sanitize_cell(entry.lesson))
+    local inter = 0
+    for w in pairs(tokenize(target)) do
+      if a[w] then inter = inter + 1 end
+    end
+    if inter >= 2 then
+      to_archive(target, "정정됨(" .. row[1] .. ")")
+      table.remove(lines, data_at[replaces])
+    end
   end
   lines[#lines + 1] = "| " .. table.concat(row, " | ") .. " |"
 
-  -- 상한: 오래된 데이터 행부터 아카이브로.
+  -- 상한: 오래된 데이터 행부터 아카이브로. (원장 행만 — 사람이 쓴 다른 표는 건드리지 않는다)
   local n = 0
   for _, l in ipairs(lines) do
-    if is_data_row(l) then n = n + 1 end
+    if is_ledger_row(l) then n = n + 1 end
   end
   local i = 1
   while n > MAX_ACTIVE_ROWS and i <= #lines do
-    if is_data_row(lines[i]) then
+    if is_ledger_row(lines[i]) then
       to_archive(lines[i], "오래됨(상한 " .. MAX_ACTIVE_ROWS .. "행)")
       table.remove(lines, i)
       n = n - 1
@@ -547,7 +580,9 @@ local function analyze_and_record(sid, hint, user, used_csv)
     -- 핸들러 전체를 죽여 이 턴의 prune까지 건너뛴다 — 백스톱이 발동할 때마다.
     if not slug then return end
     magi.log("engram: 스킬 저장 — " .. slug)
-    magi.store_set("last_skill", slug)
+    -- 세션 키와 함께: 취소 창이 스토어 전역이면, 다른 세션의 무관한 질문에 "아니요"라
+    -- 답한 것이 이 스킬을 지웠다. 창은 저장을 목격한 그 대화의 것이다.
+    magi.store_set("last_skill", sid .. "\t" .. slug)
     magi.notify(sid, "engram: 검증된 성공에서 스킬 '" .. slug
       .. "' 을(를) 자동 저장했습니다. 잘못 저장됐으면 'N' 또는 '스킬 취소'라고 입력하면 되돌립니다.")
     local _, perr = magi.propose_experience{
@@ -576,8 +611,10 @@ end
 
 -- 마지막 자동 저장 스킬의 취소(undo): 저장 직후 "다음 사용자 메시지"까지가 취소 창.
 local function undo_last_skill(sid)
-  local slug = magi.store_get("last_skill")
-  if not slug or slug == "" then return false end
+  local rec = magi.store_get("last_skill")
+  if not rec or rec == "" then return false end
+  local owner, slug = string.match(rec, "^([^\t]*)\t(.*)$")
+  if not slug or slug == "" or owner ~= sid then return false end
   magi.remove_file(SKILLS_DIR .. "/" .. slug)
   -- 인덱스·사용실적·망각시계에서도 제거 — 시계를 남기면 같은 이름으로 재생성된 스킬이
   -- 취소된 전임자의 날짜를 물려받아 조기 아카이브된다.
@@ -599,10 +636,13 @@ magi.on("user_message", function(ev)
   -- 아니면 창을 닫는다(one-shot — 다음-턴 취소 시맨틱).
   local last = magi.store_get("last_skill")
   if last and last ~= "" then
-    if is_denial(ev.text) then
-      undo_last_skill(ev.session)
-    else
-      magi.store_set("last_skill", "")
+    local owner = string.match(last, "^([^\t]*)\t") or ""
+    if owner == ev.session then
+      if is_denial(ev.text) then
+        undo_last_skill(ev.session)
+      else
+        magi.store_set("last_skill", "")
+      end
     end
   end
   push_recent(ev.session, "user", ev.text)

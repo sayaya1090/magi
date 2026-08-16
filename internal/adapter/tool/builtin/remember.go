@@ -60,7 +60,7 @@ func (Remember) Description() string {
 		"Do not include secrets."
 }
 func (Remember) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"},"page":{"type":"string","description":"wiki page title — routes text to the shared wiki as this page's new full body, updated in place"},"summary":{"type":"string","description":"with page: one line on what changed and why"},"stale":{"type":"boolean","description":"with page: retire the page — text becomes the recorded reason it stopped being true"}},"required":["text"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"},"description":"labels for a memory; with page, these are the page's LINKS (related page titles)"},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"},"page":{"type":"string","description":"wiki page title — routes text to the shared wiki as this page's new full body, updated in place"},"summary":{"type":"string","description":"with page: one line on what changed and why"},"stale":{"type":"boolean","description":"with page: retire the page — text becomes the recorded reason it stopped being true"}},"required":["text"]}`)
 }
 
 func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {

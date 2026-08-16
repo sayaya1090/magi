@@ -136,27 +136,30 @@ func expSyncAbsorb(dir string, files map[string]string) int {
 	return n
 }
 
-// expSyncContentOK checks the filename's content hash against the body, for the shapes that carry
-// one: a wiki revision's name ends "-<hash>.md" over the revision BODY (the text after the
-// frontmatter), and a memory is "mem-<hash>.md" over its whole text. An unrecognized name shape
-// already failed expSyncPathOK.
+// expSyncContentOK checks a received file against everything its NAME claims: the content hash
+// (a wiki revision's "-<hash>.md" is over the body the store's own parser extracts — one shared
+// extractor, because a second implementation of "where does the body start" is how this check was
+// once bypassed with a prefix pasted above the frontmatter), and for a revision also its
+// PLACEMENT — the chain directory must be the one its title names, or a hash-valid revision could
+// be planted into a different page's chain with a high seq and hijack that page's current.
 func expSyncContentOK(p, content string) bool {
 	base := strings.TrimSuffix(p[strings.LastIndexByte(p, '/')+1:], ".md")
-	hashed := content
-	if strings.HasPrefix(p, "wiki/revisions/") {
-		// The body is what the writer hashed (see the store's wikiWrite); frontmatter carries
-		// per-write metadata and is excluded there, so it is excluded here.
-		if _, tail, ok := strings.Cut(content, "\n---\n"); ok {
-			hashed = strings.TrimSpace(tail)
-		} else {
-			return false
-		}
-	}
 	i := strings.LastIndexByte(base, '-')
 	if i < 0 {
 		return false
 	}
-	return base[i+1:] == expgit.ContentID(hashed)
+	hash := base[i+1:]
+	if strings.HasPrefix(p, "wiki/revisions/") {
+		title, body, ok := expgit.RevisionParts(content)
+		if !ok || hash != expgit.ContentID(body) {
+			return false
+		}
+		seg := strings.Split(p, "/")
+		dir := seg[2]
+		current, legacy := expgit.SlugOf(title)
+		return dir == current || dir == legacy
+	}
+	return hash == expgit.ContentID(content)
 }
 
 // expSyncDiff answers both halves of the union for one exchange.
@@ -180,6 +183,12 @@ func expSyncDiff(dir string, theirHave []string) (want []string, files map[strin
 		}
 		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
 		if err != nil {
+			continue
+		}
+		// A single file past the cap is SKIPPED, not allowed to break the round: `break` made one
+		// oversized file a permanent replication gap — it tripped the cap alone in every round,
+		// and everything queued behind it never crossed either.
+		if len(b) > expSyncBytesCap {
 			continue
 		}
 		if total += len(b); total > expSyncBytesCap {
@@ -282,7 +291,7 @@ func expSyncWithPeer(ctx context.Context, configDir, host string, peer identity.
 				continue
 			}
 			b, ferr := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
-			if ferr != nil {
+			if ferr != nil || len(b) > expSyncBytesCap { // oversized: skip, never wedge the round
 				continue
 			}
 			if total += len(b); total > expSyncBytesCap {

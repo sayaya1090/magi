@@ -370,20 +370,23 @@ func (a *App) wikiNeighborNote(ctx context.Context, page string) string {
 func formatWikiPages(pages []port.WikiPage) string {
 	var b strings.Builder
 	for _, p := range pages {
+		// Every head field clipped, not only the body: a locally-written page is oneLine-folded
+		// at the store, but a SYNCED foreign revision's frontmatter arrives as it was written —
+		// a degenerate single-line title must not ride into context whole.
 		head := "- wiki"
 		if p.Tier != "" {
 			head += ":" + p.Tier
 		}
-		head += " [" + p.Title + "]"
+		head += " [" + text.Clip(p.Title, 80) + "]"
 		if p.Stale {
 			head += " ⚠STALE"
 		}
-		meta := strings.TrimSpace(p.Editor)
+		meta := text.Clip(strings.TrimSpace(p.Editor), 60)
 		if p.Updated != "" {
 			if meta != "" {
 				meta += ", "
 			}
-			meta += p.Updated
+			meta += text.Clip(p.Updated, 40)
 		}
 		if meta != "" {
 			head += " (" + meta + ")"

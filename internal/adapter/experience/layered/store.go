@@ -9,6 +9,7 @@ package layered
 
 import (
 	"context"
+	"strings"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/port"
@@ -114,26 +115,38 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 	return nil // no tier configured: silently drop rather than error
 }
 
-// WikiSearch implements port.WikiStore across the tiers, most specific first, each page tagged
-// with the tier it came from — under one shared budget, like Retrieve, so the wiki widens what a
-// query can find without widening what it costs.
+// WikiSearch implements port.WikiStore across the tiers, each page tagged with its tier — under
+// one shared budget, like Retrieve. Every tier is ASKED before anything is cut: consuming the
+// budget tier-by-tier let a weak project-tier body match shadow an exact team-tier title match,
+// which broke the one promise the search makes ("a title query behaves as a page fetch") and made
+// the near-duplicate advisory nag updates whose page it simply never saw. Exact title matches
+// lead; within each half the tier order (most specific first) still decides.
 func (s *Store) WikiSearch(ctx context.Context, query string, n int) ([]port.WikiPage, error) {
-	var out []port.WikiPage
+	q := strings.TrimSpace(query)
+	var exact, rest []port.WikiPage
 	for _, t := range []struct {
 		st   *expgit.Store
 		tier string
 	}{{s.project, "project"}, {s.team, "team"}, {s.global, "global"}} {
-		if t.st == nil || len(out) >= n {
+		if t.st == nil {
 			continue
 		}
-		pages, err := t.st.WikiSearch(ctx, query, n-len(out))
+		pages, err := t.st.WikiSearch(ctx, query, n)
 		if err != nil {
 			continue // best-effort: a broken tier must not sink the others
 		}
 		for _, p := range pages {
 			p.Tier = t.tier
-			out = append(out, p)
+			if strings.EqualFold(strings.TrimSpace(p.Title), q) {
+				exact = append(exact, p)
+			} else {
+				rest = append(rest, p)
+			}
 		}
+	}
+	out := append(exact, rest...)
+	if len(out) > n {
+		out = out[:n]
 	}
 	return out, nil
 }
