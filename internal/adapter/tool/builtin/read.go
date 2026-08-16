@@ -183,6 +183,15 @@ func numberLines(s string, firstLine int) string {
 	}
 	hadTrailingNL := strings.HasSuffix(s, "\n")
 	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	// A one-line file gets no gutter: a single line needs no anchor, and the "1⇥" prefix is pure
+	// hazard there. Observed twice with a weaker model in one validation day — a hash file read
+	// back as "1\t3dea…" was quoted in prose with the gutter absorbed into the digest, and a
+	// one-word-per-line list drew repeated no-op `sed 's/^[0-9]*\t//'` attempts to strip a prefix
+	// the file never had. This is the single case where the anchor the gutter exists for is
+	// worthless, so the confusion buys nothing.
+	if len(lines) == 1 && firstLine == 1 {
+		return s
+	}
 	var b strings.Builder
 	for i, line := range lines {
 		if i > 0 {
