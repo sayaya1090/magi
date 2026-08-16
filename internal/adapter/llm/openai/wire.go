@@ -3,10 +3,10 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/envflag"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -554,10 +554,12 @@ func joinReasoning(parts []session.Part) string {
 	return string(b)
 }
 
-// resendReasoning gates the whole H1 lever. Default OFF until an A/B says otherwise: it is a real
-// behavior change to every request, and the models it exists for (harmony/gpt-oss) are not the
-// only ones magi runs.
-func resendReasoning() bool { return os.Getenv("MAGI_RESEND_REASONING") == "1" }
+// resendReasoning gates the whole H1 lever. Default ON since the paired pilot (2026-08-16,
+// gpt-oss:20b, 13 runs): multi-step tool-continuation tasks ran up to 50% faster on 40% fewer
+// input tokens, one-shot tasks were wall-neutral, and no deliverable regressed. Backends that do
+// not render the field ignore it, so the cost of being on against the wrong model is bytes on
+// the wire. MAGI_RESEND_REASONING=0 turns it off.
+func resendReasoning() bool { return envflag.Enabled("MAGI_RESEND_REASONING", true) }
 
 // toolResultContent renders a tool result as plain text for the wire. The result
 // is stored as a JSON-encoded string, so unwrap it (json.RawMessage `"text"` →

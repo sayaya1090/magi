@@ -171,8 +171,8 @@ git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지
 | — | `MAGI_TEMPERATURE` | (설정 `[sampling]`, 없으면 모델 기본) | 모든 요청에 실리는 샘플링 temperature; `[sampling] temperature`보다 우선 |
 | — | `MAGI_TOP_P` | (설정 `[sampling]`, 없으면 모델 기본) | nucleus 샘플링 컷오프; `[sampling] top_p`보다 우선 |
 | — | `MAGI_TOP_K` | (설정 `[sampling]`, 없으면 모델 기본) | top-k 컷오프 — OpenAI 비표준 확장이라 설정했을 때만 전송되고, 구현한 백엔드에서만 반영된다(Ollama `/v1`은 무시) |
-| — | `MAGI_RESEND_REASONING` | (꺼짐) | `1`이면 어시스턴트 메시지 자신의 reasoning을 와이어(`reasoning` 필드)로 되돌려 보낸다 — **열린 턴 안에서만**. 하모니 계열 모델(gpt-oss)은 툴 연속 중 자기 analysis 채널을 다시 볼 것을 기대한다(Ollama가 렌더링; 모르는 백엔드는 필드 무시) |
-| — | `MAGI_COLLAPSE_REPEATS` | (꺼짐) | `1`이면 모델 컨텍스트에서 동일한 (툴, 인자, 결과) 트리플의 낡은 중복을 스텁으로 접고 최신만 전문 유지 — 반복 실패 루프 유인을 굶긴다. 새로운 결과를 돌려준 반복은 절대 건드리지 않는다 |
+| — | `MAGI_RESEND_REASONING` | (켜짐) | 어시스턴트 메시지 자신의 reasoning을 와이어(`reasoning` 필드)로 되돌려 보낸다 — **열린 턴 안에서만**. 하모니 계열 모델(gpt-oss)은 툴 연속 중 자기 analysis 채널을 다시 볼 것을 기대한다(Ollama가 렌더링; 모르는 백엔드는 필드 무시). `0`이면 끔 |
+| — | `MAGI_COLLAPSE_REPEATS` | (켜짐) | 모델 컨텍스트에서 동일한 (툴, 인자, 결과) 트리플의 낡은 중복을 스텁으로 접고 최신만 전문 유지 — 반복 실패 루프 유인을 굶긴다. 새로운 결과를 돌려준 반복은 절대 건드리지 않고, 중복 없는 트랜스크립트는 통째로 불변. `0`이면 끔 |
 | — | `MAGI_EMOJI_WIDTH` | (자동 프로브) | 이모지 셀 폭을 강제: `narrow`\|`1`(1칸) 또는 `wide`\|`2`(2칸). 미지정 시 기동 프로브가 실측 |
 | — | `MAGI_WIDTH_PROBE` | (켜짐) | `0`이면 기동 시 터미널 폭 프로브(ambiguous·데코·이모지)를 건너뜀 = 무보정(라이브러리 기본폭 사용) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — 동아시아 ambiguous 문자 셀 폭 강제(아래 참고) |

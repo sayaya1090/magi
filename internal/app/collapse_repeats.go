@@ -11,14 +11,15 @@ import (
 // sees the identical (call, result) pair stack up in its context; on a weaker model that pile is a
 // gravity well — the transcript itself testifies that this is what the turn does, and the next
 // step samples more of it. Council-side the same shape is already collapsed (evidence
-// supersession); this is the MODEL-side twin, gated off by default until an A/B says it earns its
-// keep.
+// supersession); this is the MODEL-side twin. Default ON: on a transcript with no identical
+// repeats it rewrites nothing at all, so the only turns it changes are the ones already
+// circling. MAGI_COLLAPSE_REPEATS=0 turns it off.
 //
 // Only an identical result is collapsed: the same call returning something NEW is progress the
 // model must see. The newest occurrence keeps its full content — current state stays current — and
 // the older results are replaced in place, so every tool_call keeps a paired result and the wire
 // stays valid for providers that check the pairing.
-func collapseRepeatsEnabled() bool { return envflag.Enabled("MAGI_COLLAPSE_REPEATS", false) }
+func collapseRepeatsEnabled() bool { return envflag.Enabled("MAGI_COLLAPSE_REPEATS", true) }
 
 const collapsedRepeatStub = "[this exact call ran again later in this transcript and returned the " +
 	"IDENTICAL result — collapsed here; read the latest occurrence below. Repeating it again will " +

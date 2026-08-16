@@ -40,10 +40,10 @@ func TestReasoningIsResentOnlyInsideTheOpenTurn(t *testing.T) {
 	}
 }
 
-// Default off: it is a behavior change to every request, and the models it exists for are not the
-// only ones magi runs. Nothing carries reasoning until an operator turns it on.
-func TestReasoningResendIsOffByDefault(t *testing.T) {
-	t.Setenv("MAGI_RESEND_REASONING", "")
+// Default ON since the paired pilot; MAGI_RESEND_REASONING=0 is the off switch, and it must
+// actually switch off.
+func TestReasoningResendCanBeSwitchedOff(t *testing.T) {
+	t.Setenv("MAGI_RESEND_REASONING", "0")
 	msgs := []session.Message{
 		{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "ask"}}},
 		{Role: session.RoleAssistant, Parts: []session.Part{
@@ -54,5 +54,25 @@ func TestReasoningResendIsOffByDefault(t *testing.T) {
 		if m.Reasoning != "" {
 			t.Fatalf("reasoning sent with the flag off: %q", m.Reasoning)
 		}
+	}
+}
+
+// And unset means ON: the open turn's reasoning travels without anyone flipping anything.
+func TestReasoningResendIsOnByDefault(t *testing.T) {
+	t.Setenv("MAGI_RESEND_REASONING", "")
+	msgs := []session.Message{
+		{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "ask"}}},
+		{Role: session.RoleAssistant, Parts: []session.Part{
+			{Kind: session.PartReasoning, Text: "ANALYSIS"},
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "read", Args: []byte(`{}`)}}}},
+	}
+	found := false
+	for _, m := range convertMessages(msgs) {
+		if m.Reasoning == "ANALYSIS" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("default must resend the open turn's reasoning")
 	}
 }

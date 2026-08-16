@@ -68,11 +68,16 @@ func TestADifferingResultIsNotCollapsed(t *testing.T) {
 	}
 }
 
-// Default off: the transcript reaches the wire exactly as reconstructed.
-func TestCollapseIsOffByDefault(t *testing.T) {
+// Default ON — unset collapses; MAGI_COLLAPSE_REPEATS=0 is the off switch, and it must actually
+// switch off.
+func TestCollapseIsOnByDefaultAndSwitchable(t *testing.T) {
 	t.Setenv("MAGI_COLLAPSE_REPEATS", "")
-	msgs := repeatMsgs("exit 1 FAIL", "exit 1 FAIL")
-	got := resultTexts(collapseRepeatedCalls(msgs))
+	got := resultTexts(collapseRepeatedCalls(repeatMsgs("exit 1 FAIL", "exit 1 FAIL")))
+	if !strings.Contains(got[0], "collapsed") {
+		t.Fatalf("default must collapse an identical repeat: %v", got)
+	}
+	t.Setenv("MAGI_COLLAPSE_REPEATS", "0")
+	got = resultTexts(collapseRepeatedCalls(repeatMsgs("exit 1 FAIL", "exit 1 FAIL")))
 	for _, r := range got {
 		if strings.Contains(r, "collapsed") {
 			t.Fatalf("collapse ran with the flag off: %v", got)
