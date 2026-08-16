@@ -760,10 +760,10 @@ console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHe
 	// have not been.
 	for _, tc := range []struct{ query, want, href string }{
 		{"", "Companions", "/"},
-		{"?v=skills", "Shared", "/?v=skills"},
+		{"?v=skills", "Knowledge", "/?v=skills"},
 		// The old address still lands: what a companion can reach joined what it has learned, and
 		// a link somebody kept must not stop working because two lists became one screen.
-		{"?v=mcp", "Shared", "/?v=skills"},
+		{"?v=mcp", "Knowledge", "/?v=skills"},
 	} {
 		// An empty fleet: the crumb is drawn by render() from the query alone, and handing the
 		// other views a list of agents makes them throw on data shaped for a different screen.
@@ -2528,7 +2528,7 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 `)
 	seen := got["seen"].([]any)
 	want := []struct{ search, crumb, href string }{
-		{"?v=skills", "Shared", "/?v=skills"},
+		{"?v=skills", "Knowledge", "/?v=skills"},
 		{"", "Companions", "/"},
 	}
 	for i, w := range want {
@@ -2577,7 +2577,7 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 	tabs := first["tabs"].([]any)
 	// The rail's item holds a word, a short word and a sentence under it, so the text of the whole
 	// item begins with the name.
-	if !strings.HasPrefix(tabs[0].(string), "Companions") || !strings.HasPrefix(tabs[1].(string), "Shared") {
+	if !strings.HasPrefix(tabs[0].(string), "Companions") || !strings.HasPrefix(tabs[1].(string), "Knowledge") {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
 	if first["ask"] != "Ask magi" {

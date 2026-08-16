@@ -144,6 +144,14 @@ func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {
 	return pages, nil
 }
 
+// WikiList returns every current page INCLUDING the stale ones, newest edit first — the
+// governance view's read, where a tombstone is exactly the thing a person wants to see.
+func (s *Store) WikiList(ctx context.Context) []port.WikiPage {
+	pages := s.wikiPages()
+	sort.SliceStable(pages, func(i, j int) bool { return pages[i].Updated > pages[j].Updated })
+	return pages
+}
+
 // wikiPages derives every current page from its revision set.
 func (s *Store) wikiPages() []port.WikiPage {
 	root := filepath.Join(s.dir, "wiki", "revisions")

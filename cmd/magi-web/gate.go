@@ -84,6 +84,7 @@ var mayWrite = map[string]auth.Capability{
 	"/file-do": auth.Shell,
 	// What it learns from.
 	"/skills":        auth.Curate,
+	"/wiki":          auth.Curate,
 	"/forget":        auth.Curate,
 	"/remember":      auth.Curate,
 	"/report-format": auth.Curate,

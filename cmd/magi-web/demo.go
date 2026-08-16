@@ -299,6 +299,19 @@ const demoScript = `
     // key". Nothing can be subscribed here — there is no server to post to and the mock refuses
     // writes — but the reason a reader sees is then the browser's own, which is the true one.
     '/push': {key: 'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8', count: 0},
+    '/wiki': [
+      {title: 'auth flow', tier: 'team', team: 'frontend', editor: 'melchior',
+       updated: '2026-08-14T02:11:09Z', summary: 'corrected the refresh owner',
+       hook: 'the SIDECAR refreshes tokens, not the gateway', links: ['service map'],
+       body: 'The gateway fronts every request, but token refresh is the sidecar\'s: the gateway '
+           + 'only forwards the 401 and the sidecar replays with a fresh token. Timeout on the '
+           + 'refresh path is 8s, set in the sidecar\'s own config, not the gateway\'s.'},
+      {title: 'legacy queue', tier: 'team', team: 'frontend', editor: 'gardener', stale: true,
+       updated: '2026-07-30T10:00:00Z', summary: 'replaced by kafka',
+       hook: 'no longer true: jobs moved to kafka',
+       body: 'no longer true: jobs moved to kafka. The rabbitmq broker still answers on 5672 but '
+           + 'nothing enqueues to it; see the event bus page for the current path.'},
+    ],
     '/skills': [
       {name: 'skill-tests-before-done', kind: 'skill', tier: 'global', observed: 6,
        firstSeen: '2026-06-30', lastSeen: '2026-08-07',

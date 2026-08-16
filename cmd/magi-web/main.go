@@ -1035,6 +1035,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/vendor/":       s.asset,
 		"/i18n/":         s.asset,
 		"/skills":        s.skills,
+		"/wiki":          s.wiki,
 		"/forget":        s.forgetSkill,
 		"/report-format": s.reportFormat,
 		"/remember":      s.remember,

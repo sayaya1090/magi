@@ -566,7 +566,7 @@ function drawSharedTabs() {
       if (to !== at && tabs[to].focus) tabs[to].focus();
     });
   }
-  const want = [['skills', 'nav.experience'], ['mcp', 'nav.mcp']];
+  const want = [['skills', 'nav.experience'], ['wiki', 'nav.wiki'], ['mcp', 'nav.mcp']];
   const same = [...sharedTabs.children].map(t => t.textContent).join('|') ===
                want.map(([, k]) => tr(k)).join('|');
   if (!same) {
@@ -676,6 +676,7 @@ wide.addEventListener('change', drawPanels);
 // so it is a re-render rather than a re-layout.
 
 const skillsEl = document.getElementById('skills');
+const wikiEl = document.getElementById('wiki');
 const boardEl = document.getElementById('board');
 const mapEl = document.getElementById('map');
 const meetEl = document.getElementById('meet');
@@ -4578,6 +4579,62 @@ async function loadSkills() {
                sectionHead('nav.memories', null, 3), ...isFact.map(draw));
   }
   keepingFocus('skills', () => skillsEl.replaceChildren(...parts, skillWrite(list)));
+}
+
+// ── the wiki: canonical pages ────────────────────────────────────────────────
+// What the companions hold as CURRENT truth, per topic — including the stale tombstones the
+// agent-facing index deliberately hides, because a governance screen is exactly where a person
+// wants to see what was retired and why. Read-only here: a page is corrected by writing it
+// (remember{page:…}) and retired by a stale revision, never by a delete button — a deletion
+// would resurrect on the next fleet sync anyway.
+async function loadWiki() {
+  reading(wikiEl, 'loading.wiki');
+  const list = await fetchList('/wiki');
+  if (!list) return void paneFailed(wikiEl, 'nav.wiki');
+  if (!list.length) {
+    wikiEl.replaceChildren(sectionHead('nav.wiki'),
+      emptyState('empty.no_pages', 'empty.no_pages_how'));
+    return;
+  }
+  const draw = p => {
+    const el = cell('sk ' + p.tier + (p.stale ? ' fact' : ''));
+    const top = cell('top');
+    top.append(cell('tier',
+      (p.tier === 'global' ? tr('reach.every_companion')
+       : p.tier === 'team' ? tr('reach.team', {team: p.team})
+       : tr('reach.only', {name: p.companion}))));
+    top.append(cell('what', (p.stale ? '⚠ ' : '') + p.title));
+    el.append(top);
+    const bits = [];
+    if (p.stale) bits.push(tr('wiki.stale'));
+    if (p.editor) bits.push(tr('wiki.edited_by', {name: p.editor}));
+    if (p.updated) bits.push(p.updated.slice(0, 10));
+    if (p.summary) bits.push(p.summary);
+    if (p.links && p.links.length) bits.push('→ ' + p.links.join(', '));
+    if (bits.length) el.append(cell('meta', bits.join(' · ')));
+    const body = (p.body || '').trim();
+    if (!body) return el;
+    const text = cell('body');
+    text.textContent = body;
+    text.hidden = true;
+    const more = document.createElement('md-text-button');
+    more.className = 'fold';
+    let open = false;
+    more.textContent = tr('action.read');
+    more.setAttribute('aria-label', tr('action.read_named', {name: p.title}));
+    withMark(more, '#i-sl-file-lines');
+    more.onclick = () => {
+      open = !open;
+      text.hidden = !open;
+      more.textContent = tr(open ? 'action.collapse' : 'action.read');
+      more.setAttribute('aria-label', open ? tr('action.collapse') + ' — ' + p.title
+                                           : tr('action.read_named', {name: p.title}));
+    };
+    top.append(more);
+    el.append(text);
+    return el;
+  };
+  keepingFocus('wiki', () => wikiEl.replaceChildren(sectionHead('nav.wiki'), ...list.map(draw)));
 }
 
 // ── what they can reach ──────────────────────────────────────────────────────
@@ -9769,7 +9826,7 @@ loadMe();   // its two labels are words too
   //
   // Guarded on a first paint having happened, or this would run before the loaders are declared.
   if (!repaintable) return;
-  if (view() === 'skills') { loadSkills(); loadMCP(); }
+  if (view() === 'skills') { loadSkills(); loadWiki(); loadMCP(); }
   else if (view() === 'access' && mayEl(accessEl)) loadAccess();
   else if (view() === 'board') loadBoard();
   // Map and meet had no branch here, so `!sock()` was true on both and the loader repainted a
@@ -10093,6 +10150,7 @@ function showDestination(s, v) {
   // on several companions at once, so somebody who may not prompt should not arrive at the form by
   // editing the address either. The server refuses regardless.
   meetEl.hidden = !!s || v !== 'meet' || !mayEl(meetEl);
+  wikiEl.hidden = !!s || v !== 'skills' || (sharedOne && sharedShows !== 'wiki');
   mcpEl.hidden = !!s || v !== 'skills' || (sharedOne && sharedShows !== 'mcp');
   // The switch, drawn once and only where it means something.
   sharedTabs.hidden = !!s || v !== 'skills' || !sharedOne;
