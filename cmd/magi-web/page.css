@@ -2382,6 +2382,21 @@
      carried a margin-bottom:0 to undo it in the one place somebody noticed. The container
      spaces its children; the child does not space itself. */
   md-outlined-card { padding:var(--magi-sys-space-200) var(--magi-sys-space-200); }
+  /* A card that scrolls must paint its own frame. The component draws its outline and its surface
+     on absolute inset:0 children, which size to the VISIBLE box — make the card its own scroll
+     container (both of these are, on a companion's page) and the frame and ground stop at the
+     first viewport-full while the content keeps going: measured, the facts card's border ended
+     mid-panel the moment it scrolled. Painting the HOST's border and background instead pins the
+     frame to the scroll container's box — which is what a scrolling card looks like everywhere
+     else — and the component's own layers are switched off so the two never disagree. */
+  #detail, #fileview {
+    --md-outlined-card-outline-width:0px;
+    --md-outlined-card-container-color:transparent;
+    border:1px solid var(--magi-ref-outlineVariant);
+    border-radius:var(--magi-sys-shape-m);
+    background:var(--magi-ref-bg);
+    box-sizing:border-box;
+  }
   #detail { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
   /* An open file stays at the top of the conversation while the conversation scrolls under it.
      It is being read ALONGSIDE the transcript — that is the whole reason it is on this page and
