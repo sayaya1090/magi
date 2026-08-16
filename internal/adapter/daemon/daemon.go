@@ -1700,8 +1700,32 @@ func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, jobs, tools, models, rewind, compact, set-model, set-permission, reload-cron, shell, about, hand, hand-state, watch, shutdown, restart, update", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: %s", r.Method, acceptedMethods())
 }
+
+// acceptedMethods is every method serveConn answers, derived from the tables that actually answer
+// them rather than kept as a sentence. The sentence drifted: it listed the roster as of the day it
+// was written, and the answers map had since grown a dozen methods (tool, edit-file, git, the
+// meeting verbs, the draft verbs) the refusal then denied existed — a typo-correcting message that
+// itself needed correcting.
+var acceptedMethods = sync.OnceValue(func() string {
+	names := map[string]bool{
+		// The methods dispatch and serveConn handle outside the answers map.
+		"submit": true, "steer": true, "interrupt": true, "permission": true, "answer": true,
+		"rewind": true, "compact": true, "set-model": true, "set-permission": true,
+		"resume": true, "reload-cron": true, "watch": true, "shutdown": true, "restart": true,
+		"update": true,
+	}
+	for m := range answers {
+		names[m] = true
+	}
+	out := make([]string, 0, len(names))
+	for m := range names {
+		out = append(out, m)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+})
 
 // control runs one of the calls that change how the engine behaves.
 func control(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
