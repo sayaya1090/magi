@@ -1967,6 +1967,21 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 		// the first would stop after LOCALIZE with the task untouched. The whole pipeline emits one
 		// terminal marker (workflow.phase phase="workflow" status="done"); wait for that instead.
 		if e.Type == event.TypeTurnFinished && !workflow {
+			// An UNVERIFIED landing gets the transcript's LAST word. Observed live (the server
+			// lifecycle run, 2026-08-16): the cap landed the turn, the model then wrote a "fully
+			// satisfied" summary anyway, and that false narrative was the final text a reader saw —
+			// twenty lines after the model's own admission it was incomplete. The record was honest
+			// and the page was not. Restating the recorded outcome after everything else is what
+			// keeps the two from disagreeing at the one place people actually stop reading.
+			var d event.TurnFinishedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Unverified {
+				reason := strings.TrimSpace(d.Reason)
+				if reason == "" {
+					reason = "the council never accepted a completion declaration"
+				}
+				fmt.Fprintln(out, "\n⚠ landed UNVERIFIED — "+reason+
+					"\n  (any completion claim above was not accepted; the work stands as it is)")
+			}
 			break
 		}
 		if workflow && e.Type == event.TypeWorkflowPhase {
