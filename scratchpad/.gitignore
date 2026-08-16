@@ -1,1 +1,6 @@
 node_modules/
+
+# Security audit reports. They describe, with file and line, defects that are still open in this
+# tree — publishing them to a public repository is handing the roadmap over before the fix. They
+# stay local until the findings are closed, and even then the writeup is not what belongs here.
+audit-wave*/
