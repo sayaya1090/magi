@@ -150,6 +150,15 @@ func SetPerson(dir, who string, p auth.Person) error {
 	if who == "" {
 		return fmt.Errorf("no name given")
 	}
+	// The name lands inside a quoted TOML header (`people."<who>"`), and this was the one header
+	// writer with no gate on it: a name carrying a quote or a newline would have injected a second
+	// table into auth.toml — the file that says who may do what. The caller is already an admin, so
+	// this is not an escalation stop; it is what keeps a malformed-but-authorized edit from bricking
+	// the policy file every later start refuses to load.
+	if !QuotedName(who) {
+		return fmt.Errorf("%q cannot be a person's name here: quotes, backslashes and control "+
+			"characters would break the [people] table header it becomes", who)
+	}
 	now, err := LoadAuth(dir)
 	if err != nil {
 		return err

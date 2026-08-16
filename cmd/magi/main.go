@@ -1776,6 +1776,13 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	if proj.Council.Verify != "" {
 		held = append(held, "a verification command")
 	}
+	// [subagents.*] is the user's per-specialist settings: which model it runs on, and whether one
+	// that ships OFF is switched on. That is model-steering and spend-routing — the same thing the
+	// completion settings and profiles above are held for — so a repo nobody vouched for does not
+	// get to decide it. (A committed Provider names a profile that was just scrubbed, so it cannot
+	// redirect the endpoint or key; what it CAN do is change a specialist's model and turn on an
+	// off-by-default one, which is enough to hold it.)
+	note(fmt.Sprintf("%d subagent setting(s)", len(proj.Subagents)), len(proj.Subagents))
 	if len(held) > 0 {
 		*said = append(*said, "carries "+strings.Join(held, ", ")+" and this workspace is not one "+
 			"you have trusted, so none of it was taken — `magi --trust` here if the file is yours")
@@ -1786,6 +1793,7 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	proj.LLM.Headers, proj.LLM.Profiles = nil, nil
 	proj.Autocomplete, proj.Templates = config.AutocompleteConfig{}, config.TemplatesConfig{}
 	proj.Council.Verify = ""
+	proj.Subagents = nil
 	return proj
 }
 

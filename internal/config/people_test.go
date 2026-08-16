@@ -26,6 +26,32 @@ role = "operator"
 role = "responder"
 `
 
+// A name that would break out of the quoted [people."…"] header is refused before it touches the
+// file. The caller is already an admin, so this is not an escalation gate — it is what keeps one
+// malformed edit from writing an auth.toml every later start refuses to load (and, with a crafted
+// name, from injecting a second table into the policy file). Every other header writer has its
+// BareName gate; this quoted-key writer gets the quoted-key equivalent.
+func TestSetPersonRefusesAHeaderBreakingName(t *testing.T) {
+	dir := withAuth(t, twoPeople)
+	for _, who := range []string{
+		"a\"]\n[roles.evil]\ncan=[\"admin", // closes the quote, injects a table
+		"a\"b@corp.com",                    // a bare quote
+		"a\\b@corp.com",                    // a backslash escape
+		"a\nb@corp.com",                    // a newline splits the header
+	} {
+		if err := SetPerson(dir, who, auth.Person{Role: "operator"}); err == nil {
+			t.Errorf("SetPerson(%q) wrote a header-breaking name", who)
+		}
+	}
+	// The file is untouched, and an ordinary address — dots and @ — still goes through.
+	if _, err := LoadAuth(dir); err != nil {
+		t.Fatalf("the refusals damaged the file: %v", err)
+	}
+	if err := SetPerson(dir, "new.person+tag@corp.com", auth.Person{Role: "operator"}); err != nil {
+		t.Fatalf("an ordinary email was refused: %v", err)
+	}
+}
+
 // Somebody's role and scope can be changed without rewriting their file.
 func TestSetPersonEditsInPlace(t *testing.T) {
 	dir := withAuth(t, "# who works here\n"+twoPeople)

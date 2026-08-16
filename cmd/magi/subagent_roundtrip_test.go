@@ -10,6 +10,24 @@ import (
 	"github.com/sayaya1090/magi/internal/config"
 )
 
+// A subagent name is concatenated into a raw TOML table header, so it passes the same bare-key
+// gate every other header writer applies (profiles, mcp, cron, schedule) — a name carrying a
+// bracket or a newline is refused instead of rewriting the config file.
+func TestPersistSubagentRefusesANonBareName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	p := subagentPersister{path: path}
+	on := true
+	for _, name := range []string{"a]\n[mcp.evil]", "a b", "a.b", ""} {
+		if err := p.PersistSubagent(name, app.SubagentPref{Enabled: &on}); err == nil {
+			t.Errorf("PersistSubagent(%q) wrote a header-breaking name", name)
+		}
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("a refused name still touched the config file")
+	}
+}
+
 // Ticking a box in /subagents has to survive a restart, and that is the whole loop: the persister
 // writes, the loader reads, and the app decides whether to advertise. Each half was covered on its
 // own and the seam between them was not — so a bool written as a quoted string passed both halves

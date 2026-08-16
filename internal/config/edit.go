@@ -73,6 +73,24 @@ func BareName(s string) bool {
 	return true
 }
 
+// QuotedName reports whether s is safe INSIDE a quoted TOML key — `people."<s>"` — which is the
+// header shape for keys that legitimately carry dots and @ signs (an email address) and so cannot
+// meet BareName. The quotes contain everything except the three things that end or escape them: a
+// double quote, a backslash, and a control character (a newline splits the header; the others make
+// the file fail to parse). Same placement rule as BareName: it lives beside the writers it
+// protects, so a header writer that quotes its name still has its gate one line away.
+func QuotedName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r == '"' || r == '\\' || r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // SetKey surgically sets `key = "value"` under the given TOML table in the file
 // at path, preserving the rest of the file (comments, template, other sections).
 // section "" targets a top-level key (in the preamble before the first table).

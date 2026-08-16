@@ -70,6 +70,15 @@ func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
 type subagentPersister struct{ path string }
 
 func (s subagentPersister) PersistSubagent(name string, pref app.SubagentPref) error {
+	// The same bare-key gate every other header writer uses (profiles, mcp, cron, schedule): this
+	// name is concatenated into a raw TOML table header, so a name carrying `]`, a newline or a
+	// quote could inject a second table into the config. Subagent names are plugin-declared
+	// identifiers, so the allowlist never rejects a legitimate one; it stops a malformed one from
+	// rewriting the file.
+	if !config.BareName(name) {
+		return fmt.Errorf("%q cannot be a subagent name: letters, numbers, hyphens and underscores "+
+			"only (it becomes a TOML table header)", name)
+	}
 	// One table per subagent, so the enabled flag and the model override sit together under a name
 	// a reader recognises: [subagents.<name>].
 	table := "subagents." + name
