@@ -58,8 +58,13 @@ func seatbeltProfile(spec port.SandboxSpec) string {
 	// plus temp and build-cache locations so normal tooling keeps working.
 	b.WriteString("(deny file-write*)\n(allow file-write*\n")
 	// The specific per-user temp dir (and its /private-resolved twin) — not the
-	// whole /var/folders tree, which would expose every process's temp.
+	// whole /var/folders tree, which would expose every process's temp. A spec that names its
+	// own TempDir gets ONLY that: /tmp is world-shared and the per-user tree holds every
+	// sibling child's clone, which is exactly what an isolated child must not reach.
 	writePaths := []string{tmp, privateTwin(tmp), "/tmp", "/private/tmp"}
+	if spec.TempDir != "" {
+		writePaths = []string{spec.TempDir, privateTwin(spec.TempDir)}
+	}
 	if spec.Mode == "workspace-write" && spec.Workdir != "" {
 		writePaths = append([]string{spec.Workdir, privateTwin(spec.Workdir)}, writePaths...)
 	}

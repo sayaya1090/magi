@@ -436,6 +436,14 @@ type SandboxSpec struct {
 	// a confined command could rewrite or delete any transcript on the machine, including the one
 	// recording what it was doing.
 	ReadOnly []string
+	// TempDir, when set, NARROWS the temp allowance to this one directory instead of the
+	// platform's shared temp trees. The shared trees are the right default for an operator's own
+	// confined run — build tools write temp constantly — and an open door for an ISOLATED CHILD:
+	// /tmp is world-shared, and the per-user temp tree holds every sibling's clone. Observed live
+	// (the escape-attempt wave run, 2026-08-16): a child's `echo … > /tmp/…/two.txt` sailed through
+	// the seatbelt because /tmp was on the allow list. The bash tool already points TMPDIR at the
+	// turn's scratch, so tooling keeps working when this is that scratch directory.
+	TempDir string
 }
 
 // Confined reports whether the spec requests actual confinement.

@@ -366,6 +366,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.enterTool(sid)
 	defer a.leaveTool(sid)
 	scratch := a.scratchFor(sid)
+	// An isolated child's sandbox loses the SHARED temp trees and keeps only this scratch: /tmp is
+	// world-shared and the per-user temp tree holds every sibling's clone — observed live, a
+	// child's `echo … > /tmp/…` sailed through the seatbelt on the strength of the general temp
+	// allowance. bash points TMPDIR here already, so tooling inside the child keeps working.
+	isolatedTemp := ""
+	if a.sandboxOverridden(sid) {
+		isolatedTemp = scratch.tmpDir()
+	}
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		SessionID:    sid,
 		Workdir:      workdir,
@@ -449,7 +457,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// benchmark run silently loses network the moment a container has bwrap/sandbox-exec, and
 		// subagents (same execute path) inherit it too.
 		Sandbox: port.SandboxSpec{Mode: a.sandboxModeFor(sid), Workdir: workdir, AllowNet: a.cfg.Permission == "allow",
-			ReadOnly: readOnlyPaths(a.cfg)},
+			ReadOnly: readOnlyPaths(a.cfg), TempDir: isolatedTemp},
 	})
 	if err != nil {
 		resultEmitted = true

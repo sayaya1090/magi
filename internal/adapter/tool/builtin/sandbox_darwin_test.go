@@ -72,3 +72,44 @@ func TestSandboxFullModeUnconfined(t *testing.T) {
 		t.Error("empty mode must not wrap the command")
 	}
 }
+
+// An isolated child's spec names its own TempDir, and the shared temp trees drop off the allow
+// list. Observed live (the escape-attempt wave run): a child's `echo … > /tmp/…` sailed through
+// the seatbelt on the strength of the general temp allowance — /tmp is world-shared, and the
+// per-user temp tree holds every sibling's clone.
+func TestSandboxNamedTempDirNarrowsTheTempAllowance(t *testing.T) {
+	work, ownTmp, sibling := t.TempDir(), t.TempDir(), t.TempDir()
+	run := func(command string) int {
+		t.Helper()
+		argv, wrapped := sandboxArgv(port.SandboxSpec{Mode: "workspace-write", Workdir: work, TempDir: ownTmp}, command)
+		if !wrapped {
+			t.Skip("sandbox-exec not available")
+		}
+		out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("%s: %v (%s)", command, err, out)
+		}
+		return 0
+	}
+	// Its own workdir and its own temp: allowed.
+	if code := run("echo ok > " + work + "/in.txt"); code != 0 {
+		t.Errorf("workdir write must be allowed, got %d", code)
+	}
+	if code := run("echo ok > " + ownTmp + "/scratch.txt"); code != 0 {
+		t.Errorf("own-temp write must be allowed, got %d", code)
+	}
+	// The world-shared tree and a sibling's per-user temp dir: denied.
+	if code := run("echo escaped > /tmp/magi-sbx-escape-test.txt"); code == 0 {
+		os.Remove("/tmp/magi-sbx-escape-test.txt")
+		t.Errorf("/tmp write must be denied when the spec names its own TempDir")
+	}
+	if code := run("echo escaped > " + sibling + "/two.txt"); code == 0 {
+		t.Errorf("a sibling temp dir must be denied when the spec names its own TempDir")
+	}
+	if _, err := os.Stat(sibling + "/two.txt"); err == nil {
+		t.Errorf("the sibling escape file exists — the sandbox did not confine")
+	}
+}

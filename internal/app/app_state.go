@@ -272,6 +272,16 @@ func (a *App) sandboxModeFor(sid session.SessionID) string {
 	return a.cfg.Sandbox
 }
 
+// sandboxOverridden reports whether this session carries the pinned isolated-child sandbox. It is
+// what narrows the sandbox's temp allowance to the session's own scratch: the shared temp trees
+// hold every sibling's clone, which is exactly what an isolated child must not write.
+func (a *App) sandboxOverridden(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	return ok && st.sandboxMode != ""
+}
+
 // effectiveSandbox merges the config's sandbox mode with a per-session override. The override may
 // tighten, never loosen: a config that says "read-only" keeps saying it, and "workspace-write"
 // already confines at least as much as the override asks. Only an unconfined config ("" or "full")

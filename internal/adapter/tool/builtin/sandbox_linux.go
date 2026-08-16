@@ -58,10 +58,17 @@ func SandboxWrap(spec port.SandboxSpec, cmdArgv []string) ([]string, bool) {
 		}
 	}
 
-	// Temp is always writable (read-only and workspace-write both need it).
-	bindRW(os.TempDir(), true)
-	bindRW("/tmp", false)
-	bindRW("/var/tmp", false)
+	// Temp is always writable (read-only and workspace-write both need it). A spec that names its
+	// own TempDir gets ONLY that: /tmp is world-shared and the per-user tree holds every sibling
+	// child's clone, which is exactly what an isolated child must not reach — the bash tool points
+	// TMPDIR at this directory, so tooling keeps working.
+	if spec.TempDir != "" {
+		bindRW(spec.TempDir, true)
+	} else {
+		bindRW(os.TempDir(), true)
+		bindRW("/tmp", false)
+		bindRW("/var/tmp", false)
+	}
 
 	if spec.Mode == "workspace-write" {
 		bindRW(spec.Workdir, false)
