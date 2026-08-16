@@ -557,5 +557,6 @@
   "prof.keyed": "key set",
   "prof.need_name": "A profile needs a name",
   "update.failed": "the update did not run — try again, or check the daemon",
-  "update.working": "checking…"
+  "update.working": "checking…",
+  "ver.behind": "{v} is out"
 }

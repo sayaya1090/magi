@@ -56,7 +56,9 @@ doing. The order is the order the eye should travel: **waiting on a person → w
 - **Grouped by team**, trouble first within each. A heading names the team, says which companion
   speaks for it, and badges how many of its members are waiting.
 - A row: state badge · **how far through its own plan** (`3/7`) · name · **role** · workspace path ·
-  what it is doing · host and IP · idle time · one icon button to interrupt. Not a progress bar: a
+  what it is doing · host and IP **and the build its daemon reports** — marked when it trails the
+  newest in the list, since "which companion is behind" is a question about the fleet, not about
+  one card · idle time · one icon button to interrupt. Not a progress bar: a
   todo list is not a schedule, and a bar would promise a completion time nobody can honour. There is
   no "open" button — the row is a link, and a button repeating what the row already does is a second
   way to do one thing.

@@ -557,5 +557,6 @@
   "prof.keyed": "키 설정됨",
   "prof.need_name": "프로파일에 이름이 필요합니다",
   "update.failed": "업데이트 실행 안 됨 — 다시 시도하거나 데몬을 확인하세요",
-  "update.working": "확인 중…"
+  "update.working": "확인 중…",
+  "ver.behind": "{v} 나와 있음"
 }

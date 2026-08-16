@@ -232,6 +232,44 @@ func TestTheDashboardDrawsACardPerAgent(t *testing.T) {
 	}
 }
 
+// The list is the screen whose whole job is comparing companions, so it is where a build that
+// trails the fleet has to be visible. Each row shows the version its daemon reports, and the row
+// behind the newest one says so — before this, the only way to find the lagging companion was to
+// open every facts card in turn.
+func TestARowBehindTheNewestBuildSaysSo(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+       "steps":1,"idle":5,"version":"v0.23.0"},
+      {"socket":"/s/b.sock","name":"ops","workdir":"/w/ops","state":"idle","live":true,
+       "steps":0,"idle":60,"version":"v0.22.0"},
+      {"socket":"/s/c.sock","name":"old","workdir":"/w/old","state":"idle","live":true,
+       "steps":0,"idle":90}
+    ]`, "", rowsHelper+`
+await loadFleet();
+const vers = rows().map(c => {
+  const v = c.find('div').find(d => String(d.className).split(' ').includes('ver'));
+  return v ? {text: v.text, behind: String(v.className).includes('behind')} : null;
+});
+console.log(JSON.stringify({vers}));
+`)
+	vers, _ := got["vers"].([]any)
+	if len(vers) != 3 {
+		t.Fatalf("expected 3 rows, got %v", got["vers"])
+	}
+	newest := vers[0].(map[string]any)
+	if !strings.Contains(newest["text"].(string), "v0.23.0") || newest["behind"] == true {
+		t.Errorf("the newest build's row reads %v — it must show its version and not be marked", newest)
+	}
+	lag := vers[1].(map[string]any)
+	if lag["behind"] != true || !strings.Contains(lag["text"].(string), "v0.23.0") {
+		t.Errorf("the lagging row reads %v — it must be marked behind and name what is out", lag)
+	}
+	// A daemon too old to report a build shows nothing rather than a guess.
+	if vers[2] != nil {
+		t.Errorf("a version-less row drew %v", vers[2])
+	}
+}
+
 // A blocked agent is the reason to look at a dashboard, so its card says what is being decided and
 // carries the buttons that decide it. Those buttons are also the only control on the page that
 // writes to an agent you have not opened.

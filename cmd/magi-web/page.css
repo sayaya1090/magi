@@ -1484,6 +1484,12 @@
   .card .num { font-size:var(--md-sys-typescale-label-medium-size); color:var(--magi-ref-muted); }
   .card .host { font-size:var(--md-sys-typescale-label-small-size); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
   .card .host b { font-weight:400; color:var(--magi-ref-fg); opacity:.85; }
+  .card .ver { display:inline; }
+  /* Behind the fleet's newest build: the version itself turns the warn colour, and the hint names
+     what is out. Full-opacity warn on the surface passes the 4.5:1 the audit holds text to. */
+  .card .ver.behind { color:var(--magi-ref-warn); }
+  .card .ver .vhint { display:inline; color:var(--magi-ref-warn); }
+  .card .ver .vhint::before { content:' · '; }
 
   /* Row actions. Open is the row itself as well, but a named control is what makes it discoverable
      — and stopping must never require entering first, which is the whole point of a console. */

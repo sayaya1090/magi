@@ -684,6 +684,22 @@ const accessEl = document.getElementById('access');
 const screenHead = document.getElementById('screenHead');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
+// The newest build any listed companion reports, so a row can say it is behind without every row
+// re-deriving the answer. Recomputed on each fleet answer; '' until one arrives with versions.
+let newestVer = '';
+// verCmp orders two "vA.B.C[-extra]" strings by their numeric core. A git-describe suffix
+// (-14-gabc) marks a build PAST that tag, but between two builds of one fleet the tags are what
+// people ship and compare; the suffix only breaks ties in favour of the described one.
+function verCmp(a, b) {
+  const parse = v => (v || '').replace(/^v/, '').split('-');
+  const [ca, ea] = parse(a), [cb, eb] = parse(b);
+  const na = ca.split('.').map(Number), nb = cb.split('.').map(Number);
+  for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+    const d = (na[i] || 0) - (nb[i] || 0);
+    if (d) return d;
+  }
+  return (ea ? 1 : 0) - (eb ? 1 : 0);
+}
 const railEl = document.getElementById('rail');
 const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
@@ -1299,6 +1315,17 @@ function card(a) {
   host.append(name);
   if (a.addr) host.append(document.createElement('br'), document.createTextNode(a.addr));
   if (a.here) host.append(document.createElement('br'), document.createTextNode('this directory'));
+  // The build, when the daemon says one — and a word when it trails the newest build in this
+  // list. Which companion is behind is a fact about the FLEET, and it was only findable by
+  // opening every facts card in turn; the list is the screen whose whole job is that comparison.
+  if (a.version) {
+    const ver = cell('ver', a.version);
+    if (newestVer && verCmp(a.version, newestVer) < 0) {
+      ver.classList.add('behind');
+      ver.append(cell('vhint', tr('ver.behind', {v: newestVer})));
+    }
+    host.append(document.createElement('br'), ver);
+  }
   el.append(host);
 
   el.append(rowActions(a));
@@ -2546,6 +2573,7 @@ async function loadFleet(given) {
   // On an agent's page the fleet is polled for this one entry: the prompt it is blocked on and the
   // facts in its header reach the browser no other way.
   fleetSeen = list;
+  newestVer = list.reduce((m, a) => (a.version && verCmp(a.version, m) > 0 ? a.version : m), '');
   const here = sock();
   if (here) {
     const mine = list.find(a => a.socket === here && (a.peer || '') === peerOf());
@@ -2723,7 +2751,7 @@ const shownCards = new Map();
 function cardSig(a) {
   return [labelVer, a.state, a.name, a.role, a.team, a.hub, a.workdir, a.session, a.steps, a.idle,
           a.task, a.doing, a.asking, a.askId, a.askKind, a.planDone, a.planTotal,
-          a.host, a.addr, a.pid, a.peer, a.live, a.permission, a.user,
+          a.host, a.addr, a.pid, a.peer, a.live, a.permission, a.user, a.version, newestVer,
           (a.report || []).map(x => x.key + ':' + x.text).join('|')].join('\u0001');
 }
 function keptCard(a) {
