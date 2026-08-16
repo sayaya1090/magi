@@ -7,10 +7,12 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// What the supervisors ask about a running session, in one place.
+// What the run loop RECORDS about a live session, in one place. Write-only today: the lease
+// supervisor that read these fields came out with the delegation machinery (2bd1fb68), and no
+// consumer has replaced it — the fields are kept as the observation points a future supervisor
+// will need, not as facts anything currently acts on.
 //
-// The lease supervisor and the stall watchdog both answer one question — is this session working
-// right now — and they answer it by asking several smaller ones in a row: is a tool executing, is a
+// The original shape: several smaller questions in a row — is a tool executing, is a
 // generation in flight, did tokens arrive recently, has it produced anything, when did anything at
 // all last happen. Each of those used to live in its own sync.Map keyed by session id, added one at
 // a time as each supervisor learned a new way to be wrong, and the cost of that shape was paid
@@ -47,27 +49,21 @@ func (a *App) live(sid session.SessionID) *sessionLiveness {
 	return v.(*sessionLiveness)
 }
 
-// touch records activity for a session (used by the sidecar liveness check).
+// touch records activity for a session. Nothing reads lastEvent today (see the package comment).
 func (a *App) touch(sid session.SessionID) { a.live(sid).lastEvent.Store(time.Now().UnixNano()) }
 
-// enterTool / leaveTool bracket a single tool execution for a session, and toolInFlight reports
-// whether any tool is currently running. The stall watchdog consults toolInFlight so a legitimately
-// long, silent tool (e.g. a multi-minute bash build that emits no events until it returns) is not
-// mistaken for a wedged child. A tool that hangs past its own timeout is still bounded by the hard
-// cap.
+// enterTool / leaveTool bracket a single tool execution for a session. The toolInFlight reader
+// this fed ("don't mistake a long silent bash build for a wedged child") went with the lease;
+// the bracket stays because it is the one place tool-execution in-flight is observed.
 func (a *App) enterTool(sid session.SessionID) { a.live(sid).tools.Add(1) }
 func (a *App) leaveTool(sid session.SessionID) { a.live(sid).tools.Add(-1) }
 
-// enterGen / leaveGen bracket one model generation for a session, and generating reports whether the
-// session is inside one. It is the third silence, and the one nothing was watching.
-//
-// The lease judge is reached only when no deterministic test says the child is working, and the two
-// that existed cover a tool executing (toolInFlight) and a council/planner side-call
-// (deliberating). A child's OWN main-loop generation is neither: it runs in the execute stage with
-// no tool in flight, and on a slow local model it is where most of the child's wall time goes. So
-// the lease timer landed there, found every deterministic test false, asked the judge, and the
-// judge killed a child that was mid-sentence — observed as four subagents whose last recorded event
-// is the provider's own `context canceled`, one of them three seconds after a successful write.
+// enterGen / leaveGen bracket one model generation for a session. History, kept because it names
+// the failure a future supervisor must not repeat: the old lease judge could not see a child's own
+// main-loop generation (no tool in flight, no side-call), found every deterministic test false, and
+// killed children mid-sentence — observed as four subagents whose last recorded event was the
+// provider's own `context canceled`, one three seconds after a successful write. Whatever reads
+// these next must treat "inside a generation" as work.
 func (a *App) enterGen(sid session.SessionID) { a.live(sid).gens.Add(1) }
 func (a *App) leaveGen(sid session.SessionID) { a.live(sid).gens.Add(-1) }
 
@@ -84,7 +80,6 @@ func (a *App) noteGenToken(sid session.SessionID) {
 }
 
 // bumpProductive records that this session just produced something a later step can build on: a
-// file mutation, or an exercising command run for the first time this epoch. It is the lease's
-// measure of PRODUCTIVITY, kept here because the guard that knows these facts lives inside the
-// child's own run loop while the lease supervisor runs in the parent.
+// file mutation, or an exercising command run for the first time this epoch. Recorded from inside
+// the child's own run loop (the guard is what knows these facts); nothing reads `produced` today.
 func (a *App) bumpProductive(sid session.SessionID) { a.live(sid).produced.Add(1) }

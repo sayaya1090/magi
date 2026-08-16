@@ -38,7 +38,16 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 		"change by asking again — act on what it already told you, or find the fact you actually need " +
 		"somewhere else. Re-read the original task:\n" +
 		clipSpec(task, 1500)
-	if kind == "stalled" {
+	if kind == "stalled" && tc.guard.stallNudges > 1 {
+		// The repeats shrink. The full nudge below is ~1.3KB plus the task re-pasted at 1500 bytes,
+		// persisted as a user-role message — and it re-arms every no-progress window with no cap, so
+		// a truly stuck run stacked byte-identical copies (observed: one was ignored 57 times).
+		// The Nth identical copy adds nothing and dilutes the attention the tool results need; after
+		// the first, a one-liner keeps the record honest without repeating the sermon.
+		msg = "Still no concrete progress since the last note — same advice stands: finish via the " +
+			"`council` tool if the work is complete, otherwise take a DIFFERENT concrete action or say " +
+			"exactly what is blocking you."
+	} else if kind == "stalled" {
 		msg = "You've run many steps without changing anything or making concrete progress — you may be " +
 			"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
 			"genuinely COMPLETE: say so — call the `council` tool with `complete: true`, and the members read " +

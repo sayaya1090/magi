@@ -154,8 +154,8 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	if a.cfg.Autocomplete.AmbientOn() && agent.allows("read") {
 		if f, ok := a.openFileFor(s.ID); ok {
 			txt := f.text
-			if len(txt) > completeCap {
-				txt = clampHeadUTF8(txt, completeCap) + "\n… (the rest of this file is not shown)"
+			if len(txt) > ambientCap {
+				txt = clampHeadUTF8(txt, ambientCap) + "\n… (the rest of this file is not shown)"
 			}
 			b.WriteString("\n\n# File open in the editor (unsaved)\nThe user has " + f.path +
 				" open and is editing it; this is their current buffer, which may differ from disk:\n" + txt)
@@ -369,5 +369,14 @@ func langDirective(text string) string { return lang.Directive(text) }
 
 func oneLineHint(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.Join(strings.Fields(s), " ")
+	s = strings.Join(strings.Fields(s), " ")
+	// Bounded: this line rides in the SYSTEM prompt of every request, once per skill, and
+	// skill-creator-style descriptions run to whole trigger paragraphs — 25 such skills unclipped
+	// would be ~4k tokens of static prompt. A hint's job is picking the skill out of a list; the
+	// full text loads with the skill.
+	const hintCap = 200
+	if len(s) > hintCap {
+		s = clampHeadUTF8(s, hintCap) + "…"
+	}
+	return s
 }

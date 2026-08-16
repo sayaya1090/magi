@@ -39,6 +39,11 @@ func (a *App) buildStepSystem(agent AgentSpec, workdir string, evs []event.Event
 	// prompt, so detect the user's script and put a short, forceful directive FIRST (primacy). Lock
 	// to the genuine user's language, NOT the latest user-role message — council/hook/auto feedback
 	// is injected as a user-role prompt (often English), which would let a weak model drift.
+	//
+	// The caller hands the MASKED event view (liveEvents), the same one the messages are built from.
+	// Anchored on the raw list, a deferred mid-turn interjection — hidden from the messages and from
+	// the turn task — still flipped this directive: the reply language was locked by a message the
+	// model could not see, and the flip at position 0 invalidated the whole KV prefix mid-turn.
 	if dir := langDirective(lastUserPromptText(evs)); dir != "" {
 		sys = dir + "\n\n" + sys
 	}
@@ -77,8 +82,15 @@ const (
 // behind declareAskCap, and the UNVERIFIED reason a finish carries when no council ever read
 // the work.
 type turnState struct {
-	stopChecked     bool // stop hooks enforced at most once per turn
-	nudgedEmpty     bool
+	stopChecked bool // stop hooks enforced at most once per turn
+	nudgedEmpty bool
+	// spinNudged / cutNoted: the spin nudge and the cut notes are persisted user-role messages, and
+	// unguarded they repeated VERBATIM on every step of a bad turn — the cut-before-acting comment's
+	// own observed case was a turn that reasoned into the cap "step after step", stacking an
+	// identical instruction each time. The Nth copy adds no information and dilutes the attention
+	// the tool results need; once per turn says it, and the record already shows it was said.
+	spinNudged      bool
+	cutNoted        bool
 	declareAsks     int  // how many times this turn was told to declare completion (declareAskCap)
 	declareAskEpoch int  // guard.mutationEpoch() at the last such ask; a later epoch resets the count
 	declared        bool // the agent declared the task finished and the council accepted
@@ -307,7 +319,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// guards never see a response that never finishes, so this is the only place to break it.
 		if res.reasoningSpun {
 			a.emitToolProgress(sid, agentActor, "", agent.Name, "cancelled a reasoning-only spin — take a concrete action")
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, reasoningSpinNudge)
+			if !ts.spinNudged {
+				ts.spinNudged = true
+				_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, reasoningSpinNudge)
+			}
 			continue
 		}
 		text, reasoning := res.text, res.reasoning
@@ -352,11 +367,17 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			if len(toolCalls) == 0 {
 				note = cutBeforeActingNote // spent the budget without acting: the fix is a tool, not more text
 			}
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, note)
+			if !ts.cutNoted {
+				ts.cutNoted = true
+				_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, note)
+			}
 		} else if res.cut {
 			// Same shape, different cause: the connection ended mid-reply. Say which one it was,
 			// on the record with the prefix, and keep going — the run used to end here.
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByLostStreamNote)
+			if !ts.cutNoted {
+				ts.cutNoted = true
+				_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByLostStreamNote)
+			}
 		}
 
 		// No tool calls → the turn wants to finish. Stop hooks enforce checks
@@ -513,7 +534,9 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Event, step, cumOut int) (port.ChatRequest, []event.Event) {
 	s, agent, agentActor := tc.s, tc.agent, tc.actor
 	sid := s.ID
-	sys := a.buildStepSystem(agent, s.Workdir, evs)
+	// The MASKED view, so the language lock (and anything else the system prompt derives from
+	// events) sees exactly what the messages will show — see buildStepSystem.
+	sys := a.buildStepSystem(agent, s.Workdir, a.liveEvents(sid, evs))
 
 	// Unfiltered reconstruction of the whole log, built ONCE per step and shared by the
 	// volatile-context retrieval query and the compaction sizing check below — reconstruct

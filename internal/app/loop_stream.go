@@ -228,8 +228,7 @@ loop:
 			}
 			ev = e
 			last = time.Now()
-			// Tokens are arriving: this generation is producing, which is what lets the lease
-			// supervisor tell "mid-sentence" from "wedged backend" (see genFresh).
+			// Tokens are arriving: recorded by noteGenToken (write-only today — see liveness.go).
 			a.noteGenToken(sid)
 		case now := <-idleC:
 			gap := now.Sub(last)

@@ -90,6 +90,7 @@ type runGuard struct {
 	// shouldNudge for what that leaves.
 	nudgedBlocked bool
 	lastStallAt   int // sinceProgress value at the last stalled nudge, for spacing the re-arm
+	stallNudges   int // how many stalled nudges this run has fired — the repeats shrink (see loop_gates)
 	// progressSinceNudge is the structural "the agent made forward motion since the last stalled
 	// nudge" signal: set true by EITHER a real mutation (mutated) OR a NOVEL (first-seen this
 	// epoch) non-inspect exercising command (noteBashExec) — both are genuine progress. It is set
@@ -658,6 +659,7 @@ func (g *runGuard) shouldNudge() string {
 		// written for.
 		g.lastStallAt = g.sinceProgress
 		g.progressSinceNudge = false // fresh window for judging the next re-arm
+		g.stallNudges++
 		return "stalled"
 	}
 	return ""

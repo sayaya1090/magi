@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -121,7 +122,21 @@ func stripCodeFence(s string) string {
 type openFile struct {
 	path string
 	text string
+	at   time.Time // when it was last pushed — openFileFor refuses a buffer gone stale (ambientTTL)
 }
+
+// ambientCap bounds how much of the open buffer rides into a TURN's context, and it is deliberately
+// NOT completeCap: that 24KB was sized for a one-shot keystroke completion, and reusing it here put
+// a block 3x the whole RAG budget into the most recency-privileged slot of EVERY step — re-prefilled
+// each time, since the volatile tail is never in the cacheable prefix. 8KB matches contextBudget:
+// the ambient file is one retrieval among several, not the headline.
+const ambientCap = 8 << 10
+
+// ambientTTL bounds how long a pushed buffer stays believable. The console clears on save, cancel
+// and tab-close now, but a killed tab, a crashed browser, or an old console that never learned to
+// clear must not leave "the user is editing this" riding into turns for the daemon's life. Editing
+// re-pushes every 600ms, so any live editor refreshes far inside this.
+const ambientTTL = 15 * time.Minute
 
 // SetOpenFile records the file a session's console editor has open, so the agent's next turn sees
 // the unsaved buffer as ambient context (volatileContext injects it when [autocomplete] ambient is
@@ -137,16 +152,21 @@ func (a *App) SetOpenFile(sid session.SessionID, path, text string) {
 	if a.openFiles == nil {
 		a.openFiles = map[session.SessionID]openFile{}
 	}
-	// Stored clamped, not just clamped on read: volatileContext shows at most completeCap of it, so
+	// Stored clamped, not just clamped on read: volatileContext shows at most ambientCap of it, so
 	// holding the whole of a 40MB buffer per session for the daemon's life is memory for nothing.
-	a.openFiles[sid] = openFile{path: path, text: clampHeadUTF8(text, completeCap)}
+	a.openFiles[sid] = openFile{path: path, text: clampHeadUTF8(text, ambientCap), at: time.Now()}
 }
 
-// openFileFor returns the session's open editor buffer, if any.
+// openFileFor returns the session's open editor buffer, if any — and nothing past ambientTTL: a
+// stale buffer is deleted on sight rather than handed to a turn as "what the user is editing".
 func (a *App) openFileFor(sid session.SessionID) (openFile, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	f, ok := a.openFiles[sid]
+	if ok && time.Since(f.at) > ambientTTL {
+		delete(a.openFiles, sid)
+		return openFile{}, false
+	}
 	return f, ok
 }
 

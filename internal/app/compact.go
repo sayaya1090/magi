@@ -31,7 +31,11 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// call), so as a turn accumulates large tool results the trigger would under-count and
 	// miss the growth. Use whichever is larger — the real count or the current estimate.
 	tokens := a.contextTokens(s.ID, sys, msgs)
-	if est := estimateTokens(sys, msgs); est > tokens {
+	// The tool block rides on every request — names, descriptions and schemas, ~6-7k tokens on the
+	// default roster — and the estimate never counted it, so on a backend that reports no real
+	// prompt_tokens (many local ones) the meter and this trigger ran that much light and compaction
+	// fired late. Cheap to add: summing lengths, no marshalling.
+	if est := estimateTokens(sys, msgs) + toolSpecTokens(a.toolSpecs(agent)); est > tokens {
 		tokens = est
 	}
 	if tokens <= budget {
@@ -353,6 +357,16 @@ func (a *App) contextTokens(sid session.SessionID, sys string, msgs []session.Me
 // was a session folded away at 15-20% of real window use, and re-folded on later turns for the
 // same phantom reason. Count PartText, tool calls and tool results; skip the reasoning that never
 // leaves the machine.
+// toolSpecTokens approximates what the request's tool definitions cost on the wire (≈4 chars/token):
+// every name, description and schema travels with EVERY request, ahead of the messages.
+func toolSpecTokens(specs []port.ToolSpec) int {
+	chars := 0
+	for _, t := range specs {
+		chars += len(t.Name) + len(t.Description) + len(t.Schema)
+	}
+	return chars / 4
+}
+
 func estimateTokens(sys string, msgs []session.Message) int {
 	chars := len(sys)
 	for _, m := range msgs {

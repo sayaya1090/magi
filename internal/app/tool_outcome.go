@@ -60,7 +60,7 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				// The file's contents are new, so what magi has already shown of it no longer
 				// describes it: reading it again is gathering information, not circling.
 				guard.dropReadCoverage(relForChange(workdir, pathArg(tc.Args)))
-				a.bumpProductive(sid) // a real new version — the lease's evidence this child is producing
+				a.bumpProductive(sid) // a real new version — productivity evidence (currently unread — see liveness.go)
 			}
 		}
 		// A successful bash write bumps the epoch (the tool-agnostic twin of an edit); a

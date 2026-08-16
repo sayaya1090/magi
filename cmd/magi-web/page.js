@@ -8481,6 +8481,17 @@ function editor(path, text, acts) {
            (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
     }, 600);
   };
+  // The other half of the ambient contract: an empty text CLEARS the daemon's copy. Every teardown
+  // below sends it — without this the buffer rode into every later turn of the session as "the file
+  // the user is editing", hours after the tab closed, up to 24KB of stale text in the most
+  // recency-privileged slot of the model's context. ++openAt first, so a debounced push in flight
+  // cannot land after the clear and resurrect the buffer.
+  const clearOpen = () => {
+    if (!may('prompt')) return;
+    ++openAt;
+    post('/open-file', new URLSearchParams({path: path, text: ''}),
+         (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
+  };
   // On a pause, not on a keystroke. The review waits two seconds — long enough that a sentence being
   // typed is not sent five times; completion waits less, because a suggestion that arrives after you
   // have moved on is worth nothing. Typing dismisses any standing ghost first: it is about older text.
@@ -8549,6 +8560,7 @@ function editor(path, text, acts) {
     }
     editing = null;
     lookClearActive = null; // this editor is going away; the switch has nothing here to clear
+    clearOpen();            // and the daemon's ambient copy goes with it — the file is on disk now
     drafts.delete(path);
     // Read back rather than drawn from what was typed: the file on disk is the fact, the tool may
     // have written it differently (a missing final newline), and the companion has just been told
@@ -8557,7 +8569,7 @@ function editor(path, text, acts) {
   };
   const stop = withMark(document.createElement('md-text-button'), '#i-sl-xmark');
   label(stop, tr('action.cancel'));
-  stop.onclick = () => { editing = null; lookClearActive = null; drafts.delete(path); drawFile(path, text); };
+  stop.onclick = () => { editing = null; lookClearActive = null; clearOpen(); drafts.delete(path); drawFile(path, text); };
   // Into the bar at the top, where the edit button was: the control that starts this and the two
   // that end it are the same control in three states, and a control that moves is one you look for.
   acts.append(save, stop);
@@ -8824,7 +8836,15 @@ function drawCardTabs(a) {
           // Closing the editor's tab ends the edit. Left set, `editing` outlived the tab: the
           // next opening of the same file from the tree landed straight in the editor — a mode
           // nobody asked for, with a buffer reset to the file.
-          if (editing === path) { editing = null; lookClearActive = null; drafts.delete(path); }
+          if (editing === path) {
+            editing = null; lookClearActive = null; drafts.delete(path);
+            // Clear the daemon's ambient copy too — the editor is gone, and a buffer left behind
+            // rode into every later turn as "the file the user is editing" (see clearOpen in editor()).
+            if (may('prompt')) {
+              post('/open-file', new URLSearchParams({path: path, text: ''}),
+                   (lastDrawnFor || {}).socket || '', (lastDrawnFor || {}).peer || '');
+            }
+          }
           openFiles = openFiles.filter(p => p !== path);
           if (cardShows === path) cardShows = openFiles[openFiles.length - 1] || 'facts';
           drawCardTabs(a);
