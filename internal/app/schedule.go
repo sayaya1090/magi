@@ -84,11 +84,15 @@ func (a *App) EditSchedule(workdir string, c port.ScheduleChange) (string, error
 // TOML table header, and one quietly rewritten is a job the person cannot find again in their own
 // file. A dot is refused too — [cron.a.b] is a nested table, not a job called "a.b".
 func badJobName(name string) string {
-	switch {
-	case name == "":
+	if name == "" {
 		return "a job needs a name"
-	case strings.ContainsAny(name, " \t[]\"'#."):
-		return fmt.Sprintf("%q cannot be a job name: no spaces, quotes, brackets, hashes or dots "+
+	}
+	// config.BareName, the same allowlist every other header writer uses. This was the last writer
+	// on the old denylist, which passed a newline — and this one is AGENT-facing (the schedule
+	// tool), so a model-composed name with a stray control character bricked the config the same
+	// way a crafted console request would have.
+	if !config.BareName(name) {
+		return fmt.Sprintf("%q cannot be a job name: letters, numbers, hyphens and underscores only "+
 			"(the name becomes a TOML table header)", name)
 	}
 	return ""

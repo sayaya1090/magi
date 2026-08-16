@@ -5,6 +5,7 @@ package main
 // prompt adapter the plugin host uses. Pure wiring — moved out of main.go.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -115,6 +116,12 @@ func (r routePersister) PersistModel(modelID string) error {
 }
 
 func (r routePersister) PersistProfile(p app.ProfileDef) error {
+	// The same bare-key gate every header writer uses: this name is concatenated into a raw TOML
+	// table header, and the /route editor was the one writer still passing names unchecked.
+	if !config.BareName(p.Name) {
+		return fmt.Errorf("%q cannot be a profile name: letters, numbers, hyphens and underscores only "+
+			"(it becomes a TOML table header)", p.Name)
+	}
 	sec := "llm.profiles." + p.Name
 	if err := config.SetKey(r.path, sec, "base_url", p.BaseURL); err != nil {
 		return err

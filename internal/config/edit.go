@@ -48,6 +48,31 @@ func withFileLock(target string, fn func() error) error {
 	}
 }
 
+// BareName reports whether s is a valid TOML bare key: non-empty, every rune in [A-Za-z0-9_-].
+//
+// The one gate for every NAME that becomes part of a raw-concatenated table header written by
+// SetKey/RemoveSection below ("[llm.profiles.<name>]", "[cron.<name>]", "[mcp.<name>]"): %q escaping
+// covers values, never the header, so anything outside the bare-key set either splits the header (a
+// newline) or makes it fail to parse (a space, dot, bracket, comma, non-ASCII letter) — and either
+// way the whole config.toml stops loading and the daemon's next start fails. An allowlist on
+// purpose: this rule lived as per-writer denylists first, and each copy kept missing characters —
+// the web writers missed a newline, then a comma; the agent-facing schedule writer and the TUI's
+// profile persister were still on the old denylist when the audit swept. It lives HERE, beside the
+// functions it protects, so the next writer cannot miss it.
+func BareName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // SetKey surgically sets `key = "value"` under the given TOML table in the file
 // at path, preserving the rest of the file (comments, template, other sections).
 // section "" targets a top-level key (in the preamble before the first table).
