@@ -101,7 +101,14 @@ func evidenceArgs(name string, raw json.RawMessage) string {
 // successful tool result can't masquerade as this turn's. Most recent k results.
 func turnToolEvidence(evs []event.Event, k int) string {
 	names := map[string]toolCallBrief{} // callID -> what was asked
-	var lines []string
+	// One entry per finished call, keyed so a REPEAT of the same call can supersede the earlier
+	// result — see the collapse below the scan.
+	type entry struct {
+		key  string // name + identifying args; "" = no identity, never superseded
+		line string
+		stub string // what the line collapses to when a later result answers the same call
+	}
+	var ents []entry
 	for _, e := range evs {
 		// A turn begins when the USER speaks. magi injects prompt.submitted events of its own —
 		// the stall nudge, a plugin note, a permission message, a hook, an orchestrator re-prompt
@@ -111,7 +118,7 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		// lastUserPromptTS below has always asked for ActorUser; these scans had drifted.
 		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			names = map[string]toolCallBrief{}
-			lines = nil
+			ents = nil
 			continue
 		}
 		if e.Type != event.TypePartAppended {
@@ -141,11 +148,43 @@ func turnToolEvidence(evs []event.Event, k int) string {
 			if d.Part.ToolResult.IsError {
 				status = "error"
 			}
-			lines = append(lines, evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)))
+			key, stub := "", ""
+			if b.args != "" {
+				key = b.name + "\x00" + b.args
+				stub = "tool " + b.name + " [" + status + ", superseded] " +
+					clipLine(b.args, evidenceArgsCap) +
+					": this same call ran AGAIN later — its newer result below is the one that " +
+					"reflects the current state; this older output is omitted so it cannot be " +
+					"mistaken for the file as it is now"
+			}
+			ents = append(ents, entry{key: key, line: evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)), stub: stub})
 		}
 	}
-	if len(lines) == 0 {
+	if len(ents) == 0 {
 		return ""
+	}
+	// Collapse stale repeats. A member handed three reads of one file has no way to know which is
+	// current, and the record shows what it chooses instead: the FIRST, biggest snapshot. Observed
+	// live (the itm→item rename, 2026-08-16): the work was correct before the first declaration,
+	// but the block opened with a mid-rename read of the same file, and all three members cited
+	// its long-fixed lines to reject three declarations in a row — while the passing pytest and
+	// the current content sat lower in the very same block. Same call asked again = the older
+	// answer is stale by definition, so only the newest keeps its output; earlier ones keep their
+	// status (an "error then ok" history stays legible) but lose the content a reader could anchor
+	// on.
+	last := map[string]int{}
+	for i, en := range ents {
+		if en.key != "" {
+			last[en.key] = i
+		}
+	}
+	var lines []string
+	for i, en := range ents {
+		if en.key != "" && last[en.key] != i {
+			lines = append(lines, en.stub)
+			continue
+		}
+		lines = append(lines, en.line)
 	}
 	// Say how many were left out. The block reads as "this turn's evidence" and is a TAIL: a turn
 	// with forty results hands the council the last eight, and the failing one from early on is
@@ -158,7 +197,11 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		lines = append([]string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)},
 			lines[len(lines)-k:]...)
 	}
-	return "- " + strings.Join(lines, "\n- ")
+	// The reading rule, stated where the list starts: without it a reader has no way to know the
+	// order carries meaning, and the mistake it makes is always the same one — quoting an early
+	// snapshot as though nothing after it happened.
+	return "(time order, oldest first — a later result outranks an earlier one about the same file or command)\n" +
+		"- " + strings.Join(lines, "\n- ")
 }
 
 // lastUserPromptTS returns the timestamp of the most recent GENUINE user prompt in evs

@@ -50,7 +50,7 @@ func TestTheEvidenceBlockSaysWhatItLeftOut(t *testing.T) {
 				t.Errorf("%s: the most recent results must be there, missing %s", c.name, want)
 			}
 		}
-		if strings.Count(c.got, "\n") != 8 { // 8 results + the marker = 9 lines, 8 newlines
+		if strings.Count(c.got, "\n") != 9 { // reading-rule header + 8 results + the marker = 10 lines, 9 newlines
 			t.Errorf("%s: the cap still holds — %d newlines", c.name, strings.Count(c.got, "\n"))
 		}
 	}

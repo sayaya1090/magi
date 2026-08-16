@@ -54,10 +54,10 @@ func TestEvidenceNamesTheCallNotJustItsAnswer(t *testing.T) {
 		t.Errorf("the call that CREATED the symlink must be identifiable:\n%s", got)
 	}
 	lines := strings.Split(got, "\n- ")
-	if len(lines) != 2 {
-		t.Fatalf("want two evidence lines, got %d:\n%s", len(lines), got)
+	if len(lines) != 3 { // the reading-rule header, then the two evidence lines
+		t.Fatalf("want a header and two evidence lines, got %d:\n%s", len(lines), got)
 	}
-	if lines[0] == lines[1] {
+	if lines[1] == lines[2] {
 		t.Errorf("two different calls with the same output must not render identically:\n%s", got)
 	}
 	// The result is still there — naming the request does not displace the answer.
