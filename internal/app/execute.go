@@ -413,6 +413,13 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if c.Source == "agent" && strings.TrimSpace(turnTask) != "" {
 				c.Source = "agent · " + text.Clip(strings.Join(strings.Fields(turnTask), " "), 140)
 			}
+			// A wiki edit that named no source gets this companion's declared name: on a page
+			// every companion reads, the editor line answers WHO in the fleet wrote it.
+			if c.Source == "" {
+				if c.Source = a.cfg.Companion; c.Source == "" {
+					c.Source = "agent"
+				}
+			}
 			err := a.cfg.Experience.Propose(ctx, c)
 			if err == nil {
 				a.mu.Lock()
@@ -436,7 +443,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if err != nil {
 				return "", err
 			}
-			return formatExperienceFull(mems, skills), nil
+			out := formatExperienceFull(mems, skills)
+			// The wiki answers through the same door: one recall reaches both stores, so the
+			// model needs no second habit — and a query that names a page title behaves as a
+			// page fetch (the search boosts exact titles past everything else).
+			if w, ok := a.cfg.Experience.(port.WikiStore); ok {
+				if pages, err := w.WikiSearch(ctx, query, 3); err == nil && len(pages) > 0 {
+					out = strings.TrimRight(formatWikiPages(pages)+"\n"+out, "\n")
+				}
+			}
+			return out, nil
 		},
 		Schedule: func(c port.ScheduleChange) (string, error) {
 			return a.EditSchedule(s.Workdir, c)

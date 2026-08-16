@@ -1005,6 +1005,7 @@ func run() int {
 		ContextTokens:       cfg.Limits.ContextTokens,   // [limits]; forces the window for every model
 		CompactRatio:        cfg.Limits.CompactRatio,    // [limits]; share of the window used before compaction (0 = default)
 		Experience:          experienceStore,
+		Companion:           cfg.Companion.Name,
 		Hooks:               toAppHooks(cfg.Hooks),
 		Harness:             !*noHarness,
 		Workflow:            *workflow,

@@ -147,6 +147,13 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 			return err
 		}
 	}
+	// Wiki edits: canonical pages, updated in place. Editor is the contribution's Source — the
+	// same provenance line every memory carries.
+	for _, e := range c.Wiki {
+		if err := s.wikiWrite(ctx, e, c.Source); err != nil {
+			return err
+		}
+	}
 	s.gitCommit(ctx, "magi: add experience ("+stamp+")")
 	return nil
 }

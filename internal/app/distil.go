@@ -45,6 +45,10 @@ const distilPrompt = "The council accepted this work, so the task is done and th
 	"repository — something you had to discover the hard way, that the code does not say plainly?\n\n" +
 	"- A pitfall, a required step, a convention that is not written down: save it with `remember` " +
 	"as a MEMORY (scope \"project\" for this repository, \"global\" for anywhere).\n" +
+	"- STRUCTURE you mapped — how a system works, what owns what, where a thing lives — that the " +
+	"other companions working here need CURRENT: write it to the shared wiki with " +
+	"`remember{page:\"<topic>\", …}`. If the wiki index already shows a page for the topic, update " +
+	"that page (your text becomes its new full body) rather than minting a near-duplicate title.\n" +
 	"- A procedure you would follow again the same way: save it as a SKILL, with a name someone " +
 	"would search for.\n\n" +
 	"Write it so it is useful to someone who does NOT have this conversation — name the file, the " +

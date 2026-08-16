@@ -97,6 +97,14 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		order = []*expgit.Store{s.global, s.team, s.project}
 	case "team":
 		order = []*expgit.Store{s.team, s.project, s.global}
+	case "":
+		// A wiki page's DEFAULT tier is TEAM, not the project: a page is written to be read by
+		// the OTHER companions — that is its whole reason to exist — and a workspace-local
+		// default would file it where they never look. Only the unstated case: an explicit
+		// "project" scope routes a page like anything else.
+		if len(c.Wiki) > 0 && len(c.Memories) == 0 && len(c.Skills) == 0 {
+			order = []*expgit.Store{s.team, s.project, s.global}
+		}
 	}
 	for _, t := range order {
 		if t != nil {
@@ -104,4 +112,51 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		}
 	}
 	return nil // no tier configured: silently drop rather than error
+}
+
+// WikiSearch implements port.WikiStore across the tiers, most specific first, each page tagged
+// with the tier it came from — under one shared budget, like Retrieve, so the wiki widens what a
+// query can find without widening what it costs.
+func (s *Store) WikiSearch(ctx context.Context, query string, n int) ([]port.WikiPage, error) {
+	var out []port.WikiPage
+	for _, t := range []struct {
+		st   *expgit.Store
+		tier string
+	}{{s.project, "project"}, {s.team, "team"}, {s.global, "global"}} {
+		if t.st == nil || len(out) >= n {
+			continue
+		}
+		pages, err := t.st.WikiSearch(ctx, query, n-len(out))
+		if err != nil {
+			continue // best-effort: a broken tier must not sink the others
+		}
+		for _, p := range pages {
+			p.Tier = t.tier
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// WikiIndex implements port.WikiStore across the tiers, tier-tagged, team first — the index
+// exists to advertise what the OTHER companions wrote, which is the team tier's whole content.
+func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {
+	var out []port.WikiPage
+	for _, t := range []struct {
+		st   *expgit.Store
+		tier string
+	}{{s.team, "team"}, {s.project, "project"}, {s.global, "global"}} {
+		if t.st == nil || len(out) >= n {
+			continue
+		}
+		pages, err := t.st.WikiIndex(ctx, n-len(out))
+		if err != nil {
+			continue
+		}
+		for _, p := range pages {
+			p.Tier = t.tier
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }

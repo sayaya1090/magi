@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -282,6 +283,72 @@ func formatExperienceFull(mems []port.Memory, skills []port.Skill) string {
 		b.WriteString("- skill " + s.Name + ": " + strings.TrimSpace(s.Description) + "\n")
 		if body := strings.TrimSpace(s.Body); body != "" {
 			b.WriteString("  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// wikiPointer renders the wiki's two advertisement lines: the index (titles, so the model learns
+// the pages exist) and, when the current request matches one, a pointer at that page. Hooks only —
+// bodies stay behind recall_memory, so this block's cost does not grow with the wiki.
+func wikiPointer(ctx context.Context, w port.WikiStore, q string) string {
+	var b strings.Builder
+	if idx, err := w.WikiIndex(ctx, 8); err == nil && len(idx) > 0 {
+		titles := make([]string, 0, len(idx))
+		for _, p := range idx {
+			titles = append(titles, p.Title)
+		}
+		b.WriteString("wiki pages (update via remember{page:…}, read via recall_memory): " +
+			strings.Join(titles, " · "))
+	}
+	if hits, err := w.WikiSearch(ctx, q, 1); err == nil && len(hits) > 0 && !hits[0].Stale {
+		p := hits[0]
+		hook := firstNonBlankLine(p.Body)
+		b.WriteString("\nwiki page likely relevant to this request: [" + p.Title + "] " + hook +
+			" — recall_memory pulls the full page")
+	}
+	return b.String()
+}
+
+func firstNonBlankLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// formatWikiPages renders wiki pages for a recall_memory pull. Each carries the trust material a
+// reader needs about a CANONICAL claim: who last edited it, when, in which tier — and the stale
+// mark with its reason, because "this stopped being true" is an answer, not an omission.
+func formatWikiPages(pages []port.WikiPage) string {
+	var b strings.Builder
+	for _, p := range pages {
+		head := "- wiki"
+		if p.Tier != "" {
+			head += ":" + p.Tier
+		}
+		head += " [" + p.Title + "]"
+		if p.Stale {
+			head += " ⚠STALE"
+		}
+		meta := strings.TrimSpace(p.Editor)
+		if p.Updated != "" {
+			if meta != "" {
+				meta += ", "
+			}
+			meta += p.Updated
+		}
+		if meta != "" {
+			head += " (" + meta + ")"
+		}
+		b.WriteString(head + "\n")
+		if body := strings.TrimSpace(p.Body); body != "" {
+			b.WriteString("  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n")
+		}
+		if len(p.Links) > 0 {
+			b.WriteString("  related: " + strings.Join(p.Links, ", ") + "\n")
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

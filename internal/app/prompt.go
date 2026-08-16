@@ -186,6 +186,14 @@ func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID
 		return ""
 	}
 	p := experiencePointer(len(mems), len(skills))
+	// The wiki's advertisement rides the same cached line: the index says the pages EXIST (a
+	// companion cannot pull what it never heard of — the transfer failure this store exists for
+	// is "B never thought to ask"), and a query match points at the one page that likely answers
+	// the work at hand. Titles and one-line hooks only; the body always stays behind
+	// recall_memory. Invalidation is shared too — a page just written shows on the next step.
+	if w, ok := a.cfg.Experience.(port.WikiStore); ok {
+		p = strings.TrimSpace(p + "\n" + wikiPointer(ctx, w, q))
+	}
 	a.mu.Lock()
 	st = a.stateLocked(sid)
 	st.expPtrQ, st.expPtr = key, p

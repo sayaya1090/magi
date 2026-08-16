@@ -264,6 +264,10 @@ type Config struct {
 
 	// Experience is the shared team memory/skills store (D13). Optional.
 	Experience port.ExperienceStore
+	// Companion is this companion's declared name ([companion].name), when it has one. It stamps
+	// shared-wiki edits' editor line: on a page every companion reads, "who wrote this" is the
+	// question, and "agent" is not an answer.
+	Companion string
 
 	// Observer receives top-level conversation milestones (the plugin host's
 	// user_message / turn_finished lifecycle events). Implementations must be

@@ -18,6 +18,12 @@ type rememberArgs struct {
 	Text  string   `json:"text"`
 	Tags  []string `json:"tags"`
 	Scope string   `json:"scope"`
+	// Page routes the text to the shared WIKI instead of the append-only memories: the named
+	// canonical page is created or updated IN PLACE (default tier: team). Wiki pages are for
+	// structure knowledge the other companions need current — how a system works, what owns
+	// what — where a correction must replace the old claim, not pile up beside it.
+	Page    string `json:"page"`
+	Summary string `json:"summary"`
 }
 
 func (Remember) Name() string { return "remember" }
@@ -41,10 +47,17 @@ func (Remember) Description() string {
 		"team reads it, and nowhere else. Use it when the answer would be wrong to keep to yourself and " +
 		"wrong to impose on unrelated work.\n" +
 		"  \"global\"  — knowledge useful across all projects.\n" +
+		"'page' routes the text to the shared WIKI instead: the named canonical page is created or " +
+		"updated IN PLACE (team-wide by default). Use a page for STRUCTURE knowledge the other " +
+		"companions need current — how a system works, what owns what, where a thing lives — " +
+		"where a correction must REPLACE the old claim rather than pile up beside it. text becomes " +
+		"the page's new FULL body (a snapshot, not a delta); if the wiki index shows an existing " +
+		"page for the topic, update THAT page rather than minting a near-duplicate title. " +
+		"'summary' (with page) says what changed and why, one line.\n" +
 		"Do not include secrets."
 }
 func (Remember) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"}},"required":["text"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"},"page":{"type":"string","description":"wiki page title — routes text to the shared wiki as this page's new full body, updated in place"},"summary":{"type":"string","description":"with page: one line on what changed and why"}},"required":["text"]}`)
 }
 
 func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -72,6 +85,21 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	}
 	if env.Propose == nil {
 		return errResult("", "shared experience is not configured"), nil
+	}
+	// A page write goes to the wiki: the named canonical page, updated in place, team tier by
+	// default. The text is the page's NEW full body — a snapshot, because the page IS the current
+	// truth about its topic and a reader must never have to assemble it from fragments.
+	if page := strings.TrimSpace(a.Page); page != "" {
+		// Source left empty on purpose: the app stamps it with this companion's declared name, so
+		// the page's editor line says WHO in the fleet wrote it — the one fact a reader of a
+		// shared page wants that a bare "agent" cannot carry.
+		if err := env.Propose(port.Contribution{
+			Wiki:  []port.WikiEdit{{Page: page, Text: a.Text, Links: a.Tags, Summary: a.Summary}},
+			Scope: scope,
+		}); err != nil {
+			return errResult("", err.Error()), nil
+		}
+		return okText("", "wiki page "+page+" updated — the other companions see it via recall_memory and the wiki index"), nil
 	}
 	if err := env.Propose(port.Contribution{
 		Memories: []port.Memory{{Text: a.Text, Tags: a.Tags}},

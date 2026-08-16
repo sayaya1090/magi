@@ -506,6 +506,48 @@ type ExperienceStore interface {
 	Propose(ctx context.Context, c Contribution) error // goes to a review queue
 }
 
+// ---- Shared wiki (canonical, update-in-place team knowledge) ----
+
+// WikiPage is one canonical page: the CURRENT truth about its topic, updated in place. It exists
+// for the thing the append-only experience store cannot hold — three companions working the same
+// system for days, each re-deriving structure the others already mapped. A fact that changed gets
+// corrected here, not contradicted beside itself; a page that stopped being true is marked stale
+// with the reason, never deleted, because "no longer so, and here is why" is knowledge too.
+type WikiPage struct {
+	Title   string   // the topic's identity — also the dedup anchor
+	Body    string   // the current content (the winning revision's snapshot)
+	Links   []string // titles of related pages
+	Stale   bool     // marked no-longer-true; the body stays as the record of what was believed
+	Tier    string   // where the winning revision lives: "project" | "team" | "global"
+	Updated string   // RFC3339 of the last edit
+	Editor  string   // who edited last (companion/source)
+	Summary string   // the last edit's summary — what changed and why
+}
+
+// WikiEdit is one page write riding a Contribution: create or update Page in place. Text is the
+// page's NEW full body (a snapshot, not a diff — pages are small and snapshots merge by union).
+// Summary says what changed; empty is tolerated and falls back to the first line of Text, because
+// a refused write teaches a weak model to stop writing at all.
+type WikiEdit struct {
+	Page    string
+	Text    string
+	Links   []string
+	Summary string
+}
+
+// WikiStore is the read side of the canonical-page store. OPTIONAL: the app type-asserts it off
+// the ExperienceStore, so a store that predates the wiki keeps working untouched. Writes ride
+// Contribution.Wiki through Propose — one write seam, not two.
+type WikiStore interface {
+	// WikiSearch returns up to n pages matching the query, best first — an exact or near title
+	// match outranks body matches, which is what makes a title query behave as a page fetch.
+	WikiSearch(ctx context.Context, query string, n int) ([]WikiPage, error)
+	// WikiIndex returns up to n page titles with a one-line hook each, most recently edited
+	// first — what a context block advertises so a model learns the wiki exists without paying
+	// for its bodies.
+	WikiIndex(ctx context.Context, n int) ([]WikiPage, error)
+}
+
 // Memory is a learned fact/convention/pitfall.
 type Memory struct {
 	ID   string
@@ -524,7 +566,12 @@ type Skill struct {
 type Contribution struct {
 	Memories []Memory
 	Skills   []Skill
-	Source   string
+	// Wiki carries canonical-page edits (remember{page:…}). Unlike Memories these update in
+	// place; Scope routes them the same way, except the wiki's default tier is TEAM — a page is
+	// written to be read by the other companions, and a workspace-local default would file it
+	// where they never look.
+	Wiki   []WikiEdit
+	Source string
 	// Scope selects the tier a layered store writes to: "global" for cross-project
 	// knowledge, "" or "project" (the default) for workspace-local learnings.
 	Scope string
