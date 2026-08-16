@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -76,30 +76,6 @@ func (a *App) completeReady(profile string) (model string, ok bool) {
 	return m, true
 }
 
-// clampHeadUTF8 / clampTailUTF8 keep at most max BYTES of s while never splitting a multibyte rune,
-// so what reaches the model is always valid UTF-8. Head keeps the front, tail keeps the end.
-func clampHeadUTF8(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	s = s[:max]
-	for len(s) > 0 && !utf8.ValidString(s) {
-		s = s[:len(s)-1]
-	}
-	return s
-}
-
-func clampTailUTF8(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	s = s[len(s)-max:]
-	for len(s) > 0 && !utf8.RuneStart(s[0]) {
-		s = s[1:]
-	}
-	return s
-}
-
 // stripCodeFence removes a whole ```lang … ``` wrapper a model adds despite being told not to,
 // WITHOUT touching backticks that are part of the code (a template literal, a raw string, inline
 // markdown). It only acts when the text is a single fenced block: opening fence on the first line,
@@ -142,10 +118,10 @@ const ambientTTL = 15 * time.Minute
 // the unsaved buffer as ambient context (volatileContext injects it when [autocomplete] ambient is
 // on). An empty path or text clears it — the editor closed the file, and stale drafts must not keep
 // riding into the context after the person moved on. Never persisted.
-func (a *App) SetOpenFile(sid session.SessionID, path, text string) {
+func (a *App) SetOpenFile(sid session.SessionID, path, buffer string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if strings.TrimSpace(path) == "" || strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(buffer) == "" {
 		delete(a.openFiles, sid)
 		return
 	}
@@ -154,7 +130,7 @@ func (a *App) SetOpenFile(sid session.SessionID, path, text string) {
 	}
 	// Stored clamped, not just clamped on read: volatileContext shows at most ambientCap of it, so
 	// holding the whole of a 40MB buffer per session for the daemon's life is memory for nothing.
-	a.openFiles[sid] = openFile{path: path, text: clampHeadUTF8(text, ambientCap), at: time.Now()}
+	a.openFiles[sid] = openFile{path: path, text: text.Cut(buffer, ambientCap), at: time.Now()}
 }
 
 // openFileFor returns the session's open editor buffer, if any — and nothing past ambientTTL: a
@@ -194,10 +170,10 @@ func (a *App) CompleteCode(ctx context.Context, sid session.SessionID, path, pre
 	// text the model does not need. Clamped on a rune boundary so a CJK/emoji file never sends a split
 	// character.
 	if len(prefix) > completeCap {
-		prefix = "… (earlier lines omitted)\n" + clampTailUTF8(prefix, completeCap)
+		prefix = "… (earlier lines omitted)\n" + text.CutTail(prefix, completeCap)
 	}
 	if len(suffix) > completeCap {
-		suffix = clampHeadUTF8(suffix, completeCap) + "\n… (later lines omitted)"
+		suffix = text.Cut(suffix, completeCap) + "\n… (later lines omitted)"
 	}
 	system := "You are an inline code completion engine. Continue the code exactly at the point marked " +
 		"<CURSOR>, using the code after the cursor to stay consistent. Output ONLY the raw text to " +

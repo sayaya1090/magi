@@ -36,6 +36,23 @@ func Cut(s string, n int) string {
 	return s[:n]
 }
 
+// CutTail returns at most n bytes of the END of s, starting on a rune boundary, with no marker —
+// Cut's mirror, for the callers whose information lives at the end (a completion prompt's prefix,
+// where the code nearest the cursor matters and the file's opening lines do not).
+func CutTail(s string, n int) string {
+	if n >= len(s) {
+		return s
+	}
+	if n <= 0 {
+		return ""
+	}
+	s = s[len(s)-n:]
+	for len(s) > 0 && !utf8.RuneStart(s[0]) {
+		s = s[1:]
+	}
+	return s
+}
+
 // Clip is Cut with an ellipsis when something was actually removed.
 func Clip(s string, n int) string { return ClipWith(s, n, "…") }
 

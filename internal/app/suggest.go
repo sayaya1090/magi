@@ -10,6 +10,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/rank"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // Composer suggestion — the ghost text under the instruction a person is typing to the companion.
@@ -233,7 +234,7 @@ func promptsFromEvents(evs []event.Event) []string {
 			continue
 		}
 		if t := strings.TrimSpace(partsText(d.Parts)); t != "" {
-			out = append(out, clampHeadUTF8(t, maxPromptLen))
+			out = append(out, text.Cut(t, maxPromptLen))
 		}
 	}
 	return out
@@ -267,14 +268,14 @@ func clipTail(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return "…\n" + clampTailUTF8(s, max)
+	return "…\n" + text.CutTail(s, max)
 }
 
 // exampleLine renders one past prompt as a single capped line for the few-shot list.
 func exampleLine(s string) string {
 	s = oneLine(s)
 	if len(s) > 200 {
-		return clampHeadUTF8(s, 200) + "…"
+		return text.Cut(s, 200) + "…"
 	}
 	return s
 }

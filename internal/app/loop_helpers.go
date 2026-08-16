@@ -138,9 +138,6 @@ func abandonedPromptIDs(evs []event.Event) map[string]bool {
 	return out
 }
 
-// promptUnanswered reports whether the user prompt with msgID exists in the log and has
-// no assistant (ActorAgent) reply after it. Used to guard the cancel-abandon path against
-// a stale seed reference: a prompt that already produced an answer must not be abandoned.
 // unansweredUserPromptIDs returns every genuine (ActorUser) prompt in the log that no assistant
 // reply has covered and that was not already abandoned — the full set a cancel must drain, INCLUDING
 // a prompt Steer'd into the log a moment before the interrupt that the loop never detected into the
@@ -165,24 +162,6 @@ func unansweredUserPromptIDs(evs []event.Event) []string {
 		}
 	}
 	return open
-}
-
-func promptUnanswered(evs []event.Event, msgID string) bool {
-	seen := false
-	for _, e := range evs {
-		switch {
-		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
-			var d event.PromptSubmittedData
-			if json.Unmarshal(e.Data, &d) == nil && d.MessageID == msgID {
-				seen = true
-			}
-		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:
-			if seen {
-				return false // an assistant reply landed after the prompt → answered
-			}
-		}
-	}
-	return seen
 }
 
 // userPromptEntries returns every genuine user (ActorUser) prompt in log order, each

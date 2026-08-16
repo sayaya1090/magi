@@ -148,6 +148,7 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		delete(a.states, child)
 		a.usage.forget(child)
 		a.mu.Unlock()
+		a.liveness.Delete(child) // same lifetime as the state entry — see ForgetSessionState
 		a.wg.Done()
 	}()
 

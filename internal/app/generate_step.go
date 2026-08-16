@@ -28,7 +28,7 @@ type stepResponse struct {
 // anything to say to the rest of the step — so they are one function, and runLoop reads as: get a
 // response, record it, run its tools, decide whether the turn is over.
 func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, agentActor event.Actor,
-	guard *runGuard, evs []event.Event, step, cumOut int) (stepResponse, error) {
+	evs []event.Event, step, cumOut int) (stepResponse, error) {
 	sid := tc.s.ID
 	req, evs := a.buildStepRequest(ctx, tc, evs, step, cumOut)
 

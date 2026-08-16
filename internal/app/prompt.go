@@ -13,6 +13,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/lang"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -155,7 +156,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 		if f, ok := a.openFileFor(s.ID); ok {
 			txt := f.text
 			if len(txt) > ambientCap {
-				txt = clampHeadUTF8(txt, ambientCap) + "\n… (the rest of this file is not shown)"
+				txt = text.Cut(txt, ambientCap) + "\n… (the rest of this file is not shown)"
 			}
 			b.WriteString("\n\n# File open in the editor (unsaved)\nThe user has " + f.path +
 				" open and is editing it; this is their current buffer, which may differ from disk:\n" + txt)
@@ -376,7 +377,7 @@ func oneLineHint(s string) string {
 	// full text loads with the skill.
 	const hintCap = 200
 	if len(s) > hintCap {
-		s = clampHeadUTF8(s, hintCap) + "…"
+		s = text.Cut(s, hintCap) + "…"
 	}
 	return s
 }

@@ -201,10 +201,6 @@ func (c *lspClient) readMsg() (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-func (c *lspClient) notify(method string, params any) error {
-	return c.writeMsg(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
-}
-
 // call sends a request and returns its result, replying null to any server→client
 // request encountered meanwhile (e.g. workspace/configuration) so the server doesn't
 // block, and ignoring notifications.

@@ -414,7 +414,9 @@
       </md-icon-button>
     </div>
     <div class="prefrow">
-      <div class="prefsay"><div class="k" id="langK"></div><div class="say" id="langWhy"></div></div>
+      <!-- No .say line for language: the control explains itself, and an empty say div was the
+           one prefsay whose text nothing ever filled (the same empty-span class d8bd3f19 fixed). -->
+      <div class="prefsay"><div class="k" id="langK"></div></div>
       <md-outlined-select id="lang"></md-outlined-select>
     </div>
     <!-- A setting that is on or off, so a switch: the guide keeps switches for exactly this and

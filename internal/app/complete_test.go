@@ -19,6 +19,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -395,7 +396,7 @@ func TestDraftCommitRulesOverrideReplacesConfig(t *testing.T) {
 // UTF-8 to the model.
 func TestClampUTF8KeepsValidRunes(t *testing.T) {
 	big := strings.Repeat("가나다", 20000) // 9 bytes per repeat, ~180 KB, all multibyte
-	for _, got := range []string{clampHeadUTF8(big, completeCap), clampTailUTF8(big, completeCap)} {
+	for _, got := range []string{text.Cut(big, completeCap), text.CutTail(big, completeCap)} {
 		if !utf8.ValidString(got) {
 			t.Error("a clamp produced invalid UTF-8 (split a rune)")
 		}

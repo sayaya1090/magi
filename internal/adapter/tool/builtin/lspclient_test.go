@@ -98,7 +98,7 @@ func TestLSPCallError(t *testing.T) {
 func TestLSPNotify(t *testing.T) {
 	var buf bytes.Buffer
 	c := &lspClient{in: nopWriteCloser{&buf}}
-	_ = c.notify("initialized", map[string]any{})
+	_ = c.writeMsg(map[string]any{"jsonrpc": "2.0", "method": "initialized", "params": map[string]any{}})
 	var m map[string]json.RawMessage
 	_ = json.Unmarshal(readFramed(bufio.NewReader(&buf)), &m)
 	if _, hasID := m["id"]; hasID {

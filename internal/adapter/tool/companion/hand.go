@@ -351,13 +351,6 @@ func wasDispatched(ctx context.Context, r fleet.Reader, sid session.SessionID) b
 	return false
 }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimSpace(s)
-}
-
 func okText(msg string) session.ToolResult {
 	return session.ToolResult{Content: mustJSON(msg)}
 }

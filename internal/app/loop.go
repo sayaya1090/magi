@@ -308,7 +308,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 
 		// One model response for this step, with the two recoveries that belong to getting it:
 		// a context too large to send, and a backend that goes silent (see generateStep).
-		sr, gerr := a.generateStep(ctx, tc, agent, agentActor, guard, evs, step, cumOut)
+		sr, gerr := a.generateStep(ctx, tc, agent, agentActor, evs, step, cumOut)
 		if gerr != nil {
 			return lastText, gerr
 		}

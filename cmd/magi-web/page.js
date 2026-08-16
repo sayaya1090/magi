@@ -850,7 +850,6 @@ function goDeep(param, value) {
   history.pushState({}, '', '?' + u.toString());
   render();
 }
-const goBackUp = () => goDeep('sub', null);
 
 // The third crumb says which level you are standing on, and it is made of words.
 //

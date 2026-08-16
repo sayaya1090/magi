@@ -151,6 +151,35 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 	return readUtterance(who, text), nil
 }
 
+// readUtterance turns what came back into a contribution or a pass.
+//
+// One keyword, at the start, because that is what a model can be relied on to do — and a reply
+// that merely CONTAINS the word ("I would not pass on this") is a contribution, which is why the
+// check is on the first word rather than anywhere in the text.
+func readUtterance(who, text string) meeting.Utterance {
+	said := strings.TrimSpace(text)
+	first := said
+	if i := strings.IndexAny(first, " \n\t:.—-"); i > 0 {
+		first = first[:i]
+	}
+	// Undressed before it is compared. A model answering a chat writes markdown, and the first
+	// live meeting this ran came back "**PASS** – my workspace only contains…" ten times: the word
+	// was there, the asterisks were not in the comparison, and every pass was recorded as a
+	// contribution. Nobody's pass count moved, the round never came back all-passes, and a
+	// discussion in which nothing was said ran to the ceiling — ten model turns to say nothing,
+	// which is the exact failure the convergence rule exists to prevent.
+	if strings.EqualFold(strings.Trim(first, "*_`~ \t"), "PASS") {
+		reason := strings.TrimSpace(strings.TrimLeft(said[len(first):], " \n\t:.—–·-*_`~"))
+		return meeting.Utterance{Who: who, Pass: true, Text: reason}
+	}
+	if said == "" {
+		// Nothing at all is a pass with nothing to say, not an error: the turn happened, the
+		// participant produced no words, and inventing a contribution for it would be worse.
+		return meeting.Utterance{Who: who, Pass: true}
+	}
+	return meeting.Utterance{Who: who, Text: said}
+}
+
 // meetingSystem is who the participant is, in every turn of the meeting including the first.
 func meetingSystem(who string) string {
 	return "You are " + who + ", taking part in a meeting between companions. You each work in " +
@@ -267,46 +296,4 @@ func meetingPrompt(who, topic, transcript string, closing bool) string {
 		"pass as soon as it is true rather than filling a turn.\n" +
 		"Do not summarise what others said. Do not agree in order to have spoken.\n")
 	return b.String()
-}
-
-// readUtterance turns what came back into a contribution or a pass.
-//
-// One keyword, at the start, because that is what a model can be relied on to do — and a reply
-// that merely CONTAINS the word (\"I would not pass on this\") is a contribution, which is why the
-// check is on the first word rather than anywhere in the text.
-func readUtterance(who, text string) meeting.Utterance {
-	said := strings.TrimSpace(text)
-	first := said
-	if i := strings.IndexAny(first, " \n\t:.—-"); i > 0 {
-		first = first[:i]
-	}
-	// Undressed before it is compared. A model answering a chat writes markdown, and the first
-	// live meeting this ran came back "**PASS** – my workspace only contains…" ten times: the word
-	// was there, the asterisks were not in the comparison, and every pass was recorded as a
-	// contribution. Nobody's pass count moved, the round never came back all-passes, and a
-	// discussion in which nothing was said ran to the ceiling — ten model turns to say nothing,
-	// which is the exact failure the convergence rule exists to prevent.
-	if strings.EqualFold(strings.Trim(first, "*_`~ \t"), "PASS") {
-		reason := strings.TrimSpace(strings.TrimLeft(said[len(first):], " \n\t:.—–·-*_`~"))
-		return meeting.Utterance{Who: who, Pass: true, Text: reason}
-	}
-	if said == "" {
-		// Nothing at all is a pass with nothing to say, not an error: the turn happened, the
-		// participant produced no words, and inventing a contribution for it would be worse.
-		return meeting.Utterance{Who: who, Pass: true}
-	}
-	return meeting.Utterance{Who: who, Text: said}
-}
-
-// MeetingTask asks a participant what it will do, once the discussion has closed.
-func (a *App) MeetingTask(ctx context.Context, sid session.SessionID, who, topic, transcript string) (
-	meeting.Task, error) {
-	u, err := a.MeetingTurn(ctx, sid, who, topic, transcript, true)
-	if err != nil {
-		return meeting.Task{}, err
-	}
-	if u.Pass {
-		return meeting.Task{Who: who}, nil
-	}
-	return meeting.Task{Who: who, What: u.Text}, nil
 }

@@ -153,6 +153,10 @@ func (a *App) ForgetSessionState(sid session.SessionID) {
 	delete(a.states, sid)
 	a.usage.forget(sid)
 	a.mu.Unlock()
+	// The liveness record too: it is created lazily per session and nothing else deletes it — the
+	// eviction that once did (forgetLiveness) was lost in a refactor, reintroducing exactly the
+	// "nothing ever deleted an entry" growth its own file documents.
+	a.liveness.Delete(sid)
 }
 
 // stateIf returns the session's state without creating one — the read/liveness path that
