@@ -586,7 +586,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 	}
 
-	msgs := reconstruct(a.liveEvents(sid, evs))
+	msgs := collapseRepeatedCalls(reconstruct(a.liveEvents(sid, evs)))
 	// Append the volatile context as an ephemeral trailing user message (not persisted, so
 	// it never enters the event log, the language lock, or the council's task snapshot).
 	// Placed last for recency and so the entire real prefix stays cacheable. A trailing

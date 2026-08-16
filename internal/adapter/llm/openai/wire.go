@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -73,6 +74,13 @@ type wireMessage struct {
 	Content    any            `json:"content"`
 	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
+	// Reasoning hands an assistant message's own thinking back to the model. A harmony-family
+	// model (gpt-oss) plans in an analysis channel it expects to SEE again while the turn is
+	// still open — measured on Ollama 0.32.6: in a tool-continuation request this field is
+	// rendered into the prompt (prompt_tokens 139 → 747 with a filler), and after a newer user
+	// message the template itself drops it, which is the harmony contract. Providers that know
+	// no such field ignore it. Sent only when the resend flag is on — see convertMessages.
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // cacheControl marks a prompt-cache breakpoint (Anthropic, forwarded by LiteLLM).
@@ -470,13 +478,28 @@ func normalizeSystemPlacement(msgs []wireMessage) []wireMessage {
 // convertMessages maps domain messages (with parts) to OpenAI wire messages.
 func convertMessages(msgs []session.Message) []wireMessage {
 	msgs = repairToolOrdering(msgs)
+	// The resend window: assistant reasoning travels back only for messages AFTER the last user
+	// message — the open turn's own tool-calling continuation. That is where the harmony contract
+	// wants it (and where Ollama's template renders it); older reasoning is dropped by the
+	// template anyway, so sending it would be bytes on the wire buying nothing.
+	lastUser := -1
+	if resendReasoning() {
+		for i, m := range msgs {
+			if m.Role == session.RoleUser {
+				lastUser = i
+			}
+		}
+	}
 	var out []wireMessage
-	for _, m := range msgs {
+	for i, m := range msgs {
 		switch m.Role {
 		case session.RoleUser, session.RoleSystem:
 			out = append(out, wireMessage{Role: string(m.Role), Content: joinText(m.Parts)})
 		case session.RoleAssistant:
 			wm := wireMessage{Role: "assistant", Content: joinText(m.Parts)}
+			if resendReasoning() && i > lastUser {
+				wm.Reasoning = joinReasoning(m.Parts)
+			}
 			for _, p := range m.Parts {
 				if p.Kind == session.PartToolCall && p.ToolCall != nil {
 					wm.ToolCalls = append(wm.ToolCalls, wireToolCall{
@@ -515,6 +538,26 @@ func joinText(parts []session.Part) string {
 	}
 	return string(b)
 }
+
+// joinReasoning is joinText for the reasoning parts — what a thinking model streamed as analysis,
+// persisted by the loop, and (behind the resend flag) handed back on the wire.
+func joinReasoning(parts []session.Part) string {
+	var b []byte
+	for _, p := range parts {
+		if p.Kind == session.PartReasoning {
+			if len(b) > 0 {
+				b = append(b, '\n')
+			}
+			b = append(b, p.Text...)
+		}
+	}
+	return string(b)
+}
+
+// resendReasoning gates the whole H1 lever. Default OFF until an A/B says otherwise: it is a real
+// behavior change to every request, and the models it exists for (harmony/gpt-oss) are not the
+// only ones magi runs.
+func resendReasoning() bool { return os.Getenv("MAGI_RESEND_REASONING") == "1" }
 
 // toolResultContent renders a tool result as plain text for the wire. The result
 // is stored as a JSON-encoded string, so unwrap it (json.RawMessage `"text"` →
