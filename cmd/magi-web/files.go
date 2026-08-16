@@ -105,8 +105,7 @@ func (s *server) file(w http.ResponseWriter, r *http.Request) {
 // would be doing the agent's work with none of the agent's account of it: the next turn would
 // overwrite the change or build on it, and nothing anywhere would say a person had been in there.
 // The companion writes the edit into its own log as the person's own words before this answers, so
-// the change is in the transcript, in the interventions list, and in front of the model on its
-// next turn. That is what makes it an edit rather than a surprise.
+// the change is in the transcript and in front of the model on its next turn. That is what makes it an edit rather than a surprise.
 //
 // # Why `shell` and not a capability of its own
 //

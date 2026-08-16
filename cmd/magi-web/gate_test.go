@@ -307,9 +307,8 @@ role = "operator"
 //
 // The gate checks the companion a request names, and the routes that answer "what else is there"
 // name none — so /fleet handed over every companion's name, workspace path, host and current task
-// to somebody scoped to one of them, and /interventions handed over what people had SAID to each,
-// verbatim. Those two are where a scope is read from: the board, the masthead count and the
-// dispatch roster are all drawn from the fleet list.
+// to somebody scoped to one of them. It is where a scope is read from: the board, the masthead
+// count and the dispatch roster are all drawn from the fleet list.
 func TestTheListsAreFilteredByScopeToo(t *testing.T) {
 	f := newFleetFixture(t)
 	wd := namedWorkdir(t, "docs")
@@ -425,7 +424,7 @@ func namedWorkdir(t *testing.T, name string) string {
 
 // The same hole, three more lists.
 //
-// /fleet and /interventions were filtered when the scope went in; these were not, and they are the
+// /fleet was filtered when the scope went in; these were not, and they are the
 // lists that carry the most. /handoffs is who asked whom, the question verbatim and the answer.
 // /mcp is how another workspace is wired — command line, arguments, the names of the variables it
 // is handed. /skills is the rules another team wrote for its own companion. None of the three

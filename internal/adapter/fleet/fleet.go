@@ -29,7 +29,6 @@ import (
 // Reader is the part of the engine a fleet view needs: the log, and nothing that runs a turn.
 // Declared here rather than taking *app.App so it is visible that this package only READS.
 type Reader interface {
-	Interventions(ctx context.Context, sid session.SessionID) ([]app.Intervention, error)
 	UnfinishedTurnOf(ctx context.Context, sid session.SessionID) (app.UnfinishedTurn, bool)
 	PlanOf(ctx context.Context, sid session.SessionID) ([]session.Todo, error)
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
@@ -752,59 +751,6 @@ func lastSaid(ctx context.Context, r Reader, sid session.SessionID) string {
 		}
 	}
 	return ""
-}
-
-// Moment is one intervention with the companion it happened in.
-type Moment struct {
-	Companion string `json:"companion"`
-	// Socket identifies the companion for a promotion to be aimed at: a name is what a person
-	// reads and a socket is what the console resolves.
-	Socket   string `json:"socket"`
-	Peer     string `json:"peer,omitempty"`
-	Kind     string `json:"kind"`
-	Text     string `json:"text"`
-	At       string `json:"at"`       // RFC3339
-	AfterSec int    `json:"afterSec"` // how far into the turn the person stepped in
-}
-
-// Interventions gathers what a person had to step in and say, across every companion, newest first.
-//
-// The supervisor's evening question — what did I correct today — cannot be answered one companion at
-// a time: the whole value is seeing that the SAME correction went to three of them, which is what
-// makes it a rule rather than a remark. So it is collected here, where the list of companions
-// already is.
-func Interventions(ctx context.Context, r Reader, configDir string, since time.Duration) ([]Moment, error) {
-	found, err := daemon.List(configDir)
-	if err != nil {
-		return nil, err
-	}
-	cutoff := time.Now().Add(-since)
-	// An empty result is an empty ARRAY, never null. A JSON list endpoint that answers null where
-	// a client expects a list is a trap for every one of them — the page iterates what it gets, and
-	// the very first supervisor with nothing to promote would have seen a blank screen. Seen exactly
-	// that way, live, before anybody had steered anything.
-	out := []Moment{}
-	for _, in := range found {
-		if in.Session == "" {
-			continue
-		}
-		ivs, ierr := r.Interventions(ctx, session.SessionID(in.Session))
-		if ierr != nil {
-			continue // a companion whose log cannot be read is not a reason to answer nothing
-		}
-		name := nameOf(in)
-		for _, iv := range ivs {
-			if since > 0 && iv.At.Before(cutoff) {
-				continue
-			}
-			out = append(out, Moment{
-				Companion: name, Socket: in.Socket, Kind: iv.Kind, Text: Clip(iv.Text, 400),
-				At: iv.At.UTC().Format(time.RFC3339), AfterSec: iv.AfterSec,
-			})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].At > out[j].At })
-	return out, nil
 }
 
 // DispatchMark opens the sentence that says a turn was started by another companion.

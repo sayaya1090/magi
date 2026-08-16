@@ -186,7 +186,7 @@ const demoScript = `
     'docs/UI.md':
       '     1\t# The console, and the rules it keeps\n' +
       '     2\t\n' +
-      '     3\tDerive, never record. State, interventions and context all come out of events\n' +
+      '     3\tDerive, never record. State, the plan and context all come out of events\n' +
       '     4\talready on disk — no status file exists, so nothing can be stale.\n' +
       '     5\t\n' +
       '     6\tAn empty state names the thing that is absent and how it stops being absent.\n',

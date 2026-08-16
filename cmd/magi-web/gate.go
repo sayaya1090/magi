@@ -133,7 +133,7 @@ var mayRead = map[string]auth.Capability{
 var openToRead = map[string]bool{
 	"/fleet": true, "/events": true, "/transcript": true, "/history": true, "/search": true,
 	"/context": true, "/plan": true, "/handoffs": true, "/subagents": true, "/jobs": true,
-	"/interventions": true, "/council": true, "/loop": true, "/tools": true, "/console": true,
+	"/council": true, "/loop": true, "/tools": true, "/console": true,
 	// The workspace, through the companion's own read-only tools. `read`, and not more: everything
 	// a transcript already shows a reader includes the files the agent read and wrote, so a
 	// capability that grants the transcript and refuses the tree would be drawing a line the
@@ -163,7 +163,7 @@ var public = map[string]bool{
 //
 // ⚠ It is the FRONT DOOR and not the whole of a scope. Two other shapes exist and neither is
 // answerable here: a route that returns a LIST has no companion in its request to check (see
-// s.seen, used by /fleet and /interventions), and a route that resolves its subject from the body
+// s.seen, used by /fleet), and a route that resolves its subject from the body
 // passes this check under one name and acts under another (see /dispatch, which asks again once it
 // knows). Adding a route of either shape and stopping at this wrapper leaves a scope that hides
 // nothing.

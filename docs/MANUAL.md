@@ -996,7 +996,7 @@ name a federated console.
 |---|---|
 | `/fleet` | the whole list as JSON — the same rows the table draws |
 | `/events` | one companion's event stream (server-sent events) |
-| `/plan` · `/handoffs` · `/context` · `/history` · `/interventions` · `/cron` | the cards above, as JSON |
+| `/plan` · `/handoffs` · `/context` · `/history` · `/cron` | the cards above, as JSON |
 | `/search?q=` | earlier sessions of that workspace by keyword |
 | `/skills` · `/remember` (POST) · `/forget` (POST) | the experience store |
 | `/mcp` (GET/POST) | the MCP servers of one companion |

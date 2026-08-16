@@ -564,7 +564,7 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   with **no LLM and no tools** — it cannot run a turn even by mistake. Everything that changes a run
   (submit, steer, interrupt, answer a permission, forget) goes to the daemon that owns it.
 - **Federation is composition.** A console that watches several machines is a console that reads
-  several consoles: `/fleet`, `/interventions` and `/skills` are the wire format, and actions are
+  several consoles: `/fleet` and `/skills` are the wire format, and actions are
   forwarded with only the method, path, target socket and form body copied. Peer URLs come from the
   operator, never from a page or another peer's response — the same rule the `?d=` allowlist follows
   one layer down.
@@ -636,7 +636,7 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   tab closes its stream and re-reads the screen when it comes back.
 - **What the console serves**, all of it derived or forwarded: `/fleet` (the list), `/events` (a
   transcript, streamed), `/context` `/plan` `/handoffs` (one companion, read off its log),
-  `/interventions` `/skills` `/forget` `/remember` (the supervision loop), `/history` and `/search`
+  `/skills` `/forget` `/remember` (the supervision loop), `/history` and `/search`
   (what a companion has done before now, and finding it by word), `/cron` (its unattended
   schedule), `/mcp` (read and edit a companion's external tool servers), `/report-format` (the shape
   a report must take before that companion may ask anything), `/tools` and `/model` (asked of the

@@ -533,7 +533,7 @@ magi -daemon          UI 없는 App이 <config>/daemon-<dir>-<hash>.sock에서 �
   만든다 — 실수로도 턴을 돌릴 수 없다. 실행을 바꾸는 모든 것(submit·steer·interrupt·권한 응답·
   forget)은 그것을 소유한 데몬으로 간다.
 - **페더레이션은 합성이다.** 여러 머신을 보는 콘솔은 여러 콘솔을 읽는 콘솔이다: `/fleet`,
-  `/interventions`, `/skills`가 곧 와이어 포맷이고, 액션은 메서드·경로·대상 소켓·폼 바디만 복사해
+  `/skills`가 곧 와이어 포맷이고, 액션은 메서드·경로·대상 소켓·폼 바디만 복사해
   전달된다. 피어 URL은 운영자에게서만 온다 — 페이지나 다른 피어의 응답에서 오지 않는다. 한 층
   아래의 `?d=` 허용목록과 같은 규칙이다.
 - **팀은 위상이 아니라 주소다**(`internal/adapter/tool/companion`, MANUAL §13). 컴패니언이 이름·역할·
@@ -588,7 +588,7 @@ magi -daemon          UI 없는 App이 <config>/daemon-<dir>-<hash>.sock에서 �
   받았다. 로스터는 대화 연결에 이름 붙은 프레임으로 타고, 회의 화면만 자기 것을 열며(방을 본다), 숨은
   탭은 스트림을 닫고 돌아올 때 화면을 다시 읽는다.
 - **콘솔이 서빙하는 것** 전부는 유도되거나 전달된다: `/fleet`(목록), `/events`(트랜스크립트 스트림),
-  `/context` `/plan` `/handoffs`(컴패니언 하나를 그 로그에서 읽음), `/interventions` `/skills`
+  `/context` `/plan` `/handoffs`(컴패니언 하나를 그 로그에서 읽음), `/skills`
   `/forget` `/remember`(감독 루프), `/history`·`/search`(지금까지 한 일과 단어로 찾기),
   `/cron`(무인 일정), `/mcp`(외부 툴 서버 조회·편집),
   `/report-format`(그 컴패니언이 무엇이든 묻기 전에 채워야 할 보고서의 모양),

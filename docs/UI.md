@@ -41,9 +41,8 @@ address still lands where it pointed.
 ⚠ There used to be a fifth, **what I had to say** — every moment somebody stepped into a running
 turn, grouped by the words, each promotable into the project or global tier. It is gone. Grouping
 corrections was a rule factory with no evidence that any rule it produced was wanted, and the
-promotion pipeline asked a person to decide something they had no grounds for. What survived is the
-useful half: the interventions for ONE companion, on that companion's own page, as a reading about
-it rather than as a queue of candidate rules.
+promotion pipeline asked a person to decide something they had no grounds for. The corrections
+themselves are where they happened: in the transcript, next to what they were about.
 
 ## 2. The console's screens
 
@@ -573,7 +572,7 @@ phone for months.
 
 ## 4. The rules this page keeps
 
-1. **Derive, never record.** State, interventions and context all come out of events already on
+1. **Derive, never record.** State, the plan and context all come out of events already on
    disk. No status file exists, so nothing can be stale, and a session from last week answers the
    same way.
 2. **The console reads; the daemons act.** Its App has **no LLM and no tools** — it cannot run a

@@ -319,30 +319,6 @@ func (s *server) proxyStream(w http.ResponseWriter, r *http.Request, p peer, soc
 	}
 }
 
-// peerInterventions asks every peer the same question and stamps the answers with its name.
-//
-// Same shape as the fleet merge and the same failure rule: a console that does not answer costs its
-// own rows and nothing else. Unlike the fleet there is no placeholder row for it — an absent
-// console cannot be mistaken for one that had nothing to say, because the fleet view directly above
-// is already showing it as unreachable.
-func (s *server) peerInterventions(ctx context.Context, rawQuery string) []fleet.Moment {
-	var out []fleet.Moment
-	for _, r := range fanOut(ctx, s.peers, func(ctx context.Context, p peer) ([]fleet.Moment, error) {
-		u := p.Base + "/interventions"
-		if rawQuery != "" {
-			u += "?" + rawQuery
-		}
-		got, err := getJSON[fleet.Moment](ctx, s.http, u)
-		for j := range got {
-			got[j].Peer = p.Name
-		}
-		return got, err
-	}) {
-		out = append(out, r.List...) // an error leaves an empty list, which is the whole handling
-	}
-	return out
-}
-
 // peerNamed finds a configured peer. Only the operator's list is consulted — a name that is not in
 // it is not a place this process will send anything.
 func (s *server) peerNamed(name string) (peer, bool) {

@@ -104,7 +104,7 @@ flowchart LR
   a1 --> logs
   a2 --> logs
   web -->|"상태는 기록이 아니라<br/>유도된다"| logs
-  web <-->|"/fleet · /interventions · /skills"| peer
+  web <-->|"/fleet · /skills"| peer
 ```
 
 - 데몬이 대기하는 소켓 이름은 워크스페이스의 실제 경로에서 나온다. "여기의 데몬"이 모호하지 않고,

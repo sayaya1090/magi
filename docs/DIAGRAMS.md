@@ -106,7 +106,7 @@ flowchart LR
   a1 --> logs
   a2 --> logs
   web -->|"state is DERIVED,<br/>never recorded"| logs
-  web <-->|"/fleet · /interventions · /skills"| peer
+  web <-->|"/fleet · /skills"| peer
 ```
 
 - The socket a daemon listens on is named from its workspace's real path, so "the daemon here" is

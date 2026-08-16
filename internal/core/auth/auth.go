@@ -224,9 +224,9 @@ func (p Policy) ScopeWith(who string, groups []string) []string {
 // InScope reports whether this person may see or act on one companion, named and placed.
 //
 // Exported because a scope is not one check. The gate can ask it for a request that NAMES its
-// companion, but the routes that answer "what else is there" — the fleet, the interventions — have
-// nothing for a gate to inspect and must filter what they produce instead. One predicate, three
-// callers, rather than three ideas of what a scope means.
+// companion, but the routes that answer "what else is there" — the fleet and its kin — have
+// nothing for a gate to inspect and must filter what they produce instead. One predicate, many
+// callers, rather than several ideas of what a scope means.
 //
 // `peer` is the console a companion was reported by, empty for this machine. An entry may be a
 // bare name, which matches that name anywhere, or "peer/name", which matches one machine's. Bare

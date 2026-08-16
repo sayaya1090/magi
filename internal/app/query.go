@@ -361,8 +361,8 @@ func readOnlyList() string {
 // workspace per companion and a log, so the log is where it goes.
 //
 // So the note is not decoration and not optional: it is appended as the PERSON's own words, in the
-// session the companion is running, before this returns. It shows up in the transcript, in the
-// interventions list, and — because a session log IS the context — in front of the model on its
+// session the companion is running, before this returns. It shows up in the transcript and —
+// because a session log IS the context — in front of the model on its
 // next turn. Nothing is started by it: editing a file is not asking for work, and a console that
 // launched a turn because somebody saved would be a second surprise on top of the first.
 //
@@ -412,9 +412,9 @@ func writeList() string {
 // noteEdit puts the person's edit into the companion's own log.
 //
 // A user prompt, because that is what the rest of this system already means by "a person said
-// something": the transcript draws it, Interventions counts it, and the next turn reads it. Not a
-// fact of its own type — a new type would have to be taught to every one of those readers, and the
-// three that matter would each learn it slightly differently.
+// something": the transcript draws it and the next turn reads it. Not a fact of its own type —
+// a new type would have to be taught to every one of those readers, and each would learn it
+// slightly differently.
 //
 // appendPrompt and not Submit: appending records, submitting also STARTS a turn.
 func (a *App) noteEdit(ctx context.Context, sid session.SessionID, tool string, args json.RawMessage, ask bool) error {

@@ -31,8 +31,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -991,31 +989,6 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// interventions is the supervisor's evening question: what did I have to step in and say?
-//
-// Gathered across every companion, including the federated ones, because the whole value is seeing
-// that the same correction went to three of them — that is what makes it a rule rather than a
-// remark, and one companion at a time cannot show it.
-func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
-	since := 7 * 24 * time.Hour
-	if v := r.URL.Query().Get("days"); v != "" {
-		if d, err := strconv.Atoi(v); err == nil && d > 0 && d <= 90 {
-			since = time.Duration(d) * 24 * time.Hour
-		}
-	}
-	list, err := fleet.Interventions(r.Context(), s.reader, s.cfgDir, since)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	list = append(list, s.peerInterventions(r.Context(), r.URL.RawQuery)...)
-	// Scoped for the same reason the fleet is, and more so: this carries what a person SAID to each
-	// companion, verbatim. A list of names is an inventory; this is the correspondence.
-	list = onlySeen(s, r, list, func(m fleet.Moment) (string, string) { return m.Companion, m.Peer })
-	sort.Slice(list, func(i, j int) bool { return list[i].At > list[j].At })
-	writeJSON(w, "interventions", list)
-}
-
 // routes is every path this server answers, in one place.
 //
 // Wrapped where the table is built, not where the server is started: a guard applied at the call
@@ -1061,7 +1034,6 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		// a static export writes these files to disk beside the page.
 		"/vendor/":       s.asset,
 		"/i18n/":         s.asset,
-		"/interventions": s.interventions,
 		"/skills":        s.skills,
 		"/forget":        s.forgetSkill,
 		"/report-format": s.reportFormat,

@@ -868,7 +868,7 @@ fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(�
 |---|---|
 | `/fleet` | 목록 전체를 JSON으로 — 표가 그리는 그 행들 |
 | `/events` | 한 컴패니언의 이벤트 스트림(SSE) |
-| `/plan` · `/handoffs` · `/context` · `/history` · `/interventions` · `/cron` | 위 카드들의 JSON |
+| `/plan` · `/handoffs` · `/context` · `/history` · `/cron` | 위 카드들의 JSON |
 | `/search?q=` | 그 워크스페이스의 지난 세션 검색 |
 | `/skills` · `/remember`(POST) · `/forget`(POST) | 경험 저장소 |
 | `/mcp`(GET/POST) | 한 컴패니언의 MCP 서버 |
