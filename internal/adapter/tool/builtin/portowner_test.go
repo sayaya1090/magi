@@ -74,14 +74,27 @@ func TestPortOwnerExecuteValidation(t *testing.T) {
 	}
 }
 
-// Off Linux the tool reports itself unsupported rather than silently claiming the
-// port is free (there is no /proc/net/tcp to consult).
-func TestPortOwnerUnsupportedOffLinux(t *testing.T) {
-	if runtime.GOOS == "linux" {
+// Each platform answers the way it can: Linux and macOS look the port up (/proc and lsof
+// respectively — a free port is an answer, not a refusal), and anywhere else the tool reports
+// itself unsupported rather than silently claiming the port is free.
+func TestPortOwnerPlatformSupport(t *testing.T) {
+	switch runtime.GOOS {
+	case "linux":
 		t.Skip("supported on Linux — covered by the integration test")
-	}
-	res, _ := PortOwner{}.Execute(context.Background(), json.RawMessage(`{"port":8080}`), port.ToolEnv{})
-	if !res.IsError || !strings.Contains(string(res.Content), "Linux") {
-		t.Fatalf("off Linux must report unsupported, got IsError=%v %s", res.IsError, res.Content)
+	case "darwin":
+		// Port 1 is privileged and essentially never bound on a dev machine; the point is the
+		// tool ANSWERS (free or held) instead of refusing the platform.
+		res, _ := PortOwner{}.Execute(context.Background(), json.RawMessage(`{"port":1}`), port.ToolEnv{})
+		if res.IsError {
+			t.Fatalf("macOS lookups must answer via lsof, got error: %s", res.Content)
+		}
+		if s := string(res.Content); !strings.Contains(s, "free") && !strings.Contains(s, "held by") {
+			t.Fatalf("expected a free/held answer, got %s", s)
+		}
+	default:
+		res, _ := PortOwner{}.Execute(context.Background(), json.RawMessage(`{"port":8080}`), port.ToolEnv{})
+		if !res.IsError || !strings.Contains(string(res.Content), "unavailable on this platform") {
+			t.Fatalf("an unsupported platform must say so, got IsError=%v %s", res.IsError, res.Content)
+		}
 	}
 }

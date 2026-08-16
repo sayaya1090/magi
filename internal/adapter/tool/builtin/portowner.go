@@ -86,7 +86,7 @@ type PortOwner struct{}
 
 func (PortOwner) Name() string { return "port_owner" }
 func (PortOwner) Description() string {
-	return "Find which process (PID) is bound to a TCP port, reading /proc — works when pkill/pgrep/lsof/ss/fuser are absent (they exit 127 in stripped containers). Returns the owning PID(s) and their command line. Set kill=true to terminate the owner — use this to FREE A PORT that a stale/leftover server still holds before you restart it (a raw-detached `server &` you can no longer reach with bash_kill). Prefer bash_kill{bg_N} for a server YOU started with background=true; use port_owner for a squatter you cannot otherwise find. signal=\"int\"/\"term\" sends a graceful stop instead of a hard kill."
+	return "Find which process (PID) is bound to a TCP port (/proc on Linux, lsof on macOS) — works when pkill/pgrep/ss/fuser are absent (they exit 127 in stripped containers). Returns the owning PID(s) and their command line. Set kill=true to terminate the owner — use this to FREE A PORT that a stale/leftover server still holds before you restart it (a raw-detached `server &` you can no longer reach with bash_kill). Prefer bash_kill{bg_N} for a server YOU started with background=true; use port_owner for a squatter you cannot otherwise find. signal=\"int\"/\"term\" sends a graceful stop instead of a hard kill."
 }
 func (PortOwner) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"port":{"type":"integer","description":"TCP port to look up (1-65535)"},"kill":{"type":"boolean","description":"terminate the owning process(es) to free the port"},"signal":{"type":"string","enum":["int","term"],"description":"with kill: graceful stop (Ctrl-C equivalent) instead of the default hard kill"}},"required":["port"]}`)
@@ -107,7 +107,7 @@ func (PortOwner) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	}
 	owners, supported := findPortOwners(p)
 	if !supported {
-		return errResult("", "port_owner reads /proc and is only available on Linux — not on this platform"), nil
+		return errResult("", "port_owner is unavailable on this platform (it needs /proc on Linux, or lsof on macOS)"), nil
 	}
 	if len(owners) == 0 {
 		// Not an error: an empty result means the port is FREE — a useful fact
