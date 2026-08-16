@@ -508,13 +508,22 @@ most of the time. A companion's page keeps the companions destination lit: it is
 
 ### 3.5b Preferences
 
-One dialog, reached from one icon at every width: **language** (browser/English/한국어),
-**notifications** (§2.7), and **which machine this console is** — the host and the config
-directory, from `/console`.
+One dialog, reached from one icon at every width, grouped under five labelled headers (each with a
+heading role, so a screen reader can navigate them):
 
-**Theme is not in it.** It has a toggle in the masthead — one tap for the setting that gets changed
-most — and a select saying the same thing three feet away was one preference with two controls and
-two ways to be wrong about it.
+- **Appearance** — language (browser/English/한국어) and the theme row. Theme also keeps its
+  masthead toggle — one tap for the setting that gets changed most — the dialog row is the same
+  fact in the place somebody looks for settings.
+- **Notifications** — §2.7.
+- **Model assistance** — the look-over switch (the model reads over your shoulder in the file
+  editor; per-browser opt-in).
+- **Completion settings** — the code/composer completion switches (per-browser), the ambient and
+  cross-session toggles, the two profile pickers, and the commit/PR draft-rule editors (these are
+  written to the companion's config, not the browser). Beside them, **Model profiles**: list, edit,
+  remove and add the named `[llm.profiles.*]` backends — the key is write-only, the console only
+  ever reports whether one is set.
+- **This console** — which machine this is: the host, the config directory, this console's build
+  and the companions' builds, from `/console`.
 
 That last one is not an account. magi has no users to log in; the console is reachable by whoever
 can reach the port. What a supervisor with three of these open actually asks is which machine they

@@ -343,7 +343,7 @@ func run() int {
 		theme           = flag.String("theme", env("MAGI_THEME", "auto"), "color theme: auto|dark|light")
 		noHarness       = flag.Bool("no-harness", false, "disable the built-in harness (default hooks like format-on-save)")
 		timeBudget      = flag.Duration("time-budget", envDur("MAGI_TIME_BUDGET", 0), "soft wall-clock budget shown to the agent as guidance (e.g. 20m); 0 = off. Never affects leaderboard/comparison runs unless set.")
-		noUpdateCheck   = flag.Bool("no-update-check", env("MAGI_NO_UPDATE_CHECK", "") != "", "disable the interactive startup update check")
+		noUpdateCheck   = flag.Bool("no-update-check", env("MAGI_NO_UPDATE_CHECK", "") != "", "disable the interactive startup update check and the daemon's auto-update loop")
 	)
 	flag.Parse()
 

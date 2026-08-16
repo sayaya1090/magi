@@ -505,6 +505,28 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # primary = "#B45309"
 # accent  = "#0E7490"
 # surface = "#F5EEE3"
+
+# --- Completion & suggestions (docs/MANUAL.md §Autocomplete). Each helper is one thin
+# model call on a routed [llm.profiles.*] backend; a surface with no profile self-disables.
+# [autocomplete]
+# enabled          = true        # master switch for all three helpers (default on)
+# ambient          = true        # the file open in the web editor rides into the agent's context
+# code             = true        # inline code completion in the web editor (daemon-side gate)
+# composer         = true        # composer next-instruction suggestion, web + TUI
+# code_profile     = "fast"      # [llm.profiles.*] for code completion (unset = off)
+# composer_profile = "balanced"  # [llm.profiles.*] for composer suggestion (unset = off)
+# cross_session    = true        # learn phrasing from this workspace's past sessions
+
+# --- House rules folded into the commit/PR draft generators. Additive; empty = unchanged.
+# [templates]
+# commit = "Layer the commits: docs, then core, then the outward change."
+# pr     = "Fill the review checklist; name what a reviewer should look at first."
+
+# --- Daemon self-update (docs/MANUAL.md §Version / self-update).
+# [update]
+# auto = true   # (default on) a daemon picks up new releases itself, verifies with rollback,
+#               # and restarts once idle. Off = the console's manual button only. Never merged
+#               # from a project config; a source build refuses to auto-update regardless.
 `
 
 // WriteDefaultIfMissing writes a commented default config.toml into dir if one

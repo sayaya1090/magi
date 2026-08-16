@@ -216,23 +216,29 @@ Rules:
   omit `[DONE]` while holding the connection open, which left the reader hanging until the wall
   clock. Finish on finish_reason (plus trailing usage), with an epilogue grace
   (`streamEpilogueGrace`) as the backstop.
-- R7 **The stall watchdog** (`consumeStream` + `streamStallTimeout`, default 120s,
-  `MAGI_STREAM_STALL`, 0=off): a backend that accepts the request, returns 200 and then **sends no
-  event at all** is detected by idle time (since the last event) and aborted — sealing a main
-  generate whose read hung until the turn's wall clock (observed: a silent hang on
-  cobol-modernization). It **resets on every event**, so a slow generation streaming tokens or
-  reasoning never trips it. **Silence before the first token** (zero output) sets
-  `streamStep.stalled` and the main loop re-issues the same request (`maxStreamStallRetries`=2, safe
-  because nothing was committed), erroring when exhausted; a **freeze mid-generation** aborts but
-  keeps the partial output and does not retry.
+- R7 **The stall watchdog** (`consumeStream`; two bounds, split on purpose): a backend that accepts
+  the request, returns 200 and then **sends no event at all** is detected by idle time (since the
+  last event) and aborted — sealing a main generate whose read hung until the turn's wall clock
+  (observed: a silent hang on cobol-modernization). It **resets on every event**, so a slow
+  generation streaming tokens or reasoning never trips it. The two silences mean different things
+  and get different bounds: **before the first token** the wait is dominated by PREFILL — minutes
+  on a strong local model against magi's ~20k-token prompt — so it is bounded by
+  `firstTokenTimeout` (default 300s, `MAGI_FIRST_TOKEN`; 0 = no separate bound, the inter-token
+  bound applies from the start), sets `streamStep.stalled`, and the main loop re-issues the same
+  request (`maxStreamStallRetries`=2, safe because nothing was committed), erroring when exhausted.
+  A **freeze mid-generation** (after output began) is bounded by `streamStallTimeout` (default
+  120s, `MAGI_STREAM_STALL`, 0=off), aborts, keeps the partial output and does not retry. The
+  council's per-member deadline adds the first-token value on top of its 3 minutes for the same
+  prefill reason.
 - R7b **One guard for all model I/O** (`guardedProvider`, `provider_guard.go`): **every request to a
   model** — the main generate and every side call — goes through the single `StreamChat` chokepoint
   of a provider wrapped at construction by `GuardProvider` (everything `providerFor` returns is
   guarded; this replaced the whack-a-mole of per-consumer watchdogs). R7's `consumeStream` (the
   behavioural guard: stall-retry, reasoning spin) fires **first on the main generate**, and
   guardedProvider is the **safety net above it** (thresholds doubled) backstopping paths with no
-  handling of their own. It cancels three failure modes: a **silent backend** (idle ≥ 2×
-  `streamStall`), **byte-spin** (no completion past 2× `spinCap`), and **degenerate repetition** (a
+  handling of their own. It cancels three failure modes: a **silent backend** (idle ≥ 2× the larger of
+  `streamStall` and the first-token bound — 600s default, so a legitimate prefill is never killed
+  by the net beneath the handler), **byte-spin** (no completion past 2× `spinCap`), and **degenerate repetition** (a
   short unit repeated back-to-back in the tail, ≥128B and ≥3 times — the same sentence or word
   looping; `MAGI_REPEAT_CAP` on by default, checking a 4KB tail every 256B, so it stops in hundreds
   of bytes rather than waiting for the ~800KB byte cap). A pure-whitespace unit (a blank line) does

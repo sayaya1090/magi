@@ -116,6 +116,15 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 			continue
 		}
 		checked++
+		// Named exceptions, each with its OWN floor — never a skip. The look-over line note is an
+		// annotation drawn beside code, and the operator chose to let it sit visibly translucent,
+		// below strict AA but never past identification: 3.5:1 keeps it comfortably readable while
+		// letting the dimming say "this is a remark, not the code". An entry here is a deliberate,
+		// documented trade; anything unlisted keeps the 4.5:1 gate.
+		floor := 4.5
+		if strings.Contains(selector, ".linenote") {
+			floor = 3.5
+		}
 		for theme, roles := range map[string]map[string]string{"dark": dark, "light": light} {
 			hex, ok := roles[role]
 			if !ok {
@@ -126,9 +135,9 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 					role, theme, strings.TrimSpace(body))
 				continue
 			}
-			if got := contrast(blend(hex, roles["bg"], a), roles["bg"]); got < 4.5 {
-				t.Errorf("%s at opacity %s is %.2f:1 in the %s theme:\n%s",
-					role, om[1], got, theme, strings.TrimSpace(body))
+			if got := contrast(blend(hex, roles["bg"], a), roles["bg"]); got < floor {
+				t.Errorf("%s at opacity %s is %.2f:1 in the %s theme (floor %.1f):\n%s",
+					role, om[1], got, theme, floor, strings.TrimSpace(body))
 			}
 		}
 	}

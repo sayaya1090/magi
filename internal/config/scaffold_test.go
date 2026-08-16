@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,17 @@ func TestWriteDefaultIfMissing(t *testing.T) {
 	// The template must parse as valid TOML and yield an (empty) config.
 	if _, err := Load(dir); err != nil {
 		t.Fatalf("default template does not parse: %v", err)
+	}
+	// Every user-facing section is DISCOVERABLE from the scaffold: a first-run user learns the
+	// config surface from this file, and a section missing here is a feature nobody finds —
+	// [autocomplete]/[templates]/[update] shipped without their blocks and were exactly that.
+	for _, section := range []string{
+		"[llm.profiles.", "[mcp.", "[council", "[sampling", "[theme.",
+		"[autocomplete]", "[templates]", "[update]",
+	} {
+		if !strings.Contains(string(b), section) {
+			t.Errorf("the default config never mentions %s — a first-run user cannot discover it", section)
+		}
 	}
 }
 

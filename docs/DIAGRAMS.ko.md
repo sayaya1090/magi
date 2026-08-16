@@ -213,11 +213,11 @@ provider는 생성 시점에 전부 `GuardProvider`(`provider_guard.go`)로 감�
 flowchart TD
   REQ["모델 요청<br/>(generate · council · side call)"] --> GP["guardedProvider.StreamChat<br/>(단일 chokepoint · 모든 경로)"]
   GP --> W{"스트림 감시"}
-  W -- "idle: 이벤트 없음<br/>2×streamStall (기본 240s)" --> AB["취소 → 스트림 닫음<br/>수초 내 언와인드"]
+  W -- "idle: 이벤트 없음<br/>2×max(streamStall, firstToken) (기본 600s)" --> AB["취소 → 스트림 닫음<br/>수초 내 언와인드"]
   W -- "byte-spin: 완료 없이<br/>2×spinCap (기본 800KB)" --> AB
   W -- "반복 loop: 꼬리에 짧은 단위<br/>back-to-back ≥128B·≥3회" --> AB
   W -- "정상 이벤트" --> CS["consumeStream (메인 generate만)"]
-  CS -- "첫 토큰 전 침묵<br/>streamStall 120s" --> RT["재발행 (maxStreamStallRetries=2)"]
+  CS -- "첫 토큰 전 침묵(prefill)<br/>firstToken 300s" --> RT["재발행 (maxStreamStallRetries=2)"]
   CS -- "reasoning만 무한<br/>spinCap 400KB, 툴콜 0" --> SN["reasoningSpinNudge<br/>'그만 생각하고 행동하라'"]
   CS -- "finish_reason 도착" --> STEP["스텝 루프 (L1)"]
   RT --> CS
@@ -232,10 +232,11 @@ flowchart TD
 
 | 계층 | 잡는 것 | 트리거 | 바운드 / 플래그 | 처리 |
 |---|---|---|---|---|
-| `guardedProvider` (idle) | 침묵한 백엔드(무응답) | 마지막 이벤트 후 유휴 | 2×`streamStall`(기본 240s) | 취소·스트림 닫음 |
+| `guardedProvider` (idle) | 침묵한 백엔드(무응답) | 마지막 이벤트 후 유휴 | 2×max(`streamStall`,`firstToken`)(기본 600s) | 취소·스트림 닫음 |
 | `guardedProvider` (byte-spin) | 완료 없는 폭주 생성 | 누적 바이트 | 2×`spinCap`(기본 800KB), `MAGI_SPIN_CAP` | 취소 |
 | `guardedProvider` (repeat) | **degenerate 반복**(같은 문장/단어 무한) | 꼬리 단위 back-to-back ≥128B·≥3회 | `MAGI_REPEAT_CAP`(기본 on), 꼬리 4KB·256B마다 검사 | 취소(≈수백 B 만에, 800KB 안 기다림) |
-| `consumeStream` (stall) | 메인 generate 첫토큰 전 침묵 | 유휴 | `streamStall` 120s, `MAGI_STREAM_STALL` | 같은 요청 재발행(×2), 소진 시 에러 |
+| `consumeStream` (첫토큰) | 메인 generate 첫토큰 전 침묵 — prefill 여유 | 유휴 | `firstToken` 300s, `MAGI_FIRST_TOKEN`(0=토큰간 한도로 폴백) | 같은 요청 재발행(×2), 소진 시 에러 |
+| `consumeStream` (토큰간) | 출력 시작 후 생성 도중 freeze | 유휴 | `streamStall` 120s, `MAGI_STREAM_STALL`(0=비활성) | 스트림 종료, 부분 출력 보존(재시도 없음) |
 | `consumeStream` (reasoningSpin) | 메인 generate reasoning만 무한 | 툴콜 0 + 바이트 | `spinCap` 400KB (`[limits] max_output_tokens` 설정 시 이 넛지는 토큰캡에 위임=off, guardedProvider 800KB 백스톱은 유지) | 넛지("행동하라") |
 | `runGuard` (L3) | 툴콜 반복·정체·자기되돌림 | 지문·무변이 스텝 | `guard.go` 상수 | **넛지만** — 차단·회복·강제종료 없음 |
 | 체크 타임아웃(`runVerifyCmd`) | 블로킹 워크플로 verify 명령 | per-check 경과 | 기본 120s, `MAGI_CHECK_TIMEOUT`(0=off) | kill → -1 = 검증불가(거짓실패 아님) |
@@ -1021,7 +1022,8 @@ sequenceDiagram
 | `MAGI_CTX_COMPACT_RETRY` | ON | 컨텍스트 초과 시 압축 후 재시도 |
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
-| `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | generate 첫토큰 stall 워치독 · 워크플로 verify 타임아웃(0=off) |
+| `MAGI_STREAM_STALL` · `MAGI_FIRST_TOKEN` | 120s · 300s | generate의 토큰-간 freeze 한도(0=비활성) · 첫토큰 전(prefill) 한도(0=별도 한도 없음); 가드는 둘 중 큰 쪽의 2배, 카운슬 멤버 데드라인은 첫토큰 값을 더함 |
+| `MAGI_CHECK_TIMEOUT` | — | 워크플로 verify 타임아웃(0=off) |
 | `MAGI_SPIN_CAP` | 400KB | reasoning-only spin 상한(guardedProvider는 2×) |
 | `MAGI_SELFKILL_GUARD` | ON | 프롬프트 단어로 자기 프로세스를 죽이는 `pkill -f` 차단 |
 | `MAGI_COUNCIL_KEEP` | ON | 위원이 **유지할 부분**도 함께 지목(자문, 결정·집계엔 무영향); off면 고칠 것만 |

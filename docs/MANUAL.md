@@ -122,10 +122,35 @@ Plugins hot-reload, so no restart is needed after `--update-plugins`.
 **Interactive startup check.** When you launch the TUI on a terminal, magi checks for a
 newer release at most once every 24h. A **patch** release just prints a one-line banner
 (`… run magi --update`); a **minor or major** release is treated as required and installs
-automatically after a short cancellable pause, then asks you to restart. This check fires
-**only** on an interactive TTY — never under `-p`, a pipe, CI, or a benchmark — so
-non-interactive runs make no network call and get no surprise install. Disable it with
-`--no-update-check` (or `MAGI_NO_UPDATE_CHECK=1`).
+automatically after a short cancellable pause, then asks you to restart. This *startup*
+check fires **only** on an interactive TTY — never under `-p`, a pipe, CI, or a benchmark.
+Disable it with `--no-update-check` (or `MAGI_NO_UPDATE_CHECK=1`).
+
+**Daemon auto-update.** A running `magi --daemon` keeps itself current on its own: every
+6 hours (staggered per daemon so a machine's companions don't all check at once) it looks
+for a newer release and, when one exists, downloads it, verifies the checksum, runs the
+new binary's `--version` as a pre-flight — **rolling back to the previous build if that
+fails** — and then restarts onto it once nothing is running (no turn in flight, no
+meeting round being composed). The restart reopens the conversation the daemon was on.
+Details that matter:
+
+- `[update] auto = false` in config turns the auto path off for that companion; the
+  console's manual **Update to latest** button still works — the toggle gates only the
+  automatic part.
+- `--no-update-check` / `MAGI_NO_UPDATE_CHECK=1` disables it too (alongside the startup
+  check).
+- A **source build never auto-updates**: both a bare `go build` ("dev") and the
+  Makefile's git-describe stamp (`v0.22.2-13-g…`) refuse, so your own binary is never
+  replaced under you. `magi --update` remains the explicit way to move a source install
+  onto a release.
+- A benchmark can't reach it: the loop exists only on the `--daemon` path, and a bench
+  run is a headless one-shot.
+
+**Updating a companion from the web console.** A same-machine companion's facts panel
+shows its **Build** and an **Update to latest** button (Configure-gated; refused on a
+shared console and for peer-scoped requests — updates never cross machines). The button
+relays the daemon's own `update`: download, verify, commit with rollback, restart; the
+daemon's one-line account is shown back.
 
 ## 3. Configuration
 
@@ -151,7 +176,9 @@ Flags / environment variables (precedence: flag > env > default):
 | `--version` | — | — | print version and exit |
 | `--update` / `--update-core` / `--update-plugins` | — | — | update binary+plugins / binary only / managed plugins only, then exit |
 | `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
-| `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
+| `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check AND the daemon's auto-update loop |
+| — | `MAGI_FIRST_TOKEN` | `300` (s) | silence bound BEFORE a response's first token — prefill headroom for big prompts on slow local backends; `0` = no separate bound (the inter-token bound applies from the start). The council's per-member deadline rides on it (3m + this) |
+| — | `MAGI_STREAM_STALL` | `120` (s) | silence bound BETWEEN tokens (a mid-generation freeze aborts, keeping the partial output); `0` disables. The stream-guard safety net sits at 2× the larger of the two bounds |
 | `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
 | — | `MAGI_EMBED_BASE_URL` | (chat base URL) | endpoint for the **embedding** model (`embed_model`), when it lives on a different backend than the chat model — the semantic half of `recall_memory` / the shared brain |
 | — | `MAGI_EMBED_API_KEY` | (none) | key for that embedding endpoint |
@@ -274,9 +301,16 @@ primary = "#B45309"
                            # leaves the generators exactly as they were.
 # commit = "Layer the commits: docs, then core, then the outward change. No issue numbers."
 # pr     = "Fill the review checklist; name what a reviewer should look at first."
+
+[update]                   # daemon self-update (see §Version / self-update)
+# auto = true              # (default on) a daemon picks up new releases on its own, verifies with
+                           #                rollback, and restarts once idle. Off = manual button only.
+                           #                Never merged from a project config, and a source build
+                           #                (git-describe / "dev") refuses to auto-update regardless.
 ```
 > **Autocomplete & suggestions** (`[autocomplete]`): three low-latency helpers, each a single no-council model call on a routed profile — never a subagent turn, so a keystroke never waits on a finish vote. **Inline code completion** shows ghost text at the cursor in the web file editor (Tab takes it). **Composer suggestion** offers how you'll finish an instruction, in both the web composer (a dim hint) and the TUI composer (a line under the box, Tab), learned from your own past prompts via lexical ranking. **Ambient open-file** puts the file you're editing — unsaved — into the agent's next-turn context. Code and composer get **separate profiles** on purpose (a small fast model for code, a slightly stronger one for the composer); a surface with no profile self-disables rather than billing the main model. All of it is toggled and assigned from the web console's **Preferences** (the on/off switches are per-browser; the profile assignments, ambient, cross-session and the two `[templates]` rule editors are written to config), and persists to this file.
-> The `[routing]` / `[llm.profiles.*]` / `model` above can **also be edited via the `/route` editor** and are saved to this file.
+> The `[llm.profiles.*]` / `model` above can **also be edited via the `/route` editor** — or from the web console's **Preferences → Model profiles**: list, edit and remove the named backends, or add one (name, base URL, model, optional key). The key is **write-only** — the console reports only whether one is set, never the value — and `${ENV_VAR}` is the recommended form. Changes are saved to this file and apply on that daemon's next start.
+> **Look-over** (web editor, off by default — Preferences → the look-over switch): while you edit a file in the console, the companion's model reads over your shoulder and points out only what is wrong — at most three findings, each **anchored to its line** and drawn as an amber end-of-line note that clears when you type. Only the region around your caret is sent (±60 lines, numbered with real line numbers), and the remarks come in **your language**. Silence means nothing worth saying; there is no "looks good" noise. Each pause in typing spends one small model call, which is why it is opt-in per browser.
 > **The council (the MAGI: Melchior · Balthasar · Casper · on by default)**: three members the agent reaches through the `council` tool. `question` gets their reading on something it is unsure of and ends nothing; `complete: true` **declares the task finished** and is answered — accepted (the turn ends) or handed back with what is still undone (§6). What they read is magi's own record: every command it granted and how that command really ended (a pipeline whose failure hid behind a zero exit is filed as failed), the paths its tools wrote, **the agent's own edits this turn** as a per-file before→after diff (reconstructed from the write/edit calls, git-independent, so a human or external change is never credited to the agent), and — on a declaration — a **fresh read of the workspace**: files modified since the task began, background commands still alive, and any path the record claims was written that is not on disk. A member objects only when its lens identifies a **concrete defect**, accepts when satisfied, and **abstains** when there is no evidence to judge by. `rule` sets the consensus method. Give each `[[council.member]]` a `provider` (an `[llm.profiles.*]` backend) and `model` so **each member can deliberate on a different model** (a mix of cheap + strong); unset, they use the session model. In the TUI, deliberation is shown live as a **header chip** (`⚖ council rN: <member>`) and transcript lines (convene · per-member one-liner: member-colored `●` + name + verdict icon · tally). **Clicking a member line opens a detail modal** (lens · rationale · feedback · confidence). Per-member colors are themable (`[theme.dark] melchior/balthasar/casper`). The council is inactive in workflow mode (the pipeline uses its own verify gate).
 > Color themes can be defined externally per role in `[theme.dark]` / `[theme.light]` (default = NERV/MAGI). Pick the mode (auto/dark/light) with `--theme`.
 > On first run a commented default `config.toml` is generated automatically (left untouched if it already exists).

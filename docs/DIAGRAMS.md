@@ -220,7 +220,7 @@ behavioural guard's, which is what guarantees the order.
 flowchart TD
   REQ["a model request<br/>(generate · council · side call)"] --> GP["guardedProvider.StreamChat<br/>(one chokepoint · every path)"]
   GP --> W{"watching the stream"}
-  W -- "idle: no events for<br/>2×streamStall (240s default)" --> AB["cancel → close the stream<br/>unwinds within seconds"]
+  W -- "idle: no events for<br/>2×max(streamStall, firstToken) (600s default)" --> AB["cancel → close the stream<br/>unwinds within seconds"]
   W -- "byte-spin: no completion past<br/>2×spinCap (800KB default)" --> AB
   W -- "repetition loop: a short unit in the tail<br/>back-to-back ≥128B · ≥3 times" --> AB
   W -- "ordinary events" --> CS["consumeStream (main generate only)"]
@@ -239,10 +239,11 @@ Layer by layer:
 
 | Layer | What it catches | Trigger | Bound / flag | What it does |
 |---|---|---|---|---|
-| `guardedProvider` (idle) | a silent backend | idle since the last event | 2×`streamStall` (240s default) | cancel, close the stream |
+| `guardedProvider` (idle) | a silent backend | idle since the last event | 2×max(`streamStall`, `firstToken`) (600s default) | cancel, close the stream |
 | `guardedProvider` (byte-spin) | runaway generation with no completion | accumulated bytes | 2×`spinCap` (800KB default), `MAGI_SPIN_CAP` | cancel |
 | `guardedProvider` (repeat) | **degenerate repetition** (the same sentence or word looping) | a tail unit back-to-back ≥128B and ≥3 times | `MAGI_REPEAT_CAP` (on by default), a 4KB tail checked every 256B | cancel (in hundreds of bytes, not after 800KB) |
-| `consumeStream` (stall) | silence before the main generate's first token | idle | `streamStall` 120s, `MAGI_STREAM_STALL` | re-issue the same request (×2), error when exhausted |
+| `consumeStream` (first token) | silence before the main generate's first token — prefill headroom | idle | `firstToken` 300s, `MAGI_FIRST_TOKEN` (0 = fall back to the inter-token bound) | re-issue the same request (×2), error when exhausted |
+| `consumeStream` (inter-token) | a mid-generation freeze after output began | idle | `streamStall` 120s, `MAGI_STREAM_STALL` (0 disables) | end the stream, keep the partial output (not retryable) |
 | `consumeStream` (reasoningSpin) | the main generate reasoning without end | zero tool calls + bytes | `spinCap` 400KB (with `[limits] max_output_tokens` set, this nudge defers to the token cap and is off; the 800KB guardedProvider backstop stays) | a nudge ("act") |
 | `runGuard` (L3) | tool-call repeats, stalls, self-reverts | fingerprints, steps with no mutation | the constants in `guard.go` | **nudges only** — no blocking, no recovery, no force-stop |
 | the check timeout (`runVerifyCmd`) | a blocking workflow verify command | per-check elapsed | 120s default, `MAGI_CHECK_TIMEOUT` (0=off) | kill → -1 = could not verify (not a false failure) |
@@ -1042,7 +1043,8 @@ sequenceDiagram
 | `MAGI_CTX_COMPACT_RETRY` | ON | compact and retry when the context overflows |
 | `MAGI_EXITCODE_BODYSCAN` | ON | the bash exit-0 crash and masking annotations (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | the degenerate-repetition safety net (the same sentence or word looping) in `provider_guard` |
-| `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | the first-token stall watchdog on generate · the workflow verify timeout (0=off) |
+| `MAGI_STREAM_STALL` · `MAGI_FIRST_TOKEN` | 120s · 300s | the INTER-token freeze bound on generate (0 disables) · the pre-FIRST-token (prefill) bound (0 = no separate bound); the guard sits at 2×max of the two, and the council member deadline adds the first-token value |
+| `MAGI_CHECK_TIMEOUT` | — | the workflow verify timeout (0=off) |
 | `MAGI_SPIN_CAP` | 400KB | the reasoning-only spin ceiling (guardedProvider uses 2×) |
 | `MAGI_SELFKILL_GUARD` | ON | blocks a `pkill -f` that would kill magi's own process by a word from the prompt |
 | `MAGI_COUNCIL_KEEP` | ON | members also name **what to keep** (advisory; no effect on the decision or the tally); off is fix-only feedback |
