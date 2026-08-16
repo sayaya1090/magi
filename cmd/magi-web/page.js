@@ -4513,7 +4513,7 @@ async function loadSkills() {
     // A rule tells the companion what to do and a fact tells it what is true. Governed the same
     // way and worth reading differently — a stale fact is wrong, a stale rule is an instruction
     // still being followed.
-    const bits = [sk.kind === 'memory' ? 'remembered' : 'rule', sk.name];
+    const bits = [sk.kind === 'memory' ? 'memory' : 'skill', sk.name];
     // How settled it is and when it was last seen: the two facts a decision about a rule is made
     // on, and neither is visible anywhere else once the day it was written has passed.
     if (sk.kind !== 'memory' && sk.observed > 1) bits.push('seen ' + sk.observed + '×');

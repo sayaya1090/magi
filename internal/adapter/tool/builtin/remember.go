@@ -24,6 +24,9 @@ type rememberArgs struct {
 	// what — where a correction must replace the old claim, not pile up beside it.
 	Page    string `json:"page"`
 	Summary string `json:"summary"`
+	// Stale, with Page, retires the page: the text becomes the tombstone's body — WHY it stopped
+	// being true. The page leaves the index, is demoted in search, and stays readable.
+	Stale FlexBool `json:"stale"`
 }
 
 func (Remember) Name() string { return "remember" }
@@ -57,7 +60,7 @@ func (Remember) Description() string {
 		"Do not include secrets."
 }
 func (Remember) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"},"page":{"type":"string","description":"wiki page title — routes text to the shared wiki as this page's new full body, updated in place"},"summary":{"type":"string","description":"with page: one line on what changed and why"}},"required":["text"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"},"page":{"type":"string","description":"wiki page title — routes text to the shared wiki as this page's new full body, updated in place"},"summary":{"type":"string","description":"with page: one line on what changed and why"},"stale":{"type":"boolean","description":"with page: retire the page — text becomes the recorded reason it stopped being true"}},"required":["text"]}`)
 }
 
 func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -73,8 +76,14 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		return errResult("", "scope must be \"turn\", \"project\", \"team\" or \"global\""), nil
 	}
 	// A turn note never leaves this session: it is handed straight back to the agent that wrote
-	// it, before the turn can end. Nothing reads it in between.
+	// it, before the turn can end. Nothing reads it in between. A PAGE with scope "turn" is a
+	// contradiction — one asks to be forgotten at the finish, the other to outlive every session
+	// — and the old behavior silently kept the note and dropped the page, answering "noted" about
+	// a wiki write that never happened.
 	if scope == "turn" {
+		if strings.TrimSpace(a.Page) != "" {
+			return errResult("", "a wiki page cannot have scope \"turn\" — a page outlives the turn by definition; drop the scope (team is the default) or drop the page"), nil
+		}
 		if env.NoteForTurn == nil {
 			return errResult("", "turn notes are not available in this run"), nil
 		}
@@ -90,16 +99,31 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	// default. The text is the page's NEW full body — a snapshot, because the page IS the current
 	// truth about its topic and a reader must never have to assemble it from fragments.
 	if page := strings.TrimSpace(a.Page); page != "" {
+		// Asked BEFORE the write, so the just-written page cannot be its own neighbor. The note
+		// rides the success text: convergence pressure against near-duplicate titles, never a
+		// refusal — the write is still wanted; what the note buys is the NEXT write landing on
+		// the existing title.
+		advise := ""
+		if env.WikiAdvise != nil {
+			advise = env.WikiAdvise(page)
+		}
 		// Source left empty on purpose: the app stamps it with this companion's declared name, so
 		// the page's editor line says WHO in the fleet wrote it — the one fact a reader of a
 		// shared page wants that a bare "agent" cannot carry.
 		if err := env.Propose(port.Contribution{
-			Wiki:  []port.WikiEdit{{Page: page, Text: a.Text, Links: a.Tags, Summary: a.Summary}},
+			Wiki:  []port.WikiEdit{{Page: page, Text: a.Text, Links: a.Tags, Summary: a.Summary, Stale: bool(a.Stale)}},
 			Scope: scope,
 		}); err != nil {
 			return errResult("", err.Error()), nil
 		}
-		return okText("", "wiki page "+page+" updated — the other companions see it via recall_memory and the wiki index"), nil
+		msg := "wiki page " + page + " updated — the other companions see it via recall_memory and the wiki index"
+		if a.Stale {
+			msg = "wiki page " + page + " marked STALE — it leaves the index, stays readable, and your text is the recorded reason"
+		}
+		if advise != "" {
+			msg += "\n" + advise
+		}
+		return okText("", msg), nil
 	}
 	if err := env.Propose(port.Contribution{
 		Memories: []port.Memory{{Text: a.Text, Tags: a.Tags}},

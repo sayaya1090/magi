@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -53,8 +52,7 @@ func (s *server) wiki(w http.ResponseWriter, r *http.Request) {
 			add(filepath.Join(c.workdir, ".magi", "experience"), "project", "", c.name)
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	writeJSON(w, "wiki pages", out)
 }
 
 func hookLine(s string) string {

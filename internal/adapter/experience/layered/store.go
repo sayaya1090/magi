@@ -138,6 +138,17 @@ func (s *Store) WikiSearch(ctx context.Context, query string, n int) ([]port.Wik
 	return out, nil
 }
 
+// WikiTouch records a recall on whichever tier holds each page — the usage half of the
+// forgetting horizon (see the git store). Best-effort fan-out; a tier that holds none of the
+// titles writes nothing.
+func (s *Store) WikiTouch(titles []string) {
+	for _, t := range []*expgit.Store{s.project, s.team, s.global} {
+		if t != nil {
+			t.WikiTouch(titles)
+		}
+	}
+}
+
 // WikiIndex implements port.WikiStore across the tiers, tier-tagged, team first — the index
 // exists to advertise what the OTHER companions wrote, which is the team tier's whole content.
 func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {

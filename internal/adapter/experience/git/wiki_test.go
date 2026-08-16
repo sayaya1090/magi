@@ -146,3 +146,156 @@ func TestAnEmptyBodyIsRefused(t *testing.T) {
 		t.Fatalf("an empty body must be refused, pointing at the stale path: %v", err)
 	}
 }
+
+// Two Korean titles must not share a chain: sanitize collapses every non-ASCII rune to '-', so
+// without the hash suffix "인증 흐름" and "배포 절차" were ONE page and the winner hid a topic.
+func TestLossyTitlesGetDistinctChains(t *testing.T) {
+	s := New(t.TempDir())
+	wikiWriteT(t, s, "인증 흐름", "사이드카가 갱신한다", "", "m")
+	wikiWriteT(t, s, "배포 절차", "3단계 파이프라인", "", "m")
+	ctx := context.Background()
+	a, _ := s.WikiSearch(ctx, "인증 흐름", 1)
+	b, _ := s.WikiSearch(ctx, "배포 절차", 1)
+	if len(a) == 0 || len(b) == 0 {
+		t.Fatalf("both pages must exist: %d %d", len(a), len(b))
+	}
+	if a[0].Title == b[0].Title || a[0].Body == b[0].Body {
+		t.Fatalf("two lossy titles merged into one chain: %+v / %+v", a[0], b[0])
+	}
+	if wikiSlug("인증 흐름") == wikiSlug("배포 절차") {
+		t.Fatal("slugs collide")
+	}
+}
+
+// Forgetting: a page old and recalled by nobody drops out of the INDEX — quiet retirement, no
+// truth claim. A touch (a real recall) re-advertises it; search never stops finding it.
+func TestAnOldUntouchedPageRetiresFromTheIndex(t *testing.T) {
+	s := New(t.TempDir())
+	ctx := context.Background()
+	// An old page, crafted with an old timestamp the way the stale test does.
+	slug := wikiSlug("legacy map")
+	revDir := filepath.Join(s.dir, "wiki", "revisions", slug)
+	if err := os.MkdirAll(revDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := wikiRevision{Title: "legacy map", Editor: "m", TS: "2026-01-01T00:00:00Z",
+		Summary: "s", Body: "the old routing table", seq: 1}
+	if err := os.WriteFile(filepath.Join(revDir, "0001-m-x.md"), []byte(renderWikiRevision(old)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wikiWriteT(t, s, "fresh page", "written today", "", "m")
+
+	idx, _ := s.WikiIndex(ctx, 10)
+	for _, p := range idx {
+		if p.Title == "legacy map" {
+			t.Error("an old, never-recalled page must retire from the index")
+		}
+	}
+	if hits, _ := s.WikiSearch(ctx, "legacy map", 1); len(hits) == 0 {
+		t.Error("retirement is index-only — search must still find the page")
+	}
+	// One real recall re-advertises it.
+	s.WikiTouch([]string{"legacy map"})
+	idx, _ = s.WikiIndex(ctx, 10)
+	found := false
+	for _, p := range idx {
+		if p.Title == "legacy map" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a touched page must be advertised again")
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, "wiki", ".usage")); err != nil {
+		t.Error("the touch must persist to wiki/.usage")
+	}
+}
+
+// A [[wikilink]] written in the body IS a link: extracted, merged with the explicit list, and
+// deduplicated — a model that names a related page mid-sentence should not have to repeat it in
+// a field for the graph to see it.
+func TestBodyWikilinksBecomeLinks(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Propose(context.Background(), port.Contribution{Source: "m",
+		Wiki: []port.WikiEdit{{Page: "auth flow", Links: []string{"service map"},
+			Text: "the sidecar refreshes tokens; see [[deploy pipeline]] and [[Service Map]] for the rest"}}}); err != nil {
+		t.Fatal(err)
+	}
+	pages, _ := s.WikiSearch(context.Background(), "auth flow", 1)
+	if len(pages) == 0 {
+		t.Fatal("page missing")
+	}
+	got := strings.Join(pages[0].Links, "|")
+	if !strings.Contains(got, "service map") || !strings.Contains(got, "deploy pipeline") {
+		t.Fatalf("links = %v", pages[0].Links)
+	}
+	if strings.Count(strings.ToLower(got), "service map") != 1 {
+		t.Fatalf("case-folded duplicate not merged: %v", pages[0].Links)
+	}
+}
+
+// The stale tombstone is WRITABLE through the ordinary edit: remember{page, stale:true} lands a
+// stale revision whose body is the reason — the retirement path the refusal message advertises
+// must actually exist (it did not, and the whole feature was dead code behind a missing field).
+func TestStaleIsWritableThroughAnEdit(t *testing.T) {
+	s := New(t.TempDir())
+	ctx := context.Background()
+	wikiWriteT(t, s, "legacy queue", "jobs ride rabbitmq", "", "m")
+	if err := s.Propose(ctx, port.Contribution{Source: "casper", Wiki: []port.WikiEdit{{
+		Page: "legacy queue", Text: "no longer true: jobs moved to [[event bus]]", Stale: true,
+		Summary: "replaced by kafka"}}}); err != nil {
+		t.Fatal(err)
+	}
+	hits, _ := s.WikiSearch(ctx, "legacy queue", 1)
+	if len(hits) == 0 || !hits[0].Stale || !strings.Contains(hits[0].Body, "event bus") {
+		t.Fatalf("the stale edit must become the current page, marked: %+v", hits)
+	}
+	idx, _ := s.WikiIndex(ctx, 10)
+	for _, p := range idx {
+		if p.Title == "legacy queue" {
+			t.Error("a freshly-retired page must leave the index")
+		}
+	}
+}
+
+// Frontmatter values are folded to one line: a newline smuggled through the summary (or title, or
+// editor) must not forge a later ts, spoof an editor, or retire the page.
+func TestFrontmatterNewlinesAreFolded(t *testing.T) {
+	s := New(t.TempDir())
+	ctx := context.Background()
+	if err := s.Propose(ctx, port.Contribution{Source: "mallory\neditor: alice", Wiki: []port.WikiEdit{{
+		Page: "po\nrts", Text: "the real body", Summary: "fixed\nstale: true\nts: 9999-01-01T00:00:00Z"}}}); err != nil {
+		t.Fatal(err)
+	}
+	hits, _ := s.WikiSearch(ctx, "po rts", 1)
+	if len(hits) == 0 {
+		t.Fatal("page missing")
+	}
+	p := hits[0]
+	if p.Stale {
+		t.Error("a smuggled stale: line retired the page")
+	}
+	if strings.Contains(p.Editor, "alice") && !strings.Contains(p.Editor, "mallory") {
+		t.Errorf("editor spoofed: %q", p.Editor)
+	}
+	if strings.HasPrefix(p.Updated, "9999") {
+		t.Errorf("ts forged: %q", p.Updated)
+	}
+}
+
+// Case and spacing variants of a title are ONE topic and one chain — and, critically, one
+// directory name on every filesystem, or a case-insensitive APFS replica and a Linux replica
+// disagree about the tree itself after a sync.
+func TestTitleCaseVariantsShareOneChain(t *testing.T) {
+	s := New(t.TempDir())
+	ctx := context.Background()
+	wikiWriteT(t, s, "Auth Flow", "first", "", "m")
+	wikiWriteT(t, s, "auth flow", "second — the correction", "", "c")
+	if wikiSlug("Auth Flow") != wikiSlug("auth flow") {
+		t.Fatal("case variants produced two slugs")
+	}
+	hits, _ := s.WikiSearch(ctx, "auth flow", 2)
+	if len(hits) != 1 || !strings.Contains(hits[0].Body, "second") {
+		t.Fatalf("variants must converge to one page with the later edit current: %+v", hits)
+	}
+}

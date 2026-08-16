@@ -298,14 +298,20 @@ local function append_lesson(entry, replaces)
     if is_data_row(line) then data_at[#data_at + 1] = #lines end
   end
   if #data_at == 0 and not string.find(active, LEDGER_HEADER, 1, true) then
-    lines = { LEDGER_TITLE, "", LEDGER_HEADER, LEDGER_DIVIDER }
+    -- 표가 없으면 표 골격을 **덧붙인다** — 통째 교체는 사람이 손으로 써 둔 산문(표 없는
+    -- SESSION_SUMMARY.md)을 첫 교훈 기록에 통째로 날려버렸다.
+    if #lines > 0 then lines[#lines + 1] = "" end
+    lines[#lines + 1] = LEDGER_TITLE
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = LEDGER_HEADER
+    lines[#lines + 1] = LEDGER_DIVIDER
   end
 
   local function to_archive(line, why)
     if archive == "" then
       archive = ARCHIVE_TITLE .. "\n" .. LEDGER_HEADER .. "\n" .. LEDGER_DIVIDER .. "\n"
     end
-    archive = string.gsub(archive, "%s+$", "\n") .. line .. " ← " .. why .. "\n"
+    archive = string.gsub(archive, "%s*$", "") .. "\n" .. line .. " ← " .. why .. "\n"
   end
 
   if replaces and data_at[replaces] then
@@ -346,9 +352,61 @@ local function yaml_quote(s)
   return '"' .. s .. '"'
 end
 
+local function load_lastused()
+  local m = {}
+  for line in string.gmatch(magi.store_get("skill_lastused") or "", "[^\n]+") do
+    local n, d = string.match(line, "^([^\t]*)\t(.*)$")
+    if n then m[n] = d end
+  end
+  return m
+end
+
+local function save_lastused(m)
+  local out = {}
+  for n, d in pairs(m) do out[#out + 1] = n .. "\t" .. d end
+  magi.store_set("skill_lastused", table.concat(out, "\n"))
+end
+
+-- 결정론적 유사-스킬 백스톱. 사이드카의 "같은 주제면 name 재사용" 규칙은 소프트해서 뚫리고,
+-- 뚫릴 때마다 유사 스킬이 하나 늘었다(실측 — 난립의 주범). 새 이름의 설명이 기존 스킬 설명과
+-- 토큰 과반 이상 겹치면 생성을 막는다(save_skill이 nil 반환 — 쌍둥이 이름을 돌려주면
+-- 취소 창(undo)이 멀쩡한 기존 스킬을 지울 수 있어 일부러 안 돌려준다).
+local function similar_skill(slug, desc)
+  local a, na = tokenize(desc)
+  if na < 3 then return nil end
+  for line in string.gmatch(magi.store_get("skill_index") or "", "[^\n]+") do
+    local name, d = string.match(line, "^([^\t]*)\t(.*)$")
+    if name and name ~= slug then
+      local b, nb = tokenize(d)
+      if nb > 0 then
+        local inter = 0
+        for w in pairs(a) do
+          if b[w] then inter = inter + 1 end
+        end
+        if inter / math.min(na, nb) >= 0.7 then return name end
+      end
+    end
+  end
+  return nil
+end
+
+local function skill_indexed(slug)
+  for line in string.gmatch(magi.store_get("skill_index") or "", "[^\n]+") do
+    if string.match(line, "^([^\t]*)\t") == slug then return true end
+  end
+  return false
+end
+
 local function save_skill(skill)
   local slug = slugify(skill.name)
   local desc = tostring(skill.description or skill.technique or "")
+  if not skill_indexed(slug) then
+    local twin = similar_skill(slug, desc)
+    if twin then
+      magi.log("engram: 유사 스킬 '" .. twin .. "' 존재 — '" .. slug .. "' 생성 스킵(난립 방지)")
+      return nil
+    end
+  end
   local body = {
     "---",
     "name: " .. slug,
@@ -388,6 +446,14 @@ local function save_skill(skill)
   body[#body + 1] = "<!-- engram: 작업 이력에서 자동 추출된 스킬 -->"
   magi.write_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md", table.concat(body, "\n"))
   index_skill(slug, desc)
+  -- 생성 시각이 망각 시계의 시작점이다. last-used가 로드 시에만 찍히던 시절, 정리의 표적인
+  -- "한 번도 안 쓰인 스킬"이 바로 그 이유로 날짜가 없어 영원히 스킵됐다 — 망각 기전이
+  -- 존재하는데 작동하는 걸 아무도 못 본 이유가 이것이었다.
+  local lastused = load_lastused()
+  if not lastused[slug] then
+    lastused[slug] = string.sub(magi.time(), 1, 10)
+    save_lastused(lastused)
+  end
   return slug
 end
 
@@ -435,8 +501,16 @@ local function analyze_and_record(sid, hint, user, used_csv)
       if not seen[key] then
         seen[key] = true
         -- 정정(replaces)은 옛 행과 겹치는 것이 정상이라 유사-중복 백스톱을 타지 않는다 —
-        -- 백스톱이 정정을 막으면 낡은 주장이 원장의 현재로 영영 남는다.
+        -- 백스톱이 정정을 막으면 낡은 주장이 원장의 현재로 영영 남는다. 단 검증은 한다:
+        -- 범위 밖이거나 정수가 아닌 번호는 정정이 아니라 오지정이고, 그대로 믿으면 두 중복
+        -- 가드를 다 우회한 채 엉뚱한 행을 아카이브할 수 있다 → 일반 append 경로로 강등.
         local replaces = tonumber(lesson.replaces)
+        if replaces then
+          replaces = math.floor(replaces)
+          if replaces < 1 or replaces > #ledger_rows() or replaces ~= tonumber(lesson.replaces) then
+            replaces = nil
+          end
+        end
         if not replaces and lesson_is_duplicate(lesson.lesson) then
           magi.log("engram: 유사 교훈 이미 기록됨 — 스킵: " .. tostring(lesson.task))
         else
@@ -469,6 +543,9 @@ local function analyze_and_record(sid, hint, user, used_csv)
   local skill = result.skill
   if skill and skill.name and skill.technique then
     local slug = save_skill(skill)
+    -- nil = 유사-스킬 백스톱이 생성을 막았다. 여기서 그대로 이어가면 nil 연결(concat)이
+    -- 핸들러 전체를 죽여 이 턴의 prune까지 건너뛴다 — 백스톱이 발동할 때마다.
+    if not slug then return end
     magi.log("engram: 스킬 저장 — " .. slug)
     magi.store_set("last_skill", slug)
     magi.notify(sid, "engram: 검증된 성공에서 스킬 '" .. slug
@@ -502,13 +579,15 @@ local function undo_last_skill(sid)
   local slug = magi.store_get("last_skill")
   if not slug or slug == "" then return false end
   magi.remove_file(SKILLS_DIR .. "/" .. slug)
-  -- 인덱스에서도 제거
-  local idx = magi.store_get("skill_index") or ""
-  local out = {}
-  for line in string.gmatch(idx, "[^\n]+") do
-    if string.match(line, "^([^\t]*)\t") ~= slug then out[#out + 1] = line end
+  -- 인덱스·사용실적·망각시계에서도 제거 — 시계를 남기면 같은 이름으로 재생성된 스킬이
+  -- 취소된 전임자의 날짜를 물려받아 조기 아카이브된다.
+  for _, key in ipairs({ "skill_index", "skill_usage", "skill_lastused" }) do
+    local out = {}
+    for line in string.gmatch(magi.store_get(key) or "", "[^\n]+") do
+      if string.match(line, "^([^\t]*)\t") ~= slug then out[#out + 1] = line end
+    end
+    magi.store_set(key, table.concat(out, "\n"))
   end
-  magi.store_set("skill_index", table.concat(out, "\n"))
   magi.store_set("last_skill", "")
   magi.notify(sid, "engram: 스킬 '" .. slug .. "' 저장을 취소(삭제)했습니다.")
   magi.log("engram: 스킬 취소 — " .. slug)
@@ -533,21 +612,8 @@ end)
 -- 호스트가 turn_finished 페이로드에 실어주는 "이번 턴에 로드된 스킬" ×
 -- 구조적 outcome으로 결정론적으로 계측한다 — 큐레이션(병합/정리)의 실측 근거.
 -- Last-used dates (YYYY-MM-DD per skill slug) drive date-based pruning. Stored as a
--- newline-joined "slug\tdate" map alongside skill_usage.
-local function load_lastused()
-  local m = {}
-  for line in string.gmatch(magi.store_get("skill_lastused") or "", "[^\n]+") do
-    local n, d = string.match(line, "^([^\t]*)\t(.*)$")
-    if n then m[n] = d end
-  end
-  return m
-end
-
-local function save_lastused(m)
-  local out = {}
-  for n, d in pairs(m) do out[#out + 1] = n .. "\t" .. d end
-  magi.store_set("skill_lastused", table.concat(out, "\n"))
-end
+-- newline-joined "slug\tdate" map alongside skill_usage; the load/save helpers live above
+-- save_skill, which stamps a skill's creation date as the forgetting clock's start.
 
 -- days_between returns the whole-day difference between two YYYY-MM-DD strings
 -- (a - b) using a proleptic-Gregorian day count. Returns nil on a malformed date.
@@ -587,6 +653,7 @@ local function prune_stale()
   local lastused = load_lastused()
   local idx = magi.store_get("skill_index") or ""
   local archived = {}
+  local dated = false
   for line in string.gmatch(idx, "[^\n]+") do
     local slug = string.match(line, "^([^\t]*)\t")
     if slug then
@@ -594,17 +661,27 @@ local function prune_stale()
       local body = magi.read_file(path)
       if body and string.find(body, ENGRAM_MARKER, 1, true) then -- engram-owned only
         local ld = to_days(lastused[slug])
-        -- A skill with no recorded last-used date is treated as stale by AGE only if it
-        -- has never been loaded; but without a date we can't measure age, so skip it —
-        -- it earns a date the first time it's loaded. Only archive dated-and-stale ones.
-        if ld and (today - ld) >= cutoff then
+        if not ld then
+          -- 시계 없는 스킬(이 수정 이전에 만들어졌거나 기록이 유실됨)은 스킵이 아니라
+          -- **오늘부터 시계를 시작**한다. 스킵은 "한 번도 안 쓰인 스킬은 영원히 산다"였고,
+          -- 그것은 정리가 정확히 잡으라던 대상이다.
+          lastused[slug] = string.sub(magi.time(), 1, 10)
+          dated = true
+        elseif (today - ld) >= cutoff then
           magi.write_file(SKILLS_DIR .. "/.archive/" .. slug .. "/SKILL.md", body)
+          -- 부속 스크립트도 함께 — 본문만 옮기면 verify.sh가 고아로 남는다.
+          local verify = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh")
+          if verify and verify ~= "" then
+            magi.write_file(SKILLS_DIR .. "/.archive/" .. slug .. "/scripts/verify.sh", verify)
+            magi.remove_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh")
+          end
           magi.remove_file(path)
           archived[slug] = true
         end
       end
     end
   end
+  if dated then save_lastused(lastused) end
   if next(archived) == nil then return end
   -- Drop archived slugs from the index, usage, and lastused maps.
   local function filter_lines(key, slugof)

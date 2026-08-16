@@ -450,10 +450,20 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if w, ok := a.cfg.Experience.(port.WikiStore); ok {
 				if pages, err := w.WikiSearch(ctx, query, 3); err == nil && len(pages) > 0 {
 					out = strings.TrimRight(formatWikiPages(pages)+"\n"+out, "\n")
+					// A recall IS the usage the forgetting horizon measures: a page that was
+					// actually handed to a model earned its place in the index a while longer.
+					if t, ok := a.cfg.Experience.(interface{ WikiTouch([]string) }); ok {
+						titles := make([]string, 0, len(pages))
+						for _, p := range pages {
+							titles = append(titles, p.Title)
+						}
+						t.WikiTouch(titles)
+					}
 				}
 			}
 			return out, nil
 		},
+		WikiAdvise: func(page string) string { return a.wikiNeighborNote(ctx, page) },
 		Schedule: func(c port.ScheduleChange) (string, error) {
 			return a.EditSchedule(s.Workdir, c)
 		},

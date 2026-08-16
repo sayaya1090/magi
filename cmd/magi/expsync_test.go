@@ -37,20 +37,35 @@ func TestExpSyncAdmitsOnlyReplicableShapes(t *testing.T) {
 }
 
 // Absorb is a set union with immutability: a path already held is never rewritten, whatever the
-// incoming content claims — the names are content-addressed, so an overwrite could only ever
-// replace a fact with an impostor.
+// incoming content claims — and "content-addressed" is verified, not assumed: a body that does
+// not hash to its filename is dropped, because under the no-overwrite rule an impostor that
+// landed once would be permanent.
 func TestExpSyncAbsorbNeverOverwrites(t *testing.T) {
 	dir := t.TempDir()
-	p := "wiki/revisions/ports/0001-m-abc.md"
-	if n := expSyncAbsorb(dir, map[string]string{p: "original"}); n != 1 {
+	body := "8080 is the api"
+	content := "---\ntitle: ports\neditor: m\nts: 2026-08-16T00:00:00Z\nsummary: s\n---\n" + body + "\n"
+	p := "wiki/revisions/ports/0001-m-" + expgit.ContentID(body) + ".md"
+	if n := expSyncAbsorb(dir, map[string]string{p: content}); n != 1 {
 		t.Fatalf("first absorb: %d", n)
 	}
-	if n := expSyncAbsorb(dir, map[string]string{p: "impostor"}); n != 0 {
+	if n := expSyncAbsorb(dir, map[string]string{p: content}); n != 0 {
 		t.Fatalf("second absorb wrote: %d", n)
 	}
+	// A different body under a valid-shaped name whose hash does not match: refused outright.
+	forged := "wiki/revisions/ports/0002-m-" + expgit.ContentID(body) + ".md"
+	if n := expSyncAbsorb(dir, map[string]string{forged: "---\ntitle: ports\n---\nimpostor claim\n"}); n != 0 {
+		t.Fatalf("a name/body hash mismatch was absorbed: %d", n)
+	}
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(forged))); err == nil {
+		t.Fatal("the forged file landed on disk")
+	}
 	b, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
-	if string(b) != "original" {
+	if string(b) != content {
 		t.Fatalf("the held file was rewritten: %q", b)
+	}
+	// And the usage dot-file can never ride the sync in either direction.
+	if expSyncPathOK("wiki/.usage") {
+		t.Fatal("wiki/.usage must be unreplicable")
 	}
 }
 

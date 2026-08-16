@@ -8,6 +8,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -296,15 +297,17 @@ func wikiPointer(ctx context.Context, w port.WikiStore, q string) string {
 	if idx, err := w.WikiIndex(ctx, 8); err == nil && len(idx) > 0 {
 		titles := make([]string, 0, len(idx))
 		for _, p := range idx {
-			titles = append(titles, p.Title)
+			// Clipped: a page title is model-authored (and fleet-synced) text landing in every
+			// step's prompt — bounded here so one bloated title cannot tax every turn.
+			titles = append(titles, text.Clip(p.Title, 80))
 		}
 		b.WriteString("wiki pages (update via remember{page:…}, read via recall_memory): " +
 			strings.Join(titles, " · "))
 	}
 	if hits, err := w.WikiSearch(ctx, q, 1); err == nil && len(hits) > 0 && !hits[0].Stale {
 		p := hits[0]
-		hook := firstNonBlankLine(p.Body)
-		b.WriteString("\nwiki page likely relevant to this request: [" + p.Title + "] " + hook +
+		hook := text.Clip(firstNonBlankLine(p.Body), 160)
+		b.WriteString("\nwiki page likely relevant to this request: [" + text.Clip(p.Title, 80) + "] " + hook +
 			" — recall_memory pulls the full page")
 	}
 	return b.String()
@@ -314,6 +317,48 @@ func firstNonBlankLine(s string) string {
 	for _, line := range strings.Split(s, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			return line
+		}
+	}
+	return ""
+}
+
+// wikiNeighborNote answers "does a page like this already exist under another title" at the
+// moment a page is about to be written — the convergence pressure against near-duplicate pages
+// piling up under drifting names. Advisory, never a refusal: a refused write teaches a weak model
+// to stop writing, and the write itself is still wanted; what the note buys is the NEXT write
+// landing on the existing title.
+func (a *App) wikiNeighborNote(ctx context.Context, page string) string {
+	w, ok := a.cfg.Experience.(port.WikiStore)
+	if !ok {
+		return ""
+	}
+	hits, err := w.WikiSearch(ctx, page, 2)
+	if err != nil {
+		return ""
+	}
+	// An UPDATE needs no advice: the page exists under this exact title, the write converges by
+	// construction, and nagging every legitimate update about a related sibling teaches the model
+	// to ignore the note. The advisory is for the moment a NEW title is minted.
+	for _, h := range hits {
+		if strings.EqualFold(strings.TrimSpace(h.Title), strings.TrimSpace(page)) {
+			return ""
+		}
+	}
+	want := strings.Fields(strings.ToLower(page))
+	for _, h := range hits {
+		have := map[string]bool{}
+		for _, f := range strings.Fields(strings.ToLower(h.Title)) {
+			have[f] = true
+		}
+		n := 0
+		for _, f := range want {
+			if have[f] {
+				n++
+			}
+		}
+		if len(want) > 0 && n*2 >= len(want) { // half the new title's words already name a page
+			return "note: page [" + h.Title + "] looks related — if this is the same topic, " +
+				"update that page next time instead of a near-duplicate title"
 		}
 	}
 	return ""
@@ -344,11 +389,15 @@ func formatWikiPages(pages []port.WikiPage) string {
 			head += " (" + meta + ")"
 		}
 		b.WriteString(head + "\n")
+		// Bounded like the council's evidence items and for the same reason: a page body is
+		// model-authored, fleet-synced text with no size ceiling at write time, and an unclipped
+		// pull would let one bloated page own the context. The marker says where to get the rest.
 		if body := strings.TrimSpace(p.Body); body != "" {
+			body = text.ClipWith(body, 2400, "\n…(the rest of this page is not shown — it is longer than a recall carries)")
 			b.WriteString("  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n")
 		}
 		if len(p.Links) > 0 {
-			b.WriteString("  related: " + strings.Join(p.Links, ", ") + "\n")
+			b.WriteString("  related: " + text.Clip(strings.Join(p.Links, ", "), 200) + "\n")
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

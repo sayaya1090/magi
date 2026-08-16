@@ -376,6 +376,11 @@ type ToolEnv struct {
 	// reason the note was NOT kept (the queue is bounded), or nil when it was — a caller that
 	// answers "noted" on a discarded note tells the agent it has a reminder it will never get.
 	NoteForTurn func(text string) error
+	// WikiAdvise, given a page title about to be written, answers with a one-line note when a
+	// page under a DIFFERENT but overlapping title already exists — the convergence pressure
+	// against near-duplicates piling up under drifting names. "" when there is nothing to say;
+	// nil when the wiki is unavailable. Advisory only: the write proceeds either way.
+	WikiAdvise func(page string) string
 	// Propose contributes a memory/skill to the shared experience store (D13);
 	// nil when unavailable.
 	Propose func(c Contribution) error
@@ -533,6 +538,10 @@ type WikiEdit struct {
 	Text    string
 	Links   []string
 	Summary string
+	// Stale retires the page: the write lands as a tombstone revision whose body is the REASON
+	// it stopped being true. The page leaves the index, is demoted in search, and stays readable
+	// — deletion never exists, on the wire or off it.
+	Stale bool
 }
 
 // WikiStore is the read side of the canonical-page store. OPTIONAL: the app type-asserts it off

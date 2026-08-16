@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/adapter/identity"
 	"github.com/sayaya1090/magi/internal/atomicfile"
 )
@@ -111,10 +112,14 @@ func expSyncInventory(dir string) []string {
 // already exists is left exactly as it is — the names are content-addressed, so "already have it"
 // and "already have this content" are the same statement, and an overwrite could only ever
 // replace a fact with an impostor.
+//
+// "Content-addressed" is VERIFIED, not assumed: the hash in the filename must match the body, or
+// the file is dropped. Without the check it was a one-honest-peer assumption — an impostor body
+// under a plausible name would land once and, by the no-overwrite rule, be permanent.
 func expSyncAbsorb(dir string, files map[string]string) int {
 	n := 0
 	for p, content := range files {
-		if !expSyncPathOK(p) || content == "" {
+		if !expSyncPathOK(p) || content == "" || !expSyncContentOK(p, content) {
 			continue
 		}
 		abs := filepath.Join(dir, filepath.FromSlash(p))
@@ -129,6 +134,29 @@ func expSyncAbsorb(dir string, files map[string]string) int {
 		}
 	}
 	return n
+}
+
+// expSyncContentOK checks the filename's content hash against the body, for the shapes that carry
+// one: a wiki revision's name ends "-<hash>.md" over the revision BODY (the text after the
+// frontmatter), and a memory is "mem-<hash>.md" over its whole text. An unrecognized name shape
+// already failed expSyncPathOK.
+func expSyncContentOK(p, content string) bool {
+	base := strings.TrimSuffix(p[strings.LastIndexByte(p, '/')+1:], ".md")
+	hashed := content
+	if strings.HasPrefix(p, "wiki/revisions/") {
+		// The body is what the writer hashed (see the store's wikiWrite); frontmatter carries
+		// per-write metadata and is excluded there, so it is excluded here.
+		if _, tail, ok := strings.Cut(content, "\n---\n"); ok {
+			hashed = strings.TrimSpace(tail)
+		} else {
+			return false
+		}
+	}
+	i := strings.LastIndexByte(base, '-')
+	if i < 0 {
+		return false
+	}
+	return base[i+1:] == expgit.ContentID(hashed)
 }
 
 // expSyncDiff answers both halves of the union for one exchange.
@@ -165,6 +193,12 @@ func expSyncDiff(dir string, theirHave []string) (want []string, files map[strin
 // expSyncHandle serves one exchange at the door. The team must already have a footprint on this
 // machine — a machine no companion of that team runs on holds no replica, so a stranger with a
 // valid certificate cannot seed arbitrary directories by naming teams.
+//
+// Trust here is MACHINE-level, deliberately: any admitted machine may sync any team that has a
+// footprint on both ends, because admission means "this is my account's machine" — the same
+// grant the ssh door extends. Teams are addressing, not tenancy (config.go says the same). If
+// that ever changes — machines admitted that should see only SOME teams — this is the seam a
+// per-team allowlist belongs in.
 func expSyncHandle(w http.ResponseWriter, configDir string, body []byte) {
 	var ask expSyncAsk
 	if json.Unmarshal(body, &ask) != nil || strings.TrimSpace(ask.Team) == "" {
@@ -176,14 +210,23 @@ func expSyncHandle(w http.ResponseWriter, configDir string, body []byte) {
 		answerExpSync(w, expSyncReply{Err: "no companion of this account is on that team here"})
 		return
 	}
-	expSyncAbsorb(dir, ask.Files)
+	if expSyncAbsorb(dir, ask.Files) > 0 {
+		// The pages/ cache is the human/git view; without this it kept showing the pre-sync
+		// winner until somebody happened to edit locally. Readers derive from revisions either
+		// way — this is for the people and the diffs.
+		expgit.New(dir).WikiRefreshPages()
+	}
 	want, files := expSyncDiff(dir, ask.Have)
 	answerExpSync(w, expSyncReply{OK: true, Want: want, Files: files})
 }
 
 func answerExpSync(w http.ResponseWriter, r expSyncReply) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(r)
+	if err := json.NewEncoder(w).Encode(r); err != nil {
+		// The status is gone and a partial body is on the wire; the one useful act left is a
+		// trace of WHICH answer broke, same as every other fleet reply.
+		fmt.Fprintf(os.Stderr, "magi: writing an exp-sync answer: %v\n", err)
+	}
 }
 
 // expSyncWithPeer converges one team with one admitted machine: exchange digests, absorb what
@@ -223,15 +266,23 @@ func expSyncWithPeer(ctx context.Context, configDir, host string, peer identity.
 		if json.Unmarshal(answer, &reply) != nil || !reply.OK {
 			return got, fmt.Errorf("%s", orWordCLI(reply.Err, "malformed exp-sync answer"))
 		}
-		got += expSyncAbsorb(dir, reply.Files)
+		if n := expSyncAbsorb(dir, reply.Files); n > 0 {
+			got += n
+			expgit.New(dir).WikiRefreshPages() // same human-cache refresh the serving side does
+		}
 		if len(reply.Want) == 0 && len(reply.Files) == 0 {
 			return got, nil // both sides hold the same set
 		}
 		send = map[string]string{}
 		total := 0
 		for _, p := range reply.Want {
+			// Shape-checked BEFORE any filesystem call: a want-list is peer-supplied input, and
+			// a read that precedes the check is a read a hostile path got to steer.
+			if !expSyncPathOK(p) {
+				continue
+			}
 			b, ferr := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
-			if ferr != nil || !expSyncPathOK(p) {
+			if ferr != nil {
 				continue
 			}
 			if total += len(b); total > expSyncBytesCap {
