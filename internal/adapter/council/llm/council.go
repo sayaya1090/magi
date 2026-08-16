@@ -422,11 +422,16 @@ func memberSystem(m council.Member, task string, keep bool) string {
 	// settled one. It never changes the vote — feedback still drives continue.
 	keepClause, schema := "", `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"}`
 	if keep {
+		// No worked example here on purpose: a concrete-looking one ("the parser change in
+		// lexer.c…") was copied VERBATIM into verdicts by a weaker model, in runs with no such
+		// file — observed twice in one wave. The grounding clause replaces it: a keep that names
+		// nothing shown is a keep to leave empty.
 		keepClause = "Also, through YOUR lens ONLY, note in `keep` what the report ALREADY gets right that the agent " +
-			"must NOT redo or revert. NAME it in one short line — the file, function or behavior (e.g. \"the parser " +
-			"change in lexer.c, already tested\"); the agent is holding the work, so do not restate it. This is purely " +
-			"advisory: it NEVER changes your decision, and you still name any real defect in `feedback`. Leave `keep` " +
-			"empty if nothing is clearly settled through your lens; never affirm something you cannot verify.\n"
+			"must NOT redo or revert. NAME it in one short line — a file, function or behavior exactly as it appears " +
+			"in what you were shown; if the name you are about to write does not appear there, leave `keep` empty. " +
+			"The agent is holding the work, so do not restate it. This is purely advisory: it NEVER changes your " +
+			"decision, and you still name any real defect in `feedback`. Leave `keep` empty if nothing is clearly " +
+			"settled through your lens; never affirm something you cannot verify.\n"
 		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","cite":"verbatim fragment of what you were shown, or NO-EVIDENCE","keep":"what's already correct through your lens — name it, don't restate it; advisory, optional"}`
 	}
 	return withLangNote(fmt.Sprintf(
