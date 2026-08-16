@@ -62,7 +62,7 @@ func TestTheStripSeesWorkRunningInTheOtherProcess(t *testing.T) {
 			Steps: 4, Started: began}},
 		tail: "ok  	github.com/sayaya1090/magi/internal/app",
 	}
-	a := attached{c: serveEngine(t, eng), seen: &jobsSeen{sid: session.SessionID("s_1")}}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}, seen: &jobsSeen{sid: session.SessionID("s_1")}}
 
 	jobs := a.BackgroundJobs()
 	if len(jobs) != 1 || jobs[0].ID != "bg_1" || jobs[0].Command != "go build ./..." {
@@ -104,7 +104,7 @@ func TestALostPollDoesNotEmptyTheStrip(t *testing.T) {
 		bg:           []app.BackgroundJob{{ID: "bg_1", Command: "sleep 600", Running: true}},
 	}
 	cl := serveEngine(t, eng)
-	a := attached{c: cl, seen: &jobsSeen{sid: session.SessionID("s_1")}}
+	a := attached{c: &clientBox{c: cl}, seen: &jobsSeen{sid: session.SessionID("s_1")}}
 	if len(a.BackgroundJobs()) != 1 {
 		t.Fatal("nothing crossed to begin with")
 	}

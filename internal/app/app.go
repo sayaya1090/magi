@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/bus"
@@ -63,7 +64,14 @@ type App struct {
 	bg     context.Context
 	bgStop context.CancelFunc
 
-	liveness sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
+	liveness sync.Map // session.SessionID -> *sessionLiveness (write-only record of a running session; see liveness.go)
+	// meetingRounds counts MeetingSayIn turns in flight. They deliberately never enter the run
+	// states (WritingRun's handover-queue semantics depend on that), which made them invisible to
+	// Running() — and the auto-update idle gate, built on Running(), restarted daemons mid-meeting:
+	// the preparation turn held it off (spawnChild registers a cancel) and the discussion rounds,
+	// the long part, did not. This counter is the meeting's own "activity" fact, read via
+	// MeetingActive by anything that must not fire while a round is being composed.
+	meetingRounds atomic.Int64
 
 	memMu         sync.Mutex
 	memCache      map[string]string       // workdir -> durable AGENTS.md memory

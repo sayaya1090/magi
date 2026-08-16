@@ -133,6 +133,10 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 	if strings.TrimSpace(string(child)) == "" {
 		return meeting.Utterance{}, fmt.Errorf("this participant has no session in the meeting")
 	}
+	// Counted as activity for MeetingActive: these turns stay outside the run states on purpose,
+	// which made a mid-round daemon invisible to Running() — and restartable under it (see App).
+	a.meetingRounds.Add(1)
+	defer a.meetingRounds.Add(-1)
 	s := a.sessionInfo(ctx, child)
 	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: "meeting"},
 		meetingPrompt(who, topic, transcript, closing)); err != nil {
@@ -220,6 +224,12 @@ func preparePrompt(who, topic, work string) string {
 		"what you know that the others do not.\n")
 	return b.String()
 }
+
+// MeetingActive reports whether any meeting round is being composed right now. The auto-update idle
+// gate reads it alongside Running(): meeting turns deliberately never enter the run states, so
+// without this a daemon restarted itself mid-contribution and the console recorded the participant
+// as failing the round.
+func (a *App) MeetingActive() bool { return a.meetingRounds.Load() > 0 }
 
 // meetingPrompt is what a participant is given: the question, everything said so far, and the two
 // shapes an answer may take.

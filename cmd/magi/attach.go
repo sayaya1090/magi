@@ -26,9 +26,39 @@ import (
 // Embedding *app.App means every method not named below is the local one, and a method added to
 // the boundary later keeps working here without being listed. The five are overridden by being
 // written out, so the file reads as "these, and only these, leave the process".
+// clientBox holds the attached TUI's pooled daemon client behind a pointer, so a dead connection
+// can be replaced. The daemon's graceful restart (a self-update) drains every open connection and
+// the successor rebinds the SAME socket within a second — the web console redials and survives,
+// but this client was dialled once at attach and held for the process's life, so after a restart
+// every call failed forever and the screen claimed the daemon was gone while it was running fine
+// on the new build. redial swaps in a fresh connection; callers go through get().
+type clientBox struct {
+	mu sync.Mutex
+	c  *daemon.Client
+}
+
+func (b *clientBox) get() *daemon.Client { b.mu.Lock(); defer b.mu.Unlock(); return b.c }
+
+// redial replaces the dead client with a fresh dial of the same socket. Best-effort: on failure the
+// old client stays (the daemon may really be gone), and the next poll tries again.
+func (b *clientBox) redial(sock string) bool {
+	cl, err := daemon.Dial(sock)
+	if err != nil {
+		return false
+	}
+	b.mu.Lock()
+	old := b.c
+	b.c = cl
+	b.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+	return true
+}
+
 type attached struct {
 	*app.App
-	c *daemon.Client
+	c *clientBox
 	// sock is the daemon socket path, kept so a call that must NOT hold the pooled connection (a slow
 	// model call) can dial a one-shot of its own — the same reason the web console has s.alone.
 	sock string
@@ -58,7 +88,7 @@ const jobsFresh = 400 * time.Millisecond
 // jobs answers from the last reply when it is fresh, and asks otherwise.
 func (a attached) jobs(sid session.SessionID) daemon.Jobs {
 	if a.seen == nil {
-		j, _ := a.c.Jobs(string(sid))
+		j, _ := a.c.get().Jobs(string(sid))
 		return j
 	}
 	a.seen.mu.Lock()
@@ -66,7 +96,7 @@ func (a attached) jobs(sid session.SessionID) daemon.Jobs {
 	if time.Since(a.seen.at) < jobsFresh {
 		return a.seen.jobs
 	}
-	j, err := a.c.Jobs(string(sid))
+	j, err := a.c.get().Jobs(string(sid))
 	if err != nil {
 		// Unreachable keeps the last picture rather than emptying the strip: a dropped poll is not
 		// news that everything finished, and the view says the daemon is gone by its own means.
@@ -168,28 +198,28 @@ func parseWhen(s string) time.Time {
 // Submit and Steer start or redirect work. Both must happen where the loop runs; a local Submit
 // would start a SECOND agent against the same store, and the two would fight over one workspace.
 func (a attached) Submit(ctx context.Context, c command.SubmitPrompt) error {
-	return a.c.Submit(ctx, c)
+	return a.c.get().Submit(ctx, c)
 }
 
 func (a attached) Steer(ctx context.Context, c command.SubmitPrompt) error {
-	return a.c.Steer(ctx, c)
+	return a.c.get().Steer(ctx, c)
 }
 
 // Interrupt cancels the live turn. The cancel function is in the daemon's memory and nowhere else,
 // so a local call would return cleanly and stop nothing — the worst shape a control has.
 func (a attached) Interrupt(ctx context.Context, c command.Interrupt) error {
-	return a.c.Interrupt(ctx, c)
+	return a.c.get().Interrupt(ctx, c)
 }
 
 // RespondPermission and RespondQuestion answer a tool that is blocked. The channel it waits on
 // belongs to the daemon; answering locally would leave it waiting forever while the screen showed
 // the question resolved.
 func (a attached) RespondPermission(ctx context.Context, c command.RespondPermission) error {
-	return a.c.RespondPermission(ctx, c)
+	return a.c.get().RespondPermission(ctx, c)
 }
 
 func (a attached) RespondQuestion(ctx context.Context, c command.RespondQuestion) error {
-	return a.c.RespondQuestion(ctx, c)
+	return a.c.get().RespondQuestion(ctx, c)
 }
 
 // Rewind and Compact REWRITE the log the daemon owns.
@@ -199,7 +229,7 @@ func (a attached) RespondQuestion(ctx context.Context, c command.RespondQuestion
 // the daemon appended would carry a number the file had already passed. And the turn the user meant
 // to undo would keep running, because the goroutine driving it is over there.
 func (a attached) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, error) {
-	return a.c.Rewind(ctx, sid, n)
+	return a.c.get().Rewind(ctx, sid, n)
 }
 
 // EditSchedule writes here and then tells the daemon.
@@ -217,14 +247,14 @@ func (a attached) EditSchedule(workdir string, c port.ScheduleChange) (string, e
 	// Best effort, and deliberately not an error: the file is written and correct. A daemon that
 	// went away between the write and this call is a reason to say the edit lands on its next
 	// start, not a reason to report that the edit failed.
-	if rerr := a.c.ReloadCron(); rerr != nil {
+	if rerr := a.c.get().ReloadCron(); rerr != nil {
 		return out + " (the running daemon did not acknowledge it; it will pick this up when it next starts)", nil
 	}
 	return out, nil
 }
 
 func (a attached) Compact(ctx context.Context, c command.Compact) error {
-	return a.c.Compact(ctx, c)
+	return a.c.get().Compact(ctx, c)
 }
 
 // SuggestPrompt spends the daemon's composer profile and reads the daemon's current session, so it
@@ -238,7 +268,7 @@ func (a attached) Compact(ctx context.Context, c command.Compact) error {
 // here. Falls back to the pooled client only when there is no socket to dial (a test).
 func (a attached) SuggestPrompt(ctx context.Context, sid session.SessionID, prefix string) (string, error) {
 	if a.sock == "" {
-		return a.c.Suggest(prefix)
+		return a.c.get().Suggest(prefix)
 	}
 	cl, err := daemon.Dial(a.sock)
 	if err != nil {
@@ -256,7 +286,7 @@ func (a attached) SuggestPrompt(ctx context.Context, sid session.SessionID, pref
 // a failure to reach the daemon is logged rather than swallowed. It is the same information the
 // next call over the socket will surface anyway, at the point the user does something that matters.
 func (a attached) SetModel(sid session.SessionID, modelID string) {
-	if err := a.c.SetModel(sid, modelID); err != nil {
+	if err := a.c.get().SetModel(sid, modelID); err != nil {
 		log.Printf("magi: the daemon did not take the model change: %v", err)
 		return
 	}
@@ -264,7 +294,7 @@ func (a attached) SetModel(sid session.SessionID, modelID string) {
 }
 
 func (a attached) SetPermission(p string) {
-	if err := a.c.SetPermission(p); err != nil {
+	if err := a.c.get().SetPermission(p); err != nil {
 		log.Printf("magi: the daemon did not take the permission change: %v", err)
 		return
 	}
@@ -502,9 +532,20 @@ type pulse struct {
 }
 
 func (a attached) pendingPrompt(sid session.SessionID, drawn string) pulse {
-	st, err := a.c.Status(string(sid))
+	st, err := a.c.get().Status(string(sid))
 	if err != nil {
-		return pulse{id: drawn} // unknown: change nothing
+		// One redial before giving up: a graceful restart (self-update) replaced the socket under
+		// this pooled connection, and the successor is answering within a second. Without this the
+		// TUI was dead for good after every update, telling the person the daemon had exited while
+		// it ran fine on the new build.
+		if a.c.redial(a.sock) {
+			if st2, err2 := a.c.get().Status(string(sid)); err2 == nil {
+				st, err = st2, nil
+			}
+		}
+		if err != nil {
+			return pulse{id: drawn} // unknown: change nothing
+		}
 	}
 	p := pulse{doing: st.Doing, user: st.User, perm: st.Permission, reachable: true}
 	if st.Asking != nil {

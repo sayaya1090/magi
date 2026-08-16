@@ -127,7 +127,7 @@ func serveEngine(t *testing.T, eng daemon.Engine) *daemon.Client {
 // addressed to. A prompt rendered from a summary is a prompt nobody can reply to.
 func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	eng := &promptEngine{}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	sid := session.SessionID("s_1")
 
 	// Nothing pending: nothing is drawn, and the state is "cleared" rather than "unknown".
@@ -194,7 +194,7 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 func TestAFailedStatusChangesNothingOnScreen(t *testing.T) {
 	eng := &promptEngine{}
 	cl := serveEngine(t, eng)
-	a := attached{c: cl}
+	a := attached{c: &clientBox{c: cl}}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
 	if p := a.pendingPrompt(sid, ""); !p.drawing {
@@ -223,7 +223,7 @@ func TestAFailedStatusChangesNothingOnScreen(t *testing.T) {
 // the one before it, even if the id repeats.
 func TestAnAnsweredPromptClearsTheMarker(t *testing.T) {
 	eng := &promptEngine{}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
 	if p := a.pendingPrompt(sid, ""); !p.drawing {
@@ -252,7 +252,7 @@ func TestAnAnsweredPromptClearsTheMarker(t *testing.T) {
 func TestTheScreenIsToldWhenTheDaemonGoesAway(t *testing.T) {
 	eng := &promptEngine{}
 	cl := serveEngine(t, eng)
-	a := attached{c: cl}
+	a := attached{c: &clientBox{c: cl}}
 	sid := session.SessionID("s_1")
 
 	if p := a.pendingPrompt(sid, ""); !p.reachable {
@@ -290,7 +290,7 @@ func TestTheScreenIsToldWhenTheDaemonGoesAway(t *testing.T) {
 // twenty-minute wait was the one that showed nothing about it.
 func TestTheAttachedTerminalIsToldWhatIsBeingWaitedOn(t *testing.T) {
 	eng := &promptEngine{}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	sid := session.SessionID("s_1")
 
 	if p := a.pendingPrompt(sid, ""); p.doing != "" {
@@ -329,7 +329,7 @@ func TestTheAttachedTerminalIsToldWhatIsBeingWaitedOn(t *testing.T) {
 // and "still running" at once, which are contradictory answers to "should I do something".
 func TestThePromptAndTheNoteComeFromOneAnswer(t *testing.T) {
 	eng := &promptEngine{}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
 	eng.setDoing("still running")
@@ -353,7 +353,7 @@ func TestThePromptAndTheNoteComeFromOneAnswer(t *testing.T) {
 // existed.
 func TestTheNameThePersonIsCalledReachesAnAttachedView(t *testing.T) {
 	eng := &promptEngine{}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	sid := session.SessionID("s_1")
 
 	if p := a.pendingPrompt(sid, ""); p.user != "" {
@@ -389,7 +389,7 @@ func TestTheNameThePersonIsCalledReachesAnAttachedView(t *testing.T) {
 // attached window went on displaying whatever mode it had started in.
 func TestTheModeAnAttachedViewShowsIsTheDaemonsOwn(t *testing.T) {
 	eng := &controllableEngine{promptEngine: &promptEngine{}, perm: "deny"}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	if p := a.pendingPrompt(session.SessionID("s_1"), ""); p.perm != "deny" {
 		t.Errorf("the poll reports the mode as %q, want the daemon's deny", p.perm)
 	}
@@ -417,7 +417,7 @@ func (c *controllableEngine) Permission() string                             { r
 // notices, and until it said so the modal stayed up over a turn that had moved on.
 func TestTheViewIsToldWhenSomebodyElseAnswered(t *testing.T) {
 	eng := &promptEngine{}
-	a := attached{c: serveEngine(t, eng)}
+	a := attached{c: &clientBox{c: serveEngine(t, eng)}}
 	sid := session.SessionID("s_1")
 
 	eng.set(&app.Ask{ID: "q1", Kind: "question", What: "which surface?", Since: time.Now()})

@@ -127,7 +127,11 @@ func runCoreUpdate() int {
 		return 1
 	}
 	fmt.Println("checking for updates…")
-	res, err := update.Run(context.Background(), newReleaseSource(), version.Version, exe)
+	// RunCommit, not Run: the user-facing update gets the same rollback the daemon's does — a
+	// --version pre-flight on the new binary, the previous build restored if it fails — so a broken
+	// release cannot land on disk from here either. (Run survives only for the startup force-install
+	// seam, whose tests stand in fake binaries that would not pass a real pre-flight.)
+	res, err := update.RunCommit(context.Background(), newReleaseSource(), version.Version, exe)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: update failed:", err)
 		return 1
@@ -151,9 +155,23 @@ func runCoreUpdate() int {
 //coverage:ignore the entry point — a test could only duplicate this one line
 var restartOnExit bool
 
+// restartSession is the conversation the daemon was on when the relaunch was asked for, carried to
+// the successor in the environment. Without it the successor ran CreateSession unconditionally and
+// a restart silently moved the companion into a NEW, EMPTY conversation: a Resume the operator made
+// was reverted, and the interjections the teardown deliberately persists back into the log ("both
+// survive to the next run") survived into a session the successor never opened.
+var restartSession string
+
+// restartSessionEnv is that hand-off's envelope. Consumed (and unset) by the next --daemon start,
+// so it never outlives the one relaunch it describes.
+const restartSessionEnv = "MAGI_RESTART_SESSION"
+
 func main() {
 	code := run()
 	if restartOnExit {
+		if restartSession != "" {
+			os.Setenv(restartSessionEnv, restartSession)
+		}
 		// Does not return on success (the image is replaced). If it fails, the update simply did not
 		// take effect this time — log and exit with run()'s code rather than hang.
 		if err := graceful.Reexec(); err != nil {
@@ -1161,7 +1179,7 @@ func run() int {
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
 		// No KillBackgroundProcesses here, and no CloseLSPPool: those belong to the process that
 		// STARTED them. Detaching a viewer must not reap the daemon's work.
-		if err := tui.Run(ctx, attached{App: a, c: cl, sock: sockPath, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
+		if err := tui.Run(ctx, attached{App: a, c: &clientBox{c: cl}, sock: sockPath, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
 			session.SessionID(joined), modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
 			fmt.Fprintln(os.Stderr, "magi: attach:", err)
 			return 1
@@ -1169,14 +1187,29 @@ func run() int {
 		return 0
 	}
 
-	sid, err = a.CreateSession(ctx, command.CreateSession{
-		Workdir: wd,
-		Model:   session.ModelRef{Provider: "openai", Model: modelID},
-		Actor:   event.Actor{Kind: event.ActorUser, ID: "cli"},
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi: create session:", err)
-		return 1
+	// A restarted daemon reopens the conversation it was on, not a fresh one. The predecessor left
+	// the id in the environment on its way into the re-exec (restartSessionEnv): without this, every
+	// self-update restart silently moved the companion to a new empty session — a Resume the
+	// operator made was reverted, and interjections persisted by the teardown were stranded in a log
+	// nothing reopened. Validated against the store (the log must actually be this workspace's) and
+	// consumed either way, so the id never outlives the one relaunch it was written for.
+	if resume := os.Getenv(restartSessionEnv); resume != "" && *daemonMode {
+		os.Unsetenv(restartSessionEnv)
+		if metas, lerr := a.ListSessions(ctx, wd); lerr == nil &&
+			slices.ContainsFunc(metas, func(m session.SessionMeta) bool { return m.ID == session.SessionID(resume) }) {
+			sid = session.SessionID(resume)
+		}
+	}
+	if sid == "" {
+		sid, err = a.CreateSession(ctx, command.CreateSession{
+			Workdir: wd,
+			Model:   session.ModelRef{Provider: "openai", Model: modelID},
+			Actor:   event.Actor{Kind: event.ActorUser, ID: "cli"},
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "magi: create session:", err)
+			return 1
+		}
 	}
 	host.FireEvent("session_start") // plugins may react to a new session
 
@@ -1274,8 +1307,14 @@ func run() int {
 			// error is deliberately not fatal — a daemon that cannot self-update still serves.
 			exe, _ := os.Executable()
 			// running() is true while any session has a turn in flight — App.Running returns the
-			// running session and a bool; only the bool matters here.
-			busy := func() bool { _, ok := a.Running(); return ok }
+			// running session and a bool; only the bool matters here — OR a meeting round is being
+			// composed, which the run states deliberately do not cover (MeetingActive).
+			busy := func() bool {
+				if _, ok := a.Running(); ok {
+					return true
+				}
+				return a.MeetingActive()
+			}
 			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, sockPath, busy, serving.Restart)
 		}
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
@@ -1348,8 +1387,13 @@ func run() int {
 		}
 		// Relaunch onto the new binary rather than exit, when a client asked the daemon to restart
 		// (a self-update). main() does the re-exec after this function returns, so the deferred
-		// unpublish/socket release above run first — see restartOnExit.
+		// unpublish/socket release above run first — see restartOnExit. The CURRENT conversation
+		// (taking.at follows Resume) rides along so the successor reopens it instead of minting an
+		// empty one.
 		restartOnExit = serving.Restarting()
+		if restartOnExit {
+			restartSession = string(taking.at.now())
+		}
 		// Its own background commands and language servers are this process's to reap, unlike an
 		// attached viewer's.
 		builtin.KillBackgroundProcesses()
@@ -2340,9 +2384,14 @@ var systemPrompt = "You are magi, an AI coding agent working in the user's proje
 	"- ONE STEP AT A TIME — don't cram a whole procedure into a single command; run each action and READ its result before the next. Keep EXECUTION and VERIFICATION strictly separate: start a long-running process with background=true ALONE (no trailing `&`, no appended check), then verify it in the NEXT, foreground call (netstat/ss/pgrep/curl). A check bundled into the background start has its output captured inside the job (you get back only the id), so you never see it and loop restarting a server that is already up. Once a check has confirmed the process is up, STOP re-launching it.\n" +
 	"- DON'T FABRICATE to look finished. If a value, fact, or result is unknown, DETERMINE it by running the real command/tool that yields it (compute, parse, query, read the actual state); if you genuinely cannot, say so plainly. Never fill a gap with a plausible guess (an invented constant, API detail, sequence, name, or path), never hand-write or drop in a stand-in/placeholder output file, and never claim a build/test/command passed that you did not actually run. Being stuck, frustrated, or long into a turn is NOT a license to guess: an honest 'unverified' or 'blocked' beats a confident fabrication.\n" +
 	"- After a few genuine attempts, if you are truly blocked, report exactly what you tried and the errors — don't silently quit, and don't loop forever.\n\n" +
-	"LANGUAGE (important): always write your replies to the user in the SAME language they used in their latest " +
-	"message — if they wrote Korean, answer in Korean; Japanese, answer in Japanese. This overrides the language of " +
-	"these instructions or of any file/tool output. Keep code, identifiers, and file paths unchanged."
+	// Anchored on the USER's own messages, not "their latest message": magi injects council
+	// feedback, nudges and notes AS user-role messages, usually in English, and a tail rule keyed to
+	// the latest one re-armed exactly the English drift the primacy language lock (buildStepSystem)
+	// exists to suppress — the two directives contradicted each other from opposite ends of the
+	// system prompt.
+	"LANGUAGE (important): always write your replies in the language the USER writes in — the person's own " +
+	"messages, not injected feedback or notes (those often arrive in English), and not any file/tool output. " +
+	"If they write Korean, answer in Korean. Keep code, identifiers, and file paths unchanged."
 
 // companionPeers picks which companions this magi attaches as MCP servers.
 //
