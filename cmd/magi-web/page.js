@@ -8370,6 +8370,7 @@ let lookOn = localStorage.getItem('lookover') === 'on';
 // is open. Set by editor(), cleared when it closes.
 let lookClearActive = null;
 let lookAt = 0;
+let lookSrSeq = 0; // unique ids for each editor's sr-only remark line (aria-describedby target)
 // Inline code completion and composer suggestion, both on by default and remembered — unlike
 // look-over, which is a bill on every pause, these are cheap (the server does nothing until a fast
 // profile is routed) and are the kind of help people expect on by default. Module-scope so the
@@ -8494,6 +8495,17 @@ function editor(path, text, acts) {
   // remark went inline against its line.
   const said = cell('looksaid');
   said.hidden = true;
+  // The same findings, for ears. The mirror that draws them is aria-hidden — it has to be, it
+  // duplicates the textarea's text — so a screen reader heard NOTHING of a review a sighted
+  // reader gets inline: the one channel that parsed cleanly was the one that was silent. This
+  // sr-only status line carries "line: remark" pairs — announced politely when they arrive, and
+  // re-readable from the field itself via aria-describedby.
+  const srNotes = document.createElement('div');
+  srNotes.className = 'sr-only';
+  srNotes.id = 'looksr-' + (++lookSrSeq);
+  srNotes.setAttribute('role', 'status');
+  srNotes.setAttribute('aria-live', 'polite');
+  area.setAttribute('aria-describedby', srNotes.id);
   // Fold the model's answer into per-line notes. Each finding is `<line><TAB><clause>` (or a colon
   // where a model used one); a line that does not parse is not dropped — it goes to the block above,
   // so a model that ignores the format still says its piece.
@@ -8506,11 +8518,14 @@ function editor(path, text, acts) {
       else if (raw.trim()) extra.push(raw.trim());
     }
     if (notes.size === 0) notes = null;
+    const spoken = [];
+    if (notes) for (const [ln, clause] of notes) spoken.push(ln + ': ' + clause);
+    srNotes.textContent = spoken.concat(extra).join(' · ');
     said.textContent = extra.join('\n');
     said.hidden = !said.textContent;
     repaint();
   };
-  const clearNotes = () => { notes = null; said.hidden = true; repaint(); };
+  const clearNotes = () => { notes = null; said.hidden = true; srNotes.textContent = ''; repaint(); };
   lookClearActive = clearNotes; // so the Preferences switch can wipe this editor's notes when turned off
   // The switch, and the only thing that turns this on. A model reading over somebody's shoulder is
   // a good idea and a bill; which of the two it is depends on whether they asked for it.
@@ -8685,7 +8700,7 @@ function editor(path, text, acts) {
   const stack = cell('editstack');
   stack.append(behind, area);
   wrap.append(nums, stack);
-  box.append(said, wrap);
+  box.append(said, srNotes, wrap);
   // Nothing measures anything. The ghost is the text, in flow, so it is exactly the size of the
   // file; the field is laid over it and takes that size; the pane around them is what scrolls. An
   // earlier turn at this sized the field from its own scrollHeight and got zero — a box measuring
@@ -9741,7 +9756,12 @@ function paint() {
   if (profName) profName.setAttribute('label', tr('prof.name'));
   if (profBase) profBase.setAttribute('label', tr('prof.base_url'));
   if (profModel) profModel.setAttribute('label', tr('prof.model'));
-  if (profKey) profKey.setAttribute('label', tr('prof.api_key'));
+  if (profKey) {
+    // The label is the noun alone; the hint rides supporting text. A hint folded into the label
+    // clipped 94px off it at compact width, and the guide forbids truncating a label at all.
+    profKey.setAttribute('label', tr('prof.api_key'));
+    profKey.setAttribute('supporting-text', tr('prof.api_key_hint'));
+  }
   if (profSave) label(profSave, tr('prof.add'));
   // A switch's visible label is a sibling div, not a <label for> — so give each an accessible name
   // (the way notifySwitch already gets one), or a screen reader announces a nameless "switch".
@@ -10902,12 +10922,29 @@ async function loadProfiles() {
   renderProfiles(await fetchList('/profiles' + acQ()) || []);
 }
 if (profSave) profSave.onclick = () => whileItRuns(profSave, async () => {
+  // Same shape as the MCP form above: an error goes to the field it is about — the component puts
+  // it in the label with the alert role once error-text is set — and the status line is only for a
+  // refusal that names no field. A refusal that went ONLY to the status line left the field
+  // looking fine and the focus wherever it was.
+  const profFields = [profName, profBase, profModel, profKey];
+  for (const f of profFields) { f.removeAttribute('error'); f.removeAttribute('error-text'); }
   const nm = (profName.value || '').trim();
-  if (!nm) { says(tr('prof.need_name')); return; }
+  if (!nm) {
+    profName.setAttribute('error', '');
+    profName.setAttribute('error-text', tr('prof.need_name'));
+    if (profName.focus) profName.focus();
+    return;
+  }
   const body = new URLSearchParams({name: nm, baseUrl: profBase.value || '', model: profModel.value || ''});
   if ((profKey.value || '').trim()) body.set('apiKey', profKey.value);
   const why = await profWrite(body);
-  if (why) return;
+  if (why) {
+    const at = why.includes('name') ? profName :
+      /url|base/i.test(why) ? profBase : /model/i.test(why) ? profModel : /key/i.test(why) ? profKey : null;
+    if (at) { at.setAttribute('error', ''); at.setAttribute('error-text', why.slice(0, 120)); if (at.focus) at.focus(); }
+    else says(why.slice(0, 80));
+    return;
+  }
   profName.value = profBase.value = profModel.value = profKey.value = '';
   loadProfiles();       // the list
   loadAutocomplete();   // and the pickers above, so a new profile is immediately assignable

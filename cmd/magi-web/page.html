@@ -496,7 +496,9 @@
     <div class="prefsay" data-may="configure"><div class="say" id="profWhy"></div></div>
     <div class="prefsay" data-may="configure"><div id="profList" class="proflist"></div></div>
     <div class="profadd" data-may="configure">
-      <md-outlined-text-field id="profName"></md-outlined-text-field>
+      <!-- required: the bundle puts the guide's asterisk on the label, and the save handler
+           routes a missing/refused name to THIS field's error slot rather than the status line -->
+      <md-outlined-text-field id="profName" required></md-outlined-text-field>
       <md-outlined-text-field id="profBase"></md-outlined-text-field>
       <md-outlined-text-field id="profModel"></md-outlined-text-field>
       <md-outlined-text-field id="profKey"></md-outlined-text-field>

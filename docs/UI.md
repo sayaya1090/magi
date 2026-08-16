@@ -977,6 +977,9 @@ Listed with what each would actually take, so none of them reads as a wish.
 | ~~A61~~ ✅ | ~~아이콘 버튼 상태 레이어 **36px** 2곳~~(`.actions`, 좁은 폭의 `#prefs`·`#themeToggle`) | 크기 스케일은 **32 / 40 / 56 / 96 / 136**. 36은 없다 | components/icon-buttons/specs | **고침** — 40px로. 접근성 문제는 아니었다(`.touch`가 48px 타겟 보장) |
 | ~~A62~~ ✅ | ~~좁은 폭에서 탭 높이 **44px**~~ | **48dp**. ★ 후보였는데 **결함으로 확정**됐다 — 에이전트가 번들 `.touch` 9곳을 전수 확인했고 **`md-primary-tab`은 그중 하나가 아니다**(탭 템플릿에 `.touch`도 `min-height`도 없다). **폰 폭에서 실제 타겟이 44px**였다 | components/tabs/specs | **고침** — 오버라이드 삭제(번들 기본 48px) |
 | ~~A63~~ ✅ | ~~탭 아래 **구분선이 없다**~~ | 스펙이 컨테이너의 일부로 그린다: **1dp / outline-variant**. 번들도 magi도 안 그렸다 | components/tabs/specs | **고침** — `#tabs`·`#ptabs`에 `border-bottom` |
+| ~~A64~~ ✅ | 룩오버 리마크가 `aria-hidden` 미러 안에만 그려져 **보조기기에 침묵**(파싱 성공=정상 경로에서 접근 폴백 `.looksaid`도 숨김) | 오류·진행 등 시각 신호는 접근 라벨 필수, 로드 후 도착 콘텐츠는 스크린리더에 전달 | foundations/accessibility | **고침**(2026-08-16) — sr-only `role=status` 줄에 "줄번호: 지적" 미러 + textarea `aria-describedby`. 데모 실측: 두 지적이 sr 채널에 실림 |
+| ~~A65~~ ✅ | 프로파일 **Name 필수 표시 없음** + 오류가 전역 status 줄로만(필드 error 미설정, 포커스 유지) | 필수는 **라벨 끝 별표**; 오류는 **alert 역할로 필드 라벨에** | components/text-fields/accessibility | **고침**(2026-08-16) — `required`(번들이 별표를 그림) + 빈 이름/서버 거부를 MCP 폼 패턴대로 필드 `error-text`+포커스로. 실측: "Name*", 빈 저장→필드 오류+포커스 이동 |
+| ~~A66~~ ✅ | **API key 라벨이 힌트 문장까지 품어 390px에서 94px 잘림** | 라벨은 항상 보이고 **자르지 말 것**; 힌트는 supporting text | components/text-fields/guidelines | **고침**(2026-08-16) — 라벨 "API key", 힌트는 `supporting-text`로(en·ko). 실측: 클립 0(측정기는 긴 라벨 재주입으로 변이 검증) |
 
 **철회(3)**: **A2** compact `md-tabs` — 목적지가 셋 미만이면 가이드가 **탭을 지시**한다.
 **A3** 74ch — 큰 화면 천장은 **120자**다. **A7** 비활성 지표 — magi에 `cursor:not-allowed`가
