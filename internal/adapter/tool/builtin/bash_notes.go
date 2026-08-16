@@ -62,6 +62,34 @@ func maskedFailureNote(exit int, body string) string {
 	return ""
 }
 
+// zeroTestSignatures are runner outputs that say the run DISCOVERED NOTHING. An exit 0 above one
+// of these is the emptiest success there is — observed live (the itm→item rename, 2026-08-16):
+// `python3 -m unittest test_inventory.py` exited 0 having collected zero pytest-style test
+// functions, and two council members cited "tests pass" on its strength. The runner printed the
+// truth; it just sat below the clip where nobody read it.
+var zeroTestSignatures = []string{
+	"Ran 0 tests",       // unittest
+	"no tests ran",      // pytest's empty-session summary
+	"collected 0 items", // pytest's collection line for the same
+}
+
+// zeroTestsNote hoists a zero-tests summary to the head of an exit-0 result, where it cannot be
+// clipped away. Like maskedFailureNote it contributes PLACEMENT plus the one structural fact a
+// status cannot carry: a runner that found nothing exits clean, so this exit says nothing about
+// the suite.
+func zeroTestsNote(exit int, body string) string {
+	if exit != 0 {
+		return ""
+	}
+	for _, sig := range zeroTestSignatures {
+		if strings.Contains(body, sig) {
+			return "[note: the status above is 0, and the output says `" + sig + "` — the runner " +
+				"discovered no tests, so this exit proves nothing about the suite.]"
+		}
+	}
+	return ""
+}
+
 // detachIndex reports where a command detaches something with `&`, or -1. The shell's exit for a
 // detached job arrives before the child has done anything, so this is what makes an exit 0 mean
 // "started" rather than "finished".
@@ -613,6 +641,8 @@ var statusAnnotators = []statusAnnotator{
 	// The output carries a real crash/traceback while the status says success — almost always a
 	// failing code swallowed by a `|| echo`/`|| true` tail.
 	func(exit int, _, out string, _ session.SessionID, _ bool) string { return maskedFailureNote(exit, out) },
+	// A test runner that DISCOVERED NOTHING and exited clean — the emptiest success there is.
+	func(exit int, _, out string, _ session.SessionID, _ bool) string { return zeroTestsNote(exit, out) },
 	// The command ends in a shell `&`: exit 0 only means the child STARTED. A weak model reads the
 	// instant clean exit as progress, abandons the in-flight install/build, and relaunches it.
 	func(exit int, cmd, _ string, sid session.SessionID, _ bool) string {

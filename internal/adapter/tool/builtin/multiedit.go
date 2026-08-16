@@ -16,8 +16,34 @@ import (
 type MultiEdit struct{}
 
 type multiEditArgs struct {
-	Path  string     `json:"path"`
-	Edits []editHunk `json:"edits"`
+	Path  string    `json:"path"`
+	Edits editHunks `json:"edits"`
+}
+
+// editHunks is []editHunk with the same tolerance FlexInt/FlexBool exist for: a weaker model
+// sometimes double-encodes the array, sending `"[{\"old\":…}]"` — a JSON STRING holding the JSON.
+// Observed twice in one validation day (two rename tasks, same model): the call was rejected on
+// the type mismatch and the model fell back to nine sequential single edits, paying a model round
+// trip per hunk for work it had already expressed correctly once. The intent is unambiguous, so
+// unwrap the string and read what is inside; anything else still fails like it always did.
+type editHunks []editHunk
+
+func (e *editHunks) UnmarshalJSON(data []byte) error {
+	var direct []editHunk
+	if err := json.Unmarshal(data, &direct); err == nil {
+		*e = direct
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		var inner []editHunk
+		if err := json.Unmarshal([]byte(s), &inner); err != nil {
+			return fmt.Errorf("edits arrived as a string, and its content is not an edit array: %w", err)
+		}
+		*e = inner
+		return nil
+	}
+	return fmt.Errorf("edits must be an array of {old,new,replaceAll?} objects")
 }
 
 type editHunk struct {
