@@ -240,10 +240,6 @@ embed_model = "nomic-embed-text"   # model that turns text into vectors for the 
                            # Lower it to compact earlier (safer headroom); raise it to keep more raw
                            # history live before summarizing.
 
-[routing]                  # per-agent routing (profile name or model name); an "agent" here is a
-Melchior = "fast"          # named council member or a workflow phase → [llm.profiles.fast]
-Balthasar = "qwen3-coder:30b"   # just the model, on the default backend
-
 [llm.profiles.fast]        # named backend (endpoint/key/model/headers, ${ENV} expansion)
 base_url = "https://fast.gateway/v1"
 api_key  = "${FAST_KEY}"

@@ -212,10 +212,6 @@ embed_model = "nomic-embed-text"   # 텍스트를 벡터로 바꾸는 모델 —
 # compact_ratio    = 0.8   # 자동 컴팩션이 돌기 전 창을 채울 수 있는 비율(§7).
                            # 낮추면 더 일찍 컴팩션(여유 확보), 높이면 원본 히스토리를 더 오래 살려둔다.
 
-[routing]                  # 에이전트별 라우팅(프로파일 이름 또는 모델명). 여기서 "에이전트"는
-Melchior = "fast"          # 카운슬 멤버 이름 또는 워크플로우 페이즈 → [llm.profiles.fast]
-Balthasar = "qwen3-coder:30b"  # 기본 백엔드에서 모델만
-
 [llm.profiles.fast]        # 이름붙인 백엔드 (엔드포인트/키/모델/헤더, ${ENV} 확장)
 base_url = "https://fast.gateway/v1"
 api_key  = "${FAST_KEY}"

@@ -58,7 +58,6 @@ type Config struct {
 	// Cron is the unattended work this workspace does on a schedule, name -> job. Only a daemon
 	// runs them; an interactive session reads them so its editor can show them, and fires nothing.
 	Cron          map[string]CronJob `toml:"cron"`
-	Routing       map[string]string  `toml:"routing"`        // agent name -> model (M6 routing)
 	ExperienceDir string             `toml:"experience_dir"` // shared experience store path (D13)
 	Hooks         []Hook             `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
 	// Subagents records the user's own settings per plugin-declared subagent, written by
@@ -165,9 +164,10 @@ type SamplingConfig struct {
 // X-CLIENT-API-KEY); values support ${ENV_VAR} expansion so secrets stay out of
 // the committed file.
 //
-// Profiles are named backends an agent can be routed to via [routing] — each may
-// have its own endpoint, key, model, and headers, so e.g. the planner runs on a
-// cheap gateway and the coder on a strong one.
+// Profiles are named backends an agent can be routed to — a subagent pref, a
+// council member, or the completion helpers name one — each with its own endpoint,
+// key, model, and headers, so e.g. the planner runs on a cheap gateway and the
+// coder on a strong one.
 type LLMConfig struct {
 	Headers  map[string]string     `toml:"headers"`
 	Profiles map[string]LLMProfile `toml:"profiles"`
@@ -426,14 +426,8 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # deny          = ["Read(**/.env)"]
 # allow_domains = ["api.github.com"]
 
-# --- Per-agent routing. A value naming an [llm.profiles.*] entry routes that
-# agent to that backend (endpoint/key/model); any other value is a bare model on
-# the default backend. ---
-# [routing]
-# explore = "fast"               # → [llm.profiles.fast] (different endpoint/key)
-# coder   = "qwen3-coder:30b"    # bare model on the default backend
-
-# Named backends: each agent routed to a profile runs on its own endpoint, key,
+# Named backends: an agent routed to a profile — a subagent (/subagents), a
+# council member, the completion helpers below — runs on its own endpoint, key,
 # model, and headers (e.g. planner/explore on a cheap gateway, coder on a strong
 # one). ${ENV_VAR} is expanded. Omit base_url to reuse the default endpoint.
 # [llm.profiles.fast]
@@ -555,7 +549,7 @@ func Load(dir string) (Config, error) {
 // matched by any Config field — i.e. likely typos ("profil", "modle"). Callers
 // surface these as warnings; unknown keys are deliberately NOT an error, so a
 // config written for a newer binary (with keys this build doesn't know) still
-// loads. Free-form sections (plugins, theme, mcp, routing) decode into maps, so
+// loads. Free-form sections (plugins, theme, mcp) decode into maps, so
 // their arbitrary keys are consumed and never reported here. A missing file
 // yields zero values, no keys, and no error.
 func LoadWithUnknown(dir string) (Config, []string, error) {

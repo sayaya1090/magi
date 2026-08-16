@@ -29,7 +29,7 @@ magi에 **외부 툴(MCP)** 과 **팀 공유 메모리/스킬(experience store, 
 |---|---|
 | `hooks`, `allow`, `deny`, `allow_domains` | **append**(전역 + 프로젝트) |
 | `experience_dir`, `profile`, `sandbox` 등 스칼라 | 프로젝트가 **override** |
-| `[routing]`, `[mcp.*]` 맵 | **키 단위 병합** — 같은 키는 프로젝트가 override |
+| `[mcp.*]` 맵 | **키 단위 병합** — 같은 키는 프로젝트가 override |
 
 > 파일이 없어도 에러가 아니다. 둘 다 없으면 기본값으로 동작.
 
@@ -371,10 +371,10 @@ RAG를 HTTP로 가져오거나, SSO 로그인 흐름을 플러그인이 직접 �
 | `magi.set_context_window(tokens[, model])` | `config:write:model` | **모델의 컨텍스트 윈도우(토큰)를 런타임 오버라이드** — 내장 백엔드 프로버(vLLM `/v1/models`·LiteLLM·Ollama)가 못 때리는 사내 모델 API에서 실제 윈도우를 알아내 밀어넣을 때. 푸터 게이지와 비율 기반 자동압축이 참값을 쓰게 된다. `tokens<=0`이면 unlimited/unknown. `model` 생략/빈 문자열이면 **현재 세션 모델** 대상(일반적 경우). 이후 지연 프로브가 값을 덮어쓰지 못하게 잠근다. 런타임 값이라 영속되지 않으니 `on("session_start")`에서 재적용하라. 성공 시 `true` / 실패 시 `(nil, err)` |
 | `magi.reload_config()` | `config:write:model` | **디스크의 config.toml을 다시 읽어 런타임 적용** — 현재는 세션 모델. 파싱 실패면 `(nil, err)`를 반환하고 실행 중 세션은 기존 설정을 유지(잘못된 편집이 모델을 조용히 비우지 못하게). 라우팅·base URL·플러그인 리로드 등 나머지 설정은 재시작 필요. `set_config_key`로 모델을 바꾼 뒤 반영할 때 유용 |
 | `magi.clear_transcript()` | (없음 — UI 전용) | **화면의 대사록을 splash로 초기화**(디스크의 세션은 보존). 플러그인 `/logout` 커맨드가 로그아웃 후 깨끗한 시작 화면으로 되돌릴 때 사용. `true` 반환 |
-| `magi.get_config_key(key, default?)` | `config:read:<key>` | 사용자 **config.toml**에서 dotted 키(`routing.model`, `plugins.<name>.token`) 읽기. 자기 섹션(`plugins.<name>.*`)은 권한 없이 허용. **키 부재 → `default`; 파일 파싱 실패 → `(nil, err)`**(둘을 구분하니, 깨진 config를 덮어쓰는 악순환을 피하려면 err를 확인하라) |
+| `magi.get_config_key(key, default?)` | `config:read:<key>` | 사용자 **config.toml**에서 dotted 키(`templates.commit`, `plugins.<name>.token`) 읽기. 자기 섹션(`plugins.<name>.*`)은 권한 없이 허용. **키 부재 → `default`; 파일 파싱 실패 → `(nil, err)`**(둘을 구분하니, 깨진 config를 덮어쓰는 악순환을 피하려면 err를 확인하라) |
 | `magi.set_config_key(key, value)` | `config:write:<key>` | config.toml에 dotted 키 쓰기(**주석 보존**, `config.SetKey`). 값은 문자열, 빈 문자열이면 키 삭제. 자기 섹션은 권한 없이 허용. top-level 키는 기존 활성 줄을 갱신하고 주석 처리된 템플릿 기본값은 건드리지 않음(중복 키 생성 방지) |
 
-> 🔑 **store_get/store_set vs get/set_config_key**: 앞쪽(`store_get`/`store_set`)은 플러그인 **자체 격리 JSON 저장소**(`config:` 권한 불필요). 뒤쪽(`get/set_config_key`)은 **사용자 config.toml** 직접 접근으로, **권한 게이트**된다. 권한은 `config:read:<key>` / `config:write:<key>`이며 **끝에 `*`로 prefix 와일드카드**(예: `config:write:routing.*`, `config:write:*`). 자기 섹션 `plugins.<name>.*`는 암묵 허용. 키는 `[A-Za-z0-9_-]` dotted segment만 허용(주입 방지). **고정 deny-list**(권한이 있어도 차단): `mcp`·`hooks`·`allow`·`deny`·`permission`·`sandbox`·`profile`·`allow_domains` (명령 실행/보안 포스처 변경 영역).
+> 🔑 **store_get/store_set vs get/set_config_key**: 앞쪽(`store_get`/`store_set`)은 플러그인 **자체 격리 JSON 저장소**(`config:` 권한 불필요). 뒤쪽(`get/set_config_key`)은 **사용자 config.toml** 직접 접근으로, **권한 게이트**된다. 권한은 `config:read:<key>` / `config:write:<key>`이며 **끝에 `*`로 prefix 와일드카드**(예: `config:write:templates.*`, `config:write:*`). 자기 섹션 `plugins.<name>.*`는 암묵 허용. 키는 `[A-Za-z0-9_-]` dotted segment만 허용(주입 방지). **고정 deny-list**(권한이 있어도 차단): `mcp`·`hooks`·`allow`·`deny`·`permission`·`sandbox`·`profile`·`allow_domains` (명령 실행/보안 포스처 변경 영역).
 
 **예: ADSSO 로그인 → 토큰을 LLM 인증헤더로 (플러그인이 흐름까지 구동)**
 ```toml

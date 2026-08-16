@@ -16,9 +16,6 @@ model    = "gpt-oss:20b"
 [llm.profiles.fast.headers]
 X-CLIENT-API-KEY = "abc"
 
-[routing]
-explore = "fast"
-coder   = "qwen3-coder:30b"
 `
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
@@ -39,9 +36,5 @@ coder   = "qwen3-coder:30b"
 	}
 	if p.Headers["X-CLIENT-API-KEY"] != "abc" {
 		t.Errorf("profile headers = %v", p.Headers)
-	}
-	// Routing references a profile name and a bare model; both are plain strings here.
-	if c.Routing["explore"] != "fast" || c.Routing["coder"] != "qwen3-coder:30b" {
-		t.Errorf("routing = %v", c.Routing)
 	}
 }

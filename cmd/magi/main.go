@@ -1576,12 +1576,6 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	cfg.Deny = append(cfg.Deny, proj.Deny...)
 	cfg.Allow = append(cfg.Allow, proj.Allow...)
 	cfg.AllowDomains = append(cfg.AllowDomains, proj.AllowDomains...)
-	for k, v := range proj.Routing {
-		if cfg.Routing == nil {
-			cfg.Routing = map[string]string{}
-		}
-		cfg.Routing[k] = v
-	}
 	for k, v := range proj.MCP {
 		if cfg.MCP == nil {
 			cfg.MCP = map[string]config.MCPServer{}
@@ -1674,8 +1668,9 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	if proj.Sampling.ReasoningEffort != "" {
 		cfg.Sampling.ReasoningEffort = proj.Sampling.ReasoningEffort
 	}
-	// Profiles merged BEFORE their consumers matter: [routing] is already merged above, so a project
-	// that adds a profile and routes to it needs the profile to land or the route points at nothing.
+	// Profiles merged BEFORE their consumers matter: subagent prefs and completion settings are
+	// merged below, so a project that adds a profile and points something at it needs the profile
+	// to land or the reference points at nothing.
 	for k, v := range proj.LLM.Profiles {
 		if cfg.LLM.Profiles == nil {
 			cfg.LLM.Profiles = map[string]config.LLMProfile{}
@@ -1761,10 +1756,8 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	// so a committed one is held back for the same reason. Left in, a cloned repo could define an
 	// [llm.profiles.*] pointing at its own server and then aim a routed call there: the completion
 	// helpers send the file being edited to code_profile / composer_profile, so the open buffer and
-	// this machine's key would stream to a stranger's endpoint on every keystroke. [routing] is the
-	// other half of that aim and crosses with it.
+	// this machine's key would stream to a stranger's endpoint on every keystroke.
 	note(fmt.Sprintf("%d model profile(s)", len(proj.LLM.Profiles)), len(proj.LLM.Profiles))
-	note(fmt.Sprintf("%d routing rule(s)", len(proj.Routing)), len(proj.Routing))
 	// The completion settings NAME those profiles and carry the draft house-rules — which are folded
 	// into a model's system prompt with "these take precedence" (git.go), a direct instruction-
 	// override. A committed file must not steer the model or route its spend, so both are held.
@@ -1790,7 +1783,7 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	proj.Hooks, proj.MCP, proj.Cron, proj.Plugins = nil, nil, nil, nil
 	proj.Allow, proj.AllowDomains = nil, nil
 	proj.BaseURL, proj.ExperienceDir = "", ""
-	proj.LLM.Headers, proj.LLM.Profiles, proj.Routing = nil, nil, nil
+	proj.LLM.Headers, proj.LLM.Profiles = nil, nil
 	proj.Autocomplete, proj.Templates = config.AutocompleteConfig{}, config.TemplatesConfig{}
 	proj.Council.Verify = ""
 	return proj

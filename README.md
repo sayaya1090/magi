@@ -304,13 +304,10 @@ A commented `config.toml` is generated on first run (and never clobbered after).
 | `--output` | — | `text` | `text` \| `json` (headless) |
 | — | `MAGI_API_KEY` | *(none)* | key for remote backends (Ollama needs none) |
 
-**Per-agent model & backend routing** — cheap models for grunt work, strong ones where it counts:
+**Named backends** — cheap models for grunt work, strong ones where it counts. Define a profile,
+then point a subagent (`/subagents`), a council member, or the completion helpers at it:
 
 ```toml
-[routing]
-explore = "fast"             # → [llm.profiles.fast] (its own endpoint/key)
-coder   = "qwen3-coder:30b"  # just a different model on the default backend
-
 [llm.profiles.fast]          # named backends; ${ENV} is expanded
 base_url = "https://fast.gateway/v1"
 api_key  = "${FAST_KEY}"

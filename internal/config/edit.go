@@ -78,9 +78,9 @@ func BareName(s string) bool {
 // section "" targets a top-level key (in the preamble before the first table).
 // An empty value removes the key. The file is created if absent.
 //
-// It is intentionally limited to flat string keys (the /route editor only writes
-// `model` and the `[routing]` table), so it stays a safe line-level edit rather
-// than a full TOML round-trip that would discard comments.
+// It is intentionally limited to flat string keys (its writers set single keys
+// like `model` or one profile field at a time), so it stays a safe line-level
+// edit rather than a full TOML round-trip that would discard comments.
 //
 // The value is ALWAYS quoted. Handing it a bool or a number writes a string, and
 // the file stops parsing the moment something reads that key into a typed field —

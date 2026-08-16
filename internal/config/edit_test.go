@@ -28,20 +28,21 @@ func read(t *testing.T, p string) string {
 	return string(b)
 }
 
-// Setting a routing key creates the [routing] section when absent and the value
+// Setting a key creates its section when absent ([llm.headers] here — a live map
+// section, so the value can be read back) and the value
 // round-trips through Load.
 func TestSetKeyCreatesSection(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "model = \"base\"\n")
-	if err := SetKey(p, "routing", "explore", "fast"); err != nil {
+	if err := SetKey(p, "llm.headers", "explore", "fast"); err != nil {
 		t.Fatal(err)
 	}
 	c, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Routing["explore"] != "fast" {
-		t.Errorf("routing.explore = %q, want fast; file:\n%s", c.Routing["explore"], read(t, p))
+	if c.LLM.Headers["explore"] != "fast" {
+		t.Errorf("llm.headers.explore = %q, want fast; file:\n%s", c.LLM.Headers["explore"], read(t, p))
 	}
 	if c.Model != "base" {
 		t.Errorf("existing model clobbered: %q", c.Model)
@@ -52,8 +53,8 @@ func TestSetKeyCreatesSection(t *testing.T) {
 // surrounding comments.
 func TestSetKeyReplacesAndPreservesComments(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "# my config\n# model = \"old\"\n\n[routing]\nexplore = \"slow\"\ncoder = \"strong\"\n")
-	if err := SetKey(p, "routing", "explore", "fast"); err != nil {
+	p := writeFile(t, dir, "# my config\n# model = \"old\"\n\n[llm.headers]\nexplore = \"slow\"\ncoder = \"strong\"\n")
+	if err := SetKey(p, "llm.headers", "explore", "fast"); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetKey(p, "", "model", "qwen3"); err != nil {
@@ -64,8 +65,8 @@ func TestSetKeyReplacesAndPreservesComments(t *testing.T) {
 		t.Errorf("comment lost:\n%s", out)
 	}
 	c, _ := Load(dir)
-	if c.Routing["explore"] != "fast" || c.Routing["coder"] != "strong" {
-		t.Errorf("routing = %v\n%s", c.Routing, out)
+	if c.LLM.Headers["explore"] != "fast" || c.LLM.Headers["coder"] != "strong" {
+		t.Errorf("headers = %v\n%s", c.LLM.Headers, out)
 	}
 	if c.Model != "qwen3" {
 		t.Errorf("model = %q (commented model should be replaced)\n%s", c.Model, out)
@@ -75,16 +76,16 @@ func TestSetKeyReplacesAndPreservesComments(t *testing.T) {
 // Empty value clears the key.
 func TestSetKeyClears(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "[routing]\nexplore = \"fast\"\ncoder = \"strong\"\n")
-	if err := SetKey(p, "routing", "explore", ""); err != nil {
+	p := writeFile(t, dir, "[llm.headers]\nexplore = \"fast\"\ncoder = \"strong\"\n")
+	if err := SetKey(p, "llm.headers", "explore", ""); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := Load(dir)
-	if _, ok := c.Routing["explore"]; ok {
-		t.Errorf("explore should be cleared: %v", c.Routing)
+	if _, ok := c.LLM.Headers["explore"]; ok {
+		t.Errorf("explore should be cleared: %v", c.LLM.Headers)
 	}
-	if c.Routing["coder"] != "strong" {
-		t.Errorf("coder should remain: %v", c.Routing)
+	if c.LLM.Headers["coder"] != "strong" {
+		t.Errorf("coder should remain: %v", c.LLM.Headers)
 	}
 }
 
@@ -95,7 +96,7 @@ func TestSetKeyOnDefaultTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, "config.toml")
-	if err := SetKey(p, "routing", "planner", "fast"); err != nil {
+	if err := SetKey(p, "llm.headers", "planner", "fast"); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetKey(p, "", "model", "qwen3"); err != nil {
@@ -105,8 +106,8 @@ func TestSetKeyOnDefaultTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("edited template must stay valid TOML: %v\n%s", err, read(t, p))
 	}
-	if c.Routing["planner"] != "fast" || c.Model != "qwen3" {
-		t.Errorf("template edits not applied: model=%q routing=%v", c.Model, c.Routing)
+	if c.LLM.Headers["planner"] != "fast" || c.Model != "qwen3" {
+		t.Errorf("template edits not applied: model=%q headers=%v", c.Model, c.LLM.Headers)
 	}
 }
 
@@ -124,13 +125,13 @@ func TestAppendListItem(t *testing.T) {
 	}
 
 	// Existing single-line list: appended, comments elsewhere preserved.
-	os.WriteFile(path, []byte("# keep me\nallow = [\"read\"]\n\n[routing]\ncoder = \"m\"\n"), 0o644)
+	os.WriteFile(path, []byte("# keep me\nallow = [\"read\"]\n\n[llm.headers]\ncoder = \"m\"\n"), 0o644)
 	if err := AppendListItem(path, "allow", "bash(**)"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(path)
 	s := string(b)
-	if !strings.Contains(s, `allow = ["read", "bash(**)"]`) || !strings.Contains(s, "# keep me") || !strings.Contains(s, "[routing]") {
+	if !strings.Contains(s, `allow = ["read", "bash(**)"]`) || !strings.Contains(s, "# keep me") || !strings.Contains(s, "[llm.headers]") {
 		t.Fatalf("append mangled the file: %s", s)
 	}
 
@@ -160,7 +161,7 @@ func TestAppendListItem(t *testing.T) {
 // would create a duplicate top-level key that fails the whole-file TOML parse.
 func TestSetKeyPrefersActiveOverComment(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "# model = \"tmpl\"\nmodel = \"actual\"\n\n[routing]\ncoder = \"x\"\n")
+	p := writeFile(t, dir, "# model = \"tmpl\"\nmodel = \"actual\"\n\n[llm.headers]\ncoder = \"x\"\n")
 	if err := SetKey(p, "", "model", "changed"); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func TestSetKeyPrefersActiveOverComment(t *testing.T) {
 // (no duplicate, no stray insertion).
 func TestSetKeyActivatesLoneComment(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "# model = \"tmpl\"\n\n[routing]\ncoder = \"x\"\n")
+	p := writeFile(t, dir, "# model = \"tmpl\"\n\n[llm.headers]\ncoder = \"x\"\n")
 	if err := SetKey(p, "", "model", "chosen"); err != nil {
 		t.Fatal(err)
 	}
@@ -269,14 +270,14 @@ func TestWithFileLockReclaimsStale(t *testing.T) {
 // file stays parseable — guarding the locked read-modify-write.
 func TestSetKeyConcurrentNoLostUpdate(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "[routing]\n")
+	p := writeFile(t, dir, "[llm.headers]\n")
 	var wg sync.WaitGroup
 	keys := []string{"explore", "planner", "coder", "council", "verifier", "reviewer"}
 	for _, k := range keys {
 		wg.Add(1)
 		go func(k string) {
 			defer wg.Done()
-			if err := SetKey(p, "routing", k, "m-"+k); err != nil {
+			if err := SetKey(p, "llm.headers", k, "m-"+k); err != nil {
 				t.Errorf("SetKey %s: %v", k, err)
 			}
 		}(k)
@@ -287,8 +288,8 @@ func TestSetKeyConcurrentNoLostUpdate(t *testing.T) {
 		t.Fatalf("config must stay parseable after concurrent writes: %v\n%s", err, read(t, p))
 	}
 	for _, k := range keys {
-		if c.Routing[k] != "m-"+k {
-			t.Errorf("lost update: routing.%s = %q, want %q\n%s", k, c.Routing[k], "m-"+k, read(t, p))
+		if c.LLM.Headers[k] != "m-"+k {
+			t.Errorf("lost update: llm.headers.%s = %q, want %q\n%s", k, c.LLM.Headers[k], "m-"+k, read(t, p))
 		}
 	}
 }

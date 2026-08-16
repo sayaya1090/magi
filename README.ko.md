@@ -293,13 +293,10 @@ CGO_ENABLED=0 go build -o magi-web ./cmd/magi-web
 | `--output` | — | `text` | `text` \| `json` (헤드리스) |
 | — | `MAGI_API_KEY` | *(없음)* | 원격 백엔드 키 (Ollama는 불필요) |
 
-**에이전트별 모델·백엔드 라우팅** — 잡일엔 값싼 모델, 중요한 곳엔 강한 모델:
+**이름 붙인 백엔드** — 잡일엔 값싼 모델, 중요한 곳엔 강한 모델. 프로파일을 정의하고
+서브에이전트(`/subagents`)·카운슬 멤버·완성 헬퍼가 그 이름을 가리키게 한다:
 
 ```toml
-[routing]
-explore = "fast"             # → [llm.profiles.fast] (자체 엔드포인트/키)
-coder   = "qwen3-coder:30b"  # 기본 백엔드의 다른 모델일 뿐
-
 [llm.profiles.fast]          # 이름 붙인 백엔드; ${ENV} 확장됨
 base_url = "https://fast.gateway/v1"
 api_key  = "${FAST_KEY}"

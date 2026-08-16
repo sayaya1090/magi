@@ -67,10 +67,10 @@ type SubagentPersister interface {
 }
 
 // RoutePersister writes /route editor edits back to the config file so they
-// persist across restarts. agent="" with a model persists the session default
-// model; otherwise it persists [routing] agent = value (empty value clears).
+// persist across restarts: the session default model, and the named backend
+// profiles. (A third method once persisted a per-agent [routing] table; nothing
+// ever read that table back, so the method and the table are gone.)
 type RoutePersister interface {
-	PersistRoute(agent, value string) error
 	PersistModel(modelID string) error
 	PersistProfile(p ProfileDef) error
 }

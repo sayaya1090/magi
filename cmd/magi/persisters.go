@@ -107,10 +107,6 @@ func toSubagentPrefs(in map[string]config.SubagentConfig) map[string]app.Subagen
 
 type routePersister struct{ path string }
 
-func (r routePersister) PersistRoute(agent, value string) error {
-	return config.SetKey(r.path, "routing", agent, value)
-}
-
 func (r routePersister) PersistModel(modelID string) error {
 	return config.SetKey(r.path, "", "model", modelID)
 }

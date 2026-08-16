@@ -47,13 +47,6 @@ type recordPersister struct {
 	profiles map[string]ProfileDef
 }
 
-func (r *recordPersister) PersistRoute(agent, value string) error {
-	if r.routes == nil {
-		r.routes = map[string]string{}
-	}
-	r.routes[agent] = value
-	return nil
-}
 func (r *recordPersister) PersistModel(modelID string) error { r.model = modelID; return nil }
 func (r *recordPersister) PersistProfile(p ProfileDef) error {
 	if r.profiles == nil {

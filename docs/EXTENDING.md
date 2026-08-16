@@ -31,7 +31,7 @@ Merge rules:
 |---|---|
 | `hooks`, `allow`, `deny`, `allow_domains` | **append** (global + project) |
 | scalars such as `experience_dir`, `profile`, `sandbox` | project **overrides** |
-| the `[routing]` and `[mcp.*]` maps | **merged per key** — the project wins on a shared key |
+| the `[mcp.*]` map | **merged per key** — the project wins on a shared key |
 
 > A missing file is not an error. With neither present, magi runs on defaults.
 
@@ -397,13 +397,13 @@ fetching RAG over HTTP, or driving an SSO login flow from a plugin, needs.
 | `magi.set_context_window(tokens[, model])` | `config:write:model` | **overrides a model's context window (in tokens) at runtime** — for an internal model API that the built-in probes (vLLM `/v1/models`, LiteLLM, Ollama) cannot reach, so the footer gauge and the ratio-based auto-compaction use the true value. `tokens<=0` means unlimited/unknown. Omitting `model` (or passing an empty string) targets **the current session model**, which is the usual case. It also locks the value so a later lazy probe cannot overwrite it. It is a runtime value and is not persisted, so re-apply it from `on("session_start")`. `true` on success, `(nil, err)` on failure |
 | `magi.reload_config()` | `config:write:model` | **re-reads config.toml from disk and applies it at runtime** — currently the session model. On a parse failure it returns `(nil, err)` and the running session keeps its existing settings, so a bad edit cannot silently blank the model. Routing, the base URL and plugin reloads still need a restart. Useful after changing the model with `set_config_key` |
 | `magi.clear_transcript()` | (none — UI only) | **resets the on-screen transcript to the splash** (the session on disk is untouched). For a plugin's `/logout` to return to a clean start screen. Returns `true` |
-| `magi.get_config_key(key, default?)` | `config:read:<key>` | reads a dotted key (`routing.model`, `plugins.<name>.token`) from the user's **config.toml**. A plugin's own section (`plugins.<name>.*`) needs no permission. **A missing key → `default`; a parse failure → `(nil, err)`** — the two are distinguished, so check the error to avoid the loop of overwriting a broken config |
+| `magi.get_config_key(key, default?)` | `config:read:<key>` | reads a dotted key (`templates.commit`, `plugins.<name>.token`) from the user's **config.toml**. A plugin's own section (`plugins.<name>.*`) needs no permission. **A missing key → `default`; a parse failure → `(nil, err)`** — the two are distinguished, so check the error to avoid the loop of overwriting a broken config |
 | `magi.set_config_key(key, value)` | `config:write:<key>` | writes a dotted key into config.toml (**comments preserved**, `config.SetKey`). The value is a string; an empty string deletes the key. A plugin's own section needs no permission. A top-level key updates the existing active line and leaves commented-out template defaults alone (so no duplicate key is created) |
 
 > 🔑 **store_get/store_set vs get/set_config_key**: the first pair is the plugin's **own isolated JSON
 > store** (no `config:` permission needed). The second pair reaches into the **user's config.toml** and
 > is **permission-gated**: `config:read:<key>` / `config:write:<key>`, with a trailing `*` for a prefix
-> wildcard (`config:write:routing.*`, `config:write:*`). A plugin's own `plugins.<name>.*` section is
+> wildcard (`config:write:templates.*`, `config:write:*`). A plugin's own `plugins.<name>.*` section is
 > implicitly allowed. Keys accept only `[A-Za-z0-9_-]` dotted segments (to prevent injection). A
 > **fixed deny-list** is blocked even with permission: `mcp`, `hooks`, `allow`, `deny`, `permission`,
 > `sandbox`, `profile`, `allow_domains` — the keys that change command execution and the security
