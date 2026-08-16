@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -110,5 +111,71 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 	a.mu.Unlock()
 	if bad {
 		t.Error("Rewind must clear the turn-derived state the rewound prompt produced")
+	}
+}
+
+// The CI-only failure, made deterministic: a steer that lands while the previous turn's goroutine
+// is retiring gets RE-EMITTED as a resurfaced copy (appendResurfacedPrompt), and Rewind used to
+// count that copy as its own turn — the rewind then cut only the copy, and the stranded original,
+// no longer hidden by dropResurfacedOrigins, came back as a second visible user turn.
+func TestRewindTreatsAResurfacedCopyAsItsOriginsTurn(t *testing.T) {
+	llm := &usageLLM{text: "reply"}
+	store, _ := jsonl.New(t.TempDir())
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+	submitSync(t, a, sid, "first")
+	submitSync(t, a, sid, "second")
+
+	// Re-emit "second" the way the retire path does when the steer raced the wind-down.
+	evs, _ := a.store.Read(context.Background(), sid, 0)
+	var originID string
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				originID = d.MessageID // last one wins: the "second" prompt
+			}
+		}
+	}
+	if originID == "" {
+		t.Fatal("no prompt message id found")
+	}
+	if err := a.appendResurfacedPrompt(context.Background(), sid, originID, "second"); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := a.SessionState(context.Background(), sid)
+	if countUser(before) != 2 {
+		t.Fatalf("display must still show 2 turns (copy hides its origin), got %d", countUser(before))
+	}
+
+	if _, err := a.Rewind(context.Background(), sid, 1); err != nil {
+		t.Fatalf("rewind: %v", err)
+	}
+	after, _, _ := a.SessionState(context.Background(), sid)
+	if countUser(after) != 1 {
+		t.Errorf("after rewind expected 1 user turn, got %d", countUser(after))
+	}
+}
+
+// A mid-turn SYSTEM note rides the prompt.submitted event type; it is not a turn boundary, and a
+// rewind of one turn must cut the genuine prompt beneath it, not stop at the note.
+func TestRewindSkipsSystemNoteBoundaries(t *testing.T) {
+	llm := &usageLLM{text: "reply"}
+	store, _ := jsonl.New(t.TempDir())
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+	submitSync(t, a, sid, "first")
+	submitSync(t, a, sid, "second")
+	if err := a.appendPromptText(context.Background(), sid,
+		event.Actor{Kind: event.ActorSystem, ID: "loop"}, "mid-turn note"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.Rewind(context.Background(), sid, 1); err != nil {
+		t.Fatalf("rewind: %v", err)
+	}
+	after, _, _ := a.SessionState(context.Background(), sid)
+	if countUser(after) != 1 {
+		t.Errorf("after rewind expected 1 user turn, got %d", countUser(after))
 	}
 }

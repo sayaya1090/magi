@@ -29,11 +29,37 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 	if err != nil {
 		return 0, err
 	}
+	// A turn boundary is a GENUINE user prompt — not every prompt.submitted in the log.
+	// Two other kinds ride the same event type and broke "rewind one turn" when counted:
+	//   - a RESURFACED copy (retire-path re-emission of a steer that landed while the previous
+	//     turn's goroutine was still winding down). Counting it put the boundary between the
+	//     copy and its stranded original, so the rewind cut only the copy and the original —
+	//     hidden from display while its copy existed — came BACK as a visible turn. That was
+	//     the CI-only TestRewind failure: the retire window is where the copy is minted, and a
+	//     slow runner is what makes the window wide enough to hit.
+	//   - a SYSTEM note (stall/cut notes append as prompts, mid-turn by construction).
+	// A copy whose original a previous rewind already removed is the turn's only record, so it
+	// counts; otherwise the boundary is the original, and truncating there removes the pair.
+	present := map[string]bool{}
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil && d.MessageID != "" {
+			present[d.MessageID] = true
+		}
+	}
 	var promptSeqs []int64
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted {
-			promptSeqs = append(promptSeqs, e.Seq)
+		if e.Type != event.TypePromptSubmitted || e.Actor.Kind == event.ActorSystem {
+			continue
 		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" && present[d.ResurfacedFrom] {
+			continue
+		}
+		promptSeqs = append(promptSeqs, e.Seq)
 	}
 	if len(promptSeqs) == 0 {
 		return 0, fmt.Errorf("nothing to rewind")
