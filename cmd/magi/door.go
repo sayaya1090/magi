@@ -32,8 +32,9 @@ import (
 //
 //   - the caller may only reach a companion this account has PUBLISHED, named by its socket, which
 //     is checked against the record beside it rather than taken on trust;
-//   - only three methods cross — ask what a companion is, hand it work, ask how that work went.
-//     Everything else is refused here, without being forwarded, in the daemon's own error shape.
+//   - only four methods cross — ask what a companion is, hand it work, ask how that work went, and
+//     watch for how it goes. Everything else is refused here, without being forwarded, in the
+//     daemon's own error shape.
 //
 // So an authorized_keys line can now mean "this key may ask my companions for things" instead of
 // "this key is me".
@@ -49,7 +50,7 @@ import (
 // the conversation says which companion is wanted, and that line is checked. It is also the reason
 // the far side dials nothing until the caller has said something — a door that connects first and
 // asks later has already spent the thing it was guarding.
-const doorMethods = "about, hand, hand-state"
+const doorMethods = "about, hand, hand-state, watch"
 
 // doorOpen is the first line a caller sends: which companion, on this machine.
 type doorOpen struct {
@@ -60,16 +61,23 @@ type doorOpen struct {
 //
 // A list of what is allowed rather than of what is not. The protocol grows — three methods were
 // added to it this month — and a deny-list would have silently let each new one through.
+//
+// `watch` is on it deliberately, and late: the door shipped without it, so the push channel the
+// hand-off wait is built around never worked across a machine — every remote wait silently
+// degraded to the backoff poll, one ssh process per poll, answers up to two minutes late, and
+// the far side misread as "a magi too old to stream". It carries no more authority than
+// hand-state (the same answer, pushed instead of asked for); what it needs from the door is a
+// streaming relay, which doorCarry provides for exactly this one method.
 func doorAllows(method string) bool {
 	switch method {
-	case "about", "hand", "hand-state":
+	case "about", "hand", "hand-state", "watch":
 		return true
 	}
 	return false
 }
 
 // fleetDoor serves one connection from another machine: read the companion it wants, check it is
-// ours, then carry the three methods and refuse the rest.
+// ours, then carry the four methods and refuse the rest.
 func fleetDoor(in io.Reader, out io.Writer, errOut io.Writer, configDir string) int {
 	br := bufio.NewReader(in)
 	first, err := br.ReadString('\n')
@@ -100,9 +108,12 @@ func fleetDoor(in io.Reader, out io.Writer, errOut io.Writer, configDir string) 
 
 // doorCarry carries one request at a time and waits for its answer before reading the next.
 //
-// Strictly alternating, which is not a restriction but a description: every method this door
-// carries is one request and one reply — hand it work, ask what it is, ask how the work went. The
-// one method that streams is `watch`, and that is not on the list.
+// Strictly alternating for three of the four methods, which is not a restriction but a
+// description: hand it work, ask what it is, ask how the work went are each one request and one
+// reply. `watch` is the exception — the daemon pushes a frame per change and closes the
+// connection when there is nothing more coming — so on a watch the door becomes a one-way relay
+// of answer lines and ends with the stream. The connection is the stream's: nothing else can be
+// asked on it afterwards, which is also how the daemon itself treats a watch.
 //
 // Written the obvious way once that is noticed. It began as two io.Copy goroutines with a lock
 // between them, because a refusal written here could land in the middle of an answer coming back
@@ -131,6 +142,23 @@ func doorCarry(in *bufio.Reader, out io.Writer, errOut io.Writer, conn net.Conn)
 				if werr := enc.Encode(req); werr != nil {
 					fmt.Fprintf(errOut, "magi: could not pass it on: %v\n", werr)
 					return 1
+				}
+				if req.Method == "watch" {
+					// The streaming relay. Every line the daemon pushes crosses as it arrives; the
+					// daemon closing the connection is it saying there is no more coming, which is a
+					// clean end — a refusal (an unknown receipt) arrives the same way, as one frame
+					// before the close, in the shape the caller already parses.
+					for {
+						answer, rerr := answers.ReadBytes('\n')
+						if len(answer) > 0 {
+							if _, werr := out.Write(answer); werr != nil {
+								return 1 // the caller is gone; the daemon sees its peer hang up
+							}
+						}
+						if rerr != nil {
+							return 0
+						}
+					}
 				}
 				answer, rerr := answers.ReadBytes('\n')
 				if len(answer) > 0 {

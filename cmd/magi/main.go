@@ -299,9 +299,9 @@ func run() int {
 			"print the companions this machine knows about, as JSON; a member list on stdin is merged in first")
 		joinCluster = flag.String("join-cluster", "",
 			"trade member lists with a companion's machine over ssh and join its cluster. Not --join, which reads one workspace's shared settings as a proposal")
-		// The one door work crosses a machine by. Run over ssh by another magi, not by a person: it
-		// carries the daemon's own protocol and nothing else, so taking work, asking what became of
-		// it and asking what a companion can do are three methods rather than three subcommands.
+		// The wide pipe for your own machines. Run over ssh by another magi, not by a person: it
+		// carries the daemon's own protocol and nothing else — the whole of it, which is why a key
+		// that is somebody else's gets the narrowed --fleet-door below instead.
 		relaySock = flag.String("relay", "",
 			"pipe stdin and stdout to a daemon socket here, so a magi on another machine can speak "+
 				"the daemon protocol to it; run over ssh, not by hand")
@@ -309,7 +309,7 @@ func run() int {
 		// carries the whole protocol and any socket path, which is right for your own machines and
 		// wrong for anybody else's key.
 		fleetDoorMode = flag.Bool("fleet-door", false,
-			"serve one narrow crossing from another machine: three methods, and only companions "+
+			"serve one narrow crossing from another machine: four methods, and only companions "+
 				"this account published; meant as an ssh forced command, not run by hand")
 		fleetListen = flag.String("fleet-listen", env("MAGI_FLEET_LISTEN", ""),
 			"serve the fleet door on this address over mTLS, for machines admitted with --admit; "+
@@ -2071,7 +2071,7 @@ func renderText(out, errw io.Writer, e event.Event) {
 		}
 	case event.TypePromptSubmitted:
 		// The user's own prompt is already on screen; surface only system-injected
-		// prompts (council feedback, auto-orchestration, hooks) that otherwise
+		// prompts (council feedback, nudges, hooks) that otherwise
 		// accumulate in context with no visible trace in headless mode.
 		if e.Actor.Kind == event.ActorUser {
 			return

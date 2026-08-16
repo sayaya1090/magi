@@ -24,7 +24,7 @@ import (
 //
 // # Same door, different pipe
 //
-// door.go is the rule — three methods, and only companions this account published. This file is
+// door.go is the rule — four methods, and only companions this account published. This file is
 // one way of getting bytes to it: a TLS listener instead of an ssh forced command. Everything the
 // door refuses is refused here too, because it is the same two functions being called.
 //
@@ -110,9 +110,11 @@ func fleetServe(ctx context.Context, addr, configDir, host string, errOut io.Wri
 
 // fleetHandle carries one request to one companion and answers with its reply.
 //
-// Request and reply, not a stream, which is what the three methods are: ask what a companion is,
-// hand it work, ask how that work went. The one method that streams is the one the door does not
-// carry, so nothing here needs to hold a connection open.
+// Request and reply for three of the four methods: ask what a companion is, hand it work, ask how
+// that work went. `watch` streams — the daemon pushes a frame per change and closes when there is
+// nothing more coming — so for it the reply is the response BODY held open, one JSON line per
+// frame, flushed as each arrives. Same rule as the ssh door's relay: the connection is the
+// stream's, and it ends with it.
 func fleetHandle(w http.ResponseWriter, r *http.Request, configDir string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST", http.StatusMethodNotAllowed)
@@ -153,6 +155,10 @@ func fleetHandle(w http.ResponseWriter, r *http.Request, configDir string) {
 		answerFleet(w, daemon.Response{Err: "could not pass it on"})
 		return
 	}
+	if ask.Method == "watch" {
+		fleetWatchRelay(w, r, conn)
+		return
+	}
 	line, err := bufioReadLine(conn)
 	if err != nil && len(line) == 0 {
 		answerFleet(w, daemon.Response{Err: "that companion stopped answering"})
@@ -161,6 +167,39 @@ func fleetHandle(w http.ResponseWriter, r *http.Request, configDir string) {
 	w.Header().Set("Content-Type", "application/json")
 	if _, werr := w.Write(line); werr != nil {
 		log.Printf("magi: passing a companion's answer back: %v", werr)
+	}
+}
+
+// fleetWatchRelay streams a watch's frames into the response body until the daemon closes the
+// stream or the caller leaves.
+//
+// The caller leaving is noticed through the request context, and what it has to unblock is the
+// READ on the unix socket — a watch nothing is happening in writes nothing, so without the close
+// below a watcher whose link died would hold this goroutine (and the daemon's) until the daemon
+// stopped. Closing the connection is also how the daemon learns its peer hung up, the same signal
+// an ssh relay's death sends.
+func fleetWatchRelay(w http.ResponseWriter, r *http.Request, conn net.Conn) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		answerFleet(w, daemon.Response{Err: "this door cannot stream"})
+		return
+	}
+	go func() {
+		<-r.Context().Done()
+		conn.Close() // double-close with the handler's defer is fine; unblocking the read is the point
+	}()
+	w.Header().Set("Content-Type", "application/json")
+	for {
+		line, err := bufioReadLine(conn)
+		if len(line) > 0 {
+			if _, werr := w.Write(line); werr != nil {
+				return // the caller is gone; the deferred close tells the daemon
+			}
+			fl.Flush()
+		}
+		if err != nil {
+			return // the daemon closed the stream: nothing more is coming
+		}
 	}
 }
 
@@ -252,16 +291,22 @@ func bufioReadLine(r io.Reader) ([]byte, error) {
 // HTTPS request per line underneath.
 //
 // Shaped this way so nothing above it changes. The daemon client writes a request and reads a
-// reply; that is exactly one POST, and the protocol is strictly alternating for every method this
-// door carries. A transport that pretended to be a stream and buffered would be more code and less
-// honest about what it does.
+// reply; that is exactly one POST for the three alternating methods, and for `watch` — the one
+// that streams — the POST's response body IS the stream: it stays open, and Read hands frames
+// over as the far side flushes them. A transport that buffered a stream into one reply would be
+// a watch that says nothing until it is over, which is the poll it exists to replace.
 type fleetDial struct {
 	client *http.Client
 	url    string
 	socket string
+	// ctx bounds the crossing's LIFE, from whoever opened it (reachCompanion's caller). It is what
+	// unwinds a watch blocked on a quiet stream — a pipe crossing dies with its ssh process on the
+	// same cancel, and this is that lever for a connection that has no process to kill.
+	ctx context.Context
 
-	mu   sync.Mutex
-	next bytes.Buffer // the reply waiting to be read
+	mu     sync.Mutex
+	next   bytes.Buffer  // the reply waiting to be read (the alternating methods)
+	stream io.ReadCloser // a watch's live body; non-nil while one is open
 }
 
 func (f *fleetDial) Write(p []byte) (int, error) {
@@ -278,7 +323,42 @@ func (f *fleetDial) Write(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	resp, err := f.client.Post(f.url, "application/json", bytes.NewReader(body))
+	send := func(rctx context.Context) (*http.Response, error) {
+		httpReq, err := http.NewRequestWithContext(rctx, http.MethodPost, f.url, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		resp, err := f.client.Do(httpReq)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("fleet: %s answered %s", f.url, resp.Status)
+		}
+		return resp, nil
+	}
+	if req.Method == "watch" {
+		// No timeout on a watch: it is meant to stay open for as long as the work takes, ended by
+		// the far side closing the stream or by f.ctx — the crossing's own life. The body is the
+		// stream; Read serves from it until then. An old stream — there should be none, a client
+		// watches once — is closed rather than leaked.
+		resp, err := send(f.ctx)
+		if err != nil {
+			return 0, err
+		}
+		if f.stream != nil {
+			f.stream.Close()
+		}
+		f.stream = resp.Body
+		return len(p), nil
+	}
+	// The bound is per request, not on the client: a client-level timeout would cut a watch's
+	// stream at the crossing bound. This is the same bound at the right grain.
+	rctx, cancel := context.WithTimeout(f.ctx, fleetCrossTimeout)
+	defer cancel()
+	resp, err := send(rctx)
 	if err != nil {
 		return 0, err
 	}
@@ -286,9 +366,6 @@ func (f *fleetDial) Write(p []byte) (int, error) {
 	answer, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return 0, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("fleet: %s answered %s", f.url, resp.Status)
 	}
 	f.next.Write(answer)
 	if !bytes.HasSuffix(answer, []byte("\n")) {
@@ -299,14 +376,28 @@ func (f *fleetDial) Write(p []byte) (int, error) {
 
 func (f *fleetDial) Read(p []byte) (int, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.next.Len() == 0 {
+	if f.next.Len() > 0 {
+		defer f.mu.Unlock()
+		return f.next.Read(p)
+	}
+	stream := f.stream
+	f.mu.Unlock()
+	if stream == nil {
 		return 0, io.EOF
 	}
-	return f.next.Read(p)
+	// Read OUTSIDE the lock: a stream blocks until the far side has something to say, and holding
+	// the mutex across that would make Close — the one way out of a wait whose link died — wait
+	// with it.
+	return stream.Read(p)
 }
 
 func (f *fleetDial) Close() error {
+	f.mu.Lock()
+	if f.stream != nil {
+		f.stream.Close()
+		f.stream = nil
+	}
+	f.mu.Unlock()
 	f.client.CloseIdleConnections()
 	return nil
 }
@@ -333,13 +424,18 @@ func fleetTo(ctx context.Context, configDir, host string, peer identity.Peer, so
 			return p.Fingerprint == want
 		}),
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &fleetDial{
+		// No client-level Timeout: it would bound a watch stream too. The alternating methods get
+		// their fleetCrossTimeout per request in Write, which is the same bound at the right grain.
 		client: &http.Client{
-			Timeout:   fleetCrossTimeout,
 			Transport: &http.Transport{TLSClientConfig: tlsCfg, ForceAttemptHTTP2: true},
 		},
 		url:    "https://" + peer.Addr + fleetPath,
 		socket: socket,
+		ctx:    ctx,
 	}, nil
 }
 

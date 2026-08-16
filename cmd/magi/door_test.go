@@ -60,11 +60,14 @@ func fakeDaemon(t *testing.T, sock string) (*[][]string, *sync.Mutex) {
 	return got, &mu
 }
 
-// A door carries three methods and refuses the rest without passing them on.
+// A door carries four methods and refuses the rest without passing them on.
 //
 // The relay it is built from is deliberately dumb — it copies bytes and lets the daemon decide —
 // which is right when the ssh key on the other side is your own. For somebody else's key it means
 // `command="magi --relay …"` still hands over submit, steer, set-model and shell.
+//
+// The three alternating methods are exercised here; `watch`, the one that streams, has a test of
+// its own below (a stream ends the connection, so it cannot sit in the middle of this sequence).
 func TestTheFleetDoorCarriesThreeMethodsAndRefusesTheRest(t *testing.T) {
 	cfg := shortTempDir(t)
 	sock := filepath.Join(cfg, "daemon-api.sock")
@@ -114,6 +117,84 @@ func TestTheFleetDoorCarriesThreeMethodsAndRefusesTheRest(t *testing.T) {
 	}
 	if refusals != 3 {
 		t.Errorf("%d of the three refused methods were answered:\n%s", refusals, out.String())
+	}
+}
+
+// streamingDaemon answers a watch with frames: each line pushed as it "happens", then the
+// connection closed — which is the daemon's own way of saying nothing more is coming.
+func streamingDaemon(t *testing.T, sock string, frames []daemon.Response) {
+	t.Helper()
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				dec := json.NewDecoder(c)
+				enc := json.NewEncoder(c)
+				for {
+					var req daemon.Request
+					if dec.Decode(&req) != nil {
+						return
+					}
+					if req.Method != "watch" {
+						_ = enc.Encode(daemon.Response{OK: true, Out: "did " + req.Method})
+						continue
+					}
+					for _, f := range frames {
+						_ = enc.Encode(f)
+					}
+					return // the stream ends with its connection
+				}
+			}()
+		}
+	}()
+}
+
+// A watch crosses the door as a stream: every frame the daemon pushes arrives at the caller as it
+// is pushed, and the daemon closing the stream ends the crossing cleanly. This is the channel that
+// makes a remote hand-off's answer arrive when it happens rather than on a poll's clock — the door
+// shipped without it, and every remote wait silently degraded to backoff polling.
+func TestTheDoorStreamsAWatch(t *testing.T) {
+	cfg := shortTempDir(t)
+	sock := filepath.Join(cfg, "daemon-api.sock")
+	streamingDaemon(t, sock, []daemon.Response{
+		{OK: true, Handover: &daemon.Handover{News: "not started yet"}},
+		{OK: true, Handover: &daemon.Handover{Done: true, Answer: "here it is"}},
+	})
+	stop, err := daemon.Publish(sock, t.TempDir(), "s1", daemon.Identity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stop)
+
+	var in bytes.Buffer
+	in.WriteString(`{"socket":"` + sock + `"}` + "\n")
+	b, _ := json.Marshal(daemon.Request{Method: "watch", Name: "r1"})
+	in.Write(append(b, '\n'))
+	var out, errOut bytes.Buffer
+	if code := fleetDoor(&in, &out, &errOut, cfg); code != 0 {
+		t.Fatalf("the door answered %d: %s", code, errOut.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want the 2 pushed frames, got %d: %q", len(lines), out.String())
+	}
+	var first, last daemon.Response
+	if json.Unmarshal([]byte(lines[0]), &first) != nil || first.Handover == nil ||
+		first.Handover.News != "not started yet" {
+		t.Errorf("first frame: %q", lines[0])
+	}
+	if json.Unmarshal([]byte(lines[1]), &last) != nil || last.Handover == nil ||
+		!last.Handover.Done || last.Handover.Answer != "here it is" {
+		t.Errorf("last frame: %q", lines[1])
 	}
 }
 

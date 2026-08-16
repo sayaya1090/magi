@@ -97,10 +97,12 @@ func TestTheFleetDoorOverTLSAdmitsOnlyWhatWasAdmitted(t *testing.T) {
 	}
 }
 
-// And the same three methods, over this pipe too: the rule is the door's, not the transport's.
+// And the same four methods, over this pipe too: the rule is the door's, not the transport's.
+// (`watch` moved ONTO the allowlist deliberately — see doorAllows: without it every remote wait
+// silently degraded to a backoff poll — so it is no longer in the refused set here.)
 func TestTheTLSDoorRefusesTheSameMethods(t *testing.T) {
 	dir := t.TempDir()
-	for _, m := range []string{"submit", "shell", "set-model", "watch",
+	for _, m := range []string{"submit", "shell", "set-model",
 		// The lifecycle verbs, by name: update swaps this machine's binary and restart/shutdown end
 		// the process, and the update design's same-machine scope rests on none of them crossing a
 		// door. Asserted here so adding one to the allowlist is a decision, not a drive-by.
@@ -118,6 +120,45 @@ func TestTheTLSDoorRefusesTheSameMethods(t *testing.T) {
 	var resp daemon.Response
 	if json.Unmarshal(w.Body.Bytes(), &resp) != nil || !strings.Contains(resp.Err, "fleet door carries") {
 		t.Errorf("the refusal was %q", w.Body.String())
+	}
+}
+
+// A watch streams over the TLS door too: the handler holds the response open and relays each
+// frame as the daemon pushes it, and the client hands them to the protocol reader as they arrive.
+// Asserted end to end — fleetHandle on one side, fleetDial on the other — because the failure this
+// guards against is a transport that buffers the stream into one reply, which looks identical in
+// any half-side test and says nothing until the work is over.
+func TestTheTLSDoorStreamsAWatch(t *testing.T) {
+	cfg := shortTempDir(t)
+	sock := filepath.Join(cfg, "daemon-api.sock")
+	streamingDaemon(t, sock, []daemon.Response{
+		{OK: true, Handover: &daemon.Handover{News: "not started yet"}},
+		{OK: true, Handover: &daemon.Handover{Done: true, Answer: "streamed"}},
+	})
+	stop, err := daemon.Publish(sock, t.TempDir(), "s1", daemon.Identity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stop)
+
+	// The real handler behind a plain test server: what is under test is the relay and the
+	// client's streaming read, not the handshake (which has its own tests above).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fleetHandle(w, r, cfg)
+	}))
+	t.Cleanup(srv.Close)
+
+	dial := &fleetDial{client: srv.Client(), url: srv.URL, socket: sock, ctx: context.Background()}
+	var got []daemon.Handover
+	err = daemon.Over(dial).Watch("r1", func(h daemon.Handover) bool {
+		got = append(got, h)
+		return !(h.Done || h.Over)
+	})
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	if len(got) != 2 || got[0].News != "not started yet" || !got[1].Done || got[1].Answer != "streamed" {
+		t.Errorf("frames: %+v", got)
 	}
 }
 
