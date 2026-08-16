@@ -331,7 +331,10 @@ self-corrects. Read-only tools run in parallel within a turn.
 
 - **One agent by default.** magi ships no subagents of its own; a subagent, if you want one, comes
   from a plugin (`/subagents` switches it on). One example ships, off: **Seele**, a planner with no
-  write tools.
+  write tools. A plugin's children can run **in parallel** when they cannot collide — read-only
+  children, or writing children that each get their **own checkout** (`isolated_children`: a git
+  clone per child, shell confined to it, work merged back as a commit range only when the caller
+  says so). See [EXTENDING](docs/EXTENDING.md).
 - **Project memory** — `AGENTS.md` (plus `.magi/AGENTS.md` and a global one) is durable context that
   *survives compaction*.
 - **Context-aware auto-compaction** — past ~80% of the model window, older turns are summarized while
