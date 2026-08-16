@@ -12,9 +12,14 @@ local SKILLS_DIR = ".claude/skills"
 local LEDGER_TITLE = "# 작업 이력 및 교훈 기록 (팀 공유)"
 local LEDGER_HEADER = "| 일시 | 사용자 | 분류 | 작업 | 시도한 접근 | 결과 | 교훈 |"
 local LEDGER_DIVIDER = "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-local MAX_RECENT = 8       -- 사이드카 입력 윈도우
-local MAX_LESSON_ROWS = 50 -- 회상 주입 상한(행)
+-- 정정·아카이브 섹션: 교체되거나 밀려난 행이 삭제 대신 이 헤딩 아래로 내려간다(툼스톤).
+-- 활성 표를 읽는 모든 경로(회상 주입·중복 판정·다이제스트)는 이 헤딩에서 멈춘다 —
+-- 정정으로 밀려난 옛 주장이 계속 주입되고 새 기록을 중복으로 막던 것이 원장의 약점이었다.
+local ARCHIVE_TITLE = "## 이전 기록 (정정·아카이브 — 회상에 주입되지 않음)"
+local MAX_RECENT = 8        -- 사이드카 입력 윈도우
+local MAX_LESSON_ROWS = 50  -- 회상 주입 상한(행)
 local MAX_LESSON_CHARS = 6000
+local MAX_ACTIVE_ROWS = 80  -- 활성 표 상한 — 초과분은 오래된 행부터 아카이브로 (스킬 prune과 대칭)
 
 -- 세션별 최근 대화 윈도우 / 세션 내 중복 교훈 가드
 local recent = {}   -- sid -> { {role=, text=}, ... }
@@ -45,7 +50,8 @@ local SIDECAR_PROMPT = [[당신은 개발 대화 로그를 분석하는 전용 �
 - 입력 끝에 [기존 교훈] 목록이 주어지면: 실질적으로 같은 교훈이 이미 있을 때 lesson=null (표현만 바뀐 재기록 금지 — 특히 회상된 지식을 확인만 한 턴).
 
 형식:
-- lesson: {"task":"어떤 작업","approach":"어떻게 시도","outcome":"success|fail|partial","lesson":"왜 그 결과가 났고 다음에 뭘 해야/피해야 하나","category":"디버깅|설정|구현|리팩터링|분석|기타"}
+- lesson: {"task":"어떤 작업","approach":"어떻게 시도","outcome":"success|fail|partial","lesson":"왜 그 결과가 났고 다음에 뭘 해야/피해야 하나","category":"디버깅|설정|구현|리팩터링|분석|기타","replaces":<기존 교훈 행 번호 또는 null>}
+  · replaces(정정/병합 — 중요): [기존 교훈] 목록의 행이 (n) 번호를 달고 온다. 이번 교훈이 그중 한 행과 **같은 주제의 정정·구체화·뒤집기**라면 새 행을 추가하지 말고 replaces에 그 번호를 넣어라 — 그 행이 이번 교훈으로 교체되고 옛 행은 아카이브로 내려간다. 특히 결과가 모순되게 뒤집혔으면(전에 ✅였는데 지금 ❌로 판명, 또는 반대) 반드시 replaces를 쓰고 lesson에 왜 뒤집혔는지를 담아라 — 낡은 주장과 새 주장이 나란히 남는 것이 이 원장의 최악의 상태다. 무관한 새 주제일 때만 replaces=null.
 - skill:  {"name":"영문 소문자+언더스코어","trigger":"이 스킬이 필요한 상황","technique":"구체적 해결 기법","description":"트리거 문장","verify":"(선택) 적용 후 성공을 확인하는 커맨드나 체크","avoid":"(선택) 이 스킬을 쓰면 안 되는 상황·알려진 함정(관련 ❌실패 교훈이 있으면 여기에 병합)"}
   · description은 무엇을+언제를 한 문장에 담은 3인칭 트리거 문장으로, 키워드·에러명을 앞쪽에 배치한다.
   · trigger/description에 이번 작업 고유의 파일명·경로·프로젝트명을 넣지 마라 — 일반 조건으로 써라(예: "json_output.py 실행 시" ✗ → "python json.dumps 출력에서 한글이 \uXXXX로 이스케이프될 때" ✓). 단 에러 메시지 원문·라이브러리명·옵션명은 그대로 포함하라(트리거 매칭의 핵심).
@@ -194,18 +200,32 @@ local function index_skill(slug, desc)
   magi.store_set("skill_index", table.concat(out, "\n"))
 end
 
+-- 원장을 활성부/아카이브부로 가른다. 아카이브 헤딩 아래는 툼스톤 — 어떤 읽기 경로에도
+-- 실리지 않고, git과 사람에게만 남는 기록이다.
+local function split_ledger(raw)
+  raw = raw or ""
+  local i = string.find(raw, ARCHIVE_TITLE, 1, true)
+  if not i then return raw, "" end
+  return string.sub(raw, 1, i - 1), string.sub(raw, i)
+end
+
+local function is_data_row(line)
+  local t = string.gsub(line, "^%s+", "")
+  return string.sub(t, 1, 1) == "|" and not string.find(t, "일시 | 사용자", 1, true)
+    and not string.match(t, "^|%s*:?%-%-")
+end
+
 -- 원장 행 파싱: "|" 구분 컬럼(공백 트림). Lua 패턴에 lazy 빈 캡처 함정이 있어
 -- 비지 않은 세그먼트만 뽑는다: | 일시 | 사용자 | 분류 | 작업 | 접근 | 결과 | 교훈 |
+-- 활성부만 읽는다 — 정정으로 밀려난 옛 주장이 새 기록을 중복으로 막으면 안 된다.
 local function ledger_rows()
-  local raw = magi.read_file(SUMMARY)
-  if not raw or raw == "" then return {} end
+  local active = split_ledger(magi.read_file(SUMMARY))
+  if active == "" then return {} end
   local rows = {}
-  for line in string.gmatch(raw, "[^\n]+") do
-    local t = string.gsub(line, "^%s+", "")
-    if string.sub(t, 1, 1) == "|" and not string.find(t, "일시 | 사용자", 1, true)
-      and not string.match(t, "^|%s*:?%-%-") then
+  for line in string.gmatch(active, "[^\n]+") do
+    if is_data_row(line) then
       local cols = {}
-      for c in string.gmatch(t, "[^|]+") do
+      for c in string.gmatch(line, "[^|]+") do
         cols[#cols + 1] = string.gsub(c, "^%s*(.-)%s*$", "%1")
       end
       if #cols >= 7 then rows[#rows + 1] = cols end
@@ -215,16 +235,17 @@ local function ledger_rows()
 end
 
 -- 기존 교훈 다이제스트(최근 N행의 작업/접근/교훈 요약) — 사이드카가 "이미 기록된
--- 교훈"을 알고 재기록을 거부하게 한다(회상→재기록 에코 루프 차단).
+-- 교훈"을 알고 재기록을 거부하거나(같으면 null) 정정을 지목하게 한다(replaces=행 번호).
+-- (n)은 활성 표에서의 진짜 행 번호다 — replaces가 이 번호로 교체 대상을 찾는다.
 local function lessons_digest()
   local rows = ledger_rows()
   if #rows == 0 then return "" end
   local out = {}
   for i = math.max(1, #rows - 9), #rows do
     local c = rows[i]
-    out[#out + 1] = "- " .. c[4] .. " / " .. c[5] .. " → " .. string.sub(c[7], 1, 120)
+    out[#out + 1] = "- (" .. i .. ") " .. c[4] .. " / " .. c[5] .. " [" .. c[6] .. "] → " .. string.sub(c[7], 1, 120)
   end
-  return "[기존 교훈]\n" .. table.concat(out, "\n")
+  return "[기존 교훈] (같은 주제의 정정·뒤집기면 replaces에 그 (n)을 넣어라)\n" .. table.concat(out, "\n")
 end
 
 -- 결정론적 유사-중복 백스톱: LLM의 "동일하면 null" 규칙은 소프트해서 뚫린다(실측).
@@ -253,23 +274,65 @@ local function lesson_is_duplicate(lesson_text)
   return false
 end
 
-local function append_lesson(entry)
-  local existing = magi.read_file(SUMMARY) or ""
+-- append_lesson lands one lesson row. replaces(행 번호)가 유효하면 그 행을 **제자리 교체**한다:
+-- 옛 행은 삭제가 아니라 아카이브 섹션으로 내려간다(사유 표기) — 정정된 주장과 새 주장이
+-- 나란히 남는 것도, 정정이 흔적 없이 사라지는 것도 원장의 실패이기 때문이다. 활성 표가
+-- 상한을 넘으면 오래된 행부터 같은 곳으로 내려간다.
+local function append_lesson(entry, replaces)
+  local active, archive = split_ledger(magi.read_file(SUMMARY))
   local row = {
     sanitize_cell(entry.timestamp), sanitize_cell(entry.username),
     sanitize_cell(entry.category), sanitize_cell(entry.task),
     sanitize_cell(entry.approach), sanitize_cell(outcome_label(entry.outcome)),
     sanitize_cell(entry.lesson),
   }
-  -- 디스크 중복 가드: 작업+접근+결과 시그니처가 이미 있으면 스킵
+  -- 디스크 중복 가드: 작업+접근+결과 시그니처가 활성 표에 이미 있으면 스킵.
+  -- (정정 경로는 예외 — 정정은 옛 행과 겹치는 것이 정상이다.)
   local signature = row[4] .. " | " .. row[5] .. " | " .. row[6]
-  if string.find(existing, signature, 1, true) then return false end
-  local content = string.gsub(existing, "%s+$", "")
-  if not string.find(content, LEDGER_HEADER, 1, true) then
-    content = LEDGER_TITLE .. "\n\n" .. LEDGER_HEADER .. "\n" .. LEDGER_DIVIDER
+  if not replaces and string.find(active, signature, 1, true) then return false end
+
+  -- 활성부를 줄 단위로 해체해 데이터 행 위치를 잡는다.
+  local lines, data_at = {}, {}
+  for line in string.gmatch(active, "[^\n]+") do
+    lines[#lines + 1] = line
+    if is_data_row(line) then data_at[#data_at + 1] = #lines end
   end
-  content = content .. "\n| " .. table.concat(row, " | ") .. " |\n"
-  magi.write_file(SUMMARY, content)
+  if #data_at == 0 and not string.find(active, LEDGER_HEADER, 1, true) then
+    lines = { LEDGER_TITLE, "", LEDGER_HEADER, LEDGER_DIVIDER }
+  end
+
+  local function to_archive(line, why)
+    if archive == "" then
+      archive = ARCHIVE_TITLE .. "\n" .. LEDGER_HEADER .. "\n" .. LEDGER_DIVIDER .. "\n"
+    end
+    archive = string.gsub(archive, "%s+$", "\n") .. line .. " ← " .. why .. "\n"
+  end
+
+  if replaces and data_at[replaces] then
+    to_archive(lines[data_at[replaces]], "정정됨(" .. row[1] .. ")")
+    table.remove(lines, data_at[replaces])
+  end
+  lines[#lines + 1] = "| " .. table.concat(row, " | ") .. " |"
+
+  -- 상한: 오래된 데이터 행부터 아카이브로.
+  local n = 0
+  for _, l in ipairs(lines) do
+    if is_data_row(l) then n = n + 1 end
+  end
+  local i = 1
+  while n > MAX_ACTIVE_ROWS and i <= #lines do
+    if is_data_row(lines[i]) then
+      to_archive(lines[i], "오래됨(상한 " .. MAX_ACTIVE_ROWS .. "행)")
+      table.remove(lines, i)
+      n = n - 1
+    else
+      i = i + 1
+    end
+  end
+
+  local out = table.concat(lines, "\n") .. "\n"
+  if archive ~= "" then out = out .. "\n" .. string.gsub(archive, "%s+$", "\n") end
+  magi.write_file(SUMMARY, out)
   return true
 end
 
@@ -371,16 +434,19 @@ local function analyze_and_record(sid, hint, user, used_csv)
       if not seen then seen = {} recorded[sid] = seen end
       if not seen[key] then
         seen[key] = true
-        if lesson_is_duplicate(lesson.lesson) then
+        -- 정정(replaces)은 옛 행과 겹치는 것이 정상이라 유사-중복 백스톱을 타지 않는다 —
+        -- 백스톱이 정정을 막으면 낡은 주장이 원장의 현재로 영영 남는다.
+        local replaces = tonumber(lesson.replaces)
+        if not replaces and lesson_is_duplicate(lesson.lesson) then
           magi.log("engram: 유사 교훈 이미 기록됨 — 스킵: " .. tostring(lesson.task))
         else
-          local ok = append_lesson{
+          local ok = append_lesson({
             timestamp = magi.time(),
             username = magi.store_get("username") or user or "user",
             category = tostring(lesson.category or "기타"),
             task = tostring(lesson.task), approach = tostring(lesson.approach or ""),
             outcome = outcome, lesson = tostring(lesson.lesson),
-          }
+          }, replaces)
           if ok then
             magi.log("engram: 교훈 기록 — " .. tostring(lesson.task))
             -- D13 공유 경험 스토어에도 제안(리뷰 큐 → 팀 tier). 스토어가 없거나
@@ -614,7 +680,8 @@ magi.register_command{
 magi.register_context_provider{
   name = "engram-lessons",
   provide = function(q)
-    local raw = magi.read_file(SUMMARY)
+    -- 활성부만: 아카이브(정정으로 밀려난 옛 주장·상한 초과분)는 주입되지 않는다.
+    local raw = split_ledger(magi.read_file(SUMMARY))
     if not raw or raw == "" then return {} end
     -- 관련성 게이트: 현재 질의와 토큰이 겹치는 교훈 행만 주입한다. 무관한 행(예:
     -- 세션 첫 턴의 교훈)이 매 스텝 실리면 모델 추론이 그 옛 요청을 계속 되뇐다
