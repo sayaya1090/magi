@@ -56,6 +56,10 @@ magi.register_tool{
   name = "crew_work",
   subagent = true,
   enabled = false,          -- 기본 꺼짐. magi는 에이전트를 기본으로 제공하지 않는다.
+  -- 쓰는 자식마다 자기 체크아웃. 아래 spawn이 workspace="clone"을 이미 적듯 이 툴의 계약이고,
+  -- 선언하면 호스트가 스폰 지점에서 강제한다 — 그리고 그 힘으로 한 스텝이 crew_work를 두 번
+  -- 부르면 두 워커가 동시에 돈다(서로 다른 트리라 부딪힐 것이 없다).
+  isolated_children = true,
   group = "crew",
   description = "격리된 체크아웃에서 워커에게 작업을 시킨다. 워커가 끝났다고 하면 그 발자국을 " ..
     "보고 판정하고, 받아들이면 변경을 이 트리에 병합하고 아니면 되돌린다. 여러 파일에 걸친 " ..

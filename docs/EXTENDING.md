@@ -588,6 +588,7 @@ Four optional fields decide where the tool is offered:
 | `internal = true` | offered only to an agent whose allowlist names it — a helper for your own subagent, kept off the main agent's request |
 | `subagent = true` | listed in `/subagents`, where a user switches it on and off and picks its model |
 | `readonly_children = true` | every child this tool spawns can only look. Two calls to it in one step then run **at once** — see below |
+| `isolated_children = true` | every child that could write gets its **own checkout** (the host defaults its spawns to `workspace="clone"` and pins its shell to `workspace-write`). Two calls to it in one step also run at once |
 | `group = "…"` | groups it under a heading there, so several can be managed together |
 | `enabled = false` | ships switched **off**; only a user turns it on |
 
@@ -625,6 +626,24 @@ magi.register_tool{
 ```
 
 The bundled `seele` planner declares it, which was already true of the child it started.
+
+#### `isolated_children` — the same bargain for children that write
+
+`readonly_children` buys concurrency by taking writing away. `isolated_children` buys it with
+isolation instead: declare it, and every spawn whose tool list could write is given its own clone —
+the host sets `workspace="clone"` where the child's workspace is decided, whether or not your spec
+repeated it — while a child that can only look keeps the shared tree (a clone would cost it a copy
+to see a staler version of what it already had).
+
+The isolation is more than the directory. The child's file tools are jailed to its checkout as they
+are to any workdir; its **shell** is pinned to the `workspace-write` OS sandbox (seatbelt on macOS,
+bwrap on Linux — best effort on platforms with neither, and a globally stricter sandbox setting
+stays in charge); the child is told all of this in its system prompt; and its work comes back as a
+commit range for you to `magi.merge_child` or `magi.restore_child` — never merged automatically.
+
+Two such children cannot touch one tree, so a step that calls the tool twice runs both at once, and
+a `magi.spawn_all` batch from it fans out the same way (bounded — the host runs a handful of
+children at a time and queues the rest).
 
 ### 3.9 `magi.spawn` / `child_steps` / `restore_child` — subagents and loops
 
@@ -665,6 +684,23 @@ one step to the parent however long it runs. A refusal names the bound and where
 
 **A child cannot spawn.** It is handed no `Spawn` hook at all, so recursion is impossible by
 construction rather than bounded by a counter.
+
+**Isolation — `workspace = "clone"`.** The child works in its own checkout of the repository
+(carrying the parent's uncommitted work), on a branch of its own, and everything it does becomes
+the commit range `base_commit..head_commit` in the result. `magi.merge_child(session_id)` applies
+that range onto the parent's tree — as working-tree changes, never a commit — and
+`magi.restore_child` is the other verdict. Nothing merges automatically. An isolated child's shell
+is pinned to the `workspace-write` OS sandbox, and the child is told its boundary in its system
+prompt. A tool that always wants this declares `isolated_children` (§3.8) instead of repeating the
+field on every spawn.
+
+**Parallel children — `magi.spawn_all{ {…}, {…}, … }`.** Each entry is the same table `magi.spawn`
+takes; the children run concurrently (a handful at a time — the host queues the rest) and the
+result is an ordered list of the same rows `magi.spawn` returns, one child's failure failing only
+its row. Two rules, both refused loudly rather than repaired quietly: `review` is not accepted here
+(several children finishing at once would re-enter the Lua interpreter — read `child_steps`
+afterwards and judge then), and a batch where more than one child could write the parent's shared
+tree is refused unless each such child has `workspace="clone"`.
 
 #### Looping
 
