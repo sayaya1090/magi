@@ -2888,18 +2888,26 @@ function paintPerm(sel) {
   }
 }
 
-// updateControl is the "update this companion" row on the facts card: a button that tells a
-// same-machine daemon to update itself to the latest release and restart onto it (/update → the
-// daemon's own update, which downloads, commits with rollback, and re-execs). The daemon's one-line
-// account is shown beside it — what it did, or that it was already current, or why it could not.
-// Disabled without the configure capability, like the permission control above it. Same-machine only
-// is enforced by the caller (a.trust==='own') and by /update itself.
+// updateControl is the companion's BUILD row on the facts card: the version its daemon reports,
+// and — only when that build trails the newest one this console has seen in the fleet — an update
+// button under it. Pressing it tells a same-machine daemon to update itself to the latest release
+// and restart onto it (/update → the daemon's own update, which downloads, commits with rollback,
+// and re-execs); the daemon's one-line account then takes the button's own place. Disabled without
+// the configure capability, like the permission control above it. Same-machine only is enforced by
+// the caller (a.trust==='own') and by /update itself.
+//
+// Build and update are one cell rather than two: the version is the reason to update and the button
+// is what you do about it, and a card that put the number at the top and the action at the bottom
+// asked the reader to hold one against the other across the whole grid. Behind-only, because a
+// button offered on a companion already current is a button whose only outcome is "nothing to do".
 function updateControl(a) {
   const f = cell('f');
-  f.append(cell('k', tr('field.update')));
+  f.append(cell('k', tr('field.version')));
   const v = cell('v');
+  v.append(cell('vnum', a.version));
   const btn = withMark(document.createElement('md-text-button'), '#i-sl-cloud-arrow-down');
   label(btn, tr('action.update'));
+  const behind = newestVer && verCmp(a.version, newestVer) < 0;
   // The outcome lives at MODULE scope, per socket, and the row is drawn FROM it — not from this
   // build's local variables. The facts grid keeps a row whose words did not change (rowWords) and
   // replaces one whose words did, so state that only lived in a closure was destroyed by the poll:
@@ -2909,14 +2917,24 @@ function updateControl(a) {
   // the reconciler replaces it correctly; the same pattern commitRules uses across card rebuilds.
   const states = updateControl.state || (updateControl.state = new Map());
   const st = states.get(a.socket);
-  btn.disabled = !may('configure') || !!(st && st.working);
   const say = cell('updsay');
-  say.hidden = !(st && st.text);
-  if (st && st.text) say.textContent = st.text;
+  // The button and the account take turns in the same slot under the version: a line the daemon
+  // sent (working, done, or refused) replaces the button, which is what "the message shows where
+  // the button was" means. With no line, the button shows only when there is a newer build to move
+  // to. Disabled-not-hidden without configure so a viewer who cannot press it still sees one is out.
+  if (st && st.text) {
+    btn.hidden = true;
+    say.hidden = false;
+    say.textContent = st.text;
+  } else {
+    btn.hidden = !behind;
+    say.hidden = true;
+  }
+  btn.disabled = !may('configure') || !!(st && st.working);
   btn.onclick = async () => {
     if (states.get(a.socket) && states.get(a.socket).working) return;
     states.set(a.socket, {working: true, text: tr('update.working')});
-    btn.disabled = true;
+    btn.hidden = true;
     say.hidden = false;
     say.textContent = tr('update.working');
     // The body is shown WHATEVER the status: a refusal here carries its own instruction ("run it on
@@ -2932,9 +2950,11 @@ function updateControl(a) {
     } catch { /* transport failure; the generic line below */ }
     states.set(a.socket, {working: false, text: out || tr('update.failed')});
     // These nodes may be detached by now (the poll rebuilds the card); writing them is free and
-    // right when they are still live, and the state above repaints the rebuilt row either way.
+    // right when they are still live, and the state above repaints the rebuilt row either way. The
+    // account stays in the button's place — the button does not come back under the same version,
+    // because the outcome IS the answer to "is there anything to do here" until the next visit
+    // clears it (a success republishes as a newer build, a refusal said why).
     say.textContent = out || tr('update.failed');
-    btn.disabled = !may('configure');
     // The console panel's own build line ("this console / companions") answers "why hasn't the thing
     // I shipped shown up", and it was loaded once at startup. Refreshed AFTER the restart settles,
     // not at the reply: the reply lands before the daemon drains, so an instant refresh read the OLD
@@ -3223,6 +3243,16 @@ function drawDetail(a) {
   // Wide fields span two columns rather than the whole row: a full-row span breaks the packing on
   // both sides and the card grew three near-empty rows, one of them holding a five-letter state.
   const wide = f => { f.className = 'f wide'; return f; };
+  // A same-machine companion that reports a build gets its version folded into the update cell
+  // (updateControl, appended below) — build and the action on it in one place. Every other companion
+  // that reports a build shows it read-only here: a remote or peer-sighted one cannot be updated from
+  // this console (updating restarts a daemon over its own local socket; /update refuses across a
+  // dial), so its version is a fact to read, not a control.
+  // !a.peer as well as trust: a federated console's /fleet rows arrive with the PEER's own trust
+  // stamped on them ("own", from its point of view), so trust alone would draw the update button on
+  // another machine's companion. a.peer is the fact about THIS console: set exactly when the row
+  // came from a peer rather than a local dial.
+  const ownBuild = a.trust === 'own' && !a.elsewhere && !a.peer && a.version;
   [
     field('field.status', stateWord(a.state) + (carrying(a) ? ' · ' + carrying(a) : ''),
           'state ' + a.state),
@@ -3232,21 +3262,12 @@ function drawDetail(a) {
     ...(a.team ? [field('field.team', a.team + (a.hub ? ' · ' + tr('team.speaks') : ''))] : []),
     field('field.host', (a.instance || a.host || tr('map.here')) + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
-    ...(a.version ? [field('field.version', a.version)] : []),
+    ...(a.version && !ownBuild ? [field('field.version', a.version)] : []),
     wide(field('field.workspace', a.workdir)),
     sessionField(a),
   ].forEach(put);
   put(permField(a));
-  // Only a same-machine companion, and only when it reports a build: updating swaps the binary and
-  // restarts it over its own local socket (see /update), which is meaningless for a row this console
-  // reached by a sighting rather than a dial. The daemon says "already up to date" when there is
-  // nothing newer, so the button is offered whenever it COULD do something, not only when the page
-  // has worked out that it would.
-  // !a.peer as well as trust: a federated console's /fleet rows arrive with the PEER's own trust
-  // stamped on them ("own", from its point of view), so trust alone drew this button on another
-  // machine's companion — where /update correctly refuses. a.peer is the fact about THIS console:
-  // set exactly when the row came from a peer rather than a local dial.
-  if (a.trust === 'own' && !a.elsewhere && !a.peer && a.version) {
+  if (ownBuild) {
     put(updateControl(a));
   }
   // A button, not a clickable div: this is the one control on the card and it has to be reachable

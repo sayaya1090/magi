@@ -1981,8 +1981,12 @@
     border-radius:var(--magi-sys-shape-xs);
   }
   /* What the update button's daemon said — its account, or why it could not. Muted and small; it
-     sits under the button in the facts card. */
+     takes the button's own place under the version in the facts card. */
   .updsay { display:block; margin-top:var(--magi-sys-space-100); color:var(--magi-ref-muted); font-size:.82rem; }
+  /* The build number, with the update button (only when behind) or the daemon's account stacked
+     under it — one cell, version on top, the action or its outcome below. */
+  .vnum { display:block; }
+  .vnum + md-text-button { margin-top:var(--magi-sys-space-50); margin-left:calc(-1 * var(--magi-sys-space-100)); }
 
   /* The path, whole, in a bar of its own. Whole because this is the line somebody copies into a
      message or a command and half a path pastes as nothing; a bar because a path sitting directly

@@ -136,9 +136,11 @@ Details that matter:
 
 - `[update] auto = false` in config turns the auto path off for that companion; the
   console's manual **Update to latest** button still works — the toggle gates only the
-  automatic part. That button lives on the companion's **facts card** (open the
-  companion, unfold the card), is offered only for a **same-machine** companion whose
-  daemon reports a build, and needs the `configure` capability. The fleet list shows
+  automatic part. That button lives with the **build** on the companion's **facts card** (open the
+  companion, unfold the card) — the version is shown, and the update button appears
+  under it only when that build **trails the newest** one in the fleet; pressing it puts
+  the daemon's account in the button's place. Offered only for a **same-machine**
+  companion, and needs the `configure` capability. The fleet list shows
   each companion's build on its row and marks the ones behind the newest, so the
   companion to aim it at is visible without opening every card.
 - `--no-update-check` / `MAGI_NO_UPDATE_CHECK=1` disables it too (alongside the startup

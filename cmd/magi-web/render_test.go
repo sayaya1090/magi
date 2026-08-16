@@ -2193,6 +2193,72 @@ console.log(JSON.stringify({text: byId.detail.text,
 	}
 }
 
+// Build and the action on it are one cell: the version, and — only when this build trails the
+// newest the console has seen — an update button under it, which the daemon's account then
+// replaces in place. A same-machine companion already on the newest build shows the version with
+// no button; a companion whose build is current shows no way to "update to nothing".
+func TestTheFactsCardFoldsTheUpdateButtonUnderTheBuild(t *testing.T) {
+	// loadFleet first, so newestVer is set from a fleet that holds a newer build than the card's —
+	// then drawDetail the lagging same-machine companion.
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/fleet') return {ok: true, json: async () => ([
+    {socket: '/s/new.sock', name: 'new', state: 'idle', trust: 'own', live: true, idle: 5, version: 'v0.23.1'},
+    {socket: '/s/old.sock', name: 'old', state: 'idle', trust: 'own', live: true, idle: 9, version: 'v0.23.0'},
+  ])};
+  return {ok: true, json: async () => ([])};
+};
+await loadFleet();
+await drawDetail({socket: '/s/old.sock', name: 'old', state: 'idle', workdir: '/w/old', session: 's1',
+             trust: 'own', live: true, idle: 9, version: 'v0.23.0'});
+const cellOf = k => byId.detail.find('div').find(d => d.dataset && d.dataset.k === 'k:' + k);
+const upd = cellOf(tr('field.version'));
+console.log(JSON.stringify({
+  hasBuildCell: !!upd,
+  cellText: upd ? upd.text : '',
+  // The button shows only when behind; find one that is not hidden inside the build cell.
+  buttonShown: !!(upd && upd.find(n => (n.tag||'').toLowerCase() === 'md-text-button').some(b => !b.hidden)),
+}));
+`)
+	if got["hasBuildCell"] != true {
+		t.Fatalf("the same-machine companion has no build cell: %v", got)
+	}
+	if !strings.Contains(got["cellText"].(string), "v0.23.0") {
+		t.Errorf("the build cell does not show the version: %q", got["cellText"])
+	}
+	if got["buttonShown"] != true {
+		t.Error("a build behind the fleet's newest shows no update button")
+	}
+
+	// The same companion, now ON the newest build: the cell shows the version and offers no button.
+	got = runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  if (path === '/fleet') return {ok: true, json: async () => ([
+    {socket: '/s/a.sock', name: 'a', state: 'idle', trust: 'own', live: true, idle: 5, version: 'v0.23.1'},
+  ])};
+  return {ok: true, json: async () => ([])};
+};
+await loadFleet();
+await drawDetail({socket: '/s/a.sock', name: 'a', state: 'idle', workdir: '/w/a', session: 's1',
+                  trust: 'own', live: true, idle: 5, version: 'v0.23.1'});
+const upd = byId.detail.find('div').find(d => d.dataset && d.dataset.k === 'k:' + tr('field.version'));
+console.log(JSON.stringify({
+  cellText: upd ? upd.text : '',
+  buttonShown: !!(upd && upd.find(n => (n.tag||'').toLowerCase() === 'md-text-button').some(b => !b.hidden)),
+}));
+`)
+	if !strings.Contains(got["cellText"].(string), "v0.23.1") {
+		t.Errorf("the current companion's build is not shown: %q", got["cellText"])
+	}
+	if got["buttonShown"] == true {
+		t.Error("a companion already on the newest build still offers an update button")
+	}
+}
+
+// A console that cannot be reached is not a machine with no agents on it.
+
 // A console that cannot be reached is not a machine with no agents on it.
 //
 // The two look identical to anyone who does not read the status line — an empty page — and they
