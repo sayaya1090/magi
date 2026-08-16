@@ -289,13 +289,18 @@ What runs now, per step:
 3. **Tool calls** → execute (read-only concurrently; writes and permissioned calls sequentially)
    and loop. **No tool calls** → the finish path (§5).
 
-There is **no step ceiling**. A turn ends when the agent declares it finished and the council
-accepts, when the model stops and the finish path lets it, when the context is cancelled, or when
-whoever launched magi stops waiting. The ceiling came out on measurement: across every recorded
-trial, runs that reached the external deadline were still scored and 76 of 396 passed, while 28
-runs magi stopped itself produced no pass at all — and 8 were never scored, because a nonzero exit
-reads to the caller as "the agent failed to run" rather than "the agent decided to stop". A
-workflow PHASE is the exception: it declares its own budget as part of the pipeline's shape.
+There is **no pacing ceiling — only a runaway backstop**. A turn ends when the agent declares it
+finished and the council accepts, when the model stops and the finish path lets it, when the
+context is cancelled, or when whoever launched magi stops waiting. The guards that used to stop a
+run on magi's own arithmetic came out on measurement: across every recorded trial, runs that
+reached the external deadline were still scored and 76 of 396 passed, while 28 runs magi stopped
+itself produced no pass at all — and 8 were never scored, because a nonzero exit reads to the
+caller as "the agent failed to run" rather than "the agent decided to stop". What remains is
+`MaxSteps` (default 240), sized far above any productive turn, so a genuinely runaway loop cannot
+hold a daemon forever; a top-level turn that spends it lands with a persisted `turn.finished`
+marked UNVERIFIED, naming the backstop — the work stands as it was left, and nothing reads the
+session as still working. A workflow PHASE is different in kind: it declares its own budget as
+part of the pipeline's shape, and spending it is ordinary.
 
 ### What the guard does now (`guard.go`)
 
@@ -605,12 +610,15 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   instant. It decays after a month and survives the daemon, since the week after a companion was
   killed is when somebody asks whether it was overloaded. Deliberately not with the delegation
   verdicts, which are a judgement about a companion's work and belong in the repository.
-- **One door across a machine, and it is ssh** (`--relay`). A remote companion is reached by
-  `ssh <host> magi --relay <socket>`, which pipes stdin/stdout to that socket, so taking work,
-  asking what became of it and asking what a companion can do are three methods of the daemon
-  protocol rather than three subcommands that each re-derive what the daemon already knows. Answers
-  are pushed back down the same pipe. magi opens no port of its own between machines and holds no
-  credential of its own: the security boundary is ssh.
+- **One door across a machine, and it is ssh** (`--fleet-door`, with `--relay` as the wide pipe for
+  your own machines). A remote companion is reached by an ssh pipe into `magi --fleet-door`, which
+  carries four methods of the daemon protocol — ask what a companion is, hand it work, ask what
+  became of it, and watch for how it goes — rather than subcommands that each re-derive what the
+  daemon already knows. `watch` is the one that streams: the far daemon pushes each change back
+  down the pipe the asker opened, so a hand-off's answer arrives when it happens instead of on a
+  poll's clock. magi opens no port of its own between machines and holds no credential of its own:
+  the security boundary is ssh (or the fingerprint-pinned TLS door, which carries the same four
+  methods and nothing else).
 - **Here or elsewhere is decided by the record, not by the hostname.** A config directory can be
   shared, so comparing this machine's name against a sighting's would dial a path that answers —
   and open the wrong workspace, with the work arriving looking delivered.

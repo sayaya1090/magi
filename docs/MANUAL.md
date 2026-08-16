@@ -222,7 +222,7 @@ are reading it is a decision taken out of their hands.
 
 Guardrail posture (`--profile`/`MAGI_PROFILE`) is a preset that sets both axes (**approval** × **OS sandbox**) at once: `safe` = `ask` + `read-only`, `standard` (recommended) = `auto` + `workspace-write` (auto-approve edits, confirm commands/network, confine writes to the workspace), `yolo` = `allow` + `full`. An explicit `--permission`/`sandbox` overrides the preset. With no profile set, the sandbox stays opt-in (unconfined) and only the permission default applies — so an existing user's network / out-of-tree writes aren't silently cut. The sandbox axis (`sandbox = "read-only"|"workspace-write"|"full"`) can also be set directly in `config.toml`.
 
-**Fine-grained rules (`config.toml`).** Beyond the mode, three list keys narrow the policy: `allow` / `deny` are glob rules over tool invocations (e.g. `Bash(git push:*)` auto-approves that command, `Read(**/.env)` blocks reading secrets) — this is what the `p` permission choice (§4) persists — and `deny` wins over `allow`. `allow_domains` restricts **WebFetch/bash network egress to a host allowlist** (e.g. `["api.github.com"]`); empty = no host restriction. All three **append** across the global and project configs rather than overriding, and are on the fixed deny-list a plugin's `set_config_key` can never touch (EXTENDING §Plugins).
+**Fine-grained rules (`config.toml`).** Beyond the mode, three list keys narrow the policy: `allow` / `deny` are glob rules over tool invocations (e.g. `Bash(git push:*)` auto-approves that command, `Read(**/.env)` blocks reading secrets) — this is what the `p` permission choice (§4) persists — and `deny` wins over `allow`. `allow_domains` restricts **network egress to a host allowlist** (e.g. `["api.github.com"]`); empty = no host restriction. Honest about its two strengths: a `webfetch` to an off-list host, and a bash command carrying a **literal URL** naming one, are hard-denied; any other bash egress command (a bare hostname, a variable, a host read from a file — things a string scan cannot resolve) **forces a confirmation prompt instead**, which under headless `--permission allow` resolves to allow, because that posture means full trust. All three keys **append** across the global and project configs rather than overriding, and are on the fixed deny-list a plugin's `set_config_key` can never touch (EXTENDING §Plugins).
 
 Config file `<config>/config.toml` (macOS `~/Library/Application Support/magi`, Linux `~/.config/magi`):
 ```toml
@@ -324,7 +324,7 @@ primary = "#B45309"
 
 ### Time budget
 
-There is **no step ceiling**. A turn ends when the model stops calling tools, when the agent declares completion and the council accepts, when the context is cancelled, or when whoever launched magi stops waiting. A cap was a fifth ending, and the only one that stopped a run on magi's own arithmetic rather than on something that happened — measured over the bench, runs that reached the wall clock produced 76 passes out of 396, and runs the ceiling stopped produced 0 out of 28. (A workflow **phase** is the exception: it declares its own budget as part of the pipeline's shape.)
+There is **no pacing ceiling — only a runaway backstop**. A turn ends when the model stops calling tools, when the agent declares completion and the council accepts, when the context is cancelled, or when whoever launched magi stops waiting. The guards that used to stop a run on magi's own arithmetic came out on measurement — over the bench, runs that reached the wall clock produced 76 passes out of 396, and runs those guards stopped produced 0 out of 28. What remains is a 240-step backstop sized far above any productive turn, so a genuinely runaway loop cannot hold a daemon forever; a turn that spends it lands honestly, recorded as UNVERIFIED with the backstop named as the reason, and the work stands as it was left. (A workflow **phase** is different in kind: it declares its own budget as part of the pipeline's shape.)
 
 What magi still tells the agent each step is appended as an **ephemeral line** (never to the cached system prompt, so the prefix stays cache-stable):
 
@@ -347,7 +347,7 @@ Even with no configuration, an "understand → plan → implement → verify →
 |---|---|
 | `deny`, and `permission`/`sandbox`/`profile` when they ask for MORE care than the machine gives (`sandbox = "read-only"` is kept; `permission = "allow"` is refused and said so) | `[[hooks]]` — shell commands on tool events · `[mcp.*]` — processes the daemon spawns, and the headers they send · `[cron.*]` — unattended prompts · `allow`, `allow_domains` · `[plugins.*]` · `base_url`, `experience_dir` · and `.magi/plugins/` |
 
-**Reaching a companion on another machine.** The crossing is an ssh pipe into `magi --fleet-door`, which carries three methods — ask what a companion is, hand it work, ask how that work went — and opens only companions that account has published. Give somebody a key that can do that and nothing else:
+**Reaching a companion on another machine.** The crossing is an ssh pipe into `magi --fleet-door`, which carries four methods — ask what a companion is, hand it work, ask how that work went, and watch for how it goes (the one that streams: the far side pushes each change down the pipe, so an answer arrives when it happens rather than on a poll's clock) — and opens only companions that account has published. Give somebody a key that can do that and nothing else:
 
 ```
 command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
@@ -355,7 +355,7 @@ command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
 
 `restrict` removes pty, port forwarding, agent forwarding and X11; the forced command means ssh ignores whatever the client asked to run, so the caller chooses neither the program nor the flags nor the socket. The older `magi --relay <socket>` still exists and carries the WHOLE daemon protocol at whatever socket path it is given — that is the shape for your own machines, and not a shape to put behind somebody else's key.
 
-The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same three methods.
+The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same four methods.
 
 **Or over TLS, with no ssh at all.** Each magi has a key pair and a self-signed certificate, made once and kept; `magi --whoami` prints its fingerprint. Carry that fingerprint to the other machine the way you would an ssh host key — over a channel you trust — and admit it:
 
@@ -790,10 +790,13 @@ Stop the console and nothing stops working.
   wanted; one operator over their own tunnel gains nothing from a certificate they had to invent.
   Half a pair is refused either way, since it would serve plaintext while somebody believed
   otherwise.
-- **`-exposed` and `-peer` cannot be used together.** A peer is reached on *your* tunnel with your
-  keys, so a shared console would let whoever the gateway admits act as you on another machine —
-  and the record on the far side would say the request came from here. Run a second console for the
-  federated view.
+- **`-exposed` with `-peer`: looking crosses, acting does not.** A peer is reached on *your* tunnel
+  with your keys, and a request this console forwards carries no identity — so on a shared console,
+  anybody the gateway admits would be acting as the operator on another machine, unattributably.
+  The old answer was to refuse the combination outright, which also removed the arrangement people
+  actually want (one console, several machines, several people looking). Now the federated view
+  works on a shared console, and a CHANGE aimed at a peer's companion is refused with the address
+  of the console that can make it — do it where that companion lives.
 - **Changes are recorded** in `console-audit.jsonl`, beside the session store
   (`~/Library/Caches/magi` on macOS, `~/.cache/magi` on Linux, `%LocalAppData%/magi` on Windows;
   `MAGI_DATA_DIR` moves it). One JSON line per request that changes something: time, method, path,

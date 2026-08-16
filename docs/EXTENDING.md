@@ -125,8 +125,12 @@ Fields (`config.MCPServer`):
 ### 1.3 Behaviour and caveats
 
 - Permissions: an MCP tool call goes through the same permission mode (`ask`/`auto`/`allow`/`deny`)
-  and policy engine as any other tool. A dangerous external tool can be blocked with `deny` or a
-  policy rule.
+  and policy engine as any other tool — and every MCP tool is treated as a **danger tool**, read off
+  its `mcp__` namespace: under `ask` and `auto` each call is confirmed, under `deny` it is refused,
+  and under `allow` it runs. magi cannot prove what an external server does with a call, so "ask
+  first" is the default that matches the mode names; a tool you trust can skip the prompt with an
+  allow rule (`allow = ["mcp__github__search(**)"]`), and the modal's "always" grant covers the
+  session as usual. A dangerous tool can also be blocked outright with a `deny` rule.
 - **Name collisions**: because the server label is part of the name, the same tool name on two
   servers does not collide, and a server's `read`/`write`/`list` cannot hide the built-ins. The only
   collision left is **using the same label twice**, and `[mcp.<name>]` is a map, so config merging has

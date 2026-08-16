@@ -592,9 +592,10 @@ phone for months.
    bind is a refusal, not a warning, and a test holds it there. When something in front does
    authenticate, `-exposed` says so and the console drops the two routes that make the MACHINE run
    what the caller chose — `/shell`, and writing an MCP server's command line — because those go
-   round the permission policy every tool call goes through. `-peer` is refused with it: a peer is
-   reached on the operator's own tunnel, so a shared console would let whoever the gateway admits
-   act as the operator on another machine.
+   round the permission policy every tool call goes through. With `-peer` beside it, looking
+   crosses and acting does not: a peer is reached on the operator's own tunnel and a forwarded
+   request carries no identity, so a shared console shows the federated view and refuses a change
+   aimed at a peer's companion, naming the console that can make it.
 7. **What is on screen is what a control reaches.** A companion can be pointed at another of its
    own conversations — from the session dropdown, or by pressing a card on the board, since a card
    IS a conversation. The composer is live only when the session on screen is the one the

@@ -427,13 +427,15 @@ run(sessionID):
       store.Append(part.appended{tool-result})
 ```
 
-> ★Correction (as-built): **there is no step ceiling**, and **the guard reports rather than stops**.
-> Both came out on measurement — runs that reached the external deadline were still scored and 76 of
-> 396 passed, while 28 runs magi stopped itself produced no pass at all, 8 of them never scored
-> because a nonzero exit reads as "the agent failed to run". Every signal the guard collected
-> (repeats, stalls, self-reverts, no-change writes, exercise churn) is still collected and still
-> **said** to the agent as a nudge. The language directive (`langDirective`) and the workflow branch
-> (`runWorkflow`) are unchanged. A workflow PHASE is the exception: it declares its own budget.
+> ★Correction (as-built): **there is no pacing ceiling — only a 240-step runaway backstop** — and
+> **the guard reports rather than stops**. The force-stops came out on measurement — runs that
+> reached the external deadline were still scored and 76 of 396 passed, while 28 runs magi stopped
+> itself produced no pass at all, 8 of them never scored because a nonzero exit reads as "the agent
+> failed to run". A top-level turn that spends the backstop lands with a persisted UNVERIFIED
+> turn.finished naming it. Every signal the guard collected (repeats, stalls, self-reverts,
+> no-change writes, exercise churn) is still collected and still **said** to the agent as a nudge.
+> The language directive (`langDirective`) and the workflow branch (`runWorkflow`) are unchanged.
+> A workflow PHASE declares its own budget.
 
 ---
 
