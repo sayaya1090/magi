@@ -304,11 +304,19 @@ func wikiPointer(ctx context.Context, w port.WikiStore, q string) string {
 		b.WriteString("wiki pages (update via remember{page:…}, read via recall_memory): " +
 			strings.Join(titles, " · "))
 	}
-	if hits, err := w.WikiSearch(ctx, q, 1); err == nil && len(hits) > 0 && !hits[0].Stale {
-		p := hits[0]
-		hook := text.Clip(firstNonBlankLine(p.Body), 160)
-		b.WriteString("\nwiki page likely relevant to this request: [" + text.Clip(p.Title, 80) + "] " + hook +
-			" — recall_memory pulls the full page")
+	// A few hits, first FRESH one wins: an exact-title match on a stale page leads the ranking by
+	// design (a tombstone is still the best answer to its own title), but the pointer's job is to
+	// advertise a live page — a stale leader must not silence a fresh runner-up one slot below.
+	if hits, err := w.WikiSearch(ctx, q, 3); err == nil {
+		for _, p := range hits {
+			if p.Stale {
+				continue
+			}
+			hook := text.Clip(firstNonBlankLine(p.Body), 160)
+			b.WriteString("\nwiki page likely relevant to this request: [" + text.Clip(p.Title, 80) + "] " + hook +
+				" — recall_memory pulls the full page")
+			break
+		}
 	}
 	return b.String()
 }
@@ -357,7 +365,10 @@ func (a *App) wikiNeighborNote(ctx context.Context, page string) string {
 			}
 		}
 		if len(want) > 0 && n*2 >= len(want) { // half the new title's words already name a page
-			return "note: page [" + h.Title + "] looks related — if this is the same topic, " +
+			// Clipped like every other rendering of a synced title (formatWikiPages): this note
+			// rides the remember tool's success text into context, and a degenerate foreign
+			// title must not ride in whole through the one site the clipping pass missed.
+			return "note: page [" + text.Clip(h.Title, 80) + "] looks related — if this is the same topic, " +
 				"update that page next time instead of a near-duplicate title"
 		}
 	}

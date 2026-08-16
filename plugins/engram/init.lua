@@ -215,21 +215,34 @@ local function is_data_row(line)
     and not string.match(t, "^|%s*:?%-%-")
 end
 
--- 원장 행 파싱: "|" 구분 컬럼(공백 트림). Lua 패턴에 lazy 빈 캡처 함정이 있어
--- 비지 않은 세그먼트만 뽑는다: | 일시 | 사용자 | 분류 | 작업 | 접근 | 결과 | 교훈 |
+-- 원장 행의 판정과 분해는 이 한 곳이다: 다이제스트 번호·정정(replaces) 대상·상한 정리가
+-- 전부 같은 행 집합을 봐야 한다(어긋나면 번호가 밀려 엉뚱한 행이 아카이브된다). "≥7컬럼
+-- |행"만으로는 부족했다 — 사람이 산문 구역에 둔 7컬럼 표(주간 일정표)가 헤더째 원장으로
+-- 읽혀 사이드카에 "기존 교훈"으로 나가고 정정·상한의 표적이 됐다(4라운드 검수, 실측).
+-- 원장 행의 제1컬럼은 magi.time()의 RFC3339 일시다: 날짜꼴 첫 컬럼을 요구하면 사람의 표는
+-- 형태로 갈라지고, 날짜 없는 행은 원장이 아니라 사람 몫으로 취급돼 어느 경로도 손대지
+-- 않는다. 들여쓴 행의 선행 공백이 세그먼트 하나로 세리며 컬럼을 밀던 것도 트림으로 봉한다.
+-- (Lua 패턴에 lazy 빈 캡처 함정이 있어 비지 않은 세그먼트만 뽑는다.)
+local function ledger_cells(line)
+  if not is_data_row(line) then return nil end
+  local cols = {}
+  for c in string.gmatch(string.gsub(line, "^%s+", ""), "[^|]+") do
+    cols[#cols + 1] = string.gsub(c, "^%s*(.-)%s*$", "%1")
+  end
+  if #cols < 7 then return nil end
+  if not string.match(cols[1], "^%d%d%d%d%-%d%d%-%d%d") then return nil end
+  return cols
+end
+
+-- 원장 파싱: | 일시 | 사용자 | 분류 | 작업 | 접근 | 결과 | 교훈 |
 -- 활성부만 읽는다 — 정정으로 밀려난 옛 주장이 새 기록을 중복으로 막으면 안 된다.
 local function ledger_rows()
   local active = split_ledger(magi.read_file(SUMMARY))
   if active == "" then return {} end
   local rows = {}
   for line in string.gmatch(active, "[^\n]+") do
-    if is_data_row(line) then
-      local cols = {}
-      for c in string.gmatch(line, "[^|]+") do
-        cols[#cols + 1] = string.gsub(c, "^%s*(.-)%s*$", "%1")
-      end
-      if #cols >= 7 then rows[#rows + 1] = cols end
-    end
+    local cols = ledger_cells(line)
+    if cols then rows[#rows + 1] = cols end
   end
   return rows
 end
@@ -293,15 +306,8 @@ local function append_lesson(entry, replaces)
 
   -- 활성부를 줄 단위로 해체해 데이터 행 위치를 잡는다. 빈 줄을 **보존**하는 분해다 —
   -- "[^\n]+"는 빈 줄을 삼켜, 수제 산문의 문단 나눔과 헤딩 앞 공백을 첫 기록에 전부
-  -- 뭉개버렸다. 그리고 데이터 행 판정은 원장 파싱(ledger_rows)과 **같은 7컬럼 기준**이어야
-  -- 한다: 다이제스트의 (n)은 7컬럼 행만 세는데 여기서 아무 |줄이나 세면 번호가 어긋나
-  -- replaces가 옆 행을, 상한 정리가 사람이 쓴 다른 표의 행을 아카이브했다.
-  local function is_ledger_row(line)
-    if not is_data_row(line) then return false end
-    local cols = 0
-    for _ in string.gmatch(line, "[^|]+") do cols = cols + 1 end
-    return cols >= 7
-  end
+  -- 뭉개버렸다. 행 판정은 원장 파싱(ledger_rows)과 같은 ledger_cells 하나다 — 여기서 다른
+  -- 기준을 쓰면 다이제스트의 (n)과 번호가 어긋나 replaces가 옆 행을 아카이브한다.
   local lines, data_at = {}, {}
   local rest = active
   while rest ~= "" do
@@ -315,7 +321,7 @@ local function append_lesson(entry, replaces)
       rest = ""
     end
     lines[#lines + 1] = line
-    if is_ledger_row(line) then data_at[#data_at + 1] = #lines end
+    if ledger_cells(line) then data_at[#data_at + 1] = #lines end
   end
   while #lines > 0 and lines[#lines] == "" do table.remove(lines) end
   if #data_at == 0 and not string.find(active, LEDGER_HEADER, 1, true) then
@@ -335,6 +341,7 @@ local function append_lesson(entry, replaces)
     archive = string.gsub(archive, "%s*$", "") .. "\n" .. line .. " ← " .. why .. "\n"
   end
 
+  local anchored = false
   if replaces and data_at[replaces] then
     -- 내용 앵커: 번호는 사이드카 호출 **전**의 다이제스트에서 왔고, 느린 호출 동안 다른
     -- 턴이나 사람이 원장을 고치면 번호가 밀린다(위치 주소의 숙명). 대상 행이 새 교훈과
@@ -349,18 +356,23 @@ local function append_lesson(entry, replaces)
     if inter >= 2 then
       to_archive(target, "정정됨(" .. row[1] .. ")")
       table.remove(lines, data_at[replaces])
+      anchored = true
     end
   end
+  -- 정정이 일반 추가로 강등되는 순간, 정정이라서 면제했던 중복 가드가 다시 선다: 이 행은
+  -- 중복 검사를 통과한 적이 없다. 강등된 채 그냥 덧붙이면 옛 주장과 미정정 새 주장이
+  -- 나란히 남는다 — 원장이 스스로 최악이라 부르는 상태다.
+  if replaces and not anchored and string.find(active, signature, 1, true) then return false end
   lines[#lines + 1] = "| " .. table.concat(row, " | ") .. " |"
 
   -- 상한: 오래된 데이터 행부터 아카이브로. (원장 행만 — 사람이 쓴 다른 표는 건드리지 않는다)
   local n = 0
   for _, l in ipairs(lines) do
-    if is_ledger_row(l) then n = n + 1 end
+    if ledger_cells(l) then n = n + 1 end
   end
   local i = 1
   while n > MAX_ACTIVE_ROWS and i <= #lines do
-    if is_ledger_row(lines[i]) then
+    if ledger_cells(lines[i]) then
       to_archive(lines[i], "오래됨(상한 " .. MAX_ACTIVE_ROWS .. "행)")
       table.remove(lines, i)
       n = n - 1
@@ -575,6 +587,12 @@ local function analyze_and_record(sid, hint, user, used_csv)
   -- 검증된 성공의 스킬만 저장 (사이드카 프롬프트의 결정 규칙이 1차 게이트)
   local skill = result.skill
   if skill and skill.name and skill.technique then
+    -- 되돌리기 스냅샷은 저장 **전**에 뜬다: 같은 name 재사용(머지·진화) 저장의 취소는
+    -- "삭제"가 아니라 "이전 판 복원"이어야 한다 — 삭제는 이번 턴이 만든 것이 아니라
+    -- 이전에 승인받고 사람이 다듬었을 수도 있는 스킬 전체를 지운다(4라운드 검수, 실측).
+    local pslug = slugify(skill.name)
+    local prev_body = magi.read_file(SKILLS_DIR .. "/" .. pslug .. "/SKILL.md") or ""
+    local prev_verify = magi.read_file(SKILLS_DIR .. "/" .. pslug .. "/scripts/verify.sh") or ""
     local slug = save_skill(skill)
     -- nil = 유사-스킬 백스톱이 생성을 막았다. 여기서 그대로 이어가면 nil 연결(concat)이
     -- 핸들러 전체를 죽여 이 턴의 prune까지 건너뛴다 — 백스톱이 발동할 때마다.
@@ -582,7 +600,11 @@ local function analyze_and_record(sid, hint, user, used_csv)
     magi.log("engram: 스킬 저장 — " .. slug)
     -- 세션 키와 함께: 취소 창이 스토어 전역이면, 다른 세션의 무관한 질문에 "아니요"라
     -- 답한 것이 이 스킬을 지웠다. 창은 저장을 목격한 그 대화의 것이다.
-    magi.store_set("last_skill", sid .. "\t" .. slug)
+    -- 창 키는 세션별이다: 한 칸짜리 전역 창은 다른 세션의 저장이 이 세션의 창을 덮어,
+    -- 방금 "N이라고 하면 되돌립니다"라고 들은 사용자의 N이 조용히 무시됐다.
+    magi.store_set("last_skill:" .. sid, sid .. "\t" .. slug)
+    magi.store_set("last_skill_prev:" .. sid, prev_body)
+    magi.store_set("last_skill_prev_verify:" .. sid, prev_verify)
     magi.notify(sid, "engram: 검증된 성공에서 스킬 '" .. slug
       .. "' 을(를) 자동 저장했습니다. 잘못 저장됐으면 'N' 또는 '스킬 취소'라고 입력하면 되돌립니다.")
     local _, perr = magi.propose_experience{
@@ -609,12 +631,41 @@ local function is_denial(text)
   return false
 end
 
+-- 취소 창의 스냅샷 키 정리 — 창을 닫는 모든 경로(취소 실행·비부정 응답)가 같이 부른다.
+local function clear_undo_window(sid)
+  magi.store_set("last_skill:" .. sid, "")
+  magi.store_set("last_skill_prev:" .. sid, "")
+  magi.store_set("last_skill_prev_verify:" .. sid, "")
+end
+
 -- 마지막 자동 저장 스킬의 취소(undo): 저장 직후 "다음 사용자 메시지"까지가 취소 창.
+-- 두 모드: 이번 턴이 스킬을 **만든** 것이면 삭제, 기존 스킬을 **덮어쓴** 것이면(머지 저장)
+-- 저장 전 스냅샷으로 복원 — 삭제는 이전에 승인받은 스킬 전체를 날리는 데이터 손실이었다.
 local function undo_last_skill(sid)
-  local rec = magi.store_get("last_skill")
+  local rec = magi.store_get("last_skill:" .. sid)
   if not rec or rec == "" then return false end
   local owner, slug = string.match(rec, "^([^\t]*)\t(.*)$")
   if not slug or slug == "" or owner ~= sid then return false end
+  local prev = magi.store_get("last_skill_prev:" .. sid) or ""
+  if prev ~= "" then
+    magi.write_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md", prev)
+    local vpath = SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh"
+    local pv = magi.store_get("last_skill_prev_verify:" .. sid) or ""
+    if pv ~= "" then
+      magi.write_file(vpath, pv)
+    elseif magi.read_file(vpath) then
+      magi.remove_file(vpath) -- 이번 저장이 새로 만든 부속 — 이전 판엔 없었다
+    end
+    -- 인덱스 설명도 이전 판의 frontmatter에서 되살린다. yaml_quote 역파싱 대신 원문 그대로 —
+    -- 인덱스는 유사도 토큰용이라 따옴표가 남아도 무해하다. (사용실적·망각시계는 안 건드린다:
+    -- 이 스킬은 이번 턴 전부터 있었고 시계도 그때부터 돌고 있었다.)
+    local pdesc = string.match(prev, "\ndescription:%s*([^\n]*)") or ""
+    index_skill(slug, pdesc)
+    clear_undo_window(sid)
+    magi.notify(sid, "engram: 스킬 '" .. slug .. "' 을(를) 이번 턴 저장 전의 판으로 되돌렸습니다.")
+    magi.log("engram: 스킬 되돌림(이전 판 복원) — " .. slug)
+    return true
+  end
   magi.remove_file(SKILLS_DIR .. "/" .. slug)
   -- 인덱스·사용실적·망각시계에서도 제거 — 시계를 남기면 같은 이름으로 재생성된 스킬이
   -- 취소된 전임자의 날짜를 물려받아 조기 아카이브된다.
@@ -625,7 +676,7 @@ local function undo_last_skill(sid)
     end
     magi.store_set(key, table.concat(out, "\n"))
   end
-  magi.store_set("last_skill", "")
+  clear_undo_window(sid)
   magi.notify(sid, "engram: 스킬 '" .. slug .. "' 저장을 취소(삭제)했습니다.")
   magi.log("engram: 스킬 취소 — " .. slug)
   return true
@@ -634,14 +685,14 @@ end
 magi.on("user_message", function(ev)
   -- 취소 창: 직전에 자동 저장된 스킬이 있으면, 이 메시지가 짧은 부정이면 되돌리고
   -- 아니면 창을 닫는다(one-shot — 다음-턴 취소 시맨틱).
-  local last = magi.store_get("last_skill")
+  local last = magi.store_get("last_skill:" .. ev.session)
   if last and last ~= "" then
     local owner = string.match(last, "^([^\t]*)\t") or ""
     if owner == ev.session then
       if is_denial(ev.text) then
         undo_last_skill(ev.session)
       else
-        magi.store_set("last_skill", "")
+        clear_undo_window(ev.session)
       end
     end
   end

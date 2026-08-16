@@ -102,7 +102,10 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		// A wiki page's DEFAULT tier is TEAM, not the project: a page is written to be read by
 		// the OTHER companions — that is its whole reason to exist — and a workspace-local
 		// default would file it where they never look. Only the unstated case: an explicit
-		// "project" scope routes a page like anything else.
+		// "project" scope routes a page like anything else. A MIXED unscoped contribution
+		// (wiki edits beside memories or skills) keeps the project default for the whole batch
+		// — no producer mixes them today (remember sends a page alone), and one contribution
+		// landing in two tiers would be worse than either default.
 		if len(c.Wiki) > 0 && len(c.Memories) == 0 && len(c.Skills) == 0 {
 			order = []*expgit.Store{s.team, s.project, s.global}
 		}

@@ -299,3 +299,78 @@ func TestTitleCaseVariantsShareOneChain(t *testing.T) {
 		t.Fatalf("variants must converge to one page with the later edit current: %+v", hits)
 	}
 }
+
+// Round 4: the write-time seq must come from the SAME bucket the readers compute. A legacy chain
+// whose directory spelling differs from sanitize(title) — here a double-spaced original — used to
+// escape the write's two-directory union, so the correction landed at seq 1 and the old claim
+// kept winning while the tool answered "updated".
+func TestAnEditOutranksALegacyChainInAThirdDir(t *testing.T) {
+	s := New(t.TempDir())
+	ctx := context.Background()
+	// A pre-fold chain: dir named for the raw double-spaced title, revisions carrying that title.
+	legacyDir := filepath.Join(s.dir, "wiki", "revisions", sanitize("auth  flow"))
+	if legacyDir == filepath.Join(s.dir, "wiki", "revisions", sanitize("auth flow")) {
+		t.Fatal("precondition: the legacy dir must differ from sanitize of the folded title")
+	}
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := wikiRevision{Title: "auth  flow", Editor: "m", TS: "2026-01-01T00:00:00Z",
+		Summary: "old owner", Body: "OLD: gateway refreshes tokens", seq: 3}
+	if err := os.WriteFile(filepath.Join(legacyDir, "0003-m-x.md"), []byte(renderWikiRevision(old)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wikiWriteT(t, s, "auth flow", "NEW: the sidecar refreshes tokens", "corrected owner", "casper")
+
+	pages, err := s.WikiSearch(ctx, "auth flow", 3)
+	if err != nil || len(pages) == 0 {
+		t.Fatalf("search: %v %d", err, len(pages))
+	}
+	if !strings.Contains(pages[0].Body, "NEW:") {
+		t.Errorf("the correction must outrank the whole bucket, legacy dirs included; current page:\n%s", pages[0].Body)
+	}
+}
+
+// Round 4: the cache orphan sweep must not delete the page it just wrote. On a case-insensitive
+// filesystem a legacy-cased pages/ entry IS the freshly-written folded file under an old
+// directory-entry spelling; removing it emptied the cache (and handed git a spurious deletion).
+// On a case-sensitive filesystem the legacy-cased file is a genuine duplicate and must still go.
+// The assertion is spelled to pass on both: after a refresh, exactly one cache file folds to the
+// page's slug and it carries the winner.
+func TestRefreshSurvivesALegacyCasedCacheFile(t *testing.T) {
+	s := New(t.TempDir())
+	wikiWriteT(t, s, "auth flow", "the sidecar refreshes tokens", "mapping", "melchior")
+	// The legacy-cased entry must exist BEFORE the folded one, or a case-insensitive filesystem
+	// routes the write into the existing lowercase entry and the sweep never faces the mismatch.
+	pageDir := filepath.Join(s.dir, "wiki", "pages")
+	if err := os.RemoveAll(pageDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pageDir, "Auth-Flow.md"), []byte("stale legacy cache\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.WikiRefreshPages()
+	ents, err := os.ReadDir(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var matches []string
+	for _, e := range ents {
+		if strings.EqualFold(e.Name(), "auth-flow.md") {
+			matches = append(matches, e.Name())
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("want exactly one cache file for the page, got %v", matches)
+	}
+	b, err := os.ReadFile(filepath.Join(pageDir, matches[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "sidecar refreshes tokens") {
+		t.Errorf("the surviving cache file must carry the winner, got:\n%s", b)
+	}
+}

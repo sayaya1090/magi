@@ -50,17 +50,17 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	// No renaming of a pre-fold legacy chain: a rename raced the set-union sync (a peer still
 	// holding the legacy files re-offered them, absorb recreated the dir, and the page came back
 	// twice) and behaved differently on case-insensitive filesystems. Chains that fold to one
-	// title are instead UNIFIED AT READ TIME (wikiPages buckets revisions by their title's slug),
+	// title are instead UNIFIED AT READ TIME (wikiBuckets groups revisions by their title's slug),
 	// which no rename can race. New revisions land in the folded dir; the seq continues from the
-	// whole bucket, legacy included, so an edit always outranks the chain it corrects.
+	// SAME bucket the readers compute — not from a guessed pair of directories, which missed a
+	// legacy chain whose dir spelling differed from sanitize(title) (a double-spaced or
+	// case-variant original), landed the correction at seq 1, and let the chain it corrected keep
+	// winning while the tool answered "updated".
 	if err := os.MkdirAll(revDir, 0o755); err != nil {
 		return err
 	}
-	revs := readWikiRevisions(revDir)
-	if legacy := filepath.Join(s.dir, "wiki", "revisions", sanitize(title)); legacy != revDir {
-		revs = append(revs, readWikiRevisions(legacy)...)
-		sortWikiRevisions(revs)
-	}
+	revs := wikiBuckets(filepath.Join(s.dir, "wiki", "revisions"))[slug]
+	sortWikiRevisions(revs)
 	seq := 1
 	if len(revs) > 0 {
 		seq = revs[0].seq + 1
@@ -381,23 +381,10 @@ func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {
 // revisions; only the human-facing cache is at stake.
 func (s *Store) WikiRefreshPages() {
 	root := filepath.Join(s.dir, "wiki", "revisions")
-	ents, err := os.ReadDir(root)
-	if err != nil {
-		return
+	if _, err := os.Stat(root); err != nil {
+		return // no revisions ever landed: nothing to render, and no pages/ dir to invent
 	}
-	buckets := map[string][]wikiRevision{}
-	for _, e := range ents {
-		if !e.IsDir() {
-			continue
-		}
-		for _, r := range readWikiRevisions(filepath.Join(root, e.Name())) {
-			key := wikiSlug(r.Title)
-			if strings.TrimSpace(r.Title) == "" {
-				key = e.Name()
-			}
-			buckets[key] = append(buckets[key], r)
-		}
-	}
+	buckets := wikiBuckets(root)
 	pageDir := filepath.Join(s.dir, "wiki", "pages")
 	if err := os.MkdirAll(pageDir, 0o755); err != nil {
 		return
@@ -411,10 +398,24 @@ func (s *Store) WikiRefreshPages() {
 	if cached, err := os.ReadDir(pageDir); err == nil {
 		for _, f := range cached {
 			name := strings.TrimSuffix(f.Name(), ".md")
-			if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") && len(buckets[name]) == 0 {
-				if rerr := os.Remove(filepath.Join(pageDir, f.Name())); rerr != nil { //nolint:staticcheck
-					// An orphan cache file that will not leave costs a duplicate in the human view only.
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") || len(buckets[name]) > 0 {
+				continue
+			}
+			// On a case-insensitive filesystem a legacy-cased entry ("Auth-Flow.md") IS the file
+			// the folded write above just landed — the rename kept the old directory-entry
+			// spelling — so removing it would empty the cache this refresh wrote and hand git a
+			// spurious deletion. Same inode, same file: keep it. A genuinely distinct
+			// legacy-cased file (case-sensitive filesystem) is a duplicate in the human view and
+			// still goes.
+			if low := strings.ToLower(name); low != name && len(buckets[low]) > 0 {
+				a, aerr := os.Stat(filepath.Join(pageDir, f.Name()))
+				b, berr := os.Stat(filepath.Join(pageDir, low+".md"))
+				if aerr == nil && berr == nil && os.SameFile(a, b) {
+					continue
 				}
+			}
+			if rerr := os.Remove(filepath.Join(pageDir, f.Name())); rerr != nil { //nolint:staticcheck
+				// An orphan cache file that will not leave costs a duplicate in the human view only.
 			}
 		}
 	}
@@ -428,14 +429,16 @@ func (s *Store) WikiList(ctx context.Context) []port.WikiPage {
 	return pages
 }
 
-// wikiPages derives every current page from the revision sets, BUCKETED by each revision's own
-// title slug: chains that fold to one title — a pre-fold legacy dir beside its folded successor,
-// a case-variant dir a sync delivered from a differently-cased filesystem — are one page, with
-// one winner computed over the union. Read-time unification is what a rename-based migration
-// could not be: nothing races it, nothing resurrects, and every replica computes it identically
-// from whatever set of directories it happens to hold.
-func (s *Store) wikiPages() []port.WikiPage {
-	root := filepath.Join(s.dir, "wiki", "revisions")
+// wikiBuckets reads every revision under root and groups it by the slug of its OWN title. This is
+// THE grouping — the one fact every reader and writer must agree on: chains that fold to one
+// title — a pre-fold legacy dir beside its folded successor, a case-variant dir a sync delivered
+// from a differently-cased filesystem — are one page, with one winner computed over the union.
+// Read-time unification is what a rename-based migration could not be: nothing races it, nothing
+// resurrects, and every replica computes it identically from whatever set of directories it
+// happens to hold. wikiWrite draws its next seq from the same buckets, so an edit outranks the
+// WHOLE chain it corrects — round 4 found the write-time union guessing two directories and
+// losing to a third the readers could see.
+func wikiBuckets(root string) map[string][]wikiRevision {
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		return nil
@@ -453,6 +456,12 @@ func (s *Store) wikiPages() []port.WikiPage {
 			buckets[key] = append(buckets[key], r)
 		}
 	}
+	return buckets
+}
+
+// wikiPages derives every current page from the bucketed revision sets (see wikiBuckets).
+func (s *Store) wikiPages() []port.WikiPage {
+	buckets := wikiBuckets(filepath.Join(s.dir, "wiki", "revisions"))
 	var out []port.WikiPage
 	for _, revs := range buckets {
 		sortWikiRevisions(revs)
