@@ -47,6 +47,11 @@ const (
 var (
 	spawnCallStepBudget = 240
 	spawnCallDeadline   = 45 * time.Minute
+	// spawnMaxParallel bounds how many of one call's children RUN at once (spawn_all fans out a
+	// goroutine per child and nothing else counts them). A dumb number like the rest: each child
+	// is a whole agent loop against the same backend, and past a handful they are queueing on the
+	// model anyway. A var so a test can lower it and actually observe the gate.
+	spawnMaxParallel = 4
 )
 
 // spawnChild runs one child agent to completion and returns what it produced. onProgress, when
@@ -96,13 +101,28 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 			return port.SpawnResult{}, fmt.Errorf("spawn: %w", err)
 		}
 		workdir, workspace, base = dir, dir, b
+		// Say so, where the child reads. The file tools' jail follows its workdir and the OS
+		// sandbox is pinned below, so this states a boundary the child is actually held to —
+		// a constraint enforced without being announced is the kind of surprise this tree
+		// refuses on principle.
+		spec.System = strings.TrimSpace(spec.System + "\n\n" +
+			"You work in your own checkout of the repository: " + workspace + ". The file tools " +
+			"are jailed to it, and shell writes outside it are refused where the platform can " +
+			"enforce that. Do all your work inside this checkout — when you finish, the caller " +
+			"decides whether your changes travel home as a commit range.")
 	}
 
 	// Parent is what keeps the child out of the resume list; the store already hides sessions that
-	// carry one.
+	// carry one. Project files a cloned child's log under the PARENT's project — keyed by its own
+	// temp clone it would land where no child listing ever scans.
+	project := ""
+	if workspace != "" {
+		project = parent.Workdir
+	}
 	child, err := a.CreateSession(ctx, command.CreateSession{
 		Workdir: workdir,
 		Parent:  string(parent.ID),
+		Project: project,
 		Agent:   spawnAgentName,
 		Model:   model,
 		Actor:   actor,
@@ -116,6 +136,16 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// parent's is what scratch.go's own comment describes: a child inherits the pointer and must
 	// not remove it.
 	a.setScratch(child, a.scratchFor(parent.ID))
+
+	// A child with its own checkout has its shell held to it too. The file tools' jail follows the
+	// child's workdir by construction; bash does not — its confinement is the OS sandbox, and the
+	// global setting defaults to unconfined. Pinning "workspace-write" here is what makes the
+	// isolation a property of the child rather than of the operator's config, and effectiveSandbox
+	// keeps a STRICTER global setting in charge. Best effort by platform (seatbelt/bwrap; a
+	// platform with neither runs unwrapped) — the jail on the file tools holds regardless.
+	if workspace != "" {
+		a.setSandboxMode(child, "workspace-write")
+	}
 
 	// Seed it VERBATIM. seedTurnTask at depth>0 takes the last user prompt from the child's log,
 	// so this one prompt is the whole task, unrewritten.
@@ -259,6 +289,21 @@ func onlyLooks(reg port.ToolRegistry, toolName string, want []string) error {
 	return nil
 }
 
+// childCanWrite reports whether a spec's tool list leaves the child able to change anything: a
+// named tool that is not one of the readers, or no list at all — an empty list means "whatever the
+// agent spec defaults to", and the default set writes.
+func childCanWrite(names []string) bool {
+	if len(names) == 0 {
+		return true
+	}
+	for _, n := range names {
+		if !readOnlyTools[n] {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID, toolName string) (
 	func(context.Context, port.SpawnSpec) (port.SpawnResult, error),
 	func(context.Context, string) ([]port.ChildStep, error),
@@ -279,6 +324,9 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		// Where each child worked, so a later merge names a RANGE instead of a directory the
 		// caller had to remember. Per tool call, like the ownership set above it.
 		spaces = map[string][3]string{} // sid -> {workspace, base, head}
+		// How many children RUN at once. spawn_all starts a goroutine per child; this is the only
+		// thing between "ten children" and "ten agent loops at the same time".
+		slots = make(chan struct{}, spawnMaxParallel)
 	)
 	spawn := func(sctx context.Context, spec port.SpawnSpec) (port.SpawnResult, error) {
 		// Check and reserve under the lock. Spawns from one plugin serialise on its own mutex
@@ -325,6 +373,19 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		if err := onlyLooks(a.tools, toolName, spec.Tools); err != nil {
 			return port.SpawnResult{}, err
 		}
+		// IsolatedChildren is applied here for the same reason ReadOnlyChildren is checked here:
+		// this is the one place a child's workspace is decided. A tool that made the declaration
+		// gets each writing child its own clone whether or not the spec repeated it — the loop runs
+		// two of these tools at once on the strength of the declaration, and what it is promising
+		// about is two children writing the same tree. A child that can only read keeps the shared
+		// tree: it has nothing to collide over, and a clone would cost it a copy to see a staler
+		// version of what it already had.
+		if a.tools != nil {
+			if t, ok := a.tools.Get(toolName); ok && port.ToolMetaOf(t).IsolatedChildren &&
+				childCanWrite(spec.Tools) {
+				spec.Workspace = "clone"
+			}
+		}
 		if m, pv := a.subagentOverride(toolName); m != "" || pv != "" {
 			if m != "" {
 				spec.Model = m
@@ -333,9 +394,19 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 				spec.Provider = pv
 			}
 		}
+		// The gate sits AFTER the budget reservation and the spec checks, so a child that will be
+		// refused is refused at once instead of holding a slot to hear no. Waiting respects the
+		// child's own context: a cancelled batch stops queueing instead of starting children into
+		// a turn that has already ended.
+		select {
+		case slots <- struct{}{}:
+		case <-sctx.Done():
+			return port.SpawnResult{}, fmt.Errorf("spawn: %w", sctx.Err())
+		}
 		res, err := a.spawnChild(sctx, s, actor, spec, func(line string) {
 			a.emitToolProgress(s.ID, actor, callID, toolName, line)
 		})
+		<-slots
 		// Charge what the child actually spent, including when it failed — a child that burned
 		// twenty steps and then errored consumed the same model work as one that succeeded, and a
 		// loop that only pays for successes is not bounded at all. The floor of 1 is so a child

@@ -108,6 +108,12 @@ type sessionState struct {
 	// re-anchored task here each step; the council prefers it over the recomputed one. Empty outside
 	// a turn.
 	liveTurnTask string
+	// sandboxMode, when set, overrides the config's OS-sandbox mode for THIS session's tools —
+	// a child spawned into its own checkout runs its shell under "workspace-write" so its writes
+	// stay in that checkout, whatever the parent's global setting. Never weaker than the config:
+	// effectiveSandbox keeps "read-only" when the config says so. Whole-session: a child's
+	// confinement is part of what it was spawned as, not something a turn boundary revisits.
+	sandboxMode string
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	scratch       *turnScratch    // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
 	interjectSeen map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
@@ -245,6 +251,37 @@ func (a *App) setPromptTokens(sid session.SessionID, n int) {
 	a.mu.Lock()
 	a.stateLocked(sid).lastPromptTokens = n
 	a.mu.Unlock()
+}
+
+// setSandboxMode pins a session's OS-sandbox mode — spawnChild sets it on a child that got its own
+// checkout, so the child's shell writes stay there.
+func (a *App) setSandboxMode(sid session.SessionID, mode string) {
+	a.mu.Lock()
+	a.stateLocked(sid).sandboxMode = mode
+	a.mu.Unlock()
+}
+
+// sandboxModeFor answers what OS-sandbox mode this session's tools run under: the config's, unless
+// the session carries an override and the override is not WEAKER than the config.
+func (a *App) sandboxModeFor(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok && st.sandboxMode != "" {
+		return effectiveSandbox(a.cfg.Sandbox, st.sandboxMode)
+	}
+	return a.cfg.Sandbox
+}
+
+// effectiveSandbox merges the config's sandbox mode with a per-session override. The override may
+// tighten, never loosen: a config that says "read-only" keeps saying it, and "workspace-write"
+// already confines at least as much as the override asks. Only an unconfined config ("" or "full")
+// yields to the override — an isolated child's confinement is the contract its parallelism rests
+// on, so an unconfined default does not undo it.
+func effectiveSandbox(global, override string) string {
+	if override == "" || global == "read-only" || global == "workspace-write" {
+		return global
+	}
+	return override
 }
 
 // resetForNewTopLevel clears the per-task state that must not leak from a finished

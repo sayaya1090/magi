@@ -23,6 +23,10 @@ type SessionCreatedData struct {
 	// Parent is set for subagent (child) sessions to the spawning session's id;
 	// empty for top-level user sessions. Lets the resume list hide subagents.
 	Parent string `json:"parent,omitempty"`
+	// Project, when set, names the directory whose project this log belongs to instead of
+	// Workdir — a child in its own temp clone files under its parent's project so the views
+	// that list children can find it. The store's path routing reads this.
+	Project string `json:"project,omitempty"`
 }
 
 // PromptSubmittedData — TypePromptSubmitted (role=user).

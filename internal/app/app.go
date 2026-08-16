@@ -185,7 +185,8 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 	}
 	a.mu.Unlock()
 
-	data, _ := json.Marshal(event.SessionCreatedData{Workdir: c.Workdir, Agent: c.Agent, Model: model, Parent: c.Parent})
+	data, _ := json.Marshal(event.SessionCreatedData{Workdir: c.Workdir, Agent: c.Agent, Model: model,
+		Parent: c.Parent, Project: c.Project})
 	if err := a.appendFact(ctx, sid, event.TypeSessionCreated, c.Actor, data); err != nil {
 		return "", err
 	}

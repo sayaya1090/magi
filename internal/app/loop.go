@@ -703,14 +703,16 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		// A subagent runs a whole child turn, which writes files under the PARENT's guard — and the
 		// guard's before/after capture assumes writes to a file are serialised.
 		//
-		// Unless the children cannot write. A tool that declares ReadOnlyChildren has every spawn
+		// Unless the children cannot collide. A tool that declares ReadOnlyChildren has every spawn
 		// checked against that claim at the moment it is made (see spawnFnFor), so two of them have
 		// nothing to race over — and running them one after the other is two whole child turns of
-		// wall clock for work that shares nothing.
+		// wall clock for work that shares nothing. IsolatedChildren reaches the same safety the
+		// other way: its writing children each get their own checkout (the default is applied where
+		// the workspace is decided), so there is still no shared tree for the guard to worry about.
 		if a.tools != nil {
 			if t, ok := a.tools.Get(tc.Name); ok {
 				m := port.ToolMetaOf(t)
-				if m.Subagent && !m.ReadOnlyChildren {
+				if m.Subagent && !m.ReadOnlyChildren && !m.IsolatedChildren {
 					return false
 				}
 			}

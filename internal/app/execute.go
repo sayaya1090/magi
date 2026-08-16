@@ -448,7 +448,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// confined mode still confines the FILESYSTEM, but ssh/curl/apt/pip work. Without this a
 		// benchmark run silently loses network the moment a container has bwrap/sandbox-exec, and
 		// subagents (same execute path) inherit it too.
-		Sandbox: port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir, AllowNet: a.cfg.Permission == "allow",
+		Sandbox: port.SandboxSpec{Mode: a.sandboxModeFor(sid), Workdir: workdir, AllowNet: a.cfg.Permission == "allow",
 			ReadOnly: readOnlyPaths(a.cfg)},
 	})
 	if err != nil {

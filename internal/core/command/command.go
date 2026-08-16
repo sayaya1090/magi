@@ -14,10 +14,15 @@ type CreateSession struct {
 	Workdir string `json:"workdir"`
 	// Parent is the spawning session's id for a CHILD session, empty for a user session. It is
 	// what keeps a child out of the resume list (the store hides sessions that have one).
-	Parent string           `json:"parent,omitempty"`
-	Agent  string           `json:"agent"`
-	Model  session.ModelRef `json:"model"`
-	Actor  event.Actor      `json:"actor"`
+	Parent string `json:"parent,omitempty"`
+	// Project is the directory whose project this session's log belongs to, when that is not the
+	// Workdir. A child working in its own clone under /tmp still belongs to the PARENT's project —
+	// keyed by the clone path its log would land where ChildSessions never scans, and the child
+	// would vanish from every view that lists a parent's children. Empty means Workdir.
+	Project string           `json:"project,omitempty"`
+	Agent   string           `json:"agent"`
+	Model   session.ModelRef `json:"model"`
+	Actor   event.Actor      `json:"actor"`
 }
 
 // SubmitPrompt appends a user prompt and runs the agent loop (async).

@@ -216,6 +216,13 @@ func (s *Store) pathFor(sid session.SessionID, evs []event.Event) (string, error
 			if err := json.Unmarshal(e.Data, &d); err != nil {
 				return "", fmt.Errorf("jsonl: bad session.created data: %w", err)
 			}
+			// Project outranks Workdir for WHERE THE LOG LIVES. A child working in its own
+			// temp clone still belongs to its parent's project; keyed by the clone path its
+			// log would land in a directory ChildSessions never scans, and the child would
+			// vanish from every view that lists a parent's children.
+			if d.Project != "" {
+				return s.sessionPath(d.Project, sid), nil
+			}
 			return s.sessionPath(d.Workdir, sid), nil
 		}
 	}
@@ -665,7 +672,14 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 				// /x/a-b and /x/a/b resolve to one directory. Trust the workdir the session RECORDED,
 				// not the one that named the directory — skip a session that belongs to a different
 				// workdir, so ListSessions/ChildSessions never relabel one project's work as another's.
-				if d.Workdir != "" && d.Workdir != workdir {
+				// A session that recorded a Project belongs to THAT: its workdir is somewhere else
+				// on purpose (a child's own clone), and comparing against it would evict the child
+				// from the very directory the Project routing filed it under.
+				owner := d.Workdir
+				if d.Project != "" {
+					owner = d.Project
+				}
+				if owner != "" && owner != workdir {
 					continue
 				}
 				if d.Workdir != "" {

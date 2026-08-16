@@ -703,6 +703,16 @@ type ToolMetadata struct {
 	// declaration cannot become false by editing the plugin's execute function. Without that this
 	// would be a promise in a comment, and the thing it is promising about is file corruption.
 	ReadOnlyChildren bool
+	// IsolatedChildren says every child this tool spawns that could write works in its OWN
+	// checkout — the host defaults such a spawn to workspace="clone" and confines the child's
+	// shell writes there (see spawnChild). Two of those cannot touch one tree, so a step that
+	// calls this tool twice runs both at once, the same bargain ReadOnlyChildren strikes —
+	// reached by isolation instead of by taking writing away.
+	//
+	// Like ReadOnlyChildren it is a mechanism, not a promise: the default is applied where the
+	// child's workspace is decided (spawnFnFor), so a plugin cannot declare it and then quietly
+	// spawn a writer into the shared tree.
+	IsolatedChildren bool
 	// Group is a plugin-declared label for the /subagents list. Purely for display and bulk
 	// toggling — the enabled state lives per tool, never per group, so the two cannot disagree.
 	Group string
