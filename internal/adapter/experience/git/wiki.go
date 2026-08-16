@@ -53,8 +53,11 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	if summary == "" {
 		summary = firstLine(body) // tolerated, not refused: a refused write teaches a model to stop writing
 	}
+	// Nanosecond timestamps: two edits from two machines land within the same second routinely,
+	// and a seconds-granular tie falls through to the filename — deterministic, but "the later
+	// edit wins" should hold whenever the clocks can actually tell the edits apart.
 	rev := wikiRevision{
-		Title: title, Editor: editor, TS: time.Now().UTC().Format(time.RFC3339),
+		Title: title, Editor: editor, TS: time.Now().UTC().Format(time.RFC3339Nano),
 		Summary: summary, Links: e.Links, Body: body, seq: seq,
 	}
 	name := fmt.Sprintf("%04d-%s-%s.md", seq, sanitize(nonEmpty(editor, "unknown")), memoryID(body))

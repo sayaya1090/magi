@@ -101,6 +101,10 @@ func fleetServe(ctx context.Context, addr, configDir, host string, errOut io.Wri
 		}
 	}()
 	fmt.Fprintf(errOut, "magi: fleet door on %s — %s\n", ln.Addr(), id.Fingerprint())
+	// The anti-entropy half of exp-sync: this machine also reaches OUT, so two doors that are both
+	// up converge without either being asked. Lives with the door server because they are two
+	// halves of one method, and dies with its context.
+	go expSyncLoop(ctx, configDir, host, errOut)
 	if err := srv.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(errOut, "magi:", err)
 		return 1
@@ -131,6 +135,13 @@ func fleetHandle(w http.ResponseWriter, r *http.Request, configDir string) {
 	}
 	if json.Unmarshal(body, &ask) != nil {
 		answerFleet(w, daemon.Response{Err: "malformed request"})
+		return
+	}
+	// exp-sync is the door's ONE machine-level method: team knowledge belongs to the machine
+	// (every companion of that team here reads the same directory), so there is no companion
+	// socket to relay to — the door answers it itself. Everything else is a companion's.
+	if ask.Method == "exp-sync" {
+		expSyncHandle(w, configDir, body)
 		return
 	}
 	if !doorAllows(ask.Method) {
