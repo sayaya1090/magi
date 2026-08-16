@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -214,6 +215,15 @@ func TestAConsoleChangeCanAskForAnAnswerOrJustSayIt(t *testing.T) {
 		t.Fatal(serr)
 	}
 	a := New(st, nil, builtin.Default(), bus.New(), platform.OS{}, Config{})
+	// The asked half below STARTS a turn, and this test asserts on the log the moment it is
+	// written rather than waiting for that turn to end. Left running, it appends to the store
+	// while t.TempDir is removing it — "directory not empty", a failure that names cleanup and
+	// not the thing that is wrong. Registered after both TempDirs so it drains first.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = a.Close(ctx)
+	})
 	sid, cerr := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 	if cerr != nil {
 		t.Fatal(cerr)
