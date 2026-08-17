@@ -69,7 +69,26 @@ here because the question "would subagents have helped?" deserves an answer that
 
 The strongest result *against* the choice above: on search-heavy tasks (GAIA), orchestration beats
 the same backbone badly — 66.06 → 80.00 pass@1 ([AOrchestra][ao], Gemini-3-Flash). If magi's work
-looked like GAIA, this section would be wrong.
+looked like GAIA, this section would be wrong. Anthropic report the same shape from production: an
+orchestrator-worker Research system beat solo Opus 4 by 90.2% on their internal research eval
+([multi-agent research system][amrs]).
+
+Which makes the boundary they draw around that result the most useful sentence anyone has published
+on this question, since they are the team that shipped the thing:
+
+> coding has fewer truly parallelizable tasks than research, and models are not yet great at
+> coordinating and delegating to other agents in real time.
+
+Their fit criterion is breadth-first work with independent parallel directions and information
+exceeding one context window; their stated poor fit is domains needing shared context or heavy
+inter-agent dependencies, with coding named as the example. That is a description of the work magi
+does, written by people with every reason to argue the other way.
+
+Two more numbers from the same report change how the 90.2% reads.
+On BrowseComp three variables explain 95% of performance variance and **token usage alone explains
+80%** of it — and a multi-agent system spends about 15× the tokens of a chat against a single
+agent's 4×. So the winning configuration was also, by construction, the one spending far more of
+the variable that dominates the outcome, and the report does not separate the two.
 
 Then one result about imposed structure, and two that locate the advantage somewhere other than the
 sub-agents:
@@ -126,6 +145,7 @@ section claiming vindication as much as against the orchestration papers claimin
 [mat]: https://arxiv.org/pdf/2605.00803
 [small]: https://arxiv.org/pdf/2601.11327
 [scaf]: https://arxiv.org/pdf/2604.03515
+[amrs]: https://www.anthropic.com/engineering/multi-agent-research-system
 
 ---
 
