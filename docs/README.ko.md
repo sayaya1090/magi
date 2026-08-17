@@ -11,6 +11,7 @@
 |---|---|
 | [MANUAL](MANUAL.ko.md) · [English](MANUAL.md) | **사용 안내서.** 설치·실행·설정, TUI와 웹 콘솔을 처음부터 끝까지. |
 | [CONTEXT](CONTEXT.md) | **길잡이 (한국어).** 목표·아키텍처·턴 루프의 짧은 요약. |
+| [SECURITY](../SECURITY.ko.md) · [English](../SECURITY.md) | **신뢰 경계**를 한자리에: 툴 게이트, 워크스페이스, 콘솔, 플릿 — 그리고 일부러 막지 않는 것. |
 
 ## 참조 — 지어진 그대로의 시스템
 

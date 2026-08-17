@@ -504,6 +504,13 @@ Korean editions sit beside each one (`*.ko.md`).
 
 ---
 
+## Security
+
+magi reads your files, writes to them and runs commands, so it is worth knowing what stands between
+the model and your machine. [SECURITY.md](SECURITY.md) is the one page that says it: the tool gate,
+the workspace as a trust boundary, what the console does and does not authenticate, and — the
+section worth reading twice — what is deliberately not defended.
+
 ## License
 
 **Apache-2.0** — see [LICENSE](LICENSE). When reusing third-party code, keep the `NOTICE` and

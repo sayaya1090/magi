@@ -12,6 +12,7 @@ for its rationale.
 |---|---|
 | [MANUAL](MANUAL.md) · [한국어](MANUAL.ko.md) | **User guide.** Install, run, configure; the TUI and the web console, end to end. |
 | [CONTEXT](CONTEXT.md) | **Orientation (한국어).** A short summary of the goal, the architecture, and the turn loop. |
+| [SECURITY](../SECURITY.md) · [한국어](../SECURITY.ko.md) | **The trust boundaries**, in one place: the tool gate, the workspace, the console, the fleet — and what is deliberately not defended. |
 
 ## Reference — the as-built system
 
