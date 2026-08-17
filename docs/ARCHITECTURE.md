@@ -17,6 +17,39 @@ OpenAI-compatible LLM access (Ollama/LiteLLM/etc.), an event-sourced store, guar
 advisory council the agent calls as a tool, and an opt-in deterministic workflow engine. Single
 static binary (`CGO_ENABLED=0`), cross-platform.
 
+Before the layer rules, the shape of the running thing — what is a process, what is a file, and
+what crosses a socket:
+
+```mermaid
+flowchart TB
+    subgraph host [one machine]
+        subgraph proc ["magi --daemon &nbsp;<i>(one per workspace)</i>"]
+            APP["internal/app<br/>the agent loop"]
+            CORE["internal/core<br/>domain · pure council"]
+            LUA["plugin/lua<br/><i>sandboxed</i>"]
+            APP --- CORE
+            APP --- LUA
+        end
+        TUI["magi --attach<br/><i>a UI, comes and goes</i>"] <-->|unix socket| APP
+        WEB["magi-web<br/><i>console, read-mostly</i>"] <-->|the same socket| APP
+        APP --> LOG[("event log<br/>append-only JSONL")]
+        APP --> REC[("record beside the socket<br/><i>= the membership list</i>")]
+        MCP["MCP servers<br/><i>own processes</i>"] <--> APP
+    end
+    APP <-->|HTTP| LLM[["an OpenAI-compatible backend<br/>Ollama · vLLM · a gateway"]]
+    REC <-.->|ssh, on demand| OTHER[other machines' records]
+
+    style CORE fill:#e8f6ec,stroke:#2f9e44
+    style proc fill:#fff9f0,stroke:#e8820c
+    style LOG fill:#f5f2ec,stroke:#8a8178
+    style REC fill:#f5f2ec,stroke:#8a8178
+```
+
+Two things in that picture explain most of the design. The **log is the state** — the UI is a
+projection of it, which is why attaching and detaching costs nothing and why `/rewind` and `/fork`
+are ordinary. And **nothing listens on a port**: UIs reach the daemon over a unix socket, machines
+reach each other over ssh, so magi holds no credential and opens nothing.
+
 **One agent by default.** magi used to spawn subagents and hand them slices of the work through a
 curated brief. Nothing in the recorded runs shows that making a result better, and the defect log is
 largely made of it — a brief paraphrased until the graded identifier was gone, a worker that never
@@ -36,6 +69,43 @@ are the brief, and magi passes them through without rewriting a byte. magi still
 
 Dependency rule, enforced at compile time: **`adapter → app → core`**, and
 `app`/`adapter` depend on `port`. `core` imports nothing outside std + core.
+
+```mermaid
+flowchart LR
+    subgraph out [adapters — every one replaceable]
+        direction TB
+        A1[tui/bubbletea]
+        A2[llm/openai]
+        A3[store/jsonl]
+        A4[plugin/lua · mcp]
+        A5[council/llm]
+        A6[daemon · fleet]
+    end
+    subgraph mid [internal/port — the interfaces]
+        direction TB
+        P1[LLMProvider]
+        P2[Store]
+        P3[Tool · ToolEnv]
+        P4[PluginHost]
+        P5[Council]
+        P6[Platform · Scheduler]
+    end
+    subgraph in [internal/core — imports nothing outward]
+        direction TB
+        C1[session · event · command]
+        C2[council<br/><i>the tally, pure</i>]
+        C3[bus · model · artifact]
+    end
+    out --> mid --> in
+
+    style in fill:#e8f6ec,stroke:#2f9e44
+    style mid fill:#f5f2ec,stroke:#8a8178
+```
+
+The arrows only point one way, and the compile-time check is what keeps it that way: put an import
+of an adapter into `core` and the build fails. The payoff is concrete — the council's tally can be
+unit-tested with no model and no I/O, and swapping the TUI or the LLM client touches nothing
+inside.
 
 ```
 cmd/magi/                 entrypoint: flag parsing, DI wiring, -p headless, TUI launch,
@@ -151,6 +221,27 @@ is fixed for all of them:
 ---
 
 ## 2. Core data model (`core/session`, `core/event`)
+
+One rule shapes everything here: **the log is the truth, and everything on screen is derived from
+it**. A message is not stored; it is reconstructed from the events that produced it. That is what
+makes rewind, fork and replay ordinary operations instead of features.
+
+```mermaid
+flowchart LR
+    C["commands in<br/>SubmitPrompt · Interrupt"] --> APP[internal/app]
+    APP --> F["FACTS — appended, given a Seq<br/>prompt.submitted · part.appended<br/>· council.decided · turn.finished"]
+    APP -.-> T["TRANSIENT — Seq 0, never stored<br/>part.delta · tool.progress"]
+    F --> LOG[("JSONL, append-only")]
+    LOG --> RC["reconstruct()"] --> MSG["Session → Message → Part<br/><i>what a UI draws</i>"]
+    T -.->|straight to the bus| MSG
+
+    style LOG fill:#f5f2ec,stroke:#8a8178
+    style T fill:#f5f2ec,stroke:#8a8178,color:#6b625a
+```
+
+The split between facts and transient events is the load-bearing part: a stream of tokens must
+reach the screen without being written down, and a decision must be written down even if nobody is
+watching. `Seq == 0` is how the two are told apart everywhere in the code.
 
 A conversation is a `Session` of `Message`s; each message is a list of `Part`s
 (tagged union by `Kind`: text | reasoning | tool-call | tool-result | image | error).
@@ -288,7 +379,22 @@ judgement it had made in advance over the record of what actually happened. They
 `route_interjection`, `ask_user`, the top-level contract reset, the council finish gate — is written
 for a child. Those branches are reached only when a plugin spawns one; nothing in the tree does.
 
-What runs now, per step:
+What runs now, per step — the shape before the detail:
+
+```mermaid
+flowchart TD
+    A[1 · assemble the request<br/>history · AGENTS.md · skills · experience<br/>+ volatileContext, rebuilt every step] --> B[2 · stream from the model]
+    B --> C{tool calls?}
+    C -->|yes| D[3 · execute<br/><i>read-only ones in parallel</i>] --> E[4 · append results as facts] --> A
+    C -->|no| F[5 · the finish path<br/>§5 — declare · record · verify · vote]
+    F -->|not accepted| A
+    F -->|accepted| G([turn ends])
+
+    style G fill:#e8f6ec,stroke:#2f9e44
+    style F fill:#e8f4ff,stroke:#2c7fb8
+```
+
+Step by step:
 
 1. **Assemble** the request: history since the last compaction, project memory (AGENTS.md),
    skills, shared experience. Then an ephemeral **volatileContext** — never part of the cached
@@ -348,7 +454,27 @@ A turn ends because someone decided to end it. Going quiet is not a decision: a 
 off mid-thought and one that was actually finished used to end identically, and neither was ever
 asked which it was.
 
-The finish path, in order:
+The finish path, in order — five gates, any one of which sends the turn back to work:
+
+```mermaid
+flowchart TD
+    Z[no tool calls this step] --> H1["1 · stop hooks<br/><i>hooks.go — the workspace's own procedure</i>"]
+    H1 -->|fails| BACK[["back to the loop,<br/>with the reason attached"]]
+    H1 --> H2["2 · the declaration<br/><i>did the agent call council{complete}?</i>"]
+    H2 -->|never declared| REM["reminded, up to 3×<br/>then lands undeclared"]
+    H2 --> H3["3 · the record + a fresh workspace read<br/><i>world_snapshot.go</i>"]
+    H3 --> H4["4 · verify command<br/><i>magi runs it; non-zero refuses</i>"]
+    H4 -->|non-zero| BACK
+    H4 --> H5["5 · the council votes<br/><i>core/council tallies</i>"]
+    H5 -->|reject| BACK
+    H5 -->|3 rejects, no file change| UNV([lands UNVERIFIED])
+    H5 -->|accepted| END([turn.finished])
+    BACK --> Z
+
+    style END fill:#e8f6ec,stroke:#2f9e44
+    style UNV fill:#fff3e0,stroke:#e8820c
+    style H5 fill:#e8f4ff,stroke:#2c7fb8
+```
 
 1. **Stop hooks** (`hooks.go`) — the workspace's own procedure. A failing hook pushes the agent
    back to work with the hook's output.
@@ -584,6 +710,31 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   └── magi-web        the console (fleet.ListCached + the same socket calls)
         └── -peer     another magi-web, merged into the same list
 ```
+
+What makes that possible is where the membership lives. Nobody is told who exists; each daemon
+writes a small record next to its socket, and the directory listing *is* the answer:
+
+```mermaid
+flowchart TB
+    subgraph cfg ["&lt;config&gt;/ — the directory IS the membership"]
+        S1["daemon-design-a1b2.sock<br/>+ its record"]
+        S2["daemon-api-c3d4.sock<br/>+ its record"]
+    end
+    D1[design's daemon] --> S1
+    D2[api's daemon] --> S2
+    ATT[magi --attach] -->|dials one| S1
+    AGT[magi --agents] -->|reads all,<br/>dials in parallel| cfg
+    WEB[magi-web] -->|the same| cfg
+    WEB -.->|-peer: another console| WEB2[magi-web elsewhere]
+    D1 <-.->|ssh · records and work| FAR[a daemon on another machine]
+
+    style cfg fill:#f5f2ec,stroke:#8a8178
+```
+
+Three consequences worth stating, because they are what the design bought: a wedged daemon costs
+one line in `--agents` rather than a hang (every dial is parallel with a short deadline), a console
+that dies takes nothing with it, and a machine that has not been seen for an hour is simply
+forgotten — no deregistration step exists because no registration step does.
 
 - **The socket is named from the workspace**, symlinks resolved, so "the daemon here" is
   well-defined and `--attach` cannot reach a neighbour's. `Listen` claims it with a flock BEFORE

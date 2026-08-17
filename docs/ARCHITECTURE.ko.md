@@ -18,6 +18,38 @@ OpenAI 호환 LLM 접근(Ollama/LiteLLM 등), 이벤트 소싱 저장소, 가드
 자문 카운슬, 그리고 선택적으로 켜는 결정적 워크플로 엔진. 단일 정적 바이너리(`CGO_ENABLED=0`),
 크로스 플랫폼.
 
+계층 규칙보다 먼저, 돌아가는 물건의 모양 — 무엇이 프로세스이고, 무엇이 파일이며, 무엇이 소켓을
+건너는가:
+
+```mermaid
+flowchart TB
+    subgraph host [머신 하나]
+        subgraph proc ["magi --daemon &nbsp;<i>(워크스페이스당 하나)</i>"]
+            APP["internal/app<br/>에이전트 루프"]
+            CORE["internal/core<br/>도메인 · 순수 카운슬"]
+            LUA["plugin/lua<br/><i>샌드박스</i>"]
+            APP --- CORE
+            APP --- LUA
+        end
+        TUI["magi --attach<br/><i>UI, 붙었다 떨어졌다 한다</i>"] <-->|유닉스 소켓| APP
+        WEB["magi-web<br/><i>콘솔, 읽기 위주</i>"] <-->|같은 소켓| APP
+        APP --> LOG[("이벤트 로그<br/>추가 전용 JSONL")]
+        APP --> REC[("소켓 옆의 레코드<br/><i>= 멤버십 목록</i>")]
+        MCP["MCP 서버들<br/><i>각자의 프로세스</i>"] <--> APP
+    end
+    APP <-->|HTTP| LLM[["OpenAI 호환 백엔드<br/>Ollama · vLLM · 게이트웨이"]]
+    REC <-.->|필요할 때 ssh로| OTHER[다른 머신의 레코드]
+
+    style CORE fill:#e8f6ec,stroke:#2f9e44
+    style proc fill:#fff9f0,stroke:#e8820c
+    style LOG fill:#f5f2ec,stroke:#8a8178
+    style REC fill:#f5f2ec,stroke:#8a8178
+```
+
+이 그림의 두 가지가 설계의 대부분을 설명한다. **로그가 곧 상태다** — UI는 그것의 투영이고, 그래서
+붙였다 떼는 데 비용이 없고 `/rewind`나 `/fork`가 평범한 조작이다. 그리고 **아무것도 포트를 열지
+않는다** — UI는 유닉스 소켓으로, 머신끼리는 ssh로 닿으므로 magi는 자격증명을 갖지 않고 여는 것이 없다.
+
 **기본값은 에이전트 하나다.** magi는 예전에 서브에이전트를 띄우고 큐레이션된 브리프로 작업을 나눠줬다.
 기록된 런 어디에서도 그것이 결과를 낫게 만들었다는 증거가 없고, 결함 기록의 상당수가 바로 거기서
 나왔다 — 채점 식별자가 사라질 때까지 패러프레이즈된 브리프, 자기 몫으로 조립된 체크리스트를 끝내
@@ -34,6 +66,42 @@ magi가 **모델을 대신해** 무엇을 떼어내고 무엇을 넘길지 정�
 ---
 
 ## 1. 계층 (헥사고날 / 포트 & 어댑터)
+
+```mermaid
+flowchart LR
+    subgraph out [어댑터 — 전부 갈아끼울 수 있다]
+        direction TB
+        A1[tui/bubbletea]
+        A2[llm/openai]
+        A3[store/jsonl]
+        A4[plugin/lua · mcp]
+        A5[council/llm]
+        A6[daemon · fleet]
+    end
+    subgraph mid [internal/port — 인터페이스]
+        direction TB
+        P1[LLMProvider]
+        P2[Store]
+        P3[Tool · ToolEnv]
+        P4[PluginHost]
+        P5[Council]
+        P6[Platform · Scheduler]
+    end
+    subgraph in [internal/core — 바깥으로 아무것도 임포트하지 않는다]
+        direction TB
+        C1[session · event · command]
+        C2[council<br/><i>집계, 순수</i>]
+        C3[bus · model · artifact]
+    end
+    out --> mid --> in
+
+    style in fill:#e8f6ec,stroke:#2f9e44
+    style mid fill:#f5f2ec,stroke:#8a8178
+```
+
+화살표는 한 방향뿐이고, 컴파일 타임 검사가 그것을 지킨다 — `core`에 어댑터 임포트를 넣으면 빌드가
+깨진다. 대가는 구체적이다. 카운슬의 집계를 모델도 I/O도 없이 단위 테스트할 수 있고, TUI나 LLM
+클라이언트를 갈아끼워도 안쪽은 건드리지 않는다.
 
 의존 규칙은 컴파일 타임에 강제된다: **`adapter → app → core`**, 그리고 `app`/`adapter`는
 `port`에 의존한다. `core`는 표준 라이브러리와 core 밖의 어떤 것도 import하지 않는다.
@@ -146,6 +214,27 @@ internal/
 ---
 
 ## 2. 코어 데이터 모델 (`core/session`, `core/event`)
+
+여기 전부를 지배하는 규칙이 하나 있다. **로그가 진실이고, 화면의 모든 것은 거기서 유도된다.** 메시지는
+저장되는 것이 아니라 그것을 만든 이벤트들로부터 재구성된다. rewind·fork·replay가 별도 기능이 아니라
+평범한 조작인 이유가 그것이다.
+
+```mermaid
+flowchart LR
+    C["명령이 들어온다<br/>SubmitPrompt · Interrupt"] --> APP[internal/app]
+    APP --> F["사실(FACT) — 추가되고 Seq를 받는다<br/>prompt.submitted · part.appended<br/>· council.decided · turn.finished"]
+    APP -.-> T["일시적(TRANSIENT) — Seq 0, 저장 안 함<br/>part.delta · tool.progress"]
+    F --> LOG[("JSONL, 추가 전용")]
+    LOG --> RC["reconstruct()"] --> MSG["Session → Message → Part<br/><i>UI가 그리는 것</i>"]
+    T -.->|버스로 바로| MSG
+
+    style LOG fill:#f5f2ec,stroke:#8a8178
+    style T fill:#f5f2ec,stroke:#8a8178,color:#6b625a
+```
+
+사실과 일시적 이벤트를 가르는 것이 이 구조의 하중을 받는 부분이다. 토큰 스트림은 기록되지 않은 채로
+화면에 닿아야 하고, 결정은 아무도 안 보고 있어도 기록돼야 한다. 코드 전역에서 그 둘을 구별하는 것이
+`Seq == 0`이다.
 
 대화는 `Message`들의 `Session`이고, 각 메시지는 `Part`의 목록이다(`Kind`로 태깅된 유니온:
 text | reasoning | tool-call | tool-result | image | error).
@@ -274,7 +363,22 @@ type Actor struct { Kind ActorKind; ID string } // user | agent | system
 **작업이 존재하기도 전에** 무언가를 결정했고, 그 시기의 기록된 결함은 전부 한 종류였다 — magi가
 실제로 일어난 일의 기록보다 **자기가 미리 내린 판단**을 믿는 것. 전부 사라졌다.
 
-지금 스텝마다 도는 것:
+지금 스텝마다 도는 것 — 세부에 들어가기 전의 모양:
+
+```mermaid
+flowchart TD
+    A[1 · 요청 조립<br/>히스토리 · AGENTS.md · 스킬 · 경험<br/>+ 매 스텝 다시 만드는 volatileContext] --> B[2 · 모델에서 스트리밍]
+    B --> C{툴 호출이 있나?}
+    C -->|있다| D[3 · 실행<br/><i>읽기 전용은 병렬로</i>] --> E[4 · 결과를 사실로 추가] --> A
+    C -->|없다| F[5 · 종료 경로<br/>§5 — 선언 · 기록 · 검증 · 투표]
+    F -->|미승인| A
+    F -->|승인| G([턴 종료])
+
+    style G fill:#e8f6ec,stroke:#2f9e44
+    style F fill:#e8f4ff,stroke:#2c7fb8
+```
+
+하나씩 보면:
 
 1. **조립** — 마지막 압축 이후의 히스토리, 프로젝트 기억(AGENTS.md), 스킬, 공유 경험. 그리고
    캐시되는 시스템 프롬프트에 절대 들어가지 않는 휘발성 **volatileContext**: 에이전트 자신의 할 일
@@ -328,7 +432,27 @@ UNVERIFIED `turn.finished`가 영속으로 기록되어 착지한다 — 작업�
 턴은 **누군가 끝내기로 결정했기 때문에** 끝난다. 조용해지는 것은 결정이 아니다: 생각하다 만 턴과
 실제로 끝난 턴이 예전에는 똑같이 끝났고, 어느 쪽인지 아무도 묻지 않았다.
 
-종료 경로, 순서대로:
+종료 경로, 순서대로 — 게이트 다섯 개이고, 하나라도 걸리면 턴은 작업으로 되돌아간다:
+
+```mermaid
+flowchart TD
+    Z[이번 스텝에 툴 호출이 없다] --> H1["1 · stop 훅<br/><i>hooks.go — 워크스페이스 자신의 절차</i>"]
+    H1 -->|실패| BACK[["사유를 실어<br/>루프로 되돌림"]]
+    H1 --> H2["2 · 선언<br/><i>council{complete}를 불렀나?</i>"]
+    H2 -->|선언 안 함| REM["최대 3회 상기<br/>그 뒤 미선언으로 착지"]
+    H2 --> H3["3 · 기록 + 워크스페이스 새로 읽기<br/><i>world_snapshot.go</i>"]
+    H3 --> H4["4 · 검증 명령<br/><i>magi가 직접 실행. 0이 아니면 거부</i>"]
+    H4 -->|0이 아님| BACK
+    H4 --> H5["5 · 카운슬 투표<br/><i>core/council이 집계</i>"]
+    H5 -->|거부| BACK
+    H5 -->|파일 변경 없이 3회 거부| UNV([UNVERIFIED로 착지])
+    H5 -->|승인| END([turn.finished])
+    BACK --> Z
+
+    style END fill:#e8f6ec,stroke:#2f9e44
+    style UNV fill:#fff3e0,stroke:#e8820c
+    style H5 fill:#e8f4ff,stroke:#2c7fb8
+```
 
 1. **Stop 훅** (`hooks.go`) — 워크스페이스 자신의 절차. 실패한 훅은 그 출력을 실어 에이전트를 작업으로
    되돌린다.
@@ -555,6 +679,30 @@ magi -daemon          UI 없는 App이 <config>/daemon-<dir>-<hash>.sock에서 �
   └── magi-web        콘솔(fleet.ListCached + 같은 소켓 호출)
         └── -peer     또 다른 magi-web을 같은 목록에 합침
 ```
+
+그것이 가능한 이유는 멤버십이 어디 사는가에 있다. 누구도 누가 존재하는지 통보받지 않는다. 데몬마다
+자기 소켓 옆에 작은 레코드를 쓰고, **그 디렉토리 목록이 곧 답**이다:
+
+```mermaid
+flowchart TB
+    subgraph cfg ["&lt;config&gt;/ — 이 디렉토리가 곧 멤버십"]
+        S1["daemon-design-a1b2.sock<br/>+ 레코드"]
+        S2["daemon-api-c3d4.sock<br/>+ 레코드"]
+    end
+    D1[design의 데몬] --> S1
+    D2[api의 데몬] --> S2
+    ATT[magi --attach] -->|하나를 다이얼| S1
+    AGT[magi --agents] -->|전부 읽고<br/>병렬로 다이얼| cfg
+    WEB[magi-web] -->|같은 방식| cfg
+    WEB -.->|-peer: 다른 콘솔| WEB2[다른 곳의 magi-web]
+    D1 <-.->|ssh · 레코드와 작업| FAR[다른 머신의 데몬]
+
+    style cfg fill:#f5f2ec,stroke:#8a8178
+```
+
+이 설계가 사준 결과 셋만 적어둔다. 먹통이 된 데몬은 `--agents`에서 한 줄을 차지할 뿐 전체를 멈추지
+않고(모든 다이얼이 짧은 데드라인으로 병렬이다), 콘솔이 죽어도 아무것도 함께 죽지 않으며, 한 시간 넘게
+안 보인 머신은 그냥 잊힌다 — 등록 절차가 없으므로 등록 해제 절차도 없다.
 
 - **소켓 이름은 워크스페이스에서** 심링크까지 해소해 만든다. "여기의 데몬"이 잘 정의되고
   `--attach`가 옆 디렉터리의 것을 잡을 수 없다. `Listen`은 Publish보다 **먼저** flock으로 소켓을
