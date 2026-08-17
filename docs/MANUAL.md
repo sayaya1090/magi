@@ -35,6 +35,195 @@ turn has finished in front of you. Everything after that is depth you can come b
 | [14. Unattended work](#14-unattended-work-schedule-cron) | schedules and cron |
 | [15. Status & scope](#15-status--scope) | what is finished, and what is deliberately absent |
 
+### The words that are ours
+
+A few of the words below are ordinary ones used in a particular way here, and reading the manual
+without them costs you more than reading this section does. Each one exists because something did
+not work, so each is given in three parts: **what forced it**, what it is, and what it buys.
+
+<details open>
+<summary><b>Companion</b> — one magi, bound to one workspace</summary>
+
+**What forced it.** A workspace can only have one turn running in it, the person's included: two
+turns in one tree are two agents editing the same file with no coordination. So the thing you
+address cannot be a process (there may be several) or a session (they come and go) — it has to be
+*this magi, in this directory*.
+
+**What it is.** One resident magi, bound to one workspace, that has declared a name, a role and
+optionally a team in that repo's own `.magi/config.toml`.
+
+**What it buys.** A stable address. Work sent to `design` reaches the same workspace tomorrow;
+load, queue depth, permission prompts and version are all counted per companion; and the console's
+roster is a list of them rather than a list of processes. §13.1.
+</details>
+
+<details open>
+<summary><b>The council</b> — Melchior, Balthasar, Casper, and the vote that ends a turn</summary>
+
+**What forced it.** A turn that stopped three-quarters of the way through looks exactly like one
+that finished. Both simply stop calling tools. Nothing in the loop could tell them apart, so both
+were reported the same way.
+
+**What it is.** Three members, each reading the same turn through a different lens, voting on
+whether the record supports the agent's claim to be done. The agent must *declare* completion
+(`council{complete: true}`); the members read what magi recorded, not what the agent says about it.
+
+**What it buys.** Ending becomes an act that needs justifying. And because the tally is pure domain
+code with no model and no I/O in it, "the council decides, not one model" is a unit test rather
+than a sentence in a prompt. §6.
+</details>
+
+<details open>
+<summary><b>Landing UNVERIFIED</b> — the honest end when the gate cannot be satisfied</summary>
+
+**What forced it.** The gate exists to stop a false "done" — but unbounded, it also stopped a true
+"I could not". Measured live: an honest declaration, on a task the run's own permission mode had
+made impossible, was rejected for eighteen straight rounds until something outside killed it.
+
+**What it is.** After three consecutive rejections with no file changed between them (or eight in
+one turn), the turn lands with the reason on the record.
+
+**What it buys.** The work stands, the agent is asked for its honest final account, and nothing
+anywhere pretends the council accepted it. §6.
+</details>
+
+<details open>
+<summary><b>The fleet</b> — companions that find each other without a registry</summary>
+
+**What forced it.** A registry is a thing that has to be running, that has a port, and that holds a
+credential. Every one of those is a way for the fleet to be down while the companions are fine.
+
+**What it is.** Each daemon writes a record beside its own socket. That directory *is* the
+membership list; across machines the same records are traded over ssh, and one not seen for an hour
+is forgotten.
+
+**What it buys.** magi opens no port of its own and holds no credential of its own. A companion
+that dies leaves a stale record that ages out, instead of a registry entry somebody must clean up.
+§13.2, §13.8.
+</details>
+
+<details open>
+<summary><b>Team</b>, and a <b>hub</b> that is elected rather than declared</summary>
+
+**What forced it.** A team address used to always reach the hub. Since handed-over work cannot be
+handed on again, everything addressed to a team piled up behind that one companion — a queue of
+one, which is the opposite of what starting a second copy is meant to buy.
+
+**What it is.** `team` groups companions doing related work. Addressing the team reaches whichever
+member has the least on it; the hub only breaks a tie, and it is elected from who is actually
+there — `hub = true` is a preference, not a claim.
+
+**What it buys.** An idle team keeps one stable address; a loaded one spreads. A team stops being
+addressable when everybody in it stops, never because a config file went stale. §13.7.
+</details>
+
+<details open>
+<summary><b><code>hand_off</code></b> — giving a piece of the task to another companion</summary>
+
+**What forced it.** The other companion cannot see your conversation, your files or your reasoning
+— **and it cannot ask you**. It is not a colleague at the next desk; it is someone who gets one
+message and must act on it.
+
+**What it is.** A call with four required fields. `request` is the whole instruction standing on
+its own; `so_that` is what the answer is for, which is what lets them adapt when they hit something
+you did not foresee; `answer_as` is the form the answer comes back in — the headings you will read,
+in order.
+
+**What it buys.** It returns at once with a receipt, so the asker keeps working. And a form is
+checked by looking rather than by reading carefully: a part that could not be done comes back **as
+that part**, marked, instead of as a paragraph about why the whole thing was hard. §13.3.
+</details>
+
+<details open>
+<summary><b>Meeting</b> — several companions on one question</summary>
+
+**What forced it.** Somebody has to say who speaks next, and it cannot be one of the participants:
+a companion that also decided the order would be chairing a discussion it is arguing in.
+
+**What it is.** The console puts the same question to several companions and holds the floor. It is
+the one party in the room with nothing to say.
+
+**What it buys.** The discussion survives you closing the tab, because it is driven by the console
+and not by the page. The record lives in each participant's own session log — a second copy here
+would be a second answer to "what was said", and the two would disagree the first time a console
+restarted mid-meeting. §12.
+</details>
+
+<details open>
+<summary><b>The ear</b> (<code>mcp_peers</code>) — being able to ask, not just to send</summary>
+
+**What forced it.** The roster already advertised every companion, so a model could hand work to
+one and then have no way to ask it anything. The obvious fix — a manager that keeps peer tools in
+step — was refused for a good reason: changing the tool list underneath a running turn means a
+model calls something that has just disappeared, and that failure is unreadable afterwards.
+
+**What it is.** Peers are attached and detached **only at turn boundaries**, the one instant
+nothing is mid-step.
+
+**What it buys.** A companion that came up late is heard at the next turn rather than the next
+restart, and one that stopped is removed — a tool in the list that can only fail is worse than one
+that is not there. §13.5.
+</details>
+
+<details open>
+<summary><b>Re-hydratable compaction</b> — summaries you can undo</summary>
+
+**What forced it.** Every agent summarises old turns when the window fills, and then the detail is
+simply gone. What was shed is exactly what you need when the thing you shed it for turns out to
+matter.
+
+**What it is.** The compacted region is indexed — deterministically, with no extra model call —
+into **topic shards** keyed by the file each turn touched, each carrying its tool-action trail
+(`read · edit×2 · bash`). `recall_context("<topic>")` pulls that region's original messages back
+verbatim.
+
+**What it buys.** The shed detail stays addressable instead of lost. Recalls are bounded so
+re-hydration cannot reopen the window, and matching topics are pushed at the agent as hints so a
+model that never thinks to recall still gets pointed at what it lost. §4.
+</details>
+
+<details open>
+<summary><b>Experience tiers</b> and the <b>shared wiki</b> — memories that can be corrected</summary>
+
+**What forced it.** An append-only memory cannot distinguish what was true then from what is true
+now. Both entries sit there, and the older one is just as retrievable.
+
+**What it is.** Three tiers read most-specific-first (workspace, team, global). Beside the
+append-only memories the team tier holds **canonical pages**: one current truth per topic, written
+and corrected **in place**. A page that stopped being true is marked stale with the reason, never
+deleted.
+
+**What it buys.** A correction actually supersedes rather than accumulating, and the tombstone
+tells a reader why. §7, EXTENDING §2.
+</details>
+
+<details open>
+<summary><b>Steering</b> — talking to a turn that is already running</summary>
+
+**What forced it.** Waiting for a turn to end before you can say anything means you spend twenty
+minutes going the wrong way and only then get to mention it.
+
+**What it is.** Enter during a run injects the message into the running turn. The agent sees it at
+its next step — not queued to surface after the turn ends.
+
+**What it buys.** A redirect that lands mid-work, with a durable "Steer applied …" line in the
+transcript so you can see it fired instead of being verbally agreed to and ignored. §4.
+</details>
+
+<details open>
+<summary><b>Structural outcome</b> — how a turn ended, as data</summary>
+
+**What forced it.** An observer plugin watching turns had to guess success from phrasing, and
+phrasing is exactly what a cornered model gets wrong.
+
+**What it is.** Every finished turn carries one of `verified` · `unverified` · `guard` · `error` ·
+`ungated` · `done` — the host's own verdict on how it ended, not the agent's account of it.
+
+**What it buys.** A plugin can be right about success without reading English. It is what lets
+engram file a failure as a failure, and refuse to record "I fixed it" about a turn a stall guard
+stopped. §9.
+</details>
+
 ---
 
 ## 1. Installation & Requirements
