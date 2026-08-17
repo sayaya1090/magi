@@ -4080,6 +4080,11 @@
     pointer-events:none;
   }
   #strip, #prompt, #dock form { pointer-events:auto; }
+  /* A <form> carries the browser's own 1em block margin, and nothing here had ever taken it off:
+     in a dock that establishes its own formatting context it cannot collapse away, so the composer
+     floated 14px above the window with the transcript showing through the band — and the band grew
+     with the reader's font size. The dock owns the spacing of what is in it. */
+  #dock form { margin-block:0; }
   /* The dock belongs to the CONVERSATION, so beside a companion it stands between the two panes
      rather than across all three columns. It used to run the full width under them: the composer
      answered a transcript in the middle while starting under the file tree, and the panes had to
@@ -4722,6 +4727,10 @@
       --md-outlined-card-container-color:transparent;
       padding-inline:0;
     }
+    /* #detail draws its own frame (a plain border, not the card token), so zeroing the token left
+       it framed AND unpadded on a phone — the About tab's values jammed against a line they were
+       supposed to be inset from. The edge it gives up is the edge it actually draws. */
+    body[at="agent"] #detail { border:0; border-radius:0; }
     /* ── the About tab is the disclosure; the fold inside it is a second one ──
        The facts card carries a fold bar, which is right in the card SLOT on a wide screen: there
        the facts share their box with an open file and somebody may want the file to have it. On a
