@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
-
-	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -153,12 +152,19 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 		return false
 	}
 	var ea struct {
-		Path string          `json:"path"`
-		At   builtin.FlexInt `json:"at"`
+		Path string `json:"path"`
+		At   any    `json:"at"`
 	}
 	// Tolerant on purpose, like every other reader of a model's arguments here: "540.0" is as
 	// common as 540, and a strict parse would drop the guard rather than the call.
-	if json.Unmarshal(tc.Args, &ea) != nil || ea.Path == "" || int(ea.At) <= 0 {
+	//
+	// Read with a local helper rather than the tool layer's FlexInt: this is `internal/app`, and
+	// importing an adapter for a three-line conversion is the coupling boundaries_test freezes.
+	if json.Unmarshal(tc.Args, &ea) != nil || ea.Path == "" {
+		return false
+	}
+	at := looseInt(ea.At)
+	if at <= 0 {
 		return false
 	}
 	abs := ea.Path
@@ -169,14 +175,14 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 	if err != nil {
 		return false // the tool reports a missing/unreadable file in its own words
 	}
-	if !guard.anchorDrifted(relForChange(s.Workdir, ea.Path), int(ea.At), string(current)) {
+	if !guard.anchorDrifted(relForChange(s.Workdir, ea.Path), at, string(current)) {
 		return false
 	}
 	a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID,
 		fmt.Sprintf("line %d of %s is not the line you read — the file changed after that read "+
 			"(an earlier edit, a formatter, or something outside this turn). Re-read the file and "+
 			"anchor to the line numbers it returns; editing this anchor now would write to the "+
-			"wrong line.", int(ea.At), ea.Path), true)
+			"wrong line.", at, ea.Path), true)
 	return true
 }
 
@@ -814,4 +820,22 @@ func firstFrames(stack string, n int) string {
 		lines = append(lines[:1+2*n:1+2*n], "\t… stack truncated")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// looseInt reads a model's integer argument in whichever shape it sent it: a number, a number that
+// arrived as a float ("540.0" is as common as 540), or a string. Zero when it is none of those.
+//
+// The tool layer has its own tolerant type for this, and this is deliberately not that: importing
+// an adapter into the application layer is the coupling internal/arch freezes, and three lines here
+// is cheaper than a decision to widen it.
+func looseInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil {
+			return int(f)
+		}
+	}
+	return 0
 }
