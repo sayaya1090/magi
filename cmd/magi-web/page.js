@@ -6051,9 +6051,15 @@ function toTable() {
 // Companions talking to each other, watched from here.
 //
 // The console holds the floor and drives the turns (see meet.go); this screen is a window onto
-// that, plus the two things a person does in a room — say something, and end it. It polls rather
-// than streams: a turn is a minute of model time, so there is nothing an event stream would
-// deliver sooner than the next tick.
+// that, plus the two things a person does in a room — say something, and end it.
+//
+// It is WATCHED, not polled. This paragraph used to say the opposite — that a turn is a minute of
+// model time so a stream would deliver nothing sooner than the next tick — and that stopped being
+// true when the room got its own subscription (`/events?m=<id>`, see the `meet` entry in the view
+// table): a sentence appears when the driver writes it rather than up to two seconds later. What
+// the listener does NOT do is draw the frame: it calls loadMeet, which does its own reading,
+// because the redraw has rules of its own (it holds still while somebody is typing, and rebuilds
+// only when the answer is different) and a second path in would be a second set of them.
 //
 // Nothing on this screen changes a workspace. The conclusions arrive as a list and stay there
 // until somebody presses send on one, which is the seam the whole feature is built around.

@@ -218,11 +218,17 @@ Companions talking to each other, watched from here. The console holds the floor
 turns; this screen is a window onto that, plus the two things a person does in a room — say
 something, and end it.
 
-- **It polls rather than streams.** A turn is a minute of model time, so there is nothing an event
-  stream would deliver sooner than the next tick. Which makes the redraw the hazard instead: a topic
-  half typed would be wiped by the poll that redraws the meetings under it, so what is being filled
-  in is held outside the render, and the poll asks whether the caret is in a field before it rebuilds
-  anything.
+- **The room has its own subscription** (`/events?m=<id>`), so a sentence appears when the driver
+  writes it rather than up to two seconds later. It is a *different* subscription from the one a
+  transcript opens, which is why the screen opens its own rather than sharing: a browser allows six
+  connections to one host and a stream never ends, and two per window meant three windows filled the
+  budget — measured, the third window's first ordinary fetch never came back.
+- **The listener does not draw the frame.** It calls the loader, which does its own reading, because
+  the redraw has rules of its own — it holds still while somebody is typing, and rebuilds only when
+  the answer is different — and a second path in would be a second set of them. A topic half typed
+  would otherwise be wiped by the redraw of the meetings under it. A room that has gone stops the
+  reading rather than asking a console that already answered "no such meeting" every two seconds for
+  the evening.
 - **Only companions this console can actually ask are offered.** One on another machine is a row
   this console has never dialled, and putting it in the room would be offering a turn nobody here
   can spend. A pick that goes offline mid-selection is dropped from the selection on the next draw
