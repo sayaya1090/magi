@@ -259,7 +259,7 @@ flowchart LR
 </td>
 <td width="50%" valign="top">
 <a href="https://sayaya1090.github.io/magi/?v=meet"><img src="docs/img/console-meeting.png" alt="회의 페이지 — 컴패니언 둘 이상을 골라 하나의 질문으로 방을 연다. 진행 중인 회의가 아래에 표시" width="100%"></a><br>
-<b>회의.</b> 여러 컴패니언을 하나의 질문에 붙여 각자 할 일을 알게 하고, 결론을 각각 업무로 내보낸다.
+<b>회의.</b> 여러 컴패니언을 하나의 질문에 붙여 각자 할 일을 알게 하고, 결론을 각각 업무로 내보냅니다.
 </td>
 </tr>
 <tr>
@@ -275,7 +275,7 @@ flowchart LR
 <tr>
 <td width="50%" valign="top">
 <a href="https://sayaya1090.github.io/magi/?v=board"><img src="docs/img/console-board.png" alt="보드 — 하루의 작업이 카드로, 팀마다 한 열, 에이전트가 붙인 라벨로 묶여 있다" width="100%"></a><br>
-<b>보드.</b> 하루의 작업이 카드로. 팀마다 한 열, 에이전트가 각 조각에 붙인 라벨로 묶인다.
+<b>보드.</b> 하루의 작업이 카드로. 팀마다 한 열, 에이전트가 각 조각에 붙인 라벨로 묶입니다.
 </td>
 <td width="50%" valign="top">
 <a href="https://sayaya1090.github.io/magi/"><img src="docs/img/console-phone.png" alt="휴대폰의 콘솔 — 하단 내비게이션 바와 카드 스택, 작은 화면에서 권한 프롬프트에 답하는 모습" width="100%"></a><br>
@@ -299,7 +299,7 @@ flowchart LR
 | 🤝 | **컴패니언과 핸드오프** | 워크스페이스에 이름과 역할을 주고 그것이 무엇인지로 부릅니다. `hand_off`는 전문가에게 작업 조각을 넘기고 내 일을 계속하게 해 주며, 답은 끝났을 때 내 대화에 도착합니다. |
 | 🗣️ | **회의** | 여러 컴패니언이 하나의 질문을 읽기 전용으로 논의해 각자 할 일을 알게 되고, 그다음 작업이 배분됩니다. |
 | ⏮️ | **들여다볼 수 있는 루프** | 모든 턴이 추가 전용 JSONL로 이벤트 소싱되므로 `/rewind`·`/fork`·`/replay`·`/loopdiff`가 따로 만들어야 할 기능이 아니라 평범한 조작이 됩니다. |
-| 📦 | **자기완결 바이너리** | 순수 Go, CGO 없음. 에이전트와 선택적 콘솔이 각각 정적 바이너리 하나다. [Ollama](https://ollama.com)를 로컬로 쓰거나 무료 클라우드 티어로, 또는 OpenAI 호환 엔드포인트라면 무엇이든. |
+| 📦 | **자기완결 바이너리** | 순수 Go, CGO 없음. 에이전트와 선택적 콘솔이 각각 정적 바이너리 하나입니다. [Ollama](https://ollama.com)를 로컬로 쓰거나 무료 클라우드 티어로, 또는 OpenAI 호환 엔드포인트라면 무엇이든. |
 
 ---
 
@@ -349,7 +349,7 @@ flowchart LR
   ```
 
   > 로컬 모델 고르기에 대해: 에이전트 루프에서 중요한 것은 *토큰*을 얼마나 빨리 뽑느냐이고, 그것은
-  > 파일 크기가 아니라 **활성** 파라미터 수를 따른다. 활성 3B쯤인 MoE 모델이 같은 크기의 덴스 27B보다
+  > 파일 크기가 아니라 **활성** 파라미터 수를 따릅니다. 활성 3B쯤인 MoE 모델이 같은 크기의 덴스 27B보다
   > 몇 배 빠릅니다. 아주 작은 모델(`llama3.1:8b` 부류)은 인사를 할 때도 툴 호출 JSON을 뱉곤 해서,
   > 속도와 무관하게 잘 맞지 않습니다.
 
@@ -438,7 +438,7 @@ model    = "gpt-oss:20b"
   받는 쓰기 자식(`isolated_children` — 자식마다 git 클론, 셸은 거기 갇히고, 호출자가 말할 때만 커밋
   범위로 병합됩니다). [EXTENDING](docs/EXTENDING.ko.md)을 참고하세요.
 - **프로젝트 메모리.** `AGENTS.md`(그리고 `.magi/AGENTS.md`와 전역 파일)는 **압축을 견디는** 지속
-  컨텍스트다.
+  컨텍스트입니다.
 - **컨텍스트 인식 압축.** 모델 윈도우의 약 80%를 넘으면 오래된 턴이 요약되고 최근 것은 남습니다.
   헤더에 `ctx 42%` 미터가 있습니다.
 - **공유 경험.** 팀이 함께 쓰는 git 기반 스킬·메모리·위키 저장소입니다. `remember`가 쓰고
@@ -446,7 +446,7 @@ model    = "gpt-oss:20b"
 - **Lua 플러그인.** `<config>/plugins/`에 `plugin.toml`과 `init.lua`를 넣으면 자동 로드·핫 리로드·
   샌드박스. [plugins/examples/wordcount](plugins/examples/wordcount) 참고.
 - **MCP 서버.** `config.toml`에 선언해 두면 시작할 때 그 툴들이 등록됩니다.
-- **무인 작업.** `schedule`과 `[cron]`이 아무도 안 볼 때 작업을 돌린다.
+- **무인 작업.** `schedule`과 `[cron]`이 아무도 안 볼 때 작업을 돌립니다.
 
 ---
 
@@ -494,7 +494,7 @@ docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING 
 |---|---|
 | **Go** | 정적 바이너리 하나, 손쉬운 크로스 컴파일, 간단한 자기 갱신, 고루틴 동시성 |
 | **Bubble Tea (Charm)** | 다듬어진 TUI의 표준. 마크다운·코드 렌더링이 기본 제공 |
-| **Lua (gopher-lua)** | 순수 Go 임베드라 빌드가 CGo 없이 유지되고, 핫 리로드와 샌드박스가 자연스럽다 |
+| **Lua (gopher-lua)** | 순수 Go 임베드라 빌드가 CGo 없이 유지되고, 핫 리로드와 샌드박스가 자연스럽습니다 |
 | **이벤트 소싱 JSONL** | 관찰 가능하고, 재생 가능하고, 분기 가능한 루프 |
 | **OpenAI 호환 LLM** | 프로토콜 어댑터 하나로 로컬(Ollama·vLLM)과 호스팅 엔드포인트 양쪽에 닿습니다 |
 
