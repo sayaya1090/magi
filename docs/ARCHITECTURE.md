@@ -63,6 +63,55 @@ pass along; the seam decides neither. A plugin author writes the prompt, the too
 are the brief, and magi passes them through without rewriting a byte. magi still ships no agent —
 `plugins/seele` is one example, and it ships switched off.
 
+**What independent measurements say, including where they disagree with this.** None of them
+measured magi, and the basis for the paragraph above is still this tree's own defect log. They are
+here because the question "would subagents have helped?" deserves an answer that is not only ours.
+
+The strongest result *against* the choice above: on search-heavy tasks (GAIA), orchestration beats
+the same backbone badly — 66.06 → 80.00 pass@1 ([AOrchestra][ao], Gemini-3-Flash). If magi's work
+looked like GAIA, this section would be wrong.
+
+Three results that point the other way, in descending order of how much they should count:
+
+- A **controlled same-model comparison** on real engineering work — an orchestrated agent against
+  Claude Code, both on Claude Sonnet 4.6 — comes back as ties on 45.0% of claims with wins and
+  losses balanced: no end-to-end advantage. The one axis where orchestration scored significantly
+  higher was *scientific rigour*, not task success ([materials-science reproduction][mat]).
+- A **factorial ablation** finds sub-agent scale nearly irrelevant once the orchestrator thinks:
+  23.0 / 23.0 / 23.6 on GAIA with 1.7B / 8B / 32B sub-agents ([small agents][small]).
+- AOrchestra's **own ablation** attributes its gain not to having sub-agents but to what the
+  orchestrator chooses to pass them. Holding sub-agent model, tools and prompt fixed and varying
+  only the context field: none 86.00, all 84.00, curated 96.00. Both extremes lose.
+
+That last one is the finding worth taking seriously, and also the one whose limits matter most
+here, because the obvious next question — *curate by what rule?* — has no answer in the paper. The
+context is a string the orchestrator LLM writes as a tool-call argument. There is no algorithm, no
+scoring function, no stated selection criteria; the behaviour is whatever the prompt template
+elicits, and the authors reach for supervised fine-tuning (2K trajectories cloned from a stronger
+model) rather than a procedure. Their own account of what that training bought is longer horizons —
+56% more attempts — not better selection. Its quality tracks the orchestrator's strength: 56.97
+with Qwen3-8B against 80.00 with Gemini-3-Flash.
+
+So "curation is the lever" is supportable; "and here is how to curate" is not yet supported by
+anyone. Read together with the factorial ablation, what a subagent buys starts to look less like
+structure and more like **one more pass of a strong model's judgement about what matters** — which
+is available inside a single context too, and is a plausible reason the controlled comparison ties.
+
+Three caveats on the numbers themselves, since this file is where someone will come to check them.
+AOrchestra's headline arithmetic does not close (a claimed 64.29-point absolute improvement on
+Terminal-Bench is 18.57 by its own figures, and the abstract's summary figure moves between 16.28%
+and 22.13% across sections), so only its context ablation is cited here. That ablation is n=50 on
+one benchmark, and its hardest tier is identical across all three settings — the gain sits in the
+easier ones. And the caution cuts both ways: a scaffold taxonomy of coding agents argues that
+scaffold and model effects are confounded badly enough that attributing benchmark performance to
+architecture at all is unsound ([scaffold taxonomy][scaf]) — which is an argument against this
+section claiming vindication as much as against the orchestration papers claiming theirs.
+
+[ao]: https://arxiv.org/html/2602.03786v2
+[mat]: https://arxiv.org/pdf/2605.00803
+[small]: https://arxiv.org/pdf/2601.11327
+[scaf]: https://arxiv.org/pdf/2604.03515
+
 ---
 
 ## 1. Layering (hexagonal / ports & adapters)
