@@ -71,14 +71,21 @@ The strongest result *against* the choice above: on search-heavy tasks (GAIA), o
 the same backbone badly — 66.06 → 80.00 pass@1 ([AOrchestra][ao], Gemini-3-Flash). If magi's work
 looked like GAIA, this section would be wrong.
 
-Three results that point the other way, in descending order of how much they should count:
+Then one result that finds no advantage, and two that locate the advantage somewhere other than the
+sub-agents:
 
 - A **controlled same-model comparison** on real engineering work — an orchestrated agent against
   Claude Code, both on Claude Sonnet 4.6 — comes back as ties on 45.0% of claims with wins and
   losses balanced: no end-to-end advantage. The one axis where orchestration scored significantly
   higher was *scientific rigour*, not task success ([materials-science reproduction][mat]).
-- A **factorial ablation** finds sub-agent scale nearly irrelevant once the orchestrator thinks:
-  23.0 / 23.0 / 23.6 on GAIA with 1.7B / 8B / 32B sub-agents ([small agents][small]).
+- A **factorial ablation over orchestrator and sub-agent size** ([small agents][small]). Read it
+  carefully, because its headline is FOR orchestration: a well-orchestrated 8B multi-agent system
+  matches a 32B single agent that has direct tool use (GAIA 23.0 vs 23.0, AIME 55.0 vs 45.0, and
+  slightly behind on GPQA and MuSiQue) — four times smaller for the same result. What it pins down
+  is where that comes from. With orchestrator thinking on, sub-agent size is flat: 23.0 / 23.0 /
+  23.6 across 1.7B / 8B / 32B. With it off, moving to multi-agent at all produces "mixed results",
+  and thinking in the sub-agents is marginal or negative. So the finding is not that orchestration
+  fails; it is that the orchestrator's reasoning is the whole of it.
 - AOrchestra's **own ablation** attributes its gain not to having sub-agents but to what the
   orchestrator chooses to pass them. Holding sub-agent model, tools and prompt fixed and varying
   only the context field: none 86.00, all 84.00, curated 96.00. Both extremes lose.
@@ -102,7 +109,9 @@ AOrchestra's headline arithmetic does not close (a claimed 64.29-point absolute 
 Terminal-Bench is 18.57 by its own figures, and the abstract's summary figure moves between 16.28%
 and 22.13% across sections), so only its context ablation is cited here. That ablation is n=50 on
 one benchmark, and its hardest tier is identical across all three settings — the gain sits in the
-easier ones. And the caution cuts both ways: a scaffold taxonomy of coding agents argues that
+easier ones. The factorial study is a workshop paper (ICLR 2026 MALGAI) run entirely on Qwen3 1.7B
+to 32B, so whether "the orchestrator is the whole of it" survives at frontier scale is untested; on
+its own hardest benchmark (HLE) every configuration scored zero. And the caution cuts both ways: a scaffold taxonomy of coding agents argues that
 scaffold and model effects are confounded badly enough that attributing benchmark performance to
 architecture at all is unsound ([scaffold taxonomy][scaf]) — which is an argument against this
 section claiming vindication as much as against the orchestration papers claiming theirs.
