@@ -1952,6 +1952,16 @@ All four fields are required, and the last two are the ones that make the differ
 | `answer_as` | the **form** the answer comes back in: the headings you will read, in order. They fill it in |
 | `looking` | optional, and it changes WHEN rather than what. `true` says this is a question about their workspace and nothing in it should change |
 
+**What comes back is quoted, not retold.** The answer arrives in the asker's conversation with the
+request beside it, the form it was asked for, and one instruction: quote it as it stands. The asker
+cannot see the workspace the answer came from, so it cannot tell which detail is load-bearing — a
+version, a path, a flag, an error string it does not recognise — and a summary drops exactly those.
+Trimming is allowed by leaving whole parts out and saying so; rewriting what is kept is not. The
+note carries a digest of the answer, so a later quote can be checked against it by somebody who
+does not have the original: a person reading the transcript, the council reading the record, or
+whoever is asked to rate the handoff. It is a receipt rather than a seal — anything that can
+rewrite the answer can rewrite the line beside it — and its job is to make a rewrite visible.
+
 `answer_as` is a form and not a sentence about being finished. "Done when the tokens are named" is
 checked afterwards by reading carefully; a form is checked by looking. It also changes what a gap
 looks like — a part that could not be done comes back **as that part**, marked, instead of as a

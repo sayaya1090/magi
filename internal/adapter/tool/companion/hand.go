@@ -136,7 +136,11 @@ func (h Hand) Description() string {
 		"They do not see your conversation, your files or your reasoning — only the words you " +
 		"write here and their own workspace — so write a complete instruction that stands on its " +
 		"own. Refused if the name matches nobody or several, if they are mid-turn, or if this turn " +
-		"was itself handed to you by somebody else."
+		"was itself handed to you by somebody else.\n\n" +
+		"When their answer arrives, QUOTE IT AS IT STANDS. You will not be able to see the " +
+		"workspace it came from, so you cannot tell which detail is load-bearing — a version, a " +
+		"path, a flag, an error string. Leave whole parts out if you must, and say you did; never " +
+		"reword what you keep. The answer arrives with a digest of itself so a quote can be checked."
 }
 
 func (Hand) Schema() json.RawMessage {

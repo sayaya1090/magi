@@ -338,9 +338,27 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 	// now, one after another in the same conversation, and "design answered" twice with two
 	// answers is two notes you cannot tell apart — nor can rate_handoff, which is asked which
 	// piece it is judging.
+	// What comes back is quoted, not retold.
+	//
+	// The paraphrase defect this tree measured was on the way OUT — a brief rewritten until the
+	// graded identifier was gone — and the same loss is available on the way back in. The asker
+	// folds this answer into its own report, and a model summarising as it folds drops exactly what
+	// it cannot tell is load-bearing: a version, a path, a flag, an error string it did not
+	// recognise. The asker cannot check what it lost, because it never saw the workspace the answer
+	// came from.
+	//
+	// The digest is what makes the rule checkable rather than advisory. It is over the answer as
+	// delivered, so a later quote either matches this line or it does not, and a reader — a person,
+	// the council reading the record, or the companion asked to rate the handoff — can tell which
+	// without having the original to hand.
+	rule := fmt.Sprintf("QUOTE IT AS IT STANDS when you use it. You cannot see the workspace it "+
+		"came from, so you cannot tell which detail is load-bearing — a version, a path, a flag, an "+
+		"error string. Leave whole parts out if you must, and say you did; never reword what you "+
+		"keep. Digest of the answer above, so a quote can be checked: %s (%d characters).",
+		shortDigest(answer), len(answer))
 	text := fmt.Sprintf("# %s answered (%s)\n\nYou asked them:\n\n> %s%s\n\n---\n\n%s\n\n---\n"+
-		"This is a piece of the work you are already doing, not a new request. %s",
-		e.Who, e.Session, clipLine(oneLine(e.Request), 400), form, answer, close)
+		"This is a piece of the work you are already doing, not a new request. %s\n\n%s",
+		e.Who, e.Session, clipLine(oneLine(e.Request), 400), form, answer, close, rule)
 
 	// context.WithoutCancel because this outlives the tool call that started it by design.
 	if err := a.appendPromptText(context.WithoutCancel(ctx), sid,
@@ -443,4 +461,12 @@ func (a *App) noteHandoff(ctx context.Context, sid session.SessionID, e port.Els
 		a.emitToolProgress(sid, event.Actor{Kind: event.ActorSystem, ID: "handoff"}, "", "hand_off",
 			e.Who+": "+news)
 	}
+}
+
+// shortDigest fingerprints an answer so a later quote of it can be checked against the note it
+// arrived in. Short on purpose: it rides in a prompt every handoff answer carries, and its job is
+// to catch a rewrite, not to resist one — anything that can rewrite the answer can rewrite the line
+// beside it too. It is a receipt, not a seal.
+func shortDigest(s string) string {
+	return fmt.Sprintf("%012x", hashContent(s)&0xffffffffffff)
 }

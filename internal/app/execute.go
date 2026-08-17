@@ -274,6 +274,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Staleness runs FIRST: it is a correctness check, and asking a person to approve an edit magi
 	// is about to refuse spends their attention on nothing.
 	if a.gateStaleAnchor(ctx, s, actor, tc, guard, toolMsgID) ||
+		a.gateIrreversible(ctx, s, actor, tc, guard, toolMsgID) ||
 		a.gateAllowlist(ctx, s, agent, depth, actor, tc, toolMsgID) ||
 		a.gatePermission(ctx, sid, actor, tc, toolMsgID) ||
 		a.gatePreHooks(ctx, s, actor, tc, toolMsgID) {
