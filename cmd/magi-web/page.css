@@ -2620,7 +2620,27 @@
        conversation share this column, and neither is the other's guest, so the file takes what it
        needs up to half of it and scrolls inside itself for the rest. The vh ceiling stays for the
        tall window, where half a column is more file than anybody reads at once. */
-    body[at="agent"] #fileview { position:relative; max-height:min(50%, 60vh); }
+    /* One scroller, and it is the file.
+       The card and the box inside it were capped by two numbers that did not know about each
+       other: the card at min(50%, 60vh) — 571px in an 1267px window — and the body at
+       min(60vh, 34rem), which is 544. Add the bar (48) and the card's own padding (32) and the
+       content is 624 in a 571 box, so the CARD scrolled too: 66px of travel next to the file's
+       3300, which is the second scrollbar. Measured on a 200-line file at 1440x900.
+       The commit workbench two rules down has always been written the other way — flex column,
+       nothing scrolls but the boxes that should — and this is the same shape. The card holds the
+       bar at its size and gives the rest to the file; the file's own cap comes off, because the
+       room the card has IS the cap. Short files still measure their own height: the body may
+       shrink, it does not grow. */
+    body[at="agent"] #fileview {
+      position:relative; max-height:min(50%, 60vh);
+      display:flex; flex-direction:column; min-height:0; overflow:hidden;
+    }
+    body[at="agent"] #fileview > .filebar { flex:0 0 auto; }
+    /* Both wrappers a file can arrive in. .foldwrap stays a grid — the fold is a grid row going
+       1fr → 0fr and nothing else transitions to content height — so it only learns to shrink. */
+    body[at="agent"] #fileview > .foldwrap { min-height:0; }
+    body[at="agent"] #fileview > .fileedit { min-height:0; display:flex; flex-direction:column; }
+    body[at="agent"] #fileview .filebody { max-height:none; min-height:0; }
     /* Except while it is holding the commit workbench, which is three things at once — the list,
        the diff and the message — and half a column is not enough for them: at 1080 the whole
        workbench scrolled inside a 400px box while the transcript below it had room to spare. It
