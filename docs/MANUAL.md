@@ -336,6 +336,19 @@ none does differs:
 A terminal waits in every mode: the person is in front of it, and a prompt that expires while they
 are reading it is a decision taken out of their hands.
 
+The two axes are independent, and it helps to see them that way: approval decides *who says yes*,
+the sandbox decides *what the yes can reach*. A profile is a named corner of this grid.
+
+|  | `read-only` sandbox | `workspace-write` | `full` |
+|---|---|---|---|
+| **`ask`** — you approve each one | **safe** — reads and thinks, changes nothing | | |
+| **`auto`** — edits pass, commands ask | | **standard** (recommended) | |
+| **`allow`** — nothing prompts on its own | | the daemon, in a confined tree | **yolo** |
+| **`deny`** — every guarded tool blocked | a run that can only read and answer | | |
+
+Empty cells are legal, just unusual: `ask` + `full` is a person approving every step of an
+unconfined run, which is what you want the first time you let it near something outside the repo.
+
 Guardrail posture (`--profile`/`MAGI_PROFILE`) is a preset that sets both axes (**approval** × **OS sandbox**) at once: `safe` = `ask` + `read-only`, `standard` (recommended) = `auto` + `workspace-write` (auto-approve edits, confirm commands/network, confine writes to the workspace), `yolo` = `allow` + `full`. An explicit `--permission`/`sandbox` overrides the preset. With no profile set, the sandbox stays opt-in (unconfined) and only the permission default applies — so an existing user's network / out-of-tree writes aren't silently cut. The sandbox axis (`sandbox = "read-only"|"workspace-write"|"full"`) can also be set directly in `config.toml`.
 
 **Fine-grained rules (`config.toml`).** Beyond the mode, three list keys narrow the policy: `allow` / `deny` are glob rules over tool invocations (e.g. `Bash(git push:*)` auto-approves that command, `Read(**/.env)` blocks reading secrets) — this is what the `p` permission choice (§4) persists — and `deny` wins over `allow`. `allow_domains` restricts **network egress to a host allowlist** (e.g. `["api.github.com"]`); empty = no host restriction. Honest about its two strengths: a `webfetch` to an off-list host, and a bash command carrying a **literal URL** naming one, are hard-denied; any other bash egress command (a bare hostname, a variable, a host read from a file — things a string scan cannot resolve) **forces a confirmation prompt instead**, which under headless `--permission allow` resolves to allow, because that posture means full trust. All three keys **append** across the global and project configs rather than overriding, and are on the fixed deny-list a plugin's `set_config_key` can never touch (EXTENDING §Plugins).
@@ -549,6 +562,29 @@ Reading that screen: each tool call is one line, and its leading glyph flips fro
 the result arrives. A long turn therefore stays on one screen instead of scrolling away. The
 council's votes arrive as their own lines at the end, followed by the tally.
 
+Where everything sits:
+
+```
+┌──────────────────────────────────────────────────────┬───────────────────┐
+│ magi · qwen3-coder-next · 34% ⇅ 42% (120/300)        │ ╭───────────────╮ │  header: model,
+│                                                       │ │ plan  2/5     │ │  context %, scroll
+│  나  fix the flaky test in internal/app               │ │ ✓ read failing│ │  position
+│                                                       │ │ ▸ narrow it   │ │
+│  ✓ read internal/app/loop_test.go                     │ │               │ │  post-it: todos,
+│  ✓ bash go test ./internal/app -run TestRewind        │ │ jobs 1        │ │  jobs, context.
+│  ⚙ edit internal/app/query.go                         │ │ ▸ go test …   │ │  Drag its left
+│                                                       │ ╰───────────────╯ │  edge to resize
+│  ⚖ Melchior  done · Balthasar  done · Casper  reject  │                   │
+│  ▣ turn: 14 steps · 3 file(s) · council r2 · 3m49s    │                   │  receipt: one line
+├───────────────────────────────────────────────────────┴───────────────────┤  per finished turn
+│ ▸ go test ./internal/app                          [background job pane]   │
+│   ok  internal/app  21.7s                                                 │  a pane per live
+├───────────────────────────────────────────────────────────────────────────┤  job or child
+│ > _                                                          ask · ⇧⇥     │
+└───────────────────────────────────────────────────────────────────────────┘
+     the composer — always live, even mid-turn      permission mode ─┘
+```
+
 ### Slash commands (typing `/` opens an autocomplete palette — prefix filter, ↑/↓ to select, Tab to complete)
 | Command | Description |
 |---|---|
@@ -642,6 +678,24 @@ A child's panel shows **its own transcript**: the prompt it was handed, its reas
 - `Ctrl+O` (or clicking the focused panel again) **zooms in** → the job's full output. On entering zoom it jumps to the bottom (latest). **Clicking** the top breadcrumb (or `Esc`) returns.
 - The pane shows a **tail**, refreshed a few times a second and read from the file's end. **Watching consumes nothing**: the read never advances the offset `bash_output` uses, so what the agent reads is exactly what it would have read unwatched.
 - **Lifecycle**: large tiles while running; when the job exits, the pane is marked done and fades out of the strip into the panel's record. They disappear when you send the next message.
+
+`Esc` means "back out of where I am", and where you are depends on what you last did. It undoes one
+layer at a time, so the key that interrupts a turn is the same key you can press twice by mistake
+without interrupting anything:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Transcript
+    Transcript --> Focused: Tab / click a pane
+    Focused --> Zoomed: Ctrl+O / click again
+    Zoomed --> Focused: Esc (release zoom)
+    Focused --> Transcript: Esc (release focus)
+    Transcript --> Interrupted: Esc (interrupt the turn)
+    note right of Interrupted
+        the turn unwinds
+        the work so far stands
+    end note
+```
 
 ### Right-side status panel
 When there are plans / progress, a **status panel** appears on the right (hidden if none). **Drag its left edge with the mouse** to adjust the width (default 44 columns). Sections:
@@ -824,6 +878,44 @@ magi bundles one example, **Seele** — a planner that reads and analyses and re
 
 ## 7. Memory & Context
 
+A turn's context is assembled, not accumulated. Some of it is written by you and never leaves;
+some is what the agent has learned and is pulled in when it looks relevant; most of it is the
+conversation, and that is the part with a ceiling.
+
+```mermaid
+flowchart TD
+    subgraph fixed [kept through everything]
+        AG["AGENTS.md<br/>yours, and the repo's"]
+        SK["skills · tool list<br/>what this run can do"]
+    end
+    subgraph learned [pulled in when it looks relevant]
+        M3["workspace · team · global<br/>memories and wiki pages"]
+    end
+    subgraph live [the conversation]
+        T["turns: prompts, tool calls,<br/>results (capped at ~64KB each)"]
+    end
+    fixed --> W{{"the model's window<br/>(probed, or seeded per family)"}}
+    learned --> W
+    live --> W
+    W -->|"past 80%"| C["older turns summarised,<br/>recent ones kept whole"]
+    C --> live
+
+    style W fill:#e8f4ff,stroke:#2c7fb8
+    style C fill:#fff3e0,stroke:#e8820c
+```
+
+Compaction only ever touches the conversation. AGENTS.md survives it by construction, which is why
+a house rule belongs there and not in a message you hope stays in the window.
+
+The learned half is three directories, read most-specific first — so a fact about *this* repo wins
+over the team's habit, and the team's habit wins over the general one:
+
+| tier | where | who can see it |
+|---|---|---|
+| workspace | `<workspace>/.magi/experience` | this workspace, and anyone who clones the repo |
+| team | `<config>/teams/<name>/experience` | every companion on this machine that declared that team — and, if the machines hold each other's fleet key, the other machines too (`exp-sync`, §13) |
+| global | `<config>/experience` | all of this person's magi, this machine only |
+
 - **AGENTS.md**: the contents of the working directory's (+ `.magi/AGENTS.md`, global `<config>/AGENTS.md`)
   are injected into the system prompt and **preserved even through compaction**. Auto-generate with `/init`.
 - **Auto-compaction**: when token count (the larger of the backend's real count and the live estimate) exceeds 80% of the model window, older turns are summarized (recent ones preserved). The window is **per model** (different agents can run different models, each with its own window), resolved from the model registry; for an unseeded model magi **probes the backend** for its real context length (vLLM `max_model_len`, LiteLLM `/model/info`, Ollama `/api/show`) — at startup for the initial model, and **lazily the first time any other model is used** (e.g. after a runtime `/route` switch). Claude/Gemini expose no such endpoint, so they rely on the seeded table. A `:tag` variant with no exact seed **inherits its base model's window** (e.g. `qwen3-coder:480b-cloud` → the `qwen3-coder` family's largest seeded window), used immediately — including while an exact-window probe runs in the background — so a known family isn't mis-treated as unlimited. A model with no usable window (no exact seed, no family match, no probe result) is treated as **unlimited** (no % gauge, no ratio compaction) rather than mis-sized to a tiny fallback; override any model's window with `/context <model> <tokens>`.
@@ -849,12 +941,46 @@ The list is exposed in the system prompt, and the model loads a body with the `s
 
 `plugin.toml` + `init.lua` in `<config>/plugins/<name>/`.
 
+Plugins come from three places, and only one of them is a question of trust:
+
+```mermaid
+flowchart TD
+    E["embedded in the binary<br/>(engram)"] -->|"on by default"| L((loaded))
+    G["&lt;config&gt;/plugins/<br/>you installed these"] -->|"always"| L
+    W["&lt;workdir&gt;/.magi/plugins/<br/>arrived with the clone"] -->|"only if you ran<br/>magi --trust"| L
+    W -.->|"otherwise"| S["skipped, and named<br/>in the startup report"]
+    L --> P{"manifest permissions<br/>fs:read · net · exec"}
+    P --> R["granted, inside a sandboxed Lua<br/>(dangerous stdlib blocked)"]
+
+    style W fill:#fff3e0,stroke:#e8820c
+    style P fill:#e8f4ff,stroke:#2c7fb8
+```
+
 ⚠ A plugin declares its own permissions in its own manifest, and they are granted — which is a fair arrangement for a directory you installed into and none at all for one that arrived with a clone. So `<workdir>/.magi/plugins/` is loaded only from a workspace you have trusted (`magi --trust`, see §config); magi names what it found and skipped. A one-off is still `magi -plugins .magi/plugins`.
 Capabilities: `tool`, `command` (slash commands like `/login`), `context-provider`, `mcp`, `llm-headers`, `analyze`, `experience` (magi.propose_experience — route plugin-learned lessons/skills into the D13 shared store's review queue), `notify` (magi.notify — append a system ⟳ note to a session's transcript, the active-notification channel; the model sees it next turn). `magi.remove_file` deletes a workdir file/dir under the same fs:write grant — the undo half of artifact-writing plugins. **Hot-reload** on file change.
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.
 
-**Observer plugins.** Beyond the lifecycle events (`startup`/`shutdown`/`session_start`), `magi.on` accepts two **observation events** carrying a payload table: `user_message` (`{session, text}` — a genuine user prompt was submitted) and `turn_finished` (`{session, text, outcome, reason, skills}` — a top-level turn ended with that final assistant answer; `skills` = comma-joined skill names the agent loaded this turn, for usage metering). `outcome` is the turn's **structural verdict**, so an observer never has to guess success from phrasing: `verified` (the council accepted the finish declaration), `unverified` (landed without that acceptance — never declared, or declared and not accepted within the round cap), `guard` (loop/stall guard force-stop), `error`, `ungated` (the turn used tools but no council ran — council disabled, or workflow mode — so the completion is unconfirmed and must not be booked as a success without user confirmation), or `done` (a plain conversational finish that used no tools); `reason` carries the cause when there is one. They fire **asynchronously off the turn path** (a bounded queue + one worker), so a slow handler never delays the conversation; overflow drops events (observation is best-effort). Paired with **`magi.analyze{system=, text=, model=?}`** — a one-shot, **tool-free sidecar LLM call** (capability `analyze`, since it spends tokens; time-capped; model defaults to the session model) — and **`magi.json_decode(s)`**, a plugin can watch the conversation, extract structured knowledge (lessons, summaries), and persist it with `magi.write_file`, then feed it back via `magi.register_context_provider`. The bundled **`plugins/engram`** self-improvement plugin (auto lesson/skill extraction gated on the structural outcome) is the reference user of this trio — see its README.
+**Observer plugins.** Beyond the lifecycle events (`startup`/`shutdown`/`session_start`), `magi.on` accepts two **observation events** carrying a payload table: `user_message` (`{session, text}` — a genuine user prompt was submitted) and `turn_finished` (`{session, text, outcome, reason, skills}` — a top-level turn ended with that final assistant answer; `skills` = comma-joined skill names the agent loaded this turn, for usage metering). `outcome` is the turn's **structural verdict**, so an observer never has to guess success from phrasing: `verified` (the council accepted the finish declaration), `unverified` (landed without that acceptance — never declared, or declared and not accepted within the round cap), `guard` (loop/stall guard force-stop), `error`, `ungated` (the turn used tools but no council ran — council disabled, or workflow mode — so the completion is unconfirmed and must not be booked as a success without user confirmation), or `done` (a plain conversational finish that used no tools); `reason` carries the cause when there is one. They fire **asynchronously off the turn path** (a bounded queue + one worker), so a slow handler never delays the conversation; overflow drops events (observation is best-effort). Paired with **`magi.analyze{system=, text=, model=?}`** — a one-shot, **tool-free sidecar LLM call** (capability `analyze`, since it spends tokens; time-capped; model defaults to the session model) — and **`magi.json_decode(s)`**, a plugin can watch the conversation, extract structured knowledge (lessons, summaries), and persist it with `magi.write_file`, then feed it back via `magi.register_context_provider`. The bundled **`plugins/engram`** self-improvement plugin (auto lesson/skill extraction gated on the structural outcome) is the reference user of this trio — see its README. What it does with them is a loop:
+
+```mermaid
+flowchart LR
+    T["a turn ends"] -->|"turn_finished<br/>{outcome, text, skills}"| O["observer<br/>(off the turn path)"]
+    O -->|"used tools? (any outcome<br/>but a plain chat reply)"| A["magi.analyze — one sidecar<br/>call, told the host's verdict"]
+    A --> W["magi.write_file<br/>a lesson; a skill only if it worked"]
+    W --> C["register_context_provider"]
+    C -->|"next turn's context"| T
+
+    style O fill:#e8f4ff,stroke:#2c7fb8
+    style A fill:#fff3e0,stroke:#e8820c
+```
+
+Note what `outcome` gates. It is not whether to learn — a turn that failed is worth more than one
+that went smoothly — but what the lesson is allowed to claim. The analyzer is handed the host's
+verdict (`verified` means the council accepted the finish; `guard` means a stall guard stopped it)
+and told not to write a lesson that contradicts it, so "I fixed it" cannot be recorded about a turn
+that was killed mid-stall. A failure is filed as a failure, and only a confirmed success is allowed
+to become a reusable skill.
 
 ```toml
 # plugin.toml
@@ -891,11 +1017,18 @@ auto-registered. When the server shuts down, those tools are removed.
 
 ## 11. Model Recommendations
 
-- **gpt-oss:120b-cloud** — **the default**. Ollama free cloud tier (`ollama signin`), no GPU needed. Strong general-purpose + coding.
-  The free tier is "light usage" (1 concurrent · a GPU-time quota), so the heavier `qwen3-coder:480b-cloud` eats the quota fast.
-- **qwen3-coder:30b** — the strongest **local** coder (24 GB GPU). Run fully local with `--model qwen3-coder:30b`.
-- **gpt-oss:20b** — a lighter local alternative (shows reasoning).
-- Small models (llama3.1:8b etc.) tend to leak function calls when tools are active → not recommended.
+| Model | Runs where | Needs | Use it when |
+|---|---|---|---|
+| **`gpt-oss:120b-cloud`** | Ollama's free cloud tier (`ollama signin`) | no GPU | **the default** — strong at both general work and code, and nothing to download |
+| `qwen3-coder:480b-cloud` | same tier | no GPU | a hard task you are willing to spend the quota on |
+| **`qwen3-coder:30b`** | your machine | ~24 GB GPU | the strongest fully local coder — no network, no quota |
+| `gpt-oss:20b` | your machine | less | a lighter local option; it shows its reasoning |
+| llama3.1:8b and similar | your machine | little | **not recommended** — small models leak function calls into prose once tools are active |
+
+The free tier means "light usage" (one request at a time, and a GPU-time quota), so the heavier
+`480b` eats it fast. If you are choosing a local model by size, judge it by **active** parameters
+rather than by the file: a mixture-of-experts model with ~3B active runs several times faster than
+a dense model of the same weight, and the difference is wall-clock you spend on every single step.
 
 **Provider resilience (why a flaky backend rarely loses your turn).** magi treats the OpenAI-compatible layer as best-effort and recovers rather than aborting where it safely can:
 - **Tool-call parsing** — it parses all tool-call variants of local/cloud models (JSON/XML/native), and if a backend rejects `cache_control` (400/422) it transparently retries once without caching and remembers that for the session.
@@ -1397,6 +1530,33 @@ actually there, the one that can do the most speaks for the team, ties broken de
 every machine elects the same one. A team whose members have all gone quiet elects nobody and is
 not addressable as a group — it resolves to every member, and the caller is told to pick.
 
+What a `to` field goes through, whether it was typed by you or written by a model:
+
+```mermaid
+flowchart TD
+    A["to = 'design' / 'frontend' / 'the API one'"] --> N{"exactly a<br/>companion's name?"}
+    N -->|yes| ONE([that companion])
+    N -->|no| T{"exactly a<br/>team name?"}
+    T -->|yes| Q{"one member clearly<br/>lightest, and running?"}
+    Q -->|yes| L(["that member —<br/>hub breaks a tie"])
+    Q -->|no| ASK["every match comes back<br/>and the caller picks"]
+    T -->|no| R{"contained in<br/>somebody's role?"}
+    R -->|one| ONE
+    R -->|several| ASK
+    R -->|none| NONE["nobody by that address"]
+
+    style ONE fill:#e8f6ec,stroke:#2f9e44
+    style L fill:#e8f6ec,stroke:#2f9e44
+    style ASK fill:#fff3e0,stroke:#e8820c
+```
+
+Two things in that shape are deliberate. A chosen name beats a role, because a name was picked to
+address one companion while a role is a sentence that may describe several. And an ambiguous
+address is never ranked into a winner: every match comes back for the caller to choose between,
+since the cost of guessing is a turn running in somebody else's workspace. The console's
+`POST /dispatch` calls the same resolver, so work typed into a page and work handed over by another
+companion arrive by exactly one route.
+
 ### 13.8 Across machines
 
 Companions on other machines are reached over **ssh**, and the only thing that crosses is the
@@ -1569,6 +1729,25 @@ enabled  = true               # optional; absent means on
 - **Local time**, with the daylight-saving consequence that implies: an hour that repeats can fire
   twice and an hour that is skipped does not fire. It is written down rather than pretended away.
 - The config is re-read every tick, so editing the file takes effect without a restart.
+
+Those five rules are easier to hold as a picture. A tick either fires or it doesn't, and every way
+it doesn't is a deliberate choice:
+
+```mermaid
+flowchart TD
+    TK["a tick — config re-read"] --> D{"is this a daemon?"}
+    D -->|"no, interactive"| SKIP1["never schedules<br/>(three terminals would be three firings)"]
+    D -->|yes| M{"is it this job's minute,<br/>in local time?"}
+    M -->|"no, and it passed<br/>while we were down"| SKIP2["no catch-up<br/>(a week away is not a storm)"]
+    M -->|yes| P{"is the last firing<br/>still running?"}
+    P -->|yes| SKIP3["skipped, with the reason recorded"]
+    P -->|no| RUN(["a NEW session, submitted<br/>like any other conversation"])
+
+    style RUN fill:#e8f6ec,stroke:#2f9e44
+    style SKIP1 fill:#f5f2ec,stroke:#8a8178
+    style SKIP2 fill:#f5f2ec,stroke:#8a8178
+    style SKIP3 fill:#fff3e0,stroke:#e8820c
+```
 
 The agent can see and change its own schedule with the `schedule` tool, the TUI has `/cron`, and
 the console shows the same jobs on a companion's page (§12.3).
