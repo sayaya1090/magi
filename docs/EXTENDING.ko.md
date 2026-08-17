@@ -608,6 +608,93 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- 에이전트를 �
 
 ---
 
+### 3.8 `magi.register_tool` — 내 툴 하나 만들기
+
+이 중에서 가장 근본적이고, 이 절의 나머지가 그 위에 서는 것입니다. 플러그인이 툴을 등록하면 에이전트는
+그것을 빌트인 옆에서 봅니다. 스키마 모양도, 디스패치도, 권한 게이트도 같습니다(capability `"tool"`).
+
+```lua
+magi.register_tool{
+  name        = "changelog_entry",
+  description = "CHANGELOG.md의 Unreleased 아래에 한 줄 덧붙인다.",
+  schema      = { type = "object",
+                  properties = { text = { type = "string", description = "추가할 줄" } },
+                  required = { "text" } },
+  execute     = function(args)
+    -- return  text            → 성공
+    -- return  text, true      → 에이전트가 읽고 대응해야 할 에러
+    if not args.text or args.text == "" then return "text is required", true end
+    return append_to_changelog(args.text)
+  end,
+}
+```
+
+`description`과 `schema`는 모델이 **매 요청마다** 읽는 것이라, 긴 설명은 앞으로 매 스텝 영원히 값을
+치릅니다. 이 툴이 무엇을 위한 것이고 언제 손을 뻗어야 하는지만 쓰고 멈추십시오.
+
+이 툴이 어디에 제공될지는 선택 필드 넷이 정합니다:
+
+| 필드 | 효과 |
+|---|---|
+| `internal = true` | 허용목록에 이 툴을 적은 에이전트에게만 제공 — 내 서브에이전트용 헬퍼를 메인 에이전트의 요청에서 빼 둘 때 |
+| `subagent = true` | `/subagents`에 표시되어 사용자가 켜고 끄고 모델을 고름 |
+| `readonly_children = true` | 이 툴이 띄우는 자식은 보기만 함. 그러면 한 스텝의 두 호출이 **동시에** 돎 — 아래 참고 |
+| `isolated_children = true` | 쓸 수 있는 자식마다 **자기 체크아웃**을 받음(호스트가 스폰의 `workspace="clone"`을 기본으로 잡고 셸을 `workspace-write`로 고정). 한 스텝의 두 호출이 역시 동시에 돎 |
+| `group = "…"` | 거기서 제목 아래로 묶어, 여럿을 함께 관리 |
+| `enabled = false` | **꺼진 채로** 출하. 사용자만 켤 수 있음 |
+
+#### `readonly_children` — 호스트가 그것으로 하는 일
+
+읽기 전용 툴 여럿을 요청한 스텝은 그것들을 동시에 돌립니다. 서브에이전트는 늘 거기서 빠져 있었고, 이유는
+하나였습니다. 자식은 파일을 쓰고, 부모의 가드는 편집 전후로 파일을 읽는데, 그것이 경합 없이 성립하려면
+쓰기가 직렬화돼 있어야 하기 때문입니다. 그 이유는 **쓰는 툴이 없는 자식**에게는 해당되지 않습니다. 그런데도
+해당되는 척하면, 스텝이 둘을 요청할 때마다 자식 턴 하나만큼의 벽시계를 값으로 치릅니다.
+
+`readonly_children` 선언은 "내 자식들은 보기만 한다"는 말입니다. **magi는 그 말을 믿지 않습니다.**
+그 툴이 하는 모든 `magi.spawn`은 자식의 툴이 정해지는 순간 검사받고, `read`·`grep`·`glob`·`list` 밖의
+무언가를 요청한 스펙은 어긋난 툴의 이름을 대며 거부됩니다. `tools` 목록이 없거나 비어 있어도 거부입니다.
+그건 "아무것도 없음"이 아니라 "이 컴패니언이 가진 전부"라는 뜻이기 때문입니다.
+
+조용히 좁히는 대신 거부합니다. 요청한 툴을 조용히 잃은 자식은 나중에, 다른 데서, 호출을 봐서는 아무도 알 수
+없는 이유로 실패합니다.
+
+```lua
+magi.register_tool{
+  name = "scout", subagent = true, readonly_children = true,
+  description = "트리를 읽고 거기 무엇이 있는지 보고한다. 아무것도 바꾸지 않는다.",
+  schema = { type = "object", properties = { about = { type = "string" } }, required = {"about"} },
+  execute = function(args)
+    local r = magi.spawn{
+      system = SCOUT, prompt = args.about,
+      tools  = {"read", "grep", "glob", "list"},   -- 이 밖의 것은 거부된다
+      max_steps = 25, timeout = 300,
+    }
+    return r.text
+  end,
+}
+```
+
+번들된 `seele` 플래너가 이것을 선언하는데, 원래 띄우던 자식이 이미 그러했습니다.
+
+#### `isolated_children` — 쓰는 자식을 위한 같은 거래
+
+`readonly_children`은 쓰기를 빼앗아 동시성을 삽니다. `isolated_children`은 대신 격리로 삽니다. 선언하면,
+쓸 수 있는 툴 목록을 가진 스폰마다 자기 클론을 받습니다 — 스펙에 다시 적었든 아니든, 자식의 워크스페이스가
+정해지는 자리에서 호스트가 `workspace="clone"`을 잡습니다. 보기만 하는 자식은 공유 트리를 그대로 씁니다
+(클론은 이미 가진 것의 더 낡은 판을 보려고 복사 비용을 치르는 일이니까요).
+
+격리는 디렉터리만이 아닙니다. 자식의 파일 툴은 여느 워크디렉터리처럼 자기 체크아웃에 갇히고, **셸**은
+`workspace-write` OS 샌드박스로 고정되며(macOS는 seatbelt, Linux는 bwrap — 둘 다 없는 플랫폼에서는
+best-effort이고, 전역으로 더 엄한 샌드박스 설정이 있으면 그쪽이 이깁니다), 자식은 이 사실을 자기 시스템
+프롬프트로 통보받습니다. 그리고 그 작업은 커밋 범위로 돌아와 `magi.merge_child`나 `magi.restore_child`를
+기다립니다 — 자동으로 병합되는 일은 없습니다.
+
+그런 자식 둘은 한 트리를 만질 수 없으므로, 툴을 두 번 부르는 스텝은 둘을 동시에 돌리고, 거기서 나온
+`magi.spawn_all` 배치도 같은 식으로 팬아웃됩니다(무제한이 아니라, 호스트가 몇 개씩 돌리고 나머지는 줄을
+세웁니다).
+
+---
+
 ### 3.9 `magi.spawn` — 서브에이전트, 그리고 `readonly_children`
 
 magi는 **자기 에이전트를 싣지 않는다**. 싣는 것은 이음매입니다: 플러그인이 서브에이전트를 선언하고 사용자가
@@ -693,7 +780,18 @@ magi.register_tool{
 - 셸 **라이프사이클 훅**(테스트/포맷 게이트) → MANUAL §하네스, `[[hooks]]`
 - **포트/어댑터** 구조로 새 백엔드 구현 → ARCHITECTURE §3·§11
 
-### 3.10 컴패니언 툴 (`companions`)
+### 3.10 나머지 브리지
+
+| 함수 | 능력 | 하는 일 |
+|---|---|---|
+| `magi.analyze{prompt=, system=}` | — | 툴 없는 모델 왕복 한 번. 에이전트가 아니라 판단 하나가 필요한 플러그인용 |
+| `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | 워크디렉터리에 갇힌 파일 접근 |
+| `magi.notify(text)` | — | 데스크톱 알림 |
+| `magi.json_decode(text)` | — | JSON → Lua 테이블 |
+| `magi.register_doctor_probes{…}` | — | `magi -doctor`에 접히는 환경 점검 |
+| `magi.propose_experience{…}` | — | 공유 경험 스토어에 메모리나 스킬을 제안 (§2.4) |
+
+### 3.11 컴패니언 툴 (`companions`)
 
 플러그인 툴은 아니고 `cmd/magi`가 등록합니다. 다만 플러그인 작성자가 그 옆에 무언가를 만들 가능성이
 가장 큰 자리라 적어 둔다: `companions`는 이 머신의 다른 magi를 나열하고(이름·역할·팀·지금 하는 일·
