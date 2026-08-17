@@ -48,6 +48,10 @@ themselves are where they happened: in the transcript, next to what they were ab
 
 ### 2.1 The fleet (`/`)
 
+<div align="center">
+<img src="img/console-companions.png" alt="The fleet table: state first, then the name, then what each companion is doing — two of them waiting on a person, one working, one idle" width="880">
+</div>
+
 A resource table. As in a Kubernetes console, **state comes first**, then the name, then what it is
 doing. The order is the order the eye should travel: **waiting on a person → working → idle → gone.**
 
@@ -72,6 +76,17 @@ doing. The order is the order the eye should travel: **waiting on a person → w
   resolves an address by role is still there; nothing on this page calls it.
 
 ### 2.2 One companion (`/?d=<socket>`)
+
+<div align="center">
+<img src="img/console-companion-detail.png" alt="One companion: the transcript in the middle with a tool call and its real exit code, a permission prompt held for approval, and the facts pane on the right" width="880">
+</div>
+
+And the same screen with the workspace pane open — the two panes the section below is about, beside
+the conversation rather than instead of it:
+
+<div align="center">
+<img src="img/console-workspace.png" alt="The same companion with the workspace pane open: the file tree on the left, the git card under it, the conversation still in the middle" width="880">
+</div>
 
 **Two things are wanted here and they are not the same thing.** Somebody opens a companion to see
 its state, or to read what it is saying and steer it. Everything stacked in one column served the
@@ -164,6 +179,10 @@ table.
 
 ### 2.3 The board (`/?v=board`)
 
+<div align="center">
+<img src="img/console-board.png" alt="The board: a day's work as cards, one column per companion, grouped by the label the agent put on each piece" width="880">
+</div>
+
 Work as cards, a column per companion, and a day you can move.
 
 A kanban's columns are usually a **state**, and a state is a fact about NOW: there is no such thing
@@ -191,6 +210,10 @@ because nothing declares a team on a single-workspace machine.
 
 ### 2.4 Experience (`/?v=skills`)
 
+<div align="center">
+<img src="img/console-knowledge.png" alt="The experience screen: each row leads with its reach in words — every companion, the frontend team, only design — then the skill or memory itself" width="880">
+</div>
+
 **Three** tiers of the store — rules and remembered facts, local and from every federated console.
 
 - Each row leads with **the reach, in words**: `every companion` / `the frontend team` / `only api
@@ -213,6 +236,10 @@ because nothing declares a team on a single-workspace machine.
 - A wrong one can be forgotten. **Nobody writes into a store they cannot correct.**
 
 ### 2.5 What they can reach (`/?v=mcp`)
+
+<div align="center">
+<img src="img/console-mcp.png" alt="The MCP servers, at the foot of the same screen as the wiki: each server with its command or URL and the config file it came from" width="880">
+</div>
 
 An MCP server is where a companion's reach leaves this machine's file system: a tracker, a design
 tool, an internal API. Which ones each has meant opening config files one at a time, and a
@@ -244,6 +271,10 @@ header — refused rather than sanitised, since a name quietly rewritten is a se
 again in their own file.
 
 ### 2.5a Who may use this console (`/?v=access`)
+
+<div align="center">
+<img src="img/console-access.png" alt="People and permissions: the groups a gateway reports above, individual exceptions below, and the capability words exactly as they go into auth.toml" width="880">
+</div>
 
 Who exists, what each may do, and which companions they are narrowed to. Behind `admin` and only
 that — the server refuses regardless; hiding the screen is for the person who would otherwise be
@@ -549,6 +580,10 @@ still arrives.
 
 ### 3.6 On a phone
 
+<div align="center">
+<img src="img/console-phone.png" alt="The same console at 390px: one pane at a time, the composer pinned to the bottom, and the rail replaced by a bar" width="320">
+</div>
+
 - The composer wraps so the text box keeps a full row. Measured: without it the box was
   squeezed to a third of the row and the placeholder was cut mid-sentence.
 - The tab row wraps too. Three sentence-shaped labels are wider than 390px, and a nav that overflows
@@ -740,6 +775,10 @@ TUI is for **working with one**. They share a palette: the values live in
 `internal/adapter/tui/styles.go` and the web takes them verbatim (§3.1).
 
 ### 6.1 The layout
+
+<div align="center">
+<img src="img/tui-turn.png" alt="The terminal UI mid-turn: the request, each tool call on one line with its real result, the three council votes and the tally, and the composer at the bottom" width="880">
+</div>
 
 ```
 ┌ header ──────────────── model · permission · scroll chip ⇅42% ─┐
