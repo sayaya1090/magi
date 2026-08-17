@@ -7300,7 +7300,17 @@ async function walkTree(a, kept) {
                             paneCard('git', tr('git.section'), [waitingFor('git.reading')]));
   }
   treeAt.seen = [];
-  // Everything this walk will need, asked for in one go before any of it is drawn.
+  // The git card is ASKED FOR HERE and awaited at the bottom, so the two halves of this pane are
+  // two requests in flight rather than one after the other. They are answered on separate
+  // connections (see the browse helper on the server): the daemon serves each connection in its
+  // own goroutine, so this is real overlap and not two calls taking turns on one mutex — which is
+  // what they did before, with the tree in hand and the pane still waiting on `git status`.
+  //
+  // Guarded, because a rejection now happens while nothing is awaiting it: an unhandled rejection
+  // is a worse failure than the empty card the section already draws for a git it cannot reach.
+  const gitAsking = gitSection(a).catch(() => [paneCard('git', tr('git.section'),
+    [cell('filesnote', tr('git.unreachable'))])]);
+  // Everything the tree will need, asked for in one go before any of it is drawn.
   await fetchDirs(a, wantedDirs(a, kept));
   const rows = treeAt(a, '.');
   if (rows === null) {
@@ -7323,7 +7333,7 @@ async function walkTree(a, kept) {
                         [findRow(a), ...(branchRows.length ? branchRows
                                          : [emptyState('files.empty', 'files.empty_how')])],
                         async () => { forgetTree(a); loadTree.busy = ''; await loadTree(a); });
-  const git = await gitSection(a);
+  const git = await gitAsking;
   // Only when something is different. This runs on the three-second poll, so every message
   // arriving in the conversation rebuilt the whole pane — the tree, the git card, the branch
   // select, the per-file menus — for a workspace where nothing had changed. Visible as a flicker,

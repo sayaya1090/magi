@@ -76,7 +76,7 @@ func (s *server) files(w http.ResponseWriter, r *http.Request) {
 	}
 	dirs := make(map[string]json.RawMessage, len(want))
 	var firstErr error
-	err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	err := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		for _, p := range want {
 			args, merr := json.Marshal(map[string]string{"path": p})
 			if merr != nil {
@@ -227,7 +227,7 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		text, gerr := cl.Git()
 		out = text
 		return gerr
@@ -530,9 +530,26 @@ func (s *server) gitDo(w http.ResponseWriter, r *http.Request) {
 }
 
 // askCompanion runs one read-only tool on the companion this request names.
+// browse runs a READ-ONLY look at a companion — the tree, the git state, a file, a search — on a
+// connection of its own.
+//
+// The pooled client holds one mutex across a whole round trip, so on that connection every card of
+// the workspace pane queues behind every other one AND behind whatever the companion is doing:
+// measured in withClient, a listing that costs 0.6ms idle took 2.7s with a model in flight. The
+// daemon already serves each connection in its own goroutine, so the cards genuinely run at the
+// same time once they stop sharing one — which is what makes the tree and the git card two
+// parallel requests rather than two halves of one wait.
+//
+// Read-only by rule: nothing that WRITES goes here. A write wants the pooled client's reconnect
+// (a socket the daemon has replaced) and wants to be serialized against the other writes; a look
+// wants neither, and a look that fails is answered by the next poll a moment later.
+func (s *server) browse(r *http.Request, do func(*daemon.Client, session.SessionID) error) error {
+	return s.alone(r, do)
+}
+
 func (s *server) askCompanion(r *http.Request, tool string, args json.RawMessage) (string, error) {
 	var out string
-	err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	err := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		text, terr := cl.ReadOnlyTool(tool, args)
 		if terr != nil {
 			return terr
