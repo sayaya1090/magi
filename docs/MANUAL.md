@@ -251,6 +251,20 @@ ollama pull qwen3-coder:30b
 > count rather than the file size — a mixture-of-experts model with ~3B active outruns a dense 27B
 > of the same size several times over. §11 has the details and the numbers.
 
+```mermaid
+flowchart TD
+    Q{"do you want the model<br/>on your machine?"}
+    Q -->|"no — simplest"| C["ollama signin<br/>gpt-oss:120b-cloud, no GPU"]
+    Q -->|yes| L["ollama pull qwen3-coder:30b<br/>./magi --model qwen3-coder:30b"]
+    Q -->|"already have a backend"| O["anything OpenAI-compatible:<br/>--base-url + --api-key"]
+    C & L & O --> B{"a binary"}
+    B -->|"you have Go"| MK["make build"]
+    B -->|"you do not"| DL["the install script,<br/>or brew"]
+    MK & DL --> R([./magi in the directory<br/>you want it to work in])
+
+    style R fill:#e8f6ec,stroke:#2f9e44
+```
+
 **A binary.** Build it, or take a pre-built one:
 
 ```sh
@@ -320,6 +334,29 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 - **stderr** = errors only. Agent-level errors use the greppable form
   `error[<code>]: <message>`.
 
+What a script actually reads, and where each part goes:
+
+```
+  $ ./magi -p "add the idempotency key" --permission allow ; echo $?
+  ┌─ stdout ─────────────────────────────────────────────┐   ┌─ stderr ────────────┐
+  │ ✓ read internal/billing/post.go                       │   │ error[loop_guard]:  │
+  │ ✓ edit internal/billing/post.go                       │   │   240 steps, no     │
+  │ ⚖ council r1 — done · done · reject → continue        │   │   progress          │
+  │ ⚖ council r2 — done · done · done   → accepted        │   └─────────────────────┘
+  │ The key is threaded through the handler and the test.  │      errors only, in the
+  │ ⚠ landed UNVERIFIED — …   ← only if it did            │      greppable form
+  └───────────────────────────────────────────────────────┘
+     the transcript. --output json makes it one fact
+     event per line, decodable as event.Event
+                            │
+         exit  0  the turn finished
+               1  the turn ended on an agent-level error
+               2  magi itself could not run the prompt
+```
+
+The UNVERIFIED line is placed last on purpose: a completion claim the record does not back can
+never be the final word a script reads.
+
 **Headless permission denials are honest, not a fake user decision.** Under `--permission auto`/`ask` in headless mode there is no one to answer a prompt, so `bash`/`webfetch` are unavailable. The tool result the agent receives says so **categorically** — "not available this run (this mode can't approve without a prompt), don't retry; proceed without it or report why you couldn't" — rather than the misleading `denied by user` an interactive deny would send. The distinction matters: `denied by user` reads as "the human said no to *this* call", so the agent retries variations and thrashes; the categorical message tells it the capability is simply off for the whole run, so it adapts once. Use `--permission allow` (or run interactively) if the task needs those tools. A one-line stderr note also flags the mismatch at startup.
 
 ### Leaving it running, and coming back to it
@@ -337,6 +374,23 @@ and close when you don't.
 
 A daemon is also what makes a companion addressable: only a resident one can be handed work, keep a
 schedule, or be seen by another machine. The rest of that surface (`--join-cluster`, `--members`, `--relay`, `--mcp`) is §13.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Resident: magi --daemon
+    Resident --> Watched: magi --attach (in this directory)
+    Watched --> Resident: close the UI — the run keeps going
+    Watched --> Watched: another --attach — several viewers, one run
+    Resident --> [*]: magi --stop (or Ctrl-C in the daemon)
+    note right of Resident
+        addressable: can be handed work,
+        keeps a schedule, seen by other machines
+    end note
+    note right of Watched
+        background commands and language servers
+        belong to the daemon, not to the viewer
+    end note
+```
 
 - **One daemon per workspace.** The socket is named from the workspace's real path
   (`<config>/daemon-<dir>-<hash>.sock`, symlinks resolved), so `--attach` in a directory finds the
@@ -457,6 +511,37 @@ flowchart LR
 A flag beats an environment variable, which beats the config file, which beats the defaults. The
 repo's own `.magi/config.toml` beats the global one, which is what makes a per-project companion
 possible — the file travels with the repository.
+
+Where those files actually are, and what else lives beside them:
+
+```
+  <config>/                                    ~/Library/Application Support/magi   (macOS)
+  │                                            ~/.config/magi                       (Linux)
+  ├── config.toml            the global settings — model, council, profiles, cron
+  ├── AGENTS.md              house rules for every workspace
+  ├── experience/            the global memory tier (§7)
+  ├── teams/<name>/          the team tier — the only one that crosses machines
+  ├── plugins/               plugins you installed          (always loaded)
+  ├── plugins-embedded/      materialised from the binary   (tracks the build)
+  ├── daemon-<dir>-<hash>.sock           one per resident workspace   ─┐  this directory
+  ├── daemon-<dir>-<hash>.sock.session   the record beside it          ─┤  IS the fleet
+  ├── daemon-<dir>-<hash>.sock.lock      who holds this workspace      ─┘  roster
+  ├── fleet-key.pem · fleet-cert.pem     this machine's fleet identity
+  └── fleet-host                         the name other machines know it by
+
+  <workspace>/.magi/                           travels with the repository
+  ├── config.toml            per-project settings; beats the global file
+  ├── AGENTS.md              rules for this repo
+  ├── experience/            the workspace memory tier
+  └── plugins/               loaded ONLY after `magi --trust` here (§9)
+
+  <data>/                                      ~/Library/Caches/magi, ~/.cache/magi
+  └── sessions, transcripts, console audit log — set with MAGI_DATA_DIR
+```
+
+Two of those lines carry the weight of a whole section elsewhere: the `.sock`/`.json` pair is the
+fleet's entire membership mechanism (§13.2), and `<workspace>/.magi/plugins/` is the one directory
+whose contents are not loaded until you say so (§9).
 
 **Where the files are.** The global config lives in the OS config directory
 (`~/.config/magi/config.toml` on Linux, `~/Library/Application Support/magi/` on macOS); the
@@ -628,6 +713,31 @@ primary = "#B45309"
                            #                Never merged from a project config, and a source build
                            #                (git-describe / "dev") refuses to auto-update regardless.
 ```
+
+Profiles are what make "one magi, several backends" ordinary rather than a special case. A profile
+is a named endpoint; anything that runs a model can be pointed at one:
+
+```mermaid
+flowchart LR
+    subgraph profiles ["[llm.profiles.*] — named backends"]
+        F["fast<br/>gpt-oss:20b, cheap"]
+        S["strong<br/>a big model"]
+        D["(the default backend)"]
+    end
+    A["the agent's own turns"] --> D
+    M1["council · Melchior"] --> S
+    M2["council · Balthasar"] --> F
+    M3["council · Casper"] --> F
+    SUB["a plugin's subagent"] --> F
+    AC["autocomplete · look-over"] --> F
+
+    style S fill:#e8f4ff,stroke:#2c7fb8
+    style F fill:#f5f2ec,stroke:#8a8178
+```
+
+Each council member takes a `provider` and a `model`, so a panel can be one strong reader and two
+cheap ones; a subagent takes its own; and `/route` edits all of it live, writing the result back to
+`config.toml` with the comments preserved.
 > **Autocomplete & suggestions** (`[autocomplete]`): three low-latency helpers, each a single no-council model call on a routed profile — never a subagent turn, so a keystroke never waits on a finish vote. **Inline code completion** shows ghost text at the cursor in the web file editor (Tab takes it). **Composer suggestion** offers how you'll finish an instruction, in both the web composer (a dim hint) and the TUI composer (a line under the box, Tab), learned from your own past prompts via lexical ranking. **Ambient open-file** puts the file you're editing — unsaved — into the agent's next-turn context. Code and composer get **separate profiles** on purpose (a small fast model for code, a slightly stronger one for the composer); a surface with no profile self-disables rather than billing the main model. All of it is toggled and assigned from the web console's **Preferences** (the on/off switches are per-browser; the profile assignments, ambient, cross-session and the two `[templates]` rule editors are written to config), and persists to this file.
 > The `[llm.profiles.*]` / `model` above can **also be edited via the `/route` editor** — or from the web console's **Preferences → Model profiles**: list, edit and remove the named backends, or add one (name, base URL, model, optional key). The key is **write-only** — the console reports only whether one is set, never the value — and `${ENV_VAR}` is the recommended form. Changes are saved to this file and apply on that daemon's next start.
 > **Look-over** (web editor, off by default — Preferences → the look-over switch): while you edit a file in the console, the companion's model reads over your shoulder and points out only what is wrong — at most three findings, each **anchored to its line** and drawn as an amber end-of-line note that clears when you type. Only the region around your caret is sent (±60 lines, numbered with real line numbers), and the remarks come in **your language**. Silence means nothing worth saying; there is no "looks good" noise. Each pause in typing spends one small model call, which is why it is opt-in per browser.
@@ -635,6 +745,20 @@ primary = "#B45309"
 > Color themes can be defined externally per role in `[theme.dark]` / `[theme.light]` (default = NERV/MAGI). Pick the mode (auto/dark/light) with `--theme`.
 > On first run a commented default `config.toml` is generated automatically (left untouched if it already exists).
 > **Malformed config is never silently ignored**: if the global `config.toml` fails to parse (e.g. a duplicate top-level key), magi prints the parse error and refuses to start rather than falling back to an empty config that would drop your model, plugins, and every other setting. A malformed **project** `.magi/config.toml` warns and is skipped (the valid global config still applies). An unknown *key* (a typo) is only a warning — it never blocks startup.
+
+The guards below are deterministic, always on, and cheap — no model call in any of them. Almost all
+only *say* something; two can stop a run. The table is the map, the paragraph after it is the
+detail:
+
+| Guard | What it catches | What it does |
+|---|---|---|
+| Self-regression check | an edit that returns a file to a state it already had this turn — fix it, then quietly undo the fix | a note on that tool result. Advisory, once per file |
+| Tabu list | an edit that returns **every** authored file to a state whose test run already failed | the prior failure, shown again. Advisory, once per state |
+| Non-interactive execution | a command that tries to prompt — git credentials, an ssh host key, a pager | no controlling terminal, stdin closed: it fails fast instead of hanging to the timeout |
+| Masked-failure annotation | exit 0 with a traceback, a panic, `Ran 0 tests`, or a `\|\| true` tail | a line saying that zero is not evidence. Annotate-only |
+| Empty-finish nudge | a turn that did the work and wrote no answer | nudged **once** to write the result; a still-empty retry finishes |
+| Loop guard | the same no-progress call, over and over | refuses and echoes the earlier result → one corrective re-grounding → **stops the run** if it persists |
+| Stall force-stop | no progress across several steps, even after the nudge | **stops the run** gracefully (`stall_guard`). A `bash` write counts as progress, so a slow build is not a stall |
 
 > **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Tabu list** — a higher-precision complement: when a command that *exercises* the deliverable (a test/program run, not an inspect-only builtin) fails, the whole authored file set's content signature is recorded as "already tried, does not work"; a later edit that returns every file to that same failing state is flagged with the prior failure so the agent tries a different fix instead of re-running the proven-bad loop (advisory, once per state). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach) — and the nudge carries a **completion escape hatch**: if the work is genuinely complete, say so with `council{complete: true}` (§6) — another confirmation command is not progress, and **never delete or rebuild finished work just to produce visible activity**. Only if it persists is the run stopped gracefully. **Stall force-stop** — when the agent makes no progress across several steps even after the corrective nudge, the run is stopped gracefully (`stall_guard`) instead of grinding on; a `bash` write counts as progress so a legitimately slow build isn't misread as a stall. **Empty-finish nudge** — a turn that ends with **no answer text** delivered nothing the user can read. This happens when a harmony-format weak model emits only its analysis channel and stops (a "reasoning-only stop"), or when it runs tools and then goes silent on the final step — leaving a turn that did the work and reported none of it. The turn is nudged **once** to actually write the result, regardless of whether tools were used; a still-empty retry then finishes normally, so it can't loop. **Masked-failure annotation** — a `bash` result with **exit 0** whose output carries a real crash signature (a Python traceback, a JVM thread exception, a Go panic with a goroutine dump), or whose command ends in a pure exit-code-masking tail (`|| true`, `|| echo …`), gets a one-line advisory note right after the status line: that exit 0 is not evidence the command succeeded. The same annotator family flags a **test runner that discovered nothing** — an exit 0 above `Ran 0 tests` / `no tests ran` proves nothing about the suite, and is said so where it can't be clipped away. Annotate-only — the result's ok/error classification and control flow are unchanged (`MAGI_EXITCODE_BODYSCAN=0` disables).
 
@@ -823,6 +947,27 @@ Where everything sits:
 | mouse wheel | scroll · click a panel → focus (click again → zoom) |
 | permission modal: y/a/p/n | allow (once) / always (this session) / project (persist to `.magi/config.toml`) / deny |
 
+The modal itself, and what each key costs you later:
+
+```
+  ┌─ magi wants to run ─────────────────────────────────────────┐
+  │  bash   curl -X POST https://api.example.com/v1/orders      │
+  │         ↳ egress: api.example.com                           │
+  ├─────────────────────────────────────────────────────────────┤
+  │  y  allow, once            ← nothing is remembered          │
+  │  a  always, this session   ← forgotten when magi exits      │
+  │  p  persist to the project ← writes bash(curl:*) into       │
+  │                              .magi/config.toml — the        │
+  │                              PROGRAM, never bash(**)        │
+  │  n  deny                   ← the tool answers "refused",    │
+  │                              and the agent must adapt       │
+  └─────────────────────────────────────────────────────────────┘
+```
+
+`p` is the one worth thinking about, because it outlives the session and travels with the
+repository. It is also the one deliberately narrowed: a command that opens with a pipe or a
+redirect has no stable program to pin a rule to, so it stays session-only rather than over-granting.
+
 Typing keys go only to the input box and scrolling happens only via the dedicated keys above — so typing body text (including spaces) doesn't scroll the screen. While you're scrolled up reading, streaming doesn't yank the view down (auto-follow only when at the bottom). When the transcript overflows, a **header chip** shows the scroll position (`⇅ 42% (120/300)`), plus `↓ new` when fresh output is streaming in below while you're scrolled up (End jumps back). There is no drawn scrollbar — the chip replaced it, which also removed the Windows ambiguous-width misalignment class entirely.
 
 Each working turn ends with a one-line receipt — `▣ turn: 14 steps · 3 file(s) · council r2 · 3m49s` — so a turn's cost is visible without scrolling back. When the agent needs YOU to decide between real alternatives, it can open a **selection modal** (the `ask_user` tool): ↑/↓ or 1-9 pick, enter answers, esc dismisses (the model is told you declined and proceeds on its own judgment). Multiple questions appear one modal at a time.
@@ -924,6 +1069,34 @@ A collection of interaction behaviors under verification — organized so screen
 
 One agent sees all of them. (The only exception is **workflow mode**, §2, where a phase may narrow the set to fit its goal.) The `Permission` column is the approval axis a tool trips (`ask` = confirmed under `ask`/`auto`; `—` = read-only, never prompts).
 
+Every call takes the same path before anything happens, and each gate can only refuse:
+
+```mermaid
+flowchart TD
+    C["the model asks for a tool"] --> D{"on the deny list?"}
+    D -->|yes| NO["refused — deny always wins over allow"]
+    D -->|no| A{"an allow rule<br/>already covers it?"}
+    A -->|yes| RUN
+    A -->|no| M{"the permission mode"}
+    M -->|"allow"| G
+    M -->|"deny"| NO
+    M -->|"ask · auto"| P["you are asked:<br/>y · a · p · n"]
+    P -->|"n"| NO
+    P -->|"y / a / p"| G{"guardrails:<br/>destructive? egress?<br/>outside the sandbox?"}
+    G -->|"tripped"| P2["asked again, on top<br/>of whatever the mode said"]
+    G -->|clear| RUN([the tool runs, and<br/>the record says it did])
+    P2 -->|allowed| RUN
+    P2 -->|denied| NO
+
+    style RUN fill:#e8f6ec,stroke:#2f9e44
+    style NO fill:#fff3e0,stroke:#e8820c
+```
+
+Two things follow from the shape. A guardrail can force a prompt even under `allow`, because it
+exists on account of the policy rather than because somebody asked to be asked. And `p` — persist —
+writes the narrowest rule the tool allows: approving `curl https://x` records `bash(curl:*)`, never
+`bash(**)`.
+
 ### File & search
 | Tool | Description | Permission |
 |---|---|---|
@@ -944,6 +1117,22 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 | `bash_kill` | terminate a background command | — |
 | `wait_for` | block until a condition holds (a file appears, a port answers, a background job exits) instead of spinning on `sleep` + re-check | ask |
 | `port_owner` | what is listening on a port, and which process owns it — portable, where `ss`/`lsof`/`netstat` may not be installed | ask |
+
+A pipeline is where an exit code lies, so magi does not take the last stage's word for it:
+
+```
+    go build ./...    |    tee build.log    |    tail -1
+         │                     │                    │
+      exit 2                 exit 0              exit 0
+         └───────────── PIPESTATUS ──────────────────┘
+                              │
+        what the shell reports:  0    ← the last stage succeeded
+        what magi records:      FAILED (stage 1 exited 2)
+```
+
+Read out of band under `/bin/bash`, which is why it is the shell magi prefers. Without it the agent
+reads a green 0 for a build that did not build — measured as one of the ways a turn ends up
+reporting work it never did.
 
 ### Web
 | Tool | Description | Permission |
@@ -1039,6 +1228,23 @@ flowchart TD
     style M fill:#e8f4ff,stroke:#2c7fb8
 ```
 
+Three members, three lenses, and one of five ways to count them. Whatever you pick, the ambiguous
+result resolves the same way:
+
+| `rule` | The turn ends when | Where an abstention lands |
+|---|---|---|
+| `unanimous` | every member who voted said done | it is not counted at all, so the remaining voters decide |
+| `majority` *(default)* | done is a **strict** majority of those who voted — a tie is not | it leaves the vote; 1–1 with one abstaining is *continue* |
+| `quorum:2` | at least k members said done | it neither helps nor blocks; k real accepts are still needed |
+| `weighted:0.6` | done's share of the **voted** weight meets θ | it carries no weight either way |
+| `veto:Balthasar` | the named member did not object, **and** the rest are a majority | an abstention from the named member is not an objection |
+
+A member that errored, timed out, or answered unreadably **abstains** rather than blocking the
+gate. So a flaky backend degrades the vote; it cannot freeze the loop. And every ambiguous outcome
+resolves to *continue*: a tie, an unknown rule name, and a `quorum` with a garbage `k` all fail
+towards the turn carrying on, because the failure a stalled turn produces is cheaper than the one a
+false completion produces.
+
 **Rejection is bounded.** The gate exists to stop a false "done"; unbounded, it also stopped a true "I could not" — measured live, an honest declaration on a task the run's own permission mode made impossible was rejected for eighteen straight rounds until an external kill. After three consecutive rejections with **no file mutation between them** (or eight in one turn regardless), magi lands the turn **UNVERIFIED** with the reason on the record: the work stands, the agent is asked for its honest final account, and nothing pretends the council accepted. Real iteration is unaffected — a declaration separated from the last by actual work gets the longer rope. `MAGI_COUNCIL_REJECT_CAP=0` restores the uncapped loop for A/B.
 
 If the agent never declares, magi reminds it up to three times and then lands the work as it stands, recorded as ending undeclared instead of finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
@@ -1062,6 +1268,56 @@ A plugin can register one (EXTENDING §3.9). magi provides the seam and no polic
 - **Bounded, and it cannot recurse.** A child gets a step count and a clock, the whole tool call gets a cumulative budget, and a child is handed no way to spawn.
 - **You can see it.** It runs in its own pane with its own transcript (§4).
 - **You can read what it did, and put it back.** `magi.child_steps` returns the calls it made with the raw output of the failed ones; `magi.restore_child` puts its file changes back and names what it could not. Neither is automatic.
+
+#### Why a child is expensive to undo, and what a companion does about it
+
+Both of the last two bullets exist because of one asymmetry, and it is worth naming because it is
+the reason the fleet is shaped the way it is.
+
+A loop has two kinds of undo, and they are not the same kind of thing:
+
+```mermaid
+flowchart TD
+    R["/rewind — the loop's own undo"] --> L["truncates the EVENT LOG<br/>and clears derived state"]
+    L --> T1(["the conversation goes back"])
+    L -.->|"does not touch"| F["the files on disk"]
+    C["a subagent ran for minutes<br/>inside ONE tool call"] --> W["it wrote to the shared tree"]
+    W --> F
+    W --> S["its reasoning is in ITS session,<br/>not in the parent's log"]
+    F --> Q(["after a rewind: the log is back,<br/>the tree is not"])
+    S --> Q2(["and the parent cannot say<br/>what to put back"])
+
+    style T1 fill:#e8f6ec,stroke:#2f9e44
+    style Q fill:#fff3e0,stroke:#e8820c
+    style Q2 fill:#fff3e0,stroke:#e8820c
+```
+
+`magi.restore_child` is the answer to the right-hand branch, and its shape admits the difficulty:
+it is best-effort, it reports every path either way — a loop told only "done" would build its next
+round on a tree it believes is clean — and it is **deliberately not automatic**, because a failed
+attempt's leavings are sometimes the evidence the next round needs.
+
+**Parallelism makes it worse, not better.** The parent's edit guard reads each file before and
+after a write; that is only race-free while writes are serialised. Two children writing to one tree
+produce an interleaving nobody can reconstruct afterwards — the log can say both wrote, and cannot
+say which write survived. So concurrency is not granted by default; it is bought, in one of two
+ways, and both are declarations the host **checks rather than trusts**:
+
+| declaration | what it gives up | what it buys | what comes back |
+|---|---|---|---|
+| `readonly_children` | writing, entirely — a spec asking for anything outside `read`/`grep`/`glob`/`list` is refused by name | two calls in one step run at once, with nothing to undo | text |
+| `isolated_children` | the shared tree — each writing child gets its own checkout, its shell pinned to `workspace-write` | the same concurrency, for children that do write | a **commit range**, merged only when you call `magi.merge_child` (git's three-way merge, so a conflict arrives as markers rather than a silent overwrite) and never committed in the parent |
+
+**A companion moves the boundary one level further out.** It has its own workspace, its own event
+log, and the one-turn-at-a-time rule inside it. `hand_off` therefore never puts another agent's
+mutations in your tree: what comes back is text, into your conversation. Handed-over work also
+cannot be handed on again, so every mutation has exactly one owner and exactly one log to answer
+for it.
+
+The cost of that is real and worth stating plainly: **you cannot roll back from here what a
+companion did over there.** You ask it to, or you go to its workspace and do it. The design trades
+undo-across-the-fleet for a question that always has one answer — who wrote this, and which log
+says so.
 
 magi bundles one example, **Seele** — a planner that reads and analyses and returns a step list, with no write tools in its allowlist at all. It ships **switched off**.
 
@@ -1268,6 +1524,27 @@ each of them has learned.
 ./magi-web -emit-demo ./out                  # write the page as static files and exit
 ```
 
+The console is a viewer, not a second engine. Everything it shows it asked a daemon for, over the
+same socket a terminal would use:
+
+```mermaid
+flowchart LR
+    B["your browser"] -->|"HTTP, same-site only"| W["magi-web<br/>(loopback by default)"]
+    W -->|"unix socket"| D1["daemon · api"]
+    W -->|"unix socket"| D2["daemon · design"]
+    W -->|"HTTP, operator-listed"| P["a peer console<br/>-peer laptop=…"]
+    P -.->|"its own sockets"| D3["daemons on that machine"]
+    D1 & D2 --> R[("the records beside the sockets<br/>— how it knows who exists")]
+
+    style W fill:#e8f4ff,stroke:#2c7fb8
+    style R fill:#f5f2ec,stroke:#8a8178
+```
+
+Two consequences worth holding on to. The console has **no store of its own** — a companion's
+transcript, plan and history are read from the daemon that owns them, which is why a console can be
+restarted mid-anything. And actions on a **peer's** companions are forwarded to the console that
+owns them, because that machine's sockets are not this one's to dial.
+
 - **Loopback by default, and no login of its own.** It is reached however your organisation allows —
   an `ssh -L` tunnel, or your own proxy with your own SSO in front of it. Building accounts into it
   would be a second door beside the company's, and the second door is always the weaker one.
@@ -1376,6 +1653,28 @@ The rail on the left has two destinations, and a companion's page lives inside t
 Opened from a row, addressed as `/?d=<socket path>`. Two things happen here: watching, and saying
 something. So the page is the conversation, with everything else beside it.
 
+Where those parts sit, on a screen wide enough for both panes:
+
+```
+┌──────┬──────────────────────────────────────────────┬────────────────────────┐
+│ rail │  design / api / ops · breadcrumb   ⌘K  ☰     │                        │
+│      ├──────────────────┬───────────────────────────┤   the facts pane       │
+│ 컴패 │ the workspace    │  the conversation         │   ─────────────────    │
+│ 니언 │ ───────────      │  ────────────────         │   what this is         │
+│      │ a tree, read one │  the transcript, live     │   running now          │
+│ 지식 │ directory at a   │  over /events — folded    │   plan            3/7  │
+│      │ time             │  tool calls, thinking,    │   handed out           │
+│ 회의 │                  │  council rounds, diffs    │   history              │
+│      │ ── Git ──        │                           │   cron                 │
+│      │ staged / changed │  ┌─────────────────────┐  │                        │
+│      │ commit · PR      │  │ composer — a STEER, │  │   (the handle is the   │
+│      │                  │  │ not a new turn      │  │    icon top-right;     │
+│      │                  │  └─────────────────────┘  │    it remembers)       │
+└──────┴──────────────────┴───────────────────────────┴────────────────────────┘
+   under 840px: the two panes become two tabs, and the conversation is the one
+   that lands — a phone opening a file used to put 0px of conversation on screen
+```
+
 **The conversation.** The transcript live over an event stream (`/events`), rendered the way the TUI
 renders it: folded tool calls that open, thinking blocks, council rounds with each member's verdict,
 diffs, and a bar under a call that is still running. A tool call says how it ended with a glyph, and
@@ -1473,6 +1772,27 @@ as prose — and the room opens when they are all back. A participant that could
 daemon, a workspace that has gone) does not hold the room: its trouble is recorded and the meeting
 opens a voice short, saying so. Preparation is parallel, so the wait is the slowest one rather than
 the sum.
+
+```mermaid
+sequenceDiagram
+    participant U as you
+    participant C as the console (the chair)
+    participant A as design
+    participant B as api
+    U->>C: convene, with a question
+    par preparation is parallel
+        C->>A: prepare — read your own workspace (read-only tools)
+        C->>B: prepare — same
+    end
+    Note over C: the room opens when everyone is back.<br/>One that could not get ready is recorded,<br/>and the room opens a voice short.
+    C->>A: you have the floor
+    A-->>C: what it makes of the question
+    C->>B: you have the floor — and here is what design said
+    B-->>C: its own reading, having read that
+    Note over C: ends when a whole round passes<br/>with nobody adding anything
+    C-->>U: a transcript, and one task per participant
+    U->>B: hand that one out — it goes in as ordinary work
+```
 
 **What the screen shows while it runs:**
 
@@ -1603,6 +1923,25 @@ It **returns at once** with a receipt. The asker keeps working; the answer arriv
 conversation when the other finishes, and is folded in there. It does not wait and does not ask
 twice.
 
+```mermaid
+sequenceDiagram
+    participant A as design (asker)
+    participant B as api (doer)
+    A->>B: hand_off{request, so_that, answer_as}
+    B-->>A: a receipt — "taken, 2 of 3 waiting"
+    Note over A: keeps working. It does not block,<br/>and it will not ask again.
+    Note over B: a side session of its own —<br/>never the conversation a person is having
+    B->>B: its own turn, its own council
+    B-->>A: the answer, in the form that was asked for
+    Note over A: folded into the asker's conversation<br/>at the next turn boundary
+    A->>B: rate_handoff — what it was worth, once used
+```
+
+Note what the diagram does not contain: a way for `api` to pass this on to a third companion, and a
+way for `design` to ask a follow-up question inside the same exchange. Neither exists. The first is
+what keeps every piece of work owned by exactly one companion; the second is why `so_that` is a
+required field — see §13.5 for the channel that *does* let two working companions talk.
+
 All four fields are required, and the last two are the ones that make the difference:
 
 | Field | What it is for |
@@ -1675,6 +2014,20 @@ So a busy companion **queues** rather than refuses. Work is taken immediately (t
 receipt is for), and asked about before it starts it says so — "not started yet, 2 of 3 waiting".
 The queue holds four. Past that it refuses, in a sentence that tells the asker to go elsewhere,
 because a queue longer than that is not an answer coming later.
+
+```
+   one workspace ────────────────────────────────────────────────────────────
+                   ┌────────────┐
+   the person  ───▶│            │   only ONE of these runs at a time
+   design      ───▶│  the queue │   ── the person's turn included
+   ops         ───▶│  (holds 4) │
+   cron        ───▶│            │──▶ [ running turn ]──▶ answer, to whoever asked
+                   └────────────┘
+                         │
+                 a 5th   ▼
+                 refused, in a sentence that says go elsewhere —
+                 a queue longer than four is not "an answer coming later"
+```
 
 Two numbers ride in the published record and travel with it, so an asker choosing between
 companions can see how busy each is:
@@ -1754,6 +2107,24 @@ daemon's own protocol:
 ```sh
 ssh buildbox magi --relay /path/to/their/daemon-....sock
 ```
+
+```mermaid
+flowchart LR
+    subgraph here [your laptop]
+        A["design<br/>wants to hand work over"]
+    end
+    subgraph there [buildbox]
+        S["ssh"] --> RL["magi --relay &lt;their sock&gt;"] --> D["daemon · ops"]
+    end
+    A -->|"the daemon protocol,<br/>as bytes over ssh"| S
+    D -.->|"pushed back down<br/>the same pipe"| A
+
+    style RL fill:#e8f4ff,stroke:#2c7fb8
+```
+
+`--relay` is a dumb byte pipe on purpose, and that is the design decision worth noticing: taking
+work, asking what became of it, and asking what a companion can do are three **methods of one
+protocol**, not three subcommands that each re-derive what the running daemon already knows.
 
 You do not run that; magi does, when the companion it is addressing is not here. `--relay` pipes
 stdin and stdout to that socket, so taking work, asking what became of it and asking what a

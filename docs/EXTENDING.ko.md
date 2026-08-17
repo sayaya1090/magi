@@ -31,7 +31,7 @@ flowchart TD
 | **훅** | 턴이나 편집 앞뒤로 셸 명령이 돌아야 할 때 | `config.toml`의 `hooks` |
 
 여기 어디에도 속하지 않는 것이 하나 있습니다. **트랜스포트 관심사** — 인증 헤더·TLS·프록시·재시도는
-플러그인이나 MCP 서버가 아니라 Go `http.RoundTripper` 심(`openai.WithHTTPClient`)에 둔다.
+플러그인이나 MCP 서버가 아니라 Go `http.RoundTripper` 심(`openai.WithHTTPClient`)에 둡니다.
 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11 참고.
 
 개념은 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11·§7에, 만든 것을 쓰는 법은
@@ -41,7 +41,7 @@ flowchart TD
 
 ## 0. 설정 파일과 우선순위 (공통)
 
-두 기능 모두 `config.toml`로 켠다. 로딩 순서(`cmd/magi/main.go`):
+두 기능 모두 `config.toml`로 켭니다. 로딩 순서(`cmd/magi/main.go`):
 
 1. **전역**: `<config>/config.toml`
    - macOS: `~/Library/Application Support/magi/config.toml`
@@ -206,7 +206,7 @@ flowchart TD
 (`internal/adapter/experience/git/store.go`).
 
 > ⚠️ **정직한 한계**: 여기서의 "RAG"는 **임베딩 벡터/시맨틱 검색이 아니라 단어 겹침
-> (term-overlap) 스코어링**이다. 시맨틱 검색이 필요하면 별도 ContextProvider/MCP 서버로 붙여야 합니다.
+> (term-overlap) 스코어링**입니다. 시맨틱 검색이 필요하면 별도 ContextProvider/MCP 서버로 붙여야 합니다.
 
 > ⚠️ **2026-08-07 정정.** 이 절은 `remember`가 `pending/` 리뷰 큐에 넣고 사람이 승급시킨다고
 > 적고 있었습니다. **그런 큐는 없다** — `Propose`는 `memories/`·`skills/`에 직접 쓰며, 리뷰 게이트를
@@ -442,7 +442,7 @@ magi.set_llm_headers(function()
 end)
 ```
 
-> 정적 키만 필요하면 **플러그인 없이** `config.toml`로도 된다:
+> 정적 키만 필요하면 **플러그인 없이** `config.toml`로도 됩니다:
 > ```toml
 > [llm.headers]
 > X-CLIENT-API-KEY = "${LITELLM_CLIENT_KEY}"   # ${ENV} 확장 지원
@@ -735,7 +735,7 @@ magi.register_tool{
 | `subagent = true` | `/subagents`에 올라가 사용자가 켜고 끄고 모델을 고릅니다 |
 | `readonly_children = true` | 이 툴이 띄우는 자식은 **읽기만** 합니다. 그러면 한 스텝의 두 호출이 **동시에** 돕니다 |
 | `isolated_children = true` | 쓸 수 있는 자식마다 **자기 체크아웃**을 받는다(호스트가 스폰 지점에서 `workspace="clone"`을 기본으로 깔고 셸을 `workspace-write` 샌드박스에 고정). 한 스텝의 두 호출이 역시 동시에 돕니다 |
-| `enabled = false` | 꺼진 채로 배포 — 사용자만 켠다 |
+| `enabled = false` | 꺼진 채로 배포 — 사용자만 켭니다 |
 
 **`readonly_children`으로 호스트가 하는 일.** 한 스텝이 읽기 전용 툴 여러 개를 요청하면 동시에 돕니다.
 서브에이전트는 늘 거기서 빠졌고 이유는 하나였다 — 자식이 파일을 쓰고, 부모의 가드가 편집 전후로 파일을
@@ -794,7 +794,7 @@ magi.register_tool{
 ### 3.11 컴패니언 툴 (`companions`)
 
 플러그인 툴은 아니고 `cmd/magi`가 등록합니다. 다만 플러그인 작성자가 그 옆에 무언가를 만들 가능성이
-가장 큰 자리라 적어 둔다: `companions`는 이 머신의 다른 magi를 나열하고(이름·역할·팀·지금 하는 일·
+가장 큰 자리라 적어 둡니다: `companions`는 이 머신의 다른 magi를 나열하고(이름·역할·팀·지금 하는 일·
 무엇을 배웠는지). 플릿 뷰가 읽는 데몬 기록을 그대로 읽습니다.
 
 그중 하나에게 일을 넘기던 두 번째 툴 `ask_companion`은 제거됐다 — 받는 쪽을 자유 문자열로 지정하는데
