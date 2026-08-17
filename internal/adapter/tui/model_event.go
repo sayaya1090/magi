@@ -408,6 +408,15 @@ func (m *Model) applyEvent(e event.Event) {
 	case event.TypeError:
 		var d event.ErrorData
 		_ = json.Unmarshal(e.Data, &d)
+		// An error the RUN kept working past is a line in the transcript, not the end of the
+		// turn: the daemon is still stepping, and tearing the turn state down here told the
+		// person it stopped — spinner gone, meter frozen, queued bubbles cleared — while work
+		// continued underneath (reviveForEngineActivity re-armed the spinner a delta later, but
+		// the cleared bubbles and the meter restart were never undone).
+		if d.Recovered {
+			m.blocks = append(m.blocks, block{kind: blockError, text: d.Message})
+			break
+		}
 		m.running = false
 		m.clearSpinnerCache(m.turnReqID)
 		m.turnReqID = ""

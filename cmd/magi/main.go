@@ -1935,6 +1935,8 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 	}
 
 	exit := 0
+	sawRecovered := false // a recovered error was skipped; a close with no finish is then a failure
+	sawTerminal := false  // a turn.finished (or workflow-done) actually arrived
 	var lastThinkBeat time.Time
 	for e := range sub {
 		if jsonOut {
@@ -1968,6 +1970,7 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 		// the first would stop after LOCALIZE with the task untouched. The whole pipeline emits one
 		// terminal marker (workflow.phase phase="workflow" status="done"); wait for that instead.
 		if e.Type == event.TypeTurnFinished && !workflow {
+			sawTerminal = true
 			// An UNVERIFIED landing gets the transcript's LAST word. Observed live (the server
 			// lifecycle run, 2026-08-16): the cap landed the turn, the model then wrote a "fully
 			// satisfied" summary anyway, and that false narrative was the final text a reader saw —
@@ -1988,6 +1991,7 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 		if workflow && e.Type == event.TypeWorkflowPhase {
 			var d event.WorkflowPhaseData
 			if json.Unmarshal(e.Data, &d) == nil && d.Phase == "workflow" && d.Status == "done" {
+				sawTerminal = true
 				break
 			}
 		}
@@ -2000,11 +2004,20 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 		if e.Type == event.TypeError {
 			var d event.ErrorData
 			if json.Unmarshal(e.Data, &d) == nil && d.Recovered {
+				// Keep watching — but remember. If the stream then CLOSES without a
+				// turn.finished (daemon shutdown mid-turn), exit 0 would claim a finish that
+				// never came: before the recovered mark, any error guaranteed exit 1 here, and
+				// skipping the quit must not convert that into a false success.
+				sawRecovered = true
 				continue
 			}
 			exit = 1
 			break
 		}
+	}
+	if exit == 0 && sawRecovered && !sawTerminal {
+		fmt.Fprintln(errw, "error[provider]: the stream closed after a recovered error, with no finish — the turn did not complete")
+		exit = 1
 	}
 	// What the run actually spent, on stderr so stdout stays a clean transcript. The per-turn usage
 	// in the transcript is the agent's own stream and its LAST prompt; this is every request —

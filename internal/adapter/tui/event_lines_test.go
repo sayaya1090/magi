@@ -164,3 +164,37 @@ func TestAbandonedPromptSaysSoOnItsBubble(t *testing.T) {
 		t.Errorf("an unmatched abandon marker must touch nothing")
 	}
 }
+
+// A RECOVERED error is a transcript line, not the end of the turn: the daemon kept working, and
+// tearing the turn state down told the person it stopped — spinner gone, meter frozen, queued
+// bubbles cleared — while steps continued underneath. An unrecovered error still ends it.
+func TestARecoveredErrorDoesNotEndTheTurnOnScreen(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.running = true
+	m.turnReqID = "r1"
+
+	m.applyEvent(ev(t, event.TypeError, event.ErrorData{
+		Message: "the model stream ended without finishing", Code: "provider", Recovered: true,
+	}))
+	if !m.running {
+		t.Error("a recovered error must leave the turn running on screen")
+	}
+	if m.turnReqID != "r1" {
+		t.Error("a recovered error must not clear the live turn's request id")
+	}
+	found := false
+	for _, b := range m.blocks {
+		if b.kind == blockError && strings.Contains(b.text, "ended without finishing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the recovered error must still appear in the transcript")
+	}
+
+	m.applyEvent(ev(t, event.TypeError, event.ErrorData{Message: "401 unauthorized", Code: "provider"}))
+	if m.running {
+		t.Error("an unrecovered error must still end the turn on screen")
+	}
+}

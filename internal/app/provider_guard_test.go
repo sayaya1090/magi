@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -123,5 +124,52 @@ func TestTheGuardSaysItStoppedTheStreamAndWhat(t *testing.T) {
 	}
 	if !strings.Contains(gotErr.Error(), "port 5328") {
 		t.Errorf("the abort must carry the repeated unit as evidence, got %v", gotErr)
+	}
+}
+
+// deafProvider streams a repeating unit WITHOUT ever selecting on its context — the
+// least-cooperative producer GuardProvider's "every model request" contract must still not leak.
+type deafProvider struct {
+	sends int32
+	done  chan struct{}
+}
+
+func (p *deafProvider) StreamChat(context.Context, port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent)
+	go func() {
+		defer close(ch)
+		defer close(p.done)
+		for i := 0; i < 5000; i++ {
+			ch <- port.ProviderEvent{Type: port.ProviderText, Text: "the same unit over and over. "}
+			atomic.AddInt32(&p.sends, 1)
+		}
+	}()
+	return ch, nil
+}
+
+// After an abort the guard must go on draining the producer: before abort() existed the guard
+// loop read `inner` to its close after a cancel, and returning without a drain narrowed that to
+// "your producer must be cancel-aware" — enforced nowhere, stated nowhere, and a deaf producer
+// blocked on its send forever.
+func TestTheGuardDrainsADeafProducerAfterAborting(t *testing.T) {
+	p := &deafProvider{done: make(chan struct{})}
+	ch, err := GuardProvider(p).StreamChat(context.Background(), port.ChatRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawAbort := false
+	for ev := range ch {
+		if ev.Type == port.ProviderError && errors.Is(ev.Err, port.ErrStreamAborted) {
+			sawAbort = true
+		}
+	}
+	if !sawAbort {
+		t.Fatal("the repetition guard never fired on a pure repetition stream")
+	}
+	select {
+	case <-p.done: // every send got through: the producer was drained to completion, not stranded
+	case <-time.After(5 * time.Second):
+		t.Fatalf("producer still blocked after the abort (%d/5000 sends) — the drain is gone",
+			atomic.LoadInt32(&p.sends))
 	}
 }

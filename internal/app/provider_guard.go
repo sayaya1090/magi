@@ -95,9 +95,10 @@ func GuardProvider(p port.LLMProvider) port.LLMProvider {
 // Above BOTH of the main loop's silence bounds, which came apart once: sized from streamStallTimeout
 // alone (2×120s=240s), the guard sat BELOW the 300s first-token bound — so a slow prefill was killed
 // at 240s by the guard instead of handled at 300s by consumeStream, and killed WORSE: the guard's
-// cancel closes the stream without the idle tick ever firing, so `stalled` was never set, the retry
-// ladder was unreachable, and the turn ended as an error-free empty answer. The net was the exact
-// hang-fix being undone one layer up, silently.
+// cancel bypassed the stall-retry ladder (`stalled` is only set by consumeStream's own idle tick),
+// and back then it also ended the turn as an error-free empty answer. An idle abort now lands as a
+// recovered error with the prefix kept, but the ladder is STILL bypassed on the guard path — the
+// ordering rule below is what keeps that path unreachable under sane bounds.
 func providerGuardIdle() time.Duration {
 	inner := streamStallTimeout
 	if b := firstTokenBound(); b > inner {
@@ -158,6 +159,15 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 			case <-ctx.Done():
 			}
 			cancel()
+			// Drain what the producer still sends. Before abort() existed the guard loop kept
+			// reading `inner` to its close after a cancel, so even a producer that never selects
+			// on its ctx unblocked; returning without this quietly narrowed that contract to
+			// "your producer must be cancel-aware", enforced nowhere. The drain restores parity —
+			// detached, so the consumer-facing close(out) is not held up by a slow producer.
+			go func() {
+				for range inner { //nolint:revive
+				}
+			}()
 		}
 		for {
 			select {

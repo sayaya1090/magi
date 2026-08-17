@@ -626,3 +626,18 @@ func TestRunHeadlessStillFailsOnAnUnrecoveredError(t *testing.T) {
 		t.Fatalf("an ordinary provider failure must still exit 1, got %d", exit)
 	}
 }
+
+// A recovered error followed by the stream CLOSING (daemon shutdown mid-turn) is not a success:
+// before the recovered mark any error guaranteed exit 1 here, and skipping the quit must not
+// convert that into a false 0 when no finish ever arrives.
+func TestRunHeadlessFailsWhenTheStreamClosesAfterARecoveredError(t *testing.T) {
+	rec, _ := json.Marshal(event.ErrorData{Message: "cut", Code: "provider", Recovered: true})
+	f := &fakeHeadless{events: []event.Event{{Type: event.TypeError, Data: rec}}}
+	var out, errw bytes.Buffer
+	if exit := runHeadless(context.Background(), f, "s", "p", false, false, &out, &errw); exit != 1 {
+		t.Fatalf("close-with-no-finish after a recovered error must exit 1, got %d", exit)
+	}
+	if !strings.Contains(errw.String(), "did not complete") {
+		t.Errorf("the missing finish must be said out loud: %q", errw.String())
+	}
+}

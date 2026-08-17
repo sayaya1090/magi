@@ -150,6 +150,13 @@ func runTask(llm port.LLMProvider, model string, plat port.Platform, task Task) 
 			case event.TypeError:
 				var d event.ErrorData
 				_ = json.Unmarshal(e.Data, &d)
+				// A recovered error is mid-turn weather (a cut stream's prefix stands, the run
+				// went on); scoring the reply-so-far as final is the same undone-one-layer-up
+				// mistake the headless CLI had. Only an error the run did NOT survive ends the
+				// watch.
+				if d.Recovered {
+					continue
+				}
 				r.Finished = true
 				r.Note = "error: " + d.Code
 				done = true

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -141,5 +142,27 @@ func TestObserverDoneOnConversationalTurn(t *testing.T) {
 	}
 	if got := waitOutcome(t, a, obs, sid, "hello"); got != "done" {
 		t.Fatalf("conversational turn: outcome = %q, want %q", got, "done")
+	}
+}
+
+// A recovered mid-turn error must not label the turn's outcome "error" for the observer: the run
+// carried on and finished normally, and a lesson-extraction observer told "error" would learn a
+// failure from a turn that succeeded.
+func TestObserverIgnoresARecoveredError(t *testing.T) {
+	obs := &recordingObserver{}
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		{
+			{Type: port.ProviderText, Text: "half a reply that still stan"},
+			{Type: port.ProviderError, Err: fmt.Errorf("%w: cut mid-reply", port.ErrStreamCut)},
+		},
+		textStep("carried on and answered"),
+	}}
+	a, wd := newApp(t, llm, Config{Observer: obs, Permission: "allow"})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := waitOutcome(t, a, obs, sid, "hello"); got == "error" {
+		t.Fatalf("a turn that recovered and finished must not be observed as %q", got)
 	}
 }
