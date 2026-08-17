@@ -1102,7 +1102,7 @@ writes the narrowest rule the tool allows: approving `curl https://x` records `b
 |---|---|---|
 | `read` | read a file (line numbers, offset/limit) | — |
 | `write` | create/overwrite a file | ask |
-| `edit` | exact string replacement (unique match) — ambiguous matches list each occurrence's line anchor; `at`/`to` mode replaces an anchored line safely using read's line refs | ask |
+| `edit` | exact string replacement (unique match) — ambiguous matches list each occurrence's line anchor; `at`/`to` mode replaces an anchored line using read's line refs, and is refused if that line no longer holds what the read delivered — the file shifted under you, so re-read | ask |
 | `multiedit` | apply multiple hunks to one file atomically (all-or-nothing) | ask |
 | `grep` | regex content search | — |
 | `glob` | filename glob (`**` supported) | — |

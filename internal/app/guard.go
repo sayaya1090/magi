@@ -106,6 +106,25 @@ type runGuard struct {
 	// readSpans is which lines of each path magi has already handed over, so re-opening a window
 	// it already delivered is not mistaken for gathering new information (noteReadCoverage).
 	readSpans map[string][]lineSpan
+	// shownLines is the digest of each line magi has HANDED to the agent, per path — what the
+	// agent believes line N holds. It exists to answer the one question an `at`/`to` edit anchor
+	// cannot ask for itself: is this still the line I read?
+	//
+	// magi used to render that check into the read gutter as `N#hh|content`, so the model carried
+	// the hash and sent it back in the anchor. That gutter is gone (see builtin/hashline.go): the
+	// `#hh|` prefix read as a pipe-delimited data column and models parsed a phantom field out of
+	// CSV/TSV/fixed-width files, which cost whole tasks. Removing it also removed the guard behind
+	// it, and `checkAnchor` has been a bounds check ever since — it can tell you line 50 exists, and
+	// nothing about whether it still holds what you read.
+	//
+	// Keeping the record HERE restores the guard with no model-visible surface: no gutter, no new
+	// argument, no prompt cost. The agent is refused only when the anchored line has actually
+	// drifted, and the refusal says to re-read.
+	//
+	// Not refreshed by the agent's own edits, deliberately. An edit returns a diff, not the file,
+	// so it shows the agent nothing — and an edit that changes the line COUNT shifts every anchor
+	// below it, which is the exact failure this catches.
+	shownLines map[string]map[int]uint64
 
 	// recalled bounds recall_context: re-hydrating compacted detail re-inflates context
 	// (which can re-trigger compaction), so a turn may recall each topic once and only up
@@ -496,6 +515,78 @@ func (g *runGuard) noteInspectProgress(novel bool) {
 
 // lineSpan is a half-open range of file lines [lo, hi) magi has already handed to the agent.
 type lineSpan struct{ lo, hi int }
+
+// Bounds on shownLines. A digest is 8 bytes plus map overhead, and a run can read a lot: the caps
+// stop a long session from carrying a line record for every file it has ever opened. Past the cap
+// the path stops being tracked, which loses the guard for it — never gains a false refusal.
+const (
+	maxShownLinesPerPath = 4000
+	maxShownPaths        = 200
+)
+
+// noteReadLines records what magi just showed the agent, line by line, from the read result's own
+// gutter. The gutter numbers are what was DELIVERED (the tool caps and the result truncator both
+// cut), so parsing them is the only way to know which lines the agent actually holds.
+func (g *runGuard) noteReadLines(path, delivered string) {
+	if path == "" || delivered == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.shownLines == nil {
+		g.shownLines = map[string]map[int]uint64{}
+	}
+	lines, tracked := g.shownLines[path], true
+	if lines == nil {
+		if len(g.shownLines) >= maxShownPaths {
+			return
+		}
+		lines = map[int]uint64{}
+		g.shownLines[path] = lines
+	}
+	for _, l := range strings.Split(delivered, "\n") {
+		tab := strings.IndexByte(l, '\t')
+		if tab <= 0 {
+			continue
+		}
+		n, err := strconv.Atoi(l[:tab])
+		if err != nil || n <= 0 {
+			continue
+		}
+		if len(lines) >= maxShownLinesPerPath {
+			tracked = false
+			break
+		}
+		lines[n] = hashContent(l[tab+1:])
+	}
+	if !tracked {
+		// Half a file's record is worse than none: the untracked half would answer "no record, allow"
+		// while the tracked half refuses, so the guard would fire on position rather than on drift.
+		delete(g.shownLines, path)
+	}
+}
+
+// anchorDrifted reports whether the anchored line no longer holds what the agent was shown.
+//
+// It answers only when magi has a record for that exact line. No record — a file the agent never
+// read, a line outside the window it read, a path past the cap — is not evidence of drift, and
+// this returns false. The guard refuses on what it knows, never on what it does not.
+func (g *runGuard) anchorDrifted(path string, line int, current string) bool {
+	if path == "" || line <= 0 {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	want, ok := g.shownLines[path][line]
+	if !ok {
+		return false
+	}
+	lines := strings.Split(current, "\n")
+	if line > len(lines) {
+		return false // past end — checkAnchor's own bounds check reports that, with better words
+	}
+	return hashContent(lines[line-1]) != want
+}
 
 // noteReadCoverage records the line window a read delivered and reports whether MOST of that
 // window was content the agent had not been shown before.

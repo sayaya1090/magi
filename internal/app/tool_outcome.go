@@ -263,6 +263,13 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 					if lo, n, ok := deliveredLineWindow(res.Content); ok {
 						off, lim = lo, n
 					}
+					// The same delivered gutter, kept line by line: what the agent now believes
+					// each line holds, so an `at`/`to` edit anchor can be checked against it
+					// (guard.anchorDrifted). Same key as the coverage record below.
+					var shown string
+					if json.Unmarshal(res.Content, &shown) == nil {
+						guard.noteReadLines(relForChange(workdir, ra.Path), shown)
+					}
 					// Keyed the same way the bash mutation path drops coverage, so `read
 					// {/app/x/y.c}` and a `sed -i` naming `x/y.c` reach the same entry.
 					novel = guard.noteReadCoverage(relForChange(workdir, ra.Path), off, lim)

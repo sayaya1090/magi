@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strings"
+
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -133,6 +137,49 @@ func (a *App) gatePreHooks(ctx context.Context, s session.Session, actor event.A
 	return false
 }
 
+// gateStaleAnchor refuses an `at`/`to` edit whose anchored line no longer holds what the agent was
+// shown. Returns true to stop.
+//
+// The anchored edit path is the one place a tool call names a location without naming its content:
+// `old`/`new` is checked by construction (the string has to match), and `at`/`to` is checked only
+// for being in range. So an edit that shifted the line count — the agent's own previous edit, a
+// post-edit formatter, anything — leaves every later anchor pointing one place and meaning another,
+// and the write lands silently on the wrong line.
+//
+// It fires only where magi has a record of that exact line (see runGuard.shownLines), so a file the
+// agent never read is not refused; it is simply unguarded, as it was before.
+func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor event.Actor, tc *session.ToolCall, guard *runGuard, toolMsgID string) bool {
+	if guard == nil || tc.Name != "edit" {
+		return false
+	}
+	var ea struct {
+		Path string          `json:"path"`
+		At   builtin.FlexInt `json:"at"`
+	}
+	// Tolerant on purpose, like every other reader of a model's arguments here: "540.0" is as
+	// common as 540, and a strict parse would drop the guard rather than the call.
+	if json.Unmarshal(tc.Args, &ea) != nil || ea.Path == "" || int(ea.At) <= 0 {
+		return false
+	}
+	abs := ea.Path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(s.Workdir, abs)
+	}
+	current, err := os.ReadFile(abs)
+	if err != nil {
+		return false // the tool reports a missing/unreadable file in its own words
+	}
+	if !guard.anchorDrifted(relForChange(s.Workdir, ea.Path), int(ea.At), string(current)) {
+		return false
+	}
+	a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID,
+		fmt.Sprintf("line %d of %s is not the line you read — the file changed after that read "+
+			"(an earlier edit, a formatter, or something outside this turn). Re-read the file and "+
+			"anchor to the line numbers it returns; editing this anchor now would write to the "+
+			"wrong line.", int(ea.At), ea.Path), true)
+	return true
+}
+
 // executeTool runs one tool call (with permission gating) and persists the result.
 // turnTask is the user instruction this turn answers. It reaches here for one reason: what an agent
 // learns is worth little without what it was doing when it learned it, and the experience store had
@@ -223,7 +270,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 
 	// Pre-execution gates, run in order — the first that blocks emits its own tool result
 	// and stops the call (allowlist → guardrail policy/permission prompt → PreToolUse hooks).
-	if a.gateAllowlist(ctx, s, agent, depth, actor, tc, toolMsgID) ||
+	//
+	// Staleness runs FIRST: it is a correctness check, and asking a person to approve an edit magi
+	// is about to refuse spends their attention on nothing.
+	if a.gateStaleAnchor(ctx, s, actor, tc, guard, toolMsgID) ||
+		a.gateAllowlist(ctx, s, agent, depth, actor, tc, toolMsgID) ||
 		a.gatePermission(ctx, sid, actor, tc, toolMsgID) ||
 		a.gatePreHooks(ctx, s, actor, tc, toolMsgID) {
 		return
