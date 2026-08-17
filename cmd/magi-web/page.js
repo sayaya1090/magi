@@ -544,10 +544,11 @@ let sharedShows = 'skills';
 const sharedTabs = document.getElementById('sharedTabs');
 
 function drawSharedTabs() {
-  // A tab role belongs to a tab SET. These are two md-secondary-tabs in a plain div, so the
-  // accessibility tree held two `tab` nodes with no `tablist` around them — a role whose whole
-  // contract (one of two, arrow keys, a current one) has no owner to keep it. The strip is the
-  // owner; it says so, and it says which destination it switches.
+  // A tab role belongs to a tab SET. These are md-secondary-tabs in a plain div, so the
+  // accessibility tree held bare `tab` nodes with no `tablist` around them — a role whose whole
+  // contract (one of a set, arrow keys, a current one) has no owner to keep it. The strip is the
+  // owner; it says so, and it says which destination it switches. (Two when this was written;
+  // the wiki made it three, which is why the count is not spelled out here.)
   sharedTabs.setAttribute('role', 'tablist');
   sharedTabs.setAttribute('aria-label', tr('nav.shared'));
   // A tablist answers the arrow keys. Saying `role="tablist"` and not answering them is a promise
@@ -2924,7 +2925,11 @@ function updateControl(a) {
   // the button was" means. With no line, the button shows only when there is a newer build to move
   // to. Disabled-not-hidden without configure so a viewer who cannot press it still sees one is out.
   if (st && st.text) {
-    btn.hidden = true;
+    // A line the daemon SENT answers "is there anything to do here", so it takes the button's
+    // place. A transport failure sent nothing — its line is magi's own "try again", and the thing
+    // to try was the button that sentence had just removed. So that one keeps the button beside
+    // it: an instruction whose control is gone is a control that does nothing, drawn as words.
+    btn.hidden = !(st.retry && behind);
     say.hidden = false;
     say.textContent = st.text;
   } else {
@@ -2949,13 +2954,17 @@ function updateControl(a) {
       const r = await fetch('/update' + qFor(a), {method: 'POST', signal: AbortSignal.timeout(15 * 60 * 1000)});
       out = (await r.text()).trim();
     } catch { /* transport failure; the generic line below */ }
-    states.set(a.socket, {working: false, text: out || tr('update.failed')});
+    states.set(a.socket, {working: false, text: out || tr('update.failed'), retry: !out});
     // These nodes may be detached by now (the poll rebuilds the card); writing them is free and
     // right when they are still live, and the state above repaints the rebuilt row either way. The
     // account stays in the button's place — the button does not come back under the same version,
     // because the outcome IS the answer to "is there anything to do here" until the next visit
-    // clears it (a success republishes as a newer build, a refusal said why).
+    // clears it (a success republishes as a newer build, a refusal said why). The one exception is
+    // the transport failure, whose line says "try again": the control it means comes back HERE, at
+    // the moment the outcome is known, and not a poll later — a sentence pointing at a button that
+    // is not there yet is the same dead instruction whether it lasts a second or a minute.
     say.textContent = out || tr('update.failed');
+    btn.hidden = !(!out && behind);
     // The console panel's own build line ("this console / companions") answers "why hasn't the thing
     // I shipped shown up", and it was loaded once at startup. Refreshed AFTER the restart settles,
     // not at the reply: the reply lands before the daemon drains, so an instant refresh read the OLD
@@ -4123,7 +4132,7 @@ function qFor(a) {
 // One readout for one destination. Two halves load independently and each used to write the whole
 // line, so whichever answered second erased the other's count — the shape of every readout built
 // by two writers.
-const shared = {rules: 0, facts: 0, crossing: 0, servers: null, reachedFrom: 0};
+const shared = {rules: 0, facts: 0, crossing: 0, pages: null, servers: null, reachedFrom: 0};
 // Only from what actually answered. Written unconditionally, a 500 from /skills left the status
 // line resting on "0 rules · 0 remembered · 0 crossing every companion" — a positive claim about an
 // organisation's shared knowledge, made from the initialiser, over the top of the sentence that
@@ -4136,10 +4145,16 @@ function sayShared() {
   // held back by its own null until /mcp answers.
   if (!sayShared.rules) return;
   const bits = [tr(shared.rules === 1 ? 'count.rule' : 'count.rules', {n: shared.rules}),
-                tr('count.remembered', {n: shared.facts}),
+                tr(shared.facts === 1 ? 'count.remembered_one' : 'count.remembered', {n: shared.facts}),
                 tr('count.crossing', {n: shared.crossing})];
   // Null until the servers have answered, which is not the same as none — a line that said "0
   // servers" while the request was in flight would be wrong for as long as it took.
+  // The wiki is a third of this screen and the summary did not count it: a reader who cannot see
+  // the screen heard about skills, memories and servers and never learned the canonical pages
+  // existed. Null until /wiki answers, for the same reason the servers are.
+  if (shared.pages !== null) {
+    bits.push(tr(shared.pages === 1 ? 'count.page' : 'count.pages', {n: shared.pages}));
+  }
   if (shared.servers !== null) {
     bits.push(tr(shared.servers === 1 ? 'count.server' : 'count.servers', {n: shared.servers}));
   }
@@ -4379,6 +4394,11 @@ function sectionHead(key, action, level) {
 // The typed text is held outside, in skillQuery, which is the part that must survive.
 const skillFind = () => findBox(() => skillQuery, v => { skillQuery = v; loadSkills(); }, 'skills');
 const mcpFind = () => findBox(() => mcpQuery, v => { mcpQuery = v; loadMCP(); }, 'mcp');
+// The wiki is the third pane of this screen and the only one without a box, while the lead
+// sentence over all three says "Search to find one" — an instruction with no control under it.
+// Same box, same key discipline, same ranking as the skills half.
+let wikiQuery = '';
+const wikiFind = () => findBox(() => wikiQuery, v => { wikiQuery = v; loadWiki(); }, 'wiki');
 
 // Writing goes UNDER what you have read, not over it.
 //
@@ -4470,7 +4490,7 @@ async function loadSkills() {
   // Said before the branch, not after it. The one search that has to be announced is the one that
   // empties the list — a sighted reader watches it shrink, and the announcement lived past an
   // early return, so zero hits was the single case that said nothing at all.
-  if (skillQuery) say(tr('find.results', {n: shown.length}));
+  if (skillQuery) say(tr(shown.length === 1 ? 'find.result' : 'find.results', {n: shown.length}));
   if (!shown.length) {
     keepingFocus('skills', () => skillsEl.replaceChildren(sectionHead('nav.lessons'), skillFind(),
       emptyState('empty.no_match', 'empty.no_match_how'), skillWrite(list)));
@@ -4547,10 +4567,15 @@ async function loadSkills() {
     let open = false;
     more.textContent = tr('action.read');
     more.setAttribute('aria-label', tr('action.read_named', {name: sk.name}));
+    // The button OWNS the body it shows: six other disclosures on this page say so with
+    // aria-expanded, and these two — the only ones a screen reader meets in the Knowledge screen —
+    // said nothing, so "Read" read as a link to somewhere rather than a toggle in place.
+    more.setAttribute('aria-expanded', 'false');
     withMark(more, '#i-sl-file-lines');
     more.onclick = () => {
       open = !open;
       text.hidden = !open;
+      more.setAttribute('aria-expanded', String(open));
       more.textContent = tr(open ? 'action.collapse' : 'action.read');
       // Named in BOTH states. action.collapse carries no {name}, so opening every row put twenty
       // buttons called "Close" back on the screen — the same defect in the other state.
@@ -4571,7 +4596,7 @@ async function loadSkills() {
   parts.push(skillFind());
   // And when filtering, the count in words under the box — the live region already announces it,
   // this is the same for the eye, so a search that shrinks the list says so on screen.
-  if (skillQuery.trim()) parts.push(cell('filesnote', tr('find.results', {n: shown.length})));
+  if (skillQuery.trim()) parts.push(cell('filesnote', tr(shown.length === 1 ? 'find.result' : 'find.results', {n: shown.length})));
   if (skillQuery.trim() || !isRule.length || !isFact.length) {
     parts.push(...shown.map(draw));
   } else {
@@ -4591,6 +4616,8 @@ async function loadWiki() {
   reading(wikiEl, 'loading.wiki');
   const list = await fetchList('/wiki');
   if (!list) return void paneFailed(wikiEl, 'nav.wiki');
+  shared.pages = list.length;
+  sayShared();
   if (!list.length) {
     wikiEl.replaceChildren(sectionHead('nav.wiki'),
       emptyState('empty.no_pages', 'empty.no_pages_how'));
@@ -4622,10 +4649,12 @@ async function loadWiki() {
     let open = false;
     more.textContent = tr('action.read');
     more.setAttribute('aria-label', tr('action.read_named', {name: p.title}));
+    more.setAttribute('aria-expanded', 'false'); // same contract as the skills fold above
     withMark(more, '#i-sl-file-lines');
     more.onclick = () => {
       open = !open;
       text.hidden = !open;
+      more.setAttribute('aria-expanded', String(open));
       more.textContent = tr(open ? 'action.collapse' : 'action.read');
       more.setAttribute('aria-label', open ? tr('action.collapse') + ' — ' + p.title
                                            : tr('action.read_named', {name: p.title}));
@@ -4634,7 +4663,18 @@ async function loadWiki() {
     el.append(text);
     return el;
   };
-  keepingFocus('wiki', () => wikiEl.replaceChildren(sectionHead('nav.wiki'), ...list.map(draw)));
+  let shown = list;
+  if (wikiQuery.trim()) {
+    const docs = list.map(p => [p.title, p.summary || '', p.body || '', p.editor || ''].join(' '));
+    const order = rankByIDF(wikiQuery, docs);
+    shown = order.map(i => list[i]);
+  }
+  const parts = [sectionHead('nav.wiki'), wikiFind()];
+  if (wikiQuery.trim()) {
+    parts.push(cell('filesnote', tr(shown.length === 1 ? 'find.result' : 'find.results', {n: shown.length})));
+    say(tr(shown.length === 1 ? 'find.result' : 'find.results', {n: shown.length}));
+  }
+  keepingFocus('wiki', () => wikiEl.replaceChildren(...parts, ...shown.map(draw)));
 }
 
 // ── what they can reach ──────────────────────────────────────────────────────

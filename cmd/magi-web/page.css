@@ -1682,11 +1682,6 @@
   #files > .pane-git { flex:1 1 auto; flex-basis:max-content; min-height:5rem; max-height:60%; }
   /* Shut, it is its heading and nothing else, and it must not take a share at all. */
   #files > .filescard.shut { flex:0 0 auto; min-height:0; }
-  .fileshead {
-    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
-    color:var(--magi-ref-muted); overflow-wrap:anywhere;
-    padding-bottom:var(--magi-sys-space-100); border-bottom:1px solid var(--magi-ref-outlineVariant);
-  }
   .filesnote {
     font:var(--md-sys-typescale-body-medium-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
@@ -3612,8 +3607,6 @@
   /* ── the board: a column per companion, a card per piece of work ────────── */
   #board { display:block; max-width:var(--magi-sys-page); }
   .boardhead { display:flex; gap:var(--magi-sys-space-200); align-items:center; margin:0 0 var(--magi-sys-space-200); flex-wrap:wrap; }
-  .lanehead .lrole { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-muted); overflow-wrap:anywhere; }
-  .lanehead .lteam { font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); color:var(--magi-ref-accent); }
   /* The card's one action, so it is a target and not a line of prose. Inline at 16px tall, a press
      at the middle of a four-line title landed on the card behind it and did nothing — measured, the
      centre answered .wcard and only a press on the first line navigated. */
@@ -3714,10 +3707,6 @@
   #agentdetail .snip {
     font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted);
     padding:0 0 var(--magi-sys-space-50) var(--magi-sys-space-400); overflow-wrap:anywhere;
-  }
-  #agentdetail .dk2 {
-    font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em;
-    color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-100);
   }
   /* Rows that open. They were divs when the list was a card nobody could go into; as buttons they
      keep the same shape and gain the things a control needs — a pointer, a hover, a focus ring and

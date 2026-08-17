@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 )
@@ -16,7 +15,6 @@ import (
 // project tier.
 type storedPage struct {
 	Title   string   `json:"title"`
-	Hook    string   `json:"hook"` // first non-blank body line — the list's one-liner
 	Body    string   `json:"body"`
 	Links   []string `json:"links,omitempty"`
 	Stale   bool     `json:"stale,omitempty"`
@@ -33,7 +31,7 @@ func (s *server) wiki(w http.ResponseWriter, r *http.Request) {
 	add := func(dir, tier, team, comp string) {
 		for _, p := range expgit.New(dir).WikiList(r.Context()) {
 			out = append(out, storedPage{
-				Title: p.Title, Hook: hookLine(p.Body), Body: p.Body, Links: p.Links,
+				Title: p.Title, Body: p.Body, Links: p.Links,
 				Stale: p.Stale, Updated: p.Updated, Editor: p.Editor, Summary: p.Summary,
 				Tier: tier, Team: team, Comp: comp,
 			})
@@ -53,13 +51,4 @@ func (s *server) wiki(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, "wiki pages", out)
-}
-
-func hookLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
-		}
-	}
-	return ""
 }

@@ -853,6 +853,13 @@ standard다. 겹침은 의도적으로 요청된 것이고(§3.5a) 드로어가 
 | ~~A64~~ ✅ | 룩오버 리마크가 `aria-hidden` 미러 안에만 그려져 **보조기기에 침묵**(파싱 성공=정상 경로에서 접근 폴백 `.looksaid`도 숨김) | 오류·진행 등 시각 신호는 접근 라벨 필수, 로드 후 도착 콘텐츠는 스크린리더에 전달 | foundations/accessibility | **고침**(2026-08-16) — sr-only `role=status` 줄에 "줄번호: 지적" 미러 + textarea `aria-describedby`. 데모 실측: 두 지적이 sr 채널에 실림 |
 | ~~A65~~ ✅ | 프로파일 **Name 필수 표시 없음** + 오류가 전역 status 줄로만(필드 error 미설정, 포커스 유지) | 필수는 **라벨 끝 별표**; 오류는 **alert 역할로 필드 라벨에** | components/text-fields/accessibility | **고침**(2026-08-16) — `required`(번들이 별표를 그림) + 빈 이름/서버 거부를 MCP 폼 패턴대로 필드 `error-text`+포커스로. 실측: "Name*", 빈 저장→필드 오류+포커스 이동 |
 | ~~A66~~ ✅ | **API key 라벨이 힌트 문장까지 품어 390px에서 94px 잘림** | 라벨은 항상 보이고 **자르지 말 것**; 힌트는 supporting text | components/text-fields/guidelines | **고침**(2026-08-16) — 라벨 "API key", 힌트는 `supporting-text`로(en·ko). 실측: 클립 0(측정기는 긴 라벨 재주입으로 변이 검증) |
+| ~~A67~~ ⊘ | `update.failed`이 "다시 시도"라는데 그 버튼은 사라진 뒤 | 불가능한 동작을 눌리게 두지 말 것(결함꼴 #9) | 판단(집 규칙) | **고침**(2026-08-17) — 전송 실패(응답 없음)만 `retry` 표시로 버튼을 남긴다. 데몬이 보낸 거부는 자기 지시를 담으므로 기존대로 버튼을 대체. 실측: ops(v0.22.0, 뒤처짐)에서 fetch 거부 → 메시지+버튼 공존, 변이 검사로 확인 |
+| ~~A68~~ ⊘ | 위키·스킬 접기 버튼에 `aria-expanded` 없음(같은 페이지 다른 6곳은 있음) | 디스클로저는 자기 상태를 말해야 | 판단 | **고침** — 양쪽 다 false→true 토글, 실측 |
+| ~~A69~~ ⊘ | 지식 요약이 자기 셋째 탭(위키 페이지 수)을 안 셈 + `shared.lead`가 없는 검색을 약속 | 화면 요약은 화면을 대표해야 / 약속한 컨트롤은 있어야 | 판단 | **고침** — 요약에 페이지 수 추가(`count.page(s)`), 위키 탭에 다른 두 판과 같은 `findBox` 신설(rankByIDF 동일). 실측 SR: "3 skills · 1 memory · 1 crossing every companion · 2 pages · 2 servers" |
+| ~~A70~~ ⊘ | `"1 memories"`·`"1 results"` 단수 없음 | 문법 | **고침** — `count.remembered_one`·`find.result` 신설(en/ko) |
+| ~~A71~~ ⊘ | `/wiki`가 아무도 안 읽는 `hook` 필드를 실어 보냄(생산자만, 소비자 없음) | 결함꼴 #2 | **고침** — 필드·`hookLine()`·데모 목 전부 제거 |
+| ~~A72~~ ⊘ | 삭제 패스가 놓친 죽은 CSS 4곳(`.fileshead`·`.lanehead .lrole`·`.lteam`·`#agentdetail .dk2`) | 결함꼴 #2 | **고침** — 생산자 0건 실측 후 삭제 |
+| ~~A73~~ ⊘ | `drawSharedTabs` 주석이 "두 개"라 적음(위키로 셋이 됨) | 결함꼴 #3(주석이 없는 것을 약속) | **고침** — 개수를 적지 않게 |
 
 **철회(3)**: **A2** compact `md-tabs` — 목적지가 셋 미만이면 가이드가 **탭을 지시**한다.
 **A3** 74ch — 큰 화면 천장은 **120자**다. **A7** 비활성 지표 — magi에 `cursor:not-allowed`가
