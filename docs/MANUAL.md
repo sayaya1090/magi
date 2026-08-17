@@ -904,7 +904,7 @@ Where everything sits:
 | `/help` | help |
 | `/route` (=`/model`=`/agents`) | **model & routing editor** (one screen): **(session)** default model, per-agent model/backend, **add/edit backends (profiles)**. ↑/↓ select · Enter edit/open · empty value = reset to default · Esc close. Editing the **session model** opens a **suggest box** — configured profile models plus the gateway's live catalog (prefetched on open), de-duplicated and filtered as you type: **↑/↓ cycle · Tab fills · Enter applies** the highlight or the typed value. An unreachable gateway falls back to free text. While editing an agent, **pick a profile with ←/→** (or type a model name). Use `+ add profile` to define a profile (endpoint/key/model/headers); in the form, Enter edits a field · **Tab saves**. **All edits are persisted to `config.toml`** (comments preserved) |
 | `/tools` | available tools |
-| `/subagents` | **subagents a plugin registered** — a checkbox each, grouped as the plugin declared. Space toggles one (a group header toggles all its members), Enter sets the model that subagent runs on (empty clears the override), Esc closes. magi ships none of its own, so the list is empty until a plugin registers one. The choice is written to `config.toml` under `[subagents.<name>]` and survives a restart |
+| `/subagents` | **subagents a plugin registered** — a checkbox each, grouped as the plugin declared. Space toggles one (a group header toggles all its members), Enter sets the model that subagent runs on (empty clears the override), Esc closes. magi ships no subagent of its own that RUNS — but the list is not empty out of the box: the bundled **seele** planner plugin loads by default and registers one, switched off, so it is discoverable without anything spawning until you tick it. The choice is written to `config.toml` under `[subagents.<name>]` and survives a restart |
 | `/cost` | token usage and cost for the session |
 | `/sessions` | session list for this directory |
 | `/resume [n]` | resume a session (no arg = list, `/resume 2` to switch) |
@@ -1191,7 +1191,7 @@ Neither is registered in a headless/bench run: with nobody to answer, they can n
 
 ### What is deliberately absent
 
-There is no `task` tool, and **magi ships no agent of its own** — no built-in planner, reviewer or worker, and nothing that delegates unless you install a plugin that does.
+There is no `task` tool, and **nothing delegates until you switch it on** — no reviewer, no worker, and the one planner that is bundled (`plugins/seele`) registers its subagent switched OFF. So the default is one agent, and a second one is a box you ticked in `/subagents`, not a plugin you had to find.
 
 What exists is the seam. A plugin can declare a subagent, and a user switches it on in `/subagents`; with no such plugin there is no way to reach it. That is a different claim from the one this section used to make ("there are no subagents at all"), and the difference is deliberate: the machinery that was torn out decided how to split work and what to pass on **for you**, and it is that judgement, not the capability, which the record condemned. See §Subagents.
 
@@ -1253,7 +1253,7 @@ Set `[council] enabled = false` to remove the tool entirely; with nobody to decl
 
 ### There is one agent
 
-magi used to spawn subagents, plan the work into steps, author executable checks for each step, and hold the turn open until a council voted the checks satisfied. All of it is gone, and by default there is still exactly one agent: **magi ships none.**
+magi used to spawn subagents, plan the work into steps, author executable checks for each step, and hold the turn open until a council voted the checks satisfied. All of it is gone, and by default there is still exactly one agent: **nothing spawns unless you tick it on.**
 
 The reason is in the logs. Every one of those stages decided something *before* the work existed, and the costliest defects were of exactly one kind: magi believing a judgement it had made in advance over the record of what actually happened — a port probe that passed only while the server was down, a grep demanding a hyphen where the generator writes an underscore, a brief paraphrased until the graded identifier was gone. A check written in advance can be wrong about the work; a record of what magi granted cannot be wrong about what it granted, and where the record is incomplete it says so.
 
@@ -1402,7 +1402,7 @@ flowchart TD
 ```
 
 ⚠ A plugin declares its own permissions in its own manifest, and they are granted — which is a fair arrangement for a directory you installed into and none at all for one that arrived with a clone. So `<workdir>/.magi/plugins/` is loaded only from a workspace you have trusted (`magi --trust`, see §config); magi names what it found and skipped. A one-off is still `magi -plugins .magi/plugins`.
-Capabilities: `tool`, `command` (slash commands like `/login`), `context-provider`, `mcp`, `llm-headers`, `analyze`, `experience` (magi.propose_experience — route plugin-learned lessons/skills into the D13 shared store's review queue), `notify` (magi.notify — append a system ⟳ note to a session's transcript, the active-notification channel; the model sees it next turn). `magi.remove_file` deletes a workdir file/dir under the same fs:write grant — the undo half of artifact-writing plugins. **Hot-reload** on file change.
+Capabilities (the set the host actually enforces): `tool`, `command` (slash commands like `/login`), `context-provider`, `mcp`, `ui`, `doctor`, `spawn`, `analyze`, `experience` (magi.propose_experience — route plugin-learned lessons/skills into the D13 shared store's review queue), `notify` (magi.notify — append a system ⟳ note to a session's transcript, the active-notification channel; the model sees it next turn). `magi.remove_file` deletes a workdir file/dir under the same fs:write grant — the undo half of artifact-writing plugins. **Hot-reload** on file change.
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.
 
