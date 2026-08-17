@@ -32,7 +32,7 @@ func (s *server) tools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []string{}
-	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if err := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		names, terr := cl.Tools()
 		if terr != nil {
 			return terr
@@ -74,7 +74,7 @@ func (s *server) models(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []string{}
-	if err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if err := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		names, merr := cl.Models()
 		if merr != nil {
 			return merr

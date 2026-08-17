@@ -253,7 +253,7 @@ func (s *server) prFacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		said, ferr := cl.PRFacts()
 		out = said
 		return ferr
@@ -465,7 +465,7 @@ func (s *server) diff(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSpace(r.URL.Query().Get("path"))
 	which := strings.TrimSpace(r.URL.Query().Get("which"))
 	var out string
-	if derr := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+	if derr := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
 		text, gerr := cl.GitDiff(path, which)
 		out = text
 		return gerr

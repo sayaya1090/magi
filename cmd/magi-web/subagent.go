@@ -107,7 +107,7 @@ func (s *server) jobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out daemon.Jobs
-	if err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+	if err := s.browse(r, func(cl *daemon.Client, sid session.SessionID) error {
 		j, err := cl.Jobs(string(sid))
 		if err != nil {
 			return err
