@@ -36,22 +36,74 @@ import (
 // its approval policy, or its account of why.
 
 // files answers what is in one directory of the workspace: name and whether it is a directory.
+// treeDirCap bounds one request. A tree with more open directories than this is not a tree
+// somebody is reading; the cap keeps a crafted or runaway request from turning one HTTP call into
+// an unbounded walk of the workspace.
+const treeDirCap = 64
+
+// files answers one directory — or, when the caller names several, all of them in ONE reply.
+//
+// The tree used to ask per directory: the page walked the open ones and awaited each in turn, so a
+// reader with eight directories open paid eight HTTP round trips AND eight acquisitions of the
+// companion's pooled connection, which is held across a whole round trip (see withClient — a call
+// behind a running model was measured at 2.7s against 0.6ms idle). The listings themselves are one
+// os.ReadDir each and were never the cost. Reported from a work machine as "the file browser is
+// slow"; on a fast local disk the same shape is invisible, which is why it lasted.
+//
+// So the client sends the subtree it has open and gets it back keyed by path, having taken the
+// lock once. A path that cannot be read answers with its own empty list rather than failing the
+// batch: one unreadable directory must not blank the tree around it.
 func (s *server) files(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
 	// "." rather than "" so a request with no path means the workspace root, which is what a tree
 	// asks for first. The tool resolves it against the workdir and refuses anything above it.
-	path := strings.TrimSpace(r.URL.Query().Get("path"))
-	if path == "" {
-		path = "."
+	want := []string{}
+	seen := map[string]bool{}
+	for _, p := range r.URL.Query()["path"] {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			p = "."
+		}
+		if !seen[p] && len(want) < treeDirCap {
+			seen[p] = true
+			want = append(want, p)
+		}
 	}
-	args, err := json.Marshal(map[string]string{"path": path})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if len(want) == 0 {
+		want = []string{"."}
 	}
-	out, err := s.askCompanion(r, "list", args)
+	dirs := make(map[string]json.RawMessage, len(want))
+	var firstErr error
+	err := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		for _, p := range want {
+			args, merr := json.Marshal(map[string]string{"path": p})
+			if merr != nil {
+				return merr
+			}
+			out, terr := cl.ReadOnlyTool("list", args)
+			if terr != nil {
+				// Remembered, not returned: the FIRST failure decides the status when nothing at
+				// all could be read, and a later directory that reads fine still travels.
+				if firstErr == nil {
+					firstErr = terr
+				}
+				dirs[p] = json.RawMessage("[]")
+				continue
+			}
+			if strings.TrimSpace(out) == "" {
+				out = "[]"
+			}
+			// The tool answers with JSON already — [{"name":…,"isDir":…}] — so it is carried as it
+			// came rather than decoded and re-encoded into a shape this file would then own.
+			dirs[p] = json.RawMessage(out)
+		}
+		return nil
+	})
+	if err == nil && firstErr != nil && len(want) == 1 {
+		err = firstErr
+	}
 	if err != nil {
 		// The companion's own words, at the status of a request that named something wrong: a path
 		// that is not there, or one outside the workspace. Both are the caller's mistake and both
@@ -59,15 +111,13 @@ func (s *server) files(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// The tool answers with JSON already — [{"name":…,"isDir":…}] — so it goes out as it came,
-	// rather than being decoded and re-encoded into a shape this file would then own. Written
-	// straight rather than through writeJSON, which would encode the string and deliver a quoted
-	// blob the page would have to parse twice.
-	w.Header().Set("Content-Type", "application/json")
-	if strings.TrimSpace(out) == "" {
-		out = "[]"
+	body, merr := json.Marshal(map[string]any{"dirs": dirs})
+	if merr != nil {
+		http.Error(w, merr.Error(), http.StatusInternalServerError)
+		return
 	}
-	if _, werr := w.Write([]byte(out)); werr != nil {
+	w.Header().Set("Content-Type", "application/json")
+	if _, werr := w.Write(body); werr != nil {
 		log.Printf("magi-web: writing a directory listing: %v", werr)
 	}
 }

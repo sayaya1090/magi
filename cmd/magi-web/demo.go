@@ -877,6 +877,21 @@ const demoScript = `
     //
     // Four are written out, because they are what the tree and the git card name. Anything else
     // gets a stand-in that SAYS it is one, rather than somebody else's code.
+    // The tree asks for the whole open subtree in one request, keyed by path — so the demo answers
+    // the same shape rather than the single array it used to.
+    if (url === '/files') {
+      const want = [...new URLSearchParams(String(path).split('?')[1] || '').getAll('path')];
+      const root = answers['/files'] || [];
+      const under = {
+        cmd: [{name: 'magi', isDir: true}, {name: 'magi-web', isDir: true}],
+        internal: [{name: 'app', isDir: true}, {name: 'port', isDir: true}],
+        docs: [{name: 'UI.md', isDir: false}, {name: 'MANUAL.md', isDir: false}],
+      };
+      const dirs = {};
+      for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? root : (under[d] || []);
+      return {ok: true, status: 200, json: async () => ({dirs}),
+              text: async () => JSON.stringify({dirs})};
+    }
     if (url === '/file') {
       const want = new URLSearchParams(String(path).split('?')[1] || '').get('path') || '';
       const one = FILES[want];

@@ -1038,7 +1038,12 @@ globalThis.fetch = async (p, init) => {
   const path = String(p).split('?')[0];
   if (path === '/find') return {ok: true, json: async () => ({hits: ['one.txt', 'two.txt']})};
   if (path === '/file') return {ok: true, json: async () => ({text: '1\tsomething'})};
-  if (path === '/files') return {ok: true, json: async () => ([{name: 'a-directory', isDir: true}])};
+  if (path === '/files') {
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? [{name: 'a-directory', isDir: true}] : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
   return was(p, init);
 };
@@ -1088,7 +1093,12 @@ const was = globalThis.fetch;
 globalThis.fetch = async (p, init) => {
   const path = String(p).split('?')[0];
   if (path === '/file') return {ok: true, json: async () => ({text: '1\thello'})};
-  if (path === '/files') return {ok: true, json: async () => ([])};
+  if (path === '/files') {
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? [] : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
   return was(p, init);
 };
@@ -5423,11 +5433,13 @@ globalThis.fetch = async (p) => {
   // Not a checkout, so the git section draws nothing and the rows below are the tree's own.
   if (path === '/git') return {ok: true, json: async () => ({repo: false})};
   if (path === '/files') {
-    const at = new URLSearchParams(String(p).split('?')[1] || '').get('path');
-    if (at === 'cmd') return {ok: true, json: async () => ([{name: 'magi', isDir: true},
-                                                            {name: 'main.go', isDir: false}])};
-    return {ok: true, json: async () => ([{name: 'cmd', isDir: true},
-                                          {name: 'README.md', isDir: false}])};
+    // Every directory the walk asked for, in one reply — the batched shape.
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const of = d => d === 'cmd' ? [{name: 'magi', isDir: true}, {name: 'main.go', isDir: false}]
+                                : [{name: 'cmd', isDir: true}, {name: 'README.md', isDir: false}];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = of(d);
+    return {ok: true, json: async () => ({dirs})};
   }
   if (path === '/file') return {ok: true, json: async () =>
     ({path: 'README.md', text: '     1\tmagi\n     2\t====\n'})};
@@ -5528,7 +5540,12 @@ document.body.setAttribute('files', 'open');
 globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
   if (path === '/git') return {ok: true, json: async () => (GIT)};
-  if (path === '/files') return {ok: true, json: async () => ([{name: 'go.mod', isDir: false}])};
+  if (path === '/files') {
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? [{name: 'go.mod', isDir: false}] : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   return {ok: true, json: async () => ([])};
 };
 await loadTree({socket: '/s/a.sock', name: 'api', workdir: '/w/api', session: 's1'});
@@ -6141,7 +6158,12 @@ localStorage.setItem('files', 'open');
 document.body.setAttribute('files', 'open');
 globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
-  if (path === '/files') return {ok: true, json: async () => ([{name: 'README.md'}, {name: 'main.go'}])};
+  if (path === '/files') {
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? [{name: 'README.md'}, {name: 'main.go'}] : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
   return {ok: true, json: async () => ([]), text: async () => ''};
 };
@@ -6168,7 +6190,12 @@ document.body.setAttribute('files', 'open');
 let tree = [{name: 'README.md'}, {name: 'docs', isDir: true}];
 globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
-  if (path === '/files') return {ok: true, json: async () => tree};
+  if (path === '/files') {
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? tree : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
   if (path === '/fleet') return {ok: true, json: async () => ([])};
   return {ok: true, json: async () => ([]), text: async () => ''};
@@ -6222,7 +6249,14 @@ let tree = [{name: 'README.md'}, {name: 'docs', isDir: true}];
 let asked = 0;
 globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
-  if (path === '/files') { asked++; return {ok: true, json: async () => tree}; }
+  if (path === '/files') {
+    asked++;
+    // One reply for every directory the walk asked about — the shape the batched endpoint answers.
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? tree : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   if (path === '/git') return {ok: true, json: async () => ({repo: true, branch: 'main', changes: []})};
   if (path === '/fleet') return {ok: true, json: async () => ([])};
   return {ok: true, json: async () => ([]), text: async () => ''};
@@ -6266,7 +6300,12 @@ let tree = [{name: 'README.md'}, {name: 'docs', isDir: true}];
 let branch = 'main';
 globalThis.fetch = async (p) => {
   const path = String(p).split('?')[0];
-  if (path === '/files') return {ok: true, json: async () => tree};
+  if (path === '/files') {
+    const want = [...new URLSearchParams(String(p).split('?')[1] || '').getAll('path')];
+    const dirs = {};
+    for (const d of (want.length ? want : ['.'])) dirs[d] = d === '.' ? tree : [];
+    return {ok: true, json: async () => ({dirs})};
+  }
   if (path === '/git') return {ok: true, json: async () => ({repo: true, branch, changes: []})};
   if (path === '/fleet') return {ok: true, json: async () => ([])};
   return {ok: true, json: async () => ([]), text: async () => ''};

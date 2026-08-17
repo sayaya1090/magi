@@ -65,15 +65,50 @@ func TestTheWorkspaceIsReadThroughTheCompanion(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("listing answered %d: %s", w.Code, w.Body.String())
 	}
-	var entries []struct {
+	type dirEntry struct {
 		Name  string `json:"name"`
 		IsDir bool   `json:"isDir"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &entries); err != nil {
+	var listing struct {
+		Dirs map[string][]dirEntry `json:"dirs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &listing); err != nil {
 		t.Fatalf("%v: %s", err, w.Body.String())
 	}
+	entries := listing.Dirs["."]
 	if len(entries) != 2 || !entries[0].IsDir || entries[0].Name != "sub" {
-		t.Errorf("the listing is %+v", entries)
+		t.Errorf("the listing is %+v", listing.Dirs)
+	}
+
+	// Several directories in ONE reply, keyed by path: the tree asks for the whole open subtree at
+	// once so a reader with directories open does not pay a round trip — and a lock acquisition —
+	// for each of them.
+	w = httptest.NewRecorder()
+	f.srv.files(w, httptest.NewRequest(http.MethodGet, "/files"+q+"&path=.&path=sub", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("a batched listing answered %d: %s", w.Code, w.Body.String())
+	}
+	listing.Dirs = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &listing); err != nil {
+		t.Fatalf("%v: %s", err, w.Body.String())
+	}
+	if len(listing.Dirs) != 2 || listing.Dirs["."] == nil || listing.Dirs["sub"] == nil {
+		t.Errorf("the batch answered %+v, want both directories", listing.Dirs)
+	}
+
+	// One unreadable directory answers empty and leaves the rest of the tree standing: a batch that
+	// failed whole would blank a tree around a single bad path.
+	w = httptest.NewRecorder()
+	f.srv.files(w, httptest.NewRequest(http.MethodGet, "/files"+q+"&path=.&path=nope", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("a batch with one bad path answered %d: %s", w.Code, w.Body.String())
+	}
+	listing.Dirs = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &listing); err != nil {
+		t.Fatalf("%v: %s", err, w.Body.String())
+	}
+	if len(listing.Dirs["."]) != 2 || len(listing.Dirs["nope"]) != 0 {
+		t.Errorf("a bad path took the good one with it: %+v", listing.Dirs)
 	}
 
 	// The file, line-numbered as the agent sees it.

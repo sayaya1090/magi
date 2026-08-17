@@ -7300,7 +7300,9 @@ async function walkTree(a, kept) {
                             paneCard('git', tr('git.section'), [waitingFor('git.reading')]));
   }
   treeAt.seen = [];
-  const rows = await treeAt(a, '.', kept);
+  // Everything this walk will need, asked for in one go before any of it is drawn.
+  await fetchDirs(a, wantedDirs(a, kept));
+  const rows = treeAt(a, '.');
   if (rows === null) {
     filesEl.replaceChildren(paneCard('files', tr('nav.files'), [cell('filesnote', tr('files.unreadable'))]));
     return;
@@ -7316,7 +7318,7 @@ async function walkTree(a, kept) {
   // one did not: measured with the walk answering [], the card drew a heading, the find control,
   // and two hundred pixels of nothing — a console offering to search a list it never admitted was
   // empty.
-  const branchRows = await branches(a, '.', rows, 0, kept);
+  const branchRows = branches(a, '.', rows, 0);
   const tree = paneCard('files', shortPath(a.workdir || ''),
                         [findRow(a), ...(branchRows.length ? branchRows
                                          : [emptyState('files.empty', 'files.empty_how')])],
@@ -7730,40 +7732,72 @@ function forgetTree(a) {
   for (const k of [...treeSeen.keys()]) if (k.startsWith(from)) treeSeen.delete(k);
 }
 
-async function treeAt(a, path, kept) {
-  const key = (a.socket || '') + '|' + (a.peer || '') + '|' + path;
-  const had = treeSeen.get(key);
-  if (kept && had && Date.now() - had.at < treeKept) {
-    // Recorded again, because the comparison in loadTree is over what THIS walk saw: a cached
-    // directory left out of it would read as a directory that had emptied.
-    treeAt.seen.push(path + ':' + had.line);
-    return had.rows;
+// fetchDirs asks for a set of directories at once and writes each answer into the cache.
+//
+// One request and one acquisition of the companion's connection for the whole open subtree. It
+// used to be one of each PER DIRECTORY, awaited in turn: eight open directories were eight round
+// trips, each of which could queue behind a running turn (measured in withClient: 2.7s against
+// 0.6ms idle). The listings were never the cost — one os.ReadDir apiece — the waiting was.
+async function fetchDirs(a, paths) {
+  if (!paths.length) return;
+  const q = paths.map(p => '&path=' + encodeURIComponent(p)).join('');
+  const got = await fetchOne('/files' + qFor(a) + q);
+  const dirs = got && got.dirs && typeof got.dirs === 'object' ? got.dirs : null;
+  if (!dirs) return;
+  for (const p of paths) {
+    const rows = dirs[p];
+    if (!Array.isArray(rows)) continue;
+    const line = rows.map(e => e.name + (e.isDir ? '/' : '')).join(',');
+    treeSeen.set((a.socket || '') + '|' + (a.peer || '') + '|' + p, {rows, line, at: Date.now()});
   }
-  const got = await fetchList('/files' + qFor(a) + '&path=' + encodeURIComponent(path));
-  // Written down as it arrives, for the comparison in loadTree. The pane is a function of several
-  // requests — the root, every directory the reader has opened, the git state — and this is the
-  // only place all of them pass through.
-  if (Array.isArray(got)) {
-    const line = got.map(e => e.name + (e.isDir ? '/' : '')).join(',');
-    treeAt.seen.push(path + ':' + line);
-    treeSeen.set(key, {rows: got, line, at: Date.now()});
-  }
-  return Array.isArray(got) ? got : null;
+}
+
+// treeAt answers from the cache fetchDirs filled. It is no longer a request of its own: a walk
+// asks for everything it will need before it starts, so the drawing below never waits.
+function treeAt(a, path) {
+  const had = treeSeen.get((a.socket || '') + '|' + (a.peer || '') + '|' + path);
+  if (!had) return null;
+  // Recorded on every walk, because the comparison in loadTree is over what THIS walk saw: a
+  // directory left out of it would read as a directory that had emptied.
+  treeAt.seen.push(path + ':' + had.line);
+  return had.rows;
 }
 treeAt.seen = [];
+
+// wantedDirs is the set the next walk will need: the root, plus every directory the reader has
+// opened UNDER a directory that is itself open — asked breadth-first, because a child only counts
+// when its parent is on the screen. Cached directories are left out unless the walk is a fresh
+// one; `kept` is the same "may use what it read a moment ago" the walk carries.
+function wantedDirs(a, kept) {
+  const fresh = p => {
+    const had = treeSeen.get((a.socket || '') + '|' + (a.peer || '') + '|' + p);
+    return kept && had && Date.now() - had.at < treeKept;
+  };
+  const want = fresh('.') ? [] : ['.'];
+  // openDirs holds paths, so the parent chain can be checked without walking the tree first.
+  for (const p of openDirs) {
+    const parts = String(p).split('/');
+    let ok = true;
+    for (let i = 1; i < parts.length; i++) {
+      if (!openDirs.has(parts.slice(0, i).join('/'))) { ok = false; break; }
+    }
+    if (ok && !fresh(p)) want.push(p);
+  }
+  return want;
+}
 
 // branches renders one directory, and the ones the reader has opened under it.
 //
 // Depth is drawn as an indent rather than as a nested box: a tree of boxes at 18rem runs out of
 // width four levels down, and the indent is what every file tree has used since they existed.
-async function branches(a, dir, rows, depth, kept) {
+function branches(a, dir, rows, depth) {
   const out = [];
   for (const e of rows) {
     const path = dir === '.' ? e.name : dir + '/' + e.name;
     out.push(treeRow(a, e, path, depth));
     if (e.isDir && openDirs.has(path)) {
-      const kids = await treeAt(a, path, kept);
-      if (kids) out.push(...(await branches(a, path, kids, depth + 1, kept)));
+      const kids = treeAt(a, path);
+      if (kids) out.push(...branches(a, path, kids, depth + 1));
     }
   }
   return out;
