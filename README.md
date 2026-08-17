@@ -506,8 +506,8 @@ Korean editions sit beside each one (`*.ko.md`).
 
 ## Security
 
-magi reads your files, writes to them and runs commands, so it is worth knowing what stands between
-the model and your machine. [SECURITY.md](SECURITY.md) is the one page that says it: the tool gate,
+magi reads your files, writes to them and runs commands. What stands between the model and your
+machine is a deny floor, two independent axes, and a scan that fires even under `--permission allow`. [SECURITY.md](SECURITY.md) is the one page that says it: the tool gate,
 the workspace as a trust boundary, what the console does and does not authenticate, and — the
 section worth reading twice — what is deliberately not defended.
 

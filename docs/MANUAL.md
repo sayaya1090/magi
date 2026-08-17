@@ -120,9 +120,9 @@ addressable when everybody in it stops, never because a config file went stale. 
 <details open>
 <summary><b><code>hand_off</code></b> — giving a piece of the task to another companion</summary>
 
-**What forced it.** The other companion cannot see your conversation, your files or your reasoning
-— **and it cannot ask you**. It is not a colleague at the next desk; it is someone who gets one
-message and must act on it.
+**What forced it.** The other companion cannot see your conversation, your files or your reasoning,
+**and it cannot ask you**. Everything it will ever know about the job arrives in one message, and
+then it is on its own.
 
 **What it is.** A call with four required fields. `request` is the whole instruction standing on
 its own; `so_that` is what the answer is for, which is what lets them adapt when they hit something

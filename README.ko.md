@@ -506,8 +506,8 @@ docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING 
 
 ## 보안
 
-magi는 내 파일을 읽고, 고치고, 명령을 실행합니다. 그러니 모델과 내 기계 사이에 무엇이 서 있는지는 알아 둘
-값이 있습니다. [SECURITY.ko.md](SECURITY.ko.md)가 그것을 한자리에 적은 문서입니다. 툴 게이트, 신뢰 경계로서의
+magi는 내 파일을 읽고, 고치고, 명령을 실행합니다. 모델과 내 기계 사이에 서 있는 것은 deny 바닥, 서로
+독립인 두 축, 그리고 `--permission allow`에서도 발화하는 스캔입니다. [SECURITY.ko.md](SECURITY.ko.md)가 그것을 한자리에 적은 문서입니다. 툴 게이트, 신뢰 경계로서의
 워크스페이스, 콘솔이 무엇을 인증하고 무엇을 인증하지 않는지, 그리고 두 번 읽을 값이 있는 절 — 무엇을 일부러
 막지 않는지.
 

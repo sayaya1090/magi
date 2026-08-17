@@ -212,7 +212,7 @@ into another project's prompts, and nobody finds the cause weeks later.
 ### How the knowledge reaches the model
 
 At session start, **memories and skills from a directory are retrieved by keyword and injected into
-the system prompt** (D13). The `remember` tool writes new learnings straight into that directory, and
+the system prompt** (D13). The `remember` tool writes new lessons straight into that directory, and
 making it a git repo is how a team shares it (`internal/adapter/experience/git/store.go`).
 
 > ⚠️ **An honest limit**: the "RAG" here is **term-overlap scoring, not embedding vectors or semantic
@@ -221,7 +221,7 @@ making it a git repo is how a team shares it (`internal/adapter/experience/git/s
 > ⚠️ **Corrected 2026-08-07.** This section used to describe a `pending/` review queue that
 > `remember` wrote into and a person promoted from. **There is no such queue** — `Propose` writes to
 > `memories/` and `skills/` directly, and has since the review gate was removed, deliberately: a run
-> that can write learnings but never read them back is write-only. Review happens **after** the fact
+> that can write lessons but never read them back is write-only. Review happens **after** the fact
 > instead: the console's *what they have learned* screen lists every entry in both tiers and can
 > forget a wrong one (MANUAL §12), and `git log` in the store is the audit trail.
 
