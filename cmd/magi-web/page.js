@@ -6817,6 +6817,28 @@ function sayBox(m) {
   return box;
 }
 
+// The receipt, and the way to the work it just made.
+//
+// Sending a conclusion starts a turn in somebody else's session, and the two things a person wants
+// next are opposite: watch it, or carry on reading the room they are still in. Answered as a link
+// rather than a question — staying is what happens if nothing is pressed, and going is one press —
+// because a dialog at every send would tax the common case (send three, then go to one) to serve
+// the rare one. The link is only drawn when the socket is known: a participant may be a person, or
+// a companion on a machine this console cannot address, and an anchor to nowhere is worse than
+// plain text (the hand-off list learned this first).
+function sentWithWayThere(m, who) {
+  const box = cell('meetsent');
+  box.append(cell('sentsaid', tr('meet.handed')));
+  const sp = (m.speakers || []).find(x => x.name === who && x.socket && !x.person);
+  if (!sp) return box;
+  const go = el('a', tr('meet.go_there'));
+  go.className = 'sentgo';
+  go.setAttribute('href', at('?d=' + encodeURIComponent(sp.socket)));
+  go.setAttribute('aria-label', tr('meet.go_there_named', {name: who}));
+  box.append(go);
+  return box;
+}
+
 // What each participant leaves with, and the one control that makes any of it happen.
 function conclusions(m) {
   const box = cell('meettasks');
@@ -6828,7 +6850,7 @@ function conclusions(m) {
     // read as one nobody asked.
     row.append(cell('meettaskwhat', t.what || tr('meet.task_none')));
     if (t.what && meetHanded.has(m.id + '|' + t.who)) {
-      row.append(cell('meetsent', tr('meet.handed')));
+      row.append(sentWithWayThere(m, t.who));
     } else if (t.what) {
       const go = label(withMark(document.createElement('md-text-button'), '#i-sl-paper-plane-top'),
                        tr('meet.hand'));
@@ -6840,7 +6862,7 @@ function conclusions(m) {
         // receipt written into the row it was pressed on vanished on the next tick — and a reader
         // who cannot see what they have already sent sends it twice.
         meetHanded.add(m.id + '|' + t.who);
-        go.replaceWith(cell('meetsent', tr('meet.handed')));
+        go.replaceWith(sentWithWayThere(m, t.who));
       };
       row.append(go);
     }

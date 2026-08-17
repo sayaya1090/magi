@@ -391,6 +391,8 @@
   "meet.gone": "This meeting is not here",
   "meet.gone_how": "A meeting lives in the console that convened it, and ends when that console does.",
   "meet.hand": "Send as work",
+  "meet.go_there": "Open its screen",
+  "meet.go_there_named": "Open {name}'s screen",
   "meet.handed": "sent",
   "meet.holding": "speaking",
   "meet.lap": "Round {n}",

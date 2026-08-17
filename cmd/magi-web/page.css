@@ -3537,7 +3537,13 @@
   .meettaskwho { color:var(--magi-ref-accent); }
   .meettaskwhat { white-space:pre-wrap; overflow-wrap:anywhere; }
   .meettask.nothing .meettaskwhat { color:var(--magi-ref-muted); }
-  .meetsent { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); }
+  /* The receipt and, when the socket is known, the way to the work it made — one line, the two
+     read as one thing. The link takes the accent so it is legibly a control beside quiet text. */
+  .meetsent { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size);
+    display:flex; align-items:center; gap:var(--magi-sys-space-100); flex-wrap:wrap; }
+  .meetsent .sentgo { color:var(--magi-ref-primary); text-decoration:underline;
+    text-underline-offset:2px; border-radius:var(--magi-sys-shape-xs); }
+  .meetsent .sentgo:focus-visible { outline:3px solid var(--magi-ref-primary); outline-offset:2px; }
 
   /* And the meetings themselves, for the same reason: a list of things to open is a list. The
      whole row is the one action — single-action, in the lists guidance's five modes — so the state

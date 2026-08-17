@@ -391,6 +391,8 @@
   "meet.gone": "이 회의는 여기 없습니다",
   "meet.gone_how": "회의는 소집한 콘솔 안에서만 살아 있고, 그 콘솔이 끝나면 함께 끝납니다.",
   "meet.hand": "업무로 보내기",
+  "meet.go_there": "그 화면 열기",
+  "meet.go_there_named": "{name} 화면 열기",
   "meet.handed": "보냄",
   "meet.holding": "발언 중",
   "meet.lap": "{n}바퀴째",
