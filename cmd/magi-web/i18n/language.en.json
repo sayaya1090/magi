@@ -353,6 +353,7 @@
   "load.waiting": "{n} waiting",
   "loading.access": "Reading people and permissions…",
   "loading.board": "Reading the board…",
+  "loading.file": "Reading the file…",
   "loading.map": "Reading the layout…",
   "loading.roster": "Reading the companions…",
   "loading.servers": "Reading the servers…",

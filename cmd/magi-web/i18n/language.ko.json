@@ -353,6 +353,7 @@
   "load.waiting": "{n}건 대기",
   "loading.access": "사람과 권한을 읽는 중…",
   "loading.board": "보드를 읽는 중…",
+  "loading.file": "파일을 읽는 중…",
   "loading.map": "배치도를 읽는 중…",
   "loading.roster": "컴패니언을 읽는 중…",
   "loading.servers": "서버를 읽는 중…",

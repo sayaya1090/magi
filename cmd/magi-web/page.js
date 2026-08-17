@@ -7961,6 +7961,7 @@ async function openDiff(a, path, which) {
   cardShows = key;
   toWorkspacePanel();
   drawCardTabs(a);
+  fileWaiting(tabName(path) + ' ±');
   const got = await fetchOne('/diff' + qFor(a) + '&path=' + encodeURIComponent(path) +
                              '&which=' + encodeURIComponent(which || ''));
   if (cardShows !== key) return;
@@ -7984,6 +7985,7 @@ async function openPR(a) {
   cardShows = PR;
   toWorkspacePanel();
   drawCardTabs(a);
+  fileWaiting(tr('git.pr'));
   const st = await fetchOne('/pr' + qFor(a));
   if (cardShows !== PR) return;
   // null is "this console got no answer" and {} is "a companion that answered with nothing".
@@ -8125,6 +8127,7 @@ async function openCommit(a) {
   cardShows = COMMIT;
   toWorkspacePanel();
   drawCardTabs(a);
+  fileWaiting(tr('git.commit'));
   const g = await fetchOne('/git' + qFor(a));
   if (cardShows !== COMMIT) return;
   drawCommit(a, g || {});
@@ -8320,11 +8323,29 @@ function drawDiff(path, which, text) {
 const DIFF_WHICH = {staged: 'diff.staged', untracked: 'diff.untracked', '': 'diff.unstaged'};
 
 // openFile puts a file in the slot the facts card is in, behind a tab of its own.
+// The file slot, waiting. The four openers below all move the TAB first and fetch after, so
+// between the press and the answer the slot still held the file somebody had just left — with a
+// working Edit button on it. Pressing it there opened the OLD file under the NEW tab's name, and
+// the next Save wrote to a file nobody had chosen (reported from the console, 2026-08-17: a slow
+// read, a second file picked, an edit that landed in the first). The stale-response guard already
+// stopped a late answer from painting over a newer choice; what was missing is that the CHOICE
+// itself must clear the slot. It says which file it is waiting for, because on a slow read the
+// name is the only thing on the screen.
+function fileWaiting(name) {
+  fileViewEl.classList.remove('commitmode');
+  const bar = cell('filebar');
+  { const back = backToList(); if (back) bar.append(back); }
+  bar.append(cell('filedir', name));
+  fileViewEl.replaceChildren(bar, waitingFor('loading.file'));
+  showCard();
+}
+
 async function openFile(a, path) {
   if (!openFiles.includes(path)) openFiles.push(path);
   cardShows = path;
   toWorkspacePanel();
   drawCardTabs(a);
+  fileWaiting(path);
   const got = await fetchOne('/file' + qFor(a) + '&path=' + encodeURIComponent(path));
   if (cardShows !== path) return;            // somebody moved on while it was fetching
   // A file that could not be read is not a file with one sentence in it.
