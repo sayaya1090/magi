@@ -2,34 +2,117 @@
 
 [English](MANUAL.md) · [한국어](MANUAL.ko.md) · [↑ Docs](README.md)
 
-> **User guide.** Install, run, configure; the TUI and the web console, end to end.
+magi is a terminal coding agent. You give it a task, it reads and edits files and runs commands in
+your workspace, and a council of three members decides whether the turn is actually finished. It
+speaks to any OpenAI-compatible model backend, runs as a resident daemon you can attach to and
+detach from, and can be supervised — several agents at once — from a browser console.
 
-An extensible terminal AI coding agent client. Provider-agnostic (OpenAI-compatible),
-multi-agent, with Lua plugins, MCP, and shared memory.
+This manual is the practical half of the documentation: how to install it, how to run it, every
+setting, and what each surface does. It is meant to be skimmed by section rather than read start to
+finish.
+
+### Where to start
+
+<div align="center">
+<img src="img/tui-turn.png" alt="The magi terminal UI: a request, the agent's read/edit/bash calls each with its real result, then three council members voting done and the tally line" width="820">
+</div>
+
+If you have never run it, go through §1 and §2 in order — install, then `./magi` — and stop there
+until a turn has finished in front of you. Everything after that is optional depth you can reach
+for when you need it.
+
+| Section | Answers |
+|---|---|
+| [1. Installation](#1-installation--requirements) | what magi needs, and how to get a binary |
+| [2. Running](#2-running) | the TUI, headless runs for scripts, and leaving a daemon working |
+| [3. Configuration](#3-configuration) | every setting, where it lives, and what overrides what |
+| [4. Using the TUI](#4-using-the-tui) | slash commands, keys, panes, and what the screen is telling you |
+| [5. Tools](#5-tools-built-in) | what the agent can do, and what it deliberately cannot |
+| [6. Finishing a turn](#6-finishing-a-turn) | the council, the verify command, and why a turn refuses to end |
+| [7. Memory & context](#7-memory--context) | `AGENTS.md`, compaction, and what survives it |
+| [8. Skills](#8-skills) · [9. Plugins](#9-plugins-lua) · [10. MCP](#10-mcp) | extending it |
+| [11. Model recommendations](#11-model-recommendations) | picking a backend that actually keeps up |
+| [12. The console](#12-the-console-magi-web) | the browser view over your running agents |
+| [13. Companions & clusters](#13-companions-teams-and-clusters) | naming an agent, handing work over, and crossing machines |
+| [14. Unattended work](#14-unattended-work-schedule-cron) | schedules and cron |
+| [15. Status & scope](#15-status--scope) | what is finished, and what is deliberately absent |
 
 ---
 
 ## 1. Installation & Requirements
 
-- **LLM backend**: an OpenAI-compatible endpoint ([Ollama] recommended). The default model is
-  **`gpt-oss:120b-cloud`** — Ollama's **free cloud tier**, so no GPU is needed; just sign in once.
-  ```sh
-  ollama signin                 # free tier; the default gpt-oss:120b-cloud runs in the cloud
-  # to run fully local:
-  ollama pull qwen3-coder:30b   # strongest local coder → ./magi --model qwen3-coder:30b
-  ```
-- **Build**: `make build` or `CGO_ENABLED=0 go build -o magi ./cmd/magi` (pure-Go single binary)
-- **Pre-built**: `curl -fsSL .../scripts/install.sh | bash` or `brew install sayaya1090/tap/magi`
+Two things: a Go toolchain (or a pre-built binary) and a model backend to talk to. There is no
+database, no service to register with, and nothing to configure before the first run — the config
+file is written for you the first time magi starts.
+
+**A model backend.** Anything that speaks the OpenAI chat-completions protocol works. [Ollama] is
+the least trouble: the default model, `gpt-oss:120b-cloud`, runs on Ollama's free cloud tier, so
+you do not need a GPU and there is nothing to download beyond Ollama itself.
+
+```sh
+ollama signin                 # free tier; the default gpt-oss:120b-cloud runs in Ollama's cloud
+```
+
+To keep everything on your own machine, pull a local model and point magi at it:
+
+```sh
+ollama pull qwen3-coder:30b
+./magi --model qwen3-coder:30b
+```
+
+> Choosing a local model is mostly a question of speed, and speed follows the **active** parameter
+> count rather than the file size — a mixture-of-experts model with ~3B active outruns a dense 27B
+> of the same size several times over. §11 has the details and the numbers.
+
+**A binary.** Build it, or take a pre-built one:
+
+```sh
+make build                                       # → ./magi   (CGO_ENABLED=0, version injected)
+CGO_ENABLED=0 go build -o magi ./cmd/magi        # the same thing by hand
+
+curl -fsSL https://raw.githubusercontent.com/sayaya1090/magi/main/scripts/install.sh | bash
+brew install sayaya1090/tap/magi
+```
+
+Pure Go with no CGo, so what you get is one static file. Copy it anywhere and run it; there is no
+install step beyond having it on your `PATH` if you want it there.
 
 ## 2. Running
 
+There are three ways to run magi and they are not alternatives to each other — they are the same
+engine seen from different places. Which one you want depends on who is watching:
+
+```mermaid
+flowchart TD
+    Q{who is watching?}
+    Q -->|you, at the keyboard| TUI["./magi<br/>interactive TUI"]
+    Q -->|a script or CI| HL["./magi -p '…'<br/>headless, one shot"]
+    Q -->|nobody, for now| DMN["./magi --daemon<br/>the engine alone"]
+    DMN -.->|later| ATT["./magi --attach<br/>a UI onto the running daemon"]
+    DMN -.->|or| WEB["./magi-web<br/>the browser console"]
+    ATT -.->|close the window| DMN
+
+    style DMN fill:#fff3e0,stroke:#e8820c
+    style WEB fill:#e8f4ff,stroke:#2c7fb8
+```
+
+The daemon is the one worth understanding early: a turn can take twenty minutes, and a daemon is
+what lets that survive you closing the terminal.
+
 ### Interactive TUI
+
+The default. Run it in the directory you want the agent to work in — that directory is its
+workspace, and it will not wander outside it.
+
 ```sh
 ./magi                 # auto-detects dark/light
 ./magi --theme light   # force theme (auto|dark|light)
 ```
 
 ### Headless (scripts/CI)
+
+One prompt in, a transcript out, then it exits. This is the mode scripts and CI use, so its output
+is a contract rather than a convenience — the exit codes and stream shapes below are stable.
 ```sh
 ./magi -p "list the go files and summarize"
 ./magi -p "create hello.txt with: hi" --output json   # JSONL events
@@ -54,7 +137,9 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 
 ### Leaving it running, and coming back to it
 
-A turn can take twenty minutes. Closing the terminal used to end it.
+A turn can take twenty minutes, and closing the terminal used to end it. Splitting the engine from
+the UI fixes that: the daemon holds the work, and a UI is something you attach when you want to
+look and close when you don't.
 
 ```sh
 ./magi --daemon        # run the engine with no UI; it keeps working while nothing is watching
@@ -85,12 +170,16 @@ schedule, or be seen by another machine. The rest of that surface — `--join-cl
   starting a fresh daemon there. It only ever touches the daemon of the directory you run it in.
 
 ### Environment check
+
+When something is wrong on a fresh machine, run this before reading anything else. It answers the
+questions you would otherwise work through by hand — is the endpoint reachable, is the model
+actually there, will bash be sandboxed, did the plugins load — and then exits.
+
 ```sh
 ./magi --doctor
 ```
-`--doctor` runs a one-shot diagnostic of everything magi needs and exits — use it
-first when a fresh machine misbehaves. It checks, and prints an `ok` / `warn` /
-`fail` line for each:
+
+It prints an `ok` / `warn` / `fail` line for each of:
 
 - **LLM endpoint** — reachability of `--base-url` and whether the configured
   `--model` is present on it (for Ollama, whether you are signed in for cloud models).
@@ -163,7 +252,32 @@ daemon's one-line account is shown back.
 
 ## 3. Configuration
 
-Flags / environment variables (precedence: flag > env > default):
+Most people change three things ever: the model, the permission mode, and — once they start running
+several agents — the companion's name and role. Everything else in this section exists so that when
+you do need it, it is written down.
+
+Nothing has to be configured before the first run. magi writes a commented `config.toml` the first
+time it starts and never overwrites it afterwards, so the file on disk stays yours.
+
+**Where settings come from, and who wins.** Four layers, read in this order:
+
+```mermaid
+flowchart LR
+    D[built-in defaults] --> C["config.toml<br/>global, then the repo's .magi/"] --> E[environment variables] --> F[command-line flags]
+    F --> R([what the run uses])
+    style R fill:#e8f6ec,stroke:#2f9e44
+```
+
+A flag beats an environment variable, which beats the config file, which beats the defaults. The
+repo's own `.magi/config.toml` beats the global one, which is what makes a per-project companion
+possible — the file travels with the repository.
+
+**Where the files are.** The global config lives in the OS config directory
+(`~/.config/magi/config.toml` on Linux, `~/Library/Application Support/magi/` on macOS); the
+per-workspace one is `.magi/config.toml` beside the code. Sessions, plugins and the shared
+experience store sit next to the global config.
+
+Flags and environment variables (precedence: flag > env > default):
 
 | Flag | Env | Default | Description |
 |---|---|---|---|
@@ -421,6 +535,23 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 
 ## 4. Using the TUI
 
+You type at the bottom, the conversation scrolls above it, and the header tells you what the run is
+costing. Three things are worth knowing before the rest of this section makes sense:
+
+- **Enter sends, and Enter during a run steers.** You do not have to wait for a turn to end to say
+  something; a mid-turn message goes into the running turn rather than queueing behind it.
+- **Esc interrupts.** The turn unwinds, the work so far stands, and nothing is lost.
+- **Dangerous tools ask first.** `write`, `edit` and `bash` stop for a `y` / `a` / `n` unless you
+  have said otherwise (`Shift+Tab` cycles the mode, `/permission` sets it).
+
+<div align="center">
+<img src="img/tui-turn.png" alt="The TUI mid-turn: the request at the top, tool calls each on one line with their real results, the three council votes, and the composer at the bottom" width="820">
+</div>
+
+Reading that screen: each tool call is one line whose leading glyph flips from ⚙ to ✓ or ✗ when its
+result arrives, so a long turn stays one screen rather than scrolling away. The council's votes
+arrive as their own lines at the end, followed by the tally.
+
 ### Slash commands (typing `/` opens an autocomplete palette — prefix filter, ↑/↓ to select, Tab to complete)
 | Command | Description |
 |---|---|
@@ -651,6 +782,23 @@ So ending is an act. The agent calls `council{complete: true}`, and the members 
 
 They accept, and the turn is over; or they name what is still undone, and the agent keeps working. Asking is separate: `council{question}` gets a reading and ends nothing.
 
+```mermaid
+flowchart TD
+    S[the agent works<br/>read · edit · run] --> D["council{complete: true}<br/>the agent declares"]
+    D --> REC[[the record magi kept:<br/>commands granted · real exits<br/>· per-file diffs]]
+    D --> NOW[[the workspace, read fresh<br/>at the moment of declaring]]
+    REC --> V[[verify command<br/>magi runs itself]]
+    NOW --> V
+    V --> M{{three members vote<br/>done · reject · abstain}}
+    M -->|accepted| E([turn over])
+    M -->|rejected| FB[what is still undone<br/>becomes the next instruction] --> S
+    M -->|3 rejections with no<br/>file change between| U([lands UNVERIFIED<br/>work stands, nothing pretends])
+
+    style E fill:#e8f6ec,stroke:#2f9e44
+    style U fill:#fff3e0,stroke:#e8820c
+    style M fill:#e8f4ff,stroke:#2c7fb8
+```
+
 **Rejection is bounded.** The gate exists to stop a false "done"; unbounded, it also stopped a true "I could not" — measured live, an honest declaration on a task the run's own permission mode made impossible was rejected for eighteen straight rounds until an external kill. After three consecutive rejections with **no file mutation between them** (or eight in one turn regardless), magi lands the turn **UNVERIFIED** with the reason on the record: the work stands, the agent is asked for its honest final account, and nothing pretends the council accepted. Real iteration is unaffected — a declaration separated from the last by actual work gets the longer rope. `MAGI_COUNCIL_REJECT_CAP=0` restores the uncapped loop for A/B.
 
 If the agent never declares, magi reminds it — up to three times — and then lands the work as it stands, recorded as ending undeclared rather than as finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
@@ -766,6 +914,27 @@ A web view of every magi on the machine — and, if you point it at others, on o
 a **second surface on the same daemons**, not a service of its own: it derives what it shows from
 the event logs already on disk, and everything it *does* goes over the same sockets `--attach` uses.
 Stop the console and nothing stops working.
+
+It earns its place when you are running more than one agent. A terminal shows you one; the console
+shows you which of the five is blocked on a question, which finished while you were away, and what
+each of them has learned.
+
+<div align="center">
+<a href="https://sayaya1090.github.io/magi/"><img src="img/console-companions.png" alt="The console's companion list: two teams, live status and step counts per row, and two companions waiting on the person" width="880"></a>
+
+<sub>The list every other screen hangs off. A row that needs you says so, and says which of the two kinds it needs.</sub>
+</div>
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-companion-detail.png" alt="A companion's page: status, model and workspace, the live transcript, and a permission prompt awaiting approval" width="100%"></a><br><b>§12.3 — one companion.</b> The transcript with real exit codes, and anything it is blocked on.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="The workspace pane: file tree with a directory expanded and the git card showing branch and changes" width="100%"></a><br><b>The workspace pane.</b> The tree and the git state as that companion sees them, beside the conversation.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=meet"><img src="img/console-meeting.png" alt="The Meetings page: choose companions, ask one question, convene a room" width="100%"></a><br><b>§12.5 — meetings.</b> Several companions on one question, then the conclusions go out as work.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=skills"><img src="img/console-knowledge.png" alt="The Knowledge screen: skills and memories, each labelled with how far it reaches" width="100%"></a><br><b>Knowledge.</b> Skills, memories and the wiki — each labelled with how far it reaches (§7, §8).</td>
+</tr>
+</table>
 
 ### 12.1 Running it
 
@@ -1047,6 +1216,31 @@ the interface, is in [`proposals/companions-and-supervision-2026-08-07.md`](prop
 Several magi handing work to each other. **No registry, no gateway, no broker** — every daemon
 publishes a small record beside its socket, and that directory is the membership. Across machines
 the same records travel by companions telling each other what they have seen.
+
+The shape it makes, once two or three of them are running:
+
+```mermaid
+flowchart LR
+    subgraph mac [your laptop]
+        DS["design<br/><i>frontend</i>"]
+        AP["api<br/><i>backend</i>"]
+    end
+    subgraph box [buildbox · reached over ssh]
+        OP["ops"]
+    end
+    DS -- "hand_off: spec the empty state" --> AP
+    AP -- "the answer, in your conversation" --> DS
+    DS <-. meeting .-> OP
+    DS & AP & OP --- REC[("a record beside each socket<br/>— the membership list")]
+    CON[magi-web] -.watches.-> DS & AP & OP
+
+    style REC fill:#f5f2ec,stroke:#8a8178
+    style CON fill:#e8f4ff,stroke:#2c7fb8
+```
+
+Read it in this order: **13.1** gives a workspace a name, **13.2** is how they see each other,
+**13.3** is how work crosses, and **13.8** is what changes when the other companion is on another
+machine. The rest is detail you can come back for.
 
 ### 13.1 Saying who you are
 
