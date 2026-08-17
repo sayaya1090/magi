@@ -729,8 +729,8 @@ registry, about that much — and the tests run the page's real JavaScript again
 Anything the fake cannot express is a sign the page is doing more than it should, which is why it is
 not jsdom.
 
-⚠ **The fake has been wrong seven times, always in the direction that hides a bug**, and each
-correction is worth more than the test it unblocked: `textContent` did not clear children, so a
+⚠ **The fake has been wrong seven times, always in the direction that hides a bug.** Each
+correction was worth more than the test it unblocked. Here they are. `textContent` did not clear children, so a
 readout rebuilt from a string plus a button kept the old button; `matchMedia` answered `min-width`
 queries with the narrow flag itself, saying yes to exactly the question a narrow screen answers no
 to; `addEventListener` was a no-op, so a page listening for md-tabs' `change` — the only way that
@@ -758,7 +758,7 @@ states cycle, plans change, the context gauge fills and folds, the connection dr
 | `sweep.mjs` | presses **every control on every screen at two widths** and asks whether anything happened |
 
 ⚠ **A probe is not trusted until breaking something on purpose makes it speak.** Six findings in one
-session were the probe's own, not the page's:
+session were the probe's own, not the page's. All six:
 
 - a contrast probe built on `document.querySelectorAll` reads none of the `md-*` components' text,
   and reported a clean sheet for a page it never read;

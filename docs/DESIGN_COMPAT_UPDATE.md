@@ -6,7 +6,7 @@ second protocol capability exists to convert between — and the supervisor-rest
 option in decision 3. This document describes the system **as built**; where the
 built thing differs from the original proposal, the difference is called out inline.
 
-magi companions each run as an independent process — a per-workspace `magi --daemon`
+magi companions each run as an independent process: a per-workspace `magi --daemon`
 on a unix socket, with web/TUI attach clients relaying to it, and a fleet of named
 companions that gossip, hand work to each other, and hold meetings over ssh. This
 document covers two related additions:
@@ -73,7 +73,7 @@ document covers two related additions:
   `Version` (the binary's, via the optional `Versioner` engine capability),
   `Proto` (`ProtoVersion`) and `Caps` (`Caps()`, currently `["handshake"]`). All
   additive and omitempty; a pre-handshake daemon sets none, which a caller reads as
-  proto 0 / no caps — "hold to old behaviour".
+  proto 0 / no caps, meaning "hold to old behaviour".
 - **A2. Capability gating.** `Client.Hello()` runs the handshake and caches
   `PeerInfo`; `PeerSupports(cap)` gates a newer send. Foundation-only today: no caller
   gates on it yet, and the first real consumer arrives with the second capability.
@@ -92,17 +92,17 @@ document covers two related additions:
 
 ## Part B — update, as built (same-machine scope)
 
-Scope is **companions on this machine** — each its own `magi --daemon` on a local unix
+Scope is **companions on this machine**, each its own `magi --daemon` on a local unix
 socket. No ssh, no fleet-door `update` verb, no remote authentication: the signal
 reaches a companion over its **own local socket**, whose owner-only permission is the
-authentication. No binary is ever sent over any wire — the signal means "update
+authentication. No binary is ever sent over any wire. The signal means "update
 yourself to the **latest** release" (it names no version; the original sketch's
 "version X" was never needed) and the companion self-pulls.
 
 - **B0. Version in the console.** Each companion's build renders as a **Build** field
   on its facts panel in the web console (from the daemon's record locally, from gossip
   for remote rows). As built this is narrower than the sketch: no TUI surface, no
-  computed "behind" marker — the update button is offered whenever it could do
+  computed "behind" marker: the update button is offered whenever it could do
   something, and the daemon's own "already up to date" answers the question the marker
   would have guessed at.
 - **B1. Local `update` signal.** The daemon's `update` method (optional `Updater`
@@ -113,7 +113,7 @@ yourself to the **latest** release" (it names no version; the original sketch's
   (asserted), the web handler refuses a peer-scoped request, and it refuses on a
   shared console.
 - **B2. Graceful restart.** The `restart` method reuses the shutdown drain — Serve
-  drains its **connections**, releases the socket and the lock — then the process
+  drains its **connections**, releases the socket and the lock, and only then the process
   re-execs instead of exiting. Note the honest wording: the drain is connection-level;
   waiting for an idle **turn** belongs to the auto path (below), and the manual push
   restarts immediately on purpose (an operator pressing a button and watching should
@@ -133,7 +133,7 @@ yourself to the **latest** release" (it names no version; the original sketch's
   (whose Windows branch would need to replace the running image — the reason rollback
   used to be impossible there).
 - **B7. Auto toggle + bench safety.** `[update] auto` (default on, per companion)
-  gates ONLY the auto path — the manual push works with it off. The auto loop starts
+  gates ONLY the auto path. The manual push works with it off. The auto loop starts
   only on the `--daemon` path (a benchmark is a headless one-shot, never a daemon),
   honours `--no-update-check`, and **refuses any non-release build**
   (`SelfUpdatable`): both "dev" and the Makefile's git-describe stamp

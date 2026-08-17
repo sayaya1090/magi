@@ -5,9 +5,9 @@ console for **supervising companions** rather than to reproduce an editor.
 
 The filter used throughout: magi's console exists so that a person can (a) understand what an agent
 did, (b) intervene precisely while it works, and (c) check the result before it lands. A feature
-earns its place by serving one of those three. "IntelliJ has it" is not a reason — an IDE is for a
-person writing every line; here the person is reading, judging and steering, and the code is written
-by something that never needs a minimap.
+earns its place by serving one of those three. "IntelliJ has it" is not a reason. An IDE is for a
+person writing every line. Here the person reads, judges and steers, and the code is written by
+something that never needs a minimap.
 
 ---
 
@@ -70,9 +70,9 @@ Build and test output is in the transcript, as text, inside a fold. A person who
 line, message, click to open.
 
 magi has the pieces: the tool result is captured, the workspace is readable, and the file view opens
-at a line already. The work is parsing the compiler and test output of a handful of toolchains, which
-is a known, bounded and slightly boring job — and the panel must say **which run** it came from and
-when, because a stale problem list is worse than none.
+at a line already. The work is parsing the compiler and test output of a handful of
+toolchains. That job is known, bounded and slightly boring. The panel must also say **which run**
+it came from and when. A stale problem list is worse than none.
 
 **The magi-specific half:** the same panel should carry the council's objections and the guard's
 notes. They are the same question — "what is wrong with this work" — from a different reader.
