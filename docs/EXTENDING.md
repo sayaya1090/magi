@@ -791,6 +791,24 @@ this tree lost graded identifiers six times out of six. The tool's own arguments
 caller has the full context and chooses what to put in them, and nothing rewrites it afterwards. If
 that is not enough, the child reads the same tree for itself.
 
+**Point at large content; do not paste it.** The child opens the same tree — the parent's working
+directory, or a clone of it — so a path in the prompt is something it can read for itself. Pasting a
+file into `prompt` costs the tokens twice, ages the moment the tool call was assembled, and puts the
+caller in the position of deciding which lines matter before knowing what the child will need. Say
+"the failing test is in internal/app/loop_test.go, TestRewind" rather than the file. Reserve inline
+text for what has no path: the instruction itself, a constraint, an error string from a command the
+child cannot re-run.
+
+This is the one piece of advice two unrelated systems arrived at independently — Anthropic's
+research harness has sub-agents write to the filesystem and pass references back "to avoid the game
+of telephone", and another agent CLI forbids inline payloads outright in favour of URIs. Neither
+needed a host change to do it, and neither does this: `prompt` is already passed verbatim, so what
+travels is entirely the caller's choice.
+
+The reverse holds for `hand_off` (§3.11), and the difference is worth keeping straight: a companion
+runs in **its own workspace, possibly on another machine**, so a path from your tree means nothing
+there. That is the case where the words you write are all there is.
+
 **What comes back.** `text`, `err`, `steps`, and `session_id`.
 
 **Bounds.** A child is clamped to 60 steps and 15 minutes. The whole tool call is clamped too —
