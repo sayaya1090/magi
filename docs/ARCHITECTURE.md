@@ -583,6 +583,34 @@ nothing changing in between** trips a cap (three no-change rejections, eight per
 the turn lands recorded as UNVERIFIED with the reason — an honest failure is a terminal outcome,
 not a loop. Real iteration between declarations resets the count.
 
+**Three readers of the same record count as three only if they can disagree**, and by default they
+cannot much: every member runs on the session model unless a `[[council.member]]` gives it a
+`provider` and a `model` of its own. What separates them out of the box is the lens they are told
+to read through, which is a weaker separation than it looks.
+
+How much weaker is measurable, and somebody has measured it. Anthropic's swarm experiments report
+**low-variance convergence** as a standing property of many instances of one model: 18 of 30 agents
+picked the same git branch name (`mvp-game-loop`), several independently gave a piece of fiction the
+same title, more than half of a free-choice cohort built either a ray tracer or a self-hosting
+compiler, and agents in a prisoner's dilemma defected in unison. Independence is not what you get
+from running the same weights again; it is what you get from different weights, and the members
+here share them.
+
+This is a live limit on the finish gate, not a hypothetical one. A false "done" the model finds
+plausible is exactly the kind of error correlated readers agree on, and the gate exists for that
+error specifically. Three things keep it from being fatal, and naming them matters because they —
+not the number of members — are what does the work:
+
+- The members judge **the record, not the claim** — evidence magi collected, which does not vary
+  with who is reading it.
+- The **verify command** is not a member at all: an exit code overrules the vote either way.
+- **Ambiguity resolves to *continue***, so agreement is only load-bearing in one direction.
+
+The cheap correction, where a run can afford it, is to give one member a different backend — the
+`provider`/`model` fields exist for this, and a panel of one strong reader and two cheap ones is
+the shape they were added for. magi does not do this by default because a second backend is
+configuration a person has to have, not something to assume.
+
 ## 6. Guardrails & workflow
 
 **Guardrail policy (`app/policy.go`)** sits above interactive permission prompting:
