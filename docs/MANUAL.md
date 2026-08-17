@@ -2,14 +2,13 @@
 
 [English](MANUAL.md) · [한국어](MANUAL.ko.md) · [↑ Docs](README.md)
 
-magi is a terminal coding agent. You give it a task, it reads and edits files and runs commands in
-your workspace, and a council of three members decides whether the turn is actually finished. It
-speaks to any OpenAI-compatible model backend, runs as a resident daemon you can attach to and
-detach from, and can be supervised — several agents at once — from a browser console.
+magi is a terminal coding agent. You give it a task; it reads and edits files and runs commands in
+your workspace; a council of three members then decides whether the turn is actually finished. It
+speaks to any OpenAI-compatible model backend. It runs as a resident daemon that you attach to and
+detach from at will, and you can supervise several at once from a browser console.
 
 This manual is the practical half of the documentation: how to install it, how to run it, every
-setting, and what each surface does. It is meant to be skimmed by section rather than read start to
-finish.
+setting, and what each surface does. Skim it by section. Nobody reads a manual start to finish.
 
 ### Where to start
 
@@ -17,9 +16,8 @@ finish.
 <img src="img/tui-turn.png" alt="The magi terminal UI: a request, the agent's read/edit/bash calls each with its real result, then three council members voting done and the tally line" width="820">
 </div>
 
-If you have never run it, go through §1 and §2 in order — install, then `./magi` — and stop there
-until a turn has finished in front of you. Everything after that is optional depth you can reach
-for when you need it.
+If you have never run it: do §1 and §2 in order, install and then `./magi`, and stop there until a
+turn has finished in front of you. Everything after that is depth you can come back for.
 
 | Section | Answers |
 |---|---|
@@ -42,12 +40,12 @@ for when you need it.
 ## 1. Installation & Requirements
 
 Two things: a Go toolchain (or a pre-built binary) and a model backend to talk to. There is no
-database, no service to register with, and nothing to configure before the first run — the config
-file is written for you the first time magi starts.
+database and no service to register with. Nothing needs configuring before the first run, either;
+the config file gets written for you the first time magi starts.
 
 **A model backend.** Anything that speaks the OpenAI chat-completions protocol works. [Ollama] is
-the least trouble: the default model, `gpt-oss:120b-cloud`, runs on Ollama's free cloud tier, so
-you do not need a GPU and there is nothing to download beyond Ollama itself.
+the least trouble. Its free cloud tier runs the default model, `gpt-oss:120b-cloud`, so you need no
+GPU and nothing to download beyond Ollama itself.
 
 ```sh
 ollama signin                 # free tier; the default gpt-oss:120b-cloud runs in Ollama's cloud
@@ -79,8 +77,8 @@ install step beyond having it on your `PATH` if you want it there.
 
 ## 2. Running
 
-There are three ways to run magi and they are not alternatives to each other — they are the same
-engine seen from different places. Which one you want depends on who is watching:
+There are three ways to run magi. They are not alternatives; they are the same engine seen from
+different places. Which one you want depends on who is watching:
 
 ```mermaid
 flowchart TD
@@ -96,13 +94,13 @@ flowchart TD
     style WEB fill:#e8f4ff,stroke:#2c7fb8
 ```
 
-The daemon is the one worth understanding early: a turn can take twenty minutes, and a daemon is
-what lets that survive you closing the terminal.
+Learn the daemon first. A turn can take twenty minutes, and the daemon is what lets that survive
+you closing the terminal.
 
 ### Interactive TUI
 
-The default. Run it in the directory you want the agent to work in — that directory is its
-workspace, and it will not wander outside it.
+The default. Run it in the directory you want the agent to work in. That directory becomes its
+workspace and it will not wander outside.
 
 ```sh
 ./magi                 # auto-detects dark/light
@@ -111,8 +109,8 @@ workspace, and it will not wander outside it.
 
 ### Headless (scripts/CI)
 
-One prompt in, a transcript out, then it exits. This is the mode scripts and CI use, so its output
-is a contract rather than a convenience — the exit codes and stream shapes below are stable.
+One prompt in, a transcript out, then it exits. Scripts and CI use this mode, so treat the output
+as a contract: the exit codes and stream shapes below are stable.
 ```sh
 ./magi -p "list the go files and summarize"
 ./magi -p "create hello.txt with: hi" --output json   # JSONL events
@@ -138,8 +136,8 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 ### Leaving it running, and coming back to it
 
 A turn can take twenty minutes, and closing the terminal used to end it. Splitting the engine from
-the UI fixes that: the daemon holds the work, and a UI is something you attach when you want to
-look and close when you don't.
+the UI fixed that. The daemon holds the work; a UI is something you attach when you want to look
+and close when you don't.
 
 ```sh
 ./magi --daemon        # run the engine with no UI; it keeps working while nothing is watching
@@ -149,8 +147,7 @@ look and close when you don't.
 ```
 
 A daemon is also what makes a companion addressable: only a resident one can be handed work, keep a
-schedule, or be seen by another machine. The rest of that surface — `--join-cluster`, `--members`,
-`--relay`, `--mcp` — is §13.
+schedule, or be seen by another machine. The rest of that surface (`--join-cluster`, `--members`, `--relay`, `--mcp`) is §13.
 
 - **One daemon per workspace.** The socket is named from the workspace's real path
   (`<config>/daemon-<dir>-<hash>.sock`, symlinks resolved), so `--attach` in a directory finds the
@@ -171,9 +168,9 @@ schedule, or be seen by another machine. The rest of that surface — `--join-cl
 
 ### Environment check
 
-When something is wrong on a fresh machine, run this before reading anything else. It answers the
-questions you would otherwise work through by hand — is the endpoint reachable, is the model
-actually there, will bash be sandboxed, did the plugins load — and then exits.
+When something is wrong on a fresh machine, run this before reading anything else. It works
+through the questions you would otherwise check by hand. Is the endpoint reachable? Is the model
+actually on it? Will bash be sandboxed? Did the plugins load? Then it exits.
 
 ```sh
 ./magi --doctor
@@ -252,9 +249,9 @@ daemon's one-line account is shown back.
 
 ## 3. Configuration
 
-Most people change three things ever: the model, the permission mode, and — once they start running
-several agents — the companion's name and role. Everything else in this section exists so that when
-you do need it, it is written down.
+Most people change three things, ever: the model, the permission mode, and (once they are running
+several agents) the companion's name and role. The rest of this section is here for the day you
+need one of the others.
 
 Nothing has to be configured before the first run. magi writes a commented `config.toml` the first
 time it starts and never overwrites it afterwards, so the file on disk stays yours.
@@ -535,8 +532,8 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 
 ## 4. Using the TUI
 
-You type at the bottom, the conversation scrolls above it, and the header tells you what the run is
-costing. Three things are worth knowing before the rest of this section makes sense:
+You type at the bottom, the conversation scrolls above it, and the header tells you what the run
+is costing. Three things make the rest of this section legible:
 
 - **Enter sends, and Enter during a run steers.** You do not have to wait for a turn to end to say
   something; a mid-turn message goes into the running turn rather than queueing behind it.
@@ -548,9 +545,9 @@ costing. Three things are worth knowing before the rest of this section makes se
 <img src="img/tui-turn.png" alt="The TUI mid-turn: the request at the top, tool calls each on one line with their real results, the three council votes, and the composer at the bottom" width="820">
 </div>
 
-Reading that screen: each tool call is one line whose leading glyph flips from ⚙ to ✓ or ✗ when its
-result arrives, so a long turn stays one screen rather than scrolling away. The council's votes
-arrive as their own lines at the end, followed by the tally.
+Reading that screen: each tool call is one line, and its leading glyph flips from ⚙ to ✓ or ✗ when
+the result arrives. A long turn therefore stays on one screen instead of scrolling away. The
+council's votes arrive as their own lines at the end, followed by the tally.
 
 ### Slash commands (typing `/` opens an autocomplete palette — prefix filter, ↑/↓ to select, Tab to complete)
 | Command | Description |
@@ -639,7 +636,7 @@ Slash commands during work: read-only/UI-only ones (`/help` · `/route` (=`/mode
 
 The strip has two producers. A **background command** (`bash background=true`) would otherwise be a single line saying a process started and then nothing, while the agent polls it with `bash_output` and acts on what it reads. A **spawned child** (a subagent from a plugin, §`/subagents`) runs for minutes inside one tool call, on a session the main view does not follow. Either way, while it is alive **a live panel is tiled below the main transcript**, each with a **unique color** (M3 tonal palette) on its border and header badge.
 
-A child's panel shows **its own transcript** — the prompt it was handed, its reasoning, each tool call with its arguments and result, and what it finally said — rendered exactly as the main transcript renders them. A background job's panel shows its log tail.
+A child's panel shows **its own transcript**: the prompt it was handed, its reasoning, each tool call with its arguments and result, and what it finally said, all rendered exactly as the main transcript renders them. A background job's panel shows its log tail.
 
 - Move focus with `Tab` (or by clicking a panel) → the focused panel gets a **focus ring** in its color.
 - `Ctrl+O` (or clicking the focused panel again) **zooms in** → the job's full output. On entering zoom it jumps to the bottom (latest). **Clicking** the top breadcrumb (or `Esc`) returns.
@@ -801,7 +798,7 @@ flowchart TD
 
 **Rejection is bounded.** The gate exists to stop a false "done"; unbounded, it also stopped a true "I could not" — measured live, an honest declaration on a task the run's own permission mode made impossible was rejected for eighteen straight rounds until an external kill. After three consecutive rejections with **no file mutation between them** (or eight in one turn regardless), magi lands the turn **UNVERIFIED** with the reason on the record: the work stands, the agent is asked for its honest final account, and nothing pretends the council accepted. Real iteration is unaffected — a declaration separated from the last by actual work gets the longer rope. `MAGI_COUNCIL_REJECT_CAP=0` restores the uncapped loop for A/B.
 
-If the agent never declares, magi reminds it — up to three times — and then lands the work as it stands, recorded as ending undeclared rather than as finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
+If the agent never declares, magi reminds it up to three times and then lands the work as it stands, recorded as ending undeclared instead of finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
 
 Set `[council] enabled = false` to remove the tool entirely; with nobody to declare to, the requirement cannot apply and the loop finishes passively.
 
@@ -915,7 +912,7 @@ a **second surface on the same daemons**, not a service of its own: it derives w
 the event logs already on disk, and everything it *does* goes over the same sockets `--attach` uses.
 Stop the console and nothing stops working.
 
-It earns its place when you are running more than one agent. A terminal shows you one; the console
+It earns its place once you are running more than one agent. A terminal shows you one. The console
 shows you which of the five is blocked on a question, which finished while you were away, and what
 each of them has learned.
 
@@ -1054,8 +1051,8 @@ The rail on the left has two destinations, and a companion's page lives inside t
 
 ### 12.3 A companion's page
 
-Opened from a row, addressed as `/?d=<socket path>`. Two things happen here — watching, and saying
-something — so the page is the conversation with everything else beside it.
+Opened from a row, addressed as `/?d=<socket path>`. Two things happen here: watching, and saying
+something. So the page is the conversation, with everything else beside it.
 
 **The conversation.** The transcript live over an event stream (`/events`), rendered the way the TUI
 renders it: folded tool calls that open, thinking blocks, council rounds with each member's verdict,
@@ -1102,8 +1099,8 @@ stage / unstage / discard / diff on a changed file, the console can take the cha
 - **Open a pull request** creates a GitHub PR for the branch, and **generate a PR body** drafts its
   description from the commits — the facts (branch, base, commits) are gathered for you first.
 
-Use these when you have been supervising a companion's work and want to land it — review the diff,
-have it write the commit or PR text, and push — without dropping to a terminal. They are the same
+Use these when you have been supervising a companion's work and want to land it without dropping
+to a terminal: review the diff, have it write the commit or PR text, push. They are the same
 capabilities a person with the `configure`/write role has; a viewer-only console shows the diff but
 not the buttons.
 
@@ -1121,8 +1118,8 @@ window could not make an ordinary request at all.
 
 ### 12.4 One keystroke to anything — `Ctrl`/`⌘` + `K`
 
-A field, and under it what this console can name: its own verbs, the companions, and — once there
-are two characters to search on — the files of the workspace on screen. Arrows move, `Enter` takes
+A field, and under it what this console can name: its own verbs, the companions, and, once there
+are two characters to search on, the files of the workspace on screen. Arrows move, `Enter` takes
 the row, `Escape` leaves. There is a control for it in the masthead as well: a phone has no modifier
 key, and a shortcut nobody has been told about is a shortcut nobody uses.
 
@@ -1342,8 +1339,8 @@ addressed to a companion called "ssh", which does not exist).
 
 It is off by default and that is not an oversight: two tools per peer in the tool list of every
 prompt, and a subprocess per peer held open for the life of the daemon. Peers are attached and
-detached at **turn boundaries** — the only instant the tool set may change — so a companion that
-starts up later is heard at the next turn rather than at the next restart.
+detached at **turn boundaries**, the only instant the tool set may change. A companion that starts
+up later is therefore heard at the next turn, not at the next restart.
 
 ### 13.6 One at a time, a queue, and how busy it is
 
@@ -1509,9 +1506,9 @@ that this process would start**, and a hook is a shell line; "the companion I jo
 is not a sentence anybody should find in an incident report. Environment variables are named and
 never valued — a token copied into a second workspace is a token in two places.
 
-`POST /dispatch` takes `to=` — a name, words from a role, or a team — and resolves it through the
-same rules and down the same path as somebody typing into that companion's page, so both reach the
-daemon by exactly one route. Two matches are an error, never a choice.
+`POST /dispatch` takes `to=`, which may be a name, words from a role, or a team. It resolves that
+through the same rules and down the same path as somebody typing into the companion's page, so both
+reach the daemon by exactly one route. Two matches are an error, never a choice.
 
 ### 13.11 What this deliberately is not
 

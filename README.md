@@ -4,10 +4,10 @@
 
 ### A terminal coding agent that isn't allowed to declare itself finished.
 
-In most agent loops the turn ends when the model stops calling tools. magi ends it differently:
-the agent has to *declare* it is done, and three council members — each reading the turn through a
-different lens — vote on whether the record backs that up. A verification command magi runs itself
-can refuse a "done" the tests don't support.
+In most agent loops the turn ends when the model stops calling tools. magi ends it differently.
+The agent has to *declare* that it is done, and three council members vote on whether the record
+backs that up, each reading the turn through a different lens. A verification command that magi
+runs itself can refuse a "done" the tests don't support.
 
 [English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md) · [Live demo](https://sayaya1090.github.io/magi/)
 
@@ -38,7 +38,7 @@ the ones that need an answer from you:
   <img src="docs/img/console-companions.png" alt="The web console showing a roster of companions across two teams, with live status, step counts, hosts, and two rows waiting on the person" width="900">
 </a>
 
-<sub><a href="https://sayaya1090.github.io/magi/">Open the live demo</a> — the real page with mocked data, no server needed.</sub>
+<sub><a href="https://sayaya1090.github.io/magi/">Open the live demo</a>. It is the real page with mocked data; no server needed.</sub>
 </div>
 
 ---
@@ -47,9 +47,9 @@ the ones that need an answer from you:
 
 An agent loop has one hard question: **when is the turn actually finished?**
 
-If the answer is implicit — the turn ends when the model stops calling tools — then a turn that
-trailed off mid-thought looks exactly like one that is genuinely done. You get both failure modes:
-agents that stop three quarters of the way through, and agents that never stop at all.
+Leave the answer implicit, so that a turn ends when the model stops calling tools, and a turn
+that trailed off mid-thought looks exactly like one that is genuinely done. You get both failure
+modes. Agents that stop three quarters of the way through, and agents that never stop at all.
 
 magi makes ending an act that has to be justified:
 
@@ -94,9 +94,9 @@ you ▸ add a --dry-run flag to the deploy command
   ⚙ council {complete: true}   →   accepted   ✓ turn over
 ```
 
-Nothing else in magi is unusual. The rest of it exists so that this decision has something solid
-to stand on: a record of what really happened, a loop you can inspect and replay, and a way to run
-and supervise several agents at once.
+Nothing else in magi is unusual. The rest of it exists so that this one decision has something
+solid to stand on: a record of what really happened, a loop you can inspect and replay, and a way
+to run and supervise several agents at once.
 
 ---
 
@@ -104,7 +104,7 @@ and supervise several agents at once.
 
 At the point where the loop would otherwise end, each member votes **done**, **reject** or
 **abstain**, and a pure tally function turns those votes into one decision. The three defaults are
-named after the MAGI and differ only in what they are told to look for:
+named after the MAGI. They differ in one thing only: what each is told to look for.
 
 | Member | Lens | The question it asks |
 |---|---|---|
@@ -131,8 +131,8 @@ flowchart TD
     style CONT fill:#fff3e0,stroke:#e8820c
 ```
 
-The tally rule is configurable, and every ambiguous outcome resolves to *continue* rather than to
-*finish*:
+The tally rule is configurable. Whatever you pick, an ambiguous outcome always resolves to
+*continue*:
 
 | Rule | Finishes when… |
 |---|---|
@@ -143,12 +143,12 @@ The tally rule is configurable, and every ambiguous outcome resolves to *continu
 | `veto:Name` | a named member can refuse any finish on its own |
 
 A member that errors, times out, or returns something unparseable **abstains** instead of blocking
-the gate, so a flaky model degrades the vote rather than freezing the loop. Rounds are capped and
+the gate. A flaky model degrades the vote; it cannot freeze the loop. Rounds are capped, and
 no-progress detection stops the council churning on the same objection.
 
-> The tally lives in `internal/core/council` as pure domain code — no I/O, no LLM, unit-tested on
-> its own. That separation is what makes "the council decides, not one model" a property you can
-> test rather than a sentence in a prompt.
+> The tally lives in `internal/core/council` as pure domain code: no I/O, no LLM, unit-tested on
+> its own. That separation is what makes "the council decides, not one model" something you can
+> test. Otherwise it would be a sentence in a prompt and nothing more.
 
 Asking is separate from declaring. `council{question}` gets the members' reading on something you
 are unsure about and ends nothing.
@@ -157,10 +157,10 @@ are unsure about and ends nothing.
 
 ## The record the vote is based on
 
-Members don't judge the agent's summary of its work. They judge the agent's report against what
-magi itself recorded, because magi is what grants every tool call in the first place:
+Members don't judge the agent's summary of its work. They judge that report against what magi
+itself recorded. magi grants every tool call, so it already knows:
 
-- every command that ran, and how it really ended — including which stage of a pipe failed;
+- every command that ran and how it really ended, down to which stage of a pipe failed;
 - the agent's own edits this turn, as a per-file before → after diff;
 - on a completion claim, a fresh read of the workspace: files modified since the task began,
   background jobs still alive, and any path the record says was written that isn't on disk.
@@ -172,15 +172,16 @@ On top of that sits a verification command that the agent has no way to influenc
 verify = "go test ./..."   # magi runs THIS itself, at the finish gate
 ```
 
-Its exit code is authoritative: non-zero refuses the finish whatever the members voted, and the
-output is shown to them as magi-run evidence rather than as the agent's claim. For `go test` magi
-re-runs it under `-json`, which catches the two usual ways a green suite lies:
+Its exit code is authoritative. Non-zero refuses the finish whatever the members voted, and they
+see the output as magi-run evidence, not as something the agent reported. For `go test` magi goes
+further and re-runs it under `-json`, which catches the two usual ways a green suite lies:
 
 - a `TestMain` that runs nothing, so an empty or disabled suite still exits 0;
 - a `TestMain` that runs the tests, sees them fail, and calls `os.Exit(0)` anyway.
 
 Either one turns a "done" into *continue*, with the evidence naming what happened. A check written
-in advance can be wrong about the work; a record of what was granted cannot be wrong about what ran.
+in advance can be wrong about the work. A record of what was granted cannot be wrong about what
+ran.
 
 ---
 
@@ -225,10 +226,10 @@ flowchart LR
 - **Meetings** put several companions on one question, read-only, until each knows what to do.
 
 There is no registry, no gateway and no open port. Every daemon writes a record beside its socket,
-and that directory *is* the membership list. Across machines it is the same records traded over
-ssh: `magi --join-cluster <host>` once, then the daemons keep each other current and forget anyone
-they haven't seen for an hour. Work crosses the same way, so magi opens no port of its own and
-holds no credential of its own.
+and that directory *is* the membership list. Across machines it is the same records, traded over
+ssh. Run `magi --join-cluster <host>` once and the daemons keep each other current from then on,
+forgetting anyone they haven't seen for an hour. Work crosses the same way, which is why magi opens
+no port of its own and holds no credential of its own.
 
 ---
 
@@ -304,8 +305,8 @@ holds no credential of its own.
 
 ## The loop is an object you can open
 
-Every turn is event-sourced to an append-only JSONL log. That is what makes the next four commands
-ordinary rather than special:
+Every turn is event-sourced to an append-only JSONL log. The four commands below fall out of that
+almost for free:
 
 ```mermaid
 flowchart LR
