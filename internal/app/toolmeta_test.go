@@ -110,7 +110,7 @@ func TestAToolWithoutMetadataIsUnchanged(t *testing.T) {
 // agent by default.
 func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 	reg := builtin.Default()
-	reg.Register(metaTool{name: "seele_plan", meta: port.ToolMetadata{Subagent: true, DefaultOff: true}})
+	reg.Register(metaTool{name: "planner_plan", meta: port.ToolMetadata{Subagent: true, DefaultOff: true}})
 	reg.Register(metaTool{name: "eager", meta: port.ToolMetadata{Subagent: true}})
 	a := &App{tools: reg}
 
@@ -121,7 +121,7 @@ func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 		}
 		return out
 	}
-	if slices.Contains(advertised(), "seele_plan") {
+	if slices.Contains(advertised(), "planner_plan") {
 		t.Error("a subagent that ships off must not be offered to the model")
 	}
 	if !slices.Contains(advertised(), "eager") {
@@ -130,7 +130,7 @@ func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 	// It is listed for the user, unticked — hidden is not opt-in.
 	var found bool
 	for _, s := range a.Subagents() {
-		if s.Name == "seele_plan" {
+		if s.Name == "planner_plan" {
 			found = true
 			if s.Enabled {
 				t.Error("it should be listed unticked")
@@ -142,10 +142,10 @@ func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 	}
 
 	// The user turns it on, and it sticks — the choice is recorded, not just the absence of one.
-	if err := a.SetSubagentEnabled("seele_plan", true); err != nil {
+	if err := a.SetSubagentEnabled("planner_plan", true); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(advertised(), "seele_plan") {
+	if !slices.Contains(advertised(), "planner_plan") {
 		t.Error("after being turned on it must be offered")
 	}
 	// And off again, for a subagent that ships ON — the same record has to carry both directions.
@@ -162,32 +162,32 @@ func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 // that lists a subagent is the screen that changes it.
 func TestTheUsersModelOverridesWhatThePluginAskedFor(t *testing.T) {
 	reg := builtin.Default()
-	reg.Register(metaTool{name: "seele_plan", meta: port.ToolMetadata{Subagent: true}})
+	reg.Register(metaTool{name: "planner_plan", meta: port.ToolMetadata{Subagent: true}})
 	a := &App{tools: reg}
 
 	// No override: whatever the plugin asked for stands.
-	if m, p := a.subagentOverride("seele_plan"); m != "" || p != "" {
+	if m, p := a.subagentOverride("planner_plan"); m != "" || p != "" {
 		t.Errorf("nothing set, got %q/%q", m, p)
 	}
-	if err := a.SetSubagentModel("seele_plan", "big-model", "fast"); err != nil {
+	if err := a.SetSubagentModel("planner_plan", "big-model", "fast"); err != nil {
 		t.Fatal(err)
 	}
-	if m, p := a.subagentOverride("seele_plan"); m != "big-model" || p != "fast" {
+	if m, p := a.subagentOverride("planner_plan"); m != "big-model" || p != "fast" {
 		t.Errorf("override = %q/%q, want big-model/fast", m, p)
 	}
 	// It survives an enabled toggle: the two settings live in one record and one must not wipe
 	// the other.
-	if err := a.SetSubagentEnabled("seele_plan", false); err != nil {
+	if err := a.SetSubagentEnabled("planner_plan", false); err != nil {
 		t.Fatal(err)
 	}
-	if m, _ := a.subagentOverride("seele_plan"); m != "big-model" {
+	if m, _ := a.subagentOverride("planner_plan"); m != "big-model" {
 		t.Errorf("toggling on/off dropped the model: %q", m)
 	}
 	// And clearing gives it back.
-	if err := a.SetSubagentModel("seele_plan", "", ""); err != nil {
+	if err := a.SetSubagentModel("planner_plan", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if m, p := a.subagentOverride("seele_plan"); m != "" || p != "" {
+	if m, p := a.subagentOverride("planner_plan"); m != "" || p != "" {
 		t.Errorf("cleared, got %q/%q", m, p)
 	}
 }

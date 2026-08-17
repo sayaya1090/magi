@@ -27,7 +27,7 @@ func TestASpawnedChildOpensAPaneOnTheStrip(t *testing.T) {
 
 	started := time.Now().Add(-30 * time.Second)
 	running := []app.SubagentJob{{
-		ID: "child-1", Tool: "seele_plan", Task: "plan the refactor",
+		ID: "child-1", Tool: "planner_plan", Task: "plan the refactor",
 		Started: started, Running: true,
 	}}
 	if !m.syncSubagentPanes(running) {
@@ -37,7 +37,7 @@ func TestASpawnedChildOpensAPaneOnTheStrip(t *testing.T) {
 		t.Fatalf("the child opened %d panes", len(m.panes))
 	}
 	p := m.panes[0]
-	if p.role != "seele_plan" {
+	if p.role != "planner_plan" {
 		t.Errorf("the pane is labelled %q — a reader cannot tell which subagent this is", p.role)
 	}
 	if !strings.Contains(p.task, "plan the refactor") {
@@ -55,7 +55,7 @@ func TestASpawnedChildOpensAPaneOnTheStrip(t *testing.T) {
 
 	// When it ends the pane ends with it — once.
 	ended := []app.SubagentJob{{
-		ID: "child-1", Tool: "seele_plan", Task: "plan the refactor",
+		ID: "child-1", Tool: "planner_plan", Task: "plan the refactor",
 		Started: started, Ended: time.Now(), Running: false, Steps: 7,
 	}}
 	m.syncSubagentPanes(ended)
@@ -84,7 +84,7 @@ func TestAChildsPaneShowsWhatItWasToldAndWhatItDid(t *testing.T) {
 	m := &mm
 	m.width, m.height = 120, 40
 
-	p := &agentPane{job: "c", role: "seele_plan", task: "plan it"}
+	p := &agentPane{job: "c", role: "planner_plan", task: "plan it"}
 	p.blocks = rebuildBlocks(childTranscript())
 	m.panes = append(m.panes, p)
 

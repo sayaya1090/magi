@@ -1,8 +1,0 @@
-name = "seele"
-version = "1.0.0"
-description = "Seele — 계획 수립 서브에이전트. 요구사항을 읽고 분석해 단계별 플랜만 짠다. 쓰기 권한 없음, 기본 꺼짐."
-entry = "init.lua"
-capabilities = ["tool", "spawn"]
-permissions = []
-
-# 사용 여부와 모델은 /subagents 화면에서 정한다. 설정에는 [subagents.seele_plan] 로 남는다.

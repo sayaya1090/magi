@@ -38,7 +38,7 @@ func TestASubagentChoiceSurvivesARestart(t *testing.T) {
 	p := subagentPersister{path: path}
 
 	on := true
-	if err := p.PersistSubagent("seele_plan", app.SubagentPref{Enabled: &on, Model: "big-model"}); err != nil {
+	if err := p.PersistSubagent("planner_plan", app.SubagentPref{Enabled: &on, Model: "big-model"}); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
 	// Written as a REAL bool. The loader tolerates the quoted form so that files already on disk
@@ -59,7 +59,7 @@ func TestASubagentChoiceSurvivesARestart(t *testing.T) {
 		t.Fatalf("after switching a subagent on, the config no longer loads: %v", err)
 	}
 	prefs := toSubagentPrefs(c.Subagents)
-	got, ok := prefs["seele_plan"]
+	got, ok := prefs["planner_plan"]
 	if !ok {
 		t.Fatal("the subagent's settings did not come back")
 	}
@@ -73,14 +73,14 @@ func TestASubagentChoiceSurvivesARestart(t *testing.T) {
 	// And off again: the record has to carry both directions, or turning something off that ships
 	// on would look like no choice at all.
 	off := false
-	if err := p.PersistSubagent("seele_plan", app.SubagentPref{Enabled: &off}); err != nil {
+	if err := p.PersistSubagent("planner_plan", app.SubagentPref{Enabled: &off}); err != nil {
 		t.Fatal(err)
 	}
 	c2, err := config.Load(dir)
 	if err != nil {
 		t.Fatalf("after switching it off, the config no longer loads: %v", err)
 	}
-	back := toSubagentPrefs(c2.Subagents)["seele_plan"]
+	back := toSubagentPrefs(c2.Subagents)["planner_plan"]
 	if back.Enabled == nil || *back.Enabled {
 		t.Errorf("it came back %v, want off", back.Enabled)
 	}

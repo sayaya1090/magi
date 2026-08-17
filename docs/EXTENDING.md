@@ -729,7 +729,7 @@ magi.register_tool{
 }
 ```
 
-The bundled `seele` planner declares it, which was already true of the child it started.
+`plugins/examples/crew` declares it for the reviewer it spawns, which only ever looked.
 
 #### `isolated_children` — the same bargain for children that write
 

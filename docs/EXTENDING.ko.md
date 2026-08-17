@@ -674,7 +674,7 @@ magi.register_tool{
 }
 ```
 
-번들된 `seele` 플래너가 이것을 선언하는데, 원래 띄우던 자식이 이미 그러했습니다.
+`plugins/examples/crew`가 자기가 띄우는 리뷰어에 대해 이것을 선언합니다 — 원래 보기만 하던 자식입니다.
 
 #### `isolated_children` — 쓰는 자식을 위한 같은 거래
 
@@ -698,8 +698,8 @@ best-effort이고, 전역으로 더 엄한 샌드박스 설정이 있으면 그�
 ### 3.9 `magi.spawn` / `child_steps` / `restore_child` — 서브에이전트와 루프
 
 magi가 싣는 것은 **이음매뿐입니다.** 플러그인이 서브에이전트를 선언하고 사용자가 켭니다
-(`plugin.toml`의 `"spawn"` 능력, 툴 호출 안에서만 도달 가능). 번들된 `seele`가 그렇게 하나를
-등록하는데, **꺼진 채로** 등록하므로 체크하기 전에는 아무것도 스폰되지 않습니다.
+(`plugin.toml`의 `"spawn"` 능력, 툴 호출 안에서만 도달 가능). magi는 서브에이전트를 하나도 싣지
+않습니다 — `plugins/examples/crew`가 어떻게 쓰는지 보여 주는 예시이고, 설치해야 씁니다.
 
 ```mermaid
 flowchart TD

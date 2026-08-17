@@ -280,7 +280,7 @@ func TestTheUsersModelReachesTheChild(t *testing.T) {
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
 
 	// No override: the child runs on what the plugin asked for.
-	spawn, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "seele_plan")
+	spawn, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "planner_plan")
 	if _, err := spawn(context.Background(), port.SpawnSpec{Prompt: "plan it", Model: "plugin-model"}); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestTheUsersModelReachesTheChild(t *testing.T) {
 	}
 
 	// With one, the user's wins.
-	if err := a.SetSubagentModel("seele_plan", "user-model", ""); err != nil {
+	if err := a.SetSubagentModel("planner_plan", "user-model", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := spawn(context.Background(), port.SpawnSpec{Prompt: "plan it", Model: "plugin-model"}); err != nil {

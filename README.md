@@ -432,8 +432,7 @@ After an edit, diagnostic feedback (gofmt, go vet, py_compile, LSP) flows back s
 correct itself. Read-only tools run in parallel within a turn.
 
 - **One agent by default.** Nothing spawns a second one until you switch it on. Subagents come
-  from plugins, and one is bundled already — switched off: **Seele**, a planner with no write
-  tools (`/subagents` is where you tick it). A plugin's children can run in parallel when they cannot collide — read-only children, or
+  from plugins and magi bundles none; `/subagents` is where one you installed is switched on. A plugin's children can run in parallel when they cannot collide — read-only children, or
   writing children that each get their own checkout (`isolated_children`: a git clone per child,
   shell confined to it, work merged back as a commit range only when the caller says so). See
   [EXTENDING](docs/EXTENDING.md).

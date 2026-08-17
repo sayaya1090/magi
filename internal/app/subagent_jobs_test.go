@@ -10,13 +10,13 @@ import (
 // the strip that shows it can fade it out instead of having it vanish mid-turn.
 func TestAChildIsVisibleWhileItRunsAndAfterItEnds(t *testing.T) {
 	var r subagentJobs
-	r.start("child-1", "seele_plan", "plan the refactor")
+	r.start("child-1", "planner_plan", "plan the refactor")
 
 	got := r.list()
 	if len(got) != 1 || !got[0].Running {
 		t.Fatalf("a child that just started is not listed as running: %+v", got)
 	}
-	if got[0].Tool != "seele_plan" || got[0].Task != "plan the refactor" {
+	if got[0].Tool != "planner_plan" || got[0].Task != "plan the refactor" {
 		t.Errorf("the pane would say %q / %q", got[0].Tool, got[0].Task)
 	}
 

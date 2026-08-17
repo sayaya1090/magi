@@ -60,8 +60,8 @@ What is NOT gone, and was added back deliberately, is the seam: a plugin can dec
 a user can switch it on (`/subagents`, EXTENDING §3.9). The distinction is the whole point. Every
 defect in that list came from magi deciding **on the model's behalf** what to split off and what to
 pass along; the seam decides neither. A plugin author writes the prompt, the tool's own arguments
-are the brief, and magi passes them through without rewriting a byte. magi still ships no agent —
-`plugins/seele` is one example, and it ships switched off.
+are the brief, and magi passes them through without rewriting a byte. magi ships no agent at all;
+`plugins/examples/crew` shows what writing one looks like, and is not installed.
 
 **What independent measurements say, including where they disagree with this.** None of them
 measured magi, and the basis for the paragraph above is still this tree's own defect log. They are

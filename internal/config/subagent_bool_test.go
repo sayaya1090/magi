@@ -19,7 +19,7 @@ func TestTurningASubagentOnLeavesTheConfigLoadable(t *testing.T) {
 		if on {
 			raw = "true"
 		}
-		if err := SetRawKey(path, "subagents.seele_plan", "enabled", raw); err != nil {
+		if err := SetRawKey(path, "subagents.planner_plan", "enabled", raw); err != nil {
 			t.Fatal(err)
 		}
 		// Written as a bool, not as a quoted string.
@@ -35,7 +35,7 @@ func TestTurningASubagentOnLeavesTheConfigLoadable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a config with a subagent switched %v does not load: %v", on, err)
 		}
-		got := c.Subagents["seele_plan"].Enabled
+		got := c.Subagents["planner_plan"].Enabled
 		if got == nil {
 			t.Fatal("the choice did not survive the round trip")
 		}
@@ -50,14 +50,14 @@ func TestTurningASubagentOnLeavesTheConfigLoadable(t *testing.T) {
 func TestAQuotedBoolFromTheOldWriterStillLoads(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"),
-		[]byte("[subagents.seele_plan]\nenabled = \"true\"\nmodel = \"\"\n"), 0o644); err != nil {
+		[]byte("[subagents.planner_plan]\nenabled = \"true\"\nmodel = \"\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err := Load(dir)
 	if err != nil {
 		t.Fatalf("a config written by the previous version does not load: %v", err)
 	}
-	got := c.Subagents["seele_plan"].Enabled
+	got := c.Subagents["planner_plan"].Enabled
 	if got == nil || !bool(*got) {
 		t.Errorf("the quoted bool read as %v, want true", got)
 	}
@@ -68,7 +68,7 @@ func TestAQuotedBoolFromTheOldWriterStillLoads(t *testing.T) {
 func TestANonBooleanEnabledIsStillAnError(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"),
-		[]byte("[subagents.seele_plan]\nenabled = \"yeah\"\n"), 0o644); err != nil {
+		[]byte("[subagents.planner_plan]\nenabled = \"yeah\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(dir); err == nil {

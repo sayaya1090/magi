@@ -904,7 +904,7 @@ Where everything sits:
 | `/help` | help |
 | `/route` (=`/model`=`/agents`) | **model & routing editor** (one screen): **(session)** default model, per-agent model/backend, **add/edit backends (profiles)**. ↑/↓ select · Enter edit/open · empty value = reset to default · Esc close. Editing the **session model** opens a **suggest box** — configured profile models plus the gateway's live catalog (prefetched on open), de-duplicated and filtered as you type: **↑/↓ cycle · Tab fills · Enter applies** the highlight or the typed value. An unreachable gateway falls back to free text. While editing an agent, **pick a profile with ←/→** (or type a model name). Use `+ add profile` to define a profile (endpoint/key/model/headers); in the form, Enter edits a field · **Tab saves**. **All edits are persisted to `config.toml`** (comments preserved) |
 | `/tools` | available tools |
-| `/subagents` | **subagents a plugin registered** — a checkbox each, grouped as the plugin declared. Space toggles one (a group header toggles all its members), Enter sets the model that subagent runs on (empty clears the override), Esc closes. magi ships no subagent of its own that RUNS — but the list is not empty out of the box: the bundled **seele** planner plugin loads by default and registers one, switched off, so it is discoverable without anything spawning until you tick it. The choice is written to `config.toml` under `[subagents.<name>]` and survives a restart |
+| `/subagents` | **subagents a plugin registered** — a checkbox each, grouped as the plugin declared. Space toggles one (a group header toggles all its members), Enter sets the model that subagent runs on (empty clears the override), Esc closes. magi ships no subagent of its own, so the list is empty until a plugin you installed registers one. The choice is written to `config.toml` under `[subagents.<name>]` and survives a restart |
 | `/cost` | token usage and cost for the session |
 | `/sessions` | session list for this directory |
 | `/resume [n]` | resume a session (no arg = list, `/resume 2` to switch) |
@@ -1191,7 +1191,7 @@ Neither is registered in a headless/bench run: with nobody to answer, they can n
 
 ### What is deliberately absent
 
-There is no `task` tool, and **nothing delegates until you switch it on** — no reviewer, no worker, and the one planner that is bundled (`plugins/seele`) registers its subagent switched OFF. So the default is one agent, and a second one is a box you ticked in `/subagents`, not a plugin you had to find.
+There is no `task` tool, no planner, no reviewer, no worker, and **nothing that delegates** unless you install a plugin that registers one and switch it on in `/subagents`.
 
 What exists is the seam. A plugin can declare a subagent, and a user switches it on in `/subagents`; with no such plugin there is no way to reach it. That is a different claim from the one this section used to make ("there are no subagents at all"), and the difference is deliberate: the machinery that was torn out decided how to split work and what to pass on **for you**, and it is that judgement, not the capability, which the record condemned. See §Subagents.
 
@@ -1319,7 +1319,7 @@ companion did over there.** You ask it to, or you go to its workspace and do it.
 undo-across-the-fleet for a question that always has one answer — who wrote this, and which log
 says so.
 
-magi bundles one example, **Seele** — a planner that reads and analyses and returns a step list, with no write tools in its allowlist at all. It ships **switched off**.
+`plugins/examples/crew` is the worked example — a reviewer spawned in its own checkout, judged, and merged or restored by the caller. It is an example, not a bundled plugin: you install it to use it.
 
 ## 7. Memory & Context
 
