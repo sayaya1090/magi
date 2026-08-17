@@ -31,6 +31,11 @@ const (
 	// already bounds the work; this bounds the number of model round trips spent on the QUESTION,
 	// which the step budget does not see.
 	spawnMaxRounds = 5
+	// wrapUpSteps is what a cut-off child gets to answer the wrap-up prompt with. Two, not one: a
+	// model that answers the prompt with a tool call anyway (told not to, they still do) would
+	// otherwise spend the only step it had on that and return nothing. The second step is where the
+	// report lands. More would be a reprieve, and the budget is spent.
+	wrapUpSteps = 2
 )
 
 // Bounds on the WHOLE tool call, not one child. Each child is clamped above, but nothing counted
@@ -227,6 +232,42 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: spawnAgentName}, more); err != nil {
 			rerr = fmt.Errorf("review round %d: seed: %w", rounds, err)
 			break
+		}
+	}
+
+	// A child cut off mid-work is asked for what it has, once.
+	//
+	// runLoop returns its last text whichever way it ended, so a spent budget does not lose the
+	// child's work — but what comes back is whatever it happened to say last, which on a cut-off
+	// run is a step's narration and not a report. The parent then reads a partial thought as the
+	// answer. magi already refuses to let that happen at the TOP level: a turn that never declares
+	// is reminded, lands UNVERIFIED, and is asked for its honest final account. A child got no such
+	// ending, and it is the same failure one level down.
+	//
+	// So: one wrap-up prompt and a small allowance to answer it. Not a reprieve — the allowance
+	// buys a REPORT, not more work, and the prompt says so. Two conditions, both about being able
+	// to ask at all:
+	//
+	//   - the run ended cleanly. An error is already the answer, and it is a better one.
+	//   - the context is still live. A child that hit its wall clock (or whose parent turn was
+	//     cancelled) cannot be asked anything; cctx is done and every call under it fails at once.
+	//     That case keeps the truncated text and the bound in res.Err, as before.
+	//
+	// The allowance is charged like any other step: res.Steps is counted off the log below, after
+	// this runs, and the per-call budget reads the same count. It cannot become a way to exceed the
+	// call's budget either — the caller reserves before the child starts, and this is bounded by
+	// wrapUpSteps whatever the child asked for.
+	if rerr == nil && cctx.Err() == nil && a.countTurns(ctx, child) >= steps {
+		if err := a.appendPromptText(cctx, child, event.Actor{Kind: event.ActorUser, ID: spawnAgentName},
+			"You have used your whole step budget and this run is ending now. Do not start any new "+
+				"work, and do not call any tool: reply with what you found and what you did, "+
+				"including what is unfinished and what you would do next. Whatever you write here "+
+				"is the only thing that reaches whoever asked."); err == nil {
+			if wrapText, werr := a.runLoop(cctx, a.sessionInfo(cctx, child), agent, 1, wrapUpSteps, true); werr == nil {
+				if t := strings.TrimSpace(wrapText); t != "" {
+					text = wrapText
+				}
+			}
 		}
 	}
 

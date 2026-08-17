@@ -797,6 +797,13 @@ that is not enough, the child reads the same tree for itself.
 cumulative child steps and a wall clock — because a plugin can spawn in a loop and one tool call is
 one step to the parent however long it runs. A refusal names the bound and where it stands.
 
+**A child that runs out of steps is asked for what it has.** Its last text always came back, but on
+a cut-off run that text is a step's narration rather than an answer, and the caller reads it as the
+result. So a child that spent its whole budget gets one wrap-up prompt — report what you found and
+what is unfinished, no new work, no tool calls — and two steps to answer it. If it says something,
+that is what `text` carries. The wrap-up needs a live context, so a child stopped by its clock or by
+a cancelled parent turn keeps the truncated text and the bound in `err` instead.
+
 **A child cannot spawn.** It is handed no `Spawn` hook at all, so recursion is impossible by
 construction rather than bounded by a counter.
 
