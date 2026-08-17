@@ -1,16 +1,41 @@
-# magi — 확장 가이드 (MCP & 공유 경험)
+# magi — 확장 가이드
 
 [English](EXTENDING.md) · [한국어](EXTENDING.ko.md) · [↑ Docs](README.ko.md)
 
-> **현행 참조.** 외부 툴(MCP)과 팀 공유 메모리/스킬(experience store)을 magi에 붙이기.
+magi가 기본으로 하지 않는 일을 하게 만드는 실전 안내서다. 에이전트에게 없는 툴을 쥐여주거나, 팀이
+함께 쓰는 기억을 만들거나, 내 코드를 루프 안에 넣는 것. 처음 붙여보는 사람을 전제로 단계별로 적었고,
+각 단계가 어긋났을 때 무엇이 보이는지도 함께 적었다.
 
-magi에 **외부 툴(MCP)** 과 **팀 공유 메모리/스킬(experience store, D13)** 을 붙이는 단계별
-방법. 개념 개요는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11(확장 지점)·§7, 전체 사용법은
-[`MANUAL.ko.md`](MANUAL.ko.md) §7·§10을 보라. 이 문서는 "처음 붙이는 사람"을 위한 실전 절차다.
+### 어느 수단을 쓸 것인가
 
-> 관련 확장 수단: **Lua 플러그인**(자체 툴/훅, 핫리로드) → MANUAL §9, **훅**(셸 라이프사이클) →
-> MANUAL §하네스. 인증/TLS 같은 *트랜스포트* 관심사는 플러그인/MCP가 아니라 Go
-> `http.RoundTripper` 심(`openai.WithHTTPClient`)에 둔다 — ARCHITECTURE §11.
+넷이 있고, 잘못 고르면 하루를 버린다. 갈라지는 기준은 **내가 추가하는 것이 실제로 어디서 도느냐**다:
+
+```mermaid
+flowchart TD
+    Q{무엇을 추가하나?}
+    Q -->|이미 MCP 서버로<br/>존재하는 툴| MCP["§1 — MCP 서버<br/><i>자기 프로세스로 돈다</i>"]
+    Q -->|팀이 공유해야 할<br/>지식| EXP["§2 — 경험 저장소<br/><i>git 기반 디렉토리</i>"]
+    Q -->|내 코드:<br/>툴·훅·서브에이전트| LUA["§3 — Lua 플러그인<br/><i>magi 안에서, 샌드박스로</i>"]
+    Q -->|턴 앞뒤에 도는<br/>셸 명령| HOOK["훅 → MANUAL §하네스<br/><i>셸 명령으로 돈다</i>"]
+
+    style LUA fill:#fff3e0,stroke:#e8820c
+    style MCP fill:#e8f4ff,stroke:#2c7fb8
+    style EXP fill:#e8f6ec,stroke:#2f9e44
+```
+
+| 수단 | 이럴 때 쓴다 | 어디 사나 |
+|---|---|---|
+| **MCP 서버** (§1) | 그 능력이 이미 MCP 서버로 있거나, 별도 프로세스로 격리하고 싶을 때 | `config.toml`의 `[mcp.*]` |
+| **경험 저장소** (§2) | 세션 하나보다 오래 살고 팀에 닿는 교훈·스킬·위키를 원할 때 | 디렉토리(원하면 git 저장소) |
+| **Lua 플러그인** (§3) | 내 툴·라이프사이클 훅·컨텍스트 주입·슬래시 명령·서브에이전트를 원할 때 | `<config>/plugins/<이름>/` |
+| **훅** | 턴이나 편집 앞뒤로 셸 명령이 돌아야 할 때 | `config.toml`의 `hooks` |
+
+여기 어디에도 속하지 않는 것이 하나 있다. **트랜스포트 관심사** — 인증 헤더·TLS·프록시·재시도는
+플러그인이나 MCP 서버가 아니라 Go `http.RoundTripper` 심(`openai.WithHTTPClient`)에 둔다.
+[`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11 참고.
+
+개념은 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11·§7에, 만든 것을 쓰는 법은
+[`MANUAL.ko.md`](MANUAL.ko.md) §7·§9·§10에 있다.
 
 ---
 
@@ -36,6 +61,21 @@ magi에 **외부 툴(MCP)** 과 **팀 공유 메모리/스킬(experience store, 
 ---
 
 ## 1. MCP 서버 추가
+
+MCP는 magi 바깥에 사는 능력을 에이전트에게 쥐여주는 방법이다 — 파일시스템 서버, GitHub 클라이언트,
+사내 서비스 같은 것. 서버를 선언하면 magi가 그것을 띄우거나 접속하고, 그 툴들이 모델 입장에서는
+`read`나 `bash`와 같은 목록에 나타난다.
+
+```mermaid
+flowchart LR
+    A[에이전트가 호출<br/>mcp__github__create_issue] --> R[magi의 툴 레지스트리]
+    R -->|원래 이름으로<br/>포워딩| S["당신의 MCP 서버<br/><i>stdio 프로세스 또는 HTTP</i>"]
+    S -->|결과| R --> A
+    S -.->|죽거나 끊기면| X[그 툴들이 레지스트리에서<br/>자동으로 빠진다]
+
+    style S fill:#e8f4ff,stroke:#2c7fb8
+    style X fill:#fff3e0,stroke:#e8820c
+```
 
 MCP 서버는 **stdio 또는 HTTP 전송(Streamable HTTP)**으로 연결되고, 핸드셰이크 후 서버가
 보고한 툴이 빌트인 툴과 **같은 레지스트리에 자동 등록**된다. 등록 이름은 **네임스페이스**된다 —
@@ -139,7 +179,27 @@ X-Environment = "${DEPLOY_ENV}"
 
 ---
 
-## 2. 공유 경험(experience store / RAG) 부트스트랩
+## 2. 공유 경험 저장소
+
+팀의 지식이 사는 곳이다. 에이전트가 기록한 교훈, 거기서 뽑아낸 스킬, 컴패니언들이 현재 상태로 유지하는
+위키 페이지. 실체는 디렉토리(원하면 git 저장소)이고, 어떤 지식이 얼마나 멀리 가느냐를 정하는 것은 셋 중
+어느 티어에 떨어지느냐 뿐이다.
+
+```mermaid
+flowchart TD
+    W["컴패니언이 쓴다<br/>remember{…}"] --> T{scope}
+    T -->|project<br/><i>기본값</i>| P["&lt;워크스페이스&gt;/.magi/experience<br/>이 워크스페이스와, 이걸 클론한 사람"]
+    T -->|team| TE["&lt;config&gt;/teams/&lt;이름&gt;/experience<br/>그 팀을 선언한 이 머신의 모든 컴패니언"]
+    T -->|global| G["&lt;config&gt;/experience<br/>이 사람이 돌리는 모든 magi"]
+    P & TE & G --> R[["recall_memory가 셋 다 읽는다<br/>— 예산은 하나"]]
+
+    style P fill:#e8f6ec,stroke:#2f9e44
+```
+
+기본값이 가장 좁은 것인 데는 이유가 있다. 전역으로 승격된 사실은 한 프로젝트의 진실을 다른 프로젝트의
+프롬프트로 새게 만들고, 몇 주 뒤에는 아무도 원인을 못 찾는다.
+
+### 지식이 모델에 닿는 경로
 
 세션 시작 시 디렉터리의 **메모리·스킬을 키워드로 회수해 시스템 프롬프트에 주입**한다(D13).
 `remember` 툴은 새 학습을 그 디렉터리에 **바로** 쓰고, 디렉터리를 git repo로 두면 팀이 공유한다
@@ -254,7 +314,37 @@ best-effort `git commit`만 한다(자동 push/pull은 안 함) — pull/push는
 
 ---
 
-## 3. 플러그인에서 MCP·Context Provider 등록 (Lua)
+## 3. Lua 플러그인 — 루프 안의 내 코드
+
+플러그인은 `<config>/plugins/` 아래에 `plugin.toml`과 `init.lua`가 든 디렉토리다. 시작할 때 로드되고,
+편집하면 핫 리로드되며, 샌드박스로 돈다 — `plugin.toml`이 선언한 능력만 갖고 그 밖은 없다.
+
+가장 넓은 수단이므로 전체를 한 장에 놓는다. 플러그인이 돌고 있는 magi에 붙을 수 있는 자리 전부:
+
+```mermaid
+flowchart LR
+    subgraph plug [내 init.lua]
+        direction TB
+        T["register_tool<br/><i>에이전트가 부를 툴</i>"]
+        C["register_context_provider<br/><i>매 턴 주입되는 텍스트</i>"]
+        M["register_mcp<br/><i>런타임에 MCP 서버 등록</i>"]
+        S["register_command<br/><i>TUI 슬래시 명령</i>"]
+        H["on(event)<br/><i>라이프사이클 훅</i>"]
+        SP["spawn<br/><i>툴이 부를 때의 서브에이전트</i>"]
+    end
+    T --> REG[magi의 툴 레지스트리] --> AG((에이전트 루프))
+    M --> REG
+    C --> PR[프롬프트] --> AG
+    S --> UI[TUI]
+    AG -.->|이벤트| H
+    T -.->|툴 호출 안에서| SP --> CH[자기 허용목록만 가진<br/>자식 실행]
+
+    style AG fill:#e8f6ec,stroke:#2f9e44
+    style plug fill:#fff9f0,stroke:#e8820c
+```
+
+각각이 아래의 소절이다. 여섯 중 하나만 써도 되고 전부 써도 된다 — 쓸모 있는 가장 작은 플러그인은
+`register_tool` 하나뿐인 플러그인이다.
 
 `config.toml` 선언 외에, **Lua 플러그인**이 런타임에 직접 MCP 서버나 Context Provider(RAG)를
 등록할 수 있다. 플러그인 호스트가 MCP 매니저·컨텍스트 레지스트리·런타임 정보를 주입받았을 때만
@@ -475,6 +565,18 @@ end)
 LLM 트래픽을 그 서버로 돌릴 수 있다. 프롬프트/응답 로깅·요청 변형·모킹·요율 게이트 같은 것을
 **외부 프로세스 없이**(= 단일 바이너리·전 OS 동일) 플러그인만으로 구현한다. 서버는 언로드 시 자동 종료.
 
+```mermaid
+flowchart LR
+    AG((에이전트)) -->|base_url이 loopback을 가리킨다| PX["플러그인의 서버<br/>127.0.0.1:PORT"]
+    PX -->|로깅 · 변형 · 게이트 · 모킹| UP[진짜 백엔드<br/>Ollama · 게이트웨이 · API]
+    UP --> PX --> AG
+
+    style PX fill:#fff3e0,stroke:#e8820c
+```
+
+에이전트가 보내는 모든 것이 내가 쓴 코드를 거쳐 간다. 같은 프로세스 안에서, 코어 수정 없이, 따로 설치할
+것 없이.
+
 ```toml
 # plugin.toml
 name = "llm-proxy"
@@ -510,6 +612,17 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- 에이전트를 �
 
 magi는 **자기 에이전트를 싣지 않는다**. 싣는 것은 이음매다: 플러그인이 서브에이전트를 선언하고 사용자가
 켠다(`plugin.toml`의 `"spawn"` 능력, 툴 호출 안에서만 도달 가능).
+
+```mermaid
+flowchart TD
+    P((부모 턴)) -->|내 툴을 호출| TL[register_tool<br/>subagent = true]
+    TL -->|magi.spawn| CH["자식 실행<br/>내 시스템 프롬프트 · 과제는 그대로<br/>· 내가 나열한 툴만"]
+    CH -->|자식의 텍스트| TL -->|툴 결과| P
+    CH -.->|받지 '못하는' 것| NO["부모의 대화<br/><i>요약 단계가 없다 — 패러프레이즈된 브리프가<br/>채점 식별자를 잃게 만든 경로다</i>"]
+
+    style CH fill:#fff3e0,stroke:#e8820c
+    style NO fill:#f5f2ec,stroke:#8a8178,color:#6b625a
+```
 
 ```lua
 magi.register_tool{

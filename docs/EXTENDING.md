@@ -1,18 +1,43 @@
-# magi — Extension guide (MCP & shared experience)
+# magi — Extension guide
 
 [English](EXTENDING.md) · [한국어](EXTENDING.ko.md) · [↑ Docs](README.md)
 
-> **Current reference.** Attaching external tools (MCP) and team-shared memory/skills (the experience store) to magi.
+This is the practical guide for making magi do something it does not do out of the box: give the
+agent a tool it doesn't have, give a team a memory it can share, or put your own code inside the
+loop. It assumes you are attaching one of these for the first time, so it goes step by step and says
+what happens when each step goes wrong.
 
-How to attach **external tools (MCP)** and **team-shared memory/skills (the experience store, D13)**
-to magi, step by step. For the concepts read [`ARCHITECTURE.md`](ARCHITECTURE.md) §11 (Extension
-points) and §7; for the full usage read [`MANUAL.md`](MANUAL.md) §7 and §10. This document is the
-practical procedure for someone attaching one for the first time.
+### Which surface do you want?
 
-> Related extension surfaces: **Lua plugins** (your own tools and hooks, hot-reloadable) → MANUAL §9,
-> and **hooks** (shell lifecycle) → MANUAL §harness. *Transport* concerns such as auth and TLS belong
-> at the Go `http.RoundTripper` seam (`openai.WithHTTPClient`), not in a plugin or an MCP server —
-> ARCHITECTURE §11.
+There are four, and picking the wrong one costs a day. The question that separates them is *where
+the thing you are adding actually runs*:
+
+```mermaid
+flowchart TD
+    Q{what are you adding?}
+    Q -->|a tool that already exists<br/>as an MCP server| MCP["§1 — MCP server<br/><i>runs as its own process</i>"]
+    Q -->|knowledge the team<br/>should share| EXP["§2 — experience store<br/><i>a git-backed directory</i>"]
+    Q -->|your own code:<br/>tools, hooks, subagents| LUA["§3 — Lua plugin<br/><i>runs inside magi, sandboxed</i>"]
+    Q -->|a shell command<br/>around each turn| HOOK["hooks → MANUAL §harness<br/><i>runs as a shell command</i>"]
+
+    style LUA fill:#fff3e0,stroke:#e8820c
+    style MCP fill:#e8f4ff,stroke:#2c7fb8
+    style EXP fill:#e8f6ec,stroke:#2f9e44
+```
+
+| Surface | Use it when | Lives in |
+|---|---|---|
+| **MCP server** (§1) | the capability already exists as an MCP server, or you want it isolated in its own process | `config.toml`, `[mcp.*]` |
+| **Experience store** (§2) | you want lessons, skills and wiki pages that outlive one session and reach a team | a directory (optionally a git repo) |
+| **Lua plugin** (§3) | you want your own tools, lifecycle hooks, context injection, slash commands, or a subagent | `<config>/plugins/<name>/` |
+| **Hooks** | a shell command should run before or after a turn, or an edit | `config.toml`, `hooks` |
+
+One thing belongs at none of them: **transport concerns**. Auth headers, TLS, proxies and retries go
+at the Go `http.RoundTripper` seam (`openai.WithHTTPClient`), not into a plugin or an MCP server —
+see [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
+
+For the ideas behind all this, read [`ARCHITECTURE.md`](ARCHITECTURE.md) §11 and §7; for using what
+you build, [`MANUAL.md`](MANUAL.md) §7, §9 and §10.
 
 ---
 
@@ -38,6 +63,21 @@ Merge rules:
 ---
 
 ## 1. Adding an MCP server
+
+MCP is how you hand the agent a capability that lives outside magi — a filesystem server, a GitHub
+client, a company's internal service. You declare the server, magi starts or dials it, and its tools
+appear in the same list as `read` and `bash` from the model's point of view.
+
+```mermaid
+flowchart LR
+    A[the agent calls<br/>mcp__github__create_issue] --> R[magi's tool registry]
+    R -->|forwarded under<br/>its original name| S["your MCP server<br/><i>stdio process or HTTP</i>"]
+    S -->|result| R --> A
+    S -.->|dies or drops| X[its tools leave<br/>the registry automatically]
+
+    style S fill:#e8f4ff,stroke:#2c7fb8
+    style X fill:#fff3e0,stroke:#e8820c
+```
 
 An MCP server connects over **stdio or HTTP (Streamable HTTP)**, and after the handshake the tools it
 reports are **registered automatically into the same registry as the built-ins**. The registered name
@@ -148,7 +188,28 @@ Fields (`config.MCPServer`):
 
 ---
 
-## 2. Bootstrapping the shared experience store (RAG)
+## 2. The shared experience store
+
+This is where a team's knowledge lives: the lessons an agent recorded, the skills it distilled, and
+the wiki pages the companions keep current. It is a directory — optionally a git repository — and
+the only thing that decides how far a given piece of knowledge travels is which of three tiers it
+lands in.
+
+```mermaid
+flowchart TD
+    W["a companion writes<br/>remember{…}"] --> T{scope}
+    T -->|project<br/><i>the default</i>| P["&lt;workspace&gt;/.magi/experience<br/>this workspace, and whoever clones it"]
+    T -->|team| TE["&lt;config&gt;/teams/&lt;name&gt;/experience<br/>every companion here that declared that team"]
+    T -->|global| G["&lt;config&gt;/experience<br/>every magi this person runs"]
+    P & TE & G --> R[["recall_memory reads all three<br/>under ONE budget"]]
+
+    style P fill:#e8f6ec,stroke:#2f9e44
+```
+
+The default is the narrowest one on purpose: a fact promoted to global leaks one project's truth
+into another project's prompts, and nobody finds the cause weeks later.
+
+### How the knowledge reaches the model
 
 At session start, **memories and skills from a directory are retrieved by keyword and injected into
 the system prompt** (D13). The `remember` tool writes new learnings straight into that directory, and
@@ -275,11 +336,42 @@ team's workflow.
 
 ---
 
-## 3. Registering MCP servers and context providers from a plugin (Lua)
+## 3. Lua plugins — your own code inside the loop
 
-Besides declaring them in `config.toml`, a **Lua plugin** can register an MCP server or a context
-provider (RAG) at runtime. This is only active when the plugin host was given the MCP manager, the
-context registry and the runtime info (`cmd/magi/main.go`).
+A plugin is a directory with a `plugin.toml` and an `init.lua` in `<config>/plugins/`. It is loaded
+at startup, hot-reloaded when you edit it, and sandboxed: it gets exactly the capabilities its
+`plugin.toml` declares and nothing else.
+
+This is the widest surface, so here is the whole of it on one picture — every place a plugin can
+attach to a running magi:
+
+```mermaid
+flowchart LR
+    subgraph plug [your init.lua]
+        direction TB
+        T["register_tool<br/><i>a tool the agent can call</i>"]
+        C["register_context_provider<br/><i>text injected each turn</i>"]
+        M["register_mcp<br/><i>an MCP server, at runtime</i>"]
+        S["register_command<br/><i>a TUI slash command</i>"]
+        H["on(event)<br/><i>lifecycle hooks</i>"]
+        SP["spawn<br/><i>a subagent, when a tool calls it</i>"]
+    end
+    T --> REG[magi's tool registry] --> AG((the agent loop))
+    M --> REG
+    C --> PR[the prompt] --> AG
+    S --> UI[the TUI]
+    AG -.->|events| H
+    T -.->|inside a tool call| SP --> CH[a child run<br/>with its own allowlist]
+
+    style AG fill:#e8f6ec,stroke:#2f9e44
+    style plug fill:#fff9f0,stroke:#e8820c
+```
+
+Each of those is a subsection below. A plugin can use one of them or all six; the smallest useful
+plugin is a `register_tool` and nothing else.
+
+Two of them — registering an MCP server and a context provider — are only active when the plugin
+host was given the MCP manager, the context registry and the runtime info (`cmd/magi/main.go`).
 
 ### 3.1 `magi.register_mcp` — register an HTTP MCP server
 
@@ -522,6 +614,18 @@ it with `magi.set_base_url`. Prompt/response logging, request rewriting, mocking
 from a plugin, **without an external process** (so: one binary, identical on every OS). The server is
 shut down automatically on unload.
 
+```mermaid
+flowchart LR
+    AG((the agent)) -->|base_url points at loopback| PX["your plugin's server<br/>127.0.0.1:PORT"]
+    PX -->|log · rewrite · gate · mock| UP[the real backend<br/>Ollama · a gateway · an API]
+    UP --> PX --> AG
+
+    style PX fill:#fff3e0,stroke:#e8820c
+```
+
+Everything the agent sends passes through code you wrote, in the same process, with no core change
+and nothing extra to install.
+
 ```toml
 # plugin.toml
 name = "llm-proxy"
@@ -650,6 +754,17 @@ children at a time and queues the rest).
 magi ships **no agent of its own**. What it ships is the seam: a plugin declares a subagent, and a
 user switches it on. With no such plugin installed there is no way to reach any of this (capability
 `"spawn"`, declared in `plugin.toml`, and reachable only from inside a tool call).
+
+```mermaid
+flowchart TD
+    P((parent turn)) -->|calls your tool| TL[your register_tool<br/>subagent = true]
+    TL -->|magi.spawn| CH["a child run<br/>your system prompt · your task verbatim<br/>· only the tools you list"]
+    CH -->|its text| TL -->|tool result| P
+    CH -.->|what it does NOT get| NO["the parent's conversation<br/><i>no summary step — a paraphrased brief<br/>is how graded identifiers get lost</i>"]
+
+    style CH fill:#fff3e0,stroke:#e8820c
+    style NO fill:#f5f2ec,stroke:#8a8178,color:#6b625a
+```
 
 ```lua
 magi.register_tool{
