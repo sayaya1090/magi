@@ -71,13 +71,19 @@ The strongest result *against* the choice above: on search-heavy tasks (GAIA), o
 the same backbone badly — 66.06 → 80.00 pass@1 ([AOrchestra][ao], Gemini-3-Flash). If magi's work
 looked like GAIA, this section would be wrong.
 
-Then one result that finds no advantage, and two that locate the advantage somewhere other than the
+Then one result about imposed structure, and two that locate the advantage somewhere other than the
 sub-agents:
 
-- A **controlled same-model comparison** on real engineering work — an orchestrated agent against
-  Claude Code, both on Claude Sonnet 4.6 — comes back as ties on 45.0% of claims with wins and
-  losses balanced: no end-to-end advantage. The one axis where orchestration scored significantly
-  higher was *scientific rigour*, not task success ([materials-science reproduction][mat]).
+- A **controlled same-model comparison** of a phased pipeline against a free-form loop — both on
+  Claude Sonnet 4.6, reproducing published materials-science results — comes back as ties on 45.0%
+  of claims with wins and losses balanced. The structured agent scored significantly higher on one
+  dimension only, *scientific rigour*, and lower on several others. The authors' own diagnosis is
+  adaptivity: the free-form agent "supports a more fluid interaction loop", while the phased design
+  cannot revise itself over a long horizon ([materials-science reproduction][mat]). Note what this
+  is and is not evidence about: its "orchestrated" agent is four imposed phases — read-only
+  planning, environment preparation, deterministic execution, result extraction — and not a system
+  that spawns sub-agents at all. It is the closest published measurement of the pipeline magi
+  removed, which is why it is here, and it says nothing directly about delegation.
 - A **factorial ablation over orchestrator and sub-agent size** ([small agents][small]). Read it
   carefully, because its headline is FOR orchestration: a well-orchestrated 8B multi-agent system
   matches a 32B single agent that has direct tool use (GAIA 23.0 vs 23.0, AIME 55.0 vs 45.0, and
