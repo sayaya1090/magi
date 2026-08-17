@@ -208,6 +208,46 @@ never lined up — which is the one thing a board is for. Work belongs to a team
 it is a fact about the card, beside the time. A companion with no team keeps a lane of its own,
 because nothing declares a team on a single-workspace machine.
 
+### 2.3a The meeting room (`/?v=meet`)
+
+<div align="center">
+<img src="img/console-meeting.png" alt="The meeting screen: pick two or more companions and open a room on one question, with meetings already in session listed below" width="880">
+</div>
+
+Companions talking to each other, watched from here. The console holds the floor and drives the
+turns; this screen is a window onto that, plus the two things a person does in a room — say
+something, and end it.
+
+- **It polls rather than streams.** A turn is a minute of model time, so there is nothing an event
+  stream would deliver sooner than the next tick. Which makes the redraw the hazard instead: a topic
+  half typed would be wiped by the poll that redraws the meetings under it, so what is being filled
+  in is held outside the render, and the poll asks whether the caret is in a field before it rebuilds
+  anything.
+- **Only companions this console can actually ask are offered.** One on another machine is a row
+  this console has never dialled, and putting it in the room would be offering a turn nobody here
+  can spend. A pick that goes offline mid-selection is dropped from the selection on the next draw
+  rather than left enabling a Convene that would POST a dead socket.
+- **The picker is grouped by owner and coloured by team.** One row of chips is fine for four
+  companions and stops being fine at fifteen, and the two facts a person picks by were in neither
+  the label nor the order. Owner is the grouping because it is the harder boundary — two accounts on
+  one machine cannot see each other's work at all. Team is the colour because that is what makes a
+  set of chips scannable rather than a wall of names, and it is in the tooltip too: colour is never
+  the only telling.
+- **The floor is two.** With one companion this is a conversation, and its own page does that
+  better. The reason it cannot start yet sits on the same line as the control it is about, note
+  leading and action trailing — as a server refusal after the fact it would arrive after somebody
+  had already decided the button was broken.
+- **Nothing on this screen changes a workspace.** The conclusions arrive as a list and stay there
+  until somebody presses send on one. That seam is what the whole feature is built around: a room
+  produces text, and a person decides which of it becomes work.
+- **"Already handed out" is the page's own memory.** Handing a task out is an ordinary prompt in
+  that companion's session, indistinguishable afterwards from any other — so the server cannot
+  answer "did I already send this one", and the page keeps that for its own lifetime.
+
+There is **no second copy of what was said**. The record that outlives the room is each
+participant's own session log, and a copy here would be a second answer to the same question — the
+two would disagree the first time a console restarted mid-meeting.
+
 ### 2.4 Experience (`/?v=skills`)
 
 <div align="center">
