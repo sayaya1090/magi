@@ -6311,20 +6311,26 @@ globalThis.fetch = async (p) => {
   return {ok: true, json: async () => ([]), text: async () => ''};
 };
 const a = {socket: '/s/a.sock', workdir: '/w', name: 'design'};
+// The two cards are two children of the pane and two answers off the wire, so they are checked
+// apart: which NODE was replaced is the question, and "the first child changed" cannot tell a git
+// redraw from a tree one.
+const treeCard = () => [...byId.files.children].find(c => String(c.className).includes('filescard'));
+const gitCard = () => [...byId.files.children].filter(c => String(c.className).includes('filescard'))[1];
 await loadTree(a);
-const first = byId.files.children[0];
+const first = treeCard(), firstGit = gitCard();
 await loadTree(a);                    // the poll, with nothing changed
-const second = byId.files.children[0];
+const second = treeCard(), secondGit = gitCard();
 tree = tree.concat([{name: 'new.go'}]);   // a file appears in the workspace
 await loadTree(a);
-const third = byId.files.children[0];
+const third = treeCard();
 branch = 'engine-ui-split';               // and the branch changes under it
 await loadTree(a);
-const fourth = byId.files.children[0];
+const fourth = treeCard(), fourthGit = gitCard();
 console.log(JSON.stringify({
-  keptItsCard: first === second,
+  keptItsCard: first === second && firstGit === secondGit,
   redrawnForAFile: second !== third,
-  redrawnForABranch: third !== fourth,
+  redrawnForABranch: secondGit !== fourthGit,
+  treeSurvivedTheBranch: third === fourth,
 }));`)
 	if got["keptItsCard"] != true {
 		t.Error("the pane was rebuilt by a poll that found nothing changed")
@@ -6334,6 +6340,11 @@ console.log(JSON.stringify({
 	}
 	if got["redrawnForABranch"] != true {
 		t.Error("the branch changing did not redraw the git card")
+	}
+	// And the other half of drawing them apart: a git answer must not rebuild the tree beside it —
+	// a rebuilt tree is a shut menu and a row moving out from under the pointer.
+	if got["treeSurvivedTheBranch"] != true {
+		t.Error("a git change rebuilt the tree card, which nothing about it had changed")
 	}
 }
 

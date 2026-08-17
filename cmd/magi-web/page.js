@@ -7333,55 +7333,20 @@ async function walkTree(a, kept) {
                         [findRow(a), ...(branchRows.length ? branchRows
                                          : [emptyState('files.empty', 'files.empty_how')])],
                         async () => { forgetTree(a); loadTree.busy = ''; await loadTree(a); });
-  const git = await gitAsking;
-  // Only when something is different. This runs on the three-second poll, so every message
-  // arriving in the conversation rebuilt the whole pane — the tree, the git card, the branch
-  // select, the per-file menus — for a workspace where nothing had changed. Visible as a flicker,
-  // and worse than a flicker: a rebuilt select is a select whose open menu shuts, and a row being
-  // pointed at moves out from under the pointer.
+  // ── the tree is drawn NOW, and the git card when it answers ───────────────
   //
-  // Compared on the INPUTS, not on the markup: everything drawn here comes from the listings, the
-  // git state, which directories are open and which file is showing, and a string of those is
-  // cheap next to serialising a tree of several hundred rows.
-  // On a phone the two cards are two screens, and moving between them is DEPTH rather than a second
-  // strip of tabs.
+  // The two used to be written together, so a tree that had arrived sat in hand while `git status`
+  // ran — on a big repository that is the whole of a first paint. They are separate cards on the
+  // screen and separate answers off the wire, so they are separate writes: the tree takes its
+  // place as soon as it is read, and the git card replaces its own placeholder later WITHOUT
+  // touching the tree beside it (a rebuilt tree is a shut menu and a row moving out from under the
+  // pointer — the flicker the compare below exists to prevent).
   //
-  // It was a pair of secondary tabs reading "Workspace" and "Git" — under a primary tab already
-  // reading "Workspace", which is the same word twice on two levels, and a second tab layer for a
-  // choice between two things. The tree is what this screen is; git is one row at the top of it
-  // that opens as its own screen, with a way back. The row says what is there — the branch, and how
-  // many files are changed — so the press is informed rather than exploratory.
-  const pick = onePane() ? cell('panelist') : null;
-  if (pick && wsShows === 'git') {
-    pick.replaceChildren();
-    pick.append(panelBack(tr('nav.files_short'), () => toWorkspaceList('files')).firstChild);
-    pick.className = 'panelback';
-  } else if (pick) {
-    const g = (() => { try { return JSON.parse(gitSection.raw || 'null'); } catch { return null; } })();
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'panelrow state';
-    // A leading mark for what is behind the press — the workspace's version history — so the row
-    // says what it opens rather than only naming it. The word "Git" carries the metaphor for a
-    // reader who knows it; the mark and the chevron carry it for one who reads the screen as shapes.
-    { const m = iconOr('#i-sl-clock-rotate-left', '', 'panelmark'); if (m) row.append(m); }
-    row.append(cell('panelword', tr('git.section')));
-    if (g && g.repo) {
-      row.append(cell('panelcount',
-        // The branch, or the head it is detached at — the same fallback the card below uses. Written
-        // as `[g.branch, …].filter(Boolean)`, a detached HEAD (a rebase, a bisect) simply dropped
-        // out and the row read "4 changed", with two of those four being conflicts.
-        [g.branch || (g.head ? '@' + g.head : ''),
-         (g.changes || []).length ? tr('git.n_changed', {n: (g.changes || []).length}) : '']
-          .filter(Boolean).join(' · ')));
-    }
-    const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
-    if (mark) row.append(mark);
-    row.onclick = () => toWorkspaceList('git');
-    pick.append(row);
-  }
-  const now = JSON.stringify([a.workdir, treeAt.seen, gitSection.raw, [...openDirs].sort(), cardShows, findQ, wsShows]);
-  if (now === loadTree.drawn && filesEl.children.length) return;
+  // Two comparisons for two cards, for the same reason. One key over both meant a git answer that
+  // changed nothing still counted as "something is different" for the tree, and vice versa.
+  const treeNow = JSON.stringify([a.workdir, treeAt.seen, [...openDirs].sort(), cardShows, findQ, wsShows]);
+  const held = (loadTree.gitNodes || []).filter(n => n.parentNode === filesEl);
+  const gitHold = held.length ? held : [paneCard('git', tr('git.section'), [waitingFor('git.reading')])];
   // Not while a menu is open in it.
   //
   // The pane is rebuilt when the workspace changes, and in a workspace an agent is working in
@@ -7392,9 +7357,42 @@ async function walkTree(a, kept) {
   //
   // The next poll draws it: this drops the frame, it does not drop the change — loadTree.drawn is
   // left as it was, so the comparison still says there is something new to draw.
-  if (filesEl.querySelector('.showing')) return;
-  loadTree.drawn = now;
-  filesEl.replaceChildren(...(pick ? [pick] : []), tree, ...git);
+  const busyMenu = () => !!filesEl.querySelector('.showing');
+  if ((treeNow !== loadTree.drawn || !filesEl.children.length) && !busyMenu()) {
+    loadTree.drawn = treeNow;
+    const pickNow = gitPickRow(a);
+    filesEl.replaceChildren(...(pickNow ? [pickNow] : []), tree, ...gitHold);
+    loadTree.pickNode = pickNow;
+    loadTree.gitNodes = gitHold;
+  }
+
+  const git = await gitAsking;
+  const gitNow = JSON.stringify([gitSection.raw, wsShows, onePane()]);
+  if (gitNow === loadTree.gitDrawn && (loadTree.gitNodes || []).some(n => n.parentNode === filesEl)) return;
+  if (busyMenu()) return;
+  loadTree.gitDrawn = gitNow;
+  // Only the git children move. The tree node stays exactly where it is, with whatever the reader
+  // had open in it.
+  const mine = (loadTree.gitNodes || []).filter(n => n.parentNode === filesEl);
+  if (!mine.length) {
+    const pickNow = gitPickRow(a);
+    filesEl.replaceChildren(...(pickNow ? [pickNow] : []), tree, ...git);
+    loadTree.pickNode = pickNow;
+    loadTree.gitNodes = git;
+    return;
+  }
+  for (const n of mine.slice(1)) n.remove();
+  mine[0].replaceWith(...git);
+  loadTree.gitNodes = git;
+  // The compact pane's git row is drawn from the same answer, so it is replaced with it.
+  const pickNow = gitPickRow(a);
+  const old = loadTree.pickNode;
+  if (old && old.parentNode === filesEl) {
+    if (pickNow) old.replaceWith(pickNow); else old.remove();
+  } else if (pickNow) {
+    filesEl.prepend(pickNow);
+  }
+  loadTree.pickNode = pickNow;
 }
 
 // One section of the pane: a heading you can press, and what is under it.
@@ -7794,6 +7792,41 @@ function wantedDirs(a, kept) {
     if (ok && !fresh(p)) want.push(p);
   }
   return want;
+}
+
+// gitPickRow is the compact pane's one row for git. It is drawn from the git ANSWER, so it is
+// rebuilt with the git card rather than with the tree.
+function gitPickRow(a) {
+  const pick = onePane() ? cell('panelist') : null;
+  if (pick && wsShows === 'git') {
+    pick.replaceChildren();
+    pick.append(panelBack(tr('nav.files_short'), () => toWorkspaceList('files')).firstChild);
+    pick.className = 'panelback';
+  } else if (pick) {
+    const g = (() => { try { return JSON.parse(gitSection.raw || 'null'); } catch { return null; } })();
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'panelrow state';
+    // A leading mark for what is behind the press — the workspace's version history — so the row
+    // says what it opens rather than only naming it. The word "Git" carries the metaphor for a
+    // reader who knows it; the mark and the chevron carry it for one who reads the screen as shapes.
+    { const m = iconOr('#i-sl-clock-rotate-left', '', 'panelmark'); if (m) row.append(m); }
+    row.append(cell('panelword', tr('git.section')));
+    if (g && g.repo) {
+      row.append(cell('panelcount',
+        // The branch, or the head it is detached at — the same fallback the card below uses. Written
+        // as `[g.branch, …].filter(Boolean)`, a detached HEAD (a rebase, a bisect) simply dropped
+        // out and the row read "4 changed", with two of those four being conflicts.
+        [g.branch || (g.head ? '@' + g.head : ''),
+         (g.changes || []).length ? tr('git.n_changed', {n: (g.changes || []).length}) : '']
+          .filter(Boolean).join(' · ')));
+    }
+    const mark = iconOr('#i-sl-chevron-right', '›', 'panelgo');
+    if (mark) row.append(mark);
+    row.onclick = () => toWorkspaceList('git');
+    pick.append(row);
+  }
+  return pick;
 }
 
 // branches renders one directory, and the ones the reader has opened under it.
