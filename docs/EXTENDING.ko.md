@@ -614,11 +614,17 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- 에이전트를 �
 셔임이 곧 백엔드이고, 채팅 요청 하나가 CLI 실행 한 번으로 채워집니다. 저장소의 플러그인 둘이
 정확히 이것을 하며, 이 절의 실작동 예제입니다 — [`plugins/antigravity`](../plugins/antigravity)는
 Antigravity CLI(`agy --print`)를, [`plugins/claudecode`](../plugins/claudecode)는 Claude
-Code(`claude --print`)를 몹니다. 플러그인 디렉토리에 링크하면 설치됩니다:
+Code(`claude --print`)를 몹니다. 셋 다 바이너리 **안에** 실려 배포되고, 기본은 꺼짐입니다 —
+LLM base URL을 가져가는 일은, claude가 깔려 있을 뿐인 사람에게 업그레이드가 저질러도 되는 일이
+아닙니다. 켜는 것은 설정 스위치 하나이고, 클론할 것이 없습니다:
 
-```sh
-ln -s <repo>/plugins/claudecode "~/Library/Application Support/magi/plugins/claudecode"
+```toml
+[plugins.claudecode]   # antigravity, codex도 같습니다
+enabled = true
 ```
+
+(체크아웃에서 작업 중이면 플러그인 디렉토리로의 심링크도 같은 일을 하며, 디스크 사본이 임베디드
+사본을 이깁니다.)
 
 백엔드가 CLI가 되는 순간 문제 셋이 나타나고, 플러그인들이 각각의 답 하나씩을 보여줍니다:
 

@@ -666,12 +666,17 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- point the agent a
 all: the shim **is** the backend, and each chat request is fulfilled by running a CLI once. Two
 plugins in the repository do exactly this, and they are the worked examples for this section —
 [`plugins/antigravity`](../plugins/antigravity) drives the Antigravity CLI (`agy --print`) and
-[`plugins/claudecode`](../plugins/claudecode) drives Claude Code (`claude --print`). Install one by
-linking it into a plugins directory:
+[`plugins/claudecode`](../plugins/claudecode) drives Claude Code (`claude --print`). All three ship
+INSIDE the binary, off by default — taking over the LLM base URL is not something an upgrade may do
+to somebody who merely has claude installed — so enabling one is a config switch, no cloning:
 
-```sh
-ln -s <repo>/plugins/claudecode "~/Library/Application Support/magi/plugins/claudecode"
+```toml
+[plugins.claudecode]   # or antigravity, or codex
+enabled = true
 ```
+
+(Working from a checkout, a symlink into a plugins directory does the same and the on-disk copy
+wins over the embedded one.)
 
 Three problems appear the moment the backend is a CLI, and the plugins show one answer to each:
 

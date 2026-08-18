@@ -19,6 +19,21 @@ import "embed"
 //go:embed all:engram
 var engram embed.FS
 
+// The three CLI backend plugins (EXTENDING §3.7.1): a coding-agent CLI as the model backend,
+// through a loopback shim. Bundled OFF, and the reason is what they do when on — take over the
+// LLM base URL. A user who merely upgraded magi while having claude installed must not find
+// their companion silently rebased onto a different backend; flipping
+// [plugins.claudecode] enabled = true is the sentence that says "yes, that one".
+//
+//go:embed all:antigravity
+var antigravity embed.FS
+
+//go:embed all:claudecode
+var claudecode embed.FS
+
+//go:embed all:codex
+var codex embed.FS
+
 // EmbeddedPlugin is one bundled plugin: its files (under "<name>/") and
 // whether it loads when the config says nothing. An explicit
 // [plugins.<name>] enabled = true|false always wins; DefaultOn only decides
@@ -31,5 +46,8 @@ type EmbeddedPlugin struct {
 
 // Embedded maps each bundled plugin's name to its definition.
 var Embedded = map[string]EmbeddedPlugin{
-	"engram": {FS: engram, DefaultOn: true},
+	"engram":      {FS: engram, DefaultOn: true},
+	"antigravity": {FS: antigravity, DefaultOn: false},
+	"claudecode":  {FS: claudecode, DefaultOn: false},
+	"codex":       {FS: codex, DefaultOn: false},
 }
