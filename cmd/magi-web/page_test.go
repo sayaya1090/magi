@@ -1108,3 +1108,30 @@ func TestTheProfileRowButtonsDoNotSubmitThePreferencesForm(t *testing.T) {
 			"other(s) validates the name field instead of acting", n)
 	}
 }
+
+// Typing Korean means composing: the letters under the caret are a provisional syllable, and Enter
+// is one of the keys that commits it. Every handler that acts on Enter without asking took that
+// commit as its own keystroke — measured on macOS, the composing syllable went out as a second
+// request, so the last character of every Korean message arrived twice.
+//
+// Tab is the same story (an IME uses it to pick a candidate), which is why the editor's tab
+// insertion and the composer's suggestion-accept are held to the same rule.
+func TestNoKeyHandlerStealsAnInputMethodsCommit(t *testing.T) {
+	js, err := pageFS.ReadFile("page.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(js)
+	// Both tests, because neither alone covers every browser: isComposing is the standard flag,
+	// keyCode 229 is what a browser reports when the IME swallowed the key and the flag is absent.
+	if !strings.Contains(src, "e.isComposing") || !strings.Contains(src, "e.keyCode === 229") {
+		t.Fatal("nothing on this page can tell an input method's Enter from a person's")
+	}
+	// Every handler that acts on a bare Enter or Tab inside a text field asks first. Counted
+	// rather than located: the list grows, and a new one that forgets is the defect this pins.
+	acting := regexp.MustCompile(`key === '(Enter|Tab)'`).FindAllString(src, -1)
+	guarded := strings.Count(src, "composing(e)") + strings.Count(src, "composing(ev)")
+	if guarded < len(acting)-1 { // the one exception: a toggle that Enter/Space activates
+		t.Errorf("%d Enter/Tab handlers, only %d ask about composition", len(acting), guarded)
+	}
+}

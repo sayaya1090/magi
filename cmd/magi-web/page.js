@@ -914,6 +914,19 @@ function goVerdict(round, member) {
   render();
 }
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
+
+// mid-composition reports whether this Enter belongs to an input method rather than to the page.
+//
+// Typing Korean (or Japanese, or Chinese) means composing: the letters under the caret are a
+// PROVISIONAL syllable and Enter is one of the keys that commits it. A handler that submits on
+// Enter without asking took that commit as a send — measured on macOS, the composing syllable was
+// sent as its own request, so the last character of every Korean message arrived twice.
+//
+// Two tests because neither alone covers every browser: `isComposing` is the standard flag, and
+// keyCode 229 is what a browser reports for a key the IME swallowed when the flag is absent.
+// Checked in the KEYDOWN handler, which is where the race is — compositionend arrives after.
+const composing = (e) => !!(e.isComposing || e.keyCode === 229);
+
 // The pair (peer, socket) identifies a companion once more than one console is in the list: a
 // socket path is only meaningful on the machine that owns it.
 const q = () => sock() ? '?d=' + encodeURIComponent(sock()) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') : '';
@@ -1446,7 +1459,7 @@ function askLine(q) {
   askGo.onclick = go;
   // Enter is what a person presses in a one-field dialog; without it the field is a box that eats
   // the key that would have finished the job.
-  askField.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+  askField.onkeydown = e => { if (e.key === 'Enter' && !composing(e)) { e.preventDefault(); go(); } };
   askDialog.show();
   // Focus after the dialog has opened, or it lands on a box that is not on screen yet.
   requestAnimationFrame(() => { if (askField.focus) askField.focus(); });
@@ -1879,7 +1892,7 @@ function textAnswer(send) {
   // therefore costs nothing. Measured on a phone: the tap used to land on /?d=…, activeElement
   // <body>, no keyboard. focus() is kept anyway so the caret is certain rather than inferred.
   i.onclick = e => { e.preventDefault(); e.stopPropagation(); i.focus(); };
-  i.onkeydown = e => { if (e.key === 'Enter') go(e); };
+  i.onkeydown = e => { if (e.key === 'Enter' && !composing(e)) go(e); };
   return [i, b];
 }
 
@@ -5018,7 +5031,7 @@ function scopeSection(p) {
   const add = withGlass(document.createElement('md-outlined-text-field'));
   add.setAttribute('label', tr('access.add_companion'));
   add.addEventListener('keydown', ev => {
-    if (ev.key !== 'Enter') return;
+    if (ev.key !== 'Enter' || composing(ev)) return;
     const name = String(add.value || '').trim();
     if (!name || on.includes(name)) return;
     setPerson(p.who, p.role, on.concat([name]).join(','));
@@ -8785,6 +8798,8 @@ function editor(path, text, acts) {
   // wipe. Shift+Tab still moves focus backwards on purpose: it is the keyboard reader's one way
   // OUT of a field that eats Tab, and losing it would trade an annoyance for a trap.
   area.addEventListener('keydown', (e) => {
+    // Tab and Enter are also an input method's keys — see composing() — so an editor that grabs
+    // them has to ask first, or committing a Korean syllable inserts a tab instead.
     // ⌘S/⌃S saves the file, because in an editor that is what the key MEANS — the browser default
     // (save the page as HTML) is never what somebody mid-edit wants, and a keystroke every editor
     // honours going to the browser reads as data loss until the save button is spotted.
@@ -8793,7 +8808,7 @@ function editor(path, text, acts) {
       save.click();
       return;
     }
-    if (e.key === 'Tab' && !e.shiftKey) {
+    if (e.key === 'Tab' && !e.shiftKey && !composing(e)) {
       e.preventDefault();
       // Take the ghost only if the caret is still where the ghost is; otherwise it is stale.
       if (ghost && ghost.text) {
@@ -10879,7 +10894,7 @@ palField.addEventListener('keydown', e => {
     palDraw();
     return;
   }
-  if (e.key === 'Enter') { e.preventDefault(); palRun(palAt); }
+  if (e.key === 'Enter' && !composing(e)) { e.preventDefault(); palRun(palAt); }
 });
 palCancel.onclick = () => palDialog.close('cancel');
 // The door in the masthead. A phone has no modifier key, and a shortcut nobody has been told about
@@ -11762,7 +11777,7 @@ t.addEventListener('input', () => {
   setTimeout(() => { if (mine === sugAt) { sugAt = mine - 1; suggest(); } }, 400);
 });
 t.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab' && sugText) { e.preventDefault(); sugAccept(); return; }
+  if (e.key === 'Tab' && sugText && !composing(e)) { e.preventDefault(); sugAccept(); return; }
   if (e.key === 'Escape') sugClear();
 });
 t.addEventListener('blur', sugClear);
@@ -11841,7 +11856,7 @@ f.onsubmit = e => {
 // Enter sends on a keyboard and inserts a newline on a phone: a soft keyboard's return key is the
 // only way to break a line there, and hijacking it leaves no way to write a second paragraph.
 const touch = matchMedia('(hover: none)').matches;
-t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !touch) { e.preventDefault(); f.requestSubmit(); } };
+t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !touch && !composing(e)) { e.preventDefault(); f.requestSubmit(); } };
 // …and the fleet is re-read straight after, rather than at the next poll. Stopping a turn is the
 // one action somebody takes because they want to do something ELSE immediately, and up to three
 // seconds of a prompt bar that is no longer true is three seconds of typing into the wrong role.
