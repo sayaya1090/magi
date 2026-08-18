@@ -350,12 +350,20 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 	func(context.Context, string) ([]port.ChildStep, error),
 	func(context.Context, string) ([]port.RestoredPath, error),
 	func(context.Context, string) error,
+	func() string,
 ) {
 	if depth != 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	// One budget per tool call, closed over by every spawn the call makes. spawnFnFor runs once
 	// per call (execute.go), so these are per-call state and not per-App.
+	// accounts is what each child of THIS call said when it finished, kept so the tool's result can
+	// carry it. Without this magi guarantees nothing: spawnChild writes only to the CHILD's log,
+	// the progress it emits to the parent is transient (publishTransient), and whether the child's
+	// answer reaches the parent at all is left to whatever the plugin chose to return. The parent's
+	// transcript is the parent's context, so a child whose account never lands there did work the
+	// next turn cannot see.
+	var accounts []string
 	var (
 		mu        sync.Mutex
 		usedSteps int
@@ -456,6 +464,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		mu.Lock()
 		usedSteps += max(res.Steps, 1)
 		children++
+		accounts = append(accounts, childAccount(res, err))
 		if res.SessionID != "" {
 			mine[res.SessionID] = true
 			spaces[res.SessionID] = [3]string{res.Workspace, res.BaseCommit, res.HeadCommit}
@@ -500,7 +509,15 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		}
 		return a.childSteps(sctx, session.SessionID(sid))
 	}
-	return spawn, steps, restore, merge
+	report := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(accounts) == 0 {
+			return ""
+		}
+		return strings.Join(accounts, "\n\n")
+	}
+	return spawn, steps, restore, merge, report
 }
 
 // countTurns counts the child's model round trips: one per distinct assistant message in its log.
@@ -614,4 +631,47 @@ func (a *App) forwardChildProgress(ctx context.Context, child session.SessionID,
 		cancel()
 		wg.Wait()
 	}
+}
+
+// childAccountCap bounds one child's account on the parent's result. A child can talk for as long
+// as its step budget allows, and the parent's window is the thing this is trying to protect, not
+// spend. The cut is announced rather than silent: a truncation the reader cannot see is a claim
+// that the account was complete.
+const childAccountCap = 4000
+
+// childAccount is the verbatim record of one child, for the parent's log.
+//
+// Verbatim, and that is the point. This tree has measured twice what a paraphrase costs — a brief
+// rewritten until the graded identifier was gone, and an answer folded into a report by a model
+// that could not tell which detail was load-bearing because it never saw the workspace the answer
+// came from. The account carries the child's session id so its own transcript can be opened, and
+// its failure when it had one: a child that stopped short and is reported as silence reads as
+// success.
+func childAccount(res port.SpawnResult, err error) string {
+	var b strings.Builder
+	b.WriteString("[child ")
+	if res.SessionID != "" {
+		b.WriteString(res.SessionID)
+	} else {
+		b.WriteString("(no session)")
+	}
+	fmt.Fprintf(&b, ", %d step(s)", res.Steps)
+	switch {
+	case err != nil:
+		b.WriteString(", did not run: " + err.Error())
+	case res.Err != "":
+		b.WriteString(", stopped short: " + res.Err)
+	}
+	b.WriteString("]")
+	text := strings.TrimSpace(res.Text)
+	if text == "" {
+		b.WriteString(" it finished without saying anything.")
+		return b.String()
+	}
+	if len(text) > childAccountCap {
+		text = text[:childAccountCap] + "\n… (cut here: the child said more, and its own transcript has all of it)"
+	}
+	b.WriteString(" it reported:\n")
+	b.WriteString(text)
+	return b.String()
 }

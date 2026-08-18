@@ -165,10 +165,10 @@ func TestAChildCannotSpawn(t *testing.T) {
 	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
 	// depth 1 is what spawnChild passes to runLoop; the env builder keys off exactly that.
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
-	if fn, _, _, _ := a.spawnFnFor(1, parent, actor, "c1", "t"); fn != nil {
+	if fn, _, _, _, _ := a.spawnFnFor(1, parent, actor, "c1", "t"); fn != nil {
 		t.Error("a child was handed a Spawn hook — it could spawn its own child")
 	}
-	if fn, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "t"); fn == nil {
+	if fn, _, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "t"); fn == nil {
 		t.Error("the top level must have one, or nothing can spawn at all")
 	}
 }
@@ -280,7 +280,7 @@ func TestTheUsersModelReachesTheChild(t *testing.T) {
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
 
 	// No override: the child runs on what the plugin asked for.
-	spawn, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "planner_plan")
+	spawn, _, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "planner_plan")
 	if _, err := spawn(context.Background(), port.SpawnSpec{Prompt: "plan it", Model: "plugin-model"}); err != nil {
 		t.Fatal(err)
 	}

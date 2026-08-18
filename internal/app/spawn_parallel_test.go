@@ -86,7 +86,7 @@ func TestTheSpawnItselfRefusesAWritingChildUnderAReadOnlyClaim(t *testing.T) {
 	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
 	a.tools.Register(metaTool{name: "planner", meta: port.ToolMetadata{Subagent: true, ReadOnlyChildren: true}})
 
-	spawn, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "planner")
+	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "planner")
 	_, err := spawn(context.Background(), port.SpawnSpec{Prompt: "plan it", Tools: []string{"read", "write"}})
 	if err == nil {
 		t.Fatal("a child that can write was started by a tool that says its children only look")

@@ -291,7 +291,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
-	spawnFn, childStepsFn, restoreChildFn, mergeChildFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	spawnFn, childStepsFn, restoreChildFn, mergeChildFn, childReport := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var expectFn func(port.Elsewhere) error
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
@@ -560,6 +560,21 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if aliasedFrom != "" {
 		res.Content = appendToContent(res.Content, "\n\n[note: there is no `"+aliasedFrom+
 			"` tool here — this ran `"+tc.Name+"`, which is the exact registered name. Use that one.]")
+	}
+	// What the children this call spawned actually said, onto the call's own result.
+	//
+	// Onto the RESULT rather than into an event of its own: the context is rebuilt from prompts and
+	// parts (reconstruct.go), so a new event type would draw in the transcript and never reach the
+	// model — the one place it has to reach. And onto this result rather than beside it, because a
+	// second result for one call id is not a thing the wire can say.
+	//
+	// magi records it rather than trusting the tool to: a plugin is handed the child's text and its
+	// session id (bridge.go) and may return a sentence, a summary, or nothing at all. What the
+	// parent's log does not hold, the parent's next turn cannot read.
+	if childReport != nil {
+		if acct := childReport(); acct != "" {
+			res.Content = appendToContent(res.Content, "\n\n"+acct)
+		}
 	}
 	// The tool's OWN success, before post-edit diagnostics/hooks below flip IsError: a write
 	// that landed but fails gofmt/a hook still changed the file, and the council must see
