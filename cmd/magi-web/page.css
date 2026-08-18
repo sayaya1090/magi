@@ -556,12 +556,18 @@
   body[scrolled] header { border-bottom:1px solid var(--magi-ref-outlineVariant); }
   /* The strip fills with the bar but keeps its own divider — a second one here took a pixel off
      every tab, which is the whole margin a 48dp tab has. */
-  /* surface-container-LOW, not container. The brand is drawn in primary, and primary on
-     surface-container measures 4.27:1 in the light theme — the very number the navigation bar was
-     moved off primary for. One step down clears it at 4.54 and still reads as a fill against the
-     page, with the hairline doing the rest. It is also the tone the rail uses at every width, so
-     the navigation area does not change surface across a breakpoint. */
-  body[scrolled] header, body[scrolled] #ptabs { background:var(--magi-ref-surface-container-low); }
+  /* Opaque, and the page's own ground — not a tone of its own.
+     It must be opaque: the transcript scrolls UNDER this bar, and text showing through a masthead
+     is the defect a fill exists to prevent. What it does not need is a DIFFERENT colour. The
+     guide's scrolled state asks for "a contrasting fill that creates separation", and this took
+     that literally with surface-container-low — which was one material more than the screen has
+     now that the bay and the panels both paint the page's ground. Scrolled, the bar became the
+     only tinted box on the page and read as laid over it rather than part of it.
+     The separation is the hairline above, which is the other half of the same guidance and the
+     half that survives a screen whose boxes are all one ground. Legibility is unchanged by
+     construction: at REST this bar is already the page colour with the brand on it, so painting
+     the same colour when scrolled changes nothing about what sits on what. */
+  body[scrolled] header, body[scrolled] #ptabs { background:var(--magi-ref-bg); }
   .mark {
     font:600 var(--magi-sys-headline-s) var(--magi-ref-display); letter-spacing:.01em; color:var(--magi-ref-primary);
     font-feature-settings:"liga" 1;
