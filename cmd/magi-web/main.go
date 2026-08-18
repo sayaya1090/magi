@@ -1427,7 +1427,18 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			// mean something different depending on what that row was.
 			if turning != lastTurning {
 				lastTurning = turning
-				fmt.Fprintf(w, "event: turn\ndata: {\"open\":%t}\n\n", turning)
+				// How long it has been going, in seconds, the way the roster sends idle time: the
+				// number is drawn once when the frame lands and ticks on the page's own clock
+				// after that. Sending a timestamp instead would make the reading depend on the
+				// browser's clock agreeing with this machine's, which is a thing that is often
+				// hours wrong and never says so.
+				//
+				// A bar says "something is happening". Only the number answers the question
+				// somebody actually has at four minutes, which is whether this is still happening
+				// or has quietly stopped — the terminal has shown it beside its spinner since it
+				// had one.
+				fmt.Fprintf(w, "event: turn\ndata: {\"open\":%t,\"forSec\":%d}\n\n",
+					turning, turnAgeSec(msgs, turning))
 				fl.Flush()
 			}
 			// The council, put back where it happened. Its marks name the message they followed,
@@ -1997,4 +2008,32 @@ func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// turnAgeSec is how long the open turn has been running, in seconds.
+//
+// Measured from the prompt that OPENED it — the last user message — which is the same instant the
+// terminal counts from (time.Since(m.turnStart)), so the two surfaces cannot disagree about how
+// long a companion has been busy.
+//
+// Zero when there is no open turn, and zero when the log recorded no time for that prompt: a
+// message assembled rather than replayed carries a zero time, and counting from 1970 would put
+// half a century on the screen.
+func turnAgeSec(msgs []session.Message, open bool) int {
+	if !open {
+		return 0
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != session.RoleUser {
+			continue
+		}
+		if msgs[i].At.IsZero() {
+			return 0
+		}
+		if d := int(time.Since(msgs[i].At).Seconds()); d > 0 {
+			return d
+		}
+		return 0
+	}
+	return 0
 }

@@ -464,13 +464,25 @@
      whole screen, and FIXED rather than in the flow so turning it on never moves the page a
      reader is in the middle of. Two pixels: enough to be seen moving out of the corner of an eye,
      not enough to be a second thing to look at. */
+  #turnwrap { position:fixed; top:0; left:0; right:0; z-index:4; pointer-events:none; }
+  #turnwrap[hidden] { display:none; }
   #turnbar {
-    position:fixed; top:0; left:0; right:0; z-index:4;
+    display:block;
     --md-linear-progress-track-height:2px;
     --md-linear-progress-active-indicator-height:2px;
     --md-linear-progress-track-color:transparent;
   }
-  #turnbar[hidden] { display:none; }
+  /* The figure rides under the bar at the trailing edge, out of the masthead's way. Its own
+     surface, because it sits over whatever the page has scrolled to and unreadable-over-content is
+     how a floating label fails. */
+  #turnfor {
+    position:absolute; top:var(--magi-sys-space-100); inset-inline-end:var(--magi-sys-space-200);
+    font-size:var(--magi-sys-type-label-small-size, 0.6875rem); line-height:1.4;
+    padding:0 var(--magi-sys-space-100);
+    border-radius:var(--magi-sys-shape-corner-extra-small, 4px);
+    color:var(--magi-ref-primary); background:var(--magi-ref-bg);
+  }
+  #turnfor:empty { display:none; }
 
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {

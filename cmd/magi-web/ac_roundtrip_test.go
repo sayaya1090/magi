@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // Choosing a completion profile is a setting that has to survive the dialog being closed. It is
@@ -70,5 +73,29 @@ func TestThePickerMarksTheSavedProfileWithoutRacingTheComponent(t *testing.T) {
 	}
 	if !strings.Contains(fn, "updateComplete") {
 		t.Error("value is assigned without waiting for the component, so the lookup finds no options")
+	}
+}
+
+// The age is counted from the prompt that opened the turn — the same instant the terminal counts
+// from — so the two surfaces cannot disagree about how long a companion has been busy.
+func TestTheTurnsAgeIsCountedFromThePromptThatOpenedIt(t *testing.T) {
+	now := time.Now()
+	msgs := []session.Message{
+		{Role: session.RoleUser, At: now.Add(-9 * time.Minute)},
+		{Role: session.RoleAssistant, At: now.Add(-5 * time.Minute)},
+		{Role: session.RoleUser, At: now.Add(-90 * time.Second)},
+		{Role: session.RoleAssistant, At: now.Add(-30 * time.Second)},
+	}
+	if got := turnAgeSec(msgs, true); got < 88 || got > 92 {
+		t.Errorf("the age is %ds; it should be counted from the LAST prompt, not the first", got)
+	}
+	// Nothing to say when nothing is running.
+	if got := turnAgeSec(msgs, false); got != 0 {
+		t.Errorf("a closed turn reported an age of %d", got)
+	}
+	// A message assembled rather than replayed carries a zero time, and counting from 1970 would
+	// put half a century on the screen.
+	if got := turnAgeSec([]session.Message{{Role: session.RoleUser}}, true); got != 0 {
+		t.Errorf("a prompt with no recorded time produced an age of %d", got)
 	}
 }

@@ -45,7 +45,15 @@
      aria-hidden because the row says it in words already, and a bar that announced the same state
      a second time would make the transcript harder to read for exactly the people who most need
      it read out. -->
-<md-linear-progress id="turnbar" indeterminate hidden aria-hidden="true"></md-linear-progress>
+<div id="turnwrap" hidden>
+  <md-linear-progress id="turnbar" indeterminate aria-hidden="true"></md-linear-progress>
+  <!-- And how long it has been going. A bar says something is happening; only the number answers
+       the question somebody has at four minutes, which is whether this is still happening or has
+       quietly stopped. The terminal has shown it beside its spinner since it had one.
+       aria-hidden with the bar: a figure that re-announced itself every second would make the
+       transcript unusable for the readers who most depend on hearing it. -->
+  <span id="turnfor" aria-hidden="true"></span>
+</div>
 <header id="masthead">
   <!-- The hamburger is on both sizes and means two different things, which is the point: on a wide
        screen it widens the rail into a drawer, on a narrow one it slides that drawer in over the

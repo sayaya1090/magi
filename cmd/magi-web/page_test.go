@@ -1003,15 +1003,24 @@ func TestAWorkingTurnIsVisibleFromAnywhereOnThePage(t *testing.T) {
 	}
 	// The row already says it in words. A second announcement of one state makes the transcript
 	// worse to listen to for the readers who depend on it most.
-	if !strings.Contains(html, `id="turnbar" indeterminate hidden aria-hidden="true"`) {
-		t.Error("the bar must start hidden and stay out of the accessibility tree")
+	if !strings.Contains(html, `id="turnwrap" hidden`) {
+		t.Error("the indicator must start hidden")
+	}
+	if !strings.Contains(html, `id="turnbar" indeterminate aria-hidden="true"`) ||
+		!strings.Contains(html, `id="turnfor" aria-hidden="true"`) {
+		t.Error("the indicator must stay out of the accessibility tree; the row says it in words")
+	}
+	// A bar says something is happening. At four minutes the question is whether it still is, and
+	// only a number answers that — which is what the terminal shows beside its own spinner.
+	if !strings.Contains(html, `id="turnfor"`) {
+		t.Error("there is no elapsed time beside the bar")
 	}
 
 	css, err := pageFS.ReadFile("page.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(css), "#turnbar[hidden] { display:none; }") {
+	if !strings.Contains(string(css), "#turnwrap[hidden] { display:none; }") {
 		t.Error("a Material component's own display can outlive the hidden attribute")
 	}
 
@@ -1045,6 +1054,14 @@ func TestTheStreamSaysWhetherATurnIsOpen(t *testing.T) {
 	src := string(b)
 	if !strings.Contains(src, "event: turn") || !strings.Contains(src, `\"open\":%t`) {
 		t.Error("the events stream never says whether a turn is open")
+	}
+	// Seconds, not a timestamp: the reading must not depend on the browser's clock agreeing with
+	// this machine's, and the roster's idle column already works that way.
+	if !strings.Contains(src, `\"forSec\":%d`) {
+		t.Error("the frame does not say how long the turn has been running")
+	}
+	if !strings.Contains(src, "func turnAgeSec(") {
+		t.Error("the turn's age is not computed from the prompt that opened it")
 	}
 	// Only on a change, like the roster beside it — 400ms of "still on" is not news.
 	if !strings.Contains(src, "if turning != lastTurning {") {

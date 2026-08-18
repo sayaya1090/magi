@@ -9614,10 +9614,26 @@ function same(a, b) {
 // landed, and the model has not yet said what to do next. Nothing is being waited ON at that
 // moment; the turn is simply still running. The prompt that started it has scrolled away by then,
 // which is the other half of why this is at the top of the page and not in the transcript.
-const turnbar = document.getElementById('turnbar');
+const turnwrap = document.getElementById('turnwrap');
+const turnfor = document.getElementById('turnfor');
 let turnOpen = false;
+// When the turn started, on THIS page's clock. The frame carries the age in seconds rather than a
+// timestamp, so the reading never depends on the browser's clock agreeing with the daemon's — a
+// thing that is often hours wrong and never says so. Counted from here on, the same way the roster
+// ticks its idle column.
+let turnFrom = 0;
+let turnTick = 0;
+const paintTurnFor = () => {
+  if (turnfor) turnfor.textContent = turnOpen ? dur(Math.max(0, Math.round((Date.now() - turnFrom) / 1000))) : '';
+};
 const showTurnbar = () => {
-  if (turnbar) turnbar.hidden = !turnOpen;
+  if (turnwrap) turnwrap.hidden = !turnOpen;
+  clearInterval(turnTick);
+  turnTick = 0;
+  paintTurnFor();
+  // One second, and only while it is on: a timer left running against a hidden element is a wakeup
+  // per second for the life of the tab, on a page that is often left open all day.
+  if (turnOpen) turnTick = setInterval(paintTurnFor, 1000);
 };
 // Off whenever this page stops being able to know. A bar still moving after the stream dropped is
 // the console claiming work it can no longer see.
@@ -9838,7 +9854,11 @@ function connect() {
   // The session's own state, on its own frame (see the events handler): sent when it changes, so
   // this is the whole of keeping the bar honest.
   es.addEventListener('turn', e => {
-    try { turnOpen = !!JSON.parse(e.data).open; } catch (_) { turnOpen = false; }
+    try {
+      const d = JSON.parse(e.data);
+      turnOpen = !!d.open;
+      turnFrom = Date.now() - (Number(d.forSec) || 0) * 1000;
+    } catch (_) { turnOpen = false; }
     showTurnbar();
   });
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
