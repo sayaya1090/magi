@@ -11151,11 +11151,24 @@ const profBase = document.getElementById('profBase');
 const profModel = document.getElementById('profModel');
 const profKey = document.getElementById('profKey');
 const profSave = document.getElementById('profSave');
-const profWrite = (body) => {
-  const f = lastDrawnFor || {};
+// profWrite targets a config. Called with no home, it writes where the PAGE is — the global
+// config from the fleet screen, the companion's project config from its page — which is right for
+// a NEW profile. A row's edit and remove pass the profile's OWN home instead: the list carries
+// rows from both tiers, and a remove aimed at "wherever I happen to be standing" deleted nothing,
+// silently, whenever the row's tier was not the page's — measured as "제거를 눌렀는데 아무 반응이
+// 없다" from a companion page with a global profile.
+const profWrite = (body, home) => {
+  const f = home !== undefined ? {socket: home} : (lastDrawnFor || {});
   if (!f.socket) body.set('tier', 'global');
-  return post('/profiles', body, f.socket || '', f.peer || '');
+  // An explicit global home is post(null): '' would fall back to the page's own query and, on a
+  // companion's page, aim a global row's write at the project config.
+  const sock = home !== undefined && !home ? null : (f.socket || '');
+  return post('/profiles', body, sock, f.peer || '');
 };
+// The home of the profile the form is editing, so saving it goes back where it came from rather
+// than copying it into the current page's config. Cleared on save; a renamed profile is a new one
+// and lands in the page's own config like any other new profile.
+let editOrigin = null;
 function renderProfiles(list) {
   if (!profList) return;
   profList.replaceChildren();
@@ -11173,12 +11186,18 @@ function renderProfiles(list) {
     // themeToggle); these two are built here, where it was forgotten.
     const edit = label(document.createElement('md-text-button'), tr('action.edit'));
     edit.type = 'button';
-    edit.onclick = () => { profName.value = p.name; profBase.value = p.baseUrl || ''; profModel.value = p.model || ''; profKey.value = ''; if (profName.focus) profName.focus(); };
+    edit.onclick = () => {
+      profName.value = p.name; profBase.value = p.baseUrl || ''; profModel.value = p.model || ''; profKey.value = '';
+      editOrigin = {name: p.name, home: p.tier === 'project' ? (p.socket || '') : ''};
+      if (profName.focus) profName.focus();
+    };
     const del = label(withMark(document.createElement('md-text-button'), '#i-sl-trash-can'), tr('action.remove'));
     del.type = 'button';
     del.onclick = () => whileItRuns(del, async () => {
-      const why = await profWrite(new URLSearchParams({name: p.name, delete: '1'}));
+      const why = await profWrite(new URLSearchParams({name: p.name, delete: '1'}),
+        p.tier === 'project' ? (p.socket || '') : '');
       if (!why) { loadProfiles(); loadAutocomplete(); }
+      else says(why.slice(0, 80));
     });
     row.append(name, meta, edit, del);
     profList.append(row);
@@ -11255,7 +11274,8 @@ if (profSave) profSave.onclick = () => whileItRuns(profSave, async () => {
   }
   const body = new URLSearchParams({name: nm, baseUrl: profBase.value || '', model: profModel.value || ''});
   if ((profKey.value || '').trim()) body.set('apiKey', profKey.value);
-  const why = await profWrite(body);
+  const home = (editOrigin && editOrigin.name === nm) ? editOrigin.home : undefined;
+  const why = await profWrite(body, home);
   if (why) {
     const at = why.includes('name') ? profName :
       /url|base/i.test(why) ? profBase : /model/i.test(why) ? profModel : /key/i.test(why) ? profKey : null;
@@ -11264,6 +11284,7 @@ if (profSave) profSave.onclick = () => whileItRuns(profSave, async () => {
     return;
   }
   profName.value = profBase.value = profModel.value = profKey.value = '';
+  editOrigin = null;
   loadProfiles();       // the list
   loadAutocomplete();   // and the pickers above, so a new profile is immediately assignable
 });
@@ -11504,7 +11525,11 @@ async function post(path, body, socket, peer, quiet) {
   const parts = [];
   if (socket) parts.push('d=' + encodeURIComponent(socket));
   if (peer) parts.push('p=' + encodeURIComponent(peer));
-  const target = parts.length ? '?' + parts.join('&') : q();
+  // '' means "whatever the page is looking at" — the fallback below. null means NOBODY, said on
+  // purpose: a global-tier write from a companion's page must NOT inherit that companion's ?d=,
+  // or the server aims it at the project config and a delete of a global profile removes nothing,
+  // silently. There was no way to say this before, and the profile rows needed to.
+  const target = socket === null ? '' : (parts.length ? '?' + parts.join('&') : q());
   // A dropped connection IS a disconnection — the daemon went away mid-action. fetch only rejects
   // when the request never completed, so this is the same outage the GET path catches, and it must
   // say so rather than throw uncaught into a caller (send/permission/git-do) that has no .catch and
