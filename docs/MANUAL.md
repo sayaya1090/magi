@@ -1394,7 +1394,7 @@ Plugins come from three places, and only one of them is a question of trust:
 
 ```mermaid
 flowchart TD
-    E["embedded in the binary<br/>(engram)"] -->|"on by default"| L((loaded))
+    E["embedded in the binary<br/>(engram · claudecode · codex · antigravity)"] -->|"engram on by default,<br/>the backends opt-in"| L((loaded))
     G["&lt;config&gt;/plugins/<br/>you installed these"] -->|"always"| L
     W["&lt;workdir&gt;/.magi/plugins/<br/>arrived with the clone"] -->|"only if you ran<br/>magi --trust"| L
     W -.->|"otherwise"| S["skipped, and named<br/>in the startup report"]
@@ -1438,12 +1438,48 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
-**Embedded plugins.** The binary ships the **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`). It is **on by default**; disable it (it spends sidecar LLM tokens and writes knowledge files into the workspace) with:
+**Embedded plugins.** The binary ships four. The **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`) is **on by default**; disable it (it spends sidecar LLM tokens and writes knowledge files into the workspace) with:
 
 ```toml
 [plugins.engram]
 enabled = false
 ```
+
+The other three — **claudecode**, **codex**, **antigravity** — make a coding-agent CLI you already
+pay for BE the LLM backend, and they are **off by default**: taking over the base URL is not
+something an upgrade may do to somebody who merely has `claude` installed. Enable one (or all)
+with the same switch, other way around:
+
+```toml
+[plugins.claudecode]   # or codex, or antigravity
+enabled = true
+```
+
+What each does, once enabled and once its CLI answers `--version`:
+
+- **Serves a loopback OpenAI shim** and fulfils each chat request by running the CLI once
+  (`claude --print` / `codex exec` / `agy --print`). magi's tool calls round-trip: the prompt
+  carries the tool schemas and a strict `TOOL_CALL` line format, and the shim parses those lines
+  back into native `tool_calls` frames. The CLI is used as a language model, never as an agent —
+  `claude` runs with its mutating tools disallowed by name, `agy` sandboxed, and all three refuse
+  to touch workspace files on their own (measured, along with the tool-call round-trip and a full
+  magi turn with skills and the engram observer riding each backend — EXTENDING §3.7.1 records
+  the probes).
+- **Puts itself on the provider roster** (the console's provider dropdown, `/providers` in the
+  TUI) whenever its CLI answers — so every enabled backend is *pickable*. Only the **default**
+  follows a chain the plugins arrange among themselves: claude, then codex, then agy, then
+  whatever the config names (`defer_to_claude = false` on a plugin makes it claim the default
+  even when outranked). The config file's own backend is always on the roster as `default`, so a
+  switch is never a one-way door.
+- **Exposes its CLI's own features as program-named slash commands** — `/claudecode-login`,
+  `/claudecode-models`, `/codex-login`, `/codex-model`, `/antigravity-login`,
+  `/antigravity-models`, and so on (program-named because a bare `/login` would be whichever
+  plugin registered last). Each also registers **doctor probes**, so `magi doctor` answers "is
+  the CLI installed, signed in, and does it accept our flags" before the first request can 502.
+- **Catalogs its models** from the CLI itself (`agy models`, the Claude/Codex model lists), so
+  the model select and `/providers <name> <model…>` offer what that CLI can actually serve —
+  including names with spaces ("Gemini 3.1 Pro (High)"), which is why the TUI command takes the
+  model as the rest of the line.
 
 `MAGI_EMBEDDED_PLUGINS=off` disables ALL embedded plugins regardless of config — use it for automation/bench runs whose measured behavior must not shift.
 

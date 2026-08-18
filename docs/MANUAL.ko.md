@@ -1285,7 +1285,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    E["바이너리에 내장<br/>(engram)"] -->|"기본 켜짐"| L((로드됨))
+    E["바이너리에 내장<br/>(engram · claudecode · codex · antigravity)"] -->|"engram은 기본 켜짐,<br/>백엔드 셋은 옵트인"| L((로드됨))
     G["&lt;config&gt;/plugins/<br/>내가 설치한 것"] -->|"항상"| L
     W["&lt;workdir&gt;/.magi/plugins/<br/>클론에 딸려 온 것"] -->|"magi --trust를<br/>실행한 경우에만"| L
     W -.->|"아니면"| S["건너뛰고, 기동 보고에<br/>이름을 댐"]
@@ -1331,12 +1331,46 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
-**내장(embedded) 플러그인.** 바이너리에는 **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)이 실려 있습니다. **기본 켜짐**이며, 사이드카 LLM 토큰 소비·워크스페이스 지식 파일 생성이 부담이면 끕니다:
+**내장(embedded) 플러그인.** 바이너리에는 넷이 실려 있습니다. **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)은 **기본 켜짐**이며, 사이드카 LLM 토큰 소비·워크스페이스 지식 파일 생성이 부담이면 끕니다:
 
 ```toml
 [plugins.engram]
 enabled = false
 ```
+
+나머지 셋 — **claudecode**, **codex**, **antigravity** — 는 이미 결제해 쓰는 코딩 에이전트
+CLI를 LLM 백엔드 자체로 만들어 주며, **기본 꺼짐**입니다: base URL을 차지하는 일은 `claude`가
+깔려 있을 뿐인 사람에게 업그레이드가 저질러도 되는 일이 아닙니다. 같은 스위치를 반대 방향으로
+켭니다:
+
+```toml
+[plugins.claudecode]   # 또는 codex, 또는 antigravity
+enabled = true
+```
+
+켜져 있고 자기 CLI가 `--version`에 답하면, 각 플러그인이 하는 일:
+
+- **루프백 OpenAI shim을 서빙**하고 각 채팅 요청을 CLI 한 번 실행으로 채웁니다
+  (`claude --print` / `codex exec` / `agy --print`). magi의 툴콜은 왕복합니다: 프롬프트가 툴
+  스키마와 엄격한 `TOOL_CALL` 라인 형식을 싣고, shim이 그 라인을 도로 파싱해 네이티브
+  `tool_calls` 프레임으로 냅니다. CLI는 언어모델로만 쓰이고 에이전트로는 결코 쓰이지
+  않습니다 — `claude`는 변이 툴을 이름으로 금지한 채, `agy`는 샌드박스로 돌고, 셋 다 워크
+  스페이스 파일을 스스로 건드리지 않습니다(실측 — 툴콜 왕복, 스킬과 engram 관찰자를 실은
+  온전한 magi 턴까지 각 백엔드 위에서: 프로브 기록은 EXTENDING §3.7.1).
+- **프로바이더 로스터에 스스로 오릅니다**(콘솔의 프로바이더 드롭다운, TUI의 `/providers`) —
+  CLI가 답하는 한 언제나. 켜진 백엔드는 전부 *고를 수 있고*, 체인을 따르는 것은 **기본값**
+  뿐입니다: claude, 그다음 codex, 그다음 agy, 그다음 설정 파일(플러그인에
+  `defer_to_claude = false`를 주면 밀리는 자리에서도 기본을 주장). 설정 파일의 백엔드는
+  언제나 `default`로 로스터에 있으므로 전환은 결코 편도문이 아닙니다.
+- **CLI의 자체 기능을 프로그램명 슬래시 커맨드로 노출**합니다 — `/claudecode-login`,
+  `/claudecode-models`, `/codex-login`, `/codex-model`, `/antigravity-login`,
+  `/antigravity-models` 등(프로그램명을 박는 이유: 맨 `/login`이면 마지막에 등록한 플러그인
+  차지가 되므로). 각자 **doctor 프로브**도 등록해, 첫 요청이 502로 답하기 전에 `magi doctor`가
+  "CLI가 깔려 있나, 로그인돼 있나, 우리 플래그를 받나"를 답합니다.
+- **모델 카탈로그를 CLI 자신에게서** 얻습니다(`agy models`, Claude/Codex 모델 목록). 그래서
+  모델 셀렉트와 `/providers <name> <model…>`은 그 CLI가 실제로 서빙하는 것만 내밉니다 —
+  공백 낀 이름("Gemini 3.1 Pro (High)")도 포함해서, TUI 커맨드가 모델을 라인의 나머지 전부로
+  받는 이유가 이것입니다.
 
 `MAGI_EMBEDDED_PLUGINS=off`는 설정과 무관하게 내장 플러그인 전부를 끈다 — 측정 행동이 흔들리면 안 되는 자동화/벤치 런용.
 

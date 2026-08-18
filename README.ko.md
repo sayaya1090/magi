@@ -300,6 +300,7 @@ flowchart LR
 | 🗣️ | **회의** | 여러 컴패니언이 하나의 질문을 읽기 전용으로 논의해 각자 할 일을 알게 되고, 그다음 작업이 배분됩니다. |
 | ⏮️ | **들여다볼 수 있는 루프** | 모든 턴이 추가 전용 JSONL로 이벤트 소싱되므로 `/rewind`·`/fork`·`/replay`·`/loopdiff`가 따로 만들어야 할 기능이 아니라 평범한 조작이 됩니다. |
 | 📦 | **자기완결 바이너리** | 순수 Go, CGO 없음. 에이전트와 선택적 콘솔이 각각 정적 바이너리 하나입니다. [Ollama](https://ollama.com)를 로컬로 쓰거나 무료 클라우드 티어로, 또는 OpenAI 호환 엔드포인트라면 무엇이든. |
+| 🔌 | **내 코딩 CLI가 곧 백엔드** | 번들 플러그인(기본 꺼짐)으로 Claude Code·Codex·Antigravity가 LLM 백엔드 자체가 됩니다 — 각자 자기 CLI 위에 OpenAI shim을 서빙하고, magi의 툴콜은 왕복하며, CLI는 언어모델 역할에 묶입니다(자체 툴은 꺼진 채 — 실측). 콘솔이나 `/providers`에서 컴패니언별로 백엔드를 고르고, 언제든 Ollama로 되돌릴 수 있습니다. |
 
 ---
 
@@ -340,6 +341,10 @@ flowchart LR
   ```sh
   ollama signin            # 무료 티어. 기본 모델은 Ollama 클라우드에서 돈다
   ```
+
+  이미 결제해 쓰는 코딩 에이전트 CLI — Claude Code, Codex, Antigravity — 를 백엔드로 쓸 수도
+  있습니다. 기본 꺼짐인 번들 플러그인을 켜면 됩니다(`[plugins.claudecode] enabled = true`;
+  MANUAL §9).
 
   전부 내 머신에서 돌리고 싶다면 로컬 모델을 받아 그쪽을 가리키면 됩니다:
 

@@ -300,6 +300,7 @@ no port of its own and holds no credential of its own.
 | 🗣️ | **Meetings** | Several companions talk through one question, read-only, until each knows what to do — then the work is handed out. |
 | ⏮️ | **An inspectable loop** | Every turn is event-sourced to append-only JSONL, so `/rewind`, `/fork`, `/replay` and `/loopdiff` are ordinary operations rather than features to be built. |
 | 📦 | **Self-contained binaries** | Pure Go, CGO-free: the agent and the optional console, each a static binary. Works against [Ollama](https://ollama.com) locally or its free cloud tier, or any OpenAI-compatible endpoint. |
+| 🔌 | **Your coding CLI as the backend** | Bundled plugins (off by default) let Claude Code, Codex or Antigravity BE the LLM backend — each serves an OpenAI shim over its CLI, with magi's tool calls round-tripping and the CLI held to language-model duty (its own tools stay off; measured). Pick a backend per companion from the console or `/providers`, and switch back to your Ollama any time. |
 
 ---
 
@@ -339,6 +340,10 @@ flowchart LR
   ```sh
   ollama signin            # free tier; the default model runs in Ollama's cloud
   ```
+
+  A coding-agent CLI you already pay for — Claude Code, Codex, Antigravity — can also be the
+  backend, through bundled plugins that are off by default (`[plugins.claudecode] enabled = true`;
+  MANUAL §9).
 
   To stay entirely local, pull a model and point magi at it:
 
