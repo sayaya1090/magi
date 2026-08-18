@@ -3035,6 +3035,10 @@ function permField(a) {
     sel.value = now;
     if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
   }
+  // No current value means the field shows none. The caller asks for this after a backend switch,
+  // when the name the companion carries is the previous backend's and this one would not serve it;
+  // leaving the old text in a select whose menu no longer contains it shows a choice nobody made.
+  if (!now && sel.value) sel.value = '';
   // Drawn and disabled rather than removed: a reader who cannot see which approval mode a
   // companion is on cannot tell one that stops for everything from one that stops for nothing.
   sel.toggleAttribute('disabled', !may('configure'));
@@ -3066,16 +3070,26 @@ function modelField(a, now) {
     sel.setAttribute('aria-label', tr('field.model'));
     modelField.key = key;
     modelField.list = null;
+    // A different companion is a different question: neither the pending value nor the blank a
+    // backend switch left behind says anything about this one.
+    modelField.want = '';
+    modelField.blank = false;
     sel.className = 'permsel';
     // No label on the field. The row it sits in already says "model" in the key beside it, and a
     // floating label repeating it is the same word twice, six pixels apart.
     sel.addEventListener('change', async () => {
       const want = sel.value;
       if (!want || want === modelField.now) return;
+      modelField.blank = false;
       modelField.want = want;
       const why = await post('/model', new URLSearchParams({model: want}), a.socket, a.peer);
-      modelField.want = '';
-      if (!why) loadFleet();
+      // Refused: drop the pending value now, so the field goes back to what is actually running
+      // rather than showing a model nobody is on. Accepted: HOLD it until the daemon's own answer
+      // carries it (below). Clearing it here on success was a race — the reply had landed but the
+      // next listing had not, so a poll in that gap repainted the old name and the change that had
+      // just succeeded looked refused.
+      if (why) modelField.want = '';
+      else loadFleet();
     });
   }
   // The roster, once. Asked on the first draw for this companion and kept: it is a property of the
@@ -3093,7 +3107,11 @@ function modelField(a, now) {
       sel.disabled = !may('configure') || n < 2;
     });
   }
-  modelField.now = modelField.want || now;
+  // The pending value stands until the companion says it is on it, and no longer.
+  if (modelField.want && modelField.want === now) modelField.want = '';
+  // Blank beats both: after a backend switch the companion's model name belongs to the OLD
+  // backend, so showing it would be showing a value this one does not serve.
+  modelField.now = modelField.blank ? '' : (modelField.want || now);
   const models = modelField.list || [];
   paintModels(sel, models, modelField.now);
   // One writer for two reasons. paintModels shut the select when there was nothing to change to
@@ -3123,6 +3141,23 @@ function modelField(a, now) {
       if (!why) {
         // The model list belongs to the backend, so it is stale the moment the backend changes.
         modelField.list = null;
+        // And so is the model NAME. Backends do not share a vocabulary — "Gemini 3.1 Pro (High)"
+        // means nothing to codex, "opus" nothing to agy — so the name this companion was on is
+        // almost never a name the new backend serves. Left showing, it is a value that would be
+        // refused on the next request and nothing before that would have said so.
+        //
+        // Emptied rather than guessed at: picking a replacement here would be this console
+        // choosing a model on somebody's behalf, and there is no rule for which of a stranger's
+        // catalog they meant. So the field goes blank and takes the focus — the switch raised the
+        // question "which of THIS backend's models", and the answer belongs to the person.
+        modelField.want = '';
+        modelField.blank = true;
+        // Emptied HERE, not at the next redraw: the poll is three seconds away and until it lands
+        // the field would go on showing the previous backend's model as though it were this one's.
+        if (modelField.el) {
+          modelField.el.value = '';
+          if (modelField.el.focus) modelField.el.focus();
+        }
         loadFleet();
       }
     });
@@ -4023,8 +4058,15 @@ let ctxDraw = 0; // which redraw a pending answer belongs to
 // Steps AND state. Steps alone misses the end of a turn: the finish writes the provider's real
 // prompt count into the log without adding a tool call, so a panel keyed on steps alone would go
 // on showing its estimate — labelled "estimated" — for as long as the companion then sat idle.
+// The model is IN the key, and has to be. The panel below shows which model the companion is on
+// and offers the select that changes it; keyed on steps and state alone, an idle companion whose
+// model was just switched has an unchanged key, so this served the answer fetched BEFORE the
+// switch and the select repainted the old name — every successful change looked refused. Keyed on
+// the model, any change invalidates it: made here, made from the terminal's /model, or made by a
+// second console, because all three land in the listing this reads.
 function contextKey(a) {
-  return (a.peer || '') + '\u0000' + a.socket + '\u0000' + (a.steps || 0) + '\u0000' + a.state;
+  return (a.peer || '') + '\u0000' + a.socket + '\u0000' + (a.steps || 0) + '\u0000' + a.state +
+    '\u0000' + (a.model || '');
 }
 
 // put comes from drawDetail: these rows land after the grid is on screen, so they are placed by

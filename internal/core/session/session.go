@@ -46,13 +46,16 @@ type SessionMeta struct {
 	Workdir string    `json:"workdir"`
 	Title   string    `json:"title,omitempty"`
 	Agent   string    `json:"agent,omitempty"` // subagent role (child sessions)
-	// Model is what the session was OPENED with, off its first event. Carried because a list of
-	// past work is a list of work done by something, and which engine did it is the one fact about
-	// a finished session that is neither in its title nor derivable later — a companion's model can
-	// be changed mid-life by /route, so the one it is on now says nothing about last Tuesday.
+	// Model is the model this session is on: the newest model.changed in its log, or the one it
+	// was opened with when nothing has changed it. Carried because a list of past work is a list
+	// of work done by something, and which engine did it is the one fact about a finished session
+	// that is neither in its title nor derivable later.
 	//
-	// Free: scanSessions already unmarshals the created event to find the parent, and this was
-	// sitting in the same struct being thrown away.
+	// It read the OPENING model once, off the first event, which made every reader of this field
+	// wrong the moment somebody used /route or the console's model select — the scan now carries
+	// the change forward.
+	//
+	// Free: the scan already reads every event to find the title.
 	Model string `json:"model,omitempty"`
 	// Labels is what the agent said this work was about, as of the last time it said so. Free to
 	// carry: the scan that builds this already reads every event to find the title.

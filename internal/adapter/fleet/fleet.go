@@ -242,10 +242,17 @@ type Agent struct {
 	// PlanDone and PlanTotal are the agent's own todo list, counted. "working" says it is alive;
 	// "working · 3/7" says whether it is getting anywhere, which is the question somebody has when
 	// they look twice in ten minutes.
-	PlanDone  int  `json:"planDone,omitempty"`
-	PlanTotal int  `json:"planTotal,omitempty"`
-	Idle      int  `json:"idle"` // seconds since the last event in the log; -1 if unknown
-	Here      bool `json:"here"` // the daemon in the directory the caller is standing in
+	PlanDone  int `json:"planDone,omitempty"`
+	PlanTotal int `json:"planTotal,omitempty"`
+	// Model is the model this companion is on NOW — the newest model.changed in its log, or the
+	// one it opened with. Carried so a console can tell that it changed: the context panel caches
+	// its answer per companion, and its key is built from this listing. Without the model in that
+	// key an idle companion whose model was switched has an unchanged key, so the panel served the
+	// answer it fetched before the switch and the model select repainted the old name — a change
+	// that had landed looked refused.
+	Model string `json:"model,omitempty"`
+	Idle  int    `json:"idle"` // seconds since the last event in the log; -1 if unknown
+	Here  bool   `json:"here"` // the daemon in the directory the caller is standing in
 	// Does names what this companion advertises being able to do, and Can is how many there are —
 	// more than Does lists when it has a lot. A sample and a count, not a list and its length: the
 	// names are capped for the wire (see cluster.MaxDoes) and the count is not.
@@ -287,9 +294,13 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			seen[in.Workdir] = metas
 		}
 		for _, m := range metas {
-			if m.ID == sid && !m.LastActivity.IsZero() {
+			if m.ID != sid {
+				continue
+			}
+			if !m.LastActivity.IsZero() {
 				a.Idle = int(time.Since(m.LastActivity).Seconds())
 			}
+			a.Model = m.Model
 		}
 		open, isOpen, said, plan := fromLog(ctx, r, cache, sid)
 		a.PlanDone, a.PlanTotal = app.PlanProgress(plan)

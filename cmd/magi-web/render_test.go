@@ -6504,3 +6504,124 @@ console.log(JSON.stringify({before, gone, back: byId.log.children.length,
 		t.Errorf("the conversation did not come back with the companion: %+v", got)
 	}
 }
+
+// A model that changed is a model the panel asks about again.
+//
+// The context panel caches its answer per companion so a poll landing three seconds later does not
+// re-fetch what cannot have moved. Its key was the companion, its step count and its state — and a
+// model switched on an IDLE companion moves none of those. So the key matched, the cached answer
+// was served, and the model select repainted the name from BEFORE the switch: every successful
+// change looked refused, on a console whose daemon had already accepted it.
+//
+// The change here is made ELSEWHERE — the terminal's /model, or a second console — and that is
+// deliberate. A change made through this select is held by the pending value until the daemon
+// confirms it, which hides a stale cache rather than proving it gone: the first version of this
+// test drove the select and passed with the cache key un-fixed. Nothing local covers a change
+// somebody else made; only asking again does.
+func TestAModelChangedElsewhereReachesThePanel(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+let MODEL = 'qwen3-coder-next';
+globalThis.fetch = async (p, init) => {
+  const u = String(p).split('?')[0];
+  if (init && String(init.method || '').toUpperCase() === 'POST') {
+    return {ok: true, status: 204, text: async () => ''};
+  }
+  if (u === '/fleet') return {ok: true, json: async () => [
+    {socket: '/s/a.sock', name: 'a', live: true, state: 'idle', session: 's_1', steps: 0, model: MODEL},
+  ]};
+  if (u === '/context') return {ok: true, json: async () => ({model: MODEL, used: 1000, window: 128000})};
+  if (u === '/model') return {ok: true, json: async () => ['qwen3-coder-next', 'llama4:scout']};
+  return {ok: true, json: async () => []};
+};
+const find = () => (function walk(n) {
+  if ((n.tag || '') === 'md-outlined-select' &&
+      (n.children || []).some(o => String(o.value || '').includes('qwen3-coder-next') ||
+                                   String(o.value || '').includes('llama4'))) return n;
+  for (const k of n.children || []) { const hit = walk(k); if (hit) return hit; }
+  return null;
+})(byId.detail);
+const redraw = async () => {
+  await loadFleet();
+  await drawDetail({socket: '/s/a.sock', state: 'idle', workdir: '/w', session: 's_1'});
+  for (let i = 0; i < 80; i++) await Promise.resolve();
+};
+
+await redraw();
+const before = find().value;
+// Somebody else moved it. Nothing about this companion changed but the model: same session, same
+// idle state, same zero steps — which is the whole point.
+MODEL = 'llama4:scout';
+await redraw();
+console.log(JSON.stringify({before, after: find().value}));`)
+
+	if got["before"] != "qwen3-coder-next" {
+		t.Fatalf("the menu opened on %q rather than the model the companion runs", got["before"])
+	}
+	if got["after"] != "llama4:scout" {
+		t.Errorf("the companion moved to llama4:scout and the panel still shows %q — it answered "+
+			"from the copy it took before the change, and had nothing to notice the change with",
+			got["after"])
+	}
+}
+
+// Switching the backend empties the model, and asks.
+//
+// Backends do not share a vocabulary: "Gemini 3.1 Pro (High)" means nothing to codex, "opus"
+// nothing to agy. So the model name a companion carries is almost never one the NEW backend
+// serves — left in the field it is a value that would be refused on the next request, with
+// nothing before that to say so. Blank rather than guessed at: choosing a replacement would be
+// this console picking a model on somebody's behalf out of a catalog it has just met.
+func TestSwitchingTheBackendEmptiesTheModel(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+globalThis.fetch = async (p, init) => {
+  const u = String(p).split('?')[0];
+  if (init && String(init.method || '').toUpperCase() === 'POST') {
+    return {ok: true, status: 204, text: async () => ''};
+  }
+  if (u === '/fleet') return {ok: true, json: async () => [
+    {socket: '/s/a.sock', name: 'a', live: true, state: 'idle', session: 's_1', steps: 0,
+     model: 'Gemini 3.1 Pro (High)'},
+  ]};
+  if (u === '/context') return {ok: true, json: async () =>
+    ({model: 'Gemini 3.1 Pro (High)', used: 1000, window: 128000})};
+  if (u === '/model') return {ok: true, json: async () => ['Gemini 3.1 Pro (High)']};
+  if (u === '/providers') return {ok: true, json: async () => [
+    {name: 'antigravity', base: 'http://127.0.0.1:1/v1', models: ['Gemini 3.1 Pro (High)']},
+    {name: 'codex', base: 'http://127.0.0.1:2/v1', models: ['codex-default']},
+  ]};
+  return {ok: true, json: async () => []};
+};
+const selects = () => (function walk(n, out) {
+  if ((n.tag || '') === 'md-outlined-select') out.push(n);
+  for (const k of n.children || []) walk(k, out);
+  return out;
+})(byId.detail, []);
+await loadFleet();
+await drawDetail({socket: '/s/a.sock', state: 'idle', workdir: '/w', session: 's_1'});
+for (let i = 0; i < 80; i++) await Promise.resolve();
+const model = () => selects().find(s => (s.children || []).some(o => String(o.value || '').includes('Gemini')));
+const provider = () => selects().find(s => (s.children || []).some(o => String(o.value || '') === 'codex'));
+const before = model() ? model().value : '(no model select)';
+const focusedBefore = String((document.activeElement || {}).tag || '');
+
+provider().value = 'codex';
+provider().dispatchEvent({type: 'change'});
+for (let i = 0; i < 80; i++) await Promise.resolve();
+const after = model() ? model().value : '(no model select)';
+console.log(JSON.stringify({before, after, focusedBefore,
+  focusedIsModel: model() ? document.activeElement === model() : false}));`)
+
+	if got["before"] != "Gemini 3.1 Pro (High)" {
+		t.Fatalf("the model field opened on %q", got["before"])
+	}
+	if got["after"] != "" {
+		t.Errorf("after switching backend the model still reads %q — a name the new backend does "+
+			"not serve, which fails on the next request and not before", got["after"])
+	}
+	if got["focusedIsModel"] != true {
+		t.Errorf("the focus did not move to the model after the switch; the field went blank and "+
+			"nothing pointed at the question that made it blank")
+	}
+}
