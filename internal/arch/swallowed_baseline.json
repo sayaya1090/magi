@@ -1,9 +1,9 @@
 {
-  "total": 123,
+  "total": 120,
   "files": {
     "cmd/magi/autoupdate.go": 1,
     "cmd/magi/main.go": 2,
-    "cmd/magi/relay.go": 2,
+    "cmd/magi/relay.go": 1,
     "internal/adapter/daemon/daemon.go": 1,
     "internal/adapter/experience/git/store.go": 2,
     "internal/adapter/mcp/manager.go": 1,
@@ -16,7 +16,7 @@
     "internal/adapter/tool/builtin/bgproc.go": 22,
     "internal/adapter/tool/builtin/bgproc_pty_unix.go": 1,
     "internal/adapter/tool/builtin/console_windows.go": 3,
-    "internal/adapter/tool/builtin/lspclient.go": 6,
+    "internal/adapter/tool/builtin/lspclient.go": 5,
     "internal/adapter/tool/builtin/lsppool.go": 2,
     "internal/adapter/tool/builtin/pathutil.go": 1,
     "internal/adapter/tool/builtin/sandbox_linux.go": 1,
@@ -39,12 +39,12 @@
     "internal/app/hooks.go": 1,
     "internal/app/inject.go": 1,
     "internal/app/interject_queue.go": 2,
-    "internal/app/loop.go": 4,
+    "internal/app/loop.go": 3,
     "internal/app/loopmap.go": 1,
     "internal/app/permission.go": 2,
     "internal/app/policy.go": 1,
     "internal/app/reconstruct.go": 1,
-    "internal/app/routing.go": 2,
+    "internal/app/routing.go": 3,
     "internal/app/scratch.go": 3,
     "internal/app/skills.go": 1,
     "internal/app/todos.go": 3,
@@ -52,6 +52,6 @@
     "internal/app/world_snapshot.go": 2,
     "internal/eval/eval.go": 2,
     "internal/update/plugin/plugin.go": 4,
-    "internal/update/update.go": 2
+    "internal/update/update.go": 1
   }
 }

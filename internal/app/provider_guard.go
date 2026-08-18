@@ -137,6 +137,26 @@ func (g guardedProvider) ListModels(ctx context.Context) ([]string, error) {
 	return lister.ListModels(ctx)
 }
 
+// Redirecting the backend is the third thing a provider can do that its port does not declare —
+// plugins reach it through their own registry, and now the console does too (a person switching
+// this companion from one CLI backend to another). Forwarded for the same reason as the two
+// above: a wrapper that swallows a capability makes the caller believe it was refused.
+func (g guardedProvider) SetBaseURL(url string) uint64 {
+	setter, ok := g.inner.(interface{ SetBaseURL(string) uint64 })
+	if !ok {
+		return 0
+	}
+	return setter.SetBaseURL(url)
+}
+
+func (g guardedProvider) ClearBaseURL(tok uint64) {
+	clearer, ok := g.inner.(interface{ ClearBaseURL(uint64) })
+	if !ok {
+		return
+	}
+	clearer.ClearBaseURL(tok)
+}
+
 func (g guardedProvider) ProbeContextWindow(ctx context.Context, model string) (int, bool) {
 	prober, ok := g.inner.(interface {
 		ProbeContextWindow(context.Context, string) (int, bool)

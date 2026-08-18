@@ -360,6 +360,7 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 
 // controllingEngine is an engine that also accepts the calls which change how it runs.
 type controllingEngine struct {
+	backend string
 	fakeEngine
 	rewound  int
 	compacts int
@@ -383,6 +384,13 @@ func (c *controllingEngine) SetModel(_ session.SessionID, m string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.model = m
+}
+
+func (c *controllingEngine) UseBackend(base string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.backend = base
+	return nil
 }
 func (c *controllingEngine) SetPermission(p string) {
 	c.mu.Lock()

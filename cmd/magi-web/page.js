@@ -3057,7 +3057,7 @@ function permField(a) {
 // before — the choice is not offered rather than offered and broken.
 function modelField(a, now) {
   const f = cell('f');
-  f.append(cell('k', tr('field.model')));
+  f.append(cell('k', tr('field.provider_model')));
   const v = cell('v');
   const key = (a.peer || '') + '\0' + a.socket;
   let sel = modelField.el;
@@ -3102,9 +3102,71 @@ function modelField(a, now) {
   // you cannot change it, or there is nothing to change it to.
   const optionCount = models.filter(n => n).length + (modelField.now && !models.includes(modelField.now) ? 1 : 0);
   sel.disabled = !may('configure') || optionCount < 2;
-  v.append(sel);
+  // The provider, beside the model and before it — the pair reads left to right the way the
+  // question does ("which backend, then which of its models"), and they are one row because
+  // changing the first changes what the second may offer.
+  //
+  // Only drawn when something IS serving: with no CLI backend up, the model select alone is the
+  // whole truth and an empty provider menu would be a control with nothing behind it.
+  const pick = providerField.el || (providerField.el = document.createElement('md-outlined-select'));
+  if (providerField.key !== key) {
+    providerField.key = key;
+    providerField.list = null;
+    pick.className = 'permsel';
+    pick.setAttribute('aria-label', tr('field.provider'));
+    pick.addEventListener('change', async () => {
+      const p = (providerField.list || []).find(x => x.name === pick.value);
+      if (!p) return;
+      // The address goes on the wire, not the name: the console knows where each shim answers and
+      // the daemon should not have to look it up a second time (or disagree about the answer).
+      const why = await post('/providers', new URLSearchParams({base: p.base}), a.socket, a.peer);
+      if (!why) {
+        // The model list belongs to the backend, so it is stale the moment the backend changes.
+        modelField.list = null;
+        loadFleet();
+      }
+    });
+  }
+  if (providerField.list === null) {
+    providerField.list = [];
+    fetchList('/providers').then(list => {
+      providerField.list = list || [];
+      paintProviders(pick, providerField.list);
+      pick.hidden = providerField.list.length < 1;
+      pick.disabled = !may('configure') || providerField.list.length < 2;
+    });
+  }
+  paintProviders(pick, providerField.list || []);
+  pick.hidden = (providerField.list || []).length < 1;
+  pick.disabled = !may('configure') || (providerField.list || []).length < 2;
+  const pair = cell('modelpair');
+  pair.append(pick, sel);
+  v.append(pair);
   f.append(v);
   return f;
+}
+
+// providerField holds the provider select across redraws, like modelField beside it: the card is
+// rebuilt on every poll and a select rebuilt under an open menu closes it.
+const providerField = {el: null, key: '', list: null};
+
+// paintProviders fills the provider select with the backends that are serving. No "current" entry:
+// which one a companion is ON is not something the console can read back — the daemon holds the
+// base URL and does not report it — so the menu offers what exists and says nothing it cannot know.
+function paintProviders(sel, list) {
+  const names = list.map(p => p.name);
+  if ((sel._painted || []).join('\0') === names.join('\0')) return;
+  sel._painted = names;
+  sel.replaceChildren();
+  for (const n of names) {
+    const o = document.createElement('md-select-option');
+    o.value = n;
+    const h = document.createElement('div');
+    h.slot = 'headline';
+    h.textContent = n;
+    o.append(h);
+    sel.append(o);
+  }
 }
 
 // paintModels fills the select with what is on offer, plus the one it is on.

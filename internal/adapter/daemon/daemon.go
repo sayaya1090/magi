@@ -220,6 +220,11 @@ type Controller interface {
 	Rewind(ctx context.Context, sid session.SessionID, n int) (int64, error)
 	Compact(ctx context.Context, c command.Compact) error
 	SetModel(sid session.SessionID, modelID string)
+	// UseBackend points the default backend at a base URL for the rest of this run. It carries an
+	// error where SetModel does not, because a backend that cannot be redirected has to say so:
+	// the console offers the providers that are serving, and a switch that reported success and
+	// changed nothing would leave somebody talking to the wrong model.
+	UseBackend(base string) error
 	SetPermission(p string)
 	// Permission is what SetPermission last set, or what the process started on. A setter without
 	// a getter is a control a second viewer can only fire blind: the console offers the four modes
@@ -1650,6 +1655,7 @@ var controlMu sync.Mutex
 
 var serialControls = map[string]bool{
 	"resume": true, "rewind": true, "set-model": true, "set-permission": true, "reload-cron": true,
+	"use-backend": true,
 }
 
 func dispatch(ctx context.Context, eng Engine, r Request) error {
@@ -1679,7 +1685,7 @@ func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 			SessionID: sid, CallID: r.CallID, Answer: r.Answer})
 	// Named apart from "permission", which ANSWERS a prompt. One word for "decide this call" and
 	// "change the policy for every call" would be a wire that means two things.
-	case "rewind", "compact", "set-model", "set-permission":
+	case "rewind", "compact", "set-model", "set-permission", "use-backend":
 		return control(ctx, eng, r, sid)
 	case "resume":
 		m, ok := eng.(SessionMover)
@@ -1712,7 +1718,7 @@ var acceptedMethods = sync.OnceValue(func() string {
 	names := map[string]bool{
 		// The methods dispatch and serveConn handle outside the answers map.
 		"submit": true, "steer": true, "interrupt": true, "permission": true, "answer": true,
-		"rewind": true, "compact": true, "set-model": true, "set-permission": true,
+		"rewind": true, "compact": true, "set-model": true, "set-permission": true, "use-backend": true,
 		"resume": true, "reload-cron": true, "watch": true, "shutdown": true, "restart": true,
 		"update": true,
 	}
@@ -1742,6 +1748,8 @@ func control(ctx context.Context, eng Engine, r Request, sid session.SessionID) 
 	case "set-model":
 		c.SetModel(sid, r.Name)
 		return nil
+	case "use-backend":
+		return c.UseBackend(r.Name)
 	case "set-permission":
 		c.SetPermission(r.Name)
 		return nil
@@ -1955,6 +1963,12 @@ func (c *Client) Compact(_ context.Context, cmd command.Compact) error {
 
 func (c *Client) SetModel(sid session.SessionID, modelID string) error {
 	return c.call(Request{Method: "set-model", Session: string(sid), Name: modelID})
+}
+
+// UseBackend switches which backend this daemon's requests go to, by base URL. Not persisted —
+// see App.UseBackend for why the plugin that owns the address gets the next word.
+func (c *Client) UseBackend(base string) error {
+	return c.call(Request{Method: "use-backend", Name: base})
 }
 
 func (c *Client) SetPermission(p string) error {

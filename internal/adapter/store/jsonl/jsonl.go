@@ -651,15 +651,36 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 		m.Title = firstPromptSummary(evs)
 		// The LAST set wins. Each event carries the whole set, so the newest is the answer and
 		// there is nothing to fold — and this loop is already walking every event for the title.
-		for i := len(evs) - 1; i >= 0; i-- {
-			if evs[i].Type != event.TypeLabelsChanged {
-				continue
+		//
+		// The model is read the same way and for a sharper reason: session.created below says what
+		// the session was OPENED with, and a model can be changed mid-life. A reader that stopped
+		// at the created event reported the old name for ever — the console's model menu snapped
+		// back to it after every successful change, because the value it repaints from could not
+		// have moved.
+		// Two answers from one backward walk, and it stops when it has BOTH — breaking on the
+		// first (a newest labels.changed that happens to sit above the newest model.changed) would
+		// leave the other unread, which is the shape of bug this pass is fixing rather than adding.
+		labelled := false
+		for i := len(evs) - 1; i >= 0 && !(labelled && m.Model != ""); i-- {
+			switch evs[i].Type {
+			case event.TypeModelChanged:
+				if m.Model != "" {
+					continue
+				}
+				var md event.ModelChangedData
+				if json.Unmarshal(evs[i].Data, &md) == nil && md.Model != "" {
+					m.Model = md.Model
+				}
+			case event.TypeLabelsChanged:
+				if labelled {
+					continue
+				}
+				var ld event.LabelsChangedData
+				if json.Unmarshal(evs[i].Data, &ld) == nil {
+					m.Labels = ld.Labels
+				}
+				labelled = true
 			}
-			var ld event.LabelsChangedData
-			if json.Unmarshal(evs[i].Data, &ld) == nil {
-				m.Labels = ld.Labels
-			}
-			break
 		}
 		if evs[0].Type == event.TypeSessionCreated {
 			// Who opened it, off the envelope the loop below is already reading. Carried because a
@@ -687,7 +708,11 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 				}
 				m.Agent = d.Agent
 				m.Parent = d.Parent
-				m.Model = d.Model.Model
+				// Only when nothing later said otherwise: a model.changed found above is the
+				// session's model NOW, and this is the one it started on.
+				if m.Model == "" {
+					m.Model = d.Model.Model
+				}
 			}
 		}
 		metas = append(metas, m)

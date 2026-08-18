@@ -199,6 +199,8 @@
   "field.model": "Model",
   "field.permission": "Approvals",
   "field.plan": "Plan",
+  "field.provider": "Provider",
+  "field.provider_model": "Provider / model",
   "field.queued": "Waiting to run",
   "field.report_format": "What it brings you when it asks",
   "field.role": "Role",

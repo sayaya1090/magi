@@ -199,6 +199,8 @@
   "field.model": "모델",
   "field.permission": "승인",
   "field.plan": "계획",
+  "field.provider": "프로바이더",
+  "field.provider_model": "프로바이더 / 모델",
   "field.queued": "실행 대기",
   "field.report_format": "결재 요청 시 전달할 내용",
   "field.role": "역할",

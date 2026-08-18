@@ -406,6 +406,7 @@ func (c *controllableEngine) Rewind(context.Context, session.SessionID, int) (in
 }
 func (c *controllableEngine) Compact(context.Context, command.Compact) error { return nil }
 func (c *controllableEngine) SetModel(session.SessionID, string)             {}
+func (c *controllableEngine) UseBackend(string) error                        { return nil }
 func (c *controllableEngine) SetPermission(p string)                         { c.perm = p }
 func (c *controllableEngine) Permission() string                             { return c.perm }
 

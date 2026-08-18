@@ -58,8 +58,12 @@ func (r *recordingEngine) Rewind(_ context.Context, sid session.SessionID, n int
 	return 0, r.note("rewind:" + string(sid))
 }
 func (r *recordingEngine) SetModel(sid session.SessionID, m string) { _ = r.note("model:" + m) }
-func (r *recordingEngine) SetPermission(p string)                   { _ = r.note("perm:" + p) }
-func (r *recordingEngine) Permission() string                       { return "auto" }
+
+// The console can point a companion at another backend; the double records the address so a test
+// can tell "switched" from "reported switched".
+func (r *recordingEngine) UseBackend(base string) error { return r.note("backend:" + base) }
+func (r *recordingEngine) SetPermission(p string)       { _ = r.note("perm:" + p) }
+func (r *recordingEngine) Permission() string           { return "auto" }
 
 func (r *recordingEngine) Submit(_ context.Context, c command.SubmitPrompt) error {
 	return r.note("submit:" + textOf(c.Parts))

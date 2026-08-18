@@ -494,6 +494,13 @@
   .childlink:hover { text-decoration-thickness:2px; }
   .childlink:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
 
+  /* Provider and model, side by side. They are one question in two parts — which backend, then
+     which of its models — so they share a row and wrap together on a narrow screen rather than
+     each taking a line of the facts grid. */
+  .modelpair { display:flex; gap:var(--magi-sys-space-100); flex-wrap:wrap; align-items:center; }
+  .modelpair > * { min-width:0; flex:1 1 auto; }
+  .modelpair > [hidden] { display:none; }
+
   /* ── the settings destination ────────────────────────────────────────────
      It was a dialog and outgrew one: seven groups, its own scrollbar, and a scope axis on top.
      As a screen it takes the reading width the other destinations take — the rows are a label

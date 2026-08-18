@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -73,11 +74,31 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	if p != nil {
 		_ = p.PersistModel(modelID) // best-effort
 	}
-	// Broadcast the change on the bus so any observer (the TUI header, the /route
-	// editor) re-reads the model from one signal — regardless of whether this came
-	// from the plugin set_model bridge, the /route edit, or reload_config.
+	// Recorded, not just announced.
+	//
+	// This was bus-only, which reaches every observer inside THIS process and nobody outside it.
+	// The console is outside it: it reads the log, so the only model it could ever see was the one
+	// on session.created — and its model menu snapped back to that after every successful change,
+	// because the value it repaints from had no way to move. A separate process asking "what is it
+	// on now" is the ordinary case here, not an edge.
+	//
+	// It belongs in the log on its own merits, which is the same argument labels.changed carries:
+	// which model produced a turn is a fact about work that happened, and nothing can derive it
+	// afterwards from a transcript that never wrote it down. appendFact publishes on the bus too,
+	// so the observers that already worked keep working.
+	// A store-less App still announces. An App is built without one for the doubles in tests and
+	// for the read-only paths that never write a log, and SetModel was safe in those before this —
+	// a routing change is not a reason for the process to die.
 	d, _ := json.Marshal(event.ModelChangedData{Model: modelID})
-	a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
+	if a.store == nil {
+		a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
+		return
+	}
+	// Best-effort on purpose, like the PersistModel above it: the switch has ALREADY taken effect
+	// in memory and the turn after this one will use the new model. A store that could not take the
+	// record is worth a lost line in the log, not an undone change the caller was told about.
+	_ = a.appendFact(context.Background(), sid, event.TypeModelChanged,
+		event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
 }
 
 // SetUserLabel sets the display name shown for the user in the transcript (e.g. an
@@ -140,6 +161,31 @@ func (a *App) ListModels(ctx context.Context) ([]string, error) {
 		return nil, nil
 	}
 	return lister.ListModels(ctx)
+}
+
+// UseBackend points this companion's default backend at base, for the rest of the process's life
+// or until something else points it elsewhere.
+//
+// It is the same override a plugin installs with magi.set_base_url — one registry, so a console
+// switch and a plugin's claim cannot disagree about where requests go — and it is deliberately NOT
+// persisted: a backend plugin re-establishes its own base on the next start, so writing this to
+// config would leave a stale address fighting the plugin that owns it. The person switching in the
+// console is switching THIS run.
+//
+// Refused rather than silently ignored when the provider cannot be redirected (a double in a test,
+// a backend built without the capability): a control that reports success and changes nothing is
+// the defect this tree keeps finding.
+func (a *App) UseBackend(base string) error {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return fmt.Errorf("no backend named")
+	}
+	setter, ok := a.llm.(interface{ SetBaseURL(string) uint64 })
+	if !ok {
+		return fmt.Errorf("this backend cannot be redirected")
+	}
+	setter.SetBaseURL(base)
+	return nil
 }
 
 // Profiles returns the defined LLM profiles, sorted by name, for the editor.
