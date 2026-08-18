@@ -880,18 +880,30 @@ func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Se
 	if ok {
 		return s
 	}
-	// Rebuild from the log if not cached (e.g. resumed session).
+	// Rebuild from the log if not cached (e.g. resumed session, or ANY read from a second process
+	// — the console holds no session state of its own).
+	//
+	// session.created says what the session opened with, and a model can be changed after that. A
+	// rebuild that stopped at the created event reported the opening model for ever: the console's
+	// model select repainted it after every successful change, so a switch that had landed looked
+	// refused. The newest model.changed wins, which is what SetModel now writes and what the store's
+	// own meta scan reads — one fact, one answer, whichever door a reader came through.
 	evs, _ := a.store.Read(ctx, sid, 0)
 	for _, e := range evs {
 		if e.Type == event.TypeSessionCreated {
 			var d event.SessionCreatedData
 			_ = json.Unmarshal(e.Data, &d)
 			s = session.Session{ID: sid, Workdir: d.Workdir, Agent: d.Agent, Model: d.Model}
-			a.mu.Lock()
-			a.stateLocked(sid).meta = s
-			a.mu.Unlock()
 			break
 		}
+	}
+	if s.ID != "" {
+		if m := modelFromEvents(evs); m != "" {
+			s.Model.Model = m
+		}
+		a.mu.Lock()
+		a.stateLocked(sid).meta = s
+		a.mu.Unlock()
 	}
 	return s
 }
@@ -913,4 +925,25 @@ func newSortableID() string {
 	b[3], b[4], b[5] = byte(ms>>16), byte(ms>>8), byte(ms)
 	_, _ = rand.Read(b[6:])
 	return hex.EncodeToString(b[:])
+}
+
+// modelFromEvents is the session's model as the LOG has it: the newest model.changed, or "" when
+// nothing changed it and the created event is still the answer.
+//
+// One reader of one fact, used by every path that needs it. The alternative — each caller walking
+// the events its own way — is how the console ended up reporting the opening model while the
+// daemon ran on another: the same question answered from two implementations, one of which had
+// never been taught that models move.
+func modelFromEvents(evs []event.Event) string {
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Type != event.TypeModelChanged {
+			continue
+		}
+		var md event.ModelChangedData
+		if json.Unmarshal(evs[i].Data, &md) == nil && md.Model != "" {
+			return md.Model
+		}
+		return ""
+	}
+	return ""
 }

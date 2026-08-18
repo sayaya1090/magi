@@ -71,7 +71,15 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 	}
 	msgs := reconstruct(evs)
 	s := a.sessionInfo(ctx, sid)
-	out := ContextState{Model: s.Model.Model, Window: a.contextWindow(s.Model.Model), Messages: len(msgs)}
+	// From the events THIS call already read, not from the cached meta. A reader process caches a
+	// session's meta on first sight and has nothing to invalidate it with — the daemon changes the
+	// model, writes the fact, and the console kept answering from the snapshot it took before that.
+	// The log is the source; this function is already holding it.
+	model := s.Model.Model
+	if m := modelFromEvents(evs); m != "" {
+		model = m
+	}
+	out := ContextState{Model: model, Window: a.contextWindow(model), Messages: len(msgs)}
 
 	for _, e := range evs {
 		switch e.Type {

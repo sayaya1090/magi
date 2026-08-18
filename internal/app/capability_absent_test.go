@@ -5,6 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -37,5 +42,41 @@ func TestACapabilitySurvivesBothWrappers(t *testing.T) {
 	got, err := lister.ListModels(context.Background())
 	if err != nil || len(got) != 1 || got[0] != "opus" {
 		t.Errorf("through guard+meter the catalogue came back as %v (%v)", got, err)
+	}
+}
+
+// A reader process asks the log, not a snapshot it took earlier.
+//
+// The console caches a session's meta on first sight and has nothing to invalidate it with: the
+// daemon changes the model in another process, writes the fact, and the console kept answering
+// from the meta it had cached before that — so the model select repainted the old value after
+// every successful change and a switch that had landed looked refused.
+func TestTheContextReportFollowsTheModelChange(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// TWO Apps over one store, which is the arrangement this is about: the daemon runs the turn
+	// and the console reads its log. One App would prove nothing — SetModel updates that process's
+	// own cache, so the reading side is right for a reason the console does not have.
+	daemon := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+	console := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+	ctx := context.Background()
+	sid, _ := daemon.CreateSession(ctx, command.CreateSession{
+		Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "opus"},
+	})
+
+	// The console reads once, which is what fills the cache it has nothing to invalidate.
+	if st, err := console.ContextStateOf(ctx, sid); err != nil || st.Model != "opus" {
+		t.Fatalf("the opening model came back as %q (%v)", st.Model, err)
+	}
+	daemon.SetModel(sid, "haiku")
+	st, err := console.ContextStateOf(ctx, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Model != "haiku" {
+		t.Errorf("the console still reports %q after the daemon switched to haiku — this is the "+
+			"value the model select repaints, so the change looks refused", st.Model)
 	}
 }
