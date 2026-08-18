@@ -48,6 +48,20 @@ func selfKillReason(command, selfCmdline, selfName string) string {
 	}
 	for _, m := range pkillInvocation.FindAllStringSubmatch(command, -1) {
 		verb, flags, pat := m[1], m[2], strings.Trim(m[3], `"'`)
+		// The real matcher, asked first and trusted in ONE DIRECTION. pgrep is this same program
+		// with the signal removed (see bash_selfkill_probe.go), so when it lists this process the
+		// kill would reach it — that is not a prediction and it ends the question.
+		//
+		// Its silence is not the same fact. Measured on this machine: `pgrep -f builtin.test` finds
+		// nothing while a process with exactly that in its argv is running. Whatever the cause, a
+		// matcher that can miss a process that IS there cannot be allowed to clear a kill, or the
+		// guard would be weaker than the plain pattern check it replaced. So a miss falls through
+		// and everything below still runs.
+		if verb == "pkill" {
+			if hit, _ := pgrepHitsUs(strings.Fields(flags), pat); hit {
+				return refuse("`pkill " + strings.TrimSpace(flags+" "+pat) + "` — pgrep lists this process")
+			}
+		}
 		if verb == "pkill" && strings.Contains(flags, "f") {
 			// -f matches the FULL command line (task prompt included).
 			if patternMatches(pat, selfCmdline) {
@@ -72,63 +86,42 @@ func selfKillReason(command, selfCmdline, selfName string) string {
 	return ""
 }
 
-// patternMatches applies pat as a regex (pkill semantics) against target.
+// patternMatches answers whether a kill pattern covers this process.
 //
-// # Why a pattern Go rejects is the dangerous case, not the safe one
+// # Why this does not try to be a regex engine
 //
-// Go's regexp is RE2 and refuses a doubled quantifier: `regexp.Compile("g++")` fails with
-// "invalid nested repetition operator". The old fallback then asked whether the target CONTAINS
-// the literal "g++" — which no process name does — and answered "no match, let it run".
+// It used to compile the pattern with Go's regexp and, when that failed, ask whether the target
+// CONTAINED the pattern as a literal. That is emulation, and it was wrong in the direction that
+// costs a run. Go's regexp is RE2 and refuses a doubled quantifier — `regexp.Compile("g++")` fails
+// with "invalid nested repetition operator" — while the pkill actually about to run is POSIX ERE
+// through the platform's libc. Measured 2026-08-18: on Linux `echo magi | grep -E 'g++'` MATCHES
+// (the second + is read as a repeat of `g+`, so the pattern is any name holding a "g"); on macOS
+// the same pattern is refused outright. A trial rebuilding Caffe swept its compilers with
+// `pkill -9 g++`, this guard passed it, and the binary — magi-amd64 — was inside the match.
 //
-// The system's pkill is not RE2. Measured 2026-08-18: on Linux `echo magi | grep -E 'g++'` MATCHES
-// (glibc and busybox both read the second + as a repeat of `g+`, so the pattern is any name
-// holding a "g"); on macOS the same pattern is rejected with exit 2 and kills nothing. So the one
-// reading Go could not parse is the reading that, on the platform the benchmark containers run,
-// matches this agent's own name.
+// Doubled quantifiers are only the case that was caught. RE2 and POSIX ERE also disagree about
+// backreferences, some interval forms, empty alternations and locale collation, and each of those
+// is another pattern this could wave through. Enumerating them is a list that is wrong until the
+// next one is found.
 //
-// That is not hypothetical. A run rebuilding Caffe swept its stale compilers with
-// `pkill -9 make; pkill -9 cmake; pkill -9 g++; pkill -9 cc1plus`, the guard passed it, and the
-// trial ended in a non-zero exit — the binary is magi-amd64, and "g++" as glibc reads it matches
-// any name with a g in it.
+// So the question goes to the program that will answer it for real. pgrep IS pkill without the
+// signal — same source, same matcher, same libc — so running the pattern through pgrep and looking
+// for our own pid is not an approximation of what the kill will do. It is what the kill will do.
 //
-// So an uncompilable pattern is answered conservatively: strip the metacharacters and ask whether
-// what is LEFT appears in our name. `g++` leaves `g`, which is in "magi", and the kill is refused.
-// `c++` leaves `c`, which is not, and it runs. The guard's question is "could this kill us", and
-// the honest answer to "I cannot read this pattern" is not "probably not".
+// Go's regexp stays as the fallback for a machine with no pgrep (stripped containers, which this
+// tree has met: pkill/pgrep/lsof/ss all exit 127 there). A pattern that Go cannot read there is
+// refused rather than assumed harmless, because "I cannot tell" is not "probably fine" — the
+// refusal names the alternative, which is killing by pid.
 func patternMatches(pat, target string) bool {
 	if pat == "" || target == "" {
 		return false
 	}
-	if re, err := regexp.Compile(pat); err == nil {
-		return re.MatchString(target)
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		// Unreadable here and readable to the shell is exactly the case that got through.
+		return true
 	}
-	// Doubled quantifiers are the common case and mean, to every engine that accepts them, what
-	// the single one means. Try that reading before falling back further.
-	if re, err := regexp.Compile(collapseQuantifiers(pat)); err == nil {
-		return re.MatchString(target)
-	}
-	if lit := regexMetaOnly.ReplaceAllString(pat, ""); lit != "" {
-		return strings.Contains(target, lit)
-	}
-	// Nothing left to compare: a pattern that is all metacharacters matches broadly by definition.
-	return true
-}
-
-// doubledQuantifier collapses `++`, `**`, `??` and longer runs to one character, which is how an
-// engine that accepts them reads them.
-var doubledQuantifier = regexp.MustCompile(`([+*?])[+*?]+`)
-
-// regexMetaOnly strips the characters that make a pattern a pattern, leaving its literal text.
-var regexMetaOnly = regexp.MustCompile(`[.+*?()|\[\]{}^$\\]`)
-
-func collapseQuantifiers(pat string) string {
-	for {
-		next := doubledQuantifier.ReplaceAllString(pat, "$1")
-		if next == pat {
-			return pat
-		}
-		pat = next
-	}
+	return re.MatchString(target)
 }
 
 // windowsNameMatches compares a taskkill/Stop-Process name (optionally with .exe
