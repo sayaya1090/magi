@@ -20,6 +20,14 @@ type Manifest struct {
 	Entry        string   `toml:"entry"`        // default "init.lua"
 	Capabilities []string `toml:"capabilities"` // e.g. ["tool"]
 	Permissions  []string `toml:"permissions"`  // e.g. ["fs:read:./", "exec:git"]
+	// ExecTimeout bounds one magi.exec invocation, as a Go duration string ("300s", "5m").
+	// The 60s default was sized for probes and short commands; a plugin whose whole purpose is
+	// running a slow CLI (a model backend fulfilling a chat request) declares its need HERE, in
+	// the same file that declares which commands it may run — so the reader who audits `exec:agy`
+	// sees in the next line how long that command may hold the process. Clamped to [1s, 10m]:
+	// the cap keeps a typo ("300m") from becoming an unkillable hang, and the floor keeps 0 from
+	// meaning "no exec at all" by accident.
+	ExecTimeout string `toml:"exec_timeout"`
 }
 
 // loadManifest reads and validates <dir>/plugin.toml.

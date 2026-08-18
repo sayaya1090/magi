@@ -10,6 +10,9 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/sayaya1090/magi/internal/port"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // plugin is a single loaded plugin: a sandboxed Lua state plus the tools it
@@ -36,6 +39,7 @@ type plugin struct {
 	servers []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
 	baseSet bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
 	baseTok uint64                      // ownership token of that override; released (only if still current) on unload
+	execTO  time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
 	logf    func(string)
 }
 
@@ -58,6 +62,7 @@ func loadPlugin(dir string, logf func(string), host *Host) (*plugin, error) {
 		caps:     caps,
 		host:     host,
 		logf:     logf,
+		execTO:   manifestExecTimeout(m.ExecTimeout, logf, m.Name),
 	}
 	// Seed the bridge workdir from the host runtime so read_file/write_file work
 	// OUTSIDE tool execution too (lifecycle/observation handlers, context
@@ -179,4 +184,25 @@ func newSandbox() *lua.LState {
 		L.SetGlobal(g, lua.LNil)
 	}
 	return L
+}
+
+// manifestExecTimeout resolves the manifest's exec_timeout to a duration, clamped to [1s, 10m].
+// An unreadable value falls back to the default and SAYS so — a silently ignored declaration is
+// how a plugin ships believing it has five minutes and dies at sixty seconds in production.
+func manifestExecTimeout(raw string, logf func(string), name string) time.Duration {
+	if strings.TrimSpace(raw) == "" {
+		return 0 // bridgeExec reads 0 as "the default"
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		logf("[" + name + "] exec_timeout " + strconv.Quote(raw) + " is not a duration; using the default")
+		return 0
+	}
+	if d < time.Second {
+		d = time.Second
+	}
+	if d > 10*time.Minute {
+		d = 10 * time.Minute
+	}
+	return d
 }

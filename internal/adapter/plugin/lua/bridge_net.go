@@ -47,7 +47,23 @@ func (p *plugin) bridgeExec(L *lua.LState) int {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	to := execTimeout
+	if p.execTO > 0 {
+		to = p.execTO // the manifest asked for more (or less), within loadPlugin's clamp
+	}
+	// A per-call timeout, third argument: magi.exec(cmd, args, {timeout="15s"}). Only ever
+	// SHORTER than the plugin's bound — the manifest is where a longer need is declared, in the
+	// file an auditor reads — and it exists because one plugin's calls are not one kind of call:
+	// the same backend plugin that needs five minutes for a model turn must not spend them
+	// blocked on a metadata fetch during LOAD, which is magi's own startup.
+	if opts, ok := L.Get(3).(*lua.LTable); ok {
+		if raw, ok := opts.RawGetString("timeout").(lua.LString); ok {
+			if d, err := time.ParseDuration(string(raw)); err == nil && d > 0 && d < to {
+				to = d
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = p.dir
