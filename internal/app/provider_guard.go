@@ -118,6 +118,35 @@ func providerGuardCap() int {
 	return 2 * c
 }
 
+// The guard wraps the ONE method the port declares, and a provider is more than its port: the
+// OpenAI client also answers "which models do you have" and "how big is this one's window", and
+// callers reach those through a type assertion on the provider they hold. Wrapped, the assertion
+// met guardedProvider — which has neither — and got the answer for "this backend cannot say".
+//
+// Measured: the console's model menu came back `null` and offered nothing to switch to, with the
+// shim behind it listing three models to a plain curl. Nothing said no; the question never
+// arrived. So the guard forwards what it does not implement, which is what a wrapper owes the
+// thing it wraps.
+func (g guardedProvider) ListModels(ctx context.Context) ([]string, error) {
+	lister, ok := g.inner.(interface {
+		ListModels(context.Context) ([]string, error)
+	})
+	if !ok {
+		return nil, nil // the same "cannot say" the unwrapped path gives
+	}
+	return lister.ListModels(ctx)
+}
+
+func (g guardedProvider) ProbeContextWindow(ctx context.Context, model string) (int, bool) {
+	prober, ok := g.inner.(interface {
+		ProbeContextWindow(context.Context, string) (int, bool)
+	})
+	if !ok {
+		return 0, false
+	}
+	return prober.ProbeContextWindow(ctx, model)
+}
+
 func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	gctx, cancel := context.WithCancel(ctx)
 	inner, err := g.inner.StreamChat(gctx, req)
