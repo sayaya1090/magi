@@ -10009,8 +10009,14 @@ function paint() {
   if (provSelEl) provSelEl.setAttribute('label', tr('prof.provider'));
   const provModelSelEl = document.getElementById('provModelSel');
   if (provModelSelEl) provModelSelEl.setAttribute('label', tr('prof.provider_model'));
-  prefsClose.textContent = tr('action.close');
-  withMark(prefsClose, '#i-sl-xmark');
+  // "저장", with a check — not "닫기" with a red ✕. Every control in this dialog persists the
+  // moment it changes, so by the time anybody reaches this button their choices are already in
+  // the file; the button's real work is flushing the two templates (blur-saved textareas) and
+  // dismissing. Labelled 닫기 with an ✕ in the warning hue, it read as CANCEL, and the operator
+  // reasonably concluded a picked profile had not been saved. The label now claims what pressing
+  // it guarantees, and ESC/backdrop still dismiss for free.
+  prefsClose.textContent = tr('action.save');
+  withMark(prefsClose, '#i-sl-check');
   // Closed by hand — see the comment on the button. Its form carries a `required` field for a
   // section most readers never touch, and a form-bound close asks that field's permission to leave.
   prefsClose.onclick = () => prefsDialog.close('close');
