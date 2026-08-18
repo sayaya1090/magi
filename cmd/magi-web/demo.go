@@ -351,6 +351,11 @@ const demoScript = `
        baseUrl: 'https://api.example.com/v1', model: 'big-model', hasKey: true,
        file: '/Users/you/work/design-system/.magi/config.toml'},
     ],
+    // The provider picker's roster: what the CLI backend shims reported. One provider with a
+    // short catalog, so the demo shows the two dropdowns doing their job.
+    '/providers': [
+      {name: 'claudecode', base: 'http://127.0.0.1:47311/v1', models: ['opus', 'sonnet', 'haiku']},
+    ],
     // The completion settings the Preferences dialog loads: which fast profile does each kind, the
     // ambient file, the draft rules. A profile assigned to each, so the demo shows the on state.
     '/autocomplete': {
