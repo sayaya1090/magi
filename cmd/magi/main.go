@@ -504,26 +504,11 @@ func run() int {
 			filepath.Join(companionCfg, "config.toml"), oerr)
 	}
 
-	// Resolve model/base_url/permission with precedence: explicit flag > env >
-	// config > built-in default. The flag defaults already fold in env-or-builtin,
-	// so config only fills in when neither an explicit flag nor an env var is set.
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-	modelID := *model
-	if !explicit["model"] && os.Getenv("MAGI_MODEL") == "" && cfg.Model != "" {
-		modelID = cfg.Model
-	}
-	baseURLVal := *baseURL
-	if !explicit["base-url"] && os.Getenv("MAGI_BASE_URL") == "" && cfg.BaseURL != "" {
-		baseURLVal = cfg.BaseURL
-	}
-	// API key precedence: --api-key flag > MAGI_API_KEY > OPENAI_API_KEY > config api_key. The flag's
-	// default already resolves the two env vars, so config only fills in when the flag was not passed
-	// and neither env is set (mirrors base-url; config api_key was previously inert for the main backend).
-	apiKeyVal := *apiKey
-	if !explicit["api-key"] && os.Getenv("MAGI_API_KEY") == "" && os.Getenv("OPENAI_API_KEY") == "" && cfg.APIKey != "" {
-		apiKeyVal = config.ExpandEnv(cfg.APIKey)
-	}
+	backend := resolveBackend(explicit, backendFlags{model: *model, baseURL: *baseURL, apiKey: *apiKey},
+		cfg, os.Getenv)
+	modelID, baseURLVal, apiKeyVal := backend.model, backend.baseURL, backend.apiKey
 
 	var llmOpts []openai.Option
 	if !*noCache {
@@ -2971,4 +2956,46 @@ func companionState(a *app.App, sid session.SessionID) string {
 		return "working"
 	}
 	return "idle"
+}
+
+// backendFlags is what the command line resolved for the three settings that name a backend. The
+// flag defaults already fold in env-or-builtin, so these are "flag, or the env var, or the
+// built-in" — which is why the rules below only ask about config.
+type backendFlags struct{ model, baseURL, apiKey string }
+
+// resolveBackend settles model, base URL and API key across the four places each can come from.
+//
+// The order is: an explicit flag, then the environment, then config, then the built-in default. It
+// is written as "config fills in only when nothing ahead of it spoke" rather than as a chain of
+// fallbacks, because the flag values arriving here have ALREADY absorbed env-or-builtin — so a
+// plain `if flag == "" { use config }` would let config beat an env var, which is backwards.
+//
+// Pulled out of run() and given getenv as an argument for one reason: this is the only part of
+// that function that is a computation rather than a wiring step, it has three inputs and four
+// sources each, and it has been wrong before — the config api_key was inert for the main backend
+// until somebody noticed a key in a file doing nothing. A rule with twelve cases and no test is a
+// rule that is correct by inspection until it is not.
+//
+// explicit is the set of flag names the person actually typed (flag.Visit), which is the only way
+// to tell `-model x` from a default that happens to equal x.
+func resolveBackend(explicit map[string]bool, f backendFlags, cfg config.Config,
+	getenv func(string) string) backendFlags {
+	out := f
+	if !explicit["model"] && getenv("MAGI_MODEL") == "" && cfg.Model != "" {
+		out.model = cfg.Model
+	}
+	if !explicit["base-url"] && getenv("MAGI_BASE_URL") == "" && cfg.BaseURL != "" {
+		out.baseURL = cfg.BaseURL
+	}
+	// Two env vars for this one: MAGI_API_KEY is ours and OPENAI_API_KEY is what a machine already
+	// has set for everything else. Either one speaking means config stays out of it.
+	//
+	// Expanded, because a key in a file is the thing this tree tells people NOT to write — the
+	// documented form is ${SOMETHING}, and it would arrive here as the literal characters without
+	// this.
+	if !explicit["api-key"] && getenv("MAGI_API_KEY") == "" && getenv("OPENAI_API_KEY") == "" &&
+		cfg.APIKey != "" {
+		out.apiKey = config.ExpandEnv(cfg.APIKey)
+	}
+	return out
 }
