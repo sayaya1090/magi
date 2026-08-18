@@ -8779,13 +8779,29 @@ function editor(path, text, acts) {
     const cm = ++compAt;
     setTimeout(() => { if (cm === compAt) { compAt = cm - 1; complete(); } }, 350);
   });
-  // Tab takes the ghost when there is one (and only then — otherwise Tab is a tab); Escape and any
-  // caret move drop it, since it was about where the caret was.
+  // Tab takes the ghost when there is one, and is a TAB otherwise — an editor where Tab walks
+  // to the next control is a text field pretending, and this comment used to claim "otherwise Tab
+  // is a tab" while nothing made it one: the browser default moved focus and the keystroke left
+  // the file. execCommand keeps the insertion on the undo stack, which assignment to .value would
+  // wipe. Shift+Tab still moves focus backwards on purpose: it is the keyboard reader's one way
+  // OUT of a field that eats Tab, and losing it would trade an annoyance for a trap.
   area.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab' && ghost && ghost.text) {
-      // Take it only if the caret is still where the ghost is; otherwise let Tab be a tab.
-      if (area.selectionStart == null || area.selectionStart === ghost.at) { e.preventDefault(); accept(); return; }
-      dismiss();
+    // ⌘S/⌃S saves the file, because in an editor that is what the key MEANS — the browser default
+    // (save the page as HTML) is never what somebody mid-edit wants, and a keystroke every editor
+    // honours going to the browser reads as data loss until the save button is spotted.
+    if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      save.click();
+      return;
+    }
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      // Take the ghost only if the caret is still where the ghost is; otherwise it is stale.
+      if (ghost && ghost.text) {
+        if (area.selectionStart == null || area.selectionStart === ghost.at) { accept(); return; }
+        dismiss();
+      }
+      document.execCommand('insertText', false, '\t');
       return;
     }
     if (e.key === 'Escape' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
