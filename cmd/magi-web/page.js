@@ -3354,34 +3354,20 @@ function drawDetail(a) {
     if (k && !seen.has(k) && row.dataset.late !== '1') row.remove();
   }
   if (!reuse) wrap.replaceChildren(grid);
-  // Children the turn spawned, reached from the facts rather than from the transcript. A child is
-  // started inside a tool call and finishes inside the same one, so the transcript row that
-  // produced it says "spawn" and nothing about what came back — there was no way in at all.
+  // The children a turn spawned are NOT listed here any more.
   //
-  // Only when there are some: a button that leads to an empty list is a button that teaches people
-  // not to press it.
-  fetchList('/subagents' + qFor(a)).then(kids => {
-    drawDetail.late = true;
-    if (!kids || !kids.length) return;
-    const row = cell('f');
-    // Named and replaced rather than appended: the grid outlives the poll now, so a row added on
-    // every answer would stack a new copy of the children every three seconds.
-    row.dataset.k = 'detail.subagents';
-    row.append(cell('k', tr('detail.subagents')));
-    const v = cell('v');
-    for (const k of kids) {
-      const b = el('button', (k.role || tr('detail.subagent')) + ' · ' + oneLine(k.task || '', 40));
-      b.type = 'button';
-      b.className = 'deeper hit48';
-      b.onclick = () => goDeep('sub', k.id);
-      v.append(b);
-    }
-    row.append(v);
-    // Into the grid that is actually on screen, which after the reconciliation above may be the
-    // one from the previous poll.
-    put(row);
-    drawDetail.late = false;
-  });
+  // This existed because the transcript could not answer for them: a child starts inside a tool
+  // call and finishes inside the same one, so the row that produced it said "spawn" and nothing
+  // about what came back. That hole is closed — the child's own account now lands on the tool
+  // call's result, verbatim, with its session id (see spawn.go's childAccount) — so the answer is
+  // in the conversation, in the order the work happened, which is where somebody reading the work
+  // is already looking.
+  //
+  // A second list beside it would be the same children in a place with no surrounding context, and
+  // after an hour of meetings it was mostly other companions' turns. The way into a child's own
+  // transcript is the id in the result; drawChild still answers ?sub=<id>.
+  drawDetail.late = true;
+  drawDetail.late = false;
   // Folded to start with, unless the window is wide enough to hold both.
   //
   // The card sits above the transcript in the middle column, and with every field open it is
@@ -5852,7 +5838,7 @@ function rowNode(r) {
         } else if (pairs) {
           body.append(pairsInto(pairs));
         } else {
-          body.append(el('pre', text));
+          body.append(childLinks(el('pre', text)));
         }
       }
     } else if (r.who === 'council') {
@@ -9638,6 +9624,36 @@ const showTurnbar = () => {
 // Off whenever this page stops being able to know. A bar still moving after the stream dropped is
 // the console claiming work it can no longer see.
 const clearTurnbar = () => { turnOpen = false; showTurnbar(); };
+
+
+// childLinks turns the session id in a spawned child's account into the way into its transcript.
+//
+// magi writes that account onto the tool call's own result — verbatim, opening with
+// `[child <session id>, N step(s)]` (spawn.go's childAccount) — so the answer is already in the
+// conversation, in the order the work happened. This is the last step: the id is the door, and a
+// door nobody can press is a string.
+//
+// It replaces the LIST that used to sit on the companion's detail card. That list existed because
+// the transcript could not answer for a child at all; now that it can, a second copy of the same
+// children in a place with no surrounding context was one list too many.
+const CHILD_ID = /\[child (s_[A-Za-z0-9_-]+)/g;
+function childLinks(pre) {
+  const text = pre.textContent || '';
+  if (!/\[child s_/.test(text)) return pre;
+  pre.textContent = '';
+  let at = 0;
+  for (const m of text.matchAll(CHILD_ID)) {
+    pre.append(document.createTextNode(text.slice(at, m.index + '[child '.length)));
+    const b = el('button', m[1]);
+    b.type = 'button';
+    b.className = 'childlink';
+    b.onclick = () => goDeep('sub', m[1]);
+    pre.append(b);
+    at = m.index + m[0].length;
+  }
+  pre.append(document.createTextNode(text.slice(at)));
+  return pre;
+}
 
 function draw(rows) {
   const stick = atBottom();

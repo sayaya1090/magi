@@ -484,6 +484,16 @@
   }
   #turnfor:empty { display:none; }
 
+  /* The session id inside a child's account, as the door it is. Inline in a <pre>, so it takes the
+     monospace it sits in and is marked by colour and underline rather than by a shape that would
+     break the line it is part of. */
+  .childlink {
+    font:inherit; color:var(--magi-ref-primary); background:none; border:0; padding:0;
+    text-decoration:underline; text-underline-offset:2px; cursor:pointer;
+  }
+  .childlink:hover { text-decoration-thickness:2px; }
+  .childlink:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
+
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
     /* Above the content, and by more than a tie. The panes beside a conversation are z-index 2 as
