@@ -696,13 +696,49 @@ Three problems appear the moment the backend is a CLI, and the plugins show one 
   flag, and the prompt states the terms: you are being used as a language model.
 
 The **backend order** is a property of the plugins, never of core — no backend name exists there.
-claudecode activates when `claude --version` answers; [`plugins/codex`](../plugins/codex) stands
-down when it finds claude; antigravity stands down when it finds either (`defer_to_claude = false`
-overrides, on each); when none of them takes the base URL, magi keeps whatever its config names.
-The chain reads: claude, then codex, then agy, then the config file. Each CLI's own features ride along as program-named
-slash commands (`/claudecode-login`, `/antigravity-models` — a bare `/login` would be whichever
-plugin registered last), and a doctor probe answers "is the CLI there and signed in" before the
-first request can 502 on it.
+Each plugin serves its shim whenever its own CLI answers — serving is what makes a backend
+*pickable* (§3.7.2) — and only the **default** follows the chain: codex yields it when it finds
+claude, antigravity when it finds either (`defer_to_claude = false` overrides, on each); when no
+plugin claims the base URL, magi keeps whatever its config names. The chain reads: claude, then
+codex, then agy, then the config file — and it decides who gets used *when nobody has picked*,
+never which backends exist. Each CLI's own features ride along as program-named slash commands
+(`/claudecode-login`, `/antigravity-models` — a bare `/login` would be whichever plugin registered
+last), and a doctor probe answers "is the CLI there and signed in" before the first request can
+502 on it.
+
+### 3.7.2 Getting on the provider roster — how the pickers find a backend
+
+The console's provider dropdown and the TUI's `/providers` read one roster
+(`internal/adapter/provider`), and the roster is *whoever said where their backend answers*: it
+scans every plugin store (`<config>/plugin-data/<name>.json`) for one of two records, probes each
+address, and keeps the ones that answer. No provider name exists in core — a fourth backend
+appears in every picker by writing what the first three write.
+
+```lua
+-- A: you SERVE the backend yourself (a loopback shim, like the CLI plugins):
+magi.store_set('shim_port', srv.port)          -- roster probes http://127.0.0.1:<port>/v1/models
+
+-- B: you ROUTE to a backend elsewhere (a remote gateway):
+magi.store_set('provider_base', url .. '/v1')  -- a full base URL, probed the same way
+magi.store_set('provider_models', ids)         -- optional: the catalog you last saw
+```
+
+The rules the roster applies, and why:
+
+- **A recorded address is a claim, not a fact.** The daemon may be down, the port re-bound. Every
+  candidate is probed (`GET <base>/models`, 3s) and a dead one is left out rather than returned
+  marked — a picker offering a backend that cannot serve would write a profile pointing at nothing.
+- **`provider_models` stands in when the server answers but the catalog is behind auth.** The
+  roster's probe is unauthenticated; a gateway that 401s it is *reachable*, and the catalog the
+  plugin recorded — written by a client that IS signed in — is shown for it. On an address that
+  does not answer at all, the recorded list buys nothing.
+- **The config file's backend is on the roster as `default`.** It is the one backend that exists
+  without any plugin saying so, and leaving it out made every switch a one-way door. It yields
+  when a plugin's record already names the same address, so one backend never lists twice.
+- **Record `shim_port` only when nobody is answering at the recorded address.** Every magi process
+  loads plugins — a `magi -p` one-shot binds a shim for seconds and exits, and left to overwrite,
+  each one replaced the daemon's address with a port that died with it. Probe the old record
+  first; if it answers, a live server holds it (see the shipped plugins for the exact dance).
 
 ### 3.8 `magi.register_tool` — a tool of your own
 

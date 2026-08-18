@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/provider"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/config"
 )
 
 // /providers — the TUI's half of the provider picker.
@@ -41,7 +42,12 @@ func (m *Model) cmdProviders(args []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		list := provider.Discover(ctx, platform.New().ConfigDir())
+		dir := platform.New().ConfigDir()
+		base := ""
+		if cfg, err := config.Load(dir); err == nil {
+			base = cfg.BaseURL
+		}
+		list := provider.Discover(ctx, dir, base)
 		if len(args) == 0 {
 			return providersMsg{list: list}
 		}

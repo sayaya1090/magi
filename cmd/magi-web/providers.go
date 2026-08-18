@@ -6,8 +6,21 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/provider"
+	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
+
+// configBase is the base_url the config file names right now — the "default" roster entry. Read
+// per call rather than held: the file is the source of this fact and a copy taken at startup
+// would be wrong from the first config edit. A config that fails to load contributes nothing,
+// which is also what an empty base contributes.
+func (s *server) configBase() string {
+	cfg, err := config.Load(s.cfgDir)
+	if err != nil {
+		return ""
+	}
+	return cfg.BaseURL
+}
 
 // providers answers GET /providers for the preferences dialog's provider picker. The discovery —
 // which backend plugins recorded a shim address, and which of those answer with a catalog right
@@ -21,7 +34,7 @@ func (s *server) providers(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	writeJSON(w, "providers", provider.Discover(r.Context(), s.cfgDir))
+	writeJSON(w, "providers", provider.Discover(r.Context(), s.cfgDir, s.configBase()))
 }
 
 // useProvider switches one companion to a backend that is serving right now.
@@ -43,7 +56,7 @@ func (s *server) useProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok := false
-	for _, p := range provider.Discover(r.Context(), s.cfgDir) {
+	for _, p := range provider.Discover(r.Context(), s.cfgDir, s.configBase()) {
 		if p.Base == want {
 			ok = true
 		}
