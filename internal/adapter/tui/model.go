@@ -396,6 +396,7 @@ var slashCommands = []cmdInfo{
 	{"/loop", "show the loop map (turns · steps · council)"},
 	{"/context", "context window usage; /context <tokens> sets the model's window (e.g. 128k, unlimited)"},
 	{"/cost", "tokens and cost: this session incl. its subagents, and the whole process (council + side calls included)"},
+	{"/providers", "CLI backends serving now; /providers <name> <model> saves a profile pointing at one"},
 	{"/fork", "branch this session to explore an alternative (origin kept)"},
 	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},
@@ -591,6 +592,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shellResultMsg:
 		return m, m.applyShellResult(msg)
+
+	case providersMsg:
+		if msg.note != "" {
+			return m, m.snack(msg.note)
+		}
+		m.info(renderProviders(msg.list))
+		return m, nil
 
 	case modelCatalogMsg:
 		m.modelCatalog = msg.models

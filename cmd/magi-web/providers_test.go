@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/adapter/provider"
 )
 
 // The provider picker lists whoever recorded a shim address AND answers on it. Both halves
@@ -40,7 +42,7 @@ func TestTheProviderListIsWhoeverServesRightNow(t *testing.T) {
 	s := &server{dataDir: dir}
 	w := httptest.NewRecorder()
 	s.providers(w, httptest.NewRequest(http.MethodGet, "/providers", nil))
-	var got []providerInfo
+	var got []provider.Provider
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unreadable answer: %v — %s", err, w.Body.String())
 	}

@@ -792,6 +792,8 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		out = m.cmdContext(fields)
 	case "/cost":
 		out = m.cmdCost()
+	case "/providers":
+		out = m.cmdProviders(fields[1:])
 	case "/fork":
 		if m.running {
 			out = m.snack("cannot fork while running")
