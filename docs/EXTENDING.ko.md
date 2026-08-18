@@ -608,6 +608,44 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- 에이전트를 �
 
 ---
 
+### 3.7.1 CLI를 백엔드 전체로 — 동봉된 백엔드 플러그인
+
+§3.7의 프록시는 진짜 HTTP 백엔드로 전달합니다. 한 걸음 더 가면 HTTP 백엔드가 아예 없습니다:
+셔임이 곧 백엔드이고, 채팅 요청 하나가 CLI 실행 한 번으로 채워집니다. 저장소의 플러그인 둘이
+정확히 이것을 하며, 이 절의 실작동 예제입니다 — [`plugins/antigravity`](../plugins/antigravity)는
+Antigravity CLI(`agy --print`)를, [`plugins/claudecode`](../plugins/claudecode)는 Claude
+Code(`claude --print`)를 몹니다. 플러그인 디렉토리에 링크하면 설치됩니다:
+
+```sh
+ln -s <repo>/plugins/claudecode "~/Library/Application Support/magi/plugins/claudecode"
+```
+
+백엔드가 CLI가 되는 순간 문제 셋이 나타나고, 플러그인들이 각각의 답 하나씩을 보여줍니다:
+
+- **툴콜.** CLI는 텍스트를 찍고, magi는 `tool_calls`를 기대합니다. 프롬프트에 툴 스키마 전부와
+  엄격한 형식 하나 — 호출은 `TOOL_CALL {"name":…,"arguments":{…}}` 한 줄 — 를 싣고, 셔임이 그
+  줄들을 도로 파싱해 네이티브 `tool_calls` 프레임으로 냅니다. 형식을 무시한 답은 텍스트로
+  내려가고, 거기서 magi의 기존 폴백 파서가 한 번 더 시도합니다.
+- **시간.** `magi.exec`는 60초에 명령을 죽이는데, 그 값은 프로브 기준이었습니다 — 오퍼스 한 턴은
+  60초짜리 명령이 아닙니다. 매니페스트가 그 상한을 넓힙니다(`exec_timeout = "5m"`, [1s, 10m]로
+  클램프). 감사자가 이미 읽는 `exec:` 권한 바로 옆입니다. `magi.exec(cmd, args,
+  {timeout="15s"})`의 셋째 인자는 반대 방향입니다: 상한을 **줄이기만** 할 수 있고, 로드 중의
+  메타데이터 조회가 그 용처입니다 — `agy models`가 거기서 행에 걸리는 것이 실측됐고, 그대로면
+  magi 자신의 기동을 5분 내내 붙잡았을 것입니다.
+- **두 번째 에이전트.** 두 CLI 다 그 자체로 에이전트라 워크스페이스에서 자기 툴을 돌릴 수
+  있습니다 — magi의 로그·권한 게이트·카운슬에 안 보이는 채로요. 그래서 `claude`는 변형 툴들을
+  이름으로 금지한 채, `agy`는 `--sandbox`로, 권한 스킵 플래그 없이 돌고, 프롬프트가 조건을
+  명시합니다: 너는 언어모델로 쓰이고 있다.
+
+**백엔드 순서**는 코어가 아니라 플러그인의 속성입니다 — 코어에는 백엔드 이름이 하나도 없습니다.
+claudecode는 `claude --version`이 답하면 활성화되고, [`plugins/codex`](../plugins/codex)는
+claude를 발견하면 물러서며, antigravity는 둘 중 하나만 발견해도 물러섭니다(각자
+`defer_to_claude = false`로 오버라이드). 아무도 base URL을 잡지 않으면 magi는 설정이 말하는 것을
+그대로 씁니다. 체인은 claude, 그다음 codex, 그다음 agy, 그다음 설정 파일 순으로 읽힙니다. 각 CLI의 자체 기능은 프로그램명이 박힌 슬래시 커맨드로 같이
+올라갑니다(`/claudecode-login`, `/antigravity-models` — 맨 `/login`이면 마지막에 등록한 플러그인
+차지가 됩니다). doctor 프로브가 "CLI가 있고 로그인돼 있나"를 첫 요청이 502로 답하기 전에
+답합니다.
+
 ### 3.8 `magi.register_tool` — 내 툴 하나 만들기
 
 이 중에서 가장 근본적이고, 이 절의 나머지가 그 위에 서는 것입니다. 플러그인이 툴을 등록하면 에이전트는

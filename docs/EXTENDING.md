@@ -660,6 +660,45 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- point the agent a
 > port (`port>0`) can fail to bind on hot reload while the previous instance still holds it, so
 > **`port=0` (automatic) is recommended**.
 
+### 3.7.1 A CLI as the whole backend — the shipped backend plugins
+
+§3.7's proxy forwards to a real HTTP backend. One step further and there is no HTTP backend at
+all: the shim **is** the backend, and each chat request is fulfilled by running a CLI once. Two
+plugins in the repository do exactly this, and they are the worked examples for this section —
+[`plugins/antigravity`](../plugins/antigravity) drives the Antigravity CLI (`agy --print`) and
+[`plugins/claudecode`](../plugins/claudecode) drives Claude Code (`claude --print`). Install one by
+linking it into a plugins directory:
+
+```sh
+ln -s <repo>/plugins/claudecode "~/Library/Application Support/magi/plugins/claudecode"
+```
+
+Three problems appear the moment the backend is a CLI, and the plugins show one answer to each:
+
+- **Tool calls.** A CLI prints text; magi expects `tool_calls`. The prompt carries every tool
+  schema and one strict format — a call is a line reading `TOOL_CALL {"name":…,"arguments":{…}}` —
+  and the shim parses those lines back out and emits them as native `tool_calls` frames. A reply
+  that ignores the format still lands as text, where magi's own fallback parser gets a second try.
+- **Time.** `magi.exec` kills a command at 60 seconds, which was sized for probes — an Opus turn
+  is not a sixty-second command. The manifest widens it (`exec_timeout = "5m"`, clamped to
+  [1s, 10m]), next to the `exec:` grant an auditor already reads. The third argument of
+  `magi.exec(cmd, args, {timeout="15s"})` goes the other way: it can only **shorten** the bound,
+  for the metadata fetches a plugin makes during load — `agy models` was observed hanging there,
+  which would have held magi's own startup for the full five minutes.
+- **A second agent.** Both CLIs are agents themselves and could run their own tools inside the
+  workspace — invisible to magi's log, permission gate and council. So `claude` runs with its
+  mutating tools disallowed by name, `agy` runs with `--sandbox` and without its skip-permissions
+  flag, and the prompt states the terms: you are being used as a language model.
+
+The **backend order** is a property of the plugins, never of core — no backend name exists there.
+claudecode activates when `claude --version` answers; [`plugins/codex`](../plugins/codex) stands
+down when it finds claude; antigravity stands down when it finds either (`defer_to_claude = false`
+overrides, on each); when none of them takes the base URL, magi keeps whatever its config names.
+The chain reads: claude, then codex, then agy, then the config file. Each CLI's own features ride along as program-named
+slash commands (`/claudecode-login`, `/antigravity-models` — a bare `/login` would be whichever
+plugin registered last), and a doctor probe answers "is the CLI there and signed in" before the
+first request can 502 on it.
+
 ### 3.8 `magi.register_tool` — a tool of your own
 
 The most fundamental of these, and the one the rest of this section builds on. A plugin registers a
