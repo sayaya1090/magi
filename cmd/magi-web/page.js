@@ -11154,9 +11154,16 @@ function renderProfiles(list) {
     const meta = cell('profmeta');
     meta.textContent = [p.model || tr('prof.no_model'), p.hasKey ? tr('prof.keyed') : '',
       p.tier === 'project' ? (p.companion || '') : tr('cron.machine')].filter(Boolean).join('  ·  ');
+    // type="button", or each press ALSO submits prefsForm (a Material button defaults to submit),
+    // and that form holds the required name field — measured: a real click on edit filled every
+    // field and the constraint check then blanked the name it had just filled, so the press read
+    // as doing nothing. The static buttons in this dialog all carry the attribute (see
+    // themeToggle); these two are built here, where it was forgotten.
     const edit = label(document.createElement('md-text-button'), tr('action.edit'));
+    edit.type = 'button';
     edit.onclick = () => { profName.value = p.name; profBase.value = p.baseUrl || ''; profModel.value = p.model || ''; profKey.value = ''; if (profName.focus) profName.focus(); };
     const del = label(withMark(document.createElement('md-text-button'), '#i-sl-trash-can'), tr('action.remove'));
+    del.type = 'button';
     del.onclick = () => whileItRuns(del, async () => {
       const why = await profWrite(new URLSearchParams({name: p.name, delete: '1'}));
       if (!why) { loadProfiles(); loadAutocomplete(); }

@@ -1068,3 +1068,25 @@ func TestTheStreamSaysWhetherATurnIsOpen(t *testing.T) {
 		t.Error("the turn frame is sent on every tick rather than when it changes")
 	}
 }
+
+// A Material button defaults to type="submit", and the profile rows' edit/remove buttons are built
+// inside prefsForm — which holds the required name field. A real click then ran the handler AND
+// submitted the form, and the constraint check blanked the very field the handler had just filled:
+// measured, edit filled all four fields and name came back empty, so both buttons read as dead.
+// Every static button in this dialog already carries type="button" (themeToggle's comment is the
+// house record of this exact defect); the two built dynamically are where it was forgotten.
+func TestTheProfileRowButtonsDoNotSubmitThePreferencesForm(t *testing.T) {
+	js, err := pageFS.ReadFile("page.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(js), "function renderProfiles")
+	if i < 0 {
+		t.Fatal("the profile list is no longer rendered here")
+	}
+	fn := string(js)[i : i+1600]
+	if n := strings.Count(fn, "type = 'button'"); n < 2 {
+		t.Errorf("%d of the two profile-row buttons opt out of form submission; a press on the "+
+			"other(s) validates the name field instead of acting", n)
+	}
+}
