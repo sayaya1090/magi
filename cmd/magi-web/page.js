@@ -3104,7 +3104,7 @@ function modelField(a, now) {
       // synchronous path uses, or a menu of one stays pressable until the next poll.
       const at = modelField.now || now;
       const n = modelField.list.filter(m => m).length + (at && !modelField.list.includes(at) ? 1 : 0);
-      sel.disabled = !may('configure') || n < 2;
+      sel.disabled = !may('configure') || n < modelField.least();
     });
   }
   // The pending value stands until the companion says it is on it, and no longer.
@@ -3119,7 +3119,7 @@ function modelField(a, now) {
   // who may configure — toggleAttribute(false) REMOVES the attribute. Disabled if EITHER holds:
   // you cannot change it, or there is nothing to change it to.
   const optionCount = models.filter(n => n).length + (modelField.now && !models.includes(modelField.now) ? 1 : 0);
-  sel.disabled = !may('configure') || optionCount < 2;
+  sel.disabled = !may('configure') || optionCount < modelField.least();
   // The provider, beside the model and before it — the pair reads left to right the way the
   // question does ("which backend, then which of its models"), and they are one row because
   // changing the first changes what the second may offer.
@@ -3203,6 +3203,15 @@ function paintProviders(sel, list) {
     sel.append(o);
   }
 }
+
+// least is how many options make this field worth pressing.
+//
+// Two, normally: with only the model it is already on there is nothing to change TO, and a menu
+// that opens on a single item you are already using is a control that does nothing. But a field
+// emptied by a backend switch has no value at all, so one option IS a choice — and a backend that
+// serves exactly one model (codex offers its default and nothing else) would otherwise leave the
+// field blank AND shut, with no way to put the companion on the only model there is.
+modelField.least = () => (modelField.blank ? 1 : 2);
 
 // paintModels fills the select with what is on offer, plus the one it is on.
 //

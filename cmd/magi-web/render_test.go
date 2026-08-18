@@ -6611,7 +6611,8 @@ provider().dispatchEvent({type: 'change'});
 for (let i = 0; i < 80; i++) await Promise.resolve();
 const after = model() ? model().value : '(no model select)';
 console.log(JSON.stringify({before, after, focusedBefore,
-  focusedIsModel: model() ? document.activeElement === model() : false}));`)
+  focusedIsModel: model() ? document.activeElement === model() : false,
+  shut: model() ? !!model().disabled : true}));`)
 
 	if got["before"] != "Gemini 3.1 Pro (High)" {
 		t.Fatalf("the model field opened on %q", got["before"])
@@ -6623,5 +6624,9 @@ console.log(JSON.stringify({before, after, focusedBefore,
 	if got["focusedIsModel"] != true {
 		t.Errorf("the focus did not move to the model after the switch; the field went blank and "+
 			"nothing pointed at the question that made it blank")
+	}
+	if got["shut"] == true {
+		t.Errorf("the emptied field is disabled: the new backend serves one model, the field holds "+
+			"none, and there is no way to put the companion on the only model there is")
 	}
 }
