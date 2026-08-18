@@ -10423,7 +10423,9 @@ function showDestination(s, v) {
   // The settings destination. Loads on arrival — by the rail button, the palette, or the address
   // bar, which are the same door now — and flushes the blur-saved templates on the way out, which
   // the dialog's close event used to cover.
-  const showSettings = !s && v === 'settings';
+  // The one destination a companion's page does NOT take over (see render): settings opened from
+  // a companion edits that companion's config, which is the whole reason the scope line exists.
+  const showSettings = v === 'settings';
   if (!settingsEl.hidden && !showSettings) { flushTpl(commitTpl, 'commitTemplate'); flushTpl(prTpl, 'prTemplate'); }
   if (settingsEl.hidden && showSettings) { loadAutocomplete(); loadProfiles(); paintNotify(); }
   settingsEl.hidden = !showSettings;
@@ -10441,14 +10443,19 @@ function paintCompanionChrome(s) {
   // The conversation and everything that acts on it belong to the companion's page, not to a
   // screen about one piece of what happened there. Standing in a verdict, "send" would put a
   // message into a conversation that is not on screen.
-  const deepNow = deepIn();
+  // Settings is the one destination a companion's page does not take over, so while it is on
+  // screen the conversation and its chrome stand down — deepIn's own screens do exactly this, and
+  // a settings screen with a composer under it would be offering to send a message into a
+  // conversation that is not being shown.
+  const onSettings = !!s && view() === 'settings';
+  const deepNow = deepIn() || onSettings;
   // One deep screen keeps the composer: a session's own transcript. The rule the others fail is
   // that the conversation is not on screen — standing in a verdict, "send" would put a message
   // into a conversation you cannot see. Standing in a session, you are looking at the conversation
   // the message would go to; it is simply not the one the companion is in yet, and that is a
   // question the composer asks before it sends rather than a reason to take the box away.
   const onSession = pastOn() && !!pastOf();
-  document.getElementById('agentdetail').hidden = !deepNow;
+  document.getElementById('agentdetail').hidden = !deepNow || onSettings;
   streamEl.hidden = !!deepNow;
   f.hidden = !s || (deepNow && !onSession);
   // Navigation changes which conversation the box would reach, and arriving at a session screen
@@ -10510,11 +10517,17 @@ function render() {
   clearTurnbar();
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
   const s = sock();
-  const v = s ? '' : view();
+  // A companion's page takes over the view — except for settings, which is the one destination
+  // that means MORE with a companion named, not less: it is that companion's own config being
+  // edited, and the screen says so. Every other view is about the fleet and would be answering a
+  // question nobody standing in a companion asked.
+  const v = s ? (view() === 'settings' ? 'settings' : '') : view();
   retitle(0);
   paintCrumbs(s, v);
   showDestination(s, v);
-  if (paintCompanionChrome(s)) return;   // one level in: drawDeep has the screen
+  // Settings draws itself in showDestination and has nothing to read from a screen table, so it
+  // returns here like the deep screens do.
+  if (paintCompanionChrome(s) || (s && v === 'settings')) return;
   const screen = SCREENS[v] || SCREENS.fleet;
   screen.read();
   screen.watch?.();
@@ -11077,13 +11090,21 @@ const commitTpl = document.getElementById('commitTpl');
 const prTpl = document.getElementById('prTpl');
 // Where the read and the write go: the companion in front of the reader, or the global config when
 // there is none.
-const acQ = () => { const f = lastDrawnFor || {}; return f.socket ? qFor(f) : '?tier=global'; };
+// Which config the settings screen reads and writes, from the ADDRESS.
+//
+// It used to come from lastDrawnFor, which is filled while drawing a companion's CONVERSATION —
+// a page this screen never draws. So on a companion's settings the socket was null and every
+// switch wrote the machine-wide file while the screen was open on that companion: the hidden
+// axis this screen exists to make visible, getting the answer wrong in silence. sock()/peerOf()
+// read the same query the scope header does, so what the header names is what gets written.
+const acQ = () => (sock() ? qFor({socket: sock(), peer: peerOf()}) : '?tier=global');
 const acSave = (field, value) => {
-  const f = lastDrawnFor || {};
+  // Same source as acQ, for the same reason: the screen writes where it says it is writing.
+  const socket = sock();
   const body = new URLSearchParams();
   body.set(field, value);
-  if (!f.socket) body.set('tier', 'global');   // the global config is not addressed by a socket
-  return post('/autocomplete', body, f.socket || null, f.peer || null);
+  if (!socket) body.set('tier', 'global');   // the global config is not addressed by a socket
+  return post('/autocomplete', body, socket || null, peerOf() || null);
 };
 const fillProfiles = (sel, profiles, current) => {
   if (!sel) return;
@@ -11133,9 +11154,13 @@ function drawScope(file) {
   const k = document.getElementById('settingsScopeK');
   const f = document.getElementById('settingsScopeFile');
   if (!k || !f) return;
-  const a = lastDrawnFor;
-  k.textContent = a && a.socket
-    ? tr('settings.scope_project', {name: nameOf(a.socket) || a.name || ''})
+  // From the ADDRESS, not from lastDrawnFor: that is filled while drawing a companion's
+  // conversation, and this screen never draws one — so on a companion's settings it was still
+  // null and the header said "machine-wide" over a project config. sock() is the same source
+  // acQ() builds the request from, which is what makes the header and the write agree.
+  const socket = sock();
+  k.textContent = socket
+    ? tr('settings.scope_project', {name: nameOf(socket) || ''})
     : tr('settings.scope_global');
   f.textContent = file ? tr('settings.scope_file', {file: file}) : '';
 }

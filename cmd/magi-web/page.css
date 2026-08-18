@@ -507,6 +507,17 @@
     margin-bottom:var(--magi-sys-space-300);
   }
   #settings[hidden] { display:none; }
+  /* The scope line is the screen's most important sentence — it says which file every switch below
+     writes — so it is set apart rather than left to read as the first row of settings. The
+     companion's name inside it carries the emphasis: "which one am I configuring" is the question,
+     and the name is the answer. */
+  #settingsScope {
+    padding:var(--magi-sys-space-200); margin-bottom:var(--magi-sys-space-300);
+    border-left:3px solid var(--magi-ref-primary);
+    background:var(--magi-ref-surface-container-low);
+    border-radius:var(--magi-sys-shape-s);
+  }
+  #settingsScope .k { font-weight:600; color:var(--magi-ref-fg); }
 
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
@@ -1434,6 +1445,7 @@
      making itself unreadable. A step down the tonal ladder says the same thing to the eye, leaves
      every word at the contrast it was designed for, and keeps the badge as the second indicator. */
   .card.stopped { background:var(--magi-ref-surface-container-lowest); }
+
 
   /* A team's heading. Set as a rule with a name on it rather than as a bar: this page separates
      with lines, and a filled band per team would turn a table into a stack of boxes. */
