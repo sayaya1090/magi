@@ -72,8 +72,29 @@ func selfKillReason(command, selfCmdline, selfName string) string {
 	return ""
 }
 
-// patternMatches applies pat as a regex (pkill semantics), falling back to a
-// substring test when it doesn't compile.
+// patternMatches applies pat as a regex (pkill semantics) against target.
+//
+// # Why a pattern Go rejects is the dangerous case, not the safe one
+//
+// Go's regexp is RE2 and refuses a doubled quantifier: `regexp.Compile("g++")` fails with
+// "invalid nested repetition operator". The old fallback then asked whether the target CONTAINS
+// the literal "g++" — which no process name does — and answered "no match, let it run".
+//
+// The system's pkill is not RE2. Measured 2026-08-18: on Linux `echo magi | grep -E 'g++'` MATCHES
+// (glibc and busybox both read the second + as a repeat of `g+`, so the pattern is any name
+// holding a "g"); on macOS the same pattern is rejected with exit 2 and kills nothing. So the one
+// reading Go could not parse is the reading that, on the platform the benchmark containers run,
+// matches this agent's own name.
+//
+// That is not hypothetical. A run rebuilding Caffe swept its stale compilers with
+// `pkill -9 make; pkill -9 cmake; pkill -9 g++; pkill -9 cc1plus`, the guard passed it, and the
+// trial ended in a non-zero exit — the binary is magi-amd64, and "g++" as glibc reads it matches
+// any name with a g in it.
+//
+// So an uncompilable pattern is answered conservatively: strip the metacharacters and ask whether
+// what is LEFT appears in our name. `g++` leaves `g`, which is in "magi", and the kill is refused.
+// `c++` leaves `c`, which is not, and it runs. The guard's question is "could this kill us", and
+// the honest answer to "I cannot read this pattern" is not "probably not".
 func patternMatches(pat, target string) bool {
 	if pat == "" || target == "" {
 		return false
@@ -81,7 +102,33 @@ func patternMatches(pat, target string) bool {
 	if re, err := regexp.Compile(pat); err == nil {
 		return re.MatchString(target)
 	}
-	return strings.Contains(target, pat)
+	// Doubled quantifiers are the common case and mean, to every engine that accepts them, what
+	// the single one means. Try that reading before falling back further.
+	if re, err := regexp.Compile(collapseQuantifiers(pat)); err == nil {
+		return re.MatchString(target)
+	}
+	if lit := regexMetaOnly.ReplaceAllString(pat, ""); lit != "" {
+		return strings.Contains(target, lit)
+	}
+	// Nothing left to compare: a pattern that is all metacharacters matches broadly by definition.
+	return true
+}
+
+// doubledQuantifier collapses `++`, `**`, `??` and longer runs to one character, which is how an
+// engine that accepts them reads them.
+var doubledQuantifier = regexp.MustCompile(`([+*?])[+*?]+`)
+
+// regexMetaOnly strips the characters that make a pattern a pattern, leaving its literal text.
+var regexMetaOnly = regexp.MustCompile(`[.+*?()|\[\]{}^$\\]`)
+
+func collapseQuantifiers(pat string) string {
+	for {
+		next := doubledQuantifier.ReplaceAllString(pat, "$1")
+		if next == pat {
+			return pat
+		}
+		pat = next
+	}
 }
 
 // windowsNameMatches compares a taskkill/Stop-Process name (optionally with .exe
