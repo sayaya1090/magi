@@ -11,6 +11,8 @@
   "ac.head": "Completion settings",
   "ac.head_why": "What the companion reads, for the companion the console is looking at (or the global config). Saved to its config.toml and applied when its daemon next starts.",
   "ac.pr_tpl": "Pull request rules",
+  "ac.profile_here": "this companion",
+  "ac.profile_everywhere": "every companion",
   "ac.profile_missing": "not defined",
   "ac.profile_none": "None (off)",
   "ac.profile_pick": "Profile",

@@ -67,7 +67,14 @@ func TestThePickerMarksTheSavedProfileWithoutRacingTheComponent(t *testing.T) {
 	if i < 0 {
 		t.Fatal("the profile picker no longer fills itself here")
 	}
-	fn := js[i : i+2000]
+	// To the end of the function, not a fixed number of characters. It was js[i:i+2000], and the
+	// window stopped covering the tail the moment the function grew — a test that silently narrows
+	// as the code it guards gets longer.
+	end := strings.Index(js[i:], "\n};")
+	if end < 0 {
+		t.Fatal("fillProfiles does not end where this expects")
+	}
+	fn := js[i : i+end]
 	if !strings.Contains(fn, `setAttribute('selected', '')`) {
 		t.Error("the chosen option is marked only as a property, which the component's reset drops")
 	}

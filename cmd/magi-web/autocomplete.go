@@ -20,14 +20,18 @@ import (
 // composer completion are the browser's own (localStorage), because they gate whether THIS console
 // asks at all; these are the things the daemon needs to know.
 type autocompleteSettings struct {
-	Ambient         *bool    `json:"ambient"`
-	CrossSession    *bool    `json:"crossSession"`
-	CodeProfile     string   `json:"codeProfile"`
-	ComposerProfile string   `json:"composerProfile"`
-	CommitTemplate  string   `json:"commitTemplate"`
-	PRTemplate      string   `json:"prTemplate"`
-	Profiles        []string `json:"profiles"` // the [llm.profiles.*] a profile field may name
-	File            string   `json:"file"`     // where a write lands, so a person can go and look
+	Ambient         *bool  `json:"ambient"`
+	CrossSession    *bool  `json:"crossSession"`
+	CodeProfile     string `json:"codeProfile"`
+	ComposerProfile string `json:"composerProfile"`
+	CommitTemplate  string `json:"commitTemplate"`
+	PRTemplate      string `json:"prTemplate"`
+	// Profiles is every [llm.profiles.*] a completion field may point at, each with WHERE it comes
+	// from. The name alone was enough to fill the picker and not enough to answer the question a
+	// reader actually has in front of it — why a profile they just added is not on the list. It is
+	// on the list of the tier they wrote it to, and the picker had no way to say so.
+	Profiles []profileChoice `json:"profiles"`
+	File     string          `json:"file"` // where a write lands, so a person can go and look
 }
 
 func (s *server) autocomplete(w http.ResponseWriter, r *http.Request) {
@@ -49,30 +53,40 @@ func (s *server) autocomplete(w http.ResponseWriter, r *http.Request) {
 		Ambient: ac.Ambient, CrossSession: ac.CrossSession,
 		CodeProfile: ac.CodeProfile, ComposerProfile: ac.ComposerProfile,
 		CommitTemplate: cfg.Templates.Commit, PRTemplate: cfg.Templates.PR,
-		Profiles: s.profileNames(path), File: path,
+		Profiles: s.profileChoices(path), File: path,
 	})
 }
 
-// profileNames is every [llm.profiles.*] a completion field may point at: the ones in the file being
-// edited, plus this console's global ones, since a project inherits those. Sorted and de-duplicated.
-func (s *server) profileNames(path string) []string {
-	seen := map[string]bool{}
-	add := func(c config.Config) {
+// profileChoice is one assignable backend and the tier it was defined in.
+type profileChoice struct {
+	Name string `json:"name"`
+	// Tier is "global" or "project". A name defined in BOTH is reported as project, because that is
+	// which one wins: the project table is merged over the global one (mergeProjectConfig), so the
+	// picker must not say "global" about a definition the daemon will not use.
+	Tier string `json:"tier"`
+}
+
+// profileChoices is every [llm.profiles.*] a completion field may point at: the ones in the file
+// being edited and the global ones, which is exactly the set the daemon resolves for that file.
+func (s *server) profileChoices(path string) []profileChoice {
+	tier := map[string]string{}
+	add := func(c config.Config, t string) {
 		for n := range c.LLM.Profiles {
-			seen[n] = true
+			tier[n] = t
 		}
 	}
 	if g, err := config.Load(s.cfgDir); err == nil {
-		add(g)
+		add(g, "global")
 	}
+	// Second, so a name defined in both ends up marked project — the tier that wins.
 	if c, err := config.Load(filepath.Dir(path)); err == nil {
-		add(c)
+		add(c, "project")
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
+	out := make([]profileChoice, 0, len(tier))
+	for n, t := range tier {
+		out = append(out, profileChoice{Name: n, Tier: t})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

@@ -11,6 +11,8 @@
   "ac.head": "자동완성 설정",
   "ac.head_why": "컴패니언이 읽는 설정입니다. 콘솔이 보고 있는 컴패니언(없으면 전역 설정) 기준으로, 그 config.toml에 저장되고 데몬이 다음에 시작할 때 적용됩니다.",
   "ac.pr_tpl": "PR 규칙",
+  "ac.profile_here": "이 컴패니언",
+  "ac.profile_everywhere": "모든 컴패니언",
   "ac.profile_missing": "정의 안 됨",
   "ac.profile_none": "없음 (끔)",
   "ac.profile_pick": "프로파일",

@@ -358,7 +358,7 @@ const demoScript = `
       codeProfile: 'fast', composerProfile: 'balanced',
       commitTemplate: 'Layer the commits: docs, then core, then the outward change.\nDescribe only what the diff shows — no issue numbers.',
       prTemplate: '',
-      profiles: ['balanced', 'fast'],
+      profiles: [{name: 'balanced', tier: 'global'}, {name: 'fast', tier: 'project'}],
       file: '/Users/you/work/design-system/.magi/config.toml',
     },
     // The workspace, as the companion's own read-only tools answer it: a directory listing, and a

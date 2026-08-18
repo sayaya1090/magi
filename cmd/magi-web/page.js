@@ -11080,11 +11080,19 @@ const fillProfiles = (sel, profiles, current) => {
     sel.append(o);
   };
   opt('', tr('ac.profile_none'));
-  const have = profiles || [];
-  for (const p of have) opt(p, p);
+  // Each entry says WHERE it is defined. The name alone filled the picker and could not answer the
+  // question a reader has in front of it — why a profile they just added is not offered here. It is
+  // offered on the tier they wrote it to: a profile in a companion's own .magi/config.toml is
+  // resolvable by that companion and by nobody else, which is what the daemon's own merge does.
+  const have = (profiles || []).map(p => (typeof p === 'string' ? {name: p, tier: 'global'} : p));
+  for (const p of have) {
+    opt(p.name, p.name + ' — ' + tr(p.tier === 'project' ? 'ac.profile_here' : 'ac.profile_everywhere'));
+  }
   // A profile assigned but no longer defined (deleted from [llm.profiles.*]) would otherwise render
   // as a blank select, hiding the stale assignment. Show it, marked, so the operator can see and fix it.
-  if (current && have.indexOf(current) < 0) opt(current, current + ' — ' + tr('ac.profile_missing'));
+  if (current && !have.some(p => p.name === current)) {
+    opt(current, current + ' — ' + tr('ac.profile_missing'));
+  }
   // Assigning value here would do nothing: the setter is `select(v)`, which looks the value up in
   // `this.menu?.items ?? []` and gives up quietly when it finds none — and immediately after these
   // options were appended the menu has not rendered, so it finds none EVERY time. The saved choice
