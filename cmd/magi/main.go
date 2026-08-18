@@ -1925,7 +1925,7 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 	var lastThinkBeat time.Time
 	for e := range sub {
 		if jsonOut {
-			b, _ := json.Marshal(e)
+			b, _ := json.Marshal(boundedForLine(e))
 			fmt.Fprintln(out, string(b))
 		} else if e.Type == event.TypePartDelta {
 			// Reasoning deltas are transient and never enter the transcript, so a model
@@ -2998,4 +2998,49 @@ func resolveBackend(explicit map[string]bool, f backendFlags, cfg config.Config,
 		out.apiKey = config.ExpandEnv(cfg.APIKey)
 	}
 	return out
+}
+
+// maxJSONLine bounds one line of the headless stream.
+//
+// 32 KiB, which is half of asyncio's default readline buffer and well under every other
+// line-oriented reader's — the whole point is to sit below the SMALLEST plausible limit rather than
+// to match one consumer's.
+const maxJSONLine = 32 << 10
+
+// boundedForLine clips the one field that can make a fact too long to read.
+//
+// The headless contract is a line-delimited JSON fact per line, and until now nothing bounded a
+// line. A reasoning part is the field with no natural ceiling: measured 2026-08-18, a run at the
+// model's own default reasoning depth emitted a single `part.appended` of 142,410 bytes, and the
+// reader on the other end — asyncio's readline, which is what anything driving a container through
+// a pipe tends to use — raised "Separator is not found, and chunk exceed the limit" and took the
+// whole run with it. Nothing was wrong with the JSON. It was one line too long to be read as a line.
+//
+// Only the STREAM is clipped. The event is already in the log by the time it reaches here, whole,
+// and the log is what a transcript, a resume and a council read. This bounds what crosses a pipe,
+// which is the only place the length hurts.
+//
+// The cut is announced in the text itself rather than in a flag beside it: a consumer that shows
+// the field would otherwise present a truncation as the model's own words trailing off.
+func boundedForLine(e event.Event) event.Event {
+	if len(e.Data) <= maxJSONLine {
+		return e
+	}
+	var d event.PartAppendedData
+	if json.Unmarshal(e.Data, &d) != nil || d.Part.Kind != session.PartReasoning {
+		return e // not the shape this knows how to shorten; better whole than mangled
+	}
+	keep := maxJSONLine / 2
+	if len(d.Part.Text) <= keep {
+		return e
+	}
+	d.Part.Text = d.Part.Text[:keep] +
+		fmt.Sprintf("\n… (%d more bytes of reasoning, cut so this stays one readable line; "+
+			"the log has all of it)", len(d.Part.Text)-keep)
+	nd, err := json.Marshal(d)
+	if err != nil {
+		return e
+	}
+	e.Data = nd
+	return e
 }
