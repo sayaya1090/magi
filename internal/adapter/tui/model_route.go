@@ -34,6 +34,11 @@ func (m *Model) fetchModelsCmd() tea.Cmd {
 		defer cancel()
 		ids, err := a.ListModels(ctx)
 		if err != nil {
+			// Both endings land the same way HERE — the suggest box falls back to the configured
+			// profiles and then to free text — but they are different facts and the difference is
+			// kept rather than flattened at the source: ErrCapabilityAbsent means this backend
+			// does not answer that question at all, anything else means it was asked and failed.
+			// A later reader wanting to say which is which has it; today neither changes the box.
 			ids = nil
 		}
 		return modelCatalogMsg{models: ids}

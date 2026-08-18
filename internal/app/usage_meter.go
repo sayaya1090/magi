@@ -67,9 +67,46 @@ type meteredProvider struct {
 }
 
 // Unwrap returns the provider underneath, so a caller that needs the backend ITSELF — an identity
-// comparison, or an optional capability this wrapper does not forward — can reach it. unwrapProvider
-// is the way to ask without knowing whether a wrapper is there.
+// comparison, say — can reach it.
+//
+// It is no longer the way to reach an optional capability: this wrapper forwards them (below), and
+// a caller that had to unwrap to ask a question was a caller who could forget to.
 func (m *meteredProvider) Unwrap() port.LLMProvider { return m.inner }
+
+// Every optional capability, forwarded. This wrapper sits OUTSIDE the guard on every model request
+// (providerFor), so a capability it drops is one no caller downstream can reach — the same silent
+// loss the guard was found guilty of, one layer further out.
+var _ port.ProviderExtras = (*meteredProvider)(nil)
+
+func (m *meteredProvider) ListModels(ctx context.Context) ([]string, error) {
+	lister, ok := m.inner.(port.ModelLister)
+	if !ok {
+		return nil, port.ErrCapabilityAbsent
+	}
+	return lister.ListModels(ctx)
+}
+
+func (m *meteredProvider) ProbeContextWindow(ctx context.Context, model string) (int, bool) {
+	prober, ok := m.inner.(port.ContextProber)
+	if !ok {
+		return 0, false
+	}
+	return prober.ProbeContextWindow(ctx, model)
+}
+
+func (m *meteredProvider) SetBaseURL(url string) uint64 {
+	setter, ok := m.inner.(port.BaseRedirector)
+	if !ok {
+		return 0
+	}
+	return setter.SetBaseURL(url)
+}
+
+func (m *meteredProvider) ClearBaseURL(tok uint64) {
+	if clearer, ok := m.inner.(port.BaseRedirector); ok {
+		clearer.ClearBaseURL(tok)
+	}
+}
 
 // StreamChat forwards the request and tees the usage event out of the reply. The stream is passed
 // through unchanged and in order — this observes, it never withholds or reorders — so a consumer

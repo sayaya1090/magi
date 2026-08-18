@@ -371,6 +371,37 @@ replay, deduped by seq (race-safe late-joiner).
 
 ## 3. Ports (`internal/port/port.go`)
 
+### Two rules this section is here to state
+
+Three defects in one week had one shape, and neither was caught by a test because neither produced
+an error. Both rules below exist to make that shape impossible to write.
+
+**One source per fact.** A thing that can change has exactly one place that answers what it is now,
+and every reader goes there. The session's model had three — the log, the daemon's memory, and a
+bus announcement — and they disagreed the moment one of them was updated alone: `SetModel` wrote
+memory and announced on the bus, so the console, which reads the log, repainted the opening model
+after every successful change and the operator saw their choice snap back. The model is a log fact
+now, and the meta scan reads the newest one. When a new mutable fact appears, name its one source
+in the comment where it is written; a second place that "also knows" is a place that will be wrong.
+
+**"I cannot say" is not "there is nothing."** An answer that folds the two together cannot be acted
+on differently, and the empty one always looks like the harmless one. `App.ListModels` returned
+`(nil, nil)` both when a backend listed no models and when nobody had asked it — so an empty model
+menu was indistinguishable from a menu that was never populated, and stayed empty for as long as a
+wrapper had been swallowing the question. Absence now answers `port.ErrCapabilityAbsent`, and the
+console logs the reason its menu is short instead of drawing the same blank for both.
+
+The second rule has a structural half. `LLMProvider` declares one method because `StreamChat` is
+the only thing every backend must do; everything else — listing a catalogue, measuring a window,
+being redirected — is reached by a type assertion, and a type assertion meets whatever WRAPPER is
+in front. Both wrappers here (the stream guard, the usage meter) were written implementing the port
+and nothing more, so those capabilities disappeared one layer up with nothing refusing. They are
+named interfaces now (`ModelLister`, `ContextProber`, `BaseRedirector`, together `ProviderExtras`),
+every wrapper carries `var _ port.ProviderExtras = …`, and `internal/arch` fails the build when a
+new wrapper appears without it — so the compiler names the missing method at the moment it is
+written, rather than a menu going quiet six months later.
+
+
 - **`LLMProvider`**: `StreamChat(ctx, ChatRequest) (<-chan ProviderEvent, error)`.
   `ProviderEventType` ∈ text-delta | reasoning-delta | tool-call | finish | usage | error.
 - **`Store`**: `Append/Read/ListSessions/ChildSessions/Compact/Truncate`. `Compact`

@@ -358,6 +358,33 @@ type Actor struct { Kind ActorKind; ID string } // user | agent | system
 
 ## 3. 포트 (`internal/port/port.go`)
 
+### 이 절이 못박는 두 규칙
+
+한 주에 나온 결함 셋이 같은 모양이었고, 어느 것도 테스트에 걸리지 않았습니다. 에러를 내지 않았기
+때문입니다. 아래 두 규칙은 그 모양을 아예 쓸 수 없게 만들려고 있습니다.
+
+**사실 하나에 출처 하나.** 변하는 것에는 "지금 무엇인가"에 답하는 자리가 정확히 하나이고, 모든
+독자가 그리로 갑니다. 세션의 모델은 셋이었습니다 — 로그, 데몬의 메모리, 버스 공지 — 그리고 하나만
+갱신되는 순간 어긋났습니다. `SetModel`이 메모리를 쓰고 버스로 알리니, 로그를 읽는 콘솔은 성공한
+변경 뒤에도 개시 모델을 다시 칠했고 사용자는 자기 선택이 되돌아가는 것을 봤습니다. 이제 모델은 로그
+사실이고 메타 스캔이 최신 것을 읽습니다. 변하는 사실이 새로 생기면 기록하는 자리의 주석에 그 하나의
+출처를 적으십시오. "여기도 안다"는 두 번째 자리는 언젠가 틀릴 자리입니다.
+
+**"모르겠다"는 "없다"가 아닙니다.** 둘을 한 답으로 접으면 다르게 대응할 수 없고, 빈 쪽이 늘 무해해
+보입니다. `App.ListModels`는 백엔드가 모델을 하나도 안 내놓을 때와 아무도 묻지 않았을 때 똑같이
+`(nil, nil)`을 돌려줬습니다 — 그래서 빈 모델 메뉴가 "채워진 적 없는 메뉴"와 구분되지 않았고, 래퍼가
+질문을 삼키는 동안 내내 비어 있었습니다. 이제 부재는 `port.ErrCapabilityAbsent`로 답하고, 콘솔은
+같은 공백을 두 번 그리는 대신 메뉴가 짧은 이유를 로그에 남깁니다.
+
+두 번째 규칙에는 구조적 절반이 있습니다. `LLMProvider`가 메서드 하나만 선언하는 것은 모든 백엔드가
+반드시 하는 일이 `StreamChat`뿐이기 때문입니다. 나머지는 — 카탈로그 나열, 윈도 측정, 주소 전환 —
+타입 단언으로 닿고, 타입 단언은 앞에 있는 **래퍼**를 만납니다. 여기 있는 래퍼 둘(스트림 가드, 사용량
+미터)은 포트만 구현한 채 쓰였고, 그래서 그 능력들이 아무 거부 없이 한 층 위에서 사라졌습니다. 이제
+이름 있는 인터페이스이고(`ModelLister`·`ContextProber`·`BaseRedirector`, 합쳐 `ProviderExtras`),
+모든 래퍼가 `var _ port.ProviderExtras = …`를 답니다. `internal/arch`가 그 줄 없는 새 래퍼를 빌드
+실패로 만들므로, 여섯 달 뒤 메뉴가 조용해지는 대신 컴파일러가 그 자리에서 빠진 메서드를 지목합니다.
+
+
 - **`LLMProvider`**: `StreamChat(ctx, ChatRequest) (<-chan ProviderEvent, error)`.
   `ProviderEventType` ∈ text-delta | reasoning-delta | tool-call | finish | usage | error.
 - **`Store`**: `Append/Read/ListSessions/ChildSessions/Compact/Truncate`. `Compact`는 스냅샷 이벤트

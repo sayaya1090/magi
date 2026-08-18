@@ -23,6 +23,50 @@ type LLMProvider interface {
 	StreamChat(ctx context.Context, r ChatRequest) (<-chan ProviderEvent, error)
 }
 
+// A provider is more than the one method above, and the extras are where wrappers go wrong.
+//
+// StreamChat is the only thing every backend must do, so it is the only thing the port demands.
+// The rest — listing a catalog, measuring a window, being pointed somewhere else — is offered by
+// some backends and not others, and callers reach it with a type assertion. That worked until
+// somebody wrapped a provider: a wrapper implements the port, satisfies the assertion's target
+// type never, and the caller reads the miss as "this backend cannot do that". Measured: the
+// console's model menu came back empty for weeks with a backend behind it that listed three
+// models to a plain curl.
+//
+// Naming them makes the obligation checkable. Every wrapper in this tree carries a compile-time
+// assertion against ProviderExtras, and internal/arch fails the build if a new one appears
+// without it — so a capability can be added to a backend without being silently dropped one layer
+// up.
+type ModelLister interface {
+	// ListModels returns the backend's catalog. ErrCapabilityAbsent when the backend does not
+	// answer that question — which is NOT the same as an empty catalog, and callers that fold the
+	// two together end up offering nothing where they should be saying "this one cannot say".
+	ListModels(ctx context.Context) ([]string, error)
+}
+
+type ContextProber interface {
+	// ProbeContextWindow reports a model's real window. ok=false means unknown.
+	ProbeContextWindow(ctx context.Context, model string) (int, bool)
+}
+
+type BaseRedirector interface {
+	// SetBaseURL points the backend elsewhere and returns a token to release the override with.
+	SetBaseURL(url string) uint64
+	ClearBaseURL(tok uint64)
+}
+
+// ProviderExtras is the whole optional surface, as one name a wrapper can be held to.
+type ProviderExtras interface {
+	ModelLister
+	ContextProber
+	BaseRedirector
+}
+
+// ErrCapabilityAbsent is what an optional capability answers when the backend underneath does not
+// have it. It exists so "I cannot say" stops arriving as "there is nothing" — the shape that made
+// an empty model menu indistinguishable from a backend that never got asked.
+var ErrCapabilityAbsent = errors.New("this backend does not offer that")
+
 // ChatRequest is a provider-agnostic chat completion request.
 type ChatRequest struct {
 	Model    string

@@ -154,11 +154,13 @@ func (a *App) SessionModel(sid session.SessionID) string {
 // assertion — a provider that doesn't implement it (or a nil provider) yields
 // (nil, nil), and the editor falls back to configured profiles / free text.
 func (a *App) ListModels(ctx context.Context) ([]string, error) {
-	lister, ok := a.llm.(interface {
-		ListModels(context.Context) ([]string, error)
-	})
+	lister, ok := a.llm.(port.ModelLister)
 	if !ok {
-		return nil, nil
+		// "I cannot say", not "there is nothing". They were one answer here — (nil, nil) — and a
+		// caller cannot act differently on facts it was handed identically: an empty menu meant
+		// both "this backend lists no models" and "nobody asked it", and the second is a bug the
+		// first hides. The sentinel separates them; callers that only want a list still get one.
+		return nil, port.ErrCapabilityAbsent
 	}
 	return lister.ListModels(ctx)
 }

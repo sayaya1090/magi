@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"strings"
 
@@ -84,6 +85,12 @@ func (s *server) models(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		// An empty list, not an error page: the screen then shows the model it is on and does not
 		// offer to change it, which is the truthful picture when nobody could say what else exists.
+		//
+		// The reason is logged rather than dropped. "The backend does not list models" and "the
+		// daemon could not be reached" arrive here as the same empty menu, and for months the
+		// second was mistaken for the first — an operator looking at a dead control had nothing to
+		// read anywhere. The screen still shows what it can; the log says why it is short.
+		log.Printf("magi-web: no model list for %s: %v", r.URL.Query().Get("d"), err)
 		writeJSON(w, "models", []string{})
 		return
 	}

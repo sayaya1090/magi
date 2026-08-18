@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/port"
@@ -50,16 +51,14 @@ func TestTheGuardForwardsWhatItDoesNotImplement(t *testing.T) {
 	}
 }
 
-// A provider that genuinely cannot answer still reads as "cannot say" rather than as an error, so
-// the caller's fallback (configured profiles, then free text) is reached the same way it was
-// before the guard existed.
-func TestAProviderWithNothingToSayStillSaysNothing(t *testing.T) {
+// A provider that genuinely cannot answer says which kind of nothing it is. Written a few hours
+// earlier, this test asserted the older contract — silence indistinguishable from an empty
+// catalogue — which is the shape that let an empty menu hide a swallowed question.
+func TestAProviderWithNothingToSayNamesTheAbsence(t *testing.T) {
 	g := GuardProvider(noopProvider{})
-	lister := g.(interface {
-		ListModels(context.Context) ([]string, error)
-	})
+	lister := g.(port.ModelLister)
 	got, err := lister.ListModels(context.Background())
-	if err != nil || got != nil {
+	if !errors.Is(err, port.ErrCapabilityAbsent) {
 		t.Errorf("a silent provider answered %v (%v)", got, err)
 	}
 }

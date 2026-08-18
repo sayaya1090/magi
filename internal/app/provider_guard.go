@@ -76,6 +76,11 @@ func degenerateRepeat(tail []byte) int {
 // When it fires it logs to stderr so a run can confirm the guard actually activated.
 type guardedProvider struct{ inner port.LLMProvider }
 
+// The wrapper keeps every optional capability its inner provider might have. Checked here rather
+// than discovered by a caller whose menu came back empty; internal/arch requires this line of any
+// type that wraps a provider.
+var _ port.ProviderExtras = guardedProvider{}
+
 // GuardProvider wraps p with the universal hang guard. Idempotent and nil-safe, so it is cheap to apply
 // at every provider-creation site.
 func GuardProvider(p port.LLMProvider) port.LLMProvider {
@@ -128,11 +133,9 @@ func providerGuardCap() int {
 // arrived. So the guard forwards what it does not implement, which is what a wrapper owes the
 // thing it wraps.
 func (g guardedProvider) ListModels(ctx context.Context) ([]string, error) {
-	lister, ok := g.inner.(interface {
-		ListModels(context.Context) ([]string, error)
-	})
+	lister, ok := g.inner.(port.ModelLister)
 	if !ok {
-		return nil, nil // the same "cannot say" the unwrapped path gives
+		return nil, port.ErrCapabilityAbsent
 	}
 	return lister.ListModels(ctx)
 }
@@ -142,7 +145,7 @@ func (g guardedProvider) ListModels(ctx context.Context) ([]string, error) {
 // this companion from one CLI backend to another). Forwarded for the same reason as the two
 // above: a wrapper that swallows a capability makes the caller believe it was refused.
 func (g guardedProvider) SetBaseURL(url string) uint64 {
-	setter, ok := g.inner.(interface{ SetBaseURL(string) uint64 })
+	setter, ok := g.inner.(port.BaseRedirector)
 	if !ok {
 		return 0
 	}
@@ -150,7 +153,7 @@ func (g guardedProvider) SetBaseURL(url string) uint64 {
 }
 
 func (g guardedProvider) ClearBaseURL(tok uint64) {
-	clearer, ok := g.inner.(interface{ ClearBaseURL(uint64) })
+	clearer, ok := g.inner.(port.BaseRedirector)
 	if !ok {
 		return
 	}
@@ -158,9 +161,7 @@ func (g guardedProvider) ClearBaseURL(tok uint64) {
 }
 
 func (g guardedProvider) ProbeContextWindow(ctx context.Context, model string) (int, bool) {
-	prober, ok := g.inner.(interface {
-		ProbeContextWindow(context.Context, string) (int, bool)
-	})
+	prober, ok := g.inner.(port.ContextProber)
 	if !ok {
 		return 0, false
 	}

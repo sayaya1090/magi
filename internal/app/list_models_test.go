@@ -48,12 +48,21 @@ func TestListModelsPropagatesError(t *testing.T) {
 	}
 }
 
-// A provider that does NOT implement ListModels yields (nil, nil) rather than
-// panicking, so the /route suggest box degrades to profiles / free text.
-func TestListModelsUnsupportedIsNilNil(t *testing.T) {
+// A provider that does NOT implement ListModels says so, rather than answering the way a provider
+// with an empty catalogue answers.
+//
+// This test used to require (nil, nil) — the defect written down as the contract. The two facts
+// arrived identically, so no caller could tell them apart, and an empty model menu meant both
+// "this backend lists nothing" and "the question never reached it". The second went unnoticed for
+// as long as a wrapper had been swallowing it. The suggest box still degrades to profiles and free
+// text; what changed is that the reason is now legible to anyone who wants it.
+func TestListModelsUnsupportedSaysSoRatherThanLookingEmpty(t *testing.T) {
 	a := newAppWith(t, &fakeLLM{}) // fakeLLM has no ListModels method
 	got, err := a.ListModels(context.Background())
-	if err != nil || got != nil {
-		t.Fatalf("ListModels on an unsupported provider = (%v, %v), want (nil, nil)", got, err)
+	if !errors.Is(err, port.ErrCapabilityAbsent) {
+		t.Fatalf("ListModels on an unsupported provider = (%v, %v), want ErrCapabilityAbsent", got, err)
+	}
+	if got != nil {
+		t.Errorf("the absent answer carried a list: %v", got)
 	}
 }
