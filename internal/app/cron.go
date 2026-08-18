@@ -187,7 +187,11 @@ func (s *cronScheduler) complain(name, what string) {
 	s.report(fmt.Sprintf("cron %q: %s", name, what))
 }
 
-// Jobs returns what is armed, in name order. For the daemon's startup line and for tests.
+// Jobs returns what is armed, in name order.
+//
+// For tests. It said "for the daemon's startup line and for tests" and the startup line stopped
+// calling it — a comment naming a caller that is gone is how a reader concludes the accessor is
+// load-bearing and leaves it alone.
 func (s *cronScheduler) Jobs() []scheduledJob { return s.jobs }
 
 // tickOnce fires everything now owed. Separated from the waiting so a test can drive it with a

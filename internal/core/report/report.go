@@ -171,12 +171,3 @@ func (c Contract) Spec() string {
 	}
 	return b.String()
 }
-
-// Keys is the contract's section names in order.
-func (c Contract) Keys() []string {
-	out := make([]string, 0, len(c))
-	for _, s := range c {
-		out = append(out, s.Key)
-	}
-	return out
-}

@@ -642,31 +642,6 @@ func (v *Text) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Texts is a list-of-strings field that also accepts a SINGLE string (the model answers with one
-// item instead of a one-element list) and drops elements it cannot render as text.
-type Texts []string
-
-func (v *Texts) UnmarshalJSON(b []byte) error {
-	var list []Text
-	if json.Unmarshal(b, &list) == nil {
-		out := make([]string, 0, len(list))
-		for _, t := range list {
-			if s := strings.TrimSpace(string(t)); s != "" {
-				out = append(out, s)
-			}
-		}
-		*v = out
-		return nil
-	}
-	var one Text
-	if json.Unmarshal(b, &one) == nil && strings.TrimSpace(string(one)) != "" {
-		*v = Texts{strings.TrimSpace(string(one))}
-		return nil
-	}
-	*v = nil
-	return nil
-}
-
 // Number is a numeric field that also accepts a QUOTED number ("0.9"), which a model routinely
 // emits where the schema says a float. A strict float64 rejected the whole reply over it — for a
 // council verdict that means the member is recorded as abstaining and a vote that was cast is lost.

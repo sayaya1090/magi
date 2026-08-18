@@ -113,3 +113,20 @@ func TestSetProfileOnFreshAppNoNilMapPanic(t *testing.T) {
 		t.Fatalf("profile not recorded on a fresh app: %+v", got)
 	}
 }
+
+// unwrapProvider strips any metering wrapper, so a test can compare the backend ITSELF against the
+// one it configured. It lives here because nothing but a test asks the question: production reaches
+// through the wrapper by calling it, never by identifying it.
+//
+// The Unwrap method it walks is production — meteredProvider offers it so a caller needing an
+// optional capability the wrapper does not forward can reach the backend — and this is only the
+// loop over it.
+func unwrapProvider(p port.LLMProvider) port.LLMProvider {
+	for {
+		u, ok := p.(interface{ Unwrap() port.LLMProvider })
+		if !ok {
+			return p
+		}
+		p = u.Unwrap()
+	}
+}

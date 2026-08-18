@@ -71,17 +71,6 @@ type meteredProvider struct {
 // is the way to ask without knowing whether a wrapper is there.
 func (m *meteredProvider) Unwrap() port.LLMProvider { return m.inner }
 
-// unwrapProvider strips any metering wrapper. A provider that was never wrapped is returned as-is.
-func unwrapProvider(p port.LLMProvider) port.LLMProvider {
-	for {
-		u, ok := p.(interface{ Unwrap() port.LLMProvider })
-		if !ok {
-			return p
-		}
-		p = u.Unwrap()
-	}
-}
-
 // StreamChat forwards the request and tees the usage event out of the reply. The stream is passed
 // through unchanged and in order — this observes, it never withholds or reorders — so a consumer
 // that already reads usage (the main loop's context meter) is unaffected.
