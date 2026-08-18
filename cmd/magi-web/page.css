@@ -2633,11 +2633,14 @@
     /* The transcript is the one thing in the middle column that moves. Everything above it — the
        tabs, the card, an open file — stays where it was put. */
     body[at="agent"] #log {
-      /* The floor is what makes the card above yield: the dock padding is inside this box
-         (border-box), so it is written on top of the padding — four lines of transcript at the
-         worst, not a hairline. */
-      flex:1 1 auto; min-height:calc(var(--dock, 0px) + 8rem); overflow:auto; overscroll-behavior:contain;
-      padding-bottom:calc(var(--dock, 0px) + var(--magi-sys-space-300));
+      /* The dock's height is kept clear with MARGIN, not padding. Padding put the clearance
+         inside the scrollport, which kept the content above the bay but drew the scrollbar's
+         track down behind it — scrolled to the bottom, the thumb ran under the bay and its tail
+         was clipped. Margin ends the box (and the track) above the bay, which is where a
+         scrollbar for things above the bay should end. The floor is plain 8rem now that the box
+         no longer contains the dock's space — four lines of transcript at the worst. */
+      flex:1 1 auto; min-height:8rem; overflow:auto; overscroll-behavior:contain;
+      margin-bottom:calc(var(--dock, 0px) + var(--magi-sys-space-300));
     }
     /* A deep screen is a page of its own inside the column. */
     body[at="agent"] #agentdetail { overflow:auto; min-height:0; }
