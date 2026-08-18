@@ -359,10 +359,11 @@ council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates 
 council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기(Diagnose 되먹임), 단일 산문가정 금지  (R14)
 ```
 
-## F-LOOP-STAGES (루프 트랙) — macro 단계 + stage 태그(D15)
+## F-LOOP-STAGES (루프 트랙) — macro 단계(D15, stage 태그는 철회)
 - 단계: `Plan(계약)→Execute→Verify(증거)→Report(주장)→Council(감사)→Finalize`.
 - Plan/Report는 **soft 유도**(planner/todos/artifact·report 툴 재사용), Council만 **하드 게이트**.
-- 이벤트 봉투 `stage` 태그로 Loop map·rewind·diff가 단계 단위 그룹/타깃. 사소한 턴은 비례적 스킵.
+- Loop map은 그대로 남아 로그에서 턴을 되읽습니다 — `internal/app/loopmap.go`의 `scanTurns`, `/loop`가 씁니다. 태그가 아니라 이벤트가 스스로 말하는 것으로 묶습니다.
+- **이벤트 봉투의 `stage` 태그는 철회했습니다**(`d77a064f`, 2026-08-05). 모든 이벤트에 찍히고 모든 로그 줄에 영속됐지만, 리더는 딱 둘 있었고 둘 다 `scanTurns` 안에서 `e.Stage == stagePlan`을 물었습니다. 그런데 `8eacf04`에서 단계가 빠진 뒤로 그 stage를 세팅하는 곳이 없었습니다 — `setStage`는 execute 아니면 finalize로만 불렸습니다. 그래서 리더가 비교하는 그 하나의 값은 한 번도 나타나지 않았고, `loopTurn.planned`는 참이 될 수 없었으며, 그것이 여닫던 `◈ plan` 줄은 찍힐 수 없었습니다. 필드와 함께 `setStage`/`currentStage`와 그 네 호출부, `sessionState` 필드와 그것을 비우던 rewind, 상수 셋, 렌더가 같이 나갔습니다. Go 바깥에서도 읽는 곳이 없었습니다. 되살린다면 읽는다고 주장하는 모든 자리에 태그를 찍어야 합니다. 아니면 로그 줄마다 값을 치르고 아무것도 답하지 않는 필드입니다.
 
 ## F-SIGNAL (루프 트랙) — 피드백 시그널 1급화(D16, 철회)
 - 설계 목표는 훅·진단·report 등 생애주기 산출물을 `{source, kind, verdict, payload, atSeq}` 한 모델로 통일해 council이 소비하는 것이었다.

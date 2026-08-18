@@ -516,11 +516,20 @@ council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates 
 council-retry-shape-1:     the reminder branches three ways — syntax / schema / prose (Diagnose fed back) (R14)
 ```
 
-## F-LOOP-STAGES — macro stages and the stage tag (D15)
+## F-LOOP-STAGES — macro stages (D15; the stage tag withdrawn)
 - The stages: `Plan (contract) → Execute → Verify (evidence) → Report (claim) → Council (audit) → Finalize`.
 - Plan and Report are **soft** (reusing todos and the report surface); only Council is a hard point.
-- The envelope's `stage` tag lets the loop map, rewind and diff group and target by stage. A trivial
-  turn skips proportionally.
+- The loop map still reads a turn back out of the log — `scanTurns` in `internal/app/loopmap.go`,
+  behind `/loop`. It groups by what the events themselves say, not by a tag.
+- **The envelope's `stage` tag is withdrawn** (`d77a064f`, 2026-08-05). It was stamped onto every
+  event and persisted in every log line, and exactly two readers were ever written — both in
+  `scanTurns`, both asking `e.Stage == stagePlan`. Nothing had set that stage since the stages came
+  out in `8eacf04`: `setStage` was called with execute or finalize and nothing else, so the one value
+  the readers compared against never appeared, `loopTurn.planned` could never become true, and the
+  `◈ plan` line it gated could never print. Out with the field went `setStage`/`currentStage` and
+  their four call sites, the `sessionState` field and the rewind that cleared it, the three constants
+  and the render. Nothing outside Go read it either. Anything reviving this has to stamp the tag
+  everywhere it claims to be read, or it is a field that costs every log line and answers nothing.
 
 ## F-SIGNAL — feedback signals as first-class (D16, withdrawn)
 - Design target was `{source, kind, verdict, payload, atSeq}`, unifying the deterministic output of

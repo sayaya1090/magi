@@ -261,7 +261,7 @@ internal/
                             ToolLister and ModelLister (the roster and the catalogue, which only
                             the process holding the run can say), UserNamer. A daemon that does
                             not implement one answers empty rather than erroring, and every
-                            caller has to read that as "not known from here" rather than as "none".
+                            caller has to read that as "not known from here" and not as "none".
     fleet/                  what every magi on this machine is doing, derived from the logs and
                             a short parallel probe of each socket — ONE derivation, because the
                             console and `--agents` both ask it
@@ -340,7 +340,6 @@ type Event struct {
 	Type      Type
 	Actor     Actor
 	TS        time.Time
-	Stage     string          // plan|execute|council|finalize (D15); empty on older logs
 	Data      json.RawMessage // payload struct per Type, in event.go
 }
 type Actor struct { Kind ActorKind; ID string } // user | agent | system
@@ -362,7 +361,7 @@ starting a new turn.
 - **Transient** (bus only, never persisted): `part.delta`, `tool.started`,
   `tool.progress`, `permission.requested`, `question.requested`, `context.usage`,
   `workflow.phase`, `council.deliberating`, `model.changed`, `user.label.changed`.
-  The set is enumerated once (`transientTypes`) rather than re-listed per call site.
+  The set is enumerated once (`transientTypes`) instead of re-listed at each call site.
 
 Store path: `<dataDir>/projects/<cwd>/<sessionId>.jsonl`. `Store.Read(fromSeq)`
 returns events with `Seq > fromSeq`. `Subscribe` = live bus first, then store
@@ -528,7 +527,7 @@ ignore:
   path's nudge states that no command *naming* the file ran, which is what the record holds, not a
   verdict on the work.
 - **Exercise churn**: when the agent's OWN build or test keeps failing across repeated edits
-  without converging, the turn lands UNVERIFIED with the work standing rather than churning to an
+  without converging, the turn lands UNVERIFIED with the work standing, instead of churning to an
   external kill that tears a live deliverable down. It reads only magi's own signals — no external
   clock.
 
@@ -668,7 +667,7 @@ Built-ins (`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `
 `bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
 `council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`.
 Added by `builtin.RegisterOrchestration(r, headless)` for interactive runs only: `ask_user`,
-`route_interjection`. It sits beside `Default` rather than at each call site because a hand-kept
+`route_interjection`. It sits beside `Default` instead of at each call site because a hand-kept
 second copy cannot fail a build when it falls behind — and one had, by two tools, before the
 function existed.
 
@@ -714,7 +713,7 @@ uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY
 
 Notes: file tools are jailed to the workdir (`pathutil.go:resolvePath`); `read`
 recovers imprecise paths by basename and prefixes each line with `N⇥` — the 1-based
-number and a tab, cat -n style — so the gutter reads as metadata rather than as file
+number and a tab, cat -n style — so the gutter reads as metadata and not as file
 content and a later edit can address a line by number (a ONE-line file gets no gutter:
 a single line needs no anchor, and weaker models were observed absorbing the `1⇥` into
 the quoted content). `edit` takes **either** a text
@@ -906,7 +905,7 @@ forgotten — no deregistration step exists because no registration step does.
 - **One door across a machine, and it is ssh** (`--fleet-door`, with `--relay` as the wide pipe for
   your own machines). A remote companion is reached by an ssh pipe into `magi --fleet-door`, which
   carries four methods of the daemon protocol — ask what a companion is, hand it work, ask what
-  became of it, and watch for how it goes — rather than subcommands that each re-derive what the
+  became of it, and watch for how it goes — instead of subcommands that each re-derive what the
   daemon already knows. `watch` is the one that streams: the far daemon pushes each change back
   down the pipe the asker opened, so a hand-off's answer arrives when it happens instead of on a
   poll's clock. magi opens no port of its own between machines and holds no credential of its own:

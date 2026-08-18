@@ -328,7 +328,6 @@ type Event struct {
 	Type      Type
 	Actor     Actor
 	TS        time.Time
-	Stage     string          // plan|execute|council|finalize (D15); 옛 로그에는 없음
 	Data      json.RawMessage // Type별 페이로드 구조체, event.go에 정의
 }
 type Actor struct { Kind ActorKind; ID string } // user | agent | system

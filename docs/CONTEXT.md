@@ -37,7 +37,7 @@ plugins/examples/        # Lua 플러그인 예시
 
 ## 4. 핵심 데이터 모델
 - `Session`, `Message`, `Part`(텍스트·추론·툴‑콜·툴‑결과·이미지·오류), `Event`, `Artifact` 등.
-- `Event` 은 영속 (로그)와 전이 (버스) 두 종류가 있으며, `Seq`, `SessionID`, `Type`, `Actor`, `TS`, `Stage`, `Data` 로 구성.
+- `Event` 은 영속 (로그)와 전이 (버스) 두 종류가 있으며, `Seq`, `SessionID`, `Type`, `Actor`, `TS`, `Data` 로 구성.
 
 ## 5. 주요 포트·툴 환경 (`ToolEnv`)
 - `SessionID`, `Workdir`, `ScratchDir`, `ScratchTmp`

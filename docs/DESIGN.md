@@ -147,17 +147,14 @@ type Artifact struct {
 type Event struct {
     Seq       int64           `json:"seq"`       // per-session, monotonic (assigned by the Store); 0 = bus-only
     SessionID SessionID       `json:"sessionId"`
-    Type      EventType       `json:"type"`
+    Type      Type            `json:"type"`
     Actor     Actor           `json:"actor"`     // who caused it (D5)
     TS        time.Time       `json:"ts"`
-    Stage     string          `json:"stage,omitempty"` // D15: plan|execute|council|finalize — stamped at each
-                                                       // transition; the loop map (/loop), rewind and diff
-                                                       // group and target by stage
     Data      json.RawMessage `json:"data"`      // per-type payload
 }
 type Actor struct {
-    Kind string `json:"kind"` // user|agent|system
-    ID   string `json:"id"`   // user id / agent name
+    Kind ActorKind `json:"kind"` // user|agent|system
+    ID   string    `json:"id"`   // user id / agent name
 }
 ```
 

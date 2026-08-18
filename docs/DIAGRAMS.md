@@ -321,7 +321,6 @@ classDiagram
     +Type Type
     +Actor Actor
     +time.Time TS
-    +string Stage
     +json.RawMessage Data
   }
   class Actor {
@@ -553,7 +552,6 @@ classDiagram
     +session.Session meta
     +Todo[] todos
     +string[] turnNotes
-    +string stage
     +int lastPromptTokens
     +time.Time turnStart
     +pendingInterjection[] pendingInterject
