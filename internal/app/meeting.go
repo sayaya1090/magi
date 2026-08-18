@@ -11,6 +11,13 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+// meetingLook is the allowlist a meeting participant is spawned with, and it is the whole of
+// "a meeting decides; it does not do". The header below says the read-only rule is kept by the
+// allowlist and not by asking the model nicely — so the allowlist has to be ONE list. It was
+// written out at all three spawn sites, where a fourth tool added to one of them would have given
+// a participant the ability to write while every comment in this file still said it could not.
+var meetingLook = []string{"read", "glob", "grep", "list"}
+
 // One companion's turn in a meeting: read what has been said, and add to it or pass.
 //
 // # Why a session of its own
@@ -39,13 +46,10 @@ func (a *App) MeetingTurn(ctx context.Context, sid session.SessionID, who, topic
 	ask := meetingPrompt(who, topic, transcript, closing)
 	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.Origin}, port.SpawnSpec{
 		ToolName: "meeting",
-		System: "You are " + who + ", taking part in a meeting between companions. You each work in " +
-			"a different workspace and know different things; that is why you are all here. Read " +
-			"your own files when you need to check something. You cannot change anything: this is " +
-			"a discussion, and the work is handed out afterwards.",
-		Prompt: ask,
+		System:   meetingSystem(who),
+		Prompt:   ask,
 		// The four that look. Not advice in the prompt — the allowlist is what makes it true.
-		Tools:    []string{"read", "glob", "grep", "list"},
+		Tools:    meetingLook,
 		MaxSteps: meetingSteps,
 	}, nil)
 	if err != nil {
@@ -89,7 +93,7 @@ func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, to
 		ToolName: "meeting",
 		System:   meetingSystem(who),
 		Prompt:   preparePrompt(who, topic, a.workNow(ctx, s.Workdir)),
-		Tools:    []string{"read", "glob", "grep", "list"},
+		Tools:    meetingLook,
 		// More than a turn gets, because this is the turn that does the reading.
 		MaxSteps: meetingPrepSteps,
 	}, nil)
@@ -143,7 +147,7 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 		return meeting.Utterance{}, err
 	}
 	agent := AgentSpec{Name: spawnAgentName, System: meetingSystem(who),
-		Tools: []string{"read", "glob", "grep", "list"}, Model: s.Model}
+		Tools: meetingLook, Model: s.Model}
 	text, err := a.runLoop(ctx, s, agent, 1, meetingSteps, true)
 	if err != nil {
 		return meeting.Utterance{}, err

@@ -94,7 +94,7 @@ func TestAMeetingTurnIsSpawnedReadOnly(t *testing.T) {
 	if j := strings.Index(spec, "\n}"); j > 0 {
 		spec = spec[:j]
 	}
-	if !strings.Contains(spec, `Tools:    []string{"read", "glob", "grep", "list"}`) {
+	if !strings.Contains(spec, "Tools:    meetingLook") {
 		t.Error("the meeting turn is not spawned with the four tools that only look")
 	}
 	for _, forbidden := range []string{`"bash"`, `"write"`, `"edit"`, `"multiedit"`} {
@@ -164,7 +164,7 @@ func TestAParticipantSpeaksInTheSessionItPreparedIn(t *testing.T) {
 	if !strings.Contains(prep, "spawnChild") {
 		t.Error("preparation does not make the child session the meeting reuses")
 	}
-	if !strings.Contains(prep, `Tools:    []string{"read", "glob", "grep", "list"}`) {
+	if !strings.Contains(prep, "Tools:    meetingLook") {
 		t.Error("the participant is prepared with something other than the four tools that look")
 	}
 	say := fn("MeetingSayIn")
@@ -195,5 +195,50 @@ func TestAReadinessNoteIsNeverAToolCall(t *testing.T) {
 	said := "The client assumes three tries; nothing here enforces it."
 	if got := readyNote("  " + said + "\n"); got != said {
 		t.Errorf("a real note came back as %q", got)
+	}
+}
+
+// The list itself, pinned where it now lives.
+//
+// The three spawn sites used to write it out one each, so a test could only ask each site whether
+// it still held the right literal — and a fourth tool added to one of them was a change to one
+// site's copy, which every comment in meeting.go would still have described as read-only. Now
+// there is one list, so this asks the one question that matters: what is in it.
+func TestTheMeetingAllowlistIsFourToolsThatOnlyLook(t *testing.T) {
+	want := []string{"read", "glob", "grep", "list"}
+	if len(meetingLook) != len(want) {
+		t.Fatalf("the meeting allowlist is %v", meetingLook)
+	}
+	for i, w := range want {
+		if meetingLook[i] != w {
+			t.Errorf("the meeting allowlist is %v", meetingLook)
+			break
+		}
+		_ = i
+	}
+	// The ones a meeting must never reach, named so the failure says which arrived.
+	for _, forbidden := range []string{"bash", "write", "edit", "multiedit", "apply_patch"} {
+		for _, got := range meetingLook {
+			if got == forbidden {
+				t.Errorf("a meeting participant can reach %q", forbidden)
+			}
+		}
+	}
+}
+
+// The system prompt had two copies: MeetingPrepare called meetingSystem and MeetingTurn pasted the
+// same sentences inline. Editing the helper would have changed the preparation turn and left every
+// SPEAKING turn on the old text, with nothing failing.
+func TestBothMeetingTurnsShareOneSystemPrompt(t *testing.T) {
+	src, err := os.ReadFile("meeting.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if n := strings.Count(body, "You are \" + who + \", taking part in a meeting"); n != 1 {
+		t.Errorf("the meeting system prompt is written out %d times; it belongs in meetingSystem alone", n)
+	}
+	if n := strings.Count(body, "System:   meetingSystem(who)"); n != 2 {
+		t.Errorf("%d of the two spawn sites take their system prompt from meetingSystem", n)
 	}
 }
