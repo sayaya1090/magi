@@ -9947,6 +9947,9 @@ function paint() {
   label(document.getElementById('accessGo'), tr('access.open'));
   prefsClose.textContent = tr('action.close');
   withMark(prefsClose, '#i-sl-xmark');
+  // Closed by hand — see the comment on the button. Its form carries a `required` field for a
+  // section most readers never touch, and a form-bound close asks that field's permission to leave.
+  prefsClose.onclick = () => prefsDialog.close('close');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   // Both keys written out rather than built as key + '_sub': the phrase pack's own audit finds
@@ -11010,7 +11013,10 @@ const fillProfiles = (sel, profiles, current) => {
     h.slot = 'headline';
     h.textContent = label;
     o.append(h);
-    if (value === (current || '')) o.selected = true;
+    // The ATTRIBUTE, not just the property. md-select reads `hasAttribute("selected")` when it
+    // resets, so a selection carried only as a property is one a reset silently drops — and these
+    // fields sit inside a form.
+    if (value === (current || '')) { o.selected = true; o.setAttribute('selected', ''); }
     sel.append(o);
   };
   opt('', tr('ac.profile_none'));
@@ -11019,7 +11025,16 @@ const fillProfiles = (sel, profiles, current) => {
   // A profile assigned but no longer defined (deleted from [llm.profiles.*]) would otherwise render
   // as a blank select, hiding the stale assignment. Show it, marked, so the operator can see and fix it.
   if (current && have.indexOf(current) < 0) opt(current, current + ' — ' + tr('ac.profile_missing'));
-  sel.value = current || '';
+  // Assigning value here would do nothing: the setter is `select(v)`, which looks the value up in
+  // `this.menu?.items ?? []` and gives up quietly when it finds none — and immediately after these
+  // options were appended the menu has not rendered, so it finds none EVERY time. The saved choice
+  // came back from the server correctly and the picker still opened blank. Wait for the component,
+  // then set it, so the display text matches the option marked above.
+  if (sel.updateComplete) {
+    sel.updateComplete.then(() => { sel.value = current || ''; }).catch(() => {});
+  } else {
+    sel.value = current || '';
+  }
 };
 async function loadAutocomplete() {
   if (!may('configure')) return;

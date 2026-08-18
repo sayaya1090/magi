@@ -526,7 +526,14 @@
     </div>
   </form>
   <div slot="actions">
-    <md-text-button id="prefsClose" form="prefsForm" value="close"></md-text-button>
+    <!-- Closed by hand, and not form-bound, for two reasons that compound.
+         The first is the one measured on mcpCancel: form= and value= on a custom element never
+         reach the native <dialog>, so a button relying on them decides nothing.
+         The second is this dialog's own: the profile editor's name field is `required` and lives
+         inside prefsForm, so submitting the form runs validation on a field nobody was filling in
+         — and an empty one held the whole preferences dialog open. A person who came to flip the
+         theme could not leave without inventing a profile name. -->
+    <md-text-button id="prefsClose"></md-text-button>
   </div>
 </md-dialog>
 

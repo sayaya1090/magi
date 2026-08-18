@@ -953,3 +953,32 @@ func TestTheManifestNamesOnlyRoutesThisServerHas(t *testing.T) {
 		t.Error("the favicon carries a background plate")
 	}
 }
+
+// A dialog action bound to a form asks that form's permission to run. The preferences dialog holds
+// the profile editor, whose name field is `required` — so a form-bound Close ran validation on a
+// field the reader had no reason to fill in, and refused to leave until they did. Somebody who came
+// to change the theme was held there by a section they never opened.
+//
+// The tree already knows the general shape of this: form= and value= on a custom element never
+// reach the native <dialog> (see mcpCancel), so a form-bound action decides nothing anyway.
+func TestTheCloseButtonDoesNotAskTheProfileFormForPermission(t *testing.T) {
+	b, err := pageFS.ReadFile("page.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	i := strings.Index(html, `id="prefsClose"`)
+	if i < 0 {
+		t.Fatal("the preferences dialog has no close button")
+	}
+	tag := html[strings.LastIndex(html[:i], "<"):]
+	tag = tag[:strings.Index(tag, ">")+1]
+	if strings.Contains(tag, "form=") {
+		t.Errorf("close is bound to a form, so a required field it does not own can hold the dialog open: %s", tag)
+	}
+	// And the name field keeps its required marking: the asterisk and the field-level error routing
+	// are what make a refused save land on the field instead of the status line.
+	if !strings.Contains(html, `id="profName" required`) {
+		t.Error("the profile name lost its required marking, which is where a refused save is shown")
+	}
+}
