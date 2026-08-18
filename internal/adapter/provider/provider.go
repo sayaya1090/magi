@@ -1,7 +1,7 @@
 // Package provider finds the CLI backend shims serving on this machine, for the pickers.
 //
 // No provider name is known here. A backend plugin records the port its shim bound into its own
-// store (`<dataDir>/plugin-data/<name>.json`, key "shim_port") every time it comes up, so the
+// store (`<root>/plugin-data/<name>.json`, key "shim_port") every time it comes up, so the
 // roster is "whoever said where their shim answers" — a fourth backend plugin appears in every
 // picker by doing what the first three do, with nothing to add on this side.
 //
@@ -34,9 +34,13 @@ type Provider struct {
 // GET /v1/models right now. A recorded port is a claim, not a fact — the daemon may be down, or
 // the port re-bound by something else — so a dead shim is left out rather than returned marked: a
 // picker offering a provider that cannot serve would write a profile pointing at nothing.
-func Discover(ctx context.Context, dataDir string) []Provider {
+// root is the directory the PLUGIN HOST files stores under — cfg.DataDir in host.go, which
+// cmd/magi wires to plat.ConfigDir(), NOT plat.DataDir(). The first version of this read
+// DataDir() (the cache directory on macOS) and returned an empty roster forever while two shims
+// were serving; the stub test masked it by setting MAGI_DATA_DIR explicitly.
+func Discover(ctx context.Context, root string) []Provider {
 	out := []Provider{}
-	entries, err := os.ReadDir(filepath.Join(dataDir, "plugin-data"))
+	entries, err := os.ReadDir(filepath.Join(root, "plugin-data"))
 	if err != nil {
 		return out // no plugin ever stored anything: an empty roster, not an error
 	}
@@ -45,7 +49,7 @@ func Discover(ctx context.Context, dataDir string) []Provider {
 		if !ok {
 			continue
 		}
-		b, rerr := os.ReadFile(filepath.Join(dataDir, "plugin-data", e.Name()))
+		b, rerr := os.ReadFile(filepath.Join(root, "plugin-data", e.Name()))
 		if rerr != nil {
 			continue
 		}

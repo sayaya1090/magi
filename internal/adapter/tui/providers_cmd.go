@@ -41,7 +41,7 @@ func (m *Model) cmdProviders(args []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		list := provider.Discover(ctx, platform.New().DataDir())
+		list := provider.Discover(ctx, platform.New().ConfigDir())
 		if len(args) == 0 {
 			return providersMsg{list: list}
 		}

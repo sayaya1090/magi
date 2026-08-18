@@ -39,7 +39,7 @@ func TestTheProviderListIsWhoeverServesRightNow(t *testing.T) {
 	os.WriteFile(filepath.Join(pd, "deadback.json"), []byte(`{"shim_port":1}`), 0o644)
 	os.WriteFile(filepath.Join(pd, "engram.json"), []byte(`{"outcomes":3}`), 0o644)
 
-	s := &server{dataDir: dir}
+	s := &server{cfgDir: dir}
 	w := httptest.NewRecorder()
 	s.providers(w, httptest.NewRequest(http.MethodGet, "/providers", nil))
 	var got []provider.Provider
