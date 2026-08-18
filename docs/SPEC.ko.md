@@ -382,7 +382,10 @@ council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기
 > 지금 계획은 에이전트 자신의 `todowrite`이고, 카운슬은 미리 감사하지 않는다.
 
 ## F-PLUGIN (M3) — Lua 플러그인
-- 매니페스트(TOML) 파싱: name/version/capabilities/permissions.
+- 매니페스트(TOML) 파싱: name/version/capabilities/permissions, 그리고 `exec_timeout` —
+  플러그인 하나의 `magi.exec` 상한, [1s, 10m] 클램프 (기본 60s는 프로브 기준이었고, 백엔드
+  플러그인의 모델 턴은 60초짜리 명령이 아닙니다). 호출 단위 `magi.exec(cmd, args, {timeout=...})`는
+  줄이기만 합니다.
 - capability 등록(tool/command/skill/hook/mcp-server/agent/context-provider/ui-panel).
 - 샌드박스: `os.execute` 등 차단, `magi.*` 브리지만 노출.
 - 권한 집행: 미선언 권한 호출 → 거부.

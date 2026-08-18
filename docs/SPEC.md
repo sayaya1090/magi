@@ -563,7 +563,10 @@ council-retry-shape-1:     the reminder branches three ways — syntax / schema 
 > council does not audit anything in advance.
 
 ## F-PLUGIN (M3) — Lua plugins
-- Manifest (TOML) parsing: name/version/capabilities/permissions.
+- Manifest (TOML) parsing: name/version/capabilities/permissions, and `exec_timeout` — one
+  `magi.exec` bound for the plugin, clamped to [1s, 10m] (the 60s default was sized for probes,
+  and a backend plugin's model turn is not a sixty-second command). The per-call form
+  `magi.exec(cmd, args, {timeout=...})` can only shorten it.
 - Capability registration (tool / command / skill / hook / mcp-server / agent / context-provider /
   ui-panel).
 - Sandbox: `os.execute` and friends are blocked; only the `magi.*` bridge is exposed.

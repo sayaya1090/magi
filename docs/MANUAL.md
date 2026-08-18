@@ -234,7 +234,10 @@ the config file gets written for you the first time magi starts.
 
 **A model backend.** Anything that speaks the OpenAI chat-completions protocol works. [Ollama] is
 the least trouble. Its free cloud tier runs the default model, `gpt-oss:120b-cloud`, so you need no
-GPU and nothing to download beyond Ollama itself.
+GPU and nothing to download beyond Ollama itself. A coding-agent CLI you already pay for — Claude
+Code, Codex, Antigravity — can also BE the backend, through the bundled backend plugins
+(EXTENDING §3.7.1): each activates only when its CLI answers, and they order themselves
+claude → codex → agy → this config file.
 
 ```sh
 ollama signin                 # free tier; the default gpt-oss:120b-cloud runs in Ollama's cloud

@@ -484,7 +484,7 @@ fetching RAG over HTTP, or driving an SSO login flow from a plugin, needs.
 
 | API | Permission | Notes |
 |---|---|---|
-| `magi.exec(cmd, {args})` | `exec:<cmd>` | direct exec, no shell (so no injection), relative to the workdir, 60s timeout. Returns `{stdout,stderr,code}` |
+| `magi.exec(cmd, {args}, {timeout="15s"}?)` | `exec:<cmd>` | direct exec, no shell (so no injection), relative to the workdir. 60s timeout by default; the manifest widens it (`exec_timeout`, clamped to [1s, 10m]) and the per-call third argument can only shorten it. Returns `{stdout,stderr,code}` |
 | `magi.open_url(url)` | `exec:open-url` | opens the OS default browser. **http/https only** |
 | `magi.http{url,method,headers,body}` | `net:<host>` | http/https only, 30s timeout, 5MB response cap. Returns `{status,body}` |
 | `magi.serve{port,handler}` | `net:listen` | a **long-lived in-process HTTP server** on `127.0.0.1` (no external runtime → one binary, same on every OS). `port=0` takes a free port. Returns `{port, stop()}` |

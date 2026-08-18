@@ -103,6 +103,15 @@ you were reading is a scroll position, and putting it in the address bar would m
 sends land on a screen they did not mean to share. Leaving a companion resets it, because the next
 one is opened for its conversation.
 
+A two-pixel indeterminate bar runs across the very top of the page while the companion has a
+turn open. It exists for the wait the transcript cannot mark: several tool calls in, the last
+result has landed, and the model has not yet said what to do next — no row is being waited on, so
+the row marks are blank, and the prompt that started the turn scrolled away long ago. The bar is
+driven by the session's own `turn` frame on the event stream (sent when it changes), goes dark the
+moment the page can no longer know (stream error, stream closed, leaving the screen), and is
+`aria-hidden` because the row already says "working on this" in words — announcing one state twice
+makes the transcript worse to listen to.
+
 The facts card **folds**, at every width, remembered across companions. It answers "what am I
 looking at" once and is then 547px of masthead between a reader and the conversation; folded it is
 58px with the state and the workspace still on its summary line.

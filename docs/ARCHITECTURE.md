@@ -430,6 +430,10 @@ It carries four fields for the spawn seam instead, and each is `nil` unless the 
 range onto the parent's tree. All four are scoped to the tool call in flight — a call can only
 read, restore or merge a child it started — and `Spawn` is `nil` **inside** a child, which is what
 makes recursion impossible by construction rather than bounded by a counter someone has to check.
+What each child said when it finished is recorded by magi onto the call's own tool result,
+verbatim with the child's session id and any failure (`childAccount`, spawn.go) — a tool handed
+the text may summarise or drop it, and the parent's log is the parent's context, so the record
+does not depend on the tool's manners.
 
 A child works in the parent's directory unless its spec says `workspace:"clone"` — then it gets
 its **own checkout** (`workspace.go`: a `--local` git clone carrying the parent's uncommitted

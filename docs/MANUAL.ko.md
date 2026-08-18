@@ -218,7 +218,10 @@ topic shard**로 인덱싱되고, 각각이 자기 툴-행위 자취(`read · ed
 
 **모델 백엔드.** OpenAI 채팅 완성 프로토콜을 말하는 것이면 무엇이든 됩니다. [Ollama]가 가장 손이 덜
 갑니다. 기본 모델 `gpt-oss:120b-cloud`는 Ollama 무료 클라우드 티어에서 돌기 때문에 GPU가 필요 없고,
-Ollama 말고는 받을 것도 없습니다.
+Ollama 말고는 받을 것도 없습니다. 이미 구독 중인 코딩 에이전트 CLI — Claude Code, Codex,
+Antigravity — 를 백엔드 자체로 쓸 수도 있습니다. 동봉된 백엔드 플러그인(EXTENDING §3.7.1)이
+그 일을 하며, 각자 자기 CLI가 답할 때만 활성화되고 claude → codex → agy → 이 설정 파일 순으로
+스스로 정렬합니다.
 
 ```sh
 ollama signin                 # 무료 티어. 기본 gpt-oss:120b-cloud는 Ollama 클라우드에서 실행

@@ -457,7 +457,7 @@ RAG를 HTTP로 가져오거나, SSO 로그인 흐름을 플러그인이 직접 �
 
 | API | 권한 | 비고 |
 |---|---|---|
-| `magi.exec(cmd, {args})` | `exec:<cmd>` | 셸 없이 직접 실행(인젝션 없음), workdir 기준, 60s 타임아웃. `{stdout,stderr,code}` 반환 |
+| `magi.exec(cmd, {args}, {timeout="15s"}?)` | `exec:<cmd>` | 셸 없이 직접 실행(인젝션 없음), workdir 기준. 타임아웃은 기본 60s — 매니페스트 `exec_timeout`([1s, 10m] 클램프)이 넓히고, 호출 단위 셋째 인자는 줄이기만 합니다. `{stdout,stderr,code}` 반환 |
 | `magi.open_url(url)` | `exec:open-url` | OS 기본 브라우저로 엶. **http/https만** 허용 |
 | `magi.http{url,method,headers,body}` | `net:<host>` | http/https만, 30s 타임아웃, 5MB 응답 cap. `{status,body}` 반환 |
 | `magi.serve{port,handler}` | `net:listen` | `127.0.0.1`에 **상주 HTTP 서버**를 인프로세스로 띄움(외부 런타임 불필요 → 단일 바이너리·전 OS 동일). `port=0`은 자유 포트 자동 배정. `{port, stop()}` 반환 |
