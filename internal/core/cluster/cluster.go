@@ -21,9 +21,16 @@
 // not. A reach is a command line, and a command line arriving over the network is arbitrary code
 // this process would later run — which is what join refuses, and the refusal stands.
 //
-// So a hostname is data and a command is code: `ssh buildbox magi --mcp design` is assembled HERE,
-// from this machine's own template, with nothing but the host taken from what arrived. A member
+// So a hostname is data and a command is code: `ssh buildbox magi --fleet-door` is assembled from
+// the reaching machine's own template, with nothing but the host taken from what arrived. A member
 // entry cannot make anybody run anything it chose.
+//
+// This package used to assemble that command itself, in a Reach function the paragraph above was
+// written around. It does not any more: crossing is the daemon protocol over a door now
+// (cmd/magi's reachCompanion and doorTo), and the host that arrives is refused there if it is
+// shaped like an ssh option. The rule did not move — the code that keeps it did, and a function
+// here that nothing called was a second answer to "how do we reach a member" that could drift from
+// the one in use.
 //
 // # There is no allowlist, because there is already ssh
 //
@@ -307,26 +314,6 @@ func fillFrom(keep, other Member) Member {
 		keep.Hub = true
 	}
 	return keep
-}
-
-// Reach is the command that opens an MCP conversation with a member, assembled HERE.
-//
-// This is the line the whole package is arranged around. What arrived over the network is a
-// hostname; what runs is built from this machine's own template. A member entry can say where a
-// companion is and can never say what to execute.
-//
-// local is this machine's name: a member on it needs no ssh, and going through one would fail on
-// any host that cannot ssh to itself — which is most of them.
-func Reach(m Member, local, self, magi string) (string, []string) {
-	name := m.Name
-	if name == "" {
-		name = m.Socket // no declared name: address it by the thing that is unique
-	}
-	args := []string{"--mcp", name, "--mcp-as", self}
-	if m.Host != "" && !strings.EqualFold(m.Host, local) {
-		return "ssh", append([]string{m.Host, magi}, args...)
-	}
-	return magi, args
 }
 
 // Speaker returns the companion that answers for a team right now.

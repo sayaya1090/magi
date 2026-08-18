@@ -370,7 +370,7 @@ func TestHandOffHandsTheWorkOverUntouched(t *testing.T) {
 	// the form the answer must take. Every recorded failure of handing work to another agent here
 	// began with somebody's words arriving altered, so "contains" is not enough — a prefix nobody
 	// asked for is that defect starting.
-	want := companion.DispatchedBy("master") + "\n\n" + req +
+	want := fleet.DispatchedBy("master") + "\n\n" + req +
 		"\n\nIn order to: I can finish the part I am on" +
 		"\n\nAnswer in this form, filling it in. If a part cannot be done, keep the part and say " +
 		"so under it rather than leaving it out — a gap with a name is something the asker can act " +
@@ -480,7 +480,7 @@ func TestHandOffWillNotChain(t *testing.T) {
 	tm.write("mid", "", []event.Event{
 		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m2",
 			Parts: []session.Part{
-				{Kind: session.PartText, Text: companion.DispatchedBy("master")},
+				{Kind: session.PartText, Text: fleet.DispatchedBy("master")},
 				{Kind: session.PartText, Text: "do the thing"},
 			}}),
 	})
@@ -596,7 +596,7 @@ func TestOnlyTheCurrentRequestDecidesWhetherItMayAsk(t *testing.T) {
 		// Once dispatched to…
 		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "old",
 			Parts: []session.Part{{Kind: session.PartText,
-				Text: companion.DispatchedBy("master") + "\n\nthe old errand"}}}),
+				Text: fleet.DispatchedBy("master") + "\n\nthe old errand"}}}),
 		tm.ev(event.TypeTurnFinished, event.TurnFinishedData{}),
 		// …and then asked something by the person who owns this workspace.
 		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "new",
@@ -666,7 +666,7 @@ func TestAHubMaySplitWorkAcrossItsOwnTeamAndNoFurther(t *testing.T) {
 	tm.write("fe0", "", []event.Event{
 		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m1",
 			Parts: []session.Part{{Kind: session.PartText,
-				Text: companion.DispatchedBy("master") + "\n\nrebuild the settings screen"}}}),
+				Text: fleet.DispatchedBy("master") + "\n\nrebuild the settings screen"}}}),
 	})
 	as := companion.Hand{Self: hub, Called: "frontend-lead", Team: "frontend", Hub: true}
 
@@ -694,7 +694,7 @@ func TestAHubMaySplitWorkAcrossItsOwnTeamAndNoFurther(t *testing.T) {
 	tm.write("fe1", "", []event.Event{
 		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m2",
 			Parts: []session.Part{{Kind: session.PartText,
-				Text: companion.DispatchedBy("frontend-lead") + "\n\nthe toggle component"}}}),
+				Text: fleet.DispatchedBy("frontend-lead") + "\n\nthe toggle component"}}}),
 	})
 	plain := companion.Hand{Self: "/nope", Called: "buttons", Team: "frontend"}
 	if res := tm.askAs(plain, "fe1", "billing", "you do it"); !res.IsError {

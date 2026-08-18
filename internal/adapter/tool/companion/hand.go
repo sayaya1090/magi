@@ -104,11 +104,6 @@ type Hand struct {
 	Record func() string
 }
 
-// DispatchedBy renders the label that opens a handed-over request. It lives in fleet because the
-// view that reads handoffs back off the logs needs the same sentence, and two spellings of one
-// marker is one of them silently not matching.
-func DispatchedBy(who string) string { return fleet.DispatchedBy(who) }
-
 func (Hand) Name() string { return "hand_off" }
 
 func (h Hand) Description() string {

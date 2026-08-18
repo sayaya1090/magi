@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -153,32 +154,36 @@ func TestAnEntryWithNoIdentityIsNotAMember(t *testing.T) {
 	}
 }
 
-// What arrived is a hostname. What runs is built here.
+// What arrived is a hostname. What runs is built elsewhere, from the reaching machine's template.
 //
 // This is the line the package is arranged around, and the one that lets membership travel at all:
 // join refuses to copy an [mcp] entry between workspaces because it is a command this process would
 // later run, and that refusal stands. A member says WHERE a companion is; it can never say what to
 // execute.
+//
+// It used to be checked against Reach, which assembled `ssh host magi --mcp name` here. Crossing is
+// the daemon protocol over a door now (cmd/magi's reachCompanion and doorTo, where the host is also
+// refused if it is shaped like an ssh option), and Reach went with the design that needed it. The
+// rule did not go with it, so this asks the rule directly: is there anywhere on a Member for a
+// command to ride in? A new field that could carry one has to be added deliberately, in sight of
+// this test, rather than arriving as a convenience.
 func TestAMemberSaysWhereNotWhatToRun(t *testing.T) {
-	remote := Member{Host: "buildbox", Socket: "/s/d.sock", Name: "design"}
-	cmd, args := Reach(remote, "studio", "master", "/usr/local/bin/magi")
-	if cmd != "ssh" {
-		t.Fatalf("a remote member is reached with %q", cmd)
+	t3 := reflect.TypeOf(Member{})
+	// The names a command would arrive under. Substring, so Command/Cmd/ExecPath and their like are
+	// all caught by one entry.
+	for _, bad := range []string{"cmd", "command", "exec", "run", "argv", "shell", "script", "template"} {
+		for i := 0; i < t3.NumField(); i++ {
+			if strings.Contains(strings.ToLower(t3.Field(i).Name), bad) {
+				t.Errorf("Member.%s can carry something to execute, which is what this package "+
+					"exists to keep off the wire", t3.Field(i).Name)
+			}
+		}
 	}
-	want := "buildbox /usr/local/bin/magi --mcp design --mcp-as master"
-	if got := strings.Join(args, " "); got != want {
-		t.Errorf("args %q, want %q", got, want)
-	}
-
-	// On this machine there is no ssh: a host that cannot reach itself over ssh is most of them,
-	// and going through one to talk to a neighbour would fail for no reason.
-	local := Member{Host: "studio", Socket: "/s/a.sock", Name: "api"}
-	cmd, args = Reach(local, "studio", "master", "/usr/local/bin/magi")
-	if cmd != "/usr/local/bin/magi" {
-		t.Errorf("a local member is reached with %q %v", cmd, args)
-	}
-	if strings.Contains(strings.Join(args, " "), "ssh") {
-		t.Errorf("ssh crept into a local reach: %v", args)
+	// And the fields that DO travel are identity and sightings — every one of them a fact about
+	// where a companion is or what it was doing, never about how to start anything.
+	m := Member{Host: "buildbox", Socket: "/s/d.sock", Name: "design"}
+	if m.Host == "" || m.Socket == "" {
+		t.Fatal("a member is a host and a socket")
 	}
 }
 
