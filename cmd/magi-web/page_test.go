@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"sort"
@@ -980,5 +981,73 @@ func TestTheCloseButtonDoesNotAskTheProfileFormForPermission(t *testing.T) {
 	// are what make a refused save land on the field instead of the status line.
 	if !strings.Contains(html, `id="profName" required`) {
 		t.Error("the profile name lost its required marking, which is where a refused save is shown")
+	}
+}
+
+// With a slow model the wait before the first token is minutes long, and it was the wait with the
+// weakest signal on screen: markPending marks the row a turn is waiting on, but for the person's
+// own prompt the page drew a static word while a TOOL call got a moving bar. The longest, most
+// ambiguous wait had the least motion — and once the transcript scrolls, the mark is off screen
+// entirely. "Is it working on this or did my request never arrive" had the same picture either way.
+func TestAWorkingTurnIsVisibleFromAnywhereOnThePage(t *testing.T) {
+	b, err := pageFS.ReadFile("page.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	if !strings.Contains(html, `id="turnbar"`) {
+		t.Fatal("there is no page-wide indicator that a turn is running")
+	}
+	if !strings.Contains(html, `indeterminate`) {
+		t.Error("the bar does not move, which is the whole of what it says")
+	}
+	// The row already says it in words. A second announcement of one state makes the transcript
+	// worse to listen to for the readers who depend on it most.
+	if !strings.Contains(html, `id="turnbar" indeterminate hidden aria-hidden="true"`) {
+		t.Error("the bar must start hidden and stay out of the accessibility tree")
+	}
+
+	css, err := pageFS.ReadFile("page.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), "#turnbar[hidden] { display:none; }") {
+		t.Error("a Material component's own display can outlive the hidden attribute")
+	}
+
+	js, err := pageFS.ReadFile("page.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(js)
+	// Driven by the session's own state and NOT by a row mark. The wait that needed showing is the
+	// one no row can carry: several tool calls in, the last result has landed, and the model has
+	// not said what to do next — nothing is being waited ON, the turn is simply still running.
+	if !strings.Contains(src, "addEventListener('turn'") {
+		t.Error("the bar does not listen for the session's turn state")
+	}
+	if strings.Contains(src, "showTurnbar(rows)") {
+		t.Error("the bar is driven by row marks, which are blank in exactly the window it is for")
+	}
+	// And off whenever the page stops being able to know. A bar left spinning after the stream
+	// dropped is the console claiming work it cannot see.
+	if n := strings.Count(src, "clearTurnbar()"); n < 3 {
+		t.Errorf("the bar is cleared in %d places; the stream can end in more than that", n)
+	}
+}
+
+// The frame itself: sent when it changes, and carrying the fact the rows cannot.
+func TestTheStreamSaysWhetherATurnIsOpen(t *testing.T) {
+	b, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "event: turn") || !strings.Contains(src, `\"open\":%t`) {
+		t.Error("the events stream never says whether a turn is open")
+	}
+	// Only on a change, like the roster beside it — 400ms of "still on" is not news.
+	if !strings.Contains(src, "if turning != lastTurning {") {
+		t.Error("the turn frame is sent on every tick rather than when it changes")
 	}
 }

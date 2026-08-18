@@ -1345,6 +1345,9 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	sid := session.SessionID(in.Session)
 
 	var lastSeq int64 = -1
+	// Sent only when it changes, like the roster frame: a bar that is already on does not need to
+	// be told so every 400ms.
+	lastTurning := false
 	tick := time.NewTicker(400 * time.Millisecond)
 	defer tick.Stop()
 	// The roster rides this connection too.
@@ -1410,6 +1413,23 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			// from — so the transcript and the row cannot say different things about one companion.
 			_, turning := s.reader.UnfinishedTurnOf(r.Context(), sid)
 			rows := markPending(renderMessages(msgs), turning)
+			// And the same fact on its own frame, because the ROW marks cannot carry it.
+			//
+			// markPending marks what is being waited ON — a prompt with no reply yet, a tool call
+			// with no result yet — which is the better thing to say when there is something to
+			// point at. The wait people actually sit through has nothing to point at: several tool
+			// calls have gone back and forth, the last RESULT has landed, and the model has not yet
+			// said what to do next. The last row is a finished tool call, so nothing is marked, and
+			// by then the prompt has scrolled out of the window anyway.
+			//
+			// A frame of its own rather than a sixth field on a row: this is a fact about the
+			// SESSION, and hanging it off whichever row happens to be last is how it would come to
+			// mean something different depending on what that row was.
+			if turning != lastTurning {
+				lastTurning = turning
+				fmt.Fprintf(w, "event: turn\ndata: {\"open\":%t}\n\n", turning)
+				fl.Flush()
+			}
 			// The council, put back where it happened. Its marks name the message they followed,
 			// so this is a splice and not a guess about ordering — and a mark whose anchor is not
 			// in the transcript (a compaction dropped it) goes at the end rather than nowhere.

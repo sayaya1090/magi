@@ -460,6 +460,18 @@
     .enter, .rise, .slideL, .slideR { animation:stillFade 120ms var(--magi-sys-ease-standard) both !important; }
   }
 
+  /* The page-wide "still working" bar. Above the masthead (z-index 3) because it is about the
+     whole screen, and FIXED rather than in the flow so turning it on never moves the page a
+     reader is in the middle of. Two pixels: enough to be seen moving out of the corner of an eye,
+     not enough to be a second thing to look at. */
+  #turnbar {
+    position:fixed; top:0; left:0; right:0; z-index:4;
+    --md-linear-progress-track-height:2px;
+    --md-linear-progress-active-indicator-height:2px;
+    --md-linear-progress-track-color:transparent;
+  }
+  #turnbar[hidden] { display:none; }
+
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
     /* Above the content, and by more than a tie. The panes beside a conversation are z-index 2 as

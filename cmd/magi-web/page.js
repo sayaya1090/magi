@@ -9607,6 +9607,22 @@ function same(a, b) {
     && a.tool === b.tool;
 }
 
+// turnbar says only one thing: this companion has a turn open.
+//
+// Driven by the session's own `turn` frame and NOT by the rows' pending marks, because the wait
+// that needed showing is the one no row can carry — several tool calls in, the last result has
+// landed, and the model has not yet said what to do next. Nothing is being waited ON at that
+// moment; the turn is simply still running. The prompt that started it has scrolled away by then,
+// which is the other half of why this is at the top of the page and not in the transcript.
+const turnbar = document.getElementById('turnbar');
+let turnOpen = false;
+const showTurnbar = () => {
+  if (turnbar) turnbar.hidden = !turnOpen;
+};
+// Off whenever this page stops being able to know. A bar still moving after the stream dropped is
+// the console claiming work it can no longer see.
+const clearTurnbar = () => { turnOpen = false; showTurnbar(); };
+
 function draw(rows) {
   const stick = atBottom();
   const want = [...(rows || []), ...localRows];
@@ -9819,9 +9835,15 @@ function connect() {
   // announced to anyone who cannot see the dot.
   es.onopen = () => { conn('live'); says(''); say(tr('state.live')); };
   es.onmessage = e => { lastRows = JSON.parse(e.data); draw(lastRows); };
+  // The session's own state, on its own frame (see the events handler): sent when it changes, so
+  // this is the whole of keeping the bar honest.
+  es.addEventListener('turn', e => {
+    try { turnOpen = !!JSON.parse(e.data).open; } catch (_) { turnOpen = false; }
+    showTurnbar();
+  });
   // The daemon outliving this page is normal, and so is the reverse. Reconnect quietly rather
   // than making a restart look like a failure.
-  es.onerror = () => { conn('lost'); says(tr('state.reconnecting'));
+  es.onerror = () => { conn('lost'); says(tr('state.reconnecting')); clearTurnbar();
                        es.close();
                        // Not while the fleet says this companion is gone. A socket that no longer
                        // exists answers 404 to every attempt, and the page was making one every
@@ -10427,6 +10449,7 @@ function render() {
   // The transcript's connection goes, and with it any roster listener that was sharing it — said
   // here rather than left to stopFleetWatch, which would otherwise be holding a closed socket.
   if (es) { es.close(); es = null; fleetES = null; fleetShared = false; }
+  clearTurnbar();
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
   const s = sock();
   const v = s ? '' : view();
@@ -10551,6 +10574,7 @@ function freshen() {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     if (es) { es.close(); es = null; }
+    clearTurnbar();
     stopFleetWatch();
     conn('');
     return;

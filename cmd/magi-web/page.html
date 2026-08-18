@@ -35,6 +35,17 @@
      icons.go — and the page then draws the shapes it has always drawn. -->
 <!--ICON-SPRITE-->
 
+<!-- Working, said where it is visible from anywhere.
+     The transcript already marks the row a turn is waiting on, and for a TOOL call that mark is a
+     moving bar that names which call — which is the better answer and stays. This is for the part
+     that mark cannot reach: the wait before the model has said anything, whose row is the person's
+     own prompt and carried a static word, and any wait at all once the transcript has scrolled the
+     last row out of the window. With a slow model that is minutes in which the screen looks the
+     same whether the request is being worked on or never arrived.
+     aria-hidden because the row says it in words already, and a bar that announced the same state
+     a second time would make the transcript harder to read for exactly the people who most need
+     it read out. -->
+<md-linear-progress id="turnbar" indeterminate hidden aria-hidden="true"></md-linear-progress>
 <header id="masthead">
   <!-- The hamburger is on both sizes and means two different things, which is the point: on a wide
        screen it widens the rail into a drawer, on a narrow one it slides that drawer in over the
