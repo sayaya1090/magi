@@ -494,6 +494,20 @@
   .childlink:hover { text-decoration-thickness:2px; }
   .childlink:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
 
+  /* ── the settings destination ────────────────────────────────────────────
+     It was a dialog and outgrew one: seven groups, its own scrollbar, and a scope axis on top.
+     As a screen it takes the reading width the other destinations take — the rows are a label
+     and a control, and a line of settings stretched to a wide window puts the control an inch
+     from the thing it is named by. The dialog's own container styling is gone with it; what is
+     left is the same prefgroup/prefrow classes doing the same work in a wider box. */
+  #settings { max-width:var(--magi-sys-page); }
+  #settings > #prefsK {
+    font-size:var(--md-sys-typescale-headline-small-size);
+    line-height:var(--md-sys-typescale-headline-small-line-height);
+    margin-bottom:var(--magi-sys-space-300);
+  }
+  #settings[hidden] { display:none; }
+
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
     /* Above the content, and by more than a tie. The panes beside a conversation are z-index 2 as
@@ -4878,14 +4892,14 @@
        with a field and fifteen rows, scrolling 934px of list through 332 — inside the dialog's own
        scroller — with 48px of unused screen down each side. The palette has a second rule of its
        own, from the search guidance: compact is full-screen, medium and up is docked. */
-    #mcpDialog, #palDialog, #prefsDialog, #askDialog, #fmtDialog {
+    #mcpDialog, #palDialog, #askDialog, #fmtDialog {
       max-width:100%; max-height:100%; width:100vw; height:100dvh;
       --md-dialog-container-shape:0;
     }
     /* A full-screen dialog's headline is title-large, not the basic dialog's headline-small: the
        one typographic token that tells the two variants apart, and these had taken the shape of
        one while keeping the type of the other. */
-    #mcpDialogK, #palK, #prefsK, #askK, #fmtK {
+    #mcpDialogK, #palK, #askK, #fmtK {
       font-size:var(--md-sys-typescale-title-large-size);
     }
     /* The list is the dialog now, so it does not keep a scroller of its own inside one. Capped at

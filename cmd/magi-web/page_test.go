@@ -955,32 +955,50 @@ func TestTheManifestNamesOnlyRoutesThisServerHas(t *testing.T) {
 	}
 }
 
-// A dialog action bound to a form asks that form's permission to run. The preferences dialog holds
-// the profile editor, whose name field is `required` — so a form-bound Close ran validation on a
-// field the reader had no reason to fill in, and refused to leave until they did. Somebody who came
-// to change the theme was held there by a section they never opened.
+// Settings is a destination, not a dialog. It got there by outgrowing one — seven groups, its own
+// scrollbar, a form whose required field once held the whole dialog shut, and a global-vs-project
+// axis that a dialog had nowhere to say. Two things have to stay true of the move.
 //
-// The tree already knows the general shape of this: form= and value= on a custom element never
-// reach the native <dialog> (see mcpCancel), so a form-bound action decides nothing anyway.
-func TestTheCloseButtonDoesNotAskTheProfileFormForPermission(t *testing.T) {
+// The container: no <md-dialog> around it, and it lives beside the other destinations rather than
+// over them.
+//
+// The scope: the screen names WHICH config it edits. That rule (fleet → machine config,
+// companion → that companion's project config) was always there and never spoken, and an unsaid
+// axis is how the same switch quietly wrote a different file depending on where somebody stood.
+func TestSettingsIsADestinationThatNamesTheConfigItEdits(t *testing.T) {
 	b, err := pageFS.ReadFile("page.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	html := string(b)
-	i := strings.Index(html, `id="prefsClose"`)
-	if i < 0 {
-		t.Fatal("the preferences dialog has no close button")
+	if strings.Contains(html, `id="prefsDialog"`) {
+		t.Error("settings is still a dialog")
 	}
-	tag := html[strings.LastIndex(html[:i], "<"):]
-	tag = tag[:strings.Index(tag, ">")+1]
-	if strings.Contains(tag, "form=") {
-		t.Errorf("close is bound to a form, so a required field it does not own can hold the dialog open: %s", tag)
+	if !strings.Contains(html, `id="settings" hidden`) {
+		t.Fatal("there is no settings screen")
 	}
-	// And the name field keeps its required marking: the asterisk and the field-level error routing
-	// are what make a refused save land on the field instead of the status line.
+	if !strings.Contains(html, `id="settingsScope"`) {
+		t.Error("the screen does not say which config it edits")
+	}
+	// The profile name keeps its required marking — that is where a refused save is shown — and it
+	// can do so safely now: nothing here submits a form.
 	if !strings.Contains(html, `id="profName" required`) {
 		t.Error("the profile name lost its required marking, which is where a refused save is shown")
+	}
+
+	js, err := pageFS.ReadFile("page.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(js)
+	// The scope line is drawn from the SAME answer the controls are filled from, so the header
+	// cannot name one file while a switch writes another.
+	if !strings.Contains(src, "drawScope(got.file)") {
+		t.Error("the scope line is not drawn from the settings answer itself")
+	}
+	// And the door is a navigation now.
+	if !strings.Contains(src, "HREF.settings") {
+		t.Error("the settings button does not lead to the destination")
 	}
 }
 

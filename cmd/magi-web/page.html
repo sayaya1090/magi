@@ -311,91 +311,26 @@
        leaves, which is not daily, and the navigation has to fit on a phone. data-may hides it from
        anybody who could not act on it anyway — the server refuses regardless. -->
   <div id="access" hidden data-may="admin"></div>
-  <div id="fleet"></div>
-  <!-- Two reasons to be on a companion's page, and they want different things. Checking on it wants
-       the facts: state, workspace, model, context, plan. Reading what it is doing and steering it
-       wants the transcript and the box under it.
-       
-       Stacked, the transcript was 1335px down a 1267px screen — off it — behind five cards of which
-       three are history. So the conversation is the page and the facts stand beside it, and on a
-       narrow screen the conversation comes first with the rest underneath. -->
-  <!-- One companion, four screens, where the window can only hold one of them. Status used to be
-       a single tab holding everything that is not the conversation: measured on a phone, 1289px of
-       facts and 1161px of plan and handoffs and cron stacked behind it, 3.7 screens of scrolling,
-       with the file tree hidden behind a toggle inside that. They are peers, so they are tabs. -->
-  <md-tabs id="ptabs" hidden>
-    <md-primary-tab id="ptabTalk"></md-primary-tab>
-    <md-primary-tab id="ptabFacts"></md-primary-tab>
-    <md-primary-tab id="ptabFiles"></md-primary-tab>
-    <md-primary-tab id="ptabPlan"></md-primary-tab>
-  </md-tabs>
-  <div id="agentview">
-    <!-- The workspace, on the leading side, opposite the state pane. Two panes and not one:
-         a console with a single sidebar makes somebody choose between seeing the files and seeing
-         what the agent is doing, and Zed has an open issue about exactly that. What is on the left
-         is what the work is made of; what is on the right is what is happening to it.
-         Shut by default and remembered, like the state pane: the conversation is what the page is
-         for, and a reader who wants the tree asks for it once. -->
-    <div id="filecol">
-      <aside id="files"></aside>
-      <!-- The column's own edge, as a control. A window splitter in the ARIA sense: focusable,
-           arrow keys move it, and what it writes is the custom property the grid track is made of.
-           Drawn as a hairline that thickens under the pointer rather than as a bar, because most
-           of the time the answer to "how wide" is already right and a permanent bar is furniture. -->
-      <div id="filesGrip" class="grip" role="separator" aria-orientation="vertical" tabindex="0"></div>
+  <!-- The settings DESTINATION. This lived in a dialog ("Preferences, in one place instead of
+       four") and outgrew it: seven groups, its own scrollbar, a form whose required field once
+       held the whole dialog hostage, and a global-vs-companion axis still to come. A dialog is
+       for a short task worth interrupting for; this is a place. Same classes, same ids, same
+       handlers — what changed is the container, and that the form is a DIV now: nothing here
+       submits, and the one thing form-ness ever did to this content was swallow button presses.
+       Every control saves the moment it changes, which is why the screen has no save button. -->
+  <div id="settings" hidden>
+    <div id="prefsK"></div>
+    <!-- WHICH config this screen edits, said out loud. The rule was always there and never
+         spoken: opened from the fleet it writes the machine's config, opened from a companion it
+         writes that companion's project config. Same controls, different file, decided by where
+         somebody happened to be standing — which is exactly the kind of hidden axis that made a
+         dialog the wrong container. The path is named because "which file" is the question a
+         person asks next, and because it is the one they can go and read. -->
+    <div id="settingsScope" class="prefsay">
+      <div class="k" id="settingsScopeK"></div>
+      <div class="say" id="settingsScopeFile"></div>
     </div>
-    <div id="stream">
-      <!-- One slot, two things in it. The facts card answers "what am I looking at"; a file opened
-           from the tree answers "what is it made of" — both are reference above the conversation,
-           and stacking them would push the transcript off the screen the way the facts alone once
-           did. So they share the slot and a tab says which is showing, which is what an editor
-           does with the same problem. Hidden until there is more than one thing to choose. -->
-      <md-tabs id="cardtabs" hidden></md-tabs>
-      <md-outlined-card id="detail" hidden></md-outlined-card>
-      <md-outlined-card id="fileview" hidden></md-outlined-card>
-      <div id="log"></div>
-    </div>
-    <!-- The handle and the pane it opens are one column: siblings of #stream, a grid would place
-         them in reading order and put the pane on a row of its own beneath the conversation. -->
-    <!-- One level in from the conversation: a council member's verdict, or a child the turn
-         spawned. Its own section rather than a dialog, because what is in it is a transcript or a
-         page of evidence — things you scroll, select and copy out of. -->
-    <section id="agentdetail" hidden></section>
-
-    <div id="sidecol">
-      <div id="sideGrip" class="grip lead" role="separator" aria-orientation="vertical" tabindex="0"></div>
-      <aside id="side">
-        <md-outlined-card id="plan" hidden></md-outlined-card>
-        <!-- What is running beside the turn: a background command, a spawned child. It was a strip
-             in the dock, above the composer and on screen whatever you were doing — which on a
-             phone was 90px of somebody else's business over the thing you came to use, and on a
-             desktop a band that was there whether or not anything was running.
-             Under the plan, not over it: the plan is what this companion is trying to do and holds
-             still, and this is what is happening in the next few seconds. Read in that order, the
-             second is a detail of the first; the other way round it is a detail without its
-             subject. -->
-        <md-outlined-card id="strip" hidden></md-outlined-card>
-        <md-outlined-card id="handoffs" hidden></md-outlined-card>
-        <md-outlined-card id="queued" hidden></md-outlined-card>
-        <md-outlined-card id="cron" hidden></md-outlined-card>
-      </aside>
-    </div>
-  </div>
-</main>
-
-
-<!-- Preferences, in one place instead of four. As a section at the foot of every page these were
-     the same three controls repeated under lists somebody was reading for something else; as a
-     panel in the rail they were a second copy of that. A dialog is what M3 uses for a short task
-     that interrupts nothing, and it is the same dialog at every width. -->
-<md-dialog id="prefsDialog" type="alert">
-  <div slot="headline" id="prefsK"></div>
-  <!-- The theme lives here now. It had a toggle in the masthead and the masthead hid it from 600px
-       up — so on every desktop the console had no way to change theme at all, which is the width
-       most people read it on. One control, in the one place that is reachable at every width.
-       A toggle rather than a select of three: the third state is "follow the machine", and it is
-       what you get until you touch this — pressing it is the act of stopping. -->
-  <form slot="content" method="dialog" id="prefsForm">
+    <div id="prefsForm">
     <div class="prefgroup" id="grpAppearance"></div>
     <div class="prefrow">
       <div class="prefsay"><div class="k" id="themeK"></div><div class="say" id="themeWhy"></div></div>
@@ -553,18 +488,85 @@
       <div class="k" id="consoleK"></div>
       <div id="console"></div>
     </div>
-  </form>
-  <div slot="actions">
-    <!-- Closed by hand, and not form-bound, for two reasons that compound.
-         The first is the one measured on mcpCancel: form= and value= on a custom element never
-         reach the native <dialog>, so a button relying on them decides nothing.
-         The second is this dialog's own: the profile editor's name field is `required` and lives
-         inside prefsForm, so submitting the form runs validation on a field nobody was filling in
-         — and an empty one held the whole preferences dialog open. A person who came to flip the
-         theme could not leave without inventing a profile name. -->
-    <md-text-button id="prefsClose"></md-text-button>
+    </div>
   </div>
-</md-dialog>
+  <div id="fleet"></div>
+  <!-- Two reasons to be on a companion's page, and they want different things. Checking on it wants
+       the facts: state, workspace, model, context, plan. Reading what it is doing and steering it
+       wants the transcript and the box under it.
+       
+       Stacked, the transcript was 1335px down a 1267px screen — off it — behind five cards of which
+       three are history. So the conversation is the page and the facts stand beside it, and on a
+       narrow screen the conversation comes first with the rest underneath. -->
+  <!-- One companion, four screens, where the window can only hold one of them. Status used to be
+       a single tab holding everything that is not the conversation: measured on a phone, 1289px of
+       facts and 1161px of plan and handoffs and cron stacked behind it, 3.7 screens of scrolling,
+       with the file tree hidden behind a toggle inside that. They are peers, so they are tabs. -->
+  <md-tabs id="ptabs" hidden>
+    <md-primary-tab id="ptabTalk"></md-primary-tab>
+    <md-primary-tab id="ptabFacts"></md-primary-tab>
+    <md-primary-tab id="ptabFiles"></md-primary-tab>
+    <md-primary-tab id="ptabPlan"></md-primary-tab>
+  </md-tabs>
+  <div id="agentview">
+    <!-- The workspace, on the leading side, opposite the state pane. Two panes and not one:
+         a console with a single sidebar makes somebody choose between seeing the files and seeing
+         what the agent is doing, and Zed has an open issue about exactly that. What is on the left
+         is what the work is made of; what is on the right is what is happening to it.
+         Shut by default and remembered, like the state pane: the conversation is what the page is
+         for, and a reader who wants the tree asks for it once. -->
+    <div id="filecol">
+      <aside id="files"></aside>
+      <!-- The column's own edge, as a control. A window splitter in the ARIA sense: focusable,
+           arrow keys move it, and what it writes is the custom property the grid track is made of.
+           Drawn as a hairline that thickens under the pointer rather than as a bar, because most
+           of the time the answer to "how wide" is already right and a permanent bar is furniture. -->
+      <div id="filesGrip" class="grip" role="separator" aria-orientation="vertical" tabindex="0"></div>
+    </div>
+    <div id="stream">
+      <!-- One slot, two things in it. The facts card answers "what am I looking at"; a file opened
+           from the tree answers "what is it made of" — both are reference above the conversation,
+           and stacking them would push the transcript off the screen the way the facts alone once
+           did. So they share the slot and a tab says which is showing, which is what an editor
+           does with the same problem. Hidden until there is more than one thing to choose. -->
+      <md-tabs id="cardtabs" hidden></md-tabs>
+      <md-outlined-card id="detail" hidden></md-outlined-card>
+      <md-outlined-card id="fileview" hidden></md-outlined-card>
+      <div id="log"></div>
+    </div>
+    <!-- The handle and the pane it opens are one column: siblings of #stream, a grid would place
+         them in reading order and put the pane on a row of its own beneath the conversation. -->
+    <!-- One level in from the conversation: a council member's verdict, or a child the turn
+         spawned. Its own section rather than a dialog, because what is in it is a transcript or a
+         page of evidence — things you scroll, select and copy out of. -->
+    <section id="agentdetail" hidden></section>
+
+    <div id="sidecol">
+      <div id="sideGrip" class="grip lead" role="separator" aria-orientation="vertical" tabindex="0"></div>
+      <aside id="side">
+        <md-outlined-card id="plan" hidden></md-outlined-card>
+        <!-- What is running beside the turn: a background command, a spawned child. It was a strip
+             in the dock, above the composer and on screen whatever you were doing — which on a
+             phone was 90px of somebody else's business over the thing you came to use, and on a
+             desktop a band that was there whether or not anything was running.
+             Under the plan, not over it: the plan is what this companion is trying to do and holds
+             still, and this is what is happening in the next few seconds. Read in that order, the
+             second is a detail of the first; the other way round it is a detail without its
+             subject. -->
+        <md-outlined-card id="strip" hidden></md-outlined-card>
+        <md-outlined-card id="handoffs" hidden></md-outlined-card>
+        <md-outlined-card id="queued" hidden></md-outlined-card>
+        <md-outlined-card id="cron" hidden></md-outlined-card>
+      </aside>
+    </div>
+  </div>
+</main>
+
+
+<!-- Preferences, in one place instead of four. As a section at the foot of every page these were
+     the same three controls repeated under lists somebody was reading for something else; as a
+     panel in the rail they were a second copy of that. A dialog is what M3 uses for a short task
+     that interrupts nothing, and it is the same dialog at every width. -->
 
 <!-- Adding a server is a task with six fields and one outcome, which is what a dialog is for. It
      sat inline under the list, so the page a person came to READ ended in a form they were not

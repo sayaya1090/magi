@@ -706,7 +706,7 @@ const railEl = document.getElementById('rail');
 const langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsEl = document.getElementById('prefs');
-const prefsDialog = document.getElementById('prefsDialog');
+const settingsEl = document.getElementById('settings');
 const mcpDialog = document.getElementById('mcpDialog');
 const stopDialog = document.getElementById('stopDialog');
 const askDialog = document.getElementById('askDialog');
@@ -720,7 +720,6 @@ const stopCancel = document.getElementById('stopCancel'), stopGo = document.getE
 const mcpFormEl = document.getElementById('mcpForm');
 const mcpDialogK = document.getElementById('mcpDialogK');
 const mcpCancel = document.getElementById('mcpCancel'), mcpGo = document.getElementById('mcpGo');
-const prefsClose = document.getElementById('prefsClose');
 const railMenu = document.getElementById('railMenu');
 // There are TWO facts about the connection and they were one variable.
 //
@@ -805,7 +804,7 @@ const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
 const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=access',
-              map: '?v=map', meet: '?v=meet'};
+              map: '?v=map', meet: '?v=meet', settings: '?v=settings'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
@@ -1090,7 +1089,7 @@ function pageMoves(may) {
   // Named one by one — the six are static markup — because the fake DOM's querySelectorAll
   // deliberately refuses tag selectors rather than flattering the page with an empty answer.
   const calm = () => {
-    for (const id of ['prefsDialog', 'mcpDialog', 'stopDialog', 'palDialog', 'askDialog', 'fmtDialog']) {
+    for (const id of ['mcpDialog', 'stopDialog', 'palDialog', 'askDialog', 'fmtDialog']) {
       document.getElementById(id).quick = still.matches;
     }
   };
@@ -10025,17 +10024,6 @@ function paint() {
   if (provSelEl) provSelEl.setAttribute('label', tr('prof.provider'));
   const provModelSelEl = document.getElementById('provModelSel');
   if (provModelSelEl) provModelSelEl.setAttribute('label', tr('prof.provider_model'));
-  // "저장", with a check — not "닫기" with a red ✕. Every control in this dialog persists the
-  // moment it changes, so by the time anybody reaches this button their choices are already in
-  // the file; the button's real work is flushing the two templates (blur-saved textareas) and
-  // dismissing. Labelled 닫기 with an ✕ in the warning hue, it read as CANCEL, and the operator
-  // reasonably concluded a picked profile had not been saved. The label now claims what pressing
-  // it guarantees, and ESC/backdrop still dismiss for free.
-  prefsClose.textContent = tr('action.save');
-  withMark(prefsClose, '#i-sl-check');
-  // Closed by hand — see the comment on the button. Its form carries a `required` field for a
-  // section most readers never touch, and a form-bound close asks that field's permission to leave.
-  prefsClose.onclick = () => prefsDialog.close('close');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   // Both keys written out rather than built as key + '_sub': the phrase pack's own audit finds
@@ -10069,7 +10057,6 @@ function paint() {
     el.querySelector('.sub').textContent = tr(sub);
   }
   markWaiting(markWaiting.n || 0);
-  closeX(prefsDialog, prefsK);
   closeX(mcpDialog, mcpDialogK);
   mcpDialogK.textContent = tr('label.add_server');
   mcpCancel.textContent = tr('action.cancel');
@@ -10407,7 +10394,7 @@ function showDestination(s, v) {
   // and shared screens draw their own h2, and a second one would be the same word twice.
   // The board draws team names and, on a quiet day, no heading at all — so it needs this one. The
   // three screens that draw their own section head are the exceptions, not the rule.
-  const OWN_HEAD = {skills: 1, access: 1, meet: 1, map: 1};
+  const OWN_HEAD = {skills: 1, access: 1, meet: 1, map: 1, settings: 1};
   const named = s ? nameOf(s) : OWN_HEAD[v] ? '' : (SECTION[v] || tr('nav.companions'));
   screenHead.textContent = named;
   screenHead.hidden = !named;
@@ -10433,6 +10420,13 @@ function showDestination(s, v) {
   // Hidden by the view AND by the capability: a screen somebody may not use is one they should not
   // be able to arrive at by editing the address either.
   accessEl.hidden = !!s || v !== 'access' || !mayEl(accessEl);
+  // The settings destination. Loads on arrival — by the rail button, the palette, or the address
+  // bar, which are the same door now — and flushes the blur-saved templates on the way out, which
+  // the dialog's close event used to cover.
+  const showSettings = !s && v === 'settings';
+  if (!settingsEl.hidden && !showSettings) { flushTpl(commitTpl, 'commitTemplate'); flushTpl(prTpl, 'prTemplate'); }
+  if (settingsEl.hidden && showSettings) { loadAutocomplete(); loadProfiles(); paintNotify(); }
+  settingsEl.hidden = !showSettings;
 }
 
 // paintCompanionChrome is what a companion's page has that a list does not: the composer, the
@@ -10686,7 +10680,7 @@ function palVerbs() {
     {word: tr('pal.kind_verb'), name: tr('nav.companions'), go: () => goto(HREF.fleet)},
     {word: tr('pal.kind_verb'), name: tr('nav.shared'), go: () => goto(HREF.skills)},
     {word: tr('pal.kind_verb'), name: tr('nav.board'), go: () => goto(HREF.board)},
-    {word: tr('pal.kind_verb'), name: tr('pal.prefs'), go: () => prefsDialog.show()},
+    {word: tr('pal.kind_verb'), name: tr('pal.prefs'), go: () => { history.pushState({}, '', at(HREF.settings)); render(); }},
   ].filter(v => v.when !== false);
 }
 
@@ -11132,10 +11126,25 @@ const fillProfiles = (sel, profiles, current) => {
     sel.value = current || '';
   }
 };
+// The scope line: which config this screen is editing, and where it lands. Drawn from the same
+// answer the controls are filled from, so the header cannot claim one file while a switch writes
+// another.
+function drawScope(file) {
+  const k = document.getElementById('settingsScopeK');
+  const f = document.getElementById('settingsScopeFile');
+  if (!k || !f) return;
+  const a = lastDrawnFor;
+  k.textContent = a && a.socket
+    ? tr('settings.scope_project', {name: nameOf(a.socket) || a.name || ''})
+    : tr('settings.scope_global');
+  f.textContent = file ? tr('settings.scope_file', {file: file}) : '';
+}
+
 async function loadAutocomplete() {
   if (!may('configure')) return;
   const got = await fetchOne('/autocomplete' + acQ());
   if (!got) return;
+  drawScope(got.file);
   if (ambientSwitch) ambientSwitch.selected = got.ambient !== false; // absent/true = default on
   if (crossSwitch) crossSwitch.selected = got.crossSession !== false;
   fillProfiles(codeProfSel, got.profiles, got.codeProfile);
@@ -11154,8 +11163,9 @@ if (codeProfSel) codeProfSel.addEventListener('change', () => acSave('codeProfil
 if (compProfSel) compProfSel.addEventListener('change', () => acSave('composerProfile', compProfSel.value || ''));
 if (commitTpl) commitTpl.addEventListener('change', () => flushTpl(commitTpl, 'commitTemplate'));
 if (prTpl) prTpl.addEventListener('change', () => flushTpl(prTpl, 'prTemplate'));
-// Escape/backdrop dismiss does not blur first, so flush the templates when the dialog closes.
-prefsDialog.addEventListener('close', () => { flushTpl(commitTpl, 'commitTemplate'); flushTpl(prTpl, 'prTemplate'); });
+// Leaving the page does not blur a focused textarea first, so the templates flush on pagehide;
+// leaving the SETTINGS SCREEN flushes in the view switch, where the screen is hidden.
+addEventListener('pagehide', () => { flushTpl(commitTpl, 'commitTemplate'); flushTpl(prTpl, 'prTemplate'); });
 
 // The profile editor — define/edit/remove the [llm.profiles.*] the pickers above choose from, so a
 // fast completion backend can be set up here rather than in config.toml or the TUI. The key is
@@ -11457,29 +11467,21 @@ railMenu.onclick = () => {
 
 // One door to the preferences, at every width. The rail's hamburger is a different thing: it
 // widens the navigation, and it no longer opens anything.
-prefsEl.onclick = () => { prefsDialog.show(); loadAutocomplete(); loadProfiles(); };
-// Preferences is where the way to the people screen lives; see the markup for why it is not in the
-// navigation. Closing the dialog first, because leaving a modal open over the screen it just took
-// somebody to is the one thing a link out of a dialog must not do.
+// The door to the settings DESTINATION — the same sliders icon that opened the dialog, opening
+// a place now. The loads happen in the view switch, where arriving by address gets them too.
+prefsEl.onclick = () => { history.pushState({}, '', at(HREF.settings)); render(); };
+// Settings is where the way to the people screen lives; see the markup for why it is not in the
+// navigation. Both are destinations now, so this is an ordinary navigation.
 document.getElementById('accessGo').onclick = () => {
-  prefsDialog.close('go');
   history.pushState({}, '', at(HREF.access));
   render();
 };
-// Painted when it OPENS, not before. A dialog does not render what is slotted into it until then,
-// so a select told its value while the dialog was closed had no options to resolve it against and
-// showed an empty field over a value it was holding.
-prefsDialog.addEventListener('opened', () => {
-  if (painted) paint();
-  paintNotify();
-  // Focus lands inside, by hand. The component focuses `[autofocus]` and otherwise leaves it to
-  // the browser's own fix-up — which a <form slot="content" method="dialog"> defeats: measured,
-  // this one opened with the document on <body> while the other four landed on a control.
-  // The first PREFERENCE, not the way out: the guide's initial-focus example is a control inside
-  // — a text input, an edit button — and landing on Close read as "this dialog is for leaving".
-  const first = document.getElementById('themeToggle');
-  if (first && first.focus) requestAnimationFrame(() => first.focus());
-});
+// The dialog painted its slotted content on 'opened'; a screen's content is always in the DOM,
+// so the labels only need repainting when the screen is first shown after a language change —
+// paint() already covers that. What survives from the dialog era is the notify row's state, told
+// when the screen arrives (the view switch calls loadAutocomplete/loadProfiles; paintNotify rides
+// the same arrival).
+
 // The toggle writes the SAME preference the select does, so the two are one setting with two
 // controls rather than two settings. Pressing it leaves 'system' behind on purpose: asking for the
 // other theme is a choice, and pretending it was still deferring to the machine would mean the
