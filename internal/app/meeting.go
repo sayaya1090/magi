@@ -37,7 +37,7 @@ func (a *App) MeetingTurn(ctx context.Context, sid session.SessionID, who, topic
 	closing bool) (meeting.Utterance, error) {
 	s := a.sessionInfo(ctx, sid)
 	ask := meetingPrompt(who, topic, transcript, closing)
-	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: "meeting"}, port.SpawnSpec{
+	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.Origin}, port.SpawnSpec{
 		ToolName: "meeting",
 		System: "You are " + who + ", taking part in a meeting between companions. You each work in " +
 			"a different workspace and know different things; that is why you are all here. Read " +
@@ -85,7 +85,7 @@ const meetingSteps = 8
 func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, topic string) (
 	session.SessionID, string, error) {
 	s := a.sessionInfo(ctx, sid)
-	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: "meeting"}, port.SpawnSpec{
+	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.Origin}, port.SpawnSpec{
 		ToolName: "meeting",
 		System:   meetingSystem(who),
 		Prompt:   preparePrompt(who, topic, a.workNow(ctx, s.Workdir)),
@@ -138,7 +138,7 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 	a.meetingRounds.Add(1)
 	defer a.meetingRounds.Add(-1)
 	s := a.sessionInfo(ctx, child)
-	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: "meeting"},
+	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: meeting.Origin},
 		meetingPrompt(who, topic, transcript, closing)); err != nil {
 		return meeting.Utterance{}, err
 	}

@@ -37,6 +37,12 @@ import (
 	"time"
 )
 
+// Origin is the actor id a meeting turn is spawned under, and so the Origin stamped on the child
+// session the store keeps. It is the only mark that tells a meeting turn apart from any other
+// child after the fact — the child's Agent is the same "spawn" for everything — and the listings
+// that must not bury a companion's own work under an hour of meeting turns key off it.
+const Origin = "meeting"
+
 // Speaker is one participant: a companion, or the person running the meeting.
 type Speaker struct {
 	// Name is what everybody calls them, and what an utterance is attributed to.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/core/meeting"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/core/text"
 )
@@ -82,6 +83,17 @@ func (s *server) subagents(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	out := []subagentRow{}
 	for _, m := range kids {
+		// A meeting turn is spawned as a child (meeting.go), and one meeting is one child PER TURN
+		// — so an hour of meetings buries this list under other companions' contributions, which
+		// is also how the meeting's words end up reading as this companion's own work. The strip
+		// learned that already. The meeting screen holds the same turns with the room they were
+		// said in, so they are not lost by being left out here.
+		//
+		// Origin is the actor that opened the session and the meeting spawn sets it to "meeting",
+		// so nothing new has to be recorded to tell them apart.
+		if m.Origin == meeting.Origin {
+			continue
+		}
 		out = append(out, subagentRow{
 			ID: string(m.ID), Role: m.Agent, Task: text.Clip(m.Title, 200), Model: m.Model,
 			Labels: m.Labels, Started: m.Created.Format(time.RFC3339),
