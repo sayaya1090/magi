@@ -514,6 +514,16 @@
     <div class="prefgroup" id="grpProfiles" data-may="configure"></div>
     <div class="prefsay" data-may="configure"><div class="say" id="profWhy"></div></div>
     <div class="prefsay" data-may="configure"><div id="profList" class="proflist"></div></div>
+  <!-- The provider picker: the CLI backends serving RIGHT NOW, each with its own model list. Two
+       dropdowns instead of an address — the shims record where they answer (plugin-data), the
+       console reads it, and a pick fills the free-text fields below, which stay the escape hatch
+       for any other OpenAI endpoint. Hidden entirely while nothing is serving: a picker with no
+       providers teaches people not to open it. -->
+  <div class="profadd" id="provRow" data-may="configure" hidden>
+    <md-outlined-select id="provSel"></md-outlined-select>
+    <md-outlined-select id="provModelSel"></md-outlined-select>
+  </div>
+  <div class="prefsay" data-may="configure" id="provWhy" hidden><div class="say" id="provWhyText"></div></div>
     <div class="profadd" data-may="configure">
       <!-- required: the bundle puts the guide's asterisk on the label, and the save handler
            routes a missing/refused name to THIS field's error slot rather than the status line -->

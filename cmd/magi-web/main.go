@@ -173,7 +173,7 @@ func run() int {
 	}
 
 	srv := &server{
-		reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{},
+		reader: reader, cfgDir: cd, dataDir: plat.DataDir(), here: here, clients: map[string]*daemon.Client{},
 		peers: peers, exposed: *exposed, userHeader: *userHeader, groupsHeader: *groupsHeader,
 		audit: audit, policy: policy,
 		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
@@ -370,7 +370,10 @@ func countDaemons(cfgDir string) int {
 type server struct {
 	reader *app.App
 	cfgDir string
-	here   string // the socket for the directory magi-web was started in, if any
+	// dataDir is where the daemons' plugins keep their stores (plugin-data/<name>.json); the
+	// provider picker reads shim addresses out of it.
+	dataDir string
+	here    string // the socket for the directory magi-web was started in, if any
 
 	// exposed says somebody other than the operator can reach this console — a proxy, an SSO
 	// gateway, a tunnel the team shares. The bind guard still holds (this process serves loopback
@@ -1067,6 +1070,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/suggest":       s.suggest,
 		"/autocomplete":  s.autocomplete,
 		"/profiles":      s.profilesList,
+		"/providers":     s.providers,
 		"/update":        s.update,
 		"/git-do":        s.gitDo,
 		"/git-msg":       s.gitMsg,

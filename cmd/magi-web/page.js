@@ -10003,6 +10003,12 @@ function paint() {
   document.getElementById('accessK').textContent = tr('nav.access');
   document.getElementById('accessWhy').textContent = tr('access.why');
   label(document.getElementById('accessGo'), tr('access.open'));
+  const provWhyText = document.getElementById('provWhyText');
+  if (provWhyText) provWhyText.textContent = tr('prof.from_provider_why');
+  const provSelEl = document.getElementById('provSel');
+  if (provSelEl) provSelEl.setAttribute('label', tr('prof.provider'));
+  const provModelSelEl = document.getElementById('provModelSel');
+  if (provModelSelEl) provModelSelEl.setAttribute('label', tr('prof.provider_model'));
   prefsClose.textContent = tr('action.close');
   withMark(prefsClose, '#i-sl-xmark');
   // Closed by hand — see the comment on the button. Its form carries a `required` field for a
@@ -11176,7 +11182,57 @@ function renderProfiles(list) {
 async function loadProfiles() {
   if (!may('configure') || !profList) return;
   renderProfiles(await fetchList('/profiles' + acQ()) || []);
+  loadProviders();
 }
+
+// The provider picker: two dropdowns over what the shims themselves reported. A pick fills the
+// free-text fields below — it does not save by itself, so the name stays editable and the save
+// button stays the one way a profile comes to exist.
+const provRow = document.getElementById('provRow');
+const provWhy = document.getElementById('provWhy');
+const provSel = document.getElementById('provSel');
+const provModelSel = document.getElementById('provModelSel');
+let provList = [];
+const fillSelect = (sel, items, placeholder) => {
+  if (!sel) return;
+  sel.replaceChildren();
+  const opt = (value, label) => {
+    const o = document.createElement('md-select-option');
+    o.value = value;
+    const h = document.createElement('div');
+    h.slot = 'headline';
+    h.textContent = label;
+    o.append(h);
+    sel.append(o);
+  };
+  opt('', placeholder);
+  for (const it of items) opt(it, it);
+};
+async function loadProviders() {
+  if (!provRow) return;
+  provList = await fetchList('/providers') || [];
+  const have = provList.length > 0;
+  // Hidden entirely while nothing serves: a picker with no providers teaches people not to open it.
+  provRow.hidden = !have;
+  if (provWhy) provWhy.hidden = !have;
+  if (!have) return;
+  fillSelect(provSel, provList.map(p => p.name), tr('prof.provider'));
+  fillSelect(provModelSel, [], tr('prof.provider_model'));
+}
+if (provSel) provSel.addEventListener('change', () => {
+  const p = provList.find(x => x.name === provSel.value);
+  fillSelect(provModelSel, p ? p.models : [], tr('prof.provider_model'));
+});
+if (provModelSel) provModelSel.addEventListener('change', () => {
+  const p = provList.find(x => x.name === provSel.value);
+  if (!p || !provModelSel.value) return;
+  // Fill, don't save: the person still names it (a suggestion is offered) and presses save, so
+  // nothing lands in config that nobody asked for.
+  profBase.value = p.base;
+  profModel.value = provModelSel.value;
+  if (!profName.value.trim()) profName.value = p.name;
+  if (profName.focus) profName.focus();
+});
 if (profSave) profSave.onclick = () => whileItRuns(profSave, async () => {
   // Same shape as the MCP form above: an error goes to the field it is about — the component puts
   // it in the label with the alert role once error-text is set — and the status line is only for a
