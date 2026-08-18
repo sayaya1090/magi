@@ -695,6 +695,20 @@ Three problems appear the moment the backend is a CLI, and the plugins show one 
   mutating tools disallowed by name, `agy` runs with `--sandbox` and without its skip-permissions
   flag, and the prompt states the terms: you are being used as a language model.
 
+All three answers are **measured, not assumed** (2026-08-19, against the live shims):
+
+- A chat request carrying a tool schema came back from all three as a native `tool_calls` frame
+  with `finish_reason: tool_calls` and the right arguments — the `TOOL_CALL` line protocol
+  round-trips.
+- A canary file placed in the working directory, with a prompt asking the CLI to read it and no
+  tool offered, came back from all three as "cannot read files" with the canary untouched — the
+  CLIs act as language models, not as agents, even where the deny list would have let one look
+  (claude's leaves `Read` on).
+- A full `magi -p` turn (write a file, read it back, confirm) completed over each shim; a skill
+  planted in `<config>/skills/` was loaded and applied mid-turn (its sign-off string, which
+  existed nowhere else, ended the produced file); and the engram observer ran after the turn and
+  persisted its records — skills and memory ride the provider like any other context.
+
 The **backend order** is a property of the plugins, never of core — no backend name exists there.
 Each plugin serves its shim whenever its own CLI answers — serving is what makes a backend
 *pickable* (§3.7.2) — and only the **default** follows the chain: codex yields it when it finds
