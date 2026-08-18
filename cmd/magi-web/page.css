@@ -4204,7 +4204,15 @@
     /* …and it fades to the tone the boxes on it take, not to the page. Faded to the page colour,
        the composer — the half of this bar that is always there — was still painted the page while
        the question box beside it had a surface, so the dock banded down the middle. */
-    background:linear-gradient(to top, var(--magi-ref-surface-container-low) 88%, transparent);
+    /* The page's own ground, not a tone of its own.
+       A filled bar between two outlined panels is a third material on a screen that has two: the
+       facts and workspace cards beside it paint --magi-ref-bg inside a hairline, and the bay was
+       the one box carrying a container tone — so it read as a strip laid over the page rather
+       than as part of it, which is what "the bay does not sit well with the panels" is describing.
+       Fully transparent is the other wrong answer: the transcript scrolls UNDER this, and text
+       passing behind the composer is worse than a seam. So it takes the ground the panels take,
+       and the gradient keeps its job of letting the last line fade rather than end at an edge. */
+    background:linear-gradient(to top, var(--magi-ref-bg) 88%, transparent);
     background-clip:content-box;
   }
   /* The answer stays under the thumb however long the question is.
@@ -4221,7 +4229,10 @@
     /* The third bar on the screen, and the last one painted the page's own background: the rail
        and the phone's navigation bar take a container tone, and a fixed band at the foot separated
        by a divider-coloured rule alone is 1.46:1 from the transcript in the light theme. */
-    background:var(--magi-ref-surface-container-low);
+    /* Same ground as the panels beside it (see the bay's own comment): the three boxes on a
+       companion's page are one material now, and this bar is separated by its rule rather than by
+       being a different colour. */
+    background:var(--magi-ref-bg);
     /* The side padding lives HERE, not on the box that draws the rule. Inside .inner it was part
        of that box, so the 2px line ran 24px wider than the conversation at each end — the bottom
        of the page a little broader than everything above it, which reads as the footer being
