@@ -291,7 +291,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
-	spawnFn, childStepsFn, restoreChildFn, mergeChildFn, childReport := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	hooks := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var expectFn func(port.Elsewhere) error
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
@@ -441,13 +441,13 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
 		// Only at depth 0. A child has no Spawn, so a child cannot spawn — recursion is impossible
 		// by construction rather than bounded by a depth counter somebody has to remember to check.
-		Spawn: spawnFn,
+		Spawn: hooks.Spawn,
 		// Paired with Spawn and scoped to the same tool call: it answers only for children this
 		// call started, so a plugin cannot read a session it did not create.
-		ChildSteps: childStepsFn,
+		ChildSteps: hooks.Steps,
 		// Same scope again: a call can only put back a child it started.
-		RestoreChild: restoreChildFn,
-		MergeChild:   mergeChildFn,
+		RestoreChild: hooks.Restore,
+		MergeChild:   hooks.Merge,
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
 			return a.councilAdvice(cctx, s, guardChanges(guard), guardEpoch(guard), question, complete)
 		},
@@ -571,8 +571,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// magi records it rather than trusting the tool to: a plugin is handed the child's text and its
 	// session id (bridge.go) and may return a sentence, a summary, or nothing at all. What the
 	// parent's log does not hold, the parent's next turn cannot read.
-	if childReport != nil {
-		if acct := childReport(); acct != "" {
+	if hooks.Report != nil {
+		if acct := hooks.Report(); acct != "" {
 			res.Content = appendToContent(res.Content, "\n\n"+acct)
 		}
 	}

@@ -345,15 +345,28 @@ func childCanWrite(names []string) bool {
 	return false
 }
 
-func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID, toolName string) (
-	func(context.Context, port.SpawnSpec) (port.SpawnResult, error),
-	func(context.Context, string) ([]port.ChildStep, error),
-	func(context.Context, string) ([]port.RestoredPath, error),
-	func(context.Context, string) error,
-	func() string,
-) {
+// spawnHooks is the spawn seam for ONE tool call: the four hooks a tool may be handed, and the one
+// magi keeps for itself.
+//
+// A struct because the four already have names on the other side — they are assigned straight to
+// port.ToolEnv's Spawn, ChildSteps, RestoreChild and MergeChild. Returned positionally, every call
+// site had to count to say which one it meant, and adding the fifth turned a dozen tests into
+// `spawn, _, _, _, _ :=`. The zero value is every hook nil, which is what depth != 0 wants to say
+// and what every consumer already reads as "not offered here".
+type spawnHooks struct {
+	Spawn   func(context.Context, port.SpawnSpec) (port.SpawnResult, error)
+	Steps   func(context.Context, string) ([]port.ChildStep, error)
+	Restore func(context.Context, string) ([]port.RestoredPath, error)
+	Merge   func(context.Context, string) error
+	// Report is magi's own and is NOT on ToolEnv: it is what the children of this call said, kept
+	// for the call's own result. A tool cannot be relied on to volunteer it, which is the whole
+	// reason it is recorded on this side of the seam.
+	Report func() string
+}
+
+func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID, toolName string) spawnHooks {
 	if depth != 0 {
-		return nil, nil, nil, nil, nil
+		return spawnHooks{}
 	}
 	// One budget per tool call, closed over by every spawn the call makes. spawnFnFor runs once
 	// per call (execute.go), so these are per-call state and not per-App.
@@ -517,7 +530,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		}
 		return strings.Join(accounts, "\n\n")
 	}
-	return spawn, steps, restore, merge, report
+	return spawnHooks{Spawn: spawn, Steps: steps, Restore: restore, Merge: merge, Report: report}
 }
 
 // countTurns counts the child's model round trips: one per distinct assistant message in its log.

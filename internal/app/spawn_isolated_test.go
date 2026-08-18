@@ -51,7 +51,9 @@ func TestAnIsolatedToolsWritingChildGetsItsOwnCheckout(t *testing.T) {
 	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
 	a.tools.Register(metaTool{name: "worker", meta: port.ToolMetadata{Subagent: true, IsolatedChildren: true}})
 
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "worker")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "worker")
+
+	spawn := hooks.Spawn
 	// The parent's workdir is a bare temp directory: the forced clone must fail loudly rather
 	// than fall back to sharing — that failure is the proof the isolation was applied.
 	res, err := spawn(context.Background(), port.SpawnSpec{Prompt: "fix it",
@@ -90,7 +92,9 @@ func TestAnIsolatedChildWorksInItsOwnCheckoutAndIsStillListed(t *testing.T) {
 	parent := a.sessionInfo(ctx, sid)
 	_ = seed
 
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "worker")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "worker")
+
+	spawn := hooks.Spawn
 	res, err := spawn(ctx, port.SpawnSpec{Prompt: "fix it", Tools: []string{"read", "write", "bash"}})
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +172,9 @@ func TestSpawnGateBoundsConcurrentChildren(t *testing.T) {
 	a, parent, _ := spawnApp(t, llm)
 	a.tools.Register(metaTool{name: "scout", meta: port.ToolMetadata{Subagent: true, ReadOnlyChildren: true}})
 
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "scout")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "scout")
+
+	spawn := hooks.Spawn
 	results := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func() {

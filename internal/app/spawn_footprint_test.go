@@ -23,7 +23,11 @@ func TestTheFootprintCarriesTheCallsAndTheFailureVerbatim(t *testing.T) {
 	a, parent, _ := spawnApp(t, llm)
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
 
-	spawn, steps, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, actor, "c1", "looper")
+
+	spawn := hooks.Spawn
+
+	steps := hooks.Steps
 	res, err := spawn(context.Background(), port.SpawnSpec{Prompt: "build it"})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
@@ -83,14 +87,19 @@ func TestTheFootprintRefusesASessionThisCallDidNotSpawn(t *testing.T) {
 	a, parent, _ := spawnApp(t, &footprintLLM{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
 
-	spawnA, stepsA, _, _, _ := a.spawnFnFor(0, parent, actor, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, actor, "c1", "looper")
+
+	spawnA := hooks.Spawn
+
+	stepsA := hooks.Steps
 	resA, err := spawnA(context.Background(), port.SpawnSpec{Prompt: "one"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A DIFFERENT tool call. Its reader must not answer for the first call's child, and the parent
 	// session is not its child either.
-	_, stepsB, _, _, _ := a.spawnFnFor(0, parent, actor, "c2", "looper")
+	hooksB := a.spawnFnFor(0, parent, actor, "c2", "looper")
+	stepsB := hooksB.Steps
 	for _, sid := range []string{resA.SessionID, string(parent.ID)} {
 		if _, err := stepsB(context.Background(), sid); err == nil {
 			t.Errorf("a second tool call read %s, which it did not spawn", sid)
@@ -110,7 +119,8 @@ func TestOneToolCallCannotSpawnForever(t *testing.T) {
 	t.Cleanup(func() { spawnCallStepBudget = old })
 
 	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn := hooks.Spawn
 
 	var lastErr error
 	spawned := 0
@@ -136,7 +146,8 @@ func TestOneToolCallCannotSpawnForever(t *testing.T) {
 	}
 	// A separate tool call starts fresh — the budget is per call, not per app.
 	_ = spawned
-	spawn2, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c2", "looper")
+	hooks2 := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c2", "looper")
+	spawn2 := hooks2.Spawn
 	if _, err := spawn2(context.Background(), port.SpawnSpec{Prompt: "new call"}); err != nil {
 		t.Errorf("a new tool call inherited the previous call's exhausted budget: %v", err)
 	}
@@ -154,7 +165,8 @@ func TestTheBudgetChargesStepsNotSpawns(t *testing.T) {
 	t.Cleanup(func() { spawnCallStepBudget = old })
 
 	a, parent, _ := spawnApp(t, &footprintLLM{}) // read, list, then answer: three round trips
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn := hooks.Spawn
 
 	res, err := spawn(context.Background(), port.SpawnSpec{Prompt: "build"})
 	if err != nil {
@@ -231,7 +243,9 @@ func (f *footprintLLM) StreamChat(_ context.Context, _ port.ChatRequest) (<-chan
 // already read, and re-gathering that is most of what a fresh child's steps would go to.
 func TestAReviewSendsTheChildBackWithoutLosingWhatItRead(t *testing.T) {
 	a, parent, _ := spawnApp(t, &footprintLLM{})
-	spawn, steps, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn := hooks.Spawn
+	steps := hooks.Steps
 
 	var rounds []string
 	var reviewedSID string
@@ -281,7 +295,8 @@ func TestAReviewSendsTheChildBackWithoutLosingWhatItRead(t *testing.T) {
 // spent down across rounds, and the round count is capped besides.
 func TestAReviewThatNeverAcceptsStillEnds(t *testing.T) {
 	a, parent, _ := spawnApp(t, &footprintLLM{})
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn := hooks.Spawn
 
 	asked := 0
 	done := make(chan struct{})
@@ -309,7 +324,8 @@ func TestAReviewThatNeverAcceptsStillEnds(t *testing.T) {
 // are different facts, and a caller told the second when the first happened cannot tell.
 func TestAFailingReviewIsReportedNotTakenAsYes(t *testing.T) {
 	a, parent, _ := spawnApp(t, &footprintLLM{})
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn := hooks.Spawn
 
 	res, err := spawn(context.Background(), port.SpawnSpec{
 		Prompt: "build it",

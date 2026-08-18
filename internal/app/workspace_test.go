@@ -130,7 +130,8 @@ func TestASpawnWithItsOwnCheckoutWorksThereAndSaysWhere(t *testing.T) {
 
 	a, parent, _ := spawnApp(t, &writingChildLLM{path: "target.go"})
 	parent.Workdir = dir
-	spawn, _, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn := hooks.Spawn
 
 	res, err := spawn(context.Background(), port.SpawnSpec{
 		Prompt: "change it", Tools: []string{"write", "read"}, Workspace: "clone"})
