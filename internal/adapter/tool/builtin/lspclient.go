@@ -201,39 +201,6 @@ func (c *lspClient) readMsg() (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// call sends a request and returns its result, replying null to any server→client
-// request encountered meanwhile (e.g. workspace/configuration) so the server doesn't
-// block, and ignoring notifications.
-func (c *lspClient) call(method string, params any) (json.RawMessage, error) {
-	c.id++
-	id := c.id
-	if err := c.writeMsg(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
-		return nil, err
-	}
-	for {
-		m, err := c.readMsg()
-		if err != nil {
-			return nil, err
-		}
-		idRaw, hasID := m["id"]
-		_, hasMethod := m["method"]
-		switch {
-		case hasID && hasMethod: // server→client request — reply null to unblock it
-			var raw json.RawMessage = idRaw
-			_ = c.writeMsg(map[string]any{"jsonrpc": "2.0", "id": raw, "result": nil})
-		case hasID: // a response
-			var mid int
-			if json.Unmarshal(idRaw, &mid) == nil && mid == id {
-				if e, ok := m["error"]; ok {
-					return nil, fmt.Errorf("lsp error: %s", string(e))
-				}
-				return m["result"], nil
-			}
-		}
-		// notification (method, no id) → ignore
-	}
-}
-
 // lspRng / lspPos are the position shapes the diagnostics decoder reads out of a
 // publishDiagnostics notification.
 type lspRng struct {

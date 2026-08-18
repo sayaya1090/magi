@@ -3,11 +3,13 @@ package builtin
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 type nopWriteCloser struct{ io.Writer }
@@ -53,43 +55,74 @@ func TestLSPFraming(t *testing.T) {
 	}
 }
 
-// call() sends a request, replies null to a server→client request it sees meanwhile
-// (so the server can't block it), and returns the matching response.
-func TestLSPCall(t *testing.T) {
-	cliInR, cliInW := io.Pipe()   // client writes requests here; server reads
-	srvOutR, srvOutW := io.Pipe() // server writes here; client reads
-	c := &lspClient{in: cliInW, out: bufio.NewReader(srvOutR)}
+// A request gets its answer, and a server→client request seen on the way does not block it.
+//
+// This used to be asked of lspClient.call, a single-shot request/response that nothing calls any
+// more: the pool runs one reader for a connection's life and hands answers to waiters by id
+// (warmLSP.reader / warmLSP.request), which is the only version that reaches a real server now.
+// The behaviour is the same and it had no test on the live side — the two below were the whole of
+// it, and they were pointed at code no binary could run.
+//
+// workspace/configuration is the one that actually arrives: a server asks for settings mid-request
+// and waits for the reply, so a client that ignored it would hang on its own answer.
+func TestPoolRequestAnswersAServerRequestMeanwhile(t *testing.T) {
+	cliInR, cliInW := io.Pipe()
+	srvOutR, srvOutW := io.Pipe()
+	w := &warmLSP{
+		cli:     &lspClient{in: cliInW, out: bufio.NewReader(srvOutR)},
+		waiters: map[int]chan rpcResult{},
+		updated: make(chan struct{}, 1),
+	}
+	go w.reader()
 
+	replied := make(chan []byte, 1)
 	go func() {
 		sr := bufio.NewReader(cliInR)
-		_ = readFramed(sr) // the client's request (id 1)
-		// Send a server→client request first; the client must reply null to it.
+		_ = readFramed(sr) // our request, id 1
 		writeFramed(srvOutW, `{"jsonrpc":"2.0","id":7,"method":"workspace/configuration"}`)
-		_ = readFramed(sr) // the client's null reply to id 7
-		// Then the real response to the original request.
+		replied <- readFramed(sr) // whatever the client says back to id 7
 		writeFramed(srvOutW, `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`)
 	}()
 
-	res, err := c.call("textDocument/definition", map[string]any{"x": 1})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := w.request(ctx, "textDocument/definition", map[string]any{"x": 1})
 	if err != nil {
-		t.Fatalf("call: %v", err)
+		t.Fatalf("request: %v", err)
 	}
 	if !strings.Contains(string(res), `"ok":true`) {
 		t.Errorf("result = %s", res)
 	}
+	select {
+	case got := <-replied:
+		// null, and addressed to the id the server asked under — a reply to the wrong id leaves
+		// the server waiting exactly as silence would.
+		if !strings.Contains(string(got), `"id":7`) || !strings.Contains(string(got), `"result":null`) {
+			t.Errorf("the client answered the server's request with %s", got)
+		}
+	default:
+		t.Error("the client never answered the server's request")
+	}
 }
 
-// call() surfaces a JSON-RPC error response as a Go error.
-func TestLSPCallError(t *testing.T) {
+// A JSON-RPC error response comes back as a Go error rather than as an empty result.
+func TestPoolRequestSurfacesAnErrorResponse(t *testing.T) {
 	cliInR, cliInW := io.Pipe()
 	srvOutR, srvOutW := io.Pipe()
-	c := &lspClient{in: cliInW, out: bufio.NewReader(srvOutR)}
+	w := &warmLSP{
+		cli:     &lspClient{in: cliInW, out: bufio.NewReader(srvOutR)},
+		waiters: map[int]chan rpcResult{},
+		updated: make(chan struct{}, 1),
+	}
+	go w.reader()
 	go func() {
 		sr := bufio.NewReader(cliInR)
 		_ = readFramed(sr)
 		writeFramed(srvOutW, `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"no"}}`)
 	}()
-	if _, err := c.call("bad", nil); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := w.request(ctx, "bad", nil); err == nil {
 		t.Error("an error response should return a Go error")
 	}
 }
