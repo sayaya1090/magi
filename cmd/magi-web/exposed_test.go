@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
@@ -239,5 +240,42 @@ role = "operator"
 	alone := withPolicy(t, "")
 	if alone.shared() {
 		t.Error("a single-operator console called itself shared; that would take away its own shell")
+	}
+}
+
+// A request no route can accept does not cross the network to be refused.
+//
+// The console's handlers open with the same few guards, and the ORDER they were written in had
+// drifted: eleven ran `s.forwarded(...) || postOnly(...)`, so a GET on a POST-only route that
+// belonged to another machine was proxied there, refused by the identical binary at the other end,
+// and the 405 came back over the link. The other twelve refused it here. Both answer 405; only one
+// of them sends a malformed request — to /shell, /permission, /interrupt among others — to another
+// machine first.
+//
+// So postOnly comes first everywhere. || short-circuits, which is the whole of the mechanism.
+//
+// refuseWhenShared stays ahead of both where it appears: a console more people than the operator
+// can reach must refuse a config write ITSELF, and forwarding first would send it on.
+func TestAWrongMethodIsRefusedBeforeItIsForwarded(t *testing.T) {
+	for _, name := range []string{"main.go", "autocomplete.go", "compact.go", "cron.go", "mcp.go",
+		"profiles.go", "access.go", "files.go", "dispatch.go", "push.go", "skills.go", "meet.go",
+		"peer.go", "handoff.go", "wiki.go", "inspect.go", "context.go", "history.go", "search.go",
+		"gate.go", "audit.go", "console.go", "plan.go", "reportfmt.go", "subagent.go", "update.go"} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			continue // not every console file is a handler file
+		}
+		src := string(b)
+		if strings.Contains(src, "s.forwarded(w, r, s.proxy) || postOnly(w, r)") {
+			t.Errorf("%s forwards before checking the method, so a request that cannot be "+
+				"accepted anywhere is sent to another machine to be refused", name)
+		}
+		// And the shared-console refusal keeps its place at the front.
+		for _, bad := range []string{"s.forwarded(w, r, s.proxy) || s.refuseWhenShared",
+			"postOnly(w, r) || s.refuseWhenShared"} {
+			if strings.Contains(src, bad) {
+				t.Errorf("%s refuses a shared console AFTER deciding to forward: %s", name, bad)
+			}
+		}
 	}
 }

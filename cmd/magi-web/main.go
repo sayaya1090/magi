@@ -1803,7 +1803,7 @@ func councilText(m app.CouncilMark) string {
 func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
 	// socket path is that machine's, and its daemon is not ours to dial.
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	text := strings.TrimSpace(r.FormValue("text"))
@@ -1837,7 +1837,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 // across. What it cannot do is exceed what the operator already allowed: the guardrail rules in
 // config (allow/deny globs, allow_domains) are read on every call and are not reachable from here.
 func (s *server) permission(w http.ResponseWriter, r *http.Request) {
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	mode := strings.TrimSpace(r.FormValue("mode"))
@@ -1878,7 +1878,7 @@ func (s *server) permission(w http.ResponseWriter, r *http.Request) {
 func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
 	// socket path is that machine's, and its daemon is not ours to dial.
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	callID := strings.TrimSpace(r.FormValue("call"))
@@ -1944,7 +1944,7 @@ func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 	if s.refuseWhenShared(w, "running a command") {
 		return
 	}
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	cmd := strings.TrimSpace(r.FormValue("cmd"))
@@ -1977,7 +1977,7 @@ func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 // does not pre-judge any of them, because the answer is only true at the daemon and a console
 // asking a question it then answers itself is two truths.
 func (s *server) resume(w http.ResponseWriter, r *http.Request) {
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	want := strings.TrimSpace(r.FormValue("session"))
@@ -1997,7 +1997,7 @@ func (s *server) resume(w http.ResponseWriter, r *http.Request) {
 func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
 	// socket path is that machine's, and its daemon is not ours to dial.
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {

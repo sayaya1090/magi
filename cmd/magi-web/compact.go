@@ -28,7 +28,7 @@ import (
 // live window loses the original wording. The page says so beside the button, because "compact" is
 // a word that sounds free.
 func (s *server) compact(w http.ResponseWriter, r *http.Request) {
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	err := s.alone(r, func(cl *daemon.Client, sid session.SessionID) error {

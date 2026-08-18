@@ -87,7 +87,7 @@ func (s *server) autocompleteWrite(w http.ResponseWriter, r *http.Request) {
 	if s.refuseWhenShared(w, "changing this companion's completion settings") {
 		return
 	}
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	path, err := s.configFileFor(r)

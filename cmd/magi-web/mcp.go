@@ -111,7 +111,7 @@ func (s *server) mcpWrite(w http.ResponseWriter, r *http.Request) {
 	if s.refuseWhenShared(w, "changing which MCP servers this machine runs") {
 		return
 	}
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))

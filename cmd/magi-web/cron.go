@@ -112,7 +112,7 @@ func (s *server) jobsFor(workdir string) (global, project map[string]config.Cron
 
 // cronWrite adds, changes, switches off or removes one job.
 func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
-	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
+	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
