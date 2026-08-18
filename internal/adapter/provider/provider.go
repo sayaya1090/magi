@@ -70,11 +70,13 @@ func Discover(ctx context.Context, root string) []Provider {
 	return out
 }
 
-// shimModels asks one shim for its catalog. The deadline is short on purpose: this runs once per
-// candidate on a picker open, against loopback, and a shim that cannot list its models inside a
-// second is one no picker should offer.
+// shimModels asks one shim for its catalog. The deadline is short on purpose — this runs once per
+// candidate on a picker open, against loopback — but not one second: a shim whose catalog comes
+// from its CLI can spend a couple of seconds on the FIRST answer after a daemon start, and at 1s
+// the roster dropped a serving backend for exactly those moments, which read as "antigravity is
+// gone". The shims also warm their catalogs at activation now; this is the second belt.
 func shimModels(ctx context.Context, base string) []string {
-	cctx, cancel := context.WithTimeout(ctx, time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, base+"/models", nil)
 	if err != nil {
