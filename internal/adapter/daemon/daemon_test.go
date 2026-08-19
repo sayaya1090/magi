@@ -386,7 +386,7 @@ func (c *controllingEngine) SetModel(_ session.SessionID, m string) {
 	c.model = m
 }
 
-func (c *controllingEngine) UseBackend(base string) error {
+func (c *controllingEngine) UseBackend(_ session.SessionID, base string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.backend = base

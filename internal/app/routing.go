@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -191,7 +192,7 @@ func (a *App) ListModels(ctx context.Context) ([]string, error) {
 // Refused rather than silently ignored when the provider cannot be redirected (a double in a test,
 // a backend built without the capability): a control that reports success and changes nothing is
 // the defect this tree keeps finding.
-func (a *App) UseBackend(base string) error {
+func (a *App) UseBackend(sid session.SessionID, base string) error {
 	base = strings.TrimSpace(base)
 	if base == "" {
 		return fmt.Errorf("no backend named")
@@ -201,7 +202,51 @@ func (a *App) UseBackend(base string) error {
 		return fmt.Errorf("this backend cannot be redirected")
 	}
 	setter.SetBaseURL(base)
+	a.adoptServedModel(sid)
 	return nil
+}
+
+// adoptServedModel moves this session onto a model the NEW backend actually serves.
+//
+// Redirecting the base URL used to be the whole of a backend switch, and the model name was left
+// exactly as it was — so a companion could sit on backend `codex` holding the model
+// "Gemini 3.7 Flash (High)", which is antigravity's name for something codex has never heard of.
+// /fleet reported that pairing truthfully and the console drew it; the next turn would have been
+// refused by the backend. The console can blank its own display and ask, but a display is not the
+// state, and the state was wrong until somebody noticed.
+//
+// The replacement is the backend's FIRST advertised model, not a guess at what somebody wanted.
+// There is no rule for which of a stranger's catalog they meant — the console asks them, and puts
+// the caret in the field to say so — but a companion has to be runnable while they decide, and the
+// only answer available here that is not an invention is the backend's own first offering.
+//
+// Silent about every failure, and deliberately so: a catalog this backend will not list (an older
+// daemon, a gateway behind auth, ErrCapabilityAbsent) is not evidence that the current model is
+// wrong, and refusing the switch over it would trade a working control for a guess. The model is
+// left alone and the switch stands.
+func (a *App) adoptServedModel(sid session.SessionID) {
+	lister, ok := a.llm.(port.ModelLister)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	models, err := lister.ListModels(ctx)
+	if err != nil || len(models) == 0 {
+		return
+	}
+	a.mu.Lock()
+	now := ""
+	if s, ok := a.metaLocked(sid); ok {
+		now = s.Model.Model
+	}
+	a.mu.Unlock()
+	for _, m := range models {
+		if m == now {
+			return // this backend serves what the companion is already on
+		}
+	}
+	a.SetModel(sid, models[0])
 }
 
 // Profiles returns the defined LLM profiles, sorted by name, for the editor.
