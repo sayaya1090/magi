@@ -2054,14 +2054,23 @@
      never the only telling. */
   .fileacts .editask.on { --md-icon-button-icon-color:var(--magi-ref-primary); color:var(--magi-ref-primary); }
   /* The switch that lets the model read over your shoulder, and what it said. The switch is a
-     preference and reads like one; what it says is a note above the buffer, in the warning colour
-     because it only ever speaks when something is wrong — silence is the other answer. */
+     preference and reads like one; what it says is a note above the buffer.
+     The warning colour was written on the premise that this cell only ever speaks when something
+     is wrong — silence being the other answer. The ask buttons broke that premise: a press that
+     found nothing has to say so, because silence and a dead control look the same, and "nothing to
+     suggest here" is an ordinary answer wearing the colour of a fault. So the fault colouring is
+     the default this cell keeps, and .plain is the ordinary answer — same box, the muted ink every
+     other quiet reading on this page uses. */
   .looksaid {
     font:var(--md-sys-typescale-body-small-size)/1.6 var(--magi-ref-display); color:var(--magi-ref-warn);
     white-space:pre-wrap; padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
     border-left:2px solid var(--magi-ref-warn); background:var(--magi-ref-surface-container);
     border-radius:var(--magi-sys-shape-xs);
   }
+  /* An answer, not a fault. Kept in the same box and the same place so a reader does not have to
+     learn a second spot for the same kind of remark — only the colour stops claiming something
+     went wrong. */
+  .looksaid.plain { color:var(--magi-ref-muted); border-left-color:var(--magi-ref-outlineVariant); }
   /* What the update button's daemon said — its account, or why it could not. Muted and small; it
      takes the button's own place under the version in the facts card. */
   .updsay { display:block; margin-top:var(--magi-sys-space-100); color:var(--magi-ref-muted); font-size:.82rem; }

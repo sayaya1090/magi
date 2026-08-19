@@ -8830,9 +8830,27 @@ function editor(path, text, acts) {
     srNotes.textContent = spoken.concat(extra).join(' · ');
     said.textContent = extra.join('\n');
     said.hidden = !said.textContent;
+    // A model that wrote outside the format is a fault, so this keeps the warning colour.
+    said.classList.remove('plain');
     repaint();
   };
-  const clearNotes = () => { notes = null; said.hidden = true; srNotes.textContent = ''; repaint(); };
+  // Everything this editor says goes through here, and it says it TWICE — once to the eye and once
+  // to the live region the textarea points at. Three routes added by the ask buttons wrote only
+  // said.textContent, so a screen-reader user who pressed a control heard aria-busy go true and
+  // then false and was told neither "nothing found" nor "that failed". The channel had been fixed
+  // once before and a new path walked around it, which is what one writer prevents.
+  //
+  // kind carries whether this is a fault or an ordinary answer, because the styling says so:
+  // .looksaid is drawn in the warning colour on the premise, written into its own comment, that it
+  // only ever speaks when something is wrong.
+  const say = (text, kind) => {
+    said.textContent = text || '';
+    said.hidden = !said.textContent;
+    said.classList.toggle('plain', kind === 'plain' && !!said.textContent);
+    srNotes.textContent = said.textContent;
+    repaint();
+  };
+  const clearNotes = () => { notes = null; said.hidden = true; said.classList.remove('plain'); srNotes.textContent = ''; repaint(); };
   lookClearActive = clearNotes; // so the Preferences switch can wipe this editor's notes when turned off
   // The two on-demand controls, and how many requests each has in flight.
   //
@@ -8898,10 +8916,7 @@ function editor(path, text, acts) {
     applyNotes(out);
     // Except where somebody pressed the button. Silence is then indistinguishable from a control
     // that did nothing, and the one thing a requested answer must not be is ambiguous.
-    if (force && !notes && said.hidden) {
-      said.textContent = tr('edit.look_none');
-      said.hidden = false;
-    }
+    if (force && !notes && said.hidden) say(tr('edit.look_none'), 'plain');
   };
   // Inline completion is on by default and remembered; acOn is module-scope (Preferences flips it).
   // The server also self-disables when no fast profile is routed — it returns nothing before spending
@@ -8945,7 +8960,9 @@ function editor(path, text, acts) {
     ghost = t ? {at: caret, text: t} : null;
     repaint();
     // Same reason as the look-over above: a press that produced no ghost has to say so.
-    if (force && !t) { said.textContent = tr('edit.complete_none'); said.hidden = false; }
+    // Guarded like the look-over's, and for the same reason: the two share one cell, so a
+    // completion that found nothing must not quietly replace what the look-over just said.
+    if (force && !t && said.hidden) say(tr('edit.complete_none'), 'plain');
   };
   // Which file is open, and what is in the buffer that is not on disk, so the companion's next turn
   // can answer about the unsaved edit (the ambient context). Debounced like the rest.
@@ -9084,8 +9101,7 @@ function editor(path, text, acts) {
   // area is where both helps put their answers, so a failure belongs there too rather than in a
   // console only a developer opens.
   const saidError = (err) => {
-    said.textContent = tr('edit.ask_failed');
-    said.hidden = false;
+    say(tr('edit.ask_failed'));   // a fault: the warning colour is right here
     if (typeof console === 'object' && console && console.error) console.error('magi: editor ask:', err);
   };
   // Ask now, rather than at the next pause. Both helps are preferences because they cost the
@@ -11311,6 +11327,10 @@ lookSwitch.addEventListener('change', () => {
   // Turning it off clears what is already on screen, not just the next review — an editor open right
   // now obeys at once, the way the completion switches below promise for their ghost text.
   if (!lookOn && lookClearActive) lookClearActive();
+  // And the button that says whether this help is armed is repainted now rather than at the next
+  // spin: the mark is a reading of this switch, so a flip that left it alone would have the bar
+  // describing the preference the reader has just abandoned.
+  if (askRelabelActive) askRelabelActive();
 });
 
 // The two completion switches, wired the same way and flipping their module-scope flags live so an
@@ -11322,6 +11342,7 @@ if (acSwitch) {
   acSwitch.addEventListener('change', () => {
     acOn = !!acSwitch.selected;
     localStorage.setItem('autocomplete', acOn ? 'on' : 'off');
+    if (askRelabelActive) askRelabelActive(); // same reason as the look-over switch above
   });
 }
 const sugSwitch = document.getElementById('sugSwitch');

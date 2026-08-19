@@ -6817,12 +6817,17 @@ look.click();
 await tick();
 const said = box.find('div').filter(s => String(s.className).split(' ').includes('looksaid'));
 const armedOff = String(look.className).split(' ').includes('on');
-// Turn the preference on: the control has to say so before any answer arrives.
-lookOn = true;
-askRelabelActive();
+// Turn the preference on THROUGH ITS SWITCH, not by calling the hook: the wiring that repaints the
+// button on a flip is the thing under test, and a test that calls the hook itself would pass with
+// that wiring deleted.
+byId.lookSwitch.selected = true;
+byId.lookSwitch.dispatchEvent({type: 'change'});
 const armedOn = String(look.className).split(' ').includes('on');
+const sr = box.find('div').filter(s => String(s.className).split(' ').includes('sr-only'));
 console.log(JSON.stringify({first: first, renamed: renamed,
   said: said.map(s => s.textContent), hidden: said.map(s => !!s.hidden),
+  spoken: sr.map(s => s.textContent),
+  plain: said.map(s => String(s.className).split(' ').includes('plain')),
   busy: look.getAttribute('aria-busy'),
   armedOff: armedOff, armedOn: armedOn, armedName: look.getAttribute('aria-label')}));`)
 
@@ -6854,5 +6859,59 @@ console.log(JSON.stringify({first: first, renamed: renamed,
 	}
 	if !strings.Contains(fmt.Sprint(got["armedName"]), "pause") {
 		t.Errorf("the accessible name does not say it runs on a pause: %v", got["armedName"])
+	}
+	// Everything this editor says has to reach the live region too. Three routes added with the ask
+	// buttons wrote only the visible cell, so somebody using a screen reader heard aria-busy go true
+	// and then false and was told neither "nothing found" nor "that failed" — a channel this repo
+	// had already fixed once, walked around by a new path.
+	if !strings.Contains(fmt.Sprint(got["spoken"]), "Nothing worth") {
+		t.Errorf("the answer never reached the live region: %v — the press is silent to a screen "+
+			"reader beyond the busy flag", got["spoken"])
+	}
+	// And it must not wear the fault colour. The cell is drawn in the warning colour on the premise,
+	// written into its own comment, that it only speaks when something is wrong; "nothing to suggest"
+	// is an ordinary answer.
+	if h := fmt.Sprint(got["plain"]); !strings.Contains(h, "true") {
+		t.Errorf("an ordinary answer is drawn as a fault: %v", h)
+	}
+}
+
+// The two helps share one cell, so neither may quietly replace what the other just said.
+//
+// The look-over's empty answer was guarded by said.hidden and the completion's was not, so a
+// remark the look-over had put up — a model writing outside the format leaves its prose there —
+// was silently swapped for "nothing to suggest" by pressing the other control. One rule, both
+// paths.
+func TestOneHelpDoesNotOverwriteWhatTheOtherSaid(t *testing.T) {
+	got := runPage(t, `[]`, "?d=/s/api.sock", `
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  // The look-over answers with prose that is not in the note format: it lands in the cell as-is.
+  if (path === '/look') return {ok: true, text: async () => 'I could not read this file properly.'};
+  return {ok: true, text: async () => '', json: async () => ({})};   // the completion finds nothing
+};
+const tick = async (n) => { for (let i = 0; i < (n || 40); i++) await Promise.resolve(); };
+const acts = document.createElement('div');
+const box = editor('a.go', 'func name() {\n}\n', acts);
+const asks = acts.children.filter(k => String(k.className).split(' ').includes('editask'));
+const noteCell = () => box.find('div').filter(s => String(s.className).split(' ').includes('looksaid'))[0];
+// The completion needs a caret and something either side of it, or it returns before it can ask —
+// which would make the second half of this test assert nothing at all.
+const area = box.find('textarea')[0];
+area.selectionStart = area.selectionEnd = 5;
+
+asks[0].click();            // the look-over speaks
+await tick();
+const afterLook = noteCell().textContent;
+asks[1].click();            // the completion finds nothing
+await tick();
+console.log(JSON.stringify({afterLook: afterLook, afterComplete: noteCell().textContent}));`)
+
+	if !strings.Contains(fmt.Sprint(got["afterLook"]), "could not read") {
+		t.Fatalf("the look-over's remark never appeared: %v", got["afterLook"])
+	}
+	if got["afterComplete"] != got["afterLook"] {
+		t.Errorf("the completion replaced the look-over's remark with %v — one press erased the "+
+			"answer to another", got["afterComplete"])
 	}
 }

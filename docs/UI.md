@@ -603,7 +603,11 @@ heading role, so a screen reader can navigate them):
   fact in the place somebody looks for settings.
 - **Notifications** — §2.7.
 - **Model assistance** — the look-over switch (the model reads over your shoulder in the file
-  editor; per-browser opt-in).
+  editor; per-browser opt-in). Neither help has to be switched on to be used once: the editor's
+  action bar carries two icon buttons — a read of the region around the caret (⌘/Ctrl+Shift+Enter)
+  and a completion at it (⌘/Ctrl+Enter) — which send the one request a pause would have sent. Each
+  turns while its answer is in the air, is coloured while its switch is on, and says so when the
+  answer is "nothing".
 - **Completion settings** — the code/composer completion switches (per-browser), the ambient and
   cross-session toggles, the two profile pickers, and the commit/PR draft-rule editors (these are
   written to the companion's config, not the browser). Beside them, **Model profiles**: list, edit,
