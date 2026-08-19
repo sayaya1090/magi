@@ -118,6 +118,7 @@
   "context.messages": "{n} messages",
   "context.no_cache_report": "This backend does not report it",
   "context.shed": "{n} tokens shed",
+  "context.topics_n": "{n} topics recallable",
   "copy.done": "copied",
   "copy.refused": "the browser would not let this page copy",
   "council.abstain": "abstains",

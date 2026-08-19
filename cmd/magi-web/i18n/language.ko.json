@@ -118,6 +118,7 @@
   "context.messages": "메시지 {n}개",
   "context.no_cache_report": "이 백엔드는 보고하지 않음",
   "context.shed": "{n} 토큰 덜어냄",
+  "context.topics_n": "{n}개 주제 되부를 수 있음",
   "copy.done": "복사했습니다",
   "copy.refused": "브라우저가 이 페이지의 복사를 막았습니다",
   "council.abstain": "기권",

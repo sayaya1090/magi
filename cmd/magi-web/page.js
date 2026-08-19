@@ -4241,16 +4241,19 @@ async function drawContext(a, box, grid, field, put) {
     s2.textContent = ' · ' + tr('context.shed', {n: (c.shed || 0).toLocaleString()}) +
                      (c.lastBefore ? ' · ' + tr('context.last_run',
                         {before: c.lastBefore.toLocaleString(), after: (c.lastAfter || 0).toLocaleString()}) : '') +
-                     (c.lastAt && hhmm(c.lastAt) ? ' · ' + tr('context.at', {time: hhmm(c.lastAt)}) : '');
+                     (c.lastAt && hhmm(c.lastAt) ? ' · ' + tr('context.at', {time: hhmm(c.lastAt)}) : '') +
+                     // How much is recoverable, which is the part that turns "the detail is not
+                     // lost" from a claim into a fact. The COUNT does that; the names did not.
+                     (c.topics && c.topics.length
+                        ? ' · ' + tr('context.topics_n', {n: c.topics.length}) : '');
     v.append(s2);
     const cf = cell('f');
     cf.append(cell('k', tr('field.summarised_away')), v);
-    if (c.topics && c.topics.length) {
-      // Naming them is the difference between "the detail is not lost" as a claim and as a fact:
-      // these are the subjects the companion can pull back in full.
-      cf.append(cell('v', c.topics.slice(0, 6).join(' · ') +
-                          (c.topics.length > 6 ? ' +' + (c.topics.length - 6) : '')));
-    }
+    // The topic NAMES are not drawn. Six of them were, chosen by slice(0, 6) — which is the order
+    // the shard builder happened to emit, not relevance or size — and truncated with "+15", in the
+    // densest card on the page. Nothing on this page can act on a name either: recall_context is
+    // the agent's tool, so a reader got twenty file paths and nothing to do with them. What the
+    // claim actually needs is the count, and that rides on the line above.
     put(cf);
   }
 }

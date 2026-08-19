@@ -2121,7 +2121,11 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"82,000 / 100,000 tokens", "Measured", "41 messages", "2 folds",
-		"31,000 tokens shed", "40,000→9,000", "internal/parse.go",
+		"31,000 tokens shed", "40,000→9,000",
+		// How much can be pulled back, not which six things. The names were an arbitrary sample —
+		// slice(0, 6) over the order the shard builder emitted — and nothing on this page can act
+		// on one, so they cost a row and returned nothing.
+		"2 topics recallable",
 		// Which model, because the window above is that model's and /route can change it
 		// mid-session with nothing else on the page saying so.
 		"qwen3",
@@ -6967,5 +6971,51 @@ console.log(JSON.stringify({found: !!sel, value: sel ? sel.value : null,
 	if got["value"] != "claudecode" {
 		t.Errorf("the select reads %q — the companion is on claudecode's address and the field "+
 			"cannot say so, which is the one thing it exists to say", got["value"])
+	}
+}
+
+// The compaction reading says HOW MUCH is recoverable, not a sample of what.
+//
+// Six topic names were drawn, picked by slice(0, 6) — the order the shard builder happened to emit,
+// not relevance or size — and truncated with "+15", taking a whole row in the densest card on the
+// page. Nothing here can act on a name: recall_context is the agent's tool, so a reader got twenty
+// file paths and nothing to do with them. The claim the row existed to support is "the detail is
+// not lost", and the count is what supports it.
+func TestTheCompactionReadingCountsTopicsInsteadOfNamingSix(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+globalThis.fetch = async (p) => {
+  const u = String(p).split('?')[0];
+  if (u === '/fleet') return {ok: true, json: async () => [
+    {socket: '/s/a.sock', name: 'a', live: true, state: 'idle', session: 's_1', steps: 0, model: 'm'},
+  ]};
+  if (u === '/context') return {ok: true, json: async () => ({
+    model: 'm', used: 4560, window: 200000, messages: 12,
+    compactions: 1, shed: 128693, lastBefore: 133253, lastAfter: 4560,
+    topics: ['README.md', 'docs/ARCHITECTURE.md', 'docs/DESIGN.md', 'docs/README.md',
+             'docs/CONTEXT.md', 'internal/app/loop.go', 'internal/port/port.go', 'discussion'],
+  })};
+  return {ok: true, json: async () => []};
+};
+await loadFleet();
+await drawDetail({socket: '/s/a.sock', name: 'a', live: true, state: 'idle', workdir: '/w', session: 's_1'});
+for (let i = 0; i < 80; i++) await Promise.resolve();
+const text = (function walk(n, out) {
+  if (n.textContent && !(n.children || []).length) out.push(n.textContent);
+  for (const k of n.children || []) walk(k, out);
+  return out;
+})(byId.detail, []).join(' | ');
+console.log(JSON.stringify({text: text}));`)
+
+	text := fmt.Sprint(got["text"])
+	if !strings.Contains(text, "8") || !strings.Contains(text, "recallable") {
+		t.Errorf("the reading does not say how much can be pulled back: %q", text)
+	}
+	if strings.Contains(text, "docs/ARCHITECTURE.md") {
+		t.Errorf("the topic NAMES are still drawn — an arbitrary six of eight, in a card where a "+
+			"row costs more than they are worth: %q", text)
+	}
+	if !strings.Contains(text, "128,693") {
+		t.Errorf("the shed figure went missing with them: %q", text)
 	}
 }
