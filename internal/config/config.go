@@ -45,8 +45,12 @@ type CompanionConfig struct {
 type Config struct {
 	Model   string `toml:"model"`
 	BaseURL string `toml:"base_url"`
-	// EmbedModel names the model that turns text into vectors, for the semantic half of searching
-	// what a companion wrote down. Empty means lexical search only, which is the default: an
+	// EmbedModel names the model that turns text into vectors. It buys two things, and they are the
+	// two halves of one question — what does this store already say. Reading: the semantic half of
+	// searching what a companion wrote down, including the memories injected into every turn.
+	// Writing: whether a memory or skill being proposed is one already held, which without it is
+	// string equality and so lets every rephrasing land a second copy.
+	// Empty means lexical search and textual identity, which is the default: an
 	// embedding model is a second model to install and its endpoint is often not the chat one —
 	// Anthropic has none at all and points at Voyage, and vLLM answers only when it is serving an
 	// embedding model. MAGI_EMBED_BASE_URL and MAGI_EMBED_API_KEY point it elsewhere; unset, they

@@ -533,6 +533,7 @@ flowchart LR
 | `--api-key` | `MAGI_API_KEY` | (없음) | 백엔드 키 (config `api_key`도 가능, `${ENV}` 확장; `OPENAI_API_KEY`로 폴백). CLI 값은 프로세스 목록에 노출되니 env/config가 더 안전. Ollama 불필요 |
 | — | `MAGI_EMBED_BASE_URL` | (챗 base URL) | **임베딩** 모델(`embed_model`)이 챗 모델과 다른 백엔드에 있을 때의 엔드포인트 — `recall_memory`/공유 두뇌의 의미 검색 절반 |
 | — | `MAGI_EMBED_API_KEY` | (없음) | 그 임베딩 엔드포인트의 키 |
+| — | `MAGI_DEDUP_COSINE` | `0.93` | 새 메모리(또는 스킬)가 **이미 가진 것**으로 판정돼 기록되지 않으려면 얼마나 닮아야 하는가. 의도적으로 높다: 오병합은 사실을 영구히·조용히 잃고, 오분리는 사람 눈에 보이는 근접중복만 남긴다. `0`이면 의미 중복검사를 끄고 정체성을 문자열로 남긴다 — `embed_model`이 없을 때와 같다 |
 | `[sampling] reasoning_effort` | `MAGI_REASONING_EFFORT` | (백엔드 기본) | reasoning 모델용 `reasoning_effort`로 백엔드에 전달 — 예: `none`으로 thinking 비활성, 또는 `low`\|`medium`\|`high`; 비우면 필드 생략 |
 | — | `MAGI_TEMPERATURE` | (설정 `[sampling]`, 없으면 모델 기본) | 모든 요청에 실리는 샘플링 temperature; `[sampling] temperature`보다 우선 |
 | — | `MAGI_TOP_P` | (설정 `[sampling]`, 없으면 모델 기본) | nucleus 샘플링 컷오프; `[sampling] top_p`보다 우선 |
@@ -587,8 +588,12 @@ model = "gpt-oss:120b-cloud"   # 기본: Ollama 무료 클라우드(ollama signi
 base_url = "http://localhost:11434/v1"
 permission = "ask"
 experience_dir = "/path/to/team/experience"   # 공유 두뇌(git repo면 팀 공유)
-embed_model = "nomic-embed-text"   # 텍스트를 벡터로 바꾸는 모델 — 검색(recall_memory·공유 두뇌)의
-                                   # 의미(semantic) 절반. 선택 — 미설정 시 lexical(BM25) 검색으로 폴백.
+embed_model = "nomic-embed-text"   # 텍스트를 벡터로 바꾸는 모델. 두 가지를 삽니다: 검색의
+                                   # 의미(semantic) 절반(recall_memory·공유 두뇌·매 턴 주입되는
+                                   # 메모리), 그리고 지금 쓰려는 메모리/스킬이 이미 가진 것인지의
+                                   # 판정 — 없으면 정체성이 문자열 일치라서 표현만 바꾼 재기록이
+                                   # 사본을 하나 더 남긴다. 선택: 미설정이면 검색은 lexical,
+                                   # 중복검사는 문자열 — 고장이 아니라 정상 구성이다.
                                    # 설치할 두 번째 모델이며 엔드포인트가 챗과 다를 때가 많다:
                                    # MAGI_EMBED_BASE_URL / MAGI_EMBED_API_KEY로 따로 가리킨다.
 
@@ -1256,6 +1261,25 @@ flowchart TD
 | 워크스페이스 | `<워크스페이스>/.magi/experience` | 이 워크스페이스, 그리고 저장소를 클론한 사람 |
 | 팀 | `<config>/teams/<이름>/experience` | 이 기계에서 그 팀을 선언한 모든 컴패니언 — 그리고 기계끼리 플릿 키를 주고받았다면 다른 기계까지 (`exp-sync`, §13) |
 | 전역 | `<config>/experience` | 이 사람의 모든 magi, 이 기계 한정 |
+
+**메모리를 어떻게 찾고, 이미 가진 것을 어떻게 알아보나.** 순위는 기본이 어휘(lexical)이고,
+`embed_model`이 지정되면 **하이브리드**입니다: 모든 계층의 모든 후보를 키워드 중첩으로도, 질의와의
+코사인으로도 매기고, 두 순위를 **순서 기준으로 융합**(RRF)합니다 — 점수로 섞지 않습니다. 두 값은
+비교 가능한 숫자가 아니기 때문입니다. 양쪽이 서로 다른 방향으로 필요합니다. 의미 절반이 없으면
+*billing*을 물었을 때 *invoices*로 적힌 메모에 닿지 못합니다 — 한 단어도 겹치지 않아 0점이고,
+벡터가 생기기도 전에 사라집니다. 어휘 절반이 없으면 희귀한 정확 토큰(파일명·에러코드)이 "왠지
+관련 있어 보이는 것"에 질 수 있습니다. 순위는 **어휘 생존자가 아니라 풀 전체**에 매깁니다 —
+재순위는 이미 버려진 것을 끌어올릴 수 없기 때문입니다. 문서는 텍스트별로 캐시되므로 정상 상태
+비용은 질의 임베딩 하나이고, 모델이 없거나 엔드포인트가 실패하면 어휘 답이 그대로 서고 검색은
+어느 쪽을 줬는지 말합니다.
+
+같은 판정이 **들어올 때의 중복**도 정합니다. 정체성은 문자열 일치였고(메모리는 정규화한 본문,
+스킬은 파일명), 표현만 바꾸면 그대로 통과합니다 — 그래서 같은 교훈이 여덟 가지 표현으로 여덟 번
+쌓이고, 그 여덟이 예산이 허용하는 다섯 자리를 두고 경쟁했습니다. 임베더가 있으면 의미가 이미
+있는 메모리는 쓰지 않고, 다른 이름으로 이미 존재하는 스킬은 새 파일이 아니라 **두 번째 관측**으로
+병합됩니다. 임계값은 의도적으로 높습니다(`MAGI_DEDUP_COSINE`, 0.93): 오병합은 사실을 영구히·조용히
+잃고, 오분리는 사람이 볼 수 있는 근접중복만 남깁니다. 모든 실패는 "중복 아님"으로 답하므로
+엔드포인트가 죽어서 기록을 잃는 일은 없습니다.
 
 - **AGENTS.md**: 작업 디렉터리(+`.magi/AGENTS.md`, 전역 `<config>/AGENTS.md`)의 내용이
   시스템 프롬프트에 주입되어 **압축돼도 보존**됩니다. `/init`로 자동 생성.

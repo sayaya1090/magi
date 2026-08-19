@@ -580,6 +580,7 @@ Flags and environment variables (precedence: flag > env > default):
 | `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
 | — | `MAGI_EMBED_BASE_URL` | (chat base URL) | endpoint for the **embedding** model (`embed_model`), when it lives on a different backend than the chat model — the semantic half of `recall_memory` / the shared brain |
 | — | `MAGI_EMBED_API_KEY` | (none) | key for that embedding endpoint |
+| — | `MAGI_DEDUP_COSINE` | `0.93` | how alike two memories (or two skills) must be for a new one to count as ALREADY HELD and not be written. High on purpose: a false merge loses a fact permanently and silently, a false split leaves a visible near-duplicate. `0` disables semantic dedup, leaving identity textual — which is also what happens with no `embed_model` |
 | `[sampling] reasoning_effort` | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
 | — | `MAGI_TEMPERATURE` | (config `[sampling]`, else model default) | sampling temperature sent with every request; overrides `[sampling] temperature` |
 | — | `MAGI_TOP_P` | (config `[sampling]`, else model default) | nucleus sampling cutoff; overrides `[sampling] top_p` |
@@ -637,11 +638,16 @@ model = "gpt-oss:120b-cloud"   # default: Ollama free cloud (ollama signin). For
 base_url = "http://localhost:11434/v1"
 permission = "ask"
 experience_dir = "/path/to/team/experience"   # shared brain (a git repo → shared with the team)
-embed_model = "nomic-embed-text"   # model that turns text into vectors for the SEMANTIC half of
-                                   # search (recall_memory, the shared brain). Optional — unset, magi
-                                   # falls back to lexical (BM25) search. It is a SECOND model to
-                                   # install, and its endpoint is often not the chat one:
-                                   # MAGI_EMBED_BASE_URL / MAGI_EMBED_API_KEY point it elsewhere.
+embed_model = "nomic-embed-text"   # model that turns text into vectors. It buys two things: the
+                                   # SEMANTIC half of search (recall_memory, the shared brain, and
+                                   # the memories injected into every turn), and the judgement of
+                                   # whether a memory or skill being written is one already held —
+                                   # without it, identity is string equality and a rephrasing lands
+                                   # a second copy. Optional: unset, search is lexical and dedup is
+                                   # textual, which is a working configuration, not a broken one.
+                                   # It is a SECOND model to install, and its endpoint is often not
+                                   # the chat one: MAGI_EMBED_BASE_URL / MAGI_EMBED_API_KEY point
+                                   # it elsewhere.
 
 [limits]                   # token caps — a safety valve against runaway generation. All optional.
 # max_output_tokens = 8192 # per-request output cap sent to the LLM (0/unset = provider default).
@@ -1365,6 +1371,28 @@ over the team's habit, and the team's habit wins over the general one:
 | workspace | `<workspace>/.magi/experience` | this workspace, and anyone who clones the repo |
 | team | `<config>/teams/<name>/experience` | every companion on this machine that declared that team — and, if the machines hold each other's fleet key, the other machines too (`exp-sync`, §13) |
 | global | `<config>/experience` | all of this person's magi, this machine only |
+
+**How a memory is found, and how one is recognised as already held.** Ranking is lexical by
+default and **hybrid** when `embed_model` names one: every candidate every tier holds is scored by
+keyword overlap AND by cosine against the query, and the two rankings are fused on ORDER (RRF) —
+never on the scores, which are not comparable numbers. Both halves matter in different directions.
+Without the semantic half, a question about *billing* never reaches the note filed under
+*invoices*: they share no word, so it scored zero and was gone before any vector existed. Without
+the lexical half, a rare exact token — a file name, an error code — can lose to something that
+merely feels related. The whole pool is ranked, not the lexical survivors, because a re-rank
+cannot promote what was already discarded. Documents are cached per text, so the steady-state cost
+is one embedding for the query; with no model configured, or an endpoint that fails, the lexical
+answer stands and the search says which it gave.
+
+The same judgement decides what is a **duplicate on the way in**. Identity used to be string
+equality (normalised text for a memory, the filename for a skill), which every rephrasing walks
+straight past — so the same lesson landed eight times in eight wordings and those eight then
+competed for the five slots the budget allows. With an embedder, a memory whose meaning is already
+held is not written, and a skill that already exists under another name merges into it as a second
+observation rather than a second file. The threshold is deliberately high (`MAGI_DEDUP_COSINE`,
+0.93): a false merge loses a fact permanently and silently, a false split leaves a near-duplicate
+a person can see. Every failure answers "not a duplicate", so nothing is lost to an endpoint being
+down.
 
 - **AGENTS.md**: the contents of the working directory's (+ `.magi/AGENTS.md`, global `<config>/AGENTS.md`)
   are injected into the system prompt and **preserved even through compaction**. Auto-generate with `/init`.
