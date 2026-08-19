@@ -2691,7 +2691,15 @@
        the conversation back. This is the same defect as the git card starving the file tree, one
        column over. The tabs are chrome and keep their size; the card yields past the transcript's
        floor and scrolls inside itself for the rest. */
-    body[at="agent"] #detail { flex:0 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; }
+    /* scrollbar-gutter, for the same reason `html` has it one screen up: this card's scrollbar
+       comes and goes as its content grows — a late row arrives, the context reading appears — and
+       the grid inside is `auto-fit, minmax(14rem, auto)`, which spends every pixel it is given on
+       another column. Measured: with the scrollbar the grid is 952px, without it 967. Fifteen
+       pixels is a whole column at that minimum, and with `auto` as the maximum the surviving
+       tracks then redistribute to unequal widths — so every field on the card moves, twice, for a
+       scrollbar nobody was looking at. Reserving the gutter holds it at 952 either way. */
+    body[at="agent"] #detail { flex:0 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain;
+                               scrollbar-gutter:stable; }
     /* …but an OPEN card must stay visibly taller than a shut one, or the control above it is a
        lie. Yielding with no floor, a long conversation squeezed the card to about the height of
        its own bar — the measured shut size is 55px, the bar in its padding — so folding and
@@ -3167,9 +3175,28 @@
   /* A field and a list of what it found. The list scrolls inside the dialog rather than growing it:
      a dialog that resizes as you type moves the row under the cursor while you are aiming at it. */
   #palDialog md-outlined-text-field { width:100%; }
+  /* The cap is what is LEFT, not a round number. At min(50vh, 22rem) the list took 352px, the
+     field above it took 88, and the dialog gives its content 408 — so the content was 32px too
+     tall and md-dialog's own scroller started scrolling behind the list's. Two scrollbars in one
+     dialog, one of them moving a field the palette exists to keep still.
+
+     Measured (2026-08-20, viewport 757): scroller clientHeight 408, content 440. md-dialog caps
+     itself at min(560px, 100dvh - 48px) and spends 152 of it on headline and actions, and the
+     field block inside the scroller costs 88 — so the list may have
+
+       min(560, 100dvh - 48) - 152 - 88  =  min(320px, 100dvh - 288px)
+
+     which is what is written below. Verified in the browser: the dialog's own scroller goes to
+     zero overflow and the list still scrolls, which is the one scrollbar this should have.
+
+     ⚠ The two constants are md-dialog's chrome and this dialog's own field. A flex column that
+     simply absorbed the leftover would need no numbers, and does not work here — `height:100%` on
+     the slotted content does not resolve against a scroller bounded by max-height (tried: the list
+     grew to 584 and the overflow got worse), and md-dialog exposes no ::part to reach the scroller
+     with. If either constant changes, this is where it shows. */
   #palList {
     display:grid; gap:var(--magi-sys-space-50); margin-top:var(--magi-sys-space-200);
-    max-height:min(50vh, 22rem); overflow-y:auto;
+    max-height:min(20rem, calc(100dvh - 18rem)); overflow-y:auto;
   }
   .palrow {
     display:grid; grid-template-columns:5.5rem 1fr; align-items:baseline;
@@ -3331,7 +3358,12 @@
      shut, which makes it a button you press to find out. M3 draws a selected toggle in the primary
      colour over its container tint, which is the same treatment the rail's current destination
      gets — one vocabulary for "this is on". */
-  #sideToggle[aria-expanded="true"] {
+  /* BOTH handles, not one. The paragraph above was written about the state pane's handle and the
+     rule was given only to it, while the workspace handle — the same control, built by the same
+     paneHandle(), reporting the same aria-expanded — kept drawing identically whether its pane was
+     open or shut. Two controls side by side in the masthead, saying "this is on" in two different
+     vocabularies. Found by scanning the live page for adjacent buttons (2026-08-20). */
+  #sideToggle[aria-expanded="true"], #filesToggle[aria-expanded="true"] {
     color:var(--magi-ref-primary);
     background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent);
     border-radius:var(--magi-sys-shape-s);
