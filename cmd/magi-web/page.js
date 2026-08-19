@@ -3448,8 +3448,14 @@ function drawDetail(a) {
   // came from a peer rather than a local dial.
   const ownBuild = a.trust === 'own' && !a.elsewhere && !a.peer && a.version;
   [
-    field('field.status', stateWord(a.state) + (carrying(a) ? ' · ' + carrying(a) : ''),
-          'state ' + a.state),
+    // The state is in the bar at the top of this card already — "유휴 · /Users/…" — and unlike the
+    // workspace path beside it, it is two characters and never gets cut, so a field repeating it
+    // is the same word twice on one screen. What the bar does NOT carry is the load: what the
+    // companion has in hand and how many are queued behind it. So the field survives exactly when
+    // it has that to say, and the word it leads with is there to give the load something to hang
+    // off rather than to report the state a second time.
+    ...(carrying(a) ? [field('field.status', stateWord(a.state) + ' · ' + carrying(a),
+                             'state ' + a.state)] : []),
     field('field.steps', a.steps ? a.steps + '' : '—'),
     field('field.last_activity', ago(a.idle)),
     ...(a.role ? [wide(field('field.role', a.role))] : []),
