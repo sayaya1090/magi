@@ -113,3 +113,44 @@ func TestSpinGuardStillFiresUnderAnOutputCap(t *testing.T) {
 			res.reasoningSpun, cancelled)
 	}
 }
+
+// Every spin gets a word, and no two are the same.
+//
+// The nudge was latched: say it once per turn, then cancel in silence. The reason was real — an
+// identical instruction stacked on every step dilutes the attention the tool results need — but
+// the conclusion cost more than it saved. Measured on schemelike-metacircular-eval (2026-08-19),
+// NINE spins ten minutes apart with only the first carrying a word to the model: the other eight
+// were cancelled with nothing said, so from the model's side each was a fresh question and it
+// re-derived the same analysis eight times. 82 minutes, no tool call.
+//
+// So the rule is not "say it once", it is "never say the same thing twice".
+func TestEverySpinIsToldAndNoTwoTellingsAreAlike(t *testing.T) {
+	seen := map[string]int{}
+	for n := 1; n <= 6; n++ {
+		msg := reasoningSpinNudge(n)
+		if strings.TrimSpace(msg) == "" {
+			t.Fatalf("spin %d was cancelled with nothing said", n)
+		}
+		seen[msg]++
+	}
+	for msg, n := range seen {
+		if n > 1 {
+			t.Errorf("the same text was sent %d times — the Nth identical copy adds nothing and "+
+				"dilutes what the tool results need: %.60s…", n, msg)
+		}
+	}
+	// A repeat must carry what the model cannot see for itself: that its answer was cancelled and
+	// the thinking discarded, and that this has happened before. Without those, a repeat is the
+	// first message again in other words.
+	second := reasoningSpinNudge(2)
+	for _, want := range []string{"CANCELLED", "DISCARDED"} {
+		if !strings.Contains(second, want) {
+			t.Errorf("the second telling never says %q, so the model still cannot know why its "+
+				"work keeps vanishing: %s", want, second)
+		}
+	}
+	if !strings.Contains(reasoningSpinNudge(5), "5") {
+		t.Error("a later telling does not say which spin this is; the model cannot tell one " +
+			"cancellation from a pattern of them")
+	}
+}

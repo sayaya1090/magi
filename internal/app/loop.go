@@ -85,12 +85,20 @@ const (
 type turnState struct {
 	stopChecked bool // stop hooks enforced at most once per turn
 	nudgedEmpty bool
-	// spinNudged / cutNoted: the spin nudge and the cut notes are persisted user-role messages, and
-	// unguarded they repeated VERBATIM on every step of a bad turn — the cut-before-acting comment's
-	// own observed case was a turn that reasoned into the cap "step after step", stacking an
-	// identical instruction each time. The Nth copy adds no information and dilutes the attention
-	// the tool results need; once per turn says it, and the record already shows it was said.
-	spinNudged      bool
+	// spins counts reasoning-only spins this turn, and it is what the nudge escalates on.
+	//
+	// This was a bool: nudge once, then say nothing. The reason was sound — an identical
+	// instruction stacked on every step adds no information and dilutes the attention the tool
+	// results need — but the conclusion was wrong. Measured on schemelike-metacircular-eval
+	// (2026-08-19): NINE spins, ten minutes apart, and only the first carried a word to the model.
+	// The other eight were cancelled in silence, so the model re-derived from scratch each time
+	// with nothing telling it why its answer kept vanishing. One eighty-minute hang became eight
+	// ten-minute hangs and 82 minutes passed with no tool call.
+	//
+	// So the rule is not "say it once", it is "never say the same thing twice". Each repeat names
+	// the repetition and narrows what is being asked for, which is information the previous one
+	// did not carry.
+	spins           int
 	cutNoted        bool
 	declareAsks     int  // how many times this turn was told to declare completion (declareAskCap)
 	declareAskEpoch int  // guard.mutationEpoch() at the last such ask; a later epoch resets the count
@@ -326,11 +334,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// call. Discard it (it's garbage), nudge the agent to ACT, and move on — the step/stall
 		// guards never see a response that never finishes, so this is the only place to break it.
 		if res.reasoningSpun {
-			a.emitToolProgress(sid, agentActor, "", agent.Name, "cancelled a reasoning-only spin — take a concrete action")
-			if !ts.spinNudged {
-				ts.spinNudged = true
-				_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, reasoningSpinNudge)
-			}
+			ts.spins++
+			a.emitToolProgress(sid, agentActor, "", agent.Name,
+				fmt.Sprintf("cancelled a reasoning-only spin (%d) — take a concrete action", ts.spins))
+			// Every spin gets a word, and no two words are the same. emitToolProgress above is a
+			// live progress line for a person watching; only this reaches the model.
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"},
+				reasoningSpinNudge(ts.spins))
 			continue
 		}
 		text, reasoning := res.text, res.reasoning

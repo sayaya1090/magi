@@ -185,11 +185,42 @@ var spinWallTimeout = func() time.Duration {
 	return 600 * time.Second
 }()
 
-// reasoningSpinNudge is injected after a reasoning-only spin is cancelled: stop thinking, act.
-const reasoningSpinNudge = "You streamed a very long chain of reasoning without taking ANY action — " +
-	"no tool call at all. Thinking alone does not make progress. STOP reasoning now and take the " +
-	"concrete next step with a TOOL: write a file, run a command, or report. Do not re-derive what " +
-	"you were working out in your head — act."
+// reasoningSpinNudge is what the agent is told after a reasoning-only spin is cancelled. n is
+// which spin this is, counting from 1.
+//
+// It escalates, and it must. The first message is the whole of what the loop knows: you thought
+// without acting. By the third, that has been said and disproved as sufficient, and repeating it
+// verbatim only stacks an identical instruction the model has already failed to follow — measured,
+// nine spins ten minutes apart with 82 minutes and no tool call between them.
+//
+// What each repeat adds is the fact the model cannot see for itself. It does not know its answer
+// was cancelled, or that the thinking it just did was DISCARDED rather than remembered, or that
+// this has now happened repeatedly. Absent that, the loop looks to it like the same fresh question
+// each time, which is exactly how it behaved.
+func reasoningSpinNudge(n int) string {
+	const opening = "You streamed a very long chain of reasoning without taking ANY action — no tool " +
+		"call at all. Thinking alone does not make progress. STOP reasoning now and take the " +
+		"concrete next step with a TOOL: write a file, run a command, or report. Do not re-derive " +
+		"what you were working out in your head — act."
+	switch {
+	case n <= 1:
+		return opening
+	case n == 2:
+		return "That happened again, and you need to know what it costs: each of those responses was " +
+			"CANCELLED and its reasoning DISCARDED. You are not accumulating understanding — you are " +
+			"re-deriving the same thing and losing it. Call a tool in your very next response, " +
+			"before any further analysis. If the whole task feels too large to start, do the " +
+			"smallest verifiable piece of it instead: create the file with a stub, or run one " +
+			"command that tells you something you do not already know."
+	default:
+		return fmt.Sprintf("This is spin %d. Every one of them was cancelled and thrown away, so "+
+			"nothing you have thought since the last tool call still exists. Planning is now the "+
+			"failure, not the task. Your next response must contain a tool call and essentially no "+
+			"reasoning. Pick the single smallest action that changes something real — one file "+
+			"written, one command run — and take it. A wrong first step you can see the result of "+
+			"is worth more here than a correct plan you never execute.", n)
+	}
+}
 
 // consumeStream drains one provider stream, publishing text/reasoning deltas as
 // transient events and recording the real prompt-token count for the meter. A
