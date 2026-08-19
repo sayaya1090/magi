@@ -154,3 +154,78 @@ func TestEverySpinIsToldAndNoTwoTellingsAreAlike(t *testing.T) {
 			"cancellation from a pattern of them")
 	}
 }
+
+// A todo list is not an action.
+//
+// The guard asked "did this response call any tool", and a todo write is a tool call that changes
+// nothing outside the agent's own notes. Measured on regex-log (2026-08-19): 46 minutes, ONE tool
+// call for the whole trial, and it was todowrite — issued right after a nudge saying to take a
+// concrete step with a tool. The most literal possible compliance, and the turn produced nothing.
+func TestPlanningIsNotActionForTheSpinGuard(t *testing.T) {
+	t.Setenv("MAGI_SPIN_CAP", "100")
+	a, _ := newApp(t, &fakeLLM{}, Config{Permission: "allow"})
+	actor := event.Actor{Kind: event.ActorAgent, ID: "x"}
+	consume := func(evs []port.ProviderEvent) streamStep {
+		ch := make(chan port.ProviderEvent, len(evs)+1)
+		for _, e := range evs {
+			ch <- e
+		}
+		close(ch)
+		res, err := a.consumeStream(context.Background(), session.SessionID("s_plan"), actor, ch, "m", func() {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	long := func(first *session.ToolCall) []port.ProviderEvent {
+		var evs []port.ProviderEvent
+		if first != nil {
+			evs = append(evs, port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: first})
+		}
+		for i := 0; i < 6; i++ {
+			evs = append(evs, port.ProviderEvent{Type: port.ProviderReasoning, Text: "reasoning chunk of some length "})
+		}
+		return evs
+	}
+
+	if res := consume(long(&session.ToolCall{CallID: "c1", Name: "todowrite"})); !res.reasoningSpun {
+		t.Error("a response that reasoned past the cap and only wrote a todo list was counted as " +
+			"acting; planning is the failure this guard exists to interrupt, not an escape from it")
+	}
+	// A real action still clears it — including a READ, which is how a turn learns what to do next.
+	for _, name := range []string{"bash", "write", "read"} {
+		if res := consume(long(&session.ToolCall{CallID: "c2", Name: name})); res.reasoningSpun {
+			t.Errorf("a response that called %q was cancelled as a spin", name)
+		}
+	}
+}
+
+// The work that was cancelled comes back with the nudge.
+//
+// The response is discarded — it is incomplete and ends mid-thought — but discarding it silently
+// made the instruction impossible to follow. The nudge said "act on what you worked out" while the
+// thing worked out existed nowhere in the model's context, so the only move left was to derive it
+// again, which is the loop the guard exists to break. Measured on regex-log (2026-08-19): a
+// correct, nearly complete regex design cancelled and thrown away, and the next response opened
+// the same analysis from the top.
+func TestTheCancelledWorkComesBackWithTheNudge(t *testing.T) {
+	// The tail, not the head: a chain of reasoning puts its conclusions at the end and restates the
+	// problem at the start.
+	long := strings.Repeat("restating the problem. ", 300) + "CONCLUSION: the pattern is ^a+b$"
+	tail := salvageTail("", long)
+	if !strings.Contains(tail, "CONCLUSION: the pattern is ^a+b$") {
+		t.Error("the conclusion was cut off; salvage keeps the end, which is where conclusions are")
+	}
+	if len(tail) > salvageCap+8 {
+		t.Errorf("salvage is %d bytes; it must stay bounded or a spin loop grows the prompt it is trying to break", len(tail))
+	}
+	// Nothing produced → nothing claimed. Offering an empty "here is what you had" would be a lie
+	// the model then tries to act on.
+	if got := salvageTail("", "   \n  "); got != "" {
+		t.Errorf("an empty response salvaged %q", got)
+	}
+	// Short output survives whole.
+	if got := salvageTail("I had worked out the octet pattern", ""); got != "I had worked out the octet pattern" {
+		t.Errorf("short work was mangled: %q", got)
+	}
+}

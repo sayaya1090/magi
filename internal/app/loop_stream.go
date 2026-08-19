@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -185,6 +186,42 @@ var spinWallTimeout = func() time.Duration {
 	return 600 * time.Second
 }()
 
+// bookkeepingTools do not count as ACTION for the spin guard.
+//
+// The guard asks "did this response do anything, or only think", and answered it with "did it call
+// any tool at all". A todo list is a tool call and changes nothing outside the agent's own notes,
+// so a response that reasoned for twenty-five thousand characters and then wrote its plan down
+// satisfied the test — measured on regex-log (2026-08-19): 46 minutes, ONE tool call, and that
+// call was todowrite. The nudge had just told it to take a concrete step with a tool, and writing
+// a todo list is the most literal possible compliance that changes nothing.
+//
+// The test each name had to pass: does the call change nothing outside the agent's own notes, AND
+// return nothing the agent did not already know. Both, because either alone is real work.
+//
+//	todowrite  the plan, written down — the measured case
+//	label      what this work is about, for a board somebody reads later
+//
+// Everything else in the registry earns its place as action. Reads (read, grep, glob, list) and
+// the recall family (recall_memory, recall_context, search_sessions, skill) RETURN something, and
+// reading what you have not seen is how a turn learns what to do next — calling that inaction
+// would nudge exactly the investigation that is working. remember and schedule change durable
+// state outside this turn. council, ask_user and wait_for hand off to a judgement or a person.
+// bash and the write family are the point.
+var bookkeepingTools = map[string]bool{
+	"todowrite": true,
+	"label":     true,
+}
+
+// didSomething reports whether these calls include anything that is not bookkeeping.
+func didSomething(calls []*session.ToolCall) bool {
+	for _, c := range calls {
+		if c != nil && !bookkeepingTools[strings.ToLower(c.Name)] {
+			return true
+		}
+	}
+	return false
+}
+
 // reasoningSpinNudge is what the agent is told after a reasoning-only spin is cancelled. n is
 // which spin this is, counting from 1.
 //
@@ -197,21 +234,43 @@ var spinWallTimeout = func() time.Duration {
 // was cancelled, or that the thinking it just did was DISCARDED rather than remembered, or that
 // this has now happened repeatedly. Absent that, the loop looks to it like the same fresh question
 // each time, which is exactly how it behaved.
+// salvageCap bounds how much of a cancelled response is handed back. The tail, not the head:
+// conclusions are at the end of a chain of reasoning, and the opening is restating the problem.
+const salvageCap = 2000
+
+// salvageTail is the end of what the cancelled response had produced, or "" if it produced nothing
+// usable. Whitespace-trimmed and cut on a rune boundary, since this goes into a prompt.
+func salvageTail(text, reasoning string) string {
+	s := strings.TrimSpace(text + "\n" + reasoning)
+	if s == "" {
+		return ""
+	}
+	if len(s) > salvageCap {
+		s = s[len(s)-salvageCap:]
+		for len(s) > 0 && !utf8.ValidString(s) {
+			s = s[1:]
+		}
+		s = "…" + s
+	}
+	return s
+}
+
 func reasoningSpinNudge(n int) string {
-	const opening = "You streamed a very long chain of reasoning without taking ANY action — no tool " +
-		"call at all. Thinking alone does not make progress. STOP reasoning now and take the " +
-		"concrete next step with a TOOL: write a file, run a command, or report. Do not re-derive " +
-		"what you were working out in your head — act."
+	const opening = "You streamed a very long chain of reasoning without taking ANY action. Thinking " +
+		"alone does not make progress. STOP reasoning now and take the concrete next step with a " +
+		"TOOL: write a file, or run a command. Writing a todo list is NOT that step — it changes " +
+		"nothing and this is exactly the moment it is tempting."
 	switch {
 	case n <= 1:
 		return opening
 	case n == 2:
 		return "That happened again, and you need to know what it costs: each of those responses was " +
 			"CANCELLED and its reasoning DISCARDED. You are not accumulating understanding — you are " +
-			"re-deriving the same thing and losing it. Call a tool in your very next response, " +
-			"before any further analysis. If the whole task feels too large to start, do the " +
-			"smallest verifiable piece of it instead: create the file with a stub, or run one " +
-			"command that tells you something you do not already know."
+			"re-deriving the same thing and losing it. Write or run something in your very next " +
+			"response, before any further analysis, and do not spend it on a plan or a todo list. " +
+			"If the whole task feels too large to start, do the smallest verifiable piece instead: " +
+			"create the file with what you have worked out so far, even partial, or run one command " +
+			"that tells you something you do not already know."
 	default:
 		return fmt.Sprintf("This is spin %d. Every one of them was cancelled and thrown away, so "+
 			"nothing you have thought since the last tool call still exists. Planning is now the "+
@@ -369,7 +428,7 @@ loop:
 		// nudges the agent to ACT instead of think forever. Two triggers, one pathology: too much
 		// output (a fast thinker) or too long since the first output (a slow one) — checked here,
 		// on every event, because the slow case by definition keeps events coming.
-		if len(res.toolCalls) == 0 && !finished {
+		if !didSomething(res.toolCalls) && !finished {
 			overCap := spinCap > 0 && reasoning.Len()+text.Len() > spinCap
 			overWall := spinWallTimeout > 0 && !firstOut.IsZero() && time.Since(firstOut) >= spinWallTimeout
 			if overCap || overWall {

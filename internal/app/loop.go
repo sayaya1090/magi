@@ -339,8 +339,21 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				fmt.Sprintf("cancelled a reasoning-only spin (%d) — take a concrete action", ts.spins))
 			// Every spin gets a word, and no two words are the same. emitToolProgress above is a
 			// live progress line for a person watching; only this reaches the model.
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"},
-				reasoningSpinNudge(ts.spins))
+			//
+			// The tail of what was cancelled goes back WITH the nudge. The response itself is
+			// discarded — it is incomplete and ends mid-thought — but discarding it silently made
+			// the instruction impossible to follow: "act on what you worked out" named something
+			// that was no longer anywhere in the model's context, so it re-derived instead, which
+			// is the loop this guard exists to break. Measured on regex-log (2026-08-19): a
+			// correct, nearly complete regex design was cancelled and thrown away, and the next
+			// response began the same analysis again from the top.
+			say := reasoningSpinNudge(ts.spins)
+			if tail := salvageTail(res.text, res.reasoning); tail != "" {
+				say += "\n\nHere is the END of what you had worked out before it was cut off. It is " +
+					"all that survives — the rest is gone. Continue FROM this instead of deriving " +
+					"it again:\n\n" + tail
+			}
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, say)
 			continue
 		}
 		text, reasoning := res.text, res.reasoning
