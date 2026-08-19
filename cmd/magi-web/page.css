@@ -2038,7 +2038,15 @@
      the edit button was. At the foot of the editor they were below the fold on an ordinary wide
      screen — somebody had to scroll a 28rem box past what they had just typed to reach the button
      for it — and a control that moves between modes is one you have to look for twice. */
-  .fileacts { display:flex; gap:var(--magi-sys-space-100); flex:none; margin-left:auto; }
+  /* Centred, not stretched: two icon buttons stand beside a filled button and a text button, and
+     the default cross-axis stretch made the small ones as tall as the tallest thing in the row —
+     a control whose target grows to fill a bar is one whose centre is not where its mark is. */
+  .fileacts { display:flex; align-items:center; gap:var(--magi-sys-space-100); flex:none; margin-left:auto; }
+  /* Ask now, rather than at the next pause in the typing. Smaller than save and cancel because it
+     is a smaller act — the same request the timer already makes — and it must not read as a third
+     control of that weight. The button keeps its own 48dp target; only the mark inside it shrinks,
+     which is the same trade the tree's reload control makes (.paneagain). */
+  .fileacts .editask { flex:none; --md-icon-button-icon-size:18px; }
   /* The switch that lets the model read over your shoulder, and what it said. The switch is a
      preference and reads like one; what it says is a note above the buffer, in the warning colour
      because it only ever speaks when something is wrong — silence is the other answer. */
@@ -2687,7 +2695,17 @@
          was clipped. Margin ends the box (and the track) above the bay, which is where a
          scrollbar for things above the bay should end. The floor is plain 8rem now that the box
          no longer contains the dock's space — four lines of transcript at the worst. */
-      flex:1 1 auto; min-height:8rem; overflow:auto; overscroll-behavior:contain;
+      /* Basis ZERO, not auto — this is what decides the split with the facts card above.
+         `auto` makes a flex item's basis its own CONTENT height, and a transcript's content is the
+         whole conversation: measured live at 7885px against a 1235px column. The shrink flexbox
+         then distributes is proportional to that basis, so the longer the conversation the harder
+         it squeezed everything sharing the column — the facts card was measured at 110px against
+         the 507px it needed, one row of a card whose fold control then did nothing visible, which
+         is exactly how it was reported ("the more chat, the smaller it gets").
+         From zero, the card takes the height it needs and the transcript takes the REST, however
+         long it grows. When the card genuinely cannot fit, min-height below is what stops it
+         taking the transcript with it — the floor the card yields to. */
+      flex:1 1 0; min-height:8rem; overflow:auto; overscroll-behavior:contain;
       margin-bottom:calc(var(--dock, 0px) + var(--magi-sys-space-300));
     }
     /* A deep screen is a page of its own inside the column. */
