@@ -2192,7 +2192,24 @@ function composerReach() {
   const sendBtn = document.getElementById('send');
   t.toggleAttribute('disabled', blocked);
   sendBtn.toggleAttribute('disabled', blocked);
-  if (!to) return;                       // the ordinary page: answerMode has already said its part
+  // Back on the ordinary page, and this is where the override has to be TAKEN OFF.
+  //
+  // It used to `return` here, on the reasoning that answerMode had already said its part. It has
+  // not: answerMode writes the ordinary label only on a mode FLIP (a question arriving or being
+  // dealt with) or a language-pack change, and walking out of a session is neither. So the label
+  // this function wrote on the way in — "s_07fa0c…에 이어서", naming a session nobody is looking at
+  // any more — survived the walk back, and the composer went on offering to continue a
+  // conversation the companion had already left. Whoever put the override on owns removing it.
+  if (!to) {
+    t.setAttribute('label', tr(answering ? 'label.answer' : 'label.ask'));
+    // The note is answerMode's to write while a question is up; ours only while a move is offered.
+    if (!answering) {
+      const n = document.getElementById('cnote');
+      if (n.textContent) n.textContent = '';
+      n.hidden = true;
+    }
+    return;
+  }
   t.setAttribute('label', blocked ? tr('move.busy') : tr('move.into', {to: to}));
   const note = document.getElementById('cnote');
   note.textContent = blocked ? tr('move.busy_why') : tr('move.will_ask');
