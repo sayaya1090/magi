@@ -2971,8 +2971,15 @@
     /* Shut is nothing at all now. The 2.5rem was the width of a handle standing in the column, and
        the handles are in the masthead: a shut pane that still held a 40px strip was 40px of nothing
        down each side of the conversation. */
-    body[files="open"] #stream { padding-inline-start:var(--magi-sys-space-300); }
-    body[side="open"] #stream { padding-inline-end:var(--magi-sys-space-300); }
+    /* The gutter belongs to whoever is standing in the middle column, and one level in that is not
+       #stream — it is the decision screen, which REPLACES it (the transcript is hidden while a
+       report or a verdict is open, so the section takes its track). Named for #stream alone, the
+       report ran flush against an open pane on whichever side was open, while the same screen with
+       both panes shut looked right. Same two rules, same column, both occupants. */
+    body[files="open"] #stream,
+    body[files="open"] #agentdetail { padding-inline-start:var(--magi-sys-space-300); }
+    body[side="open"] #stream,
+    body[side="open"] #agentdetail { padding-inline-end:var(--magi-sys-space-300); }
     body[side="shut"] #agentview {
       grid-template-columns:
         minmax(min(11rem, var(--magi-comp-files-w)), var(--magi-comp-files-w))
@@ -3384,17 +3391,19 @@
 
   /* The way one level in. A quiet control: it is beside content, not over it, and the row it sits
      under is the thing being read. */
-  /* Block and fit-content, so the `auto` left margin below actually does something. It was written
-     from the start — the way one level in belongs at the END of what it is a way out of, not in
-     front of it — and `inline-block` made it inert: an inline box has no free space to distribute,
+  /* Block and fit-content, so the `auto` margins below actually do something. An auto margin was
+     here from the start and `inline-block` made it inert: an inline box has no free space to distribute,
      so the margin computed to 0 and the control sat at the left edge under the report it opens.
      fit-content keeps the box the width of its word; a plain block would fill the column and put
-     the border round the whole row. The two places that want it elsewhere still say so: the
+     the border round the whole row.
+     Auto on BOTH sides, so it sits in the MIDDLE of what it is a way out of. The report above it is
+     a block of sections, and a control hard against either edge of that reads as belonging to the
+     edge rather than to the thing it opens. The two places that want it elsewhere still say so: the
      transcript row pins it with justify-self, and the button group overrides margin and display. */
   .deeper {
     background:none; border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-xs);
     color:var(--magi-ref-primary); font:var(--magi-sys-body-s) var(--magi-ref-mono);
-    padding:2px var(--magi-sys-space-150); cursor:pointer; margin:var(--magi-sys-space-50) 0 0 auto;
+    padding:2px var(--magi-sys-space-150); cursor:pointer; margin:var(--magi-sys-space-50) auto 0;
     display:block; width:fit-content;
   }
   .deeper:hover { background:color-mix(in srgb, var(--magi-ref-primary) 8%, transparent); }
