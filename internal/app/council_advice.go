@@ -421,7 +421,7 @@ func renderCouncilAdvice(d council.Deliberation, lead string) string {
 // lastTurnAssistantText is the agent's most recent message — its claim, in its own words, which the
 // members read beside the record of what actually ran.
 func lastTurnAssistantText(evs []event.Event) string {
-	out := ""
+	var said []string
 	for _, e := range evs {
 		if e.Type != event.TypePartAppended {
 			continue
@@ -431,8 +431,54 @@ func lastTurnAssistantText(evs []event.Event) string {
 			continue
 		}
 		if d.Part.Kind == session.PartText && strings.TrimSpace(d.Part.Text) != "" {
-			out = d.Part.Text
+			said = append(said, d.Part.Text)
 		}
+	}
+	return claimFrom(said)
+}
+
+// claimFrom is the agent's report, assembled from the end of what it said.
+//
+// This kept ONLY the last text, and the last thing an agent says is very often not its report.
+// The orchestrator's own reminder tells it to "call the council tool with complete: true", which
+// invites a separate short message — and then that message became the whole claim. Reproduced
+// exactly: an agent that wrote a report and then said "Requesting council review." had the second
+// line handed to the members as its report, and they answered, correctly, that there was none.
+// Measured across 54 recorded trials, the last assistant text is under 200 bytes in a THIRD of
+// them, so this was not a corner.
+//
+// So a short tail is treated as what it is — a handoff, not the work — and the substance in front
+// of it is carried along. Bounded, because the same trials hold a median 7.5KB and a p90 of 20KB
+// of assistant text in total, and the council prompt already budgets everything else it shows.
+func claimFrom(said []string) string {
+	if len(said) == 0 {
+		return ""
+	}
+	out := said[len(said)-1]
+	// Walk back while what we have still reads as a stub, and while there is room.
+	for i := len(said) - 2; i >= 0 && len(out) < claimFloor; i-- {
+		next := said[i] + "\n\n" + out
+		if len(next) > claimCap {
+			// Take what fits from this one rather than nothing: its END, which is where a report's
+			// conclusion is, and where the text nearest the declaration lives.
+			room := claimCap - len(out) - 2
+			if room > 200 {
+				out = "…" + said[i][len(said[i])-room:] + "\n\n" + out
+			}
+			break
+		}
+		out = next
 	}
 	return out
 }
+
+const (
+	// claimFloor is the length below which a final message is read as a handoff rather than a
+	// report. A declaration ("Requesting council review.", "Done — declaring completion") is a
+	// line or two; a report that fits in 400 bytes is a report the council can judge on its own.
+	claimFloor = 400
+	// claimCap bounds the assembled claim. Sized against councilDiffCap, which is what the same
+	// prompt allows the whole action record: the claim must not be able to crowd out magi's own
+	// evidence, which is the part the agent did not write.
+	claimCap = 6000
+)
