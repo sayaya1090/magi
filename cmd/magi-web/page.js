@@ -3070,7 +3070,37 @@ function permField(a) {
   // fields after a pack landed later.
   sel.setAttribute('aria-label', tr('field.permission'));
   const now = permField.want || a.permission || '';
-  if (now && sel.value !== now && document.activeElement !== sel) {
+  // Blank is a VALUE here, not the absence of one, and this used to read `if (now && …)` — which
+  // treated it as "nothing to paint" and left the select showing the previous backend's model
+  // after a switch that had explicitly asked for it to be emptied. The switch handler set
+  // modelField.blank, modelField.now went to '', and this line then declined to act on it.
+  //
+  // Emptying an md-select needs more than value='': the option carrying the old name is gone from
+  // replaceChildren above, and a value naming no option leaves the component displaying what it
+  // last resolved. selectedIndex = -1 is what actually clears the display.
+  //
+  // The focus guard applies only to the non-blank case. A backend switch deliberately puts the
+  // caret in this select — the question it just raised is "which of THIS backend's models" — so
+  // skipping the clear because the field is focused would skip it exactly when it is needed.
+  // Three calls, because md-select keeps three things and only clearing all of them empties the
+  // control: `value`, the selection index, and a `displayText` it goes on rendering after both of
+  // the others are gone. Measured — after value='' and selectedIndex=-1 the field still read
+  // "Gemini 3.7 Flash (High)"; reset() is what takes the words off it.
+  const clear = () => {
+    modelField.quiet = true;
+    if (typeof sel.reset === 'function') sel.reset();
+    sel.value = '';
+    if ('selectedIndex' in sel) sel.selectedIndex = -1;
+    modelField.quiet = false;
+  };
+  if (!now) {
+    if (sel.value !== '' || ('selectedIndex' in sel && sel.selectedIndex !== -1)) {
+      clear();
+      // And again after the component settles: replaceChildren above rebuilt the options, and a
+      // select whose value is resolved against a list that has just changed can land back on one.
+      if (sel.updateComplete) sel.updateComplete.then(clear);
+    }
+  } else if (sel.value !== now && document.activeElement !== sel) {
     sel.value = now;
     if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = now; });
   }
@@ -3117,6 +3147,13 @@ function modelField(a, now) {
     // No label on the field. The row it sits in already says "model" in the key beside it, and a
     // floating label repeating it is the same word twice, six pixels apart.
     sel.addEventListener('change', async () => {
+      // A change this code caused is not a choice somebody made. Emptying the select after a
+      // backend switch makes md-select fire `change` like any other value move, and this handler
+      // took it for a pick: it cleared the blank flag, adopted the OLD backend's model name as the
+      // pending value — which put it back in the option list on the next paint — and would have
+      // POSTed that name to a backend that has never heard of it. Every programmatic write is
+      // wrapped in modelField.quiet for exactly this reason.
+      if (modelField.quiet) return;
       const want = sel.value;
       if (!want || want === modelField.now) return;
       modelField.blank = false;
@@ -3138,10 +3175,14 @@ function modelField(a, now) {
     modelField.list = [];
     fetchList('/model' + qFor(a)).then(names => {
       modelField.list = names || [];
-      paintModels(sel, modelField.list, modelField.now || now);
+      // The blank is a VALUE, and `modelField.now || now` read it as "unset" and fell back to the
+      // daemon's stale name — putting the option back and undoing the blank a moment after it
+      // appeared. This is the second of two places that made that mistake about an empty string in
+      // this one field; paintModels made the first.
+      const at = modelField.blank ? '' : (modelField.now || now);
+      paintModels(sel, modelField.list, at);
       // The list arriving is the moment the count becomes real; disable from the same rule the
       // synchronous path uses, or a menu of one stays pressable until the next poll.
-      const at = modelField.now || now;
       const n = modelField.list.filter(m => m).length + (at && !modelField.list.includes(at) ? 1 : 0);
       sel.disabled = !may('configure') || n < modelField.least();
     });
@@ -3150,8 +3191,27 @@ function modelField(a, now) {
   if (modelField.want && modelField.want === now) modelField.want = '';
   // Blank beats both: after a backend switch the companion's model name belongs to the OLD
   // backend, so showing it would be showing a value this one does not serve.
-  modelField.now = modelField.blank ? '' : (modelField.want || now);
   const models = modelField.list || [];
+  const chosen = modelField.want || now;
+  // Blank beats the rest: after a backend switch the name on record belongs to the OLD backend.
+  //
+  // ⚠ Judged by the FLAG, not by the catalog. Asking "is this name in the new backend's list" was
+  // tried and reverted: a catalog can legitimately be partial — a gateway that lists some of what
+  // it serves — and this field deliberately shows a model the daemon is on even when the roster
+  // does not name it (there is a test for that). So the blank lasts from the switch until the
+  // person picks, and a name missing from a list is not on its own evidence of anything.
+  modelField.now = modelField.blank ? '' : chosen;
+  // The switch raised a question — which of THIS backend's models — and the answer belongs to the
+  // person, so the field takes the caret. Once per backend, not once per poll: this runs three
+  // times a minute and a field that grabs the focus on each would make the page unusable.
+  // The switch raised a question — which of THIS backend's models — and the answer belongs to the
+  // person, so the field takes the caret. Once per backend, not once per poll: this redraws three
+  // times a minute and a field that grabbed the focus each time would make the page unusable.
+  if (modelField.blank && modelField.asked !== a.backend) {
+    modelField.asked = a.backend;
+    if (sel.focus) setTimeout(() => sel.focus(), 0);
+  }
+  if (!modelField.blank) modelField.asked = '';
   paintModels(sel, models, modelField.now);
   // One writer for two reasons. paintModels shut the select when there was nothing to change to
   // (a real /model answered `null`, so a menu of one); this line then re-opened it for anybody
@@ -3194,8 +3254,13 @@ function modelField(a, now) {
         // Emptied HERE, not at the next redraw: the poll is three seconds away and until it lands
         // the field would go on showing the previous backend's model as though it were this one's.
         if (modelField.el) {
-          modelField.el.value = '';
-          if (modelField.el.focus) modelField.el.focus();
+          const m = modelField.el;
+          modelField.quiet = true;
+          if (typeof m.reset === 'function') m.reset();
+          m.value = '';
+          if ('selectedIndex' in m) m.selectedIndex = -1;
+          modelField.quiet = false;
+          if (m.focus) m.focus();
         }
         loadFleet();
       }
