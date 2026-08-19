@@ -34,9 +34,10 @@ type Client struct {
 	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
 	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
 
-	reasoningEffort string   // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
-	maxTokens       int      // per-request output cap ([limits] max_output_tokens); 0 = provider default
-	sampling        Sampling // configured sampling defaults ([sampling]); nil fields = provider default
+	reasoningEffort string                 // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
+	maxTokens       int                    // per-request output cap ([limits] max_output_tokens); 0 = provider default
+	window          func(model string) int // a model's context window, so the cap is held under it
+	sampling        Sampling               // configured sampling defaults ([sampling]); nil fields = provider default
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
 }
@@ -147,6 +148,85 @@ func (c *Client) applyExtraHeaders(req *http.Request) { c.headers.Apply(req) }
 // tools. Use only when the backend (e.g. an Anthropic model behind LiteLLM)
 // honors them; harmless caches are ignored by providers that don't.
 func WithPromptCache() Option { return func(c *Client) { c.cache = true } }
+
+// WithWindow tells the client how big a model's context is, so a configured output cap can be held
+// UNDER it. Nil, or a function answering 0, leaves the cap exactly as configured.
+//
+// Injected by the wiring layer for the same reason ProbeContextWindow is: the authoritative window
+// (registry, probe, and the [limits] context_tokens override) is resolved in the app, and the app
+// must not import an LLM adapter.
+func WithWindow(f func(model string) int) Option {
+	return func(c *Client) { c.window = f }
+}
+
+// fitMaxTokens holds the configured output cap under what the model can actually accept.
+//
+// max_output_tokens is a CEILING — "never write more than this" — and it was going out as a
+// DEMAND: the number was sent verbatim however little room the conversation had left. Reported
+// from a live run: a 393,216-token window, 93,217 tokens of input and a configured cap of
+// 300,000, which is 393,217. One token over, and the whole turn died with the backend refusing
+// the request; the agent exited non-zero and the task was lost.
+//
+// So the cap is met with the room that is left. Input is measured from the request about to go
+// out — the same body, not an estimate of some earlier state — and headroom keeps a margin,
+// because a character-based count is approximate and being under by a few tokens costs the same
+// as being over by three hundred thousand.
+//
+// Only ever LOWERS a configured cap, and only when a window is known. With no cap configured the
+// field is still omitted entirely, which is the default and is left alone: sending a computed cap
+// where the operator asked for none would change what every backend receives, and some of them
+// behave differently with an explicit max_tokens than without one.
+func (c *Client) fitMaxTokens(r port.ChatRequest) int {
+	if c.maxTokens <= 0 || c.window == nil {
+		return c.maxTokens
+	}
+	window := c.window(r.Model)
+	if window <= 0 {
+		return c.maxTokens // unknown window: nothing to fit under
+	}
+	room := window - estimateRequestTokens(r) - windowMargin
+	if room < minOutputTokens {
+		// Too little left to write anything worth having. Ask for the floor and let the request
+		// fail on its own terms if it must — silently sending a cap of ~0 would produce an empty
+		// answer that reads as the model having nothing to say.
+		room = minOutputTokens
+	}
+	if room < c.maxTokens {
+		return room
+	}
+	return c.maxTokens
+}
+
+const (
+	// windowMargin is the slack left between what we count and what the backend counts. Our count
+	// is characters/4 over the parts we can see; the backend tokenizes for real and adds its own
+	// framing. Measured overshoot on this codebase's own requests sits in the low thousands.
+	windowMargin = 4096
+	// minOutputTokens is the smallest cap worth sending: below this the reply cannot carry a tool
+	// call and its arguments, so the turn cannot act even if the request is accepted.
+	minOutputTokens = 1024
+)
+
+// estimateRequestTokens counts the request as characters/4 — the same approximation the compaction
+// trigger uses, so the two cannot disagree about how full a context is.
+func estimateRequestTokens(r port.ChatRequest) int {
+	chars := len(r.System)
+	for _, m := range r.Messages {
+		for _, p := range m.Parts {
+			chars += len(p.Text)
+			if p.ToolCall != nil {
+				chars += len(p.ToolCall.Name) + len(p.ToolCall.Args)
+			}
+			if p.ToolResult != nil {
+				chars += len(p.ToolResult.Content)
+			}
+		}
+	}
+	for _, t := range r.Tools {
+		chars += len(t.Name) + len(t.Description) + len(t.Schema)
+	}
+	return chars / 4
+}
 
 // WithMaxTokens caps output tokens per response ([limits] max_output_tokens). 0 = provider default.
 func WithMaxTokens(n int) Option {
@@ -268,7 +348,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	triedNoTools := false
 	var lastRoleDiag string // role sequence of the most recent request, for 400/422 diagnostics
 	for {
-		br := buildRequest(r, true, useCache, c.reasoningEffort, c.maxTokens, c.sampling)
+		br := buildRequest(r, true, useCache, c.reasoningEffort, c.fitMaxTokens(r), c.sampling)
 		lastRoleDiag = wireRoleDiag(br.Messages)
 		body, merr := json.Marshal(br)
 		if merr != nil {

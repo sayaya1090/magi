@@ -79,6 +79,15 @@ func (a *App) ContextWindows(ctx context.Context, sid session.SessionID) []Model
 // that probe lands — and for models with no usable window — it returns 0, which
 // every consumer treats as "unlimited / unknown" (no % gauge, no ratio
 // compaction). The probe runs in a goroutine so this hot-path call never blocks.
+// WindowOf is contextWindow for the wiring layer: the authoritative window for a model, after the
+// registry, the probe and the [limits] context_tokens override have had their say.
+//
+// Exported for one caller — the LLM client, which holds a configured output cap UNDER it. The cap
+// used to go out as a demand however little room was left (measured: a 393,216 window, 93,217 in,
+// a cap of 300,000, and the turn died one token over), and the two numbers could not meet because
+// the window is resolved here and the cap is applied at the wire.
+func (a *App) WindowOf(id string) int { return a.contextWindow(id) }
+
 func (a *App) contextWindow(id string) int {
 	if id == "" {
 		return 0

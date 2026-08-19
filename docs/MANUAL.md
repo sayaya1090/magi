@@ -651,6 +651,10 @@ embed_model = "nomic-embed-text"   # model that turns text into vectors. It buys
 
 [limits]                   # token caps — a safety valve against runaway generation. All optional.
 # max_output_tokens = 8192 # per-request output cap sent to the LLM (0/unset = provider default).
+                           # A CEILING, not a demand: it is held under what the model can still
+                           # accept, so a long conversation lowers it rather than making the
+                           # request too large. Measured before that: a 393,216 window, 93,217
+                           # tokens in and a cap of 300,000 — one token over, and the turn died.
                            # Set it when a weak model rambles, or to bound cost per turn.
 # context_tokens   = 128000 # override the model's context-window budget used for compaction sizing
                            # (same as `/context <model> <tokens>`, but persisted). Set it when magi's

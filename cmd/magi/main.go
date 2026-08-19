@@ -284,6 +284,11 @@ func newEmbedder(cfg config.Config, baseURL, apiKey string, plat port.Platform, 
 	}
 }
 
+// windowOf answers a model's context window for the LLM client, which holds its configured output
+// cap under it. A holder because the client is built before the App that resolves windows: nil
+// until then, and nil answers 0, which leaves the cap exactly as configured.
+var windowOf func(string) int
+
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
@@ -540,6 +545,15 @@ func run() int {
 	}
 	if cfg.Limits.MaxOutputTokens > 0 {
 		llmOpts = append(llmOpts, openai.WithMaxTokens(cfg.Limits.MaxOutputTokens)) // [limits] max_output_tokens
+		// …and the window it has to fit under. Through a holder because the client is built before
+		// the App that resolves windows exists; nil until then, which answers 0 and leaves the cap
+		// exactly as configured — the behaviour before any of this.
+		llmOpts = append(llmOpts, openai.WithWindow(func(model string) int {
+			if windowOf == nil {
+				return 0
+			}
+			return windowOf(model)
+		}))
 	}
 	// [sampling] — part of the baseline options, so profile clients (newProviderFactory) inherit
 	// it too and a routed agent samples the same way as the main one.
@@ -1037,6 +1051,10 @@ func run() int {
 		TimeBudget:          *timeBudget,
 		Observer:            obs,
 	})
+	// The client can now ask what a model's window is, so a configured output cap is held under it
+	// instead of going out as a demand. Set here because this is the first moment the answer
+	// exists; before it, the holder is nil and the cap is sent exactly as configured.
+	windowOf = a.WindowOf
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
 	mcpMgr := mcp.NewManager(reg)
