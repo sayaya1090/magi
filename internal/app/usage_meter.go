@@ -108,6 +108,13 @@ func (m *meteredProvider) ClearBaseURL(tok uint64) {
 	}
 }
 
+func (m *meteredProvider) BaseURL() string {
+	if reader, ok := m.inner.(port.BaseRedirector); ok {
+		return reader.BaseURL()
+	}
+	return ""
+}
+
 // StreamChat forwards the request and tees the usage event out of the reply. The stream is passed
 // through unchanged and in order — this observes, it never withholds or reorders — so a consumer
 // that already reads usage (the main loop's context meter) is unaffected.

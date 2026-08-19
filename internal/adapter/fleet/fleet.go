@@ -235,6 +235,10 @@ type Agent struct {
 	// It changes at runtime and decides both what gets a prompt and how long that prompt waits, so
 	// a console offering to change it has to be able to say what it is changing from.
 	Permission string `json:"permission,omitempty"`
+	// Backend is the base URL its LLM requests go to now, so the console can say WHICH of the
+	// providers it lists is the one in use. Without it the provider select had a roster and no
+	// current value, and opened blank on every companion.
+	Backend string `json:"backend,omitempty"`
 	// User is what this companion calls the person, when a plugin has renamed them (an SSO bridge
 	// puts the authenticated username there). Empty means nobody has, and every surface says the
 	// same ordinary word for the person instead of each inventing its own.
@@ -283,7 +287,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
 			Version: in.Version,
 			Does:    in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
-			Permission: in.Permission, User: in.User,
+			Permission: in.Permission, Backend: in.Backend, User: in.User,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}

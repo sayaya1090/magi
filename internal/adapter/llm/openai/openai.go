@@ -54,6 +54,11 @@ type baseOverride struct {
 // base returns the effective base URL: a runtime override (set by a plugin via
 // magi.set_base_url) if present, else the configured one. Read on every request so a
 // plugin can redirect the LLM backend mid-session.
+// BaseURL is where this client's requests go now: the runtime override when a plugin or the
+// console installed one, else the configured endpoint. The value base() has always computed for
+// the request itself, so a reader and a request can never disagree about it.
+func (c *Client) BaseURL() string { return c.base() }
+
 func (c *Client) base() string {
 	if o := c.dynBase.Load(); o != nil && o.url != "" {
 		return o.url

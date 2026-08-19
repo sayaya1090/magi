@@ -3188,12 +3188,12 @@ function modelField(a, now) {
     providerField.list = [];
     fetchList('/providers').then(list => {
       providerField.list = list || [];
-      paintProviders(pick, providerField.list);
+      paintProviders(pick, providerField.list, a.backend);
       pick.hidden = providerField.list.length < 1;
       pick.disabled = !may('configure') || providerField.list.length < 2;
     });
   }
-  paintProviders(pick, providerField.list || []);
+  paintProviders(pick, providerField.list || [], a.backend);
   pick.hidden = (providerField.list || []).length < 1;
   pick.disabled = !may('configure') || (providerField.list || []).length < 2;
   const pair = cell('modelpair');
@@ -3210,19 +3210,37 @@ const providerField = {el: null, key: '', list: null};
 // paintProviders fills the provider select with the backends that are serving. No "current" entry:
 // which one a companion is ON is not something the console can read back — the daemon holds the
 // base URL and does not report it — so the menu offers what exists and says nothing it cannot know.
-function paintProviders(sel, list) {
+// paintProviders fills the menu and puts it ON the backend this companion is using.
+//
+// now is the base URL the daemon says its requests go to; the menu offers names, so the two are
+// matched by address. Without it the select had a roster and no current value and opened blank on
+// every companion — it could name every backend that was serving and not the one in use, which is
+// the one question somebody looking at that row is asking.
+function paintProviders(sel, list, now) {
   const names = list.map(p => p.name);
-  if ((sel._painted || []).join('\0') === names.join('\0')) return;
-  sel._painted = names;
-  sel.replaceChildren();
-  for (const n of names) {
-    const o = document.createElement('md-select-option');
-    o.value = n;
-    const h = document.createElement('div');
-    h.slot = 'headline';
-    h.textContent = n;
-    o.append(h);
-    sel.append(o);
+  if ((sel._painted || []).join('\0') !== names.join('\0')) {
+    sel._painted = names;
+    sel.replaceChildren();
+    for (const n of names) {
+      const o = document.createElement('md-select-option');
+      o.value = n;
+      const h = document.createElement('div');
+      h.slot = 'headline';
+      h.textContent = n;
+      o.append(h);
+      sel.append(o);
+    }
+  }
+  // Trailing slashes are not a difference: a config that ends its base_url with one and a roster
+  // entry that does not are the same endpoint, and a strict compare would leave the field blank
+  // over a character nobody typed on purpose.
+  const same = (a, b) => String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
+  const on = list.find(p => same(p.base, now));
+  // Never while the menu is open: a poll landing mid-choice would move the selection under the
+  // hand that is making it.
+  if (on && sel.value !== on.name && document.activeElement !== sel) {
+    sel.value = on.name;
+    if (sel.updateComplete) sel.updateComplete.then(() => { sel.value = on.name; });
   }
 }
 
@@ -4102,10 +4120,12 @@ let ctxDraw = 0; // which redraw a pending answer belongs to
 // model was just switched has an unchanged key, so this served the answer fetched BEFORE the
 // switch and the select repainted the old name — every successful change looked refused. Keyed on
 // the model, any change invalidates it: made here, made from the terminal's /model, or made by a
-// second console, because all three land in the listing this reads.
+// second console, because all three land in the listing this reads. The backend rides along for
+// the same reason — the provider select is drawn from it, and switching backend can leave the
+// model name untouched.
 function contextKey(a) {
   return (a.peer || '') + '\u0000' + a.socket + '\u0000' + (a.steps || 0) + '\u0000' + a.state +
-    '\u0000' + (a.model || '');
+    '\u0000' + (a.model || '') + '\u0000' + (a.backend || '');
 }
 
 // put comes from drawDetail: these rows land after the grid is on screen, so they are placed by

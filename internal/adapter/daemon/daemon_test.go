@@ -397,6 +397,8 @@ func (c *controllingEngine) SetPermission(p string) {
 	defer c.mu.Unlock()
 	c.perm = p
 }
+func (c *controllingEngine) Backend() string { return "http://127.0.0.1:1/v1" }
+
 func (c *controllingEngine) Permission() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()

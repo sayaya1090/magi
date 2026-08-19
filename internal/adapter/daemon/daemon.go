@@ -230,6 +230,11 @@ type Controller interface {
 	// a getter is a control a second viewer can only fire blind: the console offers the four modes
 	// and has to be able to say which one is on.
 	Permission() string
+	// Backend is the base URL this companion's LLM requests go to right now, or "" when nothing has
+	// redirected it. Same shape of gap as Permission had: UseBackend is a setter the console offers
+	// against a roster, and without a getter the provider select opened blank on every companion —
+	// it could name every backend that is serving and not the one being used.
+	Backend() string
 }
 
 // ToolReader is an engine that can run one of its READ-ONLY tools where it is, outside the turn.
@@ -461,6 +466,9 @@ type Response struct {
 	// changes at runtime and a viewer that offers to change it has to show what it is changing
 	// from. Only on the status answer, where every other "what is it doing" fact lives.
 	Permission string `json:"permission,omitempty"`
+	// Backend is the base URL its requests go to now — a runtime fact for the same reason
+	// Permission is one, and read by the console to say which provider is in use.
+	Backend string `json:"backend,omitempty"`
 	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
 	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
 	User string `json:"user,omitempty"`
@@ -1063,6 +1071,7 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 	resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
 	if c, ok := eng.(Controller); ok {
 		resp.Permission = c.Permission()
+		resp.Backend = c.Backend()
 	}
 	if n, ok := eng.(UserNamer); ok {
 		resp.User = n.UserLabel(session.SessionID(req.Session))
@@ -1900,6 +1909,8 @@ type Status struct {
 	Doing string
 	// Permission is the approval mode it is on now.
 	Permission string
+	// Backend is the base URL its LLM requests go to now.
+	Backend string
 	// User is what it calls the person, when a plugin has renamed them.
 	User string
 }
@@ -1945,7 +1956,8 @@ func (c *Client) Status(sid string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return Status{Asking: resp.Waiting, Doing: resp.Doing, Permission: resp.Permission, User: resp.User}, nil
+	return Status{Asking: resp.Waiting, Doing: resp.Doing, Permission: resp.Permission,
+		Backend: resp.Backend, User: resp.User}, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
@@ -2445,6 +2457,10 @@ type Info struct {
 	// Permission is the approval mode it is on now. Not in the file either: the mode changes at
 	// runtime, so a record written at startup would be the mode it USED to be on.
 	Permission string `json:"-"`
+	// Backend is the base URL its LLM requests go to now, and is here for exactly the same reason:
+	// the console can redirect it mid-run, so a record written at startup would name the endpoint
+	// it USED to talk to.
+	Backend string `json:"-"`
 	// User is what this companion calls the person, when a plugin has renamed them. Not in the
 	// file, for the same reason: a plugin can set it on any turn.
 	User string `json:"-"`
@@ -2727,6 +2743,7 @@ func List(configDir string) ([]Info, error) {
 			if st, serr := cl.Status(sid); serr == nil {
 				out[i].Asking, out[i].Doing = st.Asking, st.Doing
 				out[i].Permission, out[i].User = st.Permission, st.User
+				out[i].Backend = st.Backend
 			}
 			// A daemon too old to know the method answers with an error naming what it does
 			// accept. That is a version skew, not a fault: it is alive, and everything else about

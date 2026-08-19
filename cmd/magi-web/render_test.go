@@ -6915,3 +6915,57 @@ console.log(JSON.stringify({afterLook: afterLook, afterComplete: noteCell().text
 			"answer to another", got["afterComplete"])
 	}
 }
+
+// The provider select opens on the backend the companion is using.
+//
+// It had a roster and no current value: paintProviders filled the menu and never set sel.value, so
+// it could name every backend that was serving and not the one in use — which is the single
+// question somebody looking at that row is asking. The value comes from the daemon, which is the
+// only process that knows where its own requests go, and is matched to a menu of NAMES by address.
+func TestTheProviderSelectShowsTheBackendInUse(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+globalThis.fetch = async (p) => {
+  const u = String(p).split('?')[0];
+  if (u === '/fleet') return {ok: true, json: async () => [
+    // Note the trailing slash: a config that ends its base_url with one and a roster entry that
+    // does not are the same endpoint, and a strict compare would leave the field blank over a
+    // character nobody typed on purpose.
+    {socket: '/s/a.sock', name: 'a', live: true, state: 'idle', session: 's_1', steps: 0,
+     model: 'opus', backend: 'http://127.0.0.1:53345/v1/'},
+  ]};
+  if (u === '/context') return {ok: true, json: async () => ({model: 'opus', used: 10, window: 1000})};
+  if (u === '/model') return {ok: true, json: async () => ['opus', 'sonnet']};
+  if (u === '/providers') return {ok: true, json: async () => [
+    {name: 'antigravity', base: 'http://127.0.0.1:53286/v1', models: ['gemini']},
+    {name: 'claudecode',  base: 'http://127.0.0.1:53345/v1', models: ['opus', 'sonnet']},
+    {name: 'default',     base: 'http://localhost:11434/v1', models: ['gpt-oss']},
+  ]};
+  return {ok: true, json: async () => []};
+};
+await loadFleet();
+// The row as the POLL hands it over — drawDetail is called with the fleet entry itself, so the
+// backend rides in on it. A stub object here would test a shape the page never passes.
+await drawDetail({socket: '/s/a.sock', name: 'a', live: true, state: 'idle', workdir: '/w',
+  session: 's_1', steps: 0, model: 'opus', backend: 'http://127.0.0.1:53345/v1/'});
+for (let i = 0; i < 80; i++) await Promise.resolve();
+const sel = (function walk(n) {
+  if ((n.tag || '') === 'md-outlined-select' &&
+      (n.children || []).some(o => String(o.value || '') === 'claudecode')) return n;
+  for (const k of n.children || []) { const hit = walk(k); if (hit) return hit; }
+  return null;
+})(byId.detail);
+console.log(JSON.stringify({found: !!sel, value: sel ? sel.value : null,
+  options: sel ? sel.children.map(o => o.value) : []}));`)
+
+	if got["found"] != true {
+		t.Fatal("no provider select was drawn")
+	}
+	if n := len(got["options"].([]any)); n != 3 {
+		t.Errorf("the menu holds %d providers; the roster had three", n)
+	}
+	if got["value"] != "claudecode" {
+		t.Errorf("the select reads %q — the companion is on claudecode's address and the field "+
+			"cannot say so, which is the one thing it exists to say", got["value"])
+	}
+}

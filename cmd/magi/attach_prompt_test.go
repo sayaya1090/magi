@@ -409,6 +409,7 @@ func (c *controllableEngine) SetModel(session.SessionID, string)             {}
 func (c *controllableEngine) UseBackend(string) error                        { return nil }
 func (c *controllableEngine) SetPermission(p string)                         { c.perm = p }
 func (c *controllableEngine) Permission() string                             { return c.perm }
+func (c *controllableEngine) Backend() string                                { return "" }
 
 // The attached view is told when the prompt it is showing was answered somewhere else.
 //

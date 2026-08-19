@@ -53,6 +53,11 @@ type BaseRedirector interface {
 	// SetBaseURL points the backend elsewhere and returns a token to release the override with.
 	SetBaseURL(url string) uint64
 	ClearBaseURL(tok uint64)
+	// BaseURL is where requests go RIGHT NOW — the override when one is installed, else what the
+	// config named. A setter without a reader is a control a second viewer can only fire blind:
+	// the console lists the backends that are serving and, without this, could not say which of
+	// them is the one in use, so its provider select opened blank on every companion.
+	BaseURL() string
 }
 
 // ProviderExtras is the whole optional surface, as one name a wrapper can be held to.

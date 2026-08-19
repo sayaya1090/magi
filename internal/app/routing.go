@@ -23,6 +23,20 @@ func (a *App) Permission() string {
 	return a.permPolicy
 }
 
+// Backend is where this companion's LLM requests go now — the reader half of UseBackend.
+//
+// Empty when the provider cannot say, which a caller reads as "nothing has redirected this". The
+// console needs it to show WHICH of the backends it lists is the one in use: without it the
+// provider select could name every backend that is serving and none of them as current, so it
+// opened blank on every companion.
+func (a *App) Backend() string {
+	reader, ok := a.llm.(interface{ BaseURL() string })
+	if !ok {
+		return ""
+	}
+	return reader.BaseURL()
+}
+
 // SetPermission updates the permission policy at runtime (ask|auto|allow|deny).
 func (a *App) SetPermission(p string) {
 	a.mu.Lock()

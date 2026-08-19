@@ -160,6 +160,16 @@ func (g guardedProvider) ClearBaseURL(tok uint64) {
 	clearer.ClearBaseURL(tok)
 }
 
+// BaseURL answers "" when the backend underneath cannot say, which reads as "nothing has
+// redirected this" — the same thing an unwrapped client with no override reports.
+func (g guardedProvider) BaseURL() string {
+	reader, ok := g.inner.(port.BaseRedirector)
+	if !ok {
+		return ""
+	}
+	return reader.BaseURL()
+}
+
 func (g guardedProvider) ProbeContextWindow(ctx context.Context, model string) (int, bool) {
 	prober, ok := g.inner.(port.ContextProber)
 	if !ok {
