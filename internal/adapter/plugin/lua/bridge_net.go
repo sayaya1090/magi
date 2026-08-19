@@ -3,12 +3,15 @@ package lua
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -63,12 +66,45 @@ func (p *plugin) bridgeExec(L *lua.LState) int {
 			}
 		}
 	}
+	// magi.exec(cmd, args, {neutral_dir=true}) runs the command somewhere with nothing in it.
+	//
+	// A CLI that is being used as a LANGUAGE MODEL should not be reading the workspace, and one of
+	// them charges for it whether or not it reads: `claude` walks up from its working directory
+	// looking for project configuration and puts what it finds in every request. Measured on this
+	// machine with every tool already denied — the same prompt, only the directory changing:
+	//
+	//	inside the magi repo (7 files under .claude/skills) .... 13,676 billed input tokens
+	//	a directory outside it .................................. 2,094
+	//
+	// So 11,582 tokens per call bought a copy of skills magi had already put in the prompt itself.
+	// The walk stops at the directory it is given, which is why an empty one anywhere outside the
+	// workspace is the whole fix — measured identical (2,094) in /tmp and under the data dir.
+	//
+	// A BOOLEAN rather than a path. A plugin naming its own working directory could point at any
+	// directory on the machine and have a subprocess read it; this only ever narrows, and the
+	// directory it narrows to is the host's, not the plugin's. It lives under the data dir rather
+	// than /tmp so it is not a well-known path another user of the machine could pre-create as a
+	// symlink to a directory holding a CLAUDE.md — which would be a way to put text in front of a
+	// model that nobody in this process chose.
+	neutral := false
+	if opts, ok := L.Get(3).(*lua.LTable); ok {
+		neutral = lua.LVAsBool(opts.RawGetString("neutral_dir"))
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = p.dir
 	if p.host != nil && p.host.runtime.Workdir != "" {
 		c.Dir = p.host.runtime.Workdir
+	}
+	if neutral {
+		if dir, err := p.neutralDir(); err == nil {
+			c.Dir = dir
+		}
+		// A directory that could not be made leaves c.Dir as it was: the call still runs, in the
+		// workspace, at the old price. Refusing the turn over a cost saving would trade a backend
+		// for a discount.
 	}
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &cappedWriter{buf: &stdout, max: execOutputMax}
@@ -473,4 +509,22 @@ func (w *cappedWriter) Write(b []byte) (int, error) {
 		}
 	}
 	return len(b), nil // report full consumption so the command isn't blocked
+}
+
+// neutralDir is the empty directory neutral_dir runs in: one per plugin, under the host's data
+// dir, created on demand and never written to by magi. Per plugin rather than shared so one
+// backend's CLI cannot leave a file that lands in another's context.
+func (p *plugin) neutralDir() (string, error) {
+	base := ""
+	if p.host != nil {
+		base = p.host.dataDir
+	}
+	if base == "" {
+		return "", errors.New("no data dir to put a neutral directory in")
+	}
+	dir := filepath.Join(base, "neutral", p.name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
