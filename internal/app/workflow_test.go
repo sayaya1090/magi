@@ -257,7 +257,7 @@ func TestFileEditsSinceRequiresSuccessfulResult(t *testing.T) {
 	}
 }
 
-// The workflow verify gate rejects a `go test` masked pass the same way councilVerify does — an
+// The workflow verify gate rejects a `go test` masked pass the way verify_cmd.go's helpers do — an
 // exit 0 whose -json re-run shows a neutered/failed suite does not count as verified, so an agent
 // that authored a passing-looking test config can't get the pipeline to report success on an
 // unfixed tree. Without the hardening it would accept attempt 1 and stop.

@@ -26,7 +26,7 @@ turn has finished in front of you. Everything after that is depth you can come b
 | [3. Configuration](#3-configuration) | every setting, where it lives, and what overrides what |
 | [4. Using the TUI](#4-using-the-tui) | slash commands, keys, panes, and what the screen is telling you |
 | [5. Tools](#5-tools-built-in) | what the agent can do, and what it deliberately cannot |
-| [6. Finishing a turn](#6-finishing-a-turn) | the council, the verify command, and why a turn refuses to end |
+| [6. Finishing a turn](#6-finishing-a-turn) | the council, and why a turn refuses to end |
 | [7. Memory & context](#7-memory--context) | `AGENTS.md`, compaction, and what survives it |
 | [8. Skills](#8-skills) · [9. Plugins](#9-plugins-lua) · [10. MCP](#10-mcp) | extending it |
 | [11. Model recommendations](#11-model-recommendations) | picking a backend that actually keeps up |
@@ -1231,9 +1231,8 @@ flowchart TD
     S[the agent works<br/>read · edit · run] --> D["council{complete: true}<br/>the agent declares"]
     D --> REC[[the record magi kept:<br/>commands granted · real exits<br/>· per-file diffs]]
     D --> NOW[[the workspace, read fresh<br/>at the moment of declaring]]
-    REC --> V[[verify command<br/>magi runs itself]]
-    NOW --> V
-    V --> M{{three members vote<br/>done · reject · abstain}}
+    REC --> M{{three members vote<br/>done · reject · abstain}}
+    NOW --> M
     M -->|accepted| E([turn over])
     M -->|rejected| FB[what is still undone<br/>becomes the next instruction] --> S
     M -->|3 rejections with no<br/>file change between| U([lands UNVERIFIED<br/>work stands, nothing pretends])

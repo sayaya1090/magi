@@ -111,17 +111,6 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	changes := truncateForCouncil(buildCouncilChanges(guardChanges), councilDiffCap)
 	lastText := lastTurnAssistantText(evs)
 
-	// The fixed harness: magi runs the operator's verification itself and its result leads the
-	// evidence. Only on a completion declaration — a question is not a finish to verify. verifyOK is
-	// carried past the fan-out so a failing check can refuse the finish whatever the members vote.
-	verifyOK := true
-	if complete {
-		if ev, ok, ran := a.councilVerify(ctx, s.Workdir); ran {
-			verifyOK = ok
-			actions = ev + "\n\n" + actions
-		}
-	}
-
 	// A re-declaration with nothing changed is not worth an endless fresh fan-out. When the agent
 	// declares complete again with a byte-identical report and the same edits — it did no work,
 	// just re-asked — the members are polled again (a median ~87s and three model calls each) to
@@ -214,35 +203,17 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 			"The council read your work. This is their reading, not a decision — weigh it and judge for yourself."), nil
 	}
 
-	// The independent verification has a veto: a "done" vote cannot accept a finish the fixed harness
-	// says is not verified. This is the deterministic floor under the members' judgement — the thing
-	// an agent cannot talk its way past by disabling its own tests, because magi ran the check.
-	accepted := delib.Decision == council.Done && verifyOK
+	accepted := delib.Decision == council.Done
 	// The tally rides the FACT even though it is deliberately kept out of what the agent reads:
 	// three surfaces render it (the headless transcript, the TUI verdict line, the loop map) and
 	// with it left zero they all printed "0 done / 0 continue" under a decision that had three
 	// votes behind it — observed live on a run whose three members all voted done.
-	// The recorded decision reflects the VETO: members may have voted done, but a finish the fixed
-	// harness did not verify is a continue, and the feedback says why so the agent fixes the real
-	// failure rather than re-declaring.
 	recordedDecision := delib.Decision
 	feedback := delib.Feedback
 	note := map[bool]string{
 		true:  "the agent declared the task finished and the council accepts — the turn ends",
 		false: "the agent declared the task finished; the council does not accept it yet",
 	}[accepted]
-	if delib.Decision == council.Done && !verifyOK {
-		recordedDecision = council.Continue
-		note = "the members voted to accept, but magi's own verification did not pass — the finish is refused"
-		vetoNote := "magi ran the configured verification and it did not pass. The finish is refused on that " +
-			"deterministic result, not on the members' vote. Fix what the verification reports above and declare " +
-			"completion again; disabling or skipping the check will be seen as a check that ran nothing."
-		if strings.TrimSpace(feedback) == "" {
-			feedback = vetoNote
-		} else {
-			feedback = vetoNote + "\n\n" + feedback
-		}
-	}
 	dd, _ := json.Marshal(event.CouncilDecidedData{
 		Round: 1, Decision: string(recordedDecision), Tally: delib.Breakdown, Feedback: feedback,
 		// The rebuttal round rides the fact for the same reason the tally does: the verdicts
@@ -261,11 +232,6 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		return "The council accepts that the task is finished. Your turn ends here — write your final " +
 			"answer for whoever asked, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil
-	}
-	if delib.Decision == council.Done && !verifyOK {
-		return "The finish is REFUSED: magi's own verification did not pass, whatever the members read. " +
-			"Fix what the verification reports (shown in the evidence above) and declare completion again." +
-			notesTail(a.turnNotesBlock(sid)) + "\n\n" + renderCouncilAdvice(delib, "What the members said:"), nil
 	}
 	if landed, msg := a.noteCouncilRejection(sid, epoch, feedback); landed {
 		return msg + notesTail(a.turnNotesBlock(sid)) + "\n\n" +

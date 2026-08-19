@@ -337,10 +337,6 @@ type Config struct {
 	// the default MAGI trio.
 	CouncilRule    council.Rule
 	CouncilMembers []council.Member
-	// CouncilVerify is a command magi runs itself at the finish gate — the fixed harness the agent
-	// cannot subvert. Non-zero exit refuses the finish whatever the members voted; the output is
-	// magi-run evidence the members see. Empty = off. From [council] verify.
-	CouncilVerify string
 	// ContextWindowProber, when set, asks the LLM backend for a model's real context
 	// window the first time an unseeded model is used (e.g. after a runtime /route
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the

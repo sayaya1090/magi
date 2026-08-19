@@ -115,7 +115,7 @@ func (a *App) runWorkflow(ctx context.Context, s session.Session) error {
 		// Exit 0 is not proof for a `go test` — and the workflow's command is often auto-detected from
 		// a Makefile/package.json the IMPLEMENT phase can write, so `test: exit 0` or a TestMain that
 		// os.Exit(0)s over failures would report "verified" on an unfixed tree. Apply the same -json
-		// re-run councilVerify uses: reject a pass that ran no tests or masked a failure. (make/npm
+		// re-run in verify_cmd.go: reject a pass that ran no tests or masked a failure. (make/npm
 		// targets have no such check and stay exit-code-only best-effort, as they always were.)
 		masked := false
 		if code == 0 && isGoTest(cmd) {

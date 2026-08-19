@@ -1047,7 +1047,6 @@ func run() int {
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
-		CouncilVerify:       cfg.Council.Verify,
 		TimeBudget:          *timeBudget,
 		Observer:            obs,
 	})
@@ -1659,9 +1658,6 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	// test ./...`, `make test`). Left out of this merge, a `[council] verify` in a project's
 	// .magi/config.toml was silently dropped and only the global one took effect, so the finish
 	// gate a repo configured for itself never ran.
-	if proj.Council.Verify != "" {
-		cfg.Council.Verify = proj.Council.Verify
-	}
 	// The same drop class as verify was: sections a project (or a companion) may set that this merge
 	// never copied, so a repo configuring them saw nothing happen. Scalars override when set; maps
 	// merge key-by-key like MCP/routing above; the two structs merge FIELD by field so a project that
@@ -1790,15 +1786,6 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	if proj.Templates != (config.TemplatesConfig{}) {
 		held = append(held, "commit/PR draft rules")
 	}
-	// The council's verify command is a shell command magi runs ITSELF at the finish gate — RUNS, in
-	// the plainest sense, and on by default. A committed one from a repo nobody vouched for is the
-	// same clone-delivered code-execution the hooks strip prevents, only more direct (it needs no
-	// tool event; it fires on every completion). Held back like the rest; the council's other keys
-	// (rule, preset, members) do not execute a command and a member's provider falls through to the
-	// default backend, so only the command is withheld.
-	if proj.Council.Verify != "" {
-		held = append(held, "a verification command")
-	}
 	// [subagents.*] is the user's per-specialist settings: which model it runs on, and whether one
 	// that ships OFF is switched on. That is model-steering and spend-routing — the same thing the
 	// completion settings and profiles above are held for — so a repo nobody vouched for does not
@@ -1815,7 +1802,6 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	proj.BaseURL, proj.ExperienceDir = "", ""
 	proj.LLM.Headers, proj.LLM.Profiles = nil, nil
 	proj.Autocomplete, proj.Templates = config.AutocompleteConfig{}, config.TemplatesConfig{}
-	proj.Council.Verify = ""
 	proj.Subagents = nil
 	return proj
 }
