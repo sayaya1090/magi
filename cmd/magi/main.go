@@ -262,7 +262,6 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 // and blocks on the event loop. What is worth testing has been pulled out into the helpers
 // around it — validateFlags, mergeConfig, profileDefs and the rest — and those are tested.
 //
-//coverage:ignore calling run is running magi, not testing it
 // newEmbedder builds the client that turns text into vectors, from the one set of settings that
 // decides it. Two callers — the MCP search and the experience store — and one builder, because two
 // constructions of the same client is two answers to "which model does this machine embed with",
@@ -273,6 +272,8 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 // answers only while serving an embedding model), so both are separately overridable. No model
 // named means no semantic half, and every caller is told which it got rather than quietly getting
 // a worse search.
+//
+//coverage:ignore calling run is running magi, not testing it
 func newEmbedder(cfg config.Config, baseURL, apiKey string, plat port.Platform, warn func(string)) *embed.Client {
 	return &embed.Client{
 		BaseURL:  env("MAGI_EMBED_BASE_URL", baseURL),

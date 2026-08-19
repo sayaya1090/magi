@@ -6622,11 +6622,11 @@ console.log(JSON.stringify({before, after, focusedBefore,
 			"not serve, which fails on the next request and not before", got["after"])
 	}
 	if got["focusedIsModel"] != true {
-		t.Errorf("the focus did not move to the model after the switch; the field went blank and "+
+		t.Errorf("the focus did not move to the model after the switch; the field went blank and " +
 			"nothing pointed at the question that made it blank")
 	}
 	if got["shut"] == true {
-		t.Errorf("the emptied field is disabled: the new backend serves one model, the field holds "+
+		t.Errorf("the emptied field is disabled: the new backend serves one model, the field holds " +
 			"none, and there is no way to put the companion on the only model there is")
 	}
 }
