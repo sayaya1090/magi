@@ -3271,9 +3271,13 @@
 
   /* ── one level in: a verdict, or a child ─────────────────────────────────── */
   /* A page, not a card: what is in here is a transcript or the material a vote stood on, and both
-     are things you scroll and copy out of. It takes the conversation's measure so the prose in it
-     reads at the same line length as the prose it came from. */
-  #agentdetail { max-width:var(--magi-sys-wide); display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
+     are things you scroll and copy out of. It takes the SAME width as the conversation it was
+     opened from — the cap below and the wide-screen rule further down are both shared with #log.
+     They were not: this kept 108ch while the transcript was later widened to the page, so opening
+     a decision from a conversation narrowed the column under the reader for no reason they could
+     see. The prose inside still keeps its own measure (.dbody, .gsec), which is where a reading
+     width belongs. */
+  #agentdetail { max-width:var(--magi-sys-page); display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
   #agentdetail .dhead { display:flex; align-items:baseline; gap:var(--magi-sys-space-200); flex-wrap:wrap; }
   #agentdetail .dwho { font:600 var(--md-sys-typescale-title-medium-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-primary); }
   #agentdetail .dchip { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
@@ -3314,9 +3318,15 @@
     display:grid; grid-template-columns:7rem minmax(0, var(--magi-sys-measure));
     gap:var(--magi-sys-space-150) var(--magi-sys-space-300); align-items:baseline;
   }
+  /* Centred in the gutter, not pushed against the text. Right-aligned, each label ended at a
+     different distance from its own word depending on how long the label was — "tried" and
+     "recommendation" sat on two different left edges, and the column of keys had no edge of its
+     own to read down. Centred, the gutter reads as one column. Below 840 the label stacks ABOVE
+     the text rather than beside it (further down), and there it stays left, where a line of text
+     starts. */
   #agentdetail .grounds .gk {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
-    letter-spacing:.05em; color:var(--magi-ref-accent); text-align:right;
+    letter-spacing:.05em; color:var(--magi-ref-accent); text-align:center;
   }
   /* 839, not 640. 40em is a number nobody's scale has — it fires in the middle of the medium
      class, which M3 treats as one thing. The measurement behind it was taken at 390px and the
@@ -4480,7 +4490,10 @@
        column, bounded at 132rem so a truly enormous monitor does not run one line clear across it.
        The trade the guide warned about — a line past ~110ch is harder to read — is taken knowingly.
        The composer and strip still take the whole track: they are controls, not prose. */
-    body[at="agent"] #log { max-width:max(var(--magi-sys-wide), min(100%, 132rem)); }
+    body[at="agent"] #log,
+    /* …and the decision screen with it. It is one level in from this same conversation, so a width
+       the transcript takes and it does not is a column that changes under the reader on the way in. */
+    body[at="agent"] #agentdetail { max-width:max(var(--magi-sys-wide), min(100%, 132rem)); }
     body[at="agent"] #prompt .inner,
     body[at="agent"] form,
     body[at="agent"] #strip:not([hidden]) { max-width:none; margin-inline:0; }
