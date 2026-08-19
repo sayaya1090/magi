@@ -5274,7 +5274,7 @@ globalThis.fetch = async (p) => ({ok: true, json: async () =>
 await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
                   steps: 1, idle: 2, session: 's1'});
 for (let i = 0; i < 12; i++) await Promise.resolve();
-const button = byId.detail.find('button').filter(b => b.textContent === tr('field.report_format'));
+const button = byId.detail.find('button').filter(b => b.textContent === tr('insp.format'));
 if (button.length) button[0].onclick();
 for (let i = 0; i < 12; i++) await Promise.resolve();
 console.log(JSON.stringify({
@@ -5287,8 +5287,14 @@ console.log(JSON.stringify({
 }));
 `)
 	buttons := fmt.Sprint(got["buttons"])
-	if !strings.Contains(buttons, "What it brings you when it asks") {
+	if !strings.Contains(buttons, "Report format") {
 		t.Errorf("no way to the report format in the facts: %s", buttons)
+	}
+	// It sits in a button group with the other two, and a group must not wrap to a second line —
+	// which is why the label is three words and not the sentence it used to be. The sentence is
+	// the dialog's own headline, asserted below.
+	if strings.Contains(buttons, "What it brings you when it asks") {
+		t.Error("the button still carries the dialog's sentence as its label")
 	}
 	if strings.Contains(got["pane"].(string), "reportfmt") {
 		t.Error("the report format is still a card in the side pane")

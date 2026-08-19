@@ -3336,6 +3336,69 @@
     background:color-mix(in srgb, var(--magi-ref-primary) 14%, transparent);
     border-radius:var(--magi-sys-shape-s);
   }
+  /* ── a standard button group ─────────────────────────────────────────────
+     M3's standard button group: related buttons sitting together, no selection among them.
+     NOT the segmented button (withdrawn in the expressive update) and NOT its replacement, the
+     connected group, which the guidance reserves for toggles — "Avoid using a connected group
+     when none of the buttons can be toggled." These three leave for another screen or open a
+     dialog; none of them is ever the chosen one.
+
+     No width is set. The standard group "hugs the width of the buttons inside", where the
+     connected one spans its surface — so the group is as wide as its buttons and no wider.
+
+     nowrap because a button group "shouldn't wrap to a second line". That is a real constraint in
+     a narrow pane, and it is what decided the third button's label rather than the other way
+     round.
+
+     The gap is 8px, not 4. Two reasons, and neither is taste: the 48px press target each button
+     carries sits centred on the button, so adjacent targets need room not to meet; and a pressed
+     button grows on each side, which at a 4px gap would have it touching its neighbour before the
+     neighbour had moved. */
+  .bgroup { display:flex; flex-wrap:nowrap; align-items:center; gap:var(--magi-sys-space-100); }
+
+  /* An M3 button, at XS, outlined — read off the spec's own measurement drawing rather than
+     recalled, because the third-party numbers in circulation disagree with it (one puts XS at
+     36dp; the drawing says 32):
+
+       size   height   side padding
+       XS       32         12
+       S        40         16
+       M        56         24
+       L        96         48
+       XL      136         64
+
+     Shape is Full, which is the default for every size — M3 buttons are pills unless they are
+     deliberately square, and the 4px corner the plain `.deeper` carries is neither. Pressed morphs
+     to 8dp, the value the spec gives for XS and S ("Both round and square buttons should have the
+     same pressed shape").
+
+     Colour is TONAL, not outlined, and that is a deliberate departure worth its paragraph.
+
+     Outlined is the obvious pick for a bordered control and it is what this was first. But the
+     Buttons section above records why this console has `md-outlined-button` at zero: M3 warns that
+     an outlined button reads as a chip, and this page is full of chips — the state filters at the
+     top of the companion list are an `md-chip-set`. An outlined pill in a facts card would have
+     been the fifth chip-shaped thing on screen and the first one that was not a chip.
+
+     Tonal has no such ambiguity — a filled container is a button — and it is already in this
+     console's vocabulary (nine `md-filled-tonal-button`, the composer's stop among them). The
+     guidance permits the swap outright: "Mix and match the different button variants, widths, and
+     colors… to visually group related buttons."
+
+     M3's tonal roles are secondary container / on secondary container, and this palette has no
+     secondary container — but it does have primary container AND its matching on-colour, so the
+     PAIR stays a real M3 pair rather than a container with some readable text laid on it. The spec
+     allows the substitution by name: "Other color roles can be used as long as the container and
+     text have a 3:1 contrast ratio." #FFD9B8 on #4A2E0B (dark) and #3A1B00 on #F8D9A8 (light) are
+     both far past it. */
+  /* State layers over a filled container, not the transparent-background ones `.deeper` carries:
+     an 8% primary wash over #4A2E0B is invisible. M3 draws the layer in the button's own label
+     colour over its container. */
+  .bgroup .deeper:hover { background:color-mix(in srgb, var(--magi-ref-on-primary-container) 8%, var(--magi-ref-primaryContainer)); }
+  .bgroup .deeper:active { padding:0 15px; border-radius:var(--magi-sys-shape-s); /* 8dp, XS/S pressed */
+    background:color-mix(in srgb, var(--magi-ref-on-primary-container) 12%, var(--magi-ref-primaryContainer)); }
+  @media (prefers-reduced-motion: reduce) { .bgroup .deeper { transition:none; } }
+
   .row .deeper { grid-column:2; justify-self:start; }
   #agentdetail .dlog .row .deeper { display:none; } /* one level in is as deep as it goes */
 

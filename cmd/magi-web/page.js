@@ -3484,23 +3484,43 @@ function drawDetail(a) {
     row.dataset.k = 'field.what_it_has';
     row.append(cell('k', tr('field.what_it_has')));
     const v = cell('v');
+    // A STANDARD button group, which is what M3 calls a set of related buttons sitting together.
+    //
+    // The obvious reach is the segmented button, and it is the wrong one twice over. M3 withdrew
+    // it in the expressive update ("no longer recommended… use the connected button group
+    // instead"), and the replacement is explicit that it is not this: "Avoid using a connected
+    // group when none of the buttons can be toggled." None of these toggle. Two of them leave for
+    // another screen and the third opens a dialog; nothing here is ever the selected one, so a
+    // component whose whole job is to show which option is chosen would be drawing a state that
+    // does not exist.
+    //
+    // The standard group is the one for "visually group related buttons" with no selection in it.
+    // It hugs the width of the buttons inside rather than spanning the surface, which is also why
+    // no max-width appears below.
+    const group = el('div');
+    group.className = 'bgroup';
     for (const [key, label] of [['tools', tr('insp.tools')], ['loop', tr('insp.loop')]]) {
       const b = el('button', label);
       b.type = 'button';
       b.className = 'deeper hit48';
       b.onclick = () => goDeep('insp', key);
-      v.append(b);
+      group.append(b);
     }
     // The report format sits with them rather than in a row of its own. It is the same kind of
     // thing they are — something about this companion you go and look at — and as a row it cost
     // the card a whole line to show three words that change about as often as the model does.
+    //
+    // Its label is short now for the same reason it is here: a group must not wrap to a second
+    // line, and "결재 요청 시 전달할 내용" beside 도구 and 루프 could not have held one. The sentence
+    // it used to be is the dialog's own headline, which is where somebody reads it.
     {
-      const b = el('button', tr('field.report_format'));
+      const b = el('button', tr('insp.format'));
       b.type = 'button';
       b.className = 'deeper hit48';
       b.onclick = () => openFormat(a);
-      v.append(b);
+      group.append(b);
     }
+    v.append(group);
     row.append(v);
     put(row);
   }
