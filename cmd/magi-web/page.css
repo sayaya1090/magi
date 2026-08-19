@@ -2524,8 +2524,12 @@
      is written the same way for the same reason. */
   @media (max-width:52.4375em) { #detail .f.wide { grid-column:1 / -1; } }
   /* The menu on a full-width row takes the width: a select sized to its own content puts a long
-     session title behind an ellipsis in the middle of an empty row. */
-  #detail .f.wide .permsel { width:100%; max-width:var(--magi-sys-measure); }
+     session title behind an ellipsis in the middle of an empty row.
+     No max-width. `--magi-sys-measure` is 74ch and its own definition says `/* prose */` — it is
+     the line length a paragraph is comfortable to READ at, and a dropdown is not a paragraph.
+     Capping the control at it also contradicted the width:100% on the same line, which is there
+     precisely so the control fills the row it was given. */
+  #detail .f.wide .permsel { width:100%; }
   #detail .f .k {
     font:600 var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono); letter-spacing:0.06em; color:var(--magi-ref-muted);
   }

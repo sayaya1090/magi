@@ -3217,6 +3217,15 @@ function modelField(a, now) {
   pair.append(pick, sel);
   v.append(pair);
   f.append(v);
+  // Two tracks. .modelpair has been a flex row all along and it was WRAPPING, not stacking: two
+  // selects with a backend name and a model name in them do not fit 14rem, so the row broke and
+  // the two ended up one under the other looking like a deliberate vertical arrangement. Given the
+  // width they were written for, they sit side by side.
+  //
+  // The class is set here rather than through the card builder's own `wide()` helper: that one is
+  // a local of the builder, and at this scope the name resolves to the module-level matchMedia of
+  // the same name — a call that throws.
+  f.className = 'f wide';
   return f;
 }
 
@@ -3448,13 +3457,16 @@ function drawDetail(a) {
     field('field.host', (a.instance || a.host || tr('map.here')) + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
     ...(a.version && !ownBuild ? [field('field.version', a.version)] : []),
+    // The build sits with the host, whichever of the two forms it takes. Read-only it always did;
+    // as the update CONTROL it was appended after the approval field instead, which put a
+    // five-letter version at the head of the row the controls pack into — a fact leading a row of
+    // things you press, with the host that it is the build OF two rows above it. Same field,
+    // same place, whether or not this console can act on it.
+    ...(ownBuild ? [updateControl(a)] : []),
     wide(field('field.workspace', a.workdir)),
     sessionField(a),
   ].forEach(put);
   put(permField(a));
-  if (ownBuild) {
-    put(updateControl(a));
-  }
   // A button, not a clickable div: this is the one control on the card and it has to be reachable
   // by keyboard and announce itself as pressed or not.
   const bar = document.createElement('button');
