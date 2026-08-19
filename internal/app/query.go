@@ -124,7 +124,12 @@ func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]sessio
 	// Pair each re-surfaced queued interjection with its answer for display: drop the
 	// stranded original so only the re-emitted copy (which sits next to its answer at
 	// the back of the stream) renders. Display-only — turn logic uses reconstruct directly.
-	return reconstruct(dropResurfacedOrigins(evs)), last, nil
+	//
+	// And WHOLE, because this is the display. Reading it off reconstruct handed every reader the
+	// model's amnesia: a compaction landing mid-read replaced the scrollback somebody was
+	// following with a summary of itself, on a console whose log still held every word. The fold
+	// is marked in place instead.
+	return reconstructWhole(dropResurfacedOrigins(evs)), last, nil
 }
 
 // restoreTodos rebuilds a resumed session's plan from the log.

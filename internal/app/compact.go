@@ -81,8 +81,17 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	// Index the compacted region into recallable topics (deterministic — by file path,
 	// each carrying its tool-action trail as a brief), then write the overall summary.
 	shards := shardByPath(older, s.Workdir)
+	// Say it is happening. Compaction is a model call on a large prompt — measured in tens of
+	// seconds on a local backend — and it runs BETWEEN steps, so nothing else is being drawn: the
+	// transcript simply stops. From the outside that is indistinguishable from a wedged turn, and
+	// it is the one long pause on this page that had no line to explain it. Tool calls have said
+	// what they are doing all along; this rides the same channel, which is also the only one a
+	// browser in another process can read (noteDoing).
+	a.emitToolProgress(s.ID, actor, "", "compact",
+		fmt.Sprintf("compacting the conversation — summarising %d earlier messages", len(older)))
 	summary := a.summarizeViaLLM(ctx, agent, s, older)
 	if summary == "" {
+		a.emitToolProgress(s.ID, actor, "", "compact", "compaction did not produce a summary — keeping the conversation as it is")
 		return false
 	}
 
@@ -93,14 +102,21 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 			keptEvs = append(keptEvs, e)
 		}
 	}
+	tokensBefore, tokensAfter := estimateTokens("", reconstruct(evs)), estimateTokens(summary, reconstruct(keptEvs))
 	d, _ := json.Marshal(event.CompactionData{
 		Summary:         summary,
 		ReplacesUpToSeq: boundary,
-		TokensBefore:    estimateTokens("", reconstruct(evs)),
-		TokensAfter:     estimateTokens(summary, reconstruct(keptEvs)),
+		TokensBefore:    tokensBefore,
+		TokensAfter:     tokensAfter,
 		Shards:          shards,
 	})
 	a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d)
+	// And say what it cost. The numbers are the ones the fact carries, so the line and the record
+	// cannot disagree — and "what did I just lose" is the question somebody has when they see the
+	// transcript fold underneath them.
+	a.emitToolProgress(s.ID, actor, "", "compact",
+		fmt.Sprintf("compacted — %d → %d tokens, %d messages summarised, %d topics recallable",
+			tokensBefore, tokensAfter, len(older), len(shards)))
 	// The real prompt count is now a measurement of a context that no longer exists — and it is
 	// the LARGER number, so the trigger (which takes max of the real count and the estimate) would
 	// keep firing on the emptied window. The log-derived reader already zeroes it after a fold for

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,7 +20,24 @@ type entry struct {
 // reconstruct rebuilds the conversation from a session's event log. A compaction
 // event replaces all messages with seq <= ReplacesUpToSeq by a single system
 // summary, while messages newer than that boundary are preserved.
-func reconstruct(evs []event.Event) []session.Message {
+func reconstruct(evs []event.Event) []session.Message { return rebuild(evs, false) }
+
+// reconstructWhole is the same conversation with NOTHING dropped: every message that was ever
+// said, and a note where the model's memory of them folded.
+//
+// What the model is sent and what a person reads are two different things, and the log holds
+// both — compaction never deletes an event, it only changes which ones go into the next request.
+// Reading the display off reconstruct made the browser inherit the model's amnesia: mid-read, a
+// fold landed and the scrollback the person was following vanished, replaced by a summary of
+// itself. Reported from a live console, and the reporter's diagnosis was exactly right — the
+// compacted messages drop out and only the tail remains, so the window reads as though it
+// collapsed.
+//
+// The note stays because the fold is a real event a reader wants to see: it is the moment the
+// agent stopped being able to remember what is still on the screen above it.
+func reconstructWhole(evs []event.Event) []session.Message { return rebuild(evs, true) }
+
+func rebuild(evs []event.Event, whole bool) []session.Message {
 	var entries []*entry
 	index := map[string]*entry{} // messageID -> entry
 
@@ -57,6 +75,17 @@ func reconstruct(evs []event.Event) []session.Message {
 					}
 					topics = append(topics, label)
 				}
+			}
+			if whole {
+				// The display keeps everything and marks the seam. No entry is dropped and the
+				// index is left intact, so a message that goes on growing after the fold still
+				// finds its parts.
+				entries = append(entries, &entry{seq: ev.Seq, msg: session.Message{
+					ID:    "compaction-" + itoa(ev.Seq),
+					Role:  session.RoleSystem,
+					Parts: []session.Part{{Kind: session.PartText, Text: foldNote(d, topics)}},
+				}})
+				continue
 			}
 			// Keep only entries newer than the compaction boundary.
 			kept := entries[:0:0]
@@ -321,4 +350,20 @@ func itoa(n int64) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// foldNote is what a READER is told where a compaction happened. It says what the agent lost, not
+// what the reader lost — the reader lost nothing, every message is still above this line.
+func foldNote(d event.CompactionData, topics []string) string {
+	note := "⋯ the agent's memory was folded here"
+	if d.TokensBefore > 0 && d.TokensAfter > 0 {
+		note += fmt.Sprintf(" — %d → %d tokens", d.TokensBefore, d.TokensAfter)
+	}
+	note += ". Everything above stays on this screen; from here the agent has a summary of it"
+	if h := recallHint(topics); h != "" {
+		note += ", and can pull the detail back:\n\n" + h
+	} else {
+		note += "."
+	}
+	return note
 }

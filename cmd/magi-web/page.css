@@ -2669,6 +2669,15 @@
        column over. The tabs are chrome and keep their size; the card yields past the transcript's
        floor and scrolls inside itself for the rest. */
     body[at="agent"] #detail { flex:0 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; }
+    /* …but an OPEN card must stay visibly taller than a shut one, or the control above it is a
+       lie. Yielding with no floor, a long conversation squeezed the card to about the height of
+       its own bar — the measured shut size is 55px, the bar in its padding — so folding and
+       unfolding drew the same picture and the caret was the only thing that moved.
+       7rem is that bar plus the gap plus one row of facts: the smallest open card where opening
+       it still shows something. Below the transcript's floor it scrolls inside itself, which is
+       what the rule above already arranges. Not applied while folded: shut, the card is supposed
+       to collapse to the bar. */
+    body[at="agent"] #detail:not([folded]) { min-height:7rem; }
     /* The transcript is the one thing in the middle column that moves. Everything above it — the
        tabs, the card, an open file — stays where it was put. */
     body[at="agent"] #log {
