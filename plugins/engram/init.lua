@@ -158,9 +158,43 @@ local SKILL_BODY_CAP = 2000
 -- the digest can mark them [이번 턴 사용됨]. That closes the duplicate-skill loop the user hit:
 -- a turn that SUCCEEDED BY USING skill X is confirmation X works, not grounds to extract an
 -- X-prime under a new name — the sidecar must see which skills the success actually leaned on.
+-- 디스크가 진실이다. 이 목록은 오래도록 engram 자신의 장부(skill_index)에서만 나왔고, 그
+-- 장부는 engram이 직접 쓴 스킬만 담는다 — 사람이 만든 스킬, 다른 컴패니언이 만들어 공유
+-- 스토어로 넘어온 스킬, 장부가 생기기 전의 스킬은 디스크에 있으면서 사이드카 눈에는 없었다.
+-- 없으니 "이미 있다"를 판단할 수 없고, 모델은 같은 기법을 새 이름으로 다시 만든다. 유사 스킬
+-- 난립의 원인 중 프롬프트로는 절대 못 고치는 절반이 이것이었다.
+--
+-- 이제 SKILLS_DIR을 직접 나열하고, 장부는 설명 문구의 폴백으로만 남는다(디렉토리는 이름만
+-- 주고 한 줄 설명은 안 주므로). 나열이 실패하면 예전처럼 장부로 돌아간다 — 목록이 없는 것보다
+-- 불완전한 목록이 낫다.
+local function skill_slugs()
+  local seen, out = {}, {}
+  for _, name in ipairs(magi.list_files(SKILLS_DIR) or {}) do
+    local slug = string.match(name, "^(.+)/$") -- 디렉토리만: 스킬 하나 = 폴더 하나
+    if slug and slug ~= ".archive" and not seen[slug] then
+      seen[slug] = true
+      out[#out + 1] = slug
+    end
+  end
+  return out, seen
+end
+
 local function skills_digest(used_now)
-  local idx = magi.store_get("skill_index")
-  if not idx or idx == "" then return "" end
+  local idx = magi.store_get("skill_index") or ""
+  -- 장부의 한 줄 설명을 슬러그로 색인해 둔다(본문을 못 읽을 때의 폴백).
+  local desc_of = {}
+  for line in string.gmatch(idx, "[^\n]+") do
+    local n, d = string.match(line, "^([^\t]*)\t(.*)$")
+    if n then desc_of[n] = d end
+  end
+  local slugs, on_disk = skill_slugs()
+  -- 디스크에서 못 읽었으면 장부라도 쓴다.
+  if #slugs == 0 then
+    for n in pairs(desc_of) do
+      if not on_disk[n] then slugs[#slugs + 1] = n end
+    end
+  end
+  if #slugs == 0 then return "" end
   -- 사용 실적을 병합 판단 근거로 함께 노출(로드/성공/실패).
   local usage = {}
   for line in string.gmatch(magi.store_get("skill_usage") or "", "[^\n]+") do
@@ -168,9 +202,9 @@ local function skills_digest(used_now)
     if n then usage[n] = " (로드 " .. l .. "·성공 " .. o .. "·실패 " .. b .. ")" end
   end
   local blocks = {}
-  for line in string.gmatch(idx, "[^\n]+") do
-    local name, desc = string.match(line, "^([^\t]*)\t(.*)$")
-    if name then
+  for _, name in ipairs(slugs) do
+    do
+      local desc = desc_of[name] or ""
       -- The CURRENT on-disk body is the baseline: a human edit to SKILL.md becomes the
       -- starting point of the next extraction, so refinement builds on it rather than
       -- reverting it. Fall back to the one-line index if the file is unreadable.
