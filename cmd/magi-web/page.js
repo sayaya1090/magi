@@ -3480,7 +3480,12 @@ function drawDetail(a) {
   // transcript: they are answers to a question somebody asked, not a record of what happened, and
   // the transcript is already the one place where those two kinds of thing get mixed.
   {
-    const row = cell('f');
+    // Two tracks, like the workspace path and the session id. A track is 14rem and this row is
+    // three buttons that must not wrap: measured with their leading icons they want 283px against
+    // a 238px track, and a flex row with nowrap does not shrink — it PAINTS past its box, over the
+    // column beside it. Nothing in the DOM overlaps when that happens, which is why it survived a
+    // box-intersection check; only the pixels overlap.
+    const row = cell('f wide');
     row.dataset.k = 'field.what_it_has';
     row.append(cell('k', tr('field.what_it_has')));
     const v = cell('v');
@@ -3499,10 +3504,18 @@ function drawDetail(a) {
     // no max-width appears below.
     const group = el('div');
     group.className = 'bgroup';
-    for (const [key, label] of [['tools', tr('insp.tools')], ['loop', tr('insp.loop')]]) {
+    // A leading mark on each. Without one an outlined pill is the shape a chip has, and this page
+    // draws chips a few centimetres above these — the state filters. A chip in this console carries
+    // a count or a state and never a glyph, so the glyph is what says "press me" rather than
+    // "filter". It is also the reason these can stay outlined: the fill that would have told them
+    // apart cannot reach 3:1 against this background in either theme, and the outline role can.
+    for (const [key, label, mark] of [['tools', tr('insp.tools'), '#i-sl-screwdriver-wrench'],
+                                      ['loop', tr('insp.loop'), '#i-sl-arrows-rotate']]) {
       const b = el('button', label);
       b.type = 'button';
       b.className = 'deeper hit48';
+      const m = icon(mark);
+      if (m) b.prepend(m);
       b.onclick = () => goDeep('insp', key);
       group.append(b);
     }
@@ -3517,6 +3530,8 @@ function drawDetail(a) {
       const b = el('button', tr('insp.format'));
       b.type = 'button';
       b.className = 'deeper hit48';
+      const m = icon('#i-sl-file-lines');
+      if (m) b.prepend(m);
       b.onclick = () => openFormat(a);
       group.append(b);
     }

@@ -3404,31 +3404,54 @@
      to 8dp, the value the spec gives for XS and S ("Both round and square buttons should have the
      same pressed shape").
 
-     Colour is TONAL, not outlined, and that is a deliberate departure worth its paragraph.
+     Colour is OUTLINED, and the outline is the `outline` role. This was got wrong twice before it
+     was measured, and the file already held the answer both times.
 
-     Outlined is the obvious pick for a bordered control and it is what this was first. But the
-     Buttons section above records why this console has `md-outlined-button` at zero: M3 warns that
-     an outlined button reads as a chip, and this page is full of chips — the state filters at the
-     top of the companion list are an `md-chip-set`. An outlined pill in a facts card would have
-     been the fifth chip-shaped thing on screen and the first one that was not a chip.
+     M3 asks a button's container (a fill) or its outline to reach 3:1 against the surface behind
+     it — that edge is the only thing saying where the control is. The rule is CONTAINER against
+     SURFACE. An earlier version of this comment quoted the same 3:1 and applied it to LABEL
+     against container, which every colour passes and which was never the question. Measured
+     against the page background, both themes:
 
-     Tonal has no such ambiguity — a filled container is a button — and it is already in this
-     console's vocabulary (nine `md-filled-tonal-button`, the composer's stop among them). The
-     guidance permits the swap outright: "Mix and match the different button variants, widths, and
-     colors… to visually group related buttons."
+       primaryContainer  #4A2E0B / #F8D9A8   1.51 : 1   1.28 : 1   FAIL   (the tonal cut)
+       outlineVariant    #463E34 / #D8CFC0   1.79 : 1   1.46 : 1   FAIL   (the first cut)
+       outline           #72675C / #8A7E6E   3.41 : 1   3.75 : 1   PASS
 
-     M3's tonal roles are secondary container / on secondary container, and this palette has no
-     secondary container — but it does have primary container AND its matching on-colour, so the
-     PAIR stays a real M3 pair rather than a container with some readable text laid on it. The spec
-     allows the substitution by name: "Other color roles can be used as long as the container and
-     text have a 3:1 contrast ratio." #FFD9B8 on #4A2E0B (dark) and #3A1B00 on #F8D9A8 (light) are
-     both far past it. */
-  /* State layers over a filled container, not the transparent-background ones `.deeper` carries:
-     an 8% primary wash over #4A2E0B is invisible. M3 draws the layer in the button's own label
-     colour over its container. */
-  .bgroup .deeper:hover { background:color-mix(in srgb, var(--magi-ref-on-primary-container) 8%, var(--magi-ref-primaryContainer)); }
-  .bgroup .deeper:active { padding:0 15px; border-radius:var(--magi-sys-shape-s); /* 8dp, XS/S pressed */
-    background:color-mix(in srgb, var(--magi-ref-on-primary-container) 12%, var(--magi-ref-primaryContainer)); }
+     Two other comments in this file already carried that finding — the approval buttons' and the
+     one above them — both reporting a tonal container at 1.24:1 dark and 1.18:1 light and choosing
+     outlined for it.
+
+     Tonal was reached for because M3 warns an outlined button reads as a chip and this page is
+     full of chips. That worry is real and it is answered by the ICONS rather than by the fill: a
+     chip in this console carries a count or a state, never a leading glyph, and a wrench in front
+     of a word is a button asking to be pressed. Which is the better answer anyway — it survives a
+     palette change, and a contrast floor does not bend.
+
+     The label is `muted` (on surface variant): 10.66:1 dark and 8.98:1 light against the page, far
+     past the 4.5:1 text asks. NOT primary — primary on a bordered container is M3's vocabulary for
+     a SELECTED toggle, and at rest all three would be claiming to be on. */
+  .bgroup .deeper {
+    margin:0; white-space:nowrap;
+    height:32px; box-sizing:border-box;
+    /* XS with a leading icon: 12 before, 4 between, 12 after — the spec drawing's own numbers. */
+    display:inline-flex; align-items:center; gap:4px; padding:0 12px;
+    border:1px solid var(--magi-ref-outline); border-radius:var(--magi-sys-shape-full);
+    background:transparent; color:var(--magi-ref-muted);
+    font:var(--magi-sys-label-l) var(--magi-ref-mono);
+    transition:padding .12s ease, border-radius .12s ease;
+  }
+  /* 20dp, which is what the spec gives the icon at XS and S alike. currentColor so the glyph and
+     the word are one thing, and flex:none so a long label never squeezes it. */
+  .bgroup .deeper .sic { width:20px; height:20px; flex:none; fill:currentColor; }
+  /* An outlined button's fill is invisible at rest, and its state layers behave like every other
+     style's — drawn in the label's own colour over nothing. */
+  .bgroup .deeper:hover { background:color-mix(in srgb, var(--magi-ref-muted) 8%, transparent); }
+  /* "When a button is pressed, it changes width and shape. In a standard button group, pressing a
+     button also affects the width of adjacent buttons." The shape is the 8dp morph the spec gives
+     XS and S; the width is the padding, and the neighbours move because they are flex items being
+     pushed — the second sentence falls out of the first rather than needing script to stage it. */
+  .bgroup .deeper:active { padding:0 15px; border-radius:var(--magi-sys-shape-s);
+    background:color-mix(in srgb, var(--magi-ref-muted) 12%, transparent); }
   @media (prefers-reduced-motion: reduce) { .bgroup .deeper { transition:none; } }
 
   .row .deeper { grid-column:2; justify-self:start; }
