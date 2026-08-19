@@ -2399,7 +2399,30 @@
   .scopek {
     font:var(--md-sys-typescale-label-medium-size)/1.5 var(--magi-ref-display); color:var(--magi-ref-muted);
   }
-  .scopes md-outlined-text-field { max-width:16rem; }
+  /* The names and the way to add one are ONE box, the way an address field is.
+     They were two: a row of chips, and an outlined field under it — two outlines for one act, and
+     the field read as a setting of its own rather than as the end of the list above it. So the box
+     carries the outline and the field gives its own up, which is the only part of the mail-client
+     shape that can be had without leaving the component (its input area has no slot: the bundle's
+     text field renders that element itself and opens only leading-icon, trailing-icon, container).
+     Chips and cursor flow in one wrapping line; the field keeps a floor so a long label is not cut. */
+  .scopebox {
+    display:flex; flex-wrap:wrap; align-items:center; gap:var(--magi-sys-space-100);
+    padding:var(--magi-sys-space-100);
+    border:1px solid var(--magi-ref-outline); border-radius:var(--magi-sys-shape-s);
+  }
+  /* Focus belongs to the box now. With the field's outline off, the component's focus outline goes
+     with it — and a field you cannot see you are typing in is worse than two outlines. Drawn as a
+     ring rather than a thicker border so nothing inside moves when it appears. */
+  .scopebox:focus-within {
+    border-color:var(--magi-ref-primary); box-shadow:0 0 0 1px var(--magi-ref-primary);
+  }
+  .scopebox md-chip-set { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-100); }
+  .scopes md-outlined-text-field {
+    flex:1 1 14rem; min-width:0; max-width:16rem;
+    --md-outlined-text-field-outline-width:0px;
+    --md-outlined-text-field-focus-outline-width:0px;
+  }
 
   /* All four states, not one. The component swaps the label to on-surface-variant on hover and
      on press, so the error colour — the only colour saying this press revokes somebody's access —

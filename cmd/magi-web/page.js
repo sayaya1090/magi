@@ -5337,7 +5337,18 @@ function scopeSection(p) {
     if (!name || on.includes(name)) return;
     setPerson(p.who, p.role, on.concat([name]).join(','));
   });
-  box.append(chips, add);
+  // The chips and the field are ONE box.
+  //
+  // A row of chips with a text field UNDER it reads as two controls, and the act is one: the names
+  // somebody's role is narrowed to, and the way to put another one there. Drawn as a single
+  // outlined box — the field's own outline goes in page.css — what is on screen is the box, the
+  // names in it, and the cursor after the last one. The mail-client shape, minus the part of it
+  // that cannot come along: backspace does not eat the last chip. Removing somebody's access is
+  // not undoable and every control here asks first, and a keystroke that revokes silently would
+  // go around that.
+  const one = cell('scopebox');
+  one.append(chips, add);
+  box.append(one);
   return box;
 }
 
