@@ -3870,10 +3870,18 @@ function refreshSideToggle() {
     // would make it hide itself and then reappear, a flip every call.
     if (!c.hidden && !(c.classList && c.classList.contains('sideempty'))) any = true;
   }
-  sideToggle.disabled = !any;
-  // A desk pane that is open and empty says so, instead of being a blank column. On a phone the
-  // "Going on" tab draws going_on.none for exactly this; the desk side column had nothing. Kept as
-  // one managed child so it comes and goes with the cards rather than stacking.
+  // Disabled only when the pane is already SHUT. That rule — a control that does something
+  // invisible is one somebody presses twice and then stops trusting — is right for opening an
+  // empty pane and exactly wrong for closing one: with the pane open and empty, pressing this
+  // closes a column, which is the most visible thing on the screen.
+  //
+  // Written the other way it was a trap. Somebody who had left the pane open came back to a
+  // column reading "nothing is going on" with the one control that could shut it greyed out, and
+  // no way out of it at all — reported from a live console. Nothing here forces the pane either:
+  // an open pane that empties can be closed, and one somebody chose to keep open stays open.
+  sideToggle.disabled = !any && document.body.getAttribute('side') === 'shut';
+  // The empty state says so, rather than leaving a blank column. On a phone the "Going on" tab
+  // draws going_on.none for exactly this; the desk side column had nothing.
   let blank = refreshSideToggle.blank;
   if (!any) {
     if (!blank) {

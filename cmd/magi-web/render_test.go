@@ -6630,3 +6630,37 @@ console.log(JSON.stringify({before, after, focusedBefore,
 			"none, and there is no way to put the companion on the only model there is")
 	}
 }
+
+// An OPEN pane with nothing in it can still be closed.
+//
+// The control was disabled whenever the pane had no content, whatever the pane was doing. So
+// somebody who had left it open came back to a column reading "nothing is going on" with the one
+// control that could shut it greyed out — reported from a live console, with no way out at all.
+//
+// The disable rule is right for the other direction and stays: opening an empty pane shows a
+// blank column, which is the invisible action it was written to prevent.
+func TestAnEmptySidePaneCanStillBeClosed(t *testing.T) {
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"a","live":true,"state":"idle","session":"s_1"}]`,
+		"?d=%2Fs%2Fa.sock", `
+// Nothing in the pane: every card hidden, which is what an idle companion with no plan, no jobs
+// and no handed-out work looks like.
+for (const c of Array.from(byId.side.children || [])) c.hidden = true;
+
+document.body.setAttribute('side', 'open');
+refreshSideToggle();
+const whenOpen = !!sideToggle.disabled;
+
+document.body.setAttribute('side', 'shut');
+refreshSideToggle();
+const whenShut = !!sideToggle.disabled;
+console.log(JSON.stringify({whenOpen, whenShut}));`)
+
+	if got["whenOpen"] == true {
+		t.Error("the pane is open and empty and its control is disabled — that is a column somebody " +
+			"cannot close, which is how this was reported")
+	}
+	if got["whenShut"] != true {
+		t.Error("the pane is shut and empty and the control is live; pressing it would open a blank " +
+			"column, which is the invisible action the disable rule exists for")
+	}
+}
