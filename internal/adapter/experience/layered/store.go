@@ -9,14 +9,29 @@ package layered
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+// Embedder is the semantic half of retrieval: what turns a document into a vector.
+//
+// An interface, not *embed.Client, so this package can be tested without a model and so the one
+// thing this store needs of embedding is visible in one line. Available() is asked before any
+// request, because a machine with no embed model configured is the DEFAULT, not an error.
+type Embedder interface {
+	Available() bool
+	Embed(ctx context.Context, texts []string) ([][]float32, error)
+}
+
 // Store is a three-tier ExperienceStore. Any tier may be nil.
 type Store struct {
+	// emb is optional. Without it retrieval is lexical, which is what magi did for its whole life
+	// and is still correct — just deaf to the question asked in words the answer does not use.
+	emb     Embedder
 	project *expgit.Store
 	// team is what companions doing related work share. A workspace is one companion's, and the
 	// global tier is every companion on the machine — neither can hold "the frontend team decided
@@ -43,45 +58,115 @@ func New(projectDir, teamDir, globalDir string) *Store {
 	return s
 }
 
-// Retrieve merges results from both tiers under one combined budget (project
-// results first, since they are the most context-specific), tagging each entry
-// with its tier so a reader can tell workspace-local from global knowledge.
-func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string) ([]port.Memory, []port.Skill, error) {
-	const memCap, skillCap = 5, 3
-	var mems []port.Memory
-	var skills []port.Skill
+// WithEmbedder returns the store with a semantic ranker attached. Nil, or a client with nothing
+// configured, leaves retrieval lexical.
+func (s *Store) WithEmbedder(e Embedder) *Store { s.emb = e; return s }
 
+const (
+	memCap   = 5
+	skillCap = 3
+)
+
+// Retrieve merges the tiers under one combined budget (project results first, since they are the
+// most context-specific), tagging each entry with its tier so a reader can tell workspace-local
+// from global knowledge.
+//
+// The budget is the point of doing this here rather than per tier: adding a tier must not widen
+// the injected context, and one ranking across the union is also the only place a team memory can
+// legitimately outrank a project one on merit.
+func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string) ([]port.Memory, []port.Skill, error) {
+	// Every candidate every tier holds, lexical score attached. Tier order is preserved and is the
+	// tie-break: what this workspace learned beats what the team decided, which beats what the
+	// machine knows.
+	var mems []expgit.Scored[port.Memory]
+	var skills []expgit.Scored[port.Skill]
 	add := func(st *expgit.Store, tier string) {
 		if st == nil {
 			return
 		}
-		m, sk, err := st.Retrieve(ctx, query, agentGroups)
+		m, sk, err := st.Pool(ctx, query, agentGroups)
 		if err != nil {
 			return // best-effort: a broken tier must not sink the other
 		}
 		for _, x := range m {
-			x.ID = tier + " " + x.ID
-			x.Text = tier + " " + x.Text
+			x.V.ID = tier + " " + x.V.ID
+			x.V.Text = tier + " " + x.V.Text
 			mems = append(mems, x)
 		}
 		for _, x := range sk {
-			x.Name = tier + " " + x.Name
+			x.V.Name = tier + " " + x.V.Name
 			skills = append(skills, x)
 		}
 	}
-	// Most specific first, and the caps below cut from the end: what this workspace learned beats
-	// what the team decided, which beats what the machine knows.
 	add(s.project, "[project]")
 	add(s.team, "[team]")
 	add(s.global, "[global]")
 
-	if len(mems) > memCap {
-		mems = mems[:memCap]
+	outMem := rank(ctx, s.emb, query, mems, memCap, func(m port.Memory) string { return m.Text })
+	outSkill := rank(ctx, s.emb, query, skills, skillCap, func(k port.Skill) string {
+		return k.Name + "\n" + k.Description
+	})
+	return outMem, outSkill, nil
+}
+
+// rank picks the best n candidates: lexically when there is no embedder, and by rank fusion when
+// there is.
+//
+// Fused on ORDER, never on the two scores — an IDF-ish overlap count and a cosine are not
+// comparable numbers, and any weighted sum of them needs a normalisation invented on whatever
+// corpus was at hand (embed.Fuse carries the argument in full). The lexical list stays in the
+// fusion rather than being replaced: an embedding is a similarity judgement made by a model, and
+// it is confidently wrong often enough that a rare exact token — a file name, an error code, an
+// identifier — must not lose to something that merely feels related.
+//
+// A document with NO lexical hit is in the semantic list but not the lexical one, which is the
+// whole point: that is the note about invoices, when the question said billing.
+func rank[T any](ctx context.Context, emb Embedder, query string, xs []expgit.Scored[T], n int, textOf func(T) string) []T {
+	if len(xs) == 0 || n <= 0 {
+		return nil
 	}
-	if len(skills) > skillCap {
-		skills = skills[:skillCap]
+	// Lexical order: score desc, stable, zeros dropped — the ranking this store has always used.
+	lex := make([]int, 0, len(xs))
+	for i := range xs {
+		if xs[i].Score > 0 {
+			lex = append(lex, i)
+		}
 	}
-	return mems, skills, nil
+	sort.SliceStable(lex, func(a, b int) bool { return xs[lex[a]].Score > xs[lex[b]].Score })
+
+	order := lex
+	if emb != nil && emb.Available() {
+		docs := make([]string, len(xs))
+		for i := range xs {
+			docs[i] = textOf(xs[i].V)
+		}
+		// Documents and query in one request; documents are cached by the client, so the
+		// steady-state cost is one embedding for the query.
+		if vecs, err := emb.Embed(ctx, append(append([]string{}, docs...), query)); err == nil && len(vecs) == len(docs)+1 {
+			q := vecs[len(vecs)-1]
+			sem := make([]int, 0, len(xs))
+			for i := range xs {
+				if embed.Cosine(vecs[i], q) > 0 {
+					sem = append(sem, i)
+				}
+			}
+			sort.SliceStable(sem, func(a, b int) bool {
+				return embed.Cosine(vecs[sem[a]], q) > embed.Cosine(vecs[sem[b]], q)
+			})
+			order = embed.Fuse(lex, sem)
+		}
+		// On error: the lexical order stands. A search that quietly became worse is one nobody can
+		// interpret, but a search that fails outright over a missing sidecar is worse still — the
+		// turn needs its memories either way.
+	}
+	out := make([]T, 0, n)
+	for _, i := range order {
+		out = append(out, xs[i].V)
+		if len(out) >= n {
+			break
+		}
+	}
+	return out
 }
 
 // Propose routes a contribution to the tier named by c.Scope: "global", "team", or anything else

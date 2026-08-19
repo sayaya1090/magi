@@ -49,18 +49,18 @@ func TestOverlap(t *testing.T) {
 // topMemories ranks by score desc, drops zero-score entries, caps at n, and is
 // stable for ties (input order preserved).
 func TestTopMemoriesRanking(t *testing.T) {
-	in := []scored[port.Memory]{
-		{score: 0, v: port.Memory{ID: "zero"}},
-		{score: 2, v: port.Memory{ID: "a"}},
-		{score: 5, v: port.Memory{ID: "b"}},
-		{score: 2, v: port.Memory{ID: "c"}}, // tie with a → a before c (stable)
+	in := []Scored[port.Memory]{
+		{Score: 0, V: port.Memory{ID: "zero"}},
+		{Score: 2, V: port.Memory{ID: "a"}},
+		{Score: 5, V: port.Memory{ID: "b"}},
+		{Score: 2, V: port.Memory{ID: "c"}}, // tie with a → a before c (stable)
 	}
 	got := topMemories(in, 2)
 	if len(got) != 2 || got[0].ID != "b" || got[1].ID != "a" {
 		t.Fatalf("ranking/cap wrong: %+v", got)
 	}
 	// All-zero input → no results (nothing relevant).
-	if z := topMemories([]scored[port.Memory]{{score: 0, v: port.Memory{ID: "x"}}}, 5); len(z) != 0 {
+	if z := topMemories([]Scored[port.Memory]{{Score: 0, V: port.Memory{ID: "x"}}}, 5); len(z) != 0 {
 		t.Errorf("zero-score entries must be dropped, got %+v", z)
 	}
 }

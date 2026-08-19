@@ -38,20 +38,41 @@ func New(dir string) *Store { return &Store{dir: dir} }
 // Retrieve returns memories and skills whose text best matches the query
 // (keyword overlap), capped to a few results. Secrets never live here by policy.
 func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string) ([]port.Memory, []port.Skill, error) {
+	mems, skills, err := s.Pool(ctx, query, agentGroups)
+	if err != nil {
+		return nil, nil, err
+	}
+	return topMemories(mems, 5), topSkills(skills, 3), nil
+}
+
+// Pool is every document this tier holds, each carrying its lexical score — the candidates a
+// ranker may choose from, before any cap.
+//
+// It exists because a semantic re-rank cannot promote what lexical scoring already dropped.
+// Retrieve discards a zero — a document sharing no word with the query — and that zero is exactly
+// the case embeddings are for: asked about "billing", the note about invoices scores nothing, and
+// by the time a vector could speak for it, it is gone. So the ranker gets everything and decides;
+// Retrieve stays the lexical-only path, built from the same pool so there is one implementation of
+// what scoring a tier means.
+//
+// Unbounded on purpose. The embedding client caches per document, so the steady-state cost of a
+// large pool is one embedding for the query — the same trade the MCP search already makes — and a
+// bound here would silently decide which documents can never be found, by file order.
+func (s *Store) Pool(ctx context.Context, query string, agentGroups []string) ([]Scored[port.Memory], []Scored[port.Skill], error) {
 	terms := tokenize(query)
 
-	var mems []scored[port.Memory]
+	var mems []Scored[port.Memory]
 	for _, f := range readDir(filepath.Join(s.dir, "memories")) {
 		text := readFile(f)
 		if text == "" {
 			continue
 		}
-		mems = append(mems, scored[port.Memory]{
-			score: overlap(terms, text),
-			v:     port.Memory{ID: filepath.Base(f), Text: text},
+		mems = append(mems, Scored[port.Memory]{
+			Score: overlap(terms, text),
+			V:     port.Memory{ID: filepath.Base(f), Text: text},
 		})
 	}
-	var skills []scored[port.Skill]
+	var skills []Scored[port.Skill]
 	for _, f := range readDir(filepath.Join(s.dir, "skills")) {
 		text := readFile(f)
 		if text == "" {
@@ -64,13 +85,13 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 		if !visibleTo(h.AgentGroups, agentGroups) {
 			continue
 		}
-		skills = append(skills, scored[port.Skill]{
-			score: overlap(terms, text),
-			v:     port.Skill{Name: strings.TrimSuffix(filepath.Base(f), ".md"), Description: h.Description, Body: body},
+		skills = append(skills, Scored[port.Skill]{
+			Score: overlap(terms, text),
+			V:     port.Skill{Name: strings.TrimSuffix(filepath.Base(f), ".md"), Description: h.Description, Body: body},
 		})
 	}
 
-	return topMemories(mems, 5), topSkills(skills, 3), nil
+	return mems, skills, nil
 }
 
 // Propose writes a contribution directly into the retrievable store and commits
@@ -169,19 +190,22 @@ func (s *Store) gitCommit(ctx context.Context, msg string) {
 
 // ---- helpers ----
 
-type scored[T any] struct {
-	score int
-	v     T
+// Scored is one candidate and the lexical score it earned. Exported because the composing store
+// ranks across tiers and needs the score to fuse with, not just the order this tier would have
+// used.
+type Scored[T any] struct {
+	Score int
+	V     T
 }
 
-func topMemories(xs []scored[port.Memory], n int) []port.Memory {
-	sort.SliceStable(xs, func(i, j int) bool { return xs[i].score > xs[j].score })
+func topMemories(xs []Scored[port.Memory], n int) []port.Memory {
+	sort.SliceStable(xs, func(i, j int) bool { return xs[i].Score > xs[j].Score })
 	var out []port.Memory
 	for _, x := range xs {
-		if x.score == 0 {
+		if x.Score == 0 {
 			continue
 		}
-		out = append(out, x.v)
+		out = append(out, x.V)
 		if len(out) >= n {
 			break
 		}
@@ -189,14 +213,14 @@ func topMemories(xs []scored[port.Memory], n int) []port.Memory {
 	return out
 }
 
-func topSkills(xs []scored[port.Skill], n int) []port.Skill {
-	sort.SliceStable(xs, func(i, j int) bool { return xs[i].score > xs[j].score })
+func topSkills(xs []Scored[port.Skill], n int) []port.Skill {
+	sort.SliceStable(xs, func(i, j int) bool { return xs[i].Score > xs[j].Score })
 	var out []port.Skill
 	for _, x := range xs {
-		if x.score == 0 {
+		if x.Score == 0 {
 			continue
 		}
-		out = append(out, x.v)
+		out = append(out, x.V)
 		if len(out) >= n {
 			break
 		}

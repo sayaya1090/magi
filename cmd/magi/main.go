@@ -263,6 +263,26 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 // around it — validateFlags, mergeConfig, profileDefs and the rest — and those are tested.
 //
 //coverage:ignore calling run is running magi, not testing it
+// newEmbedder builds the client that turns text into vectors, from the one set of settings that
+// decides it. Two callers — the MCP search and the experience store — and one builder, because two
+// constructions of the same client is two answers to "which model does this machine embed with",
+// and they disagree the first time one of them is edited.
+//
+// The URL and key default to the CHAT ones, which is right for a local Ollama or a LiteLLM proxy;
+// an embedding endpoint is often not the chat one (Anthropic has none and points at Voyage, vLLM
+// answers only while serving an embedding model), so both are separately overridable. No model
+// named means no semantic half, and every caller is told which it got rather than quietly getting
+// a worse search.
+func newEmbedder(cfg config.Config, baseURL, apiKey string, plat port.Platform, warn func(string)) *embed.Client {
+	return &embed.Client{
+		BaseURL:  env("MAGI_EMBED_BASE_URL", baseURL),
+		APIKey:   env("MAGI_EMBED_API_KEY", apiKey),
+		Model:    env("MAGI_EMBED_MODEL", cfg.EmbedModel),
+		CacheDir: filepath.Join(plat.ConfigDir(), "embeddings"),
+		Warn:     warn,
+	}
+}
+
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
@@ -623,15 +643,9 @@ func run() int {
 		//
 		// No model named means no semantic half, and the search says so rather than quietly
 		// becoming a worse search.
-		emb := &embed.Client{
-			BaseURL:  env("MAGI_EMBED_BASE_URL", *baseURL),
-			APIKey:   env("MAGI_EMBED_API_KEY", *apiKey),
-			Model:    env("MAGI_EMBED_MODEL", cfg.EmbedModel),
-			CacheDir: filepath.Join(plat.ConfigDir(), "embeddings"),
-			// stderr, because stdout is the MCP conversation and a warning written there would be
-			// a line the client cannot parse.
-			Warn: func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) },
-		}
+		// stderr, because stdout is the MCP conversation and a warning written there would be a
+		// line the client cannot parse.
+		emb := newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) })
 		// The ear: putting a message into that companion's conversation.
 		//
 		// Steer rather than Submit, the same choice the console makes. They may be mid-turn — that
@@ -893,7 +907,11 @@ func run() int {
 	if t := strings.TrimSpace(cfg.Companion.Team); t != "" {
 		expTeamDir = filepath.Join(plat.ConfigDir(), "teams", sanitizeTeam(t), "experience")
 	}
-	experienceStore := explayered.New(expProjectDir, expTeamDir, expDir)
+	// The memory store gets the same embedder the search does. Retrieval is lexical without one —
+	// which is the default and stays correct — but a store that could only ever find a memory by
+	// the words it happens to contain is deaf to the question asked in anybody else's vocabulary.
+	experienceStore := explayered.New(expProjectDir, expTeamDir, expDir).
+		WithEmbedder(newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) }))
 
 	// Seeing the other magi on this machine. Registered here rather than in builtin because the
 	// daemon package imports app and app imports builtin, so a built-in that reads daemon records
