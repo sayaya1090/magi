@@ -128,3 +128,73 @@ func TestProviderGuardIdleSitsAboveBothStreamBounds(t *testing.T) {
 		t.Errorf("guard idle %v with both bounds disabled — the old fully-off behaviour is gone", got)
 	}
 }
+
+// A response that keeps TRICKLING reasoning — never silent long enough for either silence bound,
+// never big enough for the byte cap, never calling a tool — must be cancelled by the wall-clock
+// spin bound. This is the schemelike-metacircular-eval medium-effort call in miniature: 80 minutes
+// inside one generate, 16.6KB of reasoning, five tool calls in the whole trial, and every existing
+// guard watching a quantity this failure does not move.
+func TestConsumeStreamCancelsASlowReasoningSpin(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
+	oldW := spinWallTimeout
+	spinWallTimeout = 60 * time.Millisecond
+	defer func() { spinWallTimeout = oldW }()
+
+	stream := make(chan port.ProviderEvent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case stream <- port.ProviderEvent{Type: port.ProviderReasoning, Text: "hm. "}:
+			case <-time.After(2 * time.Second):
+				return // the consumer stopped listening (cancelled) — end the feeder
+			}
+			time.Sleep(10 * time.Millisecond) // a trickle: always under the silence bounds
+		}
+	}()
+
+	var cancelled atomic.Bool
+	res, err := a.consumeStream(context.Background(), session.SessionID("s_spinwall"), event.Actor{}, stream, "m",
+		func() { cancelled.Store(true) })
+	if err != nil {
+		t.Fatalf("a cancelled spin ends cleanly (the caller nudges), got err %v", err)
+	}
+	if !res.reasoningSpun {
+		t.Error("a no-tool-call trickle past spinWallTimeout must be marked reasoningSpun — " +
+			"this is the recovery the 80-minute call never got")
+	}
+	if !cancelled.Load() {
+		t.Error("the wall-clock spin must cancel the stream so the provider read unwinds")
+	}
+	<-done
+}
+
+// The wall clock must not fire on a response that DID act. A tool call is the action the spin
+// guards exist to force; once one has arrived, however long the rest of the stream takes is the
+// tool's business, not this guard's.
+func TestTheSpinWallSparesAResponseThatCalledATool(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
+	oldW := spinWallTimeout
+	spinWallTimeout = 40 * time.Millisecond
+	defer func() { spinWallTimeout = oldW }()
+
+	stream := make(chan port.ProviderEvent, 8)
+	stream <- port.ProviderEvent{Type: port.ProviderReasoning, Text: "thinking"}
+	stream <- port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{Name: "bash"}}
+	go func() {
+		time.Sleep(120 * time.Millisecond) // three times the wall — with a tool call on the books
+		stream <- port.ProviderEvent{Type: port.ProviderFinish, FinishReason: "tool_calls"}
+		close(stream)
+	}()
+	res, err := a.consumeStream(context.Background(), session.SessionID("s_spinok"), event.Actor{}, stream, "m", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.reasoningSpun {
+		t.Error("a response that emitted a tool call was cancelled as a spin — the guard fired on the case it exists to produce")
+	}
+	if len(res.toolCalls) != 1 {
+		t.Errorf("the tool call went missing: %v", res.toolCalls)
+	}
+}

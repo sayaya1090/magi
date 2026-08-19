@@ -163,6 +163,28 @@ func reasoningSpinCap() int {
 	return 400_000 // ~400KB of pure output; the observed spins were 175x this
 }
 
+// spinWallTimeout is the wall-clock twin of reasoningSpinCap: how long a single response may
+// stream after its first output WITHOUT ever emitting a tool call before it is cancelled as a
+// spin. The byte cap catches a fast thinker (35–70MB of deltas, none mode); it cannot see a SLOW
+// one — measured on schemelike-metacircular-eval at reasoning_effort=medium (2026-08-19), one
+// call held the turn for 80 minutes while trickling 16.6KB of reasoning, 24x under the cap, with
+// tokens arriving often enough that neither silence bound fired either. Volume and time are two
+// ways the same pathology presents, so they are two bounds on the same flag and share one
+// recovery. Measured from the FIRST OUTPUT, not the request, so a slow prefill (which the
+// first-token bound owns, and which can legitimately run minutes on a big local context) is not
+// double-counted. Var so tests can shrink it; MAGI_SPIN_WALL overrides in seconds (0 disables).
+var spinWallTimeout = func() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("MAGI_SPIN_WALL")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Second
+		}
+	}
+	// Ten minutes. Healthy calls across four bench arms averaged under ~4 minutes even at xhigh;
+	// the run this bounds spent 80. Generous enough for a long legitimate answer, an order of
+	// magnitude under the failure.
+	return 600 * time.Second
+}()
+
 // reasoningSpinNudge is injected after a reasoning-only spin is cancelled: stop thinking, act.
 const reasoningSpinNudge = "You streamed a very long chain of reasoning without taking ANY action — " +
 	"no tool call at all. Thinking alone does not make progress. STOP reasoning now and take the " +
@@ -197,6 +219,7 @@ func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentAct
 	// wall clock. Opt-in diagnostics (MAGI_STREAM_DIAG) also log sustained gaps here.
 	var (
 		idleC    <-chan time.Time
+		firstOut time.Time // when the first output delta arrived — the spin wall clock starts here
 		last     = time.Now()
 		diagLast = time.Now()
 		finished bool
@@ -259,10 +282,16 @@ loop:
 		}
 		switch ev.Type {
 		case port.ProviderReasoning:
+			if firstOut.IsZero() {
+				firstOut = time.Now()
+			}
 			reasoning.WriteString(ev.Text)
 			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartReasoning, Text: ev.Text})
 			a.publishTransient(sid, event.TypePartDelta, agentActor, d)
 		case port.ProviderText:
+			if firstOut.IsZero() {
+				firstOut = time.Now()
+			}
 			text.WriteString(ev.Text)
 			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartText, Text: ev.Text})
 			a.publishTransient(sid, event.TypePartDelta, agentActor, d)
@@ -306,13 +335,19 @@ loop:
 		}
 		// Reasoning-only spin guard: a single response streaming huge output with NO tool call yet
 		// never finishes, so the between-steps guards can't see it. Cancel it mid-stream; the caller
-		// nudges the agent to ACT instead of think forever.
-		if spinCap > 0 && len(res.toolCalls) == 0 && reasoning.Len()+text.Len() > spinCap {
-			res.reasoningSpun = true
-			if cancel != nil {
-				cancel()
+		// nudges the agent to ACT instead of think forever. Two triggers, one pathology: too much
+		// output (a fast thinker) or too long since the first output (a slow one) — checked here,
+		// on every event, because the slow case by definition keeps events coming.
+		if len(res.toolCalls) == 0 && !finished {
+			overCap := spinCap > 0 && reasoning.Len()+text.Len() > spinCap
+			overWall := spinWallTimeout > 0 && !firstOut.IsZero() && time.Since(firstOut) >= spinWallTimeout
+			if overCap || overWall {
+				res.reasoningSpun = true
+				if cancel != nil {
+					cancel()
+				}
+				break loop
 			}
-			break loop
 		}
 	}
 	if streamDiag && finished {
