@@ -172,6 +172,14 @@ function element(tag) {
     // a link that kept focus after being clicked stopped the screen it navigated to from drawing.
     focus() { FOCUSED = this; },
     blur() { if (FOCUSED === this) FOCUSED = null; },
+    // A press, which every element in a browser answers to and this one did not. It is how the page
+    // routes a KEYSTROKE to the control the shortcut belongs to — one path to the action whether it
+    // was reached by mouse or by key — so a fake without it made exactly that shape throw here while
+    // working everywhere else. The toggles below replace this with the component's own ordering.
+    click() {
+      if (this.onclick) this.onclick({preventDefault() {}, stopPropagation() {}});
+      this.dispatchEvent({type: 'click', preventDefault() {}, stopPropagation() {}});
+    },
     // Recorded rather than ignored: where the page decided to move the view is a decision worth
     // asserting on, and a row is REBUILT by the poll that follows an answer — so a test cannot
     // patch the element it clicked and expect to still be holding it.

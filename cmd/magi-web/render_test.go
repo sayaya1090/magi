@@ -6664,3 +6664,195 @@ console.log(JSON.stringify({whenOpen, whenShut}));`)
 			"column, which is the invisible action the disable rule exists for")
 	}
 }
+
+// The two helps can be ASKED for, and say while they are thinking.
+//
+// Both used to happen only on a pause in the typing, and only while their preference was on — so
+// the answer to "read this now" was to open another dialog, turn a switch on, type a character and
+// wait. The preference decides whether to spend the backend on EVERY pause, which is not the same
+// question as whether somebody may ask for one read; the button and its keystroke lift that gate
+// and nothing else. Permission is not part of that trade and still decides.
+//
+// And a request in flight is drawn on the control that started it: a press with no visible answer
+// is a press people repeat.
+func TestTheEditorCanBeAskedForAReadAndACompletionAndSaysWhileItWaits(t *testing.T) {
+	page := `
+// Both routes answer, but only when this test lets them, so the controls can be looked at while
+// the requests are still in the air — the state the spinner exists for.
+const hits = [];
+const release = {};
+globalThis.fetch = async (p) => {
+  const path = String(p).split('?')[0];
+  hits.push(path);
+  if (path === '/look') return {ok: true, text: async () => new Promise(r => { release.look = () => r('2\tthis name says nothing'); })};
+  if (path === '/complete') return {ok: true, text: async () => new Promise(r => { release.comp = () => r('ing()'); })};
+  return {ok: true, text: async () => '', json: async () => ({})};
+};
+const tick = async (n) => { for (let i = 0; i < (n || 40); i++) await Promise.resolve(); };
+const acts = document.createElement('div');
+const box = editor('a.go', 'func name() {\n  last()\n}\n', acts);
+const asks = acts.children.filter(k => String(k.className).split(' ').includes('editask'));
+const look = asks[0], comp = asks[1];
+// The mark, however this build drew it: a sprite <use> carries its classes in the class ATTRIBUTE
+// (see icon()), the no-sprite fallback glyph carries them on className.
+const markOf = (b) => { const m = (b.children || [])[0] || {}; return String(m.className || ((m.attrs || {}).class) || ''); };
+const area = box.find('textarea')[0];
+area.selectionStart = area.selectionEnd = 5;
+// Neither help is on: lookOn is off unless somebody turned it on, and acOn is switched off here so
+// the press has a preference to be refused by.
+acOn = false;
+const idle = {look: markOf(look), comp: markOf(comp), name: look.getAttribute('aria-label'),
+              busy: look.getAttribute('aria-busy')};
+look.click();
+comp.click();
+await tick(6);
+const waiting = {look: markOf(look), comp: markOf(comp), name: look.getAttribute('aria-label'),
+                 busy: look.getAttribute('aria-busy'), asked: hits.slice()};
+release.look(); release.comp();
+await tick();
+const spans = (cls) => box.find('span').filter(s => String(s.className).split(' ').includes(cls)).map(s => s.textContent);
+const done = {look: markOf(look), comp: markOf(comp), busy: look.getAttribute('aria-busy'),
+              note: spans('linenote'), ghost: spans('editcomplete')};
+// And by key, which is the whole point of a shortcut: one path to the action either way.
+const before = hits.length;
+area.dispatchEvent({type: 'keydown', key: 'Enter', metaKey: true, preventDefault(){}, stopPropagation(){}});
+await tick(6);
+const byKey = hits.slice(before);
+const before2 = hits.length;
+area.dispatchEvent({type: 'keydown', key: 'Enter', ctrlKey: true, shiftKey: true, preventDefault(){}, stopPropagation(){}});
+await tick(6);
+const byShift = hits.slice(before2);
+// Committing a Korean syllable is an Enter too. An editor that grabs it sends a request instead.
+const before3 = hits.length;
+area.dispatchEvent({type: 'keydown', key: 'Enter', metaKey: true, isComposing: true, preventDefault(){}, stopPropagation(){}});
+await tick(6);
+console.log(JSON.stringify({idle: idle, waiting: waiting, done: done, byKey: byKey, byShift: byShift,
+                            whileComposing: hits.slice(before3)}));
+`
+	got := runPage(t, `[]`, "?d=/s/api.sock", page)
+	idle, _ := got["idle"].(map[string]any)
+	waiting, _ := got["waiting"].(map[string]any)
+	done, _ := got["done"].(map[string]any)
+	if idle == nil || waiting == nil || done == nil {
+		t.Fatalf("the editor grew no ask controls at all: %v", got)
+	}
+	if strings.Contains(fmt.Sprint(idle["look"]), "spin") || idle["busy"] != "false" {
+		t.Errorf("the control is turning before anything was asked: %v", idle)
+	}
+	// The press reaches the backend even though both preferences are off — that is the request.
+	asked := fmt.Sprint(waiting["asked"])
+	if !strings.Contains(asked, "/look") {
+		t.Errorf("pressing the look-over control with the preference off asked for nothing: %v", asked)
+	}
+	if !strings.Contains(asked, "/complete") {
+		t.Errorf("pressing the completion control with the preference off asked for nothing: %v", asked)
+	}
+	// And says so while it waits, on the control that was pressed rather than across the page.
+	if !strings.Contains(fmt.Sprint(waiting["look"]), "spin") ||
+		!strings.Contains(fmt.Sprint(waiting["comp"]), "spin") {
+		t.Errorf("a request is in flight and neither control shows it: %v", waiting)
+	}
+	if waiting["busy"] != "true" {
+		t.Errorf("nothing tells a screen reader the control is working: %v", waiting)
+	}
+	if fmt.Sprint(idle["name"]) == fmt.Sprint(waiting["name"]) {
+		t.Errorf("the accessible name is %v either way, so the spinner is the only telling", waiting["name"])
+	}
+	// The answers land where the pause's answers land: a note against its line, a ghost at the caret.
+	if !strings.Contains(fmt.Sprint(done["note"]), "this name says nothing") {
+		t.Errorf("the requested read was not drawn against its line: %v", done["note"])
+	}
+	if !strings.Contains(fmt.Sprint(done["ghost"]), "ing()") {
+		t.Errorf("the requested completion was not offered at the caret: %v", done["ghost"])
+	}
+	// And the controls stop turning. One left spinning is a screen somebody has to reload.
+	if strings.Contains(fmt.Sprint(done["look"]), "spin") ||
+		strings.Contains(fmt.Sprint(done["comp"]), "spin") || done["busy"] != "false" {
+		t.Errorf("the answer arrived and the control is still turning: %v", done)
+	}
+	if k := fmt.Sprint(got["byKey"]); !strings.Contains(k, "/complete") || strings.Contains(k, "/look") {
+		t.Errorf("the completion shortcut asked for %v", k)
+	}
+	if k := fmt.Sprint(got["byShift"]); !strings.Contains(k, "/look") {
+		t.Errorf("the look-over shortcut asked for %v", k)
+	}
+	if k := fmt.Sprint(got["whileComposing"]); strings.Contains(k, "/look") || strings.Contains(k, "/complete") {
+		t.Errorf("committing a syllable was taken as the shortcut: %v", k)
+	}
+}
+
+// The ask controls re-read their words when a language pack lands, and a press that finds nothing
+// says so.
+//
+// Two things that were nearly right in the first version of these controls:
+//
+//	· their names were computed once, at editor creation. Every other word on this page re-reads
+//	  itself because the poll rebuilds it and labelVer is in the signature it rebuilds on — but
+//	  the editor is the one thing the poll must NOT rebuild, since it holds text nobody has saved.
+//	  So a pack arriving mid-edit left exactly these two behind, and they are the two whose name
+//	  is also their state ("working…").
+//	· a forced press that produced nothing painted nothing. An automatic review is SUPPOSED to be
+//	  silent when there is nothing worth saying; a press is not, because silence and a dead
+//	  control look the same.
+func TestTheAskControlsRenameThemselvesAndSayWhenTheyFoundNothing(t *testing.T) {
+	got := runPage(t, `[]`, "?d=/s/api.sock", `
+// Both helps answer with nothing at all, which is the case under test.
+globalThis.fetch = async () => ({ok: true, text: async () => '', json: async () => ({})});
+const tick = async (n) => { for (let i = 0; i < (n || 40); i++) await Promise.resolve(); };
+const acts = document.createElement('div');
+const box = editor('a.go', 'func name() {\n}\n', acts);
+const asks = acts.children.filter(k => String(k.className).split(' ').includes('editask'));
+const look = asks[0];
+const first = look.getAttribute('aria-label');
+
+// A pack arrives in another language. Nothing redraws the editor, so the hook has to.
+L = Object.assign({}, L, {'edit.look_now': 'AFTER PACK ({keys})'});
+labelVer++;
+askRelabelActive();
+const renamed = look.getAttribute('aria-label');
+
+// lookOn is off: the press must reach the backend anyway, and must say what came back.
+lookOn = false;
+look.click();
+await tick();
+const said = box.find('div').filter(s => String(s.className).split(' ').includes('looksaid'));
+const armedOff = String(look.className).split(' ').includes('on');
+// Turn the preference on: the control has to say so before any answer arrives.
+lookOn = true;
+askRelabelActive();
+const armedOn = String(look.className).split(' ').includes('on');
+console.log(JSON.stringify({first: first, renamed: renamed,
+  said: said.map(s => s.textContent), hidden: said.map(s => !!s.hidden),
+  busy: look.getAttribute('aria-busy'),
+  armedOff: armedOff, armedOn: armedOn, armedName: look.getAttribute('aria-label')}));`)
+
+	if got["renamed"] == got["first"] {
+		t.Errorf("the control still says %v after a new language pack; its name is frozen at editor "+
+			"creation, and that name is also how it reports being busy", got["renamed"])
+	}
+	if !strings.Contains(fmt.Sprint(got["renamed"]), "AFTER PACK") {
+		t.Errorf("the control did not take the new pack's word: %v", got["renamed"])
+	}
+	if s := fmt.Sprint(got["said"]); !strings.Contains(s, "Nothing worth") {
+		t.Errorf("a press that found nothing said %v — silence and a dead control look the same", s)
+	}
+	if h := fmt.Sprint(got["hidden"]); strings.Contains(h, "true") {
+		t.Errorf("the answer was written and then left hidden: %v", h)
+	}
+	if got["busy"] != "false" {
+		t.Errorf("the control is still marked busy after the answer: %v", got["busy"])
+	}
+	// Armed is a state the CSS was written for and nothing set: the rule for `.editask.on` shipped
+	// while page.js pinned the class to plain "editask", so a preference being on never reached the
+	// screen. It is the one thing that tells the two controls apart at a glance — which of them
+	// also runs itself when you stop typing.
+	if got["armedOff"] != false {
+		t.Errorf("the control reads as armed with its preference off: %v", got["armedOff"])
+	}
+	if got["armedOn"] != true {
+		t.Errorf("the preference is on and the control does not show it: %v", got["armedOn"])
+	}
+	if !strings.Contains(fmt.Sprint(got["armedName"]), "pause") {
+		t.Errorf("the accessible name does not say it runs on a pause: %v", got["armedName"])
+	}
+}

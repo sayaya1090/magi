@@ -36,7 +36,15 @@ let L = {};
 // Korean console kept English status badges on rows drawn before the pack arrived, because the
 // signature was the companion's data only.
 let labelVer = 0;
-labels$.subscribe(v => { L = v; labelVer++; });
+// The open editor's ask controls, so a late language pack can rename them.
+//
+// Everything else on this page re-reads its words because the poll rebuilds it and labelVer is in
+// the signature it rebuilds on. The editor is the one thing the poll must NOT rebuild — it holds
+// text nobody has saved — so a pack arriving mid-edit left exactly two controls in the language
+// the page opened in, and those two are the ones whose name is also their state ("working…").
+// Set while an editor is open, cleared when it closes, like lookClearActive beside it.
+let askRelabelActive = null;
+labels$.subscribe(v => { L = v; labelVer++; if (askRelabelActive) askRelabelActive(); });
 // t('nav.lessons') — the key IS the fallback, so a missing entry shows the key rather than a blank
 // space, which is the difference between "somebody forgot to translate this" and "this is empty".
 // A companion's state in the reader's language. Not tr() directly: tr falls back to the KEY, which
@@ -926,6 +934,20 @@ const peerOf = () => new URLSearchParams(location.search).get('p') || '';
 // keyCode 229 is what a browser reports for a key the IME swallowed when the flag is absent.
 // Checked in the KEYDOWN handler, which is where the race is — compositionend arrives after.
 const composing = (e) => !!(e.isComposing || e.keyCode === 229);
+
+// The name of the key that means "this application", so a control can say its shortcut instead of
+// leaving it to be found. Sniffed, the way every editor on the web sniffs it — the keystroke itself
+// listens for EITHER modifier, so guessing wrong costs one wrong word in a tooltip and nothing that
+// stops working. Written defensively because this file is also loaded by the render tests, where
+// there is no navigator at all.
+const MODKEY = (() => {
+  const nav = typeof navigator === 'object' ? navigator : null;
+  // userAgentData.platform is the answer the browser gives on purpose; userAgent is the string it
+  // keeps for compatibility and freezes. Ask the first, fall back to the second, and answer Ctrl
+  // when there is neither — which is the render tests, where there is no navigator at all.
+  const plat = (nav && nav.userAgentData && nav.userAgentData.platform) || (nav && nav.userAgent) || '';
+  return /Mac|iPhone|iPad/.test(plat) ? '\u2318' : 'Ctrl';
+})();
 
 // The pair (peer, socket) identifies a companion once more than one console is in the list: a
 // socket path is only meaningful on the machine that owns it.
@@ -8812,10 +8834,45 @@ function editor(path, text, acts) {
   };
   const clearNotes = () => { notes = null; said.hidden = true; srNotes.textContent = ''; repaint(); };
   lookClearActive = clearNotes; // so the Preferences switch can wipe this editor's notes when turned off
-  // The switch, and the only thing that turns this on. A model reading over somebody's shoulder is
-  // a good idea and a bill; which of the two it is depends on whether they asked for it.
-  const ask = async () => {
-    if (!lookOn || !may('prompt')) { clearNotes(); return; }
+  // The two on-demand controls, and how many requests each has in flight.
+  //
+  // The mark is the state as well as the name: while something is in the air it turns, whether a
+  // pause in the typing sent it or somebody pressed the button. On the COUNT rather than on a flag
+  // — pressing the button while a debounced review is already running leaves two in the air, and a
+  // finally that flipped a boolean would clear the spinner with one still to come.
+  //
+  // Null until the action bar is built below, and it is not built at all without prompt rights, so
+  // every use is guarded.
+  let lookGo = null, compGo = null;
+  let lookFly = 0, compFly = 0;
+  // Asked each time rather than held. A late language pack bumps labelVer and everything else on
+  // this page re-reads its words; two strings frozen at editor creation would have stayed in the
+  // language the page opened in, on the one control whose name is also its state.
+  const lookWord = () => tr('edit.look_now', {keys: MODKEY + '\u21E7\u21A9'});
+  const compWord = () => tr('edit.complete_now', {keys: MODKEY + '\u21A9'});
+  const spinning = (btn, n, ref, glyph, word, armed) => {
+    if (!btn) return;
+    // Armed: this help also runs itself on every pause, because its preference is on. Worth seeing
+    // BEFORE the answer arrives — otherwise the only way to know which of the two is automatic is
+    // to stop typing and watch. Colour is never the only telling; the accessible name says it too.
+    btn.className = 'editask' + (armed ? ' on' : '');
+    btn.replaceChildren(iconOr(n > 0 ? '#i-sl-spinner-third' : ref, n > 0 ? '\u23F3' : glyph, n > 0 ? 'spin' : ''));
+    // The name goes with the mark. A reader who cannot see the icon turn hears "working" from the
+    // one control the sighted reader is watching.
+    const say = n > 0 ? tr('action.working') : (armed ? tr('edit.ask_armed', {what: word()}) : word());
+    btn.setAttribute('aria-label', say);
+    btn.setAttribute('aria-busy', n > 0 ? 'true' : 'false');
+    tip(btn, say);
+  };
+  const lookBusy = () => spinning(lookGo, lookFly, '#i-sl-magnifying-glass', '\u2315', lookWord, lookOn);
+  const compBusy = () => spinning(compGo, compFly, '#i-sl-lightbulb', '\u2726', compWord, acOn);
+  // The look-over: on a pause while the switch is on, and on demand whenever somebody asks for one.
+  // force is the button and its keystroke. The preference decides whether to spend the backend on
+  // EVERY pause, which is not the same question as whether a person may ask for one read — so it is
+  // the only gate force lifts. Permission is not part of that trade and still decides.
+  const ask = async (force) => {
+    if (!may('prompt')) { clearNotes(); return; }
+    if (!lookOn && !force) { clearNotes(); return; }
     const mine = ++lookAt;
     // Only the region around the caret, and numbered with its real line numbers: a 40,000-line file
     // is not sent on every pause (their context window and their bill), and the model cites a line
@@ -8828,13 +8885,23 @@ function editor(path, text, acts) {
     const from = Math.max(1, caretLine - R), to = Math.min(all.length, caretLine + R);
     let payload = '';
     for (let i = from; i <= to; i++) payload += i + '\t' + all[i - 1] + '\n';
-    const out = await postText('/look' + qFor(lastDrawnFor || {socket: ''}),
-                               new URLSearchParams({path: path, text: payload}));
-    if (mine !== lookAt) return;             // they kept typing; this answer is about older text
-    if (!lookOn) { clearNotes(); return; }   // turned off while this was in flight — do not paint it
+    lookFly++; lookBusy();
+    let out;
+    try {
+      out = await postText('/look' + qFor(lastDrawnFor || {socket: ''}),
+                           new URLSearchParams({path: path, text: payload}));
+    } finally { lookFly--; lookBusy(); }
+    if (mine !== lookAt) return;                      // they kept typing; this answer is about older text
+    if (!lookOn && !force) { clearNotes(); return; }  // turned off while this was in flight — do not paint it
     // Silence is the answer when there is nothing worth saying. No notes, no "looks good" — a
     // reviewer that always finds three things is one people stop reading.
     applyNotes(out);
+    // Except where somebody pressed the button. Silence is then indistinguishable from a control
+    // that did nothing, and the one thing a requested answer must not be is ambiguous.
+    if (force && !notes && said.hidden) {
+      said.textContent = tr('edit.look_none');
+      said.hidden = false;
+    }
   };
   // Inline completion is on by default and remembered; acOn is module-scope (Preferences flips it).
   // The server also self-disables when no fast profile is routed — it returns nothing before spending
@@ -8858,21 +8925,27 @@ function editor(path, text, acts) {
     pushOpen();   // the buffer changed; keep the companion's ambient copy in step
     return true;
   };
-  const complete = async () => {
-    if (!acOn || !may('prompt')) return;
+  const complete = async (force) => {
+    if ((!acOn && !force) || !may('prompt')) return;
     const caret = area.selectionStart;
     if (caret == null) return;
     const prefix = area.value.slice(0, caret);
     const suffix = area.value.slice(caret);
     if (!prefix.trim() && !suffix.trim()) return;
     const mine = ++compAt;
-    const out = await postText('/complete' + qFor(lastDrawnFor || {socket: ''}),
-                               new URLSearchParams({path: path, prefix: prefix, suffix: suffix}));
+    compFly++; compBusy();
+    let out;
+    try {
+      out = await postText('/complete' + qFor(lastDrawnFor || {socket: ''}),
+                           new URLSearchParams({path: path, prefix: prefix, suffix: suffix}));
+    } finally { compFly--; compBusy(); }
     if (mine !== compAt) return;               // a newer request has superseded this one
     if (area.selectionStart !== caret) return; // the caret moved while we waited
     const t = (out || '');
     ghost = t ? {at: caret, text: t} : null;
     repaint();
+    // Same reason as the look-over above: a press that produced no ghost has to say so.
+    if (force && !t) { said.textContent = tr('edit.complete_none'); said.hidden = false; }
   };
   // Which file is open, and what is in the buffer that is not on disk, so the companion's next turn
   // can answer about the unsaved edit (the ambient context). Debounced like the rest.
@@ -8929,6 +9002,16 @@ function editor(path, text, acts) {
       save.click();
       return;
     }
+    // Ask the model now: ⌘/⌃↩ for a completion at the caret, ⌘/⌃⇧↩ for a read of the region —
+    // the same two things the pause already asks for, on the one key pair still free in a field
+    // where Tab, Escape and every arrow are spoken for. Enter is also how an input method commits a
+    // syllable, so composing() is asked first, the way Tab asks.
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !composing(e)) {
+      e.preventDefault();
+      const b = e.shiftKey ? lookGo : compGo;
+      if (b) b.click();
+      return;
+    }
     if (e.key === 'Tab' && !e.shiftKey && !composing(e)) {
       e.preventDefault();
       // Take the ghost only if the caret is still where the ghost is; otherwise it is stale.
@@ -8983,6 +9066,7 @@ function editor(path, text, acts) {
     }
     editing = null;
     lookClearActive = null; // this editor is going away; the switch has nothing here to clear
+    askRelabelActive = null;
     clearOpen();            // and the daemon's ambient copy goes with it — the file is on disk now
     drafts.delete(path);
     // Read back rather than drawn from what was typed: the file on disk is the fact, the tool may
@@ -8992,7 +9076,42 @@ function editor(path, text, acts) {
   };
   const stop = withMark(document.createElement('md-text-button'), '#i-sl-xmark');
   label(stop, tr('action.cancel'));
-  stop.onclick = () => { editing = null; lookClearActive = null; clearOpen(); drafts.delete(path); drawFile(path, text); };
+  stop.onclick = () => {
+    editing = null; lookClearActive = null; askRelabelActive = null;
+    clearOpen(); drafts.delete(path); drawFile(path, text);
+  };
+  // What a press that went wrong says. Nothing else on this page can tell the person: the notes
+  // area is where both helps put their answers, so a failure belongs there too rather than in a
+  // console only a developer opens.
+  const saidError = (err) => {
+    said.textContent = tr('edit.ask_failed');
+    said.hidden = false;
+    if (typeof console === 'object' && console && console.error) console.error('magi: editor ask:', err);
+  };
+  // Ask now, rather than at the next pause. Both helps are preferences because they cost the
+  // backend every time the typing stops — but "not on every pause" is not "never", and the moment
+  // somebody wants the read is the moment they have finished the hard part. The switch is left
+  // exactly as it was; this sends the one request the timer would have sent.
+  //
+  // Icon buttons, and small on purpose: they stand next to save and cancel and must not read as a
+  // third control of that weight. Focus goes back to the field first, so the completion that
+  // arrives is one Tab can still take.
+  if (may('prompt')) {
+    lookGo = document.createElement('md-icon-button');
+    lookGo.setAttribute('type', 'button');
+    // postText swallows a failed request and answers "" — so the realistic throw is in what runs
+    // AFTER the await, and an async handler that rejects with nobody listening is a silent error.
+    // The counter is already unwound by the finally inside; this is only about the report.
+    lookGo.onclick = () => { area.focus(); ask(true).catch(saidError); };
+    lookBusy();
+    compGo = document.createElement('md-icon-button');
+    compGo.setAttribute('type', 'button');
+    compGo.onclick = () => { area.focus(); complete(true).catch(saidError); };
+    compBusy();
+    acts.append(lookGo, compGo);
+    // Both controls re-read their words when a pack lands. They are not redrawn by anything else.
+    askRelabelActive = () => { lookBusy(); compBusy(); };
+  }
   // Into the bar at the top, where the edit button was: the control that starts this and the two
   // that end it are the same control in three states, and a control that moves is one you look for.
   acts.append(save, stop);
@@ -9260,7 +9379,7 @@ function drawCardTabs(a) {
           // next opening of the same file from the tree landed straight in the editor — a mode
           // nobody asked for, with a buffer reset to the file.
           if (editing === path) {
-            editing = null; lookClearActive = null; drafts.delete(path);
+            editing = null; lookClearActive = null; askRelabelActive = null; drafts.delete(path);
             // Clear the daemon's ambient copy too — the editor is gone, and a buffer left behind
             // rode into every later turn as "the file the user is editing" (see clearOpen in editor()).
             if (may('prompt')) {

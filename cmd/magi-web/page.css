@@ -2047,6 +2047,12 @@
      control of that weight. The button keeps its own 48dp target; only the mark inside it shrinks,
      which is the same trade the tree's reload control makes (.paneagain). */
   .fileacts .editask { flex:none; --md-icon-button-icon-size:18px; }
+  /* Armed. While the preference is on, the help also runs itself on every pause in the typing —
+     which is a thing worth seeing before the answer arrives rather than after. The primary role,
+     the same colour the caret is drawn in, against the muted mark of a control that is only there
+     to be pressed once. The word in the tooltip and the accessible name says it too: colour is
+     never the only telling. */
+  .fileacts .editask.on { --md-icon-button-icon-color:var(--magi-ref-primary); color:var(--magi-ref-primary); }
   /* The switch that lets the model read over your shoulder, and what it said. The switch is a
      preference and reads like one; what it says is a note above the buffer, in the warning colour
      because it only ever speaks when something is wrong — silence is the other answer. */
