@@ -1995,6 +1995,13 @@ function answerBox(a, freeText) {
     // the one that OUTLIVES the session, and leaving it out meant the only way to stop being asked
     // after a restart was to go and find a terminal. It writes into this companion's own settings
     // — not the workspace, which is the team's — so the grant is "here, on this machine".
+    // The four decisions are one standard button group — the same component the facts card uses
+    // for its three. They were four loose children of the answer strip, spaced by the strip's own
+    // 16px gap like the text field beside them; grouped, the row reads as one control with four
+    // positions and the field as the separate thing it is. All four stay one weight inside it,
+    // which the group does not change — see the emphasis note above.
+    const acts = cell('bgroup');
+    box.append(acts);
     for (const [key, decision, mark] of [['action.allow', 'allow', '#i-sl-check'],
                                          ['action.always', 'always', '#i-sl-bell-slash'],
                                          ['action.keep', 'persist', '#i-sl-floppy-disk'],
@@ -2023,7 +2030,7 @@ function answerBox(a, freeText) {
       // control never hears. These are the highest-stakes presses on the page.
       if (a.name) b.setAttribute('aria-label', tr('action.for_companion', {action: tr(key), name: a.name}));
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
-      box.append(b);
+      acts.append(b);
     }
   }
   return box;

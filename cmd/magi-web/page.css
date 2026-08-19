@@ -1292,7 +1292,10 @@
     font:600 var(--md-sys-typescale-title-medium-size)/1.4 var(--magi-ref-display);
     color:var(--magi-ref-fg);
   }
-  .sectionhead .mcpopen { margin-left:auto; }
+  /* No margin-left:auto on the head's action. The MCP screen's "add a server" had one, which
+     pushed it to the far edge of a page-wide heading — on a wide window the section name and its
+     one action sat a screen apart, and the access screen next door draws the same shape (a head
+     and an add button) at the head's own 16px gap. One convention, the closer one. */
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
      is inert to the pointer so it can cover the whole control without eating its clicks. */
@@ -3381,11 +3384,18 @@
 
   /* The way one level in. A quiet control: it is beside content, not over it, and the row it sits
      under is the thing being read. */
+  /* Block and fit-content, so the `auto` left margin below actually does something. It was written
+     from the start — the way one level in belongs at the END of what it is a way out of, not in
+     front of it — and `inline-block` made it inert: an inline box has no free space to distribute,
+     so the margin computed to 0 and the control sat at the left edge under the report it opens.
+     fit-content keeps the box the width of its word; a plain block would fill the column and put
+     the border round the whole row. The two places that want it elsewhere still say so: the
+     transcript row pins it with justify-self, and the button group overrides margin and display. */
   .deeper {
     background:none; border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-xs);
     color:var(--magi-ref-primary); font:var(--magi-sys-body-s) var(--magi-ref-mono);
     padding:2px var(--magi-sys-space-150); cursor:pointer; margin:var(--magi-sys-space-50) 0 0 auto;
-    display:inline-block;
+    display:block; width:fit-content;
   }
   .deeper:hover { background:color-mix(in srgb, var(--magi-ref-primary) 8%, transparent); }
   .deeper:active { background:color-mix(in srgb, var(--magi-ref-primary) 12%, transparent); }
@@ -3424,6 +3434,10 @@
      button grows on each side, which at a 4px gap would have it touching its neighbour before the
      neighbour had moved. */
   .bgroup { display:flex; flex-wrap:nowrap; align-items:center; gap:var(--magi-sys-space-100); }
+  /* The one group allowed to wrap: the four decisions in the answer strip. M3's answer to a group
+     that does not fit is an overflow menu, and a hidden "deny" is a decision somebody cannot see
+     to make — on the highest-stakes control on the page, wrapping is the lesser harm. */
+  .answer .bgroup, .askact .bgroup { flex-wrap:wrap; }
 
   /* An M3 button, at XS, outlined — read off the spec's own measurement drawing rather than
      recalled, because the third-party numbers in circulation disagree with it (one puts XS at
@@ -4660,7 +4674,7 @@
        bottom-aligned. The markup order (field → send → interrupt) is the tab order, kept. */
     .composer { flex-wrap:nowrap; align-items:center; }
     .composer md-outlined-text-field#t { flex:1 1 0; min-width:0; }
-    .composer md-filled-button, .composer md-filled-tonal-button { flex:0 0 auto; }
+    .composer .bgroup, .composer md-filled-button, .composer md-filled-tonal-button { flex:0 0 auto; }
     header { padding-left:var(--magi-sys-space-200); padding-right:var(--magi-sys-space-200); }
     main { padding:var(--magi-sys-space-200) var(--magi-sys-space-200) calc(var(--dock, var(--magi-sys-space-1600)) + var(--magi-sys-space-300)); }
     .card .name { font:600 var(--magi-sys-title-l) var(--magi-ref-display); }

@@ -676,11 +676,17 @@
   <form id="f" hidden><div class="composer">
     <md-outlined-text-field id="t" type="textarea" rows="1"
       ></md-outlined-text-field>
-    <md-filled-button type="submit" id="send">send</md-filled-button>
-    <!-- Stopping a turn is answering for it: the same person who may say "no, don't run that" may
-         say "stop". Somebody who may only look is not offered the button that ends somebody
-         else's work. -->
-    <md-filled-tonal-button type="button" id="stop" data-may="answer">interrupt</md-filled-tonal-button>
+    <!-- One standard button group, not two loose buttons. M3's group for related buttons with no
+         selection among them; the different fills are allowed there ("mix and match… colors to
+         emphasize what's important") and are the point — send is the primary act, stop is not.
+         The group hugs its buttons, so the field keeps taking the rest of the row. -->
+    <div class="bgroup">
+      <md-filled-button type="submit" id="send">send</md-filled-button>
+      <!-- Stopping a turn is answering for it: the same person who may say "no, don't run that"
+           may say "stop". Somebody who may only look is not offered the button that ends somebody
+           else's work. -->
+      <md-filled-tonal-button type="button" id="stop" data-may="answer">interrupt</md-filled-tonal-button>
+    </div>
   </div><div id="cnote" hidden></div></form>
   </div>
 </footer>
