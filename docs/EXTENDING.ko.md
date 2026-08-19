@@ -882,6 +882,7 @@ CLI는 인라인 페이로드를 아예 금지하고 URI를 쓰게 합니다. �
 |---|---|---|
 | `magi.analyze{prompt=, system=}` | — | 툴 없는 모델 왕복 한 번. 에이전트가 아니라 판단 하나가 필요한 플러그인용 |
 | `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | 워크디렉터리에 갇힌 파일 접근 |
+| `magi.list_files(dir)` | `fs:read` | 한 디렉토리의 이름들(재귀 없음), 디렉토리는 끝에 `/`가 붙는다. 권한을 넓히지 않는다 — 이름은 `read_file`이 이미 주는 내용보다 적다 — 그리고 권한 밖 디렉토리는 빈 목록이 아니라 **거부**한다: "없다"와 "볼 수 없다"는 호출자를 정반대 행동으로 이끈다 |
 | `magi.notify(text)` | — | 데스크톱 알림 |
 | `magi.json_decode(text)` | — | JSON → Lua 테이블 |
 | `magi.register_doctor_probes{…}` | — | `magi -doctor`에 접히는 환경 점검 |

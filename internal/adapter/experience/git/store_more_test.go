@@ -158,3 +158,116 @@ func TestProposeMemoriesAndSkills(t *testing.T) {
 		t.Errorf("skill filename = %q, want sanitized form", sname)
 	}
 }
+
+// sameJudge answers by a hand-built vector per marker word, so dedup can be tested without a model.
+type sameJudge struct {
+	vec map[string][]float32
+}
+
+func (j *sameJudge) Available() bool { return true }
+func (j *sameJudge) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		out[i] = []float32{0, 0, 1}
+		for k, v := range j.vec {
+			if strings.Contains(t, k) {
+				out[i] = v
+			}
+		}
+	}
+	return out, nil
+}
+
+// The same fact in different words is not written twice.
+//
+// Identity was normalised-string equality — lowercase, collapse whitespace, compare — which every
+// rephrasing walks straight past. A resident process meets the same fact for weeks and the store
+// fills with eight tellings of it, which is not a growing brain: it is retrieval getting worse at
+// its own expense, since those eight now compete for the five slots the budget allows.
+func TestARephrasedMemoryIsNotWrittenTwice(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir).WithSame(&sameJudge{vec: map[string][]float32{
+		"nightly": {1, 0, 0}, // both tellings carry this marker
+	}})
+	ctx := context.Background()
+	if err := s.Propose(ctx, port.Contribution{
+		Memories: []port.Memory{{Text: "the invoice job runs nightly and retries twice"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Same fact, different words. Nothing a string comparison could catch.
+	if err := s.Propose(ctx, port.Contribution{
+		Memories: []port.Memory{{Text: "billing runs once a night, with a nightly retry"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(readDir(filepath.Join(dir, "memories"))); n != 1 {
+		t.Errorf("the store holds %d memories; the second telling of one fact should not have landed", n)
+	}
+}
+
+// A DIFFERENT fact still lands. The threshold is high on purpose: a false merge loses a fact
+// permanently and silently, and that is the error worth spending near-duplicates to avoid.
+func TestADifferentFactStillLands(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir).WithSame(&sameJudge{vec: map[string][]float32{
+		"invoice": {1, 0, 0},
+		"mascot":  {0, 1, 0},
+	}})
+	ctx := context.Background()
+	s.Propose(ctx, port.Contribution{Memories: []port.Memory{{Text: "the invoice job runs nightly"}}})
+	s.Propose(ctx, port.Contribution{Memories: []port.Memory{{Text: "the mascot is a penguin"}}})
+	if n := len(readDir(filepath.Join(dir, "memories"))); n != 2 {
+		t.Errorf("the store holds %d memories; two unrelated facts must both survive", n)
+	}
+}
+
+// A skill renamed is the same skill.
+//
+// A skill's identity is its filename, so "run-go-tests" and "go-test-workflow" were two files for
+// one technique — and the writer picks that name freshly each time it learns. Recognised as the
+// same, the second arrival becomes the second OBSERVATION of the first: one file, count 2.
+func TestARenamedSkillMergesIntoTheOneItAlreadyIs(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir).WithSame(&sameJudge{vec: map[string][]float32{
+		"go test": {1, 0, 0},
+	}})
+	ctx := context.Background()
+	if err := s.Propose(ctx, port.Contribution{Skills: []port.Skill{{
+		Name: "run-go-tests", Description: "how to run go test", Body: "use go test ./...",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Propose(ctx, port.Contribution{Skills: []port.Skill{{
+		Name: "go-test-workflow", Description: "how to run go test", Body: "use go test ./... with -count=1",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	files := readDir(filepath.Join(dir, "skills"))
+	if len(files) != 1 {
+		var names []string
+		for _, f := range files {
+			names = append(names, filepath.Base(f))
+		}
+		t.Fatalf("one technique produced %d skill files: %v", len(files), names)
+	}
+	h, _ := parseSkill(readFile(files[0]))
+	if h.Observed != 2 {
+		t.Errorf("the merged skill was observed %d times; the second arrival is evidence, not a new skill", h.Observed)
+	}
+}
+
+// Without a judge, nothing changes: identity stays textual and the store behaves as it always has.
+// The default machine has no embedding model, and that must remain a working configuration rather
+// than a degraded one.
+func TestWithoutAJudgeIdentityStaysTextual(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir) // no WithSame
+	ctx := context.Background()
+	s.Propose(ctx, port.Contribution{Memories: []port.Memory{{Text: "the invoice job runs nightly"}}})
+	s.Propose(ctx, port.Contribution{Memories: []port.Memory{{Text: "the invoice   job runs NIGHTLY"}}}) // same after normalising
+	s.Propose(ctx, port.Contribution{Memories: []port.Memory{{Text: "billing runs once a night"}}})      // a rephrasing: lands
+	if n := len(readDir(filepath.Join(dir, "memories"))); n != 2 {
+		t.Errorf("lexical identity produced %d memories; want 2 (the normalised duplicate dropped, the rephrasing kept)", n)
+	}
+}

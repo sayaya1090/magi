@@ -48,6 +48,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "read_file", L.NewFunction(p.bridgeReadFile))
 	L.SetField(t, "write_file", L.NewFunction(p.bridgeWriteFile))
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
+	L.SetField(t, "list_files", L.NewFunction(p.bridgeListFiles))
 	L.SetField(t, "model", L.NewFunction(p.bridgeModel))
 	L.SetField(t, "set_model", L.NewFunction(p.bridgeSetModel))
 	L.SetField(t, "set_context_window", L.NewFunction(p.bridgeSetContextWindow))
@@ -987,6 +988,47 @@ func (p *plugin) bridgeReadFile(L *lua.LState) int {
 		return fail(L, err.Error())
 	}
 	L.Push(lua.LString(string(b)))
+	return 1
+}
+
+// magi.list_files(dir) -> {names…} | (nil, error)
+//
+// Names only, one level, no recursion — the missing half of fs:read. A plugin could already read
+// any file under its grant but could not learn what was there, so every plugin that needed to know
+// kept its own ledger of what it had written and consulted THAT instead of the directory. engram's
+// skill index is one: skills written by a person, or by another companion, were on disk and
+// invisible to it, so it re-learned them under new names. A ledger that cannot see what it claims
+// to describe is the failure this removes.
+//
+// It widens no grant. The check is allowFSRead, the same one read_file makes, and a name is
+// strictly less than the contents this plugin may already fetch. A directory outside the grant
+// answers "permission denied" rather than an empty list — "nothing there" and "not allowed to
+// look" are different answers and a caller that cannot tell them apart will act on the wrong one.
+//
+// Directories come back with a trailing "/", so a caller can tell a skill folder from a loose file
+// without a second call it has no API for.
+func (p *plugin) bridgeListFiles(L *lua.LState) int {
+	rel := L.CheckString(1)
+	abs, ok := p.resolve(rel)
+	if !ok {
+		return failPath(L, rel)
+	}
+	if !p.perms.allowFSRead(rel) {
+		return fail(L, "permission denied: fs:read "+rel)
+	}
+	ents, err := os.ReadDir(abs)
+	if err != nil {
+		return fail(L, err.Error())
+	}
+	out := L.NewTable()
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		out.Append(lua.LString(name))
+	}
+	L.Push(out)
 	return 1
 }
 

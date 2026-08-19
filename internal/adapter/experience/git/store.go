@@ -17,8 +17,17 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
+	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// Same is what decides whether a record already held says the thing a new one says. Optional: with
+// no embedder, identity is normalised-string equality, which is what this store used for its whole
+// life and which every near-duplicate walks straight past.
+type Same interface {
+	Available() bool
+	Embed(ctx context.Context, texts []string) ([][]float32, error)
+}
 
 // Store is a filesystem/git-backed ExperienceStore rooted at Dir with layout:
 //
@@ -29,11 +38,60 @@ import (
 // EXTENDING.md taught a promotion step nobody could ever perform. See Propose for why the gate is
 // gone.
 type Store struct {
-	dir string
+	dir  string
+	same Same
 }
 
 // New returns a store rooted at dir.
 func New(dir string) *Store { return &Store{dir: dir} }
+
+// WithSame attaches the judge of "is this already written down". Nil leaves identity textual.
+func (s *Store) WithSame(j Same) *Store { s.same = j; return s }
+
+// dupThreshold is the cosine above which two records are treated as the same thing.
+//
+// High on purpose. The cost of the two errors is not symmetric: a false MERGE loses a fact
+// permanently and silently, while a false SPLIT leaves a near-duplicate that a person can see and
+// that retrieval already tolerates. 0.93 admits rephrasings of one fact and rejects two facts
+// about one topic — measured against the failure this exists for, which is the same lesson
+// arriving in different words week after week. MAGI_DEDUP_COSINE overrides for a corpus whose
+// embedding model scores differently; 0 disables semantic dedup and leaves identity textual.
+func dupThreshold() float64 {
+	if v := strings.TrimSpace(os.Getenv("MAGI_DEDUP_COSINE")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return 0.93
+}
+
+// alreadyHeld reports which of the candidate texts an existing record already says. It asks once,
+// for every existing text and every candidate together, so proposing a batch costs one request
+// and the existing texts come from the embedding cache after the first time.
+//
+// A silent no on any failure: dedup is an optimisation of the store's shape, and a record lost
+// because an embedding endpoint was down is a worse outcome than one written twice.
+func (s *Store) alreadyHeld(ctx context.Context, existing, candidates []string) []bool {
+	held := make([]bool, len(candidates))
+	th := dupThreshold()
+	if s.same == nil || !s.same.Available() || th <= 0 || len(existing) == 0 || len(candidates) == 0 {
+		return held
+	}
+	vecs, err := s.same.Embed(ctx, append(append([]string{}, existing...), candidates...))
+	if err != nil || len(vecs) != len(existing)+len(candidates) {
+		return held
+	}
+	for i := range candidates {
+		cv := vecs[len(existing)+i]
+		for j := range existing {
+			if embed.Cosine(vecs[j], cv) >= th {
+				held[i] = true
+				break
+			}
+		}
+	}
+	return held
+}
 
 // Retrieve returns memories and skills whose text best matches the query
 // (keyword overlap), capped to a few results. Secrets never live here by policy.
@@ -114,10 +172,18 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 	// so an unbounded pile of near-identical memories is not a growing brain, it is retrieval
 	// getting worse at its own expense. A fact already held is not written twice.
 	existing := map[string]bool{}
+	var existingText []string
 	for _, f := range readDir(memDir) {
-		existing[memoryKey(readFile(f))] = true
+		t := readFile(f)
+		existing[memoryKey(t)] = true
+		if t != "" {
+			existingText = append(existingText, t)
+		}
 	}
-	for _, m := range c.Memories {
+	// Bodies first, so the semantic question is asked ONCE for the whole batch rather than per
+	// memory — and so the answer is about the text that would actually be written.
+	bodies := make([]string, len(c.Memories))
+	for i, m := range c.Memories {
 		body := m.Text
 		if len(m.Tags) > 0 {
 			body = "tags: " + strings.Join(m.Tags, ", ") + "\n\n" + body
@@ -125,10 +191,20 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		if c.Source != "" {
 			body += "\n\n(source: " + c.Source + ")"
 		}
-		if existing[memoryKey(body)] {
+		bodies[i] = body
+	}
+	// "Already written down" in the sense a person means it: the same lesson in different words is
+	// the same lesson. String identity — normalise, compare — was the whole test, and it is the
+	// one a rephrasing walks straight past, which is how a store fills with the same fact told
+	// eight ways and gets worse at retrieval at its own expense.
+	held := s.alreadyHeld(ctx, existingText, bodies)
+	for i := range c.Memories {
+		body := bodies[i]
+		if existing[memoryKey(body)] || held[i] {
 			continue
 		}
 		existing[memoryKey(body)] = true
+		existingText = append(existingText, body)
 		// Named from the CONTENT, not the clock. `mem-<second>-<index>` collided: two proposals
 		// in the same second with the same index wrote the same path, and the second silently
 		// replaced the first. A run-per-task never noticed; a process that proposes all day would
@@ -148,8 +224,38 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		}
 	}
 	day := time.Now().UTC().Format("2006-01-02")
-	for _, sk := range c.Skills {
-		name := filepath.Join(skillDir, "skill-"+sanitize(sk.Name)+".md")
+	// A skill's identity is its FILENAME, and that is how near-duplicates get in: the writer names
+	// the technique, and "run-go-tests", "running-go-tests" and "go-test-workflow" are three files
+	// for one skill. sanitize maps punctuation, never wording. So before taking a new name, ask
+	// whether an existing skill already IS this one — and if so, write to that name instead, which
+	// turns what would have been a third file into the second observation of the first.
+	//
+	// Only the name is redirected. The body still merges through the same path, so a human's edits
+	// to the existing skill keep the treatment they always had.
+	byName := map[string]string{} // sanitized name -> its text, for the semantic ask
+	var skillNames, skillTexts []string
+	for _, f := range readDir(skillDir) {
+		t := readFile(f)
+		if t == "" {
+			continue
+		}
+		base := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "skill-"), ".md")
+		h, body := parseSkill(t)
+		byName[base] = t
+		skillNames = append(skillNames, base)
+		skillTexts = append(skillTexts, h.Description+"\n"+body)
+	}
+	want := make([]string, len(c.Skills))
+	for i, sk := range c.Skills {
+		want[i] = sk.Description + "\n" + sk.Body
+	}
+	sameAs := s.sameSkill(ctx, skillNames, skillTexts, want)
+	for i, sk := range c.Skills {
+		named := sanitize(sk.Name)
+		if _, isNew := byName[named]; !isNew && sameAs[i] != "" {
+			named = sameAs[i] // this technique already has a name here; keep using it
+		}
+		name := filepath.Join(skillDir, "skill-"+named+".md")
 		// Learning the same lesson twice is different evidence from learning it once, and this
 		// used to overwrite: the second observation erased the first and left nothing to tell
 		// them apart. Carry the count and the dates forward instead.
@@ -177,6 +283,38 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 	}
 	s.gitCommit(ctx, "magi: add experience ("+stamp+")")
 	return nil
+}
+
+// sameSkill answers, for each proposed skill, the name of an existing skill that is the same
+// technique — or "" for none. One request for the whole batch; existing texts come from the
+// embedding cache after the first call.
+//
+// The threshold is the same one memories use and for the same reason: a false merge loses a
+// technique silently, a false split leaves a visible near-duplicate. Any failure answers "no",
+// because a skill written under a second name is recoverable and one merged away is not.
+func (s *Store) sameSkill(ctx context.Context, names, texts, want []string) []string {
+	out := make([]string, len(want))
+	th := dupThreshold()
+	if s.same == nil || !s.same.Available() || th <= 0 || len(names) == 0 || len(want) == 0 {
+		return out
+	}
+	vecs, err := s.same.Embed(ctx, append(append([]string{}, texts...), want...))
+	if err != nil || len(vecs) != len(texts)+len(want) {
+		return out
+	}
+	for i := range want {
+		wv := vecs[len(texts)+i]
+		best, bestAt := th, -1
+		for j := range names {
+			if c := embed.Cosine(vecs[j], wv); c >= best {
+				best, bestAt = c, j
+			}
+		}
+		if bestAt >= 0 {
+			out[i] = names[bestAt]
+		}
+	}
+	return out
 }
 
 // gitCommit best-effort versions the store if it is a git repo.

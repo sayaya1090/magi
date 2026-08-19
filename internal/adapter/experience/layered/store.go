@@ -60,7 +60,20 @@ func New(projectDir, teamDir, globalDir string) *Store {
 
 // WithEmbedder returns the store with a semantic ranker attached. Nil, or a client with nothing
 // configured, leaves retrieval lexical.
-func (s *Store) WithEmbedder(e Embedder) *Store { s.emb = e; return s }
+//
+// The tiers get it too, for the other half of the same question. Reading asks "which of these says
+// what I am asking about"; writing asks "does one of these already say what I am about to write".
+// One judge answers both, or the store would find a memory by meaning and then file a second copy
+// of it by string.
+func (s *Store) WithEmbedder(e Embedder) *Store {
+	s.emb = e
+	for _, t := range []*expgit.Store{s.project, s.team, s.global} {
+		if t != nil {
+			t.WithSame(e)
+		}
+	}
+	return s
+}
 
 const (
 	memCap   = 5

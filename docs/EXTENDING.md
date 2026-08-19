@@ -979,6 +979,7 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 |---|---|---|
 | `magi.analyze{prompt=, system=}` | — | one model round trip with no tools, for a plugin that wants a judgement rather than an agent |
 | `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | workdir-confined file access |
+| `magi.list_files(dir)` | `fs:read` | the names in one directory, no recursion; a directory carries a trailing `/`. Widens no grant — a name is less than the contents `read_file` already returns — and a directory outside the grant is **refused**, never answered with an empty list: "nothing there" and "not allowed to look" lead a caller to opposite actions |
 | `magi.notify(text)` | — | a desktop notification |
 | `magi.json_decode(text)` | — | JSON → a Lua table |
 | `magi.register_doctor_probes{…}` | — | environment checks folded into `magi -doctor` |
