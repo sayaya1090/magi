@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -87,13 +88,29 @@ func (p *plugin) bridgeExec(L *lua.LState) int {
 	// symlink to a directory holding a CLAUDE.md — which would be a way to put text in front of a
 	// model that nobody in this process chose.
 	neutral := false
+	stdin := ""
 	if opts, ok := L.Get(3).(*lua.LTable); ok {
 		neutral = lua.LVAsBool(opts.RawGetString("neutral_dir"))
+		// magi.exec(cmd, args, {stdin="..."}) feeds the string to the child's stdin.
+		//
+		// It exists because an argument has a SIZE LIMIT and stdin does not. The claudecode shim
+		// passed the whole rendered conversation as one argv element, which works until the
+		// conversation is long: measured on a live bench trial, the turn that killed the backend
+		// carried 134,949 input tokens ≈ 540 KB in one argument, past the OS's per-argument cap,
+		// and execve refused with E2BIG — surfaced as `exited -1` with empty stderr, ten turns
+		// into a task, looking exactly like a crashed CLI. A prompt is data, and data of
+		// unbounded size travels on a stream, not in the command line.
+		if raw, ok := opts.RawGetString("stdin").(lua.LString); ok {
+			stdin = string(raw)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
 	c := exec.CommandContext(ctx, cmd, args...)
+	if stdin != "" {
+		c.Stdin = strings.NewReader(stdin)
+	}
 	c.Dir = p.dir
 	if p.host != nil && p.host.runtime.Workdir != "" {
 		c.Dir = p.host.runtime.Workdir

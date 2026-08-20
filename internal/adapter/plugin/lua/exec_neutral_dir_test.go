@@ -98,3 +98,28 @@ magi.log("a=" .. a.stdout:gsub("%s+$", "") .. " b=" .. b.stdout:gsub("%s+$", "")
 		t.Errorf("passing opts moved the working directory: a=%q b=%q", a, b)
 	}
 }
+
+// A prompt is data, and data of unbounded size travels on a stream, not in the command line.
+//
+// The claudecode shim passed the rendered conversation as one argv element, which works until the
+// conversation is long: a live bench turn carried ~540 KB in that argument, execve refused with
+// E2BIG, and the death surfaced as `exited -1` with empty stderr — indistinguishable from a
+// crashed CLI. {stdin=...} is the way around: no size cap, and the child reads it as input.
+func TestExecStdinReachesTheChild(t *testing.T) {
+	var logged strings.Builder
+	h := NewHostWithConfig(HostConfig{
+		Runtime: RuntimeInfo{Workdir: t.TempDir()},
+		DataDir: t.TempDir(),
+		Logf:    func(s string) { logged.WriteString(s + "\n") },
+	})
+	dir := writePlugin(t, `name="x"`+"\n"+`permissions=["exec:cat"]`,
+		`local r = magi.exec("cat", {}, { stdin = "fed on stdin, not argv" })
+magi.log("got=" .. r.stdout .. " code=" .. tostring(r.code))`)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !strings.Contains(logged.String(), "got=fed on stdin, not argv") ||
+		!strings.Contains(logged.String(), "code=0") {
+		t.Errorf("stdin did not reach the child: %q", logged.String())
+	}
+}
