@@ -104,6 +104,23 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	if prior := priorCouncilObjections(evs, priorObjectionsCap, councilActionCap); prior != "" {
 		actions = prior + "\n\n" + actions
 	}
+	// Whether anyone can answer. This is a fact about the RUN — cfg.Interactive is true only when
+	// a human is attached and can respond — and the members were deciding without it.
+	//
+	// Measured, fix-git: the agent stopped mid-merge on a content conflict and asked the council
+	// whether waiting for the user's wording choice was right. All three answered done, at 0.85 to
+	// 0.9 confidence, and they were right about the only thing they were shown: pausing for a
+	// subjective decision IS correct when someone will make it. Nobody was attached. The turn ended
+	// three minutes in with the merge open, and it is the one genuine wrong answer in that arm.
+	//
+	// Stated, not argued: "waiting produces nothing here" is the fact, and what to do about it is
+	// the members' call. Not gated on the question — an agent can just as well declare itself
+	// finished "pending the user's answer", and that claim needs the same fact behind it.
+	if !a.cfg.Interactive {
+		actions = "── NOBODY CAN ANSWER A QUESTION IN THIS RUN ──\n" +
+			"No human is attached to this session. A question put to the user is never read and never " +
+			"answered, and anything left waiting on one is still waiting when the turn ends.\n\n" + actions
+	}
 	plan := ""
 	if td := a.Todos(sid); len(td) > 0 {
 		plan = formatTodos(td)

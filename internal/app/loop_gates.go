@@ -11,6 +11,46 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
+// councilReadingsThisTurn counts the councils that convened on this turn. They are the ones the
+// agent called for itself, on its own questions — a completion declaration is the only thing that
+// convenes the gate, and by the time this is asked there has not been one.
+func (a *App) councilReadingsThisTurn(ctx context.Context, sid session.SessionID) int {
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range a.taskEvents(sid, evs) {
+		if e.Type == event.TypeCouncilConvened {
+			n++
+		}
+	}
+	return n
+}
+
+// undeclaredReason is the banner a turn lands under when the agent never declared it finished.
+//
+// It used to read "so no council read it", flatly, and that sentence was refuted by the run's own
+// log the first time it mattered: on fix-git the agent asked the council whether pausing for a
+// user decision was right, three members read the work and answered done unanimously, and the turn
+// then landed announcing that no council had read it. The true and unchanging fact is narrower —
+// no council was asked to ACCEPT the work, because only a completion declaration asks that, and a
+// question council explicitly answers "this is their reading, not a decision" (councilAdvice).
+//
+// A banner that asserts something the events refute is the failure this project has already paid
+// for once; the count is carried so the reader can go find those readings rather than be told they
+// do not exist.
+func undeclaredReason(readings int) string {
+	base := "the agent never declared the task finished, so no council was asked to accept the work"
+	switch {
+	case readings == 1:
+		base += " (one council did read it, on a question the agent asked — that judges the question, not whether the work is done)"
+	case readings > 1:
+		base += fmt.Sprintf(" (%d councils did read it, on questions the agent asked — those judge the questions, not whether the work is done)", readings)
+	}
+	return base + " — the work stands as it was left"
+}
+
 // injectStuckNudge tells a circling agent what magi's counters say, once per pattern: an exact
 // repeat ("blocked") or many varied calls with nothing changing ("stalled"). There is no
 // force-stop behind it any more — it says the thing and the turn continues.
@@ -232,8 +272,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	// work lands as it stands, with the reason recorded: the turn ends undeclared, which is a
 	// different thing from ending declared and is written down as such.
 	if ts.declareAsks >= declareAskCap {
-		ts.unverifiedReason = "the agent never declared the task finished, so no council read it — " +
-			"the work stands as it was left"
+		ts.unverifiedReason = undeclaredReason(a.councilReadingsThisTurn(ctx, tc.s.ID))
 		return 0, false
 	}
 	ts.declareAsks++
