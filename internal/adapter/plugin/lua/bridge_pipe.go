@@ -76,18 +76,55 @@ type child struct {
 
 	mu     sync.Mutex
 	closed bool
-	stderr *bytes.Buffer
+	stderr *lockedBuffer
 	idle   time.Duration
 	timer  *time.Timer
 }
 
-// Close kills the child and releases the pipe. Safe to call twice — unload calls it on children
-// a plugin already closed, and a double kill must not be an error anybody sees.
-func (c *child) Close() error {
+// lockedBuffer is the child's stderr, which two goroutines touch: os/exec writes to it as the
+// child produces output, and deadReason reads it when a call finds the child gone. The plugin
+// mutex cannot serve — os/exec knows nothing about it — so the buffer carries its own, which the
+// race detector found the moment a test asked a dying child why it died.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+	max int
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// Capped like every other captured stream here: a child that fails in a loop must not grow the
+	// daemon. The count returned is the whole write, because a short count is an error to os/exec
+	// and a truncated diagnostic is not a failure of the child.
+	if room := b.max - b.buf.Len(); room > 0 {
+		if len(p) > room {
+			b.buf.Write(p[:room])
+		} else {
+			b.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Close kills the child and releases the pipe. Safe to call twice — unload calls it on children a
+// plugin already closed, and a double kill must not be an error anybody sees.
+//
+// No error, deliberately. There is no failure here a caller could act on: the pipe is going away,
+// the process is being killed, and a second call is a no-op. Returning one would only produce
+// discarded returns at every call site, which is the shape this tree treats as how a failure stops
+// being one.
+func (c *child) Close() {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return nil
+		return
 	}
 	c.closed = true
 	if c.timer != nil {
@@ -99,7 +136,6 @@ func (c *child) Close() error {
 		_ = c.cmd.Process.Kill()
 	}
 	go func() { _ = c.cmd.Wait() }() // reap without blocking the caller on a slow exit
-	return nil
 }
 
 // touch restarts the idle countdown. Every read and write calls it, so "idle" means no traffic,
@@ -131,9 +167,7 @@ func (c *child) alive() bool {
 // deadReason explains an exit for the error string a plugin sees. The stderr tail is what makes
 // "the child is gone" actionable rather than a shrug.
 func (c *child) deadReason() string {
-	c.mu.Lock()
 	tail := strings.TrimSpace(c.stderr.String())
-	c.mu.Unlock()
 	if tail == "" {
 		return "child exited"
 	}
@@ -173,8 +207,8 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 	// which is why magi.serve appends to p.servers bare as well. The slice is only ever touched
 	// from inside the Lua state, single-threaded by that same lock.
 	live := 0
-	for _, c := range p.children {
-		if ch, ok := c.(*child); ok && ch.alive() {
+	for _, ch := range p.children {
+		if ch.alive() {
 			live++
 		}
 	}
@@ -208,20 +242,20 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 	if err != nil {
 		return fail(L, "pipe: stdout: "+err.Error())
 	}
-	var errBuf bytes.Buffer
+	errBuf := &lockedBuffer{max: pipeStderrMax}
 	ch := &child{
 		name: cmdName, cmd: c, stdin: stdin,
 		lines: make(chan string, pipeQueueMax), done: make(chan struct{}),
-		stderr: &errBuf, idle: idle,
+		stderr: errBuf, idle: idle,
 	}
-	c.Stderr = &cappedWriter{buf: &errBuf, max: pipeStderrMax}
+	c.Stderr = errBuf
 	// c.Stdin is the pipe above; stdin is NOT inherited, so the child cannot read the terminal.
 	if err := c.Start(); err != nil {
 		return fail(L, "pipe: "+err.Error())
 	}
 	ch.timer = time.AfterFunc(idle, func() {
 		p.logf(fmt.Sprintf("pipe: %s idle for %s; closing", cmdName, idle))
-		_ = ch.Close()
+		ch.Close()
 	})
 
 	// Drain stdout continuously. A pipe nobody reads fills, and a child whose pipe is full stops
@@ -333,7 +367,7 @@ func (c *child) luaAlive(L *lua.LState) int {
 }
 
 func (c *child) luaClose(L *lua.LState) int {
-	_ = c.Close()
+	c.Close()
 	L.Push(lua.LTrue)
 	return 1
 }

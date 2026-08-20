@@ -37,7 +37,7 @@ type plugin struct {
 	callCtx  context.Context
 	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
 	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
-	children []io.Closer                 // live subprocesses opened via magi.pipe; killed on unload
+	children []*child                    // live subprocesses opened via magi.pipe; killed on unload
 	baseSet  bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
 	baseTok  uint64                      // ownership token of that override; released (only if still current) on unload
 	execTO   time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
@@ -102,7 +102,7 @@ func (p *plugin) close() {
 	// into an error the user reads as a crash. No server means no new handler; then nothing is
 	// talking to a child when it goes.
 	for _, c := range p.children {
-		_ = c.Close()
+		c.Close()
 	}
 	p.children = nil
 	// Restore the configured LLM backend if this plugin had redirected it: otherwise
