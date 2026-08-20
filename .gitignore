@@ -61,3 +61,4 @@ cmd/magi-web/icons_gen.go
 cmd/magi-web/node_modules/
 cmd/magi-web/.npmrc
 cmd/magi-web/package-lock.json
+bench/harbor/state/

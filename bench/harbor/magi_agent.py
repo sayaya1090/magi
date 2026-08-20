@@ -36,8 +36,11 @@ The model id is passed to magi verbatim after stripping an optional leading
 magi hands the id straight to the OpenAI-compatible endpoint.
 """
 
+import contextlib
 import os
+import re
 import shlex
+import time
 from pathlib import Path
 
 from harbor.agents.installed.base import BaseInstalledAgent
@@ -45,6 +48,68 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 from bench.harbor.eventsink import EventSink
+
+
+# One shim per concurrent trial.
+#
+# The task containers are isolated; the SHIM is not. Every container reaches the same host-side
+# loopback shim through MAGI_BASE_URL, and that shim keeps one running spend ledger with nothing in
+# it to say which trial a call belonged to — the task name never crosses an OpenAI endpoint. So
+# while trials ran one at a time, per-task cost was exact by construction (there was no other
+# candidate), and the moment four run at once it stops being attributable at all.
+#
+# It is also the throughput ceiling. magi.serve holds the plugin lock across the whole handler,
+# model turn included, so one shim serves exactly one call at a time. Measured over this campaign's
+# first 217 minutes: the shim was idle about 41% of it, so four trials against ONE shim would fill
+# the idle and no more — about 1.7x. Four trials against four shims split the serving too.
+#
+# So each trial claims a shim for its duration. MAGI_BENCH_SHIM_PORTS names the pool
+# ("58411,58412,58413,58414"); unset, nothing here changes and the run behaves exactly as before.
+# The claim is an O_EXCL lock file, which is atomic on every filesystem this runs on, and it is
+# released in a finally — a crashed trial leaves a stale lock, so a lock older than SLOT_STALE is
+# taken over rather than deadlocking the pool.
+SLOT_DIR = Path(os.environ.get("MAGI_BENCH_SLOT_DIR", "/tmp/magi-bench-shim-slots"))
+SLOT_STALE = 6 * 60 * 60
+
+
+@contextlib.contextmanager
+def _claimed_shim_port(ports: list[str]):
+    """Hold one port from the pool for the duration of the block."""
+    SLOT_DIR.mkdir(parents=True, exist_ok=True)
+    fd, held, port = None, None, None
+    deadline = time.time() + 3600
+    while port is None:
+        for candidate in ports:
+            lock = SLOT_DIR / f"{candidate}.lock"
+            try:
+                fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            except FileExistsError:
+                # A lock left by a trial that died takes the pool down with it unless it can be
+                # reclaimed; age is the only evidence available here, so age decides.
+                try:
+                    if time.time() - lock.stat().st_mtime > SLOT_STALE:
+                        lock.unlink()
+                except OSError:
+                    pass
+                continue
+            os.write(fd, str(os.getpid()).encode())
+            held, port = lock, candidate
+            break
+        if port is None:
+            if time.time() > deadline:
+                # Never fail a trial over bookkeeping: run on the first shim and let the reporter
+                # mark the cost apportioned, which is what it did before any of this existed.
+                port = ports[0]
+                break
+            time.sleep(2)
+    try:
+        yield port
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if held is not None:
+            with contextlib.suppress(OSError):
+                held.unlink()
 
 
 class MagiAgent(BaseInstalledAgent):
@@ -237,6 +302,17 @@ class MagiAgent(BaseInstalledAgent):
         stdout_path = self.logs_dir / "magi-stdout.txt"
         events_path = self.logs_dir / "magi-events.jsonl"
         result = None
+
+        # Claim a shim for this trial and point the container at it. Held until the exec is over,
+        # released beside the sink below, so at most one trial ever talks to a given shim — which
+        # is what keeps its ledger differenceable and its lock uncontended.
+        slots = contextlib.ExitStack()
+        pool = [p.strip() for p in os.environ.get("MAGI_BENCH_SHIM_PORTS", "").split(",") if p.strip()]
+        if pool and env.get("MAGI_BASE_URL"):
+            claimed = slots.enter_context(_claimed_shim_port(pool))
+            env["MAGI_BASE_URL"] = re.sub(r":\d+/", f":{claimed}/", env["MAGI_BASE_URL"], count=1)
+            (self.logs_dir / "shim-port.txt").write_text(claimed + "\n")
+
         with stdout_path.open("w") as f, events_path.open("w") as ev:
             sink = EventSink(events=ev, transcript=f)
 
@@ -248,6 +324,7 @@ class MagiAgent(BaseInstalledAgent):
                     result = await environment.exec(command=command, env=env or None)
             finally:
                 sink.close()
+                slots.close()
 
         # Fallback for environments that don't stream (buffered exec leaves the files
         # empty): replay the buffered stdout through the same sink on a clean return, so
