@@ -16,18 +16,32 @@ import (
 // circling. MAGI_COLLAPSE_REPEATS=0 turns it off.
 //
 // Only an identical result is collapsed: the same call returning something NEW is progress the
-// model must see. The newest occurrence keeps its full content — current state stays current — and
-// the older results are replaced in place, so every tool_call keeps a paired result and the wire
-// stays valid for providers that check the pairing.
+// model must see. Every tool_call keeps a paired result, so the wire stays valid for providers
+// that check the pairing.
+//
+// The FIRST occurrence keeps its full content and the later ones are stubbed — not the other way
+// round, which is how this shipped and what it cost. Keeping the newest full means that when a
+// fourth duplicate arrives, the third (already sent, already cached) is rewritten from full text
+// to a stub: the transcript stops being append-only, and every backend with a prompt cache has to
+// re-write everything from that point on. Measured on a paid backend, an agent run that collapsed
+// repeats read ZERO tokens from cache across every call and paid the full re-write each turn
+// ($2.68 over 8 calls); the same run with collapsing off read its history back.
+//
+// Nothing is lost by the flip, and that is guaranteed by the key rather than argued: the triple is
+// name + args + RESULT CONTENT, so every occurrence in a group is byte-identical and which one is
+// kept cannot change what the model learns. It arguably reads better this way — the recent end of
+// the transcript, which dominates sampling, now carries "you already ran this and it did not
+// change" instead of another full copy of the thing being repeated.
 func collapseRepeatsEnabled() bool { return envflag.Enabled("MAGI_COLLAPSE_REPEATS", true) }
 
-const collapsedRepeatStub = "[this exact call ran again later in this transcript and returned the " +
-	"IDENTICAL result — collapsed here; read the latest occurrence below. Repeating it again will " +
-	"not change the answer.]"
+const collapsedRepeatStub = "[this exact call already ran earlier in this transcript and returned " +
+	"the IDENTICAL result — collapsed here; the full output is at its first occurrence above. " +
+	"Repeating it again will not change the answer.]"
 
-// collapseRepeatedCalls rewrites msgs so that older duplicates of an identical (tool, args,
+// collapseRepeatedCalls rewrites msgs so that LATER duplicates of an identical (tool, args,
 // result) triple carry a stub instead of the full result. The message list is not reordered and
-// nothing is dropped.
+// nothing is dropped. Later, not earlier: a message that has already been sent is never rewritten,
+// which is what keeps a backend's prompt cache alive.
 func collapseRepeatedCalls(msgs []session.Message) []session.Message {
 	if !collapseRepeatsEnabled() {
 		return msgs
@@ -64,7 +78,7 @@ func collapseRepeatedCalls(msgs []session.Message) []session.Message {
 			copy(out, msgs)
 			copied = true
 		}
-		for _, at := range occ[:len(occ)-1] { // all but the newest
+		for _, at := range occ[1:] { // all but the FIRST — see the flip note above
 			parts := make([]session.Part, len(out[at.mi].Parts))
 			copy(parts, out[at.mi].Parts)
 			tr := *parts[at.pi].ToolResult
