@@ -287,35 +287,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// that one as the task and queue the real one behind it, forever.
 			turnTask = a.reviewWaitingAtTurnStart(ctx, tc, turnTask)
 		} else {
-			// Drain any control signal a tool left last step — a routed interjection, or the
-			// council tool's finish declaration — applying the reground the loop owns but the
-			// tool cannot.
-			ctrl := a.takeTurnControl(sid)
-			// The drain empties every control field, so the declaration signal has to be caught
-			// HERE or it is thrown away before the finish check ever sees it.
-			if ctrl.finish {
-				ts.declared = true
-				if ctrl.unverifiedReason != "" {
-					ts.unverifiedReason = ctrl.unverifiedReason // the rejection cap's landing, not an acceptance
-				}
-			}
-			if tc := ctrl; tc.route != "" {
-				// Absorb a routed interjection now, so it isn't also re-surfaced as its own
-				// turn. The route binds to a SPECIFIC queued request (resolveRouteTarget: the
-				// id the model named, else the oldest queued), not to lastUserPromptText — so
-				// with several interjections piled up none is re-absorbed or cross-applied.
-				// "redirect" re-anchors turnTask; "append" folds the steer in as a constraint
-				// on the work already under way; "queue"/"" leaves turnTask untouched, and an
-				// empty resolve means it was already absorbed, so the route is a no-op.
-				if mid, it := a.resolveRouteTarget(sid, tc.routeID); it != "" {
-					if nt, changed := a.applyInterjectRoute(ctx, sid, tc.route, turnTask, mid, it, reground); changed {
-						turnTask = nt
-					}
-				}
-			}
-			// The second return said "reply to this interjection instead of parking"; there is no
-			// park left to skip, so only the handled count is carried.
-			handledUserPrompts, _ = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
+			turnTask, handledUserPrompts = a.applyToolControl(ctx, tc, &ts, evs, turnTask,
+				handledUserPrompts, reground)
 		}
 		// The council tool may run inside this step; give it the task the loop is actually
 		// answering (a redirect re-anchors it) rather than letting it recompute from a transcript
@@ -486,6 +459,55 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
 	}
 	return lastText, nil
+}
+
+// applyToolControl drains the signal a tool left on the previous step and folds it into what this
+// step is answering. Beside generateStep, which is the same idea: the loop keeps the sequence, the
+// phases get names.
+//
+// Two things arrive this way, and neither is something a tool can do for itself:
+//
+//   - the council tool's finish declaration, which ends the turn. The drain empties every control
+//     field, so it has to be caught HERE or it is thrown away before the finish check sees it.
+//   - a routed interjection, which re-anchors or constrains the task. It binds to a SPECIFIC queued
+//     request rather than to the last user prompt, so several piled-up interjections are neither
+//     re-absorbed nor cross-applied.
+//
+// Returns the task this step should answer and the count of user prompts already absorbed; ts is
+// written through, because the declaration is turn state and not step state.
+func (a *App) applyToolControl(ctx context.Context, tc turnCtx, ts *turnState, evs []event.Event,
+	turnTask string, handledUserPrompts int, reground func()) (string, int) {
+	sid := tc.s.ID
+	// Drain any control signal a tool left last step — a routed interjection, or the
+	// council tool's finish declaration — applying the reground the loop owns but the
+	// tool cannot.
+	ctrl := a.takeTurnControl(sid)
+	// The drain empties every control field, so the declaration signal has to be caught
+	// HERE or it is thrown away before the finish check ever sees it.
+	if ctrl.finish {
+		ts.declared = true
+		if ctrl.unverifiedReason != "" {
+			ts.unverifiedReason = ctrl.unverifiedReason // the rejection cap's landing, not an acceptance
+		}
+	}
+	if tc := ctrl; tc.route != "" {
+		// Absorb a routed interjection now, so it isn't also re-surfaced as its own
+		// turn. The route binds to a SPECIFIC queued request (resolveRouteTarget: the
+		// id the model named, else the oldest queued), not to lastUserPromptText — so
+		// with several interjections piled up none is re-absorbed or cross-applied.
+		// "redirect" re-anchors turnTask; "append" folds the steer in as a constraint
+		// on the work already under way; "queue"/"" leaves turnTask untouched, and an
+		// empty resolve means it was already absorbed, so the route is a no-op.
+		if mid, it := a.resolveRouteTarget(sid, tc.routeID); it != "" {
+			if nt, changed := a.applyInterjectRoute(ctx, sid, tc.route, turnTask, mid, it, reground); changed {
+				turnTask = nt
+			}
+		}
+	}
+	// The second return said "reply to this interjection instead of parking"; there is no
+	// park left to skip, so only the handled count is carried.
+	handledUserPrompts, _ = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
+	return turnTask, handledUserPrompts
 }
 
 // seedTurnTask snapshots the turn's task at step 0 and returns it with the baseline user-
