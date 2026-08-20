@@ -659,7 +659,10 @@ flowchart TD
 
 내장 툴(`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`,
 `bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
-`council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`.
+`council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`,
+`label`, `search_sessions`, `schedule` — 스물넷이고, 그중 `port_owner`는 포트를 읽을 수 있는
+곳에서만 제공됩니다(리눅스의 `/proc`, macOS의 `lsof`). 매 호출을 거절할 툴은 등록하지 않습니다 —
+아래 둘을 답할 사람이 없을 때 거두는 것과 같은 이유입니다.
 대화형 런에만 `builtin.RegisterOrchestration(r, headless)`가 더합니다: `ask_user`,
 `route_interjection`. 이 함수가 호출 지점마다가 아니라 `Default` 옆에 있는 이유는, 손으로 관리하는
 두 번째 복사본은 뒤처져도 빌드를 실패시킬 수 없기 때문입니다 — 그리고 이 함수가 생기기 전에 실제로

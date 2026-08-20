@@ -45,7 +45,7 @@ flowchart LR
     subgraph adp["internal/adapter"]
       tui["tui<br/>터미널 UI"]
       llm["llm/openai<br/>OpenAI-호환 SSE"]
-      tools["tool/builtin<br/>내장 툴 21 (+대화형 2)"]
+      tools["tool/builtin<br/>내장 툴 24 (+대화형 2)<br/>port_owner는 포트를 읽을 수 있는 곳에서만"]
       lua["plugin/lua<br/>Lua 플러그인 호스트"]
       council["council/llm<br/>카운슬 멤버 호출"]
       exp["experience<br/>layered · git"]

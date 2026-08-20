@@ -699,8 +699,11 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 ## 7. Tools (`adapter/tool/builtin`)
 
 Built-ins (`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`,
-`bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
-`council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`.
+`bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`, `label`,
+`council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`,
+`search_sessions`, `schedule` — twenty-four, of which `port_owner` is offered only where ports can
+be read (`/proc` on Linux, `lsof` on macOS): a tool that would refuse every call is not registered,
+for the same reason the two below are withdrawn when nobody can answer.
 Added by `builtin.RegisterOrchestration(r, headless)` for interactive runs only: `ask_user`,
 `route_interjection`. It sits beside `Default` instead of at each call site because a hand-kept
 second copy cannot fail a build when it falls behind — and one had, by two tools, before the

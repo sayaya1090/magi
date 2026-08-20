@@ -47,7 +47,7 @@ flowchart LR
     subgraph adp["internal/adapter"]
       tui["tui<br/>terminal UI"]
       llm["llm/openai<br/>OpenAI-compatible SSE"]
-      tools["tool/builtin<br/>21 built-ins (+2 interactive)"]
+      tools["tool/builtin<br/>24 built-ins (+2 interactive)<br/>port_owner only where ports are readable"]
       lua["plugin/lua<br/>Lua plugin host"]
       council["council/llm<br/>polling the members"]
       exp["experience<br/>layered · git"]
