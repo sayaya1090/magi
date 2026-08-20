@@ -664,10 +664,11 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- point the agent a
 ### 3.7.1 A CLI as the whole backend — the shipped backend plugins
 
 §3.7's proxy forwards to a real HTTP backend. One step further and there is no HTTP backend at
-all: the shim **is** the backend, and each chat request is fulfilled by running a CLI once. Two
+all: the shim **is** the backend, and each chat request is fulfilled by running a CLI once. Three
 plugins in the repository do exactly this, and they are the worked examples for this section —
-[`plugins/antigravity`](../plugins/antigravity) drives the Antigravity CLI (`agy --print`) and
-[`plugins/claudecode`](../plugins/claudecode) drives Claude Code (`claude --print`). All three ship
+[`plugins/claudecode`](../plugins/claudecode) drives Claude Code (`claude --print`),
+[`plugins/codex`](../plugins/codex) drives Codex (`codex exec`), and
+[`plugins/antigravity`](../plugins/antigravity) drives the Antigravity CLI (`agy --print`). All three ship
 INSIDE the binary, off by default — taking over the LLM base URL is not something an upgrade may do
 to somebody who merely has claude installed — so enabling one is a config switch, no cloning:
 
@@ -691,10 +692,14 @@ Three problems appear the moment the backend is a CLI, and the plugins show one 
   `magi.exec(cmd, args, {timeout="15s"})` goes the other way: it can only **shorten** the bound,
   for the metadata fetches a plugin makes during load — `agy models` was observed hanging there,
   which would have held magi's own startup for the full five minutes.
-- **A second agent.** Both CLIs are agents themselves and could run their own tools inside the
+- **A second agent.** All three CLIs are agents themselves and could run their own tools inside the
   workspace — invisible to magi's log, permission gate and council. So `claude` runs with its
-  mutating tools disallowed by name, `agy` runs with `--sandbox` and without its skip-permissions
-  flag, and the prompt states the terms: you are being used as a language model.
+  mutating tools disallowed by name, `codex` runs `--sandbox read-only`, `agy` runs with
+  `--sandbox` and without its skip-permissions flag, and the prompt states the terms: you are being
+  used as a language model. The three are not equally enforced: claude and codex are held by a flag
+  their CLI honours, while `agy` has no per-tool refusal flag at all and is asked by the prompt
+  alone — which is why the empty working directory is the only thing that actually limits what it
+  can reach.
 
 All three answers are **measured, not assumed** (2026-08-19, against the live shims):
 
@@ -709,6 +714,32 @@ All three answers are **measured, not assumed** (2026-08-19, against the live sh
   planted in `<config>/skills/` was loaded and applied mid-turn (its sign-off string, which
   existed nowhere else, ended the produced file); and the engram observer ran after the turn and
   persisted its records — skills and memory ride the provider like any other context.
+
+**What a turn costs is not the same on all three, and the gap is large.** A CLI bills for the whole
+prompt on every call, so the question is what can be kept out of it and what the provider will cache
+— and the answer turned out to be different for each:
+
+- **claudecode** is the cheapest per turn. Its tool schemas are dropped rather than merely forbidden
+  (`--tools ""` plus a one-sentence system prompt), which took the floor from 37,659 tokens a turn
+  to a measured 327 through the shim; it runs in an empty directory, because `claude` otherwise
+  reads project files into every request (11,582 tokens a call in this repository); and it extends
+  the CLI's own session, so the provider's prompt cache hits and a turn pays for its delta. It also
+  carries a spend ledger, because this backend bills real money.
+- **codex** sits in between. Its own ~10k-token scaffold cannot be dropped — there is no `--tools`
+  equivalent — but the provider caches it server-side across processes, and holding one live thread
+  (`magi.pipe`) with delta prompts took the full-rate part of a turn from ~9,800 tokens to 527.
+- **antigravity is not optimised, and that is a measurement rather than an omission.** ⚠ Every lever
+  that worked for the other two was tried here and found absent or harmful: a byte-identical repeat
+  of a 28k-token prompt read `cache_read_tokens=0`, so there is no prefix cache to hit;
+  `--conversation` resume is a cost DOUBLER, not a saver (57,398 billed against 28,588 for a fresh
+  full render); there is no `--tools` equivalent, so every tool schema rides in the prompt; and the
+  empty working directory it runs in buys nothing on tokens (13,954 either way — it does not read
+  the workspace), it is there because `agy` has no per-tool refusal flag at all.
+
+  So a turn on `agy` re-sends the entire conversation, tool schemas included, at full rate, every
+  time. Expect it to cost several times what the same turn costs on the other two, and expect that
+  gap to widen as the conversation grows. It is the right backend to reach for when it is the CLI
+  you have, not the one to run a long session on.
 
 The **backend order** is a property of the plugins, never of core — no backend name exists there.
 Each plugin serves its shim whenever its own CLI answers — serving is what makes a backend
@@ -967,7 +998,7 @@ for round = 1, 5 do
       failures[#failures+1] = "could not restore " .. p.path .. ": " .. p.reason
     end
   end
-  task = task .. "\n\n앞선 시도가 실패했다:\n" .. table.concat(failures, "\n")
+  task = task .. "\n\nthe previous attempt failed:\n" .. table.concat(failures, "\n")
 end
 ```
 
