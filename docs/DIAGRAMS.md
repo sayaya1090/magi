@@ -514,6 +514,54 @@ apart.
 
 ---
 
+### L6.1 — A CLI as the backend: the three shipped shims
+
+`llm/openai` speaks to whatever `base_url` names. A plugin can BE that address: it serves a
+loopback HTTP shim and fulfils each chat request by running a coding CLI once. Three ship inside
+the binary, off by default — `claudecode`, `codex`, `antigravity`.
+
+The model never learns of this. It sees an OpenAI-compatible endpoint; magi's own tools, permission
+gate and council are unchanged. What changes is who generates the tokens, and what a turn costs.
+
+```mermaid
+%%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
+flowchart LR
+  app["internal/app<br/>orchestrator core"]
+  llm["adapter/llm/openai<br/>base_url · SSE"]
+  app --> llm
+
+  subgraph host["plugin/lua host — same process"]
+    direction TB
+    cc["plugins/claudecode<br/>magi.serve :port"]
+    cx["plugins/codex<br/>magi.serve :port"]
+    ag["plugins/antigravity<br/>magi.serve :port"]
+  end
+
+  llm -->|"http://127.0.0.1:port/v1"| cc
+  llm -.-> cx
+  llm -.-> ag
+
+  cc -->|"claude --print<br/>--tools '' · resume session"| anth[("Anthropic")]
+  cx -->|"codex mcp-server<br/>one live thread, delta"| oai[("OpenAI")]
+  ag -->|"agy --print<br/>full render every turn"| goog[("Google")]
+
+  direct[("any OpenAI-compatible<br/>endpoint")]
+  llm -.->|"when no plugin claims it"| direct
+```
+
+Three things the picture is making explicit:
+
+- **One is solid, two are dotted.** Every plugin whose CLI answers serves its shim, so all three are
+  *pickable* at once; only the **default** follows a chain — claude, then codex, then agy, then
+  whatever the config names. Picking one per companion is a runtime choice (§3.7.2), not a restart.
+- **The arrow labels are the cost.** claude drops its tool schemas and resumes the CLI's own session
+  (327 tokens for a minimal turn, delta-priced afterwards); codex holds one live thread over
+  `magi.pipe` and sends only the delta (527 a turn at full rate); `agy` re-sends the whole
+  conversation, schemas included, every turn — it has no cache to hit and its resume flag doubles
+  the bill. See EXTENDING §3.7.1 for the measurements.
+- **The dotted line to a plain endpoint is the normal case.** None of this is on unless a plugin is
+  enabled; `base_url` otherwise points where it always did.
+
 ## L7 — App core classes (`internal/app`)
 
 `App` is the application service: commands go in, events come out. State is gathered **per session**

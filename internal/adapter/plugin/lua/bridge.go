@@ -40,6 +40,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))
 	L.SetField(t, "merge_child", L.NewFunction(p.bridgeMergeChild))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
+	L.SetField(t, "json_encode", L.NewFunction(p.bridgeJSONEncode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
 	L.SetField(t, "remove_file", L.NewFunction(p.bridgeRemoveFile))
