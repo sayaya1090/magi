@@ -60,6 +60,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))
 	// Gated capabilities — enforced against the plugin's exec:/net: permissions.
 	L.SetField(t, "exec", L.NewFunction(p.bridgeExec))
+	L.SetField(t, "pipe", L.NewFunction(p.bridgePipe))
 	L.SetField(t, "open_url", L.NewFunction(p.bridgeOpenURL))
 	L.SetField(t, "http", L.NewFunction(p.bridgeHTTP))
 	L.SetField(t, "serve", L.NewFunction(p.bridgeServe))

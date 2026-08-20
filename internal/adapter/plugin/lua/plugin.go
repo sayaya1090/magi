@@ -34,13 +34,14 @@ type plugin struct {
 	// callCtx is the ctx of the tool call in flight, swapped in beside env. Without it a bridge
 	// call had nothing to pass down and used context.Background(), which severed the child from
 	// the parent turn — Ctrl-C then did nothing until the child's own deadline expired.
-	callCtx context.Context
-	hooks   map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
-	servers []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
-	baseSet bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
-	baseTok uint64                      // ownership token of that override; released (only if still current) on unload
-	execTO  time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
-	logf    func(string)
+	callCtx  context.Context
+	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
+	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
+	children []io.Closer                 // live subprocesses opened via magi.pipe; killed on unload
+	baseSet  bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
+	baseTok  uint64                      // ownership token of that override; released (only if still current) on unload
+	execTO   time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
+	logf     func(string)
 }
 
 // loadPlugin reads the manifest, builds a sandboxed state, installs the bridge,
@@ -96,6 +97,14 @@ func (p *plugin) close() {
 		_ = s.Close()
 	}
 	p.servers = nil
+	// Then the children. This order, not the other one: a handler goroutine still in flight may
+	// be mid-conversation with a child, and killing the child under it turns an orderly unload
+	// into an error the user reads as a crash. No server means no new handler; then nothing is
+	// talking to a child when it goes.
+	for _, c := range p.children {
+		_ = c.Close()
+	}
+	p.children = nil
 	// Restore the configured LLM backend if this plugin had redirected it: otherwise
 	// dynBase keeps pointing at the now-dead loopback proxy and every LLM call fails.
 	// Release by token so a reload (whose new instance installed a fresh override — a new
