@@ -232,6 +232,8 @@ def main():
     ap.add_argument("--jobs-glob", default="jobs/*", help="which job directories to read")
     ap.add_argument("--spend", default="", help="spend series from spend_poll.sh (optional)")
     ap.add_argument("--tasks", default="", help="task list file; sets the denominator and the order")
+    ap.add_argument("--demote", default="", help="file of task names whose PASS does not count "
+                    "(one per line) — a pass produced under settings this run no longer uses")
     ap.add_argument("--markdown", action="store_true", help="emit a markdown table")
     ap.add_argument("--csv", action="store_true")
     a = ap.parse_args()
@@ -242,8 +244,14 @@ def main():
         order = [t.strip() for t in open(a.tasks) if t.strip()]
     else:
         order = sorted(rows)
+    # A pass that only happened because of settings this run has since dropped is not a pass at the
+    # settings the table claims. It is shown, marked, and NOT counted — hiding it would lose the
+    # trial, and counting it would overstate the rate by exactly the help it got.
+    demoted = set()
+    if a.demote and os.path.exists(a.demote):
+        demoted = {l.strip() for l in open(a.demote) if l.strip()}
     done = [t for t in order if t in rows]
-    passed = [t for t in done if rew.get(t) == 1.0]
+    passed = [t for t in done if rew.get(t) == 1.0 and t not in demoted]
 
     tot = {"in": 0, "out": 0, "cached": 0, "usd": 0.0, "calls": 0.0, "turns": 0, "mins": 0.0}
     unknown_cost, any_shared, body = 0, False, []
@@ -271,7 +279,10 @@ def main():
         tot["calls"] += s["calls"] if s else 0
         tot["mins"] += r["mins"]
         tot["usd"] += usd or 0.0
-        body.append((t, "PASS" if rew.get(t) == 1.0 else ("TIME" if r["timeout"] else "FAIL"),
+        mark = "PASS" if rew.get(t) == 1.0 else ("TIME" if r["timeout"] else "FAIL")
+        if mark == "PASS" and t in demoted:
+            mark = "FAIL*"  # it passed; the settings that let it are gone, so the pass does not count
+        body.append((t, mark,
                      r["mins"], r["turns"], s["calls"] if s else None, tok, usd, shared,
                      r["council"]))
 
@@ -312,8 +323,19 @@ def main():
               f"{tot['cached']:>11,}{tot['out']:>8,}{tot['usd']:>8.2f}")
 
     rate = (100.0 * len(passed) / len(done)) if done else 0.0
+    timeouts = sum(1 for r in body if r[1] == "TIME")
+    # TIME is a label, not a third outcome. A trial killed at its own agent timeout did not do the
+    # task, and the harness scores it zero — so it is a failure here too, and saying so on the line
+    # that carries the rate stops a reader wondering whether the rate excluded them.
     print(f"\npass {len(passed)}/{len(done)} run = {rate:.1f}%"
           f"   ({len(order) - len(done)} of {len(order)} not yet run)")
+    if timeouts:
+        print(f"   {timeouts} of the {len(done) - len(passed)} failures are timeouts (TIME) — "
+              f"counted as failures, not held aside")
+    shown = sorted(t for t in demoted if rew.get(t) == 1.0 and t in rows)
+    if shown:
+        print(f"   FAIL* — passed, but under settings this run has dropped, so the pass does not "
+              f"count: {', '.join(shown)}")
     if any_shared:
         print("~ apportioned: that trial shared a backend with another, and the ledger cannot say "
               "which call was whose — the interval was split equally among whoever was running.")
