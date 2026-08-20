@@ -456,72 +456,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		SetLabels:         func(ls []string) { a.putLabels(ctx, sid, actor, ls) },
 		NoteForTurn:       func(t string) error { return a.noteForTurn(sid, t) },
-		Propose: func(c port.Contribution) error {
-			if a.cfg.Experience == nil {
-				return fmt.Errorf("shared experience not configured")
-			}
-			// What it was doing when it learned this. The store writes Source as a line at the end
-			// of the body and the console draws it, and until now every entry said the same word:
-			// "agent". That answers who wrote it, which nobody was asking — the question a person
-			// has in front of a rule they did not write is what it came out of.
-			//
-			// Clipped, because a task can be a paragraph and this is a provenance line, not a copy
-			// of the request. Only added when the caller left Source at its default: a contribution
-			// that names its own source knows better than this does.
-			if c.Source == "agent" && strings.TrimSpace(turnTask) != "" {
-				c.Source = "agent · " + text.Clip(strings.Join(strings.Fields(turnTask), " "), 140)
-			}
-			// A wiki edit that named no source gets this companion's declared name: on a page
-			// every companion reads, the editor line answers WHO in the fleet wrote it.
-			if c.Source == "" {
-				if c.Source = a.cfg.Companion; c.Source == "" {
-					c.Source = "agent"
-				}
-			}
-			err := a.cfg.Experience.Propose(ctx, c)
-			if err == nil {
-				a.mu.Lock()
-				st := a.stateLocked(sid)
-				st.expPtrQ, st.expPtr = "", "" // a just-saved memory must show in the next pointer
-				a.mu.Unlock()
-			}
-			return err
-		},
-		LoadSkill: func(name string) (string, bool) { return a.skillBody(s.Workdir, name) },
+		Propose:           a.proposeFn(ctx, sid, turnTask),
+		LoadSkill:         func(name string) (string, bool) { return a.skillBody(s.Workdir, name) },
 		Recall: func(query string) (string, error) {
 			// Budget/dedupe is applied inside recallContext, keyed on the RESOLVED topic
 			// (so two phrasings of one topic don't both spend it, and a miss is free).
 			return a.recallContext(ctx, sid, query, guard)
 		},
-		RecallMemory: func(query string) (string, error) {
-			if a.cfg.Experience == nil {
-				return "", fmt.Errorf("shared experience not configured")
-			}
-			mems, skills, err := a.cfg.Experience.Retrieve(ctx, query, agent.Groups)
-			if err != nil {
-				return "", err
-			}
-			out := formatExperienceFull(mems, skills)
-			// The wiki answers through the same door: one recall reaches both stores, so the
-			// model needs no second habit — and a query that names a page title behaves as a
-			// page fetch (the search boosts exact titles past everything else).
-			if w, ok := a.cfg.Experience.(port.WikiStore); ok {
-				if pages, err := w.WikiSearch(ctx, query, 3); err == nil && len(pages) > 0 {
-					out = strings.TrimRight(formatWikiPages(pages)+"\n"+out, "\n")
-					// A recall IS the usage the forgetting horizon measures: a page that was
-					// actually handed to a model earned its place in the index a while longer.
-					if t, ok := a.cfg.Experience.(interface{ WikiTouch([]string) }); ok {
-						titles := make([]string, 0, len(pages))
-						for _, p := range pages {
-							titles = append(titles, p.Title)
-						}
-						t.WikiTouch(titles)
-					}
-				}
-			}
-			return out, nil
-		},
-		WikiAdvise: func(page string) string { return a.wikiNeighborNote(ctx, page) },
+		RecallMemory: a.recallMemoryFn(ctx, agent),
+		WikiAdvise:   func(page string) string { return a.wikiNeighborNote(ctx, page) },
 		Schedule: func(c port.ScheduleChange) (string, error) {
 			return a.EditSchedule(s.Workdir, c)
 		},
@@ -643,6 +586,78 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
+}
+
+// proposeFn and recallMemoryFn are the two ToolEnv closures long enough to hide the literal they
+// sit in. This file already names its builders — askUserFn is one — and these two never got the
+// treatment; inline, the env's twenty-five fields were spread over a hundred lines and the short
+// ones were hard to see past the long ones.
+//
+// Nothing here changes what a tool sees. The captures are the same, which is why they are still
+// closures rather than plain methods: turnTask and the agent's groups belong to THIS call.
+func (a *App) proposeFn(ctx context.Context, sid session.SessionID, turnTask string) func(port.Contribution) error {
+	return func(c port.Contribution) error {
+		if a.cfg.Experience == nil {
+			return fmt.Errorf("shared experience not configured")
+		}
+		// What it was doing when it learned this. The store writes Source as a line at the end
+		// of the body and the console draws it, and until now every entry said the same word:
+		// "agent". That answers who wrote it, which nobody was asking — the question a person
+		// has in front of a rule they did not write is what it came out of.
+		//
+		// Clipped, because a task can be a paragraph and this is a provenance line, not a copy
+		// of the request. Only added when the caller left Source at its default: a contribution
+		// that names its own source knows better than this does.
+		if c.Source == "agent" && strings.TrimSpace(turnTask) != "" {
+			c.Source = "agent · " + text.Clip(strings.Join(strings.Fields(turnTask), " "), 140)
+		}
+		// A wiki edit that named no source gets this companion's declared name: on a page
+		// every companion reads, the editor line answers WHO in the fleet wrote it.
+		if c.Source == "" {
+			if c.Source = a.cfg.Companion; c.Source == "" {
+				c.Source = "agent"
+			}
+		}
+		err := a.cfg.Experience.Propose(ctx, c)
+		if err == nil {
+			a.mu.Lock()
+			st := a.stateLocked(sid)
+			st.expPtrQ, st.expPtr = "", "" // a just-saved memory must show in the next pointer
+			a.mu.Unlock()
+		}
+		return err
+	}
+}
+
+func (a *App) recallMemoryFn(ctx context.Context, agent AgentSpec) func(string) (string, error) {
+	return func(query string) (string, error) {
+		if a.cfg.Experience == nil {
+			return "", fmt.Errorf("shared experience not configured")
+		}
+		mems, skills, err := a.cfg.Experience.Retrieve(ctx, query, agent.Groups)
+		if err != nil {
+			return "", err
+		}
+		out := formatExperienceFull(mems, skills)
+		// The wiki answers through the same door: one recall reaches both stores, so the
+		// model needs no second habit — and a query that names a page title behaves as a
+		// page fetch (the search boosts exact titles past everything else).
+		if w, ok := a.cfg.Experience.(port.WikiStore); ok {
+			if pages, err := w.WikiSearch(ctx, query, 3); err == nil && len(pages) > 0 {
+				out = strings.TrimRight(formatWikiPages(pages)+"\n"+out, "\n")
+				// A recall IS the usage the forgetting horizon measures: a page that was
+				// actually handed to a model earned its place in the index a while longer.
+				if t, ok := a.cfg.Experience.(interface{ WikiTouch([]string) }); ok {
+					titles := make([]string, 0, len(pages))
+					for _, p := range pages {
+						titles = append(titles, p.Title)
+					}
+					t.WikiTouch(titles)
+				}
+			}
+		}
+		return out, nil
+	}
 }
 
 // nearestToolName returns the registered tool a called name differs from only in SEPARATORS or
