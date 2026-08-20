@@ -487,47 +487,10 @@ func run() int {
 		return 1
 	}
 
-	// Config: global (<config>/config.toml) + project (.magi/config.toml, which
-	// teams commit so the workflow travels with the repo). Loaded BEFORE the LLM
-	// client so config can supply model/base_url. Hooks merge; project scalars
-	// override global.
-	cfg, unknown, err := config.LoadWithUnknown(plat.ConfigDir())
-	if err != nil {
-		// A malformed user config (e.g. a duplicate top-level key that fails the
-		// whole-file TOML parse) must NOT silently fall back to an empty Config —
-		// that would drop the user's model, [plugins.*], and every other setting
-		// with no warning. Refuse to start so the problem is visible and fixable.
-		fmt.Fprintf(os.Stderr, "magi: cannot parse %s: %v\n", filepath.Join(plat.ConfigDir(), "config.toml"), err)
+	// The three config files, in the order the most specific wins. See loadConfigLayers.
+	cfg, companionCfg, cfgOK := loadConfigLayers(plat, wd, os.Stderr)
+	if !cfgOK {
 		return 1
-	}
-	warnUnknownConfigKeys(os.Stderr, "config.toml", unknown)
-	if proj, punk, perr := config.LoadWithUnknown(filepath.Join(wd, ".magi")); perr == nil {
-		var said []string
-		cfg, said = mergeProjectConfigSaying(cfg, proj, config.Trusted(plat.ConfigDir(), wd))
-		for _, line := range said {
-			fmt.Fprintln(os.Stderr, "magi: .magi/config.toml", line)
-		}
-		warnUnknownConfigKeys(os.Stderr, ".magi/config.toml", punk)
-	} else {
-		// Project overlay is optional and repo-local; a parse error there warns and
-		// is skipped rather than blocking startup on the (valid) global config.
-		fmt.Fprintf(os.Stderr, "magi: cannot parse %s, ignoring project config: %v\n", filepath.Join(wd, ".magi", "config.toml"), perr)
-	}
-
-	// And last, this companion's own: the model it runs, the posture it was given, the servers and
-	// jobs somebody set up for THIS workspace on THIS machine.
-	//
-	// Last because it is the most specific of the three and the only one that is nobody else's: the
-	// global file is the person's, the project file is the team's, and this one is what the operator
-	// decided about this companion. It is taken as written — no clamp — for the same reason the
-	// global file is: it is theirs, and it is somewhere the agent cannot reach.
-	companionCfg := config.CompanionDir(plat.ConfigDir(), daemon.WorkspaceKey(wd))
-	if own, ounk, oerr := config.LoadWithUnknown(companionCfg); oerr == nil {
-		cfg = mergeProjectConfig(cfg, own)
-		warnUnknownConfigKeys(os.Stderr, "companions/…/config.toml", ounk)
-	} else {
-		fmt.Fprintf(os.Stderr, "magi: cannot parse %s, ignoring it: %v\n",
-			filepath.Join(companionCfg, "config.toml"), oerr)
 	}
 
 	explicit := map[string]bool{}
@@ -536,33 +499,7 @@ func run() int {
 		cfg, os.Getenv)
 	modelID, baseURLVal, apiKeyVal := backend.model, backend.baseURL, backend.apiKey
 
-	var llmOpts []openai.Option
-	if !*noCache {
-		llmOpts = append(llmOpts, openai.WithPromptCache())
-	}
-	if *httpTimeout > 0 {
-		llmOpts = append(llmOpts, openai.WithResponseHeaderTimeout(*httpTimeout))
-	}
-	if cfg.Limits.MaxOutputTokens > 0 {
-		llmOpts = append(llmOpts, openai.WithMaxTokens(cfg.Limits.MaxOutputTokens)) // [limits] max_output_tokens
-		// …and the window it has to fit under. Through a holder because the client is built before
-		// the App that resolves windows exists; nil until then, which answers 0 and leaves the cap
-		// exactly as configured — the behaviour before any of this.
-		llmOpts = append(llmOpts, openai.WithWindow(func(model string) int {
-			if windowOf == nil {
-				return 0
-			}
-			return windowOf(model)
-		}))
-	}
-	// [sampling] — part of the baseline options, so profile clients (newProviderFactory) inherit
-	// it too and a routed agent samples the same way as the main one.
-	llmOpts = append(llmOpts, openai.WithSampling(openai.Sampling{
-		Temperature:     cfg.Sampling.Temperature,
-		TopP:            cfg.Sampling.TopP,
-		TopK:            cfg.Sampling.TopK,
-		ReasoningEffort: cfg.Sampling.ReasoningEffort,
-	}))
+	llmOpts := llmOptions(cfg, *noCache, *httpTimeout)
 	llm := openai.New(baseURLVal, apiKeyVal, llmOpts...) // concrete client: doctor/probe/header calls need it
 
 	if *doctor {
@@ -1458,6 +1395,85 @@ func run() int {
 
 	// One-shot headless run: stream fact events to stdout, errors to stderr.
 	return runHeadless(ctx, a, sid, promptText, *output == "json", *workflow, os.Stdout, os.Stderr)
+}
+
+// loadConfigLayers reads the three config files this companion answers to, most specific last.
+//
+// Global (<config>/config.toml) is the person's. Project (.magi/config.toml) is the team's and is
+// committed, so the workflow travels with the repo — which is why it merges through
+// mergeProjectConfigSaying, where a clone may tighten the guardrails and may not loosen them. The
+// companion's own file is last because it is the most specific and the only one that is nobody
+// else's: it is what the operator decided about THIS workspace on THIS machine, taken as written.
+//
+// Read before the LLM client, because any of the three may supply model/base_url.
+//
+// A malformed GLOBAL file refuses to start (false): falling back to an empty Config would silently
+// drop the model, [plugins.*] and every other setting. The other two warn and are skipped — a
+// repo-local or per-companion parse error must not block a run whose global config is valid.
+//
+// Returns the merged config, the companion's own config directory (the route and permission
+// persisters write there), and whether startup may continue.
+func loadConfigLayers(plat port.Platform, wd string, warn io.Writer) (config.Config, string, bool) {
+	cfg, unknown, err := config.LoadWithUnknown(plat.ConfigDir())
+	if err != nil {
+		fmt.Fprintf(warn, "magi: cannot parse %s: %v\n", filepath.Join(plat.ConfigDir(), "config.toml"), err)
+		return config.Config{}, "", false
+	}
+	warnUnknownConfigKeys(warn, "config.toml", unknown)
+	if proj, punk, perr := config.LoadWithUnknown(filepath.Join(wd, ".magi")); perr == nil {
+		var said []string
+		cfg, said = mergeProjectConfigSaying(cfg, proj, config.Trusted(plat.ConfigDir(), wd))
+		for _, line := range said {
+			fmt.Fprintln(warn, "magi: .magi/config.toml", line)
+		}
+		warnUnknownConfigKeys(warn, ".magi/config.toml", punk)
+	} else {
+		fmt.Fprintf(warn, "magi: cannot parse %s, ignoring project config: %v\n", filepath.Join(wd, ".magi", "config.toml"), perr)
+	}
+
+	companionCfg := config.CompanionDir(plat.ConfigDir(), daemon.WorkspaceKey(wd))
+	if own, ounk, oerr := config.LoadWithUnknown(companionCfg); oerr == nil {
+		cfg = mergeProjectConfig(cfg, own)
+		warnUnknownConfigKeys(warn, "companions/…/config.toml", ounk)
+	} else {
+		fmt.Fprintf(warn, "magi: cannot parse %s, ignoring it: %v\n",
+			filepath.Join(companionCfg, "config.toml"), oerr)
+	}
+	return cfg, companionCfg, true
+}
+
+// llmOptions is the baseline every client in this process is built from.
+//
+// Baseline and not "the main client's": newProviderFactory starts from this same slice, so an agent
+// routed to a named profile samples the way the main one does instead of inheriting whatever the
+// provider's own defaults are.
+func llmOptions(cfg config.Config, noCache bool, httpTimeout time.Duration) []openai.Option {
+	var opts []openai.Option
+	if !noCache {
+		opts = append(opts, openai.WithPromptCache())
+	}
+	if httpTimeout > 0 {
+		opts = append(opts, openai.WithResponseHeaderTimeout(httpTimeout))
+	}
+	if cfg.Limits.MaxOutputTokens > 0 {
+		opts = append(opts, openai.WithMaxTokens(cfg.Limits.MaxOutputTokens)) // [limits] max_output_tokens
+		// …and the window it has to fit under. Through a holder because the client is built before
+		// the App that resolves windows exists; nil until then, which answers 0 and leaves the cap
+		// exactly as configured — the behaviour before any of this.
+		opts = append(opts, openai.WithWindow(func(model string) int {
+			if windowOf == nil {
+				return 0
+			}
+			return windowOf(model)
+		}))
+	}
+	// [sampling]
+	return append(opts, openai.WithSampling(openai.Sampling{
+		Temperature:     cfg.Sampling.Temperature,
+		TopP:            cfg.Sampling.TopP,
+		TopK:            cfg.Sampling.TopK,
+		ReasoningEffort: cfg.Sampling.ReasoningEffort,
+	}))
 }
 
 // A project may tighten the guardrails and may not loosen them.
