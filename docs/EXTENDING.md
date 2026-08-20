@@ -1014,6 +1014,7 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 | `magi.list_files(dir)` | `fs:read` | the names in one directory, no recursion; a directory carries a trailing `/`. Widens no grant — a name is less than the contents `read_file` already returns — and a directory outside the grant is **refused**, never answered with an empty list: "nothing there" and "not allowed to look" lead a caller to opposite actions |
 | `magi.notify(text)` | — | a desktop notification |
 | `magi.json_decode(text)` | — | JSON → a Lua table |
+| `magi.json_encode(v)` | — | a Lua value → JSON, **keys sorted**. The ordering is the point: `pairs()` walks a table in hash order, so a hand-written encoder gives the same schema different bytes on every call — and those bytes are the head of a shim's prompt, which is why three bench arms read zero from the prompt cache. One implementation, one test, instead of a rule repeated in every copy |
 | `magi.register_doctor_probes{…}` | — | environment checks folded into `magi -doctor` |
 | `magi.propose_experience{…}` | — | offer a memory or skill to the shared experience store (§2.4) |
 
