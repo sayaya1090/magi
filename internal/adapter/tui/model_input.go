@@ -211,6 +211,241 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Two questions, in order, and they are different questions: who owns the keyboard right now,
+	// and what this key means when nobody does. A modal that is up answers first and answers alone —
+	// eight of them, each with its own navigation and its own way out — and only when none is up
+	// does a key mean what the switch below says it means.
+	if cmd, handled := m.handleModalKey(msg); handled {
+		return cmd, true
+	}
+
+	switch msg.String() {
+	case "ctrl+q":
+		m.quitting = true
+		return tea.Quit, true
+	case "ctrl+c":
+		// Inert: Ctrl+C is left for the terminal's own drag-select+copy, so lifting
+		// text out of the transcript never kills the session. Quit moved to ctrl+q
+		// (and /quit); interrupting a running turn stays on esc.
+		return nil, true
+	case "ctrl+l":
+		m.blocks = nil
+		m.cache = m.cache[:0]
+		m.liveText = ""
+		m.refresh()
+		return nil, true
+	case "ctrl+f":
+		// Open transcript search: alt-screen means the terminal's own find can't
+		// see the viewport, so this is the only way to search a long session.
+		m.searching = true
+		m.searchQuery, m.searchHits = "", nil
+		m.refresh()
+		return nil, true
+	case "ctrl+g":
+		// Only while there is somewhere to go. A key that does nothing most of the time is a key
+		// somebody presses and learns nothing from, so it falls through to the composer instead —
+		// and the offer that arms it is written in the transcript at the moment it becomes true.
+		if m.movedTo == "" {
+			return nil, false
+		}
+		return m.switchSession(m.movedTo), true
+	case "ctrl+t":
+		m.showThink = !m.showThink
+		m.cache = m.cache[:0] // reasoning blocks render differently now
+		m.refresh()
+		return nil, true
+	case "shift+tab":
+		return m.cyclePermission(), true
+	case "pgup":
+		m.vp.PageUp()
+		return nil, true
+	case "pgdown":
+		m.vp.PageDown()
+		return nil, true
+	case "ctrl+u":
+		m.vp.HalfPageUp()
+		return nil, true
+	case "ctrl+d":
+		m.vp.HalfPageDown()
+		return nil, true
+	case "shift+up":
+		m.vp.ScrollUp(1)
+		return nil, true
+	case "shift+down":
+		m.vp.ScrollDown(1)
+		return nil, true
+	case "tab":
+		// The model's suggestion first, when there is one standing: Tab is what takes it, and only
+		// then does it fall through to history completion and pane cycling.
+		if m.acceptSuggestion() {
+			m.syncTaViewport()
+			m.refresh()
+			return nil, true
+		}
+		// History autocomplete: complete the typed prefix to the most recent
+		// matching prior prompt (repeat tab cycles older matches).
+		if val := m.ta.Value(); val != "" && !strings.HasPrefix(val, "/") {
+			if c := m.historyComplete(val); c != "" {
+				m.ta.SetValue(c)
+				m.syncTaViewport() // long completions scroll the box; see paste.go
+				m.refresh()
+				return nil, true
+			}
+		}
+		// Otherwise cycle focus across the main transcript and subagent panes.
+		if len(m.panes) > 0 {
+			m.cyclePaneFocus(1)
+			if m.zoom {
+				m.exitZoom() // moving focus exits zoom; press ctrl+o to re-zoom
+			}
+			m.refresh()
+			return nil, true
+		}
+	case "ctrl+o":
+		// Zoom the focused subagent pane full-screen (and back). Entering zoom jumps
+		// to the bottom so the latest output (e.g. the conclusion) is in view.
+		if m.zoom && m.zoomPane != nil {
+			m.exitZoom() // collapse a pinned finished-pane zoom
+			m.refresh()
+			return nil, true
+		}
+		if m.focusPane >= 0 && m.focusPane < len(m.panes) {
+			m.zoom = !m.zoom
+			m.refresh()
+			if m.zoom {
+				m.vp.GotoBottom()
+			}
+			return nil, true
+		}
+		if len(m.panes) > 0 {
+			m.focusPane = 0
+			m.zoomPane = nil
+			m.zoom = true
+			m.refresh()
+			m.vp.GotoBottom()
+			return nil, true
+		}
+	case "up":
+		// In a focused (but un-zoomed) subagent list, ↑/↓ move the selection and the
+		// window follows it; otherwise recall input history.
+		if m.focusPane >= 0 && !m.zoom && len(m.panes) > 0 {
+			if m.focusPane > 0 {
+				m.focusPane--
+			}
+			m.ensureFocusVisible()
+			m.refresh()
+			return nil, true
+		}
+		if m.recallHistory(-1) {
+			return nil, true
+		}
+	case "down":
+		if m.focusPane >= 0 && !m.zoom && len(m.panes) > 0 {
+			if m.focusPane < len(m.panes)-1 {
+				m.focusPane++
+			}
+			m.ensureFocusVisible()
+			m.refresh()
+			return nil, true
+		}
+		if m.recallHistory(1) {
+			return nil, true
+		}
+	case "esc":
+		// Leave the council verdict detail first if it's open (like exiting zoom).
+		// Refresh like the zoom path and like both mouse dismissals do: the viewport
+		// still holds the detail's lines, and so do the contentLines that selection,
+		// copy and search read. Without it the header goes back to the transcript
+		// while the body stays on the verdict.
+		if m.councilDetail != nil {
+			m.councilDetail = nil
+			m.refresh()
+			return nil, true
+		}
+		// In the agent detail (zoom) screen, esc always goes back — even for a
+		// still-running subagent. Interrupting a focused pane stays in the list
+		// view below (where esc has no detail to leave).
+		if m.zoom {
+			m.exitZoom()
+			m.refresh()
+			return nil, true
+		}
+		// Focused on a still-running job → stop just that one (stays focused so you see it stop).
+		// Press esc again to leave the view. This is the same stop bash_kill performs, so the agent
+		// polling it reads a killed status rather than losing the job silently.
+		if m.focusPane >= 0 && m.focusPane < len(m.panes) && !m.panes[m.focusPane].done {
+			p := m.panes[m.focusPane]
+			if p.job != "" {
+				if m.app.KillBackgroundJob(p.job) {
+					return m.snack("stopping " + p.job), true
+				}
+				return m.snack(p.job + " is already gone"), true
+			}
+			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: p.sid})
+			return m.snack("interrupting " + p.role), true
+		}
+		if m.focusPane >= 0 {
+			m.focusPane = -1
+			m.refresh()
+			return nil, true
+		}
+		if m.running {
+			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: m.sid})
+			return nil, true
+		}
+	case "alt+enter", "ctrl+j", "shift+enter":
+		// enter is reserved for send/steer, so these insert a literal newline to
+		// compose a multi-line message. ctrl+j (LF) works on every terminal;
+		// alt+enter and shift+enter need the terminal to send a distinct code
+		// (Kitty keyboard protocol) — where it doesn't, that key arrives as enter
+		// and sends, which is fine since ctrl+j always covers the newline case.
+		m.ta.InsertString("\n")
+		m.refresh()
+		return nil, true
+	case "enter":
+		text := strings.TrimSpace(m.ta.Value())
+		if text == "" {
+			return nil, true
+		}
+		// `!`-prefix runs the rest as a shell command in the workdir (Claude-style
+		// inline shell). Its output is shown and folded into the next prompt's context.
+		// Works idle (staged) or mid-turn (steered) — runShellBang branches internally.
+		if strings.HasPrefix(text, "!") {
+			if cmd := strings.TrimSpace(text[1:]); cmd != "" {
+				return m.runShellBang(cmd), true
+			}
+			return nil, true // bare "!" — nothing to run
+		}
+		if m.running {
+			// A turn is in flight. Slash commands that are safe to run live are
+			// allowed; the rest are rejected. Plain messages are handed to the engine,
+			// which QUEUES them by default to run as their own turn after the current
+			// one finishes (the agent may route them in sooner) — see App.Steer.
+			if strings.HasPrefix(text, "/") {
+				if safeWhileRunning(strings.Fields(text)[0]) {
+					return m.handleSlash(text)
+				}
+				return m.snack("can't run " + strings.Fields(text)[0] + " while working"), true
+			}
+			return m.steer(text), true
+		}
+		if strings.HasPrefix(text, "/") {
+			return m.handleSlash(text)
+		}
+		return m.submit(text), true
+	}
+	return nil, false
+}
+
+// handleModalKey gives the keyboard to whichever overlay is up, and reports whether one took it.
+//
+// Extracted from handleKey, where the eight guards and the ordinary key switch shared one four
+// hundred line body and read as one thing. They are not one thing: a modal owns every key while it
+// is open, including the ones the switch below would otherwise claim, and the ORDER of these guards
+// is the precedence between overlays — which is a fact about the UI, not an accident of layout.
+//
+// Returns handled=false when no overlay is up, and the caller falls through to the ordinary keys.
+func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// Any key clears a finished mouse selection's highlight.
 	if m.selActive {
 		m.selActive = false
@@ -445,222 +680,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		default:
 			m.palSel = 0 // typing changes the filter; reset selection
 		}
-	}
-
-	switch msg.String() {
-	case "ctrl+q":
-		m.quitting = true
-		return tea.Quit, true
-	case "ctrl+c":
-		// Inert: Ctrl+C is left for the terminal's own drag-select+copy, so lifting
-		// text out of the transcript never kills the session. Quit moved to ctrl+q
-		// (and /quit); interrupting a running turn stays on esc.
-		return nil, true
-	case "ctrl+l":
-		m.blocks = nil
-		m.cache = m.cache[:0]
-		m.liveText = ""
-		m.refresh()
-		return nil, true
-	case "ctrl+f":
-		// Open transcript search: alt-screen means the terminal's own find can't
-		// see the viewport, so this is the only way to search a long session.
-		m.searching = true
-		m.searchQuery, m.searchHits = "", nil
-		m.refresh()
-		return nil, true
-	case "ctrl+g":
-		// Only while there is somewhere to go. A key that does nothing most of the time is a key
-		// somebody presses and learns nothing from, so it falls through to the composer instead —
-		// and the offer that arms it is written in the transcript at the moment it becomes true.
-		if m.movedTo == "" {
-			return nil, false
-		}
-		return m.switchSession(m.movedTo), true
-	case "ctrl+t":
-		m.showThink = !m.showThink
-		m.cache = m.cache[:0] // reasoning blocks render differently now
-		m.refresh()
-		return nil, true
-	case "shift+tab":
-		return m.cyclePermission(), true
-	case "pgup":
-		m.vp.PageUp()
-		return nil, true
-	case "pgdown":
-		m.vp.PageDown()
-		return nil, true
-	case "ctrl+u":
-		m.vp.HalfPageUp()
-		return nil, true
-	case "ctrl+d":
-		m.vp.HalfPageDown()
-		return nil, true
-	case "shift+up":
-		m.vp.ScrollUp(1)
-		return nil, true
-	case "shift+down":
-		m.vp.ScrollDown(1)
-		return nil, true
-	case "tab":
-		// The model's suggestion first, when there is one standing: Tab is what takes it, and only
-		// then does it fall through to history completion and pane cycling.
-		if m.acceptSuggestion() {
-			m.syncTaViewport()
-			m.refresh()
-			return nil, true
-		}
-		// History autocomplete: complete the typed prefix to the most recent
-		// matching prior prompt (repeat tab cycles older matches).
-		if val := m.ta.Value(); val != "" && !strings.HasPrefix(val, "/") {
-			if c := m.historyComplete(val); c != "" {
-				m.ta.SetValue(c)
-				m.syncTaViewport() // long completions scroll the box; see paste.go
-				m.refresh()
-				return nil, true
-			}
-		}
-		// Otherwise cycle focus across the main transcript and subagent panes.
-		if len(m.panes) > 0 {
-			m.cyclePaneFocus(1)
-			if m.zoom {
-				m.exitZoom() // moving focus exits zoom; press ctrl+o to re-zoom
-			}
-			m.refresh()
-			return nil, true
-		}
-	case "ctrl+o":
-		// Zoom the focused subagent pane full-screen (and back). Entering zoom jumps
-		// to the bottom so the latest output (e.g. the conclusion) is in view.
-		if m.zoom && m.zoomPane != nil {
-			m.exitZoom() // collapse a pinned finished-pane zoom
-			m.refresh()
-			return nil, true
-		}
-		if m.focusPane >= 0 && m.focusPane < len(m.panes) {
-			m.zoom = !m.zoom
-			m.refresh()
-			if m.zoom {
-				m.vp.GotoBottom()
-			}
-			return nil, true
-		}
-		if len(m.panes) > 0 {
-			m.focusPane = 0
-			m.zoomPane = nil
-			m.zoom = true
-			m.refresh()
-			m.vp.GotoBottom()
-			return nil, true
-		}
-	case "up":
-		// In a focused (but un-zoomed) subagent list, ↑/↓ move the selection and the
-		// window follows it; otherwise recall input history.
-		if m.focusPane >= 0 && !m.zoom && len(m.panes) > 0 {
-			if m.focusPane > 0 {
-				m.focusPane--
-			}
-			m.ensureFocusVisible()
-			m.refresh()
-			return nil, true
-		}
-		if m.recallHistory(-1) {
-			return nil, true
-		}
-	case "down":
-		if m.focusPane >= 0 && !m.zoom && len(m.panes) > 0 {
-			if m.focusPane < len(m.panes)-1 {
-				m.focusPane++
-			}
-			m.ensureFocusVisible()
-			m.refresh()
-			return nil, true
-		}
-		if m.recallHistory(1) {
-			return nil, true
-		}
-	case "esc":
-		// Leave the council verdict detail first if it's open (like exiting zoom).
-		// Refresh like the zoom path and like both mouse dismissals do: the viewport
-		// still holds the detail's lines, and so do the contentLines that selection,
-		// copy and search read. Without it the header goes back to the transcript
-		// while the body stays on the verdict.
-		if m.councilDetail != nil {
-			m.councilDetail = nil
-			m.refresh()
-			return nil, true
-		}
-		// In the agent detail (zoom) screen, esc always goes back — even for a
-		// still-running subagent. Interrupting a focused pane stays in the list
-		// view below (where esc has no detail to leave).
-		if m.zoom {
-			m.exitZoom()
-			m.refresh()
-			return nil, true
-		}
-		// Focused on a still-running job → stop just that one (stays focused so you see it stop).
-		// Press esc again to leave the view. This is the same stop bash_kill performs, so the agent
-		// polling it reads a killed status rather than losing the job silently.
-		if m.focusPane >= 0 && m.focusPane < len(m.panes) && !m.panes[m.focusPane].done {
-			p := m.panes[m.focusPane]
-			if p.job != "" {
-				if m.app.KillBackgroundJob(p.job) {
-					return m.snack("stopping " + p.job), true
-				}
-				return m.snack(p.job + " is already gone"), true
-			}
-			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: p.sid})
-			return m.snack("interrupting " + p.role), true
-		}
-		if m.focusPane >= 0 {
-			m.focusPane = -1
-			m.refresh()
-			return nil, true
-		}
-		if m.running {
-			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: m.sid})
-			return nil, true
-		}
-	case "alt+enter", "ctrl+j", "shift+enter":
-		// enter is reserved for send/steer, so these insert a literal newline to
-		// compose a multi-line message. ctrl+j (LF) works on every terminal;
-		// alt+enter and shift+enter need the terminal to send a distinct code
-		// (Kitty keyboard protocol) — where it doesn't, that key arrives as enter
-		// and sends, which is fine since ctrl+j always covers the newline case.
-		m.ta.InsertString("\n")
-		m.refresh()
-		return nil, true
-	case "enter":
-		text := strings.TrimSpace(m.ta.Value())
-		if text == "" {
-			return nil, true
-		}
-		// `!`-prefix runs the rest as a shell command in the workdir (Claude-style
-		// inline shell). Its output is shown and folded into the next prompt's context.
-		// Works idle (staged) or mid-turn (steered) — runShellBang branches internally.
-		if strings.HasPrefix(text, "!") {
-			if cmd := strings.TrimSpace(text[1:]); cmd != "" {
-				return m.runShellBang(cmd), true
-			}
-			return nil, true // bare "!" — nothing to run
-		}
-		if m.running {
-			// A turn is in flight. Slash commands that are safe to run live are
-			// allowed; the rest are rejected. Plain messages are handed to the engine,
-			// which QUEUES them by default to run as their own turn after the current
-			// one finishes (the agent may route them in sooner) — see App.Steer.
-			if strings.HasPrefix(text, "/") {
-				if safeWhileRunning(strings.Fields(text)[0]) {
-					return m.handleSlash(text)
-				}
-				return m.snack("can't run " + strings.Fields(text)[0] + " while working"), true
-			}
-			return m.steer(text), true
-		}
-		if strings.HasPrefix(text, "/") {
-			return m.handleSlash(text)
-		}
-		return m.submit(text), true
 	}
 	return nil, false
 }
