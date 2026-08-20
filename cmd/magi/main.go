@@ -1004,55 +1004,13 @@ func run() int {
 		}, argv)
 	}
 
-	// Plugin host: provide MCP manager, context registry, and runtime info to plugins.
-	// sid is created just below (CreateSession) but the host needs it now to wire
-	// magi.set_model to the live session; the closure captures it by reference so it
-	// resolves the current session at call time (plugins call set_model mid-session).
+	// Plugin host. sid is created just below (CreateSession) and the host needs it now, so it is
+	// passed by pointer — see startPluginHost.
 	var sid session.SessionID
-	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
-		ToolSink:   reg,
-		MCPMgr:     mcpMgr,
-		ContextReg: a,
-		LLMReg:     llm,
-		BaseReg:    llm,
-		ModelReg: modelSetter{
-			setModel: func(m string) { a.SetModel(sid, m) },
-			setWindow: func(model string, tokens int) error {
-				_, err := a.SetContextWindow(context.Background(), sid, model, tokens)
-				return err
-			},
-		},
-		UserReg:       userLabelSetter{set: func(l string) { a.SetUserLabel(sid, l) }},
-		PluginConfigs: cfg.Plugins,
-		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
-		DataDir:       plat.ConfigDir(),
-		Prompter:      promptFunc(tui.RunPrompt),
-		Analyzer:      sidecarAnalyzer{llm: llm, defaultModel: modelID},
-		Experience:    experienceStore,
-		Notify:        func(sid, text string) { a.PluginNote(sid, text) },
-		Runtime: pluginlua.RuntimeInfo{
-			Model:    modelID,
-			Platform: runtime.GOOS,
-			Workdir:  wd,
-			Username: osUsername(),
-		},
-		Logf: pluginLogf(),
-	})
-	obs.bind(host)
-	for _, dir := range pluginDirs(plat, wd, *pluginsDir) {
-		host.LoadDir(context.Background(), dir)
-	}
-	if theirs := workspacePlugins(wd); len(theirs) > 0 && *pluginsDir == "" &&
-		!config.Trusted(plat.ConfigDir(), wd) {
-		fmt.Fprintf(os.Stderr, "magi: this workspace carries %d plugin(s) (%s) and they were not "+
-			"loaded — a plugin grants itself permissions in its own manifest, so one that came "+
-			"with a repository runs when you say so: `magi --trust` here, or -plugins %s\n",
-			len(theirs), strings.Join(theirs, ", "), filepath.Join(".magi", "plugins"))
-	}
-	loadEmbeddedPlugins(host, plat, cfg)
-	// Lifecycle: run plugin startup handlers now (after load, before the first
-	// turn) — e.g. an SSO plugin authenticates here. shutdown runs on exit.
-	host.FireEvent("startup")
+	host := startPluginHost(hostParams{
+		reg: reg, mcpMgr: mcpMgr, app: a, llm: llm, cfg: cfg, plat: plat, wd: wd,
+		pluginsDir: *pluginsDir, modelID: modelID, experience: experienceStore, obs: obs,
+	}, &sid)
 	defer host.FireEvent("shutdown")
 	// Drain queued observation events before shutdown fires: a headless one-shot
 	// run exits right after its turn, and an observer's sidecar analysis (engram's
@@ -1395,6 +1353,87 @@ func run() int {
 
 	// One-shot headless run: stream fact events to stdout, errors to stderr.
 	return runHeadless(ctx, a, sid, promptText, *output == "json", *workflow, os.Stdout, os.Stderr)
+}
+
+// hostParams is what the plugin host needs from run(). Named rather than passed as a dozen
+// arguments: half of them are strings, and a twelve-argument call is a place where two get swapped
+// and the compiler says nothing.
+type hostParams struct {
+	reg        *builtin.Registry
+	mcpMgr     *mcp.Manager
+	app        *app.App
+	llm        *openai.Client
+	cfg        config.Config
+	plat       *platform.OS
+	wd         string
+	pluginsDir string
+	modelID    string
+	experience *explayered.Store
+	obs        *pluginObserver
+}
+
+// startPluginHost builds the Lua plugin host, loads every plugin this run may see, and fires the
+// startup handlers.
+//
+// One function because it is one act with one order, and the order is what is easy to get wrong:
+// the host exists before any plugin loads, on-disk plugins load before the embedded ones so a
+// checkout wins over the copy in the binary, and startup handlers fire only once everything that
+// could register a tool has.
+//
+// sid is taken by POINTER, and that is not an artefact of the extraction. The session does not
+// exist yet — it is created further down in run() — but the host needs its model setter now, and
+// plugins call set_model mid-session. The closures resolve the current session at call time; a
+// copy would pin them to the empty id this is called with.
+func startPluginHost(p hostParams, sid *session.SessionID) *pluginlua.Host {
+	// Plugin host: provide MCP manager, context registry, and runtime info to plugins.
+	// sid is created just below (CreateSession) but the host needs it now to wire
+	// magi.set_model to the live session; the closure captures it by reference so it
+	// resolves the current session at call time (plugins call set_model mid-session).
+	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
+		ToolSink:   p.reg,
+		MCPMgr:     p.mcpMgr,
+		ContextReg: p.app,
+		LLMReg:     p.llm,
+		BaseReg:    p.llm,
+		ModelReg: modelSetter{
+			setModel: func(m string) { p.app.SetModel(*sid, m) },
+			setWindow: func(model string, tokens int) error {
+				_, err := p.app.SetContextWindow(context.Background(), *sid, model, tokens)
+				return err
+			},
+		},
+		UserReg:       userLabelSetter{set: func(l string) { p.app.SetUserLabel(*sid, l) }},
+		PluginConfigs: p.cfg.Plugins,
+		ConfigPath:    filepath.Join(p.plat.ConfigDir(), "config.toml"),
+		DataDir:       p.plat.ConfigDir(),
+		Prompter:      promptFunc(tui.RunPrompt),
+		Analyzer:      sidecarAnalyzer{llm: p.llm, defaultModel: p.modelID},
+		Experience:    p.experience,
+		Notify:        func(sid, text string) { p.app.PluginNote(sid, text) },
+		Runtime: pluginlua.RuntimeInfo{
+			Model:    p.modelID,
+			Platform: runtime.GOOS,
+			Workdir:  p.wd,
+			Username: osUsername(),
+		},
+		Logf: pluginLogf(),
+	})
+	p.obs.bind(host)
+	for _, dir := range pluginDirs(p.plat, p.wd, p.pluginsDir) {
+		host.LoadDir(context.Background(), dir)
+	}
+	if theirs := workspacePlugins(p.wd); len(theirs) > 0 && p.pluginsDir == "" &&
+		!config.Trusted(p.plat.ConfigDir(), p.wd) {
+		fmt.Fprintf(os.Stderr, "magi: this workspace carries %d plugin(s) (%s) and they were not "+
+			"loaded — a plugin grants itself permissions in its own manifest, so one that came "+
+			"with a repository runs when you say so: `magi --trust` here, or -plugins %s\n",
+			len(theirs), strings.Join(theirs, ", "), filepath.Join(".magi", "plugins"))
+	}
+	loadEmbeddedPlugins(host, p.plat, p.cfg)
+	// Lifecycle: run plugin startup handlers now (after load, before the first
+	// turn) — e.g. an SSO plugin authenticates here. shutdown runs on exit.
+	host.FireEvent("startup")
+	return host
 }
 
 // loadConfigLayers reads the three config files this companion answers to, most specific last.
