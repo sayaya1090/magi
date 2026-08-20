@@ -458,6 +458,7 @@ RAG를 HTTP로 가져오거나, SSO 로그인 흐름을 플러그인이 직접 �
 | API | 권한 | 비고 |
 |---|---|---|
 | `magi.exec(cmd, {args}, {timeout="15s"}?)` | `exec:<cmd>` | 셸 없이 직접 실행(인젝션 없음), workdir 기준. 타임아웃은 기본 60s — 매니페스트 `exec_timeout`([1s, 10m] 클램프)이 넓히고, 호출 단위 셋째 인자는 줄이기만 합니다. `{stdout,stderr,code}` 반환 |
+| `magi.pipe(cmd, {args}, {neutral_dir=,idle=}?)` | `exec:<cmd>` | `magi.exec`의 **살아있는 쌍둥이**: 호출 사이에도 죽지 않고 stdin/stdout을 연 채 남는 자식. 플러그인이 서브프로세스와 트랜잭션이 아니라 *대화*를 합니다. 핸들 반환 — `write(line)`(개행 없으면 붙여줌), `read{timeout=}` → 다음 한 줄, 마감시각엔 `nil`(조용한 자식은 죽은 자식이 아님), `alive()`, `close()`, `pid`. 일회성 exec와 **같은** `exec:<cmd>`로 게이팅 — 닿는 범위는 그대로고 새로 생기는 건 수명과 대화성뿐입니다. `close()`·언로드·`idle`(기본 10m)에 kill, 플러그인당 최대 4개, stdout은 유계 큐로 배수. CLI를 언어모델로 쓸 때 프로세스가 직전 턴을 기억 못 하면 매 턴 대화 전체를 다시 보내야 하기 때문에 존재합니다 — 한 백엔드 실측에서 프로세스를 열어두자 턴당 과금 입력이 ~9,800 토큰에서 527로 내려갔습니다 |
 | `magi.open_url(url)` | `exec:open-url` | OS 기본 브라우저로 엶. **http/https만** 허용 |
 | `magi.http{url,method,headers,body}` | `net:<host>` | http/https만, 30s 타임아웃, 5MB 응답 cap. `{status,body}` 반환 |
 | `magi.serve{port,handler}` | `net:listen` | `127.0.0.1`에 **상주 HTTP 서버**를 인프로세스로 띄움(외부 런타임 불필요 → 단일 바이너리·전 OS 동일). `port=0`은 자유 포트 자동 배정. `{port, stop()}` 반환 |
