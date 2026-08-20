@@ -11,6 +11,12 @@ import (
 	"syscall"
 )
 
+// portOwnerSupported gates REGISTRATION, not just the call. Advertising a tool that refuses every
+// call is how an agent spends steps discovering a door is painted on — the same drift the
+// permission allowlist had, and the reason ask_user and council are already withdrawn when they
+// cannot work. The platform is known when the binary is built, so there is no run to wait for.
+const portOwnerSupported = true
+
 // findPortOwners returns the processes whose LOCAL TCP port equals port, by
 // cross-referencing socket inodes from /proc/net/tcp{,6} against the /proc/<pid>/fd
 // symlinks (which resolve to "socket:[<inode>]"). The second return is whether the

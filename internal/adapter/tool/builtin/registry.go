@@ -67,7 +67,9 @@ func Default() *Registry {
 	r.Register(BashOutput{})
 	r.Register(BashKill{})
 	r.Register(BashInput{})
-	r.Register(PortOwner{})
+	if portOwnerSupported {
+		r.Register(PortOwner{}) // withdrawn where neither /proc nor lsof can answer
+	}
 	r.Register(TodoWrite{})
 	r.Register(Label{})
 	r.Register(Council{})

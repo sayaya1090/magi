@@ -9,6 +9,12 @@ import (
 	"syscall"
 )
 
+// portOwnerSupported gates REGISTRATION, not just the call. Advertising a tool that refuses every
+// call is how an agent spends steps discovering a door is painted on — the same drift the
+// permission allowlist had, and the reason ask_user and council are already withdrawn when they
+// cannot work. The platform is known when the binary is built, so there is no run to wait for.
+const portOwnerSupported = true
+
 // macOS has no /proc, but it always ships lsof — so the same question is answered by asking it.
 // Observed live (the server-lifecycle wave run, 2026-08-16): the flat "only available on Linux"
 // refusal pushed the model into pkill guesswork on the one platform this machine actually runs;

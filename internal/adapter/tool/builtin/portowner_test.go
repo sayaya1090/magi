@@ -98,3 +98,23 @@ func TestPortOwnerPlatformSupport(t *testing.T) {
 		}
 	}
 }
+
+// A tool that cannot work is not offered.
+//
+// port_owner needs /proc on Linux or lsof on macOS, and on any other platform findPortOwners
+// answers "unsupported" for every port. Registered anyway, it would sit in the model's tool list
+// on every request and refuse every call — the painted-door shape this tree has already paid for
+// with the permission allowlist, and the reason ask_user and council are withdrawn when they have
+// nobody to ask.
+func TestPortOwnerIsOfferedOnlyWherePortsCanBeRead(t *testing.T) {
+	_, offered := Default().Get("port_owner")
+	if offered != portOwnerSupported {
+		t.Errorf("port_owner offered = %v on a platform where it is supported = %v",
+			offered, portOwnerSupported)
+	}
+	// And the constant is not decoration: it has to agree with what the platform code does.
+	if _, supported := findPortOwners(1); supported != portOwnerSupported {
+		t.Errorf("findPortOwners reports supported = %v, the constant says %v",
+			supported, portOwnerSupported)
+	}
+}
