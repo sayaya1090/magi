@@ -491,7 +491,7 @@ internal/port       ports (interfaces) — LLM, Store, Council, PluginHost …
 internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
                     daemon (the engine over a socket) · fleet (what every magi is doing)
 plugins/examples    example Lua plugins
-docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING · DIAGRAMS
+docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING · DIAGRAMS · BENCHMARK
 ```
 
 | Choice | Why |
@@ -503,7 +503,8 @@ docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING 
 | **OpenAI-compatible LLM** | one protocol adapter reaches local (Ollama, vLLM) and hosted endpoints alike |
 
 Further reading: [ARCHITECTURE](docs/ARCHITECTURE.md) · [UI](docs/UI.md) · [DESIGN](docs/DESIGN.md) ·
-[EXTENDING](docs/EXTENDING.md) · [SPEC](docs/SPEC.md) · [DIAGRAMS](docs/DIAGRAMS.md).
+[EXTENDING](docs/EXTENDING.md) · [SPEC](docs/SPEC.md) · [DIAGRAMS](docs/DIAGRAMS.md) ·
+[BENCHMARK](docs/BENCHMARK.md) — what magi scores on Terminal-Bench 2.1, and how to run it yourself.
 Korean editions sit beside each one (`*.ko.md`).
 
 ---

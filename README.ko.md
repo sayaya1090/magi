@@ -491,7 +491,7 @@ internal/port       포트(인터페이스) — LLM, Store, Council, PluginHost 
 internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
                     daemon (소켓 위의 엔진) · fleet (모든 magi가 무엇을 하는지)
 plugins/examples    예제 Lua 플러그인
-docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING · DIAGRAMS
+docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING · DIAGRAMS · BENCHMARK
 ```
 
 | 선택 | 이유 |
@@ -504,7 +504,8 @@ docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING 
 
 더 읽을 것: [ARCHITECTURE](docs/ARCHITECTURE.ko.md) · [UI](docs/UI.ko.md) ·
 [DESIGN](docs/DESIGN.ko.md) · [EXTENDING](docs/EXTENDING.ko.md) · [SPEC](docs/SPEC.ko.md) ·
-[DIAGRAMS](docs/DIAGRAMS.ko.md).
+[DIAGRAMS](docs/DIAGRAMS.ko.md) ·
+[BENCHMARK](docs/BENCHMARK.ko.md) — magi가 Terminal-Bench 2.1에서 받는 점수, 그리고 직접 돌리는 법.
 
 ---
 
