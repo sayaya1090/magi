@@ -166,9 +166,22 @@ type DeliberationRequest struct {
 	// diff. It excludes the model's own narration (that is the Report/claim); admitting
 	// narration as evidence is how a defeatist agent talks its way to a false "done".
 	Actions string
-	Changes string           // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
-	Members []council.Member // who votes (defaults to the MAGI when empty)
-	Rule    council.Rule     // how votes are tallied (defaults to majority)
+	Changes string // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
+	// Context is the conversation the AGENT just had, as the model saw it, with the session's
+	// system prompt in ContextSystem. When set, a member judges on this instead of on the
+	// assembled evidence block: the request becomes [same system][same conversation][one tail
+	// message naming this member's lens], so the three members share every byte but the last —
+	// and share it with the agent's own turn, which the backend cached moments ago.
+	//
+	// It is a DIFFERENT thing to judge on. The evidence block excludes the agent's narration on
+	// purpose (a report is a claim, not evidence, and a persuasive one is how a false "done"
+	// gets voted through); the raw conversation puts that narration back in front of the judge.
+	// Off unless MAGI_COUNCIL_CONTEXT says otherwise, so the two can be compared on a bench
+	// rather than argued about.
+	Context       []session.Message
+	ContextSystem string
+	Members       []council.Member // who votes (defaults to the MAGI when empty)
+	Rule          council.Rule     // how votes are tallied (defaults to majority)
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string

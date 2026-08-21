@@ -180,8 +180,21 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// Atomic because the members are polled CONCURRENTLY and this callback runs on whichever
 	// goroutine answers — a plain counter here is a data race, and the race detector runs in CI.
 	var answered atomic.Int64
+	// On-context mode: hand the members the agent's own conversation rather than the assembled
+	// evidence block, so all three share the whole prefix with each other and with the turn just
+	// finished. The assembled fields still travel — the tally, the record and the debate round all
+	// read them, and a member that abstains for want of a backend must still be judged against the
+	// same task. Only what the member SEES changes.
+	var ctxMsgs []session.Message
+	var ctxSys string
+	if councilOnContextEnabled() {
+		full, _ := a.store.Read(ctx, sid, 0)
+		ctxMsgs = collapseRepeatedCalls(reconstruct(a.liveEvents(sid, full)))
+		ctxSys = a.stepSystemFor(sid, AgentSpec{}, s.Workdir, a.liveEvents(sid, full))
+	}
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
+		Context: ctxMsgs, ContextSystem: ctxSys,
 		NoChanges:    strings.TrimSpace(changes) == "",
 		Members:      members,
 		Rule:         rule,

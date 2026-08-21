@@ -246,14 +246,26 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
 	sys := memberSystem(m, req.Task, req.Keep)
+	// On-context mode (DeliberationRequest.Context): the member judges the agent's own
+	// conversation. The shared part — session system prompt, every message of the turn — is
+	// byte-identical across the three members and identical to what the agent just sent, so only
+	// the tail differs and only the tail is new to the backend. The lens moves out of the system
+	// prompt into that tail for the same reason: a prefix is shared only up to the first byte
+	// that differs, and a per-member system prompt differs at byte one.
+	head := req.Context
+	if len(head) > 0 {
+		sys = req.ContextSystem
+		user = memberTail(m, req)
+	}
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
 	ask := func(userMsg string) (memberReply, string, bool, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
-			Model:    model,
-			System:   sys,
-			Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: userMsg}}}},
-			Params:   map[string]any{"temperature": 0.0},
+			Model:  model,
+			System: sys,
+			Messages: append(append([]session.Message(nil), head...),
+				session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: userMsg}}}),
+			Params: map[string]any{"temperature": 0.0},
 		})
 		if err != nil {
 			return memberReply{}, "", false, err
@@ -412,6 +424,47 @@ type memberReply struct {
 // review, and this. The other three judged something magi authored BEFORE the work existed, and
 // went with it. What a member judges now is a finished turn against the task, which is the only
 // phase that was ever asked about the work itself.
+// verdictSchema is the reply shape on-context mode asks for. Kept beside memberTail rather than
+// shared with memberSystem's literal: the two modes are compared against each other on a bench,
+// and a shared constant would make a change to one silently change the other.
+const verdictSchema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,` +
+	`"rationale":"one sentence","feedback":"the specific gap (only if continue)",` +
+	`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE",` +
+	`"keep":"what is already correct through your lens — advisory, optional"}`
+
+// memberTail is what on-context mode appends after the agent's conversation: who is now speaking,
+// through which lens, and what shape the answer takes. Everything before it is shared, so this is
+// the only part the backend has not already processed.
+//
+// It repeats the discipline the system prompt carried — a report is a claim and not evidence — for
+// a reason particular to this mode: here the judge CAN see the agent's narration, which the
+// assembled evidence block deliberately withheld, and the line between "what was claimed" and
+// "what happened" has to be drawn where the claim is visible.
+func memberTail(m council.Member, req port.DeliberationRequest) string {
+	lens := council.Lenses[m.Lens]
+	if lens == "" {
+		lens = "Judge whether the task is genuinely complete."
+	}
+	var b strings.Builder
+	b.WriteString("── COUNCIL ──\nThe conversation above is one agent's turn on this task. " +
+		"You are not that agent and you are not continuing its work: you are judging whether the " +
+		"task is genuinely complete.\n\nTASK: " + req.Task + "\n\nYOUR LENS: " + lens + "\n\n" +
+		"Judge on what HAPPENED — the tool calls and their results above. The agent's own account " +
+		"of its work is a claim, not evidence: a confident summary of work that did not happen " +
+		"reads exactly like one that did. Where the two disagree, the results decide.\n")
+	if req.NoChanges {
+		b.WriteString("This turn changed no files — it was investigation or an answer. Do not " +
+			"demand edits that were never going to exist; judge the answer on its own terms.\n")
+	}
+	if req.Keep {
+		b.WriteString("Through YOUR lens only, also name in `keep` what is already right and must " +
+			"not be redone — a file, function or behaviour exactly as it appears above, or empty. " +
+			"It never changes your decision.\n")
+	}
+	b.WriteString("\nReply with ONE JSON object and nothing else:\n" + verdictSchema + "\n")
+	return b.String()
+}
+
 func memberSystem(m council.Member, task string, keep bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {

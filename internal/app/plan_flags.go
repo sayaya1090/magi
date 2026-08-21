@@ -50,6 +50,17 @@ func councilDebateEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_DEBATE",
 // ON; MAGI_COUNCIL_KEEP=0 restores fix-only feedback (A/B knob).
 func councilKeepEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_KEEP", true) }
 
+// councilOnContextEnabled hands the members the agent's own conversation instead of the assembled
+// evidence block. Every member then sends [same system][same conversation][its lens], so the three
+// share the whole prefix with each other and with the turn the agent just finished — where today
+// each member sends a differently-headed prompt and reads nothing from cache (measured: 9 council
+// sessions, cache_read 0 in every one).
+//
+// OFF by default because it is not only a cache change: the evidence block leaves the agent's
+// narration out on purpose, and the conversation puts it back. Whether a judge reading the whole
+// turn is better or more easily talked into "done" is a question for a bench, not a preference.
+func councilOnContextEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_CONTEXT", false) }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
