@@ -24,8 +24,10 @@ import (
 // the property itself, over the whole model view, so the next thing that edits history in place
 // fails here rather than on an invoice.
 //
-// Compaction is the one sanctioned exception — a fold deliberately replaces older turns with a
-// summary — so this grows a log that contains none.
+// Two exceptions are sanctioned, both deliberate trades recorded as facts in the log: compaction
+// (a fold replaces older turns with a summary) and result elision (one bulky, digested, recent
+// tool result becomes a stub — the cut that costs the prefix least). This grows a log containing
+// neither.
 func TestModelViewOnlyEverAppends(t *testing.T) {
 	part := func(role session.Role, p session.Part) event.Event {
 		d, _ := json.Marshal(event.PartAppendedData{Role: role, Part: p})

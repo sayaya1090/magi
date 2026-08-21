@@ -25,6 +25,7 @@ const (
 	TypePartAppended      Type = "part.appended"
 	TypePermissionDecided Type = "permission.decided"
 	TypeCompaction        Type = "compaction"
+	TypeResultElided      Type = "result.elided"
 	TypeTurnFinished      Type = "turn.finished"
 	TypeTodosChanged      Type = "todos.changed"
 	// TypeLabelsChanged — what the agent says this piece of work is ABOUT, in its own words.

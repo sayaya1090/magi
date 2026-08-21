@@ -95,6 +95,20 @@ type PermissionDecidedData struct {
 	Decision string `json:"decision"` // allow|deny|always
 }
 
+// ResultElidedData — TypeResultElided. One tool result, replaced in the MODEL's view by a short
+// stub because the window was closing and this result was the cheapest thing to give up: bulky,
+// already digested (the assistant narrated its conclusions right after it), and re-derivable by
+// re-reading the file or re-running the command. The original is never touched — it stays in the
+// log, the person's view shows it, and only reconstruct's model view substitutes the stub.
+//
+// Eliding near the TAIL is the point: a prompt cache matches from the first byte, so replacing an
+// old message re-bills everything after it, while replacing a recent one re-bills almost nothing.
+// The summarising fold does the opposite and stays the fallback for what this cannot reclaim.
+type ResultElidedData struct {
+	CallID string `json:"callId"`
+	Bytes  int    `json:"bytes"`
+}
+
 // CompactionData — TypeCompaction (summary snapshot replacing prior events).
 // Shards make the compaction RE-HYDRATABLE: the lossy summary stays in context,
 // but the original messages persist on disk and are indexed here by topic so the

@@ -51,7 +51,94 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	if estimateTokens("", msgs) <= budget {
 		return false
 	}
+	// Before the fold, the cheaper cut: give up recent bulky tool results instead of the oldest
+	// turns. A fold rewrites the head, so the cache re-bills everything behind it and a summariser
+	// call is paid to preserve what cannot be re-derived; an elided result costs neither — the
+	// replacement lands near the TAIL, and the bytes are re-derivable (the file is still on disk,
+	// the command still runs). Only DIGESTED results qualify: if the assistant never narrated what
+	// a result meant, eliding it deletes knowledge that exists nowhere else, and that is exactly
+	// what the fold's summary is for. When eliding reclaims enough, the fold does not run at all;
+	// when it cannot, the fold runs over what remains.
+	if n, covered := a.elideRecentResults(ctx, s, actor, evs, estimateTokens("", msgs)-budget); n > 0 {
+		if covered {
+			return true
+		}
+		evs, _ = a.store.Read(ctx, s.ID, 0)
+	}
 	return a.compactNow(ctx, s, agent, actor, evs)
+}
+
+// elideMinBytes: below this a result is not worth a stub — the stub itself is ~150 bytes, and a
+// small result may be load-bearing detail. Well above stub size, well below the bulky reads and
+// build logs that actually fill windows.
+const elideMinBytes = 2048
+
+// elideRecentResults marks bulky, digested tool results as elided, newest first, until the
+// overage is covered or candidates run out. Returns how many were marked and whether the
+// estimated savings covered the overage.
+//
+// Newest-first is the cache arithmetic: replacing a result re-bills only what follows it, so the
+// later the cut, the cheaper. The single newest result is exempt — it is what the model is about
+// to act on. "Digested" means an assistant TEXT part follows the result somewhere before the next
+// tool result: the model wrote down what it learned, so the raw bytes are redundant as well as
+// re-derivable. An undigested result is left for the fold, whose summary supplies the digestion.
+func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor event.Actor, evs []event.Event, overTokens int) (int, bool) {
+	if overTokens <= 0 {
+		return 0, true
+	}
+	already := map[string]bool{}
+	type cand struct {
+		callID string
+		bytes  int
+	}
+	var results []cand   // every tool result, in order
+	digested := map[string]bool{}
+	lastResult := "" // callID of the newest result — exempt
+	for _, ev := range evs {
+		switch ev.Type {
+		case event.TypeResultElided:
+			var d event.ResultElidedData
+			if json.Unmarshal(ev.Data, &d) == nil {
+				already[d.CallID] = true
+			}
+		case event.TypePartAppended:
+			var d event.PartAppendedData
+			if json.Unmarshal(ev.Data, &d) != nil {
+				continue
+			}
+			for _, p := range []session.Part{d.Part} {
+				if p.ToolResult != nil {
+					results = append(results, cand{p.ToolResult.CallID, len(p.ToolResult.Content)})
+					lastResult = p.ToolResult.CallID
+				}
+				if p.Kind == session.PartText && d.Role == session.RoleAssistant && len(results) > 0 {
+					digested[results[len(results)-1].callID] = true
+				}
+			}
+		}
+	}
+	saved, n := 0, 0
+	for i := len(results) - 1; i >= 0; i-- {
+		c := results[i]
+		if c.callID == lastResult || c.callID == "" || already[c.callID] ||
+			!digested[c.callID] || c.bytes < elideMinBytes {
+			continue
+		}
+		d, _ := json.Marshal(event.ResultElidedData{CallID: c.callID, Bytes: c.bytes})
+		if a.appendFact(ctx, s.ID, event.TypeResultElided, actor, d) != nil {
+			break
+		}
+		saved += c.bytes / 4
+		n++
+		if saved >= overTokens {
+			break
+		}
+	}
+	if n > 0 {
+		a.emitToolProgress(s.ID, actor, "", "compact",
+			fmt.Sprintf("freed the window by eliding %d bulky tool result(s) — re-derivable, and already narrated", n))
+	}
+	return n, saved >= overTokens
 }
 
 // compactNow folds older context into a summary down to the last keepRecentEvents facts,

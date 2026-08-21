@@ -41,6 +41,22 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 	var entries []*entry
 	index := map[string]*entry{} // messageID -> entry
 
+	// Elided tool results, collected up front because the elide event always lands after the part
+	// it names. The MODEL's view substitutes the stub; the person's view (whole) keeps the bytes —
+	// what the model can no longer afford to re-read is still what actually happened.
+	elided := map[string]int{}
+	if !whole {
+		for _, ev := range evs {
+			if ev.Type != event.TypeResultElided {
+				continue
+			}
+			var d event.ResultElidedData
+			if json.Unmarshal(ev.Data, &d) == nil && d.CallID != "" {
+				elided[d.CallID] = d.Bytes
+			}
+		}
+	}
+
 	// Recall topics accumulate across every compaction so the surviving (latest)
 	// summary advertises ALL recoverable topics — a later compaction drops the
 	// earlier summary entry, so without this its topics would become undiscoverable
@@ -156,6 +172,13 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 			if json.Unmarshal(ev.Data, &d) != nil {
 				continue
 			}
+			if d.Part.ToolResult != nil {
+				if n, ok := elided[d.Part.ToolResult.CallID]; ok {
+					r := *d.Part.ToolResult
+					r.Content = elideStub(n)
+					d.Part.ToolResult = &r
+				}
+			}
 			addPart(ev.Seq, ev.TS, d.MessageID, d.Role, d.Part)
 		}
 	}
@@ -165,6 +188,15 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 		out = append(out, e.msg)
 	}
 	return out
+}
+
+// elideStub is the fixed text an elided result shows the model: what happened, how big it was,
+// and how to get it back. Deterministic per byte count, so every rebuild of the same log renders
+// the same bytes and the prefix cache holds across steps.
+func elideStub(n int) json.RawMessage {
+	b, _ := json.Marshal("[tool result elided to keep the conversation inside the context window (" +
+		itoa(int64(n)) + " bytes). It is re-derivable: re-read the file or re-run the command if it is needed again.]")
+	return b
 }
 
 // filterDeferredEvents removes user prompt events whose MessageID is currently deferred
