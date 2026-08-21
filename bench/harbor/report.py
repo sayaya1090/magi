@@ -204,7 +204,14 @@ def collect(jobs_glob):
             if not (started and finished):
                 continue
             tok, turns, council = trial_facts(os.path.join(trial, "agent"))
-            portfile = os.path.join(trial, "agent", "backend-port.txt")
+            # Either name: trials recorded before the rename wrote shim-port.txt, and a report
+            # that cannot find the port silently falls back to "default", which turns an exact
+            # per-trial cost into a share-out for every one of them.
+            portfile = next(
+                (f for f in (os.path.join(trial, "agent", n)
+                             for n in ("backend-port.txt", "shim-port.txt")) if os.path.exists(f)),
+                os.path.join(trial, "agent", "backend-port.txt"),
+            )
             row = {
                 "task": name, "job": os.path.basename(job),
                 "t0": epoch(started), "t1": epoch(finished),

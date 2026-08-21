@@ -302,11 +302,17 @@ class MagiAgent(BaseInstalledAgent):
         # over, released beside the sink below, so at most one trial ever talks to a given backend
         # — which is what keeps its ledger differenceable and its lock uncontended.
         slots = contextlib.ExitStack()
-        pool = [p.strip() for p in os.environ.get("MAGI_BENCH_BACKEND_PORTS", "").split(",") if p.strip()]
+        # Both names: a driver written against the older one keeps working. Renaming the
+        # variable without this silently dropped the per-trial claim mid-campaign — every
+        # trial then shared one backend, which costs the cost column AND the prompt cache,
+        # since two interleaved conversations cannot both extend one resume anchor.
+        raw = os.environ.get("MAGI_BENCH_BACKEND_PORTS") or os.environ.get("MAGI_BENCH_SHIM_PORTS", "")
+        pool = [p.strip() for p in raw.split(",") if p.strip()]
         if pool and env.get("MAGI_BASE_URL"):
             claimed = slots.enter_context(_claimed_backend_port(pool))
             env["MAGI_BASE_URL"] = re.sub(r":\d+/", f":{claimed}/", env["MAGI_BASE_URL"], count=1)
-            (self.logs_dir / "backend-port.txt").write_text(claimed + "\n")
+            for fname in ("backend-port.txt", "shim-port.txt"):
+                (self.logs_dir / fname).write_text(claimed + "\n")
 
         with stdout_path.open("w") as f, events_path.open("w") as ev:
             sink = EventSink(events=ev, transcript=f)
