@@ -1,0 +1,90 @@
+package app
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
+)
+
+// The model view is APPEND-ONLY. What a person reads and what the model is sent are two different
+// renderings of one log (rebuild's `whole` flag), and only the person's may reorder, decorate or
+// fold — because a prompt cache matches from the start, so rewriting anything already sent throws
+// away every token after it.
+//
+// This has now been rediscovered twice, each time from a bill rather than from a test:
+//
+//	bc3f7a99  repeat-collapse restubbed an already-sent result. Measured on a paid backend:
+//	          cache_read ZERO across every call of the run, $2.68 over 8 calls.
+//	8b5f8c47  the per-step block moved out of the system prompt to keep IT stable, and what was
+//	          left was called small without anyone measuring it.
+//
+// The existing guard (TestCollapseNeverRewritesWhatWasAlreadySent) pins one function. This pins
+// the property itself, over the whole model view, so the next thing that edits history in place
+// fails here rather than on an invoice.
+//
+// Compaction is the one sanctioned exception — a fold deliberately replaces older turns with a
+// summary — so this grows a log that contains none.
+func TestModelViewOnlyEverAppends(t *testing.T) {
+	part := func(role session.Role, p session.Part) event.Event {
+		d, _ := json.Marshal(event.PartAppendedData{Role: role, Part: p})
+		return event.Event{Type: event.TypePartAppended, Data: d}
+	}
+	call := func(id, name, args string) event.Event {
+		return part(session.RoleAssistant, session.Part{
+			Kind:     session.PartToolCall,
+			ToolCall: &session.ToolCall{CallID: id, Name: name, Args: json.RawMessage(args)},
+		})
+	}
+	result := func(id, out string) event.Event {
+		return part(session.RoleTool, session.Part{
+			Kind:       session.PartToolResult,
+			ToolResult: &session.ToolResult{CallID: id, Content: json.RawMessage(out)},
+		})
+	}
+
+	// The view as buildStepRequest actually assembles it: the log rebuilt, then the collapse pass
+	// over it. Testing reconstruct alone would miss the exact function that broke this before.
+	view := func(evs []event.Event) []string { return render(collapseRepeatedCalls(reconstruct(evs))) }
+	t.Setenv("MAGI_COLLAPSE_REPEATS", "1")
+
+	evs := []event.Event{userPromptEvt(t, "m1", "fix the build")}
+	prev := view(evs)
+	for step := 0; step < 12; step++ {
+		id := "c" + string(rune('a'+step))
+		// The same call and the same failure over and over: the shape that made collapse rewrite
+		// history, and the shape a stuck model actually produces.
+		evs = append(evs, call(id, "bash", `{"command":"make"}`), result(id, `"exit 1 FAIL"`))
+		now := view(evs)
+		if len(now) < len(prev) {
+			t.Fatalf("step %d: the model view SHRANK, %d entries → %d", step, len(prev), len(now))
+		}
+		for i := range prev {
+			if now[i] != prev[i] {
+				t.Fatalf("step %d: entry %d was rewritten after it had been sent\n  was: %q\n  now: %q",
+					step, i, prev[i], now[i])
+			}
+		}
+		prev = now
+	}
+}
+
+// render flattens the model view to one comparable string per message part, which is the
+// granularity a prompt cache actually sees.
+func render(msgs []session.Message) []string {
+	var out []string
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			s := string(m.Role) + "|" + string(p.Kind) + "|" + p.Text
+			if p.ToolCall != nil {
+				s += "|" + p.ToolCall.Name + "|" + string(p.ToolCall.Args)
+			}
+			if p.ToolResult != nil {
+				s += "|" + string(p.ToolResult.Content)
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}
