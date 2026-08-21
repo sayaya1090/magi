@@ -187,11 +187,143 @@ we cannot derive from the tokens and a price list is not a measurement anyone ca
 tokens are reported and the dollars are not. Cost the run against your own backend's rates if you
 need a number.
 
-**Two things about this run that a reader should weigh.** It is ONE attempt per task, where the
-published leaderboard entries are five, so its pass rate carries a much wider error bar than the
-±1.6% those entries quote. And every task ran an amd64 image on an arm64 host under translation:
-one failure (`qemu-alpine-ssh`) is a translation fault that cannot happen on a native amd64 machine,
-and the compute-heavy timeouts had a handicap that a native run would not.
+**One attempt per task**, where the published leaderboard entries are five, so this pass rate
+carries a much wider error bar than the ±1.6% those entries quote.
+
+### Per task
+
+Every task, in the order the dataset names them. No cost column: see the note above on why the
+dollars are not published. `in` counts cache reads, so `in − cached` is what was written fresh; a
+trial killed by the agent timeout never reaches `turn.finished` and reads `?` rather than `0`,
+because a zero would be a claim. `finish gate` is the council's tally when the turn declared
+itself done — `— none` means it never got that far.
+
+| task | | min | turns | calls | in | cached | out | finish gate |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| `adaptive-rejection-sampler` | ✅ PASS | 15 | 3 | 38 | 1,440,668 | 1,105,646 | 68,128 | done 3-0 |
+| `bn-fit-modify` | ✅ PASS | 7 | 2 | 35 | 897,651 | 688,096 | 19,943 | done 3-0 |
+| `break-filter-js-from-html` | ✅ PASS | 5 | 2 | 20 | 311,187 | 225,487 | 15,868 | done 3-0 |
+| `build-cython-ext` | ✅ PASS | 10 | 3 | 68 | 3,046,657 | 2,553,973 | 22,803 | done 3-0 |
+| `build-pmars` | ✅ PASS | 12 | 2 | 87 | 4,147,391 | 3,319,594 | 39,728 | continue 1-2 |
+| `build-pov-ray` | ✅ PASS | 7 | 2 | 47 | 1,522,215 | 1,220,568 | 10,805 | done 3-0 |
+| `caffe-cifar-10` | ✅ PASS | 40 | 2 | 64 | 2,442,396 | 1,993,433 | 22,136 | done 3-0 |
+| `cancel-async-tasks` | ✅ PASS | 4 | 3 | 25 | 428,024 | 316,250 | 15,145 | done 3-0 |
+| `chess-best-move` | ⏱ TIME | 16 | 2 | 38 | ? | ? | 56,307 | — none |
+| `circuit-fibsqrt` | ✅ PASS | 26 | 4 | 33 | 1,148,930 | 818,913 | 99,700 | done 3-0 |
+| `cobol-modernization` | ✅ PASS | 13 | 5 | 55 | 1,891,579 | 1,505,162 | 58,807 | done 3-0 |
+| `code-from-image` | ✅ PASS | 3 | 1 | 19 | 257,221 | 178,090 | 6,446 | done 3-0 |
+| `compile-compcert` | ✅ PASS | 20 | 1 | 35 | 830,665 | 643,978 | 12,347 | done 3-0 |
+| `configure-git-webserver` | ✅ PASS | 8 | 2 | 36 | 696,797 | 484,981 | 24,970 | done 3-0 |
+| `constraints-scheduling` | ✅ PASS | 6 | 2 | 14 | 225,016 | 142,827 | 31,867 | done 3-0 |
+| `count-dataset-tokens` | ✅ PASS | 3 | 2 | 16 | 241,814 | 145,960 | 4,266 | done 3-0 |
+| `crack-7z-hash` | ✅ PASS | 15 | 1 | 32 | 989,766 | 805,681 | 6,431 | done 3-0 |
+| `custom-memory-heap-crash` | ✅ PASS | 18 | 2 | 46 | 1,560,459 | 1,216,969 | 71,367 | done 3-0 |
+| `db-wal-recovery` | ❌ FAIL | 16 | 4 | 43 | 923,238 | 553,646 | 64,458 | done 3-0 |
+| `distribution-search` | ✅ PASS | 5 | 3 | 18 | 367,615 | 268,256 | 22,374 | done 3-0 |
+| `dna-assembly` | ✅ PASS | 23 | 5 | 53 | 2,339,706 | 1,802,281 | 112,882 | done 3-0 |
+| `dna-insert` | ❌ FAIL | 12 | 1 | 32 | 902,799 | 714,020 | 48,978 | done 3-0 |
+| `extract-elf` | ✅ PASS | 6 | 2 | 20 | 367,858 | 259,271 | 26,768 | done 3-0 |
+| `extract-moves-from-video` | ⏱ TIME | 32 | 1 | 30 | ? | ? | 10,010 | — none |
+| `feal-differential-cryptanalysis` | ✅ PASS | 10 | 3 | 18 | 468,530 | 330,455 | 45,073 | done 3-0 |
+| `feal-linear-cryptanalysis` | ✅ PASS | 20 | 2 | 30 | 1,101,435 | 870,283 | 94,922 | done 3-0 |
+| `filter-js-from-html` | ❌ FAIL | 23 | 6 | 40 | 1,170,484 | 812,129 | 65,480 | done 3-0 |
+| `financial-document-processor` | ✅ PASS | 5 | 1 | 16 | 268,092 | 138,996 | 16,624 | done 3-0 |
+| `fix-code-vulnerability` | ✅ PASS | 3 | 1 | 31 | 669,854 | 524,008 | 6,386 | done 3-0 |
+| `fix-git` | ✅ PASS | 3 | 2 | 15 | 239,694 | 140,023 | 10,869 | done 3-0 |
+| `fix-ocaml-gc` | ✅ PASS | 45 | 1 | 59 | 1,874,773 | 1,475,071 | 16,687 | done 3-0 |
+| `gcode-to-text` | ⏱ TIME | 15 | 3 | 52 | ? | ? | 58,369 | — none |
+| `git-leak-recovery` | ✅ PASS | 2 | 1 | 13 | 141,033 | 87,760 | 3,462 | done 3-0 |
+| `git-multibranch` | ✅ PASS | 5 | 1 | 36 | 683,876 | 510,832 | 10,951 | done 3-0 |
+| `gpt2-codegolf` | ⏱ TIME | 16 | 3 | 27 | ? | ? | 71,833 | — none |
+| `headless-terminal` | ✅ PASS | 5 | 4 | 22 | 363,307 | 261,228 | 18,591 | done 3-0 |
+| `hf-model-inference` | ✅ PASS | 4 | 3 | 13 | 443,407 | 312,411 | 8,531 | done 3-0 |
+| `install-windows-3.11` | ❌ FAIL | 57 | 5 | 116 | 7,187,422 | 5,747,391 | 131,504 | done 2-1 |
+| `kv-store-grpc` | ✅ PASS | 3 | 1 | 21 | 304,773 | 224,158 | 5,651 | done 3-0 |
+| `large-scale-text-editing` | ✅ PASS | 6 | 2 | 17 | 284,771 | 189,384 | 18,637 | done 3-0 |
+| `largest-eigenval` | ✅ PASS | 5 | 4 | 23 | 380,108 | 285,554 | 13,042 | done 3-0 |
+| `llm-inference-batching-scheduler` | ✅ PASS | 14 | 5 | 44 | 1,849,604 | 1,427,495 | 68,297 | done 3-0 |
+| `log-summary-date-ranges` | ✅ PASS | 2 | 3 | 18 | 277,563 | 188,576 | 6,698 | done 3-0 |
+| `mailman` | ✅ PASS | 20 | 4 | 77 | 3,972,780 | 3,163,747 | 65,203 | done 3-0 |
+| `make-doom-for-mips` | ⏱ TIME | 16 | 2 | 46 | ? | ? | 66,226 | — none |
+| `make-mips-interpreter` | ❌ FAIL | 30 | 5 | 53 | 3,626,465 | 2,777,225 | 147,035 | done 3-0 |
+| `mcmc-sampling-stan` | ✅ PASS | 18 | 4 | 73 | 5,624,196 | 4,489,664 | 22,807 | done 3-0 |
+| `merge-diff-arc-agi-task` | ✅ PASS | 5 | 2 | 32 | 698,206 | 553,270 | 13,707 | done 3-0 |
+| `model-extraction-relu-logits` | ✅ PASS | 5 | 1 | 15 | 291,140 | 181,564 | 22,567 | done 3-0 |
+| `modernize-scientific-stack` | ✅ PASS | 3 | 2 | 20 | 291,293 | 210,861 | 9,013 | done 3-0 |
+| `mteb-leaderboard` | ✅ PASS | 21 | 5 | 66 | 3,208,550 | 2,655,831 | 20,609 | done 3-0 |
+| `mteb-retrieve` | ✅ PASS | 7 | 5 | 26 | 423,831 | 296,069 | 8,599 | done 3-0 |
+| `multi-source-data-merger` | ✅ PASS | 4 | 2 | 23 | 306,685 | 112,815 | 12,158 | done 3-0 |
+| `nginx-request-logging` | ✅ PASS | 5 | 1 | 23 | 391,873 | 261,208 | 15,843 | done 2-1 |
+| `openssl-selfsigned-cert` | ❌ FAIL | 3 | 3 | 24 | 388,691 | 267,546 | 6,743 | done 3-0 |
+| `overfull-hbox` | ✅ PASS | 5 | 1 | 20 | 354,784 | 242,842 | 14,927 | done 3-0 |
+| `password-recovery` | ✅ PASS | 6 | 1 | 29 | 577,451 | 436,767 | 24,587 | done 3-0 |
+| `path-tracing` | ⏱ TIME | 30 | 6 | 62 | ? | ? | 135,337 | — none |
+| `path-tracing-reverse` | ⏱ TIME | 31 | 8 | 43 | ? | ? | 139,512 | — none |
+| `polyglot-c-py` | ✅ PASS | 5 | 1 | 16 | 260,952 | 166,832 | 12,925 | done 3-0 |
+| `polyglot-rust-c` | ✅ PASS | 7 | 2 | 15 | 372,933 | 277,544 | 28,579 | done 3-0 |
+| `portfolio-optimization` | ✅ PASS | 5 | 2 | 23 | 393,289 | 261,708 | 11,381 | done 3-0 |
+| `protein-assembly` | ❌ FAIL | 28 | 4 | 64 | 6,304,097 | 3,864,733 | 81,182 | done 3-0 |
+| `prove-plus-comm` | ✅ PASS | 2 | 3 | 13 | 153,488 | 105,200 | 4,994 | done 3-0 |
+| `pypi-server` | ✅ PASS | 4 | 2 | 24 | 364,535 | 255,976 | 4,973 | done 3-0 |
+| `pytorch-model-cli` | ✅ PASS | 6 | 2 | 34 | 610,251 | 463,591 | 11,308 | done 3-0 |
+| `pytorch-model-recovery` | ✅ PASS | 5 | 2 | 17 | 276,851 | 177,817 | 10,624 | done 3-0 |
+| `qemu-alpine-ssh` | ❌ FAIL | 11 | 4 | 70 | 2,083,920 | 1,719,255 | 25,630 | done 3-0 |
+| `qemu-startup` | ✅ PASS | 9 | 5 | 44 | 1,113,744 | 888,035 | 26,269 | done 3-0 |
+| `query-optimize` | ✅ PASS | 19 | 2 | 16 | 234,979 | 157,869 | 13,641 | done 3-0 |
+| `raman-fitting` | ❌ FAIL | 9 | 6 | 38 | 832,768 | 596,260 | 35,366 | done 3-0 |
+| `regex-chess` | ✅ PASS | 40 | 6 | 48 | 2,086,417 | 1,685,916 | 130,722 | done 3-0 |
+| `regex-log` | ✅ PASS | 7 | 1 | 12 | 148,460 | 76,937 | 15,855 | done 3-0 |
+| `reshard-c4-data` | ✅ PASS | 23 | 4 | 40 | 1,044,314 | 822,756 | 80,736 | done 3-0 |
+| `rstan-to-pystan` | ⏱ TIME | 31 | 7 | 66 | ? | ? | 39,027 | continue 1-2 |
+| `sam-cell-seg` | ✅ PASS | 13 | 5 | 35 | 1,052,136 | 784,669 | 39,538 | done 3-0 |
+| `sanitize-git-repo` | ⏱ TIME | 16 | 3 | 54 | ? | ? | 20,489 | continue 1-2 |
+| `schemelike-metacircular-eval` | ⏱ TIME | 41 | 1 | 15 | ? | ? | 45,534 | — none |
+| `sparql-university` | ✅ PASS | 6 | 2 | 18 | 338,046 | 229,593 | 19,903 | done 3-0 |
+| `sqlite-db-truncate` | ✅ PASS | 3 | 1 | 13 | 172,093 | 108,351 | 9,134 | done 3-0 |
+| `sqlite-with-gcov` | ✅ PASS | 5 | 1 | 30 | 592,914 | 452,392 | 7,803 | done 3-0 |
+| `torch-pipeline-parallelism` | ❌ FAIL | 12 | 2 | 24 | 504,037 | 341,632 | 29,230 | done 3-0 |
+| `torch-tensor-parallelism` | ✅ PASS | 11 | 1 | 17 | 329,882 | 214,404 | 24,074 | done 3-0 |
+| `train-fasttext` | ⏱ TIME | 70 | 4 | 50 | ? | ? | 22,049 | — none |
+| `tune-mjcf` | ✅ PASS | 10 | 2 | 27 | 572,953 | 439,049 | 17,864 | done 3-0 |
+| `video-processing` | ❌ FAIL | 8 | 4 | 21 | 510,815 | 406,257 | 29,850 | — none |
+| `vulnerable-secret` | ✅ PASS | 13 | 1 | 20 | 289,763 | 193,780 | 6,782 | done 3-0 |
+| `winning-avg-corewars` | ⏱ TIME | 61 | 3 | 68 | ? | ? | 259,604 | continue 0-3 |
+| `write-compressor` | ⏱ TIME | 16 | 1 | 2 | ? | ? | 5,344 | — none |
+
+Seven of the eleven verifier failures carry `done 3-0`: the finish gate agreed, unanimously, that
+work was complete which the verifier then rejected. Two trials were held back by the gate and timed
+out (`continue 1-2`, `continue 0-3`), and in both the verifier agreed with the gate rather than the
+agent. On this backend the gate errs toward letting work through, and that is the largest single
+defect this run surfaced — larger than anything about tokens.
+
+### The machine, and the tasks it cannot do justice to
+
+| | |
+|---|---|
+| host | Mac mini (Mac16,11), Apple M4 Pro, 14 cores (10P + 4E), 64 GB, macOS 26.5.2, arm64 |
+| Docker VM | 7 CPUs, 7.7 GiB — which is what the trials actually share, not the 64 GB above |
+| task images | amd64, run on arm64 **under translation** |
+
+The VM allocation is the number that matters: at two concurrent trials each gets ~3.5 cores and
+~3.8 GiB, and a task that compiles or trains something is working inside that, not inside a 14-core
+machine. Raising the VM's share is what would make higher concurrency safe.
+
+Three consequences are visible in the results rather than hypothetical:
+
+- **`qemu-alpine-ssh` cannot pass here.** Its container logs `rosetta error: Unimplemented syscall
+  number 282` — an x86 binary hitting a hole in Apple's translation layer. The agent diagnosed it
+  correctly ("amd64 qemu can never run tcg under rosetta here"). It failed on the re-run too. On a
+  native amd64 host this failure does not exist.
+- **`install-windows-3.11` ran QEMU without KVM** (`/dev/kvm` absent), so its guest ran on pure
+  software emulation for 57 minutes and lost. A Linux host would need `--device /dev/kvm` passed
+  through to do better, so this one is not purely a macOS penalty — but it is a penalty.
+- **The compute-heavy timeouts carried the translation overhead**, which falls hardest on exactly
+  the work they do: `path-tracing`, `path-tracing-reverse`, `make-doom-for-mips`, `gpt2-codegolf`.
+  How much of each timeout is translation and how much is the agent is not separated here, and
+  should not be guessed at.
+
+A score from this machine is comparable to another score from a machine given the same room, and
+not otherwise.
 
 For comparison, the same loop on a local `qwen3.8:27b-mlx` over a 14-task subset scored 9/14 at
 every reasoning effort that was tried.
