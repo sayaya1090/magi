@@ -531,3 +531,45 @@ func TestNoteEditPerFile(t *testing.T) {
 		t.Fatalf("a.go forward edit should not warn, got %q", w)
 	}
 }
+
+// TestVolatileContextPrefixSurvivesTheClock: the block rides at the tail of every request, so
+// whatever it puts FIRST decides how much of it a prompt cache can reuse. The stopwatch changes
+// on every step by construction; when it led the block, every byte after it was a fresh cache
+// write on every call — measured at 4,742 to 7,304 tokens per call across an 89-task campaign,
+// which two earlier cache fixes (8b5f8c47, bc3f7a99) never caught because neither looked at the
+// block itself.
+//
+// So the invariant is asserted rather than commented: advancing only the clock must leave
+// everything before the clock line byte-identical.
+func TestVolatileContextPrefixSurvivesTheClock(t *testing.T) {
+	a := &App{states: map[session.SessionID]*sessionState{
+		"s1": {todos: []session.Todo{{Content: "implement X", Status: "in_progress"}}},
+	}}
+	s := session.Session{ID: "s1"}
+	early := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 1, 0, 2*time.Minute)
+	later := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 9, 0, 47*time.Minute)
+	if early == later {
+		t.Fatal("the clock did not move at all — this test proves nothing as written")
+	}
+	head := func(v string) string {
+		if i := strings.Index(v, "You have been working for"); i >= 0 {
+			return v[:i]
+		}
+		return v
+	}
+	// Guard the guard: with the clock leading the block — the arrangement this test exists to
+	// forbid — head() returns "" on both sides and the comparison below passes vacuously.
+	if head(later) == "" {
+		t.Fatal("nothing precedes the stopwatch, so it is leading the block again")
+	}
+	if head(early) != head(later) {
+		t.Fatalf("the clock moved and rewrote what came before it:\n--- at 2m ---\n%s\n--- at 47m ---\n%s",
+			head(early), head(later))
+	}
+	// And the clock must be LAST: nothing may follow it, or that content is re-written too.
+	if i := strings.Index(later, "You have been working for"); i < 0 {
+		t.Fatal("the stopwatch went missing")
+	} else if rest := later[i:]; strings.Contains(rest, "\n\n") {
+		t.Fatalf("something was appended after the stopwatch, which puts it back in the middle: %q", rest)
+	}
+}

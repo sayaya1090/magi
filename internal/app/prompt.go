@@ -78,36 +78,36 @@ func (a *App) systemFor(agent AgentSpec, workdir string) string {
 // compaction sizing, and reconstruct is O(events), so it is built once per step and
 // shared rather than re-derived here for the retrieval query.
 func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, evs []event.Event, raw []session.Message, step, maxSteps int, elapsed time.Duration) string {
-	var b strings.Builder
-	// There is no step ceiling any more, so there is no budget to report. What is left is the one
-	// number that was always magi's own and always true: how long this has been running. A model
-	// that has been grinding for twenty minutes can decide for itself that the approach is wrong —
-	// which is what the ceiling was trying to force, minus the forcing. No external information is
-	// in it: it is magi's own stopwatch, started when the turn started.
-	if elapsed >= time.Minute {
-		b.WriteString(fmt.Sprintf("\n\nYou have been working for %s of wall-clock time so far.", fmtElapsed(elapsed)))
-	}
-	// User-set time budget (--time-budget, default off): a legitimate user input, stated as
-	// guidance. Kept OFF for leaderboard/official comparison runs.
-	if tb := a.cfg.TimeBudget; tb > 0 {
-		rem := tb - elapsed
-		if rem < 0 {
-			b.WriteString(fmt.Sprintf(" The user asked for this to finish within %s — that budget is now EXCEEDED: land the smallest honest result immediately.", fmtElapsed(tb)))
-		} else {
-			b.WriteString(fmt.Sprintf(" The user asked for this to finish within %s (about %s remaining).", fmtElapsed(tb), fmtElapsed(rem)))
+	// ORDER IS THE POINT, and it is a cache decision rather than a stylistic one.
+	//
+	// This block rides at the TAIL of every request (buildStepRequest), so the conversation ahead
+	// of it stays a cacheable prefix — that was 8b5f8c47, which moved it out of the system prompt
+	// and called what was left "small". Nobody measured it. On the 89-task campaign it ran 4,742
+	// to 7,304 tokens PER CALL, and the first thing in it was the wall clock: a number that
+	// changes every step, at the front of the block, which makes every byte after it a fresh cache
+	// WRITE on every single call. The prefix stopped at the block's first line.
+	//
+	// A prefix cache matches from the start, so the fix is free: write what does not change first
+	// and what changes last. Three tiers, in this order —
+	//
+	//   1. constant within a turn — the plan, and the retrieval hooks, which key on the task text
+	//      and are memoised per turn (experiencePointerCached, gatherContextCached)
+	//   2. append-only growth  — runState, which gains a line per tool call and rewrites none
+	//   3. changes every step  — the stopwatch, and the interject note the caller appends after us
+	//
+	// Then a call re-writes only what genuinely differs from the last one instead of the lot.
+	// Sections are assembled separately and joined, so each carries no leading blank line of its
+	// own and moving one cannot silently glue it to its neighbour.
+	var sections []string
+	add := func(v string) {
+		if v = strings.TrimSpace(v); v != "" {
+			sections = append(sections, v)
 		}
 	}
+
+	// ── 1. constant within a turn ────────────────────────────────────────────
 	if td := a.Todos(s.ID); len(td) > 0 {
-		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
-	}
-	// The state of the run, re-rendered every step from magi's own record — the calls it granted,
-	// how they really ended, the paths they wrote, and the background commands still alive. A
-	// screen-driven agent re-reads its terminal before every decision, so its view of the world is
-	// never older than the last thing it did; magi's data was all recorded and none of it was ever
-	// handed back, so the agent's picture of what it had done was whatever it remembered saying.
-	// This is the same refresh, over the store magi actually keeps.
-	if st := a.runState(evs); st != "" {
-		b.WriteString("\n\n" + st)
+		add("# Current plan (TODOs)\n" + formatTodos(td))
 	}
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
@@ -117,7 +117,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// told to call something reads that as available and calls it — then gets a refusal, and
 	// repeats, because nothing in its window says the tool is gone. See gateAllowlist.
 	if agent.allows("recall_context") {
-		b.WriteString(shardHints(evs, currentTaskText(evs)))
+		add(shardHints(evs, currentTaskText(evs)))
 	}
 	// Both retrieval hooks below key on the last user prompt, which is constant across a
 	// turn; the per-turn caches absorb the (identical) lookups the remaining steps repeat.
@@ -138,31 +138,70 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// then refused when it followed it.
 	if a.cfg.Experience != nil && retrievalQ != "" && agent.allows("recall_memory") {
 		if p := a.experiencePointerCached(ctx, s.ID, retrievalQ, agent.Groups); p != "" {
-			b.WriteString("\n\n# Shared experience\n" + p)
+			add("# Shared experience\n" + p)
 		}
 	}
 	// Plugin-registered context providers (RAG).
 	if q := retrievalQ; q != "" {
 		if c := a.gatherContextCached(ctx, s, q); c != "" {
-			b.WriteString("\n\n# Retrieved context\n" + c)
+			add("# Retrieved context\n" + c)
 		}
 	}
 	// The file the person has open in the console editor, unsaved. On by default ([autocomplete]
 	// ambient) so a question about "this file" is answered against the buffer they are looking at
 	// rather than stale disk. Gated on the read allowlist like the pointers above — an agent that may
 	// not read files has no business being handed one — and ephemeral: it rides the same trailing-
-	// message path as the rest of volatileContext and is never persisted.
+	// message path as the rest of volatileContext and is never persisted. It changes only when the
+	// person types, which is never during an unattended run, so it sits with the stable tier.
 	if a.cfg.Autocomplete.AmbientOn() && agent.allows("read") {
 		if f, ok := a.openFileFor(s.ID); ok {
 			txt := f.text
 			if len(txt) > ambientCap {
 				txt = text.Cut(txt, ambientCap) + "\n… (the rest of this file is not shown)"
 			}
-			b.WriteString("\n\n# File open in the editor (unsaved)\nThe user has " + f.path +
+			add("# File open in the editor (unsaved)\nThe user has " + f.path +
 				" open and is editing it; this is their current buffer, which may differ from disk:\n" + txt)
 		}
 	}
-	return strings.TrimSpace(b.String())
+
+	// ── 2. append-only growth ────────────────────────────────────────────────
+	// The state of the run, re-rendered every step from magi's own record — the calls it granted,
+	// how they really ended, the paths they wrote, and the background commands still alive. A
+	// screen-driven agent re-reads its terminal before every decision, so its view of the world is
+	// never older than the last thing it did; magi's data was all recorded and none of it was ever
+	// handed back, so the agent's picture of what it had done was whatever it remembered saying.
+	// This is the same refresh, over the store magi actually keeps.
+	//
+	// It grows by a line per call. Below the constant tier so that tier stays cached; above the
+	// stopwatch so its own earlier lines can be cached too, for as long as it only ever appends.
+	add(a.runState(evs))
+
+	// ── 3. changes every step ────────────────────────────────────────────────
+	// There is no step ceiling any more, so there is no budget to report. What is left is the one
+	// number that was always magi's own and always true: how long this has been running. A model
+	// that has been grinding for twenty minutes can decide for itself that the approach is wrong —
+	// which is what the ceiling was trying to force, minus the forcing. No external information is
+	// in it: it is magi's own stopwatch, started when the turn started.
+	var last strings.Builder
+	if elapsed >= time.Minute {
+		last.WriteString(fmt.Sprintf("You have been working for %s of wall-clock time so far.", fmtElapsed(elapsed)))
+	}
+	// User-set time budget (--time-budget, default off): a legitimate user input, stated as
+	// guidance. Kept OFF for leaderboard/official comparison runs.
+	if tb := a.cfg.TimeBudget; tb > 0 {
+		if last.Len() > 0 {
+			last.WriteString(" ")
+		}
+		rem := tb - elapsed
+		if rem < 0 {
+			last.WriteString(fmt.Sprintf("The user asked for this to finish within %s — that budget is now EXCEEDED: land the smallest honest result immediately.", fmtElapsed(tb)))
+		} else {
+			last.WriteString(fmt.Sprintf("The user asked for this to finish within %s (about %s remaining).", fmtElapsed(tb), fmtElapsed(rem)))
+		}
+	}
+	add(last.String())
+
+	return strings.Join(sections, "\n\n")
 }
 
 // experiencePointerCached memoizes the shared-experience pointer per (session, query).
