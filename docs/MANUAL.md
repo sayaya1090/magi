@@ -827,13 +827,17 @@ A machine with an address on its admitted line is reached over TLS; one without 
 
 **Machines that hold each other's key also share what their teams learned.** The TLS door carries one machine-level method, `exp-sync`: for every team with a footprint on both machines, the two doors exchange the team store's immutable files — wiki revisions and memories — as a **set union**, on start and on a slow tick. Nothing is ever overwritten (the files are content-addressed) and deletions do not cross, because they do not exist: a retired wiki page is a stale revision, which is itself a file that replicates. A page written on one machine is on the other's next `recall_memory` within minutes, with no shared git remote to operate. A machine no companion of that team runs on refuses the team by name.
 
-**Or provision it in one line each.** Carrying a fingerprint by hand is four steps across two machines, and the last one is the one people skip:
+**Or invite it in one line each.** Carrying a fingerprint by hand is four steps across two machines, and the last one is the one people skip:
 
 ```
-magi --provision laptop --at build.local:7777     # on the machine to be reached
+magi --invite laptop --at build.local:7777     # on the machine to be reached
   on laptop, run:
     magi --join build.local:7777 --token <secret> --pin SHA256:…
 ```
+
+It creates nothing on the other machine. It mints an invitation and prints a line a person runs
+there, and that person's magi starts with that person's permissions — which is the shape of the
+whole fleet, not a detail of this command.
 
 The invitation stands for fifteen minutes and is spent by the first machine that uses it; both ends record each other's key in that one exchange. The joining machine's key is taken from the certificate it presents, not from anything it types, so it cannot claim somebody else's — and the `--pin` means the secret is only ever sent to the machine that minted it. While an invitation is open the door accepts an unknown certificate far enough to reach `/fleet/join` and nothing else; with none open, a stranger's handshake simply fails.
 

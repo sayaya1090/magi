@@ -221,7 +221,7 @@ func fleetWatchRelay(w http.ResponseWriter, r *http.Request, conn net.Conn) {
 // that has no move left either.
 // fleetJoinHandle takes an invitation and records the two machines in each other's lists.
 //
-// Both directions in one exchange, which is the whole point of provisioning: the caller's key is
+// Both directions in one exchange, which is the whole point of the invitation: the caller's key is
 // admitted here from the certificate it presented — not from anything it typed, so it cannot claim
 // somebody else's — and this machine's own fingerprint goes back so the caller can pin it.
 func fleetJoinHandle(w http.ResponseWriter, r *http.Request, configDir string, id *identity.Identity) {
@@ -480,7 +480,7 @@ type fleetOpts struct {
 	admit, refuse string
 	as, at        string
 	listen        string
-	provision     string
+	invite        string
 	join          string
 	token, pin    string
 	configDir     string
@@ -516,8 +516,8 @@ func runFleetCmd(o fleetOpts) int {
 		}
 		fmt.Fprintf(o.out, "admitted %s as %s\n", o.admit, orWordCLI(o.as, "unnamed"))
 		return 0
-	case o.provision != "":
-		return fleetProvision(o.configDir, host, o.provision, o.at, o.out)
+	case o.invite != "":
+		return fleetInvite(o.configDir, host, o.invite, o.at, o.out)
 	case o.join != "":
 		return fleetJoin(o.configDir, host, o.join, o.token, o.pin, o.out)
 	case o.refuse != "":
@@ -554,7 +554,7 @@ func orWordCLI(s, fallback string) string {
 func fleetJoin(configDir, host, addr, token, pin string, out io.Writer) int {
 	if addr == "" || token == "" || pin == "" {
 		fmt.Fprintln(out, "magi: a join needs the address, the invitation and the fingerprint to "+
-			"pin — the line `magi --provision` printed has all three")
+			"pin — the line `magi --invite` printed has all three")
 		return 2
 	}
 	id, err := identity.Load(configDir, host)
@@ -621,12 +621,12 @@ func fleetJoin(configDir, host, addr, token, pin string, out io.Writer) int {
 	return 0
 }
 
-// fleetProvision mints an invitation and prints the one line the other machine runs.
+// fleetInvite mints an invitation and prints the one line the other machine runs.
 //
 // One line, because the four steps it replaces — read a fingerprint here, carry it, admit it
 // there, write down an address — are four chances to stop. The fingerprint is still in the line,
 // so what the other side pins is still something this machine printed.
-func fleetProvision(configDir, host, label, at string, out io.Writer) int {
+func fleetInvite(configDir, host, label, at string, out io.Writer) int {
 	id, err := identity.Load(configDir, host)
 	if err != nil {
 		fmt.Fprintln(out, "magi:", err)

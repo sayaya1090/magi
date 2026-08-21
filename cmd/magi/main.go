@@ -345,13 +345,13 @@ func run() int {
 		admitFP = flag.String("admit", "",
 			"admit a machine by the fingerprint its `magi --whoami` printed (with --as, and "+
 				"--at host:port when this machine also reaches out to it)")
-		refuseFP     = flag.String("refuse", "", "take an admitted machine off the list, by fingerprint")
-		admitAs      = flag.String("as", "", "the name to file an --admit under")
-		admitAt      = flag.String("at", "", "host:port for an --admit this machine also dials")
-		provisionFor = flag.String("provision", "",
+		refuseFP  = flag.String("refuse", "", "take an admitted machine off the list, by fingerprint")
+		admitAs   = flag.String("as", "", "the name to file an --admit under")
+		admitAt   = flag.String("at", "", "host:port for an --admit this machine also dials")
+		inviteFor = flag.String("invite", "",
 			"mint a short-lived invitation for another machine and print the one line it runs")
 		joinAddr        = flag.String("fleet-join", "", "spend an invitation on host:port (with --token and --pin)")
-		joinToken       = flag.String("token", "", "the invitation printed by --provision")
+		joinToken       = flag.String("token", "", "the invitation printed by --invite")
 		joinPin         = flag.String("pin", "", "the fingerprint the invitation named, pinned before anything is sent")
 		listAccessF     = flag.Bool("access", false, "print who may use this console, and what each may do")
 		grantWho        = flag.String("grant", "", "give somebody a role here (with --role, and --companions to narrow them)")
@@ -451,10 +451,10 @@ func run() int {
 	// Identity and admission, before anything else reads the world: these are one file each and
 	// the answer to "who am I" must not depend on a store, a model or a daemon being reachable.
 	if *whoami || *admitFP != "" || *refuseFP != "" || *fleetListen != "" ||
-		*provisionFor != "" || *joinAddr != "" {
+		*inviteFor != "" || *joinAddr != "" {
 		return runFleetCmd(fleetOpts{
 			whoami: *whoami, admit: *admitFP, refuse: *refuseFP, as: *admitAs, at: *admitAt,
-			listen: *fleetListen, provision: *provisionFor, join: *joinAddr,
+			listen: *fleetListen, invite: *inviteFor, join: *joinAddr,
 			token: *joinToken, pin: *joinPin,
 			configDir: plat.ConfigDir(), out: os.Stdout, errOut: os.Stderr,
 		})
