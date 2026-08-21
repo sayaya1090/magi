@@ -132,11 +132,20 @@ grep -oih 'terminal-bench' "$@" | wc -l
 Scope matters: an unscoped glob sweeps every job the repo has ever collected, and an audit that
 counts other runs' calls is not an audit of this one.
 
+**A trial that went looking for the answer is re-run on its own.** The check above is not
+decorative: a trial can and does find the benchmark's own task pages on GitHub, and once it has, its
+verdict is not evidence about the agent. So any trial whose web calls reached the dataset's task or
+solution pages is quarantined — the result stands in no table on its own, the task is queued again
+after the last of the eighty-nine, and **the re-run is the result that counts**. Which tasks those
+were is named with the results rather than folded silently into the total, because a reader cannot
+audit what a table does not mention.
+
 The audit for the run below is not written yet — it belongs after the last task, not partway
 through, because a check over twenty tasks says nothing about the sixty-nine that follow. When the
 run completes, this paragraph will carry the counts those commands return, every web call quoted
-and read, and the same statement for the delegated subagents' own session stores, which do not
-appear in the parent transcript and would make a parent-only check a partial one.
+and read, the quarantine list with what each trial fetched, and the same statement for the delegated
+subagents' own session stores, which do not appear in the parent transcript and would make a
+parent-only check a partial one.
 
 **The backend's own settings apply identically to every trial.** Reasoning effort and the like are
 properties of the endpoint, not of any one task, so they are a property of the RUN — stated with the
