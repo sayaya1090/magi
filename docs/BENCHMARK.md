@@ -27,10 +27,13 @@ two agents that both pass are not equivalent if one spent five times as much get
   containers only ever speak HTTP to it, which is why the images need nothing added to them. Give
   `BASE_URL` the address as the CONTAINER sees it (`host.docker.internal`, not `localhost`).
 
-Check it answers before starting an eighty-nine task run, not after:
+`host.docker.internal` resolves **inside** a container, not on the host, and on Docker Desktop
+only — on plain Linux Docker the container reaches the host at the bridge address (`172.17.0.1`) or
+whatever `--add-host` you have arranged. So check the backend from the host at its host-side address
+before starting an eighty-nine task run, not after:
 
 ```sh
-curl -s "$BASE_URL/models" | head -c 200
+curl -s http://localhost:11434/v1/models | head -c 200   # same backend, host's own view
 ```
 
 ## Running it
@@ -42,14 +45,6 @@ export BASE_URL=http://host.docker.internal:11434/v1
 
 # All 89 tasks. The argument is how many run concurrently.
 MODEL=qwen3-coder:30b bench/harbor/run.sh 1
-```
-
-For a cost column, sample the backend's spend ledger throughout the run and hand the series to the
-report:
-
-```sh
-LEDGERS="/path/to/backend-config-dir" PLUGIN=<plugin> bench/harbor/spend_poll.sh 5 &
-SPEND=bench/harbor/state/spend.tsv MODEL=... bench/harbor/run.sh 1
 ```
 
 The run prints the table when it finishes. Ask for it again at any time:
@@ -67,7 +62,7 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # for a do
 | `turns` | user prompts magi answered — a whole task is usually **one** |
 | `calls` | LLM requests the backend actually served for it, which is the number that scales |
 | `in` / `cached` / `out` | magi's own token accounting, from the trial's `turn.finished` |
-| `usd` | the backend's ledger, differenced across the trial's window; `~` means it was shared |
+| `usd` | the backend's ledger, differenced across the trial's window; `?` unless you supply one (below), `~` if it was shared |
 | `council` | the finish gate's tally, `done 3-0`. `— none` means the turn never declared finished |
 
 `turns` and `calls` differ by more than an order of magnitude and both are real: one task, one
@@ -87,6 +82,15 @@ across a trial's window, and nothing on the wire says which trial a call came fr
 never crosses an OpenAI-compatible endpoint. One trial at a time, that difference has only one
 candidate and the figure is exact. Several at once and it is a share-out, which `report.py` marks
 with `~` rather than passing off as a measurement.
+
+**Where a dollar figure comes from at all.** magi does not meter your backend and cannot: an
+OpenAI-compatible endpoint reports what it charges only if it chooses to. The column is filled from
+a side channel — `bench/harbor/spend_poll.sh` samples a JSON file at `<dir>/plugin-data/<name>.json`
+holding running `spend_calls` / `spend_in` / `spend_out` / `spend_cache_read` / `spend_cache_write`
+/ `spend_usd` totals, and `SPEND=<that series> bench/harbor/run.sh` hands it to the report. **No
+backend that ships with magi writes such a file**, so for most readers the column reads `?` and the
+run is still perfectly valid — the pass rate, turns, calls and minutes do not depend on it. The
+dollar figures in the results below came from a backend that did keep one.
 
 > The exactness is recoverable if you happen to run **several metered backends**, one per trial:
 > `BACKEND_PORTS=58411,58412,…` makes each trial claim one endpoint for its duration (a lock file

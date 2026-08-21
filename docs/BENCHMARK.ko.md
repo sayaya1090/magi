@@ -26,10 +26,13 @@
   HTTP만 말하므로 이미지에 무언가를 더 넣을 필요가 없습니다. `BASE_URL`에는 **컨테이너가 보는** 주소를
   주십시오(`localhost`가 아니라 `host.docker.internal`).
 
-백엔드가 답하는지는 89개짜리 실행을 시작하기 전에 확인하십시오. 끝난 뒤가 아니라:
+`host.docker.internal`은 **컨테이너 안에서** 풀리는 이름이지 호스트에서 풀리지 않고, 그것도 Docker
+Desktop에서만입니다 — 리눅스의 맨 Docker에서는 컨테이너가 브리지 주소(`172.17.0.1`)나 직접 맞춰 둔
+`--add-host`로 호스트에 닿습니다. 그러니 백엔드가 답하는지는 **호스트 쪽 주소**로 확인하십시오. 89개짜리
+실행을 시작하기 전에, 끝난 뒤가 아니라:
 
 ```sh
-curl -s "$BASE_URL/models" | head -c 200
+curl -s http://localhost:11434/v1/models | head -c 200   # 같은 백엔드를 호스트 시점에서
 ```
 
 ## 돌리는 법
@@ -41,13 +44,6 @@ export BASE_URL=http://host.docker.internal:11434/v1
 
 # 89개 전부. 인자는 동시에 몇 개를 돌릴지입니다.
 MODEL=qwen3-coder:30b bench/harbor/run.sh 1
-```
-
-비용 컬럼을 원하면 실행 내내 백엔드의 지출 원장을 샘플링해 그 시계열을 리포트에 넘기십시오:
-
-```sh
-LEDGERS="/백엔드/설정/디렉토리" PLUGIN=<plugin> bench/harbor/spend_poll.sh 5 &
-SPEND=bench/harbor/state/spend.tsv MODEL=... bench/harbor/run.sh 1
 ```
 
 실행이 끝나면 표를 찍습니다. 언제든 다시 물어볼 수 있습니다:
@@ -65,7 +61,7 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # 문서�
 | `turns` | magi가 답한 사용자 프롬프트 수 — 과제 하나는 보통 **하나**입니다 |
 | `calls` | 백엔드가 실제로 서빙한 LLM 요청 수. 규모를 따라 늘어나는 건 이 숫자입니다 |
 | `in` / `cached` / `out` | magi 자신의 토큰 집계. trial의 `turn.finished`에서 |
-| `usd` | 백엔드의 원장을 trial 시간창으로 차분한 값. `~`는 나눠 가진 값이라는 뜻 |
+| `usd` | 백엔드의 원장을 trial 시간창으로 차분한 값. 원장을 직접 대주지 않으면(아래) `?`, 나눠 가진 값이면 `~` |
 | `council` | 종료 게이트의 집계, `done 3-0`. `— none`은 완료 선언이 없었다는 뜻 |
 
 `turns`와 `calls`는 자릿수가 다르고 둘 다 사실입니다 — 과제 하나, 프롬프트 하나, 그 안에서 모델 호출
@@ -84,6 +80,15 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # 문서�
 호출이 어느 trial 것인지는 선 위에 적혀 있지 않습니다 — 과제 이름은 OpenAI 호환 엔드포인트를 넘지
 않습니다. 한 번에 trial 하나면 그 차분의 후보가 하나뿐이라 값이 정확합니다. 여럿이면 나눠 가진 값이고,
 `report.py`는 그 행에 `~`를 붙입니다. 측정값인 척 넘기지 않습니다.
+
+**애초에 달러 숫자는 어디서 오는가.** magi는 당신의 백엔드를 계량하지 않고, 할 수도 없습니다 — OpenAI
+호환 엔드포인트는 자기가 원할 때만 청구액을 알려줍니다. 이 컬럼은 곁길로 채워집니다:
+`bench/harbor/spend_poll.sh`가 `<디렉토리>/plugin-data/<이름>.json`을 샘플링하는데, 그 파일에는
+`spend_calls` / `spend_in` / `spend_out` / `spend_cache_read` / `spend_cache_write` / `spend_usd`
+누적치가 들어 있어야 하고, `SPEND=<그 시계열> bench/harbor/run.sh`가 그것을 리포트에 넘깁니다.
+**magi가 함께 배포하는 백엔드 중 그 파일을 쓰는 것은 없습니다.** 그래서 대부분의 독자에게 이 칸은
+`?`로 남고, 그래도 실행은 온전히 유효합니다 — 통과율·turns·calls·분은 이 값에 의존하지 않습니다. 아래
+결과의 달러 숫자는 그 원장을 실제로 남긴 백엔드에서 나온 것입니다.
 
 > 계량되는 백엔드를 **trial 수만큼 따로 띄워 두었다면** 정확도를 되찾을 수 있습니다.
 > `BACKEND_PORTS=58411,58412,…`를 주면 trial마다 엔드포인트 하나를 자기 몫으로 점유합니다(포트별 락
