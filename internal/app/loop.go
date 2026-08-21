@@ -646,14 +646,24 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	// Emitted before the messages are rebuilt so it lands in this step's request rather than the
 	// next one, and it goes in as a system-actor prompt — the ⟳ note pattern, which the model
 	// reads and a person can see, and which never counts as an unanswered user turn.
+	arrivals := make([]string, 0, 4)
 	for _, line := range a.skillArrivals(sid, s.Workdir) {
+		arrivals = append(arrivals,
+			"A skill became available since this conversation started (use the skill tool to load it):\n"+line)
+	}
+	// Memories arriving by a side door get the same treatment, capped per step so a busy fleet
+	// feeding the shared store cannot turn a step into a bulletin board.
+	for _, line := range a.takeMemoryArrivals(sid, 3) {
+		arrivals = append(arrivals,
+			"A team memory matching this task became available (use recall_memory to read it):\n"+line)
+	}
+	for _, text := range arrivals {
 		pd, _ := json.Marshal(event.PromptSubmittedData{
 			MessageID: "m_" + newID(),
-			Parts: []session.Part{{Kind: session.PartText,
-				Text: "A skill became available since this conversation started (use the skill tool to load it):\n" + line}},
+			Parts:     []session.Part{{Kind: session.PartText, Text: text}},
 		})
 		if err := a.appendFact(ctx, sid, event.TypePromptSubmitted,
-			event.Actor{Kind: event.ActorSystem, ID: "skills"}, pd); err == nil {
+			event.Actor{Kind: event.ActorSystem, ID: "arrivals"}, pd); err == nil {
 			evs, _ = a.store.Read(ctx, sid, 0)
 		}
 	}

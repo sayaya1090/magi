@@ -49,6 +49,15 @@ type sessionState struct {
 	skillBlock    string
 	skillBlockSet bool
 	skillSeen     map[string]bool
+	// The same arrangement for team memories, with one difference of source: a memory has no
+	// timestamp, so "new" is read off the RETRIEVAL — the first match set of the session is the
+	// baseline (the count pointer already advertises it), and an ID that enters the match set
+	// later arrived by a side door: engram's sidecar landing a lesson, another companion feeding
+	// the shared store, a person dropping a file in. Those are queued here and appended to the
+	// transcript as one-line handles, once each — never folded into anything already sent.
+	memSeen      map[string]bool
+	memBaselined bool
+	memPending   []string
 	// turnNotes are what the AGENT itself asked to be reminded of before this turn ends
 	// (remember{scope:"turn"}). magi stores them verbatim and hands them back at the finish
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request

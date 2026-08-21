@@ -224,6 +224,7 @@ func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID
 	if err != nil {
 		return ""
 	}
+	a.noteMemoryArrivals(sid, mems)
 	p := experiencePointer(len(mems), len(skills))
 	// The wiki's advertisement rides the same cached line: the index says the pages EXIST (a
 	// companion cannot pull what it never heard of — the transfer failure this store exists for
@@ -238,6 +239,54 @@ func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID
 	st.expPtrQ, st.expPtr = key, p
 	a.mu.Unlock()
 	return p
+}
+
+// noteMemoryArrivals queues, for appending to the transcript, every memory that ENTERED this
+// session's match set after its first retrieval. The first set is the baseline: the count pointer
+// already advertises it, and naming each of those would be the pointer again, louder. What gets a
+// line of its own is the one that was not there and now is — which, the query being the task text,
+// means something relevant arrived mid-session by a side door (engram's sidecar, another
+// companion, a person's editor). One line, once per ID; the drain in buildStepRequest appends it,
+// so nothing already sent ever moves.
+func (a *App) noteMemoryArrivals(sid session.SessionID, mems []port.Memory) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if st.memSeen == nil {
+		st.memSeen = map[string]bool{}
+	}
+	if !st.memBaselined {
+		for _, m := range mems {
+			st.memSeen[m.ID] = true
+		}
+		st.memBaselined = true
+		return
+	}
+	for _, m := range mems {
+		if m.ID == "" || st.memSeen[m.ID] {
+			continue
+		}
+		st.memSeen[m.ID] = true
+		st.memPending = append(st.memPending, "- "+m.ID+": "+oneLineHint(m.Text))
+	}
+}
+
+// takeMemoryArrivals drains up to n queued arrival lines. Capped so a busy fleet feeding the
+// shared store cannot turn a step into a bulletin board; the rest keep their place for the next
+// step.
+func (a *App) takeMemoryArrivals(sid session.SessionID, n int) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if len(st.memPending) == 0 {
+		return nil
+	}
+	if n > len(st.memPending) {
+		n = len(st.memPending)
+	}
+	out := st.memPending[:n]
+	st.memPending = append([]string(nil), st.memPending[n:]...)
+	return out
 }
 
 // gatherContextCached memoizes the plugin-RAG context block per (session, query). Unlike
