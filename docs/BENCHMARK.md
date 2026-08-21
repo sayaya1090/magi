@@ -11,9 +11,7 @@ two agents that both pass are not equivalent if one took five times the work to 
 ## What is under test
 
 - **The loop**: magi's planner, tools, council and recovery, from a pinned binary.
-- **The backend**: whatever `MAGI_BASE_URL` serves. The dollar column exists only when the backend
-  reports what it charges and you feed those totals to the report (`--spend`); a bare endpoint
-  reports no cost and the column reads `?`.
+- **The backend**: whatever `MAGI_BASE_URL` serves.
 - **The dataset**: `terminal-bench/terminal-bench-2-1`, 89 tasks.
 
 ## Prerequisites
@@ -62,7 +60,6 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # for a do
 | `turns` | user prompts magi answered — a whole task is usually **one** |
 | `calls` | LLM requests the backend actually served for it, which is the number that scales |
 | `in` / `cached` / `out` | magi's own token accounting, from the trial's `turn.finished` |
-| `usd` | the backend's own ledger, differenced across the trial's window; `?` unless you supply one (below), `~` if it was shared. It is whatever your backend reports, not a figure derived from a price list — see the note under Results |
 | `council` | the finish gate's tally, `done 3-0`. `— none` means the turn never declared finished |
 
 `turns` and `calls` differ by more than an order of magnitude and both are real: one task, one
@@ -76,33 +73,6 @@ On a 7-CPU, 8 GB VM, four trials get 1.75 cores and 2 GB each — and a task tha
 something then times out for a reason that has nothing to do with the agent. The distortion runs one
 way: starvation can turn a pass into a timeout and never the reverse. Check `docker info` before
 raising it, and compare a score only against runs given the same room.
-
-**Concurrency also costs you the cost column.** Attribution works by differencing a backend's ledger
-across a trial's window, and nothing on the wire says which trial a call came from — the task name
-never crosses an OpenAI-compatible endpoint. One trial at a time, that difference has only one
-candidate and the figure is exact. Several at once and it is a share-out, which `report.py` marks
-with `~` rather than passing off as a measurement.
-
-**Where a dollar figure comes from at all.** magi does not meter your backend and cannot: an
-OpenAI-compatible endpoint reports what it charges only if it chooses to. So the column is fed from
-a side channel you provide — `SPEND=<file> bench/harbor/run.sh`, a TSV sampled throughout the run,
-one line per sample, each field a running total for that backend:
-
-```
-epoch  port  calls  in  out  cache_read  cache_write  usd
-```
-
-Sample it every few seconds, so every trial's window has a sample on each side of it. Anything that
-can read your backend's own accounting can write those lines; **nothing that ships here does**, so
-for most readers the column reads `?` — and the run is still perfectly valid, because the pass rate,
-turns, calls and minutes do not depend on it. The dollar figures in the results below came from a
-backend that kept its own ledger.
-
-> The exactness is recoverable if you happen to run **several metered backends**, one per trial:
-> `BACKEND_PORTS=58411,58412,…` makes each trial claim one endpoint for its duration (a lock file
-> per port; the claimed one is written to the trial's `agent/backend-port.txt`, which is the series
-> `report.py` differences). One backend serving everything — the ordinary case — cannot be split
-> this way, and the `~` is the honest answer.
 
 ## Isolation, and how cheating was ruled out
 
@@ -180,20 +150,12 @@ Regenerate it with:
 python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown
 ```
 
-**No dollar figure is published here, and that is deliberate.** The backend kept its own cost
-accounting and magi recorded it, but those numbers do not reconcile with the model's published
-per-token rates — they run well above the highest listed rate for the same token counts. A figure
-we cannot derive from the tokens and a price list is not a measurement anyone can check, so the
-tokens are reported and the dollars are not. Cost the run against your own backend's rates if you
-need a number.
-
 **One attempt per task**, where the published leaderboard entries are five, so this pass rate
 carries a much wider error bar than the ±1.6% those entries quote.
 
 ### Per task
 
-Every task, in the order the dataset names them. No cost column: see the note above on why the
-dollars are not published. `in` counts cache reads, so `in − cached` is what was written fresh; a
+Every task, in the order the dataset names them. `in` counts cache reads, so `in − cached` is what was written fresh; a
 trial killed by the agent timeout never reaches `turn.finished` and reads `?` rather than `0`,
 because a zero would be a claim. `finish gate` is the council's tally when the turn declared
 itself done — `— none` means it never got that far.
