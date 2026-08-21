@@ -115,7 +115,7 @@ func Discover(ctx context.Context, root, cfgBase string) []Provider {
 // dead address. The deadline is short on purpose — this runs once per candidate on a picker open —
 // but not one second: a shim whose catalog comes from its CLI can spend a couple of seconds on the
 // FIRST answer after a daemon start, and at 1s the roster dropped a serving backend for exactly
-// those moments, which read as "antigravity is gone". The shims also warm their catalogs at
+// those moments, which read as "that backend is gone". Such plugins also warm their catalogs at
 // activation now; this is the second belt.
 func backendModels(ctx context.Context, base string) (models []string, reachable bool) {
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)

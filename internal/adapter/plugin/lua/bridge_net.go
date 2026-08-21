@@ -93,7 +93,7 @@ func (p *plugin) bridgeExec(L *lua.LState) int {
 		neutral = lua.LVAsBool(opts.RawGetString("neutral_dir"))
 		// magi.exec(cmd, args, {stdin="..."}) feeds the string to the child's stdin.
 		//
-		// It exists because an argument has a SIZE LIMIT and stdin does not. The claudecode shim
+		// It exists because an argument has a SIZE LIMIT and stdin does not. A CLI-backed shim
 		// passed the whole rendered conversation as one argv element, which works until the
 		// conversation is long: measured on a live bench trial, the turn that killed the backend
 		// carried 134,949 input tokens ≈ 540 KB in one argument, past the OS's per-argument cap,

@@ -11,8 +11,8 @@ import (
 // magi.json_encode(v) — JSON out of a Lua value, with the SAME BYTES every time.
 //
 // The bridge decoded JSON and did not encode it, so every plugin that needed to put a table on a
-// wire wrote its own encoder. Three did: the claudecode, codex and antigravity shims each carry a
-// copy, because the sandbox has no `require` and there is nowhere else to put shared Lua.
+// wire wrote its own encoder. Three did, each carrying its own copy, because the sandbox has no
+// `require` and there is nowhere else to put shared Lua.
 //
 // Three copies of an encoder is three places to fix, and the fix that mattered had to be made in
 // all three: `pairs()` walks a Lua table in HASH order, which varies between calls, so the same

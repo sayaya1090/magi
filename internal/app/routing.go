@@ -209,8 +209,8 @@ func (a *App) UseBackend(sid session.SessionID, base string) error {
 // adoptServedModel moves this session onto a model the NEW backend actually serves.
 //
 // Redirecting the base URL used to be the whole of a backend switch, and the model name was left
-// exactly as it was — so a companion could sit on backend `codex` holding the model
-// "Gemini 3.7 Flash (High)", which is antigravity's name for something codex has never heard of.
+// exactly as it was — so a companion could sit on one backend while holding
+// a model name only the OTHER backend has ever heard of.
 // /fleet reported that pairing truthfully and the console drew it; the next turn would have been
 // refused by the backend. The console can blank its own display and ask, but a display is not the
 // state, and the state was wrong until somebody noticed.

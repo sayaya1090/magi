@@ -17,13 +17,12 @@ import (
 // stdout held open, so a plugin can hold a CONVERSATION with a subprocess instead of a
 // transaction.
 //
-// It exists for one measured reason. The backend shims drive a coding CLI as a language model,
-// and every one of them re-sends the whole conversation on every turn because a one-shot process
-// cannot remember the last one. What that costs, measured on codex 0.147.0 (2026-08-20), same
-// conversation, three turns:
+// It exists for one measured reason. A shim that drives a coding CLI as a language model re-sends
+// the whole conversation on every turn, because a one-shot process cannot remember the last one.
+// What that costs, measured against one such CLI (2026-08-20), same conversation, three turns:
 //
-//	one-shot `codex exec --ephemeral` ..... ~9,800 tokens a turn at full rate (55% cache hit)
-//	one-shot `codex exec resume` .......... ~21,200 a turn — resume REPLAYS the transcript,
+//	one-shot, ephemeral ................... ~9,800 tokens a turn at full rate (55% cache hit)
+//	one-shot, resuming .................... ~21,200 a turn — resume REPLAYS the transcript,
 //	                                        so input grew 25,305 -> 50,640 -> 75,993
 //	one live process, delta prompts ....... 527, then 544 (98% hit), input FLAT at ~28,550
 //
@@ -34,7 +33,7 @@ import (
 // # Why this is not a new permission class
 //
 // pipe is gated on exec:<cmd> — the SAME permission magi.exec checks, deliberately not a new
-// one. A plugin that may run `codex` with arguments it chooses, for minutes, already has the
+// one. A plugin that may run that command with arguments it chooses, for minutes, already has the
 // reach; what pipe adds is duration and interactivity, not a new thing to touch. Inventing
 // pipe:<cmd> beside exec:<cmd> would put two names on one capability and make every manifest
 // answer the same question twice.
@@ -52,8 +51,8 @@ import (
 //
 // # Why it is not MCP
 //
-// The wire format on that pipe is the plugin's business. A shim speaking JSON-RPC to
-// `codex mcp-server` over a pipe is NOT registering an MCP server: mcpMgr never learns of it, the
+// The wire format on that pipe is the plugin's business. A shim speaking JSON-RPC to a child's
+// MCP server over a pipe is NOT registering an MCP server: mcpMgr never learns of it, the
 // tool list does not change, and the model is never told anything exists. Registering it properly
 // would be the opposite of what a backend needs — a registered server's tools are offered TO the
 // model, while a shim needs to call INTO the child from behind it.
@@ -227,7 +226,7 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 	}
 	if neutral {
 		// Same bargain as magi.exec's: a CLI that walks up from its working directory bills for
-		// what it finds. For a cached backend it is also stability — codex puts <cwd> in an
+		// what it finds. For a cached backend it is also stability — one such CLI puts <cwd> in an
 		// <environment_context> block INSIDE the cached prefix, so a directory that moves between
 		// turns invalidates every token after it.
 		if dir, err := p.neutralDir(); err == nil {

@@ -11,9 +11,9 @@ two agents that both pass are not equivalent if one spent five times as much get
 ## What is under test
 
 - **The loop**: magi's planner, tools, council and recovery, from a pinned binary.
-- **The backend**: whatever `MAGI_BASE_URL` serves. The runs recorded here use the Claude Code CLI
-  as a backend through magi's `claudecode` shim, which is why they have a dollar column at all — a
-  bare OpenAI-compatible endpoint reports no cost and the column reads `?`.
+- **The backend**: whatever `MAGI_BASE_URL` serves. The dollar column exists only when the backend
+  meters itself and you sample that ledger (`spend_poll.sh`); a bare endpoint reports no cost and
+  the column reads `?`.
 - **The dataset**: `terminal-bench/terminal-bench-2-1`, 89 tasks.
 
 ## Prerequisites
@@ -23,17 +23,14 @@ two agents that both pass are not equivalent if one spent five times as much get
 - **[Harbor](https://www.tbench.ai)**, the Terminal-Bench runner (`harbor run`).
 - **magi binaries for the container** — `magi-arm64` and/or `magi-amd64` in one directory. The
   adapter uploads them into each container and installs them there; nothing is built inside.
-- **magi on this machine**, if you use `SHIM=` — the pool is magi daemons hosting the backend shim.
-  `SHIM_BIN` names it; the default is `magi` on `PATH`.
-- **The CLI that shim wraps, installed and signed in on THIS machine.** `SHIM=claudecode` runs
-  `claude --print` once per model turn, so the host needs a working `claude`; `SHIM=codex` needs
-  `codex`. The CLI runs on the HOST, never inside a task container — the containers only ever speak
-  HTTP to the shim — which is why the images need nothing added to them.
+- **A backend the containers can reach.** It runs on the HOST or anywhere else reachable; the
+  containers only ever speak HTTP to it, which is why the images need nothing added to them. Give
+  `BASE_URL` the address as the CONTAINER sees it (`host.docker.internal`, not `localhost`).
 
-Check the last one before starting an eighty-nine task run, not after:
+Check it answers before starting an eighty-nine task run, not after:
 
 ```sh
-claude --version && claude --print 'reply with: ok' --model sonnet
+curl -s "$BASE_URL/models" | head -c 200
 ```
 
 ## Running it
@@ -41,25 +38,25 @@ claude --version && claude --print 'reply with: ok' --model sonnet
 ```sh
 # The magi binaries the container will run (magi-arm64 / magi-amd64).
 export BINARY=/tmp/magi-serve
+export BASE_URL=http://host.docker.internal:11434/v1
 
 # All 89 tasks. The argument is how many run concurrently.
-SHIM=claudecode bench/harbor/run.sh 1
+MODEL=qwen3-coder:30b bench/harbor/run.sh 1
 ```
 
-`SHIM=<plugin>` starts **one backend per trial** — a magi daemon serving that plugin's loopback
-shim, each in its own directory — points the containers at them, samples their spend ledgers, and
-stops all of it when the run ends. That is what keeps per-task cost exact at any concurrency, and
-it is why the pool is sized from the argument rather than configured:
+Above one concurrent trial the cost column needs one backend endpoint per trial, or it stops being
+a measurement. Give the pool and each trial claims one for its duration:
 
 ```sh
-SHIM=claudecode bench/harbor/run.sh 4      # four trials, four backends
+BACKEND_PORTS=58411,58412,58413,58414 MODEL=... bench/harbor/run.sh 4
 ```
 
-Any OpenAI-compatible endpoint works too; then there is no cost column, because a plain endpoint
-reports no spend:
+For a cost column, sample the backend's spend ledger throughout the run and hand the series to the
+report:
 
 ```sh
-BASE_URL=http://host.docker.internal:11434/v1 MODEL=qwen3-coder:30b bench/harbor/run.sh 1
+LEDGERS="/path/to/backend-config-dir" PLUGIN=<plugin> bench/harbor/spend_poll.sh 5 &
+SPEND=bench/harbor/state/spend.tsv MODEL=... bench/harbor/run.sh 1
 ```
 
 The run prints the table when it finishes. Ask for it again at any time:
@@ -94,11 +91,10 @@ raising it, and compare a score only against runs given the same room.
 
 Cost, by contrast, survives concurrency here, and that is not luck. Attribution works by
 differencing a backend's ledger across a trial's window, and nothing on the wire says which trial a
-call came from — the task name never crosses an OpenAI-compatible endpoint. So `SHIM=` sizes the
-pool from the concurrency argument and each trial claims a backend to itself: one trial per ledger,
-one ledger per window, exact at any concurrency. The share-out only appears if you bring your own
-backend and run several trials against it, and then `report.py` marks those rows with `~` rather
-than passing a share-out off as a measurement.
+call came from — the task name never crosses an OpenAI-compatible endpoint. So `BACKEND_PORTS` exists: each trial
+claims one endpoint to itself, one trial per ledger, one ledger per window, exact at any
+concurrency. The share-out only appears when several trials share one backend, and then `report.py`
+marks those rows with `~` rather than passing a share-out off as a measurement.
 
 ## Isolation, and how cheating was ruled out
 
@@ -109,9 +105,8 @@ earlier trial, or the agent can look the answer up. Neither is prevented by hopi
 thing crosses in from the host — the magi binary, uploaded and `install`ed, with no network used so
 that in-container sabotage of curl/wget cannot fail the install. No host directory is mounted.
 `MAGI_DATA_DIR` points inside the container, and the adapter sets no experience, memory or skills
-directory at all, so magi's store lives and dies with the container. The backend shim keeps a resume
-anchor, but resuming requires the rendered history to be a strict prefix extension of what it
-already sent — two different tasks never match, so no session is ever inherited.
+directory at all, so magi's store lives and dies with the container. Nothing about one task is in
+the prompt of the next: every trial opens a new session and renders its history from scratch.
 
 **The containers do have network access.** Many tasks need it: package installs, source downloads,
 dataset fetches. So answer-lookup is possible in principle and has to be checked rather than assumed
@@ -135,35 +130,14 @@ run completes, this paragraph will carry the counts those commands return, every
 and read, and the same statement for the delegated subagents' own session stores, which do not
 appear in the parent transcript and would make a parent-only check a partial one.
 
-**One thing is inherited on purpose, and it is not per-task.** The Claude Code CLI reads the
-operator's `~/.claude/settings.json`, which is where the HIGH reasoning effort in the results below
-comes from — the shim passes no `--effort`, and the neutral working directory isolates the
-*workspace*, not user-level settings. That applies identically to every trial, so it is a property
-of the run rather than a leak between tasks, and it is stated with the results. User-level skills, memory and a
-`CLAUDE.md` do not reach the model, and that is measurable rather than argued: a minimal turn
-through the running backend bills **327 input tokens**, of which roughly 76 are magi's own wrapper —
-the banner, `The conversation so far:`, the role markers. The CLI's scaffold is 37,659 tokens when
-nothing suppresses it; nothing of that size is in 327.
-
-The same probe answers the other half. Sent to a shim that had already served fifteen hundred calls
-of other tasks and was holding a live session, it billed the same 327 with `cached_tokens 0` — the
-floor does not grow with the shim's history, and the resume anchor's prefix check refused to attach
-the probe to any conversation it was carrying. Check it against your own backend rather than taking
-the number:
-
-```sh
-curl -s localhost:58411/v1/chat/completions -H 'Content-Type: application/json' \
-  -d '{"model":"sonnet","stream":true,"messages":[{"role":"user","content":""}]}' \
-  | grep usage
-```
-
-That probe speaks to the BACKEND path only — it bypasses magi entirely. Whether magi injects its own
-memory is the paragraph above: the adapter configures no store for it to inject from.
+**The backend's own settings apply identically to every trial.** Reasoning effort and the like are
+properties of the endpoint, not of any one task, so they are a property of the RUN — stated with the
+results below rather than left to be inferred from the numbers.
 
 ## Results
 
-magi + Claude Code CLI serving `claude-sonnet-5`, effort HIGH (inherited from the operator's
-`~/.claude/settings.json`, not pinned by a flag), `MAGI_COLLAPSE_REPEATS=0`.
+magi on `claude-sonnet-5`, reasoning effort HIGH (a setting of the backend, not pinned by a magi
+flag), `MAGI_COLLAPSE_REPEATS=0`.
 
 **The run is still going, and this section is deliberately empty rather than partial.** A pass rate
 over part of a dataset is not a smaller version of the real one — it is a different number, and

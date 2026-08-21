@@ -6577,7 +6577,7 @@ console.log(JSON.stringify({before, after: find().value}));`)
 
 // Switching the backend empties the model, and asks.
 //
-// Backends do not share a vocabulary: "Gemini 3.1 Pro (High)" means nothing to codex, "opus"
+// Backends do not share a vocabulary: "Local 8B (High)" means nothing to the other one, "fast"
 // nothing to agy. So the model name a companion carries is almost never one the NEW backend
 // serves — left in the field it is a value that would be refused on the next request, with
 // nothing before that to say so. Blank rather than guessed at: choosing a replacement would be
@@ -6592,14 +6592,14 @@ globalThis.fetch = async (p, init) => {
   }
   if (u === '/fleet') return {ok: true, json: async () => [
     {socket: '/s/a.sock', name: 'a', live: true, state: 'idle', session: 's_1', steps: 0,
-     model: 'Gemini 3.1 Pro (High)'},
+     model: 'Local 8B (High)'},
   ]};
   if (u === '/context') return {ok: true, json: async () =>
-    ({model: 'Gemini 3.1 Pro (High)', used: 1000, window: 128000})};
-  if (u === '/model') return {ok: true, json: async () => ['Gemini 3.1 Pro (High)']};
+    ({model: 'Local 8B (High)', used: 1000, window: 128000})};
+  if (u === '/model') return {ok: true, json: async () => ['Local 8B (High)']};
   if (u === '/providers') return {ok: true, json: async () => [
-    {name: 'antigravity', base: 'http://127.0.0.1:1/v1', models: ['Gemini 3.1 Pro (High)']},
-    {name: 'codex', base: 'http://127.0.0.1:2/v1', models: ['codex-default']},
+    {name: 'sidecar', base: 'http://127.0.0.1:1/v1', models: ['Local 8B (High)']},
+    {name: 'alpha', base: 'http://127.0.0.1:2/v1', models: ['alpha-default']},
   ]};
   return {ok: true, json: async () => []};
 };
@@ -6611,12 +6611,12 @@ const selects = () => (function walk(n, out) {
 await loadFleet();
 await drawDetail({socket: '/s/a.sock', state: 'idle', workdir: '/w', session: 's_1'});
 for (let i = 0; i < 80; i++) await Promise.resolve();
-const model = () => selects().find(s => (s.children || []).some(o => String(o.value || '').includes('Gemini')));
-const provider = () => selects().find(s => (s.children || []).some(o => String(o.value || '') === 'codex'));
+const model = () => selects().find(s => (s.children || []).some(o => String(o.value || '').includes('Local')));
+const provider = () => selects().find(s => (s.children || []).some(o => String(o.value || '') === 'alpha'));
 const before = model() ? model().value : '(no model select)';
 const focusedBefore = String((document.activeElement || {}).tag || '');
 
-provider().value = 'codex';
+provider().value = 'alpha';
 provider().dispatchEvent({type: 'change'});
 for (let i = 0; i < 80; i++) await Promise.resolve();
 const after = model() ? model().value : '(no model select)';
@@ -6624,7 +6624,7 @@ console.log(JSON.stringify({before, after, focusedBefore,
   focusedIsModel: model() ? document.activeElement === model() : false,
   shut: model() ? !!model().disabled : true}));`)
 
-	if got["before"] != "Gemini 3.1 Pro (High)" {
+	if got["before"] != "Local 8B (High)" {
 		t.Fatalf("the model field opened on %q", got["before"])
 	}
 	if got["after"] != "" {
@@ -6942,13 +6942,13 @@ globalThis.fetch = async (p) => {
     // does not are the same endpoint, and a strict compare would leave the field blank over a
     // character nobody typed on purpose.
     {socket: '/s/a.sock', name: 'a', live: true, state: 'idle', session: 's_1', steps: 0,
-     model: 'opus', backend: 'http://127.0.0.1:53345/v1/'},
+     model: 'fast', backend: 'http://127.0.0.1:53345/v1/'},
   ]};
-  if (u === '/context') return {ok: true, json: async () => ({model: 'opus', used: 10, window: 1000})};
-  if (u === '/model') return {ok: true, json: async () => ['opus', 'sonnet']};
+  if (u === '/context') return {ok: true, json: async () => ({model: 'fast', used: 10, window: 1000})};
+  if (u === '/model') return {ok: true, json: async () => ['fast', 'deep']};
   if (u === '/providers') return {ok: true, json: async () => [
-    {name: 'antigravity', base: 'http://127.0.0.1:53286/v1', models: ['gemini']},
-    {name: 'claudecode',  base: 'http://127.0.0.1:53345/v1', models: ['opus', 'sonnet']},
+    {name: 'sidecar', base: 'http://127.0.0.1:53286/v1', models: ['local']},
+    {name: 'gateway',     base: 'http://127.0.0.1:53345/v1', models: ['fast', 'deep']},
     {name: 'default',     base: 'http://localhost:11434/v1', models: ['gpt-oss']},
   ]};
   return {ok: true, json: async () => []};
@@ -6957,11 +6957,11 @@ await loadFleet();
 // The row as the POLL hands it over — drawDetail is called with the fleet entry itself, so the
 // backend rides in on it. A stub object here would test a shape the page never passes.
 await drawDetail({socket: '/s/a.sock', name: 'a', live: true, state: 'idle', workdir: '/w',
-  session: 's_1', steps: 0, model: 'opus', backend: 'http://127.0.0.1:53345/v1/'});
+  session: 's_1', steps: 0, model: 'fast', backend: 'http://127.0.0.1:53345/v1/'});
 for (let i = 0; i < 80; i++) await Promise.resolve();
 const sel = (function walk(n) {
   if ((n.tag || '') === 'md-outlined-select' &&
-      (n.children || []).some(o => String(o.value || '') === 'claudecode')) return n;
+      (n.children || []).some(o => String(o.value || '') === 'gateway')) return n;
   for (const k of n.children || []) { const hit = walk(k); if (hit) return hit; }
   return null;
 })(byId.detail);
@@ -6974,8 +6974,8 @@ console.log(JSON.stringify({found: !!sel, value: sel ? sel.value : null,
 	if n := len(got["options"].([]any)); n != 3 {
 		t.Errorf("the menu holds %d providers; the roster had three", n)
 	}
-	if got["value"] != "claudecode" {
-		t.Errorf("the select reads %q — the companion is on claudecode's address and the field "+
+	if got["value"] != "gateway" {
+		t.Errorf("the select reads %q — the companion is on that provider's address and the field "+
 			"cannot say so, which is the one thing it exists to say", got["value"])
 	}
 }

@@ -227,7 +227,7 @@ type Controller interface {
 	//
 	// It takes the session because a backend change is a MODEL change: backends do not share a
 	// vocabulary, so the name the companion is on is usually not one the new backend serves, and
-	// leaving it produced pairings like backend `codex` with model "Gemini 3.7 Flash (High)".
+	// leaving it produced pairings like one backend holding a model only another one serves.
 	UseBackend(sid session.SessionID, base string) error
 	SetPermission(p string)
 	// Permission is what SetPermission last set, or what the process started on. A setter without

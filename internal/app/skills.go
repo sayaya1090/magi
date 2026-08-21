@@ -14,7 +14,7 @@ import (
 // config dir and the project's .magi/skills (flat .md — first line = description,
 // full body follows), plus the project's .claude/skills in the skill-creator
 // directory format (<slug>/SKILL.md with a frontmatter description) — the standard
-// skill-creator layout that Claude Code tooling and the bundled engram plugin
+// skill-creator layout that common agent tooling and the bundled engram plugin
 // produce, so skills learned there are usable here without conversion.
 //
 // Results are cached per workdir, keyed by the source dirs' mtime signature: a

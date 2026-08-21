@@ -218,10 +218,8 @@ topic shard**로 인덱싱되고, 각각이 자기 툴-행위 자취(`read · ed
 
 **모델 백엔드.** OpenAI 채팅 완성 프로토콜을 말하는 것이면 무엇이든 됩니다. [Ollama]가 가장 손이 덜
 갑니다. 기본 모델 `gpt-oss:120b-cloud`는 Ollama 무료 클라우드 티어에서 돌기 때문에 GPU가 필요 없고,
-Ollama 말고는 받을 것도 없습니다. 이미 구독 중인 코딩 에이전트 CLI — Claude Code, Codex,
-Antigravity — 를 백엔드 자체로 쓸 수도 있습니다. 동봉된 백엔드 플러그인(EXTENDING §3.7.1)이
-그 일을 하며, 각자 자기 CLI가 답할 때만 활성화되고 claude → codex → agy → 이 설정 파일 순으로
-스스로 정렬합니다.
+Ollama 말고는 받을 것도 없습니다. 같은 프로토콜을 말하는 다른 엔드포인트 — 호스팅 API, 게이트웨이,
+루프백에 하나를 서빙하는 플러그인(EXTENDING §3.7) — 도 똑같이 됩니다.
 
 ```sh
 ollama signin                 # 무료 티어. 기본 gpt-oss:120b-cloud는 Ollama 클라우드에서 실행
@@ -815,7 +813,7 @@ flowchart LR
 |---|---|
 | `/help` | 도움말 |
 | `/route` (=`/model`=`/agents`) | **모델 & 라우팅 에디터** (한 화면): **(session)** 기본 모델, 에이전트별 모델/백엔드, **backends(프로파일) 추가·편집**. ↑/↓ 선택 · Enter 편집/열기 · 빈 값=기본값 리셋 · Esc 닫기. **세션 모델** 편집 시 **서제스트 박스**가 열립니다 — 설정된 프로파일 모델 + 게이트웨이 라이브 카탈로그(열 때 프리페치)를 중복 제거·타이핑 필터: **↑/↓ 순환 · Tab 채우기 · Enter로 선택 항목(또는 타이핑 값) 적용**. 게이트웨이 미도달 시 자유 텍스트로 폴백. 에이전트 편집 중 **←/→로 프로파일 선택**(또는 모델명 타이핑). `+ add profile`로 프로파일(엔드포인트/키/모델/헤더) 정의, 폼에서 Enter 필드편집·**Tab 저장**. **모든 편집값은 `config.toml`에 영구 저장**(주석 보존) |
-| `/providers` | **지금 서빙 중인 LLM 백엔드 목록**, 각자의 카탈로그와 함께 — CLI 백엔드 shim(claudecode, codex, antigravity), 게이트웨이 주소를 기록한 플러그인(프로바이더 로스터, EXTENDING §3.7.2), 그리고 **이 config 파일이 가리키는 백엔드인 `default`**(당신의 Ollama). `/providers <name> <model…>`은 그 백엔드를 가리키는 `[llm.profiles.<name>]`을 저장합니다 — 모델은 라인의 나머지 전부(공백 포함)인데, agy의 모델명이 공백을 품기 때문입니다. 웹 콘솔의 프로바이더 드롭다운도 같은 로스터를 읽으므로 두 픽커는 어긋날 수 없습니다 |
+| `/providers` | **지금 서빙 중인 LLM 백엔드 목록**, 각자의 카탈로그와 함께 — 게이트웨이 주소를 기록한 플러그인(프로바이더 로스터, EXTENDING §3.7.1), 그리고 **이 config 파일이 가리키는 백엔드인 `default`**(당신의 Ollama). `/providers <name> <model…>`은 그 백엔드를 가리키는 `[llm.profiles.<name>]`을 저장합니다 — 모델은 라인의 나머지 전부(공백 포함)인데, 모델명이 공백을 품을 수 있기 때문입니다. 웹 콘솔의 프로바이더 드롭다운도 같은 로스터를 읽으므로 두 픽커는 어긋날 수 없습니다 |
 | `/tools` | 사용 가능 툴 |
 | `/subagents` | **플러그인이 등록한 서브에이전트** — 하나씩 체크박스, 플러그인이 선언한 대로 그룹핑. 스페이스로 켜고 끄고(그룹 머리행은 멤버 전체), Enter로 그 서브에이전트가 쓸 모델 지정(비우면 오버라이드 해제), Esc로 닫기. magi는 자기 서브에이전트를 하나도 싣지 않으므로, 설치한 플러그인이 하나를 등록하기 전까지 목록은 비어 있습니다. 선택은 `config.toml`의 `[subagents.<이름>]`에 기록되어 재시작해도 유지됩니다 |
 | `/cost` | 세션의 토큰 사용량과 비용 |
@@ -1302,7 +1300,7 @@ flowchart TD
 
 ## 8. 스킬
 
-`<config>/skills/*.md` 또는 `<workdir>/.magi/skills/*.md` (첫 줄=설명, 이하=본문), 그리고 **skill-creator 규격** `<workdir>/.claude/skills/<slug>/SKILL.md`(frontmatter `description`=트리거) — 표준 skill-creator 규격으로, Claude Code 도구와 번들 engram 플러그인이 만드는 형식을 변환 없이 읽습니다. 스킬 목록은 소스 디렉토리 변경(mtime) 시 갱신되므로, engram이 세션 중 저장한 스킬도 재시작 없이 다음 턴부터 쓸 수 있습니다.
+`<config>/skills/*.md` 또는 `<workdir>/.magi/skills/*.md` (첫 줄=설명, 이하=본문), 그리고 **skill-creator 규격** `<workdir>/.claude/skills/<slug>/SKILL.md`(frontmatter `description`=트리거) — 표준 skill-creator 규격으로, 흔한 에이전트 도구와 번들 engram 플러그인이 만드는 형식을 변환 없이 읽습니다. 스킬 목록은 소스 디렉토리 변경(mtime) 시 갱신되므로, engram이 세션 중 저장한 스킬도 재시작 없이 다음 턴부터 쓸 수 있습니다.
 시스템 프롬프트에 목록이 노출되고, 모델이 `skill` 툴로 본문을 로드해 따릅니다.
 
 ## 9. 플러그인 (Lua)
@@ -1313,7 +1311,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    E["바이너리에 내장<br/>(engram · claudecode · codex · antigravity)"] -->|"engram은 기본 켜짐,<br/>백엔드 셋은 옵트인"| L((로드됨))
+    E["바이너리에 내장<br/>(engram)"] -->|"기본 켜짐"| L((로드됨))
     G["&lt;config&gt;/plugins/<br/>내가 설치한 것"] -->|"항상"| L
     W["&lt;workdir&gt;/.magi/plugins/<br/>클론에 딸려 온 것"] -->|"magi --trust를<br/>실행한 경우에만"| L
     W -.->|"아니면"| S["건너뛰고, 기동 보고에<br/>이름을 댐"]
@@ -1359,46 +1357,12 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
-**내장(embedded) 플러그인.** 바이너리에는 넷이 실려 있습니다. **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)은 **기본 켜짐**이며, 사이드카 LLM 토큰 소비·워크스페이스 지식 파일 생성이 부담이면 끕니다:
+**내장(embedded) 플러그인.** 바이너리에는 하나가 실려 있습니다. **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)은 **기본 켜짐**이며, 사이드카 LLM 토큰 소비·워크스페이스 지식 파일 생성이 부담이면 끕니다:
 
 ```toml
 [plugins.engram]
 enabled = false
 ```
-
-나머지 셋 — **claudecode**, **codex**, **antigravity** — 는 이미 결제해 쓰는 코딩 에이전트
-CLI를 LLM 백엔드 자체로 만들어 주며, **기본 꺼짐**입니다: base URL을 차지하는 일은 `claude`가
-깔려 있을 뿐인 사람에게 업그레이드가 저질러도 되는 일이 아닙니다. 같은 스위치를 반대 방향으로
-켭니다:
-
-```toml
-[plugins.claudecode]   # 또는 codex, 또는 antigravity
-enabled = true
-```
-
-켜져 있고 자기 CLI가 `--version`에 답하면, 각 플러그인이 하는 일:
-
-- **루프백 OpenAI shim을 서빙**하고 각 채팅 요청을 CLI 한 번 실행으로 채웁니다
-  (`claude --print` / `codex exec` / `agy --print`). magi의 툴콜은 왕복합니다: 프롬프트가 툴
-  스키마와 엄격한 `TOOL_CALL` 라인 형식을 싣고, shim이 그 라인을 도로 파싱해 네이티브
-  `tool_calls` 프레임으로 냅니다. CLI는 언어모델로만 쓰이고 에이전트로는 결코 쓰이지
-  않습니다 — `claude`는 변이 툴을 이름으로 금지한 채, `agy`는 샌드박스로 돌고, 셋 다 워크
-  스페이스 파일을 스스로 건드리지 않습니다(실측 — 툴콜 왕복, 스킬과 engram 관찰자를 실은
-  온전한 magi 턴까지 각 백엔드 위에서: 프로브 기록은 EXTENDING §3.7.1).
-- **프로바이더 로스터에 스스로 오릅니다**(콘솔의 프로바이더 드롭다운, TUI의 `/providers`) —
-  CLI가 답하는 한 언제나. 켜진 백엔드는 전부 *고를 수 있고*, 체인을 따르는 것은 **기본값**
-  뿐입니다: claude, 그다음 codex, 그다음 agy, 그다음 설정 파일(플러그인에
-  `defer_to_claude = false`를 주면 밀리는 자리에서도 기본을 주장). 설정 파일의 백엔드는
-  언제나 `default`로 로스터에 있으므로 전환은 결코 편도문이 아닙니다.
-- **CLI의 자체 기능을 프로그램명 슬래시 커맨드로 노출**합니다 — `/claudecode-login`,
-  `/claudecode-models`, `/codex-login`, `/codex-model`, `/antigravity-login`,
-  `/antigravity-models` 등(프로그램명을 박는 이유: 맨 `/login`이면 마지막에 등록한 플러그인
-  차지가 되므로). 각자 **doctor 프로브**도 등록해, 첫 요청이 502로 답하기 전에 `magi doctor`가
-  "CLI가 깔려 있나, 로그인돼 있나, 우리 플래그를 받나"를 답합니다.
-- **모델 카탈로그를 CLI 자신에게서** 얻습니다(`agy models`, Claude/Codex 모델 목록). 그래서
-  모델 셀렉트와 `/providers <name> <model…>`은 그 CLI가 실제로 서빙하는 것만 내밉니다 —
-  공백 낀 이름("Gemini 3.1 Pro (High)")도 포함해서, TUI 커맨드가 모델을 라인의 나머지 전부로
-  받는 이유가 이것입니다.
 
 `MAGI_EMBEDDED_PLUGINS=off`는 설정과 무관하게 내장 플러그인 전부를 끈다 — 측정 행동이 흔들리면 안 되는 자동화/벤치 런용.
 

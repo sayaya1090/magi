@@ -234,10 +234,8 @@ the config file gets written for you the first time magi starts.
 
 **A model backend.** Anything that speaks the OpenAI chat-completions protocol works. [Ollama] is
 the least trouble. Its free cloud tier runs the default model, `gpt-oss:120b-cloud`, so you need no
-GPU and nothing to download beyond Ollama itself. A coding-agent CLI you already pay for — Claude
-Code, Codex, Antigravity — can also BE the backend, through the bundled backend plugins
-(EXTENDING §3.7.1): each activates only when its CLI answers, and they order themselves
-claude → codex → agy → this config file.
+GPU and nothing to download beyond Ollama itself. Any other endpoint that speaks the same protocol
+— a hosted API, a gateway, a plugin serving one on loopback (EXTENDING §3.7) — works the same way.
 
 ```sh
 ollama signin                 # free tier; the default gpt-oss:120b-cloud runs in Ollama's cloud
@@ -921,7 +919,7 @@ Where everything sits:
 |---|---|
 | `/help` | help |
 | `/route` (=`/model`=`/agents`) | **model & routing editor** (one screen): **(session)** default model, per-agent model/backend, **add/edit backends (profiles)**. ↑/↓ select · Enter edit/open · empty value = reset to default · Esc close. Editing the **session model** opens a **suggest box** — configured profile models plus the gateway's live catalog (prefetched on open), de-duplicated and filtered as you type: **↑/↓ cycle · Tab fills · Enter applies** the highlight or the typed value. An unreachable gateway falls back to free text. While editing an agent, **pick a profile with ←/→** (or type a model name). Use `+ add profile` to define a profile (endpoint/key/model/headers); in the form, Enter edits a field · **Tab saves**. **All edits are persisted to `config.toml`** (comments preserved) |
-| `/providers` | **which LLM backends are serving right now**, each with its catalog — the CLI backend shims (claudecode, codex, antigravity), any plugin that recorded a gateway address (provider roster, EXTENDING §3.7.2), and **`default`, the backend this config file names** (your Ollama). `/providers <name> <model…>` saves `[llm.profiles.<name>]` pointing at that backend — the model is the rest of the line, spaces included, because agy's names carry spaces. The same roster feeds the web console's provider dropdown, so the two pickers cannot disagree |
+| `/providers` | **which LLM backends are serving right now**, each with its catalog — any plugin that recorded a gateway address (provider roster, EXTENDING §3.7.1), and **`default`, the backend this config file names** (your Ollama). `/providers <name> <model…>` saves `[llm.profiles.<name>]` pointing at that backend — the model is the rest of the line, spaces included, because a model name may carry them. The same roster feeds the web console's provider dropdown, so the two pickers cannot disagree |
 | `/tools` | available tools |
 | `/subagents` | **subagents a plugin registered** — a checkbox each, grouped as the plugin declared. Space toggles one (a group header toggles all its members), Enter sets the model that subagent runs on (empty clears the override), Esc closes. magi ships no subagent of its own, so the list is empty until a plugin you installed registers one. The choice is written to `config.toml` under `[subagents.<name>]` and survives a restart |
 | `/cost` | token usage and cost for the session |
@@ -943,7 +941,7 @@ Where everything sits:
 | `/clear` | clear the screen |
 | `/quit` (=`/exit`) | exit |
 
-> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents (Codex/Claude Code, which summarize-and-forget), the shed detail stays addressable. The pull is also **pushed**: each step, up to 3 compacted-away topics that lexically match the current task — the recent user prompt joined with the latest assistant message — are surfaced as one-line hints ("possibly relevant earlier context — call recall_context"), so a model that never thinks to recall still gets pointed at what it lost. Matching is ranked by **BM25-lite inverse-document-frequency**: a rare token that pins one region (`dehydration`, `heap.go`) outranks a generic one shared by many shards (`handler`, `the`), so the hints point at the region the current step actually needs rather than the most common word. It stays purely lexical/deterministic — no embedding dependency, and the hint only *points*; the model still pulls the verbatim originals via `recall_context`.
+> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents, which summarize and forget, the shed detail stays addressable. The pull is also **pushed**: each step, up to 3 compacted-away topics that lexically match the current task — the recent user prompt joined with the latest assistant message — are surfaced as one-line hints ("possibly relevant earlier context — call recall_context"), so a model that never thinks to recall still gets pointed at what it lost. Matching is ranked by **BM25-lite inverse-document-frequency**: a rare token that pins one region (`dehydration`, `heap.go`) outranks a generic one shared by many shards (`handler`, `the`), so the hints point at the region the current step actually needs rather than the most common word. It stays purely lexical/deterministic — no embedding dependency, and the hint only *points*; the model still pulls the verbatim originals via `recall_context`.
 
 ### Keyboard shortcuts
 | Key | Action |
@@ -1419,7 +1417,7 @@ down.
 
 ## 8. Skills
 
-`<config>/skills/*.md` or `<workdir>/.magi/skills/*.md` (first line = description, rest = body), plus the **skill-creator layout** `<workdir>/.claude/skills/<slug>/SKILL.md` (frontmatter `description` = trigger) — the standard skill-creator format that Claude Code tooling and the bundled engram plugin produce, readable without conversion.
+`<config>/skills/*.md` or `<workdir>/.magi/skills/*.md` (first line = description, rest = body), plus the **skill-creator layout** `<workdir>/.claude/skills/<slug>/SKILL.md` (frontmatter `description` = trigger) — the standard skill-creator format that common agent tooling and the bundled engram plugin produce, readable without conversion.
 The list is exposed in the system prompt, and the model loads a body with the `skill` tool to follow it. The skill list refreshes when the source dirs change (mtime), so a skill engram saves mid-session is available on the next turn without a restart.
 
 ## 9. Plugins (Lua)
@@ -1430,7 +1428,7 @@ Plugins come from three places, and only one of them is a question of trust:
 
 ```mermaid
 flowchart TD
-    E["embedded in the binary<br/>(engram · claudecode · codex · antigravity)"] -->|"engram on by default,<br/>the backends opt-in"| L((loaded))
+    E["embedded in the binary<br/>(engram)"] -->|"on by default"| L((loaded))
     G["&lt;config&gt;/plugins/<br/>you installed these"] -->|"always"| L
     W["&lt;workdir&gt;/.magi/plugins/<br/>arrived with the clone"] -->|"only if you ran<br/>magi --trust"| L
     W -.->|"otherwise"| S["skipped, and named<br/>in the startup report"]
@@ -1474,48 +1472,12 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
-**Embedded plugins.** The binary ships four. The **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`) is **on by default**; disable it (it spends sidecar LLM tokens and writes knowledge files into the workspace) with:
+**Embedded plugins.** The binary ships one. The **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`) is **on by default**; disable it (it spends sidecar LLM tokens and writes knowledge files into the workspace) with:
 
 ```toml
 [plugins.engram]
 enabled = false
 ```
-
-The other three — **claudecode**, **codex**, **antigravity** — make a coding-agent CLI you already
-pay for BE the LLM backend, and they are **off by default**: taking over the base URL is not
-something an upgrade may do to somebody who merely has `claude` installed. Enable one (or all)
-with the same switch, other way around:
-
-```toml
-[plugins.claudecode]   # or codex, or antigravity
-enabled = true
-```
-
-What each does, once enabled and once its CLI answers `--version`:
-
-- **Serves a loopback OpenAI shim** and fulfils each chat request by running the CLI once
-  (`claude --print` / `codex exec` / `agy --print`). magi's tool calls round-trip: the prompt
-  carries the tool schemas and a strict `TOOL_CALL` line format, and the shim parses those lines
-  back into native `tool_calls` frames. The CLI is used as a language model, never as an agent —
-  `claude` runs with its mutating tools disallowed by name, `agy` sandboxed, and all three refuse
-  to touch workspace files on their own (measured, along with the tool-call round-trip and a full
-  magi turn with skills and the engram observer riding each backend — EXTENDING §3.7.1 records
-  the probes).
-- **Puts itself on the provider roster** (the console's provider dropdown, `/providers` in the
-  TUI) whenever its CLI answers — so every enabled backend is *pickable*. Only the **default**
-  follows a chain the plugins arrange among themselves: claude, then codex, then agy, then
-  whatever the config names (`defer_to_claude = false` on a plugin makes it claim the default
-  even when outranked). The config file's own backend is always on the roster as `default`, so a
-  switch is never a one-way door.
-- **Exposes its CLI's own features as program-named slash commands** — `/claudecode-login`,
-  `/claudecode-models`, `/codex-login`, `/codex-model`, `/antigravity-login`,
-  `/antigravity-models`, and so on (program-named because a bare `/login` would be whichever
-  plugin registered last). Each also registers **doctor probes**, so `magi doctor` answers "is
-  the CLI installed, signed in, and does it accept our flags" before the first request can 502.
-- **Catalogs its models** from the CLI itself (`agy models`, the Claude/Codex model lists), so
-  the model select and `/providers <name> <model…>` offer what that CLI can actually serve —
-  including names with spaces ("Gemini 3.1 Pro (High)"), which is why the TUI command takes the
-  model as the rest of the line.
 
 `MAGI_EMBEDDED_PLUGINS=off` disables ALL embedded plugins regardless of config — use it for automation/bench runs whose measured behavior must not shift.
 

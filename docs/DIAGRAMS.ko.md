@@ -503,55 +503,6 @@ classDiagram
 `Scheduler`. **툴 인터페이스에 구현이 셋**(builtin · lua · mcp)인 것이 확장 지점의 핵심이다 —
 루프는 셋을 구별하지 않는다.
 
----
-
-### L6.1 — CLI를 백엔드로: 함께 배포되는 심 셋
-
-`llm/openai`는 `base_url`이 가리키는 곳에 말합니다. 플러그인이 **그 주소가 될 수** 있습니다 — loopback
-HTTP 심을 서빙하고, 채팅 요청 하나를 코딩 CLI 한 번 실행으로 채웁니다. 셋이 바이너리 안에 실려 오고
-기본은 꺼짐입니다 — `claudecode`, `codex`, `antigravity`.
-
-모델은 이걸 모릅니다. 모델이 보는 건 OpenAI 호환 엔드포인트이고, magi 자신의 툴·권한 게이트·카운슬은
-그대로입니다. 바뀌는 것은 누가 토큰을 생성하는가, 그리고 한 턴이 얼마인가입니다.
-
-```mermaid
-%%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
-flowchart LR
-  app["internal/app<br/>오케스트레이터 코어"]
-  llm["adapter/llm/openai<br/>base_url · SSE"]
-  app --> llm
-
-  subgraph host["plugin/lua 호스트 — 같은 프로세스"]
-    direction TB
-    cc["plugins/claudecode<br/>magi.serve :port"]
-    cx["plugins/codex<br/>magi.serve :port"]
-    ag["plugins/antigravity<br/>magi.serve :port"]
-  end
-
-  llm -->|"http://127.0.0.1:port/v1"| cc
-  llm -.-> cx
-  llm -.-> ag
-
-  cc -->|"claude --print<br/>--tools '' · 세션 재개"| anth[("Anthropic")]
-  cx -->|"codex mcp-server<br/>살아있는 스레드, 델타만"| oai[("OpenAI")]
-  ag -->|"agy --print<br/>매 턴 전체 재전송"| goog[("Google")]
-
-  direct[("아무 OpenAI 호환<br/>엔드포인트")]
-  llm -.->|"아무 플러그인도 안 가져갈 때"| direct
-```
-
-그림이 명시하는 것 셋:
-
-- **하나는 실선, 둘은 점선입니다.** 자기 CLI가 답하는 플러그인은 전부 심을 서빙하므로 셋 다 동시에
-  **고를 수 있습니다**. 체인을 따르는 것은 **기본값**뿐입니다 — claude, codex, agy, 그다음 config가
-  named한 것. 컴패니언마다 하나를 고르는 건 런타임 선택이고(§3.7.2) 재시작이 아닙니다.
-- **화살표 라벨이 곧 비용입니다.** claude는 툴 스키마를 버리고 CLI 자신의 세션을 이어 붙입니다(최소 턴
-  327 토큰, 이후로는 델타 값). codex는 `magi.pipe` 위에 살아 있는 스레드 하나를 붙들고 델타만 보냅니다
-  (턴당 정가 527). `agy`는 스키마를 포함한 대화 전체를 매 턴 다시 보냅니다 — 걸 캐시가 없고, 재개
-  플래그는 청구를 두 배로 만듭니다. 측정치는 EXTENDING §3.7.1에 있습니다.
-- **평범한 엔드포인트로 가는 점선이 기본 경우입니다.** 플러그인을 켜지 않으면 이 중 무엇도 동작하지
-  않고, `base_url`은 늘 가리키던 곳을 가리킵니다.
-
 ## L7 — app 코어 클래스 (`internal/app`)
 
 `App`이 애플리케이션 서비스다: 커맨드가 들어오고 이벤트가 나간다. 상태는 **세션별로**

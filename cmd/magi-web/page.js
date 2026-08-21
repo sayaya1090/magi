@@ -3247,8 +3247,8 @@ function modelField(a, now) {
       if (!why) {
         // The model list belongs to the backend, so it is stale the moment the backend changes.
         modelField.list = null;
-        // And so is the model NAME. Backends do not share a vocabulary — "Gemini 3.1 Pro (High)"
-        // means nothing to codex, "opus" nothing to agy — so the name this companion was on is
+        // And so is the model NAME. Backends do not share a vocabulary — one backend's
+        // "Local 8B (High)" means nothing to the next — so the name this companion was on is
         // almost never a name the new backend serves. Left showing, it is a value that would be
         // refused on the next request and nothing before that would have said so.
         //
@@ -3347,7 +3347,7 @@ function paintProviders(sel, list, now) {
 // Two, normally: with only the model it is already on there is nothing to change TO, and a menu
 // that opens on a single item you are already using is a control that does nothing. But a field
 // emptied by a backend switch has no value at all, so one option IS a choice — and a backend that
-// serves exactly one model (codex offers its default and nothing else) would otherwise leave the
+// serves exactly one model (some offer their default and nothing else) would otherwise leave the
 // field blank AND shut, with no way to put the companion on the only model there is.
 modelField.least = () => (modelField.blank ? 1 : 2);
 

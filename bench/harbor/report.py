@@ -18,7 +18,7 @@ tokens and usd answer different questions and are allowed to disagree; when they
 disagreement is itself the finding, which is why neither is derived from the other.
 
 The usd column needs a spend series (see spend_poll.sh) and a backend that reports cost — the CLI
-shims do, a bare OpenAI-compatible endpoint does not. Without one, cost reads "?" rather than 0.
+a backend that meters itself does, a bare OpenAI-compatible endpoint does not. Without one, cost reads "?" rather than 0.
 Zero is a claim; unknown is the truth.
 
 Usage:
@@ -195,7 +195,7 @@ def collect(jobs_glob):
             if not (started and finished):
                 continue
             tok, turns, council = trial_facts(os.path.join(trial, "agent"))
-            portfile = os.path.join(trial, "agent", "shim-port.txt")
+            portfile = os.path.join(trial, "agent", "backend-port.txt")
             row = {
                 "task": name, "job": os.path.basename(job),
                 "t0": epoch(started), "t1": epoch(finished),

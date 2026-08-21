@@ -25,12 +25,12 @@ func (l *redirectableLLM) SetBaseURL(b string) uint64                   { l.base
 // Switching a companion's backend moves it onto a model that backend serves.
 //
 // Redirecting the base URL used to be the whole of a switch. The model name stayed exactly as it
-// was, and backends do not share a vocabulary — so a companion sat on backend `codex` holding
-// "Gemini 3.7 Flash (High)", which is antigravity's name for something codex has never heard of.
+// was, and backends do not share a vocabulary — so a companion sat on backend `alpha` holding
+// "Beta 3.7 Flash (High)", which is the other backend's name for something this one never heard of.
 // /fleet reported the pairing truthfully, the console drew it, and the next turn would have been
 // refused by the backend.
 func TestSwitchingBackendMovesOntoAModelItServes(t *testing.T) {
-	llm := &redirectableLLM{models: []string{"codex-default", "codex-mini"}}
+	llm := &redirectableLLM{models: []string{"alpha-default", "alpha-mini"}}
 	a := newAppWith(t, llm)
 	sid := open(t, a)
 	a.SetModel(sid, "Gemini 3.7 Flash (High)") // what the previous backend was called
@@ -41,7 +41,7 @@ func TestSwitchingBackendMovesOntoAModelItServes(t *testing.T) {
 	if llm.base != "http://127.0.0.1:9/v1" {
 		t.Errorf("the backend was not redirected: %q", llm.base)
 	}
-	if got := modelOf(t, a, sid); got != "codex-default" {
+	if got := modelOf(t, a, sid); got != "alpha-default" {
 		t.Errorf("model = %q, want the new backend's first offering — a name it has never heard of "+
 			"is a turn the backend will refuse", got)
 	}

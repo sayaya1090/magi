@@ -11,15 +11,15 @@ import (
 // A CLI used as a language model should not be standing in the user's workspace.
 //
 // magi.exec runs in the workspace, which is right for a plugin that acts on the project and wrong
-// for one that shells out to a coding CLI only to borrow its model. `claude` walks up from its
+// for one that shells out to a coding CLI only to borrow its model. Such a CLI walks up from its
 // working directory for project configuration and puts what it finds in every request: measured in
 // the magi repo, with every tool already denied, the same prompt cost 13,676 billed input tokens
 // there and 2,094 in a directory outside it — 11,582 per call for a second copy of skills the shim
 // had already written into the prompt itself.
 //
-// It is also the only isolation the antigravity shim has. claude takes a per-tool deny list and
-// codex runs read-only, but agy is asked not to use its tools by the prompt alone, and a prompt is
-// not an enforcement.
+// It is also the only isolation some shims have: one CLI takes a per-tool deny list, another runs
+// read-only, and a third is asked not to use its tools by the prompt alone — and a prompt is not
+// an enforcement.
 func TestNeutralDirRunsSomewhereWithNothingInIt(t *testing.T) {
 	data, work := t.TempDir(), t.TempDir()
 	// Something in the workspace worth not reading.
@@ -101,7 +101,7 @@ magi.log("a=" .. a.stdout:gsub("%s+$", "") .. " b=" .. b.stdout:gsub("%s+$", "")
 
 // A prompt is data, and data of unbounded size travels on a stream, not in the command line.
 //
-// The claudecode shim passed the rendered conversation as one argv element, which works until the
+// A CLI-backed shim passed the rendered conversation as one argv element, which works until the
 // conversation is long: a live bench turn carried ~540 KB in that argument, execve refused with
 // E2BIG, and the death surfaced as `exited -1` with empty stderr — indistinguishable from a
 // crashed CLI. {stdin=...} is the way around: no size cap, and the child reads it as input.
