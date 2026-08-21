@@ -31,6 +31,24 @@ type sessionState struct {
 	lookLang    string
 	lookLangSet bool
 	todos       []session.Todo // per-session plan
+	// skillBase is the skill list this session's SYSTEM PROMPT names, frozen the first time that
+	// prompt was built. skillSeen is every skill the session has been told about, including the
+	// ones announced later.
+	//
+	// The list rides at the head of every request, so re-rendering it when the directory changes
+	// rewrites position 0 and throws away the whole KV prefix — the same failure the language
+	// directive above documents. And the directory does change mid-session, from more than one
+	// direction: engram saves one it just learned, the agent writes one because the user asked
+	// for it, the user drops a file in by hand. None of those should cost a re-read of the entire
+	// conversation.
+	//
+	// So the head keeps the snapshot it opened with and anything discovered afterwards is
+	// APPENDED — a one-line note per skill, once. The model ends up reading the frozen list plus
+	// the notes, which is the same information in the order it arrived, and the next session's
+	// prompt consolidates them for free.
+	skillBlock    string
+	skillBlockSet bool
+	skillSeen     map[string]bool
 	// turnNotes are what the AGENT itself asked to be reminded of before this turn ends
 	// (remember{scope:"turn"}). magi stores them verbatim and hands them back at the finish
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request

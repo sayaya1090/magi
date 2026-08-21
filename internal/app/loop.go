@@ -34,7 +34,7 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 // level only), and the static list of available skills. Kept byte-stable within
 // a turn so the backend's prefix (KV) cache survives across steps — per-step
 // volatile context (plan/experience/RAG) is injected separately, never here.
-func (a *App) buildStepSystem(agent AgentSpec, workdir string, evs []event.Event) string {
+func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event) string {
 	sys := a.systemFor(agent, workdir)
 	// Language lock: weak models ignore a "reply in the user's language" rule buried in a long
 	// prompt, so detect the user's script and put a short, forceful directive FIRST (primacy). Lock
@@ -48,16 +48,68 @@ func (a *App) buildStepSystem(agent AgentSpec, workdir string, evs []event.Event
 	if dir := langDirective(lastUserPromptText(evs)); dir != "" {
 		sys = dir + "\n\n" + sys
 	}
-	// Available skills (model loads one via the skill tool when relevant).
-	if sk := a.loadSkills(workdir); len(sk) > 0 {
-		var b strings.Builder
-		b.WriteString("\n\n# Available skills (use the skill tool to load one)\n")
-		for _, x := range sk {
-			b.WriteString("- " + x.Name + ": " + oneLineHint(x.Description) + "\n")
-		}
-		sys += strings.TrimRight(b.String(), "\n")
-	}
+	// Available skills (model loads one via the skill tool when relevant). FROZEN per session —
+	// see skillBlock, and skillArrivals for what happens to one that shows up later.
+	sys += a.skillBlockFor(sid, workdir)
 	return sys
+}
+
+// skillBlockFor renders the skill list ONCE per session and hands back the same bytes every time
+// after that.
+//
+// The block rides at the head of every request. Re-rendering it when the directory changes moves
+// position 0, and everything after position 0 stops being a cache hit — the same failure the
+// language directive above documents, for a list that changes far more often than a language does.
+// It changes from several directions, none of them rare: engram saving what it just learned, the
+// agent writing a skill because the user asked for one, the user dropping a file in by hand.
+//
+// So the head keeps what it opened with. What arrives later is announced instead (skillArrivals),
+// which costs one line and leaves the prefix whole. Nothing is hidden: the model reads the frozen
+// list plus the notes, and the next session's prompt merges them at no cost.
+func (a *App) skillBlockFor(sid session.SessionID, workdir string) string {
+	sk := a.loadSkills(workdir)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if st.skillBlockSet {
+		return st.skillBlock
+	}
+	st.skillSeen = map[string]bool{}
+	var b strings.Builder
+	for _, x := range sk {
+		st.skillSeen[x.Name] = true
+		b.WriteString("- " + x.Name + ": " + oneLineHint(x.Description) + "\n")
+	}
+	if b.Len() > 0 {
+		st.skillBlock = "\n\n# Available skills (use the skill tool to load one)\n" +
+			strings.TrimRight(b.String(), "\n")
+	}
+	st.skillBlockSet = true
+	return st.skillBlock
+}
+
+// skillArrivals names skills that appeared after this session's head was written, once each, and
+// records them as told. The caller appends the note to the transcript rather than editing the head.
+func (a *App) skillArrivals(sid session.SessionID, workdir string) []string {
+	sk := a.loadSkills(workdir)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if !st.skillBlockSet {
+		return nil // the head has not been written yet; it will carry these
+	}
+	if st.skillSeen == nil {
+		st.skillSeen = map[string]bool{}
+	}
+	var out []string
+	for _, x := range sk {
+		if st.skillSeen[x.Name] {
+			continue
+		}
+		st.skillSeen[x.Name] = true
+		out = append(out, "- "+x.Name+": "+oneLineHint(x.Description))
+	}
+	return out
 }
 
 // loopAction is what the step loop does after a no-tool-call finish attempt (finishTurn): keep
@@ -590,7 +642,22 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	sid := s.ID
 	// The MASKED view, so the language lock (and anything else the system prompt derives from
 	// events) sees exactly what the messages will show — see buildStepSystem.
-	sys := a.buildStepSystem(agent, s.Workdir, a.liveEvents(sid, evs))
+	// A skill that showed up after the head was written is APPENDED, never folded back into it.
+	// Emitted before the messages are rebuilt so it lands in this step's request rather than the
+	// next one, and it goes in as a system-actor prompt — the ⟳ note pattern, which the model
+	// reads and a person can see, and which never counts as an unanswered user turn.
+	for _, line := range a.skillArrivals(sid, s.Workdir) {
+		pd, _ := json.Marshal(event.PromptSubmittedData{
+			MessageID: "m_" + newID(),
+			Parts: []session.Part{{Kind: session.PartText,
+				Text: "A skill became available since this conversation started (use the skill tool to load it):\n" + line}},
+		})
+		if err := a.appendFact(ctx, sid, event.TypePromptSubmitted,
+			event.Actor{Kind: event.ActorSystem, ID: "skills"}, pd); err == nil {
+			evs, _ = a.store.Read(ctx, sid, 0)
+		}
+	}
+	sys := a.buildStepSystem(sid, agent, s.Workdir, a.liveEvents(sid, evs))
 
 	// Unfiltered reconstruction of the whole log, built ONCE per step and shared by the
 	// volatile-context retrieval query and the compaction sizing check below — reconstruct
