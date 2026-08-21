@@ -44,13 +44,6 @@ export BASE_URL=http://host.docker.internal:11434/v1
 MODEL=qwen3-coder:30b bench/harbor/run.sh 1
 ```
 
-Above one concurrent trial the cost column needs one backend endpoint per trial, or it stops being
-a measurement. Give the pool and each trial claims one for its duration:
-
-```sh
-BACKEND_PORTS=58411,58412,58413,58414 MODEL=... bench/harbor/run.sh 4
-```
-
 For a cost column, sample the backend's spend ledger throughout the run and hand the series to the
 report:
 
@@ -89,12 +82,17 @@ something then times out for a reason that has nothing to do with the agent. The
 way: starvation can turn a pass into a timeout and never the reverse. Check `docker info` before
 raising it, and compare a score only against runs given the same room.
 
-Cost, by contrast, survives concurrency here, and that is not luck. Attribution works by
-differencing a backend's ledger across a trial's window, and nothing on the wire says which trial a
-call came from — the task name never crosses an OpenAI-compatible endpoint. So `BACKEND_PORTS` exists: each trial
-claims one endpoint to itself, one trial per ledger, one ledger per window, exact at any
-concurrency. The share-out only appears when several trials share one backend, and then `report.py`
-marks those rows with `~` rather than passing a share-out off as a measurement.
+**Concurrency also costs you the cost column.** Attribution works by differencing a backend's ledger
+across a trial's window, and nothing on the wire says which trial a call came from — the task name
+never crosses an OpenAI-compatible endpoint. One trial at a time, that difference has only one
+candidate and the figure is exact. Several at once and it is a share-out, which `report.py` marks
+with `~` rather than passing off as a measurement.
+
+> The exactness is recoverable if you happen to run **several metered backends**, one per trial:
+> `BACKEND_PORTS=58411,58412,…` makes each trial claim one endpoint for its duration (a lock file
+> per port; the claimed one is written to the trial's `agent/backend-port.txt`, which is the series
+> `report.py` differences). One backend serving everything — the ordinary case — cannot be split
+> this way, and the `~` is the honest answer.
 
 ## Isolation, and how cheating was ruled out
 
