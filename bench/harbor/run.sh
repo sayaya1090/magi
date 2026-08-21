@@ -17,7 +17,9 @@
 #   BACKEND_PORTS="58411,58412" a pool of backend endpoints you started yourself, one per trial.
 #                               Each trial claims one for its duration, which is what keeps the
 #                               cost column exact above one concurrent trial (see below).
-#   SPEND=state/spend.tsv       optional spend series from spend_poll.sh; without it, no cost column
+#   SPEND=state/spend.tsv       optional TSV of running spend totals sampled during the run
+#                               (epoch port calls in out cache_read cache_write usd); without it,
+#                               no cost column. See the header of report.py.
 #   JOB=<name>                  optional job name (default: <date>-tb21)
 #   TIMEOUT_MULT=1.0            harbor's --agent-timeout-multiplier
 #

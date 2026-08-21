@@ -17,9 +17,18 @@ Four things per task, from three independent sources, on purpose:
 tokens and usd answer different questions and are allowed to disagree; when they do, that
 disagreement is itself the finding, which is why neither is derived from the other.
 
-The usd column needs a spend series (see spend_poll.sh) and a backend that reports cost — the CLI
-a backend that meters itself does, a bare OpenAI-compatible endpoint does not. Without one, cost reads "?" rather than 0.
-Zero is a claim; unknown is the truth.
+The usd column needs a backend that reports what it charges and a --spend series carrying those
+totals over time. A bare OpenAI-compatible endpoint reports neither, and nothing that ships here
+produces such a series; without one, cost reads "?" rather than 0. Zero is a claim; unknown is the
+truth.
+
+The series is a TSV, one sample per line, ascending:
+
+    epoch  port  calls  in  out  cache_read  cache_write  usd
+
+each field a RUNNING TOTAL for that backend (they only go up), sampled often enough that a trial's
+window has a sample on each side of it — a few seconds. Anything that can read your backend's
+own accounting can write it.
 
 Usage:
     python3 bench/harbor/report.py --jobs-glob 'jobs/*sonnet89-b*'
@@ -38,7 +47,7 @@ def epoch(ts):
 
 
 def load_spend(path):
-    """The poller's samples, per backend port, ascending.
+    """The --spend samples, per backend port, ascending.
 
     Rows are `epoch port calls in out cache_read cache_write usd`. A run whose backends were one
     process has one port and one series; a run with a pool has one series each, and a trial's cost
@@ -230,7 +239,7 @@ def rewards(jobs_glob):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--jobs-glob", default="jobs/*", help="which job directories to read")
-    ap.add_argument("--spend", default="", help="spend series from spend_poll.sh (optional)")
+    ap.add_argument("--spend", default="", help="TSV of running spend totals; see the header (optional)")
     ap.add_argument("--tasks", default="", help="task list file; sets the denominator and the order")
     ap.add_argument("--demote", default="", help="file of task names whose PASS does not count "
                     "(one per line) — a pass produced under settings this run no longer uses")

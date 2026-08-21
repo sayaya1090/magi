@@ -12,8 +12,8 @@ two agents that both pass are not equivalent if one spent five times as much get
 
 - **The loop**: magi's planner, tools, council and recovery, from a pinned binary.
 - **The backend**: whatever `MAGI_BASE_URL` serves. The dollar column exists only when the backend
-  meters itself and you sample that ledger (`spend_poll.sh`); a bare endpoint reports no cost and
-  the column reads `?`.
+  reports what it charges and you feed those totals to the report (`--spend`); a bare endpoint
+  reports no cost and the column reads `?`.
 - **The dataset**: `terminal-bench/terminal-bench-2-1`, 89 tasks.
 
 ## Prerequisites
@@ -84,13 +84,19 @@ candidate and the figure is exact. Several at once and it is a share-out, which 
 with `~` rather than passing off as a measurement.
 
 **Where a dollar figure comes from at all.** magi does not meter your backend and cannot: an
-OpenAI-compatible endpoint reports what it charges only if it chooses to. The column is filled from
-a side channel — `bench/harbor/spend_poll.sh` samples a JSON file at `<dir>/plugin-data/<name>.json`
-holding running `spend_calls` / `spend_in` / `spend_out` / `spend_cache_read` / `spend_cache_write`
-/ `spend_usd` totals, and `SPEND=<that series> bench/harbor/run.sh` hands it to the report. **No
-backend that ships with magi writes such a file**, so for most readers the column reads `?` and the
-run is still perfectly valid — the pass rate, turns, calls and minutes do not depend on it. The
-dollar figures in the results below came from a backend that did keep one.
+OpenAI-compatible endpoint reports what it charges only if it chooses to. So the column is fed from
+a side channel you provide — `SPEND=<file> bench/harbor/run.sh`, a TSV sampled throughout the run,
+one line per sample, each field a running total for that backend:
+
+```
+epoch  port  calls  in  out  cache_read  cache_write  usd
+```
+
+Sample it every few seconds, so every trial's window has a sample on each side of it. Anything that
+can read your backend's own accounting can write those lines; **nothing that ships here does**, so
+for most readers the column reads `?` — and the run is still perfectly valid, because the pass rate,
+turns, calls and minutes do not depend on it. The dollar figures in the results below came from a
+backend that kept its own ledger.
 
 > The exactness is recoverable if you happen to run **several metered backends**, one per trial:
 > `BACKEND_PORTS=58411,58412,…` makes each trial claim one endpoint for its duration (a lock file
