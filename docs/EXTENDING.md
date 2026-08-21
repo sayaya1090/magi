@@ -666,8 +666,8 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- point the agent a
 The console's provider dropdown and the TUI's `/providers` read one roster
 (`internal/adapter/provider`), and the roster is *whoever said where their backend answers*: it
 scans every plugin store (`<config>/plugin-data/<name>.json`) for one of two records, probes each
-address, and keeps the ones that answer. No provider name exists in core — a fourth backend
-appears in every picker by writing what the first three write.
+address, and keeps the ones that answer. No provider name exists in core — a backend
+appears in every picker by writing one of those two records, and nothing else.
 
 ```lua
 -- A: you SERVE the backend yourself (a loopback shim, like the CLI plugins):
