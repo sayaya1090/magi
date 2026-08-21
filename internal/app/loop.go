@@ -232,6 +232,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.turnStart = runStart // what a check means by "before the step ran"
+	// The one sanctioned moment the head may change: the turn is new, and the prefix beyond its
+	// user message is not written yet. See prompt_frozen.go.
+	st.turnSys, st.turnSysSet = "", false
 	st.worldBase = worldBase
 	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
@@ -667,7 +670,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			evs, _ = a.store.Read(ctx, sid, 0)
 		}
 	}
-	sys := a.buildStepSystem(sid, agent, s.Workdir, a.liveEvents(sid, evs))
+	sys := a.stepSystemFor(sid, agent, s.Workdir, a.liveEvents(sid, evs))
 
 	// Unfiltered reconstruction of the whole log, built ONCE per step and shared by the
 	// volatile-context retrieval query and the compaction sizing check below — reconstruct
@@ -727,7 +730,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		Model:    s.Model.Model,
 		System:   sys,
 		Messages: msgs,
-		Tools:    a.toolSpecs(agent),
+		Tools:    a.sessionToolSpecs(sid, agent),
 	}, evs
 }
 

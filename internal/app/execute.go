@@ -32,7 +32,7 @@ func (a *App) gateAllowlist(ctx context.Context, s session.Session, agent AgentS
 	}
 	msg := "tool not permitted for agent " + agent.Name + " — this call did nothing."
 	var names []string
-	for _, spec := range a.toolSpecs(agent) {
+	for _, spec := range a.sessionToolSpecs(s.ID, agent) {
 		names = append(names, spec.Name)
 	}
 	if len(names) > 0 {

@@ -35,7 +35,7 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// default roster — and the estimate never counted it, so on a backend that reports no real
 	// prompt_tokens (many local ones) the meter and this trigger ran that much light and compaction
 	// fired late. Cheap to add: summing lengths, no marshalling.
-	if est := estimateTokens(sys, msgs) + toolSpecTokens(a.toolSpecs(agent)); est > tokens {
+	if est := estimateTokens(sys, msgs) + toolSpecTokens(a.sessionToolSpecs(s.ID, agent)); est > tokens {
 		tokens = est
 	}
 	if tokens <= budget {

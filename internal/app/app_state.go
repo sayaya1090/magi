@@ -9,6 +9,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // sessionState holds all per-session state for one session, consolidating what used to
@@ -58,6 +59,13 @@ type sessionState struct {
 	memSeen      map[string]bool
 	memBaselined bool
 	memPending   []string
+	// The frozen prefix pieces — see prompt_frozen.go for why these are the only doors.
+	turnSys    string
+	turnSysSet bool
+	// Keyed by the agent's identity: a workflow runs several agents through ONE session, each
+	// with its own allowlist, and each holds its own catalog for as long as it runs. Freezing per
+	// session flattened them into whoever came first — measured as verify losing bash.
+	toolsFrozen map[string][]port.ToolSpec
 	// turnNotes are what the AGENT itself asked to be reminded of before this turn ends
 	// (remember{scope:"turn"}). magi stores them verbatim and hands them back at the finish
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request
