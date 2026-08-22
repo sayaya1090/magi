@@ -134,6 +134,14 @@ const panelSynthesis = "When all three verdicts are written you will be asked on
 // requirement no walk covered at all, and a value accepted for its provenance that is wrong on its
 // face. The third is the one the measurements kept pointing at: across every arm, the walks checked
 // where a number came from and nobody ever asked whether the number could be right.
+//
+// That third faculty then failed on its first real test, and the two traps written into it are the
+// two ways it failed. Handed a fit whose two parameters were both off by the same factor, the close
+// called them "self-consistent" and passed — reading the very symptom of a common upstream error as
+// evidence against one. And it accepted the agent's account of why the numbers looked wrong (that
+// the axis was not literal), which had by then been repeated inside a lens's walk and so arrived
+// wearing a lens's authority rather than the agent's. Both are named now, because the model found
+// both on its own and will find them again.
 const panelCloseAsk = "── ACROSS THE WALKS ──\n" +
 	"The three walks are written. Each was written without sight of the other two; you are the first reader " +
 	"to see them together, and that view is the whole reason there is a question left to ask.\n" +
@@ -155,8 +163,19 @@ const panelCloseAsk = "── ACROSS THE WALKS ──\n" +
 	"produced a number, where the NUMBER ITSELF is not one the task's subject admits. The walks check " +
 	"PROVENANCE, which is their job; nobody checks magnitude. A measured constant far outside its known " +
 	"range, a count that cannot be that large, a duration that cannot be that short, a converged fit whose " +
-	"parameters sit nowhere near the thing being fitted — a well-sourced wrong answer is still wrong. Two " +
-	"values wrong by the SAME factor is a unit or column error and not a coincidence.\n" +
+	"parameters sit nowhere near the thing being fitted — a well-sourced wrong answer is still wrong.\n" +
+	"   Two things will be offered to you here, and both are traps.\n" +
+	"   The first is CONSISTENCY. Values derived from the same input agree with each other whether that " +
+	"input was read correctly or not, so their agreement is not evidence of anything: if two of them are " +
+	"off from what the subject admits by the SAME factor, that agreement is the SYMPTOM of one common " +
+	"cause — a unit, a column, an index read as a coordinate — and the more exactly they agree the stronger " +
+	"the case that a single thing upstream is wrong. Never write that a suspect value is fine because it is " +
+	"self-consistent, or because a ratio between two suspect values comes out right.\n" +
+	"   The second is the AGENT'S OWN EXPLANATION of why the number looks wrong — that the axis is not what " +
+	"it appears to be, that the units are implicit, that the scale is arbitrary. That explanation is part of " +
+	"the CLAIM under examination, not a resolution of it, and it does not stop being the agent's claim " +
+	"because a lens repeated it in a walk. Accept it only where a TOOL RETURNED something showing it is " +
+	"true; otherwise the item is unresolved and the round continues.\n" +
 	"Then say what they add up to. Do not count votes:\n" +
 	"- any UNSATISFIED item, or one settled only by NO-EVIDENCE where the task called for evidence, or a " +
 	"contradiction, a gap, or an implausible value → continue, and name it;\n" +

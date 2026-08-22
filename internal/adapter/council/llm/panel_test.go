@@ -216,9 +216,23 @@ func TestClosingCallJudgesResultsAndWalksNotTheReport(t *testing.T) {
 	// the three walks side by side, which no member had while writing one of them. Each of these
 	// three defects is invisible from inside a single walk.
 	for _, want := range []string{"CONTRADICTION", "GAP", "WRONG ON ITS FACE",
-		"appears in NO walk", "not one the task's subject admits", "wrong by the SAME factor"} {
+		"appears in NO walk", "not one the task's subject admits", "off from what the subject admits by the SAME factor"} {
 		if !strings.Contains(panelCloseAsk, want) {
 			t.Errorf("the closing call must be given the across-the-walks view: missing %q", want)
+		}
+	}
+	// The plausibility faculty failed its first real test in two specific ways, and both are named
+	// so it cannot fail them the same way again: it read two values wrong by the same factor as
+	// "self-consistent" and therefore fine, and it accepted the agent's own account of why the
+	// numbers looked wrong because a lens had repeated that account inside a walk.
+	for _, want := range []string{
+		"their agreement is not evidence of anything",
+		"Never write that a suspect value is fine because it is self-consistent",
+		"AGENT'S OWN EXPLANATION",
+		"does not stop being the agent's claim",
+	} {
+		if !strings.Contains(panelCloseAsk, want) {
+			t.Errorf("the two traps the faculty already fell into must be named: missing %q", want)
 		}
 	}
 	// It must not quietly become a fourth vote on the same evidence.
