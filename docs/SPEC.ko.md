@@ -237,8 +237,8 @@ llm-err-3: invalid base URL            ⇒ StreamChat returns error immediately
 규칙:
 - R1 tool-call 없으면 종료 + `turn.finished`.
 - R2 tool-call 있으면 실행 후 다음 스텝.
-- R3 ⛔ **스텝 상한은 없다.** 예전엔 `maxSteps` 도달 시 graceful 종료였는데 측정으로 걷어냈다(ARCHITECTURE §4). 워크플로 페이즈만 자기 예산을 선언한다.
-- R4 R1의 조용한 종료는 그대로 끝이 아니다 — **종료 경로**(`loop_gates.go`)가 Stop 훅 → 빈 결과 → 미실행 산출물 → **선언 요구** 순으로 돈다. 카운슬은 그 게이트가 아니라 에이전트가 부르는 툴이다(Part B의 F-COUNCIL).
+- R3 **페이스를 정하는 상한은 없고, 폭주 백스톱만 있다.** magi 자신의 산수로 걸던 graceful 종료는 측정으로 걷어냈다(ARCHITECTURE §4). 남은 것은 `MaxSteps`, 기본 **240** — 생산적인 턴이라면 절대 닿지 않을 높이다. 이걸 다 쓴 턴은 백스톱을 사유로 실은 UNVERIFIED로 착지하고, 작업물은 놓인 그대로 선다. 자기 예산을 선언하는 것은 워크플로 페이즈뿐이다.
+- R4 R1의 조용한 종료는 그대로 끝이 아니다 — **종료 경로**(`loop_gates.go`, `finishTurn`)가 게이트 여섯 개를 이 순서로 돈다: Stop 훅 → 빈 결과 넛지 → **선언 요구** → 저술했으나 미실행 → 미회수 인계 → 돌아온 답의 평가. 하나라도 걸리면 턴은 작업으로 되돌아간다. 그리고 정말 끝날 때: 선택적 증류 패스(기본 꺼짐), 늦은 인터젝션 수거, `finalizeTodos`(열려 있던 스텝은 진짜 완료면 완료로, 아니면 취소로), 그리고 UNVERIFIED 사유가 있으면 그것을 실은 `turn.finished`. 카운슬은 그 목록에 없다: 에이전트가 부르는 툴이고(Part B의 F-COUNCIL), 선언 게이트는 불렀는지만 확인한다.
 
 ```
 loop-stop-1: fake replies ["안녕"]                       ⇒ 1 step, turn.finished, 1 text part

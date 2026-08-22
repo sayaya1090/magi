@@ -20,18 +20,19 @@ internal/
   core/                  # 도메인 모델 (session, event, command, artifact, tool, model, plugin, agent, bus)
   port/                  # 포트 인터페이스 (LLMProvider, Store, Tool, ToolEnv, Platform, PluginHost, ExperienceStore)
   app/                   # 애플리케이션 서비스 (app.go, loop.go, loop_gates.go, workflow.go, policy.go, 등)
-adapter/
-  llm/openai/            # OpenAI 호환 어댑터 (Ollama, LiteLLM 등)
-  store/jsonl/           # append‑only JSONL 저장소
-  tool/builtin/          # read, write, edit, grep, glob, list, bash, … 등 내장 툴
-  platform/              # OS 별 exec, 경로, 터미널 캡ability
-  experience/git/        # 공유 기억 (git repo 백엔드)
-  plugin/lua/            # gopher‑lua 플러그인 호스트
-  mcp/                   # MCP 클라이언트 (stdio 기반)
-  tui/                   # Bubble Tea UI
-  daemon/                # 유닉스 소켓 위의 엔진 (Listen/Serve · flock 클레임 · Publish · Client)
-  fleet/                 # 모든 magi가 무엇을 하는지 — 로그에서 유도, 콘솔과 --agents가 공유
-config/                  # TOML 설정 로더
+  config/                # TOML 설정 로더
+  adapter/
+    llm/openai/          # OpenAI 호환 어댑터 (Ollama, LiteLLM 등)
+    store/jsonl/         # append‑only JSONL 저장소
+    tool/builtin/        # read, write, edit, grep, glob, list, bash, … 등 내장 툴
+    platform/            # OS 별 exec, 경로, 터미널 캡ability
+    experience/git/      # 공유 기억 (git repo 백엔드)
+    plugin/lua/          # gopher‑lua 플러그인 호스트
+    mcp/                 # MCP 클라이언트 (stdio 기반)
+    council/llm/         # 카운슬 위원 어댑터 (패널 한 번 호출 · 훑기 · 닫는 호출)
+    tui/                 # Bubble Tea UI
+    daemon/              # 유닉스 소켓 위의 엔진 (Listen/Serve · flock 클레임 · Publish · Client)
+    fleet/               # 모든 magi가 무엇을 하는지 — 로그에서 유도, 콘솔과 --agents가 공유
 plugins/examples/        # Lua 플러그인 예시
 ```
 
@@ -52,12 +53,19 @@ plugins/examples/        # Lua 플러그인 예시
 3. 스트림에서 `text‑delta` → `bus.Publish(part.delta)` (전이)
 4. `tool‑call` 수집 → 필요 시 `permission.requested` → `RespondPermission`
 5. 툴 실행 → `store.Append(part.appended)` (영속)
-6. 툴이 없으면 종료 경로 순서대로 실행:
-   - Stop 훅
-   - 빈 결과 넛지
-   - 실행되지 않은 산출물
-   - `council` 선언 (`council{complete:true}`)
-7. `store.Append(turn.finished)` 후 루프 종료
+6. 툴이 없으면 종료 경로를 순서대로 실행 (`app/loop_gates.go`, `finishTurn`):
+   1. Stop 훅
+   2. 빈 결과 넛지
+   3. `council` 선언 요구 (`council{complete:true}`) — 무진전 구간당 3회까지 상기,
+      넘기면 UNVERIFIED·미선언으로 착지
+   4. 저술했으나 실행되지 않은 산출물
+   5. 미회수 인계 (다른 컴패니언이 아직 답을 안 줌)
+   6. 받은 답의 평가 (`rate_handoff`)
+   그다음 선택적 증류(기본 꺼짐), 늦게 들어온 인터젝션 수거, 계획 정리(`finalizeTodos`)
+7. `store.Append(turn.finished)` 후 루프 종료 — UNVERIFIED 사유가 있으면 함께 실림
+
+   카운슬은 이 경로가 소집하는 게이트가 아니라 **에이전트가 부르는 툴**이고,
+   3번은 불렀는지만 확인한다.
 
 ## 6.5 터미널 하나를 넘어서
 - `magi -daemon`은 UI 없이 엔진만 돌리고 워크스페이스별 소켓에서 대기한다(이름은 실제 경로에서

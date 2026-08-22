@@ -279,11 +279,19 @@ llm-err-3: invalid base URL            ⇒ StreamChat returns error immediately
 Rules:
 - R1 No tool call → the turn ends with `turn.finished`.
 - R2 A tool call → execute, then the next step.
-- R3 ⛔ **There is no step ceiling.** There used to be a graceful stop at `maxSteps`; measurement
-  took it out (ARCHITECTURE §4). Only a workflow phase declares its own budget.
-- R4 R1's quiet stop is not the end by itself — the **finish path** (`loop_gates.go`) runs Stop hooks
-  → the empty-result nudge → authored-but-never-run → **the declaration**, in that order. The
-  council is not that gate; it is a tool the agent calls (Part B, F-COUNCIL).
+- R3 **There is no pacing ceiling — only a runaway backstop.** The graceful stop that fired on
+  magi's own arithmetic came out on measurement (ARCHITECTURE §4). What remains is `MaxSteps`,
+  default **240**, sized far above any productive turn: a turn that spends it lands UNVERIFIED with
+  the backstop named as the reason, and the work stands as it was left. Only a workflow phase
+  declares a budget of its own.
+- R4 R1's quiet stop is not the end by itself — the **finish path** (`loop_gates.go`, `finishTurn`)
+  runs six gates in this order: Stop hooks → the empty-result nudge → **the declaration** → the
+  authored-but-never-run nudge → outstanding hand-offs → what the answers that came back were
+  worth. Any one of them sends the turn back to work. Then, when it truly ends: the optional distil
+  pass (off by default), the late-interjection sweep, `finalizeTodos` (every still-open step becomes
+  completed on a genuine finish and cancelled otherwise), and `turn.finished` carrying the
+  UNVERIFIED reason if there is one. The council is not on that list: it is a tool the agent calls
+  (Part B, F-COUNCIL), and the declaration gate only checks that it did.
 
 ```
 loop-stop-1: fake replies ["hello"]                       ⇒ 1 step, turn.finished, 1 text part

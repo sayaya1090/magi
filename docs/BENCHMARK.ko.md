@@ -9,7 +9,7 @@
 
 ## 무엇이 시험대에 오르나
 
-- **루프**: magi의 플래너, 도구, 카운슬, 회복. 고정된 바이너리에서.
+- **루프**: magi의 도구, 가드, 카운슬, 회복. 고정된 바이너리에서.
 - **백엔드**: `MAGI_BASE_URL`이 서빙하는 것.
 - **데이터셋**: `terminal-bench/terminal-bench-2-1`, 89개 과제.
 
@@ -59,7 +59,8 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # 문서�
 | `turns` | magi가 답한 사용자 프롬프트 수 — 과제 하나는 보통 **하나**입니다 |
 | `calls` | 백엔드가 실제로 서빙한 LLM 요청 수. 규모를 따라 늘어나는 건 이 숫자입니다 |
 | `in` / `cached` / `out` | magi 자신의 토큰 집계. trial의 `turn.finished`에서 |
-| `council` | 종료 게이트의 집계, `done 3-0`. `— none`은 완료 선언이 없었다는 뜻 |
+| `council` | 그 턴의 완료 선언에 대한 집계, `done 3-0`. `— none`은 완료 선언이 없었다는 뜻 |
+| `usd` | 백엔드가 값을 매기는 경우 그 청구액. `~`는 여러 trial이 나눠 쓴 수치 |
 
 `turns`와 `calls`는 자릿수가 다르고 둘 다 사실입니다 — 과제 하나, 프롬프트 하나, 그 안에서 모델 호출
 마흔 번. 에이전트 타임아웃으로 잘린 trial은 `turn.finished`에 도달하지 못하므로 입력이 `0`이 아니라
@@ -152,10 +153,11 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown
 
 데이터셋이 이름 붙인 순서 그대로 전부. `in`은 캐시 읽기를 포함하므로 `in − cached`가 새로 쓴 양입니다. 에이전트 타임아웃으로
 끊긴 trial은 `turn.finished`에 도달하지 못해 `0`이 아니라 `?`입니다(0은 주장이 되니까요).
-`finish gate`는 턴이 스스로 끝났다고 선언했을 때의 카운슬 집계이고, `— none`은 거기까지 못 갔다는
-뜻입니다.
+`council`은 그 턴의 완료 선언에 대한 집계이고, `— none`은 거기까지 못 갔다는 뜻입니다. 이 표는
+`report.py`에 `usd` 열이 생기기 전에 기록돼서 지금 돌린 리포트보다 열이 하나 적습니다. 나머지는
+그대로입니다.
 
-| task | | min | turns | calls | in | cached | out | finish gate |
+| task | | min | turns | calls | in | cached | out | council |
 |---|---|---:|---:|---:|---:|---:|---:|---|
 | `adaptive-rejection-sampler` | ✅ PASS | 15 | 3 | 38 | 1,440,668 | 1,105,646 | 68,128 | done 3-0 |
 | `bn-fit-modify` | ✅ PASS | 7 | 2 | 35 | 897,651 | 688,096 | 19,943 | done 3-0 |
@@ -247,10 +249,11 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown
 | `winning-avg-corewars` | ⏱ TIME | 61 | 3 | 68 | ? | ? | 259,604 | continue 0-3 |
 | `write-compressor` | ⏱ TIME | 16 | 1 | 2 | ? | ? | 5,344 | — none |
 
-검증 실패 11건 중 **일곱이 `done 3-0`** 입니다 — 완료 게이트가 만장일치로 끝났다고 한 작업을 검증이
-물렸습니다. 반대로 게이트가 막아서 시간이 끝난 trial은 둘인데(`continue 1-2`, `continue 0-3`), 그 둘은
-검증도 게이트 편이었습니다. 이 백엔드에서 게이트는 **통과시키는 쪽으로 기울어** 있고, 그게 이번 실행이
-드러낸 가장 큰 단일 결함입니다 — 토큰에 관한 어떤 것보다 큽니다.
+검증 실패 11건 중 **일곱이 `done 3-0`** 입니다 — 카운슬이 만장일치로 끝났다고 한 작업을 검증이
+물렸습니다. 반대로 카운슬이 막아서 시간이 끝난 trial은 둘인데(`continue 1-2`, `continue 0-3`), 그 둘은
+검증도 카운슬 편이었습니다. 이 백엔드에서 카운슬은 **통과시키는 쪽으로 기울어** 있고, 그게 이번 실행이
+드러낸 가장 큰 단일 결함입니다 — 토큰에 관한 어떤 것보다 큽니다. 요구사항 훑기와 닫는 호출
+(ARCHITECTURE §5)은 바로 이 실측을 겨냥해 붙였고, 이 실행 이후의 것입니다.
 
 ### 어떤 기계에서 돌았고, 어떤 과제가 손해를 봤나
 

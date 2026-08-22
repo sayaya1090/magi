@@ -10,7 +10,7 @@ two agents that both pass are not equivalent if one took five times the work to 
 
 ## What is under test
 
-- **The loop**: magi's planner, tools, council and recovery, from a pinned binary.
+- **The loop**: magi's tools, guards, council and recovery, from a pinned binary.
 - **The backend**: whatever `MAGI_BASE_URL` serves.
 - **The dataset**: `terminal-bench/terminal-bench-2-1`, 89 tasks.
 
@@ -60,7 +60,8 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # for a do
 | `turns` | user prompts magi answered — a whole task is usually **one** |
 | `calls` | LLM requests the backend actually served for it, which is the number that scales |
 | `in` / `cached` / `out` | magi's own token accounting, from the trial's `turn.finished` |
-| `council` | the finish gate's tally, `done 3-0`. `— none` means the turn never declared finished |
+| `council` | the tally on the turn's completion declaration, `done 3-0`. `— none` means the turn never declared finished |
+| `usd` | what the backend charged, where it reports a price; `~` marks a figure shared across trials |
 
 `turns` and `calls` differ by more than an order of magnitude and both are real: one task, one
 prompt, forty model calls inside it. A trial killed by the agent timeout never reaches
@@ -157,10 +158,11 @@ carries a much wider error bar than the ±1.6% those entries quote.
 
 Every task, in the order the dataset names them. `in` counts cache reads, so `in − cached` is what was written fresh; a
 trial killed by the agent timeout never reaches `turn.finished` and reads `?` rather than `0`,
-because a zero would be a claim. `finish gate` is the council's tally when the turn declared
-itself done — `— none` means it never got that far.
+because a zero would be a claim. `council` is the tally on the turn's completion declaration —
+`— none` means it never got that far. This table was recorded before `report.py` grew its `usd`
+column, so it has one column fewer than a report run today; nothing else about it changed.
 
-| task | | min | turns | calls | in | cached | out | finish gate |
+| task | | min | turns | calls | in | cached | out | council |
 |---|---|---:|---:|---:|---:|---:|---:|---|
 | `adaptive-rejection-sampler` | ✅ PASS | 15 | 3 | 38 | 1,440,668 | 1,105,646 | 68,128 | done 3-0 |
 | `bn-fit-modify` | ✅ PASS | 7 | 2 | 35 | 897,651 | 688,096 | 19,943 | done 3-0 |
@@ -252,11 +254,12 @@ itself done — `— none` means it never got that far.
 | `winning-avg-corewars` | ⏱ TIME | 61 | 3 | 68 | ? | ? | 259,604 | continue 0-3 |
 | `write-compressor` | ⏱ TIME | 16 | 1 | 2 | ? | ? | 5,344 | — none |
 
-Seven of the eleven verifier failures carry `done 3-0`: the finish gate agreed, unanimously, that
-work was complete which the verifier then rejected. Two trials were held back by the gate and timed
-out (`continue 1-2`, `continue 0-3`), and in both the verifier agreed with the gate rather than the
-agent. On this backend the gate errs toward letting work through, and that is the largest single
-defect this run surfaced — larger than anything about tokens.
+Seven of the eleven verifier failures carry `done 3-0`: the council agreed, unanimously, that work
+was complete which the verifier then rejected. Two trials were held back by it and timed out
+(`continue 1-2`, `continue 0-3`), and in both the verifier agreed with the council rather than the
+agent. On this backend the council errs toward letting work through, and that is the largest single
+defect this run surfaced — larger than anything about tokens. The requirements walk and the closing
+call (ARCHITECTURE §5) were added against this measurement specifically, and postdate this run.
 
 ### The machine, and the tasks it cannot do justice to
 

@@ -49,7 +49,8 @@ internal/
   app/                      # application services (use cases)                ★ §4
     app.go                  #   Application implementation + Config (Profile/Sandbox/Workflow…)
     loop.go                 #   the agent loop (port orchestration) + loop guard + language directive
-    loop_gates.go           #   the finish path: Stop hooks · empty result · unrun output · declaration
+    loop_gates.go           #   the finish path, in order: Stop hooks · empty result ·
+                            #   declaration · unrun output · outstanding hand-offs · rating
     workflow.go             #   the deterministic workflow engine (phase gates)
     policy.go               #   guardrail policy engine (allow/deny/egress/secret-deny)
     context.go·compact.go   #   context assembly + compaction
@@ -58,8 +59,10 @@ internal/
     llm/openai/             #   OpenAI-compatible (Ollama/vLLM/LiteLLM): caching, fallback, error mapping
     store/jsonl/            #   append-only JSONL
     tool/builtin/           #   read/write/edit/multiedit/grep/glob/list/bash/bash_output/
-                            #   bash_kill/bash_input/wait_for/port_owner/todowrite/council/
-                            #   webfetch/websearch/remember/skill/recall_* + sandbox_*
+                            #   bash_kill/bash_input/wait_for/port_owner/todowrite/label/council/
+                            #   webfetch/websearch/remember/skill/recall_context/recall_memory/
+                            #   search_sessions/schedule  (+ ask_user/route_interjection
+                            #   interactive-only; port_owner withdrawn where nothing can answer)
     platform/               #   per-OS exec / paths / terminal capabilities
     experience/git/         #   the shared brain (git repo)          (M5+)
     plugin/lua/             #   gopher-lua host                      (M3)
@@ -431,12 +434,17 @@ run(sessionID):
       // What runs now is the finish path (loop_gates.go), in order:
       //   1) Stop hooks — a failing hook pushes the agent back to work with the hook's output
       //   2) the empty-result nudge (an answer with no text) — once
-      //   3) authored but no command NAMED it — deterministic, no model call, once per turn
-      //   4) the declaration — the agent is told to call the `council` tool with complete:true.
+      //   3) the declaration — the agent is told to call the `council` tool with complete:true.
       //      Bounded at three asks per stretch of no progress; a real mutation since the last ask
-      //      restarts the budget.
+      //      restarts the budget. Past the cap the turn lands UNVERIFIED, recorded as undeclared.
+      //   4) authored but no command NAMED it — deterministic, no model call, once per turn
+      //   5) outstanding hand-offs — work is still out with another companion
+      //   6) what the answers that came back were worth (rate_handoff, allowed at finish)
       // The council is now a TOOL the agent calls, and accepting a declaration signals the loop.
-      store.Append(turn.finished); return
+      // Then: the optional distil pass (off by default), the late-interjection sweep, and
+      // finalizeTodos — every still-open step becomes completed on a genuine finish, cancelled
+      // otherwise, so a landed run never leaves a half-ticked list behind.
+      store.Append(turn.finished{Unverified: reason != ""}); return
     for call in toolcalls:
       if needsPermission(call): bus.Publish(permission.requested); wait RespondPermission
       store.Append(permission.decided)

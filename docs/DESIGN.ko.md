@@ -44,7 +44,8 @@ internal/
   app/                      # 애플리케이션 서비스(유스케이스)       ★ §4
     app.go                  #   Application 구현 + Config(Profile/Sandbox/Workflow…)
     loop.go                 #   에이전트 루프(포트 오케스트레이션) + 루프 가드 + 언어 지시
-    loop_gates.go           #   종료 경로: Stop 훅 · 빈 결과 · 미실행 산출물 · 종료 선언
+    loop_gates.go           #   종료 경로, 순서대로: Stop 훅 · 빈 결과 · 종료 선언 ·
+                            #   미실행 산출물 · 미회수 인계 · 받은 답 평가
     workflow.go             #   결정적 워크플로 엔진(phase 게이트)
     policy.go               #   가드레일 정책 엔진(allow/deny/egress/secret-deny)
     context.go·compact.go   #   컨텍스트 조립 + compaction
@@ -53,8 +54,10 @@ internal/
     llm/openai/             #   OpenAI 호환(Ollama/vLLM/LiteLLM): 캐싱·폴백·에러매핑
     store/jsonl/            #   append-only JSONL
     tool/builtin/           #   read/write/edit/multiedit/grep/glob/list/bash/bash_output/
-                            #   bash_kill/bash_input/wait_for/port_owner/todowrite/council/
-                            #   webfetch/websearch/remember/skill/recall_* + sandbox_*
+                            #   bash_kill/bash_input/wait_for/port_owner/todowrite/label/council/
+                            #   webfetch/websearch/remember/skill/recall_context/recall_memory/
+                            #   search_sessions/schedule  (+ ask_user/route_interjection은
+                            #   대화형 전용, port_owner는 답할 수 없는 환경에서 철회)
     platform/               #   OS별 exec/경로/터미널 능력
     experience/git/         #   공유 두뇌(git repo)                (M5~)
     plugin/lua/             #   gopher-lua 호스트                  (M3)
@@ -400,11 +403,16 @@ run(sessionID):
       // 지금은 종료 경로(loop_gates.go)가 순서대로 돈다:
       //   1) Stop 훅 — 실패하면 그 출력을 실어 작업으로 되돌림
       //   2) 빈 결과 넛지(텍스트 없는 답변) — 1회
-      //   3) 저술했으나 이름으로 지목한 실행이 없음 — 결정적, 모델 호출 없이 턴당 1회
-      //   4) 종료 선언 요구 — `council` 툴을 complete:true로 부르라고 알려준다.
+      //   3) 종료 선언 요구 — `council` 툴을 complete:true로 부르라고 알려준다.
       //      무진전 구간당 3회로 경계. 마지막 요청 이후 실제 뮤테이션이 있으면 예산 재시작.
+      //      경계를 넘기면 미선언으로 기록된 UNVERIFIED 착지.
+      //   4) 저술했으나 이름으로 지목한 실행이 없음 — 결정적, 모델 호출 없이 턴당 1회
+      //   5) 미회수 인계 — 다른 컴패니언에게 넘긴 일이 아직 안 돌아옴
+      //   6) 돌아온 답이 값했는가(rate_handoff, 종료 시점에 허용)
       // 카운슬은 이제 에이전트가 부르는 **툴**이고, 선언을 받아들이면 루프에 신호가 간다.
-      store.Append(turn.finished); return
+      // 그다음: 선택적 증류 패스(기본 꺼짐), 늦은 인터젝션 수거, finalizeTodos — 열려 있던
+      // 스텝은 진짜 완료면 완료로, 아니면 취소로. 착지한 런이 반쯤 체크된 목록을 남기지 않는다.
+      store.Append(turn.finished{Unverified: reason != ""}); return
     for call in toolcalls:
       if needsPermission(call): bus.Publish(permission.requested); wait RespondPermission
       store.Append(permission.decided)

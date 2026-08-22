@@ -138,7 +138,7 @@ flowchart TD
   CL -- "수락" --> FIN["turnControl.finish → VERIFIED 착지"]
   CL -- "미수락" --> FB["무엇이 안 됐는지 반환<br/>→ 에이전트 계속 작업"]
   FB --> S
-  T -- "없음 · 선언 없이 침묵" --> RQ{"requireFinishDeclaration<br/>최대 3회 상기"}
+  T -- "없음 · 선언 없이 침묵" --> RQ{"requireFinishDeclaration<br/>무진전 구간당 3회 상기"}
   RQ -- "선언함" --> CG
   RQ -- "끝내 없음(캡 초과)" --> U["UNVERIFIED 착지<br/>(선언 없이 끝남으로 기록)"]
 ```
@@ -195,7 +195,8 @@ flowchart TD
 
 종료 선언 시엔 L1의 카운슬이 이어진다: 기록 조립(디스크에 없는 경로 → 살아있는 잡 → 워크스페이스
 스냅샷 → 관측 기록 → 툴 증거, 항목당 클립) → 3멤버 심의. 미수락이면 무엇이 안 됐는지가 툴 결과로
-돌아가 에이전트가 계속 일하고, 끝내 선언이 없으면 3회 상기 후 UNVERIFIED로 착지한다. bash 툴 자체도
+돌아가 에이전트가 계속 일하고, 끝내 선언이 없으면 파일 뮤테이션 없는 한 구간에서 3회 상기한 뒤
+UNVERIFIED로 착지한다. bash 툴 자체도
 exit 0에 크래시 시그니처나 종료코드-무마 꼬리(`|| true` 등)가 보이면 결과 머리에 경고 주석을 단다
 (`MAGI_EXITCODE_BODYSCAN`, MANUAL §가드 참고).
 
@@ -486,7 +487,7 @@ classDiagram
   class JSONLStore["adapter/store/jsonl"]
   note for JSONLStore "dataDir/projects/&lt;cwd&gt;/&lt;sid&gt;.jsonl"
   class BuiltinRegistry["adapter/tool/builtin.Default()"]
-  note for BuiltinRegistry "항상 21개 + 대화형 전용 2개"
+  note for BuiltinRegistry "항상 24개(port_owner 없으면 23개) + 대화형 전용 2개"
   class LuaHost["adapter/plugin/lua.Host"]
   note for LuaHost "Lua 툴 · 컨텍스트 제공자 · 슬래시 명령 · doctor 프로브"
   class MCPClient["adapter/mcp"]
@@ -711,7 +712,9 @@ classDiagram
   Tool <|.. MetaTools
 ```
 
-툴은 **21개가 항상**, `ask_user`와 `route_interjection` **2개가 대화형 세션에서만** 등록된다
+툴은 **24개가 항상** — 23개는 무조건, 거기에 `port_owner`가 답할 수 있는 환경에서(`/proc`도
+`lsof`도 포트 주인을 못 말하는 곳에서는 철회된다) — 그리고 `ask_user`와 `route_interjection`
+**2개가 대화형 세션에서만** 등록된다
 (`Default()` + `RegisterOrchestration(r, headless)`). 헤드리스에서 뒤 둘을 빼는 이유는 답할 사람이
 없어서만이 아니라, 절대 발화하지 않을 툴이 매 요청의 툴 목록에 무게로 실리기 때문이다.
 이름 목록은 `KnownNames()` 하나로 열거된다 — 정책 코드가 툴 이름을 리터럴로 쓰는 곳들이
@@ -1032,10 +1035,18 @@ sequenceDiagram
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
 | `MAGI_STREAM_STALL` · `MAGI_FIRST_TOKEN` | 120s · 300s | generate의 토큰-간 freeze 한도(0=비활성) · 첫토큰 전(prefill) 한도(0=별도 한도 없음); 가드는 둘 중 큰 쪽의 2배, 카운슬 멤버 데드라인은 첫토큰 값을 더함 |
-| `MAGI_CHECK_TIMEOUT` | — | 워크플로 verify 타임아웃(0=off) |
+| `MAGI_CHECK_TIMEOUT` | 120s | 워크플로 verify 명령 하나를 묶는 경계(0=off). 킬은 -1 = *검증불가*로 보고되지, 거짓실패가 되지 않는다 |
 | `MAGI_SPIN_CAP` | 400KB | reasoning-only spin 상한(guardedProvider는 2×) |
+| `MAGI_SPIN_WALL` | 600s | 같은 폭주를 양이 아니라 **시간**으로 묶는 경계. 첫 출력부터 재므로 느린 prefill이 이중으로 세어지지 않는다(0이면 해제). 80분 동안 reasoning 16.6KB를 흘린 호출은 바이트 경계도 침묵 경계도 다 통과했다 |
 | `MAGI_SELFKILL_GUARD` | ON | 프롬프트 단어로 자기 프로세스를 죽이는 `pkill -f` 차단 |
 | `MAGI_COUNCIL_KEEP` | ON | 위원이 **유지할 부분**도 함께 지목(자문, 결정·집계엔 무영향); off면 고칠 것만 |
+| `MAGI_COUNCIL_REJECT_CAP` | ON | 승인이 경계 지어지는 만큼 거부도 경계 짓는다 — 변경 없는 거부 연속 3회, 또는 한 턴에 8회면 declare→reject를 스텝 백스톱까지 돌리는 대신 UNVERIFIED로 착지 |
+| `MAGI_COUNCIL_LITERALS` | ON | 태스크 자신의 식별자(camelCase, snake_case, 파일명, `(int)` 타입 필드, 백틱 단어)를 위원 증거로 끌어올려, 훑기를 태스크가 실제로 쓴 낱말로 정산할 수 있게 한다 |
+| `MAGI_INTERJECT_SPLIT` | ON | 큐에 든 메시지를 배치 하나가 아니라 **메시지마다** 처분한다. 새 턴이 남은 큐를 다시 판정하는 절반도 여기 딸려 있다; off면 배치 단일 처분으로 복귀 |
+| `MAGI_COLLAPSE_REPEATS` | ON | 모델 자신의 트랜스크립트에서 동일한 (호출, 결과) 쌍이 쌓이는 것을 축약한다 — 카운슬 증거 supersession의 모델 쪽 쌍둥이. 결과가 **달라진** 호출은 절대 축약하지 않는다 |
+| `MAGI_RESEND_REASONING` | ON | 툴 연속에서 직전 스텝의 reasoning을 와이어로 되돌려 보낸다(짝지은 파일럿: 입력 토큰 40% 적게, 최대 50% 빠르게, 회귀 없음). 그 필드를 무시하는 백엔드는 바이트만 낸다 |
+| `MAGI_DISTIL` | OFF | 턴 전체가 아직 컨텍스트에 있는 그 한 순간에 "무엇이 남길 값이 있었나"를 묻는다. 완료 태스크당 왕복 한 번을 쓰므로 기본 꺼짐 |
+| `MAGI_EMBEDDED_PLUGINS` | ON | 바이너리에 내장된 플러그인을 로드한다; off면 워크스페이스가 지목한 것만 남는다 |
 | `MAGI_TERSE_STEPS` | OFF | 스텝마다 한 줄 서사를 요구하던 문구를 뺀 프롬프트 |
 
 이 표는 **행동을 바꾸는 A/B 스위치**만 싣는다(플래그 이름이 CLI 옵션과 1:1인 환경변수 —

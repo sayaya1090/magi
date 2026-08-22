@@ -33,8 +33,9 @@ document covers two related additions:
   gate.
 - **fleet** — two ssh transports: gossip (`cluster.Member`, signed via `Signable` —
   `Version` now exists and is deliberately NOT in the signed set) and work relay
-  (`--relay` byte pipe; `--fleet-door` narrowed to `about, hand, hand-state` — the
-  lifecycle verbs are asserted off it by test).
+  (`--relay` byte pipe; `--fleet-door` narrowed to `about, hand, hand-state, watch` —
+  `watch` was added after this note was written, deliberately and late, so the door is
+  four methods today; the lifecycle verbs are asserted off it by test).
 - **update** — `internal/update` WAS self-only with no restart. NOW: `RunCommit`
   (download + SHA256 + `Commit` with rollback), `internal/graceful.Reexec` (the
   restart), and two daemon methods — `restart` and `update` — joining `shutdown` as

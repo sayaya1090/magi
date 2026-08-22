@@ -6,8 +6,8 @@
 
 In most agent loops the turn ends when the model stops calling tools. magi ends it differently.
 The agent has to *declare* that it is done, and three council members vote on whether the record
-backs that up, each reading the turn through a different lens. A verification command that magi
-runs itself can refuse a "done" the tests don't support.
+backs that up, each reading the turn through a different lens. Before any of them may vote it
+walks the task's requirements, one line each, against what the tools actually returned.
 
 [English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md) · [Live demo](https://sayaya1090.github.io/magi/)
 
@@ -60,7 +60,7 @@ flowchart LR
     T -->|yes| S
     T -->|no| D[agent declares<br/>council: complete]
     D --> R[[magi assembles the record:<br/>what ran, what it really exited,<br/>what changed on disk]]
-    R --> V[[verify command<br/>magi runs itself]]
+    R --> V[[each member walks the requirements<br/>against that record, line by line]]
     V --> C{{council votes<br/>done · reject · abstain}}
     C -->|not accepted| F[feedback becomes<br/>the next instruction] --> S
     C -->|accepted| E([turn ends])
@@ -188,23 +188,23 @@ itself recorded. magi grants every tool call, so it already knows:
 - on a completion claim, a fresh read of the workspace: files modified since the task began,
   background jobs still alive, and any path the record says was written that isn't on disk.
 
-On top of that sits a verification command that the agent has no way to influence:
+On top of that record sits a rule about how it may be read. Before a member may state a decision
+it writes the **walk**: one line per requirement the task stated, each marked SATISFIED or
+UNSATISFIED and settled by a verbatim fragment of a tool result — or by `NO-EVIDENCE`, which is a
+recorded answer rather than a gap to pass over quietly. That field sits *before* the decision in
+the schema the member fills in, so a reading cannot be assembled backwards from a conclusion
+already reached. What may settle a line is something a tool returned; the agent's account of its
+own work settles nothing.
 
-```toml
-[council]
-verify = "go test ./..."   # magi runs THIS itself, at the finish gate
-```
+After the three have voted, one closing call reads all three walks together — the only seat from
+which a contradiction between two readings of the same output, a requirement no walk covered, or a
+value wrong on its face is visible. Its conclusion is clamped one way: it can turn a `done` into
+*continue*, never the reverse. This council's measured failure mode is over-approval, so a
+conclusion free to overrule a *blocking* tally would be a second road to done rather than a check
+on the first.
 
-Its exit code is authoritative. Non-zero refuses the finish whatever the members voted, and they
-see the output as magi-run evidence, not as something the agent reported. For `go test` magi goes
-further and re-runs it under `-json`, which catches the two usual ways a green suite lies:
-
-- a `TestMain` that runs nothing, so an empty or disabled suite still exits 0;
-- a `TestMain` that runs the tests, sees them fail, and calls `os.Exit(0)` anyway.
-
-Either one turns a "done" into *continue*, with the evidence naming what happened. A check written
-in advance can be wrong about the work. A record of what was granted cannot be wrong about what
-ran.
+A check written in advance can be wrong about the work. A record of what was granted cannot be
+wrong about what ran.
 
 ---
 
@@ -314,7 +314,7 @@ no port of its own and holds no credential of its own.
 | | Feature | What it means in practice |
 |---|---|---|
 | 🗳️ | **Consensus termination** | Three members vote *done / reject / abstain*; a pure, unit-tested rule tallies them. A reject feeds their aggregated feedback back in as the next instruction. |
-| 🔒 | **A verify command magi runs itself** | Point `[council] verify` at your test command. A non-zero exit refuses the finish whatever the members voted, and for `go test` magi also catches a disabled suite or a failure masked by a forced `exit 0`. |
+| 🔒 | **A walk before the verdict** | A member writes one line per requirement the task stated — satisfied or not, settled by a verbatim fragment of a tool result or by `NO-EVIDENCE` — *before* the schema lets it state a decision. Then one closing call reads all three walks together and may only tighten the tally, never loosen it. |
 | 🧾 | **A record, not a claim** | magi grants every tool call, so it knows which commands ran, their real exit (including which stage of a pipe failed), and which files they wrote — plus a fresh read of the workspace on every "done". |
 | 🖥️ | **A console for many agents** | Supervise every companion on your machines from a browser: interrupt, answer a question, approve a command, read what they have learned, and get a push notification when one blocks. |
 | ✨ | **Editor completion and prompt suggestion** | Ghost-text completion in the web editor and next-instruction suggestions in both composers, learned from your own past prompts. Each is a thin call on a fast profile you route, so a keystroke never waits on the turn machinery. Turn on *look-over* and the model reads over your shoulder as you edit, anchoring at most three findings to their exact lines. |

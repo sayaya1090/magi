@@ -1050,7 +1050,7 @@ stateDiagram-v2
 
 ### Right-side status panel
 When there are plans / progress, a **status panel** appears on the right (hidden if none). **Drag its left edge with the mouse** to adjust the width (default 44 columns). Sections:
-- **Plan** — the current todo checklist + progress (`done/total`): completed ✓, in-progress ◐, pending ☐, and **cancelled ✗** (a step left unfinished when the turn is aborted/stopped). Progress is driven by deterministic signals too, so it updates even when the model doesn't call `todowrite`. Updates in real time.
+- **Plan** — the current todo checklist + progress (`done/total`): completed ✓, in-progress ◐, pending ☐, and **cancelled ✗** (a step left unfinished when the turn is aborted/stopped). The list itself is the model's (`todowrite`); magi adds two deterministic touches around it — the first pending step is marked ◐ when the turn starts working, and every step still open is resolved when the turn ends (✓ on a genuine finish, ✗ when the turn was abandoned). Updates in real time.
 - **Jobs** — the background commands running now (color · status · elapsed). **Click an item → zoom into that job's output** (same as clicking the pane).
 - **Context** — context token usage bar.
 
@@ -1165,7 +1165,7 @@ reporting work it never did.
 ### Self-control
 | Tool | Description | Permission |
 |---|---|---|
-| `todowrite` | record/update a plan (checklist). The status panel is driven by deterministic signals too, so progress updates even without this call | — |
+| `todowrite` | record/update a plan (checklist). magi marks the first pending step in-progress itself and resolves whatever is still open when the turn ends; everything between those two is this call | — |
 | `recall_context` | re-hydrate detail an earlier compaction shed, **verbatim**, by topic (a file path works well) | — |
 
 ### Memory
@@ -1304,7 +1304,7 @@ false completion produces.
 
 **Rejection is bounded.** The gate exists to stop a false "done"; unbounded, it also stopped a true "I could not" — measured live, an honest declaration on a task the run's own permission mode made impossible was rejected for eighteen straight rounds until an external kill. After three consecutive rejections with **no file mutation between them** (or eight in one turn regardless), magi lands the turn **UNVERIFIED** with the reason on the record: the work stands, the agent is asked for its honest final account, and nothing pretends the council accepted. Real iteration is unaffected — a declaration separated from the last by actual work gets the longer rope. `MAGI_COUNCIL_REJECT_CAP=0` restores the uncapped loop for A/B.
 
-If the agent never declares, magi reminds it up to three times and then lands the work as it stands, recorded as ending undeclared instead of finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
+If the agent never declares, magi reminds it up to three times **per stretch of no progress** — a real file mutation since the last reminder is the evidence that the reminder was answered by working, so the count starts over — and then lands the work as it stands, recorded as ending undeclared instead of finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
 
 Set `[council] enabled = false` to remove the tool entirely; with nobody to declare to, the requirement cannot apply and the loop finishes passively.
 

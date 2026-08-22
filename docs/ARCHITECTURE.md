@@ -504,7 +504,7 @@ flowchart TD
     A[1 · assemble the request<br/>history · AGENTS.md · skills · experience<br/>+ volatileContext, rebuilt every step] --> B[2 · stream from the model]
     B --> C{tool calls?}
     C -->|yes| D[3 · execute<br/><i>read-only ones in parallel</i>] --> E[4 · append results as facts] --> A
-    C -->|no| F[5 · the finish path<br/>§5 — declare · record · verify · vote]
+    C -->|no| F[5 · the finish path<br/>§5 — hooks · declaration · unrun output · hand-offs]
     F -->|not accepted| A
     F -->|accepted| G([turn ends])
 
@@ -572,38 +572,58 @@ A turn ends because someone decided to end it. Going quiet is not a decision: a 
 off mid-thought and one that was actually finished used to end identically, and neither was ever
 asked which it was.
 
-The finish path, in order — five gates, any one of which sends the turn back to work:
+The finish path, in order — six gates, any one of which sends the turn back to work:
 
 ```mermaid
 flowchart TD
     Z[no tool calls this step] --> H1["1 · stop hooks<br/><i>hooks.go — the workspace's own procedure</i>"]
     H1 -->|fails| BACK[["back to the loop,<br/>with the reason attached"]]
-    H1 --> H2["2 · the declaration<br/><i>did the agent call council{complete}?</i>"]
-    H2 -->|never declared| REM["reminded, up to 3×<br/>then lands undeclared"]
-    H2 --> H3["3 · the record + a fresh workspace read<br/><i>world_snapshot.go</i>"]
-    H3 --> H4["4 · verify command<br/><i>magi runs it; non-zero refuses</i>"]
-    H4 -->|non-zero| BACK
-    H4 --> H5["5 · the council walks and votes<br/><i>core/council tallies</i>"]
-    H5 --> H6["6 · the closing call<br/><i>reads all three walks · done→continue only</i>"]
-    H6 -->|reject| BACK
-    H6 -->|3 rejects, no file change| UNV([lands UNVERIFIED])
-    H6 -->|accepted| END([turn.finished])
+    H1 --> H2["2 · empty result<br/><i>an answer with no text in it</i>"]
+    H2 -->|nudged once| BACK
+    H2 --> H3["3 · the declaration<br/><i>did the agent call council{complete}?</i>"]
+    H3 -->|never declared| REM["reminded, up to 3× per stretch<br/>without a file mutation"]
+    REM --> BACK
+    H3 -->|past the cap| UNV([lands UNVERIFIED · undeclared])
+    H3 --> H4["4 · authored but never run<br/><i>no command in the record names it</i>"]
+    H4 -->|nudged once| BACK
+    H4 --> H5["5 · outstanding hand-offs<br/><i>a companion has not answered yet</i>"]
+    H5 -->|still out| BACK
+    H5 --> H6["6 · what the answers were worth<br/><i>rate_handoff, allowed at finish</i>"]
+    H6 -->|unrated| BACK
+    H6 --> END([turn.finished])
     BACK --> Z
 
     style END fill:#e8f6ec,stroke:#2f9e44
     style UNV fill:#fff3e0,stroke:#e8820c
-    style H5 fill:#e8f4ff,stroke:#2c7fb8
-    style H6 fill:#e8f4ff,stroke:#2c7fb8
+    style H3 fill:#e8f4ff,stroke:#2c7fb8
 ```
 
 1. **Stop hooks** (`hooks.go`) — the workspace's own procedure. A failing hook pushes the agent
    back to work with the hook's output.
 2. **Empty result** — an answer with no text delivered nothing a reader can use; nudged once.
-3. **Authored but never run** — the turn wrote something runnable and magi's record holds no
+3. **The declaration** — a working turn that stopped without declaring is told how to: call the
+   `council` tool with `complete: true`. The budget is three asks per **stretch of no progress**,
+   not per turn: a real file mutation since the last ask is the evidence that the reminder was
+   answered by working, so the count starts over. Past the cap the work lands as it stands and the
+   turn is recorded as ending *undeclared* — UNVERIFIED, which is a different claim from ending
+   declared. Top level only; a child never declares for its parent.
+4. **Authored but never run** — the turn wrote something runnable and magi's record holds no
    command naming it. Deterministic, no model call, once per turn.
-4. **The declaration** — a working turn that stopped without declaring is told how to: call the
-   `council` tool with `complete: true`. Bounded at three asks; past that the work lands and the
-   turn is recorded as ending *undeclared*, which is a different claim from ending declared.
+5. **Outstanding hand-offs** — work went to another companion and has not come back. The answer
+   lands in this conversation on its own, so the agent is told to keep working if it is part of
+   what was asked, and otherwise to say plainly in its answer what is still out with whom.
+6. **What the answers were worth** — a hand-off that DID come back is rated (`rate_handoff`)
+   before the turn closes, because nothing but this turn knows whether it was the answer that was
+   needed. The finish path is asking for a tool, so the finish path lets that one tool run.
+
+Then, when the turn truly ends: an optional distil pass (off by default, `distil.go`), a last
+re-read of the store for a steer that landed during the final step, and `turn.finished` carrying
+the UNVERIFIED reason if there is one. The plan is resolved at the same moment — every step still
+open becomes *cancelled* on an abandoned turn and *completed* on a genuine finish, so a landed run
+never leaves a half-ticked list behind (`todos.go`, `finalizeTodos`).
+
+Note what is **not** on this list: the council. It is not a gate the finish path convenes — it
+runs when the agent calls the tool, and gate 3 only checks that it did.
 
 ### The council is a tool
 
@@ -656,12 +676,11 @@ here share them.
 
 This is a live limit on the finish gate, not a hypothetical one. A false "done" the model finds
 plausible is exactly the kind of error correlated readers agree on, and the gate exists for that
-error specifically. Three things keep it from being fatal, and naming them matters because they —
+error specifically. Two things keep it from being fatal, and naming them matters because they —
 not the number of members — are what does the work:
 
 - The members judge **the record, not the claim** — evidence magi collected, which does not vary
   with who is reading it.
-- The **verify command** is not a member at all: an exit code overrules the vote either way.
 - **Ambiguity resolves to *continue***, so agreement is only load-bearing in one direction.
 
 Three more were added against that 21-of-21 measurement specifically, and each attacks a different

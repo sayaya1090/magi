@@ -199,7 +199,8 @@ because the agent ends it, or because something outside does.
 On a declaration, L1's council takes over: assemble the record (paths not on disk → live jobs →
 workspace snapshot → the observation record → the tool evidence, each clipped per item) and
 deliberate with three members. Not accepted, and what is undone comes back as the tool result so the
-agent keeps working; never declared at all, and after three asks it lands UNVERIFIED. The bash tool
+agent keeps working; never declared at all, and after three asks in one stretch without a file
+mutation it lands UNVERIFIED. The bash tool
 itself annotates the head of a result when an exit 0 carries a crash signature or a status-masking
 tail (`|| true` and friends) — `MAGI_EXITCODE_BODYSCAN`, MANUAL §guards.
 
@@ -495,7 +496,7 @@ classDiagram
   class JSONLStore["adapter/store/jsonl"]
   note for JSONLStore "dataDir/projects/&lt;cwd&gt;/&lt;sid&gt;.jsonl"
   class BuiltinRegistry["adapter/tool/builtin.Default()"]
-  note for BuiltinRegistry "21 always + 2 interactive-only"
+  note for BuiltinRegistry "24 always (23 without port_owner) + 2 interactive-only"
   class LuaHost["adapter/plugin/lua.Host"]
   note for LuaHost "Lua tools · context providers · slash commands · doctor probes"
   class MCPClient["adapter/mcp"]
@@ -721,8 +722,9 @@ classDiagram
   Tool <|.. MetaTools
 ```
 
-**21 tools are always** registered, and `ask_user` and `route_interjection` **only in an interactive
-session** (`Default()` + `RegisterOrchestration(r, headless)`). The reason for leaving the last two
+**24 tools are always** registered — 23 unconditionally, plus `port_owner` wherever it can be
+answered at all (it is withdrawn where neither `/proc` nor `lsof` can say who holds a port) — and
+`ask_user` and `route_interjection` **only in an interactive session** (`Default()` + `RegisterOrchestration(r, headless)`). The reason for leaving the last two
 out of a headless run is not only that nobody is there to answer, but that a tool which can never
 fire still weighs on the tool list of every request. The names are enumerated in one place,
 `KnownNames()`, so a test can check that the policy code writing tool names as literals is not
@@ -1053,10 +1055,18 @@ sequenceDiagram
 | `MAGI_EXITCODE_BODYSCAN` | ON | the bash exit-0 crash and masking annotations (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | the degenerate-repetition safety net (the same sentence or word looping) in `provider_guard` |
 | `MAGI_STREAM_STALL` · `MAGI_FIRST_TOKEN` | 120s · 300s | the INTER-token freeze bound on generate (0 disables) · the pre-FIRST-token (prefill) bound (0 = no separate bound); the guard sits at 2×max of the two, and the council member deadline adds the first-token value |
-| `MAGI_CHECK_TIMEOUT` | — | the workflow verify timeout (0=off) |
+| `MAGI_CHECK_TIMEOUT` | 120s | the per-command bound on the workflow verify command (0=off); a kill reports -1 = *could not verify*, never a false failure |
 | `MAGI_SPIN_CAP` | 400KB | the reasoning-only spin ceiling (guardedProvider uses 2×) |
+| `MAGI_SPIN_WALL` | 600s | the same spin bounded by TIME instead of volume — measured from the first output, so a slow prefill is not double-counted (0 disables); a call that trickled 16.6KB of reasoning for 80 minutes passed every byte and silence bound |
 | `MAGI_SELFKILL_GUARD` | ON | blocks a `pkill -f` that would kill magi's own process by a word from the prompt |
 | `MAGI_COUNCIL_KEEP` | ON | members also name **what to keep** (advisory; no effect on the decision or the tally); off is fix-only feedback |
+| `MAGI_COUNCIL_REJECT_CAP` | ON | bounds rejection the way acceptance is bounded — three no-change rejections in a row, or eight in one turn, land the turn UNVERIFIED instead of cycling declare→reject to the step backstop |
+| `MAGI_COUNCIL_LITERALS` | ON | lifts the task's own identifiers (camelCase, snake_case, filenames, `(int)`-typed fields, backticked words) into the members' evidence, so a walk can be settled against the words the task actually used |
+| `MAGI_INTERJECT_SPLIT` | ON | one disposition per queued message instead of one for the batch, plus the re-evaluation a new turn does over what is still queued; off restores the single batch triage |
+| `MAGI_COLLAPSE_REPEATS` | ON | collapses an identical (call, result) pair repeating in the model's own transcript — the model-side twin of council evidence supersession; a result that changed is never collapsed |
+| `MAGI_RESEND_REASONING` | ON | sends the previous step's reasoning back on the wire for tool continuations (paired pilot: up to 50% faster on 40% fewer input tokens, nothing regressed); backends that ignore the field pay only bytes |
+| `MAGI_DISTIL` | OFF | asks, at the one moment the whole turn is still in context, what was worth keeping; off by default because it costs a round trip per completed task |
+| `MAGI_EMBEDDED_PLUGINS` | ON | loads the plugins built into the binary; off leaves only what the workspace names |
 | `MAGI_TERSE_STEPS` | OFF | the prompt with the clause demanding a line of narration per step removed |
 
 This table carries **only the A/B switches that change behaviour** (the env vars that are 1:1 with a
