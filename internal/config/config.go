@@ -202,13 +202,6 @@ type CouncilConfig struct {
 	// council call instead of three, for everyday chat-speed use. Explicit members
 	// override the preset.
 	Preset string `toml:"preset"` // "" | "full" | "light"
-	// Verify is a command magi runs ITSELF at the finish gate — the fixed harness the agent
-	// cannot subvert. Its exit code is authoritative: a non-zero exit refuses the finish whatever
-	// the members voted, and its output is shown to them as magi-run evidence rather than the
-	// agent's self-report. Opt-in (empty = off), because it runs on every completion declaration.
-	// The one thing it cannot catch on its own is a suite the agent disabled so the command still
-	// exits 0 (a TestMain that skips everything); for a `go test` command magi also checks that
-	// tests actually ran and refuses a pass that executed none.
 }
 
 // AutocompleteConfig configures magi's IDE-style helpers. All three are model calls that fire on a
