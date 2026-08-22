@@ -1233,16 +1233,57 @@ flowchart TD
     S[the agent works<br/>read · edit · run] --> D["council{complete: true}<br/>the agent declares"]
     D --> REC[[the record magi kept:<br/>commands granted · real exits<br/>· per-file diffs]]
     D --> NOW[[the workspace, read fresh<br/>at the moment of declaring]]
-    REC --> M{{three members vote<br/>done · reject · abstain}}
+    REC --> M{{three members walk the record,<br/>then vote done · reject · abstain}}
     NOW --> M
-    M -->|accepted| E([turn over])
-    M -->|rejected| FB[what is still undone<br/>becomes the next instruction] --> S
-    M -->|3 rejections with no<br/>file change between| U([lands UNVERIFIED<br/>work stands, nothing pretends])
+    M --> CL{{closing call<br/>reads all three walks}}
+    CL -->|accepted| E([turn over])
+    CL -->|rejected| FB[what is still undone<br/>becomes the next instruction] --> S
+    CL -->|3 rejections with no<br/>file change between| U([lands UNVERIFIED<br/>work stands, nothing pretends])
 
     style E fill:#e8f6ec,stroke:#2f9e44
     style U fill:#fff3e0,stroke:#e8820c
     style M fill:#e8f4ff,stroke:#2c7fb8
+    style CL fill:#e8f4ff,stroke:#2c7fb8
 ```
+
+#### The walk, before the verdict
+
+A member does not get to open with its conclusion. It first walks the requirements — one line per
+thing the task asked for, each marked **SATISFIED** or **UNSATISFIED**, each settled by a verbatim
+fragment of something a tool returned, or by `NO-EVIDENCE` where nothing settles it. The walk sits
+before the verdict in the shape the member fills in, so the reading cannot be built backwards from
+a conclusion already reached, and `NO-EVIDENCE` is a real answer rather than a gap the member is
+free to paper over. What may settle a line is a result magi recorded; the agent's own account of
+its work settles nothing.
+
+#### The route each member takes
+
+The three differ in the lens they judge by and in **where each looks first**:
+
+| Member | Lens | Walks first |
+|---|---|---|
+| `correctness` | the literal ask | exact values, formats and names; then the premises the work rests on; then whether the numbers reported are ones the subject itself admits — a value the agent checked only against its own other artefact is self-consistency, not evidence |
+| `verification` | the behaviours | for each thing that must work, the moment it actually ran and the output that came back |
+| `completeness` | the parts | every distinct thing the task asked for, including the one named once in passing |
+
+A route is an **order of search, not a jurisdiction**: all three still judge the whole task. This
+matters more than it sounds. Dividing the task between members would mean a defect inside one
+member's share draws a single *continue* against two uninformed *done*s, and the majority waves it
+through. The routes exist because the alternative was measured: three members with one line of lens
+apiece and every other instruction identical voted done twenty-one times out of twenty-one with no
+dissent — three samples of one opinion, not three opinions.
+
+#### The closing call
+
+A tally is three readings added together, and until it is added nobody has read all three. So once
+the votes are in, one closing call does: it receives every member's walk and verdict at once and
+looks for what only that seat can see — two members contradicting each other, a requirement no walk
+covers, a value wrong on its face. Its conclusion is **clamped in one direction**: it may turn a
+*done* into a *continue*, never a *continue* into a *done*. A gate that one more opinion could talk
+into finishing would not be a gate.
+
+The cost is one extra call, not four. When the members share a backend, the whole panel — three
+walks and three verdicts — arrives in a single request, and the close is the second.
 
 Three members, three lenses, and one of five ways to count them. Whatever you pick, the ambiguous
 result resolves the same way:

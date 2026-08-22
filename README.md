@@ -104,17 +104,30 @@ to run and supervise several agents at once.
 
 At the point where the loop would otherwise end, each member votes **done**, **reject** or
 **abstain**, and a pure tally function turns those votes into one decision. The three defaults are
-named after the MAGI. They differ in one thing only: what each is told to look for.
+named after the MAGI. They read the same record; what differs is the lens each judges by and the
+**route** each takes through it — where it looks first.
 
-| Member | Lens | The question it asks |
+| Member | Lens | What it walks first |
 |---|---|---|
-| **Melchior** | `correctness` | Is the work correct? Edge cases, regressions? |
-| **Balthasar** | `verification` | Is there evidence it works — did the build and tests run? |
-| **Casper** | `completeness` | Did it do everything the task asked for? |
+| **Melchior** | `correctness` | the task's literal words — exact values, formats, names — then the premises the work rests on, then whether the numbers it reports are ones the subject admits |
+| **Balthasar** | `verification` | the behaviours — for each thing that must work, the moment it actually ran and the output that came back |
+| **Casper** | `completeness` | the parts — every distinct thing the task asked for, including the one named once in passing and never mentioned again |
+
+A route is an **order of search, not a jurisdiction**. All three still judge the whole task, so a
+defect one member walks past can still be met by another. Slicing the task between them would be
+worse than no route at all: a defect living in one member's slice draws one *continue* against two
+uninformed *done*s, and a majority waves it through.
+
+Before it may state a verdict, a member walks the requirements: one line per thing the task asked
+for, each marked **SATISFIED** or **UNSATISFIED** and settled by a verbatim fragment of something a
+tool returned — or by `NO-EVIDENCE`, which is an answer too. The walk sits *before* the verdict in
+the shape the member fills in, so the reading cannot be assembled backwards to fit a conclusion it
+already reached. What settles a line has to be a result magi recorded; the agent's own account of
+its work settles nothing.
 
 ```mermaid
 flowchart TD
-    subgraph read [each member reads the same record]
+    subgraph read [each member walks the same record]
         M[Melchior<br/>correctness]
         B[Balthasar<br/>verification]
         K[Casper<br/>completeness]
@@ -122,10 +135,12 @@ flowchart TD
     M --> TA[tally rule]
     B --> TA
     K --> TA
-    TA --> Q{outcome}
-    Q -->|majority say done| DONE([finish])
+    TA --> CL[closing call<br/>reads all three walks]
+    CL --> Q{outcome}
+    Q -->|majority say done<br/>and the close agrees| DONE([finish])
     Q -->|tie · no voters · error| CONT([continue])
     Q -->|any reject| CONT
+    Q -->|the close objects| CONT
 
     style DONE fill:#e8f6ec,stroke:#2f9e44
     style CONT fill:#fff3e0,stroke:#e8820c
@@ -149,6 +164,14 @@ no-progress detection stops the council churning on the same objection.
 > The tally lives in `internal/core/council` as pure domain code: no I/O, no LLM, unit-tested on
 > its own. That separation is what makes "the council decides, not one model" something you can
 > test. Otherwise it would be a sentence in a prompt and nothing more.
+
+A tally is three readings added up, and until it is added up nobody has read all three. So once the
+votes are in, one closing call does: it gets every member's walk and verdict together and looks for
+what only that view shows — two members contradicting each other, a requirement no walk covers, a
+number that is wrong on its face. Its conclusion is clamped in one direction. It can turn a *done*
+into a *continue*; it can never turn a *continue* into a *done*. A gate that one more opinion could
+talk into finishing is not a gate. When the members share a backend the whole panel — three walks,
+three verdicts — arrives in a single call, so the close costs one more, not four.
 
 Asking is separate from declaring. `council{question}` gets the members' reading on something you
 are unsure about and ends nothing.

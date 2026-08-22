@@ -135,9 +135,10 @@ flowchart TD
   OB --> G["runGuard.check<br/>fingerprint · stall"]
   G --> EV["append the event<br/>(core/bus → TUI render · jsonl persistence)"]
   EV --> S
-  EX -. "council{complete:true}" .-> CG{"the council reads the record<br/>Melchior · Balthasar · Casper"}
-  CG -- "accepted" --> FIN["turnControl.finish → VERIFIED landing"]
-  CG -- "not accepted" --> FB["what is undone comes back<br/>→ the agent keeps working"]
+  EX -. "council{complete:true}" .-> CG{"the council walks the record<br/>Melchior · Balthasar · Casper<br/>(one panel call when they share a backend)"}
+  CG --> CL{"closing call · sees all three walks<br/>may only turn done → continue"}
+  CL -- "accepted" --> FIN["turnControl.finish → VERIFIED landing"]
+  CL -- "not accepted" --> FB["what is undone comes back<br/>→ the agent keeps working"]
   FB --> S
   T -- "no · quiet, undeclared" --> RQ{"requireFinishDeclaration<br/>3 asks per stretch of no progress"}
   RQ -- "declares" --> CG
@@ -365,7 +366,7 @@ classDiagram
     +string Rationale
     +string Feedback
     +string Keep
-    +string Severity
+    +string Cite
   }
   class Breakdown {
     +int Done
@@ -381,6 +382,7 @@ classDiagram
     +Breakdown Breakdown
     +string Feedback
     +string Keep
+    +string Close
     +DebateOutcome Debate
   }
   class Rule {
@@ -403,6 +405,17 @@ classDiagram
 deliberation record alone is enough to reproduce the decision. `Keep` and `Debate` **do not affect
 it** — that separation, together with abstentions leaving the denominator, is what makes "why did the
 council decide that" answerable after the fact.
+
+Two fields on that record are the walk and its reader. `Cite` is the fragment of the record a member
+copied verbatim as what settled its reading (or the token `NO-EVIDENCE`) — recorded and shown, never
+looked up, because the version that did look it up produced two false abstentions in thirty verdicts
+and caught nothing. `Close` is what the round's closing call said: the one reader that saw all three
+walks together, written after them and separate from all three. It lives on the `Deliberation`
+because it is the only voice in the round with no other way to reach the agent — a member voting
+continue has its `Feedback` rendered under its own name, and the closing call has no verdict slot.
+Its conclusion is clamped: it may turn a `done` round into `continue`, never the reverse. The
+`core/council` domain still knows none of this — the clamp and the panel batching live in the
+adapter, and `Tally` counts votes exactly as before.
 
 ---
 

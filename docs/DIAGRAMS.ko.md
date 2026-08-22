@@ -133,9 +133,10 @@ flowchart TD
   OB --> G["runGuard.check<br/>지문·정체 점검"]
   G --> EV["이벤트 append<br/>(core/bus → TUI 렌더 · jsonl 영속)"]
   EV --> S
-  EX -. "council{complete:true}" .-> CG{"카운슬이 기록을 읽음<br/>Melchior · Balthasar · Casper"}
-  CG -- "수락" --> FIN["turnControl.finish → VERIFIED 착지"]
-  CG -- "미수락" --> FB["무엇이 안 됐는지 반환<br/>→ 에이전트 계속 작업"]
+  EX -. "council{complete:true}" .-> CG{"카운슬이 기록을 훑음<br/>Melchior · Balthasar · Casper<br/>(백엔드가 같으면 패널 1회 호출)"}
+  CG --> CL{"닫는 호출 · 세 훑기를 모두 봄<br/>done → continue 로만 바꿀 수 있음"}
+  CL -- "수락" --> FIN["turnControl.finish → VERIFIED 착지"]
+  CL -- "미수락" --> FB["무엇이 안 됐는지 반환<br/>→ 에이전트 계속 작업"]
   FB --> S
   T -- "없음 · 선언 없이 침묵" --> RQ{"requireFinishDeclaration<br/>최대 3회 상기"}
   RQ -- "선언함" --> CG
@@ -358,7 +359,7 @@ classDiagram
     +string Rationale
     +string Feedback
     +string Keep
-    +string Severity
+    +string Cite
   }
   class Breakdown {
     +int Done
@@ -374,6 +375,7 @@ classDiagram
     +Breakdown Breakdown
     +string Feedback
     +string Keep
+    +string Close
     +DebateOutcome Debate
   }
   class Rule {
@@ -395,6 +397,16 @@ classDiagram
 `Decision` ∈ `done` · `continue` · `abstain`. `Tally(verdicts, rule)`가 순수 함수라
 심의 기록만 있으면 결정을 재현할 수 있다. `Keep`/`Debate`는 **결정에 영향을 주지 않는다** —
 기권이 분모에서 빠지는 것과 함께, 이 분리가 "카운슬이 왜 그렇게 정했나"를 사후에 답할 수 있게 한다.
+
+이 기록에서 훑기와 그 독자는 두 필드다. `Cite`는 위원이 자기 읽기를 결론지은 근거로 기록에서 그대로
+떼어 온 조각(또는 `NO-EVIDENCE` 토큰)이다 — 기록하고 보여줄 뿐 되짚어 확인하지 않는데, 확인하던
+판본이 판정 30건 중 거짓 기권 2건을 만들고 잡아낸 것은 없었기 때문이다. `Close`는 그 라운드의 닫는
+호출이 한 말이다 — 세 훑기를 한자리에서 본 유일한 독자이고, 셋 뒤에, 셋과 별개로 쓰인다. 이것이
+`Deliberation`에 실리는 이유는 라운드 안에서 에이전트에게 닿을 다른 통로가 없는 유일한 목소리이기
+때문이다. continue를 던진 위원은 자기 이름 아래 `Feedback`이 렌더되지만, 닫는 호출에는 판정 칸이
+없다. 그 결론은 클램프돼 있다 — done 라운드를 continue로 바꿀 수는 있어도 반대는 없다.
+`core/council` 도메인은 여전히 이 중 아무것도 모른다. 클램프와 패널 배치는 어댑터에 있고, `Tally`는
+예전과 똑같이 표만 센다.
 
 ---
 

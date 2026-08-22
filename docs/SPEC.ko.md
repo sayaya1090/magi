@@ -337,6 +337,14 @@ headless-6: 장문 피드백                    ⇒ 12줄에서 절단 + "feedba
 > ⛔ **여기 있던 R12(타입드 deliverable-check ①–⑦)와 R13(계약-선행 3단계)은 삭제했다.** 체크 저술·검증 패스·스텝 게이트·커버리지 보장·churn 착지·substitution, 그리고 플랜 이전에 계약을 저술하던 카운슬 라운드 — 어느 것도 코드에 없다. `verifyStepChecks`라는 이름만 종료 경로에 남아 있는데 그건 다른 일을 한다. 걷어낸 이유는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §4 — 그 단계들은 전부 작업이 존재하기도 전에 무언가를 결정했다.
 - R14 **위원 응답 읽기 — 기권은 중립 결과가 아니다**(`parseReply`, `jsonx.SalvagePrefix`, `councilRetryReminder`): 위원 응답이 안 읽히면 그 위원은 **기권**으로 기록되고, tally는 그것을 "내 렌즈로는 할 말 없음"과 **구별하지 못한다** — 즉 던져진 표가 조용히 사라지고 남은 소수가 판정을 대신한다. 그래서 읽기 실패는 세 겹으로 막는다. ①**관용 파싱**(모든 균형 객체 × `jsonx` 복구 후보 × 필드별 관용 타입) — Go는 첫 타입 불일치에서 문서 전체를 포기하므로 한 필드의 모양 하나가 표를 삼킨다. ②**접두 salvage**(`jsonx.SalvagePrefix`): 모델의 구조 실수는 문서 전체에 균일하지 않고 **한 컨테이너에 국한**된다 — 실측(11/11 동일 모양): `criteria` 배열을 `]` 없이 다음 키로 닫아 567바이트 중 563에서 깨지는데, 12바이트에 완결된 `decision`(한 번은 `critical` continue)까지 함께 버려졌다. 구문 오류 지점 **앞까지**를 남기고(복구 후보를 먼저 적용해 다중행 문자열의 raw newline을 절단점으로 오인하지 않음, 마지막 **완성된** 원소까지 되감아 반쪽 객체는 버림) 열린 컨테이너를 닫는다. `decision`이 결함 뒤에 있으면 **살릴 표가 없으므로 기권**(없는 표를 지어내지 않음). 이 복구는 **lossy**라 `jsonx.Unmarshal`/`RepairCandidates`(공유 경로)에 배선하지 **않는다** — 세 번째 스텝에서 잘린 플랜이 "2스텝 플랜"으로 조용히 성공하기 때문(`CloseTruncated`가 span 추출기에만 배선된 것과 같은 선). 손실은 stderr에 **결함 진단과 함께** 명시(성공이지만 criteria/checks가 비었을 수 있음). ③**1회 재폴 리마인더는 모양별**(`councilRetryReminder`): 단일 리마인더가 모든 실패를 "산문으로 감쌌다"로 가정하던 것이 결함이었다 — 맨 객체를 보냈지만 배열이 어긋난 모델에게 *쓰지도 않은 산문을 걷어내라*고 요구했고, 실측에서 재시도는 동일 malformation을 내고 표를 잃었다. 이제 magi가 **이미 로그용으로 계산하던** `jsonx.Diagnose`(오프셋 + `⟪HERE⟫` 창)를 그 결함에 대해 뭘 할 수 있는 유일한 당사자인 모델에게 되먹인다: 구문 오류=위치와 "다음 키 전에 `[`를 닫아라", 스키마(파싱은 되는데 `decision` 없음)=필수 필드 명시, 그 외=기존 JSON-only.
 
+- R15 **요구사항 훑기가 판정보다 앞선다**(`memberPrompt`, `verdictSchema`, `panelSchema`): 위원은 `checks[]`를 쓴다 — 과제가 명시한 요구사항 하나에 한 줄씩 `<요구사항> - SATISFIED|UNSATISFIED - <툴 결과에서 그대로 떼어 온 조각 또는 NO-EVIDENCE>` — 그리고 이 필드는 위원이 채우는 스키마에서 `decision`보다 **앞**에 놓인다. 이미 내려놓은 결론에서 읽기를 거꾸로 조립할 수 없게 하는 배치다. 한 줄을 결론지을 수 있는 것은 **툴이 돌려준 것**이고, 에이전트 자신의 진술은 아무것도 결론짓지 못하며, `NO-EVIDENCE`는 위원이 조용히 넘어가도 되는 빈칸이 아니라 기록되는 답이다. 이 훑기는 **무조건**이다 — keep 플래그나 diff 유무에 걸지 않는다. 산출물이 없는 턴(R10)이야말로 결론부터 내리고 싶은 유혹이 가장 큰 턴이기 때문이다.
+- R16 **렌즈마다 경로가 있다: 관할이 아니라 탐색 순서**(`core/council.Routes`, `RouteFor`). `correctness`는 과제의 리터럴 문구 → 작업이 딛고 선 전제 → **값 그 자체**(보고된 수가 과제의 *대상*이 인정하는 수인가) 순으로 훑고, 의심스러운 수에 대해 제시될 두 가지 해명이 전부 함정임을 함께 듣는다. **자기일관성**(같은 입력에서 나온 값들은 그 입력을 잘못 읽었어도 서로 맞으며, 같은 배수로 어긋난 일치는 상류의 한 원인이 낳은 *증상*이지 증거가 아니다)과 **에이전트 자신의 해명**(수가 이상해 보이는 이유에 대한 설명은 심사 대상인 주장의 일부이지 그 해소가 아니며, 툴이 그것이 참임을 보여주는 무언가를 돌려준 경우에만 받아들인다). `verification`은 동작들을 먼저 훑는다 — 돌아야 하는 것 하나하나에 대해 실제로 돌아간 순간과 돌아온 출력. `completeness`는 부분들을 먼저 훑는다 — 지나가듯 한 번 불린 것까지. **셋 다 여전히 과제 전체를 판정한다**: 관할을 나누는 편이 경로가 아예 없는 것보다 나쁘다. 한 위원의 몫 안에 든 결함은 아무것도 모르는 done 둘에 continue 하나로 맞서게 되고 규칙이 그대로 통과시킨다. 인식되지 않는 렌즈에는 중립 경로가 간다. 경로를 넣은 근거: 한 arm 실측에서 렌즈 한 줄만 다르고 나머지 지시가 전부 같은 세 위원은 **21회 중 21회**를 이견 없이 done으로 투표했다 — 세 의견이 아니라 한 의견의 표본 셋이었다.
+- R17 **패널 1회 호출, 그리고 한 방향으로만 조이는 닫는 호출**(`samePanelBackend`, `pollPanel`, `panelCloseAsk`, `closeSaid`).
+  - **한 번의 호출**이 위원 전원의 훑기와 판정을 싣는다 — 단 provider와 model이 모두 같을 때만이다. 서로 다른 백엔드에 핀된 위원들은 위원별 호출 모양을 유지한다. 일부러 섞어 놓은 카운슬을 한 요청으로 접으면 첫 위원이 지목한 백엔드가 전부를 대신 답하게 되기 때문이다. 한 번의 호출은 **셋에 하나의 데드라인**을 뜻한다: 잘린 패널은 *답하지 않았음*으로 기록되며(*읽을 수 없었음*과 구별된다), 부분 라운드로 위장되지 않는다.
+  - **닫는 호출**은 다른 재료에 대한 다른 질문이다. 세 훑기를 한자리에서 보는 유일한 독자이고, 그 자리에서만 보이는 것을 묻는다: 같은 출력에 대한 두 읽기의 **모순**, 어느 훑기도 덮지 않은 **요구사항**, 그리고 **그 자체로 틀린 값**(R16 경로의 백스톱이지 그 소유자가 아니다). 앞선 두 모양이 실패로 이것을 증명했다 — 같은 프롬프트로 같은 증거를 다시 읽힌 판은 11회 소집 중 이견 0, 리포트를 치우고 기계적 일을 준 판은 4회 중 이견 0이었다.
+  - **클램프**: `close==continue`가 done 집계 위에 오면 라운드는 continue가 된다. 반대는 결코 적용되지 않는다. 이 카운슬의 실측된 실패 방향은 과다승인이므로, *막고 있는* 집계를 뒤집을 수 있는 결론은 첫 길에 대한 점검이 아니라 done으로 가는 두 번째 길이 된다. 그래서 질문은 중립적으로 던진다 — 두 답을 다 이름 부르고, 어느 쪽도 묻는 목적으로 제시하지 않는다.
+  - **어느 쪽이든 기록된다**(`Deliberation.Close`, `renderCouncilAdvice`에서 리드 위에 렌더, 그리고 라운드당 stderr 한 줄로 *agreed with* / *DISAGREED with*): 그 줄을 한 번도 못 본 arm은 동의한 결론과 아예 돌지 않은 결론을 구별할 수 없다.
+
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
 council-tally-majority-1:  rule=majority,  [done,done,continue]      ⇒ done
@@ -356,7 +364,14 @@ council-debate-split-1:    would-be-done + SPLIT ⇒ 반박 1라운드 재폴링
 council-salvage-prefix-1:  구문오류 뒤만 손상 + decision 온전 ⇒ 접두 salvage로 표 보존(로그에 손실 명시) (R14)
 council-salvage-nodecision-1: decision이 결함 뒤 ⇒ salvage 거부, 기권(없는 표 지어내지 않음)         (R14)
 council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates (lossy, 플랜 조용한 절단 방지) (R14)
-council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기(Diagnose 되먹임), 단일 산문가정 금지  (R14)
+council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기(Diagnose 되먹임), 단일 산문가정 금지  (R14)council-walk-unconditional-1: keep on/off·diff 유무와 무관하게 훑기를 요구                        (R15)
+council-walk-before-verdict-1: 위원/패널 스키마 모두에서 checks[]가 decision보다 앞               (R15)
+council-routes-differ-1:   세 경로가 서로 다르고, 어느 것도 관할을 조각으로 좁히지 않음            (R16)
+council-panel-once-1:      같은 백엔드의 위원들 ⇒ 단일 호출이 모든 렌즈를 돌려줌                  (R17)
+council-panel-split-backend-1: 다른 곳에 핀된 위원 ⇒ 위원별 호출, 조용한 접기 없음                (R17)
+council-close-material-1:  닫는 호출이 받는 것은 훑기와 결과이지 에이전트의 리포트가 아님          (R17)
+council-close-tightens-1:  close=continue + done 집계 ⇒ continue / close=done + continue 집계 ⇒ continue (R17)
+council-close-recorded-1:  닫는 호출이 한 말은 결정을 바꿨든 아니든 라운드와 함께 실림            (R17)
 ```
 
 ## F-LOOP-STAGES (루프 트랙) — macro 단계(D15, stage 태그는 철회)

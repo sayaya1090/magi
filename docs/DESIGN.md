@@ -340,8 +340,10 @@ type Platform interface { // the cross-platform abstraction (§9.5)
 }
 
 // Council — D14. Member fan-out is the adapter's job; the consensus rule is pure core.
-// The bundled adapter calls LLMProvider.StreamChat once per member in parallel and parses each
-// reply into a Verdict (reusing the JSON fallback).
+// The bundled adapter parses each reply into a Verdict (reusing the JSON fallback). It calls
+// StreamChat once per member in parallel ONLY when the members are pinned to different backends;
+// when they share provider and model, one panel call carries every member's walk and verdict, and
+// a second call closes the round (see CouncilMember below).
 type Council interface {
     Deliberate(ctx context.Context, r DeliberationRequest) (Deliberation, error)
 }
@@ -371,11 +373,30 @@ type DeliberationRequest struct {
 // with nothing built" regression — an [ok] or an exit 0 is not evidence on its own; the output has
 // to be shown.
 type CouncilMember struct { // a themed label plus a lens
-    Name   string  // "Melchior" | "Balthasar" | "Casper"
-    Lens   string  // "correctness" | "verification" | "completeness"
-    Model  string  // empty = the session model
-    Weight float64
+    Name     string  // "Melchior" | "Balthasar" | "Casper"
+    Lens     string  // "correctness" | "verification" | "completeness"
+    Model    string  // empty = the session model
+    Provider string  // empty = the default backend; a different one keeps the per-member call shape
+    Weight   float64
 }
+// A lens comes with a ROUTE (core/council.Routes): where that member walks FIRST through the same
+// evidence — the literal words and the values themselves (correctness), the moment each behaviour
+// actually ran (verification), every distinct part the task asked for (completeness). A route is an
+// order of search, NOT a jurisdiction: all three still judge the whole task, because dividing it
+// would let a defect inside one member's share draw one continue against two uninformed dones. The
+// route exists because the lens alone did not differentiate them — one line of lens apiece and
+// every other instruction identical produced 21 done votes out of 21 with no dissent.
+//
+// Before it may state a decision, a member writes the WALK: one line per requirement, SATISFIED or
+// UNSATISFIED, settled by a verbatim fragment of a tool result or by NO-EVIDENCE. The field sits
+// before `decision` in the schema, so a reading cannot be assembled backwards from a conclusion
+// already reached; what the member said it was reading is kept on Verdict.Cite.
+//
+// After the tally, ONE closing call reads all three walks together — the only seat from which a
+// contradiction between members, a requirement no walk covered, or a value wrong on its face is
+// visible. Its conclusion is clamped one way (done → continue, never the reverse) and is carried on
+// Deliberation.Close whether or not it changed anything. The clamp and the batching are ADAPTER
+// concerns; core/council still only counts votes.
 // Verdict/Deliberation/Tally and the consensus rules live in core/council (pure). Signal is D16.
 ```
 

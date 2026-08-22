@@ -317,7 +317,9 @@ type Platform interface { // 크로스플랫폼 추상화(§9.5)
 }
 
 // Council — 루프 종료 게이트(D14, 출하 M9). 위원 팬아웃은 어댑터, 합의규칙은 순수 core.
-// 기본 어댑터는 위원별 LLMProvider.StreamChat 병렬 호출 → 응답을 Verdict로 파싱(JSON폴백 재사용).
+// 기본 어댑터는 응답을 Verdict로 파싱한다(JSON폴백 재사용). 위원별 StreamChat 병렬 호출은 위원들이
+// 서로 다른 백엔드에 핀됐을 때만이고, provider와 model이 같으면 패널 1회 호출이 위원 전원의 훑기와
+// 판정을 싣고, 두 번째 호출이 라운드를 닫는다(아래 CouncilMember 참조).
 type Council interface {
     Deliberate(ctx context.Context, r DeliberationRequest) (Deliberation, error)
 }
@@ -344,11 +346,28 @@ type DeliberationRequest struct {
 // 툴에서 재구성한 Changes를 git-독립 증거로 넘겨 해결. 단, 모델 자기서술은 증거에서 제외(Report=주장)하여 "산출물
 // 없이 말빨로 done" 회귀를 막음 — [ok]/exit-0 자체는 증거 아님, 산출물을 보여야 함.
 type CouncilMember struct { // 테마명 라벨 + 렌즈 속성
-    Name   string  // "Melchior" | "Balthasar" | "Casper"
-    Lens   string  // "correctness" | "verification" | "completeness"
-    Model  string  // 빈값=세션 모델
-    Weight float64
+    Name     string  // "Melchior" | "Balthasar" | "Casper"
+    Lens     string  // "correctness" | "verification" | "completeness"
+    Model    string  // 빈값=세션 모델
+    Provider string  // 빈값=기본 백엔드. 다르면 위원별 호출 모양 유지
+    Weight   float64
 }
+// 렌즈에는 경로(core/council.Routes)가 딸린다 — 같은 증거를 그 위원이 어디부터 훑는가다.
+// 리터럴 문구와 값 그 자체(correctness), 각 동작이 실제로 돌아간 순간(verification), 과제가 요구한
+// 서로 다른 부분 전부(completeness). 경로는 관할이 아니라 탐색 순서다: 셋 다 여전히 과제 전체를
+// 판정한다. 나누면 한 위원의 몫 안에 든 결함이 아무것도 모르는 done 둘에 continue 하나로 맞서기
+// 때문이다. 경로를 넣은 이유는 렌즈만으로 위원이 구별되지 않아서다 — 렌즈 한 줄만 다르고 나머지
+// 지시가 전부 같았을 때 21회 중 21회를 이견 없이 done으로 투표했다.
+//
+// 위원은 결정을 말하기 전에 훑기를 쓴다: 요구사항 하나에 한 줄, SATISFIED 또는 UNSATISFIED,
+// 툴 결과에서 그대로 떼어 온 조각이나 NO-EVIDENCE로 결론. 이 필드는 스키마에서 decision보다 앞에
+// 놓여, 이미 내려놓은 결론에서 읽기를 거꾸로 조립할 수 없다. 위원이 무엇을 읽었다고 했는지는
+// Verdict.Cite에 남는다.
+//
+// 집계 뒤 닫는 호출 하나가 세 훑기를 한자리에서 읽는다 — 위원 간 모순, 어느 훑기도 덮지 않은
+// 요구사항, 그 자체로 틀린 값이 보이는 유일한 자리다. 그 결론은 한 방향으로 클램프되고
+// (done → continue, 반대는 없음), 무엇을 바꿨든 아니든 Deliberation.Close에 실린다. 클램프와
+// 패널 배치는 어댑터의 일이고, core/council은 여전히 표만 센다.
 // Verdict/Deliberation/Tally 등 결과 타입과 합의규칙은 core/council(순수). Signal은 D16.
 ```
 

@@ -583,15 +583,17 @@ flowchart TD
     H2 --> H3["3 · the record + a fresh workspace read<br/><i>world_snapshot.go</i>"]
     H3 --> H4["4 · verify command<br/><i>magi runs it; non-zero refuses</i>"]
     H4 -->|non-zero| BACK
-    H4 --> H5["5 · the council votes<br/><i>core/council tallies</i>"]
-    H5 -->|reject| BACK
-    H5 -->|3 rejects, no file change| UNV([lands UNVERIFIED])
-    H5 -->|accepted| END([turn.finished])
+    H4 --> H5["5 · the council walks and votes<br/><i>core/council tallies</i>"]
+    H5 --> H6["6 · the closing call<br/><i>reads all three walks · done→continue only</i>"]
+    H6 -->|reject| BACK
+    H6 -->|3 rejects, no file change| UNV([lands UNVERIFIED])
+    H6 -->|accepted| END([turn.finished])
     BACK --> Z
 
     style END fill:#e8f6ec,stroke:#2f9e44
     style UNV fill:#fff3e0,stroke:#e8820c
     style H5 fill:#e8f4ff,stroke:#2c7fb8
+    style H6 fill:#e8f4ff,stroke:#2c7fb8
 ```
 
 1. **Stop hooks** (`hooks.go`) — the workspace's own procedure. A failing hook pushes the agent
@@ -640,7 +642,9 @@ not a loop. Real iteration between declarations resets the count.
 **Three readers of the same record count as three only if they can disagree**, and by default they
 cannot much: every member runs on the session model unless a `[[council.member]]` gives it a
 `provider` and a `model` of its own. What separates them out of the box is the lens they are told
-to read through, which is a weaker separation than it looks.
+to read through, which is a weaker separation than it looks — measured on one arm, three members
+with one line of lens apiece and every other instruction identical voted done **21 times out of
+21** with no dissent. Three samples of one opinion, not three opinions.
 
 How much weaker is measurable, and somebody has measured it. Anthropic's swarm experiments report
 **low-variance convergence** as a standing property of many instances of one model: 18 of 30 agents
@@ -659,6 +663,37 @@ not the number of members — are what does the work:
   with who is reading it.
 - The **verify command** is not a member at all: an exit code overrules the vote either way.
 - **Ambiguity resolves to *continue***, so agreement is only load-bearing in one direction.
+
+Three more were added against that 21-of-21 measurement specifically, and each attacks a different
+part of it:
+
+- **A route per lens** (`core/council.Routes`) — where a member walks FIRST through the same
+  evidence: the task's literal words and then the reported values themselves (correctness), the
+  moment each required behaviour actually ran (verification), every distinct part the task asked
+  for including the one named once in passing (completeness). A route is an **order of search, not
+  a jurisdiction**. Dividing the task between members would be worse than no route at all: a defect
+  inside one member's share draws a single continue against two uninformed dones, and the majority
+  waves it through.
+- **The requirements walk before the verdict** — a member writes one line per requirement,
+  SATISFIED or UNSATISFIED, each settled by a verbatim fragment of something a **tool returned** or
+  by `NO-EVIDENCE`. The field sits before `decision` in the schema it fills in, so the reading
+  cannot be assembled backwards from a conclusion already reached, and the agent's own account of
+  its work settles nothing. What the member said it was reading is kept on `Verdict.Cite`,
+  recorded and shown but never looked up — the version that did look it up produced two false
+  abstentions in thirty verdicts and caught nothing.
+- **A closing call over all three walks** — a tally is three readings added together, and until it
+  is added nobody has read all three. The closing call is the only seat that does, and it is asked
+  for what only that seat shows: a contradiction between two readings of one output, a requirement
+  no walk covered, a value wrong on its face. Its conclusion is **clamped**: it may turn a done
+  round into continue, never the reverse, because this council's measured failure is over-approval
+  and a conclusion free to overrule a blocking tally would be a second road to done. It is recorded
+  on `Deliberation.Close` and rendered above the feedback whether it agreed or not — a gate that
+  finds a defect and does not say what it found only spends the clock.
+
+The cost of the last two is one extra call, not four: when the members share provider and model,
+one panel call carries all three walks and verdicts and the close is the second. Members pinned to
+different backends keep the per-member shape, because folding a deliberately mixed council into one
+request would answer with whichever backend the first member named.
 
 The cheap correction, where a run can afford it, is to give one member a different backend — the
 `provider`/`model` fields exist for this, and a panel of one strong reader and two cheap ones is
@@ -1034,8 +1069,9 @@ forgotten — no deregistration step exists because no registration step does.
 - **MCP** (`adapter/mcp`, `config.toml [mcp]`): external tool servers over stdio.
 - **Hooks** (`config.toml [[hooks]]`): PreToolUse/PostToolUse/Stop shell commands
   (POSIX shell; not available on Windows).
-- **The council**: `port.Council` is the seam. The bundled implementation polls three members
-  over one OpenAI-compatible backend each; a different one only has to answer
-  `Deliberate(DeliberationRequest) (Deliberation, error)`.
+- **The council**: `port.Council` is the seam. The bundled implementation polls three members over
+  an OpenAI-compatible backend — one call for the whole panel when they share it, one per member
+  when they do not — and then one closing call over the three walks; a different implementation
+  only has to answer `Deliberate(DeliberationRequest) (Deliberation, error)`.
 - **Auth** (planned): custom auth (OIDC/mTLS/rotating tokens) belongs at the Go
   `http.RoundTripper` seam (`openai.WithHTTPClient`), not in Lua.

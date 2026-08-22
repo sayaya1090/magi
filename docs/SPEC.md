@@ -494,6 +494,52 @@ Rules:
   syntax error gets the position and "close the `[` before the next key"; a schema failure (it parses
   but has no `decision`) gets the required field named; anything else gets the plain JSON-only note.
 
+- R15 **The requirements walk precedes the verdict** (`memberPrompt`, `verdictSchema`,
+  `panelSchema`): a member writes `checks[]` — one line per requirement the task states, each
+  `<requirement> - SATISFIED|UNSATISFIED - <verbatim fragment of a tool result, or NO-EVIDENCE>` —
+  and the field sits **before** `decision` in the schema it fills in, so a reading cannot be
+  assembled backwards from a conclusion already reached. What may settle a line is something a
+  **tool returned**; the agent's account of its own work settles nothing, and `NO-EVIDENCE` is a
+  recorded answer rather than a gap a member may quietly pass over. The walk is **unconditional** —
+  not gated on the keep flag or on the presence of a diff, because the turn with no artifact (R10)
+  is exactly the turn where the temptation to conclude first is strongest.
+- R16 **Each lens has a route: an order of search, not a jurisdiction** (`core/council.Routes`,
+  `RouteFor`). `correctness` walks the task's literal words, then the premises the work rests on,
+  then **the values themselves** — whether a reported number is one the task's *subject* admits —
+  and is told the two answers that will be offered for a suspect number, both traps: **consistency**
+  (values from one input agree whether that input was read right or not; an equal-factor agreement
+  is the *symptom* of one upstream cause, not evidence) and **the agent's own explanation** of why
+  the number only looks wrong (part of the claim under examination, admissible only where a tool
+  returned something showing it true). `verification` walks the behaviours — for each thing that
+  must work, the moment it ran and the output that came back. `completeness` walks the parts,
+  including the one named once in passing. **All three still judge the whole task**: partitioning
+  jurisdiction would be worse than no route at all, because a defect inside one member's slice draws
+  one continue against two uninformed dones and the rule waves it through. An unrecognized lens gets
+  a neutral route. Why routes exist at all: measured over one arm, three members with one line of
+  lens apiece and every other instruction identical voted done **21 of 21** with no dissent — three
+  samples of one opinion.
+- R17 **One panel call, then a closing call whose conclusion only tightens** (`samePanelBackend`,
+  `pollPanel`, `panelCloseAsk`, `closeSaid`).
+  - **One call** carries every member's walk and verdict when the members share provider *and*
+    model; members pinned to different backends keep the per-member shape, because folding a
+    deliberately mixed council into one request would answer with whichever backend the first member
+    named. One call means **one deadline for all three**: a panel cut off is recorded as *did not
+    answer* (distinct from *could not be understood*), never as a partial round.
+  - **The closing call** is a different question over different material. It is the only reader that
+    sees all three walks at once, and it is asked for what only that view shows: a **contradiction**
+    between two readings of the same output, a **requirement no walk covered**, and a **value wrong
+    on its face** (a backstop for R16's route, not a second owner of it). Two earlier shapes
+    established this by failing — re-reading the same evidence with the same prompt produced 11
+    convenings with no disagreement, and a mechanical re-read with the report removed produced 4
+    more with none.
+  - **The clamp**: `close==continue` over a `done` tally turns the round to continue; the reverse is
+    never applied. This council's measured failure mode is over-approval, so a conclusion free to
+    overrule a *blocking* tally would be a second road to done rather than a check on the first. The
+    ask is therefore phrased neutrally — naming both answers, neither as the point of asking.
+  - **It is recorded either way** (`Deliberation.Close`, rendered above the lead in
+    `renderCouncilAdvice`, and one stderr line per round saying *agreed with* or *DISAGREED with*):
+    an arm that never sees the line cannot tell a conclusion that agreed from one that never ran.
+
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
 council-tally-majority-1:  rule=majority,  [done,done,continue]      ⇒ done
@@ -514,6 +560,14 @@ council-salvage-prefix-1:  damage only after the syntax error, decision intact �
 council-salvage-nodecision-1: decision sits after the defect ⇒ salvage refused, abstain (no invented vote) (R14)
 council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates (lossy; no silent plan truncation) (R14)
 council-retry-shape-1:     the reminder branches three ways — syntax / schema / prose (Diagnose fed back) (R14)
+council-walk-unconditional-1: the walk is asked for with keep on or off, diff or no diff          (R15)
+council-walk-before-verdict-1: checks[] precedes decision in both the member and the panel schema (R15)
+council-routes-differ-1:   the three routes differ, and none of them narrows jurisdiction to a slice (R16)
+council-panel-once-1:      members on one backend ⇒ a single call returns every lens              (R17)
+council-panel-split-backend-1: a member pinned elsewhere ⇒ per-member calls, no silent folding    (R17)
+council-close-material-1:  the closing ask carries the walks and results, not the agent's report  (R17)
+council-close-tightens-1:  close=continue over a done tally ⇒ continue; close=done over continue ⇒ continue (R17)
+council-close-recorded-1:  what the close said travels with the round whether or not it changed it (R17)
 ```
 
 ## F-LOOP-STAGES — macro stages (D15; the stage tag withdrawn)
