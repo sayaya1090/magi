@@ -9,6 +9,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // councilReadingsThisTurn counts the councils that convened on this turn. They are the ones the
@@ -136,7 +137,7 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.nudgeEmptyResult(ctx, tc, lastText, ts); done {
 		return act
 	}
-	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
+	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, lastText, ts); done {
 		return act
 	}
 	if act, done := a.sayWhatWasNotRun(ctx, tc, ts); done {
@@ -233,7 +234,7 @@ func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string,
 // declaration for "hello" would be a loop with no exit. Only when a council exists to answer, since
 // the declaration is made to it. And it does not fire once and give up — going quiet is not a way to
 // finish, or the requirement would be a formality any silence could step around.
-func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTools bool, ts *turnState) (loopAction, bool) {
+func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTools bool, lastText string, ts *turnState) (loopAction, bool) {
 	if ts.declared {
 		return 0, false // it declared, and the council accepted — that IS the finish
 	}
@@ -279,14 +280,59 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	ts.declareAskEpoch = tc.guard.mutationEpoch()
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts: []session.Part{{Kind: session.PartText, Text: "You stopped without saying you are finished. " +
-			"A turn ends by declaring it: call the `council` tool with `complete: true`, and the council reads " +
-			"the record — what actually ran, how it ended, what is on disk now — and either accepts (the turn " +
-			"is over) or tells you what is still undone. If the work is finished, declare it now. If it is not, " +
-			"keep working." + notesTail(a.turnNotesBlock(tc.s.ID))}},
+		Parts: []session.Part{{Kind: session.PartText,
+			Text: declareAskNudge(ts.declareAsks, lastText) + notesTail(a.turnNotesBlock(tc.s.ID))}},
 	})
 	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, pd)
 	return loopContinue, true
+}
+
+// declareAskNudge is what the turn is told each time it ends a response without calling a tool and
+// without declaring itself finished. It ESCALATES, and no two asks say the same thing.
+//
+// The first ask assumes the honest case: the agent is done and forgot the form. From the second on
+// that assumption is dead, and the measurement says what replaced it. On
+// schemelike-metacircular-eval (2026-08-22) the agent finished twenty-two minutes of good
+// reconnaissance, wrote a plan, said "Now I'll write `eval.scm`. Let me write it." — and called
+// nothing. It was sent this reminder, whose last clause is "If it is not, keep working", and
+// answered by announcing the same file again. Three times, two and a half minutes apart, until the
+// cap landed the turn with nothing on disk. Repeating an intention does not violate a word of the
+// first ask, which is why the first ask cannot be the third.
+//
+// So the later asks stop asking for a DECLARATION and ask for an ACTION, and they quote the agent's
+// own last words back at it. That quote is the lever: the model cannot see that it repeated itself,
+// because each response is locally reasonable — only the record shows the same sentence four times.
+//
+// "Nothing has changed on disk" is safe to assert here rather than guessed: reaching ask 2 proves
+// it. The caller zeroes declareAsks whenever the mutation epoch moves, so a second ask exists only
+// when no file was written between them.
+func declareAskNudge(n int, lastSaid string) string {
+	const first = "You stopped without saying you are finished. A turn ends by declaring it: call the " +
+		"`council` tool with `complete: true`, and the council reads the record — what actually ran, " +
+		"how it ended, what is on disk now — and either accepts (the turn is over) or tells you what " +
+		"is still undone. If the work is finished, declare it now. If it is not, keep working."
+	if n <= 1 {
+		return first
+	}
+	said := ""
+	if q := text.Clip(strings.TrimSpace(lastSaid), 400); q != "" {
+		said = " Your last response said:\n\n" + q + "\n\n"
+	} else {
+		said = " Your last response called nothing. "
+	}
+	if n < declareAskCap {
+		return fmt.Sprintf("That is %d responses in a row that called no tool.%sWhatever it "+
+			"described did not happen: nothing has been written or run since the reminder before "+
+			"this one, so whatever it described is not there. Saying you are about to act "+
+			"is not acting. Your next response must contain a tool call. If the whole thing is too "+
+			"large to write at once, write the part you have already worked out — a partial file on "+
+			"disk is worth more than a complete plan in a message.", n, said)
+	}
+	return fmt.Sprintf("This is the last time you will be asked. %d responses in a row have called "+
+		"no tool and nothing has changed on disk.%sIf your next response calls no tool, the turn "+
+		"ends here and the work lands exactly as it stands now — unfinished, with no council asked "+
+		"to accept it. Take one concrete action instead — write a file, even a partial one, or run "+
+		"one command — or say plainly that you cannot.", n, said)
 }
 
 // notesTail appends the agent's own turn notes to a finish-seam message, or nothing when it left

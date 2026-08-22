@@ -21,7 +21,7 @@ func TestAWorkingTurnMustDeclareItIsFinished(t *testing.T) {
 	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard()}
 	ts := &turnState{}
 
-	act, done := a.requireFinishDeclaration(ctx, tc, true, ts)
+	act, done := a.requireFinishDeclaration(ctx, tc, true, "", ts)
 	if !done || act != loopContinue {
 		t.Fatalf("a working turn that never declared completion must keep going, got act=%v done=%v", act, done)
 	}
@@ -31,20 +31,20 @@ func TestAWorkingTurnMustDeclareItIsFinished(t *testing.T) {
 	}
 
 	// A conversational turn has nothing to declare, and demanding one would be a loop with no exit.
-	if _, done := a.requireFinishDeclaration(ctx, tc, false, ts); done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, false, "", ts); done {
 		t.Error("a turn that did no work must be allowed to end")
 	}
 	// It keeps asking while there is reason to — going quiet once is not a way around it.
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); !done {
 		t.Error("a second silent finish must still be held")
 	}
 	// But bounded: an agent that cannot produce the declaration would otherwise hold the session
 	// open until the wall clock, answering every reminder and finishing nothing. After the cap the
 	// work lands as it stands, and the turn is recorded as ending undeclared.
 	for i := 0; i < declareAskCap; i++ {
-		a.requireFinishDeclaration(ctx, tc, true, ts)
+		a.requireFinishDeclaration(ctx, tc, true, "", ts)
 	}
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); done {
 		t.Error("the ask must be bounded — a turn that cannot declare still has to end")
 	}
 	if !strings.Contains(ts.unverifiedReason, "never declared") {
@@ -52,7 +52,7 @@ func TestAWorkingTurnMustDeclareItIsFinished(t *testing.T) {
 	}
 	// The A/B baseline restores the passive finish.
 	t.Setenv("MAGI_DECLARE_FINISH", "0")
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); done {
 		t.Error("MAGI_DECLARE_FINISH=0 must restore the passive finish")
 	}
 }
@@ -64,7 +64,7 @@ func TestNoCouncilNoDeclarationRequired(t *testing.T) {
 	a.cfg.Workflow = false
 	ctx := context.Background()
 	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard()}
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, &turnState{}); done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", &turnState{}); done {
 		t.Error("without a council the turn must be free to end")
 	}
 }
@@ -190,11 +190,11 @@ func TestWorkDoneSinceTheLastAskRestartsTheBudget(t *testing.T) {
 
 	// Quiet three times with nothing produced: the cap lands, as it must.
 	for i := 0; i < declareAskCap; i++ {
-		if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+		if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); !done {
 			t.Fatalf("ask %d was not made", i+1)
 		}
 	}
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); done {
 		t.Fatal("an agent that produced nothing must still be bounded")
 	}
 
@@ -204,7 +204,7 @@ func TestWorkDoneSinceTheLastAskRestartsTheBudget(t *testing.T) {
 	if !g.mutated("/app/x.c", "one") {
 		t.Fatal("the fixture did not record a mutation")
 	}
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); !done {
 		t.Error("work landed since the last ask and the agent was not reminded again")
 	}
 	if ts.declareAsks != 1 {
@@ -228,11 +228,11 @@ func TestBusyworkSinceTheLastAskDoesNotRestartTheBudget(t *testing.T) {
 	for i := 0; i < declareAskCap; i++ {
 		g.check("bash", json.RawMessage(`{"command":"ls"}`)) // busy between reminders
 		g.mutated("/app/x.c", "same")                        // …and rewriting identical content
-		if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+		if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); !done {
 			t.Fatalf("ask %d was not made", i+1)
 		}
 	}
-	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); done {
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", ts); done {
 		t.Error("tool calls and idempotent rewrites bought an unbounded turn")
 	}
 	if !strings.Contains(ts.unverifiedReason, "never declared") {
