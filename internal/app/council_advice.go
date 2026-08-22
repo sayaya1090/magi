@@ -380,6 +380,19 @@ func identicalRejections(evs []event.Event, report, changes string) int {
 // that this was not a decision to defer to.
 func renderCouncilAdvice(d council.Deliberation, lead string) string {
 	var b strings.Builder
+	// The closing call goes FIRST, and above the lead, because when it is the reason the turn did
+	// not end it is also the only block in the message that says anything is wrong: the members it
+	// overruled are each rendered below saying, at length and with citations, that everything is
+	// satisfied. Read in the other order the agent meets three acceptances under a heading that
+	// tells it to fix something, and what it fixes is whatever it can find on its own.
+	if said := strings.TrimSpace(d.Close); said != "" {
+		head := "── the council's closing call — one reader, after all three walks, seeing them together"
+		if d.Decision == council.Continue {
+			head += "\nThis is what stands in the way. The members below were read and overruled by it; " +
+				"their agreement is not a second opinion on this point, it is the thing it disagrees with."
+		}
+		b.WriteString(head + "\n" + said + "\n\n")
+	}
 	b.WriteString(lead + "\n")
 	for _, v := range d.Verdicts {
 		who := strings.TrimSpace(v.Member)
