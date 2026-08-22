@@ -1063,7 +1063,6 @@ sequenceDiagram
 | `MAGI_COUNCIL_REJECT_CAP` | ON | bounds rejection the way acceptance is bounded — three no-change rejections in a row, or eight in one turn, land the turn UNVERIFIED instead of cycling declare→reject to the step backstop |
 | `MAGI_COUNCIL_LITERALS` | ON | lifts the task's own identifiers (camelCase, snake_case, filenames, `(int)`-typed fields, backticked words) into the members' evidence, so a walk can be settled against the words the task actually used |
 | `MAGI_INTERJECT_SPLIT` | ON | one disposition per queued message instead of one for the batch, plus the re-evaluation a new turn does over what is still queued; off restores the single batch triage |
-| `MAGI_COLLAPSE_REPEATS` | ON | collapses an identical (call, result) pair repeating in the model's own transcript — the model-side twin of council evidence supersession; a result that changed is never collapsed |
 | `MAGI_RESEND_REASONING` | ON | sends the previous step's reasoning back on the wire for tool continuations (paired pilot: up to 50% faster on 40% fewer input tokens, nothing regressed); backends that ignore the field pay only bytes |
 | `MAGI_DISTIL` | OFF | asks, at the one moment the whole turn is still in context, what was worth keeping; off by default because it costs a round trip per completed task |
 | `MAGI_EMBEDDED_PLUGINS` | ON | loads the plugins built into the binary; off leaves only what the workspace names |

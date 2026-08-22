@@ -1043,7 +1043,6 @@ sequenceDiagram
 | `MAGI_COUNCIL_REJECT_CAP` | ON | 승인이 경계 지어지는 만큼 거부도 경계 짓는다 — 변경 없는 거부 연속 3회, 또는 한 턴에 8회면 declare→reject를 스텝 백스톱까지 돌리는 대신 UNVERIFIED로 착지 |
 | `MAGI_COUNCIL_LITERALS` | ON | 태스크 자신의 식별자(camelCase, snake_case, 파일명, `(int)` 타입 필드, 백틱 단어)를 위원 증거로 끌어올려, 훑기를 태스크가 실제로 쓴 낱말로 정산할 수 있게 한다 |
 | `MAGI_INTERJECT_SPLIT` | ON | 큐에 든 메시지를 배치 하나가 아니라 **메시지마다** 처분한다. 새 턴이 남은 큐를 다시 판정하는 절반도 여기 딸려 있다; off면 배치 단일 처분으로 복귀 |
-| `MAGI_COLLAPSE_REPEATS` | ON | 모델 자신의 트랜스크립트에서 동일한 (호출, 결과) 쌍이 쌓이는 것을 축약한다 — 카운슬 증거 supersession의 모델 쪽 쌍둥이. 결과가 **달라진** 호출은 절대 축약하지 않는다 |
 | `MAGI_RESEND_REASONING` | ON | 툴 연속에서 직전 스텝의 reasoning을 와이어로 되돌려 보낸다(짝지은 파일럿: 입력 토큰 40% 적게, 최대 50% 빠르게, 회귀 없음). 그 필드를 무시하는 백엔드는 바이트만 낸다 |
 | `MAGI_DISTIL` | OFF | 턴 전체가 아직 컨텍스트에 있는 그 한 순간에 "무엇이 남길 값이 있었나"를 묻는다. 완료 태스크당 왕복 한 번을 쓰므로 기본 꺼짐 |
 | `MAGI_EMBEDDED_PLUGINS` | ON | 바이너리에 내장된 플러그인을 로드한다; off면 워크스페이스가 지목한 것만 남는다 |

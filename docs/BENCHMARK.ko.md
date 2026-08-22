@@ -129,7 +129,8 @@ grep -oih 'terminal-bench' "$@" | wc -l
 ## 결과
 
 `claude-sonnet-5` 위의 magi, 추론 에포트 HIGH(magi 플래그가 아니라 백엔드 쪽 설정입니다),
-`MAGI_COLLAPSE_REPEATS=0`, 과제당 1회 시도, 동시 1~2 trial.
+반복 축약 끔(당시엔 env 스위치였고, 그 기전은 이후 제거됐습니다), 과제당 1회 시도,
+동시 1~2 trial.
 
 | | |
 |---|---|

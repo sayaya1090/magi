@@ -20,9 +20,10 @@ import (
 //	8b5f8c47  the per-step block moved out of the system prompt to keep IT stable, and what was
 //	          left was called small without anyone measuring it.
 //
-// The existing guard (TestCollapseNeverRewritesWhatWasAlreadySent) pins one function. This pins
-// the property itself, over the whole model view, so the next thing that edits history in place
-// fails here rather than on an invoice.
+// The first of those was fixed by collapsing forward and then, when it turned out to match only a
+// byte-identical triple, removed outright — but a guard on one deleted function would have gone
+// with it. This pins the PROPERTY, over the whole model view, so the next thing that edits history
+// in place fails here rather than on an invoice.
 //
 // Two exceptions are sanctioned, both deliberate trades recorded as facts in the log: compaction
 // (a fold replaces older turns with a summary) and result elision (one bulky, digested, recent
@@ -46,10 +47,8 @@ func TestModelViewOnlyEverAppends(t *testing.T) {
 		})
 	}
 
-	// The view as buildStepRequest actually assembles it: the log rebuilt, then the collapse pass
-	// over it. Testing reconstruct alone would miss the exact function that broke this before.
-	view := func(evs []event.Event) []string { return render(collapseRepeatedCalls(reconstruct(evs))) }
-	t.Setenv("MAGI_COLLAPSE_REPEATS", "1")
+	// The view as buildStepRequest actually assembles it.
+	view := func(evs []event.Event) []string { return render(reconstruct(evs)) }
 
 	evs := []event.Event{userPromptEvt(t, "m1", "fix the build")}
 	prev := view(evs)

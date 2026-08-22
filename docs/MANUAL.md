@@ -584,7 +584,6 @@ Flags and environment variables (precedence: flag > env > default):
 | — | `MAGI_TOP_P` | (config `[sampling]`, else model default) | nucleus sampling cutoff; overrides `[sampling] top_p` |
 | — | `MAGI_TOP_K` | (config `[sampling]`, else model default) | top-k cutoff — a non-OpenAI extension, sent only when set and honored only by backends that implement it (Ollama's `/v1` ignores it) |
 | — | `MAGI_RESEND_REASONING` | (on) | hands each assistant message's own reasoning back on the wire (`reasoning` field), **inside the open turn only** — a harmony-family model (gpt-oss) plans in an analysis channel it expects to see again during tool continuations (Ollama renders it; backends that don't know the field ignore it). `0` disables |
-| — | `MAGI_COLLAPSE_REPEATS` | (on) | collapses older duplicates of an identical (tool, args, result) triple in the model's context to a stub, keeping the newest in full — starves the repeated-failure loop attractor; a repeat that returned something new is never touched, and a transcript with no repeats is left untouched entirely. `0` disables |
 | — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
 | — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |

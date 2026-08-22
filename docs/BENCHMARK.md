@@ -134,7 +134,8 @@ results below rather than left to be inferred from the numbers.
 ## Results
 
 magi on `claude-sonnet-5`, reasoning effort HIGH (a setting of the backend, not pinned by a magi
-flag), `MAGI_COLLAPSE_REPEATS=0`, one attempt per task, one or two trials at a time.
+flag), repeat-collapsing off (an env switch at the time; the mechanism has since been removed),
+one attempt per task, one or two trials at a time.
 
 | | |
 |---|---|
