@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,15 +98,91 @@ func TestMemberPromptKeepGated(t *testing.T) {
 	}
 }
 
-// The terminate member prompt must carry the per-item acceptance clause: when the criteria are an
-// enumerated checklist, judge each item and land done only if EVERY item is satisfied.
-func TestTerminateMemberPromptPerItem(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "completeness"}
-	p := memberSystem(m, "stand up a service", false)
-	for _, want := range []string{"PER-ITEM ACCEPTANCE", "NUMBERED checklist", "EVERY item", "UNSATISFIED"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("terminate prompt missing per-item clause fragment %q", want)
+// The requirements walk must be UNCONDITIONAL. It used to fire only when the acceptance criteria
+// arrived as a NUMBERED checklist — and the tasks this council actually judges do not number theirs,
+// so the one rule that forced item-by-item judgement never ran, and the members voted against the
+// work as an undivided impression. Measured consequence: 21 member votes in one A/B arm, 21 done,
+// zero dissent. The clause is kept honest here across every lens, not just the one it was written on.
+func TestRequirementsWalkIsUnconditional(t *testing.T) {
+	for _, lens := range []string{"correctness", "verification", "completeness"} {
+		p := memberSystem(council.Member{Name: "x", Lens: lens}, "stand up a service", false)
+		for _, want := range []string{"REQUIREMENTS WALK", "SATISFIED", "UNSATISFIED", "NO-EVIDENCE"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("lens=%s: walk clause missing %q", lens, want)
+			}
 		}
+		// The old gate must be gone: a walk that runs only for numbered criteria is the defect.
+		if strings.Contains(p, "when the acceptance criteria are given as a NUMBERED checklist, judge EACH") {
+			t.Errorf("lens=%s: the walk is still gated on a numbered checklist", lens)
+		}
+		// A numbered checklist is still walked by number — the general rule absorbed the special case
+		// rather than dropping it.
+		if !strings.Contains(p, "item by item, by number") {
+			t.Errorf("lens=%s: the enumerated-checklist case was dropped instead of absorbed", lens)
+		}
+		// The walk decides the vote; otherwise it is decoration the model may write and ignore.
+		if !strings.Contains(p, "any requirement UNSATISFIED → continue") {
+			t.Errorf("lens=%s: the walk does not bind the decision", lens)
+		}
+	}
+}
+
+// The reply asks for the walk BEFORE the decision, in both modes. A schema whose first key is
+// `decision` gets a decision written before the model has read one requirement back to itself, and
+// then everything after it is written to agree. This is an ordering claim, so it is tested as one:
+// the offset of `"checks"` must precede the offset of `"decision"`.
+func TestSchemaAsksForTheWalkBeforeTheVerdict(t *testing.T) {
+	check := func(name, schema string) {
+		t.Helper()
+		ci, di := strings.Index(schema, `"checks"`), strings.Index(schema, `"decision"`)
+		if ci < 0 {
+			t.Fatalf("%s: schema has no `checks` field:\n%s", name, schema)
+		}
+		if di < 0 {
+			t.Fatalf("%s: schema has no `decision` field", name)
+		}
+		if ci > di {
+			t.Fatalf("%s: `decision` (at %d) is asked for before `checks` (at %d) — the verdict would be "+
+				"written before the reasoning it is supposed to follow", name, di, ci)
+		}
+	}
+	for _, keep := range []bool{false, true} {
+		check("memberSystem", memberSystem(council.Member{Name: "x", Lens: "correctness"}, "do it", keep))
+	}
+	check("verdictSchemaFor(false)", verdictSchemaFor(false))
+	check("verdictSchemaFor(true)", verdictSchemaFor(true))
+}
+
+// Three members with one line of lens apiece and every other instruction identical are three
+// samples of one opinion — which is what 21-of-21 unanimous done looks like from the inside. Each
+// lens now walks the same evidence by a different ROUTE, and a route only differentiates if it
+// actually differs. It must not partition jurisdiction: a defect off your route is still yours.
+func TestLensRoutesDifferAndDoNotPartitionJurisdiction(t *testing.T) {
+	seen := map[string]string{}
+	for _, lens := range []string{"correctness", "verification", "completeness"} {
+		p := memberSystem(council.Member{Name: "x", Lens: lens}, "do it", false)
+		if !strings.Contains(p, "YOUR ROUTE:") {
+			t.Fatalf("lens=%s: no route", lens)
+		}
+		r := council.RouteFor(lens)
+		if r == "" {
+			t.Fatalf("lens=%s: empty route", lens)
+		}
+		if prev, dup := seen[r]; dup {
+			t.Fatalf("lens=%s shares its route with %s — a shared route differentiates nothing", lens, prev)
+		}
+		seen[r] = lens
+		if !strings.Contains(p, r) {
+			t.Fatalf("lens=%s: the route is not in the prompt", lens)
+		}
+		if !strings.Contains(p, "NOT the limit of what you may judge") {
+			t.Fatalf("lens=%s: the route reads as a jurisdiction — a defect off-route must still be "+
+				"nameable, or a real defect draws one continue against two uninformed dones", lens)
+		}
+	}
+	// An unrecognized lens still gets a usable route rather than an empty line.
+	if council.RouteFor("no-such-lens") == "" {
+		t.Error("an unknown lens must still get a route")
 	}
 }
 
@@ -312,10 +389,43 @@ func TestMemberPromptProportionality(t *testing.T) {
 
 }
 
+// isPanel reports whether the request is the whole-council call rather than a single member's.
+func isPanel(r port.ChatRequest) bool { return strings.Contains(r.System, "THE COUNCIL —") }
+
+// speaks builds a reply for either shape from one per-member function, so a test can say what each
+// lens thinks without caring how many calls magi decided to make. The rebuttal round is still asked
+// member by member, so both shapes reach the same fake.
+func speaks(verdict func(name string, r port.ChatRequest) string) func(port.ChatRequest) string {
+	return func(r port.ChatRequest) string {
+		if !isPanel(r) {
+			for _, m := range council.DefaultMembers() {
+				if memberIn(r, m.Name) {
+					return verdict(m.Name, r)
+				}
+			}
+			return `{"decision":"abstain","rationale":"?"}`
+		}
+		if strings.Contains(textOf(r), "── ACROSS THE WALKS ──") {
+			return `{"rationale":"nothing to add","decision":"done"}`
+		}
+		var b strings.Builder
+		b.WriteString(`{"verdicts":[`)
+		for i, m := range council.DefaultMembers() {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			one := verdict(m.Name, r)
+			fmt.Fprintf(&b, `{"member":%q,"lens":%q,%s`, m.Name, m.Lens, strings.TrimPrefix(one, "{"))
+		}
+		b.WriteString("]}")
+		return b.String()
+	}
+}
+
 func TestDeliberateAllDone(t *testing.T) {
-	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
+	c := New(only(fakeLLM{reply: speaks(func(string, port.ChatRequest) string {
 		return `{"decision":"done","confidence":0.9,"rationale":"looks complete"}`
-	}}), "m")
+	})}), "m")
 	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x"})
 	if err != nil {
 		t.Fatal(err)
@@ -331,12 +441,12 @@ func TestDeliberateAllDone(t *testing.T) {
 func TestDeliberateMajorityContinueWithFeedback(t *testing.T) {
 	// Melchior + Casper say continue (with feedback), Balthasar says done →
 	// majority continue.
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		if memberIn(r, "Balthasar") {
+	c := New(only(fakeLLM{reply: speaks(func(name string, _ port.ChatRequest) string {
+		if name == "Balthasar" {
 			return `{"decision":"done","rationale":"tests pass"}`
 		}
 		return `{"decision":"continue","rationale":"incomplete","feedback":"add the missing flag"}`
-	}}), "m")
+	})}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 2, Task: "do x", Rule: council.RuleMajority})
 	if d.Decision != council.Continue {
 		t.Fatalf("decision = %q, want continue", d.Decision)
@@ -463,16 +573,16 @@ func TestParseReplyRequiresDecision(t *testing.T) {
 // shown the majority's done votes and flips to done → consensus. The rebuttal reply
 // is detectable by the peer-digest section in the prompt.
 func TestDeliberateDebateResolvesSplit(t *testing.T) {
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+	c := New(only(fakeLLM{reply: speaks(func(name string, r port.ChatRequest) string {
 		rebuttal := strings.Contains(textOf(r), "Council disagreement")
-		if memberIn(r, "Melchior") {
+		if name == "Melchior" {
 			if rebuttal { // reconsiders and joins the majority
 				return `{"decision":"done","rationale":"peers are right, tests do cover it"}`
 			}
 			return `{"decision":"continue","rationale":"looks incomplete"}`
 		}
 		return `{"decision":"done","rationale":"tests pass"}`
-	}}), "m")
+	})}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
 		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: true,
 	})
@@ -487,16 +597,16 @@ func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
 	// Members poll concurrently, so the reply callback runs in parallel goroutines:
 	// use atomics, never touch *testing.T from inside it (that is itself a data race).
 	var calls, rebuttals int64
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		atomic.AddInt64(&calls, 1)
-		if strings.Contains(textOf(r), "Council disagreement") {
-			atomic.AddInt64(&rebuttals, 1)
-		}
-		if memberIn(r, "Melchior") {
+	c := New(only(fakeLLM{reply: speaks(func(name string, r port.ChatRequest) string {
+		if name == "Melchior" { // counted once per call below, not once per member
+			atomic.AddInt64(&calls, 1)
+			if strings.Contains(textOf(r), "Council disagreement") {
+				atomic.AddInt64(&rebuttals, 1)
+			}
 			return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
 		}
 		return `{"decision":"done","rationale":"ok"}`
-	}}), "m")
+	})}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
 		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: false,
 	})
@@ -506,8 +616,9 @@ func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
 	if d.Decision != council.Done { // 2 done / 1 continue → majority done, no debate
 		t.Fatalf("decision = %q, want done (majority, no debate)", d.Decision)
 	}
-	if calls := atomic.LoadInt64(&calls); calls != 3 {
-		t.Fatalf("want exactly 3 polls (no rebuttal), got %d", calls)
+	// One call for the whole council; the rebuttal would be three more and did not run.
+	if calls := atomic.LoadInt64(&calls); calls != 1 {
+		t.Fatalf("want exactly 1 council call (no rebuttal), got %d", calls)
 	}
 }
 
@@ -517,24 +628,26 @@ func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
 // exactly 3 polls.
 func TestDeliberateSkipDebateOnContinueMajority(t *testing.T) {
 	var calls, rebuttals int64
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		atomic.AddInt64(&calls, 1)
-		if strings.Contains(textOf(r), "Council disagreement") {
-			atomic.AddInt64(&rebuttals, 1)
+	c := New(only(fakeLLM{reply: speaks(func(name string, r port.ChatRequest) string {
+		if name == "Melchior" { // once per call, not once per member
+			atomic.AddInt64(&calls, 1)
+			if strings.Contains(textOf(r), "Council disagreement") {
+				atomic.AddInt64(&rebuttals, 1)
+			}
 		}
-		if memberIn(r, "Balthasar") {
+		if name == "Balthasar" {
 			return `{"decision":"done","rationale":"looks fine"}`
 		}
 		return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
-	}}), "m")
+	})}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
 		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: true,
 	})
 	if n := atomic.LoadInt64(&rebuttals); n != 0 {
 		t.Errorf("debate must be skipped on a continue-majority, ran %d time(s)", n)
 	}
-	if n := atomic.LoadInt64(&calls); n != 3 {
-		t.Errorf("want exactly 3 polls (no rebuttal), got %d", n)
+	if n := atomic.LoadInt64(&calls); n != 1 {
+		t.Errorf("want exactly 1 council call (no rebuttal), got %d", n)
 	}
 	if d.Decision != council.Continue {
 		t.Errorf("decision = %q, want continue", d.Decision)
@@ -642,8 +755,16 @@ func TestMalformedVerdictWithNoReadableDecisionStillAbstains(t *testing.T) {
 
 // A salvaged verdict must survive the whole Deliberate path, not just parseReply.
 func TestDeliberateReadsAMalformedVerdict(t *testing.T) {
-	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
-		return `{"decision":"done","confidence":0.9,"rationale":"all deliverables exist and ran",` +
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if strings.Contains(textOf(r), "── ACROSS THE WALKS ──") {
+			return `{"rationale":"nothing to add","decision":"done"}`
+		}
+		// Three whole verdicts, then a defect in a trailing field: the shape observed from a weak
+		// model, and the reason SalvagePrefix exists. Everything before it must survive.
+		return `{"verdicts":[` +
+			`{"member":"Melchior","lens":"correctness","decision":"done","rationale":"ran"},` +
+			`{"member":"Balthasar","lens":"verification","decision":"done","rationale":"ran"},` +
+			`{"member":"Casper","lens":"completeness","decision":"done","rationale":"ran"}],` +
 			`"criteria":["the output matches the requested format","checks":[]]}`
 	}}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x"})
@@ -701,81 +822,46 @@ func TestCouncilPromptsCarryNoHarnessFraming(t *testing.T) {
 	}
 }
 
-// Each member is announced the moment IT answers, not once when the slowest one does.
+// Every member is announced through OnVerdict, once, before the batch returns.
 //
-// The members are polled concurrently, so the batch the deliberation returns is gated on the
-// slowest of them — a median 87s across the recorded runs, all of it with nothing on screen.
-// OnVerdict is what lets a caller paint the first two while the third is still thinking.
-func TestOnVerdictFiresPerMemberBeforeTheBatch(t *testing.T) {
-	release := make(map[string]chan struct{}, 3)
-	for _, n := range []string{"Melchior", "Balthasar", "Casper"} {
-		release[n] = make(chan struct{})
-	}
-	llm := fakeLLM{reply: func(r port.ChatRequest) string {
-		for name, gate := range release {
-			if memberIn(r, name) {
-				<-gate // this member answers only when the test lets it
-				return `{"decision":"done","confidence":1,"rationale":"fine"}`
-			}
-		}
-		return `{"decision":"abstain","rationale":"?"}`
+// This test used to assert something stronger and no longer true: that a member was announced the
+// MOMENT IT ANSWERED, so a caller could paint the first two while the third was still thinking.
+// That property belonged to the split shape, where three members meant three concurrent calls. The
+// council now asks once for all three, and one call cannot deliver its first verdict before its
+// third — the progressive paint is genuinely gone, traded for the two calls that were re-sending
+// the same evidence to say the same thing about it. What survives is the contract callers actually
+// depend on: each member arrives exactly once, with its own name and lens, before the deliberation
+// returns.
+func TestOnVerdictAnnouncesEveryMemberBeforeTheBatch(t *testing.T) {
+	llm := fakeLLM{reply: func(port.ChatRequest) string {
+		return `{"verdicts":[` +
+			`{"member":"Melchior","lens":"correctness","decision":"done","rationale":"a","cite":"x"},` +
+			`{"member":"Balthasar","lens":"verification","decision":"done","rationale":"b","cite":"y"},` +
+			`{"member":"Casper","lens":"completeness","decision":"done","rationale":"c","cite":"z"}]}`
 	}}
 	c := New(func(string) port.LLMProvider { return llm }, "m")
 
 	var mu sync.Mutex
-	var announced []string
-	done := make(chan council.Deliberation, 1)
-	go func() {
-		d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
-			Task: "t", Members: council.DefaultMembers(),
-			OnVerdict: func(v council.Verdict) {
-				mu.Lock()
-				announced = append(announced, v.Member)
-				mu.Unlock()
-			},
-		})
-		if err != nil {
-			t.Error(err)
-		}
-		done <- d
-	}()
-
-	// Let ONE member answer. Its verdict must be announced while the other two are still out.
-	release["Balthasar"] <- struct{}{}
-	deadline := time.After(2 * time.Second)
-	for {
-		mu.Lock()
-		n := len(announced)
-		mu.Unlock()
-		if n == 1 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("one member answered and %d verdicts were announced — this is still a batch", n)
-		case <-time.After(time.Millisecond):
+	seen := map[string]int{}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "t", Members: council.DefaultMembers(),
+		OnVerdict: func(v council.Verdict) {
+			mu.Lock()
+			seen[v.Member]++
+			mu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range council.DefaultMembers() {
+		if seen[m.Name] != 1 {
+			t.Errorf("%s was announced %d times, want exactly 1 — a caller painting from OnVerdict "+
+				"either misses it or draws it twice", m.Name, seen[m.Name])
 		}
 	}
-	select {
-	case <-done:
-		t.Fatal("the deliberation returned before the other members answered")
-	default:
-	}
-
-	release["Melchior"] <- struct{}{}
-	release["Casper"] <- struct{}{}
-	select {
-	case d := <-done:
-		if len(d.Verdicts) != 3 {
-			t.Errorf("the batch must still carry every verdict, got %d", len(d.Verdicts))
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("deliberation did not finish")
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(announced) != 3 {
-		t.Errorf("every member must be announced once, got %v", announced)
+	if len(d.Verdicts) != 3 {
+		t.Fatalf("want three verdicts in the batch, got %d", len(d.Verdicts))
 	}
 }
 
@@ -794,6 +880,8 @@ func TestASilentMemberAbstainsInsteadOfHangingTheTurn(t *testing.T) {
 	// Casper's request is accepted and then never answered — the shape a wedged backend has. The
 	// stream is what blocks, so the fake blocks in StreamChat rather than returning an error.
 	llm := hangFor{name: "Casper", ok: `{"decision":"done","confidence":0.9,"rationale":"the build passes"}`}
+	// One call carries the whole council, so a wedged backend takes all of it — the point this
+	// pins is that the turn RETURNS with abstentions that say why, not that one member survives.
 	c := New(func(string) port.LLMProvider { return llm }, "m")
 
 	done := make(chan council.Deliberation, 1)
@@ -833,7 +921,7 @@ type hangFor struct {
 
 func (h hangFor) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	ch := make(chan port.ProviderEvent, 2)
-	if memberIn(r, h.name) {
+	if memberIn(r, h.name) || (isPanel(r) && h.name != "") {
 		go func() {
 			<-ctx.Done()
 			close(ch)
@@ -889,6 +977,17 @@ func (rebuttalHang) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan 
 	vote := `{"decision":"done","rationale":"tests pass"}`
 	if memberIn(r, "Melchior") {
 		vote = `{"decision":"continue","rationale":"looks incomplete"}`
+	}
+	if isPanel(r) {
+		// The independent round is one call: Melchior dissents inside it, which is what makes the
+		// split that triggers the rebuttal this test is about.
+		vote = `{"verdicts":[` +
+			`{"member":"Melchior","lens":"correctness","decision":"continue","rationale":"looks incomplete"},` +
+			`{"member":"Balthasar","lens":"verification","decision":"done","rationale":"tests pass"},` +
+			`{"member":"Casper","lens":"completeness","decision":"done","rationale":"tests pass"}]}`
+		if strings.Contains(textOf(r), "── ACROSS THE WALKS ──") {
+			vote = `{"rationale":"nothing to add","decision":"done"}`
+		}
 	}
 	ch <- port.ProviderEvent{Type: port.ProviderText, Text: vote}
 	ch <- port.ProviderEvent{Type: port.ProviderFinish}

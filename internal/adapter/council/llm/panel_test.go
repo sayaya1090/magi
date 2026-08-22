@@ -1,0 +1,273 @@
+package llm
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+// The panel exists to stop paying for the same evidence three times, and everything downstream of
+// it must be unable to notice. These pin both halves: ONE request goes out, and THREE ordinary
+// verdicts come back with their members, lenses and fields intact.
+
+type panelProvider struct {
+	mu    sync.Mutex
+	reqs  []port.ChatRequest
+	reply func(int) string
+}
+
+func (p *panelProvider) StreamChat(_ context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	p.mu.Lock()
+	n := len(p.reqs)
+	p.reqs = append(p.reqs, r)
+	p.mu.Unlock()
+	ch := make(chan port.ProviderEvent, 2)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: p.reply(n)}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}
+
+func replyWith(vs ...[3]string) string {
+	type v struct {
+		Member    string   `json:"member"`
+		Lens      string   `json:"lens"`
+		Checks    []string `json:"checks"`
+		Decision  string   `json:"decision"`
+		Rationale string   `json:"rationale"`
+		Cite      string   `json:"cite"`
+	}
+	out := struct {
+		Verdicts []v `json:"verdicts"`
+	}{}
+	for _, x := range vs {
+		out.Verdicts = append(out.Verdicts, v{Member: x[0], Lens: x[1], Decision: x[2],
+			Checks:    []string{"the file exists - SATISFIED - \"wrote 12 bytes\""},
+			Rationale: "because", Cite: "wrote 12 bytes"})
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
+func TestPanelAsksOnceAndReturnsEveryLens(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return replyWith([3]string{"Melchior", "correctness", "done"},
+			[3]string{"Balthasar", "verification", "continue"},
+			[3]string{"Casper", "completeness", "done"})
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "wrote hello.txt", Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The saving IS the call count: three members used to mean three requests, each opening its own
+	// backend session and re-sending the same evidence to read nothing from cache. It is now one,
+	// plus a closing call that EXTENDS it — same system, same evidence, the verdicts, then one more
+	// question — so a backend that resumes reads all of that from cache instead of re-sending it.
+	if len(p.reqs) != 2 {
+		t.Fatalf("want the panel call and the closing call, got %d", len(p.reqs))
+	}
+	first, second := p.reqs[0], p.reqs[1]
+	if second.System != first.System {
+		t.Fatal("the closing call changed the system prompt — it is then a new prefix, not an extension")
+	}
+	if len(second.Messages) <= len(first.Messages) {
+		t.Fatal("the closing call must EXTEND the first exchange, not replace it")
+	}
+	for i := range first.Messages {
+		if second.Messages[i].Parts[0].Text != first.Messages[i].Parts[0].Text {
+			t.Fatalf("the closing call diverges at message %d — everything before the new question "+
+				"must be byte-identical or none of it comes from cache", i)
+		}
+	}
+	if len(d.Verdicts) != 3 {
+		t.Fatalf("want three verdicts, got %d", len(d.Verdicts))
+	}
+	want := map[string]council.Decision{"Melchior": council.Done, "Balthasar": council.Continue, "Casper": council.Done}
+	for _, v := range d.Verdicts {
+		if v.Decision != want[v.Member] {
+			t.Errorf("%s: got %q, want %q — a verdict was cast and did not survive the mapping",
+				v.Member, v.Decision, want[v.Member])
+		}
+		if v.Lens == "" || v.Cite == "" {
+			t.Errorf("%s: lost its lens or its grounds on the way back", v.Member)
+		}
+	}
+	// The tally is reached exactly as a split round reaches it.
+	if d.Decision != council.Done {
+		t.Errorf("2-1 done under majority should tally done, got %q", d.Decision)
+	}
+}
+
+// A reply that speaks for only some of the lenses must cost only those lenses. Before this, one
+// short reply would have been three abstentions at once — a round decided by nobody.
+func TestPanelMissingLensAbstainsAloneAndSaysWhy(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return replyWith([3]string{"Melchior", "correctness", "continue"})
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "x", Members: council.DefaultMembers()})
+	var abst int
+	for _, v := range d.Verdicts {
+		if v.Member == "Melchior" {
+			if v.Decision != council.Continue {
+				t.Fatalf("the lens that DID answer lost its vote: %q", v.Decision)
+			}
+			continue
+		}
+		if v.Decision != council.Abstain {
+			t.Fatalf("%s did not answer and must abstain, got %q", v.Member, v.Decision)
+		}
+		if !strings.Contains(v.Rationale, "did not return a verdict") {
+			t.Errorf("%s abstained with no reason on it — a reader cannot tell silence from "+
+				"'my lens has nothing to add'", v.Member)
+		}
+		abst++
+	}
+	if abst != 2 {
+		t.Fatalf("want two abstentions, got %d", abst)
+	}
+}
+
+// A model that renames the members has still cast its votes. Losing a round to a label is exactly
+// the brittleness this shape must not introduce.
+func TestPanelMatchesByLensWhenNamesDrift(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return replyWith([3]string{"Member 1", "completeness", "continue"},
+			[3]string{"Member 2", "correctness", "done"},
+			[3]string{"Member 3", "verification", "done"})
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "x", Members: council.DefaultMembers()})
+	for _, v := range d.Verdicts {
+		if v.Decision == council.Abstain {
+			t.Fatalf("%s (%s) was dropped because the reply used a different name", v.Member, v.Lens)
+		}
+		if v.Lens == "completeness" && v.Decision != council.Continue {
+			t.Errorf("the completeness verdict landed on the wrong lens")
+		}
+	}
+}
+
+// One call writing three verdicts can decide once and dress it three ways — that is the whole risk
+// of the shape, and the prompt has to spend words on it or the council becomes one voter with
+// three names.
+func TestPanelPromptDefendsIndependenceAndCarriesTheSharedInstruction(t *testing.T) {
+	members := council.DefaultMembers()
+	roster := panelRoster(members)
+	for _, m := range members {
+		if !strings.Contains(roster, m.Name) || !strings.Contains(roster, council.RouteFor(m.Lens)) {
+			t.Fatalf("the roster must name %s and its route", m.Name)
+		}
+	}
+	for _, want := range []string{"THREE JUDGEMENTS, not one judgement written three times",
+		"has not been applied, it has been echoed", "should abstain, not agree"} {
+		if !strings.Contains(panelIndependence, want) {
+			t.Errorf("the independence clause must carry %q", want)
+		}
+	}
+	// And the judging instruction itself is the same text the other shapes use — not a third
+	// retelling of it.
+	if !strings.Contains(panelSchema, `"checks"`) ||
+		strings.Index(panelSchema, `"checks"`) > strings.Index(panelSchema, `"decision"`) {
+		t.Error("the panel schema must ask for each walk before the decision it supports")
+	}
+}
+
+// The closing call must ask a DIFFERENT question over DIFFERENT material than the verdicts did.
+//
+// Its first version did not, and it therefore did nothing: it was handed the same system prompt and
+// the same evidence — the agent's report included — and asked to conclude again from what it had
+// just concluded from. Eleven convenings, not one disagreement with the tally. What makes it a
+// second look is that the report is off the table and the walks are on it.
+func TestClosingCallJudgesResultsAndWalksNotTheReport(t *testing.T) {
+	// The question must not be phrased as a finishing. The clamp lets this call change an outcome in
+	// exactly one direction — toward continue — so a prompt that opens "now close the round" nudges
+	// it away from the only thing it can do. Three versions opened that way and ratified 15 rounds
+	// out of 15.
+	for _, banned := range []string{"Now close the round", "close the round"} {
+		if strings.Contains(panelCloseAsk, banned) {
+			t.Errorf("the closing question is framed as a finishing (%q) — that is the one direction "+
+				"it must not be pushed", banned)
+		}
+	}
+	if !strings.Contains(panelCloseAsk, "Both answers are ordinary") {
+		t.Error("the question must name both outcomes as ordinary, or it is asking for one of them")
+	}
+	for _, want := range []string{
+		"what the TOOLS RETURNED",
+		"is NOT evidence here",
+		"Do not re-read it to decide this",
+	} {
+		if !strings.Contains(panelCloseAsk, want) {
+			t.Errorf("the closing question must carry %q — without it, it re-decides on the same "+
+				"material and echoes what it already wrote", want)
+		}
+	}
+	// Reframing was tried twice and ratified both times. What makes this a second look is the VIEW:
+	// the three walks side by side, which no member had while writing one of them. Each of these
+	// three defects is invisible from inside a single walk.
+	for _, want := range []string{"CONTRADICTION", "GAP", "WRONG ON ITS FACE",
+		"appears in NO walk", "not one the task's subject admits", "wrong by the SAME factor"} {
+		if !strings.Contains(panelCloseAsk, want) {
+			t.Errorf("the closing call must be given the across-the-walks view: missing %q", want)
+		}
+	}
+	// It must not quietly become a fourth vote on the same evidence.
+	if strings.Contains(panelCloseAsk, "count votes") && !strings.Contains(panelCloseAsk, "Do not count votes") {
+		t.Error("the closing call must not be a tally")
+	}
+}
+
+// The round's own conclusion may only ever make finishing HARDER. Measured twice, in two arms: a
+// lens found that a command the TASK named had only been run on a placeholder, and majority rule
+// deleted that verdict 2-1 — the task then failed on exactly the value it doubted. So a close that
+// says continue overrides a done. The reverse must never happen: this council's measured failure is
+// over-approval, and a close free to overrule a blocking tally would be a second road to done.
+func TestClosingConclusionOnlyTightens(t *testing.T) {
+	run := func(verdicts, closing string) council.Deliberation {
+		t.Helper()
+		p := &panelProvider{reply: func(n int) string {
+			if n == 0 {
+				return verdicts
+			}
+			return closing
+		}}
+		c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+		d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+			Task: "ship it", Actions: "x", Members: council.DefaultMembers()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	allDone := replyWith([3]string{"Melchior", "correctness", "done"},
+		[3]string{"Balthasar", "verification", "done"}, [3]string{"Casper", "completeness", "done"})
+	allCont := replyWith([3]string{"Melchior", "correctness", "continue"},
+		[3]string{"Balthasar", "verification", "continue"}, [3]string{"Casper", "completeness", "continue"})
+
+	d := run(allDone, `{"rationale":"Melchior's item 3 is settled only by NO-EVIDENCE",`+
+		`"decision":"continue","feedback":"run the command the task names on the real input"}`)
+	if d.Decision != council.Continue {
+		t.Fatalf("a unanimous done the round itself would not stand behind must not finish, got %q", d.Decision)
+	}
+	if d.Feedback == "" {
+		t.Error("a continue with nothing to act on sends the agent back empty-handed")
+	}
+
+	if d := run(allCont, `{"rationale":"looks fine","decision":"done","feedback":""}`); d.Decision != council.Continue {
+		t.Fatalf("the closing conclusion talked a BLOCKING tally into done — a second road to done, "+
+			"not a check on the first; got %q", d.Decision)
+	}
+	if d := run(allDone, "I think it is probably fine"); d.Decision != council.Done {
+		t.Fatalf("an unreadable close must leave the tally alone, got %q", d.Decision)
+	}
+}
