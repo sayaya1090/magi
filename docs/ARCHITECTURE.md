@@ -556,11 +556,18 @@ ignore:
   retracted, and **every swing is reported**, the later ones carrying how many there have been and
   how many versions the file is cycling among. A write that changes nothing at all says so: the
   tool answers "wrote N bytes", which reads as a change.
-- **Exercise ledger**: an exercising command that NAMES an authored file marks it exercised — by
-  filename, or by module stem for the languages that load a source file that way (`from run import
-  …` is a real invocation of `run.py`). What it cannot match, it says it cannot match: the finish
-  path's nudge states that no command *naming* the file ran, which is what the record holds, not a
-  verdict on the work.
+- **The run record** (`observed.go`): every distinct command with the exit magi actually learned,
+  the paths that changed, and three repeat lines — read more than once, issued more than once
+  exactly as written, and **authored more than once** as `path ×N`. It does no reading of its own.
+  It used to: an exercise ledger matched an authored file against the commands that NAMED it and
+  the record sorted commands into "exercised something" and "did not". Both were removed, because
+  the match kept being wrong in both directions (`sed -n` and `grep` read as program runs, a quoted
+  `|` split a command into a fragment no verb matched) and a wrong reading in the one place whose
+  job is to hold facts is worse than no reading. So it states an exit and a command text and lets
+  whoever reads it — the council — decide which of them exercised anything. **The council is that
+  reader, and its only one**: `stopRecord` is consumed at two call sites, both in
+  `council_advice.go`. A run where the agent never calls the council builds this record every step
+  and shows it to nobody.
 - **Exercise churn**: when the agent's OWN build or test keeps failing across repeated edits
   without converging, the turn lands UNVERIFIED with the work standing, instead of churning to an
   external kill that tears a live deliverable down. It reads only magi's own signals — no external
@@ -584,7 +591,7 @@ flowchart TD
     H3 -->|never declared| REM["reminded, up to 3× per stretch<br/>without a file mutation"]
     REM --> BACK
     H3 -->|past the cap| UNV([lands UNVERIFIED · undeclared])
-    H3 --> H4["4 · authored but never run<br/><i>no command in the record names it</i>"]
+    H3 --> H4["4 · calls made after the declaration<br/><i>they were dropped — say so</i>"]
     H4 -->|nudged once| BACK
     H4 --> H5["5 · outstanding hand-offs<br/><i>a companion has not answered yet</i>"]
     H5 -->|still out| BACK
@@ -607,8 +614,11 @@ flowchart TD
    answered by working, so the count starts over. Past the cap the work lands as it stands and the
    turn is recorded as ending *undeclared* — UNVERIFIED, which is a different claim from ending
    declared. Top level only; a child never declares for its parent.
-4. **Authored but never run** — the turn wrote something runnable and magi's record holds no
-   command naming it. Deterministic, no model call, once per turn.
+4. **Calls made after the declaration were dropped** — a turn that has declared itself finished
+   does no more work on the task, so any tool it still asks for is not run. The rule stays; what
+   changed is that it is no longer silent, because a call left in the transcript with no result
+   looks exactly like a call that happened. Once per turn, and it keeps the turn open: "not
+   finished after all" is the way back.
 5. **Outstanding hand-offs** — work went to another companion and has not come back. The answer
    lands in this conversation on its own, so the agent is told to keep working if it is part of
    what was asked, and otherwise to say plainly in its answer what is still out with whom.

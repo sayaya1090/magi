@@ -286,7 +286,7 @@ Rules:
   declares a budget of its own.
 - R4 R1's quiet stop is not the end by itself — the **finish path** (`loop_gates.go`, `finishTurn`)
   runs six gates in this order: Stop hooks → the empty-result nudge → **the declaration** → the
-  authored-but-never-run nudge → outstanding hand-offs → what the answers that came back were
+  dropped-calls-after-the-declaration notice → outstanding hand-offs → what the answers that came back were
   worth. Any one of them sends the turn back to work. Then, when it truly ends: the optional distil
   pass (off by default), the late-interjection sweep, `finalizeTodos` (every still-open step becomes
   completed on a genuine finish and cancelled otherwise), and `turn.finished` carrying the

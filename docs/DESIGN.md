@@ -437,7 +437,7 @@ run(sessionID):
       //   3) the declaration — the agent is told to call the `council` tool with complete:true.
       //      Bounded at three asks per stretch of no progress; a real mutation since the last ask
       //      restarts the budget. Past the cap the turn lands UNVERIFIED, recorded as undeclared.
-      //   4) authored but no command NAMED it — deterministic, no model call, once per turn
+      //   4) calls made AFTER the declaration were dropped — say so, once per turn
       //   5) outstanding hand-offs — work is still out with another companion
       //   6) what the answers that came back were worth (rate_handoff, allowed at finish)
       // The council is now a TOOL the agent calls, and accepting a declaration signals the loop.

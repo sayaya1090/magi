@@ -58,7 +58,7 @@ plugins/examples/        # Lua 플러그인 예시
    2. 빈 결과 넛지
    3. `council` 선언 요구 (`council{complete:true}`) — 무진전 구간당 3회까지 상기,
       넘기면 UNVERIFIED·미선언으로 착지
-   4. 저술했으나 실행되지 않은 산출물
+   4. 선언 뒤에 부른 툴은 버려졌다는 통지
    5. 미회수 인계 (다른 컴패니언이 아직 답을 안 줌)
    6. 받은 답의 평가 (`rate_handoff`)
    그다음 선택적 증류(기본 꺼짐), 늦게 들어온 인터젝션 수거, 계획 정리(`finalizeTodos`)
