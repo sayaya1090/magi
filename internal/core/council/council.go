@@ -84,6 +84,21 @@ type Deliberation struct {
 	// members (MAGI_COUNCIL_KEEP). Purely informational: it never affects the decision or
 	// tally, and is surfaced ABOVE the feedback when the turn continues.
 	Keep string `json:"keep,omitempty"`
+	// Close is what the round's closing call said — the one reader that saw all three walks
+	// together, written after them and separate from all three.
+	//
+	// It is carried on the Deliberation because it is the only voice in the round with no other
+	// way to reach the agent. A member that votes continue has its own Feedback rendered under
+	// its own name; the closing call has no verdict slot, so before this field existed its words
+	// went to stderr and to the event log and nowhere else. Measured on one task: three members
+	// voted done three times, the closing call caught a scale error in the written values and
+	// turned each round back, and the agent read three blocks all saying everything was satisfied
+	// under a heading telling it to address what follows. It spent all three rounds guessing —
+	// re-writing the same numbers through a tracked tool, restating its method in prose, then
+	// reporting a goodness-of-fit — and never once looked at the thing it was being turned back
+	// for. A gate that finds a defect and does not say what it found is a gate that only spends
+	// the clock.
+	Close string `json:"close,omitempty"`
 	// Debate records a disagreement-triggered rebuttal round: nil when it did not run
 	// (unanimous vote, or debate disabled), non-nil with the before→after decisions
 	// when it did — so the otherwise-internal rebuttal is observable in the transcript.
@@ -136,7 +151,22 @@ var Routes = map[string]string{
 	"correctness": "Walk the task's LITERAL words first — the exact values, formats, names, spellings, " +
 		"locations, and types it dictates — and compare each against what the turn actually produced, token " +
 		"by token. Then the premises: a fact the work rests on that was recalled or assumed rather than " +
-		"looked up or tested.",
+		"looked up or tested. Then the VALUES THEMSELVES, which is yours alone and is not the same question " +
+		"as where they came from: for every number the work reports, ask whether it is one the task's " +
+		"SUBJECT admits — a measured constant far outside its known range, a count that cannot be that " +
+		"large, a duration that cannot be that short, a converged fit whose parameters sit nowhere near the " +
+		"thing being fitted. A number can be produced by exactly the right command, on the real input, and " +
+		"still be wrong, and the tool result that carries it will look like evidence for it. Two answers " +
+		"will be offered for why a suspect number is fine, and both are traps. The first is CONSISTENCY: " +
+		"values derived from the same input agree with each other whether that input was read correctly or " +
+		"not, so their agreement is not evidence of anything: if two of them are off from what the subject admits by the SAME factor, that agreement is " +
+		"the SYMPTOM of one common cause upstream — a unit, a column, an index read as a coordinate — and " +
+		"the more exactly they agree the stronger the case that something is wrong. Never write that a value " +
+		"is fine because it is self-consistent or because a ratio between two suspect values comes out " +
+		"right. The second is the AGENT'S OWN EXPLANATION of why the number looks wrong — that the axis is " +
+		"not what it appears to be, that the units are implicit, that the scale is arbitrary. That is part " +
+		"of the claim under examination, not a resolution of it; accept it only where a TOOL RETURNED " +
+		"something showing it is true.",
 	"verification": "Walk the BEHAVIORS first — for each thing the task says must work, find the moment it " +
 		"was actually run and the real output that came back. A requirement whose only support is the agent's " +
 		"account of it has not been walked at all; find the tool result or say NO-EVIDENCE.",
