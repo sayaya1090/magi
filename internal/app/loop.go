@@ -455,7 +455,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			case loopContinue:
 				continue // feedback injected / nudged / stuck-recovered — keep working
 			case loopFinish:
-				finished = true // the turn is over (approved done, or an honest UNVERIFIED landing)
+				// The turn is over — but "over" is not "accepted", and the plan must not be
+				// resolved as though it were. An UNVERIFIED landing is the cap's, not a
+				// council's: nobody judged the task satisfied, so every unfinished step
+				// resolves the way it does on any other non-acceptance (cancelled), showing
+				// what was left undone. Folding both into one true wrote "completed" across a
+				// plan whose first step never ran — the event right after a turn.finished that
+				// says unverified, contradicting it.
+				finished = ts.unverifiedReason == ""
 				return lastText, nil
 			}
 		}
