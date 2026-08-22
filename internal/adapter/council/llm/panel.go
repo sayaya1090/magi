@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -160,13 +161,17 @@ const panelCloseAsk = "── ACROSS THE WALKS ──\n" +
 	"together miss one, and no member can see this because no member sees the other walks. A requirement " +
 	"nobody walked has not been judged, and it is not satisfied by their silence.\n" +
 	"3. A VALUE THAT IS WRONG ON ITS FACE — an item marked SATISFIED because the right command ran and " +
-	"produced a number, where the NUMBER ITSELF is not one the task's subject admits. The walks check " +
-	"PROVENANCE, which is their job; nobody checks magnitude. A measured constant far outside its known " +
-	"range, a count that cannot be that large, a duration that cannot be that short, a converged fit whose " +
-	"parameters sit nowhere near the thing being fitted — a well-sourced wrong answer is still wrong.\n" +
-	"   Two things will be offered to you here, and both are traps.\n" +
-	"   The first is CONSISTENCY. Values derived from the same input agree with each other whether that " +
-	"input was read correctly or not, so their agreement is not evidence of anything: if two of them are " +
+	"produced a number, where the NUMBER ITSELF is not one the task's subject admits: a measured constant " +
+	"far outside its known range, a count that cannot be that large, a duration that cannot be that short, " +
+	"a converged fit whose parameters sit nowhere near the thing being fitted. A well-sourced wrong answer " +
+	"is still wrong.\n" +
+	"   The correctness lens is asked to check this, so here you are checking whether it DID. Read its walk: " +
+	"if every item it wrote is about where a value came from — a real command, a real input, a matching " +
+	"table entry — then it walked PROVENANCE and stopped, and the values themselves are still unexamined by " +
+	"anyone. Its SATISFIED marks do not cover a question it did not ask.\n" +
+	"   Two answers will be offered for why a suspect value is fine, and both are traps — including when a " +
+	"lens has already written one of them into its walk. The first is CONSISTENCY: values derived from the " +
+	"same input agree with each other whether that input was read correctly or not, so their agreement is not evidence of anything: if two of them are " +
 	"off from what the subject admits by the SAME factor, that agreement is the SYMPTOM of one common " +
 	"cause — a unit, a column, an index read as a coordinate — and the more exactly they agree the stronger " +
 	"the case that a single thing upstream is wrong. Never write that a suspect value is fine because it is " +
@@ -399,4 +404,18 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		}
 	}
 	return out, cl
+}
+
+// closeSaid is the closing call in the words the agent should read: the diagnosis first, then what
+// it asks for. Both, when both exist — the rationale says what is wrong and the feedback says what
+// to do about it, and a turn that is handed only the second one is being told to act without being
+// told why, which is how an agent ends up addressing a complaint it had to guess at.
+func closeSaid(cl panelClose) string {
+	parts := make([]string, 0, 2)
+	for _, s := range []string{cl.Rationale, cl.Feedback} {
+		if s = strings.TrimSpace(s); s != "" && !slices.Contains(parts, s) {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }

@@ -140,6 +140,12 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 				d.Feedback = cl.Rationale
 			}
 		}
+		// What it said travels with the round whether it agreed or not, and whether or not it
+		// changed the decision. Agreement is worth reading too: it is the only line in the record
+		// that says the three walks were read against each other and held up.
+		if err == nil {
+			d.Close = closeSaid(cl)
+		}
 		return d, err
 	}
 

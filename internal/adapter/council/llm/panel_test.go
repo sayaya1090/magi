@@ -285,3 +285,46 @@ func TestClosingConclusionOnlyTightens(t *testing.T) {
 		t.Fatalf("an unreadable close must leave the tally alone, got %q", d.Decision)
 	}
 }
+
+// The third eye moved to the correctness lens, so the closing call's job there changed from doing
+// the check to checking that it was done. If it still claims nobody checks magnitude it is telling
+// the reader something that is no longer true, and a prompt that lies about the rest of the system
+// teaches the model to discount it.
+func TestTheClosingCallBackstopsTheValueCheckInsteadOfOwningIt(t *testing.T) {
+	if strings.Contains(panelCloseAsk, "nobody checks magnitude") {
+		t.Fatal("the correctness lens checks magnitude now; the closing call must not claim otherwise")
+	}
+	for _, want := range []string{
+		"correctness lens is asked to check this",
+		"whether it DID",
+		"walked PROVENANCE and stopped",
+	} {
+		if !strings.Contains(panelCloseAsk, want) {
+			t.Fatalf("the closing call must backstop the lens, not replace it (missing %q)", want)
+		}
+	}
+	// The two traps stay here as well: a lens can write one of them INTO its walk, and then the
+	// walk is the thing carrying the error.
+	for _, want := range []string{"CONSISTENCY", "AGENT'S OWN EXPLANATION", "already written one of them into its walk"} {
+		if !strings.Contains(panelCloseAsk, want) {
+			t.Fatalf("the closing call lost a trap it still needs (missing %q)", want)
+		}
+	}
+}
+
+// The closing call carries no verdict slot, so it reaches the agent only if the round carries its
+// words. Both of what it said travel: the diagnosis and the ask.
+func TestTheRoundCarriesWhatTheClosingCallSaid(t *testing.T) {
+	got := closeSaid(panelClose{Rationale: "the value cannot be that large", Feedback: "read the units first"})
+	for _, want := range []string{"the value cannot be that large", "read the units first"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("closeSaid dropped %q: %q", want, got)
+		}
+	}
+	if got := closeSaid(panelClose{Rationale: "same", Feedback: "same"}); got != "same" {
+		t.Fatalf("identical rationale and feedback should not be said twice: %q", got)
+	}
+	if got := closeSaid(panelClose{}); got != "" {
+		t.Fatalf("a closing call that never ran says nothing: %q", got)
+	}
+}
