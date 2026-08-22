@@ -123,6 +123,36 @@ var Lenses = map[string]string{
 	"completeness": "Did it do everything the task/plan asked for? Nothing left unfinished.",
 }
 
+// Routes says where each lens walks FIRST through the same evidence.
+//
+// The lens alone did not differentiate the members. Measured over one A/B arm: three members, one
+// line of lens apiece and every other instruction identical, voted done 21 times out of 21 with no
+// dissent — three samples of one opinion rather than three opinions. A route does not partition
+// JURISDICTION (that would be worse: a defect living in one member's slice would draw one continue
+// against two uninformed dones, and a majority rule would wave it through). It partitions the ORDER
+// OF SEARCH, so all three still judge the whole task and a defect missed on one path can still be
+// met on another.
+var Routes = map[string]string{
+	"correctness": "Walk the task's LITERAL words first — the exact values, formats, names, spellings, " +
+		"locations, and types it dictates — and compare each against what the turn actually produced, token " +
+		"by token. Then the premises: a fact the work rests on that was recalled or assumed rather than " +
+		"looked up or tested.",
+	"verification": "Walk the BEHAVIORS first — for each thing the task says must work, find the moment it " +
+		"was actually run and the real output that came back. A requirement whose only support is the agent's " +
+		"account of it has not been walked at all; find the tool result or say NO-EVIDENCE.",
+	"completeness": "Walk the task's PARTS first — enumerate every distinct thing it asked for, including " +
+		"the ones named once in passing and never mentioned again, and find where each was delivered. The " +
+		"part that disappeared quietly between the plan and the report is the one to look for.",
+}
+
+// RouteFor returns the lens's route, or a neutral one for an unrecognized lens.
+func RouteFor(lens string) string {
+	if r := Routes[lens]; r != "" {
+		return r
+	}
+	return "Walk the task's requirements in the order the task states them."
+}
+
 // Deliberate tallies the verdicts under the rule and assembles a Deliberation,
 // including the aggregated feedback when the decision is Continue. This is the
 // pure entry point the council adapter calls after collecting verdicts.
