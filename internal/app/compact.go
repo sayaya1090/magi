@@ -91,7 +91,7 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 		callID string
 		bytes  int
 	}
-	var results []cand   // every tool result, in order
+	var results []cand // every tool result, in order
 	digested := map[string]bool{}
 	lastResult := "" // callID of the newest result — exempt
 	for _, ev := range evs {
