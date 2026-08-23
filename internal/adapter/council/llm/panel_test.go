@@ -365,14 +365,14 @@ func TestUnreadableVerdictsStillCarryWhatTheModelSaid(t *testing.T) {
 //
 // It exists because a summary line answered for requirements nothing had asserted: headless-
 // terminal, 2026-08-23, done 3-0 on "7 passed, 5 warnings in 16.36s" against a graded suite that
-// failed test_background_commands. Off by default — it is a prompt change to a council whose last
-// prompt change was reverted on an A/B — so both states are pinned here.
+// failed test_background_commands. On by default, with an off switch that is the A/B's other arm,
+// so both states are pinned here.
 func TestSuiteWalkClauseRidesTheVerificationLensOnly(t *testing.T) {
 	members := council.DefaultMembers()
 	off := panelRoster(members, false)
 	on := panelRoster(members, true)
 	if strings.Contains(off, "A SUITE SUMMARY is a count") {
-		t.Fatal("the clause is on by default; it is an A/B knob and must be off")
+		t.Fatal("MAGI_COUNCIL_SUITE_WALK=0 still carried the clause; the off arm is not off")
 	}
 	if !strings.Contains(on, "A SUITE SUMMARY is a count") {
 		t.Fatal("MAGI_COUNCIL_SUITE_WALK did not reach the roster")

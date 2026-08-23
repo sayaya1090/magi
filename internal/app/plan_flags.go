@@ -59,10 +59,14 @@ func councilKeepEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_KEEP", tru
 // nothing had asserted. See council.SuiteWalkClause for why this is not a rule about who wrote
 // the test.
 //
-// Default OFF: it is a prompt change, and a prompt change to this council has been measured
-// wrong before (the spec-fidelity lens was reverted on an A/B). MAGI_COUNCIL_SUITE_WALK=1 turns
-// it on for the arm that measures it.
-func councilSuiteWalkEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_SUITE_WALK", false) }
+// Default ON. It shipped off for one commit, on the reasoning that a prompt change to this
+// council has been measured wrong before (the spec-fidelity lens was reverted on an A/B). The
+// counter-argument is that the clause does not ask for MORE than the route already asks for: the
+// route demands the moment each behavior was run, and this only refuses one shape of answer — a
+// count — that cannot say which behavior it is about. A member that was already walking
+// per-requirement is unaffected by it. MAGI_COUNCIL_SUITE_WALK=0 is the off switch, and it is
+// still the knob the A/B runs on.
+func councilSuiteWalkEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_SUITE_WALK", true) }
 
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and

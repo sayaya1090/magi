@@ -193,7 +193,8 @@ type DeliberationRequest struct {
 	// or tally. Off → members are not asked and no keep is produced (MAGI_COUNCIL_KEEP).
 	Keep bool
 	// SuiteWalk tightens the verification lens: a suite summary ("N passed") is a count, not
-	// per-requirement evidence. See council.SuiteWalkClause. A/B knob, default OFF.
+	// per-requirement evidence. See council.SuiteWalkClause. Default ON; MAGI_COUNCIL_SUITE_WALK=0
+	// turns it off, which is the arm the A/B runs.
 	SuiteWalk bool
 }
 
