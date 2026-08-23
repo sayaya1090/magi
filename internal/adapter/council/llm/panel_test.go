@@ -328,3 +328,35 @@ func TestTheRoundCarriesWhatTheClosingCallSaid(t *testing.T) {
 		t.Fatalf("a closing call that never ran says nothing: %q", got)
 	}
 }
+
+// A reply that carries no JSON is still the model's ANSWER, and the round must not throw it away.
+//
+// The irreversible-command gate asks a plain yes/no — "does the task actually require this, now,
+// in this form?" — and decides on the TEXT that comes back. It reaches the members through the
+// same panel that the finish gate uses, so a question answered in prose parses as no verdicts at
+// all. Before this, that discarded the reply: three abstains and nothing to show, and a caller
+// reading prose was handed silence where a decision had in fact been made. Observed on
+// cobol-modernization, 2026-08-23: 1,154 bytes that walked every condition the question named and
+// closed "no, it should not run in this form", dropped for carrying no braces.
+//
+// It comes back as the CLOSE's rationale — the field for what the round concluded — with the
+// decision left empty, because verdicts nobody could read must never become a vote.
+func TestUnreadableVerdictsStillCarryWhatTheModelSaid(t *testing.T) {
+	const prose = "No. The task never mentions /tmp/t2, and dropping the rm -rf leaves a way back."
+	p := &panelProvider{reply: func(int) string { return prose }}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "port the COBOL program", Actions: "ran the reference binary",
+		Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(d.Close, prose) {
+		t.Fatalf("the prose the model answered with was dropped; Close = %q", d.Close)
+	}
+	for _, v := range d.Verdicts {
+		if v.Decision != council.Abstain {
+			t.Fatalf("an unread verdict became a vote: %s voted %q", v.Member, v.Decision)
+		}
+	}
+}

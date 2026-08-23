@@ -336,11 +336,30 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	vs, ok := parsePanel(raw)
 	if !ok {
 		noteUnparsed("the council panel's verdicts (every lens recorded as an abstain)", raw)
-		if raw, err = ask(user + councilRetryReminder(raw)); err == nil {
+		first := raw
+		if retry, rerr := ask(user + councilRetryReminder(raw)); rerr == nil {
+			raw = retry
 			vs, ok = parsePanel(raw)
 		}
 		if !ok {
-			return out, panelClose{}
+			// A reply this cannot read as verdicts is still the model's ANSWER, and throwing it
+			// away is not neutral: the round becomes three abstains with nothing to show, and a
+			// caller that reads prose — the irreversible-command gate asks a plain yes/no and
+			// decides on the text — is handed silence where a decision was in fact made.
+			//
+			// Observed (cobol-modernization, 2026-08-23): asked whether `rm -rf /tmp/t2` was
+			// required, the reply walked all three of the question's conditions, proposed the safer
+			// equivalent, and closed "no, it should not run in this form" — 1,154 bytes of exactly
+			// what was asked for, discarded because it carried no JSON.
+			//
+			// It rides as the CLOSE's rationale, which is the field for "what this round concluded"
+			// and is reported whether or not it moved anything. Decision stays empty on purpose:
+			// unread verdicts must not become a vote, so the tally still decides alone.
+			prose := strings.TrimSpace(raw)
+			if prose == "" {
+				prose = strings.TrimSpace(first)
+			}
+			return out, panelClose{Rationale: prose}
 		}
 	}
 	// The round's own conclusion, asked as a second turn of the SAME exchange so the backend reads
