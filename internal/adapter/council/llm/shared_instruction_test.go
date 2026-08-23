@@ -28,7 +28,7 @@ func TestEveryShapeAsksForTheIdenticalJudgement(t *testing.T) {
 	// The panel asks three at once and closes the round itself, but the judging text is the same
 	// one — only the roster, the independence clause and the reply shape are its own.
 	panelCore := fmt.Sprintf(councilCore, keepClauseFor(false))
-	if !strings.Contains(panelPromptFor(council.DefaultMembers(), false), panelCore) {
+	if !strings.Contains(panelPromptFor(council.DefaultMembers(), false, false), panelCore) {
 		t.Fatal("the panel prompt carries a RETELLING of the judging instruction, not the instruction")
 	}
 }
@@ -40,7 +40,7 @@ func TestEveryShapeAsksForTheIdenticalJudgement(t *testing.T) {
 func TestTheSettlingRuleIsShared(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}
 	single := memberSystem(m, "ship it", false)
-	panel := panelPromptFor(council.DefaultMembers(), false)
+	panel := panelPromptFor(council.DefaultMembers(), false, false)
 	for _, want := range []string{"WHAT MAY SETTLE AN ITEM", "something a TOOL RETURNED",
 		"never settles anything", "success banner"} {
 		if !strings.Contains(single, want) {

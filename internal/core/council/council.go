@@ -175,6 +175,38 @@ var Routes = map[string]string{
 		"part that disappeared quietly between the plan and the report is the one to look for.",
 }
 
+// SuiteWalkClause tightens the verification route: a suite SUMMARY is not per-requirement
+// evidence.
+//
+// The route already asks for the moment each behavior was run. What slipped through is the line
+// that answers for all of them at once. Measured on headless-terminal, 2026-08-23: three lenses
+// voted done 3-0 citing "7 passed, 5 warnings in 16.36s", and the graded suite failed
+// test_background_commands. Every citation was a real tool result — the count was true — and it
+// still covered a requirement nothing had asserted.
+//
+// Deliberately NOT a rule about who wrote the test. The doctrine already refuses to dismiss an
+// agent's own passing exercise as "mere simulation", and that clause was earned: demanding a
+// harder reproduction than the task asked for is the churn the council was over-doing before. The
+// question here is not whose assertion it is, it is WHICH REQUIREMENT it speaks to. The closing
+// sentence says so outright, because a member reading this while looking for a reason to vote
+// continue is exactly the reader who would turn it into "write more tests".
+const SuiteWalkClause = " A SUITE SUMMARY is a count, not a walk: \"N passed\", \"all tests green\", " +
+	"a coverage percentage — these say how many assertions held, never WHICH requirement each one " +
+	"covers. Cite the assertion, or the output line, that shows THIS requirement holding. When the " +
+	"only support for a requirement is a summary line, it is NO-EVIDENCE for that requirement, " +
+	"however green the suite is — and that is not a demand for more tests, it is a demand to name " +
+	"which existing one speaks to it."
+
+// RouteWith returns the lens's route, with the suite-walk clause appended when asked for. The
+// clause only means anything to the lens that walks behaviors; the others are unchanged.
+func RouteWith(lens string, suiteWalk bool) string {
+	r := RouteFor(lens)
+	if suiteWalk && lens == "verification" {
+		return r + SuiteWalkClause
+	}
+	return r
+}
+
 // RouteFor returns the lens's route, or a neutral one for an unrecognized lens.
 func RouteFor(lens string) string {
 	if r := Routes[lens]; r != "" {

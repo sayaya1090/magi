@@ -162,7 +162,7 @@ func TestPanelMatchesByLensWhenNamesDrift(t *testing.T) {
 // three names.
 func TestPanelPromptDefendsIndependenceAndCarriesTheSharedInstruction(t *testing.T) {
 	members := council.DefaultMembers()
-	roster := panelRoster(members)
+	roster := panelRoster(members, false)
 	for _, m := range members {
 		if !strings.Contains(roster, m.Name) || !strings.Contains(roster, council.RouteFor(m.Lens)) {
 			t.Fatalf("the roster must name %s and its route", m.Name)
@@ -358,5 +358,31 @@ func TestUnreadableVerdictsStillCarryWhatTheModelSaid(t *testing.T) {
 		if v.Decision != council.Abstain {
 			t.Fatalf("an unread verdict became a vote: %s voted %q", v.Member, v.Decision)
 		}
+	}
+}
+
+// The suite-walk clause reaches the lens that walks behaviors, and only that one.
+//
+// It exists because a summary line answered for requirements nothing had asserted: headless-
+// terminal, 2026-08-23, done 3-0 on "7 passed, 5 warnings in 16.36s" against a graded suite that
+// failed test_background_commands. Off by default — it is a prompt change to a council whose last
+// prompt change was reverted on an A/B — so both states are pinned here.
+func TestSuiteWalkClauseRidesTheVerificationLensOnly(t *testing.T) {
+	members := council.DefaultMembers()
+	off := panelRoster(members, false)
+	on := panelRoster(members, true)
+	if strings.Contains(off, "A SUITE SUMMARY is a count") {
+		t.Fatal("the clause is on by default; it is an A/B knob and must be off")
+	}
+	if !strings.Contains(on, "A SUITE SUMMARY is a count") {
+		t.Fatal("MAGI_COUNCIL_SUITE_WALK did not reach the roster")
+	}
+	if strings.Count(on, "A SUITE SUMMARY is a count") != 1 {
+		t.Fatalf("the clause landed on more than the verification lens:\n%s", on)
+	}
+	// The clause must not read as "write more tests" — that is the churn the council was already
+	// over-doing, and the sentence that forbids it is the reason this is safe to try at all.
+	if !strings.Contains(on, "not a demand for more tests") {
+		t.Fatal("the no-more-tests guard is missing from the clause")
 	}
 }

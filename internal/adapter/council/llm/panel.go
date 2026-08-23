@@ -50,11 +50,12 @@ const panelKeepField = `,"keep":"what's already correct through your lens — ad
 
 // panelRoster names the lenses and their routes: the part that was per-request in the split shape
 // and is now a list inside one request.
-func panelRoster(members []council.Member) string {
+func panelRoster(members []council.Member, suiteWalk bool) string {
 	var b strings.Builder
 	b.WriteString("THE COUNCIL — you are writing the verdict of EACH of these, one after another:\n")
 	for _, m := range members {
-		fmt.Fprintf(&b, "\n• %s — lens %q: %s\n  ROUTE: %s\n", m.Name, m.Lens, lensOf(m), council.RouteFor(m.Lens))
+		fmt.Fprintf(&b, "\n• %s — lens %q: %s\n  ROUTE: %s\n", m.Name, m.Lens, lensOf(m),
+			council.RouteWith(m.Lens, suiteWalk))
 	}
 	return b.String()
 }
@@ -76,14 +77,14 @@ const panelIndependence = "These are THREE JUDGEMENTS, not one judgement written
 // panelBody is the part of the panel prompt that is about the council rather than about the
 // evidence: who is in it, that their judgements are three and not one, and that the round will be
 // closed in a second message.
-func panelBody(members []council.Member) string {
-	return panelRoster(members) + "\n" + councilRouteCaveat + panelIndependence + panelSynthesis
+func panelBody(members []council.Member, suiteWalk bool) string {
+	return panelRoster(members, suiteWalk) + "\n" + councilRouteCaveat + panelIndependence + panelSynthesis
 }
 
 // panelPromptFor renders the whole panel system prompt. Named so a test can read what is actually
 // sent rather than re-assemble it and check its own assembly.
-func panelPromptFor(members []council.Member, keep bool) string {
-	return panelBody(members) + orientAssembled + fmt.Sprintf(councilCore, keepClauseFor(keep)) +
+func panelPromptFor(members []council.Member, keep, suiteWalk bool) string {
+	return panelBody(members, suiteWalk) + orientAssembled + fmt.Sprintf(councilCore, keepClauseFor(keep)) +
 		fmt.Sprintf(councilGrounds, citeNoEvidence, panelSchemaFor(keep))
 }
 
@@ -300,7 +301,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	schema := panelSchemaFor(req.Keep)
 	// The judging instruction is the same text every other shape uses; only the roster and the
 	// independence clause are added, and the identity line is replaced by the roster.
-	body := panelBody(members)
+	body := panelBody(members, req.SuiteWalk)
 	sys := body + orientAssembled + fmt.Sprintf(councilCore, keepClauseFor(req.Keep)) +
 		fmt.Sprintf(councilGrounds, citeNoEvidence, schema)
 	user := evidence(req)

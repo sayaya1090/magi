@@ -192,6 +192,9 @@ type DeliberationRequest struct {
 	// is surfaced above the feedback when the turn continues. It never affects the decision
 	// or tally. Off → members are not asked and no keep is produced (MAGI_COUNCIL_KEEP).
 	Keep bool
+	// SuiteWalk tightens the verification lens: a suite summary ("N passed") is a count, not
+	// per-requirement evidence. See council.SuiteWalkClause. A/B knob, default OFF.
+	SuiteWalk bool
 }
 
 // ---- Store (D6: event-sourced persistence; jsonl is the first impl) ----

@@ -50,6 +50,20 @@ func councilDebateEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_DEBATE",
 // ON; MAGI_COUNCIL_KEEP=0 restores fix-only feedback (A/B knob).
 func councilKeepEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_KEEP", true) }
 
+// councilSuiteWalkEnabled tightens the verification lens: a suite SUMMARY line — "N passed", "all
+// tests green", a coverage percentage — is a count, not per-requirement evidence.
+//
+// Measured on headless-terminal, 2026-08-23 (sonnet): three lenses voted done 3-0 citing
+// "7 passed, 5 warnings in 16.36s", and the graded suite failed test_background_commands. Every
+// citation was a real tool result and the count was true; it just answered for a requirement
+// nothing had asserted. See council.SuiteWalkClause for why this is not a rule about who wrote
+// the test.
+//
+// Default OFF: it is a prompt change, and a prompt change to this council has been measured
+// wrong before (the spec-fidelity lens was reverted on an A/B). MAGI_COUNCIL_SUITE_WALK=1 turns
+// it on for the arm that measures it.
+func councilSuiteWalkEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_SUITE_WALK", false) }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the

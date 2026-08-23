@@ -188,6 +188,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		DefaultModel: s.Model.Model,
 		Debate:       councilDebateEnabled(),
 		Keep:         councilKeepEnabled(),
+		SuiteWalk:    councilSuiteWalkEnabled(),
 		// Show each member the moment it answers. The members are polled concurrently and the
 		// slowest sets the wall clock — a median 87s across the recorded runs, all of it with
 		// nothing on screen. The transcript was already built for this: its verdict handler
