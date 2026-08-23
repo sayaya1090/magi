@@ -61,3 +61,7 @@ func TestWhatTheCouncilSaysToKeepReachesTheAgent(t *testing.T) {
 		t.Errorf("the keep advice is not in what the agent reads:\n%s", out)
 	}
 }
+
+func (c *recordingCouncil) Advise(ctx context.Context, req port.AdviceRequest) (string, error) {
+	return "yes", nil
+}

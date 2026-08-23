@@ -10,6 +10,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // The one gate that runs when nobody is watching.
@@ -146,7 +147,19 @@ func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor eve
 			"Say yes if the task asked for it or it is the ordinary way to do what was asked; say no "+
 			"if it is broader than the task needs, points somewhere the task never mentioned, or "+
 			"could be done in a way that leaves a way back.", what, strings.TrimSpace(ba.Command))
-	advice, err := a.councilAdvice(ctx, s, guardChanges(guard), guardEpoch(guard), q, false)
+	// Asked as ADVICE, not as a deliberation. The question is a plain yes/no about scope and the
+	// answer is read as prose (councilSaysNo below), so routing it through the verdict machinery
+	// gave the reader a 20 KB instruction to answer in JSON about a TURN — and a reader that
+	// answered the question as asked then failed the verdict parse, cost a second full panel
+	// prompt on the retry, and reached this line only because that retry happened to parse.
+	// Measured on cobol-modernization, 2026-08-23.
+	members, _ := a.councilParams()
+	advice, err := a.cfg.Council.Advise(ctx, port.AdviceRequest{
+		Task:         a.gateTaskText(ctx, s.ID),
+		Question:     q,
+		Members:      members,
+		DefaultModel: s.Model.Model,
+	})
 	if err != nil {
 		// The council is the only reader here and it did not answer. Running anyway would make the
 		// gate decorative, so this refuses and says why — the agent can do the recoverable version
@@ -182,4 +195,15 @@ func councilSaysNo(advice string) bool {
 		}
 	}
 	return false
+}
+
+// gateTaskText is the goal this gate judges scope against: the last user prompt, or the turn's
+// re-anchored goal when there is one. Same two sources councilAdvice uses, and for the same reason
+// — a re-anchor masks its own prompt, so reading only the log would judge against a stale goal.
+func (a *App) gateTaskText(ctx context.Context, sid session.SessionID) string {
+	if live := strings.TrimSpace(a.turnTaskNow(sid)); live != "" {
+		return live
+	}
+	evs, _ := a.store.Read(ctx, sid, 0)
+	return lastUserPromptText(evs)
 }

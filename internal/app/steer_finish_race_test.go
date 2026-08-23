@@ -502,3 +502,7 @@ func userPrompts(evs []event.Event) int {
 	}
 	return n
 }
+
+func (c *blockingCouncil) Advise(ctx context.Context, req port.AdviceRequest) (string, error) {
+	return "yes", nil
+}

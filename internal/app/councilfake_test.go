@@ -26,6 +26,10 @@ type fakeCouncil struct {
 	onDeliberate func(req port.DeliberationRequest)
 	app          *App
 	sid          session.SessionID
+	// advice / adviseErr answer Advise — the prose path the irreversible-command gate reads.
+	advice     string
+	adviseErr  error
+	adviseReqs []port.AdviceRequest
 }
 
 func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
@@ -74,4 +78,16 @@ func mustRead(t *testing.T, a *App, sid session.SessionID) []event.Event {
 		t.Fatal(err)
 	}
 	return evs
+}
+
+// Advise answers in prose. The fake returns whatever advice was set, so a test can drive the
+// irreversible-command gate — which decides on the TEXT — without a model.
+func (f *fakeCouncil) Advise(ctx context.Context, req port.AdviceRequest) (string, error) {
+	f.mu.Lock()
+	f.adviseReqs = append(f.adviseReqs, req)
+	f.mu.Unlock()
+	if f.adviseErr != nil {
+		return "", f.adviseErr
+	}
+	return f.advice, nil
 }

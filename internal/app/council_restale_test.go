@@ -59,3 +59,7 @@ func TestCouncilJudgesTheRedirectedTask(t *testing.T) {
 		t.Errorf("the council judged %q, not the re-anchored redirect goal", fc.got.Task)
 	}
 }
+
+func (c *countingCouncil) Advise(ctx context.Context, req port.AdviceRequest) (string, error) {
+	return "yes", nil
+}

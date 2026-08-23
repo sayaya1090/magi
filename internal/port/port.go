@@ -146,6 +146,29 @@ type ProviderEvent struct {
 // this port supplies the I/O (asking each member, parsing their verdict).
 type Council interface {
 	Deliberate(ctx context.Context, req DeliberationRequest) (council.Deliberation, error)
+	// Advise answers ONE plain question in prose, from one reader.
+	//
+	// Separate from Deliberate because the two are asked different kinds of question and read
+	// differently. Deliberate judges a turn and returns votes; its members are told to answer as
+	// JSON verdicts after a requirements walk. Advise is for a caller that wants a sentence and
+	// decides on the text — the irreversible-command gate asks "does the task actually require
+	// this, now, in this form?" and reads the answer with councilSaysNo. Routed through
+	// Deliberate, that question was answered in prose (correctly), failed the verdict parse, cost
+	// a full second panel prompt on the retry, and was one parse away from being lost entirely.
+	Advise(ctx context.Context, req AdviceRequest) (string, error)
+}
+
+// AdviceRequest is one question, with only what the question needs.
+//
+// No Actions/Changes/Report: the gate's question is about SCOPE — is this command in what the task
+// asked for — and the answer that prompted this carried its whole reasoning from the task's wording
+// and the command's shape. Handing it the turn's evidence block would be paying 35 KB to anchor a
+// scope judgement on things that are not about scope.
+type AdviceRequest struct {
+	Task         string           // the user's original goal/request
+	Question     string           // what to answer, in prose
+	Members      []council.Member // the reader is the first of these; defaults to the MAGI
+	DefaultModel string
 }
 
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM
