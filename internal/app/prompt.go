@@ -360,6 +360,7 @@ func buildEnvInfo(goos, arch, shellEnv, workdir, date, osRelease string) string 
 		// macOS ships no system package manager; Homebrew is the de-facto one. Steer the
 		// model to it instead of guessing apt/yum, and to the BSD userland (not GNU).
 		extra = "\n- Package manager: brew (install with `brew install <pkg>`) — macOS has no apt/yum" +
+			installLast +
 			"\n- Note: BSD userland — some flags differ from GNU (e.g. `sed -i ''`, no `sed -i` bare)."
 	default:
 		if shellEnv != "" {
@@ -369,6 +370,36 @@ func buildEnvInfo(goos, arch, shellEnv, workdir, date, osRelease string) string 
 	return fmt.Sprintf("# Environment\n- OS: %s (%s)\n- Shell: %s\n- Working directory: %s\n- Date: %s%s",
 		goos, arch, shell, workdir, date, extra)
 }
+
+// installLast rides with the package-manager line, because naming an installer is itself an
+// invitation to reach for it.
+//
+// Measured on write-compressor (2026-08-24, sonnet). The task's own Dockerfile installs gcc, rustc
+// and bc and nothing else. Told "Package manager: apt", the agent tried `apt-get install -y
+// python3`, then hunted through perl/node/lua/ruby for a language it recognised, and spent all
+// nine turns its budget allowed on that hunt — rustc and bc were never once mentioned. Claude Code
+// hit the same missing python3 on the same task and spent eight SECONDS on it: it ran
+// `which gcc cc perl node awk xxd od bc`, took what was there, and went on to solve the problem in
+// C. Installing was never the shorter road; it only looked like one because the prompt had named
+// it and had named nothing else.
+//
+// A first attempt said "before installing anything, LOOK at what is already there" and named
+// `ls /usr/bin`, `which <a> <b> <c>`, and the task's Dockerfile as the way to look. It did not
+// work, and the run that measured it says why. The agent DID look — and looked with
+// `which python python3 python3.11 python3.10`, which can only ever confirm names it already had.
+// Then it ran apt-get update and installed python3 after all. Naming the act of looking, and
+// giving examples that take a list of guesses as input, taught a more thorough version of the
+// same guessing.
+//
+// So this names the REASON instead: the box was stocked on purpose, so its contents are evidence
+// about the intended solution, and an absent tool is a question about the present ones rather than
+// a shopping list. It is deliberately not a rule against installing — a genuinely missing
+// dependency still needs fetching, and forbidding that would break every task that legitimately
+// installs something.
+const installLast = "\n- A sandbox is usually stocked DELIBERATELY, and what it holds is a hint " +
+	"about the intended solution. The tool you reach for first is rarely the only one that can do " +
+	"the job: when it is absent, ask what the ones that ARE here can do before deciding the answer " +
+	"is to fetch it."
 
 // linuxDistroLines renders the distro name/version and its package manager from raw
 // /etc/os-release contents so the model uses the right install command. Empty when the
@@ -387,7 +418,8 @@ func linuxDistroLines(osRelease string) string {
 	}
 	out := "\n- Distro: " + name
 	if pm := linuxPackageManager(kv["ID"], kv["ID_LIKE"]); pm != "" {
-		out += fmt.Sprintf("\n- Package manager: %s (install with `%s`) — prefer it; don't assume apt/yum", pm, pmInstallHint(pm))
+		out += fmt.Sprintf("\n- Package manager: %s (install with `%s`) — prefer it; don't assume apt/yum", pm, pmInstallHint(pm)) +
+			installLast
 	}
 	return out
 }
