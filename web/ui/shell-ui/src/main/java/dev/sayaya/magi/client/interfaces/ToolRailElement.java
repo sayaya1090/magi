@@ -6,7 +6,6 @@ import dev.sayaya.magi.client.usecase.MenuHover;
 import dev.sayaya.magi.client.usecase.Navigation;
 import dev.sayaya.magi.client.usecase.RosterStore;
 import elemental2.dom.DomGlobal;
-import elemental2.dom.Element;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
 
@@ -24,8 +23,8 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * 호버가 가리키는 문(피크), 없으면 서 있는 문의 속을 보인다.
  *
  * 컴패니언 문의 속은 실제 명단이다 — 셸이 이미 소유한 스트림(RosterStore)에서 읽으므로
- * 요청 하나 늘지 않는다. 항목을 누르면 플릿 화면의 그 행으로 간다; 컴패니언 화면이
- * 이식되면 그 화면으로 가는 문이 된다.
+ * 요청 하나 늘지 않는다. 항목은 그 컴패니언 화면으로 가는 문이다 — 타입이 정한 모듈이
+ * 뜬다(코딩 에이전트면 companion-ui).
  */
 @Singleton
 public class ToolRailElement {
@@ -41,9 +40,9 @@ public class ToolRailElement {
         panel.id = "railPanel";
         // 피크가 우선, 손끝이 비면 선택된 문 — 렌더는 늘 "무엇을 보일까"의 결과다.
         hover.subscribe(d -> show(d != null ? d : selected));
-        nav.subscribe(d -> {
-            selected = d;
-            if (hover.current() == null) show(d);
+        nav.subscribe(place -> {
+            selected = place.section;
+            if (hover.current() == null) show(place.section);
         });
         store.subscribe(list -> {
             if (list == null) return;   // 못 읽음은 마스트헤드의 점이 말한다; 여긴 마지막 앎
@@ -101,14 +100,12 @@ public class ToolRailElement {
             word.className = "sword";
             word.textContent = stateWord(a.state);
             item.append(dot, name, word);
+            // 항목은 그 컴패니언 화면으로 가는 문 — 이동은 셸의 Navigation이 진다.
             final String socket = a.socket;
+            final String peer = a.peer;
             item.addEventListener("click", evt -> {
                 evt.preventDefault();
-                nav.go(Destination.FLEET);
-                DomGlobal.requestAnimationFrame(ts -> {
-                    Element row = DomGlobal.document.querySelector("#fleet .card[data-socket=\"" + socket + "\"]");
-                    if (row != null) row.scrollIntoView();
-                });
+                nav.goCompanion(socket, peer);
             });
             panel.append(item);
         }

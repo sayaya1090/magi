@@ -64,5 +64,27 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_loads") shouldBe "[fleet]"
             }
         }
+        When("드로어를 열어 2단의 컴패니언 항목을 누르면") {
+            page.locator("#railMenu").click()
+            page.waitForSelector("#railPanel .subitem")
+            page.locator("#railPanel .subitem").first().click()
+            Then("주소가 그 컴패니언(?d=)이 되고, 스트림이 그리로 조준된다") {
+                page.waitForCondition { page.url().contains("d=") }
+                page.evaluate("window.__magi_test_aim") shouldBe "/tmp/a1.sock"
+            }
+            Then("타입 카탈로그가 정한 모듈이 로드된다 — 무선언은 1(코딩 에이전트)") {
+                page.evaluate("window.__magi_test_loads") shouldBe "[fleet][companion]"
+            }
+            Then("레일의 선택은 여전히 컴패니언 문이다 — 컴패니언은 그 문의 안이다") {
+                page.locator("#railNav .raili[selected]").count() shouldBe 1
+            }
+        }
+        When("뒤로가면 카탈로그로 돌아오고 조준이 풀린다") {
+            page.goBack()
+            Then("주소에 d가 없고 조준이 비었다") {
+                page.waitForCondition { !page.url().contains("d=") }
+                page.evaluate("window.__magi_test_aim") shouldBe ""
+            }
+        }
     }
 })

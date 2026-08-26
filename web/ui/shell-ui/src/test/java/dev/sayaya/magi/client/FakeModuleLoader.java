@@ -1,6 +1,5 @@
 package dev.sayaya.magi.client;
 
-import dev.sayaya.magi.client.domain.Destination;
 import dev.sayaya.magi.client.usecase.ModuleLoader;
 import elemental2.dom.DomGlobal;
 import jsinterop.base.Js;
@@ -18,10 +17,10 @@ public class FakeModuleLoader implements ModuleLoader {
     public FakeModuleLoader() {}
 
     @Override
-    public void ensure(Destination d) {
+    public void ensure(String module) {
         // 진짜처럼 한 번만: ensure의 계약(중복 주입 없음)은 구현이 아니라 포트의 것이다.
-        if (loads.indexOf("[" + d.id + "]") >= 0) return;
-        loads.append("[").append(d.id).append("]");
+        if (loads.indexOf("[" + module + "]") >= 0) return;
+        loads.append("[").append(module).append("]");
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set("__magi_test_loads", loads.toString());
     }
