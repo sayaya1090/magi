@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -850,7 +851,19 @@ func (m *Model) sessionsList() string {
 			b.WriteString("\n  …")
 			break
 		}
-		b.WriteString("\n  " + string(s.ID) + "  " + s.Created.Format("01-02 15:04"))
+		// The title, not only the id. An id is a hash: a list of ten of them answers "how many
+		// sessions are here" and nothing else, while the one thing somebody is scanning for is
+		// which of these was the work they mean. The resume picker has shown titles all along;
+		// this list was reading the same SessionMeta and dropping the field.
+		line := "  " + string(s.ID) + "  " + s.Created.Format("01-02 15:04")
+		if t := strings.TrimSpace(s.Title); t != "" {
+			line += "  " + ansi.Truncate(t, max(20, m.width-len(line)-2), "…")
+		} else {
+			// Said, not left blank: a session with no prompt yet is a fact about it, and a blank
+			// tail reads as a title that failed to load.
+			line += "  " + styleFooter.Render("(no messages)")
+		}
+		b.WriteString("\n" + line)
 	}
 	return b.String()
 }

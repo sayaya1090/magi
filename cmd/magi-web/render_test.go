@@ -7069,3 +7069,53 @@ console.log(JSON.stringify({text: text}));`)
 		t.Errorf("the shed figure went missing with them: %q", text)
 	}
 }
+
+// Every row in the session menu says what the work was, including the one with no title yet.
+//
+// A title comes from the session's first prompt, so the session being opened right now has none —
+// and that is the row most often on screen, sitting as a bare hash beside neighbours that all name
+// their work. An id alone is a menu of hashes; it answers which session this is only to somebody
+// who already knows.
+func TestTheSessionMenuNamesEveryRow(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+globalThis.fetch = async (p) => {
+  const u = String(p).split('?')[0];
+  if (u === '/history') return {ok: true, json: async () => [
+    {id: 's1', title: 'rename the token file'},
+    {id: 's2', title: ''},
+  ]};
+  if (u === '/fleet') return {ok: true, json: async () => [
+    {socket: '/s/a.sock', name: 'api', workdir: '/w/api', state: 'idle', live: true, session: 's3'},
+  ]};
+  return {ok: true, json: async () => []};
+};
+await loadFleet();
+// The picker fills itself from /history on a promise; a second pass paints what arrived. No
+// timers here -- the fake DOM has none, so the wait has to be a microtask.
+await Promise.resolve(); await Promise.resolve();
+await loadFleet();
+const opts = byId.detail.find(d => d.tag === 'md-select-option');
+const deep = d => ((d.textContent || '') + d.find(() => true).map(x => x.textContent || '').join('')).trim();
+const rows = opts.map(deep);
+console.log(JSON.stringify({
+  rows: rows,
+  bare: rows.filter(r => /^s\d+$/.test(r)),
+}));
+`)
+	rows, _ := got["rows"].([]any)
+	if len(rows) == 0 {
+		t.Fatalf("the menu drew no rows: %v", got)
+	}
+	if bare, _ := got["bare"].([]any); len(bare) > 0 {
+		t.Errorf("rows that are nothing but an id: %v", bare)
+	}
+	joined := fmt.Sprint(rows...)
+	if !strings.Contains(joined, "rename the token file") {
+		t.Errorf("a titled session lost its title: %v", rows)
+	}
+	// The session on screen is synthesised into the list when /history has not caught up with it,
+	// and it is the one that never has a title.
+	if !strings.Contains(joined, "s3") {
+		t.Errorf("the session being viewed is not in its own menu: %v", rows)
+	}
+}

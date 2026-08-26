@@ -3435,7 +3435,13 @@ function paintSessions(sel, list, now) {
       o.value = h.id;
       // The id, then what the work was — an id alone is a menu of hashes, and a title alone puts
       // two identical-looking lines in front of somebody choosing between them.
-      o.append(el('div', h.id + (h.title ? ' · ' + oneLine(h.title, 48) : '')));
+      //
+      // A session with no title yet still says something. The title comes from the first prompt,
+      // so the one being opened right now has none, and that row is the one most often on screen:
+      // it read as a bare hash beside neighbours that all named their work.
+      const what = h.title ? oneLine(h.title, 48)
+                           : tr(h.current ? 'session.thisone' : 'session.untitled');
+      o.append(el('div', h.id + ' · ' + what));
       return o;
     }));
   }

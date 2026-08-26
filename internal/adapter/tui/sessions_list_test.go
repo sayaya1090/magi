@@ -5,7 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // /sessions lists this directory's sessions and stops at ten. Two things about that are worth
@@ -75,5 +78,46 @@ func TestSessionsListUnderTheCapIsComplete(t *testing.T) {
 	}
 	if strings.Contains(out, "…") {
 		t.Errorf("a complete list is marked as cut:\n%s", out)
+	}
+}
+
+// The list says what each session was about, not only which hash it has.
+//
+// Ten ids and ten timestamps answer "how many sessions are here" and nothing else, and the one
+// question somebody runs /sessions to answer is which of these was the work they mean.
+// SessionMeta has carried the title all along — the resume picker has shown it since it existed —
+// and this list read the same struct and dropped the field.
+//
+// Through a stub rather than a real turn: what is under test is the rendering of a SessionMeta,
+// and Submit starts a run that outlives the test and races its own TempDir cleanup.
+type listStub struct {
+	Engine
+	metas []session.SessionMeta
+}
+
+func (l listStub) ListSessions(context.Context, string) ([]session.SessionMeta, error) {
+	return l.metas, nil
+}
+
+func TestSessionsListNamesTheWorkNotOnlyTheID(t *testing.T) {
+	s := newScript(t)
+	s.m.app = listStub{metas: []session.SessionMeta{
+		{ID: "s-alpha", Title: "rename the token file", Created: time.Now()},
+		{ID: "s-beta", Created: time.Now()},
+	}}
+
+	out := s.m.sessionsList()
+	if !strings.Contains(out, "rename the token file") {
+		t.Errorf("the list does not say what the session was about:\n%s", out)
+	}
+	// The id stays. Two sessions can be about the same thing, and the id is what tells them apart
+	// and what /resume is addressed by.
+	if !strings.Contains(out, "s-alpha") {
+		t.Errorf("the id was dropped along with the change:\n%s", out)
+	}
+	// And a session nobody has spoken in says so rather than trailing off after its timestamp —
+	// a blank tail is indistinguishable from a title that failed to load.
+	if !strings.Contains(out, "(no messages)") {
+		t.Errorf("an untitled session trails off after its timestamp:\n%s", out)
 	}
 }
