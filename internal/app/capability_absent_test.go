@@ -9,6 +9,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -65,6 +66,15 @@ func TestTheContextReportFollowsTheModelChange(t *testing.T) {
 	sid, _ := daemon.CreateSession(ctx, command.CreateSession{
 		Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "opus"},
 	})
+	// With something in it. A session's created fact is written when the session first has an
+	// event, so a conversation nobody has spoken in is not on disk for the other process to read —
+	// which is the point of that, and makes an empty session the wrong fixture for a test about
+	// what one process can see of another's log.
+	if err := daemon.Submit(ctx, command.SubmitPrompt{SessionID: sid,
+		Parts: []session.Part{{Kind: session.PartText, Text: "hello"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}}); err != nil {
+		t.Fatal(err)
+	}
 
 	// The console reads once, which is what fills the cache it has nothing to invalidate.
 	if st, err := console.ContextStateOf(ctx, sid); err != nil || st.Model != "opus" {

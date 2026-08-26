@@ -19,10 +19,33 @@ import (
 // "key absent" semantics. All fields are guarded by App.mu; child sessions get their own
 // entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
 // the rest live for the whole session.
+// bornFact is a session.created that has not been written yet: the actor that opened the session
+// and the data it carried, kept together so the flush is one append with the original authorship.
+type bornFact struct {
+	actor event.Actor
+	data  json.RawMessage
+	// at is when the session was opened, not when the fact is written. A log whose created event
+	// is stamped with the first prompt's time would say the session began when somebody spoke,
+	// and the ordering the store sorts by is the sequence, not this.
+	at time.Time
+}
+
 type sessionState struct {
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
 	meta   session.Session    // session metadata cache
+	// born is the session.created fact, held until the session has something in it.
+	//
+	// A conversation nobody has spoken in is not a conversation, and writing it to disk the moment
+	// a process starts left every list of past work padded with sessions that had one event each:
+	// the resume picker, the console's menu, `/sessions`. Every one of them then needed a name for
+	// a thing with nothing in it.
+	//
+	// So the id is issued immediately — the daemon publishes it, the TUI opens on it, plugins are
+	// wired to it — and the FACT waits. appendFact writes it just before whatever event finally
+	// arrives, so the log's first two entries are created-then-prompt as they always were, and a
+	// session that never gets a prompt leaves no file at all. nil once it has been written.
+	born *bornFact
 	// lookLang is the "reply in the reader's language" directive for LookOver, computed once
 	// from this session's genuine user prompts and cached. LookOver fires on every pause in
 	// typing, so — unlike the turn loop's language lock, which recomputes each step — reading
@@ -176,6 +199,15 @@ type sessionState struct {
 // stateLocked returns the session's state, creating it on first use. The caller MUST
 // hold a.mu. The nil-map guard lets zero-value App literals (used in tests) be safe;
 // production always goes through New, which pre-allocates the map.
+// forget drops a held session.created, for the one case that writes the fact itself.
+func (a *App) forget(sid session.SessionID) {
+	a.mu.Lock()
+	if st, ok := a.stateIf(sid); ok {
+		st.born = nil
+	}
+	a.mu.Unlock()
+}
+
 func (a *App) stateLocked(sid session.SessionID) *sessionState {
 	if a.states == nil {
 		a.states = map[session.SessionID]*sessionState{}

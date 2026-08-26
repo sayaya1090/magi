@@ -142,10 +142,14 @@ func TestRefreshingAChildReadsItsSessionIntoThePane(t *testing.T) {
 		MessageID: "m1",
 		Parts:     []session.Part{{Kind: session.PartText, Text: "refactor the parser"}},
 	})
-	if _, err := store.Append(ctx, sid, event.Event{
-		SessionID: sid, Type: event.TypePromptSubmitted,
-		Actor: event.Actor{Kind: event.ActorUser, ID: "spawn"}, TS: time.Now(), Data: data,
-	}); err != nil {
+	// The created fact goes in here: written through the raw store, this bypasses the App that
+	// holds it until a session's first event.
+	born, _ := json.Marshal(event.SessionCreatedData{Workdir: t.TempDir()})
+	if _, err := store.Append(ctx, sid,
+		event.Event{SessionID: sid, Type: event.TypeSessionCreated, TS: time.Now(), Data: born},
+		event.Event{SessionID: sid, Type: event.TypePromptSubmitted,
+			Actor: event.Actor{Kind: event.ActorUser, ID: "spawn"}, TS: time.Now(), Data: data},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,7 +204,12 @@ func TestResumingSaysTheLastTurnWasCutOffAndDoesNotRestartIt(t *testing.T) {
 	cd, _ := json.Marshal(event.PartAppendedData{
 		Role: session.RoleAssistant,
 		Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "edit"}}})
+	// Written through the raw store on purpose — this shapes a log by hand, a turn with no
+	// turn.finished in it — so the created fact has to be written here too: the App holds it until
+	// a session's first event, and that flush only happens on the App's own store.
+	cr, _ := json.Marshal(event.SessionCreatedData{Workdir: t.TempDir()})
 	if _, err := store.Append(ctx, sid,
+		event.Event{SessionID: sid, Type: event.TypeSessionCreated, TS: time.Now(), Data: cr},
 		event.Event{SessionID: sid, Type: event.TypePromptSubmitted, TS: time.Now(), Data: pd},
 		event.Event{SessionID: sid, Type: event.TypePartAppended, TS: time.Now(), Data: cd},
 	); err != nil { // no turn.finished: the turn was cut off

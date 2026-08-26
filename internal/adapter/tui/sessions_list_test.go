@@ -2,12 +2,12 @@ package tui
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
 	"time"
 
-	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -20,15 +20,10 @@ import (
 // truncation that silently kept the OLDEST ten would look identical — a list of ten sessions.
 func TestSessionsListKeepsTheNewestTenAndSaysItCut(t *testing.T) {
 	s := newScript(t)
-	ctx := context.Background()
 
 	var made []string
 	for i := 0; i < 12; i++ {
-		id, err := s.m.app.CreateSession(ctx, command.CreateSession{Workdir: s.m.workdir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		made = append(made, string(id))
+		made = append(made, string(spoken(t, s, "task "+strconv.Itoa(i))))
 	}
 
 	out := s.m.sessionsList()
@@ -66,11 +61,8 @@ func TestSessionsListSaysWhenThereAreNone(t *testing.T) {
 // claim something was left out when nothing was.
 func TestSessionsListUnderTheCapIsComplete(t *testing.T) {
 	s := newScript(t)
-	ctx := context.Background()
 	for i := 0; i < 3; i++ {
-		if _, err := s.m.app.CreateSession(ctx, command.CreateSession{Workdir: s.m.workdir}); err != nil {
-			t.Fatal(err)
-		}
+		spoken(t, s, "task "+strconv.Itoa(i))
 	}
 	out := s.m.sessionsList()
 	if got := len(strings.Split(out, "\n")) - 1; got != 3 {

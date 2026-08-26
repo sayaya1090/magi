@@ -2,8 +2,11 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -18,13 +21,39 @@ func makeSessions(t *testing.T, s *script, n int) []session.SessionID {
 	t.Helper()
 	var ids []session.SessionID
 	for i := 0; i < n; i++ {
-		id, err := s.m.app.CreateSession(context.Background(), command.CreateSession{Workdir: s.m.workdir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		ids = append(ids, id)
+		ids = append(ids, spoken(t, s, "session "+strconv.Itoa(i)))
 	}
 	return ids
+}
+
+// spoken opens a session and puts something in it, which is what makes it a session the pickers
+// list.
+//
+// A session's created fact is written when the session first has an event, so one that was only
+// opened is not in the store and not in ListSessions — deliberately, because a conversation nobody
+// has spoken in is not one anybody wants to resume.
+//
+// Written straight to the store rather than through Submit: what these fixtures need is a session
+// with content, not a turn, and a run left going outlives the test and races its own TempDir
+// cleanup. Interrupting it is not enough — the run goroutine still writes on its way out.
+func spoken(t *testing.T, s *script, text string) session.SessionID {
+	t.Helper()
+	ctx := context.Background()
+	id, err := s.m.app.CreateSession(ctx, command.CreateSession{Workdir: s.m.workdir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	born, _ := json.Marshal(event.SessionCreatedData{Workdir: s.m.workdir})
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + text, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+	if _, err := s.store.Append(ctx, id,
+		event.Event{SessionID: id, Type: event.TypeSessionCreated, TS: time.Now(), Data: born},
+		event.Event{SessionID: id, Type: event.TypePromptSubmitted,
+			Actor: event.Actor{Kind: event.ActorUser, ID: "tui"}, TS: time.Now(), Data: pd},
+	); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 // `/resume <n>` addresses a session by position, and the position it means has to be the one the

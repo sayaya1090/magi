@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
-	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -25,11 +25,10 @@ func TestTheResumeListOverRealSessions(t *testing.T) {
 	ctx := context.Background()
 	// Two more sessions in the same workdir, each with a prompt so they have something to show.
 	// CreateSession only — Submit would start a real turn goroutine that outlives the test and
-	// races t.TempDir's cleanup. The list needs sessions to exist, not to have run.
-	for range []int{0, 1} {
-		if _, err := s.m.app.CreateSession(ctx, command.CreateSession{Workdir: s.m.workdir}); err != nil {
-			t.Fatal(err)
-		}
+	// The list needs sessions that have something in them: a session's created fact is written on
+	// its first event, so one that was only opened is not in the store at all.
+	for i := range []int{0, 1} {
+		spoken(t, s, "row "+strconv.Itoa(i))
 	}
 	metas, err := s.m.app.ListSessions(ctx, s.m.workdir)
 	if err != nil || len(metas) < 2 {
@@ -122,10 +121,9 @@ func TestABackgroundJobGetsAPaneAndThenLetsGo(t *testing.T) {
 // leaves them in a session they did not choose with the previous one's history on screen.
 func TestResumingARowSwitchesTheSession(t *testing.T) {
 	s := newScript(t)
-	ctx := context.Background()
-	if _, err := s.m.app.CreateSession(ctx, command.CreateSession{Workdir: s.m.workdir}); err != nil {
-		t.Fatal(err)
-	}
+	// With something in it, or there is no row to land on: a session's created fact is written on
+	// its first event.
+	spoken(t, s, "the other conversation")
 	was := s.m.sid
 
 	s.typeText("/resume").enter()

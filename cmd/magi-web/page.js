@@ -4320,7 +4320,11 @@ async function drawContext(a, box, grid, field, put) {
   // And a way to change it, which the terminal has had as /model since it had a slash command. The
   // list is asked of the companion's own daemon, so it offers what THAT process can reach; when
   // nobody could say, the field stays the plain reading it always was.
-  if (c.model) put(modelField(a, c.model));
+  // The fleet row's model when the log has not said yet. A session's created fact is written when
+  // the session first has something in it, so a companion sitting on a fresh conversation has a
+  // model it is on and no log to read it out of — and the field simply vanished, on the one screen
+  // whose job is to say what you are talking to.
+  if (c.model || a.model) put(modelField(a, c.model || a.model));
   // Said once, where somebody would otherwise wonder why there is no cache figure at all.
   if (!c.cacheReported && !c.estimated) {
     put(field('field.cache', tr('context.no_cache_report')));

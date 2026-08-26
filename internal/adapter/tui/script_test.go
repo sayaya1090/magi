@@ -11,6 +11,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // A scripted session: the missing test layer.
@@ -30,14 +31,16 @@ import (
 // carries theme colour and wraps to width, so byte equality would pin the palette instead of the
 // behaviour and would break on every restyle.
 type script struct {
-	t   *testing.T
-	m   Model
-	seq int64
+	t     *testing.T
+	m     Model
+	seq   int64
+	store port.Store // for fixtures that must write a fact without running a turn
 }
 
 func newScript(t *testing.T) *script {
 	t.Helper()
-	s := &script{t: t, m: newTestModel(t)}
+	m, st := newTestModelWithStore(t)
+	s := &script{t: t, m: m, store: st}
 	s.send(tea.WindowSizeMsg{Width: 100, Height: 40})
 	return s
 }

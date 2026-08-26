@@ -32,6 +32,7 @@ type App struct {
 	journals map[session.SessionID]*restoreJournal
 
 	store       port.Store
+	rawStore    port.Store // the store without the born-flush wrapper; only bear writes through it
 	llm         port.LLMProvider
 	providers   map[string]port.LLMProvider // named LLM profiles (per-agent endpoint/key routing)
 	profileDefs map[string]ProfileDef       // profile definitions (guarded by mu), for the /route editor
@@ -105,8 +106,9 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 	c := cfg.withDefaults()
 	c.ProfileModels = cloneStringMap(c.ProfileModels) // runtime edits must not mutate the caller's map
 	bg, stop := context.WithCancel(context.Background())
-	return &App{
+	a := &App{
 		store:          store,
+		rawStore:       store,
 		llm:            llm,
 		providers:      cloneProviders(c.Providers),
 		profileDefs:    cloneProfileDefs(c.ProfileDefs),
@@ -122,6 +124,10 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		bg:             bg,
 		bgStop:         stop,
 	}
+	// Every other path writes through a store that flushes a held session.created first. See
+	// bornStore: the rule belongs to the seam, not to each caller that remembers it.
+	a.store = bornStore{Store: store, app: a}
+	return a
 }
 
 // bgContext is the lifetime of work that must outlive the turn that started it.
@@ -159,7 +165,8 @@ const shellCaptureCap = 256 << 10
 // against in a repository that has no commits yet.
 const emptyTreeRef = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-// CreateSession starts a new session and persists session.created.
+// CreateSession opens a session and returns its id. The session.created fact is written when
+// the session first has something in it — see sessionState.born.
 func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error) {
 	sid := session.SessionID("s_" + newID())
 	model := c.Model
@@ -185,11 +192,13 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 	}
 	a.mu.Unlock()
 
+	// Held, not written. See sessionState.born: the id is real from here on and every consumer
+	// that needs one has it, while a session nobody speaks in leaves nothing behind.
 	data, _ := json.Marshal(event.SessionCreatedData{Workdir: c.Workdir, Agent: c.Agent, Model: model,
 		Parent: c.Parent, Project: c.Project})
-	if err := a.appendFact(ctx, sid, event.TypeSessionCreated, c.Actor, data); err != nil {
-		return "", err
-	}
+	a.mu.Lock()
+	a.stateLocked(sid).born = &bornFact{actor: c.Actor, data: data, at: s.Created}
+	a.mu.Unlock()
 	return sid, nil
 }
 

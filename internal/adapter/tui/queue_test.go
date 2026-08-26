@@ -27,6 +27,18 @@ func (stubLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.
 
 func newTestModel(t *testing.T) Model {
 	t.Helper()
+	m, _ := newTestModelWithStore(t)
+	return m
+}
+
+// newTestModelWithStore is newTestModel plus the store underneath it.
+//
+// A session's created fact is held by the App until the session has its first event, so a fixture
+// that wants a session the pickers can list has to give it one. Going through Submit would start a
+// turn, and a turn that outlives the test races its own TempDir cleanup — so the fixtures write
+// the two facts straight to the store instead, which is what this hands them.
+func newTestModelWithStore(t *testing.T) (Model, port.Store) {
+	t.Helper()
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +48,7 @@ func newTestModel(t *testing.T) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(context.Background(), a, nil, sid, "m", t.TempDir(), true, "")
+	return New(context.Background(), a, nil, sid, "m", t.TempDir(), true, ""), store
 }
 
 // Enter while running steers the message into the running turn: it appears in the

@@ -1,13 +1,11 @@
 package tui
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 )
 
@@ -24,9 +22,9 @@ func TestResumingAnotherSessionClosesWhatBelongedToTheOldOne(t *testing.T) {
 	s := newScript(t)
 	s.send(tea.WindowSizeMsg{Width: 100, Height: 40})
 	s.assistantText("session A said this")
-	if _, err := s.m.app.CreateSession(context.Background(), command.CreateSession{Workdir: s.m.workdir}); err != nil {
-		t.Fatal(err)
-	}
+	// With something in it, or the picker has nothing to switch to: a session's created fact is
+	// written on its first event.
+	spoken(t, s, "session B said this")
 	s.m.councilDetail = &event.CouncilVerdictData{
 		Round: 1, Member: "Melchior", Decision: "done", Lens: "correctness",
 		Rationale: "the rationale from session A",

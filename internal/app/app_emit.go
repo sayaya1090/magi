@@ -23,6 +23,41 @@ func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.T
 	return nil
 }
 
+// bear writes the session.created fact this session has been holding, if it still holds one.
+//
+// Called from the one place every append passes through, so the log's first entry is created and
+// the second is whatever arrived — the order the store and every reader of it have always seen.
+// Idempotent: the field is cleared under the lock before the append, so two events racing to be
+// the first cannot write two created facts.
+func (a *App) bear(ctx context.Context, sid session.SessionID) error {
+	a.mu.Lock()
+	st, ok := a.stateIf(sid)
+	if !ok || st.born == nil {
+		a.mu.Unlock()
+		return nil
+	}
+	born := st.born
+	st.born = nil
+	a.mu.Unlock()
+
+	ev := event.Event{SessionID: sid, Type: event.TypeSessionCreated, Actor: born.actor,
+		TS: born.at, Data: born.data}
+	seqs, err := a.rawStore.Append(ctx, sid, ev)
+	if err != nil {
+		// Put it back: a failed write must not leave the session permanently unborn, with every
+		// later event landing in a log that never says what the session is.
+		a.mu.Lock()
+		if st, ok := a.stateIf(sid); ok && st.born == nil {
+			st.born = born
+		}
+		a.mu.Unlock()
+		return err
+	}
+	ev.Seq = seqs[0]
+	a.bus.Publish(ev)
+	return nil
+}
+
 // appendPromptText appends a single-text-part PromptSubmitted event to a session — the shared
 // shape behind every "inject a note into a conversation" site (subagent Q&A, subagent results,
 // refine success/failure records, plan-council notes, planner findings). Callers that must
