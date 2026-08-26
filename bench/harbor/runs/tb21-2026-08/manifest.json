@@ -1,0 +1,358 @@
+{
+ "adaptive-rejection-sampler": {
+  "bytes": 52470,
+  "run": "2026-08-25-0535"
+ },
+ "bn-fit-modify": {
+  "bytes": 52807,
+  "run": "2026-08-25-0813"
+ },
+ "break-filter-js-from-html": {
+  "bytes": 40676,
+  "run": "2026-08-26-0709"
+ },
+ "build-cython-ext": {
+  "bytes": 96530,
+  "run": "2026-08-26-0430"
+ },
+ "build-pmars": {
+  "bytes": 71162,
+  "run": "2026-08-25-0026"
+ },
+ "build-pov-ray": {
+  "bytes": 49015,
+  "run": "2026-08-26-1223"
+ },
+ "caffe-cifar-10": {
+  "bytes": 86677,
+  "run": "2026-08-24-2302"
+ },
+ "cancel-async-tasks": {
+  "bytes": 45557,
+  "run": "2026-08-25-0012"
+ },
+ "chess-best-move": {
+  "bytes": 76530,
+  "run": "2026-08-25-1032"
+ },
+ "circuit-fibsqrt": {
+  "bytes": 75568,
+  "run": "2026-08-25-0641"
+ },
+ "cobol-modernization": {
+  "bytes": 54398,
+  "run": "2026-08-25-0039"
+ },
+ "code-from-image": {
+  "bytes": 27139,
+  "run": "2026-08-25-0732"
+ },
+ "compile-compcert": {
+  "bytes": 71940,
+  "run": "2026-08-25-1250"
+ },
+ "configure-git-webserver": {
+  "bytes": 34822,
+  "run": "2026-08-25-0635"
+ },
+ "constraints-scheduling": {
+  "bytes": 23823,
+  "run": "2026-08-26-0849"
+ },
+ "count-dataset-tokens": {
+  "bytes": 54958,
+  "run": "2026-08-25-1612"
+ },
+ "crack-7z-hash": {
+  "bytes": 33843,
+  "run": "2026-08-26-0451"
+ },
+ "custom-memory-heap-crash": {
+  "bytes": 68839,
+  "run": "2026-08-25-1048"
+ },
+ "db-wal-recovery": {
+  "bytes": 21107,
+  "run": "2026-08-25-0551"
+ },
+ "distribution-search": {
+  "bytes": 23258,
+  "run": "2026-08-25-0706"
+ },
+ "dna-assembly": {
+  "bytes": 101907,
+  "run": "2026-08-25-0056"
+ },
+ "dna-insert": {
+  "bytes": 42404,
+  "run": "2026-08-26-1207"
+ },
+ "extract-elf": {
+  "bytes": 31595,
+  "run": "2026-08-25-0050"
+ },
+ "extract-moves-from-video": {
+  "bytes": 37116,
+  "run": "2026-08-26-0907"
+ },
+ "feal-differential-cryptanalysis": {
+  "bytes": 38777,
+  "run": "2026-08-26-0541"
+ },
+ "feal-linear-cryptanalysis": {
+  "bytes": 36843,
+  "run": "2026-08-25-1202"
+ },
+ "filter-js-from-html": {
+  "bytes": 45757,
+  "run": "2026-08-26-0359"
+ },
+ "financial-document-processor": {
+  "bytes": 79748,
+  "run": "2026-08-26-0855"
+ },
+ "fix-code-vulnerability": {
+  "bytes": 64891,
+  "run": "2026-08-25-0547"
+ },
+ "fix-git": {
+  "bytes": 30090,
+  "run": "2026-08-25-0003"
+ },
+ "fix-ocaml-gc": {
+  "bytes": 131725,
+  "run": "2026-08-26-1143"
+ },
+ "gcode-to-text": {
+  "bytes": 61743,
+  "run": "2026-08-25-1322"
+ },
+ "git-leak-recovery": {
+  "bytes": 23417,
+  "run": "2026-08-26-1124"
+ },
+ "git-multibranch": {
+  "bytes": 45484,
+  "run": "2026-08-26-1108"
+ },
+ "gpt2-codegolf": {
+  "bytes": 54416,
+  "run": "2026-08-26-0652"
+ },
+ "headless-terminal": {
+  "bytes": 37631,
+  "run": "2026-08-24-1825"
+ },
+ "hf-model-inference": {
+  "bytes": 28498,
+  "run": "2026-08-25-0612"
+ },
+ "install-windows-3.11": {
+  "bytes": 99135,
+  "run": "2026-08-26-0910"
+ },
+ "kv-store-grpc": {
+  "bytes": 24950,
+  "run": "2026-08-25-0008"
+ },
+ "large-scale-text-editing": {
+  "bytes": 22506,
+  "run": "2026-08-25-0033"
+ },
+ "largest-eigenval": {
+  "bytes": 41693,
+  "run": "2026-08-26-0441"
+ },
+ "llm-inference-batching-scheduler": {
+  "bytes": 83073,
+  "run": "2026-08-26-0503"
+ },
+ "log-summary-date-ranges": {
+  "bytes": 28241,
+  "run": "2026-08-26-1114"
+ },
+ "mailman": {
+  "bytes": 121876,
+  "run": "2026-08-26-1128"
+ },
+ "make-doom-for-mips": {
+  "bytes": 132465,
+  "run": "2026-08-26-1044"
+ },
+ "make-mips-interpreter": {
+  "bytes": 118176,
+  "run": "2026-08-26-0552"
+ },
+ "mcmc-sampling-stan": {
+  "bytes": 86681,
+  "run": "2026-08-25-0127"
+ },
+ "merge-diff-arc-agi-task": {
+  "bytes": 48952,
+  "run": "2026-08-25-1616"
+ },
+ "model-extraction-relu-logits": {
+  "bytes": 25534,
+  "run": "2026-08-26-1119"
+ },
+ "modernize-scientific-stack": {
+  "bytes": 22782,
+  "run": "2026-08-25-1627"
+ },
+ "mteb-leaderboard": {
+  "bytes": 44192,
+  "run": "2026-08-26-1230"
+ },
+ "mteb-retrieve": {
+  "bytes": 24030,
+  "run": "2026-08-25-0711"
+ },
+ "multi-source-data-merger": {
+  "bytes": 24936,
+  "run": "2026-08-26-1104"
+ },
+ "nginx-request-logging": {
+  "bytes": 48239,
+  "run": "2026-08-26-0633"
+ },
+ "openssl-selfsigned-cert": {
+  "bytes": 23527,
+  "run": "2026-08-26-1101"
+ },
+ "overfull-hbox": {
+  "bytes": 51613,
+  "run": "2026-08-26-0624"
+ },
+ "password-recovery": {
+  "bytes": 44811,
+  "run": "2026-08-25-0622"
+ },
+ "path-tracing": {
+  "bytes": 73253,
+  "run": "2026-08-24-1806"
+ },
+ "path-tracing-reverse": {
+  "bytes": 162907,
+  "run": "2026-08-25-1535"
+ },
+ "polyglot-c-py": {
+  "bytes": 23944,
+  "run": "2026-08-25-1646"
+ },
+ "polyglot-rust-c": {
+  "bytes": 19802,
+  "run": "2026-08-26-0418"
+ },
+ "portfolio-optimization": {
+  "bytes": 32524,
+  "run": "2026-08-26-1057"
+ },
+ "protein-assembly": {
+  "bytes": 131024,
+  "run": "2026-08-26-1027"
+ },
+ "prove-plus-comm": {
+  "bytes": 14921,
+  "run": "2026-08-26-1003"
+ },
+ "pypi-server": {
+  "bytes": 32289,
+  "run": "2026-08-25-0736"
+ },
+ "pytorch-model-cli": {
+  "bytes": 64068,
+  "run": "2026-08-26-0645"
+ },
+ "pytorch-model-recovery": {
+  "bytes": 33427,
+  "run": "2026-08-26-1105"
+ },
+ "qemu-alpine-ssh": {
+  "bytes": 84937,
+  "run": "2026-08-26-1302"
+ },
+ "qemu-startup": {
+  "bytes": 42014,
+  "run": "2026-08-26-0950"
+ },
+ "query-optimize": {
+  "bytes": 24850,
+  "run": "2026-08-26-0838"
+ },
+ "raman-fitting": {
+  "bytes": 53068,
+  "run": "2026-08-25-1130"
+ },
+ "regex-chess": {
+  "bytes": 132050,
+  "run": "2026-08-26-1310"
+ },
+ "regex-log": {
+  "bytes": 24941,
+  "run": "2026-08-24-2244"
+ },
+ "reshard-c4-data": {
+  "bytes": 47490,
+  "run": "2026-08-26-0854"
+ },
+ "rstan-to-pystan": {
+  "bytes": 89396,
+  "run": "2026-08-25-0739"
+ },
+ "sam-cell-seg": {
+  "bytes": 133063,
+  "run": "2026-08-26-1141"
+ },
+ "sanitize-git-repo": {
+  "bytes": 127431,
+  "run": "2026-08-26-1117"
+ },
+ "schemelike-metacircular-eval": {
+  "bytes": 100072,
+  "run": "2026-08-24-1847"
+ },
+ "sparql-university": {
+  "bytes": 45921,
+  "run": "2026-08-26-1133"
+ },
+ "sqlite-db-truncate": {
+  "bytes": 23102,
+  "run": "2026-08-25-0755"
+ },
+ "sqlite-with-gcov": {
+  "bytes": 48661,
+  "run": "2026-08-25-0020"
+ },
+ "torch-pipeline-parallelism": {
+  "bytes": 95944,
+  "run": "2026-08-26-1244"
+ },
+ "torch-tensor-parallelism": {
+  "bytes": 47855,
+  "run": "2026-08-25-0554"
+ },
+ "train-fasttext": {
+  "bytes": 105461,
+  "run": "2026-08-26-0718"
+ },
+ "tune-mjcf": {
+  "bytes": 49858,
+  "run": "2026-08-26-0939"
+ },
+ "video-processing": {
+  "bytes": 76522,
+  "run": "2026-08-26-0521"
+ },
+ "vulnerable-secret": {
+  "bytes": 30054,
+  "run": "2026-08-26-0518"
+ },
+ "winning-avg-corewars": {
+  "bytes": 97972,
+  "run": "2026-08-25-2037"
+ },
+ "write-compressor": {
+  "bytes": 42213,
+  "run": "2026-08-24-1747"
+ }
+}

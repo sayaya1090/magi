@@ -1,0 +1,259 @@
+<title>magi vs Claude Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#EDF0F4; --surface:#FFFFFF; --sunk:#F5F7F9;
+  --ink:#111A24; --muted:#5A6878; --faint:#8B98A8;
+  --line:#D5DCE4; --hair:#E4E9EF;
+  --magi:#1D5FA6; --magi-soft:#E3EDF8;
+  --cc:#6E7C90; --cc-soft:#E7EAEF;
+  --pass:#0F6B54; --pass-soft:#DEEFE9;
+  --fail:#A2412A; --fail-soft:#F7E4DE;
+  --shadow:0 1px 2px rgba(17,26,36,.06),0 8px 24px -16px rgba(17,26,36,.22);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0C1219; --surface:#151D27; --sunk:#111823;
+  --ink:#DEE5ED; --muted:#8B99AA; --faint:#66748A;
+  --line:#25303E; --hair:#1E2833;
+  --magi:#6BA6E8; --magi-soft:#15283C;
+  --cc:#8C99AC; --cc-soft:#1B2431;
+  --pass:#4FBE9C; --pass-soft:#11291F;
+  --fail:#E08063; --fail-soft:#2C1913;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -18px rgba(0,0,0,.8);
+}}
+:root[data-theme="dark"]{
+  --ground:#0C1219; --surface:#151D27; --sunk:#111823;
+  --ink:#DEE5ED; --muted:#8B99AA; --faint:#66748A;
+  --line:#25303E; --hair:#1E2833;
+  --magi:#6BA6E8; --magi-soft:#15283C;
+  --cc:#8C99AC; --cc-soft:#1B2431;
+  --pass:#4FBE9C; --pass-soft:#11291F;
+  --fail:#E08063; --fail-soft:#2C1913;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -18px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;
+  font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px; margin:0 auto; padding:48px 28px 96px; display:flex; flex-direction:column; gap:44px}
+h1,h2,h3,.lab{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif}
+.mono,td.t,.num{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums}
+
+/* header */
+header{display:flex; flex-direction:column; gap:14px; border-bottom:2px solid var(--ink); padding-bottom:22px}
+h1{margin:0; font-size:clamp(30px,4.6vw,46px); font-weight:700; letter-spacing:-.02em; line-height:1.05; text-wrap:balance}
+h1 .vs{color:var(--faint); font-weight:600}
+.sub{margin:0; color:var(--muted); max-width:62ch}
+.meta{display:flex; flex-wrap:wrap; gap:8px 20px; font-size:12.5px; color:var(--faint)}
+.meta b{color:var(--muted); font-weight:500}
+
+/* scoreboard */
+.board{display:grid; grid-template-columns:1fr auto 1fr; gap:0; align-items:stretch;
+  background:var(--surface); border:1px solid var(--line); border-radius:4px; box-shadow:var(--shadow); overflow:hidden}
+.side{padding:26px 28px; display:flex; flex-direction:column; gap:6px}
+.side.b{border-left:1px solid var(--hair)}
+.lab{font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase}
+.side.a .lab{color:var(--magi)} .side.b .lab{color:var(--cc)}
+.big{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+  font-size:clamp(34px,5.2vw,52px); font-weight:500; line-height:1; letter-spacing:-.03em}
+.side.a .big{color:var(--magi)} .side.b .big{color:var(--ink)}
+.frac{font-size:13px; color:var(--muted); font-family:"IBM Plex Mono",monospace}
+.money{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); font-size:13px; color:var(--muted)}
+.money b{font-family:"IBM Plex Mono",monospace; font-size:19px; font-weight:500; color:var(--ink); letter-spacing:-.01em}
+.mid{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  padding:0 22px; background:var(--sunk); border-left:1px solid var(--hair); border-right:1px solid var(--hair)}
+.mid .x{font-family:"IBM Plex Mono",monospace; font-size:26px; font-weight:600; letter-spacing:-.02em}
+.mid .xl{font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); font-weight:700}
+
+/* sections */
+section{display:flex; flex-direction:column; gap:16px}
+h2{margin:0; font-size:19px; font-weight:700; letter-spacing:-.005em; display:flex; align-items:baseline; gap:10px}
+h2 .c{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--faint); font-weight:400}
+.note{margin:0; color:var(--muted); font-size:14px; max-width:74ch}
+
+/* fail cards */
+.fails{display:grid; grid-template-columns:repeat(auto-fill,minmax(268px,1fr)); gap:12px}
+.fc{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--fail); border-radius:3px; padding:14px 16px; display:flex; flex-direction:column; gap:6px}
+.fc .n{font-family:"IBM Plex Mono",monospace; font-size:13.5px; font-weight:600}
+.fc .w{font-size:13px; color:var(--muted); line-height:1.5}
+.fc .cc{font-size:11.5px; color:var(--faint); font-family:"IBM Plex Mono",monospace}
+
+/* table */
+.scroll{overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:4px; box-shadow:var(--shadow)}
+table{border-collapse:collapse; width:100%; min-width:880px; font-size:13.5px}
+thead th{position:sticky; top:0; background:var(--surface); z-index:2;
+  font-family:"IBM Plex Sans Condensed",sans-serif; font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--faint); text-align:right; padding:12px 12px 10px; border-bottom:1.5px solid var(--line); white-space:nowrap; cursor:pointer; user-select:none}
+thead th:first-child{text-align:left}
+thead th:hover{color:var(--ink)}
+thead th[aria-sort]{color:var(--magi)}
+thead th .ar{opacity:.45; font-size:9px}
+thead th.g{border-left:1px solid var(--hair)}
+tbody td{padding:9px 12px; border-bottom:1px solid var(--hair); text-align:right; white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--sunk)}
+td.t{text-align:left; font-size:13px; font-weight:500}
+a.tl{color:inherit; text-decoration:none; border-bottom:1px dotted var(--line)}
+a.tl:hover{color:var(--magi); border-bottom-color:var(--magi)}
+td.g{border-left:1px solid var(--hair)}
+.num{color:var(--muted)}
+.num.k{color:var(--ink)}
+.chip{display:inline-block; min-width:20px; padding:1px 7px; border-radius:2px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600}
+.chip.p{background:var(--pass-soft); color:var(--pass)}
+.chip.f{background:var(--fail-soft); color:var(--fail)}
+.dots{display:inline-flex; gap:3px; vertical-align:-1px}
+.dots i{width:7px; height:12px; border-radius:1px; background:var(--cc-soft); display:block}
+.dots i.on{background:var(--cc)}
+.rat{font-family:"IBM Plex Mono",monospace; font-size:12px}
+.rat.hi{color:var(--fail)} .rat.lo{color:var(--pass)}
+.tag{font-size:10px; letter-spacing:.06em; color:var(--faint); font-family:"IBM Plex Mono",monospace}
+.star{color:var(--faint); cursor:help}
+
+/* caveats */
+.cav{background:var(--sunk); border:1px solid var(--hair); border-radius:4px; padding:20px 24px; display:flex; flex-direction:column; gap:11px}
+.cav ul{margin:0; padding-left:19px; display:flex; flex-direction:column; gap:9px}
+.cav li{color:var(--muted); font-size:13.5px; line-height:1.55}
+.cav li b{color:var(--ink); font-weight:600}
+code{font-family:"IBM Plex Mono",monospace; font-size:.9em; background:var(--surface); border:1px solid var(--hair); border-radius:2px; padding:.5px 4px}
+:focus-visible{outline:2px solid var(--magi); outline-offset:2px}
+@media (max-width:720px){
+  .board{grid-template-columns:1fr}
+  .side.b{border-left:none; border-top:1px solid var(--hair)}
+  .mid{flex-direction:row; gap:10px; padding:10px; border:none; border-top:1px solid var(--hair)}
+  .wrap{padding:32px 18px 72px; gap:36px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>magi <span class="vs">vs</span> Claude Code</h1>
+  <p class="sub">Terminal-Bench 2.1의 89개 태스크 중 {{N}}개를 실측한 대조표. 같은 모델(claude-sonnet-5), 같은 추론 강도(high), 같은 태스크 이미지.</p>
+  <div class="meta">
+    <span><b>magi</b> f4c94d00 · k=1</span>
+    <span><b>Claude Code</b> 2.1.205 · k=5 · 리더보드 445시행</span>
+    <span><b>측정</b> 총 {{HRS}}시간 · 갱신 {{STAMP}}</span>
+    <span><b>커버리지</b> {{N}} / 89 태스크 ({{COVPCT}}%)</span>
+    <span><b>비용 규칙</b> 양쪽 모두 타임아웃 = $0</span>
+  </div>
+</header>
+
+<div class="board">
+  <div class="side a">
+    <div class="lab">magi · k=1</div>
+    <div class="big">{{MPCT}}%</div>
+    <div class="frac">{{MPASS}} / {{N}} 통과</div>
+    <div class="money">총 비용 <b>${{MUSD}}</b> <span style="color:var(--faint)">· 타임아웃 {{NTO}}건 $0<span class="star" title="리더보드가 타임아웃 행의 비용을 공란으로 남기므로, 같은 자를 쓰기 위해 magi의 타임아웃 런도 $0으로 계산했다 (실지출 ${{MDROP}})">*</span></span></div>
+  </div>
+  <div class="mid">
+    <div class="x">{{RATIO}}×</div>
+    <div class="xl">비용</div>
+  </div>
+  <div class="side b">
+    <div class="lab">Claude Code · k=5</div>
+    <div class="big">{{CCPCT}}%</div>
+    <div class="frac">{{CCPASS}} / {{CCN}} 통과</div>
+    <div class="money">1회분 환산 <b>${{CCUSD}}</b> <span style="color:var(--faint)">· 공란 {{CCBLANK}}행<span class="star" title="리더보드가 타임아웃 행의 비용을 공란으로 남긴다. 이 {{N}}개 중 {{CCBLANK}}행이 그렇다">*</span></span></div>
+  </div>
+</div>
+
+<section>
+  <h2>magi가 놓친 것 <span class="c">{{NFAIL}} / {{N}}</span></h2>
+  <div class="fails">
+    {{FAILCARDS}}
+  </div>
+  <p class="note">여섯 중 넷이 같은 뿌리다 — <b>불완전한 산출물이라도 일찍 세워두지 않는 것</b>. Claude Code는 <code>path-tracing</code>에서 다섯 번 다 타임아웃하고도 셋을 통과했다. 벽시계가 잘라도 검증기는 디스크에 남은 것으로 채점하기 때문이다.</p>
+</section>
+
+<section>
+  <h2>magi만 푼 것 <span class="c">{{NONLY}}개 · Claude Code 0 / 5</span></h2>
+  <div class="fails">
+    {{ONLYCARDS}}
+  </div>
+</section>
+
+<section>
+  <h2>전체 {{N}} 태스크 <span class="c">열 제목을 눌러 정렬</span></h2>
+  <div class="scroll">
+    <table id="tb">
+      <thead><tr>
+        <th data-k="t">태스크</th>
+        <th data-k="ok" class="g">결과</th>
+        <th data-k="calls">콜</th>
+        <th data-k="cn">카운슬</th>
+        <th data-k="secs">시간</th>
+        <th data-k="usd">magi $</th>
+        <th data-k="ccp" class="g">CC k=5</th>
+        <th data-k="ccusd">CC $/회</th>
+        <th data-k="rat">배수</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note">카운슬 0회는 결함이 아니라 <b>타임아웃의 모습</b>이다 — 카운슬은 에이전트가 종료를 선언할 때 열리므로, 벽시계가 작업 중간을 자르면 선언 자체가 없다. 비용 열의 <b>$0.00</b>은 타임아웃으로 장부에서 뺀 런이고, <span class="star" title="리더보드가 타임아웃 행의 비용을 공란으로 남긴다">*</span>는 Claude Code 쪽 같은 처리다.</p>
+</section>
+
+<div class="cav">
+  <h2 style="font-size:15px">읽을 때 감안할 것</h2>
+  <ul>
+    {{QUARANTINE}}
+    {{WEBTOOLS}}
+    <li><b>양쪽 모두 리더보드 자신의 규칙으로 재산정했다.</b> tbench.ai의 integrity 규정은 리워드 해킹을 <i>과제가 재려던 능력을 보이지 않고 구멍을 이용해 해결하는 것</i>으로 정의하고 결과를 <b>시행 보상 0</b>으로 정한다. Claude Code 쪽은 PR #98의 판사가 12건을 표시했고 하네스 치팅 3건(<code>code-from-image</code> 둘, <code>fix-code-vulnerability</code> 하나)이 실격돼 75.28%가 74.61%가 됐다 — 이 페이지는 그 조정된 값을 쓴다. magi 쪽은 채택된 89개를 같은 기준으로 훑어 <b>채점기를 건드린 시행 0건</b>, 인터넷에서 정답 원문을 받은 시행 <b>1건</b>(<code>regex-chess</code>)을 찾아 0으로 재산정했다. <code>torch-pipeline-parallelism</code>은 참조 구현을 받았으나 비교 대상의 같은 행동이 실격되지 않았으므로 내리지 않고 카드에 적었다.</li>
+    <li><b>k가 다르다.</b> magi는 태스크당 1회, Claude Code는 5회. 한 번 잘 나온 magi 런과 다섯 번의 평균을 견주는 셈이라 magi 쪽이 운의 덕을 볼 여지가 크다.</li>
+    <li><b>타임아웃은 양쪽 모두 $0으로 셌다.</b> 리더보드 445행을 전수로 확인했다: <code>AgentTimeoutError</code> 42행은 <b>하나도 빠짐없이</b> 비용이 공란이고, 타임아웃이 아니면서 공란인 행은 <b>하나도 없다</b>. 대응이 1:1이므로 같은 자를 쓰려면 magi의 타임아웃 런도 0이어야 한다. magi {{NTO}}건 ${{MDROP}}가 이렇게 빠졌다 — 그중 셋(<code>schemelike-metacircular-eval</code> · <code>dna-assembly</code> · <code>chess-best-move</code>)은 잘리고도 통과한 런이라, 리워드는 세고 비용은 안 세는 처리가 양쪽에 똑같이 걸린다.</li><li><b>그래서 이 표의 비용은 양쪽 다 실지출보다 작다.</b> magi는 ${{MDROP}}, Claude Code는 공란 {{CCBLANK}}행어치가 장부에서 빠져 있다. 누락은 CC 쪽이 더 크다 — <code>path-tracing</code> 한 태스크만 해도 다섯 시행 전부가 공란이면서 시행당 4.5M~8.0M 토큰을 썼다. {{RATIO}}×는 상한이 아니라 하한이다.</li>
+          </ul>
+</div>
+</div>
+
+<script>
+const D={{ROWS}};
+// 태스크명은 그 시행의 job 디렉토리 아카이브로 간다 -- 전사(magi-stdout), 이벤트 jsonl, result.json,
+// trial.log 가 그대로 들어 있다. 표의 숫자를 의심할 때 원본으로 내려갈 수 있어야 리포트가 감사 가능하다.
+const RUNBASE="{{RUNBASE}}";
+const fmtS=s=>{const m=Math.floor(s/60);return m+"'"+String(s%60).padStart(2,"0")};
+const tb=document.querySelector("#tb tbody"), ths=[...document.querySelectorAll("#tb th")];
+let key="t", dir=1;
+const bill=r=>r.exc==="AgentTimeoutError"?0:r.usd;
+function ratio(r){const b=bill(r);return r.ccusd>0&&b>0?b/r.ccusd:null}
+function draw(){
+  const rows=[...D].sort((a,b)=>{
+    let x,y;
+    if(key==="rat"){x=ratio(a)??-1;y=ratio(b)??-1}
+    else if(key==="ok"){x=a.ok?1:0;y=b.ok?1:0}
+    else{x=a[key];y=b[key]}
+    if(typeof x==="string")return dir*x.localeCompare(y);
+    return dir*(x-y);
+  });
+  tb.innerHTML=rows.map(r=>{
+    const rt=ratio(r);
+    const dots=Array.from({length:r.ccn},(_,i)=>`<i class="${i<r.ccp?"on":""}"></i>`).join("");
+    const star=r.ccblank?`<span class="star" title="${r.ccblank}개 시행의 비용이 공란">*</span>`:"";
+    return `<tr>
+      <td class="t"><a class="tl" href="${RUNBASE}${r.t}.tar.gz" title="이 시행의 전사·이벤트·결과 전체 (${r.arc})">${r.t}</a>${r.hack?` <span class="tag" style="color:var(--fail)" title="${r.hack} — 리더보드 규칙에 따라 보상 0으로 재산정">재산정</span>`:""}${r.head!=="f4c94d00"?` <span class="tag">${r.head}</span>`:""}</td>
+      <td class="g"><span class="chip ${r.ok?"p":"f"}">${r.ok?"통과":"실패"}</span></td>
+      <td class="num k">${r.calls}</td>
+      <td class="num">${r.cn}</td>
+      <td class="num">${fmtS(r.secs)}${r.exc==="AgentTimeoutError"?` <span class="tag">TO</span>`:""}</td>
+      <td class="num k">${bill(r)>0?"$"+r.usd.toFixed(2):`<span class="num" style="opacity:.55">$0.00</span>`}</td>
+      <td class="g"><span class="dots">${dots}</span> <span class="num">${r.ccp}/${r.ccn}</span></td>
+      <td class="num">$${r.ccusd.toFixed(2)}${star}</td>
+      <td class="rat ${rt===null?"":rt>1?"hi":"lo"}">${rt===null?"—":rt.toFixed(2)+"×"}</td>
+    </tr>`}).join("");
+  ths.forEach(th=>{
+    const k=th.dataset.k, on=k===key;
+    if(on)th.setAttribute("aria-sort",dir>0?"ascending":"descending"); else th.removeAttribute("aria-sort");
+    th.innerHTML=th.textContent.replace(/[ ▲▼]+$/,"")+(on?` <span class="ar">${dir>0?"▲":"▼"}</span>`:"");
+  });
+}
+ths.forEach(th=>{
+  th.tabIndex=0;
+  const go=()=>{const k=th.dataset.k; if(k===key)dir=-dir; else{key=k;dir=k==="t"?1:-1} draw()};
+  th.addEventListener("click",go);
+  th.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});
+});
+draw();
+</script>

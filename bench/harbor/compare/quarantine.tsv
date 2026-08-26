@@ -1,0 +1,19 @@
+# 격리된 trial — docs/BENCHMARK.ko.md "정답을 찾아 나선 trial은 따로 다시 돌립니다".
+# 격리는 태스크가 아니라 이 런 하나에 걸리고, 그 런과 그 이전 런은 전부 표에서 빠진다.
+# 채택되는 값은 재실행 결과다. 나중의 깨끗한 런이 이미 있으면 표가 그것을 쓴다.
+# task	day	hhmm	사유
+headless-terminal	2026-08-23	1605	solution/headless_terminal.py + tests/test_outputs.py 페치 — 정답과 채점 테스트
+headless-terminal	2026-08-23	2257	tests/test_outputs.py 페치 — 채점 테스트
+extract-elf	2026-08-24	0201	solution/extract.js 페치 — 정답 파일
+mteb-leaderboard	2026-08-23	1630	과제 README 페치
+mteb-leaderboard	2026-08-23	1822	과제 README 페치
+qemu-alpine-ssh	2026-08-24	0938	이슈 #195(Rosetta 번역 오류) 페치
+mteb-leaderboard	2026-08-24	2250	과제 README 페치 (응답은 비었음)
+build-pov-ray	2026-08-25	0721	solution/solve.sh를 webfetch한 뒤 curl로 다시 받음 — 정답 파일
+qemu-alpine-ssh	2026-08-25	1107	이슈 #195(Rosetta 번역 오류) 페치
+torch-pipeline-parallelism	2026-08-26	1006	태스크가 요구한 함수명 train_step_pipeline_afab으로 검색해 huggingface/picotron_tutorial의 참조 구현(pipeline_parallel.py·model.py·train.py)을 통째로 페치 — 데이터셋 저장소는 아니나 이 과제의 원본이다
+regex-chess	2026-08-26	1005	데이터셋 저장소의 regex-chess/solution/solve.sh를 직접 webfetch — 문서에 적힌 이 태스크의 격리 선례가 재현됐다
+regex-chess	2026-08-26	1243	재실행이 또 정답을 읽음 — terminal-bench-2-1/tasks/regex-chess/solution/solve.sh (webfetch 2회 + curl 1회)
+# regex-chess 1310 은 격리 목록에서 뺐다 — 격리는 그 이전 시행까지 데려가는데, 이 과제는
+# 깨끗한 시행이 없어 그러면 행이 통째로 사라진다. build_bench_page 의 ADOPT 가 이 시행을
+# 지목해 싣고, 여덟 번 다 답을 받아왔다는 한계를 카드에 적는다.
