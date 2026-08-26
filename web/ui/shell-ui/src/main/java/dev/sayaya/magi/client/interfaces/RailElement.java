@@ -216,12 +216,18 @@ public class RailElement implements RailView {
     }
 
     // ── 열고 닫기 ────────────────────────────────────────────────────────────
-    // 남은 상태는 폭 하나다: 1단이 열려도 기둥이라 모양 전환(nav-wide)이 없고,
-    // 따라서 닫힘의 250ms 지연도 없다 — 2단은 CSS가 폭과 함께 걷는다.
+    // 운영 콘솔의 2속성 기계 그대로: nav=open은 폭이고 nav-wide는 모양이다. console.css의
+    // 펼친 배치(words 그리드·선택 필·아이템 형태)가 nav-wide에 키가 걸려 있으므로, 하나만
+    // 세팅하면 폭은 열리는데 모양이 안 따라온다 — 실측으로 되밟은 결함. 닫을 때 모양은
+    // 250ms 늦게 걷는다: 폭 트랜지션 중에 낱말이 먼저 무너지지 않게(원본의 그 지연).
+
+    private double widePending = -1;
 
     private void toggle() {
         if ("open".equals(DomGlobal.document.body.getAttribute("nav"))) { close(); return; }
+        if (widePending >= 0) { DomGlobal.clearTimeout(widePending); widePending = -1; }
         DomGlobal.document.body.setAttribute("nav", "open");
+        DomGlobal.document.body.setAttribute("nav-wide", "");
         menu.setAttribute("aria-expanded", "true");
         mode.drawer(true);
     }
@@ -229,6 +235,10 @@ public class RailElement implements RailView {
     private void close() {
         DomGlobal.document.body.removeAttribute("nav");
         menu.setAttribute("aria-expanded", "false");
+        widePending = DomGlobal.setTimeout(a -> {
+            DomGlobal.document.body.removeAttribute("nav-wide");
+            widePending = -1;
+        }, 250);
         hover.next(null);
         mode.drawer(false);
     }

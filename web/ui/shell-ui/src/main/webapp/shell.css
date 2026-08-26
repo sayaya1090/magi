@@ -25,10 +25,13 @@ body:not([nav="open"]) #rail[tool="expand"] {
 body:not([nav="open"]) #rail[tool="expand"] #railTool .words { display:block; }
 body:not([nav="open"]) #rail[tool="collapse"] #railTool .words { display:none; }
 
-/* 열린 드로어: 툴 레일은 1단 메뉴 레일 오른쪽의 둘째 기둥이다(머리 = 문의 이름·문장). */
+/* 열린 드로어: 툴 레일은 펼쳐진 메뉴 레일(20rem) 오른쪽의 둘째 기둥이다(머리 = 문의
+   이름·문장). 그때만 드로어가 그만큼 더 넓어진다 — 도구 없는 문(오늘 전부)은 운영과
+   같은 20rem 한 기둥이다. */
+body[nav="open"]:has(#rail[tool="expand"]) { --magi-comp-rail-now:34rem; }
 body[nav="open"] #rail[tool="expand"] #railTool {
   display:flex; flex-direction:column; gap:var(--magi-sys-space-50);
-  position:absolute; left:var(--magi-comp-rail-w); right:0; top:0; bottom:0;
+  position:absolute; left:20rem; right:0; top:0; bottom:0;
   padding:calc(var(--magi-sys-space-150) + env(safe-area-inset-top)) var(--magi-sys-space-200) var(--magi-sys-space-200);
   border-left:1px solid var(--magi-ref-outlineVariant);
   overflow:hidden auto; overscroll-behavior:contain;

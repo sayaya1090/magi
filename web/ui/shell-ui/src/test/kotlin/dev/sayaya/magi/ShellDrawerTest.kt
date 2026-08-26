@@ -26,10 +26,13 @@ internal class ShellDrawerTest : GwtTestSpec({
         }
         When("버거를 누르면") {
             page.locator("#railMenu").click()
-            Then("드로어가 열리고(nav=open) 라벨은 1단 메뉴 레일이 말한다") {
+            Then("드로어가 열리고(nav=open, 모양은 nav-wide) 라벨은 메뉴 레일이 말한다") {
                 page.waitForSelector("body[nav=open]")
+                page.waitForSelector("body[nav-wide]")
+                // 라벨은 폭 트랜지션을 따라온다(원본의 지연) — 보일 때까지 기다려 잰다.
                 // 언어 팩이 없는 테스트 페이지라 키가 폴백이다 — 구조가 계약이고 문구는 팩의 몫.
-                page.locator("#railNav .raili .lbl").first().isVisible() shouldBe true
+                page.locator("#railNav .raili .lbl").first().waitFor()
+                page.locator("#railNav .raili .lbl").first().textContent() shouldBe "nav.companions"
             }
             Then("툴 레일(2단)은 속이 비어 펼쳐지지 않는다 — handbook 규칙, 아직 용례가 없다") {
                 page.locator("#railPanel").isVisible() shouldBe false
