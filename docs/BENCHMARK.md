@@ -98,18 +98,60 @@ grep -ohE '⚙ (websearch|webfetch)' "$@" | sort | uniq -c
 grep -ohE '⚙ (websearch|webfetch) \{[^}]{0,200}' "$@"        # read every one of them
 grep -ohE '⚙ bash \{"command": "[^"]{0,160}' "$@" | grep -iE 'curl|wget|git clone'
 grep -oih 'terminal-bench' "$@" | wc -l
+grep -ohE '⚙ (read|grep|bash) \{[^}]{0,200}' "$@" | grep -E 'test_outputs\.py|correct_output|_gtruth'
 ```
 
 Scope matters: an unscoped glob sweeps every job the repo has ever collected, and an audit that
 counts other runs' calls is not an audit of this one.
 
+**The dataset answers to two names, and a pattern that knows one of them is blind.** The GitHub
+organisation is `harbor-framework`, hyphenated; the hub and the task registry are
+`harborframework.com`, not. An audit pattern written from the repository URLs alone therefore never
+sees `registry.harborframework.com/tasks/...`, which is the task page served under its other name.
+That gap was found by eye on 2026-08-26, in a re-run of a task that had already been quarantined
+once, and closing it (`harbor-?framework`) turned up three more trials the earlier sweeps had
+passed. Any name the dataset can be reached by belongs in the pattern; write them from the hosts
+that actually served content, not from the one URL shape you happen to remember.
+
 **A trial that went looking for the answer is re-run on its own.** The check above is not
 decorative: a trial can and does find the benchmark's own task pages on GitHub, and once it has, its
-verdict is not evidence about the agent. So any trial whose web calls reached the dataset's task or
-solution pages is quarantined — the result stands in no table on its own, the task is queued again
-after the last of the eighty-nine, and **the re-run is the result that counts**. Which tasks those
-were is named with the results rather than folded silently into the total, because a reader cannot
-audit what a table does not mention.
+verdict is not evidence about the agent. So any trial whose web calls reached the dataset's task
+pages, its solution files, or its grading tests is quarantined: the result stands in no table on its
+own, the task is queued again after the last of the eighty-nine, and **the re-run is the result that
+counts**. Which tasks those were is named with the results rather than folded silently into the
+total, because a reader cannot audit what a table does not mention.
+
+**The web is half the check.** A grader that is already in the container is one `read` away, and
+no amount of reading web calls will see it. Extending the scan to local reads on 2026-08-26 (for
+`test_outputs.py`, `correct_output`, `ground_truth`, `/tests/test.sh`) turned up exactly one run
+across 123: `break-filter-js-from-html`, which read `/app/test_outputs.py` and ran it. That one is
+not a hold. Its Dockerfile has `COPY tests/test_outputs.py /app` and its instruction ends "You can
+run /app/test_outputs.py to verify", so there the grader is the specification and reading it is
+doing as told. It is the only task of the eighty-nine that hands its grader over.
+
+Keeping the name list narrow is what makes the scan quiet enough to read: a repository under repair
+brings its own suite, and caffe's `src/caffe/test/test_io.cpp` and `fix-code-vulnerability`'s
+`/app/test/test_environ.py` both stayed silent.
+
+**A grading test is worse than a solution file, so it is held the same way.** On 2026-08-23 two
+`headless-terminal` trials fetched `tests/test_outputs.py` from the dataset's repository. A solution
+file shows one way to the answer; the grading test names the assertions the verdict is computed
+from, which is the answer key itself. Both trials are held.
+
+**When the re-run reaches the same page, the rule loops -- and then the result stands, named.**
+`mteb-leaderboard` fetched its own task README on all five trials this repository has watched (two
+on 2026-08-23, one on 08-24, two on 08-26). That is the task's shape, not the agent's habit: the
+instruction asks for *"the best embedding model on the Scandinavian MTEB leaderboard as of August
+2025"*, which cannot be answered without the web, and that search puts the dataset's own task page
+near the top. Quarantine → re-run → reach again repeats without end, so this one row **carries its
+re-run result into the table and its reason into this section.** What the hold is for is stopping a
+reader from weighing that row like the others, and naming it does that too.
+
+**A hold covers the trial's predecessors too.** Dropping the one quarantined trial is not enough on
+its own: the task's next-oldest trial moves up in its place and the table shows a number the rule
+never adopted. Wiring the hold on 2026-08-26 made that visible in one step — three trials were held
+and the totals did not move, because three older trials had stepped in. So a hold reaches every
+trial of that task at or before it, and the task counts as unmeasured until the re-run lands.
 
 **The audit of the run below.** Across the 89 trials the agent made 41 web fetches and 18 web
 searches, and every one was read. Two of them reached the dataset's own pages on GitHub:
@@ -119,9 +161,63 @@ first passes, the second fails for the reason named above.
 
 Two earlier trials did reach solution files, which is why the quarantine rule exists rather than
 being hypothetical. `extract-elf` fetched a `solution/solve.sh` and `regex-chess` decoded a
-solution blob from a third-party mirror of the dataset. Both were re-run, and **neither re-run made
-any such fetch**: `extract-elf` passed again in fewer calls than the quarantined attempt (20 against
-29), and `regex-chess` passed unaided. The re-runs are the results in the table.
+solution blob from a third-party mirror of the dataset. Both were re-run. `extract-elf`'s re-run
+made no such fetch and passed again in fewer calls than the quarantined attempt (20 against 29).
+`regex-chess` did pass unaided on that occasion, but it has not repeated it: on 2026-08-26 two
+successive trials each fetched `tasks/regex-chess/solution/solve.sh` from the dataset, the second
+by `webfetch` twice and `curl` once. Both are held, and the task counts as unmeasured rather than
+as the 1.00 those trials returned — a pass read off the answer file measures nothing. This is the
+opposite ending to `mteb-leaderboard`'s: there the reached page is the task's own README and the
+instruction cannot be answered without the web, so the row stands with its reason named; here the
+reached file is the answer, so no row stands at all.
+
+**Audit the other side too, or the comparison is only half-checked.** A leaderboard row is a
+number until its trials are read, and the same question — did it find the answer instead of working
+it out — applies to the baseline. Harbor Hub serves each trial's full trajectory as JSON, no login
+required, at `/api/trials/{trialId}/trajectory?jobId={jobId}&trajectory_path=trials%2F{trialId}%2Ftrajectory.json`;
+the trial ids come from the row's result pages, which are server-rendered, so the whole set can be
+pulled with `curl` and scanned offline. Doing that for row `d7540f21` (claude-code 2.1.205 /
+claude-sonnet-5, 445 trials) on 2026-08-26 fetched 440 trajectories, 439 of them non-empty, and the
+same three patterns found **zero** trials reaching the dataset's task pages, solution files or
+grading tests.
+
+**What that scan also settled is that both agents used the web.** An earlier draft of the
+comparison page claimed Claude Code had no web access, on the strength of a few sampled trajectories
+showing only Bash, Read and Edit. Bash is enough: 54 of the 439 trials (22 tasks) called `curl` or
+`wget` against an external host, and 30 of them (13 tasks) reached somewhere that was not a package
+or distribution mirror. Six trials across four tasks — `build-pov-ray`, `crack-7z-hash`,
+`dna-assembly`, `regex-chess` — called a search engine directly: no search tool, but search all the
+same. Those counts are a floor, not the total, because a scan keyed on `curl` and `wget` misses the
+other ways out: `git clone`, and Python's own `urllib.request`, which one trial used to query
+`api.github.com/search/repositories`. Counting every URL that appears anywhere in a trajectory
+raises it to **165 of 439 trials across 45 of the 89 tasks** — near half the set went outside.
+Grep for the verbs you remember and you will measure the verbs you remember; grep for URLs and you
+measure what actually left the container. Where both agents went out, they often went to the same place: `dna-assembly` to
+`www.neb.com` on both sides, `build-pov-ray` to `povray.org` and a search engine on both,
+`caffe-cifar-10` to `cs.toronto.edu` on all five baseline trials. One baseline trial of
+`torch-pipeline-parallelism` fetched `api.github.com/repos/huggingface/picotron` and its README —
+the same reference implementation that put this repository's own trial of that task under
+quarantine. Read the other side before calling a tool difference an advantage.
+
+**Reaching the dataset is not the only way to reach the answer.** A task whose answer is a well
+known public project is reachable by its own name, and the audit patterns above — dataset, solution
+file, grading test — will not see it. `regex-chess` is the case in full: the task asks for a chess
+move generator built only from regular expressions, its author is Nicholas Carlini, and
+`github.com/carlini/regex-chess` is his published implementation of exactly that. This repository's
+three trials on 2026-08-26 each reached it, by three different routes — the dataset's own
+`solution/solve.sh` twice, then a third-party mirror of the dataset, the author's own repository,
+his write-up, and a third party's collection of solved trajectories. The baseline is not clean here
+either: one of its five trials searched GitHub through `urllib`, found the repository, and cloned
+it. Note the asymmetry that matters, though — the other four baseline trials went nowhere at all
+and passed anyway, so this is a task solvable without looking. A judge for such a task has to name
+the origin project alongside the dataset, which is what `scratchpad/rc_clean.py` does.
+
+**A contaminated trial does not need to finish.** The verdict comes from its web calls, and those
+land in the first minutes; waiting out the remaining half hour buys nothing. So the re-run loop
+polls the transcript, kills the trial the moment it reaches, and starts the next one — which turns
+a thirty-minute attempt into a twenty-second one and makes matching the baseline's k=5 affordable.
+Kill by PID: `pkill -f <pattern>` matches the loop's own command line and has killed the loop
+itself more than once in this repository.
 
 The check is complete rather than partial, and that is measurable: this run made **zero** `spawn`,
 `meeting` and `hand_off` calls, so no delegated subagent kept a session store of its own and the
@@ -132,6 +228,14 @@ properties of the endpoint, not of any one task, so they are a property of the R
 results below rather than left to be inferred from the numbers.
 
 ## Results
+
+**The head-to-head report is a page of its own:**
+[magi vs Claude Code on Terminal-Bench 2.1](https://claude.ai/code/artifact/b8bbb95a-24f0-4ed5-a2c2-4d27b3981a0e). It carries the per-task table — magi's verdict,
+call and token counts beside the baseline's five trials and its cost — plus a written card for
+every task magi failed and every task only magi solved, the quarantine list with the reason each
+trial was held, and the audit of both sides' web use. It is regenerated from the job directories by
+`bench/harbor/compare/build_page.py`, so it is a view of the run rather than a transcription of it.
+The page is private until it is shared from its own share menu.
 
 magi on `claude-sonnet-5`, reasoning effort HIGH (a setting of the backend, not pinned by a magi
 flag), repeat-collapsing off (an env switch at the time; the mechanism has since been removed),
@@ -274,12 +378,24 @@ The VM allocation is the number that matters: at two concurrent trials each gets
 ~3.8 GiB, and a task that compiles or trains something is working inside that, not inside a 14-core
 machine. Raising the VM's share is what would make higher concurrency safe.
 
-Three consequences are visible in the results rather than hypothetical:
+Four consequences are visible in the results rather than hypothetical:
 
-- **`qemu-alpine-ssh` cannot pass here.** Its container logs `rosetta error: Unimplemented syscall
-  number 282` — an x86 binary hitting a hole in Apple's translation layer. The agent diagnosed it
-  correctly ("amd64 qemu can never run tcg under rosetta here"). It failed on the re-run too. On a
-  native amd64 host this failure does not exist.
+- **`qemu-alpine-ssh` starts from a handicap this architecture creates.** Its container logs
+  `rosetta error: Unimplemented syscall number 282` before the task's own work begins — an x86
+  binary hitting a hole in Apple's translation layer. On a native amd64 host the hole is not there,
+  so part of this task's 900-second budget pays for the host rather than for the task. An earlier
+  draft of this section called the task unpassable here. Two trials on 2026-08-26 showed that was
+  wrong: the handicap is a cost, not a wall.
+- **Two separate ways past the hole, found by two trials.** `qemu-startup` searched the error
+  string, landed on `docker/for-mac#7475`, and installed an **arm64-native QEMU inside the amd64
+  container** (`dpkg --add-architecture arm64`, then `apt-get install qemu-system-x86:arm64`),
+  which never enters the translation layer at all; that trial passed. `qemu-alpine-ssh` found the
+  same multi-arch route blocked by gstreamer dependency conflicts and went a layer lower instead,
+  **with no web access at all**: `objdump -T` located `qemu_signalfd`, and a 32-line `LD_PRELOAD`
+  interposer returned `ENOSYS` for syscalls 282 (`signalfd`) and 289 (`signalfd4`) so QEMU fell
+  back to its own pipe-based path. SeaBIOS booted, and Alpine 3.19 reached `localhost login:` after
+  3 m 2 s of VM time — but the 15-minute budget ended moments later with sshd untouched. What beat
+  that trial was the budget, not the architecture.
 - **`install-windows-3.11` ran QEMU without KVM** (`/dev/kvm` absent), so its guest ran on pure
   software emulation for 57 minutes and lost. A Linux host would need `--device /dev/kvm` passed
   through to do better, so this one is not purely a macOS penalty — but it is a penalty.
