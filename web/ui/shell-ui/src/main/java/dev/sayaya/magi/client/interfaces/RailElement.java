@@ -2,8 +2,10 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.client.domain.Destination;
+import dev.sayaya.magi.client.domain.RailModes;
 import dev.sayaya.magi.client.usecase.MenuHover;
 import dev.sayaya.magi.client.usecase.Navigation;
+import dev.sayaya.magi.client.usecase.RailMode;
 import dev.sayaya.magi.client.usecase.RailView;
 import dev.sayaya.magi.client.usecase.RosterStore;
 import elemental2.dom.DomGlobal;
@@ -21,20 +23,22 @@ import java.util.Map;
 import static dev.sayaya.magi.bridge.Labels.tr;
 
 /**
- * 드로어 — 2단(handbook식): 1단은 목적지 아이콘 기둥이고, 열리면 그 오른쪽에 2단 패널
- * (ToolRailElement)이 선다. 1단은 열려도 기둥 모양을 지킨다 — 문장과 속은 2단의 몫이라,
- * 옛 nav-wide(모양 전환) 기계는 이 판에서 은퇴했다: 남은 상태는 body[nav="open"](폭) 하나다.
+ * 드로어 — 메뉴 레일(목적지 전부, 컴패니언 포함)이 기본 기둥이고, 열리면 라벨과 문장
+ * (console.css의 열림 규칙)도 여기가 말한다. 옛 nav-wide(모양 전환) 기계는 은퇴 —
+ * 남은 상태는 body[nav="open"](폭) 하나다.
  *
- * 호버 피크: 열린 드로어에서 1단의 문 위에 손끝이 오면 2단이 그 문의 속을 미리 보인다.
- * 리셋은 레일 전체를 벗어날 때만 — 1단→2단으로 건너가는 길에 끊기면 피크가 쓸 수 없는
- * 물건이 된다(호버 터널).
+ * 툴 레일(ToolRailElement)은 도구가 2개 이상인 문에서만 선다 — 접히면 기둥을 대신하고
+ * (메뉴는 HIDE, ← 로 복귀), 열리면 둘째 기둥이다. 두 기둥의 상태는 RailMode가 계산해
+ * #rail의 menu/tool 속성으로 적힌다 — CSS가 그 속성을 읽는다. 아직 도구를 등록한 문이
+ * 없어(용례 대기) 화면은 메뉴 기둥뿐이다.
  *
- * 대기 배지는 컴패니언 문의 아이콘 위에 산다 — 1단이 늘 기둥이므로 옮겨 다닐 일이 없다.
+ * 대기 배지는 컴패니언 문의 아이콘 위에 산다.
  */
 @Singleton
 public class RailElement implements RailView {
     private final Navigation nav;
     private final MenuHover hover;
+    private final RailMode mode;
     private final HTMLElement rail = el("nav");
     private final HTMLElement scrim = el("div");
     private final HTMLElement menu = el("md-icon-button");
@@ -43,11 +47,27 @@ public class RailElement implements RailView {
     private int waiting = 0;
 
     @Inject
-    public RailElement(Navigation nav, RosterStore roster, MenuHover hover, ToolRailElement panel) {
+    public RailElement(Navigation nav, RosterStore roster, MenuHover hover, RailMode mode, ToolRailElement panel) {
         this.nav = nav;
         this.hover = hover;
+        this.mode = mode;
         build(panel);
         roster.subscribe(this::countWaiting);
+        mode.subscribe(this::applyModes);
+    }
+
+    /** 두 기둥의 상태를 속성으로 — CSS가 읽는 계약: #rail[menu=…][tool=…]. */
+    private void applyModes() {
+        rail.setAttribute("menu", word(mode.menu()));
+        rail.setAttribute("tool", word(mode.tool()));
+    }
+
+    private static String word(RailModes.State s) {
+        switch (s) {
+            case EXPAND: return "expand";
+            case COLLAPSE: return "collapse";
+            default: return "hide";
+        }
     }
 
     public HTMLElement element() { return rail; }
@@ -138,10 +158,12 @@ public class RailElement implements RailView {
         foot.id = "railFoot";
         rail.append(foot);
 
-        // 2단 — 열림(body[nav=open])에서만 그려진다는 것은 CSS의 사실이다.
+        // 툴 레일 — 언제 어떤 모습인지는 RailMode(#rail의 menu/tool 속성)가 말한다.
         rail.append(panel.element());
-        // 호버 터널: 레일(2단 포함) 전체를 벗어날 때만 피크를 접는다.
-        rail.addEventListener("mouseleave", evt -> hover.next(null));
+        // 호버 터널: 레일 전체를 벗어날 때만 피크를 접는다. 접힌 툴 기둥의 라벨 피크는
+        // 레일 위에 손끝이 있다는 사실 자체가 켠다(RailMode.hover).
+        rail.addEventListener("mouseenter", evt -> mode.hover(true));
+        rail.addEventListener("mouseleave", evt -> { mode.hover(false); hover.next(null); });
 
         // 배지: 컴패니언 문의 아이콘 위 — 1단이 늘 기둥이라 여기가 늘 제자리다.
         badge.id = "railBadge";
@@ -201,12 +223,14 @@ public class RailElement implements RailView {
         if ("open".equals(DomGlobal.document.body.getAttribute("nav"))) { close(); return; }
         DomGlobal.document.body.setAttribute("nav", "open");
         menu.setAttribute("aria-expanded", "true");
+        mode.drawer(true);
     }
 
     private void close() {
         DomGlobal.document.body.removeAttribute("nav");
         menu.setAttribute("aria-expanded", "false");
         hover.next(null);
+        mode.drawer(false);
     }
 
     // ── 잔손 ─────────────────────────────────────────────────────────────────

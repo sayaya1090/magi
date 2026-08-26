@@ -1,136 +1,108 @@
 package dev.sayaya.magi.client.interfaces;
 
-import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.client.domain.Destination;
+import dev.sayaya.magi.client.domain.RailModes;
+import dev.sayaya.magi.client.domain.Tool;
 import dev.sayaya.magi.client.usecase.MenuHover;
 import dev.sayaya.magi.client.usecase.Navigation;
-import dev.sayaya.magi.client.usecase.RosterStore;
+import dev.sayaya.magi.client.usecase.RailMode;
+import dev.sayaya.magi.client.usecase.ToolList;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import static dev.sayaya.magi.bridge.Labels.stateWord;
 import static dev.sayaya.magi.bridge.Labels.tr;
 
 /**
- * 드로어의 2단 — handbook 툴 레일의 번역. 1단이 "어디로"라면 2단은 "그 안의 무엇":
- * 호버가 가리키는 문(피크), 없으면 서 있는 문의 속을 보인다.
+ * 툴 레일 — handbook 툴 레일의 번역. 도구가 2개 이상인 문에서만 선다(RailModes):
+ * 접힌 드로어에서는 메뉴 기둥을 대신해 **기둥 자체가 툴 레일이 되고**(아이콘, 피크 시
+ * 라벨), 첫 항목은 ←(메뉴 레일로) — 선택은 유지된다. 열린 드로어에서는 1단 메뉴 레일
+ * 오른쪽의 둘째 기둥으로 선다(머리 = 문의 이름과 문장).
  *
- * 컴패니언 문의 속은 실제 명단이다 — 셸이 이미 소유한 스트림(RosterStore)에서 읽으므로
- * 요청 하나 늘지 않는다. 항목은 그 컴패니언 화면으로 가는 문이다 — 타입이 정한 모듈이
- * 뜬다(코딩 에이전트면 companion-ui).
+ * 아직 어느 문도 도구를 등록하지 않아(ToolList.provide 용례 대기) 화면에는 없다 —
+ * handbook 규칙: 속이 비면 펼쳐지지 않는다.
  */
 @Singleton
 public class ToolRailElement {
+    private final HTMLElement box = el("div");
+    private final RailMode mode;
+    private final MenuHover hover;
     private final Navigation nav;
-    private final HTMLElement panel = el("div");
-    private Destination selected = null;   // 손끝이 떠났을 때의 복귀처 — 서 있는 문
-    private Destination showing = null;
-    private FleetAgent[] roster = null;
+    private List<Tool> tools = List.of();
+    private Destination showing = null;   // 열린 드로어의 머리가 대는 문
 
     @Inject
-    public ToolRailElement(Navigation nav, MenuHover hover, RosterStore store) {
+    public ToolRailElement(RailMode mode, ToolList list, MenuHover hover, Navigation nav) {
+        this.mode = mode;
+        this.hover = hover;
         this.nav = nav;
-        panel.id = "railPanel";
-        // 피크가 우선, 손끝이 비면 선택된 문 — 렌더는 늘 "무엇을 보일까"의 결과다.
-        hover.subscribe(d -> show(d != null ? d : selected));
-        nav.subscribe(place -> {
-            selected = place.section;
-            if (hover.current() == null) show(place.section);
-        });
-        store.subscribe(list -> {
-            if (list == null) return;   // 못 읽음은 마스트헤드의 점이 말한다; 여긴 마지막 앎
-            roster = list;
-            if (showing != null) render();
-        });
+        box.id = "railTool";
+        nav.subscribe(place -> { if (hover.current() == null) showing = place.section; });
+        hover.subscribe(d -> { if (d != null) showing = d; render(); });
+        list.subscribe(now -> { tools = now == null ? List.of() : now; render(); });
+        mode.subscribe(this::render);
     }
 
-    public HTMLElement element() { return panel; }
-
-    private void show(Destination d) {
-        if (d == null) return;
-        showing = d;
-        render();
-    }
+    public HTMLElement element() { return box; }
 
     private void render() {
-        panel.replaceChildren();
-        HTMLElement head = el("div");
-        head.className = "railpanel-head";
-        head.textContent = tr(showing.labelKey);
-        HTMLElement sub = el("div");
-        sub.className = "railpanel-sub";
-        sub.textContent = tr(showing.subKey);
-        panel.append(head, sub);
-        // 문마다 제 속이 있다. 지금은 컴패니언 문 하나 — 셋째 문이 생기면 이 분기가
-        // 목적지별 제공자(포트)로 승격된다.
-        if (Destination.FLEET.id.equals(showing.id)) fleetEntries();
+        box.replaceChildren();
+        if (mode.tool() == RailModes.State.HIDE) return;
+        // 열린 드로어의 둘째 기둥엔 머리가 선다 — 어느 문의 속인지.
+        if (mode.open() && showing != null) {
+            HTMLElement head = el("div");
+            head.className = "railpanel-head";
+            head.textContent = tr(showing.labelKey);
+            HTMLElement sub = el("div");
+            sub.className = "railpanel-sub";
+            sub.textContent = tr(showing.subKey);
+            box.append(head, sub);
+        } else {
+            // 접힌 기둥의 첫 항목: ← 메뉴 레일로. 선택을 잃지 않는다.
+            HTMLElement back = el("md-icon-button");
+            back.id = "railToolClose";
+            back.setAttribute("aria-label", tr("nav.menu"));
+            back.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+                    + "<path d=\"M14 6l-6 6 6 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" "
+                    + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+            back.addEventListener("click", evt -> { evt.preventDefault(); mode.dismiss(); });
+            box.append(back);
+        }
+        List<Tool> sorted = new ArrayList<>(tools);
+        sorted.sort(Comparator.comparingInt(t -> t.order));
+        for (Tool t : sorted) box.append(item(t));
     }
 
-    private void fleetEntries() {
-        if (roster == null || roster.length == 0) {
-            HTMLElement none = el("div");
-            none.className = "railpanel-empty";
-            none.textContent = tr("empty.no_agents");
-            panel.append(none);
-            return;
-        }
-        // 골칫거리 먼저 — 표와 같은 순서. 정본은 fleet-ui의 domain에 있다; 셋째 사용처가
-        // 생기면 bridge로 승격해 한 벌로 줄인다.
-        List<FleetAgent> rows = new ArrayList<>();
-        for (FleetAgent a : roster) rows.add(a);
-        rows.sort((x, y) -> {
-            int d = Boolean.compare(x.elsewhere, y.elsewhere);
-            return d != 0 ? d : rank(x.state) - rank(y.state);
+    /** 도구 하나 — 메뉴 문과 같은 마크업 계약(.raili/.icwrap/.words)이라 스타일이 공짜다. */
+    private HTMLElement item(Tool t) {
+        HTMLElement b = el("button");
+        b.className = "raili tooli";
+        b.setAttribute("type", "button");
+        HTMLElement icwrap = el("span");
+        icwrap.className = "icwrap";
+        icwrap.innerHTML = "<svg class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
+                + "<path d=\"" + t.iconPath + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
+                + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+        HTMLElement words = el("span");
+        words.className = "words";
+        HTMLElement lbl = el("span");
+        lbl.className = "lbl";
+        lbl.textContent = tr(t.labelKey);
+        words.append(lbl);
+        b.setAttribute("aria-label", tr(t.labelKey));
+        b.append(icwrap, words);
+        b.addEventListener("click", evt -> {
+            evt.preventDefault();
+            if (t.run != null) t.run.run();
         });
-        for (FleetAgent a : rows) {
-            HTMLElement item = el("a");
-            item.className = "subitem " + group(a.state);
-            HTMLElement dot = el("span");
-            dot.className = "sdot";
-            HTMLElement name = el("span");
-            name.textContent = a.name;
-            HTMLElement word = el("span");
-            word.className = "sword";
-            word.textContent = stateWord(a.state);
-            item.append(dot, name, word);
-            // 항목은 그 컴패니언 화면으로 가는 문 — 이동은 셸의 Navigation이 진다.
-            final String socket = a.socket;
-            final String peer = a.peer;
-            item.addEventListener("click", evt -> {
-                evt.preventDefault();
-                nav.goCompanion(socket, peer);
-            });
-            panel.append(item);
-        }
-    }
-
-    private static int rank(String s) {
-        if (s == null) return 2;
-        switch (s) {
-            case "waiting": return 0;
-            case "working": return 1;
-            case "idle": return 2;
-            case "abandoned": return 3;
-            case "stopped": return 4;
-            default: return 5;
-        }
-    }
-
-    private static String group(String s) {
-        if (s == null) return "idle";
-        switch (s) {
-            case "waiting": case "working": case "idle": return s;
-            case "abandoned": case "stopped": return "gone";
-            case "remote": return "remote";
-            default: return "idle";
-        }
+        return b;
     }
 
     private static HTMLElement el(String tag) { return Js.uncheckedCast(DomGlobal.document.createElement(tag)); }

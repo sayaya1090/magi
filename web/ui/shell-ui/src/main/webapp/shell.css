@@ -1,22 +1,46 @@
-/* 셸 자신의 것: 2단 드로어. 토큰과 레일 골격은 console.css(:root, #rail)의 것을 읽고,
-   여기는 그 위에 얹는 둘째 기둥만 말한다 — handbook의 메뉴 레일+툴 레일 번역. */
+/* 셸 자신의 것: 레일의 두 기둥. 토큰·레일 골격·1단(메뉴 레일)의 열림 규칙은 console.css의
+   것을 그대로 쓰고, 여기는 RailMode가 #rail에 적는 menu/tool 속성의 결과만 말한다 —
+   handbook 메뉴 레일+툴 레일의 번역. 도구를 등록한 문이 아직 없어(용례 대기) 기본 화면은
+   메뉴 기둥뿐이다: 속이 비면 펼쳐지지 않는다. */
 
-/* 2단 패널: 1단 아이콘 기둥(--magi-comp-rail-w) 오른쪽의 나머지 전부. 드로어가 닫히면
-   없다 — 폭 트랜지션 중에도 그리지 않는 것이 재배치 플린치를 막는다. */
-#railPanel {
+/* 메뉴 기둥이 숨는 유일한 경우: 접힌 드로어에서 도구(>1)가 기둥을 대신할 때. */
+#rail[menu="hide"] #railNav { display:none; }
+
+/* 툴 레일 — 기본은 없음. */
+#railTool { display:none; }
+
+/* 접힌 기둥이 툴 레일이 된 모습: 메뉴 기둥과 같은 자리·같은 리듬(아이콘 기둥). */
+#rail[tool="collapse"] #railTool,
+body:not([nav="open"]) #rail[tool="expand"] #railTool {
+  display:flex; flex-direction:column; align-items:stretch;
+  gap:var(--magi-sys-space-50); min-height:0; overflow:hidden auto;
+}
+
+/* 접힌 툴 기둥의 피크(손끝이 레일 위): 라벨이 붙도록 기둥이 잠시 넓어진다 — 오버레이라
+   본문을 밀지 않는다. */
+body:not([nav="open"]) #rail[tool="expand"] {
+  width:15rem;
+  box-shadow:var(--md-sys-elevation-2, 0 2px 6px rgba(0,0,0,.25));
+}
+body:not([nav="open"]) #rail[tool="expand"] #railTool .words { display:block; }
+body:not([nav="open"]) #rail[tool="collapse"] #railTool .words { display:none; }
+
+/* 열린 드로어: 툴 레일은 1단 메뉴 레일 오른쪽의 둘째 기둥이다(머리 = 문의 이름·문장). */
+body[nav="open"] #rail[tool="expand"] #railTool {
+  display:flex; flex-direction:column; gap:var(--magi-sys-space-50);
   position:absolute; left:var(--magi-comp-rail-w); right:0; top:0; bottom:0;
-  display:none; flex-direction:column; gap:var(--magi-sys-space-50);
   padding:calc(var(--magi-sys-space-150) + env(safe-area-inset-top)) var(--magi-sys-space-200) var(--magi-sys-space-200);
   border-left:1px solid var(--magi-ref-outlineVariant);
   overflow:hidden auto; overscroll-behavior:contain;
 }
-body[nav="open"] #railPanel { display:flex; }
 
-/* 열린 드로어에서도 1단은 아이콘 기둥을 지킨다 — 문장(sub)은 2단이 대신 말한다.
-   console.css의 body[nav="open"] .sub 규칙을 여기서 되돌린다. */
-body[nav="open"] #rail .raili .sub { display:none; }
+/* 도구 항목은 메뉴 문과 같은 마크업(.raili)이라 모양이 공짜다 — 버튼이라는 것만 다르다. */
+#railTool .raili.tooli { background:none; border:0; cursor:pointer; text-align:inherit; }
 
-/* 2단의 머리: 어느 문의 속인지, 그리고 그 문이 무엇을 위한 것인지 한 줄. */
+/* ← 메뉴 레일로 — 접힌 툴 기둥의 첫 항목. */
+#railToolClose { margin:0 auto; }
+
+/* 둘째 기둥의 머리: 어느 문의 속인지, 그리고 그 문이 무엇을 위한 것인지 한 줄. */
 .railpanel-head {
   font:600 var(--md-sys-typescale-title-small-size)/1.4 var(--magi-ref-display);
   color:var(--magi-ref-fg);
@@ -24,32 +48,4 @@ body[nav="open"] #rail .raili .sub { display:none; }
 .railpanel-sub {
   font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
   color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-150);
-}
-
-/* 하위 항목 — 컴패니언 하나: 상태 점(색은 상태의 것, 모양은 늘 같은 점)과 이름. */
-.subitem {
-  display:flex; align-items:center; gap:var(--magi-sys-space-100);
-  padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
-  border-radius:var(--magi-sys-shape-full);
-  color:var(--magi-ref-fg); text-decoration:none; cursor:pointer;
-  font:500 var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-mono);
-  overflow-wrap:anywhere;
-}
-.subitem:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
-.subitem:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
-.subitem .sdot { width:7px; height:7px; border-radius:var(--magi-sys-shape-full); background:currentColor; flex:none; }
-.subitem.waiting .sdot { color:var(--magi-ref-warn); }
-.subitem.working .sdot { color:var(--magi-ref-success); }
-.subitem.idle    .sdot { color:var(--magi-ref-accent); }
-.subitem.gone    .sdot { color:var(--magi-ref-error); }
-.subitem.remote  .sdot { color:var(--magi-ref-muted); }
-/* 상태어는 이름 뒤에 조용히 — 점의 색이 유일한 전달자가 되지 않게(색맹 독자). */
-.subitem .sword {
-  margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
-  color:var(--magi-ref-muted); flex:none;
-}
-
-.railpanel-empty {
-  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
-  color:var(--magi-ref-muted);
 }

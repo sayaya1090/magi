@@ -26,16 +26,14 @@ internal class ShellDrawerTest : GwtTestSpec({
         }
         When("버거를 누르면") {
             page.locator("#railMenu").click()
-            Then("드로어가 열리고(nav=open) 2단 패널이 선다") {
+            Then("드로어가 열리고(nav=open) 라벨은 1단 메뉴 레일이 말한다") {
                 page.waitForSelector("body[nav=open]")
-                page.waitForSelector("#railPanel .railpanel-head")
                 // 언어 팩이 없는 테스트 페이지라 키가 폴백이다 — 구조가 계약이고 문구는 팩의 몫.
-                page.locator("#railPanel .railpanel-head").textContent() shouldBe "nav.companions"
+                page.locator("#railNav .raili .lbl").first().isVisible() shouldBe true
             }
-            Then("컴패니언 문의 속은 명단이다 — 기다리는 것이 먼저") {
-                page.locator("#railPanel .subitem").count() shouldBe 2
-                page.locator("#railPanel .subitem").first().getAttribute("class").contains("waiting") shouldBe true
-                page.locator("#railPanel .subitem .sword").count() shouldBe 2
+            Then("툴 레일(2단)은 속이 비어 펼쳐지지 않는다 — handbook 규칙, 아직 용례가 없다") {
+                page.locator("#railPanel").isVisible() shouldBe false
+                page.locator("#railPanel *").count() shouldBe 0
             }
         }
         When("스크림을 누르면") {
@@ -64,10 +62,8 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_loads") shouldBe "[fleet]"
             }
         }
-        When("드로어를 열어 2단의 컴패니언 항목을 누르면") {
-            page.locator("#railMenu").click()
-            page.waitForSelector("#railPanel .subitem")
-            page.locator("#railPanel .subitem").first().click()
+        When("화면이 이동의 문(GoSharing)으로 컴패니언을 청하면") {
+            page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
             Then("주소가 그 컴패니언(?d=)이 되고, 스트림이 그리로 조준된다") {
                 page.waitForCondition { page.url().contains("d=") }
                 page.evaluate("window.__magi_test_aim") shouldBe "/tmp/a1.sock"
@@ -84,6 +80,43 @@ internal class ShellDrawerTest : GwtTestSpec({
             Then("주소에 d가 없고 조준이 비었다") {
                 page.waitForCondition { !page.url().contains("d=") }
                 page.evaluate("window.__magi_test_aim") shouldBe ""
+            }
+        }
+        When("문에 도구 둘이 등록되면(접힌 드로어)") {
+            // 직전 클릭들이 포인터를 레일 위에 두고 갔다 — 손끝이 남아 있으면 피크(expand)가
+            // 정답이라, 접힌 기둥(collapse)을 재려면 손끝부터 치운다.
+            page.mouse().move(700.0, 400.0)
+            page.evaluate("window.__magi_test_provide_tools()")
+            Then("접힌 기둥이 툴 레일이 된다 — 메뉴는 숨고, ←와 도구 아이콘들") {
+                page.waitForSelector("#rail[tool=collapse]")
+                page.locator("#rail[menu=hide]").count() shouldBe 1
+                page.locator("#railNav").isVisible() shouldBe false
+                page.locator("#railTool .raili.tooli").count() shouldBe 2
+                page.locator("#railToolClose").count() shouldBe 1
+            }
+            Then("도구를 누르면 그 도구의 일이 돈다 — 주소는 그대로다") {
+                page.locator("#railTool .raili.tooli").first().click()
+                page.evaluate("window.__magi_test_tool_ran") shouldBe "hammer"
+                page.url().contains("v=") shouldBe false
+            }
+        }
+        When("←(메뉴 레일로)를 누르면") {
+            page.locator("#railToolClose").click()
+            Then("메뉴 기둥이 돌아오고 선택은 유지된다") {
+                page.waitForSelector("#rail[menu=collapse]")
+                page.locator("#rail[tool=hide]").count() shouldBe 1
+                page.locator("#railNav").isVisible() shouldBe true
+                page.locator("#railNav .raili[selected]").count() shouldBe 1
+            }
+        }
+        When("도구 있는 문에서 드로어를 열면") {
+            page.locator("#railMenu").click()
+            Then("메뉴 레일이 라벨과 함께 서고, 툴 레일은 둘째 기둥이 된다(←의 닫힘은 열림이 걷는다)") {
+                page.waitForSelector("body[nav=open]")
+                page.waitForSelector("#rail[tool=expand]")
+                page.locator("#rail[menu=expand]").count() shouldBe 1
+                page.locator("#railTool .railpanel-head").textContent() shouldBe "nav.companions"
+                page.locator("#railTool .raili.tooli").count() shouldBe 2
             }
         }
     }
