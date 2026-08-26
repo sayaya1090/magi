@@ -78,6 +78,9 @@ type child struct {
 	// its own, and only Wait joins it. deadReason waited on `done` and read an empty buffer often
 	// enough to fail CI, reporting "child exited" for a child that had said exactly why.
 	reaped chan struct{}
+	// waitErr is what Wait returned: the exit status, for a child that printed nothing on its way
+	// out. Written once by the reaper before reaped closes, read only after — so no lock.
+	waitErr error
 
 	mu     sync.Mutex
 	closed bool
@@ -179,13 +182,29 @@ func (c *child) deadReason() string {
 	case <-time.After(pipeReapGrace):
 	}
 	tail := strings.TrimSpace(c.stderr.String())
-	if tail == "" {
-		return "child exited"
-	}
 	if len(tail) > 400 {
 		tail = tail[len(tail)-400:]
 	}
-	return "child exited: " + tail
+	// The exit status, when the reaper has it. A child that fails silently — a bad flag, a missing
+	// interpreter — leaves an empty buffer, and "child exited" alone is the shrug this function
+	// exists to avoid.
+	var how string
+	select {
+	case <-c.reaped:
+		if c.waitErr != nil {
+			how = c.waitErr.Error()
+		}
+	default:
+	}
+	switch {
+	case tail != "" && how != "":
+		return "child exited (" + how + "): " + tail
+	case tail != "":
+		return "child exited: " + tail
+	case how != "":
+		return "child exited: " + how
+	}
+	return "child exited"
 }
 
 // bridgePipe implements magi.pipe(cmd, args?, opts?) -> handle | (nil, err).
@@ -268,7 +287,7 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 	// a death watcher is two callers for one call -- so nobody else calls it.
 	go func() {
 		defer close(ch.reaped)
-		_ = c.Wait()
+		ch.waitErr = c.Wait()
 	}()
 	ch.timer = time.AfterFunc(idle, func() {
 		p.logf(fmt.Sprintf("pipe: %s idle for %s; closing", cmdName, idle))
