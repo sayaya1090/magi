@@ -19,16 +19,34 @@ internal class CompanionScreenTest : GwtTestSpec({
                 page.locator("#companion .cfacts .cname").textContent() shouldBe "/tmp/a1.sock"
                 page.locator("#companion .cfacts .ctype").textContent() shouldBe "type.coding"
             }
-            Then("전사 다섯 행 — 목소리와 끝이 클래스에 실린다") {
-                page.locator("#log .row").count() shouldBe 5
+            Then("전사 여섯 행 — 목소리와 끝이 클래스에 실린다") {
+                page.locator("#log .row").count() shouldBe 6
                 page.locator("#log .row.user").count() shouldBe 1
                 page.locator("#log .row.tool.toolok").count() shouldBe 1
                 page.locator("#log .row.tool.toolfail").count() shouldBe 1
                 page.locator("#log .row.pending").count() shouldBe 1
             }
-            Then("툴 행은 접힌 요약 한 줄이다 — 이름과 인자") {
-                page.locator("#log .row.toolok .txt").textContent() shouldContain "bash"
-                page.locator("#log .row.toolok .txt").textContent() shouldContain "go build"
+            Then("기계 행들은 접혀 도착한다 — 요약이 결말(마크)과 답 첫 줄을 말한다") {
+                page.locator("#log .row.toolok details.fold").count() shouldBe 1
+                page.locator("#log .row.toolok summary .mk.ok").count() shouldBe 1
+                page.locator("#log .row.toolok summary").textContent() shouldContain "bash"
+                page.locator("#log .row.toolok summary").textContent() shouldContain "ok: 12 packages"
+                page.locator("#log .row.thinking details.fold").count() shouldBe 1
+            }
+            Then("실패한 편집은 열려서 도착하고, 속은 경로와 줄마다 클래스가 붙은 디프다") {
+                page.locator("#log .row.toolfail details.fold[open]").count() shouldBe 1
+                page.locator("#log .row.toolfail .foldbody pre.diff .dadd").count() shouldBe 1
+                page.locator("#log .row.toolfail .foldbody pre.diff .ddel").count() shouldBe 1
+                page.locator("#log .row.toolfail .foldbody pre.diff .dhunk").count() shouldBe 1
+                page.locator("#log .row.toolfail .foldbody").textContent() shouldContain "main.go"
+            }
+            When("성공한 툴 행을 눌러 펼치면") {
+                page.locator("#log .row.toolok summary").click()
+                Then("물은 것과 답한 것이 각자 라벨 아래 선다") {
+                    page.locator("#log .row.toolok details[open]").count() shouldBe 1
+                    page.locator("#log .row.toolok .foldbody .foldk").count() shouldBe 2
+                    page.locator("#log .row.toolok .foldbody pre").last().textContent() shouldContain "warnings: 0"
+                }
             }
             Then("시각은 행의 홈통에 붙는다") {
                 page.locator("#log .row.user .who .when").count() shouldBe 1

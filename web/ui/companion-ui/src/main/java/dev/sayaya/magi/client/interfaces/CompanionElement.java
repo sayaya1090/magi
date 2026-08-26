@@ -168,9 +168,11 @@ public class CompanionElement {
     private HTMLElement rowNode(JsPropertyMap<Object> r) {
         String who = str(r, "who");
         boolean hasOk = r.has("ok") && r.get("ok") != null;
+        boolean ok = hasOk && Js.isTruthy(r.get("ok"));
+        boolean pending = Js.isTruthy(r.get("pending"));
         HTMLElement d = el("div");
-        d.className = Rows.rowClass(who, hasOk, hasOk && Js.isTruthy(r.get("ok")),
-                Js.isTruthy(r.get("note")), Js.isTruthy(r.get("pending")), Js.isTruthy(r.get("abandoned")));
+        d.className = Rows.rowClass(who, hasOk, ok,
+                Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")));
         HTMLElement w = el("div");
         w.className = "who";
         w.textContent = who;
@@ -181,22 +183,210 @@ public class CompanionElement {
             when.textContent = hhmm(at);
             w.append(when);
         }
+        if (Rows.folded(who)) {
+            d.append(w, foldNode(r, who, hasOk, ok, pending));
+            return d;
+        }
+        if (pending) w.append(tag("row.working"));
+        if (Js.isTruthy(r.get("abandoned"))) w.append(tag("row.abandoned"));
         HTMLElement t = el("div");
         t.className = "txt";
-        if ("tool".equals(who)) {
-            // 접힌 요약 한 줄 — 인자·출력 펼침은 잔여. 무엇이 얼마나 잘렸는지는 클래스가 말한다.
-            t.textContent = str(r, "tool") + "  " + Rows.oneLine(str(r, "args"), 120);
-        } else {
-            t.textContent = str(r, "text");
-        }
+        t.textContent = str(r, "text");
         d.append(w, t);
         return d;
+    }
+
+    /**
+     * 접힌 행 — 원본 rowNode 의 details.txt.fold 계약: 요약(마크+한 줄)이 닫혀 있어도 결말을
+     * 말하고, 속은 fold.asked/fold.answered(디프면 fold.changed) 블록이다. 실패·주석은 열려서
+     * 도착한다 — 읽으라고 온 행이라서. kind별 열림 선호는 localStorage, 프로그램 토글의
+     * 메아리는 쓰지 않는다(원본에서 실측된 그 결함).
+     */
+    private HTMLElement foldNode(JsPropertyMap<Object> r, String who, boolean hasOk, boolean ok, boolean pending) {
+        HTMLElement det = el("details");
+        det.className = "txt fold";
+        det.setAttribute("data-kind", who);
+        boolean openNow = "failed".equals(who) || (hasOk && !ok) || "open".equals(stored("fold." + who));
+        if (openNow) det.setAttribute("open", "");
+        final boolean[] userToggle = {false};
+        det.addEventListener("toggle", evt -> {
+            if (!userToggle[0]) return;
+            store("fold." + who, det.hasAttribute("open") ? "open" : "shut");
+        });
+        DomGlobal.setTimeout(a -> userToggle[0] = true, 0);
+
+        HTMLElement head = el("summary");
+        HTMLElement mk = mark(who, hasOk, ok, Js.isTruthy(r.get("note")));
+        if (mk != null) head.append(mk, DomGlobal.document.createTextNode(" "));
+        head.append(DomGlobal.document.createTextNode(summaryLine(r, who, hasOk)));
+        det.append(head);
+
+        HTMLElement body = el("div");
+        body.className = "foldbody";
+        String args = str(r, "args");
+        String out = str(r, "out");
+        String diff = str(r, "diff");
+        if ("tool".equals(who) || "result".equals(who) || "failed".equals(who) || "shell".equals(who)) {
+            int blocks = 0;
+            if (!diff.isEmpty()) blocks = (pathOf(args).isEmpty() ? 0 : 1) + 1;
+            else blocks = (args.isEmpty() ? 0 : 1) + (out.isEmpty() ? 0 : 1);
+            if (!diff.isEmpty()) {
+                String path = pathOf(args);
+                if (!path.isEmpty()) { if (blocks > 1) body.append(foldKey("fold.asked")); body.append(pre(path, false)); }
+                if (blocks > 1) body.append(foldKey("fold.changed"));
+                body.append(diffPre(diff));
+            } else if (!args.isEmpty() || !out.isEmpty()) {
+                if (!args.isEmpty()) {
+                    if (blocks > 1) body.append(foldKey("fold.asked"));
+                    body.append(pre(args, Rows.looksLikeDiff(args)));
+                }
+                if (!out.isEmpty()) {
+                    if (blocks > 1) body.append(foldKey("fold.answered"));
+                    body.append(pre(out, Rows.looksLikeDiff(out)));
+                }
+            } else {
+                body.append(pre(str(r, "text"), Rows.looksLikeDiff(str(r, "text"))));
+            }
+        } else {
+            // thinking·council: 요약이 첫 줄을 이미 말했으니 속은 전체 본문이다.
+            HTMLElement t = el("div");
+            t.textContent = str(r, "text");
+            body.append(t);
+        }
+        det.append(body);
+        if (pending) {
+            HTMLElement bar = el("md-linear-progress");
+            Js.asPropertyMap(bar).set("indeterminate", true);
+            bar.className = "runbar";
+            bar.setAttribute("aria-label", tr("row.working"));
+            det.append(bar);
+        }
+        return det;
+    }
+
+    /** 요약 마크 — 어떻게 끝났나. 스프라이트가 없는 페이지라 원본의 폴백 글리프를 그대로 쓴다. */
+    private static HTMLElement mark(String who, boolean hasOk, boolean ok, boolean note) {
+        String glyph = null, cls = null;
+        if ("tool".equals(who)) {
+            if (!hasOk) { glyph = "\u2699"; cls = "spin"; }
+            else if (ok) { glyph = "\u2713"; cls = "ok"; }
+            else if (note) { glyph = "\u26A0"; cls = "note"; }
+            else { glyph = "\u2717"; cls = "bad"; }
+        } else if ("result".equals(who)) { glyph = "\u2713"; cls = "ok"; }
+        else if ("failed".equals(who)) { glyph = "\u2717"; cls = "bad"; }
+        if (glyph == null) return null;
+        HTMLElement m = el("span");
+        m.className = "mk " + cls;
+        m.setAttribute("aria-hidden", "true");
+        m.textContent = glyph;
+        return m;
+    }
+
+    /** 접힌 행의 한 줄 — 열지 않고도 판단할 수 있어야 한다(원본 summaryFor의 이식). */
+    private String summaryLine(JsPropertyMap<Object> r, String who, boolean hasOk) {
+        String text = str(r, "text");
+        if ("tool".equals(who)) {
+            String args = str(r, "args");
+            String asked = !str(r, "diff").isEmpty() ? pathOf(args) : Rows.oneLine(args, 60);
+            String said = hasOk ? Rows.firstLine(decodeToolText(str(r, "out")), 44) : "";
+            return str(r, "tool") + (asked.isEmpty() ? "" : " " + asked)
+                    + (said.isEmpty() ? "" : "  \u27F6 " + said);
+        }
+        if ("council".equals(who)) return text.split("\n")[0];
+        if ("shell".equals(who)) return "! " + text;
+        if ("thinking".equals(who)) return tr("row.reasoning") + " \u00B7 " + Rows.oneLine(text, 80);
+        return Rows.oneLine(text, 88);
+    }
+
+    private static HTMLElement foldKey(String key) {
+        HTMLElement k = el("div");
+        k.className = "foldk";
+        k.textContent = tr(key);
+        return k;
+    }
+
+    /** 본문 블록 — 디프면 줄마다 클래스, 아니면 디코드된 텍스트 한 덩어리(pre). */
+    private static HTMLElement pre(String raw, boolean asDiff) {
+        if (asDiff) return diffPre(raw);
+        HTMLElement pre = el("pre");
+        pre.textContent = decodeToolText(raw);
+        return pre;
+    }
+
+    private static HTMLElement diffPre(String text) {
+        HTMLElement pre = el("pre");
+        pre.className = "diff";
+        String body = text == null ? "" : text;
+        if (body.endsWith("\n")) body = body.substring(0, body.length() - 1);
+        for (String line : body.split("\n", -1)) {
+            HTMLElement row = el("span");
+            row.className = Rows.diffLineClass(line);
+            row.textContent = line + "\n";
+            pre.append(row);
+        }
+        return pre;
+    }
+
+    /** 결과의 JSON 인코딩을 그것이 뜻하는 텍스트로 — 원본 decodeToolText의 이식. */
+    private static String decodeToolText(String text) {
+        if (text == null) return "";
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || (trimmed.charAt(0) != '"' && trimmed.charAt(0) != '[')) return text;
+        try {
+            Object v = elemental2.core.Global.JSON.parse(trimmed);
+            if (v instanceof String) return (String) v;
+            if (elemental2.core.JsArray.isArray(v)) {
+                elemental2.core.JsArray<Object> arr = Js.uncheckedCast(v);
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < arr.length; i++) {
+                    if (i > 0) b.append('\n');
+                    Object x = arr.getAt(i);
+                    b.append(x == null || !"object".equals(Js.typeof(x))
+                            ? String.valueOf(x) : elemental2.core.Global.JSON.stringify(x));
+                }
+                return b.toString();
+            }
+        } catch (Exception ignore) { /* JSON이 아니면 온 그대로 */ }
+        return text;
+    }
+
+    /** 호출이 대는 파일 — 디프 위에 놓을 그 경로(원본 pathOf). */
+    private static String pathOf(String args) {
+        try {
+            Object v = elemental2.core.Global.JSON.parse(args == null || args.isEmpty() ? "{}" : args);
+            Object path = Js.asPropertyMap(v).get("path");
+            return path instanceof String ? (String) path : "";
+        } catch (Exception e) { return ""; }
+    }
+
+    private static HTMLElement tag(String key) {
+        HTMLElement t = el("span");
+        t.className = "pendtag";
+        t.textContent = " \u00B7 " + tr(key);
+        return t;
+    }
+
+    private static String stored(String key) {
+        try {
+            Object ls = Js.asPropertyMap(DomGlobal.window).get("localStorage");
+            if (ls == null) return null;
+            Object v = Js.asPropertyMap(ls).get(key);
+            return v == null ? null : String.valueOf(v);
+        } catch (Exception e) { return null; }
+    }
+
+    private static void store(String key, String val) {
+        try {
+            Object ls = Js.asPropertyMap(DomGlobal.window).get("localStorage");
+            if (ls != null) Js.asPropertyMap(ls).set(key, val);
+        } catch (Exception ignore) { /* storage can be denied */ }
     }
 
     private static String rowSig(Object row) {
         if (row == null) return "";
         JsPropertyMap<Object> r = Js.uncheckedCast(row);
-        return str(r, "who") + str(r, "text") + str(r, "tool") + r.get("ok") + r.get("pending");
+        return str(r, "who") + str(r, "text") + str(r, "tool") + r.get("ok") + r.get("pending")
+                + str(r, "out").length() + str(r, "args").length();
     }
 
     private static String str(JsPropertyMap<Object> r, String key) {
