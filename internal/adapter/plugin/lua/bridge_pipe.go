@@ -62,7 +62,7 @@ const (
 	pipeMaxPerPlugin = 4
 	pipeIdleDefault  = 10 * time.Minute
 	pipeReadDefault  = 60 * time.Second
-	pipeStderrMax    = 64 << 10 // kept only to put a reason in the error when a child dies
+	pipeStderrMax    = 64 << 10        // kept only to put a reason in the error when a child dies
 	pipeReapGrace    = 2 * time.Second // how long deadReason waits for the stderr copy to land
 )
 
