@@ -82,6 +82,7 @@ jobs:
       # The benchmark report is a finished page, not a demo -- it ships in docs/ so it is reviewable
       # in a diff, and it is copied here so a reader gets the rendered page instead of its source.
       # GitHub serves a repository's .html as text/plain, which is the whole reason this step exists.
+      # Both languages come across: the glob takes the .html and the .ko.html together.
       - name: carry the benchmark report onto the site
         run: |
           set -euo pipefail

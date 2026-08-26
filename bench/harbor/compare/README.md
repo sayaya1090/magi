@@ -5,8 +5,14 @@ Claude Code leaderboard row, and freezes enough of both sides that a clone can r
 the same page without the original run directories.
 
 ```sh
-python3 bench/harbor/compare/build_page.py out.html
+python3 bench/harbor/compare/build_page.py --lang=en docs/bench/tb21-magi-vs-claude-code.html
+python3 bench/harbor/compare/build_page.py --lang=ko docs/bench/tb21-magi-vs-claude-code.ko.html
 ```
+
+The two pages are one measurement and two sets of sentences. Numbers, verdicts and links come from
+the same scan; the prose lives in `text_en.py` and `text_ko.py`, whose keys have to match, and the
+page chrome in `page.en.html` and `page.ko.html`. A card written on only one side is a card the
+other language silently drops, so add to both or to neither.
 
 ## Where each number comes from
 

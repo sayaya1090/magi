@@ -216,7 +216,7 @@ trial, 89개 중 45개 태스크**로 올라갑니다. 절반 가까이가 밖�
 ## 결과
 
 **맞대결 리포트는 따로 한 페이지입니다:**
-[magi vs Claude Code on Terminal-Bench 2.1](https://sayaya1090.github.io/magi/bench/tb21-magi-vs-claude-code.html). 과제별 표를 싣습니다 — magi의 판정과 콜·토큰 수를
+[magi vs Claude Code on Terminal-Bench 2.1](https://sayaya1090.github.io/magi/bench/tb21-magi-vs-claude-code.ko.html). 과제별 표를 싣습니다 — magi의 판정과 콜·토큰 수를
 비교 대상의 다섯 trial 및 비용과 나란히 놓은 것입니다. 여기에 magi가 실패한 과제와 magi만 푼 과제마다
 쓴 카드, 각 trial을 왜 격리했는지 적은 목록, 그리고 양쪽의 웹 사용 감사가 붙습니다. job 디렉토리에서, 또는 옆에 함께 커밋된 시행 아카이브에서
 `bench/harbor/compare/build_page.py`가 다시 만들어 내므로, 실행을 옮겨 적은 것이 아니라 실행을 비추는
