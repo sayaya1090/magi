@@ -23,6 +23,7 @@ public class FleetAgent {
     public String version;
     public boolean elsewhere;
     public String trust;
+    public String type;   // 컴패니언 레코드가 선언한 타입 — 없으면 셸이 "1"(코딩에이전트)로 읽는다
     public String instance;
     public String addr;
     public boolean live;
