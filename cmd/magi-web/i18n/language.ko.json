@@ -75,6 +75,7 @@
   "action.remove_named": "{name} 제거",
   "action.save": "저장",
   "action.send": "보내기",
+  "type.coding": "코딩 에이전트",
   "action.show_all": "전체 보기",
   "action.update": "최신으로 업데이트",
   "action.working": "처리 중…",

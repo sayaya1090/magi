@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -762,12 +764,17 @@ func TestEveryPhraseInThePackIsAskedFor(t *testing.T) {
 	for _, m := range regexp.MustCompile(`'([a-z_]+\.)'\s*\+`).FindAllStringSubmatch(indexHTML, -1) {
 		built[m[1]] = true
 	}
+	// The pack is a single source for BOTH consoles now (web/README.md): the new console
+	// (web/ui) asks in Java — tr("…"), the shell's catalog key fields, and stateWord's
+	// "state." family. Its sources count as sites, collected the same way: literal keys,
+	// and a prefix claimed by the builder that concatenates onto it.
+	javaKeys, javaBuilt := newConsoleAsks()
 	var dead []string
 	for k := range pack {
-		if strings.Contains(indexHTML, "'"+k+"'") {
+		if strings.Contains(indexHTML, "'"+k+"'") || javaKeys[k] {
 			continue
 		}
-		if i := strings.IndexByte(k, '.'); i > 0 && built[k[:i+1]] {
+		if i := strings.IndexByte(k, '.'); i > 0 && (built[k[:i+1]] || javaBuilt[k[:i+1]]) {
 			continue
 		}
 		dead = append(dead, k)
@@ -777,6 +784,44 @@ func TestEveryPhraseInThePackIsAskedFor(t *testing.T) {
 		t.Errorf("%d phrase(s) nobody asks for — usually a translated phrase whose site renders "+
 			"the English inline:\n  %s", len(dead), strings.Join(dead, "\n  "))
 	}
+}
+
+// newConsoleAsks collects the pack keys the new console's Java sources mention — quoted
+// dotted-lowercase literals ("nav.companions", "type.coding") — and the prefix families its
+// builders concatenate (Labels.stateWord builds "state." + the wire's word). Production
+// sources only: test fakes asking for a key must not keep it alive.
+func newConsoleAsks() (map[string]bool, map[string]bool) {
+	keys, prefixes := map[string]bool{}, map[string]bool{}
+	keyRe := regexp.MustCompile(`"([a-z][a-z0-9_]*\.[a-z0-9_.]+)"`)
+	root := filepath.Join("..", "..", "web", "ui")
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "build", ".gradle", "webapp", "test":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".java") {
+			return nil
+		}
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil
+		}
+		src := string(b)
+		for _, m := range keyRe.FindAllStringSubmatch(src, -1) {
+			keys[m[1]] = true
+		}
+		if strings.Contains(src, "stateWord(") {
+			prefixes["state."] = true
+		}
+		return nil
+	})
+	return keys, prefixes
 }
 
 // The shape and type scales, checked rather than claimed.

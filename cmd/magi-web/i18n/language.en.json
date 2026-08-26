@@ -75,6 +75,7 @@
   "action.remove_named": "Remove {name}",
   "action.save": "Save",
   "action.send": "Send",
+  "type.coding": "Coding agent",
   "action.show_all": "Show everything",
   "action.update": "Update to latest",
   "action.working": "Working…",
