@@ -22,9 +22,9 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 |---|---|---|
 | `console-bridge` | 셸↔화면 계약: 창 브리지(Render·Roster)·와이어 DTO(FleetAgent)·언어 팩(Labels)·HTTP 관용구(Console) | 소스 실린 jar (GWT 라이브러리 규약) |
 | `ui-components` | 공용 위젯 자리 — 지금은 모듈 선언(`UiComponents.gwt.xml`)만 | 소스 실린 jar |
-| `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation·RenderStore·RosterStore·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
-| `fleet-ui` | 플릿 화면 — 이식 완료, 다른 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
-| `companion-ui` | 컴패니언 상세의 "기본" 타입 UI — 아직 틀만 | (아직 없음) |
+| `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation(Place)·RenderStore·RosterStore·타입 카탈로그(CompanionType)·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
+| `fleet-ui` | 플릿 화면 — 이식 완료, 카탈로그 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
+| `companion-ui` | 컴패니언 화면, 타입 1 = 코딩 에이전트 — 타입 전용 UI 계약의 레퍼런스 | `companion/companion.nocache.js` + companion.css |
 
 ## 셸과 화면의 계약 (console-bridge)
 
@@ -39,6 +39,14 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
   기전. 셸의 RosterStore가 `/fleet`+`/events`(SSE)의 유일한 소유자로 두 문을 걸고
   (RosterSharing.host), 화면은 구독만 한다 — 자기 EventSource를 열지 않는다. 셸 없이
   단독으로 뜬 화면(테스트 페이지)은 hosted()가 거짓이라 제 회선으로 폴백한다.
+- **전사** (`__magi_transcript_subscribe` / `__magi_turn_subscribe`): 컴패니언에 조준된
+  같은 회선의 기본 프레임(전사 행 전체 배열)과 turn 프레임을 셸이 받아 이 문으로 흘린다.
+  전사의 null은 "아직/못 읽음" — 새 컴패니언으로 조준이 옮겨질 때도 null이 먼저 흘러
+  이전 대화가 새 화면에 비치지 않는다.
+- **컨텍스트** (`__magi_companion_subscribe`): 지금 보는 컴패니언(CompanionContext:
+  socket·peer·type). type은 셸이 타입 카탈로그로 이미 해석한 키다 — 화면 모듈은 읽기만.
+- **이동** (`__magi_go`): 화면이 셸에 컴패니언 화면으로의 이동을 청하는 문 — 플릿의 행,
+  레일 2단의 항목이 이 문으로 간다. 주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
 - **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
   console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
   (성공=빈 문자열, 거부=사유). 기존 page.js의 fetchList/post 이식이다.
@@ -49,11 +57,17 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 
 ## 셸의 흐름
 
-주소가 원본이다. Navigation이 `?v=<id>`를 읽고(popstate 포함) 문 클릭은 pushState —
-둘 다 같은 settle로 모인다. 목적지가 정해지면 ShellInitializer가: 레일 select →
-RenderStore 캐시 조회 → 없으면 expect + ModuleLoader.ensure(`/ui/<id>/<id>.nocache.js`,
-모듈당 한 번) → 도착한 렌더를 프레임에 mount. 경로는 `/ui/` 절대다 — 상대경로는
-프록시(BFF)로 새 나간다(관통 때 실측한 결함).
+주소가 원본이다. 카탈로그 화면은 `?v=<id>`, 컴패니언은 `?d=<socket>`(&p=) — 기존
+콘솔의 그 주소라 옛 링크가 같은 곳에 닿는다. Navigation이 이를 Place(어느 문 + 어느
+컴패니언)로 읽고, 문 클릭·행 클릭·뒤로가기가 같은 settle로 모인다. ShellInitializer는:
+레일 select(컴패니언이어도 그 문이 켜져 있다) → 스트림 조준(RosterStore.aim: 전사·턴이
+같은 회선에 실리고 컨텍스트가 흐른다) → 모듈 결정: 카탈로그 화면이면 목적지 id,
+컴패니언이면 **타입 카탈로그**(CompanionType: 명단 행의 type 선언, 무선언·미지는 1 =
+코딩 에이전트 = companion-ui — 빈 화면 금지) → RenderStore 캐시 조회 → 없으면 expect +
+ModuleLoader.ensure(`/ui/<name>/<name>.nocache.js`, 모듈당 한 번) → 렌더를 프레임에
+mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나간다(관통 때 실측한 결함).
+새 타입 = CompanionType 한 줄 + 오퍼레이터가 설치한 모듈 하나(디자인·인프라 관리·
+리서처가 후보로 이름만 있다).
 
 드로어는 2단(handbook 메뉴 레일+툴 레일의 번역)이다. 1단은 목적지 아이콘 기둥 — 열려도
 기둥을 지킨다. 2단(#railPanel, shell.css)은 호버가 가리키는 문(피크), 없으면 서 있는 문의
@@ -84,8 +98,11 @@ RenderStore 캐시 조회 → 없으면 expect + ModuleLoader.ensure(`/ui/<id>/<
 4. 문을 단다: Destination.all()에 한 줄 — 아이콘 패스는 기존 콘솔의 그 드로잉. 문은
    이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
 5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
-   html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, 다음 모듈은 18092.
-6. `../README.md` 대조표의 그 행을 갱신한다.
+   html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, 다음은
+   18093.
+6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
+   화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
+7. `../README.md` 대조표의 그 행을 갱신한다.
 
 ## 단일 원천 복사 (스냅샷 드리프트 없음)
 
@@ -97,9 +114,12 @@ RenderStore 캐시 조회 → 없으면 expect + ModuleLoader.ensure(`/ui/<id>/<
 | console.css | `cmd/magi-web/page.css` | assembleConsole → `build/console/` · 각 테스트 webapp `css/` |
 | material.js | `cmd/magi-web/vendor/material.js` | 테스트 webapp `js/` (프로덕션은 BFF `/vendor/` 프록시 — 두 콘솔이 한 번들) |
 | shell.css | `shell-ui/src/main/webapp/shell.css` (원천이 여기) | assembleConsole · 테스트 webapp `css/` |
+| companion.css | `companion-ui/src/main/webapp/companion.css` (원천이 여기 — 모듈이 스스로 <link>를 단다) | assembleConsole · 테스트 webapp `css/` |
 
-그래서 `src/test/webapp/` 아래 `js/`·`css/`와 GWT 컴파일 산출 디렉토리(`fleet/`·
-`fleettest/`·`shell/`·`shelltest/`…)는 전부 생성물이고 gitignore다. 거기서 소스는
+assembleConsole은 모든 모듈의 `src/main/webapp`을 함께 나른다 — 화면 모듈 자신의
+자산(css)은 제 모듈에 둔다. 그래서 `src/test/webapp/` 아래 `js/`·`css/`와 GWT 컴파일
+산출 디렉토리(`fleet/`·`fleettest/`·`shell/`·`shelltest/`·`companion/`…)는 전부
+생성물이고 gitignore다. 거기서 소스는
 테스트 페이지 html뿐이다.
 
 ## 빌드·실행
@@ -120,11 +140,13 @@ cd ../.. && go run ./web/server   # 7778: /ui/* 정적 + 나머지는 7777(기�
 - web/server는 요청의 Origin을 BFF 오리진으로 고쳐 보낸다 — 기존 콘솔의 same-site
   가드가 프록시 오리진(7778)을 교차 출처 POST로 읽고 거절하기 때문이다.
 
-## 컴패니언 타입별 UI (설계만 — 구현은 화면 이식 뒤)
+## 컴패니언 타입별 UI (기전 가동 중)
 
-컴패니언 상세는 고정 모듈이 아니라 타입으로 해석된다: ModuleLoader 구현이
-(목적지, companion.type) → 모듈 경로를 조회하고, 없으면 companion-ui(기본)를 든다.
-타입 전용 모듈도 계약은 같다 — 렌더 등록 + CompanionContext(socket·peer·type) 수신.
+컴패니언 화면은 고정 모듈이 아니라 타입으로 해석된다: 명단 행의 type 선언 →
+CompanionType 카탈로그 → 모듈. 지금 카탈로그는 타입 1(코딩 에이전트) = companion-ui
+하나이고, 무선언·미지 타입도 1로 푼다 — 오늘의 magi 컴패니언은 전부 코딩 에이전트다.
+타입 전용 모듈도 계약은 같다 — 렌더 등록 + CompanionContext(socket·peer·type)·전사·턴
+구독. companion-ui가 그 계약의 레퍼런스 구현이다.
 불변 규칙 하나: 오퍼레이터가 설치한 모듈만 로드한다. 컴패니언이나 워크스페이스가 실어
 보낸 스크립트를 감독자 콘솔에 로드하는 일은 없다 — `.magi/plugins`(SECURITY)와 같은
 신뢰 경계다.
