@@ -475,20 +475,19 @@ func bashWritePaths(cmd string) []string {
 				add(f)
 			}
 		case "cp", "mv":
-			// Exactly one source and one destination, no recursion: anything else targets a
-			// directory whose per-file destinations we would have to guess.
+			// One source and one destination. `-r` with exactly two operands names its
+			// destination as plainly as the flat form does -- `cp -r repo repo_backup` puts
+			// everything under `repo_backup`, and that path is the thing that came into being.
+			// Only a multi-operand copy targets a directory whose per-file destinations would
+			// have to be guessed, and that is what stays excluded.
 			var operands []string
-			recursive := false
 			for _, f := range fields[1:] {
 				if strings.HasPrefix(f, "-") {
-					if strings.ContainsAny(strings.TrimPrefix(f, "-"), "rRa") {
-						recursive = true
-					}
 					continue
 				}
 				operands = append(operands, f)
 			}
-			if !recursive && len(operands) == 2 {
+			if len(operands) == 2 {
 				add(operands[1])
 			}
 		case "rm", "touch":

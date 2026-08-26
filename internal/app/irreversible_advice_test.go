@@ -19,14 +19,14 @@ import (
 // cobol-modernization, 2026-08-23: 1,154 bytes that walked every condition the question named and
 // closed "no, it should not run in this form".
 func TestIrreversibleGateAsksForProseAndReadsIt(t *testing.T) {
-	fc := &fakeCouncil{advice: "No. The task never mentions /tmp, and there is a form that leaves a way back."}
+	fc := &fakeCouncil{advice: "No. The task never mentions /server, and there is a form that leaves a way back."}
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	a.cfg.Workflow, a.cfg.Interactive = false, false
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
 	s.Workdir = t.TempDir()
 
-	tc := &session.ToolCall{CallID: "c1", Name: "bash", Args: []byte(`{"command":"rm -rf /tmp/scratch"}`)}
+	tc := &session.ToolCall{CallID: "c1", Name: "bash", Args: []byte(`{"command":"rm -rf /server"}`)}
 	if !a.gateIrreversible(ctx, s, event.Actor{Kind: event.ActorSystem, ID: "loop"}, tc, nil, "m1") {
 		t.Fatal("a refusal in the prose did not stop the call")
 	}
@@ -37,7 +37,7 @@ func TestIrreversibleGateAsksForProseAndReadsIt(t *testing.T) {
 		t.Fatalf("want exactly one advice ask, got %d", len(fc.adviseReqs))
 	}
 	// The command must be IN the question — the reader cannot judge scope without it.
-	if q := fc.adviseReqs[0].Question; !strings.Contains(q, "rm -rf /tmp/scratch") {
+	if q := fc.adviseReqs[0].Question; !strings.Contains(q, "rm -rf /server") {
 		t.Fatalf("the question does not carry the command: %q", q)
 	}
 }
@@ -51,7 +51,7 @@ func TestIrreversibleGateLetsThroughOnAssent(t *testing.T) {
 	s := a.sessionInfo(ctx, sid)
 	s.Workdir = t.TempDir()
 
-	tc := &session.ToolCall{CallID: "c2", Name: "bash", Args: []byte(`{"command":"rm -rf /tmp/build"}`)}
+	tc := &session.ToolCall{CallID: "c2", Name: "bash", Args: []byte(`{"command":"rm -rf /server/build"}`)}
 	if a.gateIrreversible(ctx, s, event.Actor{Kind: event.ActorSystem, ID: "loop"}, tc, nil, "m1") {
 		t.Fatal("assent still blocked the call")
 	}

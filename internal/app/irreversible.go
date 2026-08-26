@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -68,7 +69,7 @@ var rmRecursive = regexp.MustCompile(`\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-
 //
 // workdir is the tree the run owns. A path inside it is recoverable from git or from the run's own
 // record; a path outside it is somebody else's, and magi has nothing to restore it from.
-func needsCouncilBeforeRunning(workdir, cmd string) (why string, yes bool) {
+func needsCouncilBeforeRunning(workdir, cmd string, mine func(string) bool) (why string, yes bool) {
 	c := strings.TrimSpace(cmd)
 	if c == "" {
 		return "", false
@@ -84,12 +85,63 @@ func needsCouncilBeforeRunning(workdir, cmd string) (why string, yes bool) {
 			if strings.HasPrefix(target, "-") {
 				continue // still a flag
 			}
-			if outsideWorkspace(workdir, target) {
-				return "rm -rf " + target, true
+			if !outsideWorkspace(workdir, target) {
+				continue
 			}
+			// Outside the tree is where the gate's premise lives -- "somebody else's, and magi
+			// has nothing to restore it from". Two kinds of path are outside and are still
+			// nobody else's, and gating them buys nothing while costing the run a turn.
+			if isScratchPath(workdir, target) || (mine != nil && mine(absTarget(workdir, target))) {
+				continue
+			}
+			return "rm -rf " + target, true
 		}
 	}
 	return "", false
+}
+
+// absTarget resolves a delete target the way outsideWorkspace does, so the two agree on what
+// path is being talked about.
+func absTarget(workdir, target string) string {
+	t := strings.Trim(target, `"'`)
+	if !filepath.IsAbs(t) {
+		t = filepath.Join(workdir, t)
+	}
+	return filepath.Clean(t)
+}
+
+// isScratchPath reports whether a target lives in the system temp area.
+//
+// The gate refuses what it cannot restore, on the reading that a path outside the tree belongs to
+// somebody else. The temp dir is the one place where that reading is false by convention: it is
+// what the OS itself promises nothing about, and a task container's /tmp holds the run's own
+// working files and nothing anyone will miss. Measured over 25 refusals in the 2026-08-26 sweep,
+// 18 were the agent clearing its own scratch (`rm -rf /tmp/testenv`, `/tmp/test-clone`,
+// `/tmp/verify1_cobol`) -- each cost a council round and a refusal the run then had to work around.
+//
+// The temp root ITSELF is not scratch: `rm -rf /tmp` is a different act from `rm -rf /tmp/mine`,
+// and the gate keeps its hold on the former.
+func isScratchPath(workdir, target string) bool {
+	abs := absTarget(workdir, target)
+	for _, root := range scratchRoots() {
+		if abs == root {
+			return false // the whole temp area, not one thing inside it
+		}
+		if rel, err := filepath.Rel(root, abs); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, "../") && rel != "." {
+			return true
+		}
+	}
+	return false
+}
+
+// scratchRoots names the temp areas, TMPDIR included so a run with its own temp is covered.
+func scratchRoots() []string {
+	roots := []string{"/tmp", "/var/tmp"}
+	if t := strings.TrimSpace(os.Getenv("TMPDIR")); t != "" {
+		roots = append(roots, filepath.Clean(t))
+	}
+	return roots
 }
 
 // outsideWorkspace reports whether a delete target can leave the workspace.
@@ -102,8 +154,18 @@ func outsideWorkspace(workdir, target string) bool {
 	if t == "" {
 		return false
 	}
-	if strings.ContainsAny(t, "$`*?") {
-		return true // a variable, a substitution or a glob: unresolvable, so not vouched for
+	if strings.ContainsAny(t, "$`") {
+		return true // a variable or a substitution: unresolvable, so not vouched for
+	}
+	// A glob is unresolvable too, but WHERE it can land is not: one with no separator and no
+	// leading `..` is expanded by the shell in the workspace's own directory, so every match it
+	// can have is in the tree. `rm -rf *.gcov` and `rm -rf char_*.png` were both refused as
+	// "outside" on the 2026-08-26 sweep, and neither could have reached past the cwd.
+	if strings.ContainsAny(t, "*?[") {
+		if !strings.Contains(t, "/") && !strings.HasPrefix(t, "..") {
+			return false
+		}
+		return true
 	}
 	if t == "~" || strings.HasPrefix(t, "~/") {
 		return true // home is not the workspace even when the workspace is under it
@@ -137,7 +199,11 @@ func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor eve
 	if json.Unmarshal(tc.Args, &ba) != nil || ba.Command == "" {
 		return false
 	}
-	what, yes := needsCouncilBeforeRunning(s.Workdir, ba.Command)
+	var mine func(string) bool
+	if guard != nil {
+		mine = guard.didCreate
+	}
+	what, yes := needsCouncilBeforeRunning(s.Workdir, ba.Command, mine)
 	if !yes {
 		return false
 	}

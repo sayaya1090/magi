@@ -55,6 +55,11 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	mutatedReset := false // did mutated() reset the progress counters THIS call?
 	if guard != nil && guardFP != "" {
 		if !res.IsError && fileModifiers[tc.Name] {
+			if p := strings.TrimSpace(pathArg(tc.Args)); p != "" && changeBefore == "" &&
+				pathExists(workdir, p) {
+				// Empty before + present after: this call is what made it.
+				guard.noteCreated(absUnder(workdir, p))
+			}
 			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 			if mutatedReset {
 				// The file's contents are new, so what magi has already shown of it no longer
@@ -73,6 +78,15 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				Background builtin.FlexBool `json:"background"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
+				// What this command brought into being. Snapshotted before it ran (existedBefore)
+				// and confirmed after, so it names creations rather than intentions. The
+				// irreversible-command gate reads this to tell the run's own output from
+				// somebody else's data — see runGuard.didCreate.
+				for _, bc := range bashChanges {
+					if !bc.existedBefore && pathExists(workdir, bc.path) {
+						guard.noteCreated(absUnder(workdir, bc.path))
+					}
+				}
 				bashAuthored, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
 				guard.noteBashExec(ba.Command, guardNovel)                 // ran a program → execution evidence (independent of any redirect)
 				// Same productivity signal as a file mutation: a command that AUTHORS something, or

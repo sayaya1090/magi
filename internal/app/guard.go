@@ -73,6 +73,14 @@ type runGuard struct {
 	// resets the counter each swing and never trips the stall force-stop.
 	prevSince   int
 	prevStallAt int
+	// created holds absolute paths that did not exist when a call in this run named them and do
+	// exist after it -- the run's own output. The irreversible-command gate reads it: a delete of
+	// something the run itself made is undoing its own work, not destroying somebody's, however
+	// far outside the workspace it sits. Observed cost of not having it (sanitize-git-repo,
+	// 2026-08-26): the agent copied the repo to a sibling backup, sanitized the original, and was
+	// then refused the `rm -rf` of its own backup -- which still held every secret the task asked
+	// it to remove.
+	created map[string]bool
 	// can ALSO restore the STEP-based idle window on a self-revert. Without this, an oscillating
 	// edit loop (rewrite→prior-state→rewrite) refills the step-based "idle" trigger on every swing
 	// even though retractProgress restored the tool-call counter — so a reasoning-heavy churn (few
@@ -187,6 +195,42 @@ func hashContent(s string) uint64 {
 // missed). A create-then-empty (""→content→"") is reported as a real self-revert. The
 // wording is a neutral observation, not a "put it back" instruction, to avoid pushing a
 // weak model into an oscillation; and each file is flagged at most once per turn.
+// noteCreated records an absolute path this run brought into being.
+func (g *runGuard) noteCreated(abs string) {
+	if g == nil || strings.TrimSpace(abs) == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.created == nil {
+		g.created = map[string]bool{}
+	}
+	g.created[filepath.Clean(abs)] = true
+}
+
+// didCreate reports whether this run made the path (or something it is inside).
+//
+// A directory counts for what it contains: a run that made `/tmp/work` made `/tmp/work/out.txt`
+// too, and a delete of either is the same act.
+func (g *runGuard) didCreate(abs string) bool {
+	if g == nil || strings.TrimSpace(abs) == "" {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	abs = filepath.Clean(abs)
+	for made := range g.created {
+		if made == abs {
+			return true
+		}
+		if rel, err := filepath.Rel(made, abs); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, "../") && rel != "." {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -855,6 +899,15 @@ func capToolResult(b []byte) []byte {
 // records an absent file and an empty one as the same content (""), so a command that DELETED a
 // file looks, to the content history, exactly like one that returned it to an earlier state. The
 // two are told apart by the same stat readForChange already makes — just kept.
+// absUnder resolves a tool-supplied path against the workspace, the same way the read/stat
+// helpers here do, so the created-set and the gate name the same file.
+func absUnder(workdir, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(filepath.Join(workdir, path))
+}
+
 func pathExists(workdir, path string) bool {
 	abs := path
 	if !filepath.IsAbs(abs) {
