@@ -53,18 +53,18 @@ python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown   # 문서�
 
 ## 표 읽는 법
 
-| 컬럼 | 무엇인가 |
+| 열 | 무엇인가 |
 |---|---|
-| `min` | trial의 벽시계. 컨테이너 셋업과 검증 포함 |
-| `turns` | magi가 답한 사용자 프롬프트 수 — 과제 하나는 보통 **하나**입니다 |
-| `calls` | 백엔드가 실제로 서빙한 LLM 요청 수. 규모를 따라 늘어나는 건 이 숫자입니다 |
-| `in` / `cached` / `out` | magi 자신의 토큰 집계. trial의 `turn.finished`에서 |
-| `council` | 그 턴의 완료 선언에 대한 집계, `done 3-0`. `— none`은 완료 선언이 없었다는 뜻 |
-| `usd` | 백엔드가 값을 매기는 경우 그 청구액. `~`는 여러 trial이 나눠 쓴 수치 |
+| `콜` | 그 trial에서 magi가 한 툴 호출 수 — 얼마나 일했는지에 따라 늘어나는 숫자입니다 |
+| `카운슬` | 그 턴의 완료 선언에 대해 열린 라운드 수. 0은 타임아웃의 모습입니다. 카운슬은 선언에 대해 열리는데, 벽시계가 작업 중간을 자르면 선언이 없습니다 |
+| `입력` / `캐시읽기` / `출력` | 그 trial에 대한 magi 자신의 토큰 집계. `입력`은 캐시 몫을 포함하므로 `입력 − 캐시읽기`가 새로 쓴 양입니다 |
 
-`turns`와 `calls`는 자릿수가 다르고 둘 다 사실입니다 — 과제 하나, 프롬프트 하나, 그 안에서 모델 호출
-마흔 번. 에이전트 타임아웃으로 잘린 trial은 `turn.finished`에 도달하지 못하므로 입력이 `0`이 아니라
-`?`로 나옵니다. 0은 주장이니까요.
+판정 열에는 표식이 넷 있습니다. `PASS`와 `FAIL`은 검증기의 것입니다. `TIME`은 에이전트 타임아웃으로,
+실패이되 원인을 따로 떼어놓을 값이 있습니다 — 이번 실행 열일곱 중 아홉입니다. `RESCORED`는 검증기는
+통과시켰으나 리더보드의 리워드 해킹 규칙이 0으로 내린 시행입니다.
+
+리포트 페이지는 과제당 더 많은 것을 싣습니다 — 비용, 비교 대상의 다섯 시행, 그리고 그 시행의 아카이브
+링크. 이 표는 그중 diff에 들어가야 할 부분입니다.
 
 ## 발등을 찍을 하나
 
@@ -225,132 +225,145 @@ trial, 89개 중 45개 태스크**로 올라갑니다. 절반 가까이가 밖�
 
 
 `claude-sonnet-5` 위의 magi, 추론 에포트 HIGH(magi 플래그가 아니라 백엔드 쪽 설정입니다),
-반복 축약 끔(당시엔 env 스위치였고, 그 기전은 이후 제거됐습니다), 과제당 1회 시도,
-동시 1~2 trial.
+과제당 1회 시도, 동시 1~2 trial, 트리는 `f4c94d00`.
 
 | | |
 |---|---|
-| 패스율 | **65 / 89 = 73.0%** |
-| 통과하지 못한 24건 | 검증 실패 11, 에이전트 타임아웃 13 |
-| 벽시계 | 21.2시간, 과제당 14.3분 |
-| 모델 호출 | 총 3,081, 과제당 35 |
-| 입력 토큰 | 85.5M, 그중 64.8M이 캐시 읽기 |
-| 출력 토큰 | 3.3M |
+| 패스율 | **72 / 89 = 80.9%** |
+| 통과하지 못한 17건 | 에이전트 타임아웃 9, 정상 종료하고 오답 5, UNVERIFIED 착지 2, 0점 재산정 1 |
+| 벽시계 | 22.5시간, 과제당 15.1분 |
+| 모델 호출 | 총 2,897, 과제당 33 |
+| 툴 호출 | 총 2,292, 카운슬 103라운드 |
+| 입력 토큰 | 138.1M, 그중 128.8M이 캐시 읽기 |
+| 출력 토큰 | 3.87M |
 
-다시 만드는 명령:
+재산정된 행은 `regex-chess`입니다. 채점기는 통과를 줬고, 리더보드 자신의 리워드 해킹 규칙이 0으로
+내립니다. 경위는 리포트 페이지의 카드에 있습니다.
+
+이 절을 다시 만드는 명령:
 
 ```sh
-python3 bench/harbor/report.py --jobs-glob 'jobs/*tb21*' --markdown
+python3 bench/harbor/compare/build_page.py --markdown
 ```
+
+리포트 페이지가 읽는 그 job 디렉토리를 똑같이 읽으므로 둘이 어긋날 수 없습니다. 한 번 어긋난 적이
+있습니다 — 위 실행이 갈아치운 뒤로도 이 절이 이전 런의 65 / 89를 몇 주 동안 싣고 있었고, 그래서 지금은
+옮겨 적는 대신 뽑아냅니다.
 
 **과제당 1회 시도**입니다. 공개 리더보드 항목들은 5회이므로, 그쪽이 말하는 ±1.6%보다 훨씬 넓은 오차를
 안고 있습니다.
 
 ### 과제별
 
-데이터셋이 이름 붙인 순서 그대로 전부. `in`은 캐시 읽기를 포함하므로 `in − cached`가 새로 쓴 양입니다. 에이전트 타임아웃으로
-끊긴 trial은 `turn.finished`에 도달하지 못해 `0`이 아니라 `?`입니다(0은 주장이 되니까요).
-`council`은 그 턴의 완료 선언에 대한 집계이고, `— none`은 거기까지 못 갔다는 뜻입니다. 이 표는
-`report.py`에 `usd` 열이 생기기 전에 기록돼서 지금 돌린 리포트보다 열이 하나 적습니다. 나머지는
-그대로입니다.
+알파벳순으로 전부, 그 과제에 무엇을 썼는지와 함께. `캐시읽기`는 `입력` 중 캐시에서 온 몫이므로
+`입력 − 캐시읽기`가 새로 쓴 양입니다. `카운슬`은 그 턴의 완료 선언에 대해 열린 라운드 수이고, 0은
+타임아웃의 모습입니다 — 카운슬은 선언에 대해 열리는데 벽시계가 작업 중간을 자르면 선언이 없습니다.
+[리포트 페이지](https://sayaya1090.github.io/magi/bench/tb21-magi-vs-claude-code.ko.html)에서는
+태스크 이름마다 그 시행의 전체 아카이브로 링크가 걸립니다.
 
-| task | | min | turns | calls | in | cached | out | council |
-|---|---|---:|---:|---:|---:|---:|---:|---|
-| `adaptive-rejection-sampler` | ✅ PASS | 15 | 3 | 38 | 1,440,668 | 1,105,646 | 68,128 | done 3-0 |
-| `bn-fit-modify` | ✅ PASS | 7 | 2 | 35 | 897,651 | 688,096 | 19,943 | done 3-0 |
-| `break-filter-js-from-html` | ✅ PASS | 5 | 2 | 20 | 311,187 | 225,487 | 15,868 | done 3-0 |
-| `build-cython-ext` | ✅ PASS | 10 | 3 | 68 | 3,046,657 | 2,553,973 | 22,803 | done 3-0 |
-| `build-pmars` | ✅ PASS | 12 | 2 | 87 | 4,147,391 | 3,319,594 | 39,728 | continue 1-2 |
-| `build-pov-ray` | ✅ PASS | 7 | 2 | 47 | 1,522,215 | 1,220,568 | 10,805 | done 3-0 |
-| `caffe-cifar-10` | ✅ PASS | 40 | 2 | 64 | 2,442,396 | 1,993,433 | 22,136 | done 3-0 |
-| `cancel-async-tasks` | ✅ PASS | 4 | 3 | 25 | 428,024 | 316,250 | 15,145 | done 3-0 |
-| `chess-best-move` | ⏱ TIME | 16 | 2 | 38 | ? | ? | 56,307 | — none |
-| `circuit-fibsqrt` | ✅ PASS | 26 | 4 | 33 | 1,148,930 | 818,913 | 99,700 | done 3-0 |
-| `cobol-modernization` | ✅ PASS | 13 | 5 | 55 | 1,891,579 | 1,505,162 | 58,807 | done 3-0 |
-| `code-from-image` | ✅ PASS | 3 | 1 | 19 | 257,221 | 178,090 | 6,446 | done 3-0 |
-| `compile-compcert` | ✅ PASS | 20 | 1 | 35 | 830,665 | 643,978 | 12,347 | done 3-0 |
-| `configure-git-webserver` | ✅ PASS | 8 | 2 | 36 | 696,797 | 484,981 | 24,970 | done 3-0 |
-| `constraints-scheduling` | ✅ PASS | 6 | 2 | 14 | 225,016 | 142,827 | 31,867 | done 3-0 |
-| `count-dataset-tokens` | ✅ PASS | 3 | 2 | 16 | 241,814 | 145,960 | 4,266 | done 3-0 |
-| `crack-7z-hash` | ✅ PASS | 15 | 1 | 32 | 989,766 | 805,681 | 6,431 | done 3-0 |
-| `custom-memory-heap-crash` | ✅ PASS | 18 | 2 | 46 | 1,560,459 | 1,216,969 | 71,367 | done 3-0 |
-| `db-wal-recovery` | ❌ FAIL | 16 | 4 | 43 | 923,238 | 553,646 | 64,458 | done 3-0 |
-| `distribution-search` | ✅ PASS | 5 | 3 | 18 | 367,615 | 268,256 | 22,374 | done 3-0 |
-| `dna-assembly` | ✅ PASS | 23 | 5 | 53 | 2,339,706 | 1,802,281 | 112,882 | done 3-0 |
-| `dna-insert` | ❌ FAIL | 12 | 1 | 32 | 902,799 | 714,020 | 48,978 | done 3-0 |
-| `extract-elf` | ✅ PASS | 6 | 2 | 20 | 367,858 | 259,271 | 26,768 | done 3-0 |
-| `extract-moves-from-video` | ⏱ TIME | 32 | 1 | 30 | ? | ? | 10,010 | — none |
-| `feal-differential-cryptanalysis` | ✅ PASS | 10 | 3 | 18 | 468,530 | 330,455 | 45,073 | done 3-0 |
-| `feal-linear-cryptanalysis` | ✅ PASS | 20 | 2 | 30 | 1,101,435 | 870,283 | 94,922 | done 3-0 |
-| `filter-js-from-html` | ❌ FAIL | 23 | 6 | 40 | 1,170,484 | 812,129 | 65,480 | done 3-0 |
-| `financial-document-processor` | ✅ PASS | 5 | 1 | 16 | 268,092 | 138,996 | 16,624 | done 3-0 |
-| `fix-code-vulnerability` | ✅ PASS | 3 | 1 | 31 | 669,854 | 524,008 | 6,386 | done 3-0 |
-| `fix-git` | ✅ PASS | 3 | 2 | 15 | 239,694 | 140,023 | 10,869 | done 3-0 |
-| `fix-ocaml-gc` | ✅ PASS | 45 | 1 | 59 | 1,874,773 | 1,475,071 | 16,687 | done 3-0 |
-| `gcode-to-text` | ⏱ TIME | 15 | 3 | 52 | ? | ? | 58,369 | — none |
-| `git-leak-recovery` | ✅ PASS | 2 | 1 | 13 | 141,033 | 87,760 | 3,462 | done 3-0 |
-| `git-multibranch` | ✅ PASS | 5 | 1 | 36 | 683,876 | 510,832 | 10,951 | done 3-0 |
-| `gpt2-codegolf` | ⏱ TIME | 16 | 3 | 27 | ? | ? | 71,833 | — none |
-| `headless-terminal` | ✅ PASS | 5 | 4 | 22 | 363,307 | 261,228 | 18,591 | done 3-0 |
-| `hf-model-inference` | ✅ PASS | 4 | 3 | 13 | 443,407 | 312,411 | 8,531 | done 3-0 |
-| `install-windows-3.11` | ❌ FAIL | 57 | 5 | 116 | 7,187,422 | 5,747,391 | 131,504 | done 2-1 |
-| `kv-store-grpc` | ✅ PASS | 3 | 1 | 21 | 304,773 | 224,158 | 5,651 | done 3-0 |
-| `large-scale-text-editing` | ✅ PASS | 6 | 2 | 17 | 284,771 | 189,384 | 18,637 | done 3-0 |
-| `largest-eigenval` | ✅ PASS | 5 | 4 | 23 | 380,108 | 285,554 | 13,042 | done 3-0 |
-| `llm-inference-batching-scheduler` | ✅ PASS | 14 | 5 | 44 | 1,849,604 | 1,427,495 | 68,297 | done 3-0 |
-| `log-summary-date-ranges` | ✅ PASS | 2 | 3 | 18 | 277,563 | 188,576 | 6,698 | done 3-0 |
-| `mailman` | ✅ PASS | 20 | 4 | 77 | 3,972,780 | 3,163,747 | 65,203 | done 3-0 |
-| `make-doom-for-mips` | ⏱ TIME | 16 | 2 | 46 | ? | ? | 66,226 | — none |
-| `make-mips-interpreter` | ❌ FAIL | 30 | 5 | 53 | 3,626,465 | 2,777,225 | 147,035 | done 3-0 |
-| `mcmc-sampling-stan` | ✅ PASS | 18 | 4 | 73 | 5,624,196 | 4,489,664 | 22,807 | done 3-0 |
-| `merge-diff-arc-agi-task` | ✅ PASS | 5 | 2 | 32 | 698,206 | 553,270 | 13,707 | done 3-0 |
-| `model-extraction-relu-logits` | ✅ PASS | 5 | 1 | 15 | 291,140 | 181,564 | 22,567 | done 3-0 |
-| `modernize-scientific-stack` | ✅ PASS | 3 | 2 | 20 | 291,293 | 210,861 | 9,013 | done 3-0 |
-| `mteb-leaderboard` | ✅ PASS | 21 | 5 | 66 | 3,208,550 | 2,655,831 | 20,609 | done 3-0 |
-| `mteb-retrieve` | ✅ PASS | 7 | 5 | 26 | 423,831 | 296,069 | 8,599 | done 3-0 |
-| `multi-source-data-merger` | ✅ PASS | 4 | 2 | 23 | 306,685 | 112,815 | 12,158 | done 3-0 |
-| `nginx-request-logging` | ✅ PASS | 5 | 1 | 23 | 391,873 | 261,208 | 15,843 | done 2-1 |
-| `openssl-selfsigned-cert` | ❌ FAIL | 3 | 3 | 24 | 388,691 | 267,546 | 6,743 | done 3-0 |
-| `overfull-hbox` | ✅ PASS | 5 | 1 | 20 | 354,784 | 242,842 | 14,927 | done 3-0 |
-| `password-recovery` | ✅ PASS | 6 | 1 | 29 | 577,451 | 436,767 | 24,587 | done 3-0 |
-| `path-tracing` | ⏱ TIME | 30 | 6 | 62 | ? | ? | 135,337 | — none |
-| `path-tracing-reverse` | ⏱ TIME | 31 | 8 | 43 | ? | ? | 139,512 | — none |
-| `polyglot-c-py` | ✅ PASS | 5 | 1 | 16 | 260,952 | 166,832 | 12,925 | done 3-0 |
-| `polyglot-rust-c` | ✅ PASS | 7 | 2 | 15 | 372,933 | 277,544 | 28,579 | done 3-0 |
-| `portfolio-optimization` | ✅ PASS | 5 | 2 | 23 | 393,289 | 261,708 | 11,381 | done 3-0 |
-| `protein-assembly` | ❌ FAIL | 28 | 4 | 64 | 6,304,097 | 3,864,733 | 81,182 | done 3-0 |
-| `prove-plus-comm` | ✅ PASS | 2 | 3 | 13 | 153,488 | 105,200 | 4,994 | done 3-0 |
-| `pypi-server` | ✅ PASS | 4 | 2 | 24 | 364,535 | 255,976 | 4,973 | done 3-0 |
-| `pytorch-model-cli` | ✅ PASS | 6 | 2 | 34 | 610,251 | 463,591 | 11,308 | done 3-0 |
-| `pytorch-model-recovery` | ✅ PASS | 5 | 2 | 17 | 276,851 | 177,817 | 10,624 | done 3-0 |
-| `qemu-alpine-ssh` | ❌ FAIL | 11 | 4 | 70 | 2,083,920 | 1,719,255 | 25,630 | done 3-0 |
-| `qemu-startup` | ✅ PASS | 9 | 5 | 44 | 1,113,744 | 888,035 | 26,269 | done 3-0 |
-| `query-optimize` | ✅ PASS | 19 | 2 | 16 | 234,979 | 157,869 | 13,641 | done 3-0 |
-| `raman-fitting` | ❌ FAIL | 9 | 6 | 38 | 832,768 | 596,260 | 35,366 | done 3-0 |
-| `regex-chess` | ✅ PASS | 40 | 6 | 48 | 2,086,417 | 1,685,916 | 130,722 | done 3-0 |
-| `regex-log` | ✅ PASS | 7 | 1 | 12 | 148,460 | 76,937 | 15,855 | done 3-0 |
-| `reshard-c4-data` | ✅ PASS | 23 | 4 | 40 | 1,044,314 | 822,756 | 80,736 | done 3-0 |
-| `rstan-to-pystan` | ⏱ TIME | 31 | 7 | 66 | ? | ? | 39,027 | continue 1-2 |
-| `sam-cell-seg` | ✅ PASS | 13 | 5 | 35 | 1,052,136 | 784,669 | 39,538 | done 3-0 |
-| `sanitize-git-repo` | ⏱ TIME | 16 | 3 | 54 | ? | ? | 20,489 | continue 1-2 |
-| `schemelike-metacircular-eval` | ⏱ TIME | 41 | 1 | 15 | ? | ? | 45,534 | — none |
-| `sparql-university` | ✅ PASS | 6 | 2 | 18 | 338,046 | 229,593 | 19,903 | done 3-0 |
-| `sqlite-db-truncate` | ✅ PASS | 3 | 1 | 13 | 172,093 | 108,351 | 9,134 | done 3-0 |
-| `sqlite-with-gcov` | ✅ PASS | 5 | 1 | 30 | 592,914 | 452,392 | 7,803 | done 3-0 |
-| `torch-pipeline-parallelism` | ❌ FAIL | 12 | 2 | 24 | 504,037 | 341,632 | 29,230 | done 3-0 |
-| `torch-tensor-parallelism` | ✅ PASS | 11 | 1 | 17 | 329,882 | 214,404 | 24,074 | done 3-0 |
-| `train-fasttext` | ⏱ TIME | 70 | 4 | 50 | ? | ? | 22,049 | — none |
-| `tune-mjcf` | ✅ PASS | 10 | 2 | 27 | 572,953 | 439,049 | 17,864 | done 3-0 |
-| `video-processing` | ❌ FAIL | 8 | 4 | 21 | 510,815 | 406,257 | 29,850 | — none |
-| `vulnerable-secret` | ✅ PASS | 13 | 1 | 20 | 289,763 | 193,780 | 6,782 | done 3-0 |
-| `winning-avg-corewars` | ⏱ TIME | 61 | 3 | 68 | ? | ? | 259,604 | continue 0-3 |
-| `write-compressor` | ⏱ TIME | 16 | 1 | 2 | ? | ? | 5,344 | — none |
+| task | | 콜 | 카운슬 | 입력 | 캐시읽기 | 출력 |
+|---|---|---:|---:|---:|---:|---:|
+| `adaptive-rejection-sampler` | ✅ PASS | 15 | 1 | 748,131 | 664,355 | 44,220 |
+| `bn-fit-modify` | ✅ PASS | 18 | 2 | 611,527 | 529,298 | 38,746 |
+| `break-filter-js-from-html` | ✅ PASS | 22 | 1 | 838,305 | 774,470 | 34,293 |
+| `build-cython-ext` | ✅ PASS | 56 | 1 | 3,504,267 | 3,374,449 | 29,723 |
+| `build-pmars` | ✅ PASS | 47 | 1 | 2,741,551 | 2,622,315 | 17,050 |
+| `build-pov-ray` | ❌ FAIL | 22 | 1 | 758,862 | 692,805 | 15,258 |
+| `caffe-cifar-10` | ✅ PASS | 41 | 1 | 2,522,152 | 2,294,848 | 31,614 |
+| `cancel-async-tasks` | ✅ PASS | 23 | 2 | 694,228 | 573,419 | 34,138 |
+| `chess-best-move` | ✅ PASS | 64 | 0 | 4,089,467 | 3,944,799 | 62,681 |
+| `circuit-fibsqrt` | ✅ PASS | 42 | 1 | 4,853,150 | 4,694,244 | 113,474 |
+| `cobol-modernization` | ✅ PASS | 26 | 1 | 1,295,484 | 1,193,984 | 52,406 |
+| `code-from-image` | ✅ PASS | 19 | 1 | 420,367 | 383,351 | 9,441 |
+| `compile-compcert` | ✅ PASS | 51 | 1 | 2,289,223 | 2,181,818 | 21,416 |
+| `configure-git-webserver` | ✅ PASS | 19 | 1 | 518,562 | 455,693 | 19,030 |
+| `constraints-scheduling` | ✅ PASS | 7 | 1 | 217,344 | 161,689 | 23,495 |
+| `count-dataset-tokens` | ✅ PASS | 10 | 1 | 405,551 | 342,367 | 8,071 |
+| `crack-7z-hash` | ✅ PASS | 22 | 1 | 569,208 | 529,927 | 6,877 |
+| `custom-memory-heap-crash` | ✅ PASS | 32 | 1 | 1,868,298 | 1,767,924 | 43,398 |
+| `db-wal-recovery` | ✅ PASS | 7 | 1 | 194,833 | 165,904 | 10,997 |
+| `distribution-search` | ✅ PASS | 8 | 1 | 263,098 | 221,700 | 24,843 |
+| `dna-assembly` | ✅ PASS | 39 | 2 | 3,290,258 | 3,036,658 | 153,782 |
+| `dna-insert` | ✅ PASS | 18 | 1 | 640,913 | 579,294 | 30,440 |
+| `extract-elf` | ✅ PASS | 10 | 1 | 328,249 | 275,319 | 27,091 |
+| `extract-moves-from-video` | ⏱ TIME | 29 | 0 | 1,049,975 | 927,339 | 10,186 |
+| `feal-differential-cryptanalysis` | ✅ PASS | 10 | 1 | 609,458 | 536,515 | 54,990 |
+| `feal-linear-cryptanalysis` | ⏱ TIME | 18 | 0 | 1,048,335 | 983,689 | 43,381 |
+| `filter-js-from-html` | ❌ FAIL | 11 | 1 | 543,474 | 466,816 | 44,167 |
+| `financial-document-processor` | ✅ PASS | 22 | 3 | 938,348 | 807,375 | 63,307 |
+| `fix-code-vulnerability` | ✅ PASS | 19 | 1 | 501,639 | 454,170 | 10,255 |
+| `fix-git` | ✅ PASS | 11 | 1 | 338,531 | 287,047 | 21,908 |
+| `fix-ocaml-gc` | ✅ PASS | 34 | 1 | 2,412,538 | 2,292,742 | 31,104 |
+| `gcode-to-text` | ❌ FAIL | 6 | 1 | 387,945 | 251,904 | 14,979 |
+| `git-leak-recovery` | ✅ PASS | 10 | 1 | 237,792 | 207,164 | 11,493 |
+| `git-multibranch` | ✅ PASS | 27 | 1 | 751,981 | 696,659 | 15,059 |
+| `gpt2-codegolf` | ⏱ TIME | 25 | 0 | 1,532,964 | 1,422,370 | 73,920 |
+| `headless-terminal` | ✅ PASS | 13 | 1 | 465,137 | 414,009 | 19,422 |
+| `hf-model-inference` | ✅ PASS | 13 | 1 | 289,461 | 253,698 | 10,353 |
+| `install-windows-3.11` | ❌ FAIL | 81 | 0 | 7,492,616 | 7,042,715 | 79,782 |
+| `kv-store-grpc` | ✅ PASS | 10 | 1 | 227,340 | 182,842 | 11,533 |
+| `large-scale-text-editing` | ✅ PASS | 9 | 1 | 263,731 | 222,890 | 17,719 |
+| `largest-eigenval` | ✅ PASS | 20 | 1 | 853,236 | 772,169 | 51,200 |
+| `llm-inference-batching-scheduler` | ✅ PASS | 25 | 3 | 1,737,607 | 1,573,032 | 83,053 |
+| `log-summary-date-ranges` | ✅ PASS | 11 | 2 | 306,068 | 258,416 | 20,983 |
+| `mailman` | ✅ PASS | 51 | 1 | 4,121,189 | 3,963,473 | 40,524 |
+| `make-doom-for-mips` | ⏱ TIME | 60 | 0 | 7,120,167 | 6,946,462 | 63,317 |
+| `make-mips-interpreter` | ✅ PASS | 44 | 0 | 3,208,574 | 2,924,988 | 141,342 |
+| `mcmc-sampling-stan` | ✅ PASS | 50 | 2 | 3,811,897 | 3,645,734 | 39,824 |
+| `merge-diff-arc-agi-task` | ✅ PASS | 21 | 1 | 879,897 | 815,978 | 18,890 |
+| `model-extraction-relu-logits` | ✅ PASS | 4 | 1 | 186,279 | 150,118 | 21,064 |
+| `modernize-scientific-stack` | ✅ PASS | 8 | 1 | 200,117 | 172,473 | 8,989 |
+| `mteb-leaderboard` | ✅ PASS | 21 | 1 | 658,922 | 602,271 | 20,194 |
+| `mteb-retrieve` | ✅ PASS | 10 | 1 | 239,337 | 204,446 | 11,013 |
+| `multi-source-data-merger` | ✅ PASS | 7 | 1 | 209,503 | 173,715 | 14,174 |
+| `nginx-request-logging` | ✅ PASS | 21 | 3 | 705,676 | 566,613 | 54,741 |
+| `openssl-selfsigned-cert` | ❌ FAIL | 10 | 1 | 284,853 | 243,686 | 9,424 |
+| `overfull-hbox` | ✅ PASS | 21 | 2 | 799,908 | 684,272 | 45,284 |
+| `password-recovery` | ✅ PASS | 18 | 2 | 603,779 | 460,713 | 65,893 |
+| `path-tracing` | ❌ FAIL | 36 | 1 | 2,477,631 | 2,342,727 | 86,890 |
+| `path-tracing-reverse` | ⏱ TIME | 52 | 0 | 3,709,068 | 3,414,503 | 137,465 |
+| `polyglot-c-py` | ✅ PASS | 10 | 1 | 289,055 | 249,126 | 18,059 |
+| `polyglot-rust-c` | ✅ PASS | 7 | 1 | 424,810 | 351,728 | 55,077 |
+| `portfolio-optimization` | ✅ PASS | 14 | 1 | 356,462 | 317,704 | 18,104 |
+| `protein-assembly` | ✅ PASS | 47 | 3 | 3,911,346 | 3,613,506 | 124,425 |
+| `prove-plus-comm` | ✅ PASS | 5 | 1 | 115,396 | 93,283 | 6,306 |
+| `pypi-server` | ✅ PASS | 22 | 1 | 474,926 | 437,761 | 7,823 |
+| `pytorch-model-cli` | ✅ PASS | 28 | 1 | 904,820 | 847,949 | 16,155 |
+| `pytorch-model-recovery` | ✅ PASS | 12 | 1 | 376,059 | 329,639 | 19,014 |
+| `qemu-alpine-ssh` | ⏱ TIME | 68 | 0 | 6,038,848 | 5,893,120 | 36,180 |
+| `qemu-startup` | ✅ PASS | 38 | 0 | 1,605,353 | 1,535,025 | 19,310 |
+| `query-optimize` | ✅ PASS | 9 | 1 | 311,542 | 265,705 | 22,949 |
+| `raman-fitting` | ⏱ TIME | 16 | 2 | 560,275 | 393,173 | 76,507 |
+| `regex-chess` | ♻ RESCORED | 48 | 2 | 3,791,772 | 3,559,872 | 122,866 |
+| `regex-log` | ✅ PASS | 8 | 1 | 241,220 | 183,581 | 26,663 |
+| `reshard-c4-data` | ✅ PASS | 21 | 1 | 898,720 | 830,194 | 50,017 |
+| `rstan-to-pystan` | ✅ PASS | 36 | 2 | 2,065,544 | 1,934,432 | 38,265 |
+| `sam-cell-seg` | ✅ PASS | 52 | 4 | 3,633,152 | 3,450,624 | 81,107 |
+| `sanitize-git-repo` | ⏱ TIME | 40 | 5 | 3,079,953 | 2,864,954 | 65,989 |
+| `schemelike-metacircular-eval` | ✅ PASS | 40 | 1 | 3,405,551 | 3,161,410 | 169,521 |
+| `sparql-university` | ✅ PASS | 13 | 2 | 481,698 | 391,639 | 37,929 |
+| `sqlite-db-truncate` | ✅ PASS | 6 | 1 | 178,279 | 142,077 | 19,974 |
+| `sqlite-with-gcov` | ✅ PASS | 28 | 1 | 853,477 | 792,949 | 14,041 |
+| `torch-pipeline-parallelism` | ✅ PASS | 28 | 1 | 1,683,184 | 1,549,357 | 60,415 |
+| `torch-tensor-parallelism` | ✅ PASS | 17 | 1 | 687,733 | 621,390 | 33,409 |
+| `train-fasttext` | ⏱ TIME | 61 | 0 | 5,102,892 | 4,956,287 | 34,615 |
+| `tune-mjcf` | ✅ PASS | 28 | 1 | 1,027,889 | 949,262 | 30,875 |
+| `video-processing` | ❌ FAIL | 22 | 0 | 2,833,439 | 2,690,560 | 81,741 |
+| `vulnerable-secret` | ✅ PASS | 13 | 1 | 335,039 | 296,045 | 9,122 |
+| `winning-avg-corewars` | ✅ PASS | 79 | 1 | 6,377,681 | 6,106,130 | 194,143 |
+| `write-compressor` | ✅ PASS | 20 | 1 | 1,221,505 | 1,134,152 | 61,890 |
 
-검증 실패 11건 중 **일곱이 `done 3-0`** 입니다 — 카운슬이 만장일치로 끝났다고 한 작업을 검증이
-물렸습니다. 반대로 카운슬이 막아서 시간이 끝난 trial은 둘인데(`continue 1-2`, `continue 0-3`), 그 둘은
-검증도 카운슬 편이었습니다. 이 백엔드에서 카운슬은 **통과시키는 쪽으로 기울어** 있고, 그게 이번 실행이
-드러낸 가장 큰 단일 결함입니다 — 토큰에 관한 어떤 것보다 큽니다. 요구사항 훑기와 닫는 호출
-(ARCHITECTURE §5)은 바로 이 실측을 겨냥해 붙였고, 이 실행 이후의 것입니다.
+정상 종료하고 틀린 다섯은 **전부 `done 3-0`** 입니다 — 카운슬이 만장일치로 끝났다고 한 작업을 검증이
+물렸습니다. `build-pov-ray`·`filter-js-from-html`·`gcode-to-text`·`openssl-selfsigned-cert`·
+`path-tracing` 다섯이고, 각각 무엇을 틀렸는지는 카드에 있습니다. 그중 둘은 같은 모양입니다 —
+**채점기가 어떻게 부르고 어디서 찾을지에 대한 가정**을 확인하지 않은 것. 하나는 자기가 고른 증거로
+자신을 검증한 것입니다. 이 백엔드에서 카운슬은 여전히 **통과시키는 쪽으로 기울어** 있고, 그게 이번
+실행이 드러낸 가장 큰 결함입니다.
+
+열일곱 중 아홉은 오답이 아니라 시계이고, 그 아홉 중 일곱은 카운슬을 아예 열지 못했습니다 — 타임아웃은
+카운슬이 열릴 완료 선언 자체를 남기지 않습니다. 둘은 아무것도 선언하지 않고 UNVERIFIED로 착지했는데,
+그게 정직한 끝입니다 — `video-processing`은 자기 휴리스틱이 수렴하지 않은 걸 알고 done을 주장하는 대신
+그렇게 말했습니다.
 
 ### 어떤 기계에서 돌았고, 어떤 과제가 손해를 봤나
 

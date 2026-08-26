@@ -115,6 +115,30 @@ def ledger():
         out[(task, hhmm)] = (float(usd), int(secs))
     return out
 
+def tokens():
+    """(task, hhmm) -> [calls, in, out, cache_read, cache_write, usd] spent by that run.
+
+    Same source as the ledger, one column wider. Absent from a clone, where the run logs are not
+    committed -- the markdown emitter is a maintainer's tool, not part of rebuilding the page.
+    """
+    out, cur = {}, None
+    for f in sorted(glob.glob(os.path.join(REPO, "scratchpad", "*.log"))):
+        for ln in open(f, errors="ignore"):
+            m = re.search(r"\[(\d\d):(\d\d):\d\d\] === sonnet .* (\S+) · loop ([0-9a-f]+)", ln)
+            if m:
+                cur = dict(hhmm=m.group(1) + m.group(2), task=m.group(3), before=None)
+                continue
+            m = re.search(r"ledger (before|after)\s*:"
+                          r"\s*(?:calls in out cache_read cache_write usd =)?\s*([\d. ]+)$", ln)
+            if m and cur:
+                v = [float(x) for x in m.group(2).split()]
+                if m.group(1) == "before":
+                    cur["before"] = v
+                elif cur["before"] and len(v) == len(cur["before"]):
+                    out[(cur["task"], cur["hhmm"])] = [a - b for a, b in zip(v, cur["before"])]
+                    cur = None
+    return out
+
 def _ledger_from_logs(logs):
     """(task, hhmm) -> (usd, secs), from the per-run logs the harness wrote as it went."""
     out, cur = {}, None
@@ -208,6 +232,39 @@ def archive_sizes():
             out[name[:-7]] = f"{n/1024:.0f} KB" if n < 1024 * 1024 else f"{n/1024/1024:.1f} MB"
     return out
 
+# The docs carry the same numbers in prose. Emitting them from here rather than transcribing them
+# is what stops the two drifting -- which they did once, leaving BENCHMARK.md quoting a pass rate
+# from an earlier run for weeks.
+def markdown(rows, tok):
+    N = len(rows)
+    passed = [r for r in rows if r["ok"]]
+    to = [r for r in rows if not r["ok"] and r["exc"] == "AgentTimeoutError"]
+    uv = [r for r in rows if not r["ok"] and r["unverified"] and r not in to]
+    hacked = [r for r in rows if r["t"] in REWARD_HACK]
+    wrong = [r for r in rows if not r["ok"] and r not in to and r not in uv and r not in hacked]
+    g = lambda i: sum(tok.get(r["key"], [0] * 6)[i] for r in rows)
+    secs = sum(r["secs"] for r in rows)
+    out = ["| | |", "|---|---|",
+           f"| pass rate | **{len(passed)} / {N} = {len(passed)/N*100:.1f}%** |",
+           f"| of the {N-len(passed)} that did not pass | {len(to)} hit the agent timeout, "
+           f"{len(wrong)} exited cleanly and wrong, {len(uv)} landed UNVERIFIED, "
+           f"{len(hacked)} was rescored to zero |",
+           f"| wall clock | {secs/3600:.1f} hours, {secs/N/60:.1f} min per task |",
+           f"| model calls | {int(g(0)):,} total, {g(0)/N:.0f} per task |",
+           f"| tool calls | {sum(r['calls'] for r in rows):,} total, "
+           f"{sum(r['cn'] for r in rows)} council rounds |",
+           f"| input tokens | {g(1)/1e6:.1f}M, of which {g(3)/1e6:.1f}M were cache reads |",
+           f"| output tokens | {g(2)/1e6:.2f}M |", ""]
+    out += ["| task | | calls | council | tokens in | cache read | tokens out |",
+            "|---|---|---:|---:|---:|---:|---:|"]
+    for r in sorted(rows, key=lambda x: x["t"]):
+        v = tok.get(r["key"], [0] * 6)
+        mark = "✅ PASS" if r["ok"] else ("⏱ TIME" if r["exc"] == "AgentTimeoutError"
+                                         else ("♻ RESCORED" if r["t"] in REWARD_HACK else "❌ FAIL"))
+        out.append(f"| `{r['t']}` | {mark} | {r['calls']} | {r['cn']} | "
+                   f"{int(v[1]):,} | {int(v[3]):,} | {int(v[2]):,} |")
+    return "\n".join(out)
+
 def main():
     cc = {}
     for ln in open(os.path.join(HERE, "cc89.tsv")):
@@ -288,6 +345,11 @@ def main():
         webline = ((UI["web_head"] % (len(rows), len(used), len(both)))
                    + '<ul style="margin:8px 0 0;padding-left:18px">%s</ul>' % items
                    + UI["web_tail"])
+    for r, src in zip(rows, sorted(sel, key=lambda x: x["task"])):
+        r["key"] = (src["task"], src["hhmm"])
+    if "--markdown" in sys.argv:
+        print(markdown(rows, tokens()))
+        return
     arc = archive_sizes()
     for r in rows:
         r["arc"] = arc.get(r["t"], UI["arc_missing"])
