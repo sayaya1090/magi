@@ -69,11 +69,15 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
 새 타입 = CompanionType 한 줄 + 오퍼레이터가 설치한 모듈 하나(디자인·인프라 관리·
 리서처가 후보로 이름만 있다).
 
-드로어는 2단(handbook 메뉴 레일+툴 레일의 번역)이다. 1단은 목적지 아이콘 기둥 — 열려도
-기둥을 지킨다. 2단(#railPanel, shell.css)은 호버가 가리키는 문(피크), 없으면 서 있는 문의
-속을 보인다. 호버 리셋은 레일 전체를 벗어날 때만 — 1단→2단 건너는 길에 끊기면 피크를 쓸
-수 없다(MenuHover, 호버 터널). 드로어 상태는 body[nav=open] 하나다. 마스트헤드와 레일
-배지는 RosterStore에서 읽는다 — 그리는 곳이 늘어도 요청은 늘지 않는다.
+드로어는 메뉴 레일+툴 레일(handbook의 번역)이다. **메뉴 레일**이 목적지 전부(컴패니언
+포함)의 집이고, 열리면(body[nav=open]) 라벨·문장도 메뉴 레일이 말한다. **툴 레일**은
+도구가 2개 이상인 문에서만 선다 — 속이 비면 펼쳐지지 않는다(handbook 규칙): 접힌
+드로어에선 메뉴 기둥을 **대신해** 기둥이 되고(아이콘, 손끝이 레일 위면 라벨 피크, 첫
+항목 ←는 메뉴 레일로 복귀 — 선택 유지), 열린 드로어에선 1단 오른쪽의 둘째 기둥이다.
+규칙은 domain/RailModes(순수 — JVM 테스트), 사실 수집은 usecase/RailMode, 결과는
+#rail의 menu/tool 속성으로 적혀 shell.css가 읽는다. 도구는 usecase/ToolList.provide로
+문별 등록 — **아직 부르는 곳이 없다**(용례 대기): 오늘의 화면은 메뉴 기둥뿐이다.
+마스트헤드와 레일 배지는 RosterStore에서 읽는다 — 그리는 곳이 늘어도 요청은 늘지 않는다.
 
 ## 클린 아키텍처 규칙 (모든 화면 모듈 공통)
 
@@ -121,6 +125,16 @@ assembleConsole은 모든 모듈의 `src/main/webapp`을 함께 나른다 — �
 산출 디렉토리(`fleet/`·`fleettest/`·`shell/`·`shelltest/`·`companion/`…)는 전부
 생성물이고 gitignore다. 거기서 소스는
 테스트 페이지 html뿐이다.
+
+## 정적 데모 (Pages의 next/)
+
+`go run ./web/server -emit-demo <dir>` — 조립된 콘솔을 자답(自答) 정적 사이트로 쓴다:
+fetch(/fleet·/i18n)와 EventSource를 픽스처 목으로 갈아끼우는 심 한 조각을 페이지 앞에
+붙이고, 루트절대 자산 경로(/ui/·/vendor/)를 상대로 고쳐 하위 경로(Pages의 `next/`)에서도
+산다 — 구콘솔 demo.go의 그 수법. CI에선 `.github/actions/pages-site`(복합 액션)가 구
+데모(루트)+벤치 보고서+새 데모(next/)를 한 사이트로 짓고, pages.yml(코어 변경)과
+test-web.yml(웹 변경)이 같은 조리법을 쓴다 — deploy-pages는 사이트를 통째로 갈아끼우므로
+누가 내보내든 전부를 내보낸다.
 
 ## 빌드·실행
 
