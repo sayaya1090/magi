@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#14110d">
+    <title>magi console</title>
+    <!-- 테마를 첫 페인트 전에: 어두운 방에서 흰 플래시를 내지 않는다 (기존 콘솔과 같은 4줄). -->
+    <script>
+      try {
+        var want = localStorage.getItem('theme');
+        if (want === 'light' || want === 'dark') document.documentElement.setAttribute('color-theme', want);
+      } catch (e) { /* storage can be denied */ }
+    </script>
+    <!-- 팔레트·컴포넌트 토큰·플릿 표 전부: 기존 콘솔의 page.css를 빌드가 그대로 복사한 것.
+         스냅샷이 아니라 assembleConsole이 매번 cmd/magi-web/page.css에서 가져온다. -->
+    <link rel="stylesheet" href="/ui/console.css">
+    <!-- 셸 자신의 것(2단 드로어) — console.css의 토큰 위에 얹는다. -->
+    <link rel="stylesheet" href="/ui/shell.css">
+    <!-- 머티리얼 웹 컴포넌트: BFF가 서빙하는 번들을 프록시로 그대로 쓴다(두 콘솔이 한 번들). -->
+    <script type="module">import '/vendor/material.js';</script>
+    <script src="/ui/shell/shell.nocache.js"></script>
+</head>
+<body></body>
+</html>

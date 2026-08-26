@@ -1,0 +1,55 @@
+/* 셸 자신의 것: 2단 드로어. 토큰과 레일 골격은 console.css(:root, #rail)의 것을 읽고,
+   여기는 그 위에 얹는 둘째 기둥만 말한다 — handbook의 메뉴 레일+툴 레일 번역. */
+
+/* 2단 패널: 1단 아이콘 기둥(--magi-comp-rail-w) 오른쪽의 나머지 전부. 드로어가 닫히면
+   없다 — 폭 트랜지션 중에도 그리지 않는 것이 재배치 플린치를 막는다. */
+#railPanel {
+  position:absolute; left:var(--magi-comp-rail-w); right:0; top:0; bottom:0;
+  display:none; flex-direction:column; gap:var(--magi-sys-space-50);
+  padding:calc(var(--magi-sys-space-150) + env(safe-area-inset-top)) var(--magi-sys-space-200) var(--magi-sys-space-200);
+  border-left:1px solid var(--magi-ref-outlineVariant);
+  overflow:hidden auto; overscroll-behavior:contain;
+}
+body[nav="open"] #railPanel { display:flex; }
+
+/* 열린 드로어에서도 1단은 아이콘 기둥을 지킨다 — 문장(sub)은 2단이 대신 말한다.
+   console.css의 body[nav="open"] .sub 규칙을 여기서 되돌린다. */
+body[nav="open"] #rail .raili .sub { display:none; }
+
+/* 2단의 머리: 어느 문의 속인지, 그리고 그 문이 무엇을 위한 것인지 한 줄. */
+.railpanel-head {
+  font:600 var(--md-sys-typescale-title-small-size)/1.4 var(--magi-ref-display);
+  color:var(--magi-ref-fg);
+}
+.railpanel-sub {
+  font:var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
+  color:var(--magi-ref-muted); margin-bottom:var(--magi-sys-space-150);
+}
+
+/* 하위 항목 — 컴패니언 하나: 상태 점(색은 상태의 것, 모양은 늘 같은 점)과 이름. */
+.subitem {
+  display:flex; align-items:center; gap:var(--magi-sys-space-100);
+  padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
+  border-radius:var(--magi-sys-shape-full);
+  color:var(--magi-ref-fg); text-decoration:none; cursor:pointer;
+  font:500 var(--md-sys-typescale-label-medium-size)/1.4 var(--magi-ref-mono);
+  overflow-wrap:anywhere;
+}
+.subitem:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, transparent); }
+.subitem:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, transparent); }
+.subitem .sdot { width:7px; height:7px; border-radius:var(--magi-sys-shape-full); background:currentColor; flex:none; }
+.subitem.waiting .sdot { color:var(--magi-ref-warn); }
+.subitem.working .sdot { color:var(--magi-ref-success); }
+.subitem.idle    .sdot { color:var(--magi-ref-accent); }
+.subitem.gone    .sdot { color:var(--magi-ref-error); }
+.subitem.remote  .sdot { color:var(--magi-ref-muted); }
+/* 상태어는 이름 뒤에 조용히 — 점의 색이 유일한 전달자가 되지 않게(색맹 독자). */
+.subitem .sword {
+  margin-left:auto; font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
+  color:var(--magi-ref-muted); flex:none;
+}
+
+.railpanel-empty {
+  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
+  color:var(--magi-ref-muted);
+}

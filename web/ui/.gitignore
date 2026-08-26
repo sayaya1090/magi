@@ -1,0 +1,12 @@
+.gradle/
+build/
+war/
+# devMode/gwtTestCompile의 war 출력과 단일 원천 복사물 — 매 빌드 재생성된다.
+# src/test/webapp 에서 소스는 테스트 페이지 html뿐이다 (web/ui/README.md §단일 원천 복사).
+**/src/test/webapp/js/
+**/src/test/webapp/css/
+**/src/test/webapp/fleet/
+**/src/test/webapp/fleettest/
+**/src/test/webapp/shell/
+**/src/test/webapp/shelltest/
+**/gwt-unitCache/

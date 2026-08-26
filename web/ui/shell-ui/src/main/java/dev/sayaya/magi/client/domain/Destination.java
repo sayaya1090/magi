@@ -1,0 +1,36 @@
+package dev.sayaya.magi.client.domain;
+
+/**
+ * 드로어의 목적지 하나 — 주소(?v=)이자 모듈 이름이자 문의 라벨.
+ *
+ * 카탈로그(all)는 이식된 화면만 담는다: 눌러서 빈 화면에 닿는 문은 없는 문보다 나쁘다
+ * (기존 콘솔이 제로 타일에 적용하는 그 규칙). 화면이 이식될 때마다 여기 한 줄이 는다.
+ */
+public final class Destination {
+    public final String id;        // ?v= 값이자 /ui/<id>/<id>.nocache.js 의 모듈 이름
+    public final String labelKey;  // 문에 쓰는 말(팩 키) — aria-label과 넓은 라벨
+    public final String shortKey;  // 접힌 레일·폰 바가 읽는 한두 단어
+    public final String subKey;    // 열린 드로어만 그리는 한 줄 설명
+    public final String iconPath;  // 24x24 스트로크 패스(기존 콘솔의 그 드로잉, currentColor)
+
+    private Destination(String id, String labelKey, String shortKey, String subKey, String iconPath) {
+        this.id = id;
+        this.labelKey = labelKey;
+        this.shortKey = shortKey;
+        this.subKey = subKey;
+        this.iconPath = iconPath;
+    }
+
+    public static final Destination FLEET = new Destination("fleet",
+            "nav.companions", "nav.companions", "nav.companions_sub",
+            "M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 "
+                    + "2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5");
+
+    public static Destination[] all() { return new Destination[]{FLEET}; }
+
+    /** 주소가 대는 이름의 목적지, 모르면 첫 문 — 잘못 친 주소가 빈 화면이 되지 않게. */
+    public static Destination byId(String id) {
+        for (Destination d : all()) if (d.id.equals(id)) return d;
+        return FLEET;
+    }
+}
