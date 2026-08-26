@@ -576,6 +576,7 @@ Flags and environment variables (precedence: flag > env > default):
 | — | `MAGI_STREAM_STALL` | `120` (s) | silence bound BETWEEN tokens (a mid-generation freeze aborts, keeping the partial output); `0` disables. The stream-guard safety net sits at 2× the larger of the two bounds |
 | — | `MAGI_SPIN_WALL` | `600` (s) | wall-clock bound on a single response that streams on WITHOUT any tool call, measured from its first output; past it the response is cancelled as a reasoning-only spin and the agent is nudged to act. The byte-cap twin (400KB, `MAGI_SPIN_CAP`) catches a fast thinker; this catches a slow one — a thinking-mode model was measured holding one call for 80 minutes on 16.6KB of trickled reasoning, under every other bound. `0` disables |
 | `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
+| `embed_model` | `MAGI_EMBED_MODEL` | (none) | the model that turns text into vectors. Without one, recall stays textual — the semantic half of `recall_memory` and the shared brain is simply absent rather than degraded |
 | — | `MAGI_EMBED_BASE_URL` | (chat base URL) | endpoint for the **embedding** model (`embed_model`), when it lives on a different backend than the chat model — the semantic half of `recall_memory` / the shared brain |
 | — | `MAGI_EMBED_API_KEY` | (none) | key for that embedding endpoint |
 | — | `MAGI_DEDUP_COSINE` | `0.93` | how alike two memories (or two skills) must be for a new one to count as ALREADY HELD and not be written. High on purpose: a false merge loses a fact permanently and silently, a false split leaves a visible near-duplicate. `0` disables semantic dedup, leaving identity textual — which is also what happens with no `embed_model` |
@@ -829,8 +830,11 @@ A machine with an address on its admitted line is reached over TLS; one without 
 ```
 magi --invite laptop --at build.local:7777     # on the machine to be reached
   on laptop, run:
-    magi --join build.local:7777 --token <secret> --pin SHA256:…
+    magi --fleet-join build.local:7777 --token <secret> --pin SHA256:…
 ```
+
+`--fleet-join`, not `--join`: the shorter name belongs to reading a companion's shared project
+config (below), and handing it a host:port would have it look for a companion by that name.
 
 It creates nothing on the other machine. It mints an invitation and prints a line a person runs
 there, and that person's magi starts with that person's permissions — which is the shape of the
