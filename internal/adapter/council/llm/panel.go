@@ -103,14 +103,7 @@ func panelSchemaFor(keep bool) string {
 // answer with whichever backend the first member happened to name. Those councils keep the
 // per-member shape and pay for it, which is the right trade when the whole point is that the
 // members are not the same judge.
-func samePanelBackend(members []council.Member) bool {
-	for _, m := range members[1:] {
-		if m.Provider != members[0].Provider || m.Model != members[0].Model {
-			return false
-		}
-	}
-	return true
-}
+func samePanelBackend(members []council.Member) bool { return council.OnePanel(members) }
 
 // panelSynthesis warns that the round is not over when the verdicts are.
 const panelSynthesis = "When all three verdicts are written you will be asked one more question about them.\n\n"

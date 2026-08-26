@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -39,11 +40,27 @@ import (
 const councilDoingCall = "council"
 
 // councilDoing is the line an outside reader gets while the council sits.
-func councilDoing(members, answered int) string {
-	if answered >= members {
-		return fmt.Sprintf("the council has answered (%d of %d) — reading the verdicts", answered, members)
+//
+// The count only means something when the members answer separately. Sharing a backend makes the
+// round ONE call, so no verdict exists until the whole reply is parsed and all three then arrive at
+// once — and the line sat on "0 of 3 have answered" for the entire median 87 seconds, which is the
+// exact wording this note was added to avoid. So the panel shape says what is true of it, and both
+// shapes carry the elapsed time: what separates working from wedged, for a reader, is a number that
+// moves.
+func councilDoing(members, answered int, onePanel bool, elapsed time.Duration) string {
+	since := ""
+	if d := elapsed.Round(time.Second); d > 0 {
+		since = " — " + d.String() + " so far"
 	}
-	return fmt.Sprintf("waiting on the council: %d of %d have answered", answered, members)
+	switch {
+	case answered >= members:
+		return fmt.Sprintf("the council has answered (%d of %d) — reading the verdicts", answered, members)
+	case onePanel:
+		// No partial count to give: one reply carries all of them.
+		return fmt.Sprintf("the council is reading — %d members, one reply%s", members, since)
+	default:
+		return fmt.Sprintf("waiting on the council: %d of %d have answered%s", answered, members, since)
+	}
 }
 
 func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool) (string, error) {
@@ -174,12 +191,31 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// an attached window or a console it was 87 seconds of a turn that had simply stopped saying
 	// anything. This is the same field a long-running tool writes, which is the field both of
 	// those surfaces already read.
-	a.noteDoing(sid, councilDoingCall, councilDoing(len(members), 0))
+	a.noteDoing(sid, councilDoingCall, councilDoing(len(members), 0, council.OnePanel(members), 0))
 	defer a.clearDoing(sid, councilDoingCall)
 
 	// Atomic because the members are polled CONCURRENTLY and this callback runs on whichever
 	// goroutine answers — a plain counter here is a data race, and the race detector runs in CI.
 	var answered atomic.Int64
+	onePanel := council.OnePanel(members)
+	started := time.Now()
+	// The elapsed half has to be pushed, because nothing else here is going to speak for a minute
+	// and a half: the note is a stored value a console polls, so a line written once at the start
+	// is a line that stops moving the moment somebody starts wondering whether it has.
+	tick := time.NewTicker(5 * time.Second)
+	stopTick := make(chan struct{})
+	defer func() { tick.Stop(); close(stopTick) }()
+	go func() {
+		for {
+			select {
+			case <-stopTick:
+				return
+			case <-tick.C:
+				a.noteDoing(sid, councilDoingCall,
+					councilDoing(len(members), int(answered.Load()), onePanel, time.Since(started)))
+			}
+		}
+	}()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
 		NoChanges:    strings.TrimSpace(changes) == "",
@@ -203,7 +239,8 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		OnVerdict: func(v council.Verdict) {
 			// Counted as they land, so the line moves: "3 of 3 answered" for a minute and a half
 			// is indistinguishable from a line that got stuck.
-			a.noteDoing(sid, councilDoingCall, councilDoing(len(members), int(answered.Add(1))))
+			a.noteDoing(sid, councilDoingCall,
+				councilDoing(len(members), int(answered.Add(1)), onePanel, time.Since(started)))
 			vd, _ := json.Marshal(event.CouncilVerdictData{
 				Round: 1, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
 				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,

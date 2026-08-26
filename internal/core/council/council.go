@@ -41,6 +41,25 @@ type Member struct {
 	Weight   float64 `json:"weight,omitempty"`   // 0 = 1
 }
 
+// OnePanel says whether these members are judged in a single call.
+//
+// It is one call when they share a backend, and one per member when they do not — a weak model and
+// a strong one judging the same work is the point of that configuration, and folding it into one
+// request would answer with whichever backend came first. The adapter decides the shape from this,
+// and a reader telling somebody what the council is doing has to describe the same shape, so the
+// predicate lives here rather than in either of them.
+func OnePanel(members []Member) bool {
+	if len(members) < 2 {
+		return false
+	}
+	for _, m := range members[1:] {
+		if m.Provider != members[0].Provider || m.Model != members[0].Model {
+			return false
+		}
+	}
+	return true
+}
+
 // Verdict is one member's evaluation at the termination gate.
 type Verdict struct {
 	Member     string   `json:"member"`               // the member's label
