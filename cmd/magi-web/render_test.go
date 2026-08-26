@@ -5856,6 +5856,50 @@ console.log(JSON.stringify({
 // is the screen half of the same rule: the tasks sit there, one control each, and nothing leaves
 // until somebody presses one. A participant with nothing to do is drawn as such rather than left
 // off, because a missing row reads as one nobody got round to asking.
+// What a participant leaves with is written as markdown, and is drawn as markdown. The transcript
+// above it always was; this list was the one thing on the meeting screen that showed its own source.
+func TestTheConclusionsRenderMarkdown(t *testing.T) {
+	got := meetPage(t, `{
+    id: 'm2', topic: 'the shape of the list', round: 1, max: 1, closed: true,
+    speakers: [{name: 'design', socket: '/s/d'}],
+    said: [{who: 'design', round: 1, text: 'here is what I will do'}],
+    tasks: [{who: 'design', what: '### Next\n\n- name the tokens in \x60tokens.css\x60\n- delete the third button'}],
+  }`, `
+const what = byId.meet.find(d => String(d.className).split(' ')[0] === 'meettaskwhat')[0];
+console.log(JSON.stringify({
+  tags: what.find(() => true).map(d => d.tag),
+  bullets: what.find(d => d.tag === 'li').map(d => (d.textContent || '').trim()),
+  code: what.find(d => d.tag === 'code').map(d => d.textContent),
+  raw: (what.textContent || '').includes('###'),
+  wrapped: String(what.className).includes('txt'),
+}));
+`)
+	tags, _ := got["tags"].([]any)
+	var seen []string
+	for _, v := range tags {
+		seen = append(seen, fmt.Sprint(v))
+	}
+	joined := strings.Join(seen, " ")
+	// h3..h6, because blocks() clamps a transcript's headings under the section they sit in --
+	// "###" lands on h5 here rather than opening a level above the meeting's own heading.
+	if !strings.Contains(joined, "h3") && !strings.Contains(joined, "h4") &&
+		!strings.Contains(joined, "h5") && !strings.Contains(joined, "h6") {
+		t.Errorf("the heading is not a heading, tags were %v", seen)
+	}
+	if !strings.Contains(joined, "li") {
+		t.Errorf("the bullets are not a list, tags were %v", seen)
+	}
+	if code, _ := got["code"].([]any); len(code) != 1 || fmt.Sprint(code[0]) != "tokens.css" {
+		t.Errorf("the backticked path is not code: %v", got["code"])
+	}
+	if got["raw"] == true {
+		t.Errorf("the markup is still showing as text: %v", got["bullets"])
+	}
+	if got["wrapped"] != true {
+		t.Error("without the txt class the pre-wrap fights the blocks it now contains")
+	}
+}
+
 func TestTheConclusionsWaitForAPerson(t *testing.T) {
 	got := meetPage(t, `{
     id: 'm1', topic: 'the empty state', round: 2, max: 2, closed: true,

@@ -3847,10 +3847,12 @@
   .meettasks { display:grid; gap:var(--magi-sys-space-150); }
   .meettask {
     display:grid; grid-template-columns:minmax(6rem, 9rem) 1fr auto;
-    gap:var(--magi-sys-space-200); align-items:center;
+    gap:var(--magi-sys-space-200); align-items:start;
     border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-150);
   }
-  .meettaskwho { color:var(--magi-ref-accent); }
+  /* Top, not centre: what a participant leaves with is often a list, and a name floating at the
+     middle of six bullets reads as though it belongs to the third one. */
+  .meettaskwho { color:var(--magi-ref-accent); align-self:start; }
   .meettaskwhat { white-space:pre-wrap; overflow-wrap:anywhere; }
   .meettask.nothing .meettaskwhat { color:var(--magi-ref-muted); }
   /* The receipt and, when the socket is known, the way to the work it made — one line, the two

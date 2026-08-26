@@ -7171,7 +7171,13 @@ function conclusions(m) {
     row.append(cell('meettaskwho', t.who));
     // Nothing to do is an outcome and is drawn as one. A participant missing from this list would
     // read as one nobody asked.
-    row.append(cell('meettaskwhat', t.what || tr('meet.task_none')));
+    //
+    // Drawn as markdown, like every other thing a model says on this page. What comes back here is
+    // a list of what somebody is taking away, and it arrives written as one -- bullets, a heading,
+    // a path in backticks. Left as text it rendered as its own source, which is the one place in
+    // the meeting screen that did: the transcript above it has always gone through md().
+    row.append(t.what ? md(cell('meettaskwhat txt'), t.what)
+                      : cell('meettaskwhat', tr('meet.task_none')));
     if (t.what && meetHanded.has(m.id + '|' + t.who)) {
       row.append(sentWithWayThere(m, t.who));
     } else if (t.what) {
