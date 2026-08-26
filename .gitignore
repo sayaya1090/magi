@@ -62,4 +62,7 @@ cmd/magi-web/node_modules/
 cmd/magi-web/.npmrc
 cmd/magi-web/package-lock.json
 bench/harbor/state/
+web/ui/gradle.properties
 
+# go build ./web/server 가 떨구는 바이너리
+/server
