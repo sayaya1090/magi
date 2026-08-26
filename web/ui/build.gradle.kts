@@ -17,7 +17,8 @@ tasks.register<Copy>("assembleConsole") {
     // gwtTestCompile도 같은 war 디렉토리를 출력으로 선언한다 — 지금은 테스트 모듈이 없어 산출물이
     // 없지만, Gradle 검증은 순서 선언을 요구한다. 산출물이 생기면 EXCLUDE보다 앞서 걸러야 한다.
     mustRunAfter(subprojects.map { "${it.path}:gwtTestCompile" })
-    from("shell-ui/src/main/webapp")
+    // 모든 화면 모듈의 자기 자산(css 등)도 함께 — companion.css 는 companion-ui 의 것.
+    subprojects.forEach { p -> from(p.projectDir.resolve("src/main/webapp")) }
     // 팔레트·플릿 CSS는 기존 콘솔의 단일 원천에서 매 빌드 복사한다 — 스냅샷 드리프트 없음.
     // (theme.css 생성 원장 행이 해결되면 이 복사는 그 산출물로 대체된다.)
     from("../../cmd/magi-web/page.css") { rename { "console.css" } }

@@ -10,3 +10,5 @@ war/
 **/src/test/webapp/shell/
 **/src/test/webapp/shelltest/
 **/gwt-unitCache/
+**/src/test/webapp/companion/
+**/src/test/webapp/companiontest/

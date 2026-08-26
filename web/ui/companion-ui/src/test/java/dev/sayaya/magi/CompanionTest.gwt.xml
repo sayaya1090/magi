@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<module rename-to="companion">
+<module rename-to="companiontest">
     <inherits name="com.google.gwt.user.User"/>
     <inherits name="org.jboss.elemento.Core"/>
     <inherits name="dagger.Dagger"/>
@@ -7,6 +7,6 @@
     <inherits name="dev.sayaya.Rx"/>
     <inherits name="dev.sayaya.magi.ConsoleBridge"/>
     <inherits name="dev.sayaya.magi.UiComponents"/>
-    <entry-point class="dev.sayaya.magi.client.Application"/>
+    <entry-point class="dev.sayaya.magi.client.TestApplication"/>
     <source path="client"/>
 </module>
