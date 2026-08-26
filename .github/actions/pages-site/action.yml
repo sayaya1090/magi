@@ -1,0 +1,48 @@
+# Builds the WHOLE Pages site — the old console's demo at the root, the benchmark report, and
+# the new console's demo under next/. One action used by two workflows (pages.yml for core
+# changes, test-web.yml for web changes), because deploy-pages replaces the whole site: whichever
+# lane publishes must publish everything.
+name: build-pages-site
+description: assemble the full Pages site into _site/
+inputs:
+  fa-token:
+    description: Font Awesome Pro npm token (optional — without it the page draws its own shapes)
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: bake the icons, if this run may
+      shell: bash
+      env:
+        FA_TOKEN: ${{ inputs.fa-token }}
+      working-directory: cmd/magi-web
+      run: |
+        set -euo pipefail
+        if [ -z "${FA_TOKEN:-}" ]; then
+          echo "no icon token in this run — the demo will draw the page's own shapes"
+          exit 0
+        fi
+        cat > .npmrc <<'NPMRC'
+        @fortawesome:registry=https://npm.fontawesome.com/
+        NPMRC
+        printf '//npm.fontawesome.com/:_authToken=%s\n' "${FA_TOKEN}" >> .npmrc
+        npm install --no-save --no-audit --no-fund @fortawesome/fontawesome-pro@7
+        rm -f .npmrc
+        MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./...
+        test -f icons_gen.go
+    - name: build the old console's demo
+      shell: bash
+      run: go run ./cmd/magi-web -emit-demo ./_site
+    - name: carry the benchmark report onto the site
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ./_site/bench
+        cp docs/bench/*.html ./_site/bench/
+    - name: build the new console's demo under next/
+      shell: bash
+      run: |
+        set -euo pipefail
+        (cd web/ui && ./gradlew assembleConsole -q)
+        go run ./web/server -emit-demo ./_site/next

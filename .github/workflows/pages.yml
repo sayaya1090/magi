@@ -28,6 +28,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read # the new console's dependencies come from GitHub Packages
   pages: write
   id-token: write
   # To delete the duplicate artifacts described in the deploy job. Nothing else here writes.
@@ -49,46 +50,22 @@ jobs:
       - name: test the console
         run: go test ./cmd/magi-web/ -count=1
 
-      # The icons, from the registry rather than from this repository. Font Awesome Pro's licence
-      # permits using the art in something you deploy and not republishing it as files, so nothing
-      # licensed is committed here: the page names its icons and the sprite is baked now, from the
-      # package this token opens.
-      #
-      # Not required. A run without the secret — a fork's, or this one before the token existed —
-      # skips it and publishes a demo drawing the shapes the page has always drawn, which is also
-      # exactly what a contributor's own build looks like. That is worth seeing rather than hiding.
-      - name: bake the icons, if this run may
+      # The site is one artifact and deploy-pages replaces it whole, so every lane that
+      # publishes must build everything — the shared recipe (icons, old demo, bench report,
+      # and the NEW console's demo under next/) lives in one composite action, used here and
+      # by test-web.yml. The new console builds with gradle, so java comes first.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v5
+      - name: build the site
+        uses: ./.github/actions/pages-site
         env:
-          FA_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
-        working-directory: cmd/magi-web
-        run: |
-          set -euo pipefail
-          if [ -z "${FA_TOKEN:-}" ]; then
-            echo "no icon token in this run — the demo will draw the page's own shapes"
-            exit 0
-          fi
-          cat > .npmrc <<'EOF'
-          @fortawesome:registry=https://npm.fontawesome.com/
-          EOF
-          printf '//npm.fontawesome.com/:_authToken=%s\n' "${FA_TOKEN}" >> .npmrc
-          npm install --no-save --no-audit --no-fund @fortawesome/fontawesome-pro@7
-          rm -f .npmrc
-          MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./...
-          test -f icons_gen.go
-
-      - name: build the demo
-        run: go run ./cmd/magi-web -emit-demo ./_site
-
-      # The benchmark report is a finished page, not a demo -- it ships in docs/ so it is reviewable
-      # in a diff, and it is copied here so a reader gets the rendered page instead of its source.
-      # GitHub serves a repository's .html as text/plain, which is the whole reason this step exists.
-      # Both languages come across: the glob takes the .html and the .ko.html together.
-      - name: carry the benchmark report onto the site
-        run: |
-          set -euo pipefail
-          mkdir -p ./_site/bench
-          cp docs/bench/*.html ./_site/bench/
-          ls -l ./_site/bench
+          GITHUB_USERNAME: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          fa-token: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

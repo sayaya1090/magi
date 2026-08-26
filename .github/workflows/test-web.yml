@@ -1,0 +1,110 @@
+# The new console's own test lane. web/ releases on its own clock (web-v* → release-web.yml)
+# and tests on it too: a web-only change runs this and not the Go CI (ci.yml ignores web/**),
+# and a core change does not spend minutes compiling GWT it did not touch.
+#
+# The Playwright browser specs are real browser tests — chromium is installed with system deps
+# before gradle runs them. Dependencies come from GitHub Packages (same owner), so the
+# workflow's own token suffices with packages: read.
+name: test-web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/test-web.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/test-web.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Test the console
+        env:
+          GITHUB_USERNAME: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: web/ui
+        run: ./gradlew build assembleConsole
+      - name: Build the dev server
+        run: |
+          go version >/dev/null 2>&1 || true
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Vet and build web/server
+        run: |
+          gofmt -l web/server | tee /dev/stderr | test -z "$(cat)"
+          go vet ./web/server
+          go build ./web/server
+
+  # 개발 중의 예시: main에 실리면 Pages의 next/ 하위 경로로 새 콘솔 데모가 나간다.
+  # deploy-pages는 사이트를 통째로 갈아끼우므로, 이 레인도 전체 사이트(구 데모 포함)를
+  # 짓는다 — 조리법은 pages.yml과 같은 composite 하나다.
+  site:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      pages: write
+      id-token: write
+      actions: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v5
+      - name: build the site
+        uses: ./.github/actions/pages-site
+        env:
+          GITHUB_USERNAME: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          fa-token: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./_site
+      - name: leave exactly one pages artifact
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          extra=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '[.artifacts[] | select(.name=="github-pages")]
+                  | sort_by(.created_at) | reverse | .[1:] | .[].id')
+          if [ -z "$extra" ]; then echo "one artifact, nothing to do"; exit 0; fi
+          for id in $extra; do
+            echo "deleting duplicate github-pages artifact $id"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+          done
+      - id: deployment
+        uses: actions/deploy-pages@v5

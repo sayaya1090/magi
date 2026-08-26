@@ -3,7 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+    # The new console (web/) tests on its own clock — test-web.yml — the way it releases on
+    # its own clock. A web-only push has nothing here to prove.
+    paths-ignore:
+      - "web/**"
   pull_request:
+    paths-ignore:
+      - "web/**"
 
 permissions:
   contents: write # the coverage-badge step pushes a JSON to the 'badges' branch
