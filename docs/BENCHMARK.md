@@ -406,7 +406,8 @@ Four consequences are visible in the results rather than hypothetical:
   container** (`dpkg --add-architecture arm64`, then `apt-get install qemu-system-x86:arm64`),
   which never enters the translation layer at all; that trial passed. `qemu-alpine-ssh` found the
   same multi-arch route blocked by gstreamer dependency conflicts and went a layer lower instead,
-  **with no web access at all**: `objdump -T` located `qemu_signalfd`, and a 32-line `LD_PRELOAD`
+  **without making one web call** — the tools were there and it did not reach for them:
+  `objdump -T` located `qemu_signalfd`, and a 32-line `LD_PRELOAD`
   interposer returned `ENOSYS` for syscalls 282 (`signalfd`) and 289 (`signalfd4`) so QEMU fell
   back to its own pipe-based path. SeaBIOS booted, and Alpine 3.19 reached `localhost login:` after
   3 m 2 s of VM time — but the 15-minute budget ended moments later with sshd untouched. What beat

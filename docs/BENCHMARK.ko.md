@@ -387,7 +387,7 @@ python3 bench/harbor/compare/build_page.py --markdown
   `docker/for-mac#7475`에 닿은 뒤 amd64 컨테이너 안에 **arm64 네이티브 QEMU**를 깔았습니다
   (`dpkg --add-architecture arm64` 다음 `apt-get install qemu-system-x86:arm64`). 번역 계층을 아예
   거치지 않는 길이고, 그 trial은 통과했습니다. `qemu-alpine-ssh`는 같은 멀티아치 길이 gstreamer 의존성
-  충돌로 막히자 **웹을 한 번도 쓰지 않고** 한 층 아래로 내려갔습니다. `objdump -T`로 `qemu_signalfd`를
+  충돌로 막히자 **웹 호출을 한 번도 하지 않고** 한 층 아래로 내려갔습니다 — 도구는 있었고 손을 뻗지 않았습니다. `objdump -T`로 `qemu_signalfd`를
   찾아내고, 282(`signalfd`)와 289(`signalfd4`)에만 `ENOSYS`를 돌려주는 32줄짜리 `LD_PRELOAD`
   인터포저를 짜서 QEMU가 자기 파이프 기반 폴백으로 내려가게 만들었습니다. SeaBIOS가 떴고 Alpine 3.19가
   VM 시간 3분 2초 만에 `localhost login:`에 닿았지만, 그 직후 15분 예산이 끝나 sshd는 손도 대지
