@@ -20,7 +20,18 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7778", "listen address (loopback only — the console rule)")
 	ui := flag.String("ui", "web/ui/build/console", "directory holding the assembled UI (gradle assembleConsole)")
 	bff := flag.String("bff", "http://127.0.0.1:7777", "the running magi-web to proxy everything else to")
+	demo := flag.String("emit-demo", "", "write the console as a static demo into this directory, then exit")
+	oldConsole := flag.String("old-console", "cmd/magi-web", "the old console's sources, for the single-source assets the demo carries")
 	flag.Parse()
+
+	if *demo != "" {
+		if err := emitDemo(*demo, *ui, *oldConsole); err != nil {
+			fmt.Fprintln(os.Stderr, "web/server: emit-demo:", err)
+			os.Exit(1)
+		}
+		fmt.Println("web/server: demo written to", *demo)
+		return
+	}
 
 	host, _, err := net.SplitHostPort(*addr)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
