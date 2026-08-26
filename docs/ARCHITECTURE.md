@@ -750,6 +750,23 @@ configuration a person has to have, not something to assume.
   empty, so no persist, when the command opens with a shell metachar and has no fixed
   program to pin). One approval can't silently pre-authorize every later command.
 
+**The irreversible-command gate (`app/irreversible.go`)** asks before a delete that nothing can
+undo. It classifies by REACH, not by verb: `rm -rf` inside the workspace is the agent's own work and
+runs, while the same command aimed outside it is somebody else's and stops — magi has nothing to
+restore it from. Two kinds of path lie outside the tree and are still nobody else's, and both are
+let through: scratch space (`/tmp`, `/var/tmp`, `$TMPDIR` — the roots themselves stay gated) and
+anything the run created, which `runGuard` tracks as it goes and matches by containment, so deleting
+a directory covers the files made inside it. A glob with no separator and no leading `..` is
+expanded by the shell in the workspace's own directory and cannot land outside it either.
+
+What it asks is a plain yes/no about one command, so it does not convene a panel: `port.Council`'s
+`Advise` is one question, one reader, prose back, carrying the task and the question and nothing
+else. The turn's evidence block is deliberately withheld — the question is about SCOPE, and handing
+over the evidence would pay for anchoring rather than grounding. `councilSaysNo` reads the prose.
+Routing it through `Deliberate` instead cost about 35 KB of cache write per firing and made a
+complete answer look like a parse failure, because that machinery tells its reader to answer as
+verdicts.
+
 **Workflow engine (`app/workflow.go`, opt-in via `-workflow`)** drives a task through
 a deterministic, code-enforced pipeline so the *flow* doesn't depend on the model:
 `localize` (read-only) → `implement` (edit) → `verify` (bash/real command) →

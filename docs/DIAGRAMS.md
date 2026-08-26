@@ -502,7 +502,7 @@ classDiagram
   class MCPClient["adapter/mcp"]
   note for MCPClient "registered as mcp__server__tool"
   class LLMCouncil["adapter/council/llm"]
-  note for LLMCouncil "per-member prompts · parallel poll · a rebuttal round on disagreement"
+  note for LLMCouncil "one call for a shared backend, one per member when they differ · a closing call over the three walks · a rebuttal round on disagreement"
   class LayeredExp["adapter/experience/layered + git"]
   note for LayeredExp "project layered over global"
   class OSPlatform["adapter/platform"]
@@ -1050,6 +1050,7 @@ sequenceDiagram
 |---|---|---|
 | `MAGI_DECLARE_FINISH` | ON | requires ending to be a **declared act** (`council{complete:true}`); off restores the passive finish where the model just stops calling tools |
 | `MAGI_COUNCIL_DEBATE` | ON | one rebuttal round on disagreement; off tallies the independent vote only |
+| `MAGI_COUNCIL_SUITE_WALK` | ON | refuses one shape of answer on a requirements walk — a suite-wide count ("all 12 pass"), which cannot say which requirement it is about. It asks for nothing the route did not already ask for, so a member already walking per-requirement is unaffected |
 | `MAGI_STALL_NOVELTY` | ON | credits a **novel** inspection (a first-seen read/grep) as forward motion, buying one more stall window; off counts only mutations |
 | `MAGI_CTX_COMPACT_RETRY` | ON | compact and retry when the context overflows |
 | `MAGI_EXITCODE_BODYSCAN` | ON | the bash exit-0 crash and masking annotations (`tool/builtin`) |

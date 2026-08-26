@@ -493,7 +493,7 @@ classDiagram
   class MCPClient["adapter/mcp"]
   note for MCPClient "mcp__server__tool 이름으로 등록"
   class LLMCouncil["adapter/council/llm"]
-  note for LLMCouncil "멤버별 프롬프트 · 병렬 폴 · 불일치 시 반박 라운드"
+  note for LLMCouncil "백엔드를 공유하면 한 번의 호출, 다르면 멤버당 하나 · 세 walk 위의 닫는 호출 · 불일치 시 반박 라운드"
   class LayeredExp["adapter/experience/layered + git"]
   note for LayeredExp "global 위에 project 를 겹침"
   class OSPlatform["adapter/platform"]
@@ -1030,6 +1030,7 @@ sequenceDiagram
 |---|---|---|
 | `MAGI_DECLARE_FINISH` | ON | 종료를 **선언 행위**로 요구(`council{complete:true}`); off면 모델이 툴 호출을 멈추는 수동적 종료로 복귀 |
 | `MAGI_COUNCIL_DEBATE` | ON | 불일치 시 1회 반박 라운드; off면 독립 투표 집계만 |
+| `MAGI_COUNCIL_SUITE_WALK` | ON | 요구사항 walk에서 답의 한 모양을 거부한다 — 스위트 전체 개수("12개 다 통과")는 어느 요구사항에 대한 말인지 못 밝힌다. 루트가 이미 요구한 것 이상을 묻지 않으므로, 이미 요구사항별로 걷던 멤버는 영향을 받지 않는다 |
 | `MAGI_STALL_NOVELTY` | ON | **새로운** 조사 명령(처음 보는 read/grep)을 전진으로 인정해 정체 창을 한 번 더 줌; off면 뮤테이션만 전진 |
 | `MAGI_CTX_COMPACT_RETRY` | ON | 컨텍스트 초과 시 압축 후 재시도 |
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
