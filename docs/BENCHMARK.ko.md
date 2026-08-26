@@ -216,11 +216,12 @@ trial, 89개 중 45개 태스크**로 올라갑니다. 절반 가까이가 밖�
 ## 결과
 
 **맞대결 리포트는 따로 한 페이지입니다:**
-[magi vs Claude Code on Terminal-Bench 2.1](https://claude.ai/code/artifact/b8bbb95a-24f0-4ed5-a2c2-4d27b3981a0e). 과제별 표를 싣습니다 — magi의 판정과 콜·토큰 수를
+[magi vs Claude Code on Terminal-Bench 2.1](https://sayaya1090.github.io/magi/bench/tb21-magi-vs-claude-code.html). 과제별 표를 싣습니다 — magi의 판정과 콜·토큰 수를
 비교 대상의 다섯 trial 및 비용과 나란히 놓은 것입니다. 여기에 magi가 실패한 과제와 magi만 푼 과제마다
-쓴 카드, 각 trial을 왜 격리했는지 적은 목록, 그리고 양쪽의 웹 사용 감사가 붙습니다. job 디렉토리에서
+쓴 카드, 각 trial을 왜 격리했는지 적은 목록, 그리고 양쪽의 웹 사용 감사가 붙습니다. job 디렉토리에서, 또는 옆에 함께 커밋된 시행 아카이브에서
 `bench/harbor/compare/build_page.py`가 다시 만들어 내므로, 실행을 옮겨 적은 것이 아니라 실행을 비추는
-화면입니다. 이 페이지는 자체 공유 메뉴에서 공유하기 전까지는 비공개입니다.
+화면입니다. diff가 검토하는 것은 `docs/bench/`의 사본이고, 위 링크는 같은 파일을 Pages가 서비스하는
+것입니다 — GitHub는 저장소의 `.html`을 텍스트로 돌려주기 때문입니다.
 
 
 `claude-sonnet-5` 위의 magi, 추론 에포트 HIGH(magi 플래그가 아니라 백엔드 쪽 설정입니다),

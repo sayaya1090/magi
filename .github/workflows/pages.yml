@@ -79,6 +79,16 @@ jobs:
       - name: build the demo
         run: go run ./cmd/magi-web -emit-demo ./_site
 
+      # The benchmark report is a finished page, not a demo -- it ships in docs/ so it is reviewable
+      # in a diff, and it is copied here so a reader gets the rendered page instead of its source.
+      # GitHub serves a repository's .html as text/plain, which is the whole reason this step exists.
+      - name: carry the benchmark report onto the site
+        run: |
+          set -euo pipefail
+          mkdir -p ./_site/bench
+          cp docs/bench/*.html ./_site/bench/
+          ls -l ./_site/bench
+
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
