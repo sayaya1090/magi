@@ -1,0 +1,72 @@
+# The console's own release lane. The core binary releases on v* tags through goreleaser, and
+# its asset layout is load-bearing (self-update pulls magi_<OS>_<arch> by name) — so the console
+# does not ride that train. A web-v* tag releases magi-web alone, versioned on its own clock,
+# and a core release never rebuilds the console.
+#
+# goreleaser is deliberately not used here: tag prefixes in one repository are a goreleaser Pro
+# feature, and this lane is six cross-compiles and a checksum file — small enough to say plainly.
+#
+# Icons: the Font Awesome Pro sprite is NOT baked into release binaries. The Pages demo bakes it
+# because a deployed page is "use"; a downloadable binary on a public release is closer to
+# redistribution, which the licence does not permit. The fallback glyphs are a working build.
+name: release-web
+
+on:
+  push:
+    tags:
+      - "web-v*"
+
+permissions:
+  contents: write # gh release create uploads the assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      # The same gate Pages uses: the console's tests run its real JavaScript under node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test the console before shipping it
+        run: go test ./cmd/magi-web/ -count=1
+      - name: Build all targets
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#web-v}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w \
+            -X github.com/sayaya1090/magi/internal/version.Version=${VER} \
+            -X github.com/sayaya1090/magi/internal/version.Commit=${COMMIT} \
+            -X github.com/sayaya1090/magi/internal/version.Date=${DATE}"
+          mkdir -p dist-web
+          for os in darwin linux windows; do
+            for arch in amd64 arm64; do
+              bin=magi-web; [ "$os" = windows ] && bin=magi-web.exe
+              stage="dist-web/magi-web_${os}_${arch}"
+              mkdir -p "$stage"
+              CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+                go build -trimpath -ldflags "$LDFLAGS" -o "$stage/$bin" ./cmd/magi-web
+              cp LICENSE NOTICE THIRD_PARTY_LICENSES README.md "$stage/"
+              if [ "$os" = windows ]; then
+                (cd dist-web && zip -qr "magi-web_${os}_${arch}.zip" "magi-web_${os}_${arch}")
+              else
+                tar -czf "dist-web/magi-web_${os}_${arch}.tar.gz" -C dist-web "magi-web_${os}_${arch}"
+              fi
+              rm -r "$stage"
+            done
+          done
+          (cd dist-web && sha256sum ./* > checksums.txt)
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "magi-web ${GITHUB_REF_NAME#web-}" \
+            --generate-notes \
+            dist-web/*.tar.gz dist-web/*.zip dist-web/checksums.txt
