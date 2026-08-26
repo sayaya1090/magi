@@ -63,6 +63,7 @@ const (
 	pipeIdleDefault  = 10 * time.Minute
 	pipeReadDefault  = 60 * time.Second
 	pipeStderrMax    = 64 << 10 // kept only to put a reason in the error when a child dies
+	pipeReapGrace    = 2 * time.Second // how long deadReason waits for the stderr copy to land
 )
 
 // child is one live subprocess plus the goroutine draining its stdout.
@@ -72,6 +73,11 @@ type child struct {
 	stdin io.WriteCloser
 	lines chan string
 	done  chan struct{} // closed when stdout reaches EOF (the child is finishing or gone)
+	// reaped is closed once Wait has returned. Stdout reaching EOF is not the same instant as the
+	// child's stderr being in the buffer: os/exec copies a non-*os.File Stderr on a goroutine of
+	// its own, and only Wait joins it. deadReason waited on `done` and read an empty buffer often
+	// enough to fail CI, reporting "child exited" for a child that had said exactly why.
+	reaped chan struct{}
 
 	mu     sync.Mutex
 	closed bool
@@ -134,7 +140,7 @@ func (c *child) Close() {
 	if c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
 	}
-	go func() { _ = c.cmd.Wait() }() // reap without blocking the caller on a slow exit
+	// The reaper started at spawn does the Wait; killing is all this has to do.
 }
 
 // touch restarts the idle countdown. Every read and write calls it, so "idle" means no traffic,
@@ -166,6 +172,12 @@ func (c *child) alive() bool {
 // deadReason explains an exit for the error string a plugin sees. The stderr tail is what makes
 // "the child is gone" actionable rather than a shrug.
 func (c *child) deadReason() string {
+	// Give the reaper a moment to finish. Bounded, because a reason is worth a beat and not worth
+	// hanging a plugin call over: past it the buffer is read as it stands.
+	select {
+	case <-c.reaped:
+	case <-time.After(pipeReapGrace):
+	}
 	tail := strings.TrimSpace(c.stderr.String())
 	if tail == "" {
 		return "child exited"
@@ -245,13 +257,19 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 	ch := &child{
 		name: cmdName, cmd: c, stdin: stdin,
 		lines: make(chan string, pipeQueueMax), done: make(chan struct{}),
-		stderr: errBuf, idle: idle,
+		reaped: make(chan struct{}), stderr: errBuf, idle: idle,
 	}
 	c.Stderr = errBuf
 	// c.Stdin is the pipe above; stdin is NOT inherited, so the child cannot read the terminal.
 	if err := c.Start(); err != nil {
 		return fail(L, "pipe: "+err.Error())
 	}
+	// One reaper, started here. Wait may be called once, and calling it from Close as well as from
+	// a death watcher is two callers for one call -- so nobody else calls it.
+	go func() {
+		defer close(ch.reaped)
+		_ = c.Wait()
+	}()
 	ch.timer = time.AfterFunc(idle, func() {
 		p.logf(fmt.Sprintf("pipe: %s idle for %s; closing", cmdName, idle))
 		ch.Close()
