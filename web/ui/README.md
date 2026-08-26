@@ -1,0 +1,130 @@
+# web/ui — 새 콘솔의 UI 개발문서
+
+상위 [`web/README.md`](../README.md)가 무엇을 왜 하는지(스트랭글러 좌표·대조표·컷오버 조건)를
+말한다면, 이 문서는 어떻게 하는지다: 모듈이 어떻게 나뉘고, 셸과 화면이 무슨 계약으로 만나고,
+화면 하나를 이식할 때 어디를 만지는지. 정본은 아직 기존 콘솔(`cmd/magi-web`)이다 — 여기
+적힌 것과 기존 콘솔이 다르게 굴면 기존 콘솔이 맞다.
+
+## 지도
+
+```
+console.html                     ← web/server(7778)가 /next 에서 서빙
+└── /ui/shell/shell.nocache.js   셸(shell-ui): 레일·마스트헤드·라우팅·모듈 주입
+    ├── /ui/fleet/fleet.nocache.js       화면 모듈 — 필요할 때 셸이 주입
+    ├── /ui/companion/… (예정)
+    └── window 브리지(console-bridge)    셸↔화면의 유일한 만남
+```
+
+모듈 다섯. 의존은 `화면 모듈 → console-bridge ← shell-ui` 한 방향이고, 화면끼리는 서로를
+모른다.
+
+| 모듈 | 무엇 | 산출물 |
+|---|---|---|
+| `console-bridge` | 셸↔화면 계약: 창 브리지(Render·Roster)·와이어 DTO(FleetAgent)·언어 팩(Labels)·HTTP 관용구(Console) | 소스 실린 jar (GWT 라이브러리 규약) |
+| `ui-components` | 공용 위젯 자리 — 지금은 모듈 선언(`UiComponents.gwt.xml`)만 | 소스 실린 jar |
+| `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation·RenderStore·RosterStore·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
+| `fleet-ui` | 플릿 화면 — 이식 완료, 다른 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
+| `companion-ui` | 컴패니언 상세의 "기본" 타입 UI — 아직 틀만 | (아직 없음) |
+
+## 셸과 화면의 계약 (console-bridge)
+
+계약은 전부 window 전역이다. GWT 모듈은 각자 딴 이름공간으로 컴파일되므로, 만나는 자리는
+창밖에 없다.
+
+- **렌더** (`__magi_render`): 셸이 수신자를 걸고(RenderSharing.register), 화면 모듈이
+  로드 끝에 렌더 — 프레임 엘리먼트를 받아 그리는 함수 — 를 민다(RenderSharing.next).
+  렌더에는 주인이 안 실리므로 셸의 RenderStore가 "지금 로드 중인 목적지"(expect)를
+  주인으로 적고 목적지별로 캐시한다. 재방문은 스크립트 재주입 없이 캐시로 다시 그린다.
+- **명단** (`__magi_roster_subscribe` / `__magi_roster_refresh`): 창당 1스트림 규칙의
+  기전. 셸의 RosterStore가 `/fleet`+`/events`(SSE)의 유일한 소유자로 두 문을 걸고
+  (RosterSharing.host), 화면은 구독만 한다 — 자기 EventSource를 열지 않는다. 셸 없이
+  단독으로 뜬 화면(테스트 페이지)은 hosted()가 거짓이라 제 회선으로 폴백한다.
+- **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
+  console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
+  (성공=빈 문자열, 거부=사유). 기존 page.js의 fetchList/post 이식이다.
+- **말**: Labels — 기존 콘솔과 같은 `/i18n/language.{en,ko}.json`. tr()은 키 폴백("번역
+  빠짐"이 보이게), stateWord()는 원어 상태어 폴백(행에 "state.gone"을 안 적으려고).
+- **와이어**: FleetAgent — `/fleet` 행의 JsType DTO. 필드명은 `internal/adapter/fleet`의
+  json 태그와 일대일이고, omitempty 필드는 JS에서 undefined라 읽는 쪽이 가드를 진다.
+
+## 셸의 흐름
+
+주소가 원본이다. Navigation이 `?v=<id>`를 읽고(popstate 포함) 문 클릭은 pushState —
+둘 다 같은 settle로 모인다. 목적지가 정해지면 ShellInitializer가: 레일 select →
+RenderStore 캐시 조회 → 없으면 expect + ModuleLoader.ensure(`/ui/<id>/<id>.nocache.js`,
+모듈당 한 번) → 도착한 렌더를 프레임에 mount. 경로는 `/ui/` 절대다 — 상대경로는
+프록시(BFF)로 새 나간다(관통 때 실측한 결함).
+
+드로어는 2단(handbook 메뉴 레일+툴 레일의 번역)이다. 1단은 목적지 아이콘 기둥 — 열려도
+기둥을 지킨다. 2단(#railPanel, shell.css)은 호버가 가리키는 문(피크), 없으면 서 있는 문의
+속을 보인다. 호버 리셋은 레일 전체를 벗어날 때만 — 1단→2단 건너는 길에 끊기면 피크를 쓸
+수 없다(MenuHover, 호버 터널). 드로어 상태는 body[nav=open] 하나다. 마스트헤드와 레일
+배지는 RosterStore에서 읽는다 — 그리는 곳이 늘어도 요청은 늘지 않는다.
+
+## 클린 아키텍처 규칙 (모든 화면 모듈 공통)
+
+`interfaces → usecase → domain` 한 방향. fleet-ui가 레퍼런스 구현이다.
+
+- `client/domain` — 순수 규칙, DOM 무지. JVM 단위 테스트가 여기 붙는다. 단, 테스트
+  파일은 `client/` 밖(`dev/sayaya/magi/domain/`)에 둔다: client/ 안은 GWT source path라
+  gwtCompile이 JUnit까지 컴파일하려 든다.
+- `client/usecase` — 포트와 스토어. rx 미배포라 순수 자바 옵저버로 쓴다.
+- `client/interfaces` — DOM과 HTTP 어댑터. 마크업의 id·클래스는 기존 page.js와 동일하게
+  간다 — console.css가 읽는 계약이다.
+- Dagger가 포트에 구현을 묶고(FleetModule), 테스트는 같은 자리에 페이크를 묶는다
+  (FleetTestModule). HTTP 목 없이 화면을 검증할 수 있는 이유다.
+
+## 화면 하나 이식하기
+
+1. 모듈 디렉토리 + `build.gradle.kts`(fleet-ui 것 복사) + `<Name>.gwt.xml`을 만들고
+   `settings.gradle.kts`에 include.
+2. domain → usecase → interfaces 순으로 이식한다. 마크업 id·클래스는 기존 콘솔 그대로.
+3. EntryPoint에서 RenderSharing.next로 렌더를 등록한다 — 프레임을 받아 Labels.load 뒤
+   mount하는 함수(FleetApplication 참조).
+4. 문을 단다: Destination.all()에 한 줄 — 아이콘 패스는 기존 콘솔의 그 드로잉. 문은
+   이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
+5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
+   html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, 다음 모듈은 18092.
+6. `../README.md` 대조표의 그 행을 갱신한다.
+
+## 단일 원천 복사 (스냅샷 드리프트 없음)
+
+기존 콘솔과 새 콘솔이 다른 팔레트·다른 번들을 갖는 순간 대조가 무의미해지므로, 아래는
+빌드마다 원천에서 복사한다:
+
+| 무엇 | 원천 | 어디로 |
+|---|---|---|
+| console.css | `cmd/magi-web/page.css` | assembleConsole → `build/console/` · 각 테스트 webapp `css/` |
+| material.js | `cmd/magi-web/vendor/material.js` | 테스트 webapp `js/` (프로덕션은 BFF `/vendor/` 프록시 — 두 콘솔이 한 번들) |
+| shell.css | `shell-ui/src/main/webapp/shell.css` (원천이 여기) | assembleConsole · 테스트 webapp `css/` |
+
+그래서 `src/test/webapp/` 아래 `js/`·`css/`와 GWT 컴파일 산출 디렉토리(`fleet/`·
+`fleettest/`·`shell/`·`shelltest/`…)는 전부 생성물이고 gitignore다. 거기서 소스는
+테스트 페이지 html뿐이다.
+
+## 빌드·실행
+
+```sh
+cd web/ui && ./gradlew build      # 컴파일 + 전체 테스트 (Gradle 9.3 / Java 25)
+./gradlew assembleConsole         # build/console/ 에 서빙 루트 집결
+cd ../.. && go run ./web/server   # 7778: /ui/* 정적 + 나머지는 7777(기존 magi-web)로 프록시
+# → http://127.0.0.1:7778/next
+```
+
+- 의존성은 `gradle/libs.versions.toml` 한 곳 — handbook의 sayaya-web 번들 미러.
+  dagger가 아니라 **dagger-gwt**다: GWT 모듈 xml이 그쪽 아티팩트에 실려 있고, 일반
+  dagger를 넣으면 gwtCompile이 "Unable to find dagger/Dagger.gwt.xml"로 죽는다(실측).
+- sayaya-ui 등은 GitHub Packages에서 온다. 자격증명은 `~/.gradle/gradle.properties`의
+  `github_username`/`github_password` 또는 `GITHUB_USERNAME`/`GITHUB_TOKEN` 환경변수 —
+  이 디렉토리의 `gradle.properties`는 gitignore라 커밋에 실리지 않는다.
+- web/server는 요청의 Origin을 BFF 오리진으로 고쳐 보낸다 — 기존 콘솔의 same-site
+  가드가 프록시 오리진(7778)을 교차 출처 POST로 읽고 거절하기 때문이다.
+
+## 컴패니언 타입별 UI (설계만 — 구현은 화면 이식 뒤)
+
+컴패니언 상세는 고정 모듈이 아니라 타입으로 해석된다: ModuleLoader 구현이
+(목적지, companion.type) → 모듈 경로를 조회하고, 없으면 companion-ui(기본)를 든다.
+타입 전용 모듈도 계약은 같다 — 렌더 등록 + CompanionContext(socket·peer·type) 수신.
+불변 규칙 하나: 오퍼레이터가 설치한 모듈만 로드한다. 컴패니언이나 워크스페이스가 실어
+보낸 스크립트를 감독자 콘솔에 로드하는 일은 없다 — `.magi/plugins`(SECURITY)와 같은
+신뢰 경계다.
