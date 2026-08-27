@@ -33,6 +33,30 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         Console.fetchList("/file" + base(ctx) + "&path=" + Global.encodeURIComponent(path), cb::accept);
     }
 
+    @Override
+    public void find(CompanionContext ctx, String in, String q, Consumer<Object> cb) {
+        Console.fetchList("/find" + base(ctx) + "&in=" + Global.encodeURIComponent(in)
+                + "&q=" + Global.encodeURIComponent(q), cb::accept);
+    }
+
+    @Override
+    public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("do", what);
+        body.set("path", path);
+        if (to != null && !to.isEmpty()) body.set("to", to);
+        Console.post("/file-do", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
+    public void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("do", what);
+        if (path != null && !path.isEmpty()) body.set("path", path);
+        if (message != null && !message.isEmpty()) body.set("message", message);
+        Console.post("/git-do", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
     private static String base(CompanionContext ctx) {
         return "?d=" + Global.encodeURIComponent(ctx.socket)
                 + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");

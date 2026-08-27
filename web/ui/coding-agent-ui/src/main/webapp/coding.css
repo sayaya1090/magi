@@ -32,3 +32,27 @@
   font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
   color:var(--magi-ref-muted); flex:none;
 }
+
+/* 행의 손잡이는 손끝이 왔을 때만 — 읽는 자리를 늘 버튼이 차지하지 않게(운영 .gitacts 규칙).
+   포커스로도 나온다: 키보드로 닿을 수 없는 컨트롤은 없는 컨트롤이다. */
+#files .treeline { display:flex; align-items:center; gap:var(--magi-sys-space-50); min-width:0; }
+#files .treeline .treerow { flex:1 1 auto; min-width:0; }
+/* git 줄의 손잡이도 같은 규칙이다 — 운영 console.css가 같은 뜻의 규칙을 갖지만 이 콘솔의
+   폭에서는 그 블록에 닿지 않는다(실측: hover에도 visibility:hidden). 뜻을 여기서 말한다. */
+#files .rowacts, #files .gitacts { display:flex; flex:none; visibility:hidden; }
+#files .gitline { display:flex; align-items:center; gap:var(--magi-sys-space-50); min-width:0; }
+#files .gitline .treerow { flex:1 1 auto; min-width:0; }
+#files .gitline:hover .gitacts,
+#files .gitacts:focus-within,
+#files .gitline:focus-within .gitacts { visibility:visible; }
+#files .treeline:hover .rowacts,
+#files .rowacts:focus-within,
+#files .treeline:focus-within .rowacts { visibility:visible; }
+#files .findrow, #files .makerow {
+  display:flex; gap:var(--magi-sys-space-100); align-items:center; flex-wrap:wrap;
+  margin-bottom:var(--magi-sys-space-150);
+}
+#files .findrow md-outlined-text-field { flex:1 1 10rem; }
+#files .makerow md-outlined-text-field { flex:1 1 10rem; }
+#files .gitcommit { display:flex; gap:var(--magi-sys-space-100); align-items:center; margin-top:var(--magi-sys-space-150); }
+#files .gitcommit md-outlined-text-field { flex:1; }

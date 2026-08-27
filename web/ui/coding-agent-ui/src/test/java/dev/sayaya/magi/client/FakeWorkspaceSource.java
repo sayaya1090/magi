@@ -49,6 +49,30 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void find(CompanionContext ctx, String in, String q, Consumer<Object> cb) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_find", in + ":" + q);
+        if ("text".equals(in)) {
+            cb.accept(Global.JSON.parse("{\"hits\":[\"src/main.go:12:func main\"],\"more\":3}"));
+        } else {
+            cb.accept(Global.JSON.parse("{\"hits\":[\"src/main.go\",\"src/util.go\"]}"));
+        }
+    }
+
+    @Override
+    public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_filedo",
+                what + "|" + path + "|" + (to == null ? "" : to));
+        why.accept("");
+    }
+
+    @Override
+    public void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_gitdo",
+                what + "|" + (path == null ? "" : path) + "|" + (message == null ? "" : message));
+        why.accept("");
+    }
+
+    @Override
     public void file(CompanionContext ctx, String path, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_opened", path);
         cb.accept(Global.JSON.parse("{\"path\":\"" + path + "\",\"text\":\"package main\\n\"}"));

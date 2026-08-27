@@ -19,4 +19,19 @@ public interface WorkspaceSource {
 
     /** 파일 하나의 본문 — {path,text}. */
     void file(CompanionContext ctx, String path, Consumer<Object> gotOrNull);
+
+    /**
+     * 파일에 하는 일(/file-do): new-file · new-dir · rename · delete.
+     * why는 거부 사유이고 성공은 빈 문자열이다 — 무엇이 됐는지는 다시 걸어 확인한다.
+     */
+    void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why);
+
+    /**
+     * 찾기(/find) — 이름으로(in=name) 또는 내용으로(in=text). 답은 {hits:[…],more:n}.
+     * 에이전트가 일하는 워크스페이스를 뒤지는 일이라 이 타입의 것이다.
+     */
+    void find(CompanionContext ctx, String in, String q, Consumer<Object> gotOrNull);
+
+    /** git에 하는 일(/git-do): stage · unstage · discard · commit · switch · new-branch · pull · push. */
+    void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why);
 }

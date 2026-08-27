@@ -1,9 +1,6 @@
 package dev.sayaya.magi.client.usecase;
 
-import dev.sayaya.magi.bridge.Console;
-import jsinterop.base.Js;
-import jsinterop.base.JsArrayLike;
-import jsinterop.base.JsPropertyMap;
+import dev.sayaya.magi.bridge.May;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -20,27 +17,16 @@ import java.util.function.Consumer;
 @Singleton
 public class MayStore {
     private final List<Consumer<MayStore>> observers = new ArrayList<>();
-    private List<String> can = null;   // null = 전부 허용
 
     @Inject
     public MayStore() {}
 
+    /** 창에 하나 — 화면 모듈들도 같은 답을 든다(bridge.May). */
     public void start() {
-        Console.fetchList("/me", parsed -> {
-            if (parsed == null) return;   // 못 물었으면 그려진 대로 — 서버가 여전히 거부한다
-            Object caps = Js.asPropertyMap(parsed).get("can");
-            if (caps == null) return;
-            JsArrayLike<Object> arr = Js.uncheckedCast(caps);
-            List<String> got = new ArrayList<>();
-            for (int i = 0; i < arr.getLength(); i++) got.add(String.valueOf(arr.getAt(i)));
-            can = got;
-            for (Consumer<MayStore> o : observers) o.accept(this);
-        });
+        May.load(() -> { for (Consumer<MayStore> o : observers) o.accept(this); });
     }
 
-    public boolean may(String cap) {
-        return cap == null || cap.isEmpty() || can == null || can.contains(cap);
-    }
+    public boolean may(String cap) { return May.can(cap); }
 
     public void subscribe(Consumer<MayStore> o) {
         observers.add(o);
