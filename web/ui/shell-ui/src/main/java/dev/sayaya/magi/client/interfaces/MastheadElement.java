@@ -58,7 +58,15 @@ public class MastheadElement {
         crumbs();
     }
 
-    /** 크럼은 서 있는 곳이다: 화면이면 그 문의 이름 하나, 컴패니언이면 문(링크) + 이름. */
+    /**
+     * 크럼은 서 있는 곳이다: 화면이면 그 문의 이름 하나, 컴패니언이면 문(링크) + 이름.
+     *
+     * 그리고 두 끝에 이름을 붙인다 — 폰은 그 둘만 보이기 때문이다(운영 paintCrumbs의 규칙):
+     * 마지막 계단이 서 있는 곳(.leaf, 헤드라인)이고 그 앞이 나가는 길(.up, 뒤로 화살표).
+     * CSS가 마크업 모양으로 짐작하지 않고 여기서 정하는 이유는, 계단 수가 화면마다 다르고
+     * 지금 무엇이 계단인지는 이 함수만 알기 때문이다. ⚠ 이걸 빠뜨리면 폰에서 컴패니언
+     * 화면의 유일한 출구가 사라진다(실측: #back이 display:none).
+     */
     private void crumbs() {
         Destination screen = standing == null ? Destination.FLEET : standing.screen;
         boolean inCompanion = standing != null && standing.isCompanion();
@@ -66,11 +74,27 @@ public class MastheadElement {
         back.className = inCompanion ? "" : "here";
         if (!inCompanion) {
             deep.remove();
+        } else {
+            deep.className = "here";
+            deep.textContent = nameOf(standing.socket);
+            back.insertAdjacentElement("afterend", deep);
+        }
+        markRungs(inCompanion);
+    }
+
+    /** 두 끝 — 마지막은 .leaf, 그 앞은 .up. 이름은 낱말로 붙인다(화살표는 그림이다). */
+    private void markRungs(boolean inCompanion) {
+        back.classList.remove("up", "leaf");
+        deep.classList.remove("up", "leaf");
+        if (!inCompanion) {
+            back.classList.add("leaf");
+            back.removeAttribute("aria-label");
             return;
         }
-        deep.className = "here";
-        deep.textContent = nameOf(standing.socket);
-        back.insertAdjacentElement("afterend", deep);
+        deep.classList.add("leaf");
+        back.classList.add("up");
+        // 화살표는 생성 콘텐츠라 이름에 섞인다 — 낱말이 이름을 이긴다(운영에서 실측된 그 규칙).
+        back.setAttribute("aria-label", back.textContent.trim());
     }
 
     private String nameOf(String socket) {

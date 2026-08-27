@@ -91,6 +91,22 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_aim") shouldBe ""
             }
         }
+        When("컴패니언에 서면 크럼의 두 끝에 이름이 붙는다") {
+            page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
+            page.waitForCondition { page.url().contains("d=") }
+            Then("나가는 길은 .up, 서 있는 곳은 .leaf — 폰이 보이는 그 둘이다") {
+                page.waitForSelector("#crumbs #back.up")
+                page.locator("#crumbs .here.leaf").count() shouldBe 1
+                // 화살표가 이름에 섞이지 않게 낱말이 이름을 이긴다.
+                page.locator("#crumbs #back").getAttribute("aria-label") shouldBe "nav.companions"
+            }
+            page.evaluate("window.__magi_go_view('fleet')")
+            page.waitForCondition { !page.url().contains("d=") }
+            Then("목록으로 돌아오면 계단은 하나 — 그것이 leaf다") {
+                page.waitForSelector("#crumbs #back.leaf")
+                page.locator("#crumbs .up").count() shouldBe 0
+            }
+        }
         When("컴패니언에 다시 서서 지난 일 층위의 문(__magi_go_past)을 청하면") {
             page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
             page.waitForCondition { page.url().contains("d=") }

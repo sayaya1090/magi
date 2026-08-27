@@ -30,12 +30,51 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#side #plan .td.completed").count() shouldBe 1
                 page.locator("#side #plan .plancount").textContent() shouldContain "plan.progress"
             }
+            Then("넓은 화면엔 탭이 없다 — 나란히 있는 것을 고를 이유가 없다") {
+                page.locator("#ptabs[hidden]").count() shouldBe 1
+                (page.evaluate("document.body.hasAttribute('panel')") as Boolean) shouldBe false
+            }
             Then("자식이 밀면 가운데와 왼쪽이 채워진다 — 부모는 무엇이 오는지 모른다") {
                 page.evaluate("window.__magi_pane('centre', f => { f.textContent = 'child centre'; return true; })")
                 page.evaluate("window.__magi_pane('left', f => { f.textContent = 'child left'; return true; })")
                 page.waitForCondition { page.locator("#cframe").textContent() == "child centre" }
                 page.locator("#cleft .cpane").count() shouldBe 1
                 page.locator("#cleft .cpane").textContent() shouldBe "child left"
+            }
+        }
+        When("폰 폭(390px)으로 줄이면") {
+            page.setViewportSize(390, 844)
+            Then("탭이 서고 한 번에 하나만 보인다 — 기본은 대화다") {
+                page.waitForSelector("#ptabs:not([hidden])")
+                page.locator("#ptabs md-primary-tab").count() shouldBe 3
+                (page.evaluate("document.body.getAttribute('panel')")) shouldBe "talk"
+                page.locator("#cframe:not([hidden])").count() shouldBe 1
+                page.locator("#detail[hidden]").count() shouldBe 1
+                page.locator("#cleft[hidden]").count() shouldBe 1
+            }
+            Then("정보 탭은 사실판과 계획을 함께 보인다") {
+                page.locator("#ptab-facts").click()
+                page.waitForSelector("#detail:not([hidden])")
+                page.locator("#side:not([hidden])").count() shouldBe 1
+                page.locator("#cframe[hidden]").count() shouldBe 1
+            }
+            Then("파일 탭은 왼쪽 자리를 보인다") {
+                page.locator("#ptab-files").click()
+                page.waitForSelector("#cleft:not([hidden])")
+                page.locator("#detail[hidden]").count() shouldBe 1
+            }
+            Then("가로 스크롤은 없다") {
+                (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true
+            }
+        }
+        When("다시 넓어지면") {
+            page.setViewportSize(1400, 900)
+            Then("탭이 걷히고 전부가 돌아온다") {
+                // 창이 자리를 잡을 틈을 준다 — 뷰포트 변경과 리사이즈 처리 사이엔 프레임이 있다.
+                page.waitForCondition { page.locator("#ptabs[hidden]").count() == 1 }
+                page.waitForCondition { page.locator("#detail:not([hidden])").count() == 1 }
+                page.locator("#cframe:not([hidden])").count() shouldBe 1
+                page.locator("#cleft:not([hidden])").count() shouldBe 1
             }
         }
     }
