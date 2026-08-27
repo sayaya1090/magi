@@ -83,7 +83,7 @@ internal class SettingsScreenTest : GwtTestSpec({
             Then("무엇을 고르는 것인지 목록으로 말한다 — 위의 완성 설정이 고르는 그 백엔드다") {
                 page.waitForSelector("#settings #profList .profrow")
                 page.locator("#settings #profList .profrow .profnm").first().textContent() shouldBe "fast-local"
-                page.locator("#settings .profform #profName").count() shouldBe 1
+                page.locator("#settings .profadd #profName").count() shouldBe 1
             }
             Then("이름 없이 저장하지 않는다 — 이름이 그 프로파일의 주소다") {
                 page.locator("#settings #profSave").click()

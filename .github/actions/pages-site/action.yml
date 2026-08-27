@@ -12,29 +12,8 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: bake the icons, if this run may
-      shell: bash
-      env:
-        FA_TOKEN: ${{ inputs.fa-token }}
-      working-directory: cmd/magi-web
-      run: |
-        set -euo pipefail
-        if [ -z "${FA_TOKEN:-}" ]; then
-          echo "no icon token in this run — the demo will draw the page's own shapes"
-          exit 0
-        fi
-        cat > .npmrc <<'NPMRC'
-        @fortawesome:registry=https://npm.fontawesome.com/
-        NPMRC
-        printf '//npm.fontawesome.com/:_authToken=%s\n' "${FA_TOKEN}" >> .npmrc
-        npm install --no-save --no-audit --no-fund @fortawesome/fontawesome-pro@7
-        rm -f .npmrc
-        MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./...
-        # 스프라이트는 두 콘솔이 함께 쓰는 자리에 구워진다(internal/webassets) — 옛 콘솔이
-        # 사라져도 새 콘솔이 그림을 잃지 않게. 굽히지 않았으면 여기서 멈춘다: 아이콘 없는
-        # 사이트는 조용히 나가는 것보다 실패하는 편이 낫다.
-        # ⚠ 이 스텝은 cmd/magi-web에서 돈다(working-directory) — 저장소 뿌리 기준이 아니다.
-        test -f ../../internal/webassets/sprite_gen.go
+    # 아이콘은 앞 단계(bake-icons)가 구워 산출물로 넘긴다 — 이 액션은 그것이 이미 제자리에
+    # 있다고 보고 짓는다. 없으면(라이선스 없는 런) 화면들이 늘 그리던 도형을 그린다.
     - name: build the old console's demo
       shell: bash
       run: go run ./cmd/magi-web -emit-demo ./_site
