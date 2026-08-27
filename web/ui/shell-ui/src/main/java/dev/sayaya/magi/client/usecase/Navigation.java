@@ -53,7 +53,7 @@ public class Navigation {
                     + (p.peer != null ? "&p=" + Global.encodeURIComponent(p.peer) : "");
         } else {
             // 첫 문은 맨주소가 갖는다 — 기존 콘솔의 HREF 규칙(fleet은 '').
-            url = p.section == Destination.FLEET ? path : path + "?v=" + p.section.id;
+            url = p.screen == Destination.FLEET ? path : path + "?v=" + p.screen.id;
         }
         DomGlobal.window.history.pushState(null, "", url);
         settle(p);

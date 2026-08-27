@@ -8,12 +8,14 @@ package dev.sayaya.magi.client.domain;
  * 답한다 — 컴패니언 화면에 서 있어도 "컴패니언" 문이 켜져 있는 것이 맞다.
  */
 public final class Place {
-    public final Destination section; // 레일이 켜는 문
+    public final Destination screen;  // 서 있는 화면(주소의 것) — 보드도 화면이다
+    public final Destination section; // 레일이 켜는 문 — 보드는 컴패니언 문
     public final String socket;       // null이면 카탈로그 화면
     public final String peer;         // 없으면 null
 
-    private Place(Destination section, String socket, String peer) {
-        this.section = section;
+    private Place(Destination screen, String socket, String peer) {
+        this.screen = screen;
+        this.section = screen.section();
         this.socket = socket;
         this.peer = peer;
     }
@@ -27,7 +29,7 @@ public final class Place {
     public boolean isCompanion() { return socket != null; }
 
     public boolean same(Place o) {
-        return o != null && section == o.section && eq(socket, o.socket) && eq(peer, o.peer);
+        return o != null && screen == o.screen && eq(socket, o.socket) && eq(peer, o.peer);
     }
 
     private static boolean eq(String a, String b) { return a == null ? b == null : a.equals(b); }

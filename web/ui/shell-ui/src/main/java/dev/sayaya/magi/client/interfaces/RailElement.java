@@ -76,7 +76,7 @@ public class RailElement implements RailView {
     /** 문의 말들 — 라벨·짧은 라벨·aria-label 전부 팩에서. 언어가 바뀌면 다시 부른다. */
     public void paint() {
         menu.setAttribute("aria-label", tr("nav.menu"));
-        for (Destination d : Destination.all()) {
+        for (Destination d : Destination.doors()) {
             HTMLElement item = items.get(d.id);
             text(item, ".lbl", tr(d.labelKey));
             text(item, ".lblshort", tr(d.shortKey));
@@ -145,7 +145,7 @@ public class RailElement implements RailView {
 
         HTMLElement navBox = el("div");
         navBox.id = "railNav";
-        for (Destination d : Destination.all()) {
+        for (Destination d : Destination.doors()) {
             HTMLElement item = item(d);
             items.put(d.id, item);
             navBox.append(item);

@@ -35,6 +35,7 @@ public class ShellInitializer {
         // 화면 모듈보다 먼저 — 브리지의 문이 걸린 뒤에 모듈이 들어와야 제 회선을 안 연다.
         roster.start();
         GoSharing.host(nav::goCompanion);
+        GoSharing.hostView(v -> nav.go(dev.sayaya.magi.client.domain.Destination.byId(v)));
         renders.onRender(frame::mount);
         nav.subscribe(place -> {
             // 운영 showDestination의 그 속성: 폰의 하단 바가 컴패니언 화면에서 물러나는
@@ -48,7 +49,7 @@ public class ShellInitializer {
             roster.aim(place.socket, place.peer);
             String module = place.isCompanion()
                     ? roster.typeOf(place.socket).module
-                    : place.section.id;
+                    : place.screen.id;
             Object cached = renders.renderOf(module);
             if (cached != null) { frame.mount(cached); return; }
             renders.expect(module);

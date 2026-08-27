@@ -60,9 +60,9 @@ public class MastheadElement {
 
     /** 크럼은 서 있는 곳이다: 화면이면 그 문의 이름 하나, 컴패니언이면 문(링크) + 이름. */
     private void crumbs() {
-        Destination section = standing == null ? Destination.FLEET : standing.section;
+        Destination screen = standing == null ? Destination.FLEET : standing.screen;
         boolean inCompanion = standing != null && standing.isCompanion();
-        back.textContent = tr(section.labelKey);
+        back.textContent = tr(screen.labelKey);
         back.className = inCompanion ? "" : "here";
         if (!inCompanion) {
             deep.remove();
@@ -102,7 +102,7 @@ public class MastheadElement {
         back.className = "here";
         back.addEventListener("click", evt -> {
             evt.preventDefault();
-            nav.go(standing == null ? Destination.FLEET : standing.section);
+            nav.go(standing == null ? Destination.FLEET : standing.screen);
         });
         crumbs.append(back);
         state.id = "state";

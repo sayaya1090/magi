@@ -32,7 +32,18 @@ public final class Destination {
             "M12 3c4.2 0 7 1.1 7 2.3S16.2 7.6 12 7.6 5 6.5 5 5.3 7.8 3 12 3M5 5.3v13.4C5 19.9 7.8 21 "
                     + "12 21s7-1.1 7-2.3V5.3M5 12c0 1.2 2.8 2.3 7 2.3s7-1.1 7-2.3");
 
-    public static Destination[] all() { return new Destination[]{FLEET, KNOWLEDGE}; }
+    // 보드 — 문이 아니라 주소다: 플릿에 관한 질문이라 플릿에서 들어가고(운영 규칙),
+    // 레일은 컴패니언 문을 켠 채 둔다(section). 아이콘이 없는 것은 문이 없어서다.
+    public static final Destination BOARD = new Destination("board",
+            "nav.board", "nav.board", "nav.board", "");
+
+    /** 레일에 문이 달리는 화면들 — 이식된 화면이어도 보드처럼 문 없는 주소가 있다. */
+    public static Destination[] doors() { return new Destination[]{FLEET, KNOWLEDGE}; }
+
+    public static Destination[] all() { return new Destination[]{FLEET, KNOWLEDGE, BOARD}; }
+
+    /** 레일이 켤 문 — 보드는 플릿의 다른 시선이라 컴패니언 문이 켜진 채다(운영 규칙). */
+    public Destination section() { return this == BOARD ? FLEET : this; }
 
     /** 주소가 대는 이름의 목적지, 모르면 첫 문 — 잘못 친 주소가 빈 화면이 되지 않게. */
     public static Destination byId(String id) {

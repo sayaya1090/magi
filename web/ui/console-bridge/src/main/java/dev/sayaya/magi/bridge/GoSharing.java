@@ -14,15 +14,31 @@ import jsinterop.base.JsPropertyMap;
  */
 public final class GoSharing {
     private static final String GO = "__magi_go";
+    private static final String VIEW = "__magi_go_view";
 
     private GoSharing() {}
 
     @JsFunction
     public interface GoFn { void call(String socket, String peer); }
 
+    @JsFunction
+    public interface ViewFn { void call(String view); }
+
     /** 셸 측: 이동의 문을 건다. */
     public static void host(GoFn go) {
         Js.asPropertyMap(DomGlobal.window).set(GO, go);
+    }
+
+    /** 셸 측: 카탈로그 화면(v=…)으로의 문 — 보드처럼 문 없는 주소도 화면이 청할 수 있게. */
+    public static void hostView(ViewFn view) {
+        Js.asPropertyMap(DomGlobal.window).set(VIEW, view);
+    }
+
+    /** 화면 측: 카탈로그 화면으로. 호스트가 없으면 조용히 무시 — 앵커의 href가 폴백이다. */
+    public static void view(String v) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        if (!win.has(VIEW)) return;
+        Js.<ViewFn>cast(win.get(VIEW)).call(v);
     }
 
     public static boolean hosted() { return Js.asPropertyMap(DomGlobal.window).has(GO); }
