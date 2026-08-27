@@ -77,6 +77,12 @@ type Verdict struct {
 	// here is what the member said it was reading.
 	Cite   string  `json:"cite,omitempty"`
 	Weight float64 `json:"weight,omitempty"` // 0 = 1
+	// Silent marks a verdict nobody gave: the backend was down, the round ran out of time, the
+	// reply could not be read, or a panel answer never spoke for this lens. It carries Abstain
+	// because the tally must not count it as a vote — but "declined to vote" and "never answered"
+	// are different facts about a round, and a reader who cannot tell them apart reads an
+	// unreachable council as a council that considered the work and shrugged.
+	Silent bool `json:"silent,omitempty"`
 }
 
 // Breakdown is the counted result of a tally — kept on the Deliberation so the
@@ -88,7 +94,10 @@ type Breakdown struct {
 	DoneWeight float64 `json:"doneWeight"`
 	ContWeight float64 `json:"contWeight"`
 	Voters     int     `json:"voters"` // non-abstaining members (the denominator)
-	Rule       Rule    `json:"rule"`
+	// Silent counts the abstentions that were failures rather than choices (Verdict.Silent).
+	// Silent <= Abstain always.
+	Silent int  `json:"silent,omitempty"`
+	Rule   Rule `json:"rule"`
 }
 
 // Deliberation is the record of one council round: the verdicts, the rule applied,
@@ -408,6 +417,9 @@ func tallyVotes(vs []Verdict) Breakdown {
 			b.DoneWeight += w
 		case Abstain:
 			b.Abstain++
+			if v.Silent {
+				b.Silent++
+			}
 		default:
 			// Continue and any unrecognized vote count as "not done" (safe side).
 			b.Continue++

@@ -310,6 +310,10 @@ type CouncilVerdictData struct {
 	// Decision: an approving member's keep is precisely what a rewrite forced by another member's
 	// objection would otherwise drop.
 	Keep string `json:"keep,omitempty"`
+	// Silent marks a verdict nobody gave — backend down, deadline, or a reply that could not be
+	// read. It rides beside decision "abstain" so a surface can say "no answer" where a member
+	// never spoke, instead of reporting a failure as a considered abstention.
+	Silent bool `json:"silent,omitempty"`
 }
 
 // CouncilDecidedData — TypeCouncilDecided (the tallied outcome). Feedback is set
