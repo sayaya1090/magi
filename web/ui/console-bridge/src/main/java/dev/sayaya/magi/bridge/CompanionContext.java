@@ -21,6 +21,7 @@ public class CompanionContext {
     public String type;   // 해석된 타입 키 — companion-ui(기본)면 "1"
     public String past;   // ?past= — null이면 지금 대화, ""면 지난 일 목록, 값이면 그 세션
     public String ui;     // 이 타입의 자식 UI 모듈 이름 — 카탈로그가 푼 것(컴패니언이 대는 경로가 아니다)
+    public boolean uiStyles;  // 그 자식이 제 스타일시트를 싣는가 — 시트를 거는 것은 들이는 쪽(부모)의 일이다
 
     @JsOverlay
     public static CompanionContext of(String socket, String peer, String type, String past) {
@@ -29,12 +30,19 @@ public class CompanionContext {
 
     @JsOverlay
     public static CompanionContext of(String socket, String peer, String type, String past, String ui) {
+        return of(socket, peer, type, past, ui, false);
+    }
+
+    @JsOverlay
+    public static CompanionContext of(String socket, String peer, String type, String past, String ui,
+                                      boolean uiStyles) {
         JsPropertyMap<Object> o = JsPropertyMap.of();
         o.set("socket", socket);
         o.set("peer", peer);
         o.set("type", type);
         o.set("past", past);
         o.set("ui", ui);
+        o.set("uiStyles", uiStyles);
         return Js.uncheckedCast(o);
     }
 }

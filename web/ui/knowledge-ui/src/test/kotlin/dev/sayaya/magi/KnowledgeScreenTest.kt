@@ -110,12 +110,37 @@ internal class KnowledgeScreenTest : GwtTestSpec({
         }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
-            Then("가로 스크롤이 없고 세 판이 그대로 읽힌다") {
+            Then("고르개가 서고 셋 중 하나만 보인다 — 폰에서 세 목적을 한 열에 세우지 않는다") {
+                page.waitForSelector("#sharedTabs:not([hidden])")
+                page.locator("#sharedTabs md-secondary-tab").count() shouldBe 3
+                page.locator("#skills:not([hidden])").count() shouldBe 1
+                page.locator("#wiki[hidden]").count() shouldBe 1
+                page.locator("#mcp[hidden]").count() shouldBe 1
+                // 탭 하나가 아니라 한 벌이라고 말한다 — 화살표에 답하는 쪽이 그렇게 말한다.
+                (page.locator("#sharedTabs").getAttribute("role")) shouldBe "tablist"
+            }
+            Then("고르개를 누르면 그 판으로 바뀐다") {
+                page.locator("#sharedTabs md-secondary-tab").nth(1).click()
+                page.waitForSelector("#wiki:not([hidden])")
+                page.locator("#skills[hidden]").count() shouldBe 1
+                page.locator("#sharedTabs md-secondary-tab").nth(2).click()
+                page.waitForSelector("#mcp:not([hidden])")
+            }
+
+            Then("가로 스크롤이 없고, 고른 판이 그대로 읽힌다") {
                 page.waitForCondition {
                     (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
                 }
-                page.locator("#skills .sk").first().isVisible() shouldBe true
+                // 지금 고른 것은 서버 판이다(앞 장면의 마지막 누름) — 보이는 것은 그 하나다.
                 page.locator("#mcp .srv").first().isVisible() shouldBe true
+                page.locator("#skills .sk").first().isVisible() shouldBe false
+            }
+            Then("다시 넓히면 고르개가 걷히고 셋이 한 열에 선다") {
+                page.setViewportSize(1400, 900)
+                page.waitForCondition { page.locator("#sharedTabs[hidden]").count() == 1 }
+                page.locator("#skills:not([hidden])").count() shouldBe 1
+                page.locator("#wiki:not([hidden])").count() shouldBe 1
+                page.locator("#mcp:not([hidden])").count() shouldBe 1
             }
         }
     }

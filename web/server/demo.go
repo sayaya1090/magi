@@ -64,6 +64,11 @@ const demoShim = `
        ended: now.slice(0,10)+'T08:50:00Z'},
     ],
   };
+  const consoleInfo = {user: 'you', host: 'devbox', configDir: '~/.config/magi',
+                       embedModel: 'nomic-embed-text', version: 'dev'};
+  const context = {used: 82000, window: 131072, messages: 41, estimated: false,
+                   cacheReported: true, cached: 41000, model: 'gpt-oss:120b',
+                   compactions: 1, shed: 12000, lastBefore: 40000, lastAfter: 9000};
   const me = {can: ['read','answer','prompt','curate','configure','admin','shell']};
   const access = {
     configured: true, named: true,
@@ -101,6 +106,15 @@ const demoShim = `
         changes: [{path: 'cmd/main.go', kind: 'staged', status: 'M'},
                   {path: 'README.md', kind: 'worktree', status: 'M'}]})));
     }
+    if (url.startsWith('/find')) {
+      // Two shapes, because the panel reads them differently: by name the hit IS the path, by
+      // text it is 'path:line' and the row opens that file at that line.
+      const q = new URLSearchParams(url.split('?')[1] || '');
+      const byName = q.get('in') !== 'text';
+      return Promise.resolve(new Response(JSON.stringify(byName
+        ? {hits: ['cmd/main.go', 'README.md'], more: 0}
+        : {hits: ['cmd/main.go:3', 'README.md:12'], more: 4})));
+    }
     if (url.startsWith('/file')) {
       return Promise.resolve(new Response(JSON.stringify({path: 'cmd/main.go',
         text: 'package main\n\nfunc main() {}\n'})));
@@ -112,6 +126,8 @@ const demoShim = `
         {content: 'write down what changed', status: 'pending'},
       ])));
     }
+    if (url.startsWith('/console')) return Promise.resolve(new Response(JSON.stringify(consoleInfo)));
+    if (url.startsWith('/context')) return Promise.resolve(new Response(JSON.stringify(context)));
     if (url.startsWith('/me')) return Promise.resolve(new Response(JSON.stringify(me)));
     if (url.startsWith('/access')) return Promise.resolve(new Response(JSON.stringify(access)));
     if (url.startsWith('/handoffs')) {
@@ -175,6 +191,17 @@ func emitDemo(dir, ui, oldConsole string) error {
 	if err := copyFile(filepath.Join(oldConsole, "vendor", "material.js"),
 		filepath.Join(dir, "vendor", "material.js")); err != nil {
 		return fmt.Errorf("vendor: %w", err)
+	}
+	// The stylesheet's own absolute paths. The typeface lives at the site root (the old console's
+	// demo puts it there) and this shell lives a directory down, so `url(/font/…)` inside the
+	// copied console.css answers 404 — measured, two faces missing on every demo page. Rewritten
+	// relative to the stylesheet's own place, which is next/ui/.
+	cssPath := filepath.Join(dir, "ui", "console.css")
+	if css, err := os.ReadFile(cssPath); err == nil {
+		fixed := strings.ReplaceAll(string(css), "url(/font/", "url(../../font/")
+		if err := os.WriteFile(cssPath, []byte(fixed), 0o644); err != nil {
+			return err
+		}
 	}
 	// The page: root-relative prefixes become relative, and the shim goes in ahead of the shell
 	// so fetch and EventSource are already the mock's when the first module asks.

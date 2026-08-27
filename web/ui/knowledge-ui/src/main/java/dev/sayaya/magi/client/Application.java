@@ -1,7 +1,6 @@
 package dev.sayaya.magi.client;
 
 import com.google.gwt.core.client.EntryPoint;
-import dev.sayaya.magi.bridge.Labels;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.RenderSharing;
 
@@ -14,7 +13,7 @@ public class Application implements EntryPoint {
     public void onModuleLoad() {
         KnowledgeComponent component = DaggerKnowledgeComponent.create();
         RenderSharing.next((Render) frame -> {
-            Labels.load(() -> component.knowledgeElement().mount(frame));
+            component.knowledgeElement().mount(frame);
             return true;
         });
     }

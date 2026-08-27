@@ -139,7 +139,7 @@ public class RosterStore implements RosterSource.Listener {
     private void pushContext() {
         ctx = aimedSocket == null ? null
                 : CompanionContext.of(aimedSocket, aimedPeer, typeOf(aimedSocket).id, aimedPast,
-                        typeOf(aimedSocket).module);
+                        typeOf(aimedSocket).module, typeOf(aimedSocket).styles);
         for (CompanionSharing.NextFn o : ctxObs) o.call(ctx);
     }
 

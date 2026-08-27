@@ -53,13 +53,14 @@ public class ShellInitializer {
             roster.aim(place.socket, place.peer);
             roster.past(place.past);
             // 컴패니언이면 범용 패널을 들인다 — 그 안의 자식은 패널이 컨텍스트를 보고 들인다.
-            String module = place.isCompanion()
-                    ? roster.typeOf(place.socket).panel
-                    : place.screen.module;
+            boolean companion = place.isCompanion();
+            String module = companion ? roster.typeOf(place.socket).panel : place.screen.module;
+            // 범용 패널(컴패니언)은 늘 제 시트를 싣는다 — 무대의 세 자리가 그 시트의 것이다.
+            boolean styles = companion || place.screen.styles;
             Object cached = renders.renderOf(module);
             if (cached != null) { frame.mount(cached); return; }
             renders.expect(module);
-            loader.ensure(module);
+            loader.ensure(module, styles);
         });
         nav.start();
     }

@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces.api;
 
+import dev.sayaya.magi.bridge.Stylesheet;
 import dev.sayaya.magi.client.usecase.ModuleLoader;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLScriptElement;
@@ -21,10 +22,12 @@ public class ScriptModuleLoader implements ModuleLoader {
     public ScriptModuleLoader() {}
 
     @Override
-    public void ensure(String module) {
+    public void ensure(String module, boolean styles) {
         if (!loaded.add(module)) return;
         HTMLScriptElement s = (HTMLScriptElement) DomGlobal.document.createElement("script");
         s.src = "/ui/" + module + "/" + module + ".nocache.js";
         DomGlobal.document.head.append(s);
+        // 시트가 스크립트와 같은 자리에서 걸린다 — 화면이 그릴 때 이미 입혀져 있게.
+        if (styles) Stylesheet.ensure(module);
     }
 }

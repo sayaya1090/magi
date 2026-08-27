@@ -33,6 +33,7 @@ public class MastheadElement {
     private final HTMLElement back = el("a");
     private final HTMLElement deep = el("span");
     private final HTMLElement state = el("span");
+    private final HTMLElement chrome = el("span");   // 화면이 미는 창 손잡이의 자리
     private String said = "";   // 폴마다 같은 문장을 다시 발표하지 않는 라이브영역 가드
     private Place standing = null;
 
@@ -49,6 +50,13 @@ public class MastheadElement {
         });
         whoami();
         scrolledMark();
+        // 화면이 제 손잡이를 놓을 자리를 연다 — 셸은 그것이 무엇을 여는지 모른다.
+        dev.sayaya.magi.bridge.ChromeSharing.host(render ->
+                Js.<dev.sayaya.magi.bridge.Render>cast(render).onInvoke(chrome));
+        // 컴패니언 화면은 창 높이에 물린다: page.css가 그 높이를 calc(100dvh - shelltop)으로
+        // 잡고, shelltop은 실측값이다(운영도 잰다). 재지 않으면 기둥이 창 밖으로 흘러 마지막
+        // 카드가 잘린다 — 기본값 5.5rem은 이 셸의 마스트헤드 높이가 아니다.
+        DomGlobal.requestAnimationFrame(ts -> measureShelltop());
     }
 
     public HTMLElement element() { return header; }
@@ -132,7 +140,8 @@ public class MastheadElement {
         state.id = "state";
         state.setAttribute("role", "status");
         state.setAttribute("aria-live", "polite");
-        header.append(mark, whereami, crumbs, state);
+        chrome.id = "chrome";
+        header.append(mark, whereami, crumbs, state, chrome);
     }
 
     /** 몇이 있고 몇이 기다리는가 — 그리고 기다림은 누르면 그리로 간다. */
@@ -199,6 +208,14 @@ public class MastheadElement {
             if (now) DomGlobal.document.body.setAttribute("scrolled", "");
             else DomGlobal.document.body.removeAttribute("scrolled");
         });
+    }
+
+    /** 마스트헤드가 차지한 높이 + 본문이 시작되는 자리 — 컴패니언 기둥의 앵커. */
+    private void measureShelltop() {
+        double h = header.getBoundingClientRect().height;
+        if (h <= 0) return;
+        DomGlobal.document.documentElement.style.setProperty("--magi-comp-shelltop",
+                Math.round(h) + "px");
     }
 
     private static String str(JsPropertyMap<Object> m, String k) {

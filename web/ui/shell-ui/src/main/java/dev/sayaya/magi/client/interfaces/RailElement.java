@@ -87,8 +87,12 @@ public class RailElement implements RailView {
         menu.setAttribute("aria-label", tr("nav.menu"));
         for (Destination d : Destination.doors()) {
             HTMLElement item = items.get(d.id);
-            text(item, ".lbl", tr(d.labelKey));
+            // 보이는 낱말은 짧은 이름이다 — 접힌 기둥에서도 열린 서랍에서도(운영은 문 넷 모두
+            // .lbl과 .lblshort에 같은 짧은 말을 넣는다). 긴 이름은 읽어 주는 이름으로만 남고,
+            // 크럼과 제목에서 제 자리를 지킨다.
+            text(item, ".lbl", tr(d.shortKey));
             text(item, ".lblshort", tr(d.shortKey));
+            item.setAttribute("aria-label", tr(d.labelKey));
             text(item, ".sub", tr(d.subKey));
         }
         relabelFleet();

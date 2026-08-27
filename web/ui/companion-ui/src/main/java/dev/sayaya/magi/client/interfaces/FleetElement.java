@@ -35,6 +35,7 @@ import static dev.sayaya.magi.client.interfaces.Dom.srOnly;
 public class FleetElement {
     private final FleetStore store;
     private final CardListElement cards;
+    private final Arrangement arrange;
     private final HTMLElement summary = el("md-chip-set");
     private final HTMLElement fleetEl = el("div");
     private String filter = null;      // 요약 칩 키 하나, 또는 전부(null)
@@ -42,13 +43,18 @@ public class FleetElement {
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
     @Inject
-    public FleetElement(FleetStore store, CardListElement cards) {
+    public FleetElement(FleetStore store, CardListElement cards, Arrangement arrange) {
         this.store = store;
         this.cards = cards;
+        this.arrange = arrange;
     }
 
     public void mount(HTMLElement frame) {
+        // 목록엔 기둥도 도크도 없다 — 상세에서 세운 것을 걷는다(그러지 않으면 컴포저가 목록
+        // 위에 남고, 본문 바닥 여백이 있지도 않은 도크만큼 밀린다).
+        arrange.dismiss();
         summary.id = "summary";
+        summary.setAttribute("data-still", "");   // 요약 줄은 화면이 바뀌어도 자리를 지킨다
         fleetEl.id = "fleet";
         frame.replaceChildren();
         frame.append(summary, fleetEl);

@@ -23,15 +23,18 @@ public final class CompanionType {
     public final String labelKey; // 사람이 읽는 이름(팩 키) — "코딩 에이전트"
     public final String module;   // 범용 패널 안에 들어갈 자식 UI 모듈의 이름
     public final String panel;    // 그 자식을 품는 패널 — 지금은 하나뿐이다
+    /** 그 자식 모듈이 제 스타일시트를 함께 싣는가 — 시트를 거는 것은 들이는 쪽의 일이다. */
+    public final boolean styles;
 
-    private CompanionType(String id, String labelKey, String module) {
+    private CompanionType(String id, String labelKey, String module, boolean styles) {
         this.id = id;
         this.labelKey = labelKey;
         this.module = module;
         this.panel = PANEL;
+        this.styles = styles;
     }
 
-    public static final CompanionType CODING = new CompanionType("1", "type.coding", "coding");
+    public static final CompanionType CODING = new CompanionType("1", "type.coding", "coding", true);
 
     public static CompanionType[] all() { return new CompanionType[]{CODING}; }
 

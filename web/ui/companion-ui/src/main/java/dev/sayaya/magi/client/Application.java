@@ -1,7 +1,6 @@
 package dev.sayaya.magi.client;
 
 import com.google.gwt.core.client.EntryPoint;
-import dev.sayaya.magi.bridge.Labels;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.RenderSharing;
 
@@ -18,19 +17,18 @@ public class Application implements EntryPoint {
     public void onModuleLoad() {
         CompanionComponent component = DaggerCompanionComponent.create();
         RenderSharing.next((Render) frame -> {
-            Labels.load(() -> {
-                // 주소가 컴패니언을 대면 상세, 아니면 목록 — 판단은 셸이 흘리는 컨텍스트가 한다.
-                boolean detail = dev.sayaya.magi.bridge.Windows.companionAimed();
-                // 마운트는 프라미스 콜백 안이라 예외가 조용히 삼켜진다 — 창에 적어 보이게 한다.
-                try {
-                    if (detail) component.companionElement().mount(frame);
-                    else component.fleetElement().mount(frame);
-                } catch (Exception e) {
-                    jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window)
-                            .set("__magi_boot_err", String.valueOf(e));
-                    throw e;
-                }
-            });
+            // 말은 셸이 이미 들여놓았다(FrameElement.mount) — 여기서 다시 기다리지 않는다.
+            // 주소가 컴패니언을 대면 상세, 아니면 목록 — 판단은 셸이 흘리는 컨텍스트가 한다.
+            boolean detail = dev.sayaya.magi.bridge.Windows.companionAimed();
+            // 마운트는 콜백 안이라 예외가 조용히 삼켜진다 — 창에 적어 보이게 한다.
+            try {
+                if (detail) component.companionElement().mount(frame);
+                else component.fleetElement().mount(frame);
+            } catch (Exception e) {
+                jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window)
+                        .set("__magi_boot_err", String.valueOf(e));
+                throw e;
+            }
             return true;
         });
     }
