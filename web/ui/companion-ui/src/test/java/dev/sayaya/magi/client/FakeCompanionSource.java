@@ -130,4 +130,46 @@ public class FakeCompanionSource implements CompanionSource {
         win.set("__magi_test_sent", text + "@" + ctx.socket);
         why.accept("");
     }
+
+    // ── 사실판이 바꿀 수 있는 것들 ────────────────────────────────────────────
+    @Override
+    public void models(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse("[\"fast-model\",\"deep-model\"]"));
+    }
+
+    @Override
+    public void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_model", name);
+        why.accept("");
+    }
+
+    @Override
+    public void permission(CompanionContext ctx, String mode, java.util.function.Consumer<String> why) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_perm", mode);
+        why.accept("");
+    }
+
+    @Override
+    public void tools(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse("[\"read\",\"edit\",\"bash\"]"));
+    }
+
+    @Override
+    public void loop(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse("{\"map\":\"1 plan\\n2 edit\",\"origin\":\"\",\"diff\":\"\"}"));
+    }
+
+    @Override
+    public void reportFormat(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"from\":\"workspace\",\"sections\":[{\"key\":\"what\",\"prompt\":\"What changed\"}]}"));
+    }
+
+    @Override
+    public void reportFormat(CompanionContext ctx, java.util.List<String> keys, java.util.List<String> prompts,
+                             java.util.function.Consumer<String> why) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window)
+                .set("__magi_test_format", String.join(",", keys) + "|" + String.join(",", prompts));
+        why.accept("");
+    }
 }

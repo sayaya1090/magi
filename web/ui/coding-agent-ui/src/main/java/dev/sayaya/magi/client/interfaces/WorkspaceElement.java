@@ -59,6 +59,8 @@ public class WorkspaceElement {
         if (wired) return;
         wired = true;
         store.subscribe(this::render);
+        // 부모가 다른 탭으로 옮기면 트리의 표시도 따라간다.
+        CardSharing.onShowing(this::render);
     }
 
     /** 폰의 작업공간이 지금 보이는 것 — 트리("files")냐 git이냐. 넓은 화면에서는 둘 다 선다. */
@@ -261,7 +263,9 @@ public class WorkspaceElement {
     private HTMLElement treeRow(JsPropertyMap<Object> e, String path, String name, boolean isDir, int depth) {
         HTMLElement row = el("button");
         row.setAttribute("type", "button");
-        boolean here = store.isFileOpen(path);
+        // 골라진 것은 <b>지금 보이는</b> 그 파일 하나다 — 여러 개를 열어 둘 수 있으니(탭),
+        // 열려 있다는 것과 보고 있다는 것은 다른 사실이다(운영도 탭과 행에 같은 표시를 준다).
+        boolean here = path.equals(CardSharing.showing());
         row.className = "treerow state" + (isDir ? " dir" : "") + (here ? " now" : "");
         // 깊이는 숫자로 — 들여쓰기와 그 안내선이 한 값에서 온다(운영 규칙).
         row.style.setProperty("--d", String.valueOf(depth));
@@ -296,6 +300,15 @@ public class WorkspaceElement {
         open.setAttribute("title", tr("files.more"));
         HTMLElement menu = el("md-menu");
         menu.setAttribute("anchor", open.id);
+        // 이 기둥은 제 안에서 구르는 상자다 — 메뉴를 그 안에 두면 판의 경계에서 잘리고, 가까운
+        // 위치 상자를 기준으로 놓여 버튼과 한참 떨어진 데 그려진다(운영이 실측한 그 결함:
+        // 첫 항목이 16px 밖에 나가 눌리지도 않았다). popover면 페이지의 상자들 밖으로 나가고,
+        // 그 API가 없는 브라우저에서는 fixed가 잘림만이라도 벗어난다.
+        menu.setAttribute("positioning", canPopover() ? "popover" : "fixed");
+        // 이 버튼은 행에 손끝이 올라와 있을 때만 보이는 상자의 자식이다 — 메뉴로 손을 옮기면 그
+        // 행을 떠나 상자가 숨고, 열려 있던 메뉴까지 함께 사라졌다. 열려 있는 동안은 세워 둔다.
+        menu.addEventListener("opening", evt -> box.classList.add("showing"));
+        menu.addEventListener("closed", evt -> box.classList.remove("showing"));
         // 이 행 아래에 만드는 것이 자연스럽다: 디렉토리면 그 안, 파일이면 그 옆.
         String under = isDir ? path + "/" : (path.contains("/") ? path.substring(0, path.lastIndexOf('/') + 1) : "");
         item(menu, "files.new_file", "#i-sl-file-plus", () ->
@@ -339,6 +352,11 @@ public class WorkspaceElement {
     }
 
     /** 경로를 클립보드로 — 터미널로 옮겨 적는 일이 이 판에서 가장 잦은 다음 행동이라서. */
+    private static native boolean canPopover() /*-{
+        return typeof $wnd.HTMLElement === 'function'
+            && typeof $wnd.HTMLElement.prototype.showPopover === 'function';
+    }-*/;
+
     private static native void copy(String text) /*-{
         if ($wnd.navigator.clipboard) $wnd.navigator.clipboard.writeText(text);
     }-*/;

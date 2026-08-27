@@ -65,4 +65,42 @@ public class DemoCompanionSource implements CompanionSource {
     @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) { why.accept(""); }
 
+
+    // ── 사실판이 바꿀 수 있는 것들 — 데모는 답하고 잊는다 ──────────────────────
+    @Override
+    public void models(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[\"gpt-oss:120b-cloud\",\"qwen3-coder-next\",\"claude-sonnet-5\"]"));
+    }
+
+    @Override
+    public void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why) { why.accept(""); }
+
+    @Override
+    public void permission(CompanionContext ctx, String mode, java.util.function.Consumer<String> why) { why.accept(""); }
+
+    @Override
+    public void tools(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[\"read\",\"edit\",\"multiedit\",\"bash\",\"glob\",\"grep\",\"todo\",\"hand_off\",\"wait_for\"]"));
+    }
+
+    @Override
+    public void loop(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"map\":\"1 plan\\n2 read · edit\\n3 build → ok\",\"origin\":\"\",\"diff\":\"\"}"));
+    }
+
+    @Override
+    public void reportFormat(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"from\":\"console\",\"sections\":[{\"key\":\"what\",\"prompt\":\"What changed\"}," +
+                "{\"key\":\"why\",\"prompt\":\"Why it was needed\"}]}"));
+    }
+
+    @Override
+    public void reportFormat(CompanionContext ctx, java.util.List<String> keys, java.util.List<String> prompts,
+                             java.util.function.Consumer<String> why) {
+        why.accept("");
+    }
 }

@@ -19,6 +19,8 @@ public final class CardSharing {
     private static final String OBS = "__magi_cards_obs";
     private static final String ALONE = "__magi_cards_alone";
     private static final String BACK = "__magi_cards_back";
+    private static final String SHOWS = "__magi_cards_showing";
+    private static final String SHOWS_OBS = "__magi_cards_showing_obs";
 
     private CardSharing() {}
 
@@ -84,6 +86,32 @@ public final class CardSharing {
         Js.asPropertyMap(card).set("close", close);
         return card;
     }
+
+    /**
+     * 부모: 지금 <b>어느 카드가 보이는가</b>(사실판이면 "facts"). 자식의 목록은 그 표시를 따라야
+     * 한다 — 파일 셋을 열어 두고 그중 하나를 보는 중인데 트리에서 셋 다 골라진 것처럼 보이면,
+     * 지금 읽고 있는 것이 무엇인지 화면이 말하지 못한다.
+     */
+    public static void showing(String key) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        Object had = win.get(SHOWS);
+        // 바뀐 때만 알린다. 자식은 이 소식에 다시 그리고, 다시 그리면 제 카드를 다시 건네고,
+        // 그러면 부모가 줄을 다시 그린다 — 같은 값에도 알리면 그 셋이 서로를 부르며 스택을
+        // 태운다(실측: Maximum call stack size exceeded, 워크스페이스가 통째로 빈 화면).
+        if (had != null && String.valueOf(had).equals(key)) return;
+        win.set(SHOWS, key);
+        Object l = win.get(SHOWS_OBS);
+        if (l != null) Js.<Runner>cast(l).call();
+    }
+
+    /** 자식: 지금 보이는 카드의 신원(없으면 빈 문자열). */
+    public static String showing() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get(SHOWS);
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    /** 자식: 그것이 바뀌면 다시 그린다. */
+    public static void onShowing(Runner l) { Js.asPropertyMap(DomGlobal.window).set(SHOWS_OBS, l); }
 
     /** 부모: 이 카드를 닫는다. 닫는 법이 없는 카드는 닫히지 않는다(사실판이 그렇다). */
     public static void close(elemental2.dom.Element card) {

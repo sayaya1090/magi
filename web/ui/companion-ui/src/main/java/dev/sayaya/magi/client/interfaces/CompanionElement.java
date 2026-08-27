@@ -121,6 +121,18 @@ public class CompanionElement {
         prompt.wire();
         // 자식이 카드를 열고 닫으면 줄이 따라간다 — 무엇이 열려 있는지는 자식만 안다.
         CardSharing.onChange(cards -> drawCards());
+        // 사실판이 "가서 보는 것"을 세우면 그것도 같은 줄에 선다 — 이 판도 이 기둥의 것이라,
+        // 자식의 카드와 한 줄을 나눠 쓴다(운영도 한 자리를 탭으로 가른다).
+        detail.cardsGo((key, title, body) -> {
+            body.id = key;
+            body.setAttribute("title", title);
+            body.style.setProperty("display", "contents");
+            CardSharing.closable(body, () -> { ownCards.remove(key); drawCards(); });
+            ownCards.put(key, body);
+            cardShows = key;
+            wsShows = key;
+            drawCards();
+        });
         drawCards();
         buildTabs();
         // 폭이 바뀌면 다시 정한다 — 폰에서 넓어진 창은 탭을 걷고 전부를 보여야 한다.
@@ -138,6 +150,8 @@ public class CompanionElement {
      * 줄은 서지 않는다(운영 규칙: 연 파일이 없으면 hidden).
      */
     private final java.util.Set<String> cardsSeen = new java.util.HashSet<>();
+    /** 이 판이 세운 카드들(도구·루프·양식) — 자식의 것과 같은 줄에 선다. */
+    private final java.util.LinkedHashMap<String, HTMLElement> ownCards = new java.util.LinkedHashMap<>();
     /**
      * 폰의 작업공간 탭이 지금 무엇을 보이는가 — 트리("files")냐, 열린 카드냐.
      *
@@ -149,9 +163,19 @@ public class CompanionElement {
     private String wsShows = "files";
     private boolean cardsAlone = false;
 
+    /** 지금 이 줄에 설 카드 전부 — 이 판의 것 다음에 자식의 것(연 순서대로). */
+    private java.util.List<elemental2.dom.Element> allCards() {
+        java.util.List<elemental2.dom.Element> out = new java.util.ArrayList<>(ownCards.values());
+        JsArrayLike<Object> childs = Js.uncheckedCast(CardSharing.current());
+        for (int i = 0; childs != null && i < childs.getLength(); i++) {
+            out.add(Js.uncheckedCast(childs.getAt(i)));
+        }
+        return out;
+    }
+
     private void drawCards() {
-        JsArrayLike<Object> cards = Js.uncheckedCast(CardSharing.current());
-        int n = cards == null ? 0 : cards.getLength();
+        java.util.List<elemental2.dom.Element> cards = allCards();
+        int n = cards.size();
         if (n == 0) {
             cardTabs.setAttribute("hidden", "");
             cardTabs.replaceChildren();
@@ -159,6 +183,7 @@ public class CompanionElement {
             cardArea.replaceChildren();
             show(detail.element(), store.context() != null);
             cardShows = "facts";
+            CardSharing.showing(cardShows);
             return;
         }
         cardTabs.replaceChildren();
@@ -171,7 +196,7 @@ public class CompanionElement {
         String opened = null;
         java.util.Set<String> now = new java.util.HashSet<>();
         for (int i = 0; i < n; i++) {
-            elemental2.dom.Element c = Js.uncheckedCast(cards.getAt(i));
+            elemental2.dom.Element c = cards.get(i);
             // 노드가 제 이름과 신원을 진다: id는 무엇인가, title은 탭에 적히는 이름(카드 계약).
             String key = c.id;
             now.add(key);
@@ -183,7 +208,8 @@ public class CompanionElement {
         cardsSeen.retainAll(now);
         cardsSeen.addAll(now);
         if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
-        if (!known) cardShows = Js.<elemental2.dom.Element>uncheckedCast(cards.getAt(n - 1)).id;
+        if (!known) cardShows = cards.get(n - 1).id;
+        CardSharing.showing(cardShows);
         // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
         boolean facts = "facts".equals(cardShows);
         show(detail.element(), facts && store.context() != null);
@@ -191,8 +217,7 @@ public class CompanionElement {
         if (!facts) {
             // 고른 노드 하나만 세운다 — 나머지는 자식이 들고 있고, 탭을 누르면 그것이 선다.
             cardArea.replaceChildren();
-            for (int i = 0; i < n; i++) {
-                elemental2.dom.Element c = Js.uncheckedCast(cards.getAt(i));
+            for (elemental2.dom.Element c : cards) {
                 if (cardShows.equals(c.id)) { cardArea.append(c); break; }
             }
         }
@@ -207,10 +232,7 @@ public class CompanionElement {
     /** 폰의 작업공간 탭이 지금 카드를 보이는가 — 트리 대신 그 자리에 선 것. */
     private boolean cardInsteadOfTree() {
         if ("files".equals(wsShows)) return false;
-        JsArrayLike<Object> cards = Js.uncheckedCast(CardSharing.current());
-        for (int i = 0; cards != null && i < cards.getLength(); i++) {
-            if (wsShows.equals(Js.<elemental2.dom.Element>uncheckedCast(cards.getAt(i)).id)) return true;
-        }
+        for (elemental2.dom.Element c : allCards()) if (wsShows.equals(c.id)) return true;
         return false;
     }
 
