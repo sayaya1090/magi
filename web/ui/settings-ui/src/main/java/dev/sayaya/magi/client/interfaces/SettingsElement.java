@@ -369,7 +369,9 @@ public class SettingsElement {
             }
         });
         if (!May.can("admin")) return out;
-        HTMLElement r = row("accessK", "accessWhy", "nav.access", "nav.access_sub");
+        // 아래 줄은 그 화면이 무엇인지 설명하는 말이다 — 레일의 문에 붙는 한 줄(nav.access_sub)이
+        // 아니라, 운영이 이 자리에 쓰는 그 문장(access.why).
+        HTMLElement r = row("accessK", "accessWhy", "nav.access", "access.why");
         r.className = "prefrow narrowonly";
         HTMLElement go = el("md-text-button");
         go.id = "accessGo";

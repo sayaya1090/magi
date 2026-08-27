@@ -209,8 +209,7 @@ public class CompanionElement {
         if ("files".equals(wsShows)) return false;
         JsArrayLike<Object> cards = Js.uncheckedCast(CardSharing.current());
         for (int i = 0; cards != null && i < cards.getLength(); i++) {
-            JsPropertyMap<Object> c = Js.uncheckedCast(cards.getAt(i));
-            if (wsShows.equals(String.valueOf(c.get("key")))) return true;
+            if (wsShows.equals(Js.<elemental2.dom.Element>uncheckedCast(cards.getAt(i)).id)) return true;
         }
         return false;
     }

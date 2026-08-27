@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.RosterSharing;
 import dev.sayaya.magi.component.Rank;
 import dev.sayaya.magi.client.usecase.KnowledgeStore;
@@ -159,6 +160,7 @@ public class KnowledgeElement {
             }
             findBox.className = "skfind";
             find.setAttribute("label", tr("label.find"));
+            Icons.glass(find);
             find.addEventListener("input", evt -> onQuery.accept(value(find)));
             findBox.append(find);
             box.append(findBox);
