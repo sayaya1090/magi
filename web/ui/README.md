@@ -26,6 +26,7 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `fleet-ui` | 플릿 화면 — 이식 완료, 카탈로그 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
 | `companion-ui` | 컴패니언 화면, 타입 1 = 코딩 에이전트 — 타입 전용 UI 계약의 레퍼런스 | `companion/companion.nocache.js` + companion.css |
 | `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
+| `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
 
 ## 셸과 화면의 계약 (console-bridge)
 
@@ -46,8 +47,9 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
   이전 대화가 새 화면에 비치지 않는다.
 - **컨텍스트** (`__magi_companion_subscribe`): 지금 보는 컴패니언(CompanionContext:
   socket·peer·type). type은 셸이 타입 카탈로그로 이미 해석한 키다 — 화면 모듈은 읽기만.
-- **이동** (`__magi_go`): 화면이 셸에 컴패니언 화면으로의 이동을 청하는 문 — 플릿의 행,
-  레일 2단의 항목이 이 문으로 간다. 주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
+- **이동** (`__magi_go` / `__magi_go_view`): 화면이 셸에 이동을 청하는 두 문 — 컴패니언
+  으로(플릿의 행), 그리고 카탈로그 화면으로(플릿의 .toview → 보드처럼 문 없는 주소).
+  주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
 - **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
   console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
   (성공=빈 문자열, 거부=사유). 기존 page.js의 fetchList/post 이식이다.
@@ -106,7 +108,7 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
    이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
 5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
    html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, knowledge
-   18093, 다음은 18094.
+   18093, board 18094, 다음은 18095.
 6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
    화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
 7. `../README.md` 대조표의 그 행을 갱신한다.
