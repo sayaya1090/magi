@@ -282,6 +282,8 @@ public class CompanionElement {
         // 탭도 안 보이는데 판은 탭 규칙대로 감춰진 상태가 된다 — 실측: 860px에서 전사 폭 0.
         boolean narrow = DomGlobal.window.matchMedia("(max-width:52.4375em)").matches;
         boolean companion = store.context() != null;
+        // 기둥이 하나뿐이라는 사실은 배치를 아는 여기서 적는다 — 자식은 묻기만 한다(Windows).
+        dev.sayaya.magi.bridge.Windows.onePane(narrow && companion);
         if (!narrow || !companion) {
             standAlone(false);
             tabs.setAttribute("hidden", "");

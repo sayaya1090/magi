@@ -4,6 +4,7 @@ import dev.sayaya.magi.bridge.CardSharing;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.May;
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.client.domain.Code;
 import dev.sayaya.magi.client.domain.Tree;
 import dev.sayaya.magi.client.usecase.CompanionStore;
@@ -60,10 +61,62 @@ public class WorkspaceElement {
         store.subscribe(this::render);
     }
 
+    /** 폰의 작업공간이 지금 보이는 것 — 트리("files")냐 git이냐. 넓은 화면에서는 둘 다 선다. */
+    private String shows = "files";
+
     private void render() {
         root.replaceChildren();
-        root.append(treeCard(), gitCard());
+        // 한 기둥이면 한 번에 하나다(운영의 그 규칙): 마흔 개 이름 아래에 깔린 git 판은 아무도
+        // 스크롤해 내려가지 않고, 그 판의 행동들은 손끝이 닿을 자리에 있지도 않다.
+        // console.css가 #files[data-shows]로 그 감춤을 맡는다 — 여기서는 무엇을 보이는지만 적는다.
+        if (Windows.onePane()) {
+            root.setAttribute("data-shows", shows);
+            if ("git".equals(shows)) {
+                root.append(backRow(tr("nav.files_short"), () -> { shows = "files"; render(); }), gitCard());
+            } else {
+                root.append(treeCard(), gitRow(), gitCard());
+            }
+        } else {
+            root.removeAttribute("data-shows");
+            root.append(treeCard(), gitCard());
+        }
         publishCards();
+    }
+
+    /** 한 기둥일 때 git으로 가는 줄 — 무엇이 뒤에 있는지(브랜치·바뀐 수)를 이고 있다. */
+    private HTMLElement gitRow() {
+        HTMLElement list = cell("panelist", null);
+        HTMLElement row = el("button");
+        row.setAttribute("type", "button");
+        row.className = "panelrow state";
+        row.append(Icons.orGlyph("#i-sl-clock-rotate-left", "", "panelmark"));
+        row.append(cell("panelword", tr("git.section")));
+        JsPropertyMap<Object> g = store.git() == null ? null : Js.uncheckedCast(store.git());
+        if (g != null && Js.isTruthy(g.get("repo"))) {
+            String branch = str(g, "branch");
+            if (branch.isEmpty() && !str(g, "head").isEmpty()) branch = "@" + str(g, "head");
+            JsArrayLike<Object> changes = Js.uncheckedCast(g.get("changes"));
+            int n = changes == null ? 0 : changes.getLength();
+            String said = branch;
+            if (n > 0) said = (said.isEmpty() ? "" : said + " \u00B7 ") + tr("git.n_changed", "n", String.valueOf(n));
+            if (!said.isEmpty()) row.append(cell("panelcount", said));
+        }
+        row.append(Icons.orGlyph("#i-sl-chevron-right", "\u203A", "panelgo"));
+        row.addEventListener("click", evt -> { shows = "git"; render(); });
+        list.append(row);
+        return list;
+    }
+
+    /** 돌아가는 줄 — 낱말은 <b>가는 곳</b>이고, 읽히는 이름은 그것이 하는 일이다(운영 panelBack). */
+    private HTMLElement backRow(String word, Runnable go) {
+        HTMLElement box = cell("panelback", null);
+        HTMLElement b = el("md-text-button");
+        b.textContent = word;
+        Icons.mark(b, "#i-sl-chevron-left");
+        b.setAttribute("aria-label", tr("action.back_to", "name", word));
+        b.addEventListener("click", evt -> go.run());
+        box.append(b);
+        return box;
     }
 
     // ── 트리 ─────────────────────────────────────────────────────────────────

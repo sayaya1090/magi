@@ -380,6 +380,29 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             page.evaluate("document.getElementById('filecol').style.width = ''")
         }
+        When("기둥이 하나뿐이라고 부모가 말하면(폰)") {
+            page.evaluate("window.__magi_one_pane = true")
+            page.evaluate("window.dispatchEvent(new Event('resize'))")
+            page.locator("#files .paneagain").click()   // 다시 그리게 한다 — 배치 사실이 바뀌었다
+            Then("작업공간은 한 번에 하나를 보인다 — 트리와, git으로 가는 줄") {
+                page.waitForSelector("#files[data-shows=files] .panelrow")
+                // 마흔 개 이름 아래 깔린 판은 아무도 스크롤해 내려가지 않는다(운영이 이 화면에서 배운 것).
+                page.locator("#files .panelrow .panelword").textContent() shouldBe "git.section"
+            }
+            When("그 줄을 누르면") {
+                page.locator("#files .panelrow").click()
+                Then("git이 그 자리에 서고, 돌아가는 줄이 생긴다") {
+                    page.waitForSelector("#files[data-shows=git] .panelback")
+                    page.locator("#files .pane-git").count() shouldBe 1
+                }
+                Then("돌아가면 트리다") {
+                    page.locator("#files .panelback md-text-button").click()
+                    page.waitForSelector("#files[data-shows=files] .pane-files")
+                }
+            }
+            page.evaluate("window.__magi_one_pane = false")
+            page.locator("#files .paneagain").click()
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고, 전사와 컴포저가 그대로 쓸 만하다") {
