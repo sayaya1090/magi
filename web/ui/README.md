@@ -25,6 +25,7 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation(Place)·RenderStore·RosterStore·타입 카탈로그(CompanionType)·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
 | `fleet-ui` | 플릿 화면 — 이식 완료, 카탈로그 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
 | `companion-ui` | 컴패니언 화면, 타입 1 = 코딩 에이전트 — 타입 전용 UI 계약의 레퍼런스 | `companion/companion.nocache.js` + companion.css |
+| `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
 
 ## 셸과 화면의 계약 (console-bridge)
 
@@ -104,8 +105,8 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
 4. 문을 단다: Destination.all()에 한 줄 — 아이콘 패스는 기존 콘솔의 그 드로잉. 문은
    이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
 5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
-   html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, 다음은
-   18093.
+   html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, knowledge
+   18093, 다음은 18094.
 6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
    화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
 7. `../README.md` 대조표의 그 행을 갱신한다.
