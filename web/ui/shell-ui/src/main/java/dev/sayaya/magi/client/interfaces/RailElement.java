@@ -5,6 +5,7 @@ import dev.sayaya.magi.client.domain.Destination;
 import dev.sayaya.magi.client.domain.RailModes;
 import dev.sayaya.magi.client.usecase.MenuHover;
 import dev.sayaya.magi.client.usecase.Navigation;
+import dev.sayaya.magi.client.usecase.MayStore;
 import dev.sayaya.magi.client.usecase.RailMode;
 import dev.sayaya.magi.client.usecase.RailView;
 import dev.sayaya.magi.client.usecase.RosterStore;
@@ -47,13 +48,21 @@ public class RailElement implements RailView {
     private int waiting = 0;
 
     @Inject
-    public RailElement(Navigation nav, RosterStore roster, MenuHover hover, RailMode mode, ToolRailElement panel) {
+    public RailElement(Navigation nav, RosterStore roster, MenuHover hover, RailMode mode,
+                       MayStore may, ToolRailElement panel) {
         this.nav = nav;
         this.hover = hover;
         this.mode = mode;
         build(panel);
         roster.subscribe(this::countWaiting);
         mode.subscribe(this::applyModes);
+        // 능력이 늦게 도착해도 문은 따라 접힌다 — 취하는 쪽만: 숨긴 것을 되살리진 않는다(운영 applyMay).
+        may.subscribe(m -> {
+            for (Destination d : Destination.doors()) {
+                HTMLElement item = items.get(d.id);
+                if (item != null && !m.may(d.may)) item.setAttribute("hidden", "");
+            }
+        });
     }
 
     /** 두 기둥의 상태를 속성으로 — CSS가 읽는 계약: #rail[menu=…][tool=…]. */

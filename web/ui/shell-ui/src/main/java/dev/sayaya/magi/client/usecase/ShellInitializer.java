@@ -19,21 +19,24 @@ public class ShellInitializer {
     private final RailView rail;
     private final FrameView frame;
     private final RosterStore roster;
+    private final MayStore may;
 
     @Inject
     public ShellInitializer(Navigation nav, RenderStore renders, ModuleLoader loader,
-                            RailView rail, FrameView frame, RosterStore roster) {
+                            RailView rail, FrameView frame, RosterStore roster, MayStore may) {
         this.nav = nav;
         this.renders = renders;
         this.loader = loader;
         this.rail = rail;
         this.frame = frame;
         this.roster = roster;
+        this.may = may;
     }
 
     public void initialize() {
         // 화면 모듈보다 먼저 — 브리지의 문이 걸린 뒤에 모듈이 들어와야 제 회선을 안 연다.
         roster.start();
+        may.start();
         GoSharing.host(nav::goCompanion);
         GoSharing.hostView(v -> nav.go(dev.sayaya.magi.client.domain.Destination.byId(v)));
         GoSharing.hostPast(nav::goPast);

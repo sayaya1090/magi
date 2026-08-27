@@ -12,13 +12,20 @@ public final class Destination {
     public final String shortKey;  // 접힌 레일·폰 바가 읽는 한두 단어
     public final String subKey;    // 열린 드로어만 그리는 한 줄 설명
     public final String iconPath;  // 24x24 스트로크 패스(기존 콘솔의 그 드로잉, currentColor)
+    public final String may;       // 문이 요구하는 능력(운영 data-may) — null이면 모두의 문
 
     private Destination(String id, String labelKey, String shortKey, String subKey, String iconPath) {
+        this(id, labelKey, shortKey, subKey, iconPath, null);
+    }
+
+    private Destination(String id, String labelKey, String shortKey, String subKey, String iconPath,
+                        String may) {
         this.id = id;
         this.labelKey = labelKey;
         this.shortKey = shortKey;
         this.subKey = subKey;
         this.iconPath = iconPath;
+        this.may = may;
     }
 
     public static final Destination FLEET = new Destination("fleet",
@@ -37,15 +44,26 @@ public final class Destination {
     public static final Destination BOARD = new Destination("board",
             "nav.board", "nav.board", "nav.board", "");
 
-    /** 레일에 문이 달리는 화면들 — 이식된 화면이어도 보드처럼 문 없는 주소가 있다. */
-    public static Destination[] doors() { return new Destination[]{FLEET, KNOWLEDGE}; }
-
     // 맵 — 보드처럼 문 없는 주소: 플릿이 어떻게 놓여 있고 무엇이 오가는지, 같은 목록의
     // 다른 시선이라 컴패니언 문이 켜진 채다.
     public static final Destination MAP = new Destination("map",
             "nav.map", "nav.map", "nav.map", "");
 
-    public static Destination[] all() { return new Destination[]{FLEET, KNOWLEDGE, BOARD, MAP}; }
+    // 접근 — 누가 이 콘솔을 쓸 수 있나. 문은 admin의 것(운영 data-may): 서버가 어차피
+    // 거부하지만, 눌러서 거절에 닿는 문은 없는 문보다 나쁘다.
+    public static final Destination ACCESS = new Destination("access",
+            "nav.access", "nav.access", "nav.access_sub",
+            "M12 13.4a2.9 2.9 0 1 0 0-5.8 2.9 2.9 0 0 0 0 5.8M7.5 20v-1.1a3 3 0 0 1 3-3h3a3 3 0 0 "
+                    + "1 3 3V20M5.2 10.8a2 2 0 1 0 0-4 2 2 0 0 0 0 4M2.5 17.2v-.8a2.4 2.4 0 0 1 "
+                    + "2.4-2.4M18.8 10.8a2 2 0 1 0 0-4 2 2 0 0 0 0 4M21.5 17.2v-.8a2.4 2.4 0 0 "
+                    + "0-2.4-2.4",
+            "admin");
+
+    public static Destination[] doors() { return new Destination[]{FLEET, KNOWLEDGE, ACCESS}; }
+
+    public static Destination[] all() {
+        return new Destination[]{FLEET, KNOWLEDGE, BOARD, MAP, ACCESS};
+    }
 
     /** 레일이 켤 문 — 보드는 플릿의 다른 시선이라 컴패니언 문이 켜진 채다(운영 규칙). */
     public Destination section() { return this == BOARD || this == MAP ? FLEET : this; }
