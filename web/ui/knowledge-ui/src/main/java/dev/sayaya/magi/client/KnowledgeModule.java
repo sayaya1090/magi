@@ -1,12 +1,21 @@
 package dev.sayaya.magi.client;
 
-import dagger.Binds;
 import dagger.Module;
+import dagger.Provides;
+import dev.sayaya.magi.bridge.Demo;
+import dev.sayaya.magi.client.interfaces.api.DemoKnowledgeSource;
 import dev.sayaya.magi.client.interfaces.api.FetchKnowledgeSource;
 import dev.sayaya.magi.client.usecase.KnowledgeSource;
 
-/** 유스케이스 포트 → interfaces 구현 바인딩. 테스트는 같은 자리에 가짜를 물린다. */
+import javax.inject.Provider;
+import javax.inject.Singleton;
+
+/** 포트에 회선을 문다 — 데모면 이 모듈이 함께 싣는 제 목을 문다(테스트는 가짜를 문다). */
 @Module
 public abstract class KnowledgeModule {
-    @Binds abstract KnowledgeSource source(FetchKnowledgeSource impl);
+    @Provides
+    @Singleton
+    static KnowledgeSource source(Provider<FetchKnowledgeSource> live, Provider<DemoKnowledgeSource> demo) {
+        return Demo.on() ? demo.get() : live.get();
+    }
 }

@@ -25,6 +25,12 @@ public interface RosterSource {
     /** 스트림 구독. 재접속은 구현의 몫. */
     void start(Listener l);
 
+    /**
+     * 창 전체가 같은 답을 들어야 하는 두 사실 — 어느 magi인가(/console), 나는 무엇을 할 수
+     * 있나(/me). 셸이 읽어 창에 올리고 화면들은 그것을 든다: 한 API의 주인은 하나다.
+     */
+    void facts(java.util.function.Consumer<Object> consoleInfo, java.util.function.Consumer<Object> caps);
+
     /** 조준을 바꾼다 — null이면 명단 전용(카탈로그 화면). 회선 재개설은 구현의 몫. */
     void aim(String socket, String peer);
 

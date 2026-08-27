@@ -49,11 +49,21 @@ public class PromptElement {
 
     /** 명단이 흐르는 동안 계속 불린다 — 기다리는 그 컴패니언이면 상자를 세운다. */
     public void wire() {
+        // 답을 보내는 문은 하나다: 기다리는 질문을 아는 쪽도, 그것이 어느 부름인지 아는 쪽도
+        // 여기다. 자식의 컴포저는 사람이 쓴 글만 이 문으로 넘긴다.
+        AskSharing.hostSend((text, landed) -> {
+            FleetAgent a = rowOf(lastRoster);
+            if (a == null || !"waiting".equals(a.state)) { landed.call("nothing is waiting"); return; }
+            commander.answer(a, text, () -> landed.call(""));
+        });
         store.onContext(ctx -> { socket = ctx == null ? null : ctx.socket; render(null); });
         store.onRoster(list -> render(list));
     }
 
+    private Object lastRoster = null;
+
     private void render(Object list) {
+        if (list != null) lastRoster = list;
         FleetAgent a = rowOf(list);
         if (a == null || !"waiting".equals(a.state)) {
             box.setAttribute("hidden", "");

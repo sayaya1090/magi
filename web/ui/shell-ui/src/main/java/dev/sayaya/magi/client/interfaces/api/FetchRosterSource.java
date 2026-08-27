@@ -45,6 +45,13 @@ public class FetchRosterSource implements RosterSource {
     }
 
     @Override
+    public void facts(java.util.function.Consumer<Object> consoleInfo, java.util.function.Consumer<Object> caps) {
+        Console.fetchList("/console", consoleInfo::accept);
+        Console.fetchList("/me", parsed ->
+                caps.accept(parsed == null ? null : Js.asPropertyMap(parsed).get("can")));
+    }
+
+    @Override
     public void refresh() {
         if (listener == null) return;
         Console.fetchList("/fleet", parsed -> listener.roster(parsed == null ? null : Js.uncheckedCast(parsed)));

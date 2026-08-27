@@ -62,6 +62,12 @@ public class RosterStore implements RosterSource.Listener {
         source.refresh();
     }
 
+    /** 창 전체의 두 사실 — 스토어는 나르기만 한다(무엇인지는 브리지가 안다). */
+    public void facts(java.util.function.Consumer<Object> consoleInfo,
+                      java.util.function.Consumer<Object> caps) {
+        source.facts(consoleInfo, caps);
+    }
+
     public void refresh() { source.refresh(); }
 
     /** 지난 일 층위 — 스트림은 그대로 두고 컨텍스트만 갈아탄다(과거는 fetch의 것이다). */

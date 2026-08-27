@@ -63,6 +63,8 @@ public class ShellInitializer {
             renders.expect(module);
             loader.ensure(module, styles);
         });
+        // 창 전체의 두 사실을 한 번 읽어 올린다 — 화면들은 그것을 들기만 한다.
+        roster.facts(dev.sayaya.magi.bridge.Facts::putConsole, dev.sayaya.magi.bridge.Facts::putMay);
         nav.start();
     }
 }

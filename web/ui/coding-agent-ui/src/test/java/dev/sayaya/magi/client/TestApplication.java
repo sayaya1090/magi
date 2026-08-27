@@ -36,6 +36,15 @@ public class TestApplication implements EntryPoint {
         jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_ask_publish",
                 (dev.sayaya.magi.bridge.AskSharing.NextFn) ask ->
                         dev.sayaya.magi.bridge.AskSharing.publish(ask));
+        // 답을 받는 것도 부모의 몫이다(/answer의 주인은 하나) — 하네스가 그 문을 대신 건다.
+        dev.sayaya.magi.bridge.AskSharing.hostSend((text, landed) -> {
+            Object ask = jsinterop.base.Js.asPropertyMap(DomGlobal.window).get("__magi_ask");
+            String call = ask == null ? "" : String.valueOf(jsinterop.base.Js.asPropertyMap(ask).get("call"));
+            String kind = ask == null ? "" : String.valueOf(jsinterop.base.Js.asPropertyMap(ask).get("kind"));
+            jsinterop.base.Js.asPropertyMap(DomGlobal.window)
+                    .set("__magi_test_answered", call + "/" + kind + "/" + text);
+            landed.call("");
+        });
         CodingTestComponent c = DaggerCodingTestComponent.create();
         c.conversation().mount(stream);
         c.conversation().mountComposer(bay);

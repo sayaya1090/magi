@@ -1,6 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
-import dev.sayaya.magi.bridge.Console;
+import dev.sayaya.magi.bridge.Facts;
 import dev.sayaya.magi.client.domain.Destination;
 import dev.sayaya.magi.client.domain.Place;
 import dev.sayaya.magi.client.usecase.Navigation;
@@ -218,7 +218,8 @@ public class MastheadElement {
     /** 어느 magi인가 — user@host, 콘솔이 말할 수 있는 반쪽이라도. 못 말하면 빈 채로 둔다:
      *  "unknown"이라 적힌 마스트헤드는 주장하지 않는 것보다 나쁘다. */
     private void whoami() {
-        Console.fetchList("/console", parsed -> {
+        // 어느 magi인지는 창 전체의 사실이다 — 셸이 한 번 읽어 올린 것을 든다.
+        Facts.onConsole(parsed -> {
             if (parsed == null) return;
             JsPropertyMap<Object> c = Js.asPropertyMap(parsed);
             String user = str(c, "user"), host = str(c, "host");

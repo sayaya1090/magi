@@ -9,56 +9,66 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"testing"
 )
 
-// Every path a module GETs must be a path the demo's shim answers. The list is not written down
-// here on purpose — it is mined from the Java, so a new screen that fetches something new fails
-// this test on the commit that adds it, not on the day someone opens the demo.
-func TestDemoShimAnswersWhatTheModulesAsk(t *testing.T) {
-	gets := regexp.MustCompile(`Console\.fetchList\(\s*"(/[A-Za-z0-9_-]+)`)
-	posts := regexp.MustCompile(`Console\.post\(\s*"(/[A-Za-z0-9_-]+)`)
-	asked, sent := map[string]string{}, map[string]string{}
+// 목은 모듈마다 함께 실린다 — 포트가 있으면 그 모듈 안에 데모 구현이 있어야 한다.
+//
+// 페이지가 fetch를 갈아끼우던 시절의 검사(경로 채굴)를 대신한다: 화면이 제 iframe에서 제
+// 회선으로 말하므로, 데모에서 무엇을 답할지는 그 모듈만 답할 수 있다. 새 화면이 포트를
+// 하나 늘리고 목을 잊으면, 그 화면은 배포된 데모에서 빈 채로 뜬다 — 여기서 걸린다.
+func TestEveryPortShipsItsOwnDemo(t *testing.T) {
+	ports := map[string]string{} // 포트 이름 → 그 모듈
+	demos := map[string]bool{}   // 데모 구현이 있는 포트 이름
 	root := filepath.Join("..", "ui")
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".java") {
 			return err
 		}
-		src, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		for _, m := range gets.FindAllStringSubmatch(string(src), -1) {
-			asked[m[1]] = p
-		}
-		for _, m := range posts.FindAllStringSubmatch(string(src), -1) {
-			sent[m[1]] = p
+		rel := strings.TrimPrefix(p, root+string(filepath.Separator))
+		mod := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+		name := strings.TrimSuffix(d.Name(), ".java")
+		switch {
+		case strings.Contains(p, filepath.Join("src", "main", "java")) &&
+			strings.Contains(p, string(filepath.Separator)+"usecase"+string(filepath.Separator)) &&
+			(strings.HasSuffix(name, "Source") || strings.HasSuffix(name, "Repository") ||
+				strings.HasSuffix(name, "Commander")):
+			src, rerr := os.ReadFile(p)
+			if rerr != nil {
+				return rerr
+			}
+			// 포트만 — 그 안의 구현 클래스는 세지 않는다.
+			if strings.Contains(string(src), "public interface "+name) {
+				ports[mod+"/"+name] = mod
+			}
+		case strings.HasPrefix(name, "Demo") && strings.Contains(p, filepath.Join("src", "main", "java")):
+			demos[mod+"/"+strings.TrimPrefix(name, "Demo")] = true
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walking %s: %v", root, err)
 	}
-	if len(asked) < 8 {
-		t.Fatalf("only %d GET paths found under %s — the miner's pattern has gone stale, "+
-			"and a stale miner passes by finding nothing", len(asked), root)
+	if len(ports) < 8 {
+		t.Fatalf("only %d ports found under %s — the miner has gone stale, and a stale miner "+
+			"passes by finding nothing", len(ports), root)
 	}
-	for _, path := range keys(asked) {
-		// 답하는 방식은 shim의 사정이다(정확 일치·접두사·표) — 재는 것은 "그 경로를 아는가"뿐:
-		// 경로가 따옴표 안에 그대로 있으면 그 shim은 그 경로를 안다.
-		if !strings.Contains(demoShim, `url.startsWith('`+path+`')`) {
-			t.Errorf("%s fetches %s and the demo shim has no answer for it — on Pages that is a "+
-				"404 and an empty panel (%s)", filepath.Base(asked[path]), path, asked[path])
+	for port, mod := range ports {
+		// 브리지로만 사는 포트는 목이 필요 없다: 답하는 쪽이 다른 모듈이라서(명단이 그렇다).
+		if bridged[port] {
+			continue
+		}
+		if !demos[port] {
+			t.Errorf("%s has no Demo implementation in %s — on the published demo that screen "+
+				"comes up empty, and nothing else can answer for it", port, mod)
 		}
 	}
-	// Writes are answered as one: the demo accepts and forgets. That is a deliberate shape, so
-	// pin it — without the catch-all every write path would 404 the same silent way.
-	if len(sent) > 0 && !strings.Contains(demoShim, `init.method === 'POST'`) {
-		t.Errorf("modules post to %v but the shim has no POST catch-all", keys(sent))
-	}
+}
+
+// 셸이 답하는 것을 받아 쓰는 포트들 — 그 모듈에 목이 없는 것이 옳다(있으면 세상이 둘이 된다).
+var bridged = map[string]bool{
+	"companion-ui/FleetRepository": true,
 }
 
 // What the emitter leaves behind, read off disk. Pages serves the console from a subpath, so any
@@ -94,11 +104,12 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 		}
 	}
 	// 두 콘솔이 같은 shim을 쓴다 — 그 shim이 fetch를 갈아끼운다는 사실이 표식이다.
-	if !strings.Contains(page, "window.fetch =") {
-		t.Error("the shim is missing — a demo with no mock answers nothing")
+	// 페이지가 하는 일은 한 줄이다: 지금은 데모라는 사실. 답은 모듈들이 제 목으로 한다.
+	if !strings.Contains(page, "MAGI_DEMO") {
+		t.Error("the page never says it is a demo — every module would then ask the real network")
 	}
-	if strings.Index(page, "window.fetch =") > strings.Index(page, "<script src=") {
-		t.Error("the shim goes in after the first script — the first module would ask the real network")
+	if strings.Index(page, "MAGI_DEMO") > strings.Index(page, "<script src=") {
+		t.Error("the flag goes in after the first script — a module could boot before reading it")
 	}
 	// The compiled module's own literals, both quote styles (GWT writes single).
 	js := read(t, filepath.Join(out, "ui", "shell", "shell.nocache.js"))
@@ -111,15 +122,6 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 			t.Errorf("%s did not travel into the demo: %v", want, err)
 		}
 	}
-}
-
-func keys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func write(t *testing.T, path, body string) {

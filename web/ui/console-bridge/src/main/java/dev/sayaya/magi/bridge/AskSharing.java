@@ -22,6 +22,7 @@ import jsinterop.base.JsPropertyMap;
 public final class AskSharing {
     private static final String KEY = "__magi_ask";
     private static final String OBS = "__magi_ask_obs";
+    private static final String SEND = "__magi_ask_send";
 
     private AskSharing() {}
 
@@ -46,6 +47,13 @@ public final class AskSharing {
     @JsFunction
     public interface NextFn { void call(Object ask); }
 
+    /** 답을 보내는 문 — 부모가 걸고, 답할 입력을 가진 자식이 쓴다. */
+    @JsFunction
+    public interface SendFn { void call(String text, Landed landed); }
+
+    @JsFunction
+    public interface Landed { void call(String whyOrEmpty); }
+
     /** 부모: 지금의 사실을 알린다(없으면 null). 창에 남겨 뒤에 오는 자식도 든다. */
     public static void publish(Object ask) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
@@ -54,6 +62,21 @@ public final class AskSharing {
         if (obs == null) return;
         JsArray list = Js.uncheckedCast(obs);
         for (int i = 0; i < list.length; i++) Js.<NextFn>cast(at(list, i)).call(ask);
+    }
+
+    /**
+     * 부모: 답을 보내는 문을 건다. /answer의 주인이 하나여야 하기 때문이다 — 기다리는 질문을
+     * 아는 쪽도, 그 답이 어느 부름으로 가는지 아는 쪽도 부모다. 자식은 사람이 쓴 글만 넘긴다.
+     */
+    public static void hostSend(SendFn send) {
+        Js.asPropertyMap(DomGlobal.window).set(SEND, send);
+    }
+
+    /** 자식: 사람이 쓴 답을 넘긴다. 문이 없으면(부모 없는 페이지) 사유를 남긴다. */
+    public static void answer(String text, Landed landed) {
+        Object send = Js.asPropertyMap(DomGlobal.window).get(SEND);
+        if (send == null) { landed.call("no companion panel"); return; }
+        Js.<SendFn>cast(send).call(text, landed);
     }
 
     /** 자식: 지금 값을 받고, 바뀔 때마다 다시 받는다. */

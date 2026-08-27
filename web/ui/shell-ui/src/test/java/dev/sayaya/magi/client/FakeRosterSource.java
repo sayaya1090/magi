@@ -39,6 +39,15 @@ public class FakeRosterSource implements RosterSource {
         }
     }
 
+    /** 창 전체의 두 사실 — 스펙이 능력 게이트를 재려면 여기서 답해야 한다. */
+    @Override
+    public void facts(java.util.function.Consumer<Object> consoleInfo,
+                      java.util.function.Consumer<Object> caps) {
+        consoleInfo.accept(elemental2.core.Global.JSON.parse("{\"user\":\"you\",\"host\":\"testbox\"}"));
+        caps.accept(elemental2.core.Global.JSON.parse(
+                "[\"read\",\"answer\",\"prompt\",\"configure\",\"shell\",\"admin\"]"));
+    }
+
     @Override
     public void refresh() { if (listener != null) listener.roster(fixture()); }
 

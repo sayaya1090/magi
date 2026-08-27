@@ -1,19 +1,43 @@
 package dev.sayaya.magi.client;
 
-import dagger.Binds;
 import dagger.Module;
+import dagger.Provides;
+import dev.sayaya.magi.bridge.Demo;
 import dev.sayaya.magi.client.interfaces.api.BridgeCompanionSource;
+import dev.sayaya.magi.client.interfaces.api.BridgeFleetRepository;
+import dev.sayaya.magi.client.interfaces.api.DemoCompanionSource;
+import dev.sayaya.magi.client.interfaces.api.DemoFleetCommander;
 import dev.sayaya.magi.client.interfaces.api.FetchFleetCommander;
-import dev.sayaya.magi.client.interfaces.api.FetchFleetRepository;
 import dev.sayaya.magi.client.usecase.CompanionSource;
 import dev.sayaya.magi.client.usecase.FleetCommander;
 import dev.sayaya.magi.client.usecase.FleetRepository;
 
-/** 유스케이스 포트 → interfaces 구현 바인딩. 테스트는 같은 자리에 가짜를 물린다. */
+import javax.inject.Provider;
+import javax.inject.Singleton;
+
+/**
+ * 포트에 무엇을 물릴지 — 그리고 <b>데모면 이 모듈 제 목</b>을 문다.
+ *
+ * 목이 모듈마다 있는 이유는 배포가 모듈마다이기 때문이다: 화면은 저마다 컴파일돼 저마다의
+ * 주기로 나가고, 제 창에서 제 회선으로 말한다. 목이 그 옆에 실려 있어야 그 배포에 따라붙고,
+ * 페이지가 남의 창에 손을 넣는 일도 없다.
+ */
 @Module
 public abstract class CompanionModule {
-    @Binds abstract CompanionSource source(BridgeCompanionSource impl);
-    // 목록도 이 모듈의 것이다 — 컴패니언이라는 목적지의 두 얼굴(목록과 상세)이 한 모듈이다.
-    @Binds abstract FleetRepository repository(FetchFleetRepository impl);
-    @Binds abstract FleetCommander commander(FetchFleetCommander impl);
+    @Provides
+    @Singleton
+    static CompanionSource source(Provider<BridgeCompanionSource> live, Provider<DemoCompanionSource> demo) {
+        return Demo.on() ? demo.get() : live.get();
+    }
+
+    /** 명단은 셸의 것이다 — 데모에서도 마찬가지라(셸이 제 목을 갖는다) 갈래가 없다. */
+    @Provides
+    @Singleton
+    static FleetRepository repository(BridgeFleetRepository impl) { return impl; }
+
+    @Provides
+    @Singleton
+    static FleetCommander commander(Provider<FetchFleetCommander> live, Provider<DemoFleetCommander> demo) {
+        return Demo.on() ? demo.get() : live.get();
+    }
 }

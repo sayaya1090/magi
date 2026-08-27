@@ -32,7 +32,6 @@ public class CompanionStore implements CompanionSource.Listener {
         if (started) return;
         started = true;
         source.start(this);
-        startFacts();
     }
 
     public void onContext(Consumer<CompanionContext> o) { ctxObs.add(o); o.accept(ctx); }
@@ -54,8 +53,8 @@ public class CompanionStore implements CompanionSource.Listener {
     public void submit(String text, Consumer<String> why) {
         if (ctx == null) { why.accept("no companion"); return; }
         if (answering != null) {
-            String call = str(answering, "call"), kind = str(answering, "kind");
-            source.answer(ctx, call, kind, text, why);
+            // 답은 부모가 보낸다 — 기다리는 질문을 아는 쪽이 부모이고, /answer의 주인도 하나다.
+            dev.sayaya.magi.bridge.AskSharing.answer(text, why::accept);
             return;
         }
         source.submit(ctx, text, why);
@@ -105,68 +104,10 @@ public class CompanionStore implements CompanionSource.Listener {
 
     private void emitPast() { for (Consumer<Object> o : pastObs) o.accept(pastData); }
 
-    // ── 사실판이 읽는 것들: 명단과 컨텍스트 창 ──────────────────────────────
-    private final List<Consumer<Object>> rosterObs = new ArrayList<>();
-    private final List<Consumer<Object>> ctxInfoObs = new ArrayList<>();
-    private Object rosterList = null;
-    private Object ctxInfo = null;
-    private String ctxFor = null;
-
-    public void onRoster(Consumer<Object> o) { rosterObs.add(o); o.accept(rosterList); }
-
-    public void onContextInfo(Consumer<Object> o) { ctxInfoObs.add(o); o.accept(ctxInfo); }
-
-    /** 지금 접기 — 끝나면 컨텍스트를 다시 읽는다(운영 규칙: 접기 전 숫자를 계속 보이지 않게). */
-    public void compact(Runnable after) {
-        if (ctx == null) return;
-        source.compact(ctx, () -> { ctxFor = null; askContextInfo(); after.run(); });
-    }
-
-    private void startFacts() {
-        source.roster(list -> {
-            if (list != null) rosterList = list;
-            for (Consumer<Object> o : rosterObs) o.accept(rosterList);
-        });
-    }
-
-    private final List<Consumer<Object>> planObs = new ArrayList<>();
-    private Object planData = null;
-    private String planFor = null;
-
-    public void onPlan(Consumer<Object> o) { planObs.add(o); o.accept(planData); }
-
-    private void askPlan() {
-        if (ctx == null) return;
-        final String want = ctx.socket;
-        if (want.equals(planFor)) return;
-        planFor = want;
-        source.plan(ctx, list -> {
-            if (ctx == null || !want.equals(ctx.socket)) return;
-            planData = list;
-            for (Consumer<Object> o : planObs) o.accept(list);
-        });
-    }
-
-    private void askContextInfo() {
-        if (ctx == null) return;
-        final String want = ctx.socket;
-        if (want.equals(ctxFor)) return;
-        ctxFor = want;
-        source.context(ctx, info -> {
-            if (ctx == null || !want.equals(ctx.socket)) return;   // 늦게 온 답이 새 화면에 앉지 않게
-            ctxInfo = info;
-            for (Consumer<Object> o : ctxInfoObs) o.accept(info);
-        });
-    }
-
     @Override
     public void context(CompanionContext c) {
         ctx = c;
         for (Consumer<CompanionContext> o : ctxObs) o.accept(c);
-        ctxInfo = null;
-        for (Consumer<Object> o : ctxInfoObs) o.accept(null);
-        askContextInfo();
-        askPlan();
         askPast();
     }
 
