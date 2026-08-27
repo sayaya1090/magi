@@ -1,5 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Icons;
+
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.Facts;
 import dev.sayaya.magi.client.domain.Destination;
@@ -178,7 +180,10 @@ public class MastheadElement {
         // ?d= 가 그대로 남으므로 화면이 그 사실을 읽는다.
         gear.id = "prefs";
         gear.setAttribute("aria-label", tr("nav.preferences"));
-        gear.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+        // data-i를 단다: 구운 스프라이트가 있는 빌드에서는 Icons.dress가 이 도형을 그것으로
+        // 갈아입힌다(운영 dressIcons와 같은 거래). 없으면 여기 그린 도형이 그대로 산다 —
+        // 없는 이름을 달아 두면 그 자리만 다른 알파벳을 쓰는 아이콘이 된다(실측: 이 둘만 달랐다).
+        gear.innerHTML = "<svg data-i=\"#i-sl-sliders\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
                 + "<path d=\"M4 7h10M18 7h2M4 12h2M10 12h10M4 17h12M20 17h0\" fill=\"none\" "
                 + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/>"
                 + "<circle cx=\"16\" cy=\"7\" r=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
@@ -189,10 +194,12 @@ public class MastheadElement {
         // 단축키는 아무도 발견하지 못한다(운영이 이 버튼을 둔 이유).
         palBtn.id = "palOpen";
         palBtn.addEventListener("click", evt -> palette.show());
-        palBtn.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+        palBtn.innerHTML = "<svg data-i=\"#i-sl-magnifying-glass\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
                 + "<circle cx=\"11\" cy=\"11\" r=\"6.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
                 + "<path d=\"M15.6 15.6 20 20\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>";
         header.append(mark, whereami, crumbs, state, chrome, palBtn, gear);
+        // 그림이 구워져 있으면 지금 갈아입는다(스프라이트는 셸이 들여놓은 뒤에 온다).
+        Icons.dress(header);
     }
 
     /** 몇이 있고 몇이 기다리는가 — 그리고 기다림은 누르면 그리로 간다. */

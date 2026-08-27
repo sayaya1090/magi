@@ -59,5 +59,6 @@
 #files .findbox .findrow { margin-bottom:var(--magi-sys-space-50); }
 #files .findwhere { display:flex; gap:var(--magi-sys-space-50); flex-wrap:wrap; }
 #files .findrow .findclear, #files .makerow md-icon-button { flex:none; }
-#files .gitcommit { display:flex; gap:var(--magi-sys-space-100); align-items:center; margin-top:var(--magi-sys-space-150); }
-#files .gitcommit md-outlined-text-field { flex:1; }
+/* 커밋 줄의 모양은 console.css의 것이다(.gitcommit { display:grid }): 한 칸짜리 격자라 그 안의
+   버튼이 카드 폭을 다 쓴다 — 이 카드가 <b>하기 위해 있는</b> 일이라 그렇게 세운다. 여기서
+   flex로 덮어써 두었더니 그 버튼이 99px짜리 작은 컨트롤 하나로 줄었다(실측: 운영 262px). */
