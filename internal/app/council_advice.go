@@ -244,7 +244,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 			vd, _ := json.Marshal(event.CouncilVerdictData{
 				Round: 1, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
 				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
-				Keep: v.Keep, Cite: v.Cite,
+				Keep: v.Keep, Cite: v.Cite, Silent: v.Silent,
 			})
 			a.publishTransient(sid, event.TypeCouncilVerdict, councilActor, vd)
 		},

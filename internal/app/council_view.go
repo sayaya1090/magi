@@ -55,6 +55,10 @@ type CouncilMark struct {
 	// Cite is the fragment of the record a member said its vote rests on. An empty one on a "done"
 	// is itself worth seeing, so it travels even when blank.
 	Cite string `json:"cite,omitempty"`
+	// Silent says nobody spoke: on a vote, this member was never reached (backend down, deadline,
+	// unreadable reply); on an outcome, the round closed with no votes in it at all. It is not an
+	// abstention and it is not a rejection — the two things a surface would otherwise call it.
+	Silent bool `json:"silent,omitempty"`
 	// Tally is set on an outcome: how the vote came out, in words.
 	Tally string `json:"tally,omitempty"`
 	// Confidence, Feedback and Keep are the rest of a vote, carried for a surface that shows one
@@ -105,7 +109,7 @@ func councilMarks(evs []event.Event) []CouncilMark {
 				continue
 			}
 			m := CouncilMark{After: last, Round: d.Round, Member: d.Member, Lens: d.Lens,
-				Decision: d.Decision, Why: d.Rationale, Cite: d.Cite,
+				Decision: d.Decision, Why: d.Rationale, Cite: d.Cite, Silent: d.Silent,
 				Confidence: d.Confidence, Feedback: d.Feedback, Keep: d.Keep}
 			// A member arrives twice: the live preview when it answers, then the recorded fact when
 			// the round closes. Identical ones are the same news. One that DIFFERS is a rebuttal
@@ -124,7 +128,10 @@ func councilMarks(evs []event.Event) []CouncilMark {
 				continue
 			}
 			out = append(out, CouncilMark{After: last, Round: d.Round, Decision: d.Decision,
-				Why: d.Note, Tally: tallyWords(d.Tally)})
+				Why: d.Note, Tally: tallyWords(d.Tally),
+				// No votes at all, and some member never answered: the round did not judge the
+				// work, so the surface must not spell its outcome "reject".
+				Silent: d.Tally.Voters == 0 && d.Tally.Silent > 0})
 		}
 	}
 	return out
@@ -148,8 +155,14 @@ func lastVoteOf(marks []CouncilMark, round int, member string) *CouncilMark {
 // round that did not have one.
 func tallyWords(b council.Breakdown) string {
 	out := fmt.Sprintf("%d done, %d continue of %d", b.Done, b.Continue, b.Voters)
-	if b.Abstain > 0 {
-		out += fmt.Sprintf(" (%d abstained)", b.Abstain)
+	// Two kinds of non-vote, named apart: a member that declined, and one that was never reached
+	// (backend down, deadline, unreadable reply — Verdict.Silent). Reading a council that could not
+	// be called as a council that shrugged sends the reader to the wrong repair.
+	if said := b.Abstain - b.Silent; said > 0 {
+		out += fmt.Sprintf(" (%d abstained)", said)
+	}
+	if b.Silent > 0 {
+		out += fmt.Sprintf(" (%d no answer)", b.Silent)
 	}
 	return out
 }
