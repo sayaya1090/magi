@@ -30,6 +30,19 @@ public interface CompanionSource {
     void pastTranscript(CompanionContext ctx, String session,
                         java.util.function.Consumer<Object> rowsOrNull);
 
+    /**
+     * 턴 곁에서 도는 것들(/jobs) — 스폰된 자식, 뒤로 돌린 명령, 그리고 줄 서 있는 말.
+     * 로그에 없는 사실이라 데몬에게 묻는다(백그라운드 명령은 프로세스이고, 자식이 아직 도는지는
+     * 세션 로그가 답할 수 없다).
+     */
+    void jobs(CompanionContext ctx, java.util.function.Consumer<Object> gotOrNull);
+
+    /** 이 컴패니언이 남에게 건넨 일(/handoffs) — 그 일이 어떻게 되고 있는지. */
+    void handoffs(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
+
+    /** 예약된 일(/cron) — 언제 다시 돌 것인가, 또는 왜 영영 안 도는가. */
+    void cron(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
+
     /** 이 컴패니언의 계획(/plan) — 오른쪽 판이 읽는다. */
     void plan(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
 

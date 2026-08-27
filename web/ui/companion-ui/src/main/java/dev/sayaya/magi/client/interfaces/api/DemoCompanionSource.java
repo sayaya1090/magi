@@ -103,4 +103,25 @@ public class DemoCompanionSource implements CompanionSource {
                              java.util.function.Consumer<String> why) {
         why.accept("");
     }
+
+    @Override
+    public void jobs(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"children\":[{\"id\":\"c1\",\"tool\":\"spawn\",\"task\":\"read the adapter tests\",\"running\":true}]," +
+                "\"background\":[{\"command\":\"go test ./...\",\"tail\":\"ok  internal/app\",\"running\":true}]," +
+                "\"queued\":[{\"kind\":\"person\",\"text\":\"and then push it\"}]}"));
+    }
+
+    @Override
+    public void handoffs(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[{\"to\":\"docs-1\",\"state\":\"working\",\"request\":\"Write the release notes for v0.26\"}]"));
+    }
+
+    @Override
+    public void cron(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"nightly\",\"schedule\":\"0 3 * * *\",\"enabled\":true," +
+                "\"prompt\":\"run the suite and report\",\"file\":\".magi/cron.yaml\"}]"));
+    }
 }

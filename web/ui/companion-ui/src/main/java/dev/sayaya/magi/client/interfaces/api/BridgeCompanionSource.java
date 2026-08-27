@@ -61,6 +61,21 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void jobs(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/jobs" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void handoffs(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/handoffs" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void cron(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/cron" + q(ctx), cb::accept);
+    }
+
+    @Override
     public void models(CompanionContext ctx, Consumer<Object> cb) {
         Console.fetchList("/model" + q(ctx), cb::accept);
     }

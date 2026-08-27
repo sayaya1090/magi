@@ -172,4 +172,24 @@ public class FakeCompanionSource implements CompanionSource {
                 .set("__magi_test_format", String.join(",", keys) + "|" + String.join(",", prompts));
         why.accept("");
     }
+
+    @Override
+    public void jobs(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"children\":[{\"id\":\"c1\",\"tool\":\"spawn\",\"task\":\"look at the log\",\"running\":true}]," +
+                "\"background\":[{\"command\":\"go build ./...\",\"tail\":\"building\",\"running\":true}]," +
+                "\"queued\":[{\"kind\":\"person\",\"text\":\"then push\"},{\"from\":\"alpha-1\",\"text\":\"and tell me\"}]}"));
+    }
+
+    @Override
+    public void handoffs(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[{\"to\":\"docs-1\",\"state\":\"working\",\"request\":\"write it up\"}]"));
+    }
+
+    @Override
+    public void cron(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"nightly\",\"schedule\":\"0 3 * * *\",\"enabled\":false,\"prompt\":\"run it\",\"file\":\".magi/cron.yaml\"}]"));
+    }
 }

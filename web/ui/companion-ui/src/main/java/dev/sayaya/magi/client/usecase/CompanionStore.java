@@ -94,6 +94,25 @@ public class CompanionStore implements CompanionSource.Listener {
     private String modelsFor = null;
 
     /** 이 컴패니언이 닿는 모델 이름들 — 화면당 한 번만 묻는다(컴패니언이 바뀌면 다시). */
+    // ── 오른쪽 판이 읽는 나머지 ─────────────────────────────────────────────
+    // 로그에 없는 사실들이라 데몬에게 묻는다. 명단이 흐를 때마다 다시 묻되(그 사이에 달라진다),
+    // 답이 <b>같으면</b> 다시 그리지 않는 것은 판의 몫이다.
+
+    public void jobs(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.jobs(ctx, cb);
+    }
+
+    public void handoffs(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.handoffs(ctx, cb);
+    }
+
+    public void cron(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.cron(ctx, cb);
+    }
+
     /** 이 컴패니언의 지난 일 목록 — 사실판의 세션 고르개가 읽는다(층위와 같은 답, 다른 쓰임). */
     public void history(Consumer<Object> cb) {
         if (ctx == null) { cb.accept(null); return; }
