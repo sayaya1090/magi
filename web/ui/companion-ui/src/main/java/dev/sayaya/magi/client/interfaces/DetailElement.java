@@ -46,10 +46,12 @@ public class DetailElement {
         card.setAttribute("hidden", "");
         bar.setAttribute("type", "button");
         bar.className = "foldbar hit48";
-        HTMLElement caret = el("span");
-        caret.className = "caret";
+        // 스프라이트의 셰브런을 쓴다 — 없는 빌드에서만 늘 그리던 글자다(운영 iconOr). 여기서
+        // 글자를 박아 두면, 그림이 있는 빌드에서도 이 판의 머리만 글자를 이고 선다(실측: 이
+        // 카드의 캐럿만 span, 나머지 110개는 svg). 시트가 90° 돌리는 것은 .caret 쪽이라 어느
+        // 쪽이든 한 요소이면 된다.
+        elemental2.dom.Element caret = dev.sayaya.magi.bridge.Icons.orGlyph("#i-sl-chevron-down", "▾", "caret");
         caret.setAttribute("aria-hidden", "true");
-        caret.textContent = "▾";
         sum.className = "sum";
         bar.append(caret, cell("k", tr("field.facts")), sum);
         bar.addEventListener("click", evt -> fold(!card.hasAttribute("folded"), true));
