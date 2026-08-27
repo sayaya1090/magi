@@ -2,8 +2,6 @@ package dev.sayaya.magi.bridge;
 
 import elemental2.dom.DomGlobal;
 import jsinterop.annotations.JsFunction;
-import jsinterop.annotations.JsPackage;
-import jsinterop.annotations.JsType;
 import jsinterop.base.Js;
 import jsinterop.base.JsPropertyMap;
 
@@ -24,21 +22,20 @@ public final class CardSharing {
 
     private CardSharing() {}
 
-    @JsType(isNative = true, namespace = JsPackage.GLOBAL, name = "Object")
-    public static class Card {
-        public String key;     // 무엇을 여는가(경로 같은 것) — 같은 것을 두 번 열지 않게
-        public String title;   // 탭에 적히는 짧은 이름
-        public Object render;  // Render — 이 카드의 속을 그린다
-        public Runner close;   // 닫으면 자식이 제 기록에서 지운다
-    }
-
     @JsFunction
     public interface Runner { void call(); }
 
     @JsFunction
     public interface Listener { void call(Object cards); }
 
-    /** 자식: 지금 열려 있는 카드 전부(배열). 없으면 빈 배열 — 그때 줄이 걷힌다. */
+    /**
+     * 자식: 지금 열려 있는 카드 전부 — <b>노드의 배열</b>. 없으면 빈 배열(그때 줄이 걷힌다).
+     *
+     * 카드는 <b>Element이면서 닫힐 수 있는 것</b>이다. 규약은 노드 자신이 진다: <b>id</b>가 그
+     * 카드가 무엇인지(경로 같은 것)이고, <b>title</b>이 탭에 적히는 짧은 이름이며, 얹어 둔
+     * <b>close()</b>가 닫는 법이다(closable). 필드를 실은 객체를 주고받지 않는 이유가 이것이다:
+     * 노드는 이미 이름과 신원을 담는 자리를 갖고 있고, 그 자리를 쓰면 새 계약이 늘지 않는다.
+     */
     public static void provide(Object cards) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set(KEY, cards);
@@ -75,12 +72,27 @@ public final class CardSharing {
         if (b != null) Js.<Runner>cast(b).call();
     }
 
-    public static Card card(String key, String title, Object render, Runner close) {
-        JsPropertyMap<Object> o = JsPropertyMap.of();
-        o.set("key", key);
-        o.set("title", title);
-        o.set("render", render);
-        o.set("close", close);
-        return Js.uncheckedCast(o);
+    /**
+     * 카드 하나 — 자식이 <b>만든 노드</b>를 그대로 건넨다.
+     *
+     * 그릴 콜백이 아니라 노드인 이유: 카드가 여럿이면 부모는 그중 하나를 세우고 나머지를
+     * 떼어 두기만 하면 되고, 다시 그릴 때가 언제인지는 자식이 안다(제 스토어가 바뀔 때).
+     * 콜백이면 "언제 다시 불러야 하는가"라는 규약이 하나 더 생긴다.
+     */
+    /** 자식: 이 노드를 닫을 수 있는 것으로 만든다 — 무엇을 지울지는 그것을 만든 쪽만 안다. */
+    public static elemental2.dom.Element closable(elemental2.dom.Element card, Runner close) {
+        Js.asPropertyMap(card).set("close", close);
+        return card;
+    }
+
+    /** 부모: 이 카드를 닫는다. 닫는 법이 없는 카드는 닫히지 않는다(사실판이 그렇다). */
+    public static void close(elemental2.dom.Element card) {
+        Object c = card == null ? null : Js.asPropertyMap(card).get("close");
+        if (c != null) Js.<Runner>cast(c).call();
+    }
+
+    /** 부모: 이 카드를 닫을 수 있는가 — 닫는 문(×)을 그릴지 정한다. */
+    public static boolean closable(elemental2.dom.Element card) {
+        return card != null && Js.asPropertyMap(card).get("close") != null;
     }
 }

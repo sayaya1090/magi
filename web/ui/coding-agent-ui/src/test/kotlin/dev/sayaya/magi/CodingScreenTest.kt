@@ -135,6 +135,28 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#fileview .filebar .filedir").textContent() shouldBe "src/main.go"
             }
         }
+        When("파일을 하나 더 열면") {
+            page.locator("#files .treerow:not(.dir)").nth(1).click()
+            Then("먼저 연 것은 닫히지 않는다 — 두 파일을 견주는 일이 화면을 오가는 일이 되지 않게") {
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_cards") as? String)?.contains("|") == true
+                }
+                // 카드는 Element이면서 닫힐 수 있는 것이다: id가 신원, title이 탭 이름, close()가 닫는 법.
+                val cards = (page.evaluate("window.__magi_test_cards") as String).split("|")
+                cards.size shouldBe 2
+                cards.all { it.endsWith("+x") } shouldBe true
+                cards.map { it.substringBefore("=") }.toSet().size shouldBe 2
+                cards[0].substringAfter("=") shouldBe "main.go+x"
+            }
+            Then("하나를 닫아도 나머지는 그대로다") {
+                page.evaluate("window.__magi_cards[0].close()")
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_cards") as? String)?.contains("|") == false
+                }
+            }
+            page.locator("#files .treerow:not(.dir)").first().click()
+            page.waitForSelector("#fileview .filebody")
+        }
         When("고치기를 누르면") {
             page.locator("#fileview .filebar .fileacts md-text-button").first().click()
             Then("같은 그림에 캐럿이 생긴다 — 번호 기둥은 그대로다") {

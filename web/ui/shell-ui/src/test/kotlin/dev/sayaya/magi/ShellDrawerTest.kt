@@ -100,8 +100,11 @@ internal class ShellDrawerTest : GwtTestSpec({
                 // 레이아웃 뷰포트로 잰다: window.innerWidth는 고전 스크롤바(리눅스 헤드리스)를
                 // 포함해서, 창 전체를 덮은 fixed 요소가 15px 모자라 보인다(CI에서만 실패했다).
                 val win = page.evaluate("document.documentElement.clientWidth") as Number
+                // 고전 스크롤바(리눅스 헤드리스)는 어느 폭에도 잡히지 않으면서 fixed 요소의
+                // 오른쪽을 15px 밀어낸다 — 그만큼은 봐준다. 재려는 것은 "창이냐 기둥이냐"이고,
+                // 기둥이면 절반이다.
                 withClue("턴바 ${w.toDouble()}px / 레이아웃 뷰포트 ${win.toDouble()}px") {
-                    (w.toDouble() >= win.toDouble() - 1) shouldBe true
+                    (w.toDouble() >= win.toDouble() - 24) shouldBe true
                 }
             }
         }

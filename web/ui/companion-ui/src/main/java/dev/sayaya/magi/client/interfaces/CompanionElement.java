@@ -171,28 +171,29 @@ public class CompanionElement {
         String opened = null;
         java.util.Set<String> now = new java.util.HashSet<>();
         for (int i = 0; i < n; i++) {
-            JsPropertyMap<Object> c = Js.uncheckedCast(cards.getAt(i));
-            String key = String.valueOf(c.get("key"));
+            elemental2.dom.Element c = Js.uncheckedCast(cards.getAt(i));
+            // 노드가 제 이름과 신원을 진다: id는 무엇인가, title은 탭에 적히는 이름(카드 계약).
+            String key = c.id;
             now.add(key);
             if (!cardsSeen.contains(key)) opened = key;
             if (key.equals(cardShows)) known = true;
-            cardTabs.append(cardTab(String.valueOf(c.get("title")), key, c));
+            String title = c.getAttribute("title");
+            cardTabs.append(cardTab(title == null || title.isEmpty() ? key : title, key, c));
         }
         cardsSeen.retainAll(now);
         cardsSeen.addAll(now);
         if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
-        if (!known) cardShows = String.valueOf(Js.<JsPropertyMap<Object>>uncheckedCast(cards.getAt(n - 1)).get("key"));
+        if (!known) cardShows = Js.<elemental2.dom.Element>uncheckedCast(cards.getAt(n - 1)).id;
         // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
         boolean facts = "facts".equals(cardShows);
         show(detail.element(), facts && store.context() != null);
         show(cardArea, !facts);
         if (!facts) {
+            // 고른 노드 하나만 세운다 — 나머지는 자식이 들고 있고, 탭을 누르면 그것이 선다.
             cardArea.replaceChildren();
             for (int i = 0; i < n; i++) {
-                JsPropertyMap<Object> c = Js.uncheckedCast(cards.getAt(i));
-                if (!cardShows.equals(String.valueOf(c.get("key")))) continue;
-                Object render = c.get("render");
-                if (render != null) Js.<Render>cast(render).onInvoke(cardArea);
+                elemental2.dom.Element c = Js.uncheckedCast(cards.getAt(i));
+                if (cardShows.equals(c.id)) { cardArea.append(c); break; }
             }
         }
         for (int i = 0; i < cardTabs.childElementCount; i++) {
@@ -227,8 +228,8 @@ public class CompanionElement {
         drawCards();
     }
 
-    /** 탭 하나 — 이름과, 파일이면 닫는 ×(사실판은 닫지 않는다: 늘 있는 것이다). */
-    private HTMLElement cardTab(String title, String key, JsPropertyMap<Object> card) {
+    /** 탭 하나 — 이름과, 닫을 수 있는 카드면 닫는 ×(사실판은 닫지 않는다: 늘 있는 것이다). */
+    private HTMLElement cardTab(String title, String key, elemental2.dom.Element card) {
         HTMLElement t = el("md-secondary-tab");
         t.setAttribute("data-card", key);
         HTMLElement label = el("div");
@@ -236,17 +237,16 @@ public class CompanionElement {
         label.textContent = title;
         t.append(label);
         t.addEventListener("click", evt -> { cardShows = key; drawCards(); });
-        if (card != null) {
+        if (CardSharing.closable(card)) {
             HTMLElement x = el("button");
             x.setAttribute("type", "button");
             x.className = "tabclose hit48";
             x.setAttribute("aria-label", tr("action.close_named", "name", title));
             x.append(dev.sayaya.magi.bridge.Icons.orGlyph("#i-sl-xmark", "×", "mk"));
-            Object close = card.get("close");
             x.addEventListener("click", evt -> {
                 evt.stopPropagation();
                 if ("facts".equals(cardShows) || key.equals(cardShows)) cardShows = "facts";
-                if (close != null) Js.<CardSharing.Runner>cast(close).call();
+                CardSharing.close(card);
             });
             t.append(x);
         }

@@ -208,7 +208,7 @@ public class WorkspaceElement {
     private HTMLElement treeRow(JsPropertyMap<Object> e, String path, String name, boolean isDir, int depth) {
         HTMLElement row = el("button");
         row.setAttribute("type", "button");
-        boolean here = path.equals(store.openPath());
+        boolean here = store.isFileOpen(path);
         row.className = "treerow state" + (isDir ? " dir" : "") + (here ? " now" : "");
         // 깊이는 숫자로 — 들여쓰기와 그 안내선이 한 값에서 온다(운영 규칙).
         row.style.setProperty("--d", String.valueOf(depth));
@@ -329,11 +329,10 @@ public class WorkspaceElement {
      * 무엇이 열려 있는지는 이 화면이 알고, 그 중 무엇을 보일지는 탭 줄이 정한다.
      */
     private void publishCards() {
-        String path = store.openPath();
-        if (path == null) { CardSharing.provide(new Object[0]); return; }
-        CardSharing.provide(new Object[]{CardSharing.card(path, baseName(path),
-                (Render) box -> { fileInto(box); return true; },
-                () -> store.closeFile())});
+        java.util.List<String> paths = store.openPaths();
+        Object[] cards = new Object[paths.size()];
+        for (int i = 0; i < paths.size(); i++) cards[i] = fileCard(paths.get(i));
+        CardSharing.provide(cards);
     }
 
     private static String baseName(String path) {
@@ -353,10 +352,16 @@ public class WorkspaceElement {
     private String said = "";                    // 거부 사유 — 이 버퍼에 대한 말이라 버퍼 위에 선다
 
     /** 이 파일의 카드 속 — 머리 줄(경로·손잡이·행동)과, 접히는 본문. */
-    private void fileInto(HTMLElement box) {
-        String path = store.openPath();
-        String text = store.openText();
-        box.replaceChildren();
+    private HTMLElement fileCard(String path) {
+        String text = store.textOf(path);
+        HTMLElement box = el("div");
+        // 노드가 제 이름과 신원을 진다(카드 계약): id는 무엇인가, title은 탭에 적히는 짧은 이름.
+        box.id = path;
+        box.setAttribute("title", baseName(path));
+        // 배치에서는 없는 상자다 — 운영의 #fileview는 바와 접힘을 <b>직계</b>로 두고, 그 사이에
+        // 상자가 하나 끼면 그 자리의 여백 규칙이 조용히 비켜간다.
+        box.style.setProperty("display", "contents");
+        CardSharing.closable(box, () -> store.closeFile(path));
         if (folded) box.setAttribute("folded", ""); else box.removeAttribute("folded");
         HTMLElement bar = cell("filebar", null);
         // 이 카드가 트리 자리에 혼자 서 있으면(폰) 돌아갈 문이 그 머리 줄에 선다 — 어디로
@@ -388,7 +393,7 @@ public class WorkspaceElement {
             acts.append(go);
         }
         box.append(bar);
-        if (path.equals(editing) && reading) { box.append(editor(path, text, acts)); return; }
+        if (path.equals(editing) && reading) { box.append(editor(path, text, acts)); return box; }
         HTMLElement wrap = cell("foldwrap", null);
         HTMLElement body = cell("filebody", null);
         if (text == null) body.append(cell("filesnote", tr("files.reading")));
@@ -396,6 +401,7 @@ public class WorkspaceElement {
         else read(body, path, text);
         wrap.append(body);
         box.append(wrap);
+        return box;
     }
 
     /** 접는 손잡이 — 열린 파일은 안 읽는 동안에도 화면의 60vh다(운영이 단 그 이유). */

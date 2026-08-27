@@ -30,8 +30,12 @@ public class WorkspaceStore {
     private boolean walked = false;
     private boolean walking = false;
     private CompanionContext ctx = null;
-    private String openPath = null;   // 열어 둔 파일의 경로(없으면 null)
-    private String openText = null;
+    /**
+     * 열어 둔 파일들 — <b>여럿</b>이다. 하나만 들면 두 파일을 견주는 일(고친 것과 그것을 부르는
+     * 곳)이 화면을 오가는 일이 되고, 운영 콘솔은 그 둘을 탭으로 나란히 세운다.
+     * 순서는 연 순서다(LinkedHashMap): 탭 줄이 그 순서로 선다. 값이 null이면 아직 읽는 중.
+     */
+    private final java.util.LinkedHashMap<String, String> opened = new java.util.LinkedHashMap<>();
 
     @Inject
     public WorkspaceStore(WorkspaceSource source) { this.source = source; }
@@ -45,8 +49,7 @@ public class WorkspaceStore {
         open.clear();
         git = null;
         walked = false;
-        openPath = null;
-        openText = null;
+        opened.clear();
         emit();
         walk();
     }
@@ -84,19 +87,25 @@ public class WorkspaceStore {
 
     public Object git() { return git; }
 
-    public String openPath() { return openPath; }
+    /** 열려 있는 파일들, 연 순서대로. */
+    public List<String> openPaths() { return new ArrayList<>(opened.keySet()); }
 
-    public String openText() { return openText; }
+    /** 그 파일의 본문 — 아직 읽는 중이면 null, 열려 있지 않아도 null. */
+    public String textOf(String path) { return opened.get(path); }
 
-    /** 파일 하나를 연다 — 같은 자리(슬롯)에서 본문이 바뀐다. */
+    public boolean isFileOpen(String path) { return opened.containsKey(path); }
+
+    /**
+     * 파일을 연다. 이미 열려 있으면 다시 읽지 않는다 — 같은 탭을 두 번 누르는 것은 그 탭으로
+     * 가겠다는 뜻이지 디스크를 다시 읽겠다는 뜻이 아니다(다시 읽는 문은 판의 머리에 있다).
+     */
     public void openFile(String path) {
         if (ctx == null) return;
-        openPath = path;
-        openText = null;
+        if (!opened.containsKey(path)) opened.put(path, null);
         emit();
         source.file(ctx, path, got -> {
-            if (!path.equals(openPath)) return;   // 늦게 온 답이 다른 파일 위에 앉지 않게
-            openText = got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text"));
+            if (!opened.containsKey(path)) return;   // 늦게 온 답이 닫힌 파일을 되살리지 않게
+            opened.put(path, got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text")));
             emit();
         });
     }
@@ -114,7 +123,11 @@ public class WorkspaceStore {
         });
     }
 
-    public void closeFile() { openPath = null; openText = null; emit(); }
+    /** 하나를 닫는다 — 나머지는 그대로 열려 있다. */
+    public void closeFile(String path) { if (opened.remove(path) != null || path == null) emit(); }
+
+    /** 전부 닫는다 — 다른 컴패니언으로 옮겨 갈 때(그 파일들은 이 워크스페이스의 것이었다). */
+    public void closeAllFiles() { if (!opened.isEmpty()) { opened.clear(); emit(); } }
 
     // ── 찾기 ─────────────────────────────────────────────────────────────────
     // 찾는 동안 판이 보이는 것은 결과다 — 다시 걷는 일(파일을 열거나 무언가를 바꿨을 때)이
@@ -168,7 +181,8 @@ public class WorkspaceStore {
             lastWhy = why == null ? "" : why;
             if (lastWhy.isEmpty()) {
                 dirs = Js.uncheckedCast(JsPropertyMap.of());
-                if ("delete".equals(what) && path.equals(openPath)) { openPath = null; openText = null; }
+                // 지운 파일은 열어 둘 수 없다 — 나머지 탭은 그대로 남는다.
+                if ("delete".equals(what)) opened.remove(path);
                 walk();
             }
             emit();

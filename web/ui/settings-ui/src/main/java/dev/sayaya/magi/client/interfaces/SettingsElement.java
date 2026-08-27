@@ -109,8 +109,10 @@ public class SettingsElement {
         HTMLElement btn = el("md-icon-button");
         btn.id = "themeToggle";
         btn.setAttribute("type", "button");
-        btn.setAttribute("aria-label", tr("pref.theme." + now));
-        btn.setAttribute("title", tr("pref.theme." + now));
+        // 무엇에 관한 버튼인지와 지금 무엇인지를 함께 — 그림(하늘)은 지금 것만 말할 수 있다.
+        String said = tr("pref.theme") + ": " + tr("pref.theme." + now);
+        btn.setAttribute("aria-label", said);
+        btn.setAttribute("title", said);
         btn.textContent = "system".equals(now) ? "◐" : "light".equals(now) ? "☀" : "☾";
         btn.addEventListener("click", evt -> {
             String next = Prefs.nextTheme(store.pref("theme", "system"));
@@ -145,7 +147,7 @@ public class SettingsElement {
             // 말이 바뀌면 이 창의 모든 화면이 제 말을 다시 칠한다 — 팩은 창에 하나다.
             Labels.reload(this::render);
         });
-        row.append(sel);
+        put(row, sel);
         return row;
     }
 
@@ -198,7 +200,7 @@ public class SettingsElement {
                 });
             });
         }
-        r.append(sw);
+        put(r, sw);
         return r;
     }
 
@@ -417,6 +419,7 @@ public class SettingsElement {
         r.append(k);
         HTMLElement f = el("md-outlined-text-field");
         f.id = field;
+        f.setAttribute("label", tr(kKey));
         f.setAttribute("type", "textarea");
         f.setAttribute("rows", "3");
         Js.asPropertyMap(f).set("value", now == null ? "" : now);
@@ -437,6 +440,9 @@ public class SettingsElement {
         HTMLElement sel = el("md-outlined-select");
         sel.className = "profsel";
         sel.setAttribute("data-field", field);
+        // 줄의 제목은 어느 설정인지 말한다(코드 완성 모델) — 칸의 라벨은 고르는 것이 무엇인지
+        // 말한다(프로필). 둘이 같은 말이면 한 줄에 같은 말이 두 번 선다(운영의 그 구분).
+        sel.setAttribute("label", tr("ac.profile_pick"));
         HTMLElement none = el("md-select-option");
         none.setAttribute("value", "");
         HTMLElement noneHead = el("div");
@@ -457,7 +463,7 @@ public class SettingsElement {
         }
         Js.asPropertyMap(sel).set("value", now);
         sel.addEventListener("change", evt -> store.save(field, value(sel)));
-        r.append(sel);
+        put(r, sel);
         return r;
     }
 
@@ -470,7 +476,7 @@ public class SettingsElement {
         Js.asPropertyMap(sw).set("selected", on);
         sw.addEventListener("change", evt ->
                 store.save(field, Prefs.word(Js.isTruthy(Js.asPropertyMap(sw).get("selected")))));
-        r.append(sw);
+        put(r, sw);
         return r;
     }
 
@@ -483,7 +489,7 @@ public class SettingsElement {
         Js.asPropertyMap(sw).set("selected", store.switchOn(prefKey, byDefault));
         sw.addEventListener("change", evt ->
                 kept.call(Js.isTruthy(Js.asPropertyMap(sw).get("selected"))));
-        r.append(sw);
+        put(r, sw);
         return r;
     }
 
@@ -509,6 +515,27 @@ public class SettingsElement {
         }
         r.append(say);
         return r;
+    }
+
+    /**
+     * 줄 끝의 컨트롤을 그 줄에 세운다 — <b>이름을 붙여서</b>.
+     *
+     * 스위치의 보이는 이름은 형제 div이지 &lt;label for&gt;가 아니다: 그냥 append하면 스크린
+     * 리더가 이름 없는 "switch"라고 읽는다(운영이 ariaLabel(...)로 메운 그 구멍). 줄의 제목이
+     * 곧 그 컨트롤의 이름이라, 한 곳에서 옮겨 붙인다 — 줄마다 지킬 규약을 두지 않는다.
+     *
+     * 필드류는 aria-label이 아니라 label을 받는다: 눈에 보이는 라벨이 그 컨트롤의 몫이고,
+     * 머티리얼의 필드는 그것을 제 자리에 그린다.
+     */
+    private static void put(HTMLElement row, HTMLElement control) {
+        elemental2.dom.Element k = row.querySelector(".k");
+        String name = k == null || k.textContent == null ? "" : k.textContent.trim();
+        String tag = control.tagName.toLowerCase();
+        boolean field = tag.startsWith("md-outlined-");
+        if (!name.isEmpty() && !control.hasAttribute(field ? "label" : "aria-label")) {
+            control.setAttribute(field ? "label" : "aria-label", name);
+        }
+        row.append(control);
     }
 
     private HTMLElement group(String id, String words) {

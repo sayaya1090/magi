@@ -52,11 +52,21 @@ public class TestApplication implements EntryPoint {
         HTMLElement cards = div("fileview");
         stream.append(cards);
         dev.sayaya.magi.bridge.CardSharing.onChange(list -> {
+            // 부모는 마지막에 열린 것을 세운다(진짜 부모는 탭 줄로 고르게 한다) — 자식이 건넨
+            // 노드를 그대로 붙일 뿐이라, 그 안을 무엇으로 그렸는지는 알지 못한다.
             cards.replaceChildren();
             jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(list);
+            StringBuilder said = new StringBuilder();
             for (int i = 0; all != null && i < all.getLength(); i++) {
-                Object render = jsinterop.base.Js.asPropertyMap(all.getAt(i)).get("render");
-                if (render != null) jsinterop.base.Js.<dev.sayaya.magi.bridge.Render>cast(render).onInvoke(cards);
+                elemental2.dom.Element one = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+                if (said.length() > 0) said.append('|');
+                said.append(one.id).append('=').append(one.getAttribute("title"))
+                    .append(dev.sayaya.magi.bridge.CardSharing.closable(one) ? "+x" : "");
+            }
+            // 스펙이 부모 노릇을 재는 자리: 무엇을 카드로 받았는지(신원·이름·닫힘)를 적어 둔다.
+            jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_test_cards", said.toString());
+            if (all != null && all.getLength() > 0) {
+                cards.append(jsinterop.base.Js.<HTMLElement>uncheckedCast(all.getAt(all.getLength() - 1)));
             }
         });
         c.workspace().mount(filecol);
