@@ -72,6 +72,10 @@ const demoShim = `
     if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
     if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
     if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
+    if (url.startsWith('/handoffs')) {
+      return Promise.resolve(new Response(JSON.stringify(
+        [{from: 'build', to: 'docs', socket: '/demo/docs.sock', state: 'done'}])));
+    }
     if (url.startsWith('/transcript')) {
       return Promise.resolve(new Response(JSON.stringify(rows)));
     }
