@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.AgentStates;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.bridge.Icons;
@@ -191,7 +192,7 @@ public class MapElement {
         n.className = "node state " + str(a, "state") + (remote ? " faroff" : "");
         n.setAttribute("data-sock", str(a, "socket"));
         if (!remote) {
-            n.setAttribute("href", "/next?d=" + str(a, "socket")
+            n.setAttribute("href", Windows.here() + "?d=" + str(a, "socket")
                     + (str(a, "peer").isEmpty() ? "" : "&p=" + str(a, "peer")));
             n.addEventListener("click", evt -> {
                 evt.preventDefault();

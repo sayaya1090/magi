@@ -48,6 +48,13 @@ public interface WorkspaceSource {
     void complete(CompanionContext ctx, String path, String prefix, String suffix, Consumer<String> text);
 
     /**
+     * 캐럿 둘레를 읽어 달라는 청(/look) — 보내는 것은 <b>그 둘레뿐</b>이고 진짜 줄 번호를 달아
+     * 보낸다: 4만 줄짜리 파일을 멈출 때마다 보내지 않고, 모델이 없는 줄을 가리키지도 않는다.
+     * 답은 `줄번호⇥한 마디` 들이고, 할 말이 없으면 침묵이 답이다.
+     */
+    void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes);
+
+    /**
      * 열어 둔 파일과 아직 디스크에 없는 그 내용(/open-file) — 컴패니언의 다음 턴이 그 편집에
      * 대해 답할 수 있게 한다. 빈 본문은 그 사본을 <b>지운다</b>(계약의 나머지 반).
      */
@@ -58,6 +65,9 @@ public interface WorkspaceSource {
      * 답은 {text}이고, 빈 본문은 "다른 데가 없다"는 <b>답</b>이다(못 읽은 것과 다르다).
      */
     void diff(CompanionContext ctx, String path, String which, Consumer<Object> gotOrNull);
+
+    /** 실린 것으로 커밋 메시지 초안을 청한다(/git-msg) — 규칙은 사람이 준 것(빈 값이면 기본). */
+    void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said);
 
     /** git에 하는 일(/git-do): stage · unstage · discard · commit · switch · new-branch · pull · push. */
     void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why);

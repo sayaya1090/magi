@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.client.domain.Lanes;
@@ -173,7 +174,7 @@ public class BoardElement {
             // 제목이 길이다 — 그 대화로: 주소도 클릭도 그 세션(이력 층위)에 닿는다.
             HTMLElement what = el("a");
             what.className = "wwhat";
-            String href = "/next?d=" + str(who, "socket")
+            String href = Windows.here() + "?d=" + str(who, "socket")
                     + (str(who, "peer").isEmpty() ? "" : "&p=" + str(who, "peer"))
                     + (str(h, "id").isEmpty() ? "" : "&past=" + str(h, "id"));
             what.setAttribute("href", href);

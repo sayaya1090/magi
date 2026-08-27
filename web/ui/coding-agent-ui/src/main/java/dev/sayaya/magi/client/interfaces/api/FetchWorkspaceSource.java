@@ -67,6 +67,14 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("path", path);
+        body.set("text", numbered);
+        Console.postText("/look", body, ctx.socket, ctx.peer).then(said -> { notes.accept(said); return null; });
+    }
+
+    @Override
     public void openFileHint(CompanionContext ctx, String path, String text) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("path", path);
@@ -78,6 +86,13 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
         Console.fetchList("/diff" + base(ctx) + "&path=" + Global.encodeURIComponent(path)
                 + "&which=" + Global.encodeURIComponent(which == null ? "" : which), cb::accept);
+    }
+
+    @Override
+    public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("rules", rules == null ? "" : rules);
+        Console.postText("/git-msg", body, ctx.socket, ctx.peer).then(w -> { said.accept(w); return null; });
     }
 
     @Override

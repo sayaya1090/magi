@@ -185,6 +185,10 @@ public class CompanionElement {
             show(detail.element(), store.context() != null);
             cardShows = "facts";
             CardSharing.showing(cardShows);
+            // 여기서도 배치가 마지막 말이다 — 폰에서는 사실판이 제 탭에서만 선다. 이 갈래가
+            // layout()을 건너뛰는 바람에, 카드가 하나도 없는 화면(대부분의 화면)에서 사실판이
+            // 대화 탭 위에 그대로 서 있었다(실측: 데모 390px에서 페이지가 1993px).
+            layout();
             return;
         }
         cardTabs.replaceChildren();
@@ -311,6 +315,7 @@ public class CompanionElement {
             standAlone(false);
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
+            dev.sayaya.magi.bridge.ChromeSharing.remeasure();
             show(detail.element(), companion && "facts".equals(cardShows));
             show(cardArea, companion && !"facts".equals(cardShows));
             show(filecol, true);
@@ -320,6 +325,8 @@ public class CompanionElement {
         }
         tabs.removeAttribute("hidden");
         DomGlobal.document.body.setAttribute("panel", panel);
+        // 탭 줄이 본문 위에 한 겹 더 얹혔다 — 창 높이에 물린 기둥의 앵커를 다시 재게 한다.
+        dev.sayaya.magi.bridge.ChromeSharing.remeasure();
         // 폰에서는 한 번에 하나 — 운영의 네 탭 그대로(대화·정보·파일·계획).
         // 폰의 작업공간은 <b>한 번에 하나</b>다 — 트리냐, 거기서 연 카드냐. 둘을 쌓으면 마흔 개
         // 이름 아래에서 아무도 아래까지 내려가지 않는다(운영이 이 화면에서 배운 것).

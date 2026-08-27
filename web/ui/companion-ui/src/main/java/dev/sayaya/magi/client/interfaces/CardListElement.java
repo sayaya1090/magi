@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.client.domain.Spans;
@@ -101,7 +102,7 @@ public class CardListElement {
             // (실측: href 없는 행은 default 커서였다). 이동은 셸의 문으로 간다.
             final String sock = a.socket;
             final String peerOf = a.peer;
-            row.setAttribute("href", "/next?d=" + elemental2.core.Global.encodeURIComponent(sock)
+            row.setAttribute("href", Windows.here() + "?d=" + elemental2.core.Global.encodeURIComponent(sock)
                     + (peerOf == null || peerOf.isEmpty() ? ""
                        : "&p=" + elemental2.core.Global.encodeURIComponent(peerOf)));
             row.addEventListener("click", evt -> {

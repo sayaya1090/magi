@@ -23,6 +23,55 @@ import (
 // 데모다"라는 사실 하나를 적어 두는 것뿐이다. 그 한 줄을 읽는 것은 각 모듈의 그래프다.
 const demoShim = `
 <script>window.MAGI_DEMO = true;</script>
+<style>
+  /* 창을 가로지르는 띠, 흐름 밖에. 흐름 안에 두면 페이지의 내용이 시작되는 자리(레일의 거터
+     다음)에서 시작해, 드로어가 넓어질 때 그 밑으로 미끄러져 들어간다. 페이지 전체에 대한
+     알림은 페이지 전체를 가로지른다. */
+  .demo-banner {
+    position:fixed; inset:0 0 auto 0; z-index:60; padding:.55rem 1.2rem;
+    background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);
+    font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
+    letter-spacing:.06em; border-bottom:1px solid var(--magi-ref-outlineVariant);
+  }
+  /* 창 위에 고정되는 것은 전부 이 띠 아래에서 시작해야 한다 — body의 padding은 흐름만 움직이고
+     fixed·sticky는 움직이지 않는다. :has()로 띠 없는 페이지는 이 규칙에 닿지 않는다. */
+  body:has(.demo-banner) header { top:var(--demo-banner, 0px); }
+  /* 레일이 창 <b>위</b>에 붙는 폭에서만. 600px 아래에서 레일은 발치의 바이고, 거기에 top을
+     주면 바가 화면을 덮는 시트가 된다(구 데모가 밟은 그 결함). */
+  @media (min-width:37.5em) {
+    body:has(.demo-banner) #rail {
+      top:var(--demo-banner, 0px);
+      padding-top:calc(var(--demo-banner, 0px) + var(--magi-sys-space-150));
+    }
+  }
+</style>
+<script>
+  // 데모의 띠 — "이건 진짜 페이지이고, 답하는 쪽이 목이다". 페이지가 제 안에 이 알림에 대한
+  // 규칙을 갖지 않도록, 자리를 밀어 주는 일도 여기서 한다(구 콘솔 데모와 같은 방식).
+  (function () {
+    var banner = document.createElement('div');
+    banner.className = 'demo-banner';
+    banner.textContent = 'demo \u2014 the real page, answered by a mock. Nothing here is a running agent, ' +
+      'and every action reports what it would have sent.';
+    var was = 0;
+    function push() {
+      var h = Math.ceil(banner.getBoundingClientRect().height);
+      if (!h || h === was) return;   // 같은 값에서 멈춘다: 아래 resize가 이 함수를 다시 부른다
+      was = h;
+      document.documentElement.style.setProperty('--demo-banner', h + 'px');
+      document.body.style.paddingTop = h + 'px';
+      // 페이지는 제 껍데기의 높이를 "본문이 시작되는 자리"에서 잰다 — 방금 그 자리가 움직였다.
+      window.dispatchEvent(new Event('resize'));
+    }
+    function place() {
+      document.body.prepend(banner);
+      if (typeof ResizeObserver === 'function') new ResizeObserver(push).observe(banner);
+      requestAnimationFrame(push);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', place);
+    else place();
+  })();
+</script>
 `
 
 // emitDemo writes the assembled console as a self-answering static site into dir.
