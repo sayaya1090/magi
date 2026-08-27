@@ -25,18 +25,12 @@ public final class May {
 
     private May() {}
 
-    /** 능력 목록을 한 번 읽어 창에 올린다 — 이미 있으면 회선을 타지 않는다. */
-    public static void load(Runnable done) {
-        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
-        if (win.has(SHARED)) { done.run(); return; }
-        Console.fetchList("/me", parsed -> {
-            if (parsed != null) {
-                Object caps = Js.asPropertyMap(parsed).get("can");
-                if (caps != null) win.set(SHARED, caps);
-            }
-            done.run();
-        });
-    }
+    /**
+     * 능력이 도착했으면 이어서 한다 — <b>읽는 것은 셸의 몫</b>이다(창 전체의 사실이라 한 번만
+     * 묻는다). 아직 없으면 그대로 이어간다: 그려진 채로 두고 서버가 거절하게 하는 편이,
+     * 읽는 중이라는 이유로 컨트롤이 깜빡이며 사라지는 것보다 낫다.
+     */
+    public static void load(Runnable done) { done.run(); }
 
     /**
      * 그 능력이 있는가. 아직 못 읽었으면 참이다 — 그려진 대로 두고 서버가 거절하게 한다

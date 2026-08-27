@@ -134,20 +134,24 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForCondition { page.locator("#files .fileview").count() == 0 }
             }
         }
-        When("이름으로 찾으면") {
-            page.locator("#files #wsfind input, #files #wsfind textarea").first().fill("main")
-            Then("결과가 트리를 대신한다 — 찾는 동안 판이 보이는 것은 결과다") {
+        When("찾기를 누르면") {
+            page.locator("#files .filefind md-text-button").first().click()
+            Then("무엇을 어디서 찾을지 묻는 상자가 뜬다 — 좁은 기둥에 상자를 늘 펼쳐 두지 않는다") {
+                page.waitForSelector("md-dialog.askline md-outlined-text-field")
+                page.locator("md-dialog.askline .askwhere .wherechip").count() shouldBe 2
+            }
+            Then("이름으로 찾으면 결과가 트리를 대신한다 — 찾는 동안 판이 보이는 것은 결과다") {
+                page.locator("md-dialog.askline md-outlined-text-field input, " +
+                    "md-dialog.askline md-outlined-text-field textarea").first().fill("main")
+                page.locator("md-dialog.askline md-filled-button").click()
                 page.waitForSelector("#files .hits .treerow.hit")
                 page.evaluate("window.__magi_test_find") shouldBe "name:main"
                 page.locator("#files .hits .treerow.hit").count() shouldBe 2
                 page.locator("#files .pane-files .treerow.dir").count() shouldBe 0
             }
-            Then("어디를 뒤지는지는 칩 둘이 말한다 — 좁은 열엔 상자가 들어가지 않는다") {
-                page.locator("#files .findwhere .wherechip").count() shouldBe 2
-                page.locator("#files .findwhere .wherechip[data-in=text]").click()
-                page.waitForCondition { (page.evaluate("window.__magi_test_find") as String).startsWith("text:") }
-                page.locator("#files .findwhere .wherechip[data-in=name]").click()
-                page.waitForCondition { (page.evaluate("window.__magi_test_find") as String).startsWith("name:") }
+            Then("찾는 중이면 무엇을 찾았는지 말하고, 다시 찾기와 지우기를 준다") {
+                page.locator("#files .filefind .findnow").textContent() shouldContain "files.found_in_names"
+                page.locator("#files .filefind md-text-button").count() shouldBe 2
             }
             Then("결과를 누르면 그 파일이 열린다") {
                 page.locator("#files .hits .treerow.hit").first().click()
@@ -155,38 +159,24 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_opened") shouldBe "src/main.go"
             }
             page.locator("#files .fileview .fileclose").click()
-            page.locator("#files .findclear").click()
             Then("지우면 트리가 돌아온다") {
+                page.locator("#files .filefind md-text-button").last().click()
                 page.waitForCondition { page.locator("#files .pane-files .treerow.dir").count() == 1 }
             }
         }
-        When("git 줄의 스테이지를 누르면") {
-            // 손잡이는 손끝이 왔을 때만 보인다(운영 규칙) — 그 노출은 아래에서 따로 재고,
-            // 여기서는 눌렀을 때 무엇이 되는지를 잰다: 헤드리스의 hover 상태에 이 단언을
-            // 매달면 재는 것이 바뀐다(가려짐 대기 30초로 실측).
-            page.locator("#files .gitline .act.stage").first().evaluate("b => b.click()")
-            Then("그 경로가 커밋이 실어 갈 쪽으로 간다") {
-                page.waitForCondition { page.evaluate("window.__magi_test_gitdo") != null }
-                page.evaluate("window.__magi_test_gitdo") shouldBe "stage|README.md|"
+        When("행의 메뉴에서 지우면") {
+            page.locator("#files .treeline").first().hover()
+            page.locator("#files .treeline .rowmenu md-icon-button").first().click()
+            Then("할 수 있는 여섯이 한 메뉴에 선다 — 18rem 기둥에 버튼 여섯은 서지 못한다") {
+                page.waitForSelector("#files .treeline .rowmenu md-menu md-menu-item")
+                page.locator("#files .treeline .rowmenu").first()
+                    .locator("md-menu-item").count() shouldBe 6
             }
-        }
-        When("메시지를 적고 커밋하면") {
-            page.locator("#files #gitmsg textarea").fill("fix the retry window")
-            page.locator("#files #gitcommitgo").click()
-            Then("그 메시지로 커밋한다 — 실린 것이 있을 때만 눌린다") {
-                page.waitForCondition {
-                    (page.evaluate("window.__magi_test_gitdo") as String).startsWith("commit")
-                }
-                page.evaluate("window.__magi_test_gitdo") shouldBe "commit||fix the retry window"
-            }
-        }
-        When("파일을 지우려 두 번 누르면") {
-            page.locator("#files .treeline .act.drop").first().evaluate("b => b.click()")
-            Then("먼저 확인으로 무장한다") {
-                page.locator("#files .act.drop.armed").count() shouldBe 1
-            }
-            page.locator("#files .act.drop.armed").evaluate("b => b.click()")
-            Then("그 파일이 지워지고 다시 걷는다") {
+            Then("지우기는 무엇이 사라지는지 이름을 대고 묻는다 — 되돌릴 수 없어서") {
+                page.locator("#files .treeline .rowmenu").first().locator("md-menu-item").last().click()
+                page.waitForSelector("md-dialog.askconfirm")
+                page.locator("md-dialog.askconfirm .asksay").textContent() shouldBe "files.delete_body"
+                page.locator("md-dialog.askconfirm md-filled-tonal-button").click()
                 page.waitForCondition { page.evaluate("window.__magi_test_filedo") != null }
                 (page.evaluate("window.__magi_test_filedo") as String).startsWith("delete|") shouldBe true
             }
@@ -199,7 +189,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("document.activeElement && document.activeElement.blur()")
                 page.locator("#files .gitacts").first().evaluate(
                     "e => getComputedStyle(e).visibility") shouldBe "hidden"
-                page.locator("#files .rowacts").first().evaluate(
+                page.locator("#files .rowmenu").first().evaluate(
                     "e => getComputedStyle(e).visibility") shouldBe "hidden"
                 // 규칙 자체가 있는가 — 손끝이 오면 보이라고 적혀 있어야 한다.
                 (page.evaluate(
@@ -208,14 +198,68 @@ internal class CodingScreenTest : GwtTestSpec({
                 ) as Boolean) shouldBe true
             }
         }
-        When("새 파일 이름을 적고 만들면") {
-            page.locator("#files #wsnew input, #files #wsnew textarea").first().fill("docs/new.md")
-            page.locator("#files .makefile").click()
-            Then("그 경로로 만든다") {
+        When("행의 메뉴에서 새 파일을 만들면") {
+            page.locator("#files .treeline").first().hover()
+            page.locator("#files .treeline .rowmenu md-icon-button").first().click()
+            page.waitForSelector("#files .treeline .rowmenu md-menu md-menu-item")
+            page.locator("#files .treeline .rowmenu").first().locator("md-menu-item").first().click()
+            Then("어디에 만들지 미리 채워 묻는다 — 누른 그 줄 아래가 자연스럽다") {
+                page.waitForSelector("md-dialog.askline md-outlined-text-field")
+                page.locator("md-dialog.askline md-outlined-text-field input, " +
+                    "md-dialog.askline md-outlined-text-field textarea").first().fill("docs/new.md")
+                page.locator("md-dialog.askline md-filled-button").click()
                 page.waitForCondition {
                     (page.evaluate("window.__magi_test_filedo") as String).startsWith("new-file")
                 }
                 page.evaluate("window.__magi_test_filedo") shouldBe "new-file|docs/new.md|"
+            }
+            // 다음 장면에 상자나 메뉴를 열어 둔 채 넘기지 않는다 — 열린 모달 위로는 아무것도
+            // 누를 수 없어, 그 뒤 장면이 통째로 시간 초과가 된다(실측).
+            page.evaluate("(() => { document.querySelectorAll('md-dialog').forEach(d => d.close && d.close());" +
+                " document.querySelectorAll('md-menu').forEach(m => m.open = false); })()")
+            page.waitForCondition { page.locator("md-dialog[open]").count() == 0 }
+        }
+        When("부모가 '지금은 답하는 자리다'라고 알리면") {
+            page.evaluate("window.__magi_ask_test_before = document.querySelector('#dock #t')" +
+                ".getAttribute('label')")
+            // 쓰던 초고가 있는 채로 몫이 바뀐다 — 사람은 타이핑 중에도 질문을 받는다.
+            page.locator("#dock .composer #t textarea").fill("half a request")
+            page.evaluate("window.__magi_ask_publish({call:'call_9', kind:'question'," +
+                " socket:'/tmp/a1.sock', peer:null})")
+            Then("상자가 옷을 갈아입고, 쓰던 글은 지워지지 않고 맡겨진다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "label.answer"
+                }
+                page.locator("#dock #send").textContent() shouldBe "action.answer"
+                page.locator("#dock #cnote:not([hidden])").count() shouldBe 1
+                // 맡긴 글은 화면에서 비워진다 — 답 자리에 남의 초고가 서 있으면 안 된다.
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
+            }
+            Then("여기에 쓴 것은 부탁이 아니라 답으로 간다") {
+                page.locator("#dock .composer #t textarea").fill("yes, drop it")
+                page.locator("#dock .composer #send").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_answered") as String?) != null
+                }
+                page.evaluate("window.__magi_test_answered") shouldBe "call_9/question/yes, drop it"
+            }
+        }
+        When("질문이 걷히면") {
+            page.evaluate("window.__magi_ask_publish(null)")
+            Then("상자는 다시 부탁하는 자리가 되고, 맡겨 둔 초고가 돌아온다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "label.ask"
+                }
+                page.locator("#dock #send").textContent() shouldBe "action.send"
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe "half a request"
+                page.locator("#dock #cnote[hidden]").count() shouldBe 1
+            }
+            Then("그리고 그 뒤의 한 마디는 다시 부탁으로 간다 — 낡은 부름으로 새지 않는다") {
+                page.locator("#dock .composer #t textarea").fill("next request")
+                page.locator("#dock .composer #send").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_sent") as String).startsWith("next request")
+                }
             }
         }
         When("대화가 제 기둥에 놓이면") {
@@ -243,16 +287,12 @@ internal class CodingScreenTest : GwtTestSpec({
             // 몸통 폭이라 뭉갬이 재현되지 않는다. 그래서 열을 그 폭으로 세우고 잰다.
             // 실측으로 잡힌 결함이다: 셀렉트가 같은 줄에 서자 필드가 라벨 "F."만 남을 만큼 눌렸다.
             page.evaluate("document.getElementById('filecol').style.width = '18rem'")
-            Then("찾기 필드가 낱말을 담을 폭을 지킨다 — 한 줄에 선 것들이 필드를 먹지 않는다") {
-                page.waitForCondition {
-                    (page.evaluate("document.querySelector('#files .findrow md-outlined-text-field')" +
-                        ".getBoundingClientRect().width") as Number).toInt() > 0
-                }
-                val field = (page.evaluate(
-                    "document.querySelector('#files .findrow md-outlined-text-field')" +
-                    ".getBoundingClientRect().width") as Number).toDouble()
-                withClue("찾기 필드가 ${field}px로 눌렸다 — 18rem 열에서 라벨이 잘린다") {
-                    (field >= 150.0) shouldBe true
+            Then("찾기는 한 줄을 차지하지 않는다 — 누를 때만 상자가 뜬다") {
+                page.waitForSelector("#files .filefind md-text-button")
+                val h = (page.evaluate("document.querySelector('#files .filefind')" +
+                    ".getBoundingClientRect().height") as Number).toDouble()
+                withClue("찾기 줄이 ${h}px — 좁은 기둥에서 트리가 먼저 보여야 한다") {
+                    (h <= 48.0) shouldBe true
                 }
             }
             Then("줄 안의 것들이 열 밖으로 밀리지 않는다 — 눌리면 여기서 드러난다") {
@@ -280,7 +320,7 @@ internal class CodingScreenTest : GwtTestSpec({
                     "[...document.querySelectorAll('#files md-icon-button, #files button')]" +
                     ".filter(b => !b.textContent.trim())" +
                     ".every(b => (b.getAttribute('aria-label') || '').trim().length > 0)") as Boolean) shouldBe true
-                page.locator("#files .makerow md-icon-button").count() shouldBe 2
+                (page.locator("#files .rowmenu md-icon-button").count() > 0) shouldBe true
             }
             page.evaluate("document.getElementById('filecol').style.width = ''")
         }

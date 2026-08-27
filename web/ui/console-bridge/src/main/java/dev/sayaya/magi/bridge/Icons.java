@@ -41,7 +41,7 @@ public final class Icons {
     }
 
     private static void borrowFrom(String pagePath, Runnable done) {
-        DomGlobal.fetch(pagePath)
+        Console.raw(pagePath, null)
                 .then(Response::text)
                 .then(html -> {
                     int at = html.indexOf("<svg id=\"" + SPRITE + "\"");
@@ -77,6 +77,25 @@ public final class Icons {
         use.setAttributeNS(XLINK, "xlink:href", "#" + name(ref));
         svg.append(use);
         return svg;
+    }
+
+    /**
+     * 버튼의 표 — <b>슬롯에</b> 넣는다(운영 withMark).
+     *
+     * 그냥 자식으로 붙이면 라벨과 같은 글자 크기를 물려받아 작아진다(실측: 18px 자리에 14px).
+     * md-*-button은 slot="icon"에 온 것을 제 규격으로 그린다.
+     */
+    public static void mark(HTMLElement button, String ref, String glyph) {
+        elemental2.dom.Element m = of(ref, null);
+        if (m == null) {
+            HTMLElement g = Js.uncheckedCast(DomGlobal.document.createElement("span"));
+            g.className = "gl";
+            g.textContent = glyph;
+            g.setAttribute("aria-hidden", "true");
+            m = g;
+        }
+        m.setAttribute("slot", "icon");
+        button.insertBefore(m, button.firstChild);
     }
 
     /** 그림이 있으면 그림, 없으면 늘 그리던 글자 — 어느 쪽이든 노드를 돌려준다(운영 iconOr). */

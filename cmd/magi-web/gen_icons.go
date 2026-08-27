@@ -156,8 +156,8 @@ func main() {
 		"// Font Awesome Pro icons, baked in at build time — see gen_icons.go for why this file is\n" +
 		"// not in the repository. Font Awesome Pro is licensed to whoever built this binary:\n" +
 		"// https://fontawesome.com/license\n\n" +
-		"package main\n\n" +
-		"func init() { iconSprite = " + quote(sprite.String()) + " }\n"
+		"package webassets\n\n" +
+		"func init() { Sprite = " + quote(sprite.String()) + " }\n"
 	// Formatted, because the gate formats everything and a generated file is not exempt from
 	// being read: an unformatted one fails the build for a reason that has nothing to do with the
 	// change somebody just made.
@@ -165,7 +165,7 @@ func main() {
 	if err != nil {
 		die(fmt.Errorf("the generated file does not parse: %w", err))
 	}
-	if err := os.WriteFile("icons_gen.go", pretty, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join("..", "..", "internal", "webassets", "sprite_gen.go"), pretty, 0o644); err != nil {
 		die(err)
 	}
 	fmt.Fprintf(os.Stderr, "gen_icons: %d icons baked from %s\n", len(names), root)

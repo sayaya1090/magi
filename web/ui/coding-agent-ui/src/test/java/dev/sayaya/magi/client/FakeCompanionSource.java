@@ -45,15 +45,6 @@ public class FakeCompanionSource implements CompanionSource {
         l.turn(true, 12);
     }
 
-    @Override
-    public void roster(Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse(
-                "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
-                "\"steps\":7,\"idle\":42,\"role\":\"keeps the build green\",\"team\":\"core\",\"hub\":true," +
-                "\"host\":\"devbox\",\"addr\":\"10.0.0.7\",\"pid\":4242,\"version\":\"v0.28.0\"," +
-                "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\",\"permission\":\"ask\"," +
-                "\"handling\":true,\"waiting\":2,\"model\":\"gpt-oss:120b\"}]"));
-    }
 
     @Override
     public void history(CompanionContext ctx, Consumer<Object> cb) {
@@ -70,28 +61,8 @@ public class FakeCompanionSource implements CompanionSource {
                 "{\"who\":\"assistant\",\"text\":\"old answer\"}]"));
     }
 
-    @Override
-    public void plan(CompanionContext ctx, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse(
-                "[{\"content\":\"read the failing test\",\"status\":\"completed\"}," +
-                "{\"content\":\"fix the retry window\",\"status\":\"in_progress\"}," +
-                "{\"content\":\"write it down\",\"status\":\"pending\"}]"));
-    }
 
-    @Override
-    public void context(CompanionContext ctx, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse(
-                "{\"used\":82000,\"window\":100000,\"messages\":41,\"estimated\":false," +
-                "\"cacheReported\":true,\"cached\":41000,\"model\":\"gpt-oss:120b\"," +
-                "\"compactions\":2,\"shed\":31000,\"lastBefore\":40000,\"lastAfter\":9000," +
-                "\"lastAt\":\"2026-08-27T04:31:00\"}"));
-    }
 
-    @Override
-    public void compact(CompanionContext ctx, Runnable done) {
-        Js.asPropertyMap(DomGlobal.window).set("__magi_test_compacted", ctx.socket);
-        done.run();
-    }
 
     @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) {
@@ -99,4 +70,6 @@ public class FakeCompanionSource implements CompanionSource {
         win.set("__magi_test_sent", text + "@" + ctx.socket);
         why.accept("");
     }
+
+    /** 답은 다른 곳에 적는다 — 같은 상자에 쓴 글이 어디로 갔는지가 이 스펙의 요점이라서. */
 }

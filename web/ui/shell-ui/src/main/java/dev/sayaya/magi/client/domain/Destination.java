@@ -59,6 +59,14 @@ public final class Destination {
         this.styles = styles;
     }
 
+    /**
+     * 화면이 주소에 실어도 되는 조각들 — 셸은 그 뜻을 모르고, 이름만 안다.
+     *
+     * 목록으로 두는 이유는 뒤로가기다: 주소에서 자리를 되읽을 때 셸이 이 이름들을 모르면
+     * 방에서 목록으로 돌아온 것을 "같은 자리"로 읽어 아무 일도 하지 않는다.
+     */
+    public static final String[] PIECES = {"m"};
+
     // 주소는 'fleet'이고 모듈은 'companion'이다 — 목록과 상세가 한 모듈의 두 얼굴이라서.
     public static final Destination FLEET = new Destination("fleet", "companion",
             "nav.companions", "nav.companions", "nav.companions_sub",
@@ -74,6 +82,19 @@ public final class Destination {
             "M12 3c4.2 0 7 1.1 7 2.3S16.2 7.6 12 7.6 5 6.5 5 5.3 7.8 3 12 3M5 5.3v13.4C5 19.9 7.8 21 "
                     + "12 21s7-1.1 7-2.3V5.3M5 12c0 1.2 2.8 2.3 7 2.3s7-1.1 7-2.3",
             null, "#i-sl-database", false);
+
+    // 회의실 — 이 콘솔이 컴패니언 여럿에게 한 번에 묻는 자리. 운영의 그 문(v=meet)이고,
+    // 그림도 같은 말풍선 둘이다. 조각 ?m= 은 어느 방인지를 화면이 읽는다.
+    public static final Destination MEETING = new Destination("meet", "meeting",
+            "nav.meet", "nav.meet", "nav.meet_sub",
+            "M4.5 6.2h9.4v6.6H8.1L5.2 15v-2.2H4.5zM10.6 9.4h8.9v6.6h-1.2V18l-2.6-2h-3",
+            // console.css가 이 화면을 통째로 입힌다(.meetbox/.meethead/.meetroster/…) — 제 시트는 없다.
+            "prompt", "#i-sl-comments", false, false);
+
+    // 환경설정 — 문이 아니라 주소다(운영도 레일에 두지 않는다): 매일 다니는 곳이 아니고,
+    // 마스트헤드의 톱니가 그 문이다. 컴패니언 위에서 열면 그 컴패니언의 config를 고친다.
+    public static final Destination SETTINGS = new Destination("settings", "prefs",
+            "nav.preferences", "nav.preferences", "nav.preferences", "", null, "", false, false);
 
     // 보드 — 문이 아니라 주소다: 플릿에 관한 질문이라 플릿에서 들어가고(운영 규칙),
     // 레일은 컴패니언 문을 켠 채 둔다(section). 아이콘이 없는 것은 문이 없어서다.
@@ -98,14 +119,21 @@ public final class Destination {
                     + "0-2.4-2.4",
             "admin", "#i-sl-people-group", true);
 
-    public static Destination[] doors() { return new Destination[]{FLEET, KNOWLEDGE, ACCESS}; }
+    public static Destination[] doors() {
+        // 운영의 그 차례: 컴패니언 · 지식 · 회의실, 그리고 발치의 접근 제어.
+        return new Destination[]{FLEET, KNOWLEDGE, MEETING, ACCESS};
+    }
 
     public static Destination[] all() {
-        return new Destination[]{FLEET, KNOWLEDGE, BOARD, MAP, ACCESS};
+        return new Destination[]{FLEET, KNOWLEDGE, MEETING, BOARD, MAP, ACCESS, SETTINGS};
     }
 
     /** 레일이 켤 문 — 보드는 플릿의 다른 시선이라 컴패니언 문이 켜진 채다(운영 규칙). */
-    public Destination section() { return this == BOARD || this == MAP ? FLEET : this; }
+    public Destination section() {
+        // 보드·맵은 플릿의 다른 시선이고, 환경설정은 어느 문의 것도 아니다 — 서 있던 문을
+        // 그대로 켠 채 두는 편이, 없는 문을 켜거나 아무 문도 안 켜는 것보다 덜 놀랍다.
+        return this == BOARD || this == MAP || this == SETTINGS ? FLEET : this;
+    }
 
     /** 주소가 대는 이름의 목적지, 모르면 첫 문 — 잘못 친 주소가 빈 화면이 되지 않게. */
     public static Destination byId(String id) {

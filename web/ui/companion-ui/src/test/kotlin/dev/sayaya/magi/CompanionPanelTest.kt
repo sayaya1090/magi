@@ -101,6 +101,58 @@ internal class CompanionPanelTest : GwtTestSpec({
                     .shouldBe("contents")
             }
         }
+        When("이 컴패니언이 퍼미션을 기다리면") {
+            page.evaluate("window.__magi_test_ask('permission', null)")
+            Then("도크에 질문이 서고, 컴포저 위다 — 답하러 목록으로 되돌아가지 않는다") {
+                page.waitForSelector("#dock #prompt:not([hidden])")
+                page.locator("#prompt .asking").textContent() shouldContain "may I drop the table?"
+                // 몇 개 중 몇 번째인지는 둘 이상일 때만 말한다.
+                page.locator("#prompt .asking").textContent() shouldContain "ask.of"
+                // 근거가 있으면 함께 — 답하기 전에 읽어야 하는 것이다.
+                page.locator("#prompt .grounds .gsec .gv").textContent() shouldContain "the migration needs it"
+                // 위아래 차례가 곧 "먼저 읽고 답한다"이다.
+                (page.evaluate("(() => { const bay = document.querySelector('#dock .bay');" +
+                    " return [...bay.children].map(c => c.id || c.className).join(','); })()"))
+                    .shouldBe("prompt,cfill")
+            }
+            Then("결정 넷이 한 무게로 서고, 저마다 표를 단다") {
+                page.locator("#prompt .answer .bgroup md-outlined-button").count() shouldBe 4
+                page.locator("#prompt .answer .bgroup md-outlined-button .mk").count() shouldBe 4
+            }
+            Then("올라온다 — 있던 자리에 툭 나타나지 않는다(riseIn)") {
+                (page.evaluate("getComputedStyle(document.getElementById('prompt')).animationName"))
+                    .shouldBe("riseIn")
+            }
+        }
+        When("보기가 딸린 질문이면") {
+            page.evaluate("window.__magi_test_ask('question', '[\"postgres\",\"sqlite\"]')")
+            Then("보기들이 답으로 서고, 그밖에 쓸 길도 있다") {
+                page.waitForSelector("#prompt .answer.choices")
+                page.locator("#prompt .answer.choices md-outlined-button").count() shouldBe 2
+                page.locator("#prompt .answer.choices md-outlined-button").first().textContent() shouldBe "postgres"
+                // 목록은 제안이지 전부가 아니다 — 목록 밖의 답도 보낼 수 있어야 한다.
+                page.locator("#prompt .answer.choices md-text-button").count() shouldBe 1
+            }
+        }
+        When("맨 질문이면") {
+            page.evaluate("window.__magi_test_ask('question', null)")
+            Then("상자는 질문만 말한다 — 답은 컴포저가 받는다(글 상자를 둘 세우지 않는다)") {
+                page.waitForSelector("#prompt:not([hidden])")
+                page.locator("#prompt .answer").count() shouldBe 0
+                // 그리고 그 사실을 자식에게 알린다 — 답할 입력을 가진 쪽이 쓰라고.
+                (page.evaluate("(window.__magi_ask ? 'bridge' : '') + " +
+                    "(window.__magi_ask && window.__magi_ask.call ? '/' + window.__magi_ask.call : '')"))
+                    .shouldBe("bridge/call_7")
+            }
+        }
+        When("질문이 걷히면") {
+            page.evaluate("window.__magi_test_ask(null, null)")
+            Then("상자도 걷히고, 알림도 비워진다 — 낡은 부름에 답하는 상자가 남지 않게") {
+                // [hidden]은 waitForSelector의 기본(보임)으로는 영영 오지 않는다 — 세어서 기다린다.
+                page.waitForCondition { page.locator("#prompt[hidden]").count() == 1 }
+                (page.evaluate("window.__magi_ask === null || window.__magi_ask === undefined")) shouldBe true
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("탭 넷이 서고 한 번에 하나만 보인다 — 기본은 대화다(운영의 그 넷)") {

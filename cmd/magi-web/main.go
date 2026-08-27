@@ -24,6 +24,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/webassets"
 	"io"
 	"io/fs"
 	"log"
@@ -1162,49 +1163,22 @@ func (s *server) font(w http.ResponseWriter, r *http.Request) {
 //
 // Served rather than inlined as a data: URI because iOS ignores a manifest it cannot fetch, and it
 // is small enough that a route costs less than the explanation of the workaround would.
-// manifestJSON and iconSVG are package-level so the static demo can write the same bytes this
+// webassets.Manifest and webassets.Icon are package-level so the static demo can write the same bytes this
 // server answers with. They were consts inside their handlers, and the demo shipped without either
 // — found by a check that walks every path the page references.
-const manifestJSON = `{
-  "name": "magi",
-  "short_name": "magi",
-  "start_url": "/",
-  "scope": "/",
-  "display": "standalone",
-  "background_color": "#14110d",
-  "theme_color": "#14110d",
-  "icons": [
-    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
-    {"src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable"}
-  ]
-}`
 
-const iconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <circle cx="96" cy="70" r="21" fill="#FFB454"/>
-  <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
-  <circle cx="122" cy="115" r="21" fill="#FF8A8A"/>
-  <circle cx="96" cy="97" r="43" fill="none" stroke="#FF7A1A" stroke-width="4" opacity=".55"/>
-</svg>`
-
-// iconMaskableSVG is the same three councillors with the plate back under them.
+// webassets.IconMaskable is the same three councillors with the plate back under them.
 //
 // A maskable icon is not a picture with rounded corners applied — the platform crops it to
 // whatever shape it likes, circle on one launcher and squircle on the next, and a transparent one
 // is cropped to nothing with the launcher filling the rest in a colour this file did not choose.
 // So this one keeps the ground, and it is the only place that needs it.
-const iconMaskableSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" fill="#211B14"/>
-  <circle cx="96" cy="70" r="21" fill="#FFB454"/>
-  <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
-  <circle cx="122" cy="115" r="21" fill="#FF8A8A"/>
-  <circle cx="96" cy="97" r="43" fill="none" stroke="#FF7A1A" stroke-width="4" opacity=".55"/>
-</svg>`
 
 func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/manifest+json")
 	// display:standalone and a theme colour that matches the page's BACKGROUND — the masthead sits
 	// on it directly now, so a surface colour here would draw a band the page does not have. start_url is the fleet: the phone is where you check on things.
-	if _, err := io.WriteString(w, manifestJSON); err != nil {
+	if _, err := io.WriteString(w, webassets.Manifest); err != nil {
 		log.Printf("magi-web: writing the manifest: %v", err)
 	}
 }
@@ -1218,14 +1192,14 @@ func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
 // No ground under it. This is the favicon, and a tab strip is whatever colour the browser and its
 // theme make it — a dark brown square there is a sticker on the tab rather than a mark in it. The
 // same file is the notification icon, where a launcher tints what it is given and a plate is a
-// plate. Where a ground IS required, there is a second file that has one; see iconMaskableSVG.
+// plate. Where a ground IS required, there is a second file that has one; see webassets.IconMaskable.
 func (s *server) icon(w http.ResponseWriter, r *http.Request) {
-	s.svg(w, iconSVG)
+	s.svg(w, webassets.Icon)
 }
 
 // iconMaskable is the same mark for a home screen, which crops it.
 func (s *server) iconMaskable(w http.ResponseWriter, r *http.Request) {
-	s.svg(w, iconMaskableSVG)
+	s.svg(w, webassets.IconMaskable)
 }
 
 func (s *server) svg(w http.ResponseWriter, body string) {

@@ -38,12 +38,14 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class WorkspaceElement {
     private final WorkspaceStore store;
+    private final Dialogs dialogs;
     private final HTMLElement root = el("div");
     private boolean wired = false;
 
     @Inject
-    public WorkspaceElement(WorkspaceStore store, CompanionStore companion) {
+    public WorkspaceElement(WorkspaceStore store, CompanionStore companion, Dialogs dialogs) {
         this.store = store;
+        this.dialogs = dialogs;
         root.id = "files";
         companion.onContext(store::aim);
     }
@@ -62,9 +64,32 @@ public class WorkspaceElement {
 
     // ── 트리 ─────────────────────────────────────────────────────────────────
 
+    /** 판의 머리 — 제목과, 다시 읽는 문(운영 .panerow > .panehead + .paneagain). */
+    private HTMLElement paneRow(String title) {
+        HTMLElement row = cell("panerow", null);
+        row.append(head(title));
+        HTMLElement again = el("md-icon-button");
+        again.className = "paneagain";
+        again.append(Icons.orGlyph("#i-sl-arrows-rotate", "↻", "sic"));
+        again.setAttribute("aria-label", tr("files.again"));
+        again.setAttribute("title", tr("files.again"));
+        again.addEventListener("click", evt -> store.walk());
+        row.append(again);
+        return row;
+    }
+
+    /** 홈 아래는 ~로 — 긴 절대경로는 좁은 기둥에서 뒤가 잘려 아무 말도 못 한다(운영 shortPath). */
+    private static String shortPath(String path) {
+        if (path == null || path.isEmpty()) return tr("nav.files");
+        int slash = path.lastIndexOf('/');
+        return slash > 0 && slash < path.length() - 1 ? path.substring(slash + 1) : path;
+    }
+
     private HTMLElement treeCard() {
         HTMLElement card = cell("filescard pane-files", null);
-        card.append(head(tr("nav.files")));
+        // 제목은 <b>어느 작업공간인가</b>이다 — 화면에 판이 하나뿐이라 "파일"이라는 말은
+        // 아무것도 더해 주지 않고, 두 컴패니언을 오갈 때 바뀌는 것은 경로다(운영 규칙).
+        card.append(paneRow(shortPath(store.workdir())));
         HTMLElement body = cell("panebody", null);
         body.append(findRow());
         // 찾는 동안 판이 보이는 것은 결과다 — 트리로 되돌리지 않는다(운영에서 배운 그 결함).
@@ -84,7 +109,6 @@ public class WorkspaceElement {
         } else {
             branches(body, ".", rows, 0);
         }
-        if (May.can("shell")) card.append(makeRow());
         card.append(body);
         // 열어 둔 파일은 트리 밑에 — 같은 왼쪽 안에서 읽는다(운영은 가운데 슬롯의 탭이지만,
         // 여기서 가운데는 대화의 것이다: 왼쪽에서 연 것은 왼쪽에서 읽는다).
@@ -107,40 +131,44 @@ public class WorkspaceElement {
         }
     }
 
-    /** 찾기 — 이름으로, 또는 내용으로. 어디를 뒤지는지는 고르는 것이지 짐작할 일이 아니다. */
+    /**
+     * 찾기 — 누르면 묻는다. 상자를 늘 펼쳐 두지 않는 이유는 운영과 같다: 이 기둥은 좁고,
+     * 늘 서 있는 입력은 "여기에 쳐라"라고 말하지만 이 판이 먼저 하는 말은 트리다.
+     */
     private HTMLElement findRow() {
-        HTMLElement box = cell("findrow", null);
-        HTMLElement field = el("md-outlined-text-field");
-        field.id = "wsfind";
-        field.setAttribute("label", tr("files.find"));
-        Js.asPropertyMap(field).set("value", store.query());
-        field.addEventListener("input", evt -> store.query(value(field)));
-        box.append(field);
-        if (store.finding()) {
-            HTMLElement clear = el("md-text-button");
-            clear.className = "findclear";
-            clear.textContent = tr("files.find_clear");
-            clear.addEventListener("click", evt -> store.query(""));
-            box.append(clear);
+        HTMLElement box = cell("filefind", null);
+        if (!store.finding()) {
+            HTMLElement open = el("md-text-button");
+            open.append(Icons.orGlyph("#i-sl-magnifying-glass", "⌕", "mk"),
+                    DomGlobal.document.createTextNode(" " + tr("files.find")));
+            open.addEventListener("click", evt -> ask());
+            box.append(open);
+            return box;
         }
-        // 어디를 뒤지는가 — 고르는 상자가 아니라 칩 둘이다. 이 열은 18rem이고 상자를 두면
-        // 필드가 "F."로 뭉갠다(실측): 두 상태뿐인 선택은 칩이 더 좁고 더 분명하다.
-        HTMLElement where = el("md-chip-set");
-        where.className = "findwhere";
-        where.setAttribute("aria-label", tr("files.find_where"));
-        for (String[] o : new String[][]{{"name", "files.by_name"}, {"text", "files.by_text"}}) {
-            HTMLElement chip = el("md-filter-chip");
-            chip.className = "wherechip";
-            chip.setAttribute("data-in", o[0]);
-            chip.setAttribute("label", tr(o[1]));
-            if (o[0].equals(store.where())) Js.asPropertyMap(chip).set("selected", true);
-            final String in = o[0];
-            chip.addEventListener("click", evt -> store.where(in));
-            where.append(chip);
-        }
-        HTMLElement wrap = cell("findbox", null);
-        wrap.append(box, where);
-        return wrap;
+        // 찾는 중이면 무엇을 찾았는지 말하고, 다시 찾기와 지우기를 준다.
+        box.append(cell("findnow", tr("text".equals(store.where()) ? "files.found_in_text"
+                : "files.found_in_names", "q", store.query())));
+        box.append(cell("findacts", null));
+        HTMLElement again = el("md-text-button");
+        again.append(Icons.orGlyph("#i-sl-magnifying-glass", "⌕", "mk"),
+                DomGlobal.document.createTextNode(" " + tr("files.find_again")));
+        again.addEventListener("click", evt -> ask());
+        HTMLElement clear = el("md-text-button");
+        clear.append(Icons.orGlyph("#i-sl-xmark", "✕", "mk"),
+                DomGlobal.document.createTextNode(" " + tr("files.find_clear")));
+        clear.addEventListener("click", evt -> store.query(""));
+        box.append(again, clear);
+        return box;
+    }
+
+    /** 무엇을 어디서 찾을지 묻는다 — 이름인지 내용인지는 고르는 것이지 짐작할 일이 아니다. */
+    private void ask() {
+        dialogs.line(tr("files.find"), tr("files.find_who"), tr("files.find"), store.query(),
+                new String[][]{{"name", "files.by_name"}, {"text", "files.by_text"}},
+                store.where(), (said, where) -> {
+                    store.where(where);
+                    store.query(said);
+                });
     }
 
     /** 결과 — 이름 검색은 경로를, 내용 검색은 grep이 낸 그대로(path:line:text)를 답한다. */
@@ -170,40 +198,6 @@ public class WorkspaceElement {
         return box;
     }
 
-    /** 새로 만들기 — 파일과 디렉토리. 이름을 묻고, 만든 뒤 다시 걷는다. */
-    private HTMLElement makeRow() {
-        HTMLElement box = cell("makerow", null);
-        HTMLElement field = el("md-outlined-text-field");
-        field.id = "wsnew";
-        field.setAttribute("label", tr("files.path"));
-        HTMLElement file = el("md-icon-button");
-        file.className = "makefile";
-        // 낱말 대신 그림 — 이 열은 18rem이고 "새 디렉토리"만으로 한 줄이 찬다(운영이 같은
-        // 폭에서 아이콘을 고른 그 이유). 이름은 aria-label과 title로 남는다.
-        file.setAttribute("aria-label", tr("files.new_file"));
-        file.setAttribute("title", tr("files.new_file"));
-        file.append(Icons.orGlyph("#i-sl-plus", "+", null));
-        file.addEventListener("click", evt -> {
-            String p = value(field).trim();
-            if (p.isEmpty()) return;
-            store.fileDo("new-file", p, null);
-            Js.asPropertyMap(field).set("value", "");
-        });
-        HTMLElement dir = el("md-icon-button");
-        dir.className = "makedir";
-        dir.setAttribute("aria-label", tr("files.new_dir"));
-        dir.setAttribute("title", tr("files.new_dir"));
-        dir.append(Icons.orGlyph("#i-sl-folder", "\u25B8+", null));
-        dir.addEventListener("click", evt -> {
-            String p = value(field).trim();
-            if (p.isEmpty()) return;
-            store.fileDo("new-dir", p, null);
-            Js.asPropertyMap(field).set("value", "");
-        });
-        box.append(field, file, dir);
-        return box;
-    }
-
     private HTMLElement treeRow(JsPropertyMap<Object> e, String path, String name, boolean isDir, int depth) {
         HTMLElement row = el("button");
         row.setAttribute("type", "button");
@@ -222,29 +216,72 @@ public class WorkspaceElement {
         if (!May.can("shell")) return row;
         // 행과 그 손잡이는 한 줄로 — 트리가 다시 그려져도 짝이 흩어지지 않는다.
         HTMLElement line = cell("treeline", null);
-        line.append(row, rowActs(path, name));
+        line.append(row, rowMenu(path, name, isDir));
         return line;
     }
 
-    /** 한 행에 하는 일 — 이름 바꾸기, 그리고 지우기(되돌릴 수 없으니 두 번 묻는다). */
-    private HTMLElement rowActs(String path, String name) {
-        HTMLElement box = cell("rowacts", null);
-        HTMLElement rename = el("md-text-button");
-        rename.className = "act rename";
-        rename.textContent = tr("files.rename");
-        rename.setAttribute("aria-label", tr("files.rename") + " — " + name);
-        rename.addEventListener("click", evt -> {
+    /**
+     * 한 행에 할 수 있는 일들 — 운영과 같이 <b>메뉴 하나</b>다.
+     *
+     * 버튼을 늘어놓지 않는 이유: 이 기둥은 18rem이고 할 일은 여섯이다(새 파일·새 폴더·이름
+     * 바꾸기·경로 복사·되돌리기·삭제). 늘 보이는 버튼 둘은 나머지 넷을 갈 곳 없게 만들고,
+     * 그 둘마저 이름을 자른다.
+     */
+    private HTMLElement rowMenu(String path, String name, boolean isDir) {
+        HTMLElement box = cell("rowmenu", null);
+        HTMLElement open = el("md-icon-button");
+        open.id = "rm" + (++menuCount);
+        open.append(Icons.orGlyph("#i-sl-sliders", "⋯", "mk"));
+        open.setAttribute("aria-label", tr("files.more_named", "name", name));
+        open.setAttribute("title", tr("files.more"));
+        HTMLElement menu = el("md-menu");
+        menu.setAttribute("anchor", open.id);
+        // 이 행 아래에 만드는 것이 자연스럽다: 디렉토리면 그 안, 파일이면 그 옆.
+        String under = isDir ? path + "/" : (path.contains("/") ? path.substring(0, path.lastIndexOf('/') + 1) : "");
+        item(menu, "files.new_file", "#i-sl-file-plus", () ->
+                dialogs.line(tr("files.new_file"), tr("files.new_file_who"), tr("files.new_file"),
+                        under, null, null, (said, ignored) -> store.fileDo("new-file", said, null)));
+        item(menu, "files.new_dir", "#i-sl-folder-plus", () ->
+                dialogs.line(tr("files.new_dir"), tr("files.new_dir_who"), tr("files.new_dir"),
+                        under, null, null, (said, ignored) -> store.fileDo("new-dir", said, null)));
+        item(menu, "files.rename", "#i-sl-pen", () ->
+                dialogs.line(tr("files.rename"), tr("files.rename_who"), tr("files.rename"),
+                        path, null, null, (said, ignored) -> {
+                            if (!said.equals(path)) store.fileDo("rename", path, said);
+                        }));
+        item(menu, "files.copy_path", "#i-sl-copy", () -> copy(path));
+        item(menu, "git.discard", "#i-sl-eraser", () ->
+                dialogs.confirm(tr("git.discard_head", "path", path), tr("git.discard_body"),
+                        tr("git.discard"), () -> store.gitDo("discard", path, null)));
+        item(menu, "files.delete", "#i-sl-trash-can", () ->
+                dialogs.confirm(tr("files.delete_head", "path", path), tr("files.delete_body"),
+                        tr("files.delete"), () -> store.fileDo("delete", path, null)));
+        open.addEventListener("click", evt -> {
             evt.stopPropagation();
-            String to = DomGlobal.window.prompt(tr("files.rename_who"), path);
-            if (to != null && !to.trim().isEmpty() && !to.equals(path)) store.fileDo("rename", path, to.trim());
+            Js.asPropertyMap(menu).set("open", !Js.isTruthy(Js.asPropertyMap(menu).get("open")));
         });
-        HTMLElement drop = el("md-text-button");
-        drop.className = "act drop";
-        drop.setAttribute("aria-label", tr("files.delete") + " — " + name);
-        arm(drop, tr("files.delete"), () -> store.fileDo("delete", path, null));
-        box.append(rename, drop);
+        box.append(open, menu);
         return box;
     }
+
+    private int menuCount = 0;
+
+    private void item(HTMLElement menu, String key, String mark, Runnable run) {
+        HTMLElement it = el("md-menu-item");
+        HTMLElement head = el("div");
+        head.setAttribute("slot", "headline");
+        head.textContent = tr(key);
+        it.append(head);
+        elemental2.dom.Element g = Icons.of(mark, null);
+        if (g != null) { g.setAttribute("slot", "start"); it.append(g); }
+        it.addEventListener("click", evt -> run.run());
+        menu.append(it);
+    }
+
+    /** 경로를 클립보드로 — 터미널로 옮겨 적는 일이 이 판에서 가장 잦은 다음 행동이라서. */
+    private static native void copy(String text) /*-{
+        if ($wnd.navigator.clipboard) $wnd.navigator.clipboard.writeText(text);
+    }-*/;
 
     /** 두 번 눌러야 도는 것 — 지우기·되돌리기처럼 되돌릴 수 없는 일에만(운영 arm). */
     private static void arm(HTMLElement btn, String word, Runnable act) {
@@ -304,7 +341,7 @@ public class WorkspaceElement {
 
     private HTMLElement gitCard() {
         HTMLElement card = cell("filescard pane-git", null);
-        card.append(head(tr("git.section")));
+        card.append(paneRow(tr("git.section")));
         HTMLElement body = cell("panebody", null);
         JsPropertyMap<Object> g = Js.uncheckedCast(store.git());
         if (g == null) {

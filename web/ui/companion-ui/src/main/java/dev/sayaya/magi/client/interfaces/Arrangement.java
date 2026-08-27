@@ -46,6 +46,12 @@ public class Arrangement {
     /** 자식이 컴포저를 놓을 자리 — 도크 안쪽이다. 자식은 이것이 도크인 줄 모른다. */
     public HTMLElement dockSlot() { return dockFill; }
 
+    /** 질문 상자가 설 자리 — 컴포저 위. 그 위아래 차례가 곧 "먼저 읽고 답한다"이다. */
+    public void putPrompt(HTMLElement prompt) {
+        build();
+        if (prompt.parentElement != bay) bay.insertBefore(prompt, dockFill);
+    }
+
     /** 컴패니언 화면이 섰다: 도크를 세우고, 손잡이를 마스트헤드에 놓고, 기둥 상태를 되살린다. */
     public void engage() {
         build();

@@ -203,7 +203,34 @@ public class ConversationElement {
     }
 
 
+    private final HTMLElement sendBtn = el("md-filled-button");
+    private final HTMLElement note = el("div");   // 컴포저 아래 한 줄 — 지금 이 상자의 몫
+    private String parked = "";                   // 다른 몫으로 쓰던 초고는 지우지 않고 맡아 둔다
+    private boolean wasAnswering = false;
     private boolean composerBuilt = false;
+
+    /**
+     * 컴포저의 몫 — 부탁을 보내는 자리인가, 위 질문에 답하는 자리인가.
+     *
+     * 옷(라벨·버튼 낱말·아래 한 줄)은 <b>몫이 바뀔 때만</b> 갈아입는다: 명단은 몇 초마다
+     * 흐르고, 그때마다 다시 쓰면 바뀐 적 없는 낱말 때문에 버튼이 분당 수십 번 다시 지어진다.
+     *
+     * 그리고 쓰던 글은 지우지 않고 <b>맡아 둔다</b>. 몫은 사람이 타이핑하는 중에도 바뀔 수
+     * 있어서(질문이 도착하거나 남이 먼저 답하거나), 지우면 되돌릴 수 없는 삭제가 된다.
+     * 몫마다 제 초고를 갖는다 — 어느 쪽도 남의 글을 제 것처럼 내놓지 않는다.
+     */
+    private void answerMode() {
+        boolean now = store.answering();
+        if (now == wasAnswering && composerBuilt) return;
+        wasAnswering = now;
+        field.setAttribute("label", tr(now ? "label.answer" : "label.ask"));
+        sendBtn.textContent = tr(now ? "action.answer" : "action.send");
+        String had = value();
+        value(parked);
+        parked = had;
+        note.textContent = now ? tr("answer.instead") : "";
+        if (now) note.removeAttribute("hidden"); else note.setAttribute("hidden", "");
+    }
 
     private HTMLElement composer() {
         // 한 번만 짓는다 — 도크 자리는 화면을 다시 찾을 때마다 다시 건네지고, 다시 지으면
@@ -219,16 +246,20 @@ public class ConversationElement {
         field.id = "t";
         field.setAttribute("type", "textarea");
         field.setAttribute("rows", "1");
-        HTMLElement send = el("md-filled-button");
-        send.setAttribute("type", "submit");
-        send.id = "send";
-        send.textContent = tr("action.send");
+        sendBtn.setAttribute("type", "submit");
+        sendBtn.id = "send";
+        HTMLElement send = sendBtn;
         // 버튼은 한 무리로 — 필드가 줄의 나머지를 갖는다(운영 .bgroup).
         HTMLElement group = el("div");
         group.className = "bgroup";
         group.append(send);
         box.append(field, group);
-        form.append(box);
+        note.id = "cnote";
+        note.setAttribute("hidden", "");
+        form.append(box, note);
+        // 이 상자가 지금 무엇을 하는 자리인지는 부모가 알린다 — 그 사실이 바뀔 때만 옷을 갈아입는다.
+        store.listenForAsk(this::answerMode);
+        answerMode();
         form.addEventListener("submit", evt -> {
             evt.preventDefault();
             String v = value().trim();

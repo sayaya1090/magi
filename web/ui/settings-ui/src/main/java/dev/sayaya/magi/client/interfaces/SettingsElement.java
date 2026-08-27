@@ -1,0 +1,538 @@
+package dev.sayaya.magi.client.interfaces;
+
+import dev.sayaya.magi.bridge.Labels;
+import dev.sayaya.magi.bridge.May;
+import dev.sayaya.magi.client.domain.Prefs;
+import dev.sayaya.magi.client.usecase.SettingsStore;
+import elemental2.dom.DomGlobal;
+import elemental2.dom.HTMLElement;
+import jsinterop.base.Js;
+import jsinterop.base.JsArrayLike;
+import jsinterop.base.JsPropertyMap;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
+import static dev.sayaya.magi.bridge.Labels.tr;
+
+/**
+ * 환경설정 — 다이얼로그가 아니라 화면이다.
+ *
+ * 운영이 그렇게 옮긴 이유가 이 화면의 성질을 말한다: 같은 컨트롤이 <b>어디에 서 있느냐로
+ * 다른 파일을 고친다</b>(플릿에서 열면 이 기계의 config, 컴패니언에서 열면 그 컴패니언의
+ * 것). 다이얼로그는 그 숨은 축을 감췄고, 화면은 그것을 맨 위에 적는다.
+ *
+ * 저장 버튼이 없다 — 모든 칸이 <b>바뀌는 순간</b> 저장된다. 무엇이 어디에 저장되는지는
+ * 스토어가 안다(브라우저의 것과 데몬이 읽는 것은 다른 곳에 산다).
+ */
+@Singleton
+public class SettingsElement {
+    private final SettingsStore store;
+    private final Notifications notifications;
+    private final HTMLElement root = el("div");
+    private boolean wired = false;
+
+    @Inject
+    public SettingsElement(SettingsStore store, Notifications notifications) {
+        this.store = store;
+        this.notifications = notifications;
+    }
+
+    public void mount(HTMLElement frame) {
+        root.id = "settings";
+        frame.replaceChildren(root);
+        if (!wired) {
+            wired = true;
+            store.subscribe(this::render);
+        }
+        render();
+        store.read();
+    }
+
+    private void render() {
+        root.replaceChildren();
+        HTMLElement head = el("div");
+        head.id = "prefsK";
+        head.textContent = tr("nav.preferences");
+        root.append(head, scope());
+        HTMLElement form = el("div");
+        form.id = "prefsForm";
+        form.append(group("grpAppearance", tr("pref.grp.appearance")));
+        form.append(themeRow());
+        form.append(langRow());
+        form.append(group("grpNotify", tr("pref.grp.notify")));
+        form.append(notifyRow());
+        // 모델을 쓰는 것들은 그 능력이 있을 때만 — 서버가 어차피 거부하지만, 눌러서 거절에
+        // 닿는 컨트롤은 없는 컨트롤보다 나쁘다(운영 data-may와 같은 판단).
+        if (May.can("prompt")) {
+            form.append(group("grpAssist", tr("pref.grp.assist")));
+            form.append(switchRow("lookK", "lookWhy", "files.look", "files.look_why",
+                    "lookover", true, on -> store.keep("lookover", Prefs.word(on))));
+            form.append(switchRow("acK", "acWhy", "pref.autocomplete", "pref.autocomplete_why",
+                    "autocomplete", true, on -> store.keep("autocomplete", Prefs.word(on))));
+            form.append(switchRow("sugK", "sugWhy", "pref.suggest", "pref.suggest_why",
+                    "suggest", true, on -> store.keep("suggest", Prefs.word(on))));
+        }
+        // 데몬이 읽는 것들 — config를 고치는 일이라 그 능력이 있어야 한다.
+        if (May.can("configure")) form.append(completeGroup());
+        if (May.can("configure")) form.append(profilesGroup());
+        form.append(consoleGroup());
+        root.append(form);
+    }
+
+    /** 어느 파일을 고치는가 — 다음에 묻는 질문이고, 가서 읽을 수 있는 것이라 경로째 적는다. */
+    private HTMLElement scope() {
+        HTMLElement box = el("div");
+        box.id = "settingsScope";
+        box.className = "prefsay";
+        HTMLElement k = el("div");
+        k.className = "k";
+        k.id = "settingsScopeK";
+        String socket = store.socket();
+        k.textContent = socket.isEmpty() ? tr("settings.scope_global")
+                : tr("settings.scope_project", "name", nameOf(socket));
+        HTMLElement say = el("div");
+        say.className = "say";
+        say.id = "settingsScopeFile";
+        String file = str(complete(), "file");
+        say.textContent = file.isEmpty() ? "" : tr("settings.scope_file", "file", file);
+        box.append(k, say);
+        return box;
+    }
+
+    private HTMLElement themeRow() {
+        HTMLElement row = row("themeK", "themeWhy", "pref.theme", "");
+        HTMLElement btn = el("md-icon-button");
+        btn.id = "themeToggle";
+        btn.setAttribute("type", "button");
+        String now = store.pref("theme", "system");
+        btn.setAttribute("aria-label", tr("pref.theme." + now));
+        btn.setAttribute("title", tr("pref.theme." + now));
+        btn.textContent = "system".equals(now) ? "◐" : "light".equals(now) ? "☀" : "☾";
+        btn.addEventListener("click", evt -> {
+            String next = Prefs.nextTheme(store.pref("theme", "system"));
+            store.keep("theme", next);
+            applyTheme(next);
+            render();
+        });
+        row.append(btn);
+        return row;
+    }
+
+    private HTMLElement langRow() {
+        HTMLElement row = row("langK", null, "pref.lang", null);
+        HTMLElement sel = el("md-outlined-select");
+        sel.id = "lang";
+        String now = store.pref("lang", "system");
+        for (String[] o : new String[][]{{"system", "pref.lang.system"}, {"en", "pref.lang.en"},
+                {"ko", "pref.lang.ko"}}) {
+            HTMLElement opt = el("md-select-option");
+            opt.setAttribute("value", o[0]);
+            HTMLElement head = el("div");
+            head.setAttribute("slot", "headline");
+            head.textContent = tr(o[1]);
+            opt.append(head);
+            if (o[0].equals(now)) opt.setAttribute("selected", "");
+            sel.append(opt);
+        }
+        Js.asPropertyMap(sel).set("value", now);
+        sel.addEventListener("change", evt -> {
+            String want = value(sel);
+            store.keep("lang", want);
+            // 말이 바뀌면 이 창의 모든 화면이 제 말을 다시 칠한다 — 팩은 창에 하나다.
+            Labels.reload(this::render);
+        });
+        row.append(sel);
+        return row;
+    }
+
+    /**
+     * 알림 — 이 브라우저가 구독하면, 페이지를 닫아 두어도 컴패니언이 기다릴 때 깨운다.
+     *
+     * 켤 수 없는 자리가 여럿이고 그 이유가 서로 다르다: https가 아니거나, 브라우저가 푸시를
+     * 모르거나, 전에 거부했거나, 이 콘솔에 키가 없거나(데모가 그렇다). 스위치만 흐려 두면
+     * 무엇이 문제인지 알 수 없으니 그 이유를 아래 줄에 적는다.
+     */
+    private HTMLElement notifyRow() {
+        HTMLElement r = row("notifyK", "notifyWhy", "notify.k", "notify.how");
+        HTMLElement sw = el("md-switch");
+        sw.id = "notifySwitch";
+        sw.setAttribute("touch-target", "wrapper");
+        elemental2.dom.Element why = r.querySelector(".say");
+        String blocked = notifications.blocked();
+        if (!blocked.isEmpty()) {
+            sw.setAttribute("disabled", "");
+            if (why != null) why.textContent = tr(blocked);
+        } else {
+            notifications.subscribed(on -> {
+                Js.asPropertyMap(sw).set("selected", on);
+                if (why != null && on) why.textContent = tr("notify.is_on");
+            });
+            sw.addEventListener("change", evt -> {
+                boolean want = Js.isTruthy(Js.asPropertyMap(sw).get("selected"));
+                if (!want) {
+                    notifications.turnOff((err, endpoint, p256dh, auth) -> {
+                        if (!endpoint.isEmpty()) store.push(endpoint, p256dh, auth, true, () -> { });
+                        if (why != null) why.textContent = err.isEmpty() ? tr("notify.how") : err;
+                    });
+                    return;
+                }
+                store.pushKey(key -> {
+                    if (key == null || key.isEmpty() || "null".equals(key)) {
+                        Js.asPropertyMap(sw).set("selected", false);
+                        if (why != null) why.textContent = tr(store.demo() ? "notify.demo" : "notify.nokey");
+                        return;
+                    }
+                    notifications.turnOn(key, (err, endpoint, p256dh, auth) -> {
+                        if (!err.isEmpty() || endpoint.isEmpty()) {
+                            Js.asPropertyMap(sw).set("selected", false);
+                            if (why != null) why.textContent = err.startsWith("notify.") ? tr(err) : err;
+                            return;
+                        }
+                        store.push(endpoint, p256dh, auth, false,
+                                () -> { if (why != null) why.textContent = tr("notify.is_on"); });
+                    });
+                });
+            });
+        }
+        r.append(sw);
+        return r;
+    }
+
+    /** 데몬이 읽는 완성 설정 — 못 읽었으면 그 무리 자체를 그리지 않는다(빈 껍데기 금지). */
+    private HTMLElement completeGroup() {
+        HTMLElement box = el("div");
+        JsPropertyMap<Object> got = complete();
+        if (got == null) return box;
+        box.append(group("grpComplete", tr("ac.head")));
+        HTMLElement why = el("div");
+        why.className = "prefsay";
+        why.id = "acsBlock";
+        HTMLElement line = el("div");
+        line.className = "say";
+        line.id = "acsWhy";
+        line.textContent = tr("ac.head_why");
+        why.append(line);
+        box.append(why);
+        // 없는 키는 켜짐이 기본이다(운영: absent/true = default on).
+        box.append(daemonSwitch("ambientK", "ambientWhy", "ac.ambient", "ac.ambient_why",
+                !Js.isTruthy(got.get("ambient")) && got.has("ambient") ? false : true, "ambient"));
+        box.append(daemonSwitch("crossK", "crossWhy", "ac.cross", "ac.cross_why",
+                !Js.isTruthy(got.get("crossSession")) && got.has("crossSession") ? false : true, "crossSession"));
+        box.append(profileRow("codeProfK", "codeProfWhy", "ac.code_profile", "ac.code_profile_why",
+                "codeProfile", str(got, "codeProfile")));
+        box.append(profileRow("compProfK", "compProfWhy", "ac.composer_profile", "ac.composer_profile_why",
+                "composerProfile", str(got, "composerProfile")));
+        // 커밋과 PR의 규칙 — 이 워크스페이스에서 쓰는 말투를 적어 두면 그대로 따른다.
+        // 누를 때마다가 아니라 <b>손을 뗄 때</b> 저장한다: 글은 한 글자마다 끝나지 않는다.
+        box.append(templateRow("commitTplK", "ac.commit_tpl", "commitTemplate", str(got, "commitTemplate")));
+        box.append(templateRow("prTplK", "ac.pr_tpl", "prTemplate", str(got, "prTemplate")));
+        return box;
+    }
+
+    /**
+     * 모델 프로파일 — 위의 완성 설정이 <b>고르는 것</b>들이다.
+     *
+     * 목록과 폼이 한 자리에 있는 이유: 고치기는 그 줄을 폼에 실어 오는 일이고, 새로 만들기는
+     * 빈 폼에 적는 일이다. 두 화면으로 가르면 "이건 새 것인가 고치는 것인가"를 사람이 기억해야
+     * 한다. 키는 적었을 때만 보낸다 — 빈 칸은 "지우라"가 아니라 "그대로 두라"이다.
+     */
+    private HTMLElement profilesGroup() {
+        HTMLElement box = el("div");
+        box.append(group("grpProfiles", tr("prof.head")));
+        HTMLElement why = el("div");
+        why.className = "prefsay";
+        HTMLElement line = el("div");
+        line.className = "say";
+        line.id = "profWhy";
+        line.textContent = tr("prof.head_why");
+        why.append(line);
+        box.append(why);
+
+        HTMLElement listBox = el("div");
+        listBox.className = "prefsay";
+        HTMLElement list = el("div");
+        list.className = "proflist";
+        list.id = "profList";
+        listBox.append(list);
+        box.append(listBox);
+
+        HTMLElement name = field("profName", tr("prof.name"));
+        HTMLElement base = field("profBase", tr("prof.base_url"));
+        HTMLElement model = field("profModel", tr("prof.model"));
+        HTMLElement key = field("profKey", tr("prof.api_key"));
+        key.setAttribute("supporting-text", tr("prof.api_key_hint"));
+        HTMLElement save = el("md-text-button");
+        save.id = "profSave";
+        save.textContent = tr("prof.add");
+        save.addEventListener("click", evt -> {
+            String said = value(name).trim();
+            if (said.isEmpty()) { line.textContent = tr("prof.need_name"); return; }
+            store.saveProfile(said, value(base), value(model), value(key), false, w -> {
+                if (w != null && !w.isEmpty()) { line.textContent = w; return; }
+                line.textContent = tr("prof.head_why");
+                Js.asPropertyMap(name).set("value", "");
+                Js.asPropertyMap(base).set("value", "");
+                Js.asPropertyMap(model).set("value", "");
+                Js.asPropertyMap(key).set("value", "");
+            });
+        });
+        HTMLElement form = el("div");
+        form.className = "profform";
+        form.append(name, base, model, key, save);
+        box.append(form);
+
+        JsArrayLike<Object> got = Js.uncheckedCast(store.profiles());
+        for (int i = 0; got != null && i < got.getLength(); i++) {
+            JsPropertyMap<Object> pr = Js.uncheckedCast(got.getAt(i));
+            list.append(profileRowOf(pr, name, base, model));
+        }
+        if (got == null || got.getLength() == 0) {
+            HTMLElement none = el("div");
+            none.className = "profempty";
+            none.textContent = tr("prof.none");
+            list.append(none);
+        }
+        return box;
+    }
+
+    /** 한 줄 — 이름, 그것이 무엇인지, 그리고 고치기와 제거. */
+    private HTMLElement profileRowOf(JsPropertyMap<Object> pr, HTMLElement name,
+                                     HTMLElement base, HTMLElement model) {
+        HTMLElement r = el("div");
+        r.className = "profrow";
+        HTMLElement nm = el("div");
+        nm.className = "profnm";
+        nm.textContent = str(pr, "name");
+        HTMLElement meta = el("div");
+        meta.className = "profmeta";
+        String mdl = str(pr, "model");
+        StringBuilder bits = new StringBuilder(mdl.isEmpty() ? tr("prof.no_model") : mdl);
+        if (Js.isTruthy(pr.get("hasKey"))) bits.append("  ·  ").append(tr("prof.keyed"));
+        bits.append("  ·  ").append("project".equals(str(pr, "tier"))
+                ? str(pr, "companion") : tr("cron.machine"));
+        meta.textContent = bits.toString();
+        HTMLElement edit = el("md-text-button");
+        edit.className = "profedit";
+        edit.textContent = tr("action.edit");
+        edit.addEventListener("click", evt -> {
+            // 고치기는 그 줄을 폼으로 실어 오는 일이다 — 키는 실어 오지 않는다(보이지 않는 값이라).
+            Js.asPropertyMap(name).set("value", str(pr, "name"));
+            Js.asPropertyMap(base).set("value", str(pr, "baseUrl"));
+            Js.asPropertyMap(model).set("value", str(pr, "model"));
+            Js.<HTMLElement>uncheckedCast(name).focus();
+        });
+        HTMLElement drop = el("md-text-button");
+        drop.className = "profdrop";
+        drop.textContent = tr("action.remove");
+        drop.addEventListener("click", evt ->
+                store.saveProfile(str(pr, "name"), null, null, null, true, w -> { }));
+        r.append(nm, meta, edit, drop);
+        return r;
+    }
+
+    /** 이 콘솔 — 좁은 화면에서 접근 제어로 가는 길(레일이 접힌 자리의 그 문). */
+    private HTMLElement consoleGroup() {
+        HTMLElement box = el("div");
+        box.append(group("grpConsole", tr("pref.grp.console")));
+        // 이 콘솔이 무엇인가 — 호스트, 어느 config를 읽고 있나, 그리고 판본 둘. 물어볼 데가
+        // 여기뿐이라 적는다(창 전체의 사실이므로 셸이 읽어 올린 것을 든다).
+        HTMLElement facts = el("div");
+        facts.className = "prefsay";
+        HTMLElement k = el("div");
+        k.className = "k";
+        k.id = "consoleK";
+        k.textContent = tr("nav.this_console");
+        HTMLElement lines = el("div");
+        lines.id = "console";
+        facts.append(k, lines);
+        box.append(facts);
+        dev.sayaya.magi.bridge.Facts.onConsole(info -> {
+            if (info == null) return;
+            JsPropertyMap<Object> c = Js.uncheckedCast(info);
+            lines.replaceChildren();
+            for (String[] one : new String[][]{{"field.host", str(c, "host")},
+                    {"field.config", str(c, "configDir")},
+                    {"field.console_version", str(c, "version")},
+                    {"field.daemon_version", joinDaemons(c)}}) {
+                if (one[1].isEmpty()) continue;
+                HTMLElement line = el("div");
+                HTMLElement b = el("b");
+                b.textContent = tr(one[0]) + " ";
+                line.append(b, DomGlobal.document.createTextNode(one[1]));
+                lines.append(line);
+            }
+        });
+        if (!May.can("admin")) return box;
+        HTMLElement r = row("accessK", "accessWhy", "nav.access", "nav.access_sub");
+        r.className = "prefrow narrowonly";
+        HTMLElement go = el("md-text-button");
+        go.id = "accessGo";
+        go.textContent = tr("nav.access");
+        go.addEventListener("click", evt -> dev.sayaya.magi.bridge.GoSharing.view("access"));
+        r.append(go);
+        box.append(r);
+        return box;
+    }
+
+    private static String joinDaemons(JsPropertyMap<Object> c) {
+        JsArrayLike<Object> all = Js.uncheckedCast(c.get("daemons"));
+        if (all == null) return "";
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < all.getLength(); i++) {
+            if (out.length() > 0) out.append(", ");
+            out.append(String.valueOf(all.getAt(i)));
+        }
+        return out.toString();
+    }
+
+    private HTMLElement field(String id, String label) {
+        HTMLElement f = el("md-outlined-text-field");
+        f.id = id;
+        f.setAttribute("label", label);
+        return f;
+    }
+
+    /** 여러 줄을 적는 칸 — 저장은 손을 뗄 때(값이 실제로 바뀌었을 때만). */
+    private HTMLElement templateRow(String kId, String kKey, String field, String now) {
+        // 쌓는 줄은 .prefsay 하나다 — row()로 만들면 그 안에 .prefsay가 한 겹 더 생겨,
+        // 같은 이름이 두 번 세어진다(운영과 견주다 드러난 그 한 겹).
+        HTMLElement r = el("div");
+        r.className = "prefsay";
+        HTMLElement k = el("div");
+        k.className = "k";
+        k.id = kId;
+        k.textContent = tr(kKey);
+        r.append(k);
+        HTMLElement f = el("md-outlined-text-field");
+        f.id = field;
+        f.setAttribute("type", "textarea");
+        f.setAttribute("rows", "3");
+        Js.asPropertyMap(f).set("value", now == null ? "" : now);
+        final String[] saved = {now == null ? "" : now};
+        f.addEventListener("blur", evt -> {
+            String said = value(f);
+            if (said.equals(saved[0])) return;   // 바뀐 적 없는 값을 다시 쓰지 않는다
+            saved[0] = said;
+            store.save(field, said);
+        });
+        r.append(f);
+        return r;
+    }
+
+    private HTMLElement profileRow(String kId, String whyId, String kKey, String whyKey,
+                                   String field, String now) {
+        HTMLElement r = row(kId, whyId, kKey, whyKey);
+        HTMLElement sel = el("md-outlined-select");
+        sel.className = "profsel";
+        sel.setAttribute("data-field", field);
+        HTMLElement none = el("md-select-option");
+        none.setAttribute("value", "");
+        HTMLElement noneHead = el("div");
+        noneHead.setAttribute("slot", "headline");
+        noneHead.textContent = tr("ac.profile_none");
+        none.append(noneHead);
+        sel.append(none);
+        JsArrayLike<Object> profiles = Js.uncheckedCast(complete().get("profiles"));
+        for (int i = 0; profiles != null && i < profiles.getLength(); i++) {
+            String name = String.valueOf(profiles.getAt(i));
+            HTMLElement opt = el("md-select-option");
+            opt.setAttribute("value", name);
+            HTMLElement head = el("div");
+            head.setAttribute("slot", "headline");
+            head.textContent = name;
+            opt.append(head);
+            sel.append(opt);
+        }
+        Js.asPropertyMap(sel).set("value", now);
+        sel.addEventListener("change", evt -> store.save(field, value(sel)));
+        r.append(sel);
+        return r;
+    }
+
+    private HTMLElement daemonSwitch(String kId, String whyId, String kKey, String whyKey,
+                                     boolean on, String field) {
+        HTMLElement r = row(kId, whyId, kKey, whyKey);
+        HTMLElement sw = el("md-switch");
+        sw.setAttribute("touch-target", "wrapper");
+        sw.setAttribute("data-field", field);
+        Js.asPropertyMap(sw).set("selected", on);
+        sw.addEventListener("change", evt ->
+                store.save(field, Prefs.word(Js.isTruthy(Js.asPropertyMap(sw).get("selected")))));
+        r.append(sw);
+        return r;
+    }
+
+    private HTMLElement switchRow(String kId, String whyId, String kKey, String whyKey,
+                                  String prefKey, boolean byDefault, Kept kept) {
+        HTMLElement r = row(kId, whyId, kKey, whyKey);
+        HTMLElement sw = el("md-switch");
+        sw.setAttribute("touch-target", "wrapper");
+        sw.setAttribute("data-pref", prefKey);
+        Js.asPropertyMap(sw).set("selected", store.switchOn(prefKey, byDefault));
+        sw.addEventListener("change", evt ->
+                kept.call(Js.isTruthy(Js.asPropertyMap(sw).get("selected"))));
+        r.append(sw);
+        return r;
+    }
+
+    private interface Kept { void call(boolean on); }
+
+    /** 한 줄: 이름과 그 아래 설명, 그리고 줄 끝의 컨트롤(운영 .prefrow의 그 모양). */
+    private HTMLElement row(String kId, String whyId, String kKey, String whyKey) {
+        HTMLElement r = el("div");
+        r.className = "prefrow";
+        HTMLElement say = el("div");
+        say.className = "prefsay";
+        HTMLElement k = el("div");
+        k.className = "k";
+        k.id = kId;
+        k.textContent = tr(kKey);
+        say.append(k);
+        if (whyId != null && whyKey != null && !whyKey.isEmpty()) {
+            HTMLElement why = el("div");
+            why.className = "say";
+            why.id = whyId;
+            why.textContent = tr(whyKey);
+            say.append(why);
+        }
+        r.append(say);
+        return r;
+    }
+
+    private HTMLElement group(String id, String words) {
+        HTMLElement g = el("div");
+        g.className = "prefgroup";
+        g.id = id;
+        g.textContent = words;
+        return g;
+    }
+
+    /** 문서에 테마를 적는다 — "기계를 따름"은 적지 않는 것이다(그래야 매체 질의가 답한다). */
+    private static void applyTheme(String pref) {
+        String attr = Prefs.themeAttribute(pref);
+        if (attr == null) DomGlobal.document.documentElement.removeAttribute("color-theme");
+        else DomGlobal.document.documentElement.setAttribute("color-theme", attr);
+    }
+
+    private JsPropertyMap<Object> complete() {
+        return store.complete() == null ? null : Js.uncheckedCast(store.complete());
+    }
+
+    private static String nameOf(String socket) {
+        int slash = socket.lastIndexOf('/');
+        return slash >= 0 ? socket.substring(slash + 1) : socket;
+    }
+
+    private static String str(JsPropertyMap<Object> m, String k) {
+        Object v = m == null ? null : m.get(k);
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    private static String value(HTMLElement f) {
+        Object v = Js.asPropertyMap(f).get("value");
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    private static HTMLElement el(String tag) { return Js.uncheckedCast(DomGlobal.document.createElement(tag)); }
+}

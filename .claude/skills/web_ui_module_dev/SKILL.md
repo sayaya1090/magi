@@ -178,3 +178,60 @@ GWT의 IFrameLinker는 컴파일된 모듈을 숨은 0×0 iframe 안에서 돌�
 
 `scratchpad/uitest/motion2.mjs`(등장), `motion3.mjs`(폰 방향), `trans.mjs`(트랜지션 대조),
 `railanim.mjs`(레일 라벨/서브)로 잰다. round 라운드가 화면마다 `.enter`를 지킨다.
+
+## 도크의 질문 상자 (2026-08-27 이식)
+
+`#prompt`는 **부모(companion-ui)의 것**이다 — 무엇을 물었든 답하는 방식은 타입과 무관하고,
+도크도 이미 부모의 것이라서. 세 갈래(운영 그대로): 퍼미션=결정 넷(한 무게 + 표), 보기 딸린
+질문=보기 버튼 + "그밖에", **맨 질문=상자를 그리지 않고 컴포저가 답한다**(글 상자 둘을 위아래로
+세우지 않는다는 규칙). 그 마지막 갈래만 자식에게 알린다: `AskSharing`(창 브리지, 현재값 재생) —
+자식은 제 입력의 목적지를 바꾸고, 라벨·버튼 낱말·아래 한 줄을 **몫이 바뀔 때만** 갈아입으며,
+쓰던 초고는 지우지 않고 맡아 둔다(몫마다 제 초고).
+
+## 남은 화면 셋 이식 (2026-08-27)
+
+- **회의실**(meeting-ui, v=meet&m=): 주소의 조각(?m=)은 셸이 싣고 되읽는다 — 화면이 직접
+  pushState하면 뒤로가기가 셸이 모르는 자리에 선다. `GoSharing.viewWith` + `Destination.PIECES`.
+  폴 두 초, 쓰는 중이면 그리지 않기, 내용이 같으면 다시 그리지 않기(운영의 그 세 규칙).
+- **환경설정**(settings-ui, v=settings): 다이얼로그가 아니라 화면 — 같은 컨트롤이 서 있는
+  자리로 다른 config를 고치기 때문이고, 그 사실을 맨 위에 적는다. 저장 버튼 없음.
+- **⌘K 팔레트**(shell-ui): 창의 것이라 화면 밖에 선다. 화면이 제 항목을 더하는 문은
+  `PaletteSharing` — 툴 레일(ToolList)과 같은 규칙(셸이 자식의 기능을 알지 않는다).
+  ⚠ md-dialog는 `open` 속성이 아니라 제 메서드로 연다(`show()`), 안 그러면 아무 일도 없다.
+
+⚠ **한 API를 두 모듈이 읽고 있으면 단일 원천이 아니다**(사용자 지적): 지금 `/fleet`+`/events`를
+shell-ui(RosterSource)와 companion-ui(FleetRepository)가, `CompanionSource`를 companion-ui와
+coding-agent-ui가 각각 갖고 있다. 다음 정리 대상.
+
+⚠ **데모의 목은 모듈마다 제 것을 실어야 한다**(사용자 지적): GWT가 모듈을 iframe에서 돌리므로
+페이지의 fetch만 갈아끼우면 모듈에 닿지 않고, 부모 창의 fetch로 몰아 두면 배포 구조(모듈마다
+제 주기로 배포)를 거스른다. 지금은 옛 방식(페이지 목)이라 신 콘솔 데모가 그 자리에 멈춰 있다.
+
+## 목은 모듈이 싣고, API의 주인은 하나다 (2026-08-27, 사용자 지적 둘)
+
+**① 데모의 목은 모듈마다.** `Demo.on()`(window.MAGI_DEMO)을 보고 그 모듈의 Dagger 그래프가
+`Demo*Source`를 문다. 페이지가 fetch를 갈아끼우는 방식은 두 번 틀렸다: 모듈은 GWT의 iframe
+안에서 돌아 페이지의 전역을 보지 못하고(실측: 모든 화면 빈 채), 부모 창에 묶어 고치면 배포
+구조를 거스른다(화면은 저마다의 주기로 배포된다). 데모 emitter가 하는 일은 한 줄 —
+`window.MAGI_DEMO = true`. ⚠ 새 포트를 만들면 목도 만들 것: `TestEveryPortShipsItsOwnDemo`가
+포트마다 `Demo*` 구현을 요구한다(브리지로만 사는 포트는 `bridged` 표에 적어 면제).
+
+**② 한 API를 두 모듈이 읽으면 단일 원천이 아니다.** 정리한 것:
+- `/fleet`+`/events` → 셸 하나. companion-ui·coding-agent-ui의 "브리지 없으면 제 회선" 폴백을
+  삭제(그 폴백이 창당 스트림 하나라는 규칙을 안에서 깨고 있었다), board/map도 RosterSharing.
+- `/plan`·`/context`·`/compact` → 컴패니언 패널(부모)만. 자식에서 삭제.
+- `/answer` → 부모만. 자식 컴포저는 `AskSharing.answer`로 넘긴다(질문을 아는 쪽이 보낸다).
+- `/console`·`/me` → 셸이 한 번 읽어 창에 올리고(`Facts`), 화면은 든다. `May.load`는 이제
+  읽지 않는다(셸이 올린 것을 읽기만).
+같은 엔드포인트라도 **다른 질문**이면 각자 주인이다(예: `/history`는 자식의 "이 컴패니언의
+지난 일"과 보드의 "모두의 지난 일").
+
+## PWA·푸시·스프라이트 (2026-08-27)
+
+- 설치에 필요한 것(manifest·icon·icon-maskable·sw.js)과 **아이콘 스프라이트**는
+  `internal/webassets` 단일 원천. 옛 콘솔이 사라져도 새 콘솔이 그것을 잃지 않는다.
+  console.html의 `<!--ICON-SPRITE-->` 자리에 서버가 심는다(라이선스 없는 빌드는 표식만 사라짐).
+- 알림은 브라우저의 사실이라 `interfaces/Notifications`가 브라우저 API를 직접 만진다.
+  ⚠ **JSNI의 파서는 옛 문법만 안다**: `async`/화살표 함수는 문법 오류, `.catch(` 는 예약어라
+  `["catch"](…)`로 불러야 한다(둘 다 실측).
+- 숨은 탭은 스트림을 반납한다(`visibilitychange`) — 돌아오면 열고 명단 한 번으로 따라잡는다.

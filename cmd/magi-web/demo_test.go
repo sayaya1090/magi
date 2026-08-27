@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/sayaya1090/magi/internal/webdemo"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -100,12 +101,12 @@ func TestTheMockAnswersExactlyWhatThePageAsksFor(t *testing.T) {
 		if path == "/events" || path == "/i18n" {
 			continue
 		}
-		if !strings.Contains(demoScript, "'"+path+"'") {
+		if !strings.Contains(webdemo.Script, "'"+path+"'") {
 			t.Errorf("the page fetches %s and the mock has no answer for it — that screen is blank "+
 				"in the demo", path)
 		}
 	}
-	for _, quoted := range mockRoutesIn(demoScript) {
+	for _, quoted := range mockRoutesIn(webdemo.Script) {
 		if !asked[quoted] {
 			t.Errorf("the mock answers %s and the page never asks for it", quoted)
 		}

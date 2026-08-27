@@ -34,6 +34,27 @@ public class FetchRosterSource implements RosterSource {
     public void start(Listener l) {
         listener = l;
         open();
+        watchTab();
+    }
+
+    /**
+     * 보이지 않는 탭은 회선을 <b>반납한다</b>.
+     *
+     * 스트림은 창당 하나이고, 그 하나는 데몬의 자원이기도 하다: 열어 둔 채 잊힌 탭 다섯이
+     * 컴패니언 다섯을 붙잡고 있으면 그것은 아무도 보지 않는 일을 위해 데몬이 계속 말하는
+     * 것이다. 돌아오면 다시 열고, 그 사이의 일은 한 번의 명단 읽기가 따라잡는다 — 스트림은
+     * 지금을 나르지 과거를 나르지 않으므로, 반납의 값은 재접속 한 번이다.
+     */
+    private void watchTab() {
+        DomGlobal.document.addEventListener("visibilitychange", evt -> {
+            if (Js.isTruthy(Js.asPropertyMap(DomGlobal.document).get("hidden"))) {
+                generation++;
+                if (es != null) { es.close(); es = null; }
+                if (listener != null) listener.link(false);
+                return;
+            }
+            if (listener != null && es == null) { open(); refresh(); }
+        });
     }
 
     @Override
@@ -42,6 +63,13 @@ public class FetchRosterSource implements RosterSource {
         socket = wantSocket;
         peer = wantPeer;
         reopen();
+    }
+
+    @Override
+    public void facts(java.util.function.Consumer<Object> consoleInfo, java.util.function.Consumer<Object> caps) {
+        Console.fetchList("/console", consoleInfo::accept);
+        Console.fetchList("/me", parsed ->
+                caps.accept(parsed == null ? null : Js.asPropertyMap(parsed).get("can")));
     }
 
     @Override
@@ -58,7 +86,7 @@ public class FetchRosterSource implements RosterSource {
 
     private void open() {
         final int mine = ++generation;
-        es = new EventSource("/events" + q());
+        es = dev.sayaya.magi.bridge.Console.stream("/events" + q());
         es.addEventListener("open", evt -> listener.link(true));
         es.addEventListener("fleet", evt -> {
             MessageEvent<String> me = Js.uncheckedCast(evt);

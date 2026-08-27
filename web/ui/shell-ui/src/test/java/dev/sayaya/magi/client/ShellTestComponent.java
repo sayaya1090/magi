@@ -14,6 +14,8 @@ public interface ShellTestComponent {
     ShellInitializer initializer();
     ToolList toolList();
     MastheadElement masthead();
+
+    dev.sayaya.magi.client.interfaces.PaletteElement palette();
     RailElement rail();
     FrameElement frame();
 }

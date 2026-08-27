@@ -62,6 +62,12 @@ public class RosterStore implements RosterSource.Listener {
         source.refresh();
     }
 
+    /** 창 전체의 두 사실 — 스토어는 나르기만 한다(무엇인지는 브리지가 안다). */
+    public void facts(java.util.function.Consumer<Object> consoleInfo,
+                      java.util.function.Consumer<Object> caps) {
+        source.facts(consoleInfo, caps);
+    }
+
     public void refresh() { source.refresh(); }
 
     /** 지난 일 층위 — 스트림은 그대로 두고 컨텍스트만 갈아탄다(과거는 fetch의 것이다). */
@@ -113,7 +119,8 @@ public class RosterStore implements RosterSource.Listener {
         // 조준된 행의 타입 선언이 이제야 도착했을 수 있다 — 컨텍스트가 따라간다.
         if (aimedSocket != null && listOrNull != null) {
             String want = typeOf(aimedSocket).id;
-            if (ctx == null || !want.equals(ctx.type)) pushContext();
+            String dir = workdirOf(aimedSocket);
+            if (ctx == null || !want.equals(ctx.type) || !dir.equals(ctx.workdir)) pushContext();
         }
     }
 
@@ -139,8 +146,15 @@ public class RosterStore implements RosterSource.Listener {
     private void pushContext() {
         ctx = aimedSocket == null ? null
                 : CompanionContext.of(aimedSocket, aimedPeer, typeOf(aimedSocket).id, aimedPast,
-                        typeOf(aimedSocket).module, typeOf(aimedSocket).styles);
+                        typeOf(aimedSocket).module, typeOf(aimedSocket).styles, workdirOf(aimedSocket));
         for (CompanionSharing.NextFn o : ctxObs) o.call(ctx);
+    }
+
+    /** 그 컴패니언의 작업공간 — 명단이 아는 사실이고, 명단의 주인은 셸이다. */
+    private String workdirOf(String socket) {
+        if (current == null || socket == null) return "";
+        for (FleetAgent a : current) if (socket.equals(a.socket)) return a.workdir == null ? "" : a.workdir;
+        return "";
     }
 
     private static boolean eq(String a, String b) { return a == null ? b == null : a.equals(b); }
