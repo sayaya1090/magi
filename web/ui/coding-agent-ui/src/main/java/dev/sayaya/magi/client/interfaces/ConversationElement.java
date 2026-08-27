@@ -331,6 +331,26 @@ public class ConversationElement {
     }-*/;
 
     /**
+     * 홈통에 적히는 이름 — <b>누가 말했는가</b>이지 어느 기계가 냈는가가 아니다.
+     *
+     * 카운슬 행은 그 자리의 이름을 쓴다("council"이 세 번 서 있으면 어느 자리인지 못 말한다),
+     * 사람의 행은 "당신"(컴패니언이 이름을 붙였으면 그 이름), 시스템 행은 magi의 어느 부분이
+     * 썼는지, 모델의 행은 magi다(운영 whoWord 그대로).
+     */
+    private static String whoWord(JsPropertyMap<Object> r, String who) {
+        if ("council".equals(who) && !str(r, "member").isEmpty()) return str(r, "member");
+        // 컴패니언이 사람을 달리 부르면 그 이름이지만(플러그인이 붙이는 사실), 그것은 로그에
+        // 없고 데몬의 버스에만 있다 — 그 문이 생기기 전까지는 "당신"이다.
+        if ("user".equals(who)) return tr("row.you");
+        if ("system".equals(who)) {
+            String by = str(r, "by");
+            return by.isEmpty() ? tr("row.system") : by;
+        }
+        if ("assistant".equals(who)) return "magi";
+        return who;
+    }
+
+    /**
      * 한 표결이 무엇을 보고 내려졌는가 — 가운데의 카드로 편다(사실판·파일과 같은 줄을 쓴다).
      *
      * 증거가 없는 라운드는 그렇다고 <b>말한다</b>: 소집이 접혀 나간 라운드의 증거는 정말로
@@ -488,7 +508,7 @@ public class ConversationElement {
                 Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")));
         HTMLElement w = el("div");
         w.className = "who";
-        w.textContent = who;
+        w.textContent = whoWord(r, who);
         // 카운슬 자리의 이름은 누를 수 있다 — 그 표결이 <b>무엇을 보고</b> 내려졌는지로 간다.
         // 표를 검증 가능하게 만드는 반쪽이고, 전사의 한 줄에는 그것이 들어갈 자리가 없다.
         String member = str(r, "member");
@@ -497,7 +517,7 @@ public class ConversationElement {
             HTMLElement name = el("button");
             name.setAttribute("type", "button");
             name.className = "who whoin hit48";
-            name.textContent = who;
+            name.textContent = whoWord(r, who);
             name.setAttribute("aria-label", tr("detail.evidence") + ": " + member);
             name.setAttribute("title", tr("detail.evidence"));
             final int at = (int) round;

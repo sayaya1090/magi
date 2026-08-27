@@ -106,12 +106,14 @@ public class DemoRosterSource implements RosterSource {
             + " \"instance\": \"you@buildbox\", \"trust\": \"admitted\", \"addr\": \"10.0.0.21\"}]";
 
     /** 전사는 화면이 그릴 줄 아는 것을 한 번씩 보인다: 말·생각·도구(성공과 실패)·디프. */
-    private static final String TRANSCRIPT = "["
-            + "{\"who\":\"user\",\"text\":\"run the migration and tell me what changed\"},"
-            + "{\"who\":\"thinking\",\"text\":\"read the migration first\\nthen ask before running it\"},"
-            + "{\"who\":\"tool\",\"tool\":\"bash\",\"args\":\"{\\\"command\\\":\\\"cat migrations/0421.sql\\\"}\","
-            + "\"out\":\"alter table sessions add column title text;\",\"ok\":true},"
-            + "{\"who\":\"tool\",\"tool\":\"edit\",\"args\":\"{\\\"path\\\":\\\"internal/app/loop.go\\\"}\","
-            + "\"diff\":\"--- a/internal/app/loop.go\\n+++ b/internal/app/loop.go\\n@@ -1 +1 @@\\n-old\\n+new\",\"ok\":false},"
-            + "{\"who\":\"assistant\",\"text\":\"one statement, additive — asking before running it\"}]";
+    private static final String TRANSCRIPT = "[{\"who\": \"user\", \"text\": \"find every component that draws an empty state, and say which token each uses\"},"
+            + " {\"who\": \"thinking\", \"text\": \"Start with a grep for the empty-state class, then read the ones that match.\"},"
+            + " {\"who\": \"tool\", \"tool\": \"grep\", \"args\": \"{\\\"pattern\\\":\\\"empty-state\\\",\\\"path\\\":\\\"src\\\"}\", \"ok\": true,"
+            + " \"out\": \"src/list.tsx\\nsrc/table.tsx\\nsrc/inbox.tsx\"}, {\"who\": \"tool\", \"tool\": \"edit\", \"ok\": true,"
+            + " \"args\": \"{\\\"path\\\":\\\"src/inbox.tsx\\\",\\\"old\\\":\\\"  color: #8a8a8a;\\\",\\\"new\\\":\\\"  color: var(--surface-dim);\\\"}\","
+            + " \"diff\": \"-  color: #8a8a8a;\\n+  color: var(--surface-dim);\", \"out\": \"\\\"edited src/inbox.tsx\\\"\"},"
+            + " {\"who\": \"tool\", \"tool\": \"todo_write\", \"ok\": true, \"args\": \"{\\\"todos\\\": [{\\\"content\\\": \\\"read what the empty states do now\\\","
+            + " \\\"status\\\": \\\"completed\\\"}, {\\\"content\\\": \\\"write the spec\\\", \\\"status\\\": \\\"completed\\\"}, {\\\"content\\\": \\\"name the tokens it uses\\\","
+            + " \\\"status\\\": \\\"in_progress\\\"}, {\\\"content\\\": \\\"get it reviewed by buttons\\\", \\\"status\\\": \\\"pending\\\"}]}\"},"
+            + " {\"who\": \"assistant\", \"text\": \"Three: list, table and inbox. list and table use --surface-dim; inbox draws its own grey and does not use a token at all.\"}]";
 }

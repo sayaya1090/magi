@@ -47,7 +47,12 @@ public class MastheadElement {
         this.roster = roster;
         this.palette = palette;
         build();
-        nav.subscribe(place -> { standing = place; crumbs(); });
+        nav.subscribe(place -> {
+            standing = place;
+            crumbs();
+            // 자리가 바뀌면 그 줄의 몫도 바뀐다 — 목록에서는 수를, 컴패니언 곁에서는 점만.
+            count(lastRoster);
+        });
         roster.subscribe(list -> { count(list); crumbs(); });
         roster.subscribeLink(up -> {
             state.classList.toggle("live", up);
@@ -185,6 +190,15 @@ public class MastheadElement {
     private void count(dev.sayaya.magi.bridge.FleetAgent[] list) {
         if (list == null) return;   // 못 읽음은 점(lost)이 말한다; 수는 마지막 앎을 지킨다
         lastRoster = list;
+        // 이 수는 <b>목록 화면의 것</b>이다. 컴패니언 곁에서는 같은 줄이 그 컴패니언의 계단을
+        // 이고 있어, 거기에 수를 겹쳐 쓰면 한 자리에 두 필자가 서는 그 모양이 된다(운영 규칙).
+        // 게다가 860px에서는 그 수 때문에 바가 두 줄로 접혀 아래 줄의 아이콘이 본문을 밀어냈다.
+        if (standing != null && standing.isCompanion()) {
+            said = "";
+            state.replaceChildren();
+            state.classList.toggle("asking", false);
+            return;
+        }
         int waiting = 0;
         for (dev.sayaya.magi.bridge.FleetAgent a : list) if ("waiting".equals(a.state)) waiting++;
         String n = String.valueOf(list.length);
