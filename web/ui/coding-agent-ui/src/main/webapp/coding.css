@@ -6,3 +6,29 @@
 
 /* 턴바의 자리만 — 운영은 마스트헤드에 붙박이지만 이 화면은 제 머리 위에 둔다. */
 #companion #turnwrap { position:relative; min-height:2px; }
+
+/* ── 워크스페이스(왼쪽) ────────────────────────────────────────────────────
+   트리 행·git 줄의 모양은 console.css의 계약(.treerow/.treename/.gitline…)이 입힌다.
+   여기는 이 슬롯이 새로 세운 것만: 두 카드가 각자 스크롤한다는 것과, 왼쪽에서 연 파일. */
+
+#files { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
+
+/* 카드마다 제 스크롤 — 삼백 개짜리 저장소에서 하나로 묶으면 git을 보러 내려가는 동안
+   트리가 읽던 자리를 잃는다(운영에서 확인된 그 규칙). */
+#files .panebody { max-height:26rem; overflow:auto; overscroll-behavior:contain; }
+
+/* 왼쪽에서 연 것은 왼쪽에서 읽는다 — 가운데는 대화의 자리다. */
+#files .fileview { border-top:1px solid var(--magi-ref-outlineVariant); margin-top:var(--magi-sys-space-100); }
+#files .filetop { display:flex; align-items:center; gap:var(--magi-sys-space-100); }
+#files .filepath {
+  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
+  color:var(--magi-ref-muted); overflow-wrap:anywhere; flex:1;
+}
+#files .filebody {
+  margin:0; max-height:22rem; overflow:auto;
+  font:var(--md-sys-typescale-body-small-size)/1.5 var(--magi-ref-mono);
+}
+#files .gitmarkk {
+  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
+  color:var(--magi-ref-muted); flex:none;
+}

@@ -12,6 +12,11 @@ public class TestApplication implements EntryPoint {
         HTMLElement frame = Js.uncheckedCast(DomGlobal.document.createElement("main"));
         frame.id = "frame";
         DomGlobal.document.body.appendChild(frame);
-        DaggerCodingTestComponent.create().conversation().mount(frame);
+        CodingTestComponent c = DaggerCodingTestComponent.create();
+        HTMLElement left = Js.uncheckedCast(DomGlobal.document.createElement("div"));
+        left.id = "leftslot";
+        DomGlobal.document.body.appendChild(left);
+        c.conversation().mount(frame);
+        c.workspace().mount(left);
     }
 }

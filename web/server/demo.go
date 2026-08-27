@@ -87,6 +87,24 @@ const demoShim = `
     if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
     if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
     if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
+    if (url.startsWith('/files')) {
+      const dirs = {};
+      for (const p of new URLSearchParams(url.split('?')[1] || '').getAll('path')) {
+        dirs[p] = p === '.' ? [{name: 'cmd', isDir: true}, {name: 'README.md', isDir: false},
+                               {name: 'go.mod', isDir: false}]
+                : p === 'cmd' ? [{name: 'main.go', isDir: false}] : [];
+      }
+      return Promise.resolve(new Response(JSON.stringify({dirs})));
+    }
+    if (url.startsWith('/git')) {
+      return Promise.resolve(new Response(JSON.stringify({repo: true, branch: 'main', ahead: 1, behind: 0,
+        changes: [{path: 'cmd/main.go', kind: 'staged', status: 'M'},
+                  {path: 'README.md', kind: 'worktree', status: 'M'}]})));
+    }
+    if (url.startsWith('/file')) {
+      return Promise.resolve(new Response(JSON.stringify({path: 'cmd/main.go',
+        text: 'package main\n\nfunc main() {}\n'})));
+    }
     if (url.startsWith('/plan')) {
       return Promise.resolve(new Response(JSON.stringify([
         {content: 'read the migration', status: 'completed'},

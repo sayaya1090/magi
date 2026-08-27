@@ -96,6 +96,43 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#conversation form:not([hidden])").count() shouldBe 1
             }
         }
+        When("워크스페이스(왼쪽)가 그려지면") {
+            Then("트리 카드와 git 카드가 각자 선다 — 하나의 스크롤로 묶지 않는다") {
+                page.waitForSelector("#leftslot #files .pane-files")
+                page.locator("#files .filescard").count() shouldBe 2
+                page.locator("#files .pane-files .treerow").count() shouldBe 3
+            }
+            Then("git은 브랜치와 앞선 수를, 변경은 두 무리로 말한다") {
+                page.locator("#files .pane-git .gitbranch").textContent() shouldBe "main"
+                page.locator("#files .pane-git .gitab.ahead").textContent() shouldContain "2"
+                page.locator("#files .pane-git .gitgroup").count() shouldBe 2
+                page.locator("#files .pane-git .gitline").count() shouldBe 2
+            }
+            Then("첫 걸음은 뿌리 하나만 읽는다 — 열지도 않은 가지를 걷지 않는다") {
+                page.evaluate("window.__magi_test_dirs") shouldBe "."
+            }
+        }
+        When("디렉토리를 펼치면") {
+            page.locator("#files .treerow.dir").first().click()
+            Then("그 디렉토리 하나만 더 읽고, 자식들이 한 칸 안으로 선다") {
+                page.waitForCondition { page.locator("#files .pane-files .treerow").count() == 5 }
+                page.evaluate("window.__magi_test_dirs") shouldBe ".,src"
+                page.locator("#files .treerow[style*='--d: 1']").count() shouldBe 2
+            }
+        }
+        When("파일을 누르면") {
+            page.locator("#files .treerow:not(.dir)").first().click()
+            Then("같은 왼쪽에서 본문이 열린다 — 가운데는 대화의 자리다") {
+                page.waitForSelector("#files .fileview .filebody")
+                page.evaluate("window.__magi_test_opened") shouldBe "src/main.go"
+                page.locator("#files .fileview .filebody").textContent() shouldContain "package main"
+                page.locator("#cframe, #conversation").first().isVisible() shouldBe true
+            }
+            page.locator("#files .fileview .fileclose").click()
+            Then("닫으면 트리만 남는다") {
+                page.waitForCondition { page.locator("#files .fileview").count() == 0 }
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고, 전사와 컴포저가 그대로 쓸 만하다") {

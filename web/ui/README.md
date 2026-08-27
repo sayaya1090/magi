@@ -25,7 +25,7 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation(Place)·RenderStore·RosterStore·타입 카탈로그(CompanionType)·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
 | `fleet-ui` | 플릿 화면 — 이식 완료, 카탈로그 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
 | `companion-ui` | 컴패니언이라는 목적지의 주인 — **목록**과 **상세 레이아웃**(위 사실판·오른쪽 판), 가운데·왼쪽은 자식에게 내준다 | `companion/companion.nocache.js` + companion.css |
-| `coding-agent-ui` | 타입 1(코딩 에이전트)의 자식 UI — 상세의 가운데(대화·컴포저) | `coding/coding.nocache.js` + coding.css |
+| `coding-agent-ui` | 타입 1(코딩 에이전트)의 자식 UI — 가운데(대화·컴포저)와 왼쪽(워크스페이스: 트리·git) | `coding/coding.nocache.js` + coding.css |
 | `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
 | `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
 | `map-ui` | 맵 — 문 없는 주소(v=map): 머신·계정 상자와 오간 것의 와이어 | `map/map.nocache.js` |
@@ -212,7 +212,7 @@ cd ../.. && go run ./web/server   # 7778: /ui/* 정적 + 나머지는 7777(기�
 companion (범용)                     coding (타입 1의 자식)
 ├── #detail   위: 사실판             ├── centre 슬롯 → 대화(전사·컴포저)
 ├── #cstage
-│   ├── #cleft   왼쪽 슬롯(들) ◀────┤ left 슬롯 → 워크스페이스(잔여)
+│   ├── #cleft   왼쪽 슬롯(들) ◀────┤ left 슬롯 → 워크스페이스(트리·git)
 │   ├── #cframe  가운데       ◀─────┘
 │   └── #side    오른쪽: 계획·건넨 일(잔여)·예약(잔여)
 └── 목록(?d= 없을 때)  ← 같은 모듈의 다른 얼굴
