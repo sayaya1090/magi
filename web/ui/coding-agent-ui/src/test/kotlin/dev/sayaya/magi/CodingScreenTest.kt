@@ -5,6 +5,7 @@ import dev.sayaya.gwt.test.GwtTestSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 
 /**
  * 컴패니언 화면(타입 1 = 코딩 에이전트) 관통 — 가짜 포트의 고정 전사로 그린 DOM을 검사한다.
@@ -43,17 +44,34 @@ internal class CodingScreenTest : GwtTestSpec({
                     page.locator("#log .row.toolok .foldbody pre").last().textContent() shouldContain "warnings: 0"
                 }
             }
+            Then("산문 행에는 적힌 그대로를 복사하는 문이 늘 서 있다 — 손끝이 와야 나오는 것이 아니라") {
+                // 골라서 복사하면 그려진 글이 나온다(표는 칸이 붙고 코드 울타리는 사라진다).
+                // 사람이 화면에서 달리 얻을 수 없는 것이라 두 산문 행에만 둔다.
+                // 산문 행마다 하나씩, 그 행의 홈통에.
+                (page.evaluate("[...document.querySelectorAll('#log .row.user, #log .row.assistant')]" +
+                    ".every(r => r.querySelectorAll('.who .copy').length === 1)") as Boolean) shouldBe true
+                (page.locator("#log .row.user").count() > 0) shouldBe true
+                page.locator("#log .row.toolok .copy").count() shouldBe 0
+                page.locator("#log .row.user .who .copy").first().getAttribute("aria-label") shouldBe "action.copy"
+            }
             Then("시각은 행의 홈통에 붙는다") {
                 page.locator("#log .row.user .who .when").count() shouldBe 1
             }
-            Then("턴이 열려 있으니 운영의 그 턴바가 돈다 — 바는 조용하고(aria-hidden) 숫자가 말한다") {
-                page.waitForSelector("#turnwrap:not([hidden])")
-                // aria-hidden은 md 컴포넌트가 섀도로 위임하며 호스트 속성을 걷어간다(실측:
-                // 속성 셀렉터는 영원히 0) — 드로어 때와 같은 함정이라 존재만 잰다.
-                page.waitForSelector("#turnwrap md-linear-progress#turnbar")
-                // 12초에서 시작해 화면의 시계로 흐른다 — 초는 재지 말고 모양(s)만 잰다.
-                Regex("\\d+s").matches(page.locator("#turnfor").textContent() ?: "") shouldBe true
+        }
+        When("컴포저에 쓰다 말면") {
+            page.locator("#dock .composer #t textarea").fill("run the build")
+            Then("다음 말을 흐리게 내밀고, Tab이 그것을 이어붙인다") {
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_suggest") as? String) == "run the build"
+                }
+                page.waitForSelector("#dock .sughint:not([hidden])")
+                page.locator("#dock .sughint").textContent() shouldBe "and then some"
+                page.locator("#dock .composer #t textarea").press("Tab")
+                page.evaluate("document.querySelector('#dock .composer #t').value") shouldBe
+                    "run the build and then some"
+                page.locator("#dock .sughint:not([hidden])").count() shouldBe 0
             }
+            page.locator("#dock .composer #t textarea").fill("")
         }
         When("컴포저에 한 마디 적어 보내면") {
             page.locator("#dock .composer #t textarea").fill("keep going")
@@ -109,9 +127,38 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#files .pane-git .gitgroup").count() shouldBe 2
                 page.locator("#files .pane-git .gitline").count() shouldBe 2
             }
+            Then("바뀐 파일의 행은 무리를 말로 말한다 — 상태 글자는 git을 아는 사람에게만 말한다") {
+                page.locator("#files .pane-git .gitline .gitkind").first().textContent() shouldBe "git.staged"
+            }
+            Then("한 파일에 하는 일은 메뉴 하나로 — 행마다 버튼을 늘어놓으면 이름이 먼저 잘린다") {
+                page.locator("#files .pane-git .gitacts md-icon-button").count() shouldBe 2
+                page.locator("#files .pane-git .gitacts md-menu").count() shouldBe 2
+                // 잘리는 판 안에 두면 메뉴가 판의 경계에서 잘린다 — 페이지의 상자들 밖으로 나간다.
+                (page.locator("#files .pane-git .gitacts md-menu").first()
+                    .getAttribute("positioning") in listOf("popover", "fixed")) shouldBe true
+            }
             Then("첫 걸음은 뿌리 하나만 읽는다 — 열지도 않은 가지를 걷지 않는다") {
                 page.evaluate("window.__magi_test_dirs") shouldBe "."
             }
+        }
+        When("바뀐 파일의 메뉴에서 무엇이 달라졌는지 물으면") {
+            // git 판은 접힌 채로 선다(운영 규칙) — 펼치고 나서야 그 안의 것을 누를 수 있다.
+            page.locator("#files .pane-git .panehead").click()
+            page.waitForCondition { page.locator("#files .pane-git.shut").count() == 0 }
+            // 쉬는 동안 이 행동들은 숨어 있다(운영 CSS) — 손끝을 얹어야 나온다.
+            page.locator("#files .pane-git .gitline").first().hover()
+            page.locator("#files .pane-git .gitacts md-icon-button").first().click()
+            page.locator("#files .pane-git .gitacts md-menu md-menu-item").first().click()
+            Then("차이가 제 카드로 열린다 — 본문과 다른 카드다(둘을 함께 열어 두는 일이 잦다)") {
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_diff") as? String) != null
+                }
+                page.evaluate("window.__magi_test_diff") shouldBe "src/main.go|staged"
+                page.waitForSelector("#fileview .diffbody .dl.add")
+                page.locator("#fileview .diffbody .dl.cut").count() shouldBe 1
+                page.locator("#fileview .filebody.diffscroll .filegutter").count() shouldBe 0
+            }
+            page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
         }
         When("디렉토리를 펼치면") {
             page.locator("#files .treerow.dir").first().click()
@@ -123,15 +170,84 @@ internal class CodingScreenTest : GwtTestSpec({
         }
         When("파일을 누르면") {
             page.locator("#files .treerow:not(.dir)").first().click()
-            Then("같은 왼쪽에서 본문이 열린다 — 가운데는 대화의 자리다") {
-                page.waitForSelector("#files .fileview .filebody")
+            Then("본문은 가운데의 카드로 열린다 — 18rem 기둥은 코드를 읽는 폭이 아니다") {
+                page.waitForSelector("#fileview .filebody")
                 page.evaluate("window.__magi_test_opened") shouldBe "src/main.go"
-                page.locator("#files .fileview .filebody").textContent() shouldContain "package main"
+                page.locator("#fileview .filebody").textContent() shouldContain "package main"
                 page.locator("#cframe, #conversation").first().isVisible() shouldBe true
             }
-            page.locator("#files .fileview .fileclose").click()
-            Then("닫으면 트리만 남는다") {
-                page.waitForCondition { page.locator("#files .fileview").count() == 0 }
+            Then("번호는 제 기둥에 서고 본문에는 없다 — 끌어 복사하면 코드만 딸려온다") {
+                // 읽기 툴이 낸 `번호⇥본문`을 그대로 두면 붙여 넣은 모든 줄 앞에 번호가 붙는다.
+                page.locator("#fileview .filebody .filegutter").textContent()?.trim() shouldBe "1\n2\n3"
+                page.locator("#fileview .filebody .filecode").textContent() shouldContain "package main"
+                (page.locator("#fileview .filebody .filecode").textContent() ?: "") shouldNotContain "1\tpackage"
+            }
+            Then("훑기가 주석을 가른다 — 파서가 아니라 표시다") {
+                page.locator("#fileview .filebody .filecode .tok-note").first().textContent() shouldContain "// go"
+            }
+            Then("경로는 통째로 적힌다 — 사람이 복사해 명령에 붙이는 줄이다") {
+                page.locator("#fileview .filebar .filedir").textContent() shouldBe "src/main.go"
+            }
+        }
+        When("파일을 하나 더 열면") {
+            page.locator("#files .treerow:not(.dir)").nth(1).click()
+            Then("먼저 연 것은 닫히지 않는다 — 두 파일을 견주는 일이 화면을 오가는 일이 되지 않게") {
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_cards") as? String)?.contains("|") == true
+                }
+                // 카드는 Element이면서 닫힐 수 있는 것이다: id가 신원, title이 탭 이름, close()가 닫는 법.
+                val cards = (page.evaluate("window.__magi_test_cards") as String).split("|")
+                cards.size shouldBe 2
+                cards.all { it.endsWith("+x") } shouldBe true
+                cards.map { it.substringBefore("=") }.toSet().size shouldBe 2
+                cards[0].substringAfter("=") shouldBe "main.go+x"
+            }
+            Then("하나를 닫아도 나머지는 그대로다") {
+                page.evaluate("window.__magi_cards[0].close()")
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_cards") as? String)?.contains("|") == false
+                }
+            }
+            page.locator("#files .treerow:not(.dir)").first().click()
+            page.waitForSelector("#fileview .filebody")
+        }
+        When("고치기를 누르면") {
+            page.locator("#fileview .filebar .fileacts md-text-button").first().click()
+            Then("같은 그림에 캐럿이 생긴다 — 번호 기둥은 그대로다") {
+                page.waitForSelector("#fileview .fileedit .fileeditarea")
+                page.locator("#fileview .fileedit .filebody.editbody .filegutter").count() shouldBe 1
+                page.locator("#fileview .fileedit .editghost").count() shouldBe 1
+            }
+            Then("타이핑이 멎으면 이어쓰기를 묻고, Tab이 그것을 가져간다") {
+                page.locator("#fileview .fileedit .fileeditarea").click()
+                page.locator("#fileview .fileedit .fileeditarea").fill("package main\nfunc x() {")
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_complete") as? String)?.contains("func x() {") == true
+                }
+                // 유령은 버퍼가 아니라 거울에 산다 — 가져가기 전에는 사람이 쓴 글이 아니다.
+                page.waitForSelector("#fileview .editghost .editcomplete")
+                page.evaluate("document.querySelector('#fileview .fileeditarea').value") shouldBe
+                    "package main\nfunc x() {"
+                page.locator("#fileview .fileedit .fileeditarea").press("Tab")
+                page.waitForCondition {
+                    (page.evaluate("document.querySelector('#fileview .fileeditarea').value") as? String)
+                        ?.endsWith("MORE") == true
+                }
+                page.locator("#fileview .editghost .editcomplete").count() shouldBe 0
+            }
+            Then("저장은 고친 자리만 보낸다 — 패치는 거절될 수 있고 통짜는 남의 일을 덮는다") {
+                page.locator("#fileview .fileedit .fileeditarea").fill("package main\n\nfunc main() { println(1) } // go\n")
+                page.locator("#fileview .filebar .fileacts md-filled-button").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_save") as? String)?.contains("patch:") == true
+                }
+                val sent = page.evaluate("window.__magi_test_save") as String
+                sent shouldContain "src/main.go|patch:diff --git a/src/main.go"
+                sent shouldContain "+func main() { println(1) } // go"
+            }
+            Then("저장하면 읽는 그림으로 돌아온다 — 디스크의 그 파일이 사실이다") {
+                page.waitForSelector("#fileview .filebody .filecode")
+                page.locator("#fileview .fileedit").count() shouldBe 0
             }
         }
         When("찾기를 누르면") {
@@ -155,10 +271,9 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             Then("결과를 누르면 그 파일이 열린다") {
                 page.locator("#files .hits .treerow.hit").first().click()
-                page.waitForSelector("#files .fileview .filebody")
+                page.waitForSelector("#fileview .filebody")
                 page.evaluate("window.__magi_test_opened") shouldBe "src/main.go"
             }
-            page.locator("#files .fileview .fileclose").click()
             Then("지우면 트리가 돌아온다") {
                 page.locator("#files .filefind md-text-button").last().click()
                 page.waitForCondition { page.locator("#files .pane-files .treerow.dir").count() == 1 }
@@ -291,8 +406,10 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForSelector("#files .filefind md-text-button")
                 val h = (page.evaluate("document.querySelector('#files .filefind')" +
                     ".getBoundingClientRect().height") as Number).toDouble()
-                withClue("찾기 줄이 ${h}px — 좁은 기둥에서 트리가 먼저 보여야 한다") {
-                    (h <= 48.0) shouldBe true
+                // 찾는 중이 아니면 한 줄(누르는 버튼 하나)이다 — 찾는 중이면 무엇을 찾았는지
+                // 말하느라 두 줄이 되는데, 그건 사람이 청한 결과다.
+                withClue("찾기 줄이 ${h}px — 트리가 먼저 보여야 한다") {
+                    (h <= 130.0) shouldBe true
                 }
             }
             Then("줄 안의 것들이 열 밖으로 밀리지 않는다 — 눌리면 여기서 드러난다") {
@@ -324,6 +441,29 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             page.evaluate("document.getElementById('filecol').style.width = ''")
         }
+        When("기둥이 하나뿐이라고 부모가 말하면(폰)") {
+            page.evaluate("window.__magi_one_pane = true")
+            page.evaluate("window.dispatchEvent(new Event('resize'))")
+            page.locator("#files .paneagain").click()   // 다시 그리게 한다 — 배치 사실이 바뀌었다
+            Then("작업공간은 한 번에 하나를 보인다 — 트리와, git으로 가는 줄") {
+                page.waitForSelector("#files[data-shows=files] .panelrow")
+                // 마흔 개 이름 아래 깔린 판은 아무도 스크롤해 내려가지 않는다(운영이 이 화면에서 배운 것).
+                page.locator("#files .panelrow .panelword").textContent() shouldBe "git.section"
+            }
+            When("그 줄을 누르면") {
+                page.locator("#files .panelrow").click()
+                Then("git이 그 자리에 서고, 돌아가는 줄이 생긴다") {
+                    page.waitForSelector("#files[data-shows=git] .panelback")
+                    page.locator("#files .pane-git").count() shouldBe 1
+                }
+                Then("돌아가면 트리다") {
+                    page.locator("#files .panelback md-text-button").click()
+                    page.waitForSelector("#files[data-shows=files] .pane-files")
+                }
+            }
+            page.evaluate("window.__magi_one_pane = false")
+            page.locator("#files .paneagain").click()
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고, 전사와 컴포저가 그대로 쓸 만하다") {
@@ -331,7 +471,11 @@ internal class CodingScreenTest : GwtTestSpec({
                     (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
                 }
                 page.locator("#log .row").first().isVisible() shouldBe true
-                page.locator("#dock .composer #t").isVisible() shouldBe true
+                // 상자는 서 있다. 폭은 재지 않는다 — 이 페이지에는 언어 팩이 없어 버튼의 낱말이
+                // 키 문자열("action.interrupt")이고, 390px에서 그 길이는 실제 낱말의 두 배다.
+                // 팩이 있는 화면에서의 폭은 두 콘솔을 나란히 재서 확인한다(scratchpad/uitest).
+                page.locator("#dock .composer #t").count() shouldBe 1
+                page.locator("#dock .composer #send").count() shouldBe 1
             }
         }
     }

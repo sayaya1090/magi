@@ -40,12 +40,44 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void save(CompanionContext ctx, String path, String patch, String text, Consumer<String> why) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("path", path);
+        if (patch != null && !patch.isEmpty()) body.set("patch", patch);
+        else body.set("text", text);
+        Console.post("/save", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
     public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("do", what);
         body.set("path", path);
         if (to != null && !to.isEmpty()) body.set("to", to);
         Console.post("/file-do", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
+    public void complete(CompanionContext ctx, String path, String prefix, String suffix, Consumer<String> text) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("path", path);
+        body.set("prefix", prefix);
+        body.set("suffix", suffix);
+        Console.postText("/complete", body, ctx.socket, ctx.peer).then(said -> { text.accept(said); return null; });
+    }
+
+    @Override
+    public void openFileHint(CompanionContext ctx, String path, String text) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("path", path);
+        body.set("text", text);
+        Console.post("/open-file", body, ctx.socket, ctx.peer);
+    }
+
+    @Override
+    public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
+        Console.fetchList("/diff" + base(ctx) + "&path=" + Global.encodeURIComponent(path)
+                + "&which=" + Global.encodeURIComponent(which == null ? "" : which), cb::accept);
     }
 
     @Override

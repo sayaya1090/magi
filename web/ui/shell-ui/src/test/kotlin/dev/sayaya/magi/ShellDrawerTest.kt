@@ -2,6 +2,7 @@ package dev.sayaya.magi
 
 import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
+import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 
 /**
@@ -82,6 +83,29 @@ internal class ShellDrawerTest : GwtTestSpec({
             }
             Then("레일의 선택은 여전히 컴패니언 문이다 — 컴패니언은 그 문의 안이다") {
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
+            }
+        }
+        When("가짜 회선이 턴이 열렸다고 말하면") {
+            Then("턴바는 창의 것이다 — body의 직계로 서서 창 폭을 가로지른다") {
+                page.waitForSelector("#turnwrap:not([hidden])")
+                // 화면 기둥 안에 서면 position:fixed의 기준 상자가 그 기둥이 된다(실측으로
+                // 한 번 밟은 함정) — 그래서 부모의 직계인지를 잰다.
+                page.evaluate("document.getElementById('turnwrap').parentElement.tagName") shouldBe "BODY"
+                page.locator("#turnwrap md-linear-progress#turnbar").count() shouldBe 1
+                // 4초에서 시작해 이 창의 시계로 흐른다 — 초는 재지 말고 모양(s)만 잰다.
+                Regex("\\d+s").matches(page.locator("#turnfor").textContent() ?: "") shouldBe true
+            }
+            Then("창 폭을 다 쓴다 — 기둥 폭이 아니라") {
+                val w = page.evaluate("document.getElementById('turnwrap').getBoundingClientRect().width") as Number
+                // 레이아웃 뷰포트로 잰다: window.innerWidth는 고전 스크롤바(리눅스 헤드리스)를
+                // 포함해서, 창 전체를 덮은 fixed 요소가 15px 모자라 보인다(CI에서만 실패했다).
+                val win = page.evaluate("document.documentElement.clientWidth") as Number
+                // 고전 스크롤바(리눅스 헤드리스)는 어느 폭에도 잡히지 않으면서 fixed 요소의
+                // 오른쪽을 15px 밀어낸다 — 그만큼은 봐준다. 재려는 것은 "창이냐 기둥이냐"이고,
+                // 기둥이면 절반이다.
+                withClue("턴바 ${w.toDouble()}px / 레이아웃 뷰포트 ${win.toDouble()}px") {
+                    (w.toDouble() >= win.toDouble() - 24) shouldBe true
+                }
             }
         }
         When("뒤로가면 카탈로그로 돌아오고 조준이 풀린다") {

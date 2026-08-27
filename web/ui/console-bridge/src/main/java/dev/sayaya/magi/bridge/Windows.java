@@ -23,6 +23,23 @@ public final class Windows {
         return v == null ? "" : v;
     }
 
+    /**
+     * 지금 기둥이 <b>하나뿐인가</b>(폰) — 배치를 아는 쪽(부모)이 답하고, 화면은 묻기만 한다.
+     *
+     * 화면이 제 미디어 질의를 쓰면 기준 폭이 화면마다 흩어지고, 부모가 탭으로 판을 가르는 폭과
+     * 어긋나는 순간 "한 기둥인 줄 알고 접은 판"이 넓은 화면에서 사라진다. 아무도 답하지 않으면
+     * 거짓 — 부모 없이 뜬 테스트 페이지는 늘 넓은 화면이다.
+     */
+    public static boolean onePane() {
+        Object v = jsinterop.base.Js.asPropertyMap(DomGlobal.window).get("__magi_one_pane");
+        return v != null && jsinterop.base.Js.isTruthy(v);
+    }
+
+    /** 부모: 그 사실이 바뀌면 적어 둔다(구독은 화면이 제 렌더에서 다시 묻는 것으로 족하다). */
+    public static void onePane(boolean now) {
+        jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_one_pane", now);
+    }
+
     /** 주소가 컴패니언을 대고 있는가 — ?d= 가 그 표시다(운영 콘솔과 같은 주소). */
     public static boolean companionAimed() {
         String d = new URLSearchParams(DomGlobal.window.location.search).get("d");

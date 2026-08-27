@@ -807,8 +807,12 @@ const crumbSep3 = document.getElementById('crumbSep3'), crumbLeaf = document.get
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
+// settings was missing, so the preferences screen fell through to the default and its crumb read
+// "companions" while linking to the preferences screen it was standing on — a trail that named one
+// place and led to another. Measured against the new console, which had the label right.
 const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board',
-                     access: 'nav.access', map: 'nav.map', meet: 'nav.meet'};
+                     access: 'nav.access', map: 'nav.map', meet: 'nav.meet',
+                     settings: 'nav.preferences'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
 const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', access: '?v=access',

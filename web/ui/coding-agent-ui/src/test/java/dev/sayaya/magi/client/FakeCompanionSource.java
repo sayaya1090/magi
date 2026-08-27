@@ -72,4 +72,23 @@ public class FakeCompanionSource implements CompanionSource {
     }
 
     /** 답은 다른 곳에 적는다 — 같은 상자에 쓴 글이 어디로 갔는지가 이 스펙의 요점이라서. */
+
+    @Override
+    public void interrupt(CompanionContext ctx, java.util.function.Consumer<String> why) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_interrupt", "yes");
+        why.accept("");
+    }
+
+    @Override
+    public void suggest(CompanionContext ctx, String prefix, java.util.function.Consumer<String> text) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_suggest", prefix);
+        text.accept(" and then some");
+    }
+
+    @Override
+    public void councilEvidence(CompanionContext ctx, int round, java.util.function.Consumer<Object> cb) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_council", round);
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"task\":\"the task it judged\",\"report\":\"what was reported\",\"actions\":\"read · edit\"}"));
+    }
 }

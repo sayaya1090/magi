@@ -70,6 +70,12 @@ public class RosterStore implements RosterSource.Listener {
 
     public void refresh() { source.refresh(); }
 
+    /** 셸 자신도 턴을 본다(턴바) — 브리지를 걸기 전에도 구독할 수 있게 바로 문을 낸다. */
+    public void onTurn(TranscriptSharing.TurnFn cb) {
+        turnObs.add(cb);
+        cb.call(turnOpen, turnFor);
+    }
+
     /** 지난 일 층위 — 스트림은 그대로 두고 컨텍스트만 갈아탄다(과거는 fetch의 것이다). */
     public void past(String pastOrNull) {
         if (eq(aimedPast, pastOrNull)) return;

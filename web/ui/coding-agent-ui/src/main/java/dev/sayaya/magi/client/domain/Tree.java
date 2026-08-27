@@ -11,6 +11,26 @@ import java.util.Set;
 public final class Tree {
     private Tree() {}
 
+    /**
+     * 판의 머리에 적히는 이름 — 마지막 <b>두</b> 마디(운영 shortPath).
+     *
+     * 한 마디면 `ws1`인데, 여러 작업공간의 마지막 마디가 겹치는 일이 흔하다(build/·src/·app/):
+     * 그 제목은 어느 것인지 말하지 못한다. 두 마디는 `tmp/ws1`이고 좁은 기둥에도 들어간다.
+     * 절대경로 전체는 판 폭을 다 먹고도 "thing" 한 마디만 말한다 — 그래서 접는다.
+     */
+    public static String shortPath(String path) {
+        if (path == null || path.isEmpty()) return "";
+        String[] parts = path.split("/");
+        StringBuilder tail = new StringBuilder();
+        int taken = 0;
+        for (int i = parts.length - 1; i >= 0 && taken < 2; i--) {
+            if (parts[i].isEmpty()) continue;
+            tail.insert(0, taken == 0 ? parts[i] : parts[i] + "/");
+            taken++;
+        }
+        return tail.length() == 0 ? path : tail.toString();
+    }
+
     /** 자식의 경로 — 뿌리 밑은 이름 그대로다(운영과 같은 규약: 뿌리는 "."). */
     public static String childPath(String dir, String name) {
         return ".".equals(dir) || dir == null || dir.isEmpty() ? name : dir + "/" + name;

@@ -51,6 +51,26 @@ public class BridgeCompanionSource implements CompanionSource {
         Console.post("/submit", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
     }
 
+    @Override
+    public void interrupt(CompanionContext ctx, Consumer<String> why) {
+        Console.post("/interrupt", new URLSearchParams(), ctx.socket, ctx.peer)
+                .then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
+    public void councilEvidence(CompanionContext ctx, int round, Consumer<Object> cb) {
+        Console.fetchList("/council" + q(ctx) + "&round=" + round
+                + (ctx.past == null || ctx.past.isEmpty() ? ""
+                   : "&session=" + Global.encodeURIComponent(ctx.past)), cb::accept);
+    }
+
+    @Override
+    public void suggest(CompanionContext ctx, String prefix, Consumer<String> text) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("prefix", prefix);
+        Console.postText("/suggest", body, ctx.socket, ctx.peer).then(said -> { text.accept(said); return null; });
+    }
+
     private static String q(CompanionContext ctx) {
         return "?d=" + Global.encodeURIComponent(ctx.socket)
                 + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");

@@ -18,6 +18,7 @@ public class ShellTestApplication implements EntryPoint {
     public void onModuleLoad() {
         ShellTestComponent component = DaggerShellTestComponent.create();
         DomGlobal.document.body.append(
+                component.turnbar().element(),
                 component.masthead().element(),
                 component.rail().scrim(),
                 component.rail().element(),

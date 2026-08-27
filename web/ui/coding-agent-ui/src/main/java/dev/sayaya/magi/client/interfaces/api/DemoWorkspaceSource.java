@@ -74,8 +74,29 @@ public class DemoWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void save(CompanionContext ctx, String path, String patch, String text, Consumer<String> why) {
+        // 데모는 받아 주고 잊는다 — 이 페이지에 디스크는 없다.
+        why.accept("");
+    }
+
+    @Override
     public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
         why.accept("");
+    }
+
+    @Override
+    public void complete(CompanionContext ctx, String path, String prefix, String suffix, Consumer<String> text) {
+        // 데모의 이어쓰기는 한 마디짜리다 — 모델이 없는 페이지에서 무엇이 일어나는지만 보인다.
+        text.accept(prefix.endsWith("(") ? ")" : prefix.trim().isEmpty() ? "" : " // ...");
+    }
+
+    @Override
+    public void openFileHint(CompanionContext ctx, String path, String text) { }
+
+    @Override
+    public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
+        cb.accept(Global.JSON.parse("{\"text\":\"diff --git a/" + path + " b/" + path
+                + "\\n@@ -1,3 +1,4 @@\\n context line\\n-was this\\n+is this now\\n+and this\"}"));
     }
 
     @Override

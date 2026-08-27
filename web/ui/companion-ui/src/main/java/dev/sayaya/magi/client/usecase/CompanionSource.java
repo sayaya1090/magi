@@ -30,6 +30,19 @@ public interface CompanionSource {
     void pastTranscript(CompanionContext ctx, String session,
                         java.util.function.Consumer<Object> rowsOrNull);
 
+    /**
+     * 턴 곁에서 도는 것들(/jobs) — 스폰된 자식, 뒤로 돌린 명령, 그리고 줄 서 있는 말.
+     * 로그에 없는 사실이라 데몬에게 묻는다(백그라운드 명령은 프로세스이고, 자식이 아직 도는지는
+     * 세션 로그가 답할 수 없다).
+     */
+    void jobs(CompanionContext ctx, java.util.function.Consumer<Object> gotOrNull);
+
+    /** 이 컴패니언이 남에게 건넨 일(/handoffs) — 그 일이 어떻게 되고 있는지. */
+    void handoffs(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
+
+    /** 예약된 일(/cron) — 언제 다시 돌 것인가, 또는 왜 영영 안 도는가. */
+    void cron(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
+
     /** 이 컴패니언의 계획(/plan) — 오른쪽 판이 읽는다. */
     void plan(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
 
@@ -41,4 +54,33 @@ public interface CompanionSource {
 
     /** 대상 컴패니언으로 한 마디 — why는 거부 사유, 성공이면 빈 문자열. */
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
+
+    // ── 사실판이 바꿀 수 있는 것들 ────────────────────────────────────────────
+    // 읽기와 쓰기가 쌍으로 온다. 무엇이 됐는지는 <b>데몬이 말한 것</b>으로만 그린다: 거부된
+    // 바꿈이 눈에 띄게 되돌아와야, 콘솔이 아무도 서 있지 않은 모드를 주장하지 않는다.
+
+    /** 이 컴패니언이 닿을 수 있는 모델 이름들(/model) — 콘솔의 설정이 아니라 그 데몬의 대답이다. */
+    void models(CompanionContext ctx, java.util.function.Consumer<Object> namesOrNull);
+
+    /** 모델을 바꾼다(/model). */
+    void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why);
+
+    /** 결재 방식을 바꾼다(/permission): ask · auto · allow · deny. */
+    void permission(CompanionContext ctx, String mode, java.util.function.Consumer<String> why);
+
+    /** 이 컴패니언이 가진 도구 이름들(/tools) — 빈 답은 "없다"가 아니라 "물어볼 수 없는 데몬"이다. */
+    void tools(CompanionContext ctx, java.util.function.Consumer<Object> namesOrNull);
+
+    /** 턴의 지도(/loop) — 갈라져 나온 세션이면 그 원본과 그 뒤의 차이도 함께. */
+    void loop(CompanionContext ctx, java.util.function.Consumer<Object> shapeOrNull);
+
+    /**
+     * 결재 요청에 실을 보고서의 뼈대(/report-format)를 읽는다 — {from, sections:[{key,prompt}]}.
+     * from은 그 뼈대가 어디서 왔는지다(이 워크스페이스·이 콘솔·아직 아무것도).
+     */
+    void reportFormat(CompanionContext ctx, java.util.function.Consumer<Object> shapeOrNull);
+
+    /** 그 뼈대를 이 컴패니언의 워크스페이스에 쓴다 — 짝지은 key/prompt 목록. */
+    void reportFormat(CompanionContext ctx, java.util.List<String> keys, java.util.List<String> prompts,
+                      java.util.function.Consumer<String> why);
 }

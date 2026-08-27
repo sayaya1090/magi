@@ -60,6 +60,24 @@ public class CompanionStore implements CompanionSource.Listener {
         source.submit(ctx, text, why);
     }
 
+    /** 그 라운드가 본 것 — 카드 하나로 펼쳐진다(전사 행에는 담을 자리가 없다). */
+    public void councilEvidence(int round, Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.councilEvidence(ctx, round, cb);
+    }
+
+    /** 컴포저가 쓰다 만 말의 다음 — 답은 이어붙일 글이다(빈 답은 "할 말 없음"이고 정상이다). */
+    public void suggest(String prefix, Consumer<String> text) {
+        if (ctx == null) { text.accept(""); return; }
+        source.suggest(ctx, prefix, text);
+    }
+
+    /** 이 컴패니언의 턴을 멈춘다 — 무엇을 물어보고 멈출지는 화면의 몫이다(되돌릴 수 없는 일). */
+    public void interrupt(Consumer<String> why) {
+        if (ctx == null) return;
+        source.interrupt(ctx, why);
+    }
+
     /** 지금 답을 기다리는 부름(없으면 null) — 부모가 알린 사실을 그대로 든다. */
     private Object answering = null;
 

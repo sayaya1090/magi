@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CompanionContext;
+import dev.sayaya.magi.bridge.CardSharing;
 import dev.sayaya.magi.bridge.ModuleInject;
 import dev.sayaya.magi.bridge.Motion;
 import dev.sayaya.magi.bridge.PaneSharing;
@@ -10,6 +11,8 @@ import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
+import jsinterop.base.JsArrayLike;
+import jsinterop.base.JsPropertyMap;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -44,6 +47,11 @@ public class CompanionElement {
     private final HTMLElement leftFill = el("div");   // 자식이 채우는 껍데기(display:contents)
     private final HTMLElement centreFill = el("div");
     private final HTMLElement tabs = el("md-tabs");
+    private final HTMLElement cardTabs = el("md-tabs");   // 가운데의 카드 줄(사실판 + 자식의 카드들)
+    // 카드 자리는 <b>카드</b>다 — md-outlined-card. 운영의 그 요소이고, 안쪽 여백(16px)도 판의
+    // 테두리도 그 태그에 걸린 규칙에서 온다: div로 세우면 본문이 테두리에 붙는다(실측 16px 차).
+    private final HTMLElement cardArea = el("md-outlined-card");
+    private String cardShows = "facts";
     private boolean wired = false;
     private String childLoaded = null;
     private String panel = "talk";
@@ -69,7 +77,12 @@ public class CompanionElement {
         centreFill.className = "cfill";
         filecol.append(leftFill);
         // 운영의 그 순서: 사실판이 전사 위에 선다(같은 기둥 안에서).
-        stream.append(detail.element(), centreFill);
+        // 운영의 그 순서: 탭 줄 · 사실판 · 연 카드 · 그리고 자식의 전사.
+        cardTabs.id = "cardtabs";
+        cardTabs.setAttribute("hidden", "");
+        cardArea.id = "fileview";
+        cardArea.setAttribute("hidden", "");
+        stream.append(cardTabs, detail.element(), cardArea, centreFill);
         sidecol.append(side.element());
         stage.append(filecol, stream, sidecol);
         tabs.id = "ptabs";
@@ -84,6 +97,7 @@ public class CompanionElement {
         // 나머지(사실판·기둥)는 자리를 지키는 것들이라, 움직이면 화면이 통째로 흔들린다.
         Motion.enter(stream);
         arrange.engage();
+        side.onChanged(arrange::sideChanged);
         // 무엇에 걸려 있는지는 컴포저 바로 위에 선다 — 답하려고 목록으로 되돌아가지 않게.
         arrange.putPrompt(prompt.element());
         if (wired) return;
@@ -106,6 +120,21 @@ public class CompanionElement {
         });
         store.onContext(this::adopt);
         prompt.wire();
+        // 자식이 카드를 열고 닫으면 줄이 따라간다 — 무엇이 열려 있는지는 자식만 안다.
+        CardSharing.onChange(cards -> drawCards());
+        // 사실판이 "가서 보는 것"을 세우면 그것도 같은 줄에 선다 — 이 판도 이 기둥의 것이라,
+        // 자식의 카드와 한 줄을 나눠 쓴다(운영도 한 자리를 탭으로 가른다).
+        detail.cardsGo((key, title, body) -> {
+            body.id = key;
+            body.setAttribute("title", title);
+            body.style.setProperty("display", "contents");
+            CardSharing.closable(body, () -> { ownCards.remove(key); drawCards(); });
+            ownCards.put(key, body);
+            cardShows = key;
+            wsShows = key;
+            drawCards();
+        });
+        drawCards();
         buildTabs();
         // 폭이 바뀌면 다시 정한다 — 폰에서 넓어진 창은 탭을 걷고 전부를 보여야 한다.
         // 창의 resize를 듣는다: 미디어 질의의 change만 듣던 판은 좁힐 때만 발화하고 넓힐 때
@@ -113,6 +142,137 @@ public class CompanionElement {
         DomGlobal.window.addEventListener("resize", evt -> layout());
         layout();
         store.start();
+    }
+
+    /**
+     * 가운데의 카드 줄 — 사실판과, 자식이 연 것들(파일·디프·커밋…).
+     *
+     * 한 자리에 둘을 그리지 않는다: 무엇이 보이는지 고르는 것이 이 줄이고, 고를 것이 하나뿐이면
+     * 줄은 서지 않는다(운영 규칙: 연 파일이 없으면 hidden).
+     */
+    private final java.util.Set<String> cardsSeen = new java.util.HashSet<>();
+    /** 이 판이 세운 카드들(도구·루프·양식) — 자식의 것과 같은 줄에 선다. */
+    private final java.util.LinkedHashMap<String, HTMLElement> ownCards = new java.util.LinkedHashMap<>();
+    /**
+     * 폰의 작업공간 탭이 지금 무엇을 보이는가 — 트리("files")냐, 열린 카드냐.
+     *
+     * 폰에서 기둥은 하나다: 가운데에 세운 카드는 대화 탭 아래에 숨고, 파일을 눌러 열어도 화면이
+     * 그대로다(운영이 wsShows로 가르는 그 자리). 그래서 좁을 때는 카드 줄과 카드를 작업공간
+     * 기둥으로 옮겨 트리를 대신하게 하고, 트리로 돌아가는 문을 부모가 그 위에 세운다 — 자식은
+     * 제 카드가 어느 기둥에 서 있는지 알지 못한 채 같은 것을 그린다.
+     */
+    private String wsShows = "files";
+    private boolean cardsAlone = false;
+
+    /** 지금 이 줄에 설 카드 전부 — 이 판의 것 다음에 자식의 것(연 순서대로). */
+    private java.util.List<elemental2.dom.Element> allCards() {
+        java.util.List<elemental2.dom.Element> out = new java.util.ArrayList<>(ownCards.values());
+        JsArrayLike<Object> childs = Js.uncheckedCast(CardSharing.current());
+        for (int i = 0; childs != null && i < childs.getLength(); i++) {
+            out.add(Js.uncheckedCast(childs.getAt(i)));
+        }
+        return out;
+    }
+
+    private void drawCards() {
+        java.util.List<elemental2.dom.Element> cards = allCards();
+        int n = cards.size();
+        if (n == 0) {
+            cardTabs.setAttribute("hidden", "");
+            cardTabs.replaceChildren();
+            cardArea.setAttribute("hidden", "");
+            cardArea.replaceChildren();
+            show(detail.element(), store.context() != null);
+            cardShows = "facts";
+            CardSharing.showing(cardShows);
+            return;
+        }
+        cardTabs.replaceChildren();
+        cardTabs.removeAttribute("hidden");
+        cardTabs.append(cardTab(tr("field.facts"), "facts", null));
+        boolean known = "facts".equals(cardShows);
+        // 방금 열린 것으로 간다 — 파일을 눌렀는데 화면이 그대로면 아무 일도 안 일어난 것처럼
+        // 읽힌다(운영: openFiles에 밀어 넣고 그 탭을 고른다). 이미 열려 있던 것을 다시 눌러
+        // 다시 그려지는 경우는 새것이 아니므로 보던 자리를 뺏지 않는다.
+        String opened = null;
+        java.util.Set<String> now = new java.util.HashSet<>();
+        for (int i = 0; i < n; i++) {
+            elemental2.dom.Element c = cards.get(i);
+            // 노드가 제 이름과 신원을 진다: id는 무엇인가, title은 탭에 적히는 이름(카드 계약).
+            String key = c.id;
+            now.add(key);
+            if (!cardsSeen.contains(key)) opened = key;
+            if (key.equals(cardShows)) known = true;
+            String title = c.getAttribute("title");
+            cardTabs.append(cardTab(title == null || title.isEmpty() ? key : title, key, c));
+        }
+        cardsSeen.retainAll(now);
+        cardsSeen.addAll(now);
+        if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
+        if (!known) cardShows = cards.get(n - 1).id;
+        CardSharing.showing(cardShows);
+        // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
+        boolean facts = "facts".equals(cardShows);
+        show(detail.element(), facts && store.context() != null);
+        show(cardArea, !facts);
+        if (!facts) {
+            // 고른 노드 하나만 세운다 — 나머지는 자식이 들고 있고, 탭을 누르면 그것이 선다.
+            cardArea.replaceChildren();
+            for (elemental2.dom.Element c : cards) {
+                if (cardShows.equals(c.id)) { cardArea.append(c); break; }
+            }
+        }
+        for (int i = 0; i < cardTabs.childElementCount; i++) {
+            elemental2.dom.Element t = cardTabs.querySelectorAll("md-secondary-tab").getAt(i);
+            if (t == null) continue;
+            Js.asPropertyMap(t).set("active", cardShows.equals(t.getAttribute("data-card")));
+        }
+        layout();
+    }
+
+    /** 폰의 작업공간 탭이 지금 카드를 보이는가 — 트리 대신 그 자리에 선 것. */
+    private boolean cardInsteadOfTree() {
+        if ("files".equals(wsShows)) return false;
+        for (elemental2.dom.Element c : allCards()) if (wsShows.equals(c.id)) return true;
+        return false;
+    }
+
+    /**
+     * 이 카드가 혼자 선 자리인지 자식에게 알린다 — 바뀌었을 때만, 그리고 다시 그린다.
+     *
+     * 돌아가는 문은 카드의 머리 줄에 서야 하는데(운영도 파일 바 안이다) 그 줄은 자식의 것이다.
+     * 그래서 자리 배치라는 사실 하나만 건네고, 문이 눌렸을 때 무엇이 원래 내용인지는 여기서 안다.
+     */
+    private void standAlone(boolean alone) {
+        if (alone == cardsAlone) return;
+        cardsAlone = alone;
+        CardSharing.stand(alone, () -> { wsShows = "files"; layout(); });
+        drawCards();
+    }
+
+    /** 탭 하나 — 이름과, 닫을 수 있는 카드면 닫는 ×(사실판은 닫지 않는다: 늘 있는 것이다). */
+    private HTMLElement cardTab(String title, String key, elemental2.dom.Element card) {
+        HTMLElement t = el("md-secondary-tab");
+        t.setAttribute("data-card", key);
+        HTMLElement label = el("div");
+        label.className = "tablbl";
+        label.textContent = title;
+        t.append(label);
+        t.addEventListener("click", evt -> { cardShows = key; drawCards(); });
+        if (CardSharing.closable(card)) {
+            HTMLElement x = el("button");
+            x.setAttribute("type", "button");
+            x.className = "tabclose hit48";
+            x.setAttribute("aria-label", tr("action.close_named", "name", title));
+            x.append(dev.sayaya.magi.bridge.Icons.orGlyph("#i-sl-xmark", "×", "mk"));
+            x.addEventListener("click", evt -> {
+                evt.stopPropagation();
+                if ("facts".equals(cardShows) || key.equals(cardShows)) cardShows = "facts";
+                CardSharing.close(card);
+            });
+            t.append(x);
+        }
+        return t;
     }
 
     /** 폰의 탭 — 대화 · 정보 · 파일. 이름은 운영의 그 말이다(팩 키도 같다). */
@@ -145,10 +305,14 @@ public class CompanionElement {
         // 탭도 안 보이는데 판은 탭 규칙대로 감춰진 상태가 된다 — 실측: 860px에서 전사 폭 0.
         boolean narrow = DomGlobal.window.matchMedia("(max-width:52.4375em)").matches;
         boolean companion = store.context() != null;
+        // 기둥이 하나뿐이라는 사실은 배치를 아는 여기서 적는다 — 자식은 묻기만 한다(Windows).
+        dev.sayaya.magi.bridge.Windows.onePane(narrow && companion);
         if (!narrow || !companion) {
+            standAlone(false);
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
-            show(detail.element(), companion);
+            show(detail.element(), companion && "facts".equals(cardShows));
+            show(cardArea, companion && !"facts".equals(cardShows));
             show(filecol, true);
             show(stream, true);
             show(sidecol, true);
@@ -157,10 +321,16 @@ public class CompanionElement {
         tabs.removeAttribute("hidden");
         DomGlobal.document.body.setAttribute("panel", panel);
         // 폰에서는 한 번에 하나 — 운영의 네 탭 그대로(대화·정보·파일·계획).
-        show(stream, "talk".equals(panel) || "facts".equals(panel));
+        // 폰의 작업공간은 <b>한 번에 하나</b>다 — 트리냐, 거기서 연 카드냐. 둘을 쌓으면 마흔 개
+        // 이름 아래에서 아무도 아래까지 내려가지 않는다(운영이 이 화면에서 배운 것).
+        boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
+        standAlone(cardHere);
+        show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);
         show(detail.element(), "facts".equals(panel));
         show(centreFill, "talk".equals(panel));
-        show(filecol, "files".equals(panel));
+        show(cardTabs, cardHere);
+        show(cardArea, cardHere);
+        show(filecol, "files".equals(panel) && !cardHere);
         show(sidecol, "plan".equals(panel));
         elemental2.dom.NodeList<elemental2.dom.Element> all = tabs.querySelectorAll("md-primary-tab");
         for (int i = 0; i < all.getLength(); i++) {

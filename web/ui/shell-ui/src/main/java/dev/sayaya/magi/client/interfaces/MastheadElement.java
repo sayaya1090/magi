@@ -89,6 +89,10 @@ public class MastheadElement {
         Destination screen = standing == null ? Destination.FLEET : standing.screen;
         boolean inCompanion = standing != null && standing.isCompanion();
         back.textContent = tr(screen.labelKey);
+        // 이름과 목적지는 같은 곳이어야 한다 — 이 계단은 <b>서 있는 곳</b>이고, 그것이 곧 그리로
+        // 돌아가는 길이다(운영 paintCrumbs의 규칙). 늘 /next를 걸어 두면, 설정에서 "설정"이라
+        // 적힌 계단을 눌렀을 때 명단으로 나가 버린다.
+        back.setAttribute("href", Destination.FLEET.id.equals(screen.id) ? "/next" : "/next?v=" + screen.id);
         back.className = inCompanion ? "" : "here";
         if (!inCompanion) {
             deep.remove();
@@ -139,7 +143,6 @@ public class MastheadElement {
         HTMLElement crumbs = el("nav");
         crumbs.id = "crumbs";
         back.id = "back";
-        back.setAttribute("href", "/next");
         // 목록 화면에서 크럼은 서 있는 곳 그 자체다 — 링크처럼 그리지 않는다(CSS .here).
         back.className = "here";
         back.addEventListener("click", evt -> {

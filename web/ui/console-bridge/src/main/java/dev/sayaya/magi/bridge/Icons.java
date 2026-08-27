@@ -85,17 +85,28 @@ public final class Icons {
      * 그냥 자식으로 붙이면 라벨과 같은 글자 크기를 물려받아 작아진다(실측: 18px 자리에 14px).
      * md-*-button은 slot="icon"에 온 것을 제 규격으로 그린다.
      */
-    public static void mark(HTMLElement button, String ref, String glyph) {
+    public static void mark(HTMLElement button, String ref) {
         elemental2.dom.Element m = of(ref, null);
-        if (m == null) {
-            HTMLElement g = Js.uncheckedCast(DomGlobal.document.createElement("span"));
-            g.className = "gl";
-            g.textContent = glyph;
-            g.setAttribute("aria-hidden", "true");
-            m = g;
-        }
+        // 없으면 아무것도 넣지 않는다 — 이 버튼에는 이미 말이 적혀 있다. 대신 글자 도형을 세우면
+        // 그 낱자가 말 옆에 붙어 버튼이 "☰Convene"으로 읽힌다(실측). 글자 도형은 그림만 있는
+        // 컨트롤의 것이다(orGlyph): 거기서는 그것이 유일하게 남은 표시다.
+        if (m == null) return;
         m.setAttribute("slot", "icon");
         button.insertBefore(m, button.firstChild);
+    }
+
+    /**
+     * 목록을 좁혀 읽는 칸의 돋보기 — 필드는 그림을 <b>슬롯</b>으로 받는다(자식으로 넣으면
+     * 글자 옆에 그냥 놓인다). 이 콘솔에서 타이핑으로 목록을 좁히는 칸은 네 곳이고 넷 다 같은
+     * 일이라, 그 표시는 한 곳에 적는다(운영 withGlass).
+     */
+    public static HTMLElement glass(HTMLElement field) {
+        Element g = of("#i-sl-magnifying-glass", null);
+        if (g != null) {
+            g.setAttribute("slot", "leading-icon");
+            field.append(g);
+        }
+        return field;
     }
 
     /** 그림이 있으면 그림, 없으면 늘 그리던 글자 — 어느 쪽이든 노드를 돌려준다(운영 iconOr). */

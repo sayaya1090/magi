@@ -100,7 +100,7 @@ public class MeetingElement {
         HTMLElement go = el("md-filled-button");
         go.className = "meetgo";
         go.textContent = tr("meet.start");
-        Icons.mark(go, "#i-sl-comments", "☰");
+        Icons.mark(go, "#i-sl-comments");
         go.addEventListener("click", evt -> whileItRuns(go, () ->
                 store.convene(why -> note(box, why), id -> {
                     if (id == null || id.isEmpty()) { store.read(); return; }
@@ -607,7 +607,7 @@ public class MeetingElement {
     private HTMLElement toFleet() {
         HTMLElement b = el("md-text-button");
         b.textContent = tr("nav.companions");
-        Icons.mark(b, "#i-sl-chevron-left", "‹");
+        Icons.mark(b, "#i-sl-chevron-left");
         b.addEventListener("click", evt -> GoSharing.view("fleet"));
         return b;
     }

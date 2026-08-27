@@ -51,6 +51,25 @@ public final class Console {
                 .catch_(err -> { h.take(null); return null; });
     }
 
+    /**
+     * POST하고 <b>본문을 그대로</b> 받는다 — 답이 곧 글인 것들(완성·제안·초안)의 문.
+     * 닿지 못하면 빈 문자열이다: 이런 자리에서 실패는 "아무 말도 없음"이지 오류 화면이 아니다.
+     */
+    public static Promise<String> postText(String path, URLSearchParams body, String socket, String peer) {
+        StringBuilder q = new StringBuilder();
+        if (socket != null && !socket.isEmpty()) q.append("d=").append(elemental2.core.Global.encodeURIComponent(socket));
+        if (peer != null && !peer.isEmpty()) {
+            if (q.length() > 0) q.append('&');
+            q.append("p=").append(elemental2.core.Global.encodeURIComponent(peer));
+        }
+        RequestInit init = RequestInit.create();
+        init.setMethod("POST");
+        if (body != null) init.setBody(body);
+        return raw(path + (q.length() > 0 ? "?" + q : ""), init)
+                .then(r -> r.text().then(said -> Promise.resolve(r.ok ? said.trim() : "")))
+                .catch_(err -> Promise.resolve(""));
+    }
+
     /** POST path?d=socket&p=peer. resolve 값: 성공 ""; 거부면 사유 본문. */
     public static Promise<String> post(String path, URLSearchParams body, String socket, String peer) {
         StringBuilder q = new StringBuilder();

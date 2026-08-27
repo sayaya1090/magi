@@ -60,6 +60,67 @@ public class BridgeCompanionSource implements CompanionSource {
         Console.fetchList("/transcript" + q(ctx) + "&session=" + Global.encodeURIComponent(session), cb::accept);
     }
 
+    @Override
+    public void jobs(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/jobs" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void handoffs(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/handoffs" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void cron(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/cron" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void models(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/model" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void model(CompanionContext ctx, String name, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("model", name);
+        Console.post("/model", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
+    public void permission(CompanionContext ctx, String mode, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("mode", mode);
+        Console.post("/permission", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
+    public void tools(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/tools" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void loop(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/loop" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void reportFormat(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/report-format" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void reportFormat(CompanionContext ctx, java.util.List<String> keys, java.util.List<String> prompts,
+                             Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        for (int i = 0; i < keys.size() && i < prompts.size(); i++) {
+            body.append("key", keys.get(i));
+            body.append("prompt", prompts.get(i));
+        }
+        Console.post("/report-format", body, ctx.socket, ctx.peer)
+                .then(w -> { why.accept(w); return null; });
+    }
+
     private static String q(CompanionContext ctx) {
         return "?d=" + Global.encodeURIComponent(ctx.socket)
                 + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");

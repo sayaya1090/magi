@@ -16,8 +16,9 @@
 /* 왼쪽에 판이 여럿 쌓일 때의 둘째부터 — 첫 판은 기둥 그 자체다. */
 #filecol .cpane { min-width:0; }
 
-/* 폰의 탭: 대화·정보·작업공간·진행. 넓은 창에서는 걷힌다(부모가 hidden으로). */
-#ptabs { margin-bottom:var(--magi-sys-space-100); }
+/* 폰의 탭: 대화·정보·작업공간·진행. 넓은 창에서는 걷힌다(부모가 hidden으로).
+   여백은 console.css의 것이다(16px) — 여기서 8px로 줄였더니 그 아래 전부가 8px씩 올라가
+   운영과 어긋났다(실측: 무대 top 122 대 130). 이 줄은 지웠고, 기억으로만 남긴다. */
 
 /* 오른쪽 판 — 카드 몇 장이 세로로. 비면 카드가 스스로 물러난다(hidden). */
 #side { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }

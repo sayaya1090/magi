@@ -12,6 +12,7 @@ import javax.inject.Singleton;
 public interface ShellComponent {
     ShellInitializer initializer();
     MastheadElement masthead();
+    dev.sayaya.magi.client.interfaces.TurnbarElement turnbar();
 
     dev.sayaya.magi.client.interfaces.PaletteElement palette();
     RailElement rail();

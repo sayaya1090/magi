@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.client.domain.Lanes;
 import dev.sayaya.magi.component.Rank;
@@ -57,6 +58,7 @@ public class BoardElement {
         today.textContent = tr("board.today");
         today.addEventListener("click", evt -> store.day(todayISO()));
         find.setAttribute("label", tr("label.find"));
+        Icons.glass(find);
         find.addEventListener("input", evt -> store.query(value(find)));
         head.append(prev, day, fwd, today, find);
         root.append(head, body);

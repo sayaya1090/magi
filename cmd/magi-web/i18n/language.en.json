@@ -233,7 +233,6 @@
   "files.elsewhere": "Only gossip reaches this companion, so its files stay on its own machine. A magi-web running there, added here as a peer, opens them like any other.",
   "files.empty": "Nothing in this workspace",
   "files.empty_how": "The companion's directory has no files in it yet, or nothing it is allowed to read.",
-  "files.empty_file": "This file is empty.",
   "files.find": "Find in this workspace",
   "files.find_again": "Find again",
   "files.find_clear": "Clear",

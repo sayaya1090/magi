@@ -86,6 +86,73 @@ public class CompanionStore implements CompanionSource.Listener {
     public void onContextInfo(Consumer<Object> o) { ctxInfoObs.add(o); o.accept(ctxInfo); }
 
     /** 지금 접기 — 끝나면 컨텍스트를 다시 읽는다(운영 규칙: 접기 전 숫자를 계속 보이지 않게). */
+    // ── 사실판이 바꿀 수 있는 것들 ────────────────────────────────────────────
+    // 그리는 것은 늘 <b>데몬이 말한 것</b>이다: 여기서는 청하고, 다음 명단 프레임이 답을 그린다.
+    // 그래서 거부된 바꿈은 눈에 띄게 되돌아온다(운영이 이 세 컨트롤에 세운 규칙).
+
+    private Object modelNames = null;
+    private String modelsFor = null;
+
+    /** 이 컴패니언이 닿는 모델 이름들 — 화면당 한 번만 묻는다(컴패니언이 바뀌면 다시). */
+    // ── 오른쪽 판이 읽는 나머지 ─────────────────────────────────────────────
+    // 로그에 없는 사실들이라 데몬에게 묻는다. 명단이 흐를 때마다 다시 묻되(그 사이에 달라진다),
+    // 답이 <b>같으면</b> 다시 그리지 않는 것은 판의 몫이다.
+
+    public void jobs(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.jobs(ctx, cb);
+    }
+
+    public void handoffs(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.handoffs(ctx, cb);
+    }
+
+    public void cron(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.cron(ctx, cb);
+    }
+
+    /** 이 컴패니언의 지난 일 목록 — 사실판의 세션 고르개가 읽는다(층위와 같은 답, 다른 쓰임). */
+    public void history(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.history(ctx, cb);
+    }
+
+    public void models(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        if (modelNames != null && ctx.socket.equals(modelsFor)) { cb.accept(modelNames); return; }
+        modelsFor = ctx.socket;
+        source.models(ctx, got -> { modelNames = got; cb.accept(got); });
+    }
+
+    public void model(String name, Consumer<String> why) {
+        if (ctx != null) source.model(ctx, name, why);
+    }
+
+    public void permission(String mode, Consumer<String> why) {
+        if (ctx != null) source.permission(ctx, mode, why);
+    }
+
+    public void tools(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.tools(ctx, cb);
+    }
+
+    public void loop(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.loop(ctx, cb);
+    }
+
+    public void reportFormat(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.reportFormat(ctx, cb);
+    }
+
+    public void reportFormat(java.util.List<String> keys, java.util.List<String> prompts, Consumer<String> why) {
+        if (ctx != null) source.reportFormat(ctx, keys, prompts, why);
+    }
+
     public void compact(Runnable after) {
         if (ctx == null) return;
         source.compact(ctx, () -> { ctxFor = null; askContextInfo(); after.run(); });

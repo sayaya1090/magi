@@ -1,6 +1,8 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.Stylesheet;
 import dev.sayaya.magi.client.domain.Rows;
 import dev.sayaya.magi.client.usecase.CompanionStore;
@@ -35,9 +37,9 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class ConversationElement {
     private final CompanionStore store;
+    private final Dialogs dialogs;
+    private final dev.sayaya.magi.client.usecase.OpenCards open;
     private final HTMLElement root = el("section");
-    private final HTMLElement turnwrap = el("div");
-    private final HTMLElement turnfor = el("span");
     private final HTMLElement log = el("div");
     private final HTMLElement past = el("section");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
@@ -47,23 +49,18 @@ public class ConversationElement {
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
     @Inject
-    public ConversationElement(CompanionStore store) {
+    public ConversationElement(CompanionStore store, Dialogs dialogs,
+                               dev.sayaya.magi.client.usecase.OpenCards open) {
         this.store = store;
+        this.dialogs = dialogs;
+        this.open = open;
         // 감싸는 상자를 두지 않는다: 부모가 준 자리는 이미 높이가 정해진 기둥이고, 그 안에서
         // 전사가 남는 높이를 받아 제 안에서 스크롤한다(운영 규칙). 사이에 상자가 하나라도 끼면
         // 그 사슬이 거기서 끊긴다 — 실측: 전사가 4190px로 자라 기둥 밖으로 흘렀다.
         root.id = "conversation";
-        // 턴바는 운영 콘솔의 그 마크업 그대로다 — #turnwrap[hidden] 속의 md-linear-progress
-        // #turnbar(aria-hidden: 행이 이미 말로 말한다)와 경과 숫자 #turnfor. 스타일도 표시
-        // 규칙도 console.css의 것이라, 여기는 hidden 토글과 1초 틱만 진다.
-        turnwrap.id = "turnwrap";
-        turnwrap.setAttribute("hidden", "");
-        HTMLElement bar = el("md-linear-progress");
-        bar.id = "turnbar";
-        Js.asPropertyMap(bar).set("indeterminate", true);
-        bar.setAttribute("aria-hidden", "true");
-        turnfor.id = "turnfor";
-        turnwrap.append(bar, turnfor);
+        // 턴바는 여기 없다 — 창을 가로지르는 줄(운영 css의 left:0;right:0 fixed)은 이 기둥이
+        // 기준 상자가 되는 순간 기둥 폭짜리가 된다. 그건 창의 것이고, 켜는 사실(turn 프레임)도
+        // 이미 셸에 와 있다(shell-ui TurnbarElement).
         log.id = "log";
         past.id = "agentdetail";
         past.setAttribute("hidden", "");
@@ -73,7 +70,7 @@ public class ConversationElement {
         // display:contents — 있는 셈 치지 않는 상자. 이 요소가 필요한 이유는 mount가 프레임을
         // 통째로 갈아끼우기 때문이고(자식 하나로 다루는 편이 안전하다), 배치에서는 없어야 한다.
         root.style.setProperty("display", "contents");
-        root.append(turnwrap, log, past);
+        root.append(log, past);
     }
 
     public void mount(HTMLElement frame) {
@@ -84,7 +81,6 @@ public class ConversationElement {
         store.start();
         store.onContext(ctx -> { lastSig = null; layer(ctx); });
         store.onRows(this::paintRows);
-        store.onTurn(this::paintTurn);
         store.onPast(this::paintPast);
     }
 
@@ -101,7 +97,6 @@ public class ConversationElement {
     private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
         pastNow = ctx == null ? null : ctx.past;
         boolean inPast = pastNow != null;
-        toggle(turnwrap, !inPast && turnwrap.classList.contains("on"));
         toggle(log, !inPast);
         toggle(form, !inPast);
         toggle(past, inPast);
@@ -172,28 +167,6 @@ public class ConversationElement {
         return v == null ? "" : String.valueOf(v);
     }
 
-    // ── 턴바: 운영 page.js showTurnbar/paintTurnFor의 이식 ───────────────────
-    private double turnFrom = 0;
-    private double turnTick = -1;
-    private boolean turnOpen = false;
-
-    private void paintTurn(boolean open, double forSec) {
-        turnOpen = open;
-        turnFrom = JsDate.now() - forSec * 1000;
-        if (open) turnwrap.removeAttribute("hidden");
-        else turnwrap.setAttribute("hidden", "");
-        if (turnTick >= 0) { DomGlobal.clearInterval(turnTick); turnTick = -1; }
-        paintTurnFor();
-        // 1초, 그리고 켜져 있는 동안만 — 숨은 요소를 상대로 도는 타이머는 탭의 수명만큼의
-        // 웨이크업이다(운영의 그 규칙).
-        if (open) turnTick = DomGlobal.setInterval(a -> paintTurnFor(), 1000);
-    }
-
-    private void paintTurnFor() {
-        turnfor.textContent = turnOpen
-                ? dur((int) Math.max(0, Math.round((JsDate.now() - turnFrom) / 1000))) : "";
-    }
-
     /** s/m/h/d — 운영 dur()와 같은 축약: 단위는 언어를 타지 않는다. */
     private static String dur(int s) {
         if (s < 60) return s + "s";
@@ -204,9 +177,17 @@ public class ConversationElement {
 
 
     private final HTMLElement sendBtn = el("md-filled-button");
+    // 돌고 있는 턴을 멈추는 문 — 답하는 것과 같은 권한이라(운영 data-may="answer"), 볼 수만
+    // 있는 사람에게는 남의 일을 끝내는 버튼을 내놓지 않는다.
+    private final HTMLElement stopBtn = el("md-filled-tonal-button");
     private final HTMLElement note = el("div");   // 컴포저 아래 한 줄 — 지금 이 상자의 몫
+    private final HTMLElement hint = el("div");   // 모델이 내민 다음 말(흐리게, Tab이 가져간다)
+    private String suggested = "";
+    private int suggestAt = 0;
+    private double suggestTick = -1;
     private String parked = "";                   // 다른 몫으로 쓰던 초고는 지우지 않고 맡아 둔다
     private boolean wasAnswering = false;
+    private boolean dressed = false;      // 옷을 한 번은 입혀야 한다 — 첫 상태가 기본값과 같아도
     private boolean composerBuilt = false;
 
     /**
@@ -221,8 +202,11 @@ public class ConversationElement {
      */
     private void answerMode() {
         boolean now = store.answering();
-        if (now == wasAnswering && composerBuilt) return;
+        // 처음 한 번은 반드시 입힌다: 첫 상태가 기본값과 같다는 이유로 건너뛰면 버튼과 필드가
+        // 이름 없이 선다(실측: 보내기 버튼의 접근 이름이 "send"라는 id였다).
+        if (now == wasAnswering && dressed) return;
         wasAnswering = now;
+        dressed = true;
         field.setAttribute("label", tr(now ? "label.answer" : "label.ask"));
         sendBtn.textContent = tr(now ? "action.answer" : "action.send");
         String had = value();
@@ -252,11 +236,31 @@ public class ConversationElement {
         // 버튼은 한 무리로 — 필드가 줄의 나머지를 갖는다(운영 .bgroup).
         HTMLElement group = el("div");
         group.className = "bgroup";
-        group.append(send);
+        stopBtn.id = "stop";
+        stopBtn.setAttribute("type", "button");
+        stopBtn.textContent = tr("action.interrupt");
+        Icons.mark(stopBtn, "#i-ss-circle-stop");
+        if (!May.can("answer")) stopBtn.setAttribute("hidden", "");
+        stopBtn.addEventListener("click", evt -> {
+            // 되돌릴 수 없는 일이라 이름을 대고 묻는다(운영 confirmStop) — 무엇이 멈추는지.
+            // 이름은 명단이 안다 — 셸이 실어 보내는 그 창의 사실(RosterSharing). 이름을 모르면
+            // 이름 자리를 비워 두지 않고 이름 없는 물음을 쓴다(운영의 두 문장 그대로).
+            String who = nameOfAimed();
+            dialogs.confirm(who.isEmpty() ? tr("stop.headline_plain")
+                            : tr("stop.headline", "name", who),
+                    tr("stop.body"), tr("action.interrupt"), () -> store.interrupt(why -> { }));
+        });
+        group.append(send, stopBtn);
         box.append(field, group);
         note.id = "cnote";
         note.setAttribute("hidden", "");
-        form.append(box, note);
+        // 제안은 컴포저 <b>줄 아래</b>에 선다: .composer는 감싸지 않는 flex 한 줄(칸+버튼)이라,
+        // 그 사이에 두면 폰에서 칸을 눌러 버린다(운영이 이 자리를 고른 이유).
+        hint.className = "sughint";
+        hint.setAttribute("hidden", "");
+        hint.setAttribute("aria-hidden", "true");
+        form.append(box, hint, note);
+        wireSuggest();
         // 이 상자가 지금 무엇을 하는 자리인지는 부모가 알린다 — 그 사실이 바뀔 때만 옷을 갈아입는다.
         store.listenForAsk(this::answerMode);
         answerMode();
@@ -272,6 +276,179 @@ public class ConversationElement {
         });
         return form;
     }
+
+    /** 지금 보는 컴패니언의 이름 — 명단에서 소켓으로 찾는다(없으면 빈 문자열). */
+    private String nameOfAimed() {
+        dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
+        if (ctx == null || ctx.socket == null) return "";
+        final String[] found = {""};
+        dev.sayaya.magi.bridge.RosterSharing.subscribe(list -> {
+            dev.sayaya.magi.bridge.FleetAgent[] all = Js.uncheckedCast(list);
+            for (int i = 0; all != null && i < all.length; i++) {
+                if (ctx.socket.equals(all[i].socket) && all[i].name != null) { found[0] = all[i].name; return; }
+            }
+        });
+        return found[0];
+    }
+
+    /**
+     * 복사 — 늘 서 있다(손끝이 올라올 때만 나타나는 컨트롤은 터치 화면에 영영 없는 컨트롤이고
+     * 키보드가 닿지 못하는 컨트롤이다). 컴포넌트가 아니라 맨 button인 이유는 이것이 산문 행마다
+     * 하나씩이기 때문이다 — 섀도 루트를 수백 개 더 짓지 않는다(운영 copyChip의 그 판단).
+     */
+    private HTMLElement copyChip(String text) {
+        HTMLElement b = el("button");
+        b.setAttribute("type", "button");
+        b.className = "copy hit48";
+        b.append(Icons.orGlyph("#i-sl-copy", "\u29C9", null));
+        b.setAttribute("aria-label", tr("action.copy"));
+        b.setAttribute("title", tr("action.copy"));
+        b.addEventListener("click", evt -> {
+            evt.preventDefault();
+            evt.stopPropagation();
+            // 조용히 실패한 복사는 시끄럽게 실패한 복사보다 나쁘다: 다음에 하는 일이 붙여넣기라
+            // 그때는 이유가 사라지고 없다.
+            copy(text, ok -> {
+                if (!ok) { note.textContent = tr("copy.refused"); note.removeAttribute("hidden"); return; }
+                b.textContent = "\u2713";
+                b.classList.add("done");
+                DomGlobal.setTimeout(a -> {
+                    b.replaceChildren(Icons.orGlyph("#i-sl-copy", "\u29C9", null));
+                    b.classList.remove("done");
+                }, 1200);
+            });
+        });
+        return b;
+    }
+
+    private interface Landed { void call(boolean ok); }
+
+    private static native void copy(String text, Landed then) /*-{
+        var ok = function (good) { then.@dev.sayaya.magi.client.interfaces.ConversationElement.Landed::call(Z)(good); };
+        if (!$wnd.navigator.clipboard) { ok(false); return; }
+        $wnd.navigator.clipboard.writeText(String(text || ''))
+            .then(function () { ok(true); })["catch"](function () { ok(false); });
+    }-*/;
+
+    /**
+     * 한 표결이 무엇을 보고 내려졌는가 — 가운데의 카드로 편다(사실판·파일과 같은 줄을 쓴다).
+     *
+     * 증거가 없는 라운드는 그렇다고 <b>말한다</b>: 소집이 접혀 나간 라운드의 증거는 정말로
+     * 사라진 것이고, 그 자리를 조용히 비워 두면 못 읽은 것처럼 보여 사람이 다시 누르게 된다.
+     */
+    private void showVerdict(int round, String member, String saidInRow) {
+        HTMLElement box = el("div");
+        String key = "cr:" + round + ":" + member;
+        box.id = key;
+        box.setAttribute("title", member);
+        box.style.setProperty("display", "contents");
+        dev.sayaya.magi.bridge.CardSharing.closable(box, () -> { });
+        HTMLElement bar = cell("filebar", null);
+        bar.append(cell("filedir", member));
+        HTMLElement body = cell("dinsp", null);
+        body.append(cell("dnote", tr("detail.loading")));
+        box.append(bar, body);
+        // 이 카드는 자식이 만든 다른 카드들과 함께 부모에게 간다 — 자리를 아는 쪽은 부모다.
+        cardsWith(box);
+        store.councilEvidence(round, seen -> {
+            body.replaceChildren();
+            JsPropertyMap<Object> ev = seen == null ? null : Js.uncheckedCast(seen);
+            if (ev == null) {
+                body.append(cell("dk dhero", tr("detail.evidence")), cell("dnote", tr("detail.evidence_gone")));
+            } else {
+                body.append(cell("dk dhero", tr("detail.evidence")));
+                section(body, "detail.task", str(ev, "task"), false);
+                section(body, "detail.plan", str(ev, "plan"), false);
+                section(body, "detail.report", str(ev, "report"), false);
+                section(body, "detail.actions", str(ev, "actions"), true);
+                section(body, "detail.changes", str(ev, "changes"), true);
+                if (Js.isTruthy(ev.get("noChanges"))) body.append(cell("dnote", tr("detail.no_changes")));
+            }
+            // 그 줄에 적혀 있던 말(표결과 이유) — 카드는 그 위에 증거를 얹는 것이지 대신하지 않는다.
+            if (!saidInRow.trim().isEmpty()) {
+                body.append(cell("dk", tr("detail.rationale")), cell("dbody", saidInRow));
+            }
+        });
+    }
+
+    /** 이 화면이 연 카드들 — 파일과 같은 줄에 선다(부모가 그 줄을 그린다). */
+    private final java.util.LinkedHashMap<String, HTMLElement> mine = new java.util.LinkedHashMap<>();
+
+    private void cardsWith(HTMLElement card) {
+        mine.put(card.id, card);
+        dev.sayaya.magi.bridge.CardSharing.closable(card, () -> { mine.remove(card.id); pushCards(); });
+        pushCards();
+    }
+
+    private void pushCards() {
+        open.set("verdicts", new java.util.ArrayList<>(mine.values()));
+    }
+
+    private static void section(HTMLElement into, String key, String text, boolean pre) {
+        if (text == null || text.trim().isEmpty()) return;
+        into.append(cell("dk", tr(key)));
+        if (!pre) { into.append(cell("dbody", text)); return; }
+        HTMLElement p = el("pre");
+        p.className = "dpre";
+        p.textContent = text;
+        into.append(p);
+    }
+
+    /**
+     * 컴포저의 이어쓰기 — 칸 안에 유령을 끼워 넣지 않고 <b>아래에 흐리게</b> 적는다.
+     *
+     * 여기 칸은 컴포넌트(md-outlined-text-field)이고 그 속의 textarea는 섀도 루트 안이라,
+     * 편집기가 하는 것처럼 같은 자리에 거울을 깔 수가 없다(운영이 이 화면에서 고른 그 타협).
+     * Tab이 가져가고, Escape나 다음 타이핑이 지운다.
+     */
+    private void wireSuggest() {
+        HTMLElement inner = field;
+        inner.addEventListener("input", evt -> {
+            clearSuggest();                      // 방금 친 것이 달라졌다 — 서 있던 제안은 낡았다
+            if (suggestTick >= 0) DomGlobal.clearTimeout(suggestTick);
+            suggestTick = DomGlobal.setTimeout(a -> askSuggest(), 400);
+        });
+        inner.addEventListener("keydown", evt -> {
+            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            if ("Tab".equals(k.key) && !suggested.isEmpty() && !composing(k)) {
+                evt.preventDefault();
+                value(value() + suggested);      // 쓰다 만 자리에서 이어진다 — 대신하지 않는다
+                clearSuggest();
+                return;
+            }
+            if ("Escape".equals(k.key)) clearSuggest();
+        });
+        inner.addEventListener("blur", evt -> clearSuggest());
+    }
+
+    private void askSuggest() {
+        if (!May.can("prompt")) return;
+        String said = value();
+        if (said.trim().isEmpty()) { clearSuggest(); return; }   // 빈 칸은 짐작할 자리가 아니다
+        final int mine = ++suggestAt;
+        store.suggest(said, text -> {
+            if (mine != suggestAt) return;              // 더 새 요청이 앞질렀다
+            if (!value().equals(said)) return;          // 기다리는 사이 계속 쳤다
+            // 붙일 때는 온 그대로다(앞뒤 공백까지) — 이어붙는 글의 띄어쓰기는 그것을 쓴 쪽이
+            // 정한다. 흐리게 보일 때만 다듬는다: 줄 앞 공백은 화면에서 빈칸으로만 보인다.
+            suggested = text == null ? "" : text;
+            if (suggested.trim().isEmpty()) { clearSuggest(); return; }
+            hint.textContent = suggested.trim();
+            hint.removeAttribute("hidden");
+        });
+    }
+
+    private void clearSuggest() {
+        suggestAt++;
+        if (suggested.isEmpty() && hint.hasAttribute("hidden")) return;
+        suggested = "";
+        hint.textContent = "";
+        hint.setAttribute("hidden", "");
+    }
+
+    private static native boolean composing(elemental2.dom.KeyboardEvent e) /*-{
+        return !!(e.isComposing || e.keyCode === 229);
+    }-*/;
 
     private String value() {
         Object v = Js.asPropertyMap(field).get("value");
@@ -312,6 +489,22 @@ public class ConversationElement {
         HTMLElement w = el("div");
         w.className = "who";
         w.textContent = who;
+        // 카운슬 자리의 이름은 누를 수 있다 — 그 표결이 <b>무엇을 보고</b> 내려졌는지로 간다.
+        // 표를 검증 가능하게 만드는 반쪽이고, 전사의 한 줄에는 그것이 들어갈 자리가 없다.
+        String member = str(r, "member");
+        double round = r.get("round") == null ? 0 : Js.coerceToDouble(r.get("round"));
+        if ("council".equals(who) && !member.isEmpty() && round > 0) {
+            HTMLElement name = el("button");
+            name.setAttribute("type", "button");
+            name.className = "who whoin hit48";
+            name.textContent = who;
+            name.setAttribute("aria-label", tr("detail.evidence") + ": " + member);
+            name.setAttribute("title", tr("detail.evidence"));
+            final int at = (int) round;
+            final String said = str(r, "text");
+            name.addEventListener("click", evt -> { evt.stopPropagation(); showVerdict(at, member, said); });
+            w = name;
+        }
         String at = str(r, "at");
         if (!at.isEmpty()) {
             HTMLElement when = el("div");
@@ -325,6 +518,10 @@ public class ConversationElement {
         }
         if (pending) w.append(tag("row.working"));
         if (Js.isTruthy(r.get("abandoned"))) w.append(tag("row.abandoned"));
+        // 사람이 화면에서 못 얻는 것 하나 — 적힌 그대로의 본문. 골라서 복사하면 <b>그려진</b>
+        // 글이 나온다(표는 칸이 붙어 나오고 코드 울타리는 사라진다). 산문 두 행에만 둔다.
+        String said = str(r, "text");
+        if (("user".equals(who) || "assistant".equals(who)) && !said.trim().isEmpty()) w.append(copyChip(said));
         HTMLElement t = el("div");
         t.className = "txt";
         t.textContent = str(r, "text");

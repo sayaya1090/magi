@@ -17,6 +17,8 @@ public class Application implements EntryPoint {
         // 그때는 각 화면이 늘 그리던 제 도형을 그린다.
         Icons.borrow(() -> Labels.load(() -> {
             DomGlobal.document.body.append(
+                    // 창을 가로지르는 것이 먼저다 — 운영 page.html도 마스트헤드 위에 둔다.
+                    component.turnbar().element(),
                     component.masthead().element(),
                     component.rail().scrim(),
                     component.rail().element(),
