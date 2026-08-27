@@ -52,4 +52,12 @@ public class DemoCompanionSource implements CompanionSource {
         // 데모의 제안은 한 마디다 — 무엇이 일어나는지만 보이면 된다.
         text.accept(prefix.trim().isEmpty() ? "" : " and then run the tests");
     }
+
+    @Override
+    public void councilEvidence(CompanionContext ctx, int round, java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"task\":\"Make the console read the same as the terminal\"," +
+                "\"report\":\"Ported the workspace card and its editor.\"," +
+                "\"actions\":\"read · edit · build\",\"changes\":\"web/ui/…\"}"));
+    }
 }

@@ -60,6 +60,12 @@ public class CompanionStore implements CompanionSource.Listener {
         source.submit(ctx, text, why);
     }
 
+    /** 그 라운드가 본 것 — 카드 하나로 펼쳐진다(전사 행에는 담을 자리가 없다). */
+    public void councilEvidence(int round, Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        source.councilEvidence(ctx, round, cb);
+    }
+
     /** 컴포저가 쓰다 만 말의 다음 — 답은 이어붙일 글이다(빈 답은 "할 말 없음"이고 정상이다). */
     public void suggest(String prefix, Consumer<String> text) {
         if (ctx == null) { text.accept(""); return; }

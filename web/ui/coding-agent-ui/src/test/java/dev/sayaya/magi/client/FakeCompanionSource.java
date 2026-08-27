@@ -84,4 +84,11 @@ public class FakeCompanionSource implements CompanionSource {
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_suggest", prefix);
         text.accept(" and then some");
     }
+
+    @Override
+    public void councilEvidence(CompanionContext ctx, int round, java.util.function.Consumer<Object> cb) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_council", round);
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "{\"task\":\"the task it judged\",\"report\":\"what was reported\",\"actions\":\"read · edit\"}"));
+    }
 }

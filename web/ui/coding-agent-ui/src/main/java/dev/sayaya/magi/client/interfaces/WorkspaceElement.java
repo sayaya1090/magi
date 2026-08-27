@@ -43,13 +43,16 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 public class WorkspaceElement {
     private final WorkspaceStore store;
     private final Dialogs dialogs;
+    private final dev.sayaya.magi.client.usecase.OpenCards open;
     private final HTMLElement root = el("div");
     private boolean wired = false;
 
     @Inject
-    public WorkspaceElement(WorkspaceStore store, CompanionStore companion, Dialogs dialogs) {
+    public WorkspaceElement(WorkspaceStore store, CompanionStore companion, Dialogs dialogs,
+                            dev.sayaya.magi.client.usecase.OpenCards open) {
         this.store = store;
         this.dialogs = dialogs;
+        this.open = open;
         root.id = "files";
         companion.onContext(store::aim);
     }
@@ -400,13 +403,12 @@ public class WorkspaceElement {
      * 무엇이 열려 있는지는 이 화면이 알고, 그 중 무엇을 보일지는 탭 줄이 정한다.
      */
     private void publishCards() {
-        java.util.List<String> paths = store.openPaths();
-        Object[] cards = new Object[paths.size()];
-        for (int i = 0; i < paths.size(); i++) {
-            String key = paths.get(i);
-            cards[i] = WorkspaceStore.isDiff(key) ? diffCard(key) : fileCard(key);
+        java.util.List<HTMLElement> cards = new java.util.ArrayList<>();
+        for (String key : store.openPaths()) {
+            cards.add(WorkspaceStore.isDiff(key) ? diffCard(key) : fileCard(key));
         }
-        CardSharing.provide(cards);
+        // 카드 줄은 창에 하나다 — 제 몫만 놓고, 합치는 일은 한 곳에서 한다(OpenCards).
+        open.set("files", cards);
     }
 
     private static String baseName(String path) {

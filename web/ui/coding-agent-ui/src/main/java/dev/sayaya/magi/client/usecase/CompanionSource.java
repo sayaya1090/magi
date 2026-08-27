@@ -41,6 +41,12 @@ public interface CompanionSource {
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
 
     /**
+     * 한 카운슬 라운드가 <b>무엇을 보고</b> 판단했는가(/council&round=) — 과제·플랜·보고서·
+     * 행동·바뀐 것. 표결을 검증 가능하게 만드는 나머지 반이고, 전사 행에는 그것을 담을 자리가 없다.
+     */
+    void councilEvidence(CompanionContext ctx, int round, java.util.function.Consumer<Object> seenOrNull);
+
+    /**
      * 컴포저가 쓰다 만 말의 다음(/suggest) — 답은 <b>이어붙일</b> 글이다(쓴 것을 대신하지 않는다).
      * 라우팅된 빠른 프로필이 없으면 서버가 스스로 아무 말도 하지 않는다.
      */

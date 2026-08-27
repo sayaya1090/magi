@@ -38,6 +38,7 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 public class ConversationElement {
     private final CompanionStore store;
     private final Dialogs dialogs;
+    private final dev.sayaya.magi.client.usecase.OpenCards open;
     private final HTMLElement root = el("section");
     private final HTMLElement log = el("div");
     private final HTMLElement past = el("section");
@@ -48,9 +49,11 @@ public class ConversationElement {
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
     @Inject
-    public ConversationElement(CompanionStore store, Dialogs dialogs) {
+    public ConversationElement(CompanionStore store, Dialogs dialogs,
+                               dev.sayaya.magi.client.usecase.OpenCards open) {
         this.store = store;
         this.dialogs = dialogs;
+        this.open = open;
         // 감싸는 상자를 두지 않는다: 부모가 준 자리는 이미 높이가 정해진 기둥이고, 그 안에서
         // 전사가 남는 높이를 받아 제 안에서 스크롤한다(운영 규칙). 사이에 상자가 하나라도 끼면
         // 그 사슬이 거기서 끊긴다 — 실측: 전사가 4190px로 자라 기둥 밖으로 흘렀다.
@@ -328,6 +331,70 @@ public class ConversationElement {
     }-*/;
 
     /**
+     * 한 표결이 무엇을 보고 내려졌는가 — 가운데의 카드로 편다(사실판·파일과 같은 줄을 쓴다).
+     *
+     * 증거가 없는 라운드는 그렇다고 <b>말한다</b>: 소집이 접혀 나간 라운드의 증거는 정말로
+     * 사라진 것이고, 그 자리를 조용히 비워 두면 못 읽은 것처럼 보여 사람이 다시 누르게 된다.
+     */
+    private void showVerdict(int round, String member, String saidInRow) {
+        HTMLElement box = el("div");
+        String key = "cr:" + round + ":" + member;
+        box.id = key;
+        box.setAttribute("title", member);
+        box.style.setProperty("display", "contents");
+        dev.sayaya.magi.bridge.CardSharing.closable(box, () -> { });
+        HTMLElement bar = cell("filebar", null);
+        bar.append(cell("filedir", member));
+        HTMLElement body = cell("dinsp", null);
+        body.append(cell("dnote", tr("detail.loading")));
+        box.append(bar, body);
+        // 이 카드는 자식이 만든 다른 카드들과 함께 부모에게 간다 — 자리를 아는 쪽은 부모다.
+        cardsWith(box);
+        store.councilEvidence(round, seen -> {
+            body.replaceChildren();
+            JsPropertyMap<Object> ev = seen == null ? null : Js.uncheckedCast(seen);
+            if (ev == null) {
+                body.append(cell("dk dhero", tr("detail.evidence")), cell("dnote", tr("detail.evidence_gone")));
+            } else {
+                body.append(cell("dk dhero", tr("detail.evidence")));
+                section(body, "detail.task", str(ev, "task"), false);
+                section(body, "detail.plan", str(ev, "plan"), false);
+                section(body, "detail.report", str(ev, "report"), false);
+                section(body, "detail.actions", str(ev, "actions"), true);
+                section(body, "detail.changes", str(ev, "changes"), true);
+                if (Js.isTruthy(ev.get("noChanges"))) body.append(cell("dnote", tr("detail.no_changes")));
+            }
+            // 그 줄에 적혀 있던 말(표결과 이유) — 카드는 그 위에 증거를 얹는 것이지 대신하지 않는다.
+            if (!saidInRow.trim().isEmpty()) {
+                body.append(cell("dk", tr("detail.rationale")), cell("dbody", saidInRow));
+            }
+        });
+    }
+
+    /** 이 화면이 연 카드들 — 파일과 같은 줄에 선다(부모가 그 줄을 그린다). */
+    private final java.util.LinkedHashMap<String, HTMLElement> mine = new java.util.LinkedHashMap<>();
+
+    private void cardsWith(HTMLElement card) {
+        mine.put(card.id, card);
+        dev.sayaya.magi.bridge.CardSharing.closable(card, () -> { mine.remove(card.id); pushCards(); });
+        pushCards();
+    }
+
+    private void pushCards() {
+        open.set("verdicts", new java.util.ArrayList<>(mine.values()));
+    }
+
+    private static void section(HTMLElement into, String key, String text, boolean pre) {
+        if (text == null || text.trim().isEmpty()) return;
+        into.append(cell("dk", tr(key)));
+        if (!pre) { into.append(cell("dbody", text)); return; }
+        HTMLElement p = el("pre");
+        p.className = "dpre";
+        p.textContent = text;
+        into.append(p);
+    }
+
+    /**
      * 컴포저의 이어쓰기 — 칸 안에 유령을 끼워 넣지 않고 <b>아래에 흐리게</b> 적는다.
      *
      * 여기 칸은 컴포넌트(md-outlined-text-field)이고 그 속의 textarea는 섀도 루트 안이라,
@@ -422,6 +489,22 @@ public class ConversationElement {
         HTMLElement w = el("div");
         w.className = "who";
         w.textContent = who;
+        // 카운슬 자리의 이름은 누를 수 있다 — 그 표결이 <b>무엇을 보고</b> 내려졌는지로 간다.
+        // 표를 검증 가능하게 만드는 반쪽이고, 전사의 한 줄에는 그것이 들어갈 자리가 없다.
+        String member = str(r, "member");
+        double round = r.get("round") == null ? 0 : Js.coerceToDouble(r.get("round"));
+        if ("council".equals(who) && !member.isEmpty() && round > 0) {
+            HTMLElement name = el("button");
+            name.setAttribute("type", "button");
+            name.className = "who whoin hit48";
+            name.textContent = who;
+            name.setAttribute("aria-label", tr("detail.evidence") + ": " + member);
+            name.setAttribute("title", tr("detail.evidence"));
+            final int at = (int) round;
+            final String said = str(r, "text");
+            name.addEventListener("click", evt -> { evt.stopPropagation(); showVerdict(at, member, said); });
+            w = name;
+        }
         String at = str(r, "at");
         if (!at.isEmpty()) {
             HTMLElement when = el("div");

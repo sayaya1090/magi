@@ -58,6 +58,13 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void councilEvidence(CompanionContext ctx, int round, Consumer<Object> cb) {
+        Console.fetchList("/council" + q(ctx) + "&round=" + round
+                + (ctx.past == null || ctx.past.isEmpty() ? ""
+                   : "&session=" + Global.encodeURIComponent(ctx.past)), cb::accept);
+    }
+
+    @Override
     public void suggest(CompanionContext ctx, String prefix, Consumer<String> text) {
         URLSearchParams body = new URLSearchParams();
         body.set("prefix", prefix);
