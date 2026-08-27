@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/webassets"
 	"log"
 	"net"
 	"net/http"
@@ -470,40 +471,8 @@ func (s *server) serviceWorker(w http.ResponseWriter, r *http.Request) {
 	// No modification time: the worker is compiled in, so its date is the binary's and a browser
 	// asking "has it changed" wants the answer no-cache already gives. A wrong date here would let
 	// a phone keep an old worker across an upgrade.
-	http.ServeContent(w, r, "sw.js", time.Time{}, strings.NewReader(swJS))
+	http.ServeContent(w, r, "sw.js", time.Time{}, strings.NewReader(webassets.ServiceWorker))
 }
-
-const swJS = `// magi's service worker. It exists to receive notifications; it caches nothing.
-//
-// Caching would make the console show a stale fleet, and a stale fleet is worse than no fleet: the
-// whole page is an answer to "what is happening right now".
-self.addEventListener('push', e => {
-  let m = {};
-  try { m = e.data ? e.data.json() : {}; } catch (_) { m = {body: e.data ? e.data.text() : ''}; }
-  e.waitUntil(self.registration.showNotification(m.title || 'a companion is waiting', {
-    body: m.body || '',
-    tag: m.tag || 'magi',
-    // Replaces the earlier notification for this companion without a second buzz: the tag already
-    // makes it silent-replace on some platforms and explicit on the rest.
-    renotify: false,
-    icon: '/icon.svg',
-    badge: '/icon.svg',
-    data: {url: m.url || '/'},
-  }));
-});
-self.addEventListener('notificationclick', e => {
-  e.notification.close();
-  const want = new URL(e.notification.data && e.notification.data.url || '/', self.location.origin).href;
-  // A console already open is focused rather than opened again. Somebody with the fleet on a second
-  // screen does not want a third copy of it.
-  e.waitUntil(clients.matchAll({type: 'window', includeUncontrolled: true}).then(list => {
-    for (const c of list) {
-      if (c.url.startsWith(self.location.origin) && 'focus' in c) return c.navigate(want).then(x => x.focus());
-    }
-    return clients.openWindow(want);
-  }));
-});
-`
 
 // safePushEndpoint refuses, at subscribe time and WITHOUT a DNS lookup, an endpoint that could
 // never be a real web-push target: a non-https scheme, no host, or an IP literal (FCM/Mozilla/Apple

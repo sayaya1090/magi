@@ -8,6 +8,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sayaya1090/magi/internal/webassets"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,18 @@ func emitDemo(dir, ui, oldConsole string) error {
 			return err
 		}
 	}
+	// 설치에 필요한 것들도 함께 나간다 — 데모도 홈 화면에 담을 수 있어야 그것이 이 콘솔의
+	// 사본이다. 이 사본은 하위 경로에 살므로 페이지가 대는 이름도 상대경로로 바뀐다(아래).
+	for _, one := range []struct{ name, body string }{
+		{"manifest.webmanifest", webassets.Manifest},
+		{"icon.svg", webassets.Icon},
+		{"icon-maskable.svg", webassets.IconMaskable},
+		{"sw.js", webassets.ServiceWorker},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, one.name), []byte(one.body), 0o644); err != nil {
+			return fmt.Errorf("%s: %w", one.name, err)
+		}
+	}
 	// The page: root-relative prefixes become relative, and the shim goes in ahead of the shell
 	// so fetch and EventSource are already the mock's when the first module asks.
 	pageBytes, err := os.ReadFile(filepath.Join(ui, "console.html"))
@@ -62,11 +75,13 @@ func emitDemo(dir, ui, oldConsole string) error {
 		return err
 	}
 	page := string(pageBytes)
-	for _, prefix := range []string{"/ui/", "/vendor/"} {
+	for _, prefix := range []string{"/ui/", "/vendor/", "/manifest.webmanifest", "/icon.svg",
+		"/icon-maskable.svg", "/sw.js"} {
 		page = strings.ReplaceAll(page, `"`+prefix, `"./`+strings.TrimPrefix(prefix, "/"))
 		page = strings.ReplaceAll(page, "'"+prefix, "'./"+strings.TrimPrefix(prefix, "/"))
 	}
 	page = strings.Replace(page, "<script src=", demoShim+"<script src=", 1)
+	page = withSprite(page)
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o644); err != nil {
 		return err
 	}

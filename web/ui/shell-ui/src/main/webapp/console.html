@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="color-scheme" content="dark light">
     <meta name="theme-color" content="#14110d">
+    <!-- 홈 화면에 두면 앱처럼 열린다 — 매니페스트도 아이콘도 이 콘솔이 서빙하는 제 것이다
+         (CDN 0: 이 페이지가 남의 서버를 부르는 일은 없다). 정적 데모에서는 같은 파일들이
+         함께 나간다. -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon.svg">
     <title>magi console</title>
     <!-- 테마를 첫 페인트 전에: 어두운 방에서 흰 플래시를 내지 않는다 (기존 콘솔과 같은 4줄). -->
     <script>
@@ -22,5 +28,9 @@
     <script type="module">import '/vendor/material.js';</script>
     <script src="/ui/shell/shell.nocache.js"></script>
 </head>
-<body></body>
+<body>
+<!-- 그림 정의, 아니면 아무것도. 이 표식 자리에 빌드가 구운 스프라이트가 들어간다(라이선스가
+     없는 빌드에서는 표식만 사라지고, 화면들은 늘 그리던 제 도형을 그린다). 남의 서버를
+     부르지 않는다는 규칙이 그림에도 걸린다. -->
+<!--ICON-SPRITE--></body>
 </html>

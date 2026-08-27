@@ -1,19 +1,15 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/webassets"
+)
 
 //go:generate go run gen_icons.go
 
-// iconSprite is the block of <symbol> definitions the page draws its icons from, or empty.
-//
-// Empty is a supported state, not a failure. The art is Font Awesome Pro: its licence lets you use
-// it in something you deploy and not republish it as files, so it is baked in at build time by
-// gen_icons.go and is absent from any build that had no licence to hand — a contributor's, or a CI
-// job without the token. Those builds draw the shapes the page has always drawn, which is why the
-// page asks for an icon rather than assuming one (see icon() in page.js).
-//
-// Set from icons_gen.go's init when that file exists.
-var iconSprite = ""
+// 스프라이트는 공용 자리(internal/webassets)에 있다 — 두 콘솔이 같은 그림을 그려야 하고,
+// 옛 콘솔이 사라져도 새 콘솔이 그것을 잃지 않아야 한다. 빈 값도 정상이다(위 주석 참고).
 
 // spriteMarker is where the sprite goes: immediately inside <body>, so a <use> anywhere below it
 // resolves. Left in the markup when there is no sprite, it would be a comment nobody reads, so it
@@ -22,5 +18,5 @@ const spriteMarker = "<!--ICON-SPRITE-->"
 
 // withSprite puts the sprite into the assembled page, or takes the marker out.
 func withSprite(page string) string {
-	return strings.Replace(page, spriteMarker, iconSprite, 1)
+	return strings.Replace(page, spriteMarker, webassets.Sprite, 1)
 }

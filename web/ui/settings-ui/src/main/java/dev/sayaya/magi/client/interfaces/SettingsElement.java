@@ -28,11 +28,15 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class SettingsElement {
     private final SettingsStore store;
+    private final Notifications notifications;
     private final HTMLElement root = el("div");
     private boolean wired = false;
 
     @Inject
-    public SettingsElement(SettingsStore store) { this.store = store; }
+    public SettingsElement(SettingsStore store, Notifications notifications) {
+        this.store = store;
+        this.notifications = notifications;
+    }
 
     public void mount(HTMLElement frame) {
         root.id = "settings";
@@ -56,6 +60,8 @@ public class SettingsElement {
         form.append(group("grpAppearance", tr("pref.grp.appearance")));
         form.append(themeRow());
         form.append(langRow());
+        form.append(group("grpNotify", tr("pref.grp.notify")));
+        form.append(notifyRow());
         // 모델을 쓰는 것들은 그 능력이 있을 때만 — 서버가 어차피 거부하지만, 눌러서 거절에
         // 닿는 컨트롤은 없는 컨트롤보다 나쁘다(운영 data-may와 같은 판단).
         if (May.can("prompt")) {
@@ -136,6 +142,59 @@ public class SettingsElement {
         });
         row.append(sel);
         return row;
+    }
+
+    /**
+     * 알림 — 이 브라우저가 구독하면, 페이지를 닫아 두어도 컴패니언이 기다릴 때 깨운다.
+     *
+     * 켤 수 없는 자리가 여럿이고 그 이유가 서로 다르다: https가 아니거나, 브라우저가 푸시를
+     * 모르거나, 전에 거부했거나, 이 콘솔에 키가 없거나(데모가 그렇다). 스위치만 흐려 두면
+     * 무엇이 문제인지 알 수 없으니 그 이유를 아래 줄에 적는다.
+     */
+    private HTMLElement notifyRow() {
+        HTMLElement r = row("notifyK", "notifyWhy", "notify.k", "notify.how");
+        HTMLElement sw = el("md-switch");
+        sw.id = "notifySwitch";
+        sw.setAttribute("touch-target", "wrapper");
+        elemental2.dom.Element why = r.querySelector(".say");
+        String blocked = notifications.blocked();
+        if (!blocked.isEmpty()) {
+            sw.setAttribute("disabled", "");
+            if (why != null) why.textContent = tr(blocked);
+        } else {
+            notifications.subscribed(on -> {
+                Js.asPropertyMap(sw).set("selected", on);
+                if (why != null && on) why.textContent = tr("notify.is_on");
+            });
+            sw.addEventListener("change", evt -> {
+                boolean want = Js.isTruthy(Js.asPropertyMap(sw).get("selected"));
+                if (!want) {
+                    notifications.turnOff((err, endpoint, p256dh, auth) -> {
+                        if (!endpoint.isEmpty()) store.push(endpoint, p256dh, auth, true, () -> { });
+                        if (why != null) why.textContent = err.isEmpty() ? tr("notify.how") : err;
+                    });
+                    return;
+                }
+                store.pushKey(key -> {
+                    if (key == null || key.isEmpty() || "null".equals(key)) {
+                        Js.asPropertyMap(sw).set("selected", false);
+                        if (why != null) why.textContent = tr(store.demo() ? "notify.demo" : "notify.nokey");
+                        return;
+                    }
+                    notifications.turnOn(key, (err, endpoint, p256dh, auth) -> {
+                        if (!err.isEmpty() || endpoint.isEmpty()) {
+                            Js.asPropertyMap(sw).set("selected", false);
+                            if (why != null) why.textContent = err.startsWith("notify.") ? tr(err) : err;
+                            return;
+                        }
+                        store.push(endpoint, p256dh, auth, false,
+                                () -> { if (why != null) why.textContent = tr("notify.is_on"); });
+                    });
+                });
+            });
+        }
+        r.append(sw);
+        return r;
     }
 
     /** 데몬이 읽는 완성 설정 — 못 읽었으면 그 무리 자체를 그리지 않는다(빈 껍데기 금지). */

@@ -19,9 +19,22 @@ internal class SettingsScreenTest : GwtTestSpec({
                 page.locator("#settings #settingsScopeFile").textContent() shouldContain "settings.scope_file"
             }
             Then("무리마다 머리가 서고, 저장 버튼은 없다") {
-                page.locator("#settings .prefgroup").count() shouldBe 3
+                page.locator("#settings .prefgroup").count() shouldBe 4
                 page.locator("#settings #grpAppearance").textContent() shouldBe "pref.grp.appearance"
                 page.locator("#settings md-filled-button").count() shouldBe 0
+            }
+        }
+        When("알림 줄을 보면") {
+            Then("켤 수 없는 자리에서는 왜인지 말한다 — 흐린 스위치만으로는 알 수 없다") {
+                page.waitForSelector("#settings #notifySwitch")
+                // 헤드리스 브라우저는 http로 뜨므로 보안 컨텍스트가 아니다(그것이 첫 이유다).
+                val why = page.locator("#settings #notifyWhy").textContent()
+                (why == "notify.insecure" || why == "notify.unsupported" ||
+                    why == "notify.denied" || why == "notify.how") shouldBe true
+                // 이유가 있으면 스위치는 눌리지 않는다.
+                if (why != "notify.how") {
+                    page.locator("#settings #notifySwitch[disabled]").count() shouldBe 1
+                }
             }
         }
         When("테마를 누르면") {

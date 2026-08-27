@@ -21,6 +21,22 @@ public class FetchSettingsSource implements SettingsSource {
     }
 
     @Override
+    public void pushKey(Consumer<String> key) {
+        Console.fetchList("/push", got -> key.accept(got == null ? ""
+                : String.valueOf(jsinterop.base.Js.asPropertyMap(got).get("key"))));
+    }
+
+    @Override
+    public void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("endpoint", endpoint);
+        body.set("p256dh", p256dh);
+        body.set("auth", auth);
+        if (delete) body.set("delete", "1");
+        Console.post("/push", body, null, null).then(w -> { then.run(); return null; });
+    }
+
+    @Override
     public void save(String socket, String peer, String field, String value, Runnable then) {
         URLSearchParams body = new URLSearchParams();
         body.set(field, value);

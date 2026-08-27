@@ -52,6 +52,15 @@ public class SettingsStore {
                 field, value, this::read);
     }
 
+    public void pushKey(java.util.function.Consumer<String> key) { source.pushKey(key::accept); }
+
+    public void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then) {
+        source.push(endpoint, p256dh, auth, delete, then);
+    }
+
+    /** 데모면 키가 없는 이유가 다르다 — "이 콘솔엔 키가 없다"가 아니라 "여긴 사본이다". */
+    public boolean demo() { return dev.sayaya.magi.bridge.Demo.on(); }
+
     // ── 이 브라우저의 것 ───────────────────────────────────────────────────────
 
     public String pref(String key, String byDefault) {

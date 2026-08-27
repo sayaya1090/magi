@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sayaya1090/magi/internal/webassets"
 	"github.com/sayaya1090/magi/internal/webdemo"
 	"os"
 	"path/filepath"
@@ -71,9 +72,9 @@ func emitDemo(dir string) error {
 		// The two the page links for a home-screen install. Same bytes the server answers with;
 		// without them the demo is a page with a broken manifest, which is what it looked like
 		// until a check started walking every path the page references.
-		"manifest.webmanifest": manifestJSON,
-		"icon.svg":             iconSVG,
-		"icon-maskable.svg":    iconMaskableSVG,
+		"manifest.webmanifest": webassets.Manifest,
+		"icon.svg":             webassets.Icon,
+		"icon-maskable.svg":    webassets.IconMaskable,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			return err

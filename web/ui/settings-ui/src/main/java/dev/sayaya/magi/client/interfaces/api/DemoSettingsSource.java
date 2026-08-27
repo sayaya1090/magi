@@ -30,6 +30,15 @@ public class DemoSettingsSource implements SettingsSource {
                 "\"codeProfile\":\"fast-local\",\"composerProfile\":\"\"}"));
     }
 
+    /** 데모에는 뒤에 함대를 보는 것이 없다 — 키가 없다고 답하고, 화면이 그 사실을 적는다. */
+    @Override
+    public void pushKey(Consumer<String> key) { key.accept(""); }
+
+    @Override
+    public void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then) {
+        then.run();
+    }
+
     @Override
     public void save(String socket, String peer, String field, String value, Runnable then) {
         then.run();

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/webassets"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -942,15 +943,15 @@ func TestTheSpriteReachesThePage(t *testing.T) {
 	if strings.Contains(indexHTML, spriteMarker) {
 		t.Error("the icon marker is still in the page; a comment nobody reads is being served to every reader")
 	}
-	if iconSprite == "" {
+	if webassets.Sprite == "" {
 		t.Skip("this build has no icons baked in — the fallback path, which the render tests cover")
 	}
-	if !strings.Contains(indexHTML, iconSprite) {
+	if !strings.Contains(indexHTML, webassets.Sprite) {
 		t.Error("icons were baked into this binary and did not reach the page: check the init order in page.go")
 	}
 	// A symbol block and nothing that fetches: the sprite is drawings, not references.
-	if !strings.Contains(iconSprite, "<symbol id=\"i-") {
-		t.Errorf("the sprite carries no symbols: %.120s", iconSprite)
+	if !strings.Contains(webassets.Sprite, "<symbol id=\"i-") {
+		t.Errorf("the sprite carries no symbols: %.120s", webassets.Sprite)
 	}
 }
 
@@ -967,7 +968,7 @@ func TestTheManifestNamesOnlyRoutesThisServerHas(t *testing.T) {
 			Purpose string `json:"purpose"`
 		} `json:"icons"`
 	}
-	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+	if err := json.Unmarshal([]byte(webassets.Manifest), &m); err != nil {
 		t.Fatalf("the manifest is not JSON: %v", err)
 	}
 	served := (&server{}).routes()
@@ -984,7 +985,7 @@ func TestTheManifestNamesOnlyRoutesThisServerHas(t *testing.T) {
 			// A maskable icon is cropped to whatever shape the launcher likes and the launcher
 			// fills what is left. Transparent, that fill is a colour this repository did not
 			// choose, under a mark that was drawn for a dark one.
-			if !strings.Contains(iconMaskableSVG, `<rect width="192" height="192"`) {
+			if !strings.Contains(webassets.IconMaskable, `<rect width="192" height="192"`) {
 				t.Error("the maskable icon has no ground under it, so a home screen crops it onto " +
 					"whatever the launcher picks")
 			}
@@ -995,7 +996,7 @@ func TestTheManifestNamesOnlyRoutesThisServerHas(t *testing.T) {
 	}
 	// And the plain one has no plate: it is the favicon and the notification icon, where a ground
 	// is a dark sticker on somebody else's surface.
-	if strings.Contains(iconSVG, "<rect") {
+	if strings.Contains(webassets.Icon, "<rect") {
 		t.Error("the favicon carries a background plate")
 	}
 }
