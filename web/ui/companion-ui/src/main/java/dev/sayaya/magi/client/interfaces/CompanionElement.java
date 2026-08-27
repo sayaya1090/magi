@@ -387,6 +387,10 @@ public class CompanionElement {
 
     /** 타입이 정해지면 그 자식을 들인다 — 한 창에서 한 번만(ModuleInject가 센다). */
     private void adopt(CompanionContext ctx) {
+        // 도크는 <b>컴패니언 곁에서만</b> 선다. 그것은 body에 붙는 창 바닥의 상자라, 화면을 옮겨도
+        // 아무도 걷어 주지 않으면 지식·보드·설정 위에까지 따라다닌다 — 그 화면들에는 한 마디
+        // 보낼 상대가 없다(실측: 목록 말고 전부에서 컴포저가 떠 있었다).
+        if (ctx == null) arrange.dismiss(); else arrange.engage();
         layout();
         if (ctx == null || ctx.ui == null || ctx.ui.isEmpty()) return;
         if (ctx.ui.equals(childLoaded)) return;

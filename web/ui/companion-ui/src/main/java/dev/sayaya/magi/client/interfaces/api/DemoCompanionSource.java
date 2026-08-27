@@ -49,14 +49,26 @@ public class DemoCompanionSource implements CompanionSource {
 
     @Override
     public void plan(CompanionContext ctx, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse("[{\"content\":\"read the migration\",\"status\":\"completed\"},"
-                + "{\"content\":\"run it on staging\",\"status\":\"in_progress\"},"
-                + "{\"content\":\"write down what changed\",\"status\":\"pending\"}]"));
+        // 구 콘솔의 데모와 같은 다섯 — 끝난 것 둘, 하는 중 하나, 아직 둘. 진행이 막대와 개수로
+        // 함께 말해지는 것이 이 판의 요점이라, 세 상태 중 어느 것도 비어 있으면 안 된다.
+        cb.accept(Global.JSON.parse(
+                "[{\"content\":\"read what the empty states do now\",\"status\":\"completed\"},"
+                        + "{\"content\":\"write the spec\",\"status\":\"completed\"},"
+                        + "{\"content\":\"name the tokens it uses\",\"status\":\"in_progress\"},"
+                        + "{\"content\":\"get it reviewed by buttons\",\"status\":\"pending\"},"
+                        + "{\"content\":\"fold it into the component docs\",\"status\":\"pending\"}]"));
     }
 
     @Override
     public void context(CompanionContext ctx, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse("{\"used\":8587,\"max\":131072,\"measured\":true,\"messages\":54}"));
+        // 창이 얼마나 찼는지만이 아니라 <b>접혀 나간 것</b>도: 두 번 접었고 39,000 토큰을 덜어
+        // 냈으며 직전에 48,000이 9,000이 되었고, 그때 접힌 주제 셋은 되부를 수 있다. 그 줄이 없으면
+        // 사라진 맥락은 화면 어디에도 적히지 않는다(구 콘솔 데모가 이 값을 담은 이유).
+        cb.accept(Global.JSON.parse(
+                "{\"model\":\"qwen3-coder-next\",\"window\":128000,\"used\":104300,\"estimated\":false,"
+                        + "\"messages\":61,\"compactions\":2,\"shed\":39000,"
+                        + "\"lastBefore\":48000,\"lastAfter\":9000,"
+                        + "\"topics\":[\"internal/adapter/fleet/fleet.go\",\"cmd/magi-web/page.go\",\"discussion\"]}"));
     }
 
     @Override
