@@ -37,6 +37,12 @@ public class ShellInitializer {
         GoSharing.host(nav::goCompanion);
         renders.onRender(frame::mount);
         nav.subscribe(place -> {
+            // 운영 showDestination의 그 속성: 폰의 하단 바가 컴패니언 화면에서 물러나는
+            // 규칙(body[at=agent] #rail 숨김)이 console.css에 있고, 속성은 셸의 몫이다.
+            elemental2.dom.DomGlobal.document.body.setAttribute("at", place.isCompanion() ? "agent" : "list");
+            // ⚠ body[view=…]는 적지 않는다: 운영의 화면 전환 CSS 기계(판 숨김·오프스크린)가
+            // 그 속성에 걸려 있어, 마운트로 가시성을 관리하는 이 셸에서 켜면 판이 사라진다
+            // (실측: #skills w=0, left=-1000). at(폰에서 레일이 물러나는 규칙)만 운영 계약이다.
             rail.select(place.section);
             // 스트림 조준과 컨텍스트가 모듈보다 먼저다 — 모듈의 첫 구독이 현재값을 재생받는다.
             roster.aim(place.socket, place.peer);

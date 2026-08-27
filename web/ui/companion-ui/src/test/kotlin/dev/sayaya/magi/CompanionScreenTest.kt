@@ -71,5 +71,15 @@ internal class CompanionScreenTest : GwtTestSpec({
                 page.locator("#companion .composer #t textarea").inputValue() shouldBe ""
             }
         }
+        When("폰 폭(390px)으로 줄이면") {
+            page.setViewportSize(390, 844)
+            Then("가로 스크롤이 없고, 전사와 컴포저가 그대로 쓸 만하다") {
+                page.waitForCondition {
+                    (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
+                }
+                page.locator("#log .row").first().isVisible() shouldBe true
+                page.locator("#companion .composer #t").isVisible() shouldBe true
+            }
+        }
     }
 })

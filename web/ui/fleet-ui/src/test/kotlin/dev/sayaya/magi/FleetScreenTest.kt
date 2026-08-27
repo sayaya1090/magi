@@ -64,5 +64,14 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_last") shouldBe "answer alpha-1 deny"
             }
         }
+        When("폰 폭(390px)으로 줄이면") {
+            page.setViewportSize(390, 844)
+            Then("가로 스크롤 없이 행들이 그대로 읽힌다(운영 css의 폰 배치)") {
+                page.waitForCondition {
+                    (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
+                }
+                page.locator("#fleet .card").first().isVisible() shouldBe true
+            }
+        }
     }
 })

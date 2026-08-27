@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Console;
 import dev.sayaya.magi.client.domain.Destination;
+import dev.sayaya.magi.client.domain.Place;
 import dev.sayaya.magi.client.usecase.Navigation;
 import dev.sayaya.magi.client.usecase.RosterStore;
 import elemental2.dom.DomGlobal;
@@ -26,17 +27,22 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class MastheadElement {
     private final Navigation nav;
+    private final RosterStore roster;
     private final HTMLElement header = el("header");
     private final HTMLElement whereami = el("span");
     private final HTMLElement back = el("a");
+    private final HTMLElement deep = el("span");
     private final HTMLElement state = el("span");
     private String said = "";   // 폴마다 같은 문장을 다시 발표하지 않는 라이브영역 가드
+    private Place standing = null;
 
     @Inject
     public MastheadElement(RosterStore roster, Navigation nav) {
         this.nav = nav;
+        this.roster = roster;
         build();
-        roster.subscribe(this::count);
+        nav.subscribe(place -> { standing = place; crumbs(); });
+        roster.subscribe(list -> { count(list); crumbs(); });
         roster.subscribeLink(up -> {
             state.classList.toggle("live", up);
             state.classList.toggle("lost", !up);
@@ -49,8 +55,37 @@ public class MastheadElement {
 
     /** 언어가 정해진 뒤의 말들 — 크럼의 이름. 팩이 바뀌면 다시 부른다. */
     public void paint() {
-        back.textContent = tr("nav.companions");
+        crumbs();
     }
+
+    /** 크럼은 서 있는 곳이다: 화면이면 그 문의 이름 하나, 컴패니언이면 문(링크) + 이름. */
+    private void crumbs() {
+        Destination section = standing == null ? Destination.FLEET : standing.section;
+        boolean inCompanion = standing != null && standing.isCompanion();
+        back.textContent = tr(section.labelKey);
+        back.className = inCompanion ? "" : "here";
+        if (!inCompanion) {
+            deep.remove();
+            return;
+        }
+        deep.className = "here";
+        deep.textContent = nameOf(standing.socket);
+        back.insertAdjacentElement("afterend", deep);
+    }
+
+    private String nameOf(String socket) {
+        dev.sayaya.magi.bridge.FleetAgent[] list = currentRoster();
+        if (list != null && socket != null) {
+            for (dev.sayaya.magi.bridge.FleetAgent a : list) {
+                if (socket.equals(a.socket) && a.name != null && !a.name.isEmpty()) return a.name;
+            }
+        }
+        return socket == null ? "" : socket;
+    }
+
+    private dev.sayaya.magi.bridge.FleetAgent[] lastRoster = null;
+
+    private dev.sayaya.magi.bridge.FleetAgent[] currentRoster() { return lastRoster; }
 
     private void build() {
         header.id = "masthead";
@@ -65,7 +100,10 @@ public class MastheadElement {
         back.setAttribute("href", "/next");
         // 목록 화면에서 크럼은 서 있는 곳 그 자체다 — 링크처럼 그리지 않는다(CSS .here).
         back.className = "here";
-        back.addEventListener("click", evt -> { evt.preventDefault(); nav.go(Destination.FLEET); });
+        back.addEventListener("click", evt -> {
+            evt.preventDefault();
+            nav.go(standing == null ? Destination.FLEET : standing.section);
+        });
         crumbs.append(back);
         state.id = "state";
         state.setAttribute("role", "status");
@@ -76,6 +114,7 @@ public class MastheadElement {
     /** 몇이 있고 몇이 기다리는가 — 그리고 기다림은 누르면 그리로 간다. */
     private void count(dev.sayaya.magi.bridge.FleetAgent[] list) {
         if (list == null) return;   // 못 읽음은 점(lost)이 말한다; 수는 마지막 앎을 지킨다
+        lastRoster = list;
         int waiting = 0;
         for (dev.sayaya.magi.bridge.FleetAgent a : list) if ("waiting".equals(a.state)) waiting++;
         String n = String.valueOf(list.length);

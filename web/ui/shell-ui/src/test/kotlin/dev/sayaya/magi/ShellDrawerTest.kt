@@ -16,7 +16,7 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#rail")
                 page.locator("#rail #railMenu").count() shouldBe 1
                 page.locator("#scrim").count() shouldBe 1
-                page.locator("#railNav .raili").count() shouldBe 1
+                page.locator("#railNav .raili").count() shouldBe 2
             }
             Then("주소의 목적지(fleet)가 선택돼 있고, 그 모듈이 정확히 한 번 로드된다") {
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
@@ -111,6 +111,22 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#railNav").isVisible() shouldBe true
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
             }
+        }
+        When("폰 폭(390px)으로 줄이면") {
+            page.setViewportSize(390, 844)
+            Then("레일은 하단 바가 된다 — 버거는 사라지고, 문들이 가로로 선다(운영 css)") {
+                page.waitForCondition { !(page.locator("#railMenu").isVisible()) }
+                (page.evaluate("getComputedStyle(document.getElementById('railNav')).flexDirection")) shouldBe "row"
+                (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true
+            }
+            Then("컴패니언 화면에선 하단 바가 물러난다(body[at=agent])") {
+                page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
+                page.waitForSelector("body[at=agent]")
+                page.locator("#rail").isVisible() shouldBe false
+                page.goBack()
+                page.waitForSelector("body[at=list]")
+            }
+            page.setViewportSize(1280, 800)
         }
         When("도구 있는 문에서 드로어를 열면") {
             page.locator("#railMenu").click()
