@@ -8,7 +8,9 @@
    트리 행·git 줄의 모양은 console.css의 계약(.treerow/.treename/.gitline…)이 입힌다.
    여기는 이 슬롯이 새로 세운 것만: 두 카드가 각자 스크롤한다는 것과, 왼쪽에서 연 파일. */
 
-#files { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
+/* 판 사이의 간격은 console.css가 기둥들에 준 그 값이다(space-300) — 여기서 한 단계 좁혀 두면
+   두 판의 높이 배분이 8px씩 어긋난다(실측: 트리 338 대 342, git 515 대 518). */
+#files { display:flex; flex-direction:column; gap:var(--magi-sys-space-300); min-width:0; }
 
 /* 카드마다 제 스크롤 — 삼백 개짜리 저장소에서 하나로 묶으면 git을 보러 내려가는 동안
    트리가 읽던 자리를 잃는다(운영에서 확인된 그 규칙). */

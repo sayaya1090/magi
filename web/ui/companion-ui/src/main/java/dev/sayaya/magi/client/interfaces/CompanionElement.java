@@ -337,8 +337,12 @@ public class CompanionElement {
         show(centreFill, "talk".equals(panel));
         show(cardTabs, cardHere);
         show(cardArea, cardHere);
-        show(filecol, "files".equals(panel) && !cardHere);
-        show(sidecol, "plan".equals(panel));
+        // 기둥은 서 있고, 그 <b>속</b>이 숨는다 — 운영도 그렇게 한다(폰에서 #filecol은 높이 0의
+        // 빈 기둥으로 남는다). 기둥째 걷으면 그 자리의 격자가 한 칸 줄어, 옆 기둥들이 흔들린다.
+        show(leftFill, "files".equals(panel) && !cardHere);
+        show(filecol, true);
+        show(side.element(), "plan".equals(panel));
+        show(sidecol, true);
         elemental2.dom.NodeList<elemental2.dom.Element> all = tabs.querySelectorAll("md-primary-tab");
         for (int i = 0; i < all.getLength(); i++) {
             elemental2.dom.Element tab = all.getAt(i);
