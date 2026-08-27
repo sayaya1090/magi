@@ -131,10 +131,42 @@ public class Arrangement {
         Js.asPropertyMap(btn).set("selected", open);
         btn.setAttribute("aria-expanded", String.valueOf(open));
         // 이름 없는 아이콘 버튼은 스크린리더에 "버튼"이다 — 무엇을 주는지 말한다.
-        String word = tr(key + (open ? ".hide" : ".show"));
+        dressHandle(key, open);
+        measure();
+    }
+
+    /**
+     * 손잡이가 하는 말 — 무엇을 열고 닫는지, 또는 <b>왜 열 것이 없는지</b>.
+     *
+     * 오른쪽 판이 통째로 비었으면 그 사실을 이름에 적는다: 설명 없이 흐려진 컨트롤은 컨트롤이
+     * 취할 수 있는 가장 쓸모없는 상태다. 흐리게 하는 것은 <b>이미 닫혀 있을 때만</b>이다 —
+     * 열린 빈 판에서 그 버튼을 잠그면, 판을 닫을 방법이 하나도 없는 화면이 된다(운영이 라이브
+     * 보고로 고친 그 함정).
+     */
+    private void dressHandle(String key, boolean open) {
+        HTMLElement btn = "files".equals(key) ? filesToggle : sideToggle;
+        boolean empty = "side".equals(key) && sideIsEmpty();
+        String word = empty ? tr("side.nothing") : tr(key + (open ? ".hide" : ".show"));
         btn.setAttribute("aria-label", word);
         btn.setAttribute("title", word);
-        measure();
+        if (empty && !open) Js.asPropertyMap(btn).set("disabled", true);
+        else Js.asPropertyMap(btn).set("disabled", false);
+    }
+
+    /** 오른쪽 판이 지금 아무 말도 하지 않는가 — 그 판을 그리는 쪽이 hidden으로 말해 둔 것. */
+    private boolean sideIsEmpty() {
+        elemental2.dom.Element side = DomGlobal.document.getElementById("side");
+        if (side == null) return false;
+        elemental2.dom.NodeList<elemental2.dom.Element> kids = side.querySelectorAll(":scope > md-outlined-card");
+        for (int i = 0; i < kids.getLength(); i++) {
+            if (!kids.getAt(i).hasAttribute("hidden")) return false;
+        }
+        return true;
+    }
+
+    /** 판의 속이 바뀌면 손잡이의 말도 바뀐다 — 그 사실을 아는 쪽이 알려 준다. */
+    public void sideChanged() {
+        dressHandle("side", "open".equals(DomGlobal.document.body.getAttribute("side")));
     }
 
     /** 기본은 닫힘 — 처음 온 사람에게 이 페이지는 대화다. */

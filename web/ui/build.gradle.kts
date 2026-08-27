@@ -44,7 +44,7 @@ subprojects {
 // 컴파일하는지로 검증한다(./gradlew build).
 fun Project.gwtCommon(modules: List<String>) {
     extensions.getByName("gwt").withGroovyBuilder {
-        setProperty("gwtVersion", "2.13.0")
+        setProperty("gwtVersion", "2.13.1")
         setProperty("sourceLevel", "auto")
         setProperty("generateJsInteropExports", true)
         setProperty("modules", modules)

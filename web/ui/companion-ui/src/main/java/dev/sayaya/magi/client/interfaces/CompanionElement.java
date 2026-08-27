@@ -97,6 +97,7 @@ public class CompanionElement {
         // 나머지(사실판·기둥)는 자리를 지키는 것들이라, 움직이면 화면이 통째로 흔들린다.
         Motion.enter(stream);
         arrange.engage();
+        side.onChanged(arrange::sideChanged);
         // 무엇에 걸려 있는지는 컴포저 바로 위에 선다 — 답하려고 목록으로 되돌아가지 않게.
         arrange.putPrompt(prompt.element());
         if (wired) return;

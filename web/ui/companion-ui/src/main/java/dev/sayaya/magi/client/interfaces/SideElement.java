@@ -200,14 +200,26 @@ public class SideElement {
     }
 
     /** 다섯 장이 모두 비면 그렇다고 말한다 — 빈 기둥은 아직 안 온 화면처럼 읽힌다. */
+    /** 판의 속이 바뀌었다고 알리는 문 — 손잡이는 부모의 것이고, 그 말은 이 판의 사실에서 온다. */
+    public interface Changed { void call(); }
+
+    private Changed changed = () -> { };
+
+    public void onChanged(Changed c) { this.changed = c; }
+
     private void sayEmpty() {
         boolean any = false;
         for (HTMLElement card : new HTMLElement[]{plan, strip, handoffs, queued, cron}) {
             if (!card.hasAttribute("hidden")) any = true;
         }
-        if (any) { empty.setAttribute("hidden", ""); empty.replaceChildren(); return; }
-        empty.innerHTML = tr("going_on.none") + "<br>" + tr("going_on.none_how");
-        empty.removeAttribute("hidden");
+        if (any) {
+            empty.setAttribute("hidden", "");
+            empty.replaceChildren();
+        } else {
+            empty.innerHTML = tr("going_on.none") + "<br>" + tr("going_on.none_how");
+            empty.removeAttribute("hidden");
+        }
+        changed.call();
     }
 
     private HTMLElement head(String word) {
