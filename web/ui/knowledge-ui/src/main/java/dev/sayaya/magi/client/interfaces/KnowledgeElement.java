@@ -1,7 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.RosterSharing;
-import dev.sayaya.magi.client.domain.Rank;
+import dev.sayaya.magi.component.Rank;
 import dev.sayaya.magi.client.usecase.KnowledgeStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;

@@ -1,13 +1,13 @@
 package dev.sayaya.magi.domain;
 
-import dev.sayaya.magi.client.domain.Rank;
+import dev.sayaya.magi.component.Rank;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
-/** 운영 rankByIDF과 같은 코퍼스, 같은 순서 — 드문 단어가 이긴다. */
+/** 운영 rankByIDF과 같은 코퍼스, 같은 순서 — 드문 단어가 이긴다(공용 ui.Rank). */
 class RankTest {
     @Test
     void rareSharedWordsWinOverPassingMentions() {

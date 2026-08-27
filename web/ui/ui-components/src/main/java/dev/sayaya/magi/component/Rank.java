@@ -1,4 +1,4 @@
-package dev.sayaya.magi.client.domain;
+package dev.sayaya.magi.component;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 검색의 순위 — 운영 page.js rankByIDF의 이식: 부분 문자열 필터가 아니라 드문 공유 단어
+ * 검색의 순위(공용 — 지식·보드가 같은 식을 쓴다) — 운영 page.js rankByIDF의 이식: 부분 문자열 필터가 아니라 드문 공유 단어
  * 우선의 랭킹이다("cache"는 캐시를 지나가며 언급한 항목보다 캐싱 규칙을 먼저 찾아야 한다).
  * ⚠한 공식의 두 구현은 이 트리가 결함을 찾아온 모양이라, 운영과 같은 식(BM25풍 IDF 합)을
  * 자바로 그대로 옮기고 JVM 테스트가 같은 코퍼스로 순서를 못박는다.
