@@ -282,6 +282,40 @@ public class SettingsElement {
                 Js.asPropertyMap(key).set("value", "");
             });
         });
+        // 지금 돌고 있는 백엔드에서 고른다 — 콘솔의 설정에서 뽑으면 그 데몬이 닿지도 못하는
+        // 모델을 내놓는다. 고르면 <b>채우기만</b> 한다: 이름은 사람이 짓고 저장도 사람이 누른다.
+        HTMLElement provRow = el("div");
+        provRow.className = "profadd provrow";
+        provRow.setAttribute("hidden", "");
+        HTMLElement provSel = el("md-outlined-select");
+        provSel.id = "provSel";
+        provSel.setAttribute("label", tr("prof.provider"));
+        HTMLElement provModel = el("md-outlined-select");
+        provModel.id = "provModelSel";
+        provModel.setAttribute("label", tr("prof.provider_model"));
+        provRow.append(provSel, provModel);
+        add(out, provRow);
+        store.providers(got -> {
+            JsArrayLike<Object> all = Js.uncheckedCast(got);
+            // 서빙하는 것이 하나도 없으면 그 줄은 아예 서지 않는다 — 빈 고르개는 사람들에게
+            // "여기는 열어 볼 것 없다"를 가르친다.
+            if (all == null || all.getLength() == 0) return;
+            provRow.removeAttribute("hidden");
+            fill(provSel, names(all), tr("prof.provider"));
+            fill(provModel, new java.util.ArrayList<>(), tr("prof.provider_model"));
+            provSel.addEventListener("change", evt -> {
+                JsPropertyMap<Object> chosen = byName(all, value(provSel));
+                fill(provModel, models(chosen), tr("prof.provider_model"));
+            });
+            provModel.addEventListener("change", evt -> {
+                JsPropertyMap<Object> chosen = byName(all, value(provSel));
+                String pick = value(provModel);
+                if (chosen == null || pick.isEmpty()) return;
+                Js.asPropertyMap(base).set("value", str(chosen, "base"));
+                Js.asPropertyMap(model).set("value", pick);
+                if (value(name).trim().isEmpty()) Js.asPropertyMap(name).set("value", str(chosen, "name"));
+            });
+        });
         HTMLElement form = el("div");
         form.className = "profadd";
         form.append(name, base, model, key, save);
@@ -538,6 +572,46 @@ public class SettingsElement {
             control.setAttribute(field ? "label" : "aria-label", name);
         }
         row.append(control);
+    }
+
+    private static java.util.List<String> names(JsArrayLike<Object> all) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (int i = 0; i < all.getLength(); i++) {
+            out.add(str(Js.<JsPropertyMap<Object>>uncheckedCast(all.getAt(i)), "name"));
+        }
+        return out;
+    }
+
+    private static java.util.List<String> models(JsPropertyMap<Object> provider) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        JsArrayLike<Object> all = provider == null ? null : Js.uncheckedCast(provider.get("models"));
+        for (int i = 0; all != null && i < all.getLength(); i++) out.add(String.valueOf(all.getAt(i)));
+        return out;
+    }
+
+    private static JsPropertyMap<Object> byName(JsArrayLike<Object> all, String name) {
+        for (int i = 0; i < all.getLength(); i++) {
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (str(one, "name").equals(name)) return one;
+        }
+        return null;
+    }
+
+    /** 고를 것들을 다시 적는다 — 첫 자리는 "아직 아무것도"(고르개는 빈 값을 가질 수 있다). */
+    private static void fill(HTMLElement sel, java.util.List<String> items, String placeholder) {
+        sel.replaceChildren();
+        java.util.List<String> all = new java.util.ArrayList<>();
+        all.add("");
+        all.addAll(items);
+        for (String it : all) {
+            HTMLElement o = el("md-select-option");
+            o.setAttribute("value", it);
+            HTMLElement head = el("div");
+            head.setAttribute("slot", "headline");
+            head.textContent = it.isEmpty() ? placeholder : it;
+            o.append(head);
+            sel.append(o);
+        }
     }
 
     private HTMLElement group(String id, String words) {

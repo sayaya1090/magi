@@ -54,4 +54,10 @@ public class FakeSettingsSource implements SettingsSource {
                 (socket == null ? "global" : socket) + "|" + field + "=" + value);
         then.run();
     }
+
+    @Override
+    public void providers(java.util.function.Consumer<Object> list) {
+        list.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"gateway\",\"base\":\"http://127.0.0.1:47311/v1\",\"models\":[\"fast\",\"deep\"]}]"));
+    }
 }

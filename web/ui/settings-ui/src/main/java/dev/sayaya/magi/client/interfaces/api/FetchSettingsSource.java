@@ -27,6 +27,11 @@ public class FetchSettingsSource implements SettingsSource {
     }
 
     @Override
+    public void providers(Consumer<Object> list) {
+        Console.fetchList("/providers", list::accept);
+    }
+
+    @Override
     public void saveProfile(String socket, String name, String baseUrl, String model, String key,
                             boolean delete, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();

@@ -65,6 +65,9 @@ public class SettingsStore {
 
     public Object profiles() { return profiles; }
 
+    /** 제공자 목록 — 화면이 물을 때 한 번(없으면 그 줄은 서지 않는다). */
+    public void providers(java.util.function.Consumer<Object> cb) { source.providers(cb); }
+
     public void readProfiles() {
         String socket = socket();
         source.profiles(socket.isEmpty() ? null : socket, got -> { profiles = got; tell(); });

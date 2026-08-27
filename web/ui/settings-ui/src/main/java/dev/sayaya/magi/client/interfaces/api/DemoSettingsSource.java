@@ -32,9 +32,25 @@ public class DemoSettingsSource implements SettingsSource {
 
     @Override
     public void profiles(String socket, Consumer<Object> list) {
-        list.accept(elemental2.core.Global.JSON.parse("[{\"name\":\"fast-local\",\"model\":\"qwen2.5-coder:7b\"," +
-                "\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"tier\":\"global\"},"
-                + "{\"name\":\"cloud-mini\",\"model\":\"gpt-oss:20b-cloud\",\"hasKey\":true,\"tier\":\"global\"}]"));
+        // 구 콘솔의 데모와 같은 셋 — 하나에는 키가 있어 "정해졌지만 보여 주지는 않는" 상태를
+        // 보인다(값은 어느 화면에도 오지 않는다: 있다는 사실만 온다).
+        list.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"balanced\",\"tier\":\"global\",\"baseUrl\":\"http://localhost:11434/v1\","
+                        + "\"model\":\"qwen3-coder:30b\",\"hasKey\":false,\"file\":\"~/.config/magi/config.toml\"},"
+                        + "{\"name\":\"fast\",\"tier\":\"global\",\"baseUrl\":\"http://localhost:11434/v1\","
+                        + "\"model\":\"qwen2.5-coder:1.5b\",\"hasKey\":false,\"file\":\"~/.config/magi/config.toml\"},"
+                        + "{\"name\":\"cloud\",\"tier\":\"project\",\"companion\":\"design\","
+                        + "\"socket\":\"/demo/design.sock\",\"baseUrl\":\"https://api.example.com/v1\","
+                        + "\"model\":\"big-model\",\"hasKey\":true,"
+                        + "\"file\":\"/Users/you/work/design-system/.magi/config.toml\"}]"));
+    }
+
+    @Override
+    public void providers(Consumer<Object> list) {
+        // 구 콘솔의 데모와 같은 하나 — 짧은 카탈로그라 두 고르개가 하는 일이 보인다.
+        list.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"gateway\",\"base\":\"http://127.0.0.1:47311/v1\","
+                        + "\"models\":[\"fast\",\"balanced\",\"deep\"]}]"));
     }
 
     @Override
