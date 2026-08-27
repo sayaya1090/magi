@@ -96,6 +96,16 @@ func emitDemo(dir, ui, oldConsole string) error {
 		if err := rewriteTree(filepath.Join(dir, "ui"), q+`/ui/`, q+`./ui/`); err != nil {
 			return err
 		}
+		// 말도 제 사본에서 읽는다. 이 사본은 하위 경로에 살아서 `/i18n/`은 사이트 뿌리를 —
+		// 즉 옛 콘솔의 팩을 — 가리킨다: 제 팩을 함께 내보내 놓고 남의 것을 읽고 있었다.
+		// 옛 콘솔이 사라지면 그 자리에는 아무것도 없다.
+		//
+		// `./`이지 `../`가 아니다: JS의 상대경로는 스크립트가 아니라 <b>문서</b>를 기준으로 푼다.
+		// 문서는 next/index.html이므로 `../i18n/`은 다시 뿌리를 가리킨다(실측: 고쳐 놓고도
+		// 같은 자리를 물었다). 스타일시트의 글꼴이 `../../`인 것은 그쪽 기준이 시트 자신이라서다.
+		if err := rewriteTree(filepath.Join(dir, "ui"), q+`/i18n/`, q+`./i18n/`); err != nil {
+			return err
+		}
 	}
 	return nil
 }
