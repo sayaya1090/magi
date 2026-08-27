@@ -56,7 +56,10 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 - **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
   console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
   (성공=빈 문자열, 거부=사유). 기존 page.js의 fetchList/post 이식이다.
-- **말**: Labels — 기존 콘솔과 같은 `/i18n/language.{en,ko}.json`. tr()은 키 폴백("번역
+- **말** (`__magi_labels`): Labels — 기존 콘솔과 같은 `/i18n/language.{en,ko}.json`.
+  팩도 창에 하나다: 먼저 읽은 모듈이 창에 올리고 뒤에 오는 모듈은 그것을 든다. 이게
+  없으면 **모듈 수만큼** 받는다(static은 모듈마다다) — 게다가 렌더는 마운트마다 불려서
+  이동할 때마다 한 번씩 더 샜다(실측: 부팅 2회 + 이동마다 1회 → 지금 창당 1회). tr()은 키 폴백("번역
   빠짐"이 보이게), stateWord()는 원어 상태어 폴백(행에 "state.gone"을 안 적으려고).
 - **와이어**: FleetAgent — `/fleet` 행의 JsType DTO. 필드명은 `internal/adapter/fleet`의
   json 태그와 일대일이고, omitempty 필드는 JS에서 undefined라 읽는 쪽이 가드를 진다.
