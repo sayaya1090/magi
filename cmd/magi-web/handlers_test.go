@@ -599,7 +599,7 @@ func TestTheCouncilIsSplicedWhereItVoted(t *testing.T) {
 		{After: "m2", Round: 1, Decision: "done", Tally: "3 done, 0 continue of 3"},
 		{After: "m4", Round: 1, Member: "Casper", Decision: "continue"},
 	}
-	got := spliceCouncil(rows, marks)
+	got := spliceCouncil(rows, marks, []string{"m1", "m2", "m3", "m4"})
 
 	var order []string
 	for _, r := range got {
@@ -630,7 +630,7 @@ func TestTheCouncilIsSplicedWhereItVoted(t *testing.T) {
 // vote followed, and a vote that silently vanishes is the state this whole change exists to end.
 func TestACouncilMarkWithNoAnchorStillShows(t *testing.T) {
 	rows := []line{{Who: "user", Text: "ask", msg: "m1"}}
-	got := spliceCouncil(rows, []app.CouncilMark{{After: "gone", Round: 1, Member: "Balthasar", Decision: "abstain"}})
+	got := spliceCouncil(rows, []app.CouncilMark{{After: "gone", Round: 1, Member: "Balthasar", Decision: "abstain"}}, []string{"m1"})
 	if len(got) != 2 || got[1].Who != "council" {
 		t.Fatalf("the orphaned vote was dropped: %+v", got)
 	}
@@ -1291,5 +1291,47 @@ func TestNotRunningIsRecognisedHoweverThePlatformSaysIt(t *testing.T) {
 	other := errors.New("write: broken pipe")
 	if said(other) != other.Error() {
 		t.Errorf("an unrelated failure was rewritten as absence: %q", said(other))
+	}
+}
+
+// A council anchored to a message that drew NOTHING — a turn whose stream was cut leaves an empty
+// assistant message — belongs where that message sat, not at the bottom of the screen. Appended,
+// it stayed under every later turn forever: the round could not scroll away (reported live).
+func TestACouncilOnAnEmptyMessageScrollsWithTheTranscript(t *testing.T) {
+	rows := []line{
+		{Who: "user", Text: "first ask", msg: "m1"},
+		{Who: "assistant", Text: "first answer", msg: "m2"},
+		// m3 is the message the cut turn left behind: it renders no rows at all.
+		{Who: "user", Text: "second ask", msg: "m4"},
+		{Who: "assistant", Text: "second answer", msg: "m5"},
+	}
+	marks := []app.CouncilMark{{After: "m3", Round: 1, Decision: "continue", Silent: true,
+		Tally: "0 done, 0 continue of 0 (3 no answer)"}}
+	got := spliceCouncil(rows, marks, []string{"m1", "m2", "m3", "m4", "m5"})
+	at := -1
+	for i, r := range got {
+		if r.Who == "council" {
+			at = i
+		}
+	}
+	if at < 0 {
+		t.Fatalf("the round vanished: %+v", got)
+	}
+	if at == len(got)-1 {
+		t.Errorf("the round is welded to the bottom — it must sit where it happened: %+v", got)
+	}
+	if got[at-1].Text != "first answer" {
+		t.Errorf("the round belongs after the turn it judged, not %q", got[at-1].Text)
+	}
+}
+
+// The same for a round that happened before anything still on screen: it goes above the rows,
+// which is where it was, rather than below them.
+func TestACouncilOlderThanEveryVisibleRowGoesOnTop(t *testing.T) {
+	rows := []line{{Who: "user", Text: "second ask", msg: "m4"}}
+	marks := []app.CouncilMark{{After: "m3", Round: 1, Decision: "done"}}
+	got := spliceCouncil(rows, marks, []string{"m3", "m4"})
+	if len(got) != 2 || got[0].Who != "council" {
+		t.Fatalf("an older round must precede the rows that outlived it: %+v", got)
 	}
 }

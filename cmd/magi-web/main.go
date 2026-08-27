@@ -1420,7 +1420,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			// so this is a splice and not a guess about ordering — and a mark whose anchor is not
 			// in the transcript (a compaction dropped it) goes at the end rather than nowhere.
 			if marks, cerr := s.reader.CouncilMarks(r.Context(), sid); cerr == nil {
-				rows = spliceCouncil(rows, marks)
+				rows = spliceCouncil(rows, marks, messageOrder(msgs))
 			}
 			b, _ := json.Marshal(rows)
 			// One SSE frame, one whole transcript. A diff protocol would be smaller and would also
@@ -1655,7 +1655,15 @@ func markPending(rows []line, open bool) []line {
 // Anchored rather than appended. Appending is right until a session has a second turn, which is
 // every session anybody keeps — and then round one's votes appear after round two's work, saying
 // the members approved something they never saw.
-func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
+//
+// A mark can name a message that is on screen NOWHERE: a turn whose stream was cut leaves an
+// assistant message with nothing in it, and a message that renders no rows has no place to be
+// anchored to. Those marks used to go to the end of the list — which is not a place in the
+// transcript at all, it is "below whatever exists now", so the round stayed welded to the bottom
+// of the screen through every later turn and could never scroll away (reported live: a council
+// that abstained three times, still sitting under the newest work). The message ORDER answers it:
+// a message with no rows sits exactly where the message before it ended, and its marks go there.
+func spliceCouncil(rows []line, marks []app.CouncilMark, order []string) []line {
 	if len(marks) == 0 {
 		return rows
 	}
@@ -1666,24 +1674,53 @@ func spliceCouncil(rows []line, marks []app.CouncilMark) []line {
 			after[r.msg] = i
 		}
 	}
+	// …and where a message that drew NOTHING would have ended: after the last message that drew
+	// something. -1 means "before the first row" — the empty message came before anything visible.
+	at := -1
+	for _, id := range order {
+		if i, ok := after[id]; ok {
+			at = i
+			continue
+		}
+		after[id] = at
+	}
 	pending := map[int][]line{}
-	var orphans []line
+	var head, orphans []line
 	for _, m := range marks {
 		row := line{Who: "council", Text: councilText(m), Round: m.Round,
 			Decision: m.Decision, Member: m.Member}
-		at, ok := after[m.After]
-		if !ok {
+		i, ok := after[m.After]
+		switch {
+		case !ok:
+			// An anchor the transcript has never heard of (a compaction dropped the message
+			// AND the order it came in). Nothing locates it, so it goes last — visible, which
+			// is the floor, and the only case left that cannot scroll.
 			orphans = append(orphans, row)
-			continue
+		case i < 0:
+			head = append(head, row)
+		default:
+			pending[i] = append(pending[i], row)
 		}
-		pending[at] = append(pending[at], row)
 	}
 	out := make([]line, 0, len(rows)+len(marks))
+	out = append(out, head...)
 	for i, r := range rows {
 		out = append(out, r)
 		out = append(out, pending[i]...)
 	}
 	return append(out, orphans...)
+}
+
+// messageOrder is the ids of a session's messages, in the order the log holds them — what
+// spliceCouncil needs to place a mark whose message drew no rows.
+func messageOrder(msgs []session.Message) []string {
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		if m.ID != "" {
+			out = append(out, m.ID)
+		}
+	}
+	return out
 }
 
 // councilWord and councilIcon are the council's vocabulary as a reader should see it.
@@ -1722,7 +1759,13 @@ func councilIcon(decision string) string {
 // summary line and the rest behind it — and the summary is the first line of this.
 func councilText(m app.CouncilMark) string {
 	if m.IsOutcome() {
+		// A round nobody voted in did not judge anything. It still holds the turn open — a council
+		// that cannot be reached may not bless a finish — but "reject" says the members read the
+		// work and turned it down, and the repair a reader would reach for is the wrong one.
 		head := "the council says " + councilWord(m.Decision)
+		if m.Silent {
+			head = "the council did not answer"
+		}
 		if m.Tally != "" {
 			head += " — " + m.Tally
 		}
@@ -1735,6 +1778,11 @@ func councilText(m app.CouncilMark) string {
 	// name already (whoWord in page.js), so putting it here read "balthasar ✗ balthasar: reject".
 	// The terminal has the same fact in the same place, and neither says it twice.
 	head := councilIcon(m.Decision) + " " + councilWord(m.Decision)
+	// Never reached, rather than having declined — the same distinction the terminal draws
+	// (councilVoteLabel in internal/adapter/tui/render.go).
+	if m.Silent {
+		head = "⋯ no answer"
+	}
 	if m.Lens != "" {
 		head += " (" + m.Lens + ")"
 	}
