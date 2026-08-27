@@ -141,8 +141,18 @@ public class DemoCompanionSource implements CompanionSource {
 
     @Override
     public void cron(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        // 셋: 도는 것, 꺼 둔 것, 그리고 <b>영영 안 도는 것</b> — 마지막이 이 목록이 존재하는
+        // 이유다(켜져 있고 평범해 보이는데 다시는 아무도 그 얘기를 하지 않는다).
         cb.accept(elemental2.core.Global.JSON.parse(
-                "[{\"name\":\"nightly\",\"schedule\":\"0 3 * * *\",\"enabled\":true," +
-                "\"prompt\":\"run the suite and report\",\"file\":\".magi/cron.yaml\"}]"));
+                "[{\"name\":\"nightly-audit\",\"schedule\":\"0 3 * * *\",\"enabled\":true,"
+                        + "\"prompt\":\"walk yesterday's commits and report anything that looks like a regression\","
+                        + "\"file\":\"/Users/you/work/design-system/.magi/config.toml\"},"
+                        + "{\"name\":\"weekly-report\",\"schedule\":\"0 9 * * 1\",\"enabled\":false,"
+                        + "\"prompt\":\"summarise what changed in the design system this week\","
+                        + "\"file\":\"/Users/you/.config/magi/config.toml\",\"global\":true},"
+                        + "{\"name\":\"leap-day\",\"schedule\":\"0 0 30 2 *\",\"enabled\":true,"
+                        + "\"problem\":\"this schedule never comes round\","
+                        + "\"prompt\":\"the one nobody noticed had stopped\","
+                        + "\"file\":\"/Users/you/work/design-system/.magi/config.toml\"}]"));
     }
 }

@@ -52,7 +52,12 @@ public class SideElement {
         side.append(plan, strip, handoffs, queued, cron, empty);
         store.onPlan(this::paint);
         // 명단이 흐를 때마다 다시 묻는다 — 이 셋은 로그에 없어서 흐름에 실려 오지 않는다.
-        store.onRoster(list -> { rosterList = list; refresh(); });
+        store.onRoster(list -> {
+            rosterList = list;
+            // 이름이 갈 수 있는 곳인지는 명단이 답한다 — 명단이 늦게 오면 그 답도 늦게 온다.
+            lastHands = "";
+            refresh();
+        });
         store.onContext(c -> refresh());
     }
 
@@ -109,8 +114,9 @@ public class SideElement {
             boolean running = Js.isTruthy(c.get("running"));
             boolean bad = Js.isTruthy(c.get("err"));
             if (!running && !bad) continue;
+            // 자식으로 들어가는 문은 아직 없다(그 화면은 잔여) — 문이 생기기 전까지는 사실로 둔다.
             box.append(chip(tr("detail.subagent"), str(c, "tool").isEmpty() ? tr("detail.subagent") : str(c, "tool"),
-                    oneLine(str(c, "task"), 48), running, bad));
+                    oneLine(str(c, "task"), 48), running, bad, null));
             n++;
         }
         for (int i = 0; background != null && i < background.getLength(); i++) {
@@ -118,7 +124,7 @@ public class SideElement {
             boolean running = Js.isTruthy(b.get("running"));
             double exit = b.get("exit") == null ? 0 : Js.coerceToDouble(b.get("exit"));
             box.append(chip(tr("job.command"), oneLine(str(b, "command"), 40), lastLine(str(b, "tail")),
-                    running, !running && exit != 0));
+                    running, !running && exit != 0, null));
             n++;
         }
         if (n == 0) { strip.setAttribute("hidden", ""); strip.replaceChildren(); return; }
@@ -260,10 +266,25 @@ public class SideElement {
     }
 
     /** 작은 알갱이 하나 — 자식은 들어가는 문이고 명령은 사실이다(그래서 하나만 누를 수 있다). */
-    private HTMLElement chip(String kind, String name, String say, boolean running, boolean bad) {
-        HTMLElement c = cell("jobchip" + (running ? " going" : "") + (bad ? " bad" : ""), null);
-        c.append(cell("jobkind", kind), cell("jobname", name));
-        if (!say.isEmpty()) c.append(cell("jobsay", say));
+    private HTMLElement chip(String kind, String name, String say, boolean running, boolean bad, Runnable go) {
+        // 운영의 그 마크업(.job/.jdot/.jname/.jsay): 도는 것은 점 하나를 앞에 달고, 이름은 28자,
+        // 하는 말은 44자에서 끊는다 — 이 판은 좁고, 여기 오는 것은 요약이지 로그가 아니다.
+        // 자식은 들어가는 문이고 배경 명령은 사실이다 — 그래서 하나만 누를 수 있다: 눌리는
+        // 것처럼 보이는데 아무 일도 안 하는 것은 맨 글자보다 나쁘다.
+        HTMLElement c = el(go == null ? "div" : "button");
+        c.className = "job" + (go == null ? "" : " press") + (running ? " live" : " done") + (bad ? " bad" : "");
+        if (go == null) {
+            if (running) c.append(cell("jdot", ""));
+            c.append(cell("jname", oneLine(name, 28)));
+            if (!say.isEmpty()) c.append(cell("jsay", oneLine(say, 44)));
+        } else {
+            // 버튼 안에서는 한 줄로 — 세 조각을 넣으면 컴포넌트가 그것을 쌓아 긴 것이 알갱이
+            // 밖으로 흘러나간다(운영이 실측한 그 결함).
+            c.setAttribute("type", "button");
+            c.textContent = oneLine(name, 28) + (say.isEmpty() ? "" : " \u00B7 " + oneLine(say, 44));
+            c.addEventListener("click", evt -> go.run());
+        }
+        c.setAttribute("aria-label", kind + ": " + name + (say.isEmpty() ? "" : " \u2014 " + say));
         return c;
     }
 
