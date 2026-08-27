@@ -66,6 +66,15 @@ public interface WorkspaceSource {
      */
     void diff(CompanionContext ctx, String path, String which, Consumer<Object> gotOrNull);
 
+    /** 이 가지에서 보낼 수 있는 요청의 재료(/pr) — 어느 base로, 무엇을 싣고, 차이는 무엇인지. */
+    void pullRequest(CompanionContext ctx, Consumer<Object> gotOrNull);
+
+    /** 그 요청의 초안을 청한다(/pr-msg) — 첫 줄이 제목, 나머지가 본문(커밋과 같은 모양). */
+    void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said);
+
+    /** 요청을 실제로 낸다(/git-pr) — 답은 그 주소이거나, 못 낸 사유다. */
+    void openPullRequest(CompanionContext ctx, String title, String body, Consumer<String> urlOrWhy);
+
     /** 실린 것으로 커밋 메시지 초안을 청한다(/git-msg) — 규칙은 사람이 준 것(빈 값이면 기본). */
     void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said);
 

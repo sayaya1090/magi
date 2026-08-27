@@ -171,6 +171,30 @@ public class WorkspaceStore {
         source.diff(ctx, path, which, got);
     }
 
+    /** 요청 작업대 — 커밋 작업대와 같은 자리에 서는 다른 카드다. */
+    public static final String PR = "pr:";
+
+    public void openPullRequestBench() {
+        if (ctx == null) return;
+        if (!opened.containsKey(PR)) opened.put(PR, "");
+        emit();
+    }
+
+    public void pullRequest(Consumer<Object> got) {
+        if (ctx == null) { got.accept(null); return; }
+        source.pullRequest(ctx, got);
+    }
+
+    public void draftPullRequest(String rules, Consumer<String> said) {
+        if (ctx == null) { said.accept(""); return; }
+        source.draftPullRequest(ctx, rules, said);
+    }
+
+    public void openPullRequest(String title, String body, Consumer<String> urlOrWhy) {
+        if (ctx == null) { urlOrWhy.accept(""); return; }
+        source.openPullRequest(ctx, title, body, urlOrWhy);
+    }
+
     public void draftCommitMessage(String rules, Consumer<String> said) {
         if (ctx == null) { said.accept(""); return; }
         source.draftCommitMessage(ctx, rules, said);

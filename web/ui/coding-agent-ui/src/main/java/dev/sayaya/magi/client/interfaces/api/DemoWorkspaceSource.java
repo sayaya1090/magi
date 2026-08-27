@@ -134,6 +134,30 @@ public class DemoWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void pullRequest(CompanionContext ctx, Consumer<Object> cb) {
+        // 구 콘솔의 데모와 같은 가지다 — 두 커밋과, base에 대한 차이.
+        cb.accept(Global.JSON.parse("{\"repo\":true,\"branch\":\"engine-ui-split\",\"base\":\"origin/main\","
+                + "\"pushed\":false,\"commits\":["
+                + "{\"sha\":\"4ffe258\",\"subject\":\"web: the dock stops covering the phone\",\"when\":\"2026-08-14\"},"
+                + "{\"sha\":\"c506e2e\",\"subject\":\"web: the workspace pane says it is reading\",\"when\":\"2026-08-14\"}],"
+                + "\"diff\":\"diff --git a/cmd/magi-web/page.css b/cmd/magi-web/page.css\\n"
+                + "@@ -2300,6 +2300,9 @@\\n"
+                + "   body[at=\\\"agent\\\"][panel=\\\"state\\\"] #stop { display:none; }\\n"
+                + "+  body[at=\\\"agent\\\"]:not([panel=\\\"talk\\\"]) #strip { display:none; }\\n"
+                + " }\"}"));
+    }
+
+    @Override
+    public void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said) {
+        said.accept("web: the workspace reads like the console\n\nWhat the branch carries, in the demo's words.");
+    }
+
+    @Override
+    public void openPullRequest(CompanionContext ctx, String title, String text, Consumer<String> urlOrWhy) {
+        urlOrWhy.accept("https://example.com/pull/1");
+    }
+
+    @Override
     public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
         said.accept("workspace: read a file the way the console does\n\nThe body the model would write.");
     }
