@@ -2,6 +2,7 @@ package dev.sayaya.magi
 
 import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
+import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 
@@ -55,14 +56,14 @@ internal class CodingScreenTest : GwtTestSpec({
             }
         }
         When("컴포저에 한 마디 적어 보내면") {
-            page.locator("#conversation .composer #t textarea").fill("keep going")
-            page.locator("#conversation .composer #send").click()
+            page.locator("#dock .composer #t textarea").fill("keep going")
+            page.locator("#dock .composer #send").click()
             Then("그 컴패니언(?d=)으로 간다 — 가짜가 창에 적는다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_sent") != null }
                 page.evaluate("window.__magi_test_sent") shouldBe "keep going@/tmp/a1.sock"
             }
             Then("보낸 뒤 상자는 비어 있다") {
-                page.locator("#conversation .composer #t textarea").inputValue() shouldBe ""
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
             }
         }
         When("지난 일 층위(빈 past=목록)로 갈아타면") {
@@ -70,7 +71,7 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("지금-대화의 판들이 물러나고 목록이 선다 — 여는 길은 행이다") {
                 page.waitForSelector("#agentdetail:not([hidden]) .hs")
                 page.locator("#log[hidden]").count() shouldBe 1
-                page.locator("#conversation form[hidden]").count() shouldBe 1
+                page.locator("#dock form[hidden]").count() shouldBe 1
                 page.locator("#agentdetail .hs").count() shouldBe 2
                 page.locator("#agentdetail .hs.now .when").textContent() shouldBe "state.working"
                 page.locator("#agentdetail .hs").last().locator(".what").textContent() shouldContain "retry storm"
@@ -93,12 +94,12 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("전사와 컴포저가 돌아온다") {
                 page.waitForSelector("#log:not([hidden])")
                 page.locator("#agentdetail[hidden]").count() shouldBe 1
-                page.locator("#conversation form:not([hidden])").count() shouldBe 1
+                page.locator("#dock form:not([hidden])").count() shouldBe 1
             }
         }
         When("워크스페이스(왼쪽)가 그려지면") {
             Then("트리 카드와 git 카드가 각자 선다 — 하나의 스크롤로 묶지 않는다") {
-                page.waitForSelector("#leftslot #files .pane-files")
+                page.waitForSelector("#filecol #files .pane-files")
                 page.locator("#files .filescard").count() shouldBe 2
                 page.locator("#files .pane-files .treerow").count() shouldBe 3
             }
@@ -217,6 +218,72 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_filedo") shouldBe "new-file|docs/new.md|"
             }
         }
+        When("대화가 제 기둥에 놓이면") {
+            Then("전사는 기둥 안에서 스크롤한다 — 페이지가 아니라 그것이 움직인다") {
+                // 부모가 준 자리는 이미 높이가 정해져 있고, 자식은 그 안에서 남는 높이를 받는다.
+                // 사이에 상자를 하나라도 끼우면 그 사슬이 끊겨 전사가 기둥 밖으로 흐른다
+                // (실측: #log가 4190px로 자라 잘림 — 스크롤할 수 있는 것이 아무것도 없었다).
+                page.waitForCondition {
+                    (page.evaluate("document.getElementById('log').getBoundingClientRect().height")
+                        as Number).toInt() > 0
+                }
+                (page.evaluate("(() => { const l = document.getElementById('log');" +
+                    " const c = document.getElementById('stream').getBoundingClientRect().height;" +
+                    " return l.getBoundingClientRect().height <= c + 1; })()") as Boolean) shouldBe true
+                (page.evaluate("getComputedStyle(document.getElementById('log')).overflowY")) shouldBe "auto"
+            }
+            Then("컴포저는 도크의 안쪽 상자다 — 여백은 바깥 폼이 진다(운영의 두 겹)") {
+                page.locator("#dock form > .composer").count() shouldBe 1
+                (page.evaluate("getComputedStyle(document.querySelector('#dock .composer'))" +
+                    ".paddingLeft")) shouldBe "0px"
+            }
+        }
+        When("워크스페이스가 제 진짜 자리(18rem 열)에 놓이면") {
+            // 라이브의 #cstage는 왼쪽 열을 18rem으로 잡는다(companion.css) — 테스트 페이지는
+            // 몸통 폭이라 뭉갬이 재현되지 않는다. 그래서 열을 그 폭으로 세우고 잰다.
+            // 실측으로 잡힌 결함이다: 셀렉트가 같은 줄에 서자 필드가 라벨 "F."만 남을 만큼 눌렸다.
+            page.evaluate("document.getElementById('filecol').style.width = '18rem'")
+            Then("찾기 필드가 낱말을 담을 폭을 지킨다 — 한 줄에 선 것들이 필드를 먹지 않는다") {
+                page.waitForCondition {
+                    (page.evaluate("document.querySelector('#files .findrow md-outlined-text-field')" +
+                        ".getBoundingClientRect().width") as Number).toInt() > 0
+                }
+                val field = (page.evaluate(
+                    "document.querySelector('#files .findrow md-outlined-text-field')" +
+                    ".getBoundingClientRect().width") as Number).toDouble()
+                withClue("찾기 필드가 ${field}px로 눌렸다 — 18rem 열에서 라벨이 잘린다") {
+                    (field >= 150.0) shouldBe true
+                }
+            }
+            Then("줄 안의 것들이 열 밖으로 밀리지 않는다 — 눌리면 여기서 드러난다") {
+                // scrollWidth로 재지 않는 이유: md-icon-button은 40px 상자 안에 48px 터치 타깃을
+                // 그려서 늘 ±4px 넘친다(실측). 보이지도 않고 페이지로 새지도 않는 그 4px 때문에
+                // 진짜 뭉갬을 못 보는 단언이 된다. 그래서 자식의 오른쪽 끝이 줄을 넘는지를 잰다.
+                val pushedOut = page.evaluate(
+                    "[...document.querySelectorAll('#files .findrow, #files .makerow')].flatMap(r => {" +
+                    " const box = r.getBoundingClientRect();" +
+                    " return [...r.children].filter(c => c.getBoundingClientRect().right > box.right + 1)" +
+                    "   .map(c => r.className + '>' + c.tagName); }).join(', ')")
+                withClue("열 밖으로 밀린 것: $pushedOut") { pushedOut shouldBe "" }
+            }
+            Then("판 자체도 제 열을 넘지 않는다 — 가로 스크롤바는 열에서도 결함이다") {
+                val panel = page.evaluate("document.getElementById('files').scrollWidth + '>' + " +
+                    "document.getElementById('files').clientWidth")
+                withClue("판이 제 열보다 넓다: $panel") {
+                    (page.evaluate("document.getElementById('files').scrollWidth <= " +
+                        "document.getElementById('files').clientWidth + 4") as Boolean) shouldBe true
+                }
+            }
+            Then("글자 없이 그림만 있는 컨트롤은 전부 이름을 갖는다 — 좁아서 아이콘이 된 것들이다") {
+                // 글자 버튼을 아이콘 버튼으로 바꿀 때 이름이 함께 사라지는 것이 그 변경의 실패 방식이다.
+                (page.evaluate(
+                    "[...document.querySelectorAll('#files md-icon-button, #files button')]" +
+                    ".filter(b => !b.textContent.trim())" +
+                    ".every(b => (b.getAttribute('aria-label') || '').trim().length > 0)") as Boolean) shouldBe true
+                page.locator("#files .makerow md-icon-button").count() shouldBe 2
+            }
+            page.evaluate("document.getElementById('filecol').style.width = ''")
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고, 전사와 컴포저가 그대로 쓸 만하다") {
@@ -224,7 +291,7 @@ internal class CodingScreenTest : GwtTestSpec({
                     (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
                 }
                 page.locator("#log .row").first().isVisible() shouldBe true
-                page.locator("#conversation .composer #t").isVisible() shouldBe true
+                page.locator("#dock .composer #t").isVisible() shouldBe true
             }
         }
     }

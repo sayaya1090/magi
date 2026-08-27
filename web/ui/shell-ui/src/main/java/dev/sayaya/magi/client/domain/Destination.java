@@ -9,6 +9,10 @@ package dev.sayaya.magi.client.domain;
 public final class Destination {
     public final String id;        // ?v= 값 — 주소의 이름
     public final String module;    // /ui/<module>/<module>.nocache.js — 그 화면을 그리는 모듈
+    // 그 모듈이 제 스타일시트(/ui/<module>.css)를 함께 싣는가. 화면이 아니라 여기서 말하는
+    // 이유: 시트를 거는 것은 스크립트를 들이는 쪽(셸)의 일이고, 화면에게 시키면 잊은 화면이
+    // 민얼굴로 뜬다. 대부분의 화면은 console.css만으로 산다 — 거짓이 기본이다.
+    public final boolean styles;
     public final String labelKey;  // 문에 쓰는 말(팩 키) — aria-label과 넓은 라벨
     public final String shortKey;  // 접힌 레일·폰 바가 읽는 한두 단어
     public final String subKey;    // 열린 드로어만 그리는 한 줄 설명
@@ -38,6 +42,11 @@ public final class Destination {
 
     private Destination(String id, String module, String labelKey, String shortKey, String subKey,
                         String iconPath, String may, String iconRef, boolean atFoot) {
+        this(id, module, labelKey, shortKey, subKey, iconPath, may, iconRef, atFoot, false);
+    }
+
+    private Destination(String id, String module, String labelKey, String shortKey, String subKey,
+                        String iconPath, String may, String iconRef, boolean atFoot, boolean styles) {
         this.id = id;
         this.module = module;
         this.labelKey = labelKey;
@@ -47,6 +56,7 @@ public final class Destination {
         this.may = may;
         this.iconRef = iconRef;
         this.atFoot = atFoot;
+        this.styles = styles;
     }
 
     // 주소는 'fleet'이고 모듈은 'companion'이다 — 목록과 상세가 한 모듈의 두 얼굴이라서.
@@ -54,7 +64,7 @@ public final class Destination {
             "nav.companions", "nav.companions", "nav.companions_sub",
             "M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 "
                     + "2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5",
-            null, "#i-sl-users", false);
+            null, "#i-sl-users", false, true);   // companion.css를 함께 싣는 유일한 화면
 
     // 지식 — 운영 콘솔의 그 문 그대로: 주소도 v=skills, 그림도 겹친 디스크(공유 저장소).
     public static final Destination KNOWLEDGE = new Destination("skills",

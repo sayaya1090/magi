@@ -24,6 +24,11 @@ import java.util.List;
  *
  * 그래서 팩은 창에 둔다(window `__magi_labels`): 먼저 읽은 쪽이 올리고, 뒤에 오는 모듈은
  * 회선을 타지 않고 그것을 든다. 명단·전사와 같은 규칙이다 — 창에 하나면 족한 것은 창에.
+ *
+ * 그리고 <b>드는 일도 화면의 몫이 아니다</b>. 화면마다 제 마운트를 load()로 감싸게 하면
+ * 그것은 화면이 지켜야 할 계약이 하나 느는 일이고, 잊은 화면은 제 모듈의 빈 static을 읽어
+ * 키를 그대로 그린다(실측: "field.facts", "action.send"). 그래서 tr()이 스스로 창을 본다 —
+ * 팩을 들여놓는 것은 부모의 일이고, 그것을 드는 것은 이 클래스의 일이다.
  */
 public final class Labels {
     private static final String SHARED = "__magi_labels";
@@ -89,8 +94,25 @@ public final class Labels {
     }
 
     public static String tr(String key) {
-        Object v = pack.get(key);
+        Object v = current().get(key);
         return v == null ? key : String.valueOf(v);
+    }
+
+    /**
+     * 이 모듈이 들고 있는 팩 — 비어 있으면 창에 올라와 있는 것을 든다.
+     *
+     * 페더레이션의 그림자를 여기서 막는다: 부모가 팩을 들여놓아도 그것은 부모 모듈의
+     * static이고, 자식 모듈의 static은 여전히 비어 있다. 한 번 들면 그 뒤로는 제 것을 읽는다.
+     */
+    private static JsPropertyMap<Object> current() {
+        if (!loaded) {
+            JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+            if (win.has(SHARED)) {
+                pack = Js.uncheckedCast(win.get(SHARED));
+                loaded = true;
+            }
+        }
+        return pack;
     }
 
     /** {name} 꼴 변수 치환. 홀수 인자는 (이름, 값) 쌍. */
@@ -101,7 +123,7 @@ public final class Labels {
     }
 
     public static String stateWord(String s) {
-        Object v = pack.get("state." + (s == null ? "" : s));
+        Object v = current().get("state." + (s == null ? "" : s));
         return v != null ? String.valueOf(v) : (s == null ? "" : s);
     }
 }

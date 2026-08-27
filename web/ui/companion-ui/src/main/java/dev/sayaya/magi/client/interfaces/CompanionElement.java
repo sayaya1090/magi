@@ -2,7 +2,6 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CompanionContext;
 import dev.sayaya.magi.bridge.ModuleInject;
-import dev.sayaya.magi.bridge.Stylesheet;
 import dev.sayaya.magi.bridge.PaneSharing;
 import dev.sayaya.magi.bridge.Render;
 import elemental2.dom.MediaQueryList;
@@ -35,44 +34,64 @@ public class CompanionElement {
     private final CompanionStore store;
     private final DetailElement detail;
     private final SideElement side;
-    private final HTMLElement root = el("section");
-    private final HTMLElement stage = el("div");
-    private final HTMLElement left = el("div");
-    private final HTMLElement centre = el("div");
+    private final Arrangement arrange;
+    private final HTMLElement stage = el("div");      // #agentview — 세 기둥의 격자
+    private final HTMLElement filecol = el("div");    // 왼쪽 기둥(자식의 것)
+    private final HTMLElement stream = el("div");     // 가운데 기둥 — 사실판 + 자식의 대화
+    private final HTMLElement sidecol = el("div");    // 오른쪽 기둥(부모의 판)
+    private final HTMLElement leftFill = el("div");   // 자식이 채우는 껍데기(display:contents)
+    private final HTMLElement centreFill = el("div");
     private final HTMLElement tabs = el("md-tabs");
     private boolean wired = false;
     private String childLoaded = null;
     private String panel = "talk";
 
     @Inject
-    public CompanionElement(CompanionStore store, DetailElement detail, SideElement side) {
+    public CompanionElement(CompanionStore store, DetailElement detail, SideElement side,
+                            Arrangement arrange) {
         this.store = store;
         this.detail = detail;
         this.side = side;
-        root.id = "companion";
-        stage.id = "cstage";
-        left.id = "cleft";
-        centre.id = "cframe";
-        stage.append(left, centre, side.element());
+        this.arrange = arrange;
+        // 뼈대의 이름은 운영 콘솔의 것이다 — #agentview/#filecol/#stream/#sidecol. 이름을 새로
+        // 지었더니 console.css의 배치 기계(창 높이 앵커·기둥 접기·도크 여백)가 통째로 비켜갔다:
+        // 실측으로 대화가 1024px 창에서 224px까지 눌리고 전사는 4천 픽셀로 자라 잘렸다.
+        stage.id = "agentview";
+        filecol.id = "filecol";
+        stream.id = "stream";
+        sidecol.id = "sidecol";
+        // display:contents 껍데기 — 자식이 제 마크업을 그대로 넣어도 격자에서는 기둥의 직계로
+        // 배치된다. 자식이 부모의 구조를 알 필요도, 부모가 자식의 마크업을 알 필요도 없다.
+        leftFill.className = "cfill";
+        centreFill.className = "cfill";
+        filecol.append(leftFill);
+        // 운영의 그 순서: 사실판이 전사 위에 선다(같은 기둥 안에서).
+        stream.append(detail.element(), centreFill);
+        sidecol.append(side.element());
+        stage.append(filecol, stream, sidecol);
         tabs.id = "ptabs";
         tabs.setAttribute("hidden", "");
-        root.append(tabs, detail.element(), stage);
     }
 
     public void mount(HTMLElement frame) {
-        Stylesheet.ensure("companion");   // 무대의 세 자리는 이 모듈이 말한다
-        frame.replaceChildren(root);
+        // 시트는 셸이 스크립트와 함께 걸어 두었다(카탈로그가 그렇게 선언한다) — 여기서 걸지 않는다.
+        // #ptabs와 #agentview는 main의 직계다: 운영의 높이 규칙이 main > #agentview로 걸린다.
+        frame.replaceChildren(tabs, stage);
+        arrange.engage();
         if (wired) return;
         wired = true;
         // 자식이 미는 렌더를 받을 자리 — 가운데는 하나, 왼쪽은 쌓인다.
+        // 자식이 미는 렌더를 받을 자리 — 셋 다 이미 옷을 입은 채로 건넨다.
+        // 자식은 상자가 어느 기둥인지도, 창 바닥에 고정된 도크인지도 모른다.
         PaneSharing.host((slot, render) -> {
             HTMLElement box;
             if ("left".equals(slot)) {
-                box = el("div");
-                box.className = "cpane";
-                left.append(box);
+                if (leftFill.childElementCount == 0) box = leftFill;   // 첫 판은 기둥 그 자체
+                else { box = el("div"); box.className = "cpane"; filecol.append(box); }
+            } else if ("dock".equals(slot)) {
+                box = arrange.dockSlot();
             } else {
-                box = centre;
+                box = centreFill;
                 box.replaceChildren();
             }
             Js.<Render>cast(render).onInvoke(box);
@@ -90,7 +109,7 @@ public class CompanionElement {
     /** 폰의 탭 — 대화 · 정보 · 파일. 이름은 운영의 그 말이다(팩 키도 같다). */
     private void buildTabs() {
         for (String[] t : new String[][]{{"talk", "panel.talk"}, {"facts", "panel.facts"},
-                {"files", "panel.files"}}) {
+                {"files", "panel.files"}, {"plan", "panel.plan"}}) {
             HTMLElement tab = el("md-primary-tab");
             tab.id = "ptab-" + t[0];
             tab.textContent = tr(t[1]);
@@ -105,25 +124,28 @@ public class CompanionElement {
      * body[panel=…]으로 말한다 — console.css가 읽는 계약이고, 자식도 그 말을 읽을 수 있다.
      */
     private void layout() {
-        boolean narrow = DomGlobal.window.matchMedia("(max-width:63.9375em)").matches;
+        // 기준은 운영 콘솔의 그 폭이다(52.5em=840px): console.css가 그 위에서 #ptabs를
+        // display:none !important로 눌러 둔다. 여기서 더 넓은 기준을 쓰면 840~1023px 구간이
+        // 탭도 안 보이는데 판은 탭 규칙대로 감춰진 상태가 된다 — 실측: 860px에서 전사 폭 0.
+        boolean narrow = DomGlobal.window.matchMedia("(max-width:52.4375em)").matches;
         boolean companion = store.context() != null;
         if (!narrow || !companion) {
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
             show(detail.element(), companion);
-            show(left, true);
-            show(centre, true);
-            show(side.element(), true);
+            show(filecol, true);
+            show(stream, true);
+            show(sidecol, true);
             return;
         }
         tabs.removeAttribute("hidden");
         DomGlobal.document.body.setAttribute("panel", panel);
+        // 폰에서는 한 번에 하나 — 운영의 네 탭 그대로(대화·정보·파일·계획).
+        show(stream, "talk".equals(panel) || "facts".equals(panel));
         show(detail.element(), "facts".equals(panel));
-        show(left, "files".equals(panel));
-        show(centre, "talk".equals(panel));
-        // 오른쪽(계획)은 정보와 함께 — 폰에서 넷째 탭을 만들기보다, 무엇을 하기로 했나는
-        // 무엇인가와 같은 화면에서 읽힌다.
-        show(side.element(), "facts".equals(panel));
+        show(centreFill, "talk".equals(panel));
+        show(filecol, "files".equals(panel));
+        show(sidecol, "plan".equals(panel));
         elemental2.dom.NodeList<elemental2.dom.Element> all = tabs.querySelectorAll("md-primary-tab");
         for (int i = 0; i < all.getLength(); i++) {
             elemental2.dom.Element tab = all.getAt(i);
@@ -141,7 +163,8 @@ public class CompanionElement {
         if (ctx == null || ctx.ui == null || ctx.ui.isEmpty()) return;
         if (ctx.ui.equals(childLoaded)) return;
         childLoaded = ctx.ui;
-        ModuleInject.ensure(ctx.ui);
+        // 자식의 시트도 들이는 쪽이 건다 — 그 선언은 셸의 카탈로그가 컨텍스트에 실어 보냈다.
+        ModuleInject.ensure(ctx.ui, ctx.uiStyles);
     }
 
     private static HTMLElement el(String tag) { return Js.uncheckedCast(DomGlobal.document.createElement(tag)); }

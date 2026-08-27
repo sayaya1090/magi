@@ -106,6 +106,15 @@ const demoShim = `
         changes: [{path: 'cmd/main.go', kind: 'staged', status: 'M'},
                   {path: 'README.md', kind: 'worktree', status: 'M'}]})));
     }
+    if (url.startsWith('/find')) {
+      // Two shapes, because the panel reads them differently: by name the hit IS the path, by
+      // text it is 'path:line' and the row opens that file at that line.
+      const q = new URLSearchParams(url.split('?')[1] || '');
+      const byName = q.get('in') !== 'text';
+      return Promise.resolve(new Response(JSON.stringify(byName
+        ? {hits: ['cmd/main.go', 'README.md'], more: 0}
+        : {hits: ['cmd/main.go:3', 'README.md:12'], more: 4})));
+    }
     if (url.startsWith('/file')) {
       return Promise.resolve(new Response(JSON.stringify({path: 'cmd/main.go',
         text: 'package main\n\nfunc main() {}\n'})));

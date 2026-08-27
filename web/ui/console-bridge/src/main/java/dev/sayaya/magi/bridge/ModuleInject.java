@@ -21,7 +21,17 @@ public final class ModuleInject {
 
     private ModuleInject() {}
 
-    public static void ensure(String module) {
+    /** 스타일시트 없는 모듈 — 대부분의 화면은 console.css만으로 산다. */
+    public static void ensure(String module) { ensure(module, false); }
+
+    /**
+     * 모듈 하나를 들인다. styles가 참이면 제 스타일시트(/ui/&lt;name&gt;.css)도 함께 건다.
+     *
+     * 그 판단이 여기 있는 이유: 스크립트를 들이는 쪽이 부모이고, 어느 모듈이 무엇을 싣는지는
+     * 부모의 카탈로그가 아는 사실이다. 자식에게 "네 시트는 네가 걸어라"라고 시키면, 잊은
+     * 자식은 스타일 없이 뜨고 그 실패는 자식 코드 어디에도 적혀 있지 않다.
+     */
+    public static void ensure(String module, boolean styles) {
         if (module == null || module.isEmpty()) return;
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         JsPropertyMap<Object> seen = win.has(KEY)
@@ -32,5 +42,6 @@ public final class ModuleInject {
         HTMLScriptElement s = (HTMLScriptElement) DomGlobal.document.createElement("script");
         s.src = "/ui/" + module + "/" + module + ".nocache.js";
         DomGlobal.document.head.append(s);
+        if (styles) Stylesheet.ensure(module);
     }
 }

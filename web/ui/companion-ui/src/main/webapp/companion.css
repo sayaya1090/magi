@@ -1,22 +1,23 @@
 /* 컴패니언 패널(범용)의 것 — 무대의 세 자리(왼쪽 슬롯들·가운데·오른쪽 판)만 말한다.
    사실판(#detail)·전사·컴포저는 운영 콘솔의 계약이라 console.css가 입힌다. */
 
-#companion { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
+/* 무대의 배치는 이 시트의 것이 아니다 — #agentview/#filecol/#stream/#sidecol은 운영 콘솔의
+   이름이고, 창 높이 앵커·기둥 접기(body[files|side]=shut → 0)·도크 여백은 전부 console.css가
+   이미 말한다. 여기서 다시 말하면 두 벌이 되고, 한 벌만 고쳐지는 날이 온다.
 
-/* 무대: 왼쪽 슬롯들 · 가운데 · 오른쪽. 좁아지면 한 줄로 쌓인다 — 폰에서 세 열은 셋 다
-   못 읽는 폭이 된다. */
-#cstage {
-  display:grid; gap:var(--magi-sys-space-300); align-items:start;
-  grid-template-columns:minmax(0, 1fr);
-}
-@media (min-width:64em) {
-  /* 왼쪽은 자식이 밀었을 때만 자리를 갖는다 — 빈 슬롯이 폭을 먹지 않게. */
-  #cstage:has(#cleft .cpane) { grid-template-columns:18rem minmax(0, 1fr) 20rem; }
-  #cstage:not(:has(#cleft .cpane)) { grid-template-columns:minmax(0, 1fr) 20rem; }
-  #cstage:not(:has(#cleft .cpane)) #cleft { display:none; }
-}
-#cleft { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
-#cframe { min-width:0; }
+   이 시트가 말하는 것은 그 위에 우리가 더한 것뿐이다: 자식에게 건네는 껍데기, 폰의 탭,
+   그리고 오른쪽 판의 카드들. */
+
+/* 자식이 채우는 껍데기 — 배치에서는 없는 셈이 된다(자식이 넣은 것이 기둥의 직계다).
+   이것이 없으면 자식의 마크업과 기둥 사이에 상자가 하나 끼어, 높이를 물려주는 사슬
+   (#stream 100% → #log flex:1)이 그 자리에서 끊긴다. */
+.cfill { display:contents; }
+
+/* 왼쪽에 판이 여럿 쌓일 때의 둘째부터 — 첫 판은 기둥 그 자체다. */
+#filecol .cpane { min-width:0; }
+
+/* 폰의 탭: 대화·정보·작업공간·진행. 넓은 창에서는 걷힌다(부모가 hidden으로). */
+#ptabs { margin-bottom:var(--magi-sys-space-100); }
 
 /* 오른쪽 판 — 카드 몇 장이 세로로. 비면 카드가 스스로 물러난다(hidden). */
 #side { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }

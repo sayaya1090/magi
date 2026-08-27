@@ -42,12 +42,16 @@ public class ConversationElement {
     private final HTMLElement past = el("section");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
     private final HTMLElement field = el("md-outlined-text-field");
+    private final HTMLElement box = el("div");   // form 안쪽의 .composer — 줄을 이루는 것
     private String lastSig = null;
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
     @Inject
     public ConversationElement(CompanionStore store) {
         this.store = store;
+        // 감싸는 상자를 두지 않는다: 부모가 준 자리는 이미 높이가 정해진 기둥이고, 그 안에서
+        // 전사가 남는 높이를 받아 제 안에서 스크롤한다(운영 규칙). 사이에 상자가 하나라도 끼면
+        // 그 사슬이 거기서 끊긴다 — 실측: 전사가 4190px로 자라 기둥 밖으로 흘렀다.
         root.id = "conversation";
         // 턴바는 운영 콘솔의 그 마크업 그대로다 — #turnwrap[hidden] 속의 md-linear-progress
         // #turnbar(aria-hidden: 행이 이미 말로 말한다)와 경과 숫자 #turnfor. 스타일도 표시
@@ -63,13 +67,17 @@ public class ConversationElement {
         log.id = "log";
         past.id = "agentdetail";
         past.setAttribute("hidden", "");
-        // 운영의 그 순서: 사실판(#detail)이 전사 위에 선다. 지난 일 층위는 그 전부를 대신한다.
-        // 가운데는 대화뿐이다 — 사실판은 부모(컴패니언 패널)의 것이다.
-        root.append(turnwrap, log, composer(), past);
+        // 가운데 기둥에 놓는 것: 전사와, 그것을 대신하는 지난 일 층위. 사실판은 부모의 것이고
+        // 한 마디 보내는 상자는 부모가 내준 도크 자리로 간다(mountComposer) — 그것이 창 바닥에
+        // 고정된 상자라는 사실은 부모만 안다.
+        // display:contents — 있는 셈 치지 않는 상자. 이 요소가 필요한 이유는 mount가 프레임을
+        // 통째로 갈아끼우기 때문이고(자식 하나로 다루는 편이 안전하다), 배치에서는 없어야 한다.
+        root.style.setProperty("display", "contents");
+        root.append(turnwrap, log, past);
     }
 
     public void mount(HTMLElement frame) {
-        Stylesheet.ensure("coding");
+        // 시트도 언어 팩도 부모가 이미 들여놓았다 — 여기서는 그리기만 한다.
         frame.replaceChildren(root);
         if (wired) return;   // 재방문: 캐시된 렌더가 다시 앉는 것 — 구독은 이미 흐른다
         wired = true;
@@ -78,6 +86,11 @@ public class ConversationElement {
         store.onRows(this::paintRows);
         store.onTurn(this::paintTurn);
         store.onPast(this::paintPast);
+    }
+
+    /** 한 마디 보내는 상자 — 부모가 내준 자리에 앉는다. 어느 자리인지는 묻지 않는다. */
+    public void mountComposer(HTMLElement frame) {
+        frame.replaceChildren(composer());
     }
 
     // ── 지난 일 층위 ─────────────────────────────────────────────────────────
@@ -187,8 +200,17 @@ public class ConversationElement {
     }
 
 
+    private boolean composerBuilt = false;
+
     private HTMLElement composer() {
-        form.className = "composer";
+        // 한 번만 짓는다 — 도크 자리는 화면을 다시 찾을 때마다 다시 건네지고, 다시 지으면
+        // 같은 폼에 제출 리스너가 겹으로 쌓인다(한 번 보낸 것이 두 번 간다).
+        if (composerBuilt) return form;
+        composerBuilt = true;
+        // 운영의 그 두 겹이다: 바깥 <form>이 여백을 지고, 안쪽 .composer가 줄을 이룬다.
+        // 한 겹으로 합치면(form에 .composer를 입히면) 여백이 줄 안으로 들어와 상자가 도크
+        // 폭을 꽉 채운다 — 실측: 운영 1356px 자리에 1404px.
+        box.className = "composer";
         // 운영 컴포저의 그 계약: .composer 안의 md-outlined-text-field#t — 구분선·간격·
         // flex 전부 console.css의 것이다.
         field.id = "t";
@@ -198,7 +220,12 @@ public class ConversationElement {
         send.setAttribute("type", "submit");
         send.id = "send";
         send.textContent = tr("action.send");
-        form.append(field, send);
+        // 버튼은 한 무리로 — 필드가 줄의 나머지를 갖는다(운영 .bgroup).
+        HTMLElement group = el("div");
+        group.className = "bgroup";
+        group.append(send);
+        box.append(field, group);
+        form.append(box);
         form.addEventListener("submit", evt -> {
             evt.preventDefault();
             String v = value().trim();

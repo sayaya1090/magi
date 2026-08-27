@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Labels;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.client.usecase.FrameView;
 import elemental2.dom.DomGlobal;
@@ -30,9 +31,16 @@ public class FrameElement implements FrameView {
 
     public HTMLElement element() { return element; }
 
+    /**
+     * 화면을 이 자리에 앉힌다 — <b>말이 도착한 뒤에</b>.
+     *
+     * 언어 팩 대기가 여기 있는 이유: 화면마다 제 마운트를 Labels.load로 감싸게 하면, 그것은
+     * 화면마다 지켜야 할 계약이 하나 느는 일이고 잊으면 키 문자열이 그대로 그려진다(실측:
+     * 화면이 팩보다 빨랐던 첫 그리기). 부를 수 있는 시점을 아는 쪽은 부르는 쪽이다.
+     */
     @Override
     public void mount(Object render) {
         Render r = Js.cast(render);
-        r.onInvoke(element);
+        Labels.load(() -> r.onInvoke(element));
     }
 }
