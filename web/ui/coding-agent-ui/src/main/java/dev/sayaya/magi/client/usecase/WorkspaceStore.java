@@ -112,6 +112,9 @@ public class WorkspaceStore {
     private Object hits = null;
     private int findSeq = 0;
 
+    /** 어느 작업공간인가 — 셸이 컨텍스트에 실어 보낸 것(여기서 명단을 다시 묻지 않는다). */
+    public String workdir() { return ctx == null || ctx.workdir == null ? "" : ctx.workdir; }
+
     public String query() { return query; }
     public String where() { return where; }
     public Object hits() { return hits; }

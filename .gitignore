@@ -56,7 +56,9 @@ scratchpad/overnight_log.md
 
 # Font Awesome Pro icons, baked in at build time by cmd/magi-web/gen_icons.go.
 # The licence permits using them in what you deploy and not republishing them as files.
-cmd/magi-web/icons_gen.go
+# 아이콘 스프라이트는 빌드가 굽는다 — Font Awesome Pro는 빌드한 사람에게 라이선스가 있고,
+# 파일로 다시 배포하지 않는다(gen_icons.go의 그 이유). 자리는 두 콘솔의 공용 자리다.
+internal/webassets/sprite_gen.go
 
 cmd/magi-web/node_modules/
 cmd/magi-web/.npmrc
