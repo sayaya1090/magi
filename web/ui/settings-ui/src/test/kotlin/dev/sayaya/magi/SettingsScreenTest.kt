@@ -19,7 +19,8 @@ internal class SettingsScreenTest : GwtTestSpec({
                 page.locator("#settings #settingsScopeFile").textContent() shouldContain "settings.scope_file"
             }
             Then("무리마다 머리가 서고, 저장 버튼은 없다") {
-                page.locator("#settings .prefgroup").count() shouldBe 4
+                // 화면·알림·모델 보조·완성 설정·모델 프로파일·이 콘솔 — 운영의 그 여섯.
+                page.locator("#settings .prefgroup").count() shouldBe 6
                 page.locator("#settings #grpAppearance").textContent() shouldBe "pref.grp.appearance"
                 page.locator("#settings md-filled-button").count() shouldBe 0
             }
@@ -76,6 +77,24 @@ internal class SettingsScreenTest : GwtTestSpec({
                     .count() shouldBe 3
                 (page.evaluate("document.querySelector('#settings md-outlined-select[data-field=codeProfile]').value"))
                     .shouldBe("fast-local")
+            }
+        }
+        When("모델 프로파일을 보면") {
+            Then("무엇을 고르는 것인지 목록으로 말한다 — 위의 완성 설정이 고르는 그 백엔드다") {
+                page.waitForSelector("#settings #profList .profrow")
+                page.locator("#settings #profList .profrow .profnm").first().textContent() shouldBe "fast-local"
+                page.locator("#settings .profform #profName").count() shouldBe 1
+            }
+            Then("이름 없이 저장하지 않는다 — 이름이 그 프로파일의 주소다") {
+                page.locator("#settings #profSave").click()
+                page.locator("#settings #profWhy").textContent() shouldBe "prof.need_name"
+            }
+            Then("적어 저장하면 그대로 간다") {
+                page.locator("#settings #profName input, #settings #profName textarea").first().fill("cloud-mini")
+                page.locator("#settings #profModel input, #settings #profModel textarea").first().fill("gpt-oss:20b-cloud")
+                page.locator("#settings #profSave").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_profile") != null }
+                page.evaluate("window.__magi_test_profile") shouldBe "save|cloud-mini|gpt-oss:20b-cloud"
             }
         }
         When("컴패니언을 보는 중이면(주소의 ?d=)") {

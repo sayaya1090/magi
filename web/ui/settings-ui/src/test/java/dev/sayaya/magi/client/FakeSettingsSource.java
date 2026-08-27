@@ -23,6 +23,20 @@ public class FakeSettingsSource implements SettingsSource {
                 "\"codeProfile\":\"fast-local\",\"composerProfile\":\"\"}"));
     }
 
+    @Override
+    public void profiles(String socket, Consumer<Object> list) {
+        list.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"fast-local\",\"model\":\"qwen2.5-coder:7b\",\"tier\":\"global\"}]"));
+    }
+
+    @Override
+    public void saveProfile(String socket, String name, String baseUrl, String model, String key,
+                            boolean delete, Consumer<String> why) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_profile",
+                (delete ? "del|" : "save|") + name + "|" + model);
+        why.accept("");
+    }
+
     /** 키가 있는 콘솔로 답한다 — 스펙은 "켤 수 있는 자리"를 재고, 브라우저 쪽은 못 켠다. */
     @Override
     public void pushKey(Consumer<String> key) { key.accept("BM9-demo-key"); }

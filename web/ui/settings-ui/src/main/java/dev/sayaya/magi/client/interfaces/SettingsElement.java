@@ -75,6 +75,8 @@ public class SettingsElement {
         }
         // 데몬이 읽는 것들 — config를 고치는 일이라 그 능력이 있어야 한다.
         if (May.can("configure")) form.append(completeGroup());
+        if (May.can("configure")) form.append(profilesGroup());
+        form.append(consoleGroup());
         root.append(form);
     }
 
@@ -221,7 +223,201 @@ public class SettingsElement {
                 "codeProfile", str(got, "codeProfile")));
         box.append(profileRow("compProfK", "compProfWhy", "ac.composer_profile", "ac.composer_profile_why",
                 "composerProfile", str(got, "composerProfile")));
+        // 커밋과 PR의 규칙 — 이 워크스페이스에서 쓰는 말투를 적어 두면 그대로 따른다.
+        // 누를 때마다가 아니라 <b>손을 뗄 때</b> 저장한다: 글은 한 글자마다 끝나지 않는다.
+        box.append(templateRow("commitTplK", "ac.commit_tpl", "commitTemplate", str(got, "commitTemplate")));
+        box.append(templateRow("prTplK", "ac.pr_tpl", "prTemplate", str(got, "prTemplate")));
         return box;
+    }
+
+    /**
+     * 모델 프로파일 — 위의 완성 설정이 <b>고르는 것</b>들이다.
+     *
+     * 목록과 폼이 한 자리에 있는 이유: 고치기는 그 줄을 폼에 실어 오는 일이고, 새로 만들기는
+     * 빈 폼에 적는 일이다. 두 화면으로 가르면 "이건 새 것인가 고치는 것인가"를 사람이 기억해야
+     * 한다. 키는 적었을 때만 보낸다 — 빈 칸은 "지우라"가 아니라 "그대로 두라"이다.
+     */
+    private HTMLElement profilesGroup() {
+        HTMLElement box = el("div");
+        box.append(group("grpProfiles", tr("prof.head")));
+        HTMLElement why = el("div");
+        why.className = "prefsay";
+        HTMLElement line = el("div");
+        line.className = "say";
+        line.id = "profWhy";
+        line.textContent = tr("prof.head_why");
+        why.append(line);
+        box.append(why);
+
+        HTMLElement listBox = el("div");
+        listBox.className = "prefsay";
+        HTMLElement list = el("div");
+        list.className = "proflist";
+        list.id = "profList";
+        listBox.append(list);
+        box.append(listBox);
+
+        HTMLElement name = field("profName", tr("prof.name"));
+        HTMLElement base = field("profBase", tr("prof.base_url"));
+        HTMLElement model = field("profModel", tr("prof.model"));
+        HTMLElement key = field("profKey", tr("prof.api_key"));
+        key.setAttribute("supporting-text", tr("prof.api_key_hint"));
+        HTMLElement save = el("md-text-button");
+        save.id = "profSave";
+        save.textContent = tr("prof.add");
+        save.addEventListener("click", evt -> {
+            String said = value(name).trim();
+            if (said.isEmpty()) { line.textContent = tr("prof.need_name"); return; }
+            store.saveProfile(said, value(base), value(model), value(key), false, w -> {
+                if (w != null && !w.isEmpty()) { line.textContent = w; return; }
+                line.textContent = tr("prof.head_why");
+                Js.asPropertyMap(name).set("value", "");
+                Js.asPropertyMap(base).set("value", "");
+                Js.asPropertyMap(model).set("value", "");
+                Js.asPropertyMap(key).set("value", "");
+            });
+        });
+        HTMLElement form = el("div");
+        form.className = "profform";
+        form.append(name, base, model, key, save);
+        box.append(form);
+
+        JsArrayLike<Object> got = Js.uncheckedCast(store.profiles());
+        for (int i = 0; got != null && i < got.getLength(); i++) {
+            JsPropertyMap<Object> pr = Js.uncheckedCast(got.getAt(i));
+            list.append(profileRowOf(pr, name, base, model));
+        }
+        if (got == null || got.getLength() == 0) {
+            HTMLElement none = el("div");
+            none.className = "profempty";
+            none.textContent = tr("prof.none");
+            list.append(none);
+        }
+        return box;
+    }
+
+    /** 한 줄 — 이름, 그것이 무엇인지, 그리고 고치기와 제거. */
+    private HTMLElement profileRowOf(JsPropertyMap<Object> pr, HTMLElement name,
+                                     HTMLElement base, HTMLElement model) {
+        HTMLElement r = el("div");
+        r.className = "profrow";
+        HTMLElement nm = el("div");
+        nm.className = "profnm";
+        nm.textContent = str(pr, "name");
+        HTMLElement meta = el("div");
+        meta.className = "profmeta";
+        String mdl = str(pr, "model");
+        StringBuilder bits = new StringBuilder(mdl.isEmpty() ? tr("prof.no_model") : mdl);
+        if (Js.isTruthy(pr.get("hasKey"))) bits.append("  ·  ").append(tr("prof.keyed"));
+        bits.append("  ·  ").append("project".equals(str(pr, "tier"))
+                ? str(pr, "companion") : tr("cron.machine"));
+        meta.textContent = bits.toString();
+        HTMLElement edit = el("md-text-button");
+        edit.className = "profedit";
+        edit.textContent = tr("action.edit");
+        edit.addEventListener("click", evt -> {
+            // 고치기는 그 줄을 폼으로 실어 오는 일이다 — 키는 실어 오지 않는다(보이지 않는 값이라).
+            Js.asPropertyMap(name).set("value", str(pr, "name"));
+            Js.asPropertyMap(base).set("value", str(pr, "baseUrl"));
+            Js.asPropertyMap(model).set("value", str(pr, "model"));
+            Js.<HTMLElement>uncheckedCast(name).focus();
+        });
+        HTMLElement drop = el("md-text-button");
+        drop.className = "profdrop";
+        drop.textContent = tr("action.remove");
+        drop.addEventListener("click", evt ->
+                store.saveProfile(str(pr, "name"), null, null, null, true, w -> { }));
+        r.append(nm, meta, edit, drop);
+        return r;
+    }
+
+    /** 이 콘솔 — 좁은 화면에서 접근 제어로 가는 길(레일이 접힌 자리의 그 문). */
+    private HTMLElement consoleGroup() {
+        HTMLElement box = el("div");
+        box.append(group("grpConsole", tr("pref.grp.console")));
+        // 이 콘솔이 무엇인가 — 호스트, 어느 config를 읽고 있나, 그리고 판본 둘. 물어볼 데가
+        // 여기뿐이라 적는다(창 전체의 사실이므로 셸이 읽어 올린 것을 든다).
+        HTMLElement facts = el("div");
+        facts.className = "prefsay";
+        HTMLElement k = el("div");
+        k.className = "k";
+        k.id = "consoleK";
+        k.textContent = tr("nav.this_console");
+        HTMLElement lines = el("div");
+        lines.id = "console";
+        facts.append(k, lines);
+        box.append(facts);
+        dev.sayaya.magi.bridge.Facts.onConsole(info -> {
+            if (info == null) return;
+            JsPropertyMap<Object> c = Js.uncheckedCast(info);
+            lines.replaceChildren();
+            for (String[] one : new String[][]{{"field.host", str(c, "host")},
+                    {"field.config", str(c, "configDir")},
+                    {"field.console_version", str(c, "version")},
+                    {"field.daemon_version", joinDaemons(c)}}) {
+                if (one[1].isEmpty()) continue;
+                HTMLElement line = el("div");
+                HTMLElement b = el("b");
+                b.textContent = tr(one[0]) + " ";
+                line.append(b, DomGlobal.document.createTextNode(one[1]));
+                lines.append(line);
+            }
+        });
+        if (!May.can("admin")) return box;
+        HTMLElement r = row("accessK", "accessWhy", "nav.access", "nav.access_sub");
+        r.className = "prefrow narrowonly";
+        HTMLElement go = el("md-text-button");
+        go.id = "accessGo";
+        go.textContent = tr("nav.access");
+        go.addEventListener("click", evt -> dev.sayaya.magi.bridge.GoSharing.view("access"));
+        r.append(go);
+        box.append(r);
+        return box;
+    }
+
+    private static String joinDaemons(JsPropertyMap<Object> c) {
+        JsArrayLike<Object> all = Js.uncheckedCast(c.get("daemons"));
+        if (all == null) return "";
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < all.getLength(); i++) {
+            if (out.length() > 0) out.append(", ");
+            out.append(String.valueOf(all.getAt(i)));
+        }
+        return out.toString();
+    }
+
+    private HTMLElement field(String id, String label) {
+        HTMLElement f = el("md-outlined-text-field");
+        f.id = id;
+        f.setAttribute("label", label);
+        return f;
+    }
+
+    /** 여러 줄을 적는 칸 — 저장은 손을 뗄 때(값이 실제로 바뀌었을 때만). */
+    private HTMLElement templateRow(String kId, String kKey, String field, String now) {
+        // 쌓는 줄은 .prefsay 하나다 — row()로 만들면 그 안에 .prefsay가 한 겹 더 생겨,
+        // 같은 이름이 두 번 세어진다(운영과 견주다 드러난 그 한 겹).
+        HTMLElement r = el("div");
+        r.className = "prefsay";
+        HTMLElement k = el("div");
+        k.className = "k";
+        k.id = kId;
+        k.textContent = tr(kKey);
+        r.append(k);
+        HTMLElement f = el("md-outlined-text-field");
+        f.id = field;
+        f.setAttribute("type", "textarea");
+        f.setAttribute("rows", "3");
+        Js.asPropertyMap(f).set("value", now == null ? "" : now);
+        final String[] saved = {now == null ? "" : now};
+        f.addEventListener("blur", evt -> {
+            String said = value(f);
+            if (said.equals(saved[0])) return;   // 바뀐 적 없는 값을 다시 쓰지 않는다
+            saved[0] = said;
+            store.save(field, said);
+        });
+        r.append(f);
+        return r;
     }
 
     private HTMLElement profileRow(String kId, String whyId, String kKey, String whyKey,

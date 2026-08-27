@@ -39,6 +39,7 @@ public class SettingsStore {
     public String peer() { return Windows.query("p"); }
 
     public void read() {
+        readProfilesOnce();
         String socket = socket();
         source.read(socket.isEmpty() ? null : socket, peer().isEmpty() ? null : peer(), got -> {
             complete = got;
@@ -46,10 +47,36 @@ public class SettingsStore {
         });
     }
 
+    private boolean askedProfiles = false;
+
+    private void readProfilesOnce() {
+        if (askedProfiles) return;
+        askedProfiles = true;
+        readProfiles();
+    }
+
     public void save(String field, String value) {
         String socket = socket();
         source.save(socket.isEmpty() ? null : socket, peer().isEmpty() ? null : peer(),
                 field, value, this::read);
+    }
+
+    private Object profiles = null;
+
+    public Object profiles() { return profiles; }
+
+    public void readProfiles() {
+        String socket = socket();
+        source.profiles(socket.isEmpty() ? null : socket, got -> { profiles = got; tell(); });
+    }
+
+    public void saveProfile(String name, String baseUrl, String model, String key, boolean delete,
+                            java.util.function.Consumer<String> why) {
+        String socket = socket();
+        source.saveProfile(socket.isEmpty() ? null : socket, name, baseUrl, model, key, delete, w -> {
+            why.accept(w);
+            if (w == null || w.isEmpty()) { readProfiles(); read(); }
+        });
     }
 
     public void pushKey(java.util.function.Consumer<String> key) { source.pushKey(key::accept); }

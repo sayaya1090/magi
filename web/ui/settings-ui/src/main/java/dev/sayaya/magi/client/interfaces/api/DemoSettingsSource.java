@@ -30,6 +30,19 @@ public class DemoSettingsSource implements SettingsSource {
                 "\"codeProfile\":\"fast-local\",\"composerProfile\":\"\"}"));
     }
 
+    @Override
+    public void profiles(String socket, Consumer<Object> list) {
+        list.accept(elemental2.core.Global.JSON.parse("[{\"name\":\"fast-local\",\"model\":\"qwen2.5-coder:7b\"," +
+                "\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"tier\":\"global\"},"
+                + "{\"name\":\"cloud-mini\",\"model\":\"gpt-oss:20b-cloud\",\"hasKey\":true,\"tier\":\"global\"}]"));
+    }
+
+    @Override
+    public void saveProfile(String socket, String name, String baseUrl, String model, String key,
+                            boolean delete, Consumer<String> why) {
+        why.accept("");
+    }
+
     /** 데모에는 뒤에 함대를 보는 것이 없다 — 키가 없다고 답하고, 화면이 그 사실을 적는다. */
     @Override
     public void pushKey(Consumer<String> key) { key.accept(""); }

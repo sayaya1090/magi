@@ -10,6 +10,13 @@ public interface SettingsSource {
     /** 한 칸을 바꾼다 — 누를 때마다 저장한다(그래서 이 화면엔 저장 버튼이 없다). */
     void save(String socket, String peer, String field, String value, Runnable then);
 
+    /** 이 콘솔이 아는 모델 프로파일들 — 위의 완성 설정이 고르는 그 백엔드들이다. */
+    void profiles(String socket, Consumer<Object> list);
+
+    /** 프로파일 하나를 저장하거나(delete=false) 지운다. why는 거부 사유, 성공은 빈 문자열. */
+    void saveProfile(String socket, String name, String baseUrl, String model, String key,
+                     boolean delete, Consumer<String> why);
+
     /** 이 콘솔의 푸시 공개키 — 없으면 빈 문자열(키 없는 콘솔은 알림을 보낼 수 없다). */
     void pushKey(Consumer<String> key);
 

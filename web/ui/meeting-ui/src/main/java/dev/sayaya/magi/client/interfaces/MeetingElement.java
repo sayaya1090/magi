@@ -80,7 +80,7 @@ public class MeetingElement {
         if (typingIn(topicField)) return;
         drawnShape = "";
         HTMLElement box = cell("meetbox", null);
-        box.append(head(tr("meet.title"), null));
+        box.append(head(tr("meet.title"), toFleet()));
         box.append(cell("meetwhy", tr("meet.why")));
         box.append(cell("meetends", tr("meet.ends")));
 
@@ -99,15 +99,15 @@ public class MeetingElement {
         box.append(who(here));
         HTMLElement go = el("md-filled-button");
         go.className = "meetgo";
-        go.append(Icons.orGlyph("#i-sl-comments", "☰", "mk"),
-                DomGlobal.document.createTextNode(" " + tr("meet.start")));
+        go.textContent = tr("meet.start");
+        Icons.mark(go, "#i-sl-comments", "☰");
         go.addEventListener("click", evt -> whileItRuns(go, () ->
                 store.convene(why -> note(box, why), id -> {
                     if (id == null || id.isEmpty()) { store.read(); return; }
                     GoSharing.viewWith("meet", "m", id);
                 })));
         box.append(go, cell("meetnote", ""));
-        box.append(roomLists());
+        for (HTMLElement one : roomLists()) box.append(one);
         root.replaceChildren(box);
         arm(box);
     }
@@ -175,10 +175,10 @@ public class MeetingElement {
     }
 
     /** 지금 도는 방과, 결론이 남은 끝난 방. */
-    private HTMLElement roomLists() {
-        HTMLElement box = cell("meetrooms", null);
+    private List<HTMLElement> roomLists() {
+        List<HTMLElement> out = new ArrayList<>();
         JsArrayLike<Object> list = Js.uncheckedCast(store.rooms());
-        if (list == null) return box;
+        if (list == null) return out;
         List<JsPropertyMap<Object>> going = new ArrayList<>(), done = new ArrayList<>();
         for (int i = 0; i < list.getLength(); i++) {
             JsPropertyMap<Object> m = Js.uncheckedCast(list.getAt(i));
@@ -189,12 +189,12 @@ public class MeetingElement {
             @SuppressWarnings("unchecked")
             List<JsPropertyMap<Object>> rooms = (List<JsPropertyMap<Object>>) pair[1];
             if (rooms.isEmpty()) continue;
-            box.append(head(tr((String) pair[0]), null));
+            out.add(head(tr((String) pair[0]), null));
             HTMLElement l = cell("meetlist", null);
             for (JsPropertyMap<Object> m : rooms) l.append(roomRow(m));
-            box.append(l);
+            out.add(l);
         }
-        return box;
+        return out;
     }
 
     private HTMLElement roomRow(JsPropertyMap<Object> m) {
@@ -601,6 +601,15 @@ public class MeetingElement {
         box.append(h);
         if (beside != null) box.append(beside);
         return box;
+    }
+
+    /** 명단으로 — 회의는 플릿에 대한 일이라, 그 곁에 돌아갈 길을 둔다(운영의 그 자리). */
+    private HTMLElement toFleet() {
+        HTMLElement b = el("md-text-button");
+        b.textContent = tr("nav.companions");
+        Icons.mark(b, "#i-sl-chevron-left", "‹");
+        b.addEventListener("click", evt -> GoSharing.view("fleet"));
+        return b;
     }
 
     private HTMLElement back() {
