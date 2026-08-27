@@ -87,6 +87,13 @@ const demoShim = `
     if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
     if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
     if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
+    if (url.startsWith('/plan')) {
+      return Promise.resolve(new Response(JSON.stringify([
+        {content: 'read the migration', status: 'completed'},
+        {content: 'run it on staging', status: 'in_progress'},
+        {content: 'write down what changed', status: 'pending'},
+      ])));
+    }
     if (url.startsWith('/me')) return Promise.resolve(new Response(JSON.stringify(me)));
     if (url.startsWith('/access')) return Promise.resolve(new Response(JSON.stringify(access)));
     if (url.startsWith('/handoffs')) {

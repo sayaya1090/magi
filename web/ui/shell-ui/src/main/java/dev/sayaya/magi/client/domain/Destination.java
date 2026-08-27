@@ -7,14 +7,15 @@ package dev.sayaya.magi.client.domain;
  * (기존 콘솔이 제로 타일에 적용하는 그 규칙). 화면이 이식될 때마다 여기 한 줄이 는다.
  */
 public final class Destination {
-    public final String id;        // ?v= 값이자 /ui/<id>/<id>.nocache.js 의 모듈 이름
+    public final String id;        // ?v= 값 — 주소의 이름
+    public final String module;    // /ui/<module>/<module>.nocache.js — 그 화면을 그리는 모듈
     public final String labelKey;  // 문에 쓰는 말(팩 키) — aria-label과 넓은 라벨
     public final String shortKey;  // 접힌 레일·폰 바가 읽는 한두 단어
     public final String subKey;    // 열린 드로어만 그리는 한 줄 설명
     public final String iconPath;  // 24x24 스트로크 패스(기존 콘솔의 그 드로잉, currentColor)
     public final String iconRef;   // 스프라이트의 그림 이름(있는 빌드에서 도형을 갈아입는다)
-    public final String may;
-    public final boolean atFoot;   // 발치(#railFoot)의 문인가 — 운영의 그 자리(접근 제어)       // 문이 요구하는 능력(운영 data-may) — null이면 모두의 문
+    public final String may;       // 문이 요구하는 능력(운영 data-may) — null이면 모두의 문
+    public final boolean atFoot;   // 발치(#railFoot)의 문인가 — 운영의 그 자리(접근 제어)
 
     private Destination(String id, String labelKey, String shortKey, String subKey, String iconPath) {
         this(id, labelKey, shortKey, subKey, iconPath, null, "");
@@ -32,7 +33,13 @@ public final class Destination {
 
     private Destination(String id, String labelKey, String shortKey, String subKey, String iconPath,
                         String may, String iconRef, boolean atFoot) {
+        this(id, id, labelKey, shortKey, subKey, iconPath, may, iconRef, atFoot);
+    }
+
+    private Destination(String id, String module, String labelKey, String shortKey, String subKey,
+                        String iconPath, String may, String iconRef, boolean atFoot) {
         this.id = id;
+        this.module = module;
         this.labelKey = labelKey;
         this.shortKey = shortKey;
         this.subKey = subKey;
@@ -42,11 +49,12 @@ public final class Destination {
         this.atFoot = atFoot;
     }
 
-    public static final Destination FLEET = new Destination("fleet",
+    // 주소는 'fleet'이고 모듈은 'companion'이다 — 목록과 상세가 한 모듈의 두 얼굴이라서.
+    public static final Destination FLEET = new Destination("fleet", "companion",
             "nav.companions", "nav.companions", "nav.companions_sub",
             "M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 "
                     + "2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5",
-            null, "#i-sl-users");
+            null, "#i-sl-users", false);
 
     // 지식 — 운영 콘솔의 그 문 그대로: 주소도 v=skills, 그림도 겹친 디스크(공유 저장소).
     public static final Destination KNOWLEDGE = new Destination("skills",

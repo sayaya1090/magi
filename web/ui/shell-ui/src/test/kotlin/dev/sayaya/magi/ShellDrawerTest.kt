@@ -23,7 +23,9 @@ internal class ShellDrawerTest : GwtTestSpec({
             Then("주소의 목적지(fleet)가 선택돼 있고, 그 모듈이 정확히 한 번 로드된다") {
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
                 page.locator("#railNav .raili[aria-current=page]").count() shouldBe 1
-                page.evaluate("window.__magi_test_loads") shouldBe "[fleet]"
+                // 주소는 fleet이고 그 화면을 그리는 모듈은 companion이다 — 목록과 상세가
+                // 한 모듈의 두 얼굴이라서(카탈로그가 그 둘을 가른다).
+                page.evaluate("window.__magi_test_loads") shouldBe "[companion]"
             }
         }
         When("버거를 누르면") {
@@ -64,7 +66,9 @@ internal class ShellDrawerTest : GwtTestSpec({
         When("선 목적지를 다시 눌러도") {
             page.locator("#railNav .raili").first().click()
             Then("로드는 여전히 한 번이다") {
-                page.evaluate("window.__magi_test_loads") shouldBe "[fleet]"
+                // 주소는 fleet이고 그 화면을 그리는 모듈은 companion이다 — 목록과 상세가
+                // 한 모듈의 두 얼굴이라서(카탈로그가 그 둘을 가른다).
+                page.evaluate("window.__magi_test_loads") shouldBe "[companion]"
             }
         }
         When("화면이 이동의 문(GoSharing)으로 컴패니언을 청하면") {
@@ -73,8 +77,8 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForCondition { page.url().contains("d=") }
                 page.evaluate("window.__magi_test_aim") shouldBe "/tmp/a1.sock"
             }
-            Then("타입 카탈로그가 정한 모듈이 로드된다 — 무선언은 1(코딩 에이전트)") {
-                page.evaluate("window.__magi_test_loads") shouldBe "[fleet][companion]"
+            Then("상세도 같은 모듈이다 — 자식(타입 UI)은 그 패널이 제 안에서 들인다") {
+                page.evaluate("window.__magi_test_loads") shouldBe "[companion]"
             }
             Then("레일의 선택은 여전히 컴패니언 문이다 — 컴패니언은 그 문의 안이다") {
                 page.locator("#railNav .raili[selected]").count() shouldBe 1

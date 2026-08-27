@@ -1,0 +1,8 @@
+/* 컴패니언 화면(타입 1 = 코딩 에이전트) 자신의 것 — 최소한만: 전사 행(.row/.who/.txt)·컴포저(.composer, #t)·턴바(#turnwrap/#turnbar/#turnfor)·사실판(#detail)은 운영 콘솔의 계약이라
+   console.css가 그대로 입힌다. 여기는 이 화면이 새로 세운 뼈대(세로 배치·사실 줄)만,
+   토큰으로만 말한다 — 새 색·그림자·애니메이션은 짓지 않는다. */
+
+#companion { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
+
+/* 턴바의 자리만 — 운영은 마스트헤드에 붙박이지만 이 화면은 제 머리 위에 둔다. */
+#companion #turnwrap { position:relative; min-height:2px; }

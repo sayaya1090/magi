@@ -24,7 +24,8 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `ui-components` | 공용 위젯 자리 — 지금은 모듈 선언(`UiComponents.gwt.xml`)만 | 소스 실린 jar |
 | `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation(Place)·RenderStore·RosterStore·타입 카탈로그(CompanionType)·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
 | `fleet-ui` | 플릿 화면 — 이식 완료, 카탈로그 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
-| `companion-ui` | 컴패니언 화면, 타입 1 = 코딩 에이전트 — 타입 전용 UI 계약의 레퍼런스 | `companion/companion.nocache.js` + companion.css |
+| `companion-ui` | 컴패니언이라는 목적지의 주인 — **목록**과 **상세 레이아웃**(위 사실판·오른쪽 판), 가운데·왼쪽은 자식에게 내준다 | `companion/companion.nocache.js` + companion.css |
+| `coding-agent-ui` | 타입 1(코딩 에이전트)의 자식 UI — 상세의 가운데(대화·컴포저) | `coding/coding.nocache.js` + coding.css |
 | `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
 | `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
 | `map-ui` | 맵 — 문 없는 주소(v=map): 머신·계정 상자와 오간 것의 와이어 | `map/map.nocache.js` |
@@ -173,6 +174,18 @@ fetch(/fleet·/i18n)와 EventSource를 픽스처 목으로 갈아끼우는 심 �
 test-web.yml(웹 변경)이 같은 조리법을 쓴다 — deploy-pages는 사이트를 통째로 갈아끼우므로
 누가 내보내든 전부를 내보낸다.
 
+## 빌드 스크립트는 모듈마다 있지 않다
+
+안쪽도 모듈로 나뉘므로 같은 스크립트를 아홉 번 베끼는 대신, 루트 `build.gradle.kts`가
+표 하나로 전부 구성한다 — **모듈 디렉토리에 build.gradle.kts는 없다**. 모듈이 대는 것은
+제 이름 두 개(GWT 모듈, 테스트 모듈)뿐이고 의존성·GWT 설정·테스트 포트(표의 순서로
+18090부터)·테스트 자산 복사는 규약이다. 새 화면을 더할 때 고칠 곳은 그 표 한 줄과
+`settings.gradle.kts`의 include 한 곳이다.
+
+⚠ 루트는 GWT 플러그인을 적용하지 않으므로 확장의 타입이 없다 — `withGroovyBuilder`로
+이름으로 설정한다. 오타를 컴파일이 잡아 주지 않으니, 검증은 `./gradlew build`가 전 모듈을
+실제로 컴파일·테스트하는 것으로 한다.
+
 ## 빌드·실행
 
 ```sh
@@ -190,6 +203,30 @@ cd ../.. && go run ./web/server   # 7778: /ui/* 정적 + 나머지는 7777(기�
   이 디렉토리의 `gradle.properties`는 gitignore라 커밋에 실리지 않는다.
 - web/server는 요청의 Origin을 BFF 오리진으로 고쳐 보낸다 — 기존 콘솔의 same-site
   가드가 프록시 오리진(7778)을 교차 출처 POST로 읽고 거절하기 때문이다.
+
+## 컴패니언 화면은 두 겹이다 (셸의 그 관계를 한 번 더)
+
+셸이 화면에게 프레임을 내주듯, **컴패니언 패널은 자식에게 자리를 내준다**:
+
+```
+companion (범용)                     coding (타입 1의 자식)
+├── #detail   위: 사실판             ├── centre 슬롯 → 대화(전사·컴포저)
+├── #cstage
+│   ├── #cleft   왼쪽 슬롯(들) ◀────┤ left 슬롯 → 워크스페이스(잔여)
+│   ├── #cframe  가운데       ◀─────┘
+│   └── #side    오른쪽: 계획·건넨 일(잔여)·예약(잔여)
+└── 목록(?d= 없을 때)  ← 같은 모듈의 다른 얼굴
+```
+
+- **왜 이렇게**: 위와 오른쪽은 타입이 무엇이든 같은 것을 답한다(무엇이고, 무엇을 하는
+  중이고, 무엇을 하기로 했나). 가운데와 왼쪽은 타입의 것이다 — 코딩 에이전트에게 가운데는
+  대화이고 왼쪽은 워크스페이스지만, 다른 타입에겐 다른 것이다.
+- **문**: `PaneSharing`(`__magi_pane`) — 자식이 `next("centre"|"left", render)`로 민다.
+  왼쪽은 여럿 밀면 순서대로 쌓인다. 부모는 무엇이 오는지 모른다.
+- **자식을 들이는 것도 부모**: 셸이 컨텍스트에 실어 보낸 이름(`ctx.ui`)을 `ModuleInject`가
+  한 창에 한 번 넣는다. 이름은 **카탈로그가 푼 것**이지 컴패니언이 댄 경로가 아니다.
+- 목록도 이 모듈의 것이다(주소에 `?d=`가 없을 때) — 표에서는 어떤 타입이든 같은 것을
+  답하기 때문이다.
 
 ## 컴패니언 타입별 UI (기전 가동 중)
 

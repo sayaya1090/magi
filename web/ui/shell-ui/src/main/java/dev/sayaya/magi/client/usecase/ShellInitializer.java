@@ -52,9 +52,10 @@ public class ShellInitializer {
             // 스트림 조준과 컨텍스트가 모듈보다 먼저다 — 모듈의 첫 구독이 현재값을 재생받는다.
             roster.aim(place.socket, place.peer);
             roster.past(place.past);
+            // 컴패니언이면 범용 패널을 들인다 — 그 안의 자식은 패널이 컨텍스트를 보고 들인다.
             String module = place.isCompanion()
-                    ? roster.typeOf(place.socket).module
-                    : place.screen.id;
+                    ? roster.typeOf(place.socket).panel
+                    : place.screen.module;
             Object cached = renders.renderOf(module);
             if (cached != null) { frame.mount(cached); return; }
             renders.expect(module);

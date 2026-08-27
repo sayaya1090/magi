@@ -20,14 +20,21 @@ public class CompanionContext {
     public String peer;   // ?p= — 어느 콘솔을 거쳐서인가 (없으면 null=로컬)
     public String type;   // 해석된 타입 키 — companion-ui(기본)면 "1"
     public String past;   // ?past= — null이면 지금 대화, ""면 지난 일 목록, 값이면 그 세션
+    public String ui;     // 이 타입의 자식 UI 모듈 이름 — 카탈로그가 푼 것(컴패니언이 대는 경로가 아니다)
 
     @JsOverlay
     public static CompanionContext of(String socket, String peer, String type, String past) {
+        return of(socket, peer, type, past, null);
+    }
+
+    @JsOverlay
+    public static CompanionContext of(String socket, String peer, String type, String past, String ui) {
         JsPropertyMap<Object> o = JsPropertyMap.of();
         o.set("socket", socket);
         o.set("peer", peer);
         o.set("type", type);
         o.set("past", past);
+        o.set("ui", ui);
         return Js.uncheckedCast(o);
     }
 }

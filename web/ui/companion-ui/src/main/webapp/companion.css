@@ -1,8 +1,36 @@
-/* 컴패니언 화면(타입 1 = 코딩 에이전트) 자신의 것 — 최소한만: 전사 행(.row/.who/.txt)·컴포저(.composer, #t)·턴바(#turnwrap/#turnbar/#turnfor)·사실판(#detail)은 운영 콘솔의 계약이라
-   console.css가 그대로 입힌다. 여기는 이 화면이 새로 세운 뼈대(세로 배치·사실 줄)만,
-   토큰으로만 말한다 — 새 색·그림자·애니메이션은 짓지 않는다. */
+/* 컴패니언 패널(범용)의 것 — 무대의 세 자리(왼쪽 슬롯들·가운데·오른쪽 판)만 말한다.
+   사실판(#detail)·전사·컴포저는 운영 콘솔의 계약이라 console.css가 입힌다. */
 
 #companion { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
 
-/* 턴바의 자리만 — 운영은 마스트헤드에 붙박이지만 이 화면은 제 머리 위에 둔다. */
-#companion #turnwrap { position:relative; min-height:2px; }
+/* 무대: 왼쪽 슬롯들 · 가운데 · 오른쪽. 좁아지면 한 줄로 쌓인다 — 폰에서 세 열은 셋 다
+   못 읽는 폭이 된다. */
+#cstage {
+  display:grid; gap:var(--magi-sys-space-300); align-items:start;
+  grid-template-columns:minmax(0, 1fr);
+}
+@media (min-width:64em) {
+  /* 왼쪽은 자식이 밀었을 때만 자리를 갖는다 — 빈 슬롯이 폭을 먹지 않게. */
+  #cstage:has(#cleft .cpane) { grid-template-columns:18rem minmax(0, 1fr) 20rem; }
+  #cstage:not(:has(#cleft .cpane)) { grid-template-columns:minmax(0, 1fr) 20rem; }
+  #cstage:not(:has(#cleft .cpane)) #cleft { display:none; }
+}
+#cleft { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
+#cframe { min-width:0; }
+
+/* 오른쪽 판 — 카드 몇 장이 세로로. 비면 카드가 스스로 물러난다(hidden). */
+#side { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
+#side .sidehead {
+  font:600 var(--md-sys-typescale-title-small-size)/1.4 var(--magi-ref-display);
+  color:var(--magi-ref-fg); margin:0 0 var(--magi-sys-space-100);
+}
+#side #plan { padding:var(--magi-sys-space-200); }
+#side .plancount {
+  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
+  color:var(--magi-ref-muted); margin:var(--magi-sys-space-50) 0 var(--magi-sys-space-100);
+}
+#side .td { display:flex; gap:var(--magi-sys-space-100); align-items:baseline; }
+#side .td .mk { color:var(--magi-ref-muted); flex:none; }
+#side .td.completed .mk { color:var(--magi-ref-success); }
+#side .td.completed .tdtext { text-decoration:line-through; color:var(--magi-ref-muted); }
+#side .td.in_progress .mk { color:var(--magi-ref-primary); }

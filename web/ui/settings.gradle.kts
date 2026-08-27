@@ -20,4 +20,4 @@ dependencyResolutionManagement {
     }
 }
 
-include("console-bridge", "ui-components", "shell-ui", "fleet-ui", "companion-ui", "knowledge-ui", "board-ui", "map-ui", "access-ui")
+include("console-bridge", "ui-components", "shell-ui", "companion-ui", "coding-agent-ui", "knowledge-ui", "board-ui", "map-ui", "access-ui")
