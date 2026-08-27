@@ -27,6 +27,7 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `companion-ui` | 컴패니언 화면, 타입 1 = 코딩 에이전트 — 타입 전용 UI 계약의 레퍼런스 | `companion/companion.nocache.js` + companion.css |
 | `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
 | `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
+| `map-ui` | 맵 — 문 없는 주소(v=map): 머신·계정 상자와 오간 것의 와이어 | `map/map.nocache.js` |
 
 ## 셸과 화면의 계약 (console-bridge)
 
@@ -109,7 +110,7 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
    이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
 5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
    html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, knowledge
-   18093, board 18094, 다음은 18095.
+   18093, board 18094, map 18095, 다음은 18096.
 6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
    화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
 7. `../README.md` 대조표의 그 행을 갱신한다.
