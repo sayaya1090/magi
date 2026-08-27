@@ -24,7 +24,8 @@ public class CompanionStore implements CompanionSource.Listener {
     private final BehaviorSubject<CompanionContext> ctxOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
     private final BehaviorSubject<Object> rowsOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
     private final BehaviorSubject<Object> rosterOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
-    private final List<BiConsumer<Boolean, Double>> turnObs = new ArrayList<>();
+    private final BehaviorSubject<dev.sayaya.magi.bridge.Turn> turnOf =
+            dev.sayaya.rx.subject.BehaviorSubject.behavior(dev.sayaya.magi.bridge.Turn.NONE);
     private CompanionContext ctx = null;
     private boolean turnOpen = false;
     private double turnFor = 0;
@@ -86,7 +87,9 @@ public class CompanionStore implements CompanionSource.Listener {
                 + "|" + b.handling + "|" + b.live);
     }
 
-    public void onTurn(BiConsumer<Boolean, Double> o) { turnObs.add(o); o.accept(turnOpen, turnFor); }
+    public void onTurn(BiConsumer<Boolean, Double> o) {
+        turnOf.distinctUntilChanged().subscribe(t -> o.accept(t.open, t.forSec));
+    }
 
     public CompanionContext context() { return ctx; }
 
@@ -190,6 +193,6 @@ public class CompanionStore implements CompanionSource.Listener {
     public void turn(boolean open, double forSec) {
         turnOpen = open;
         turnFor = forSec;
-        for (BiConsumer<Boolean, Double> o : turnObs) o.accept(open, forSec);
+        turnOf.next(new dev.sayaya.magi.bridge.Turn(open, forSec));
     }
 }
