@@ -48,11 +48,17 @@
 #files .treeline:hover .rowacts,
 #files .rowacts:focus-within,
 #files .treeline:focus-within .rowacts { visibility:visible; }
+/* 이 열은 좁다(18rem) — 컨트롤이 줄을 바꾸면 트리가 밀린다. 한 줄에 세우고, 자리를
+   먹는 쪽은 필드다: 버튼은 그림 하나씩이고 고르는 상자는 제 낱말만큼만 갖는다. */
 #files .findrow, #files .makerow {
-  display:flex; gap:var(--magi-sys-space-100); align-items:center; flex-wrap:wrap;
+  display:flex; gap:var(--magi-sys-space-100); align-items:center; flex-wrap:nowrap;
   margin-bottom:var(--magi-sys-space-150);
 }
-#files .findrow md-outlined-text-field { flex:1 1 10rem; }
-#files .makerow md-outlined-text-field { flex:1 1 10rem; }
+#files .findrow md-outlined-text-field,
+#files .makerow md-outlined-text-field { flex:1 1 auto; min-width:0; }
+#files .findbox { margin-bottom:var(--magi-sys-space-150); }
+#files .findbox .findrow { margin-bottom:var(--magi-sys-space-50); }
+#files .findwhere { display:flex; gap:var(--magi-sys-space-50); flex-wrap:wrap; }
+#files .findrow .findclear, #files .makerow md-icon-button { flex:none; }
 #files .gitcommit { display:flex; gap:var(--magi-sys-space-100); align-items:center; margin-top:var(--magi-sys-space-150); }
 #files .gitcommit md-outlined-text-field { flex:1; }

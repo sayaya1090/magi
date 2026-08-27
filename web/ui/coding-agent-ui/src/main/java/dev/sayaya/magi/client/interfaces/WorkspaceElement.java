@@ -115,21 +115,7 @@ public class WorkspaceElement {
         field.setAttribute("label", tr("files.find"));
         Js.asPropertyMap(field).set("value", store.query());
         field.addEventListener("input", evt -> store.query(value(field)));
-        HTMLElement where = el("md-outlined-select");
-        where.className = "findwhere";
-        where.setAttribute("label", tr("files.find_where"));
-        for (String[] o : new String[][]{{"name", "files.by_name"}, {"text", "files.by_text"}}) {
-            HTMLElement opt = el("md-select-option");
-            opt.setAttribute("value", o[0]);
-            if (o[0].equals(store.where())) opt.setAttribute("selected", "");
-            HTMLElement h = el("div");
-            h.setAttribute("slot", "headline");
-            h.textContent = tr(o[1]);
-            opt.append(h);
-            where.append(opt);
-        }
-        where.addEventListener("change", evt -> store.where(value(where)));
-        box.append(field, where);
+        box.append(field);
         if (store.finding()) {
             HTMLElement clear = el("md-text-button");
             clear.className = "findclear";
@@ -137,7 +123,24 @@ public class WorkspaceElement {
             clear.addEventListener("click", evt -> store.query(""));
             box.append(clear);
         }
-        return box;
+        // 어디를 뒤지는가 — 고르는 상자가 아니라 칩 둘이다. 이 열은 18rem이고 상자를 두면
+        // 필드가 "F."로 뭉갠다(실측): 두 상태뿐인 선택은 칩이 더 좁고 더 분명하다.
+        HTMLElement where = el("md-chip-set");
+        where.className = "findwhere";
+        where.setAttribute("aria-label", tr("files.find_where"));
+        for (String[] o : new String[][]{{"name", "files.by_name"}, {"text", "files.by_text"}}) {
+            HTMLElement chip = el("md-filter-chip");
+            chip.className = "wherechip";
+            chip.setAttribute("data-in", o[0]);
+            chip.setAttribute("label", tr(o[1]));
+            if (o[0].equals(store.where())) Js.asPropertyMap(chip).set("selected", true);
+            final String in = o[0];
+            chip.addEventListener("click", evt -> store.where(in));
+            where.append(chip);
+        }
+        HTMLElement wrap = cell("findbox", null);
+        wrap.append(box, where);
+        return wrap;
     }
 
     /** 결과 — 이름 검색은 경로를, 내용 검색은 grep이 낸 그대로(path:line:text)를 답한다. */
@@ -173,18 +176,24 @@ public class WorkspaceElement {
         HTMLElement field = el("md-outlined-text-field");
         field.id = "wsnew";
         field.setAttribute("label", tr("files.path"));
-        HTMLElement file = el("md-text-button");
+        HTMLElement file = el("md-icon-button");
         file.className = "makefile";
-        file.textContent = tr("files.new_file");
+        // 낱말 대신 그림 — 이 열은 18rem이고 "새 디렉토리"만으로 한 줄이 찬다(운영이 같은
+        // 폭에서 아이콘을 고른 그 이유). 이름은 aria-label과 title로 남는다.
+        file.setAttribute("aria-label", tr("files.new_file"));
+        file.setAttribute("title", tr("files.new_file"));
+        file.append(Icons.orGlyph("#i-sl-plus", "+", null));
         file.addEventListener("click", evt -> {
             String p = value(field).trim();
             if (p.isEmpty()) return;
             store.fileDo("new-file", p, null);
             Js.asPropertyMap(field).set("value", "");
         });
-        HTMLElement dir = el("md-text-button");
+        HTMLElement dir = el("md-icon-button");
         dir.className = "makedir";
-        dir.textContent = tr("files.new_dir");
+        dir.setAttribute("aria-label", tr("files.new_dir"));
+        dir.setAttribute("title", tr("files.new_dir"));
+        dir.append(Icons.orGlyph("#i-sl-folder", "\u25B8+", null));
         dir.addEventListener("click", evt -> {
             String p = value(field).trim();
             if (p.isEmpty()) return;

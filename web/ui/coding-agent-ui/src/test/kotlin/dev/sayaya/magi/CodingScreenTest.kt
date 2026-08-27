@@ -141,6 +141,13 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#files .hits .treerow.hit").count() shouldBe 2
                 page.locator("#files .pane-files .treerow.dir").count() shouldBe 0
             }
+            Then("어디를 뒤지는지는 칩 둘이 말한다 — 좁은 열엔 상자가 들어가지 않는다") {
+                page.locator("#files .findwhere .wherechip").count() shouldBe 2
+                page.locator("#files .findwhere .wherechip[data-in=text]").click()
+                page.waitForCondition { (page.evaluate("window.__magi_test_find") as String).startsWith("text:") }
+                page.locator("#files .findwhere .wherechip[data-in=name]").click()
+                page.waitForCondition { (page.evaluate("window.__magi_test_find") as String).startsWith("name:") }
+            }
             Then("결과를 누르면 그 파일이 열린다") {
                 page.locator("#files .hits .treerow.hit").first().click()
                 page.waitForSelector("#files .fileview .filebody")
