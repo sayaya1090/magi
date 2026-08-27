@@ -90,9 +90,13 @@ func emitDemo(dir, ui, oldConsole string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
 		return err
 	}
-	if err := copyFile(filepath.Join(oldConsole, "vendor", "material.js"),
-		filepath.Join(dir, "vendor", "material.js")); err != nil {
-		return fmt.Errorf("vendor: %w", err)
+	// material.js draws the controls; rxjs.js is what the screens' stores are made of, and the
+	// page asks for it by name before the shell boots — a demo without it is a blank console.
+	for _, name := range []string{"material.js", "rxjs.js"} {
+		if err := copyFile(filepath.Join(oldConsole, "vendor", name),
+			filepath.Join(dir, "vendor", name)); err != nil {
+			return fmt.Errorf("vendor: %w", err)
+		}
 	}
 	// The stylesheet's own absolute paths. The typeface lives at the site root (the old console's
 	// demo puts it there) and this shell lives a directory down, so `url(/font/…)` inside the

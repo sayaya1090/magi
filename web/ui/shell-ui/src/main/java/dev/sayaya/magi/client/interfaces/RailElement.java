@@ -58,10 +58,10 @@ public class RailElement implements RailView {
         roster.subscribe(this::countWaiting);
         mode.subscribe(this::applyModes);
         // 능력이 늦게 도착해도 문은 따라 접힌다 — 취하는 쪽만: 숨긴 것을 되살리진 않는다(운영 applyMay).
-        may.subscribe(m -> {
+        may.subscribe(n -> {
             for (Destination d : Destination.doors()) {
                 HTMLElement item = items.get(d.id);
-                if (item != null && !m.may(d.may)) item.setAttribute("hidden", "");
+                if (item != null && !may.may(d.may)) item.setAttribute("hidden", "");
             }
         });
     }

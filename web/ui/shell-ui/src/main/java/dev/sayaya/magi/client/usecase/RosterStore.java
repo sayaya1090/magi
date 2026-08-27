@@ -7,11 +7,16 @@ import dev.sayaya.magi.bridge.RosterSharing;
 import dev.sayaya.magi.bridge.TranscriptSharing;
 import dev.sayaya.magi.client.domain.CompanionType;
 
+import dev.sayaya.rx.Observable;
+import dev.sayaya.rx.subject.BehaviorSubject;
+
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+
+import static dev.sayaya.rx.subject.BehaviorSubject.behavior;
 
 /**
  * 셸의 스트림 저장소 — /events의 유일한 소유자이자 창 브리지들의 호스트.
@@ -24,8 +29,10 @@ import java.util.function.Consumer;
 @Singleton
 public class RosterStore implements RosterSource.Listener {
     private final RosterSource source;
-    private final List<Consumer<FleetAgent[]>> rosterObs = new ArrayList<>();
-    private final List<Consumer<Boolean>> linkObs = new ArrayList<>();
+    // 명단과 회선은 흐름이다. 브리지로 나가는 것도, 셸 제 판들이 보는 것도 같은 이 흐름
+    // 하나다 — 한 API에 주인은 하나라는 규칙이 스트림에도 걸린다.
+    private final BehaviorSubject<FleetAgent[]> roster = behavior(null);
+    private final BehaviorSubject<Boolean> link = behavior(false);
     private final List<CompanionSharing.NextFn> ctxObs = new ArrayList<>();
     private final List<TranscriptSharing.RowsFn> rowsObs = new ArrayList<>();
     private final List<TranscriptSharing.TurnFn> turnObs = new ArrayList<>();
@@ -47,10 +54,7 @@ public class RosterStore implements RosterSource.Listener {
         if (started) return;
         started = true;
         // 화면 모듈이 로드되기 전에 문을 걸어 둔다 — 구독은 현재값을 재생한다.
-        RosterSharing.host(cb -> {
-            rosterObs.add(list -> cb.call(list));
-            if (current != null) cb.call(current);
-        }, this::refresh);
+        RosterSharing.host(cb -> roster.subscribe(list -> cb.call(list)), this::refresh);
         CompanionSharing.host(cb -> {
             ctxObs.add(cb);
             cb.call(ctx);
@@ -108,20 +112,52 @@ public class RosterStore implements RosterSource.Listener {
         return CompanionType.byId(null);
     }
 
-    public void subscribe(Consumer<FleetAgent[]> o) {
-        rosterObs.add(o);
-        if (current != null) o.accept(current);
+    /** 명단 — 아직 못 읽었으면 null이 흐른다(그것도 사실이다: "모른다"). */
+    public void subscribe(Consumer<FleetAgent[]> o) { roster.subscribe(o); }
+
+    /** 회선이 서 있는가. */
+    public void subscribeLink(Consumer<Boolean> o) { link.subscribe(o); }
+
+    /**
+     * 한 컴패니언만 — 명단 전체가 아니라 <b>그 행</b>의 흐름이다.
+     *
+     * 전체를 내려보내면 받는 판마다 "내 것이 바뀌었나"를 제 손으로 판별해야 하고, 그 판별을
+     * 한 곳이라도 빠뜨리면 초당 한 번씩 애먼 판이 다시 선다. 그래서 큰 스토어가 조각을 잘라
+     * 내려보내고, 바뀌었는지는 그 조각 위에서 본다(같은 행이면 흐르지 않는다).
+     */
+    public Observable<FleetAgent> of(String socket, String peer) {
+        String want = peer == null ? "" : peer;
+        return roster.map(list -> rowOf(list, socket, want))
+                .distinctUntilChanged((java.util.function.BiFunction<FleetAgent, FleetAgent, Boolean>)
+                        RosterStore::same);
     }
 
-    public void subscribeLink(Consumer<Boolean> o) {
-        linkObs.add(o);
-        o.accept(up);
+    private static FleetAgent rowOf(FleetAgent[] list, String socket, String peer) {
+        if (list == null || socket == null) return null;
+        for (FleetAgent a : list) {
+            if (socket.equals(a.socket) && peer.equals(a.peer == null ? "" : a.peer)) return a;
+        }
+        return null;
+    }
+
+    /** 두 행이 같은 소식인가 — 도는 숫자(쉰 시간)는 빼고 본다: 매 초 달라지는 값을 넣으면
+     *  "바뀌었다"가 매 초 참이 되어 거르는 뜻이 없어진다. */
+    private static boolean same(FleetAgent a, FleetAgent b) {
+        if (a == null || b == null) return a == b;
+        return sig(a).equals(sig(b));
+    }
+
+    private static String sig(FleetAgent a) {
+        return a.state + "|" + a.steps + "|" + a.role + "|" + a.team + "|" + a.hub + "|" + a.host
+                + "|" + a.instance + "|" + a.addr + "|" + a.pid + "|" + a.version + "|" + a.workdir
+                + "|" + a.session + "|" + a.permission + "|" + a.model + "|" + a.backend
+                + "|" + a.handling + "|" + a.waiting + "|" + a.live + "|" + a.name + "|" + a.doing;
     }
 
     @Override
     public void roster(FleetAgent[] listOrNull) {
         if (listOrNull != null) current = listOrNull;
-        for (Consumer<FleetAgent[]> o : rosterObs) o.accept(listOrNull);
+        roster.next(listOrNull);
         // 조준된 행의 타입 선언이 이제야 도착했을 수 있다 — 컨텍스트가 따라간다.
         if (aimedSocket != null && listOrNull != null) {
             String want = typeOf(aimedSocket).id;
@@ -133,7 +169,7 @@ public class RosterStore implements RosterSource.Listener {
     @Override
     public void link(boolean now) {
         up = now;
-        for (Consumer<Boolean> o : linkObs) o.accept(now);
+        link.next(now);
     }
 
     @Override

@@ -25,8 +25,19 @@
     <!-- 셸 자신의 것(2단 드로어) — console.css의 토큰 위에 얹는다. -->
     <link rel="stylesheet" href="/ui/shell.css">
     <!-- 머티리얼 웹 컴포넌트: BFF가 서빙하는 번들을 프록시로 그대로 쓴다(두 콘솔이 한 번들). -->
-    <script type="module">import '/vendor/material.js';</script>
-    <script src="/ui/shell/shell.nocache.js"></script>
+    <!-- 머티리얼 웹 컴포넌트: BFF가 서빙하는 번들을 프록시로 그대로 쓴다(두 콘솔이 한 번들).
+         그리고 RxJS — 이 콘솔의 스토어들이 그 위에 산다. 자바 쪽 바인딩은 전역 `rxjs`를
+         보고 컴파일되므로(dev.sayaya.rx: @JsType namespace="rxjs"), 번들의 이름들을 그 자리에
+         올려 둔다. 셸 부트스트랩은 그 <b>다음에</b> 넣는다 — 모듈 스크립트는 미뤄지고 GWT
+         부트스트랩은 미뤄지지 않아, 나란히 적으면 스토어가 아직 없는 전역을 부른다. -->
+    <script type="module">
+      import '/vendor/material.js';
+      import * as rxjs from '/vendor/rxjs.js';
+      window.rxjs = rxjs;
+      const boot = document.createElement('script');
+      boot.src = '/ui/shell/shell.nocache.js';
+      document.head.append(boot);
+    </script>
 </head>
 <body>
 <!-- 그림 정의, 아니면 아무것도. 이 표식 자리에 빌드가 구운 스프라이트가 들어간다(라이선스가

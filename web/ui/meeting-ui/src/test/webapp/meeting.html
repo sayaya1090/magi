@@ -2,7 +2,13 @@
 <html>
 <head>
     <title>meeting</title>
-    <script type="text/javascript" src="meeting/meeting.nocache.js"></script>
+    <script type="module">
+      import * as rxjs from './js/rxjs.js';
+      window.rxjs = rxjs;
+      const boot = document.createElement('script');
+      boot.src = 'meeting/meeting.nocache.js';
+      document.head.append(boot);
+    </script>
 </head>
 <body></body>
 </html>

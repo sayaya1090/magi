@@ -105,6 +105,8 @@ screens.entries.forEachIndexed { i, (name, both) ->
         // 머티리얼 번들과 콘솔 CSS, 그리고 이 모듈이 제 것으로 둔 스타일시트가 있으면 그것도.
         val copyTestAssets = tasks.register<Copy>("copyTestAssets") {
             from("${rootDir}/../../cmd/magi-web/vendor/material.js") { into("js") }
+            // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
+            from("${rootDir}/../../cmd/magi-web/vendor/rxjs.js") { into("js") }
             from("${rootDir}/../../cmd/magi-web/page.css") { into("css"); rename { "console.css" } }
             val own = file("src/main/webapp")
             if (own.isDirectory) from(own) { include("*.css"); into("css") }
