@@ -42,7 +42,7 @@ public class FetchFleetRepository implements FleetRepository {
 
     /** 단독 모드의 제 회선 — 끊기면 1.5초 뒤 조용히 다시 잇는다. */
     private void own() {
-        es = new EventSource("/events");
+        es = dev.sayaya.magi.bridge.Console.stream("/events");
         es.addEventListener("fleet", evt -> {
             MessageEvent<String> me = Js.uncheckedCast(evt);
             try { handler.roster(Js.uncheckedCast(elemental2.core.Global.JSON.parse(me.data))); }

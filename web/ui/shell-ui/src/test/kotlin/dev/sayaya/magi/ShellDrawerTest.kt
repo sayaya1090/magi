@@ -16,8 +16,8 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#rail")
                 page.locator("#rail #railMenu").count() shouldBe 1
                 page.locator("#scrim").count() shouldBe 1
-                // 매일 다니는 문은 위, 접근 제어는 발치 — 운영의 그 자리(#railFoot).
-                page.locator("#railNav .raili").count() shouldBe 2
+                // 매일 다니는 문은 위(컴패니언·지식·회의), 접근 제어는 발치 — 운영의 그 자리.
+                page.locator("#railNav .raili").count() shouldBe 3
                 page.locator("#railFoot .raili").count() shouldBe 1
             }
             Then("주소의 목적지(fleet)가 선택돼 있고, 그 모듈이 옷을 입은 채 한 번 로드된다") {
@@ -149,6 +149,59 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#railNav").isVisible() shouldBe true
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
             }
+        }
+        When("⌘K를 누르면") {
+            page.keyboard().press("Meta+k")
+            Then("팔레트가 서고, 이름 없이도 갈 수 있는 곳들이 이미 있다") {
+                page.waitForSelector("#palDialog[open] #palField")
+                (page.locator("#palList .palrow").count() > 0) shouldBe true
+                // 목록이라고 말한다 — 스크린리더에게도 목록이어야 고를 수 있다.
+                (page.locator("#palList").getAttribute("role")) shouldBe "listbox"
+                (page.locator("#palList .palrow").first().getAttribute("aria-selected")) shouldBe "true"
+            }
+            Then("적으면 좁혀지고, 앞에서 맞은 것이 위로 온다") {
+                page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("shared")
+                page.waitForCondition { page.locator("#palList .palrow").count() == 1 }
+                // 팩이 없는 페이지라 이름이 곧 키다 — 문구가 아니라 "앞에서 맞은 것이 위"를 잰다.
+                page.locator("#palList .palrow .palname").first().textContent() shouldBe "nav.shared"
+            }
+            Then("화살표가 고르는 자리를 옮긴다") {
+                page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("")
+                page.waitForCondition { page.locator("#palList .palrow").count() > 1 }
+                page.keyboard().press("ArrowDown")
+                page.waitForCondition {
+                    page.locator("#palList .palrow").nth(1).getAttribute("aria-selected") == "true"
+                }
+            }
+            Then("고르면 그리로 가고 상자는 걷힌다") {
+                page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("shared")
+                page.waitForCondition { page.locator("#palList .palrow").count() == 1 }
+                page.keyboard().press("Enter")
+                page.waitForCondition { page.url().contains("v=skills") }
+                page.waitForCondition { page.locator("#palDialog[open]").count() == 0 }
+                page.evaluate("window.__magi_go_view('fleet')")
+                page.waitForCondition { !page.url().contains("v=") }
+            }
+        }
+        When("화면이 제 것을 팔레트에 더하면") {
+            page.evaluate("(() => { const e = {kind:'pal.kind_file', name:'main.go'," +
+                " hint:'cmd/main.go', run: () => { window.__magi_palette_ran = 'main.go' }};" +
+                " window.__magi_palette = [e];" +
+                " const l = window.__magi_palette_obs; if (l) l([e]); })()")
+            // 팔레트가 이미 서 있으면 그 자리에서 갱신된다 — 열기 전이면 열 때 모은다.
+            Then("셸이 모르는 그 항목도 함께 찾힌다 — 자식의 기능을 셸이 알 필요는 없다") {
+                page.keyboard().press("Meta+k")
+                page.waitForSelector("#palDialog[open] #palField")
+                page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("main.go")
+                page.waitForCondition { page.locator("#palList .palrow").count() >= 1 }
+                page.locator("#palList .palrow .palname").first().textContent() shouldBe "main.go"
+                page.keyboard().press("Enter")
+                page.waitForCondition { page.evaluate("window.__magi_palette_ran") == "main.go" }
+            }
+            // 다음 장면에 상자를 열어 둔 채 넘기지 않는다 — 화면을 덮은 채로는 아무것도 못 잰다.
+            page.evaluate("(() => { window.__magi_palette = []; const d = document.getElementById('palDialog');" +
+                " if (d && d.close) d.close(); })()")
+            page.waitForCondition { page.locator("#palDialog[open]").count() == 0 }
         }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)

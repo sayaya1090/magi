@@ -44,6 +44,11 @@ public class Navigation {
         move(Place.companion(socket, peer, null));
     }
 
+    /** 화면과 그 화면의 조각 하나 — 셸은 그 뜻을 모른 채 주소에 싣고 되읽어 준다. */
+    public void goViewWith(String view, String key, String value) {
+        move(Place.at(Destination.byId(view), key, value));
+    }
+
     /** 지난 일 층위 — 서 있는 컴패니언 위에서만 뜻이 있다: null=지금 대화, ""=목록, 값=그 세션. */
     public void goPast(String pastOrNull) {
         if (current == null || !current.isCompanion()) return;
@@ -62,6 +67,10 @@ public class Navigation {
         } else {
             // 첫 문은 맨주소가 갖는다 — 기존 콘솔의 HREF 규칙(fleet은 '').
             url = p.screen == Destination.FLEET ? path : path + "?v=" + p.screen.id;
+            if (p.piece != null) {
+                url += (url.contains("?") ? "&" : "?") + p.pieceKey + "="
+                        + Global.encodeURIComponent(p.piece);
+            }
         }
         DomGlobal.window.history.pushState(null, "", url);
         settle(p);
@@ -74,7 +83,14 @@ public class Navigation {
             return Place.companion(d, q.get("p"), q.has("past") ? nz(q.get("past")) : null);
         }
         String v = q.get("v");
-        return Place.at(Destination.byId(v == null ? "fleet" : v));
+        Destination screen = Destination.byId(v == null ? "fleet" : v);
+        // 화면이 제 조각을 주소에서 읽는다(Windows.query) — 셸은 그것을 자리의 일부로만 센다:
+        // 조각이 바뀌면 다른 자리이고, 그래야 뒤로가기가 그 방에서 목록으로 돌아온다.
+        for (String key : Destination.PIECES) {
+            String piece = q.get(key);
+            if (piece != null && !piece.isEmpty()) return Place.at(screen, key, piece);
+        }
+        return Place.at(screen);
     }
 
     private static String nz(String s) { return s == null ? "" : s; }

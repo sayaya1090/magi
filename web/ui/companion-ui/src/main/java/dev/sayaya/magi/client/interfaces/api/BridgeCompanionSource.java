@@ -101,7 +101,7 @@ public class BridgeCompanionSource implements CompanionSource {
     private void openStream() {
         String query = "?d=" + Global.encodeURIComponent(socket)
                 + (peer != null ? "&p=" + Global.encodeURIComponent(peer) : "");
-        es = new EventSource("/events" + query);
+        es = dev.sayaya.magi.bridge.Console.stream("/events" + query);
         es.addEventListener("message", evt -> {
             MessageEvent<String> me = Js.uncheckedCast(evt);
             try { listener.transcript(Global.JSON.parse(me.data)); }

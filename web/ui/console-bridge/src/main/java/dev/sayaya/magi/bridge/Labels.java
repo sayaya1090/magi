@@ -54,7 +54,8 @@ public final class Labels {
         if (loading) return;                          // 비행 중이면 이 줄에 서면 된다
         loading = true;
         String want = pick();
-        DomGlobal.fetch("/i18n/language." + want + ".json")
+        // 호스트 창의 회선으로 — 데모의 목이 사는 곳이 거기다(Console.raw의 주석).
+        Console.raw("/i18n/language." + want + ".json", null)
                 .then(Response::text)
                 .then(body -> {
                     pack = Js.cast(elemental2.core.Global.JSON.parse(body));

@@ -41,7 +41,7 @@ public final class Icons {
     }
 
     private static void borrowFrom(String pagePath, Runnable done) {
-        DomGlobal.fetch(pagePath)
+        Console.raw(pagePath, null)
                 .then(Response::text)
                 .then(html -> {
                     int at = html.indexOf("<svg id=\"" + SPRITE + "\"");

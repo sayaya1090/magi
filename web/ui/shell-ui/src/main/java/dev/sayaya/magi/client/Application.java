@@ -20,7 +20,9 @@ public class Application implements EntryPoint {
                     component.masthead().element(),
                     component.rail().scrim(),
                     component.rail().element(),
-                    component.frame().element());
+                    component.frame().element(),
+                    // 팔레트는 창의 것이라 화면 밖에 선다 — 어느 화면에서 눌러도 같은 상자다.
+                    component.palette().element());
             component.masthead().paint();
             component.rail().paint();
             component.initializer().initialize();

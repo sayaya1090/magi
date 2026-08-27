@@ -47,6 +47,8 @@ func TestDemoShimAnswersWhatTheModulesAsk(t *testing.T) {
 			"and a stale miner passes by finding nothing", len(asked), root)
 	}
 	for _, path := range keys(asked) {
+		// 답하는 방식은 shim의 사정이다(정확 일치·접두사·표) — 재는 것은 "그 경로를 아는가"뿐:
+		// 경로가 따옴표 안에 그대로 있으면 그 shim은 그 경로를 안다.
 		if !strings.Contains(demoShim, `url.startsWith('`+path+`')`) {
 			t.Errorf("%s fetches %s and the demo shim has no answer for it — on Pages that is a "+
 				"404 and an empty panel (%s)", filepath.Base(asked[path]), path, asked[path])
@@ -91,6 +93,7 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 			t.Errorf("index.html still carries %s — root-absolute under a subpath is a 404", absolute)
 		}
 	}
+	// 두 콘솔이 같은 shim을 쓴다 — 그 shim이 fetch를 갈아끼운다는 사실이 표식이다.
 	if !strings.Contains(page, "window.fetch =") {
 		t.Error("the shim is missing — a demo with no mock answers nothing")
 	}

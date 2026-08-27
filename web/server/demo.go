@@ -84,6 +84,32 @@ const demoShim = `
       {who: 'sam@laptop', role: 'viewer', can: ['read'], companions: ['docs']},
     ],
   };
+  const rooms = [
+    {id: 'm1', topic: 'which store should the queue use?', round: 2, max: 5, opened: true,
+     speakers: [{name: 'build'}, {name: 'docs'}]},
+    {id: 'm0', topic: 'why the retries stormed', closed: true, spent: true,
+     speakers: [{name: 'build'}],
+     tasks: [{who: 'build', what: 'cap the backoff and write it down'}]},
+  ];
+  // 방 하나는 목록의 그 방에 오간 말과 명단을 더한 것이다 — 목록과 방이 다른 사실을 말하면
+  // 사람은 어느 쪽을 믿을지 알 수 없다.
+  const room = m => Object.assign({}, m, {
+    speakers: [
+      {name: 'build', socket: '/demo/build.sock', room: 's_demo1', next: !m.closed},
+      {name: 'docs', socket: '/demo/docs.sock', room: 's_demo2', passes: 1},
+      {name: 'you', person: true},
+    ],
+    said: m.closed ? [
+      {who: 'build', round: 1, text: 'the retries had no ceiling', at: now},
+      {who: 'docs', round: 1, pass: true, text: 'nothing to add', at: now},
+    ] : [
+      {who: 'build', round: 1, text: 'postgres — the ordering is the whole point', at: now},
+      {who: 'docs', round: 1, text: 'sqlite keeps the ops story small', at: now},
+    ],
+  });
+  const complete = {file: '~/.config/magi/config.toml', ambient: true, crossSession: false,
+                    profiles: ['fast-local', 'cloud-mini'], codeProfile: 'fast-local',
+                    composerProfile: ''};
   const realFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -126,6 +152,16 @@ const demoShim = `
         {content: 'write down what changed', status: 'pending'},
       ])));
     }
+    // ⚠ /meet 는 /me 보다 먼저다: 접두사로 고르는 표에서 짧은 이름이 위에 있으면 긴 이름을
+    // 통째로 삼킨다(회의실이 능력 목록을 받아 빈 화면이 된다).
+    if (url.startsWith('/meet')) {
+      const id = new URLSearchParams(url.split('?')[1] || '').get('id');
+      if (!id) return Promise.resolve(new Response(JSON.stringify(rooms)));
+      const one = rooms.find(r => r.id === id);
+      return one ? Promise.resolve(new Response(JSON.stringify(room(one))))
+                 : Promise.resolve(new Response('no such meeting', {status: 404}));
+    }
+    if (url.startsWith('/autocomplete')) return Promise.resolve(new Response(JSON.stringify(complete)));
     if (url.startsWith('/console')) return Promise.resolve(new Response(JSON.stringify(consoleInfo)));
     if (url.startsWith('/context')) return Promise.resolve(new Response(JSON.stringify(context)));
     if (url.startsWith('/me')) return Promise.resolve(new Response(JSON.stringify(me)));

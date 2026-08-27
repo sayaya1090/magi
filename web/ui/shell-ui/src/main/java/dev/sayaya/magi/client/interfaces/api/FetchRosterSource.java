@@ -58,7 +58,7 @@ public class FetchRosterSource implements RosterSource {
 
     private void open() {
         final int mine = ++generation;
-        es = new EventSource("/events" + q());
+        es = dev.sayaya.magi.bridge.Console.stream("/events" + q());
         es.addEventListener("open", evt -> listener.link(true));
         es.addEventListener("fleet", evt -> {
             MessageEvent<String> me = Js.uncheckedCast(evt);

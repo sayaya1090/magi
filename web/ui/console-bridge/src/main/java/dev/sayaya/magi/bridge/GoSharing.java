@@ -14,6 +14,7 @@ import jsinterop.base.JsPropertyMap;
  */
 public final class GoSharing {
     private static final String GO = "__magi_go";
+    private static final String VIEW_WITH = "__magi_go_view_with";
     private static final String VIEW = "__magi_go_view";
     private static final String PAST = "__magi_go_past";
 
@@ -25,6 +26,10 @@ public final class GoSharing {
     @JsFunction
     public interface ViewFn { void call(String view); }
 
+    /** 화면(v=)과 그 화면의 조각 하나(key=value)를 함께 싣는 이동. */
+    @JsFunction
+    public interface ViewWithFn { void call(String view, String key, String value); }
+
     /** 셸 측: 이동의 문을 건다. */
     public static void host(GoFn go) {
         Js.asPropertyMap(DomGlobal.window).set(GO, go);
@@ -33,6 +38,16 @@ public final class GoSharing {
     /** 셸 측: 카탈로그 화면(v=…)으로의 문 — 보드처럼 문 없는 주소도 화면이 청할 수 있게. */
     public static void hostView(ViewFn view) {
         Js.asPropertyMap(DomGlobal.window).set(VIEW, view);
+    }
+
+    /**
+     * 셸 측: 화면과 그 화면의 조각 하나를 함께 싣는 문 — 회의실의 ?m= 같은 것.
+     *
+     * 주소를 쓰는 일이 셸의 몫인 이유는 뒤로가기 때문이다: 화면이 제멋대로 pushState를 하면
+     * 히스토리에 셸이 모르는 자리가 생기고, 뒤로 갔을 때 셸은 그 자리를 그릴 줄 모른다.
+     */
+    public static void hostViewWith(ViewWithFn go) {
+        Js.asPropertyMap(DomGlobal.window).set(VIEW_WITH, go);
     }
 
     /** 셸 측: 지난 일 층위(?past=)의 문 — null=지금 대화로, ""=목록, 값=그 세션. */
@@ -45,6 +60,13 @@ public final class GoSharing {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         if (!win.has(PAST)) return;
         Js.<ViewFn>cast(win.get(PAST)).call(pastOrNull);
+    }
+
+    /** 화면 측: 제 조각을 실어 그 화면으로. 호스트가 없으면 조용히 무시(앵커의 href가 폴백). */
+    public static void viewWith(String v, String key, String value) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        if (!win.has(VIEW_WITH)) { view(v); return; }
+        Js.<ViewWithFn>cast(win.get(VIEW_WITH)).call(v, key, value);
     }
 
     /** 화면 측: 카탈로그 화면으로. 호스트가 없으면 조용히 무시 — 앵커의 href가 폴백이다. */

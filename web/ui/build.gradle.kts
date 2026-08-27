@@ -26,6 +26,8 @@ val screens = linkedMapOf(
     "board-ui" to ("dev.sayaya.magi.Board" to "dev.sayaya.magi.BoardTest"),
     "map-ui" to ("dev.sayaya.magi.MapScreen" to "dev.sayaya.magi.MapTest"),
     "access-ui" to ("dev.sayaya.magi.Access" to "dev.sayaya.magi.AccessTest"),
+    "meeting-ui" to ("dev.sayaya.magi.Meeting" to "dev.sayaya.magi.MeetingTest"),
+    "settings-ui" to ("dev.sayaya.magi.Settings" to "dev.sayaya.magi.SettingsTest"),
 )
 
 subprojects {

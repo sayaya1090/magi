@@ -34,13 +34,17 @@ public class MastheadElement {
     private final HTMLElement deep = el("span");
     private final HTMLElement state = el("span");
     private final HTMLElement chrome = el("span");   // 화면이 미는 창 손잡이의 자리
+    private final HTMLElement gear = el("md-icon-button");   // 환경설정으로 가는 문
+    private final HTMLElement palBtn = el("md-icon-button");  // ⌘K가 없는 손을 위한 같은 문
+    private final PaletteElement palette;
     private String said = "";   // 폴마다 같은 문장을 다시 발표하지 않는 라이브영역 가드
     private Place standing = null;
 
     @Inject
-    public MastheadElement(RosterStore roster, Navigation nav) {
+    public MastheadElement(RosterStore roster, Navigation nav, PaletteElement palette) {
         this.nav = nav;
         this.roster = roster;
+        this.palette = palette;
         build();
         nav.subscribe(place -> { standing = place; crumbs(); });
         roster.subscribe(list -> { count(list); crumbs(); });
@@ -63,6 +67,12 @@ public class MastheadElement {
 
     /** 언어가 정해진 뒤의 말들 — 크럼의 이름. 팩이 바뀌면 다시 부른다. */
     public void paint() {
+        gear.setAttribute("aria-label", tr("nav.preferences"));
+        // 어느 손가락인지도 말한다 — 맥이면 ⌘K, 아니면 Ctrl+K.
+        String cmdKey = mac() ? "⌘K" : "Ctrl+K";
+        palBtn.setAttribute("aria-label", tr("pal.head"));
+        palBtn.setAttribute("title", tr("pal.head") + "  ·  " + cmdKey);
+        gear.setAttribute("title", tr("nav.preferences"));
         crumbs();
     }
 
@@ -141,7 +151,26 @@ public class MastheadElement {
         state.setAttribute("role", "status");
         state.setAttribute("aria-live", "polite");
         chrome.id = "chrome";
-        header.append(mark, whereami, crumbs, state, chrome);
+        // 톱니는 늘 그 자리다 — 환경설정은 레일의 문이 아니라 이 창의 chrome이라서(운영도
+        // 마스트헤드에 둔다). 컴패니언 위에서 누르면 그 컴패니언의 설정으로 간다: 주소의
+        // ?d= 가 그대로 남으므로 화면이 그 사실을 읽는다.
+        gear.id = "prefs";
+        gear.setAttribute("aria-label", tr("nav.preferences"));
+        gear.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+                + "<path d=\"M4 7h10M18 7h2M4 12h2M10 12h10M4 17h12M20 17h0\" fill=\"none\" "
+                + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/>"
+                + "<circle cx=\"16\" cy=\"7\" r=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
+                + "<circle cx=\"8\" cy=\"12\" r=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
+                + "<circle cx=\"18\" cy=\"17\" r=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/></svg>";
+        gear.addEventListener("click", evt -> nav.go(Destination.SETTINGS));
+        // 수식키가 없는 손에게는 이 버튼이 팔레트의 유일한 길이다 — 아무 데도 적혀 있지 않은
+        // 단축키는 아무도 발견하지 못한다(운영이 이 버튼을 둔 이유).
+        palBtn.id = "palOpen";
+        palBtn.addEventListener("click", evt -> palette.show());
+        palBtn.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+                + "<circle cx=\"11\" cy=\"11\" r=\"6.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
+                + "<path d=\"M15.6 15.6 20 20\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>";
+        header.append(mark, whereami, crumbs, state, chrome, palBtn, gear);
     }
 
     /** 몇이 있고 몇이 기다리는가 — 그리고 기다림은 누르면 그리로 간다. */
@@ -216,6 +245,12 @@ public class MastheadElement {
         if (h <= 0) return;
         DomGlobal.document.documentElement.style.setProperty("--magi-comp-shelltop",
                 Math.round(h) + "px");
+    }
+
+    /** 이 손이 어느 기계의 것인가 — 단축키를 그 기계의 말로 적으려고. */
+    private static boolean mac() {
+        String ua = String.valueOf(DomGlobal.navigator.userAgent).toLowerCase();
+        return ua.contains("mac") || ua.contains("iphone") || ua.contains("ipad");
     }
 
     private static String str(JsPropertyMap<Object> m, String k) {

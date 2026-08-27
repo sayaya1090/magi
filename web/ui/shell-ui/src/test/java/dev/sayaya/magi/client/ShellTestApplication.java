@@ -21,7 +21,8 @@ public class ShellTestApplication implements EntryPoint {
                 component.masthead().element(),
                 component.rail().scrim(),
                 component.rail().element(),
-                component.frame().element());
+                component.frame().element(),
+                component.palette().element());
         component.masthead().paint();
         component.rail().paint();
         component.initializer().initialize();

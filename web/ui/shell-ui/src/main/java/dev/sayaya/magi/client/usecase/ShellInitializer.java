@@ -39,6 +39,7 @@ public class ShellInitializer {
         may.start();
         GoSharing.host(nav::goCompanion);
         GoSharing.hostView(v -> nav.go(dev.sayaya.magi.client.domain.Destination.byId(v)));
+        GoSharing.hostViewWith(nav::goViewWith);
         GoSharing.hostPast(nav::goPast);
         renders.onRender(frame::mount);
         nav.subscribe(place -> {
