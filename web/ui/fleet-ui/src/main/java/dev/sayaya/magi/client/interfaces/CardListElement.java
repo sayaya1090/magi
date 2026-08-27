@@ -96,10 +96,18 @@ public class CardListElement {
         // 행은 컴패니언 화면으로 가는 문이다 — 이동(주소)은 셸의 것이라 GoSharing으로
         // 청한다. 원본 규칙 그대로 elsewhere가 아닌 행만: 남의 파일시스템의 소켓 경로는
         // 여기서 열 수 없는 것이 정직한 모양이다. 셸 없이 단독으로 떴으면 문이 없다.
-        if (!a.elsewhere && GoSharing.hosted()) {
+        if (!a.elsewhere) {
+            // 진짜 앵커다 — 가운데 클릭과 복사한 주소가 살아 있어야 하고, 커서도 손가락이다
+            // (실측: href 없는 행은 default 커서였다). 이동은 셸의 문으로 간다.
             final String sock = a.socket;
             final String peerOf = a.peer;
+            row.setAttribute("href", "/next?d=" + elemental2.core.Global.encodeURIComponent(sock)
+                    + (peerOf == null || peerOf.isEmpty() ? ""
+                       : "&p=" + elemental2.core.Global.encodeURIComponent(peerOf)));
             row.addEventListener("click", evt -> {
+                elemental2.dom.MouseEvent me = Js.uncheckedCast(evt);
+                // 수식 키는 브라우저의 것 — 새 탭·새 창은 앵커가 원래 하던 일이다.
+                if (me.metaKey || me.ctrlKey || me.shiftKey || me.button != 0) return;
                 evt.preventDefault();
                 GoSharing.go(sock, peerOf);
             });

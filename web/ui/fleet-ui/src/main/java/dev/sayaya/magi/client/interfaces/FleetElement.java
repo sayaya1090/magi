@@ -2,6 +2,8 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.StateMark;
 import dev.sayaya.magi.client.domain.Roster;
 import dev.sayaya.magi.client.usecase.FleetStore;
 import elemental2.dom.DomGlobal;
@@ -116,13 +118,14 @@ public class FleetElement {
 
     /** 네 개의 숫자와 필터 — "뭔가 나를 필요로 하나"에 행을 세지 않고 답하는 줄. */
     /** 이 목록에서 나가는 길 하나 — 같은 모양, 같은 자리(운영 .toview). */
-    private HTMLElement toView(String view, String labelKey, boolean lead, String path) {
+    private HTMLElement toView(String view, String labelKey, boolean lead, String ref, String path) {
         HTMLElement b = el("md-icon-button");
         b.className = "toview" + (lead ? " lead" : "");
         b.setAttribute("aria-label", tr(labelKey));
-        b.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
+        b.innerHTML = "<svg data-i=\"" + ref + "\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
                 + "<path d=\"" + path + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
                 + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+        Icons.dress(b);
         b.addEventListener("click", evt -> GoSharing.view(view));
         return b;
     }
@@ -140,6 +143,13 @@ public class FleetElement {
             pm.set("softDisabled", n == 0 && !k.equals(filter));
             pm.set("alwaysFocusable", true);
             pm.set("selected", k.equals(filter));
+            // 상태의 마크가 칩의 아이콘 슬롯에 — 수와 낱말은 그대로다(마크는 셋째 방식이지
+            // 대체가 아니다). 스프라이트 없는 빌드에선 마크가 없고, 그것도 정상이다.
+            elemental2.dom.Element mark = Icons.of(StateMark.of(k), null);
+            if (mark != null) {
+                mark.setAttribute("slot", "icon");
+                b.append(mark);
+            }
             b.append(cell("n", String.valueOf(n)), cell("k", stateWord(k)));
             b.addEventListener("click", evt -> {
                 filter = k.equals(filter) ? null : k;
@@ -150,12 +160,12 @@ public class FleetElement {
         }
         // 이 목록에서 나가는 길들 — 같은 모양, 한 자리(운영 .toview). 볼 것이 있을 때만.
         if (last != null && last.length > 0) {
-            summary.append(toView("board", "nav.board", true,
+            summary.append(toView("board", "nav.board", true, "#i-sl-chart-kanban",
                     "M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z"));
         }
         // 맵은 하나뿐일 때 상자 속 상자다 — 볼 것이 둘부터(운영 규칙).
         if (last != null && last.length > 1) {
-            summary.append(toView("map", "nav.map", false,
+            summary.append(toView("map", "nav.map", false, "#i-sl-share-from-square",
                     "M12 4.2a2 2 0 1 1 0 4 2 2 0 0 1 0-4M6 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4"
                             + "M18 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4M12 8.2v3.6M12 11.8H6v4M12 11.8h6v4"));
         }
