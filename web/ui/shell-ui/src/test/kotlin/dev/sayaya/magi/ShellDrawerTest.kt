@@ -2,6 +2,7 @@ package dev.sayaya.magi
 
 import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
+import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 
 /**
@@ -96,8 +97,12 @@ internal class ShellDrawerTest : GwtTestSpec({
             }
             Then("창 폭을 다 쓴다 — 기둥 폭이 아니라") {
                 val w = page.evaluate("document.getElementById('turnwrap').getBoundingClientRect().width") as Number
-                val win = page.evaluate("window.innerWidth") as Number
-                (w.toDouble() >= win.toDouble() - 1) shouldBe true
+                // 레이아웃 뷰포트로 잰다: window.innerWidth는 고전 스크롤바(리눅스 헤드리스)를
+                // 포함해서, 창 전체를 덮은 fixed 요소가 15px 모자라 보인다(CI에서만 실패했다).
+                val win = page.evaluate("document.documentElement.clientWidth") as Number
+                withClue("턴바 ${w.toDouble()}px / 레이아웃 뷰포트 ${win.toDouble()}px") {
+                    (w.toDouble() >= win.toDouble() - 1) shouldBe true
+                }
             }
         }
         When("뒤로가면 카탈로그로 돌아오고 조준이 풀린다") {
