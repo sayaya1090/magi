@@ -53,6 +53,17 @@ const demoShim = `
     {name: 'repo-grep', tier: 'project', companion: 'build', socket: '/demo/build.sock',
      command: 'rg-mcp', args: ['--root', '.'], envNames: ['RG_TOKEN'], file: '.magi/config.toml'},
   ];
+  const histories = {
+    '/demo/build.sock': [
+      {id: 's1', title: 'run the migration', started: now.slice(0,10)+'T09:00:00Z',
+       ended: now.slice(0,10)+'T09:40:00Z', model: 'gpt-oss:120b', labels: ['migration']},
+      {id: 's2', title: 'still at it', started: now.slice(0,10)+'T11:00:00Z', ended: '', current: true},
+    ],
+    '/demo/docs.sock': [
+      {id: 's3', title: 'proofread the notes', started: now.slice(0,10)+'T08:20:00Z',
+       ended: now.slice(0,10)+'T08:50:00Z'},
+    ],
+  };
   const realFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -61,6 +72,10 @@ const demoShim = `
     if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
     if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
     if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
+    if (url.startsWith('/history')) {
+      const d = new URLSearchParams(url.split('?')[1] || '').get('d');
+      return Promise.resolve(new Response(JSON.stringify(histories[d] || [])));
+    }
     if (init && init.method === 'POST') return Promise.resolve(new Response(''));
     return realFetch(input, init);
   };

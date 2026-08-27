@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.FleetAgent;
+import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.client.domain.Roster;
 import dev.sayaya.magi.client.usecase.FleetStore;
 import elemental2.dom.DomGlobal;
@@ -134,6 +135,19 @@ public class FleetElement {
                 if (filter != null) jumpToFirstRow();
             });
             summary.append(b);
+        }
+        // 이 목록에서 나가는 길 — 보드는 칩들 곁의 아이콘이다(운영 .toview: 같은 줄 오른쪽,
+        // 폰에선 order로 앞). 볼 것이 있을 때만 — 빈 화면으로 가는 문은 없는 문보다 나쁘다.
+        if (last != null && last.length > 0) {
+            HTMLElement toBoard = el("md-icon-button");
+            toBoard.className = "toview lead";
+            toBoard.setAttribute("aria-label", tr("nav.board"));
+            toBoard.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
+                    + "<path d=\"M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z\" fill=\"none\" "
+                    + "stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+            // 이동은 셸의 문으로 — 셸 없이 단독으로 떴으면(테스트) 조용한 무음이다.
+            toBoard.addEventListener("click", evt -> GoSharing.view("board"));
+            summary.append(toBoard);
         }
     }
 

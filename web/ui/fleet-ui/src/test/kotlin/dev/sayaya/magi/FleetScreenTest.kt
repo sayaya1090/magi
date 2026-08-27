@@ -20,6 +20,9 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.locator("#summary md-filter-chip.idle .n").textContent() shouldBe "1"
                 page.locator("#summary md-filter-chip.gone .n").textContent() shouldBe "1"
             }
+            Then("칩들 곁에 보드로 나가는 길이 선다(.toview)") {
+                page.locator("#summary .toview").count() shouldBe 1
+            }
             Then("행은 다섯: elsewhere 포함 전부 그려진다") {
                 page.locator("#fleet .card").count() shouldBe 5
             }
