@@ -318,6 +318,8 @@ public class CompanionElement {
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
             dev.sayaya.magi.bridge.ChromeSharing.remeasure();
+            // 넓어졌다: 여는 것은 다시 손잡이의 몫이다 — 기억해 둔 그 상태로 돌려 말한다.
+            arrange.sayPanes();
             show(detail.element(), companion && detail.hasFacts() && "facts".equals(cardShows));
             show(cardArea, companion && !"facts".equals(cardShows));
             show(filecol, true);
@@ -332,6 +334,11 @@ public class CompanionElement {
         // 폰에서는 한 번에 하나 — 운영의 네 탭 그대로(대화·정보·파일·계획).
         // 폰의 작업공간은 <b>한 번에 하나</b>다 — 트리냐, 거기서 연 카드냐. 둘을 쌓으면 마흔 개
         // 이름 아래에서 아무도 아래까지 내려가지 않는다(운영이 이 화면에서 배운 것).
+        // 폰에서 그 판을 여는 것은 손잡이가 아니라 <b>탭</b>이다(손잡이는 이 폭에서 그려지지도
+        // 않는다) — 그러니 여는 쪽이 그 사실을 말한다. 이걸 빠뜨리면 폰의 작업공간 탭이 영영
+        // 걷지 않는 판이 된다(실측: 트리도 git도 비어 있었다).
+        dev.sayaya.magi.bridge.PaneSharing.opened("left", "files".equals(panel));
+        dev.sayaya.magi.bridge.PaneSharing.opened("side", "plan".equals(panel));
         boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
         standAlone(cardHere);
         show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);

@@ -166,6 +166,14 @@ public class Arrangement {
         return true;
     }
 
+    /** 지금 기억하고 있는 두 기둥의 상태를 다시 말한다 — 폰에서 탭이 하던 말을 되돌릴 때. */
+    public void sayPanes() {
+        dev.sayaya.magi.bridge.PaneSharing.opened("left",
+                "open".equals(DomGlobal.document.body.getAttribute("files")));
+        dev.sayaya.magi.bridge.PaneSharing.opened("side",
+                "open".equals(DomGlobal.document.body.getAttribute("side")));
+    }
+
     /** 판의 속이 바뀌면 손잡이의 말도 바뀐다 — 그 사실을 아는 쪽이 알려 준다. */
     public void sideChanged() {
         dressHandle("side", "open".equals(DomGlobal.document.body.getAttribute("side")));
