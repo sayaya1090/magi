@@ -20,6 +20,15 @@ public interface CompanionSource {
 
     void start(Listener l);
 
+    /** 명단 — 셸이 호스팅하면 그 구독으로, 단독이면 /fleet 한 번. 사실판이 읽는다. */
+    void roster(java.util.function.Consumer<Object> listOrNull);
+
+    /** 컨텍스트 창(/context) — 사실판의 그 줄. */
+    void context(CompanionContext ctx, java.util.function.Consumer<Object> infoOrNull);
+
+    /** 지금 접기(/compact) — 답이 오면 컨텍스트를 다시 읽는 것은 호출자의 몫. */
+    void compact(CompanionContext ctx, Runnable done);
+
     /** 대상 컴패니언으로 한 마디 — why는 거부 사유, 성공이면 빈 문자열. */
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
 }

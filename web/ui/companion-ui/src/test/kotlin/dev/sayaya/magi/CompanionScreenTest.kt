@@ -13,11 +13,35 @@ import io.kotest.matchers.string.shouldContain
 internal class CompanionScreenTest : GwtTestSpec({
     Given("고정 컨텍스트(타입 1)와 다섯 행의 전사") {
         When("화면이 그려지면") {
-            Then("사실 줄이 서고 타입 이름이 실린다 — 이 모듈이 곧 타입의 화면이다") {
-                page.waitForSelector("#companion .cfacts .cname")
-                // 명단이 없는 단독 페이지라 이름은 소켓으로 폴백한다.
-                page.locator("#companion .cfacts .cname").textContent() shouldBe "/tmp/a1.sock"
-                page.locator("#companion .cfacts .ctype").textContent() shouldBe "type.coding"
+            Then("사실판(#detail)이 서고, 접는 바의 요약이 상태와 워크스페이스를 말한다") {
+                page.waitForSelector("#companion #detail:not([hidden])")
+                page.locator("#detail .foldbar .sum").textContent() shouldContain "/Users/you/work/app"
+            }
+            Then("질문이 오는 순서의 필드들 — 상태·짐, 스텝, 역할, 호스트, 세션, 결재") {
+                page.locator("#detail .f[data-k=\"field.status\"] .v").textContent() shouldContain "load.in_hand"
+                page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "7"
+                page.locator("#detail .f[data-k=\"field.role\"] .v").textContent() shouldContain "build green"
+                page.locator("#detail .f[data-k=\"field.host\"] .v").textContent() shouldContain "pid 4242"
+                page.locator("#detail .f[data-k=\"field.session\"] .v").textContent() shouldBe "s_demo1"
+                page.locator("#detail .f[data-k=\"field.permission\"] .v").textContent() shouldBe "perm.ask"
+            }
+            Then("컨텍스트 줄 — 잰 것과 셈한 것을 섞지 않고, 창을 아는 때만 바가 선다") {
+                page.locator("#detail .f[data-k=\"field.context\"] .v").textContent() shouldContain "82,000 / 100,000 tokens"
+                page.locator("#detail .f[data-k=\"field.context\"] small").textContent() shouldContain "context.measured"
+                page.locator("#detail .f[data-k=\"field.context\"] .bar i").count() shouldBe 1
+                page.locator("#detail .f[data-k=\"field.summarised_away\"] .v").textContent() shouldContain "context.folds"
+            }
+            Then("접는 바를 누르면 접히고, 그 선호가 기억된다") {
+                page.locator("#detail .foldbar").click()
+                page.waitForSelector("#detail[folded]")
+                page.evaluate("localStorage.getItem('facts')") shouldBe "folded"
+                page.locator("#detail .foldbar").click()
+                page.waitForCondition { page.locator("#detail[folded]").count() == 0 }
+            }
+            Then("지금 접기를 누르면 그 컴패니언으로 간다") {
+                page.locator("#detail .f[data-k=\"field.context\"] md-text-button.fold").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_compacted") != null }
+                page.evaluate("window.__magi_test_compacted") shouldBe "/tmp/a1.sock"
             }
             Then("전사 여섯 행 — 목소리와 끝이 클래스에 실린다") {
                 page.locator("#log .row").count() shouldBe 6

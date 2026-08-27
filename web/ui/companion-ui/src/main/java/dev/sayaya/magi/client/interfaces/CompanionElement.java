@@ -1,8 +1,5 @@
 package dev.sayaya.magi.client.interfaces;
 
-import dev.sayaya.magi.bridge.CompanionContext;
-import dev.sayaya.magi.bridge.FleetAgent;
-import dev.sayaya.magi.bridge.RosterSharing;
 import dev.sayaya.magi.client.domain.Rows;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.core.JsDate;
@@ -18,11 +15,10 @@ import jsinterop.base.JsPropertyMap;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import static dev.sayaya.magi.bridge.Labels.stateWord;
 import static dev.sayaya.magi.bridge.Labels.tr;
 
 /**
- * 컴패니언 화면(타입 1 = 코딩 에이전트)의 첫 조각: 사실 줄 · 전사 · 컴포저.
+ * 컴패니언 화면(타입 1 = 코딩 에이전트): 사실판(접는 카드) · 전사 · 컴포저.
  *
  * 전사 행의 클래스(.row/.who/.txt, toolok…)는 기존 콘솔 page.js rowNode와 같은 계약 —
  * console.css 가 그대로 입힌다. 이 화면 자신의 것(사실 줄·컴포저 배치·턴 바)만
@@ -34,20 +30,20 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class CompanionElement {
     private final CompanionStore store;
+    private final DetailElement detail;
     private final HTMLElement root = el("section");
     private final HTMLElement turnwrap = el("div");
     private final HTMLElement turnfor = el("span");
-    private final HTMLElement facts = el("div");
     private final HTMLElement log = el("div");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
     private final HTMLElement field = el("md-outlined-text-field");
-    private FleetAgent[] roster = null;
     private String lastSig = null;
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
     @Inject
-    public CompanionElement(CompanionStore store) {
+    public CompanionElement(CompanionStore store, DetailElement detail) {
         this.store = store;
+        this.detail = detail;
         root.id = "companion";
         // 턴바는 운영 콘솔의 그 마크업 그대로다 — #turnwrap[hidden] 속의 md-linear-progress
         // #turnbar(aria-hidden: 행이 이미 말로 말한다)와 경과 숫자 #turnfor. 스타일도 표시
@@ -60,9 +56,9 @@ public class CompanionElement {
         bar.setAttribute("aria-hidden", "true");
         turnfor.id = "turnfor";
         turnwrap.append(bar, turnfor);
-        facts.className = "cfacts";
         log.id = "log";
-        root.append(turnwrap, facts, log, composer());
+        // 운영의 그 순서: 사실판(#detail)이 전사 위에 선다.
+        root.append(turnwrap, detail.element(), log, composer());
     }
 
     public void mount(HTMLElement frame) {
@@ -71,14 +67,9 @@ public class CompanionElement {
         if (wired) return;   // 재방문: 캐시된 렌더가 다시 앉는 것 — 구독은 이미 흐른다
         wired = true;
         store.start();
-        store.onContext(ctx -> { lastSig = null; paintFacts(ctx); });
+        store.onContext(ctx -> lastSig = null);
         store.onRows(this::paintRows);
         store.onTurn(this::paintTurn);
-        // 사실 줄은 명단에서 읽는다 — 셸이 호스팅하는 그 스트림, 요청 0 추가.
-        RosterSharing.subscribe(list -> {
-            if (list != null) roster = Js.uncheckedCast(list);
-            paintFacts(store.context());
-        });
     }
 
     // ── 턴바: 운영 page.js showTurnbar/paintTurnFor의 이식 ───────────────────
@@ -153,41 +144,8 @@ public class CompanionElement {
 
     private void value(String v) { Js.asPropertyMap(field).set("value", v); }
 
-    private void paintFacts(CompanionContext ctx) {
-        facts.replaceChildren();
-        if (ctx == null) return;
-        FleetAgent a = rowOf(ctx.socket);
-        HTMLElement name = el("span");
-        name.className = "cname";
-        name.textContent = a != null ? a.name : ctx.socket;
-        // 이 모듈이 곧 타입의 화면이다 — 코딩 에이전트라는 이름은 여기 것.
-        HTMLElement type = el("span");
-        type.className = "ctype";
-        type.textContent = tr("type.coding");
-        facts.append(name, type);
-        if (a != null) {
-            HTMLElement word = el("span");
-            word.className = "cword " + (a.state == null ? "" : a.state);
-            word.textContent = stateWord(a.state);
-            facts.append(word);
-            if (a.role != null && !a.role.isEmpty()) facts.append(chip("crole", a.role));
-            if (a.model != null && !a.model.isEmpty()) facts.append(chip("cmodel", a.model));
-            if (a.session != null && !a.session.isEmpty()) facts.append(chip("csession", a.session));
-        }
-    }
 
-    private static HTMLElement chip(String cls, String text) {
-        HTMLElement c = el("span");
-        c.className = cls;
-        c.textContent = text;
-        return c;
-    }
 
-    private FleetAgent rowOf(String socket) {
-        if (roster == null || socket == null) return null;
-        for (FleetAgent a : roster) if (socket.equals(a.socket)) return a;
-        return null;
-    }
 
     private void paintRows(Object rowsOrNull) {
         if (rowsOrNull == null) {

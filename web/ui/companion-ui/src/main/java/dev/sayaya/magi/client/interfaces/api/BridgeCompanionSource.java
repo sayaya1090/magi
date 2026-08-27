@@ -3,6 +3,7 @@ package dev.sayaya.magi.client.interfaces.api;
 import dev.sayaya.magi.bridge.CompanionContext;
 import dev.sayaya.magi.bridge.CompanionSharing;
 import dev.sayaya.magi.bridge.Console;
+import dev.sayaya.magi.bridge.RosterSharing;
 import dev.sayaya.magi.bridge.TranscriptSharing;
 import dev.sayaya.magi.client.usecase.CompanionSource;
 import elemental2.core.Global;
@@ -41,6 +42,24 @@ public class BridgeCompanionSource implements CompanionSource {
             return;
         }
         own();
+    }
+
+    @Override
+    public void roster(Consumer<Object> cb) {
+        if (RosterSharing.hosted()) { RosterSharing.subscribe(cb::accept); return; }
+        Console.fetchList("/fleet", cb::accept);
+    }
+
+    @Override
+    public void context(CompanionContext ctx, Consumer<Object> cb) {
+        String q = "?d=" + Global.encodeURIComponent(ctx.socket)
+                + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");
+        Console.fetchList("/context" + q, cb::accept);
+    }
+
+    @Override
+    public void compact(CompanionContext ctx, Runnable done) {
+        Console.post("/compact", null, ctx.socket, ctx.peer).then(w -> { done.run(); return null; });
     }
 
     @Override

@@ -15,7 +15,16 @@ public class Application implements EntryPoint {
     public void onModuleLoad() {
         CompanionComponent component = DaggerCompanionComponent.create();
         RenderSharing.next((Render) frame -> {
-            Labels.load(() -> component.companionElement().mount(frame));
+            Labels.load(() -> {
+                // 마운트는 프라미스 콜백 안이라 예외가 조용히 삼켜진다 — 창에 적어 보이게 한다.
+                try {
+                    component.companionElement().mount(frame);
+                } catch (Exception e) {
+                    jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window)
+                            .set("__magi_boot_err", String.valueOf(e));
+                    throw e;
+                }
+            });
             return true;
         });
     }

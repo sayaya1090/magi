@@ -1,26 +1,8 @@
-/* 컴패니언 화면(타입 1 = 코딩 에이전트) 자신의 것 — 최소한만: 전사 행(.row/.who/.txt)·
-   컴포저(.composer, #t)·턴바(#turnwrap/#turnbar/#turnfor)는 운영 콘솔의 계약이라
+/* 컴패니언 화면(타입 1 = 코딩 에이전트) 자신의 것 — 최소한만: 전사 행(.row/.who/.txt)·컴포저(.composer, #t)·턴바(#turnwrap/#turnbar/#turnfor)·사실판(#detail)은 운영 콘솔의 계약이라
    console.css가 그대로 입힌다. 여기는 이 화면이 새로 세운 뼈대(세로 배치·사실 줄)만,
    토큰으로만 말한다 — 새 색·그림자·애니메이션은 짓지 않는다. */
 
 #companion { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
-
-/* 사실 줄: 이름이 먼저, 그 다음 타입·상태·역할·모델·세션 — 접히는 사실판 전체는 잔여. */
-.cfacts { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-150); align-items:baseline; }
-.cfacts .cname { font:600 var(--md-sys-typescale-title-medium-size)/1.3 var(--magi-ref-display); color:var(--magi-ref-fg); }
-.cfacts .ctype {
-  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
-  color:var(--magi-ref-primary);
-  border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-full, 999px);
-  padding:0 var(--magi-sys-space-100);
-}
-.cfacts .cword { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); }
-.cfacts .cword.waiting { color:var(--magi-ref-warn); }
-.cfacts .cword.working { color:var(--magi-ref-success); }
-.cfacts .crole, .cfacts .cmodel, .cfacts .csession {
-  font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
-  color:var(--magi-ref-muted);
-}
 
 /* 턴바의 자리만 — 운영은 마스트헤드에 붙박이지만 이 화면은 제 머리 위에 둔다. */
 #companion #turnwrap { position:relative; min-height:2px; }
