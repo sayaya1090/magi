@@ -666,6 +666,44 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypeTurnFinished,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 		}
+		// A request made AFTER the person pressed stop still has to run.
+		//
+		// Two things had to be true for it to be lost, and both were: the sweep cleared it as if it
+		// were part of the queue stop resets (fixed at the press — see cancelSweep), and nothing
+		// started a turn for it. Steer had looked a moment earlier, seen a run still tearing down,
+		// and left the prompt to it; that run was on its way out. Measured on a live companion:
+		// stop, then "reply with exactly: pong", and the log reads prompt → abandoned → a note
+		// promising "your newest request runs next" → turn.finished, with nothing ever answering.
+		//
+		// The trigger is the PRESS, not how the turn happened to die. A cancel reaches this code
+		// two ways — as context.Canceled, or wrapped by the provider as an error carrying
+		// "context canceled" — and only the first ran the sweep. Both leave the same person
+		// waiting. cancelSweep is set by Interrupt and by nothing else, so it is exactly "somebody
+		// stopped this turn"; a deadline, a shutdown or a 429 leaves it nil and nothing restarts
+		// here (that is the retry storm the teardown above is careful about).
+		a.mu.Lock()
+		pressed := a.stateLocked(sid).cancelSweep
+		a.stateLocked(sid).cancelSweep = nil
+		shuttingDown := a.closed
+		a.mu.Unlock()
+		if pressed != nil && !shuttingDown {
+			bctx := context.WithoutCancel(runCtx)
+			if evs, rerr := a.store.Read(bctx, sid, 0); rerr == nil {
+				// Anything the person said after the press: it cannot be part of what the press
+				// cleared, and the turn that would have read it is the one they stopped.
+				fresh := false
+				for _, id := range userPromptIDsNotAbandoned(evs) {
+					if !pressed[id] {
+						fresh = true
+						break
+					}
+				}
+				if fresh {
+					a.resetForNewTopLevel(sid)
+					a.startRun(bctx, sid)
+				}
+			}
+		}
 		// The run goroutine is retiring, so nothing is running — say so, whatever ended it.
 		//
 		// The persisted event above covers a cancelled run, and runLoop writes its own on a clean
@@ -736,10 +774,29 @@ func (a *App) Close(ctx context.Context) error {
 
 // Interrupt cancels the in-flight turn for a session.
 func (a *App) Interrupt(ctx context.Context, c command.Interrupt) error {
+	// What the cancel is allowed to clear is decided HERE, not when the turn gets round to
+	// stopping: the sweep runs during teardown, and a request typed between the press and the
+	// teardown is the person's next intent, not part of the queue they just reset.
+	sweep := map[string]bool{}
+	if evs, err := a.store.Read(ctx, c.SessionID, 0); err == nil {
+		for _, id := range unansweredUserPromptIDs(evs) {
+			sweep[id] = true
+		}
+	}
 	a.mu.Lock()
 	var cancel context.CancelFunc
 	if st, ok := a.stateIf(c.SessionID); ok {
 		cancel = st.cancel
+		st.cancelSweep = sweep
+		// Anything already parked in the queue is part of what stop resets, whenever it landed.
+		for _, p := range st.pendingInterject {
+			if p.MsgID != "" {
+				sweep[p.MsgID] = true
+			}
+		}
+		if st.activeSeedMsgID != "" {
+			sweep[st.activeSeedMsgID] = true
+		}
 	}
 	a.mu.Unlock()
 	if cancel != nil {

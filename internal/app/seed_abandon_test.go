@@ -8,6 +8,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -100,6 +101,10 @@ func TestAbandonSeedOnCancelWritesMarker(t *testing.T) {
 	}
 	a.setActiveSeed(sid, "A")
 
+	// 멈춤을 누른 그 순간이 쓸 범위를 정한다(Interrupt가 그때의 미응답 집합을 붙든다) —
+	// 정리 중에 도착한 요청까지 쓸지 않으려고. 실행 중인 턴이 없으면 취소할 것도 없고,
+	// 붙드는 일만 한다.
+	_ = a.Interrupt(ctx, command.Interrupt{SessionID: sid})
 	a.abandonSeedOnCancel(ctx, sid)
 
 	evs, err := store.Read(ctx, sid, 0)
@@ -136,6 +141,10 @@ func TestAbandonSeedOnCancelGuardsAnswered(t *testing.T) {
 	}
 	a.setActiveSeed(sid, "A") // stale: A already answered
 
+	// 멈춤을 누른 그 순간이 쓸 범위를 정한다(Interrupt가 그때의 미응답 집합을 붙든다) —
+	// 정리 중에 도착한 요청까지 쓸지 않으려고. 실행 중인 턴이 없으면 취소할 것도 없고,
+	// 붙드는 일만 한다.
+	_ = a.Interrupt(ctx, command.Interrupt{SessionID: sid})
 	a.abandonSeedOnCancel(ctx, sid)
 
 	evs, _ := store.Read(ctx, sid, 0)
