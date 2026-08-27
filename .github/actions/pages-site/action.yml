@@ -27,5 +27,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        (cd web/ui && ./gradlew assembleConsole -q)
+        # 이미 조립된 콘솔이 앞 단계에서 넘어왔으면 다시 짓지 않는다 — 같은 산출물을 두 번
+        # 컴파일하는 일이고, GWT 컴파일은 이 레인에서 가장 비싼 한 걸음이다.
+        if [ -f web/ui/build/console/console.html ]; then
+          echo "앞 단계가 조립한 콘솔을 그대로 쓴다"
+        else
+          (cd web/ui && ./gradlew assembleConsole -q)
+        fi
         go run ./web/server -emit-demo ./_site/next

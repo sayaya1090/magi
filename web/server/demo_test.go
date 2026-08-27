@@ -83,7 +83,8 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 			`<script src="/ui/shell/shell.nocache.js"></script></head><body></body></html>`)
 	write(t, filepath.Join(ui, "console.css"),
 		"@font-face{src:url(/font/pretendard.woff2)}\n.row{color:red}\n")
-	write(t, filepath.Join(ui, "shell", "shell.nocache.js"), `var p='/ui/'+m+'/';var s="/ui/companion.css";`)
+	write(t, filepath.Join(ui, "shell", "shell.nocache.js"),
+		`var p='/ui/'+m+'/';var s="/ui/companion.css";var t='/i18n/language.'+w+'.json';`)
 	write(t, filepath.Join(old, "vendor", "material.js"), "export const md = 1;\n")
 	write(t, filepath.Join(old, "i18n", "language.ko.json"), `{"nav.companions":"컴패니언"}`)
 
@@ -116,6 +117,19 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 	if strings.Contains(js, `'/ui/`) || strings.Contains(js, `"/ui/`) {
 		t.Errorf("the loader still builds absolute module paths: %s", js)
 	}
+	// 말은 제 사본에서 읽는다. 이 데모는 하위 경로에 사는 사본이라, 뿌리를 가리키는 경로는
+	// 옛 콘솔의 팩을 읽는다는 뜻이다 — 그 콘솔이 사라지면 남는 것이 없다. 그리고 `./`이지
+	// `../`가 아니다: JS의 상대경로는 스크립트가 아니라 문서를 기준으로 푼다(실측).
+	if strings.Contains(js, `'/i18n/`) || strings.Contains(js, `"/i18n/`) {
+		t.Error("the console still asks the site root for its language pack — that is the other console's copy")
+	}
+	if strings.Contains(js, `'../i18n/`) {
+		t.Error("`../i18n/` resolves against the document, which is next/index.html — back to the root")
+	}
+	if !strings.Contains(js, `'./i18n/`) {
+		t.Error("the language pack path was not repointed at this console's own copy")
+	}
+
 	// The single-source assets travelled: the packs and the bundle the page names.
 	for _, want := range []string{"i18n/language.ko.json", "vendor/material.js"} {
 		if _, err := os.Stat(filepath.Join(out, want)); err != nil {
