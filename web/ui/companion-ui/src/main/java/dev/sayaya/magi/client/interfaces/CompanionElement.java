@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CompanionContext;
 import dev.sayaya.magi.bridge.ModuleInject;
+import dev.sayaya.magi.bridge.Motion;
 import dev.sayaya.magi.bridge.PaneSharing;
 import dev.sayaya.magi.bridge.Render;
 import elemental2.dom.MediaQueryList;
@@ -77,6 +78,9 @@ public class CompanionElement {
         // 시트는 셸이 스크립트와 함께 걸어 두었다(카탈로그가 그렇게 선언한다) — 여기서 걸지 않는다.
         // #ptabs와 #agentview는 main의 직계다: 운영의 높이 규칙이 main > #agentview로 걸린다.
         frame.replaceChildren(tabs, stage);
+        // 이 화면에서 들어오는 것은 무대 전체가 아니라 대화 기둥이다 — 운영도 그 하나만 들인다.
+        // 나머지(사실판·기둥)는 자리를 지키는 것들이라, 움직이면 화면이 통째로 흔들린다.
+        Motion.enter(stream);
         arrange.engage();
         if (wired) return;
         wired = true;
@@ -114,7 +118,14 @@ public class CompanionElement {
             tab.id = "ptab-" + t[0];
             tab.textContent = tr(t[1]);
             final String name = t[0];
-            tab.addEventListener("click", evt -> { panel = name; layout(); });
+            tab.addEventListener("click", evt -> {
+                // 옆 자리로 옮기는 것이므로 옆에서 들어온다 — 읽는 이가 움직인 방향으로.
+                // 위아래로 들어오면 이 넷이 서로의 아래에 있는 것처럼 읽힌다(운영의 그 판단).
+                int was = order(panel), now = order(name);
+                panel = name;
+                layout();
+                if (was != now) Motion.play(panelBox(name), now > was ? Motion.FROM_RIGHT : Motion.FROM_LEFT);
+            });
             tabs.append(tab);
         }
     }
@@ -151,6 +162,21 @@ public class CompanionElement {
             elemental2.dom.Element tab = all.getAt(i);
             Js.asPropertyMap(tab).set("active", tab.id.equals("ptab-" + panel));
         }
+    }
+
+    /** 탭의 차례 — 방향을 정하는 데만 쓴다(운영의 그 순서: 대화·정보·작업공간·진행). */
+    private static int order(String name) {
+        String[] all = {"talk", "facts", "files", "plan"};
+        for (int i = 0; i < all.length; i++) if (all[i].equals(name)) return i;
+        return 0;
+    }
+
+    /** 그 탭이 보이는 판 — 움직이는 것은 판이지 무대가 아니다. */
+    private HTMLElement panelBox(String name) {
+        if ("talk".equals(name)) return centreFill.firstElementChild == null ? stream : stream;
+        if ("facts".equals(name)) return detail.element();
+        if ("files".equals(name)) return filecol;
+        return sidecol;
     }
 
     private static void show(HTMLElement e, boolean on) {

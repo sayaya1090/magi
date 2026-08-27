@@ -1,7 +1,9 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Labels;
+import dev.sayaya.magi.bridge.Motion;
 import dev.sayaya.magi.bridge.Render;
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.client.usecase.FrameView;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
@@ -41,6 +43,23 @@ public class FrameElement implements FrameView {
     @Override
     public void mount(Object render) {
         Render r = Js.cast(render);
-        Labels.load(() -> r.onInvoke(element));
+        Labels.load(() -> {
+            r.onInvoke(element);
+            reveal();
+        });
+    }
+
+    /**
+     * 새 화면은 들어온다 — 운영은 목적지가 그려질 때마다 그 판에 .enter를 붙인다(fadeThrough).
+     * 부르는 쪽이 하는 이유는 늘 같다: 화면마다 시키면 잊은 화면만 뚝 나타난다.
+     *
+     * 판을 하나하나 알지 못하므로 프레임의 직계들을 들인다 — 그것이 곧 그 화면의 몸이다.
+     * 컴패니언은 예외다: 거기서 움직이는 것은 무대 전체가 아니라 대화 기둥 하나라, 그 화면이
+     * 제 것을 스스로 들인다(운영도 streamEl 하나만 들인다).
+     */
+    private void reveal() {
+        if (Windows.companionAimed()) return;
+        elemental2.dom.NodeList<elemental2.dom.Element> kids = element.querySelectorAll(":scope > *");
+        for (int i = 0; i < kids.getLength(); i++) Motion.enter(kids.getAt(i));
     }
 }

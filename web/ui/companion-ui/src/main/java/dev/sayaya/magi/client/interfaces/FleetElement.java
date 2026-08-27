@@ -54,6 +54,7 @@ public class FleetElement {
         // 위에 남고, 본문 바닥 여백이 있지도 않은 도크만큼 밀린다).
         arrange.dismiss();
         summary.id = "summary";
+        summary.setAttribute("data-still", "");   // 요약 줄은 화면이 바뀌어도 자리를 지킨다
         fleetEl.id = "fleet";
         frame.replaceChildren();
         frame.append(summary, fleetEl);

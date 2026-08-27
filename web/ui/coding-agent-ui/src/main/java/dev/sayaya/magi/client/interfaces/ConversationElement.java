@@ -110,6 +110,9 @@ public class ConversationElement {
     private void paintPast(Object data) {
         if (pastNow == null) { past.replaceChildren(); return; }
         past.replaceChildren();
+        // 한 겹 들어간 층위도 들어온다 — 그 자리에 있던 전사를 대신하는 것이라, 아무 움직임 없이
+        // 바뀌면 같은 판의 내용이 갑자기 딴것이 된 것처럼 읽힌다(운영 drawDeep 끝의 reveal).
+        dev.sayaya.magi.bridge.Motion.enter(past);
         HTMLElement head = el("h2");
         head.className = "sectionhead";
         HTMLElement word = el("span");
