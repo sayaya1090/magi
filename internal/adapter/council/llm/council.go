@@ -106,6 +106,7 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		if pollCtx.Err() != nil {
 			for i := range verdicts {
 				if verdicts[i].Decision == council.Abstain {
+					verdicts[i].Silent = true
 					verdicts[i].Rationale = "the council did not answer within " + memberDeadline.String()
 				}
 			}
@@ -303,7 +304,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	}
 	provider := c.resolve(m.Provider)
 	if provider == nil { // defensive: a resolver must yield a backend
-		v.Decision = council.Abstain
+		v.Decision, v.Silent = council.Abstain, true
 		v.Rationale = "no council backend resolved for provider " + m.Provider
 		return v
 	}
@@ -340,7 +341,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 
 	r, raw, ok, err := ask(user)
 	if err != nil {
-		v.Decision = council.Abstain
+		v.Decision, v.Silent = council.Abstain, true
 		v.Rationale = "council member unavailable: " + err.Error()
 		return v
 	}
@@ -351,12 +352,12 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		// abstaining. The same remedy the planner already applies to its own JSON replies.
 		r, _, ok, err = ask(user + councilRetryReminder(raw))
 		if err != nil {
-			v.Decision = council.Abstain
+			v.Decision, v.Silent = council.Abstain, true
 			v.Rationale = "council member unavailable: " + err.Error()
 			return v
 		}
 		if !ok {
-			v.Decision = council.Abstain
+			v.Decision, v.Silent = council.Abstain, true
 			v.Rationale = "unparseable council reply"
 			return v
 		}

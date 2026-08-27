@@ -277,7 +277,8 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	out := make([]council.Verdict, len(members))
 	for i, m := range members {
 		out[i] = council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight,
-			Decision: council.Abstain, Rationale: "the council panel did not return a verdict for this lens"}
+			Decision: council.Abstain, Silent: true,
+			Rationale: "the council panel did not return a verdict for this lens"}
 	}
 	model := req.DefaultModel
 	if model == "" {
