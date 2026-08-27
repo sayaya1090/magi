@@ -371,7 +371,10 @@ public class SettingsElement {
         r.className = "prefrow narrowonly";
         HTMLElement go = el("md-text-button");
         go.id = "accessGo";
-        go.textContent = tr("nav.access");
+        // 버튼의 말은 "연다"이다 — 줄의 제목이 무엇을 여는지 이미 말했고, 제목을 버튼에 한 번
+        // 더 적으면 390px에서 글자 기둥이 반으로 눌려 두 줄이 된다(실측: 줄 높이 40 대 67).
+        go.textContent = tr("access.open");
+        go.setAttribute("aria-label", tr("nav.access"));
         go.addEventListener("click", evt -> dev.sayaya.magi.bridge.GoSharing.view("access"));
         r.append(go);
         add(out, r);
