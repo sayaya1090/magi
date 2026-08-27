@@ -1,6 +1,8 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.Stylesheet;
 import dev.sayaya.magi.client.domain.Rows;
 import dev.sayaya.magi.client.usecase.CompanionStore;
@@ -35,6 +37,7 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class ConversationElement {
     private final CompanionStore store;
+    private final Dialogs dialogs;
     private final HTMLElement root = el("section");
     private final HTMLElement log = el("div");
     private final HTMLElement past = el("section");
@@ -45,8 +48,9 @@ public class ConversationElement {
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
     @Inject
-    public ConversationElement(CompanionStore store) {
+    public ConversationElement(CompanionStore store, Dialogs dialogs) {
         this.store = store;
+        this.dialogs = dialogs;
         // 감싸는 상자를 두지 않는다: 부모가 준 자리는 이미 높이가 정해진 기둥이고, 그 안에서
         // 전사가 남는 높이를 받아 제 안에서 스크롤한다(운영 규칙). 사이에 상자가 하나라도 끼면
         // 그 사슬이 거기서 끊긴다 — 실측: 전사가 4190px로 자라 기둥 밖으로 흘렀다.
@@ -170,9 +174,13 @@ public class ConversationElement {
 
 
     private final HTMLElement sendBtn = el("md-filled-button");
+    // 돌고 있는 턴을 멈추는 문 — 답하는 것과 같은 권한이라(운영 data-may="answer"), 볼 수만
+    // 있는 사람에게는 남의 일을 끝내는 버튼을 내놓지 않는다.
+    private final HTMLElement stopBtn = el("md-filled-tonal-button");
     private final HTMLElement note = el("div");   // 컴포저 아래 한 줄 — 지금 이 상자의 몫
     private String parked = "";                   // 다른 몫으로 쓰던 초고는 지우지 않고 맡아 둔다
     private boolean wasAnswering = false;
+    private boolean dressed = false;      // 옷을 한 번은 입혀야 한다 — 첫 상태가 기본값과 같아도
     private boolean composerBuilt = false;
 
     /**
@@ -187,8 +195,11 @@ public class ConversationElement {
      */
     private void answerMode() {
         boolean now = store.answering();
-        if (now == wasAnswering && composerBuilt) return;
+        // 처음 한 번은 반드시 입힌다: 첫 상태가 기본값과 같다는 이유로 건너뛰면 버튼과 필드가
+        // 이름 없이 선다(실측: 보내기 버튼의 접근 이름이 "send"라는 id였다).
+        if (now == wasAnswering && dressed) return;
         wasAnswering = now;
+        dressed = true;
         field.setAttribute("label", tr(now ? "label.answer" : "label.ask"));
         sendBtn.textContent = tr(now ? "action.answer" : "action.send");
         String had = value();
@@ -218,7 +229,21 @@ public class ConversationElement {
         // 버튼은 한 무리로 — 필드가 줄의 나머지를 갖는다(운영 .bgroup).
         HTMLElement group = el("div");
         group.className = "bgroup";
-        group.append(send);
+        stopBtn.id = "stop";
+        stopBtn.setAttribute("type", "button");
+        stopBtn.textContent = tr("action.interrupt");
+        Icons.mark(stopBtn, "#i-ss-circle-stop");
+        if (!May.can("answer")) stopBtn.setAttribute("hidden", "");
+        stopBtn.addEventListener("click", evt -> {
+            // 되돌릴 수 없는 일이라 이름을 대고 묻는다(운영 confirmStop) — 무엇이 멈추는지.
+            // 이름은 명단이 안다 — 셸이 실어 보내는 그 창의 사실(RosterSharing). 이름을 모르면
+            // 이름 자리를 비워 두지 않고 이름 없는 물음을 쓴다(운영의 두 문장 그대로).
+            String who = nameOfAimed();
+            dialogs.confirm(who.isEmpty() ? tr("stop.headline_plain")
+                            : tr("stop.headline", "name", who),
+                    tr("stop.body"), tr("action.interrupt"), () -> store.interrupt(why -> { }));
+        });
+        group.append(send, stopBtn);
         box.append(field, group);
         note.id = "cnote";
         note.setAttribute("hidden", "");
@@ -237,6 +262,20 @@ public class ConversationElement {
             });
         });
         return form;
+    }
+
+    /** 지금 보는 컴패니언의 이름 — 명단에서 소켓으로 찾는다(없으면 빈 문자열). */
+    private String nameOfAimed() {
+        dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
+        if (ctx == null || ctx.socket == null) return "";
+        final String[] found = {""};
+        dev.sayaya.magi.bridge.RosterSharing.subscribe(list -> {
+            dev.sayaya.magi.bridge.FleetAgent[] all = Js.uncheckedCast(list);
+            for (int i = 0; all != null && i < all.length; i++) {
+                if (ctx.socket.equals(all[i].socket) && all[i].name != null) { found[0] = all[i].name; return; }
+            }
+        });
+        return found[0];
     }
 
     private String value() {

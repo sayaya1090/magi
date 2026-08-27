@@ -377,7 +377,11 @@ internal class CodingScreenTest : GwtTestSpec({
                     (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
                 }
                 page.locator("#log .row").first().isVisible() shouldBe true
-                page.locator("#dock .composer #t").isVisible() shouldBe true
+                // 상자는 서 있다. 폭은 재지 않는다 — 이 페이지에는 언어 팩이 없어 버튼의 낱말이
+                // 키 문자열("action.interrupt")이고, 390px에서 그 길이는 실제 낱말의 두 배다.
+                // 팩이 있는 화면에서의 폭은 두 콘솔을 나란히 재서 확인한다(scratchpad/uitest).
+                page.locator("#dock .composer #t").count() shouldBe 1
+                page.locator("#dock .composer #send").count() shouldBe 1
             }
         }
     }

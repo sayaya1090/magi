@@ -40,4 +40,10 @@ public class DemoCompanionSource implements CompanionSource {
 
     @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) { why.accept(""); }
+
+    @Override
+    public void interrupt(CompanionContext ctx, java.util.function.Consumer<String> why) {
+        // 데모에는 멈출 턴이 없다 — 받아 주고 잊는다.
+        why.accept("");
+    }
 }

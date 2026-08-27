@@ -60,6 +60,12 @@ public class CompanionStore implements CompanionSource.Listener {
         source.submit(ctx, text, why);
     }
 
+    /** 이 컴패니언의 턴을 멈춘다 — 무엇을 물어보고 멈출지는 화면의 몫이다(되돌릴 수 없는 일). */
+    public void interrupt(Consumer<String> why) {
+        if (ctx == null) return;
+        source.interrupt(ctx, why);
+    }
+
     /** 지금 답을 기다리는 부름(없으면 null) — 부모가 알린 사실을 그대로 든다. */
     private Object answering = null;
 

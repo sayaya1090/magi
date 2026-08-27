@@ -51,6 +51,12 @@ public class BridgeCompanionSource implements CompanionSource {
         Console.post("/submit", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
     }
 
+    @Override
+    public void interrupt(CompanionContext ctx, Consumer<String> why) {
+        Console.post("/interrupt", new URLSearchParams(), ctx.socket, ctx.peer)
+                .then(w -> { why.accept(w); return null; });
+    }
+
     private static String q(CompanionContext ctx) {
         return "?d=" + Global.encodeURIComponent(ctx.socket)
                 + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");

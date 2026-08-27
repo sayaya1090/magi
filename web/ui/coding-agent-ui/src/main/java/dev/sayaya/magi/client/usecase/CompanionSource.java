@@ -39,4 +39,10 @@ public interface CompanionSource {
 
     /** 대상 컴패니언으로 한 마디 — why는 거부 사유, 성공이면 빈 문자열. */
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
+
+    /**
+     * 돌고 있는 턴을 멈춘다(/interrupt) — 답하는 것과 같은 권한이다: "그건 하지 마"라고 말할 수
+     * 있는 사람이 "그만"이라고도 말할 수 있다.
+     */
+    void interrupt(CompanionContext ctx, java.util.function.Consumer<String> why);
 }
