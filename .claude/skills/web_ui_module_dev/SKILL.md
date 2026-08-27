@@ -139,3 +139,23 @@ warn이지 warning 아님 — 틀려도 조용히 무색이 된다).
 
 ⚠ `--dock` 같은 값을 실측해 쓸 때는 **바뀐 값만** 쓸 것: 쓰는 순간 배치가 바뀌고 그 변화가
 ResizeObserver를 다시 깨워 왕복이 멈추지 않는다(브라우저가 응답을 멈춰 스펙까지 타임아웃).
+
+## 모듈 이름은 화면 판의 id와 겹치면 안 된다 (2026-08-27 실측)
+
+GWT의 IFrameLinker는 컴파일된 모듈을 숨은 0×0 iframe 안에서 돌리고, **그 iframe의 id를 모듈
+이름으로 단다**(`a=createElement('iframe'); a.id=R`). 그래서 rename-to가 `skills`면 화면 판
+`#skills`와 id가 둘이 된다(구 콘솔은 모듈이 하나라 없던 문제). 판의 id는 운영 계약이니 바꿀
+쪽은 모듈 이름이다 — 지금: knowledge / boardview / mapview / accessview, 주소(`Destination.id`)는
+운영 그대로(`skills` 등). ⚠ 이름을 바꾸면 `*/build/gwt/war`와 `build/console`에 옛 이름의
+산출물이 남아 함께 배포된다 — 지우고 다시 assemble할 것.
+
+이 iframe이 "모듈마다 static이 따로"의 정체이기도 하다: 페더레이션이 은유가 아니라 문자 그대로
+분리된 전역 스코프다(그래서 언어 팩·스트림은 창 브리지로 공유한다).
+
+## 폭별 대조는 화면마다 (scratchpad/uitest/widths.mjs)
+
+구/신 두 콘솔을 8폭(2560~390)×화면 5개로 열어 판의 rect를 항목별로 비교한다(2px 허용).
+2026-08-27 이 표로 잡은 것: 지식 화면의 좁은 폭 고르개(#sharedTabs, 52.5em 아래에서 셋 중
+하나만) 미이식, 지식 카드의 메타에서 tags·groups 누락(카드가 18px 낮았다), 접근 문의 짧은
+이름 미사용(폰 하단 바가 12px 자람), 그리고 위 id 충돌. **구버전이 늘 옳은 것은 아니지만,
+다를 때는 왜 다른지 먼저 볼 것** — 이 넷은 전부 구버전이 옳았다.

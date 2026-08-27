@@ -35,6 +35,8 @@ public class KnowledgeElement {
     private final Pane wiki;
     private final Pane mcp;
     private final HTMLElement write = el("div");
+    private final HTMLElement tabs = el("div");   // 좁은 창의 판 고르개(#sharedTabs)
+    private String shows = "skills";              // 좁을 때 보이는 판 하나
     private final McpDialog dialog;
     private Object roster = null;   // 서버 다이얼로그의 "누구에게" 옵션 — 셸의 스트림에서
     private boolean wired = false;
@@ -47,17 +49,88 @@ public class KnowledgeElement {
         mcp = new Pane("mcp", "nav.mcp", false, store::mcpQuery);
         dialog = new McpDialog();
         mcp.box.append(dialog.element);
+        tabs.id = "sharedTabs";
+        tabs.className = "onetabs";
+        tabs.setAttribute("hidden", "");
+        // 탭 하나가 아니라 탭 한 벌이다: 역할을 말했으면 화살표에도 답해야 한다(md-tabs가 아니라
+        // 평범한 div라 이 손잡이는 여기서 단다 — 운영의 그 규칙과 같은 이유).
+        tabs.setAttribute("role", "tablist");
+        tabs.addEventListener("keydown", evt -> {
+            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            boolean right = "ArrowRight".equals(k.key), left = "ArrowLeft".equals(k.key);
+            if (!right && !left) return;
+            elemental2.dom.NodeList<elemental2.dom.Element> all = tabList();
+            elemental2.dom.Element now = DomGlobal.document.activeElement;
+            int at = -1;
+            for (int i = 0; i < all.getLength(); i++) if (all.getAt(i) == now) at = i;
+            if (at < 0) return;
+            k.preventDefault();
+            int to = right ? Math.min(at + 1, all.getLength() - 1) : Math.max(at - 1, 0);
+            if (to != at) Js.<HTMLElement>uncheckedCast(all.getAt(to)).focus();
+        });
     }
 
     public void mount(HTMLElement frame) {
         // 판들은 운영처럼 프레임의 직계다 — 래퍼가 끼면 운영 CSS의 안쪽 여백이 죽는다.
-        frame.replaceChildren(skills.box, wiki.box, mcp.box);
+        frame.replaceChildren(tabs, skills.box, wiki.box, mcp.box);
+        layout();
         if (wired) return;
         wired = true;
+        // 폭이 바뀌면 다시 정한다 — 넓어진 창은 셋을 한 열에 세우고 고르개를 걷는다.
+        DomGlobal.window.addEventListener("resize", evt -> layout());
         RosterSharing.subscribe(list -> roster = list);
         store.subscribe(this::render);
         store.askConsole();
         store.start();
+    }
+
+    /**
+     * 좁은 창에서는 셋 중 하나만 — 이 화면에는 세 가지가 산다(배운 것, 위키, 서버). 폰에서
+     * 그것은 한 화면에 세 가지 목적이라, 운영은 고르개를 세우고 하나씩 보인다. 기준은 운영의
+     * 그 폭(52.5em)이고, 그 위에서는 셋이 한 열에 서므로 고르개를 그리지 않는다.
+     */
+    private void layout() {
+        boolean narrow = DomGlobal.window.matchMedia("(max-width:52.4375em)").matches;
+        if (narrow) tabs.removeAttribute("hidden"); else tabs.setAttribute("hidden", "");
+        show(skills.box, !narrow || "skills".equals(shows));
+        show(wiki.box, !narrow || "wiki".equals(shows));
+        show(mcp.box, !narrow || "mcp".equals(shows));
+        drawTabs();
+    }
+
+    /** 고르개의 말과 상태 — 팩이 바뀌면 다시 부른다(이름이 같으면 다시 짓지 않는다). */
+    private void drawTabs() {
+        String[][] want = {{"skills", "nav.experience"}, {"wiki", "nav.wiki"}, {"mcp", "nav.mcp"}};
+        tabs.setAttribute("aria-label", tr("nav.shared"));
+        elemental2.dom.NodeList<elemental2.dom.Element> had = tabList();
+        StringBuilder now = new StringBuilder(), next = new StringBuilder();
+        for (int i = 0; i < had.getLength(); i++) now.append(had.getAt(i).textContent).append('|');
+        for (String[] t : want) next.append(tr(t[1])).append('|');
+        if (!now.toString().equals(next.toString())) {
+            tabs.replaceChildren();
+            for (String[] t : want) {
+                HTMLElement tab = el("md-secondary-tab");
+                tab.textContent = tr(t[1]);
+                final String key = t[0];
+                tab.addEventListener("click", evt -> {
+                    if (key.equals(shows)) return;
+                    shows = key;
+                    layout();
+                });
+                tabs.append(tab);
+            }
+        }
+        elemental2.dom.NodeList<elemental2.dom.Element> all = tabList();
+        for (int i = 0; i < all.getLength() && i < want.length; i++)
+            Js.asPropertyMap(all.getAt(i)).set("active", want[i][0].equals(shows));
+    }
+
+    private elemental2.dom.NodeList<elemental2.dom.Element> tabList() {
+        return tabs.querySelectorAll("md-secondary-tab");
+    }
+
+    private static void show(HTMLElement e, boolean on) {
+        if (on) e.removeAttribute("hidden"); else e.setAttribute("hidden", "");
     }
 
     // ── 한 판: 머리(+액션) + 찾기(고정 — 다시 그려도 포커스를 잃지 않는다) + 동적 행들 ──
@@ -155,7 +228,13 @@ public class KnowledgeElement {
         String desc = str(sk, "description");
         top.append(cell("what", desc.isEmpty() ? name : desc));
         String body = stripSource(str(sk, "body"));
-        if (!body.isEmpty()) top.append(readFold(row, name, body));
+        HTMLElement folded = null;
+        if (!body.isEmpty()) {
+            folded = cell("body");
+            folded.textContent = body;
+            folded.setAttribute("hidden", "");
+            top.append(readFold(folded, name));
+        }
         HTMLElement drop = button("drop", tr("action.forget_named", "name", name));
         arm(drop, tr("action.forget"), () -> store.forget(name, str(sk, "tier"), str(sk, "team"),
                 str(sk, "socket"), nul(str(sk, "peer"))));
@@ -169,9 +248,17 @@ public class KnowledgeElement {
         String first = str(sk, "firstSeen"), last = str(sk, "lastSeen");
         if (!last.isEmpty() && !first.isEmpty() && !first.equals(last)) bits.add(first + " → " + last);
         else if (!last.isEmpty()) bits.add("last " + last);
+        // 누구의 것인지와 무엇으로 묶였는지 — 이 둘이 빠져 있었다(실측: 운영의 메타는 두 줄,
+        // 우리 것은 한 줄이었고 카드가 18px 낮았다).
+        String groups = joinList(sk, "groups");
+        if (!groups.isEmpty()) bits.add("only agents in " + groups);
+        String tags = joinList(sk, "tags");
+        if (!tags.isEmpty()) bits.add("tagged " + tags);
         String src = sourceOf(str(sk, "body"));
         if (!src.isEmpty()) bits.add(tr("skill.learned_from", "src", src));
         row.append(cell("meta", String.join(" · ", bits)));
+        // 규칙 그 자체는 메타 뒤에 온다(운영의 순서) — 읽는 차례가 곧 문서의 차례다.
+        if (folded != null) row.append(folded);
         return row;
     }
 
@@ -196,7 +283,13 @@ public class KnowledgeElement {
         String title = str(p, "title");
         top.append(cell("what", (stale ? "⚠ " : "") + title));
         String body = str(p, "body").trim();
-        if (!body.isEmpty()) top.append(readFold(row, title, body));
+        HTMLElement folded = null;
+        if (!body.isEmpty()) {
+            folded = cell("body");
+            folded.textContent = body;
+            folded.setAttribute("hidden", "");
+            top.append(readFold(folded, title));
+        }
         row.append(top);
         List<String> bits = new ArrayList<>();
         if (stale) bits.add(tr("wiki.stale"));
@@ -207,6 +300,7 @@ public class KnowledgeElement {
         String summary = str(p, "summary");
         if (!summary.isEmpty()) bits.add(summary);
         if (!bits.isEmpty()) row.append(cell("meta", String.join(" · ", bits)));
+        if (folded != null) row.append(folded);   // 본문은 메타 다음 — 읽는 차례가 문서의 차례다
         return row;
     }
 
@@ -323,11 +417,8 @@ public class KnowledgeElement {
     // ── 운영 헬퍼들의 이식 ───────────────────────────────────────────────────
 
     /** 읽기 토글 — 본문은 접혀 도착하고, 열림·닫힘이 이름에 실린다(운영 aria 계약). */
-    private HTMLElement readFold(HTMLElement row, String name, String body) {
-        HTMLElement text = cell("body");
-        text.textContent = body;
-        text.setAttribute("hidden", "");
-        row.append(text);
+    /** 접기 버튼 — 본문 상자는 부르는 쪽이 만들어 제자리에 붙인다(운영의 순서: 메타 다음). */
+    private HTMLElement readFold(HTMLElement text, String name) {
         HTMLElement more = button("fold", tr("action.read_named", "name", name));
         more.textContent = tr("action.read");
         more.setAttribute("aria-expanded", "false");
@@ -340,6 +431,19 @@ public class KnowledgeElement {
                     : tr("action.read_named", "name", name));
         });
         return more;
+    }
+
+    /** 배열 필드를 쉼표로 — 없으면 빈 문자열. */
+    private static String joinList(JsPropertyMap<Object> m, String key) {
+        Object v = m.get(key);
+        if (v == null) return "";
+        JsArrayLike<Object> arr = Js.uncheckedCast(v);
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < arr.getLength(); i++) {
+            String one = String.valueOf(arr.getAt(i)).trim();
+            if (!one.isEmpty()) out.add(one);
+        }
+        return String.join(", ", out);
     }
 
     /** 두 단계 확인 — 누르면 "확인?"으로 무장, 5초면 풀린다(운영 arm의 이식). */
