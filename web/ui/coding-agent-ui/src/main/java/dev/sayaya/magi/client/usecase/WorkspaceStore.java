@@ -123,6 +123,38 @@ public class WorkspaceStore {
         });
     }
 
+    /**
+     * 한 파일의 차이를 연다 — 파일과 <b>같은 자리</b>(탭 줄)에 서고, 신원은 "±경로#어느것"이다:
+     * 같은 파일의 본문과 차이는 서로 다른 카드이고, 둘을 함께 열어 두는 일이 잦다.
+     */
+    public void openDiff(String path, String which) {
+        if (ctx == null) return;
+        String key = diffKey(path, which);
+        if (!opened.containsKey(key)) opened.put(key, null);
+        emit();
+        source.diff(ctx, path, which, got -> {
+            if (!opened.containsKey(key)) return;
+            opened.put(key, got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text")));
+            emit();
+        });
+    }
+
+    public static String diffKey(String path, String which) {
+        return "\u00B1" + path + "#" + (which == null ? "" : which);
+    }
+
+    public static boolean isDiff(String key) { return key.startsWith("\u00B1"); }
+
+    public static String diffPath(String key) {
+        int hash = key.lastIndexOf('#');
+        return key.substring(1, hash < 0 ? key.length() : hash);
+    }
+
+    public static String diffWhich(String key) {
+        int hash = key.lastIndexOf('#');
+        return hash < 0 ? "" : key.substring(hash + 1);
+    }
+
     /** 하나를 닫는다 — 나머지는 그대로 열려 있다. */
     public void closeFile(String path) { if (opened.remove(path) != null || path == null) emit(); }
 

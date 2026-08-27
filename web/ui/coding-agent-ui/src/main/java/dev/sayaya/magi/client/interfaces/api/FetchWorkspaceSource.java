@@ -58,6 +58,12 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
+        Console.fetchList("/diff" + base(ctx) + "&path=" + Global.encodeURIComponent(path)
+                + "&which=" + Global.encodeURIComponent(which == null ? "" : which), cb::accept);
+    }
+
+    @Override
     public void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("do", what);

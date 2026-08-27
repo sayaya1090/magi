@@ -402,7 +402,10 @@ public class WorkspaceElement {
     private void publishCards() {
         java.util.List<String> paths = store.openPaths();
         Object[] cards = new Object[paths.size()];
-        for (int i = 0; i < paths.size(); i++) cards[i] = fileCard(paths.get(i));
+        for (int i = 0; i < paths.size(); i++) {
+            String key = paths.get(i);
+            cards[i] = WorkspaceStore.isDiff(key) ? diffCard(key) : fileCard(key);
+        }
         CardSharing.provide(cards);
     }
 
@@ -437,15 +440,7 @@ public class WorkspaceElement {
         HTMLElement bar = cell("filebar", null);
         // 이 카드가 트리 자리에 혼자 서 있으면(폰) 돌아갈 문이 그 머리 줄에 선다 — 어디로
         // 돌아가는지는 부모가 알고, 여기서는 문만 세운다.
-        if (CardSharing.alone()) {
-            HTMLElement back = el("md-text-button");
-            back.className = "fileback";
-            back.append(Icons.orGlyph("#i-sl-chevron-left", "\u2039", "sic"));
-            back.textContent = tr("nav.files");
-            back.setAttribute("aria-label", tr("action.back_to", "name", tr("nav.files")));
-            back.addEventListener("click", evt -> CardSharing.toList());
-            bar.append(back);
-        }
+        if (CardSharing.alone()) bar.append(backToList());
         bar.append(foldCaret(box, path));
         // 경로는 <b>통째로</b>다 — 이름은 탭이 이미 말했고, 사람이 복사해 명령에 붙이는 것은
         // 이 줄이다. 반쪽 경로는 아무도 붙여 넣을 수 없다(운영의 그 이유).
@@ -473,6 +468,62 @@ public class WorkspaceElement {
         wrap.append(body);
         box.append(wrap);
         return box;
+    }
+
+    /**
+     * 차이 하나 — 파일 본문과 같은 자리에 서는 다른 카드다. 색은 줄의 첫 글자가 정한다(운영
+     * diffLineClass): 파서가 아니라 표시다.
+     */
+    private HTMLElement diffCard(String key) {
+        String path = WorkspaceStore.diffPath(key), which = WorkspaceStore.diffWhich(key);
+        String text = store.textOf(key);
+        HTMLElement box = el("div");
+        box.id = key;
+        box.setAttribute("title", baseName(path) + " \u00B1");
+        box.style.setProperty("display", "contents");
+        CardSharing.closable(box, () -> store.closeFile(key));
+        HTMLElement bar = cell("filebar", null);
+        if (CardSharing.alone()) bar.append(backToList());
+        bar.append(cell("filedir", path + "  \u00B7  " + tr("staged".equals(which) ? "diff.staged"
+                : "untracked".equals(which) ? "diff.untracked" : "diff.unstaged")));
+        box.append(bar);
+        if (text == null) { box.append(cell("filesnote", tr("files.reading"))); return box; }
+        if (text.trim().isEmpty()) { box.append(cell("filesnote", tr("diff.same"))); return box; }
+        // 이 판은 번호 기둥이 없다 — 스크롤 상자도 그 격자 없이 한 덩어리다(운영 .diffscroll).
+        HTMLElement wrap = cell("filebody diffscroll", null);
+        HTMLElement body = el("pre");
+        body.className = "filecode diffbody";
+        for (String line : text.split("\n", -1)) {
+            HTMLElement row = el("span");
+            row.className = diffClass(line);
+            row.textContent = line + "\n";
+            body.append(row);
+        }
+        wrap.append(body);
+        box.append(wrap);
+        return box;
+    }
+
+    private static String diffClass(String line) {
+        if (line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ")
+                || line.startsWith("+++ ") || line.startsWith("old mode ") || line.startsWith("new mode ")
+                || line.startsWith("deleted file ") || line.startsWith("new file ") || line.startsWith("rename ")
+                || line.startsWith("similarity ") || line.startsWith("copy ") || line.startsWith("Binary ")) {
+            return "dl dfile";
+        }
+        char c = line.isEmpty() ? ' ' : line.charAt(0);
+        return "dl" + (c == '+' ? " add" : c == '-' ? " cut" : c == '@' ? " at" : "");
+    }
+
+    /** 트리로 돌아가는 문 — 카드가 혼자 선 자리(폰)에서만. */
+    private HTMLElement backToList() {
+        HTMLElement back = el("md-text-button");
+        back.className = "fileback";
+        back.append(Icons.orGlyph("#i-sl-chevron-left", "\u2039", "sic"));
+        back.textContent = tr("nav.files");
+        back.setAttribute("aria-label", tr("action.back_to", "name", tr("nav.files")));
+        back.addEventListener("click", evt -> CardSharing.toList());
+        return back;
     }
 
     /** 접는 손잡이 — 열린 파일은 안 읽는 동안에도 화면의 60vh다(운영이 단 그 이유). */
@@ -673,30 +724,80 @@ public class WorkspaceElement {
         HTMLElement row = el("button");
         row.setAttribute("type", "button");
         row.className = "treerow gitrow state " + str(c, "kind");
-        row.append(cell("gitmarkk", str(c, "status")), cell("treename", str(c, "path")));
+        // 무리를 말로 — 상태 글자(M·A·??)는 git을 아는 사람에게만 말한다(운영 GIT_KIND).
+        row.append(cell("gitkind", tr(kindWord(str(c, "kind")))));
+        HTMLElement name = cell("treename", str(c, "path"));
+        // 18rem 기둥에서 잘리는 이름이라, 통째로는 어딘가에 있어야 한다.
+        name.setAttribute("title", str(c, "path"));
+        row.append(name);
         final String path = str(c, "path");
         row.addEventListener("click", evt -> store.openFile(path));
         line.append(row);
         if (!May.can("shell")) return line;
-        HTMLElement acts = cell("gitacts", null);
-        // 커밋이 실어 갈 것과 남길 것 사이를 옮기는 일 — 어느 쪽인지는 행이 이미 말한다.
-        boolean staged = Tree.staged(str(c, "kind"));
-        HTMLElement move = el("md-text-button");
-        move.className = "act " + (staged ? "unstage" : "stage");
-        move.textContent = tr(staged ? "git.unstage" : "git.stage");
-        move.setAttribute("aria-label", tr(staged ? "git.unstage" : "git.stage") + " — " + path);
-        move.addEventListener("click", evt -> {
-            evt.stopPropagation();
-            store.gitDo(staged ? "unstage" : "stage", path, null);
-        });
-        // 되돌리기는 타이핑을 잃는 일이라 두 번 묻는다(지우기와 같은 규칙, 다른 물음).
-        HTMLElement discard = el("md-text-button");
-        discard.className = "act discard";
-        discard.setAttribute("aria-label", tr("git.discard") + " — " + path);
-        arm(discard, tr("git.discard"), () -> store.gitDo("discard", path, null));
-        acts.append(move, discard);
+        HTMLElement acts = gitActs(c);
         line.append(acts);
+        // 오른쪽 버튼도 같은 메뉴를 연다 — 트리 행이 그렇듯이. 바뀐 파일의 행은 사람이 stage·
+        // unstage·discard를 가장 먼저 찾는 자리인데, 여기엔 둘째 누름이 아예 없었다.
+        line.addEventListener("contextmenu", evt -> {
+            elemental2.dom.Element opener = acts.firstElementChild;
+            if (opener == null) return;
+            evt.preventDefault();
+            Js.<HTMLElement>uncheckedCast(opener).click();
+        });
         return line;
+    }
+
+    /**
+     * 한 파일에 하는 일 — 메뉴 하나(⋯)로 모은다. 행마다 버튼을 둘셋 늘어놓으면 18rem 기둥에서
+     * 이름이 먼저 잘리고, 무엇이 달라졌는지 보는 문 같은 것은 자리가 없어 아예 빠진다.
+     */
+    private static String kindWord(String kind) {
+        switch (kind) {
+            case "staged": return "git.staged";
+            case "unstaged": return "git.unstaged";
+            case "both": return "git.both";
+            case "untracked": return "git.untracked";
+            case "conflict": return "git.conflict";
+            default: return "git.changed";
+        }
+    }
+
+    private HTMLElement gitActs(JsPropertyMap<Object> c) {
+        String path = str(c, "path"), kind = str(c, "kind");
+        HTMLElement box = cell("gitacts", null);
+        HTMLElement open = el("md-icon-button");
+        open.id = "ga" + (++menuCount);
+        open.append(Icons.orGlyph("#i-sl-sliders", "\u22EF", "mk"));
+        // 다섯 개의 똑같은 "더 보기"는 스크린 리더에게 다섯 번의 "더 보기"다 — 읽히는 이름이
+        // 어느 파일의 것인지 말한다(툴팁은 짧은 낱말 그대로).
+        open.setAttribute("aria-label", tr("files.more_named", "name", baseName(path)));
+        open.setAttribute("title", tr("files.more"));
+        HTMLElement menu = el("md-menu");
+        menu.setAttribute("anchor", open.id);
+        menu.setAttribute("positioning", canPopover() ? "popover" : "fixed");
+        menu.addEventListener("opening", evt -> box.classList.add("showing"));
+        menu.addEventListener("closed", evt -> box.classList.remove("showing"));
+        // 무엇이 달라졌나 — 이 목록에서 사람이 가장 먼저 묻는 것이고, 답은 카드로 선다.
+        item(menu, "diff.show", "#i-sl-file-lines", () -> store.openDiff(path,
+                "untracked".equals(kind) ? "untracked" : "staged".equals(kind) ? "staged" : ""));
+        if (!"staged".equals(kind)) {
+            item(menu, "git.stage", "#i-sl-plus", () -> store.gitDo("stage", path, null));
+        }
+        if ("staged".equals(kind) || "both".equals(kind)) {
+            item(menu, "git.unstage", "#i-sl-reply", () -> store.gitDo("unstage", path, null));
+        }
+        if (!"untracked".equals(kind)) {
+            // 되돌리기는 남이 쓴 것을 지우는 일이라 이름을 대고 묻는다.
+            item(menu, "git.discard", "#i-sl-eraser", () ->
+                    dialogs.confirm(tr("git.discard_head", "path", path), tr("git.discard_body"),
+                            tr("git.discard"), () -> store.gitDo("discard", path, null)));
+        }
+        open.addEventListener("click", evt -> {
+            evt.stopPropagation();
+            Js.asPropertyMap(menu).set("open", !Js.isTruthy(Js.asPropertyMap(menu).get("open")));
+        });
+        box.append(open, menu);
+        return box;
     }
 
     /** 브랜치에 하는 일 — 가는 것(전환), 새로 내는 것, 그리고 오가는 것(pull·push). */
@@ -751,6 +852,22 @@ public class WorkspaceElement {
             push.addEventListener("click", evt -> store.gitDo("push", null, null));
             box.append(push);
         }
+        // 치워 두거나 도로 꺼내거나 — 둘 중 어느 쪽이 뜻이 있는지는 작업 트리의 사실이라,
+        // 둘을 함께 내놓지 않는다(운영 규칙).
+        JsArrayLike<Object> changes = Js.uncheckedCast(g.get("changes"));
+        boolean dirty = changes != null && changes.getLength() > 0;
+        HTMLElement stash = el("md-icon-button");
+        stash.append(Icons.orGlyph(dirty ? "#i-sl-floppy-disk" : "#i-sl-arrows-rotate",
+                dirty ? "\u2913" : "\u21BB", "mk"));
+        stash.setAttribute("aria-label", tr(dirty ? "git.stash" : "git.unstash"));
+        stash.setAttribute("title", tr(dirty ? "git.stash" : "git.unstash"));
+        stash.addEventListener("click", evt -> {
+            if (!dirty) { store.gitDo("unstash", null, null); return; }
+            // 치우는 것은 손에 든 것을 통째로 내려놓는 일이라 한 번 묻는다.
+            dialogs.confirm(tr("git.stash_head"), tr("git.stash_body"), tr("git.stash"),
+                    () -> store.gitDo("stash", null, null));
+        });
+        box.append(stash);
         return box;
     }
 

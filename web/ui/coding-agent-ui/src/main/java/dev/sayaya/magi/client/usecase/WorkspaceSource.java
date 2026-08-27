@@ -41,6 +41,12 @@ public interface WorkspaceSource {
      */
     void find(CompanionContext ctx, String in, String q, Consumer<Object> gotOrNull);
 
+    /**
+     * 한 파일의 차이(/diff) — which는 무엇에 대한 차이인가: ""(아직 안 실은 것) · staged · untracked.
+     * 답은 {text}이고, 빈 본문은 "다른 데가 없다"는 <b>답</b>이다(못 읽은 것과 다르다).
+     */
+    void diff(CompanionContext ctx, String path, String which, Consumer<Object> gotOrNull);
+
     /** git에 하는 일(/git-do): stage · unstage · discard · commit · switch · new-branch · pull · push. */
     void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why);
 }

@@ -112,9 +112,38 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#files .pane-git .gitgroup").count() shouldBe 2
                 page.locator("#files .pane-git .gitline").count() shouldBe 2
             }
+            Then("바뀐 파일의 행은 무리를 말로 말한다 — 상태 글자는 git을 아는 사람에게만 말한다") {
+                page.locator("#files .pane-git .gitline .gitkind").first().textContent() shouldBe "git.staged"
+            }
+            Then("한 파일에 하는 일은 메뉴 하나로 — 행마다 버튼을 늘어놓으면 이름이 먼저 잘린다") {
+                page.locator("#files .pane-git .gitacts md-icon-button").count() shouldBe 2
+                page.locator("#files .pane-git .gitacts md-menu").count() shouldBe 2
+                // 잘리는 판 안에 두면 메뉴가 판의 경계에서 잘린다 — 페이지의 상자들 밖으로 나간다.
+                (page.locator("#files .pane-git .gitacts md-menu").first()
+                    .getAttribute("positioning") in listOf("popover", "fixed")) shouldBe true
+            }
             Then("첫 걸음은 뿌리 하나만 읽는다 — 열지도 않은 가지를 걷지 않는다") {
                 page.evaluate("window.__magi_test_dirs") shouldBe "."
             }
+        }
+        When("바뀐 파일의 메뉴에서 무엇이 달라졌는지 물으면") {
+            // git 판은 접힌 채로 선다(운영 규칙) — 펼치고 나서야 그 안의 것을 누를 수 있다.
+            page.locator("#files .pane-git .panehead").click()
+            page.waitForCondition { page.locator("#files .pane-git.shut").count() == 0 }
+            // 쉬는 동안 이 행동들은 숨어 있다(운영 CSS) — 손끝을 얹어야 나온다.
+            page.locator("#files .pane-git .gitline").first().hover()
+            page.locator("#files .pane-git .gitacts md-icon-button").first().click()
+            page.locator("#files .pane-git .gitacts md-menu md-menu-item").first().click()
+            Then("차이가 제 카드로 열린다 — 본문과 다른 카드다(둘을 함께 열어 두는 일이 잦다)") {
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_diff") as? String) != null
+                }
+                page.evaluate("window.__magi_test_diff") shouldBe "src/main.go|staged"
+                page.waitForSelector("#fileview .diffbody .dl.add")
+                page.locator("#fileview .diffbody .dl.cut").count() shouldBe 1
+                page.locator("#fileview .filebody.diffscroll .filegutter").count() shouldBe 0
+            }
+            page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
         }
         When("디렉토리를 펼치면") {
             page.locator("#files .treerow.dir").first().click()

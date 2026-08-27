@@ -85,6 +85,12 @@ public class DemoWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
+        cb.accept(Global.JSON.parse("{\"text\":\"diff --git a/" + path + " b/" + path
+                + "\\n@@ -1,3 +1,4 @@\\n context line\\n-was this\\n+is this now\\n+and this\"}"));
+    }
+
+    @Override
     public void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why) {
         why.accept("");
     }

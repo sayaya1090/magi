@@ -74,6 +74,12 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_diff", path + "|" + which);
+        cb.accept(Global.JSON.parse("{\"text\":\"@@ -1,2 +1,2 @@\\n-old\\n+new\"}"));
+    }
+
+    @Override
     public void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_gitdo",
                 what + "|" + (path == null ? "" : path) + "|" + (message == null ? "" : message));
