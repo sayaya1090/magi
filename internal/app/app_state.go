@@ -159,6 +159,17 @@ type sessionState struct {
 	// handler guards against staleness by re-checking it is still the unanswered seed, so
 	// it is safe outside the turn-scoped reset block.
 	activeSeedMsgID string
+	// cancelSweep is the set of unanswered prompt ids as they stood the instant Interrupt was
+	// called — and it is the ONLY set the cancel path may abandon.
+	//
+	// Cancelling clears the queue, which is right for what was already waiting: pressing stop
+	// means "reset this context", not "drop the current task and keep the ones I forgot I
+	// queued". But the sweep used to read the log when the turn finally tore down, which is
+	// later — and anything typed in between is new intent, not queue. Measured: interrupt, then
+	// a request a moment after it, and the sweep marked that request abandoned and wrote
+	// "your newest request runs next" over the top of the request it had just discarded.
+	// Nil means no cancel is in flight; empty-but-non-nil means a cancel with nothing to clear.
+	cancelSweep map[string]bool
 	// liveTurnTask is the task the loop is CURRENTLY answering, kept where the council tool can read
 	// it. The council recomputes the task from the transcript, and a redirect interjection masks its
 	// own prompt from that view — so after a redirect the council judged against the ABANDONED
@@ -436,7 +447,18 @@ func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 	// log — a later request that augments one still has its text — they just no longer SEED.
 	queued := st.pendingInterject
 	st.pendingInterject = nil
+	// What stop was allowed to clear, as it stood when stop was pressed. A timeout or a shutdown
+	// cancels the same way without anyone pressing anything, and then there is no queue to reset:
+	// this turn's own seed is over either way, but the rest of the log is somebody's waiting
+	// request and stays.
+	sweep := st.cancelSweep // 지우지 않는다: 정리의 마지막이 "누가 멈춤을 눌렀나"로 이것을 읽는다
 	a.mu.Unlock()
+	if sweep == nil {
+		sweep = map[string]bool{}
+		if mid != "" {
+			sweep[mid] = true
+		}
+	}
 
 	// Abandon each drained interjection + resolve its deferral ledger entry, so neither
 	// seedPromptIdx nor a reload re-runs it. Best-effort ordering: markers first.
@@ -459,8 +481,14 @@ func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 	// Read AFTER the queue loop's abandonments above, so the detected interjections are already
 	// marked and excluded here — this catches the seed and any undetected Steer'd prompt without
 	// double-abandoning what the queue already handled.
+	// …but only what was already standing when stop was pressed (sweep). A request that arrived
+	// after it is the person's next one — the note below even promises it runs next, and the
+	// sweep used to abandon exactly that request before writing the promise.
 	if evs, err := a.store.Read(ctx, sid, 0); err == nil {
 		for _, id := range unansweredUserPromptIDs(evs) {
+			if !sweep[id] {
+				continue // typed after the press: new intent, not queue
+			}
 			d, _ := json.Marshal(event.PromptAbandonedData{MsgID: id})
 			_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)

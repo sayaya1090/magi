@@ -145,6 +145,28 @@ func abandonedPromptIDs(evs []event.Event) map[string]bool {
 // a prompt Steer'd into the log a moment before the interrupt that the loop never detected into the
 // in-memory queue. Without it, that undetected prompt stayed a live seed and ran ahead of the user's
 // next, newer request.
+// userPromptIDsNotAbandoned lists every user prompt still standing in the log, in order —
+// unlike unansweredUserPromptIDs it does not ask whether a turn has since finished, because the
+// caller is asking "did the person say something new", not "is anything owed a turn". A
+// turn.finished written by a turn that never read the prompt answers nothing.
+func userPromptIDsNotAbandoned(evs []event.Event) []string {
+	abandoned := abandonedPromptIDs(evs)
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted || e.Actor.Kind != event.ActorUser {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) != nil || d.MessageID == "" || abandoned[d.MessageID] || seen[d.MessageID] {
+			continue
+		}
+		out = append(out, d.MessageID)
+		seen[d.MessageID] = true
+	}
+	return out
+}
+
 func unansweredUserPromptIDs(evs []event.Event) []string {
 	abandoned := abandonedPromptIDs(evs)
 	var open []string         // ids still unanswered, in order

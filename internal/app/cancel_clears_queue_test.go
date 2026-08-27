@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -32,6 +33,10 @@ func TestCancelClearsAnUndetectedQueuedPrompt(t *testing.T) {
 	st.pendingInterject = nil // B was never detected
 	a.mu.Unlock()
 
+	// 멈춤을 누른 그 순간이 쓸 범위를 정한다(Interrupt가 그때의 미응답 집합을 붙든다) —
+	// 정리 중에 도착한 요청까지 쓸지 않으려고. 실행 중인 턴이 없으면 취소할 것도 없고,
+	// 붙드는 일만 한다.
+	_ = a.Interrupt(ctx, command.Interrupt{SessionID: sid})
 	a.abandonSeedOnCancel(ctx, sid)
 
 	evs, _ := a.store.Read(ctx, sid, 0)
@@ -72,6 +77,10 @@ func TestCancelClearsQueue(t *testing.T) {
 	st.pendingInterject = []pendingInterjection{{MsgID: "mB", Text: "B"}, {MsgID: "mC", Text: "C"}}
 	a.mu.Unlock()
 
+	// 멈춤을 누른 그 순간이 쓸 범위를 정한다(Interrupt가 그때의 미응답 집합을 붙든다) —
+	// 정리 중에 도착한 요청까지 쓸지 않으려고. 실행 중인 턴이 없으면 취소할 것도 없고,
+	// 붙드는 일만 한다.
+	_ = a.Interrupt(ctx, command.Interrupt{SessionID: sid})
 	a.abandonSeedOnCancel(ctx, sid)
 
 	a.mu.Lock()
