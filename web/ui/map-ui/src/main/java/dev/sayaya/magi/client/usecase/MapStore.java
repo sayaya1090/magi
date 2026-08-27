@@ -7,9 +7,8 @@ import java.util.List;
 
 /** 맵의 저장소 — 명단과 오간 것. 둘 다 와야 그린다: 반쪽 지도는 가구 딸린 거짓말이다(운영). */
 @Singleton
-public class MapStore {
+public class MapStore extends dev.sayaya.magi.bridge.Told {
     private final MapSource source;
-    private final List<Runnable> observers = new ArrayList<>();
     private Object fleet = null;
     private Object handoffs = null;
     private boolean fleetAnswered = false;
@@ -22,15 +21,13 @@ public class MapStore {
     public void start() {
         if (started) return;
         started = true;
-        source.fleet(l -> { fleet = l; fleetAnswered = true; emit(); });
-        source.handoffs(l -> { handoffs = l; handsAnswered = true; emit(); });
+        source.fleet(l -> { fleet = l; fleetAnswered = true; told(); });
+        source.handoffs(l -> { handoffs = l; handsAnswered = true; told(); });
     }
 
     public Object fleet() { return fleet; }
     public Object handoffs() { return handoffs; }
     public boolean answered() { return fleetAnswered && handsAnswered; }
 
-    public void subscribe(Runnable o) { observers.add(o); o.run(); }
 
-    private void emit() { for (Runnable o : observers) o.run(); }
 }

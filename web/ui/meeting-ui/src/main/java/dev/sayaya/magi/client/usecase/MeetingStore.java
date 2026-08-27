@@ -16,9 +16,8 @@ import java.util.function.Consumer;
  * DOM에만 있던 값은 문장 한가운데서 사라진다.
  */
 @Singleton
-public class MeetingStore {
+public class MeetingStore extends dev.sayaya.magi.bridge.Told {
     private final MeetingSource source;
-    private final List<Runnable> obs = new ArrayList<>();
 
     private String room = null;          // 주소가 대는 회의(?m=), 없으면 목록
     private Object one = null;           // 그 회의
@@ -33,9 +32,7 @@ public class MeetingStore {
     @Inject
     public MeetingStore(MeetingSource source) { this.source = source; }
 
-    public void subscribe(Runnable o) { obs.add(o); }
 
-    private void tell() { for (Runnable o : new ArrayList<>(obs)) o.run(); }
 
     public String room() { return room; }
     public Object one() { return one; }
@@ -65,21 +62,21 @@ public class MeetingStore {
         one = null;
         gone = false;
         saying = "";
-        tell();
+        told();
         read();
     }
 
     /** 지금 보는 것을 다시 읽는다 — 폴이 부른다. */
     public void read() {
         if (room == null) {
-            source.fleet(list -> { fleet = list; tell(); });
-            source.rooms(list -> { rooms = list; tell(); });
+            source.fleet(list -> { fleet = list; told(); });
+            source.rooms(list -> { rooms = list; told(); });
             return;
         }
         source.room(room, m -> {
             gone = m == null;
             if (m != null) one = m;
-            tell();
+            told();
         });
     }
 

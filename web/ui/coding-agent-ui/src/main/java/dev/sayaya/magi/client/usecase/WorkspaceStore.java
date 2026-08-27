@@ -21,9 +21,8 @@ import java.util.function.Consumer;
  * 더 읽는 일이지 트리를 다시 읽는 일이 아니다.
  */
 @Singleton
-public class WorkspaceStore {
+public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
     private final WorkspaceSource source;
-    private final List<Runnable> observers = new ArrayList<>();
     private final Set<String> open = new LinkedHashSet<>();
     private JsPropertyMap<Object> dirs = Js.uncheckedCast(JsPropertyMap.of());
     private Object git = null;
@@ -50,7 +49,7 @@ public class WorkspaceStore {
         git = null;
         walked = false;
         opened.clear();
-        emit();
+        told();
         walk();
     }
 
@@ -72,16 +71,16 @@ public class WorkspaceStore {
                 JsPropertyMap<Object> map = Js.uncheckedCast(Js.asPropertyMap(got).get("dirs"));
                 if (map != null) map.forEach(k -> dirs.set(k, map.get(k)));
             }
-            emit();
+            told();
         });
-        source.git(ctx, g -> { git = g; emit(); });
+        source.git(ctx, g -> { git = g; told(); });
     }
 
     /** 가지를 펼치거나 접는다 — 펼치면 그 디렉토리 하나를 더 읽는다. */
     public void toggle(String path) {
-        if (open.contains(path)) { open.remove(path); emit(); return; }
+        if (open.contains(path)) { open.remove(path); told(); return; }
         open.add(path);
-        emit();
+        told();
         walk();
     }
 
@@ -108,11 +107,11 @@ public class WorkspaceStore {
     public void openFile(String path) {
         if (ctx == null) return;
         if (!opened.containsKey(path)) opened.put(path, null);
-        emit();
+        told();
         source.file(ctx, path, got -> {
             if (!opened.containsKey(path)) return;   // 늦게 온 답이 닫힌 파일을 되살리지 않게
             opened.put(path, got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text")));
-            emit();
+            told();
         });
     }
 
@@ -137,11 +136,11 @@ public class WorkspaceStore {
         if (ctx == null) return;
         String key = diffKey(path, which);
         if (!opened.containsKey(key)) opened.put(key, null);
-        emit();
+        told();
         source.diff(ctx, path, which, got -> {
             if (!opened.containsKey(key)) return;
             opened.put(key, got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text")));
-            emit();
+            told();
         });
     }
 
@@ -168,7 +167,7 @@ public class WorkspaceStore {
     public void openCommit() {
         if (ctx == null) return;
         if (!opened.containsKey(COMMIT)) opened.put(COMMIT, "");
-        emit();
+        told();
     }
 
     /** 한 번 읽어 보는 차이 — 카드로 열지 않고 그 자리에서 그린다(작업대의 그 상자). */
@@ -183,7 +182,7 @@ public class WorkspaceStore {
     public void openPullRequestBench() {
         if (ctx == null) return;
         if (!opened.containsKey(PR)) opened.put(PR, "");
-        emit();
+        told();
     }
 
     public void pullRequest(Consumer<Object> got) {
@@ -223,10 +222,10 @@ public class WorkspaceStore {
     }
 
     /** 하나를 닫는다 — 나머지는 그대로 열려 있다. */
-    public void closeFile(String path) { if (opened.remove(path) != null || path == null) emit(); }
+    public void closeFile(String path) { if (opened.remove(path) != null || path == null) told(); }
 
     /** 전부 닫는다 — 다른 컴패니언으로 옮겨 갈 때(그 파일들은 이 워크스페이스의 것이었다). */
-    public void closeAllFiles() { if (!opened.isEmpty()) { opened.clear(); emit(); } }
+    public void closeAllFiles() { if (!opened.isEmpty()) { opened.clear(); told(); } }
 
     // ── 찾기 ─────────────────────────────────────────────────────────────────
     // 찾는 동안 판이 보이는 것은 결과다 — 다시 걷는 일(파일을 열거나 무언가를 바꿨을 때)이
@@ -248,12 +247,12 @@ public class WorkspaceStore {
     public void where(String in) {
         where = in;
         if (finding()) find();
-        else emit();
+        else told();
     }
 
     public void query(String q) {
         query = q == null ? "" : q;
-        if (!finding()) { hits = null; emit(); return; }
+        if (!finding()) { hits = null; told(); return; }
         find();
     }
 
@@ -263,7 +262,7 @@ public class WorkspaceStore {
         source.find(ctx, where, query, got -> {
             if (mine != findSeq) return;   // 뒤에 떠난 물음이 이미 오는 중이다
             hits = got;
-            emit();
+            told();
         });
     }
 
@@ -284,7 +283,7 @@ public class WorkspaceStore {
                 if ("delete".equals(what)) opened.remove(path);
                 walk();
             }
-            emit();
+            told();
         });
     }
 
@@ -297,11 +296,9 @@ public class WorkspaceStore {
                 dirs = Js.uncheckedCast(JsPropertyMap.of());
                 walk();
             }
-            emit();
+            told();
         });
     }
 
-    public void subscribe(Runnable o) { observers.add(o); o.run(); }
 
-    private void emit() { for (Runnable o : observers) o.run(); }
 }

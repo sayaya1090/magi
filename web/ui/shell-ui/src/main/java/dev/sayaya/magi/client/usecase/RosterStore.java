@@ -156,7 +156,12 @@ public class RosterStore implements RosterSource.Listener {
 
     @Override
     public void roster(FleetAgent[] listOrNull) {
-        if (listOrNull != null) current = listOrNull;
+        // 못 읽은 프레임(null)은 흘리지 않는다. 흐름은 마지막 값을 기억했다가 늦게 온
+        // 구독자에게 재생하는데, 그 기억이 null이면 나중에 붙은 화면이 "명단을 모른다"는
+        // 상태로 서고 다음 프레임까지 빈 판이 된다(실측: 명단을 한 번만 내놓는 데모에서
+        // 사실판이 영영 비었다). 읽기가 실패했다는 소식은 회선(link)이 따로 나른다.
+        if (listOrNull == null) return;
+        current = listOrNull;
         roster.next(listOrNull);
         // 조준된 행의 타입 선언이 이제야 도착했을 수 있다 — 컨텍스트가 따라간다.
         if (aimedSocket != null && listOrNull != null) {

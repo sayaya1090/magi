@@ -11,9 +11,8 @@ import java.util.List;
  * 답이 오면 그 목록만 다시 읽는다.
  */
 @Singleton
-public class KnowledgeStore {
+public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
     private final KnowledgeSource source;
-    private final List<Runnable> observers = new ArrayList<>();
     private Object skills = null;
     private Object wiki = null;
     private Object mcp = null;
@@ -36,11 +35,11 @@ public class KnowledgeStore {
         reloadMcp();
     }
 
-    public void reloadSkills() { source.skills(list -> { skills = list; skillsAnswered = true; emit(); }); }
+    public void reloadSkills() { source.skills(list -> { skills = list; skillsAnswered = true; told(); }); }
 
-    public void reloadWiki() { source.wiki(list -> { wiki = list; wikiAnswered = true; emit(); }); }
+    public void reloadWiki() { source.wiki(list -> { wiki = list; wikiAnswered = true; told(); }); }
 
-    public void reloadMcp() { source.mcp(list -> { mcp = list; mcpAnswered = true; emit(); }); }
+    public void reloadMcp() { source.mcp(list -> { mcp = list; mcpAnswered = true; told(); }); }
 
     public Object skills() { return skills; }
     public Object wiki() { return wiki; }
@@ -52,9 +51,9 @@ public class KnowledgeStore {
     public String skillQuery() { return skillQuery; }
     public String wikiQuery() { return wikiQuery; }
     public String mcpQuery() { return mcpQuery; }
-    public void skillQuery(String q) { skillQuery = q == null ? "" : q; emit(); }
-    public void wikiQuery(String q) { wikiQuery = q == null ? "" : q; emit(); }
-    public void mcpQuery(String q) { mcpQuery = q == null ? "" : q; emit(); }
+    public void skillQuery(String q) { skillQuery = q == null ? "" : q; told(); }
+    public void wikiQuery(String q) { wikiQuery = q == null ? "" : q; told(); }
+    public void mcpQuery(String q) { mcpQuery = q == null ? "" : q; told(); }
 
     public void forget(String name, String tier, String team, String socket, String peer) {
         source.forget(name, tier, team, socket, peer, this::reloadSkills);
@@ -84,10 +83,8 @@ public class KnowledgeStore {
 
     public void askConsole() {
         if (embedModel != null) return;
-        source.console(m -> { embedModel = m == null ? "" : m; emit(); });
+        source.console(m -> { embedModel = m == null ? "" : m; told(); });
     }
 
-    public void subscribe(Runnable o) { observers.add(o); o.run(); }
 
-    private void emit() { for (Runnable o : observers) o.run(); }
 }

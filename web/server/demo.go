@@ -133,7 +133,13 @@ func emitDemo(dir, ui, oldConsole string) error {
 		page = strings.ReplaceAll(page, `"`+prefix, `"./`+strings.TrimPrefix(prefix, "/"))
 		page = strings.ReplaceAll(page, "'"+prefix, "'./"+strings.TrimPrefix(prefix, "/"))
 	}
-	page = strings.Replace(page, "<script src=", demoShim+"<script src=", 1)
+	// 표식 자리에 — 셸 페이지가 명시적으로 내준 곳이다. 없으면 여기서 멈춘다: 목이 빠진
+	// 데모는 화면마다 404를 받아 빈 콘솔이 되고, 그것을 알아채는 데 한참 걸린다(밟아 봤다).
+	const shimMark = "<!--DEMO-SHIM-->"
+	if !strings.Contains(page, shimMark) {
+		return fmt.Errorf("console.html: %s marker not found — the demo mock has nowhere to stand", shimMark)
+	}
+	page = strings.Replace(page, shimMark, demoShim, 1)
 	page = withSprite(page)
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o644); err != nil {
 		return err

@@ -80,12 +80,10 @@ public class ConversationElement {
         if (wired) return;   // 재방문: 캐시된 렌더가 다시 앉는 것 — 구독은 이미 흐른다
         wired = true;
         store.start();
-        store.onContext(ctx -> { lastSig = null; layer(ctx); aliveIs(aliveIn(roster)); });
-        // 명단 구독은 하나다 — 부르는 자리마다 걸면 화면을 옮길 때마다 겹으로 쌓인다.
-        dev.sayaya.magi.bridge.RosterSharing.subscribe(list -> {
-            roster = list == null ? null : Js.uncheckedCast(list);
-            aliveIs(aliveIn(roster));
-        });
+        store.onContext(ctx -> { lastSig = null; layer(ctx); });
+        store.alive().subscribe(this::aliveIs);
+        // 이름은 명단 조각에서 온다 — 그 행이 같은 말을 다시 하면 스토어가 흘리지 않는다.
+        store.aimed().subscribe(row -> aimed = row);
         store.onRows(this::paintRows);
         store.onPast(this::paintPast);
     }
@@ -285,15 +283,9 @@ public class ConversationElement {
         return form;
     }
 
-    /** 지금 보는 컴패니언의 이름 — 명단에서 소켓으로 찾는다(없으면 빈 문자열). */
+    /** 지금 보는 컴패니언의 이름 — 스토어가 잘라 준 그 행의 것(없으면 빈 문자열). */
     private String nameOfAimed() {
-        dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
-        if (ctx == null || ctx.socket == null) return "";
-        dev.sayaya.magi.bridge.FleetAgent[] all = roster;
-        for (int i = 0; all != null && i < all.length; i++) {
-            if (ctx.socket.equals(all[i].socket) && all[i].name != null) return all[i].name;
-        }
-        return "";
+        return aimed == null || aimed.name == null ? "" : aimed.name;
     }
 
     /**
@@ -492,23 +484,7 @@ public class ConversationElement {
     private boolean alive = true;
     private dev.sayaya.magi.bridge.FleetAgent[] roster = null;
 
-    /**
-     * 명단에서 이 컴패니언을 찾는다 — 소켓만으로는 모자라다: 같은 소켓 이름이 남의 콘솔을
-     * 거쳐 온 것일 수 있어서(?p=), 운영도 소켓과 거쳐 온 콘솔을 함께 본다. 명단을 아직
-     * 못 받았거나 컴패니언을 보고 있지 않으면 "살아 있다"로 둔다 — 모르는 것을 죽었다고
-     * 적지 않는다.
-     */
-    private boolean aliveIn(dev.sayaya.magi.bridge.FleetAgent[] list) {
-        dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
-        if (list == null || ctx == null || ctx.socket == null || ctx.socket.isEmpty()) return true;
-        String want = ctx.peer == null ? "" : ctx.peer;
-        for (dev.sayaya.magi.bridge.FleetAgent a : list) {
-            String had = a.peer == null ? "" : a.peer;
-            // 말하지 않은 것은 산 것이다(운영 live !== false).
-            if (ctx.socket.equals(a.socket) && want.equals(had)) return !Js.asPropertyMap(a).has("live") || a.live;
-        }
-        return false;
-    }
+    private dev.sayaya.magi.bridge.FleetAgent aimed = null;
 
     private void aliveIs(boolean now) {
         if (alive == now) return;

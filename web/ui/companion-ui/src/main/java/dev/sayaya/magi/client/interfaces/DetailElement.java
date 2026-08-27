@@ -63,7 +63,9 @@ public class DetailElement {
         wrap.append(grid);
         card.append(bar, wrap);
         store.onContext(c -> { ctx = c; render(); });
-        store.onRoster(list -> { a = rowOf(list); render(); });
+        // 명단 전체가 아니라 <b>내 행</b>을 듣는다 — 그 행이 같은 말을 다시 하면 스토어가
+        // 흘리지 않으므로, 이 판은 "바뀌었나"를 스스로 따질 필요가 없다.
+        store.aimed().subscribe(row -> { a = row; render(); });
         store.onContextInfo(i -> { info = i; render(); });
         // 접힘의 기본은 창이 정한다 — 누른 적 있는 독자만 기억된다(운영 규칙).
         String said = stored("facts");
@@ -71,28 +73,6 @@ public class DetailElement {
     }
 
     public HTMLElement element() { return card; }
-
-    /**
-     * 답하는가 — <b>말하지 않은 것은 산 것이다</b>(운영 live !== false). 이 값을 안 싣는
-     * 자리가 있어서(테스트 목·오래된 데몬) 없음을 죽음으로 읽으면 멀쩡한 판이 통째로 사라진다.
-     */
-    private static boolean answering(FleetAgent r) {
-        return !Js.asPropertyMap(r).has("live") || r.live;
-    }
-
-    private FleetAgent rowOf(Object list) {
-        if (list == null || ctx == null) return a;
-        JsArrayLike<Object> rows = Js.uncheckedCast(list);
-        for (int i = 0; i < rows.getLength(); i++) {
-            FleetAgent r = Js.uncheckedCast(rows.getAt(i));
-            // 소켓과 거쳐 온 콘솔이 둘 다 맞아야 이 컴패니언이고, 명단에 남아 있어도 답하지
-            // 않으면(live 거짓) 없는 것과 같다(운영 companionAlive).
-            String had = r.peer == null ? "" : r.peer;
-            String want = ctx.peer == null ? "" : ctx.peer;
-            if (ctx.socket.equals(r.socket) && want.equals(had)) return answering(r) ? r : null;
-        }
-        return null;
-    }
 
     private void fold(boolean want, boolean chosen) {
         if (want) card.setAttribute("folded", ""); else card.removeAttribute("folded");
@@ -110,22 +90,11 @@ public class DetailElement {
 
     public void cardsGo(Cards go) { this.cards = go; }
 
-    private String shown = "";
-
     /**
-     * 이 판이 <b>지금 말하는 것</b> — 이것이 그대로면 다시 짓지 않는다.
-     *
-     * 도는 숫자(쉰 시간)는 넣지 않는다: 매 초 달라지는 값을 넣으면 매 초 다시 짓게 되고,
-     * 그것이 바로 이 서명이 막으려는 일이다. 쉰 시간은 다음 진짜 변화 때 함께 새로 그려진다.
+     * 어느 컴패니언의 판인가 — 사람이 다른 컴패니언으로 옮기면 그때는 통째로 다시 세운다
+     * (같은 키의 줄이 남의 값을 이어받지 않게).
      */
-    private String signature(FleetAgent a) {
-        return String.valueOf(a.state) + "|" + a.steps + "|" + a.role + "|" + a.team + "|" + a.hub
-                + "|" + a.host + "|" + a.instance + "|" + a.addr + "|" + a.pid + "|" + a.version
-                + "|" + a.workdir + "|" + a.session + "|" + a.permission + "|" + a.model
-                + "|" + a.backend + "|" + a.handling + "|" + a.waiting
-                + "|" + (info == null ? "" : elemental2.core.Global.JSON.stringify(info))
-                + "|" + dev.sayaya.magi.bridge.Labels.tr("field.facts");
-    }
+    private String shownFor = "";
 
     /** 이 판에 할 말이 있는가 — 보일지는 부모가 정한다. */
     public boolean hasFacts() { return full; }
@@ -188,9 +157,8 @@ public class DetailElement {
         // 명단은 몇 초마다 흐른다. 그때마다 이 격자를 다시 지으면 그 안의 고르개가 <b>다시
         // 부모를 얻고</b>, 부모가 바뀐 md-select는 열려 있던 메뉴를 닫는다 — 사람이 고르는 중에
         // 손 밑에서 닫히니 편집이 아예 되지 않는다(실측: 깜빡이며 못 고름). 말이 그대로면 그대로 둔다.
-        String words = signature(a);
-        if (words.equals(shown)) return;
-        shown = words;
+        String who = a.socket == null ? "" : a.socket;
+        if (!who.equals(shownFor)) { shownFor = who; grid.replaceChildren(); kept.clear(); }
         seen.clear();
         // 질문이 오는 순서 — 이 목록이 곧 배치다(그리드는 DOM 순서로 짠다, 운영 규칙).
         String load = carrying(a);
