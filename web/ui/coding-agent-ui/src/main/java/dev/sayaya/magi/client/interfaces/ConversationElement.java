@@ -80,7 +80,12 @@ public class ConversationElement {
         if (wired) return;   // 재방문: 캐시된 렌더가 다시 앉는 것 — 구독은 이미 흐른다
         wired = true;
         store.start();
-        store.onContext(ctx -> { lastSig = null; layer(ctx); });
+        store.onContext(ctx -> { lastSig = null; layer(ctx); aliveIs(aliveIn(roster)); });
+        // 명단 구독은 하나다 — 부르는 자리마다 걸면 화면을 옮길 때마다 겹으로 쌓인다.
+        dev.sayaya.magi.bridge.RosterSharing.subscribe(list -> {
+            roster = list == null ? null : Js.uncheckedCast(list);
+            aliveIs(aliveIn(roster));
+        });
         store.onRows(this::paintRows);
         store.onPast(this::paintPast);
     }
@@ -209,7 +214,9 @@ public class ConversationElement {
         wasAnswering = now;
         dressed = true;
         field.setAttribute("label", tr(now ? "label.answer" : "label.ask"));
-        sendBtn.textContent = tr(now ? "action.answer" : "action.send");
+        // 표도 몫을 따른다(운영 withMark의 그 삼항): 답하는 자리에서는 되돌려 주는 화살,
+        // 묻는 자리에서는 종이비행기.
+        Icons.say(sendBtn, tr(now ? "action.answer" : "action.send"), now ? "#i-sl-reply" : "#i-ss-paper-plane");
         String had = value();
         value(parked);
         parked = had;
@@ -282,14 +289,11 @@ public class ConversationElement {
     private String nameOfAimed() {
         dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
         if (ctx == null || ctx.socket == null) return "";
-        final String[] found = {""};
-        dev.sayaya.magi.bridge.RosterSharing.subscribe(list -> {
-            dev.sayaya.magi.bridge.FleetAgent[] all = Js.uncheckedCast(list);
-            for (int i = 0; all != null && i < all.length; i++) {
-                if (ctx.socket.equals(all[i].socket) && all[i].name != null) { found[0] = all[i].name; return; }
-            }
-        });
-        return found[0];
+        dev.sayaya.magi.bridge.FleetAgent[] all = roster;
+        for (int i = 0; all != null && i < all.length; i++) {
+            if (ctx.socket.equals(all[i].socket) && all[i].name != null) return all[i].name;
+        }
+        return "";
     }
 
     /**
@@ -481,7 +485,51 @@ public class ConversationElement {
 
 
 
+    /**
+     * 이 소켓의 데몬이 아직 답하는가 — 명단에 없거나 있어도 live가 거짓이면 멈춘 것이다
+     * (운영 companionAlive의 그 판정: 소켓이 치워졌거나, 남아 있어도 답하지 않거나).
+     */
+    private boolean alive = true;
+    private dev.sayaya.magi.bridge.FleetAgent[] roster = null;
+
+    /**
+     * 명단에서 이 컴패니언을 찾는다 — 소켓만으로는 모자라다: 같은 소켓 이름이 남의 콘솔을
+     * 거쳐 온 것일 수 있어서(?p=), 운영도 소켓과 거쳐 온 콘솔을 함께 본다. 명단을 아직
+     * 못 받았거나 컴패니언을 보고 있지 않으면 "살아 있다"로 둔다 — 모르는 것을 죽었다고
+     * 적지 않는다.
+     */
+    private boolean aliveIn(dev.sayaya.magi.bridge.FleetAgent[] list) {
+        dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
+        if (list == null || ctx == null || ctx.socket == null || ctx.socket.isEmpty()) return true;
+        String want = ctx.peer == null ? "" : ctx.peer;
+        for (dev.sayaya.magi.bridge.FleetAgent a : list) {
+            String had = a.peer == null ? "" : a.peer;
+            // 말하지 않은 것은 산 것이다(운영 live !== false).
+            if (ctx.socket.equals(a.socket) && want.equals(had)) return !Js.asPropertyMap(a).has("live") || a.live;
+        }
+        return false;
+    }
+
+    private void aliveIs(boolean now) {
+        if (alive == now) return;
+        alive = now;
+        if (!now) {
+            // 대화가 있던 자리에 그 사정을 적는다. 상태줄 한 줄로는 왜 화면이 비었는지 알 수
+            // 없고(운영 실측: 탭 띠와 컴포저 사이 378px의 빈 곳), 컴포저는 그대로 둔다 —
+            // 다시 띄우면 이어서 말할 자리다.
+            lastSig = null;
+            HTMLElement empty = el("div");
+            empty.className = "empty";
+            empty.append(DomGlobal.document.createTextNode(tr("state.companion_gone")),
+                    el("br"), DomGlobal.document.createTextNode(tr("state.gone_how")));
+            log.replaceChildren(empty);
+        } else {
+            lastSig = null;   // 돌아왔다 — 다음 프레임이 전사를 통째로 다시 세운다.
+        }
+    }
+
     private void paintRows(Object rowsOrNull) {
+        if (!alive) return;   // 멈춘 컴패니언의 자리에는 그 사정이 서 있다.
         if (rowsOrNull == null) {
             // 아직 모른다 — 이전 컴패니언의 대화가 새 화면에 비치면 안 된다.
             lastSig = null;
