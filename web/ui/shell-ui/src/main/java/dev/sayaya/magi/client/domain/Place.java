@@ -12,24 +12,27 @@ public final class Place {
     public final Destination section; // 레일이 켜는 문 — 보드는 컴패니언 문
     public final String socket;       // null이면 카탈로그 화면
     public final String peer;         // 없으면 null
+    public final String past;         // 컴패니언에서만: null=지금 대화, ""=지난 일 목록, 값=그 세션
 
-    private Place(Destination screen, String socket, String peer) {
+    private Place(Destination screen, String socket, String peer, String past) {
         this.screen = screen;
         this.section = screen.section();
         this.socket = socket;
         this.peer = peer;
+        this.past = past;
     }
 
-    public static Place at(Destination d) { return new Place(d, null, null); }
+    public static Place at(Destination d) { return new Place(d, null, null, null); }
 
-    public static Place companion(String socket, String peer) {
-        return new Place(Destination.FLEET, socket, peer == null || peer.isEmpty() ? null : peer);
+    public static Place companion(String socket, String peer, String past) {
+        return new Place(Destination.FLEET, socket, peer == null || peer.isEmpty() ? null : peer, past);
     }
 
     public boolean isCompanion() { return socket != null; }
 
     public boolean same(Place o) {
-        return o != null && screen == o.screen && eq(socket, o.socket) && eq(peer, o.peer);
+        return o != null && screen == o.screen && eq(socket, o.socket) && eq(peer, o.peer)
+                && eq(past, o.past);
     }
 
     private static boolean eq(String a, String b) { return a == null ? b == null : a.equals(b); }

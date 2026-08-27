@@ -19,13 +19,15 @@ public class CompanionContext {
     public String socket; // ?d= — 어느 컴패니언인가
     public String peer;   // ?p= — 어느 콘솔을 거쳐서인가 (없으면 null=로컬)
     public String type;   // 해석된 타입 키 — companion-ui(기본)면 "1"
+    public String past;   // ?past= — null이면 지금 대화, ""면 지난 일 목록, 값이면 그 세션
 
     @JsOverlay
-    public static CompanionContext of(String socket, String peer, String type) {
+    public static CompanionContext of(String socket, String peer, String type, String past) {
         JsPropertyMap<Object> o = JsPropertyMap.of();
         o.set("socket", socket);
         o.set("peer", peer);
         o.set("type", type);
+        o.set("past", past);
         return Js.uncheckedCast(o);
     }
 }

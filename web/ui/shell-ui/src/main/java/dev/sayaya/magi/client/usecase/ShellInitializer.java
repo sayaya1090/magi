@@ -36,6 +36,7 @@ public class ShellInitializer {
         roster.start();
         GoSharing.host(nav::goCompanion);
         GoSharing.hostView(v -> nav.go(dev.sayaya.magi.client.domain.Destination.byId(v)));
+        GoSharing.hostPast(nav::goPast);
         renders.onRender(frame::mount);
         nav.subscribe(place -> {
             // 운영 showDestination의 그 속성: 폰의 하단 바가 컴패니언 화면에서 물러나는
@@ -47,6 +48,7 @@ public class ShellInitializer {
             rail.select(place.section);
             // 스트림 조준과 컨텍스트가 모듈보다 먼저다 — 모듈의 첫 구독이 현재값을 재생받는다.
             roster.aim(place.socket, place.peer);
+            roster.past(place.past);
             String module = place.isCompanion()
                     ? roster.typeOf(place.socket).module
                     : place.screen.id;

@@ -15,6 +15,7 @@ import jsinterop.base.JsPropertyMap;
 public final class GoSharing {
     private static final String GO = "__magi_go";
     private static final String VIEW = "__magi_go_view";
+    private static final String PAST = "__magi_go_past";
 
     private GoSharing() {}
 
@@ -32,6 +33,18 @@ public final class GoSharing {
     /** 셸 측: 카탈로그 화면(v=…)으로의 문 — 보드처럼 문 없는 주소도 화면이 청할 수 있게. */
     public static void hostView(ViewFn view) {
         Js.asPropertyMap(DomGlobal.window).set(VIEW, view);
+    }
+
+    /** 셸 측: 지난 일 층위(?past=)의 문 — null=지금 대화로, ""=목록, 값=그 세션. */
+    public static void hostPast(ViewFn past) {
+        Js.asPropertyMap(DomGlobal.window).set(PAST, past);
+    }
+
+    /** 화면 측: 지난 일 층위로. 주소는 셸의 것이라 여기로 청한다. */
+    public static void past(String pastOrNull) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        if (!win.has(PAST)) return;
+        Js.<ViewFn>cast(win.get(PAST)).call(pastOrNull);
     }
 
     /** 화면 측: 카탈로그 화면으로. 호스트가 없으면 조용히 무시 — 앵커의 href가 폴백이다. */

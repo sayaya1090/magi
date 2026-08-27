@@ -85,6 +85,22 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_aim") shouldBe ""
             }
         }
+        When("컴패니언에 다시 서서 지난 일 층위의 문(__magi_go_past)을 청하면") {
+            page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
+            page.waitForCondition { page.url().contains("d=") }
+            page.evaluate("window.__magi_go_past('')")
+            Then("주소에 빈 past가 실린다 — 빈 값도 값이다(목록)") {
+                page.waitForCondition { page.url().contains("past=") }
+            }
+            page.evaluate("window.__magi_go_past(null)")
+            Then("null이면 지금 대화로 — past가 걷힌다") {
+                page.waitForCondition { !page.url().contains("past=") }
+                page.url().contains("d=") shouldBe true
+            }
+            // 다음 장면은 카탈로그에서 시작한다 — 히스토리에 기대지 않고 문으로 나간다.
+            page.evaluate("window.__magi_go_view('fleet')")
+            page.waitForCondition { !page.url().contains("d=") }
+        }
         When("문에 도구 둘이 등록되면(접힌 드로어)") {
             // 직전 클릭들이 포인터를 레일 위에 두고 갔다 — 손끝이 남아 있으면 피크(expand)가
             // 정답이라, 접힌 기둥(collapse)을 재려면 손끝부터 치운다.

@@ -34,6 +34,7 @@ public class RosterStore implements RosterSource.Listener {
     private boolean started = false;
     private String aimedSocket = null;
     private String aimedPeer = null;
+    private String aimedPast = null;
     private CompanionContext ctx = null;
     private Object lastRows = null;
     private boolean turnOpen = false;
@@ -62,6 +63,13 @@ public class RosterStore implements RosterSource.Listener {
     }
 
     public void refresh() { source.refresh(); }
+
+    /** 지난 일 층위 — 스트림은 그대로 두고 컨텍스트만 갈아탄다(과거는 fetch의 것이다). */
+    public void past(String pastOrNull) {
+        if (eq(aimedPast, pastOrNull)) return;
+        aimedPast = pastOrNull;
+        pushContext();
+    }
 
     /** 어느 컴패니언을 보는가 — null이면 카탈로그 화면. 스트림 조준과 컨텍스트가 함께 돈다. */
     public void aim(String socket, String peer) {
@@ -130,7 +138,7 @@ public class RosterStore implements RosterSource.Listener {
 
     private void pushContext() {
         ctx = aimedSocket == null ? null
-                : CompanionContext.of(aimedSocket, aimedPeer, typeOf(aimedSocket).id);
+                : CompanionContext.of(aimedSocket, aimedPeer, typeOf(aimedSocket).id, aimedPast);
         for (CompanionSharing.NextFn o : ctxObs) o.call(ctx);
     }
 

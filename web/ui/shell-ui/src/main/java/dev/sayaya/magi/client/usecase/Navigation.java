@@ -41,7 +41,13 @@ public class Navigation {
     }
 
     public void goCompanion(String socket, String peer) {
-        move(Place.companion(socket, peer));
+        move(Place.companion(socket, peer, null));
+    }
+
+    /** 지난 일 층위 — 서 있는 컴패니언 위에서만 뜻이 있다: null=지금 대화, ""=목록, 값=그 세션. */
+    public void goPast(String pastOrNull) {
+        if (current == null || !current.isCompanion()) return;
+        move(Place.companion(current.socket, current.peer, pastOrNull));
     }
 
     private void move(Place p) {
@@ -50,7 +56,9 @@ public class Navigation {
         String url;
         if (p.isCompanion()) {
             url = path + "?d=" + Global.encodeURIComponent(p.socket)
-                    + (p.peer != null ? "&p=" + Global.encodeURIComponent(p.peer) : "");
+                    + (p.peer != null ? "&p=" + Global.encodeURIComponent(p.peer) : "")
+                    // ?past= 는 빈 값도 값이다: 빈 past는 목록이고, 없음만이 지금 대화다(운영 규칙).
+                    + (p.past != null ? "&past=" + Global.encodeURIComponent(p.past) : "");
         } else {
             // 첫 문은 맨주소가 갖는다 — 기존 콘솔의 HREF 규칙(fleet은 '').
             url = p.screen == Destination.FLEET ? path : path + "?v=" + p.screen.id;
@@ -62,10 +70,14 @@ public class Navigation {
     private Place fromUrl() {
         URLSearchParams q = new URLSearchParams(DomGlobal.window.location.search);
         String d = q.get("d");
-        if (d != null && !d.isEmpty()) return Place.companion(d, q.get("p"));
+        if (d != null && !d.isEmpty()) {
+            return Place.companion(d, q.get("p"), q.has("past") ? nz(q.get("past")) : null);
+        }
         String v = q.get("v");
         return Place.at(Destination.byId(v == null ? "fleet" : v));
     }
+
+    private static String nz(String s) { return s == null ? "" : s; }
 
     private void settle(Place p) {
         current = p;
