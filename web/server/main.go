@@ -58,13 +58,27 @@ func main() {
 		r.Host = target.Host
 	}
 
-	files := http.StripPrefix("/ui/", http.FileServer(http.Dir(*ui)))
+	// GWT의 캐시 규약: <name>.nocache.js 는 절대 캐시하면 안 되고(재컴파일마다 내용이
+	// 바뀌는 선택자다), <hash>.cache.js 는 영원히 캐시해도 된다(이름이 내용이다). 헤더 없이
+	// 내보내면 브라우저 휴리스틱이 nocache까지 캐싱해, 재컴파일 뒤 낡은 선택자가 새 산출물
+	// 짝을 못 찾는 간헐 공백이 된다 — 실측으로 되밟은 결함. html·css도 개발 서버에선 no-store.
+	rawFiles := http.FileServer(http.Dir(*ui))
+	files := http.StripPrefix("/ui/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, ".cache."):
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		default:
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		rawFiles.ServeHTTP(w, r)
+	}))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/ui/") {
 			files.ServeHTTP(w, r)
 			return
 		}
 		if r.URL.Path == "/next" { // 새 셸 진입점 (기존 / 는 프록시로 옛 콘솔)
+			w.Header().Set("Cache-Control", "no-store")
 			http.ServeFile(w, r, *ui+"/console.html")
 			return
 		}

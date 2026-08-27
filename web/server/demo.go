@@ -36,11 +36,31 @@ const demoShim = `
      out: '"alter table sessions add column title text;"', ok: true, at: now},
     {who: 'assistant', text: 'one statement, additive — asking before running it', at: now},
   ];
+  const skills = [
+    {name: 'rule-cache-window', description: 'reuse the prompt cache window when retrying', tier: 'global',
+     kind: 'skill', observed: 4, firstSeen: '2026-08-01', lastSeen: '2026-08-25',
+     body: 'When a retry rebuilds a prompt, keep the shared prefix byte-identical.\nsource: retry-storm postmortem'},
+    {name: 'mem-staging-db', description: 'the staging database is restored from prod every Monday', tier: 'team',
+     team: 'core', kind: 'memory', body: ''},
+  ];
+  const wiki = [
+    {title: 'release trains', tier: 'global', updated: '2026-08-20T09:00:00Z', editor: 'docs',
+     summary: 'how a web-v* tag ships the console alone', body: 'The core releases on v*; the console on web-v*.'},
+    {title: 'old deploy runbook', tier: 'global', stale: true, body: 'superseded'},
+  ];
+  const mcp = [
+    {name: 'github', tier: 'global', url: 'https://api.githubcopilot.com/mcp/', file: '~/.config/magi/config.toml'},
+    {name: 'repo-grep', tier: 'project', companion: 'build', socket: '/demo/build.sock',
+     command: 'rg-mcp', args: ['--root', '.'], envNames: ['RG_TOKEN'], file: '.magi/config.toml'},
+  ];
   const realFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
     if (url.startsWith('/i18n/')) return realFetch('.' + url, init);
     if (url.startsWith('/fleet')) return Promise.resolve(new Response(JSON.stringify(fleet)));
+    if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
+    if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
+    if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
     if (init && init.method === 'POST') return Promise.resolve(new Response(''));
     return realFetch(input, init);
   };
