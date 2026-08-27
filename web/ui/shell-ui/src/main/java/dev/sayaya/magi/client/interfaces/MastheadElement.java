@@ -199,10 +199,13 @@ public class MastheadElement {
     private void count(dev.sayaya.magi.bridge.FleetAgent[] list) {
         if (list == null) return;   // 못 읽음은 점(lost)이 말한다; 수는 마지막 앎을 지킨다
         lastRoster = list;
-        // 이 수는 <b>목록 화면의 것</b>이다. 컴패니언 곁에서는 같은 줄이 그 컴패니언의 계단을
-        // 이고 있어, 거기에 수를 겹쳐 쓰면 한 자리에 두 필자가 서는 그 모양이 된다(운영 규칙).
-        // 게다가 860px에서는 그 수 때문에 바가 두 줄로 접혀 아래 줄의 아이콘이 본문을 밀어냈다.
-        if (standing != null && standing.isCompanion()) {
+        // 이 수는 <b>목록 화면의 것</b>이다 — 그 표를 세는 말이라, 다른 문 안에서는 그 화면이
+        // 하는 이야기 위에 남의 수가 얹힌다(운영은 목록을 그릴 때만 이 줄을 쓴다). 컴패니언
+        // 곁에서는 같은 줄이 그 컴패니언의 계단을 이고 있어 더더욱 그렇고, 860px에서는 그 수
+        // 때문에 바가 두 줄로 접혀 아래 줄의 아이콘이 본문을 밀어냈다.
+        boolean onList = standing != null && !standing.isCompanion()
+                && dev.sayaya.magi.client.domain.Destination.FLEET.id.equals(standing.screen.id);
+        if (!onList) {
             said = "";
             state.replaceChildren();
             state.classList.toggle("asking", false);
