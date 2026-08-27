@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces.api;
 
 import dev.sayaya.magi.client.usecase.BoardSource;
+import dev.sayaya.magi.bridge.RosterSharing;
 import elemental2.core.Global;
 import elemental2.core.JsDate;
 import jsinterop.base.Js;
@@ -36,27 +37,59 @@ public class DemoBoardSource implements BoardSource {
 
     @Override
     public void fleet(Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse(
-                "[{\"socket\":\"/a\",\"name\":\"build\",\"team\":\"core\",\"state\":\"working\",\"idle\":1}," +
-                "{\"socket\":\"/b\",\"name\":\"test\",\"team\":\"core\",\"state\":\"idle\",\"idle\":10}," +
-                "{\"socket\":\"/c\",\"name\":\"docs\",\"state\":\"idle\",\"idle\":5}]"));
+        // 이 화면의 명단도 <b>셸의 명단</b>이다 — 데모가 제 함대를 따로 지으면 같은 창의 두
+        // 화면이 서로 다른 이름을 이야기한다(진짜 콘솔에서도 명단의 주인은 셸 하나다).
+        RosterSharing.subscribe(cb::accept);
     }
 
     @Override
     public void history(String socket, String peer, Consumer<Object> cb) {
-        if ("/a".equals(socket)) {
+        // 구 콘솔의 데모와 같은 지난 일들 — 오늘 것과 어제 것이 섞여 있어야 날짜 고르개가
+        // 무엇을 위한 것인지 보인다. 라벨도 함께: 그 칩들이 이 화면의 좁히는 손잡이다.
+        if (socket != null && socket.contains("design.sock2")) {
             cb.accept(Global.JSON.parse(
-                    "[{\"id\":\"s1\",\"title\":\"fix the retry storm\",\"started\":\"" + today + "T09:00:00\"," +
-                    "\"model\":\"gpt-oss:120b\",\"labels\":[\"retries\",\"cache\"]," +
-                    "\"ended\":\"" + today + "T09:02:00\"}," +
-                    "{\"id\":\"s2\",\"title\":\"overnight soak\",\"started\":\"" + yesterday + "T23:00:00\"," +
-                    "\"ended\":\"" + today + "T01:10:00\"}]"));
-        } else if ("/b".equals(socket)) {
-            cb.accept(Global.JSON.parse(
-                    "[{\"id\":\"s3\",\"title\":\"still going\",\"started\":\"" + today + "T08:00:00\"," +
-                    "\"ended\":\"\",\"current\":true}]"));
-        } else {
-            cb.accept(Global.JSON.parse("[]"));
+                    "[{\"id\":\"p1\",\"title\":\"which surface should the empty state sit on\","
+                            + "\"started\":\"" + today + "T11:00:00\",\"current\":true,"
+                            + "\"model\":\"qwen3-coder-next\",\"labels\":[\"empty-state\"]}]"));
+            return;
         }
+        if (socket != null && socket.contains("design.sock")) {
+            cb.accept(Global.JSON.parse(
+                    "[{\"id\":\"d1\",\"title\":\"spec the empty state for the fleet table, and name the exact tokens\","
+                            + "\"started\":\"" + today + "T09:00:00\",\"current\":true,"
+                            + "\"model\":\"qwen3-coder-next\",\"labels\":[\"empty-state\",\"tokens\"]},"
+                            + "{\"id\":\"d0\",\"title\":\"audit the button emphasis against the M3 scale and fix the inversions\","
+                            + "\"started\":\"" + today + "T06:00:00\",\"ended\":\"" + today + "T08:00:00\","
+                            + "\"model\":\"qwen3-coder-next\",\"labels\":[\"tokens\"]},"
+                            + "{\"id\":\"c9\",\"title\":\"the filter chips are not reachable with a keyboard on the corrections page\","
+                            + "\"started\":\"" + yesterday + "T14:00:00\",\"ended\":\"" + yesterday + "T17:00:00\","
+                            + "\"model\":\"qwen3-coder:30b\"}]"));
+            return;
+        }
+        if (socket != null && socket.contains("api.sock")) {
+            cb.accept(Global.JSON.parse(
+                    "[{\"id\":\"a1\",\"title\":\"add the idempotency key to the billing endpoint\","
+                            + "\"started\":\"" + today + "T08:00:00\",\"current\":true,"
+                            + "\"model\":\"qwen3-coder-next\",\"labels\":[\"billing\"]},"
+                            + "{\"id\":\"a0\",\"title\":\"why does the invoice job double-charge on retry\","
+                            + "\"started\":\"" + yesterday + "T09:00:00\",\"ended\":\"" + yesterday + "T15:00:00\","
+                            + "\"model\":\"qwen3-coder:30b\",\"labels\":[\"billing\"]}]"));
+            return;
+        }
+        if (socket != null && socket.contains("buttons.sock")) {
+            cb.accept(Global.JSON.parse(
+                    "[{\"id\":\"b1\",\"title\":\"the toggle should read its state from the store rather than a prop\","
+                            + "\"started\":\"" + today + "T07:00:00\",\"ended\":\"" + today + "T09:00:00\","
+                            + "\"model\":\"qwen3-coder-next\",\"labels\":[\"components\"]}]"));
+            return;
+        }
+        if (socket != null && socket.contains("ops.sock")) {
+            cb.accept(Global.JSON.parse(
+                    "[{\"id\":\"o1\",\"title\":\"rotate the staging certificates before they expire\","
+                            + "\"started\":\"" + yesterday + "T22:00:00\",\"ended\":\"" + yesterday + "T23:59:00\","
+                            + "\"model\":\"qwen3-coder:30b\"}]"));
+            return;
+        }
+        cb.accept(Global.JSON.parse("[]"));
     }
 }
