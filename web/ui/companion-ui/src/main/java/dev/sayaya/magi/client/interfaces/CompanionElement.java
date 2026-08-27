@@ -104,6 +104,9 @@ public class CompanionElement {
         arrange.putPrompt(prompt.element());
         if (wired) return;
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::layout);
         // 자식이 미는 렌더를 받을 자리 — 가운데는 하나, 왼쪽은 쌓인다.
         // 자식이 미는 렌더를 받을 자리 — 셋 다 이미 옷을 입은 채로 건넨다.
         // 자식은 상자가 어느 기둥인지도, 창 바닥에 고정된 도크인지도 모른다.

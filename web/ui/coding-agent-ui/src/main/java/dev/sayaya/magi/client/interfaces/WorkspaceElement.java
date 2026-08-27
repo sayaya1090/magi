@@ -62,6 +62,9 @@ public class WorkspaceElement {
         frame.replaceChildren(root);
         if (wired) return;
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
         store.subscribe(this::render);
         // 부모가 다른 탭으로 옮기면 트리의 표시도 따라간다.
         CardSharing.onShowing(this::render);

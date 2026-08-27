@@ -77,6 +77,9 @@ public class KnowledgeElement {
         layout();
         if (wired) return;
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
         // 폭이 바뀌면 다시 정한다 — 넓어진 창은 셋을 한 열에 세우고 고르개를 걷는다.
         DomGlobal.window.addEventListener("resize", evt -> layout());
         RosterSharing.subscribe(list -> roster = list);

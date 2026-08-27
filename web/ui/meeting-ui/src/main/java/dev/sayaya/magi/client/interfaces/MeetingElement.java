@@ -54,6 +54,9 @@ public class MeetingElement {
         aim();
         if (wired) { store.read(); return; }
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
         store.subscribe(this::render);
         // 주소가 방을 바꾸면 그리로 — 셸이 흘리는 주소를 듣는다(뒤로가기도 이 길로 온다).
         DomGlobal.window.addEventListener("popstate", evt -> aim());

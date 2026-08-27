@@ -51,6 +51,7 @@ public class MastheadElement {
         this.roster = roster;
         this.palette = palette;
         build();
+        dev.sayaya.magi.bridge.Labels.onPack(this::paint);
         nav.subscribe(place -> {
             standing = place;
             crumbs();
