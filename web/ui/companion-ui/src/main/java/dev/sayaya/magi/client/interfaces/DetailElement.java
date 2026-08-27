@@ -98,9 +98,24 @@ public class DetailElement {
 
     public void cardsGo(Cards go) { this.cards = go; }
 
+    /** 이 판에 할 말이 있는가 — 보일지는 부모가 정한다. */
+    public boolean hasFacts() { return full; }
+
+    /** 그 사실이 바뀌면 부모가 다시 배치한다. */
+    public interface Changed { void call(); }
+
+    private Changed changed = () -> { };
+    private boolean full = false;
+
+    public void onChanged(Changed c) { this.changed = c; }
+
     private void render() {
-        if (ctx == null || a == null) { card.setAttribute("hidden", ""); return; }
-        card.removeAttribute("hidden");
+        // 이 판이 <b>보일지</b>는 여기서 정하지 않는다: 폰에서는 제 탭에서만 서고, 그 사실은
+        // 배치를 아는 부모의 것이다. 여기서 hidden을 손대면 명단이 흐를 때마다 그 규칙이
+        // 뒤집힌다(실측: 폰의 대화 탭 위에 사실판이 다시 섰다). 여기서는 "속이 있는가"만 말한다.
+        boolean has = ctx != null && a != null;
+        if (has != full) { full = has; changed.call(); }
+        if (!has) { grid.replaceChildren(); return; }
         sum.textContent = stateWord(a.state) + " · " + (a.workdir == null ? "" : a.workdir);
         sum.setAttribute("title", sum.textContent);
         grid.replaceChildren();

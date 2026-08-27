@@ -32,7 +32,9 @@ public class MastheadElement {
     private final HTMLElement header = el("header");
     private final HTMLElement whereami = el("span");
     private final HTMLElement back = el("a");
-    private final HTMLElement deep = el("span");
+    // 계단은 링크다 — 한 겹 들어간 화면에서 이것이 대화로 돌아가는 길이고, 서 있는 자리일
+    // 때도 같은 요소여야 두 상태가 같은 계단으로 읽힌다(운영도 <a>다).
+    private final HTMLElement deep = el("a");
     private final HTMLElement state = el("span");
     private final HTMLElement chrome = el("span");   // 화면이 미는 창 손잡이의 자리
     private final HTMLElement gear = el("md-icon-button");   // 환경설정으로 가는 문
@@ -109,6 +111,13 @@ public class MastheadElement {
         } else {
             deep.className = "here";
             deep.textContent = nameOf(standing.socket);
+            deep.addEventListener("click", evt -> { evt.preventDefault(); nav.goPast(null); });
+            // 이 계단도 링크다 — 한 겹 들어간 화면(지난 일·표결)에서 이것이 대화로 돌아가는
+            // 길이고, 서 있는 자리일 때도 같은 요소여야 그 둘이 같은 계단으로 읽힌다.
+            deep.setAttribute("href", Windows.here() + "?d="
+                    + elemental2.core.Global.encodeURIComponent(standing.socket)
+                    + (standing.peer == null || standing.peer.isEmpty() ? ""
+                       : "&p=" + elemental2.core.Global.encodeURIComponent(standing.peer)));
             back.insertAdjacentElement("afterend", deep);
         }
         markRungs(inCompanion);

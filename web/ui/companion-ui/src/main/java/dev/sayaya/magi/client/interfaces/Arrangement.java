@@ -127,6 +127,8 @@ public class Arrangement {
     private void say(String key, boolean open) {
         DomGlobal.document.body.setAttribute(key, open ? "open" : "shut");
         store("magi." + key, open ? "open" : "shut");
+        // 그 자리를 채우는 쪽에게 알린다 — 아무도 열어 본 적 없는 판은 요청을 쓰지 않는다.
+        dev.sayaya.magi.bridge.PaneSharing.opened("files".equals(key) ? "left" : "side", open);
         HTMLElement btn = "files".equals(key) ? filesToggle : sideToggle;
         Js.asPropertyMap(btn).set("selected", open);
         btn.setAttribute("aria-expanded", String.valueOf(open));

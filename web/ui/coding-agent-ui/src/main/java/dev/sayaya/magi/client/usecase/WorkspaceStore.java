@@ -54,9 +54,15 @@ public class WorkspaceStore {
         walk();
     }
 
-    /** 한 걸음 — 열린 가지들만 읽고, git은 그 곁에서 따로 온다(둘은 다른 물음이다). */
+    /**
+     * 한 걸음 — 열린 가지들만 읽고, git은 그 곁에서 따로 온다(둘은 다른 물음이다).
+     *
+     * 판이 닫혀 있으면 걷지 않는다: 아무도 열어 본 적 없는 판은 한 번도 요청을 쓰지 않는다
+     * (운영 규칙). 열리는 순간 그 자리가 말해 주고, 그때 첫 걸음을 뗀다.
+     */
     public void walk() {
         if (ctx == null || walking) return;
+        if (!dev.sayaya.magi.bridge.PaneSharing.isOpen("left")) return;
         walking = true;
         List<String> want = Tree.wanted(open);
         source.dirs(ctx, want, got -> {

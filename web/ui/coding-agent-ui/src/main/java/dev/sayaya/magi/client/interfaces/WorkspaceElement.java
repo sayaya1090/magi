@@ -64,6 +64,8 @@ public class WorkspaceElement {
         store.subscribe(this::render);
         // 부모가 다른 탭으로 옮기면 트리의 표시도 따라간다.
         CardSharing.onShowing(this::render);
+        // 판이 열리는 순간이 첫 걸음의 순간이다 — 닫힌 판은 걷지 않는다.
+        dev.sayaya.magi.bridge.PaneSharing.onOpened((slot, open) -> { if (open && "left".equals(slot)) store.walk(); });
     }
 
     /** 폰의 작업공간이 지금 보이는 것 — 트리("files")냐 git이냐. 넓은 화면에서는 둘 다 선다. */
@@ -71,6 +73,9 @@ public class WorkspaceElement {
 
     private void render() {
         root.replaceChildren();
+        // 아무도 열어 본 적 없는 판은 아직 아무것도 아니다 — 요청도, 마크업도(운영 규칙).
+        // 열리는 순간 첫 걸음이 떨어지고, 그 답이 이 판을 짓는다.
+        if (!dev.sayaya.magi.bridge.PaneSharing.isOpen("left") && !store.walked()) return;
         // 한 기둥이면 한 번에 하나다(운영의 그 규칙): 마흔 개 이름 아래에 깔린 git 판은 아무도
         // 스크롤해 내려가지 않고, 그 판의 행동들은 손끝이 닿을 자리에 있지도 않다.
         // console.css가 #files[data-shows]로 그 감춤을 맡는다 — 여기서는 무엇을 보이는지만 적는다.

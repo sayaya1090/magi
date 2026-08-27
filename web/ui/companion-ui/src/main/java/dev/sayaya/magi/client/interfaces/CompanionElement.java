@@ -98,6 +98,8 @@ public class CompanionElement {
         Motion.enter(stream);
         arrange.engage();
         side.onChanged(arrange::sideChanged);
+        // 사실판이 속을 얻거나 잃으면 자리를 다시 정한다 — 보일지 말지는 이 판이 아니라 배치다.
+        detail.onChanged(this::layout);
         // 무엇에 걸려 있는지는 컴포저 바로 위에 선다 — 답하려고 목록으로 되돌아가지 않게.
         arrange.putPrompt(prompt.element());
         if (wired) return;
@@ -182,7 +184,7 @@ public class CompanionElement {
             cardTabs.replaceChildren();
             cardArea.setAttribute("hidden", "");
             cardArea.replaceChildren();
-            show(detail.element(), store.context() != null);
+            show(detail.element(), store.context() != null && detail.hasFacts());
             cardShows = "facts";
             CardSharing.showing(cardShows);
             // 여기서도 배치가 마지막 말이다 — 폰에서는 사실판이 제 탭에서만 선다. 이 갈래가
@@ -217,7 +219,7 @@ public class CompanionElement {
         CardSharing.showing(cardShows);
         // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
         boolean facts = "facts".equals(cardShows);
-        show(detail.element(), facts && store.context() != null);
+        show(detail.element(), facts && store.context() != null && detail.hasFacts());
         show(cardArea, !facts);
         if (!facts) {
             // 고른 노드 하나만 세운다 — 나머지는 자식이 들고 있고, 탭을 누르면 그것이 선다.
@@ -316,7 +318,7 @@ public class CompanionElement {
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
             dev.sayaya.magi.bridge.ChromeSharing.remeasure();
-            show(detail.element(), companion && "facts".equals(cardShows));
+            show(detail.element(), companion && detail.hasFacts() && "facts".equals(cardShows));
             show(cardArea, companion && !"facts".equals(cardShows));
             show(filecol, true);
             show(stream, true);
@@ -333,7 +335,7 @@ public class CompanionElement {
         boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
         standAlone(cardHere);
         show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);
-        show(detail.element(), "facts".equals(panel));
+        show(detail.element(), "facts".equals(panel) && detail.hasFacts());
         show(centreFill, "talk".equals(panel));
         show(cardTabs, cardHere);
         show(cardArea, cardHere);
