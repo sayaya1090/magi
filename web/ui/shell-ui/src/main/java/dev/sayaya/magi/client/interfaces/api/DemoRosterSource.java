@@ -20,6 +20,16 @@ import javax.inject.Singleton;
 public class DemoRosterSource implements RosterSource {
     private Listener listener;
     private String aimed = null;
+    /**
+     * 지금의 명단 — 상수가 아니라 <b>움직이는 것</b>이다.
+     *
+     * 데모가 가만히 있으면 이 콘솔이 무엇을 위한 것인지 절반은 보이지 않는다: 걸음이 늘고,
+     * 기다리던 것이 답을 받아 일하러 가고, 하나가 나타났다 떠나고, 계획이 채워지는 것 —
+     * 그것들은 설명될 수는 있어도 <b>보여질</b> 수는 없다(구 콘솔 데모가 이 시계를 가진 이유).
+     */
+    private JsArrayLike<Object> now = null;
+    private int beat = 0;
+    private boolean ticking = false;
 
     @Inject
     public DemoRosterSource() {}
@@ -29,6 +39,129 @@ public class DemoRosterSource implements RosterSource {
         listener = l;
         l.link(true);
         push();
+        // 1초에 한 박자 — 구 콘솔 데모와 같은 박자다. 한 번만 건다: start는 화면마다 불린다.
+        if (!ticking) {
+            ticking = true;
+            DomGlobal.setInterval(a -> tick(), 1000);
+        }
+    }
+
+    /** 한 박자 — 도는 것은 걸음이 늘고, 살아 있는 것은 쉰 시간이 늘고, 각본이 제 차례를 낸다. */
+    private void tick() {
+        JsArrayLike<Object> all = fleet();
+        beat++;
+        for (int i = 0; i < all.getLength(); i++) {
+            jsinterop.base.JsPropertyMap<Object> a = Js.uncheckedCast(all.getAt(i));
+            if ("working".equals(String.valueOf(a.get("state")))) {
+                a.set("steps", num(a, "steps") + 1);
+                a.set("idle", 0d);
+                double total = num(a, "planTotal"), done = num(a, "planDone");
+                if (total > 0 && beat % 3 == 0 && done < total) a.set("planDone", done + 1);
+            } else if (Js.isTruthy(a.get("live"))) {
+                a.set("idle", num(a, "idle") + 1);
+            }
+        }
+        script();
+        push();
+    }
+
+    /**
+     * 각본 — 무엇이 언제 바뀌는가. 구 콘솔 데모의 그 스무 박자다: 쉬던 것이 일하러 가고,
+     * 일하던 것이 사람에게 묻고, 답을 받고, 하나가 나타났다 스무 박자 뒤에 떠난다.
+     */
+    private void script() {
+        switch (beat) {
+            case 2: set("buttons", "{\"state\":\"working\",\"live\":true,\"steps\":0,\"idle\":0,"
+                    + "\"task\":\"give the switch a disabled state and the tokens for it\","
+                    + "\"planDone\":0,\"planTotal\":3}"); break;
+            case 4: ask("design", "the empty state needs a word for \\\"nothing yet\\\" — pick one",
+                    "question", "call_77"); break;
+            case 6: answered("api", "{\"state\":\"working\",\"planDone\":2}"); break;
+            case 8: set("ops", "{\"state\":\"idle\",\"live\":true,\"idle\":0,"
+                    + "\"task\":\"rotated the staging certificates\"}"); break;
+            case 9: arrive(); break;
+            case 10: answered("design", "{\"state\":\"working\",\"planDone\":4,"
+                    + "\"doing\":\"check 11, 7m30s elapsed, still running\"}"); break;
+            case 12: answered("palette", "{\"state\":\"working\",\"planTotal\":3,\"planDone\":1,"
+                    + "\"doing\":\"check 3, 1m40s elapsed, not met yet (exit 1)\"}"); break;
+            case 14: set("api", "{\"planDone\":3}"); break;
+            case 16: set("buttons", "{\"state\":\"idle\",\"planDone\":3,\"idle\":1}"); break;
+            case 18: answered("design", "{\"state\":\"idle\",\"planDone\":5,\"idle\":1}"); break;
+            case 20: set("ops", "{\"state\":\"stopped\",\"live\":false,\"idle\":90000}"); break;
+            case 22: leave("docs2"); break;
+            default: break;
+        }
+    }
+
+    /** 그 이름의 행에 이 사실들을 덮어쓴다. */
+    private void set(String name, String patch) {
+        jsinterop.base.JsPropertyMap<Object> row = named(name);
+        if (row == null) return;
+        jsinterop.base.JsPropertyMap<Object> more = Js.uncheckedCast(Global.JSON.parse(patch));
+        more.forEach(k -> row.set(k, more.get(k)));
+    }
+
+    /** 사람에게 묻기 시작했다 — 물음은 상태이자 문장이다. */
+    private void ask(String name, String asking, String kind, String id) {
+        jsinterop.base.JsPropertyMap<Object> row = named(name);
+        if (row == null) return;
+        row.set("state", "waiting");
+        row.set("asking", asking);
+        row.set("askKind", kind);
+        row.set("askId", id);
+        row.delete("doing");
+    }
+
+    /** 답을 받았다 — 묻던 것이 사라지고 다시 일한다(물음이 남아 있으면 그것이 화면의 사실이다). */
+    private void answered(String name, String patch) {
+        jsinterop.base.JsPropertyMap<Object> row = named(name);
+        if (row == null) return;
+        row.delete("asking");
+        row.delete("askId");
+        row.delete("askKind");
+        row.delete("askOptions");
+        row.delete("report");
+        set(name, patch);
+    }
+
+    /** 하나가 온다 — 명단은 사람이 보고 있는 동안에도 늘어난다. */
+    private void arrive() {
+        elemental2.core.JsArray<Object> all = Js.uncheckedCast(fleet());
+        all.push(Global.JSON.parse("{\"socket\":\"/demo/docs2.sock\",\"name\":\"docs2\","
+                + "\"role\":\"the handbook and its examples\",\"team\":\"frontend\","
+                + "\"workdir\":\"/Users/you/work/docs\",\"session\":\"x1\",\"state\":\"working\","
+                + "\"live\":true,\"here\":true,\"task\":\"write the empty-state page from the spec\","
+                + "\"steps\":0,\"planDone\":0,\"planTotal\":2,\"idle\":0,\"host\":\"mini\","
+                + "\"instance\":\"you@mini\",\"addr\":\"10.0.0.9\",\"pid\":4140}"));
+    }
+
+    /** 그리고 떠난다 — 사라지는 것도 이 화면이 보여야 할 사실이다. */
+    private void leave(String name) {
+        elemental2.core.JsArray<Object> all = Js.uncheckedCast(fleet());
+        for (int i = 0; i < all.length; i++) {
+            jsinterop.base.JsPropertyMap<Object> row = Js.uncheckedCast(all.getAt(i));
+            if (name.equals(String.valueOf(row.get("name")))) { all.splice(i, 1); return; }
+        }
+    }
+
+    private jsinterop.base.JsPropertyMap<Object> named(String name) {
+        JsArrayLike<Object> all = fleet();
+        for (int i = 0; i < all.getLength(); i++) {
+            jsinterop.base.JsPropertyMap<Object> row = Js.uncheckedCast(all.getAt(i));
+            if (name.equals(String.valueOf(row.get("name")))) return row;
+        }
+        return null;
+    }
+
+    private static double num(jsinterop.base.JsPropertyMap<Object> m, String k) {
+        Object v = m.get(k);
+        return v == null ? 0 : Js.coerceToDouble(v);
+    }
+
+    /** 지금의 명단 — 처음 물을 때 픽스처에서 한 번 만들어 두고, 그 뒤로는 그것이 사실이다. */
+    private JsArrayLike<Object> fleet() {
+        if (now == null) now = Js.uncheckedCast(Global.JSON.parse(FLEET));
+        return now;
     }
 
     @Override
@@ -79,7 +212,7 @@ public class DemoRosterSource implements RosterSource {
     }
 
     private void push() {
-        listener.roster(Js.uncheckedCast(Global.JSON.parse(FLEET)));
+        listener.roster(Js.uncheckedCast(fleet()));
         if (aimed == null || aimed.isEmpty()) {
             listener.transcript(null);
             listener.turn(false, 0);

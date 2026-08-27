@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces.api;
 
 import dev.sayaya.magi.client.usecase.MapSource;
+import dev.sayaya.magi.bridge.RosterSharing;
 import elemental2.core.Global;
 
 import javax.inject.Inject;
@@ -25,19 +26,17 @@ public class DemoMapSource implements MapSource {
 
     @Override
     public void fleet(Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse(
-                "[{\"socket\":\"/a\",\"name\":\"build\",\"team\":\"core\",\"state\":\"working\",\"live\":true," +
-                  "\"host\":\"mac\",\"addr\":\"10.0.0.7\",\"instance\":\"you@mac\",\"trust\":\"own\",\"hub\":true,\"idle\":3}," +
-                 "{\"socket\":\"/b\",\"name\":\"docs\",\"team\":\"core\",\"state\":\"idle\",\"live\":true," +
-                  "\"host\":\"mac\",\"instance\":\"you@mac\",\"trust\":\"own\",\"idle\":60}," +
-                 "{\"socket\":\"/c\",\"name\":\"ci\",\"state\":\"remote\",\"live\":false,\"elsewhere\":true," +
-                  "\"host\":\"buildbox\",\"instance\":\"agent@buildbox\",\"trust\":\"admitted\",\"idle\":300}]"));
+        // 이 화면의 명단은 <b>셸의 명단</b>이다 — 데모라고 해서 제 함대를 따로 지어 두면, 같은
+        // 창의 두 화면이 서로 다른 기계와 다른 이름을 보여 준다(실측: 지도만 mac/buildbox였다).
+        // 진짜 콘솔에서 이 화면이 하는 것과 같은 일이기도 하다: 명단의 주인은 셸 하나다.
+        RosterSharing.subscribe(cb::accept);
     }
 
     @Override
     public void handoffs(Consumer<Object> cb) {
+        // 구 콘솔의 데모와 같은 둘 — 하나는 끝났고 하나는 아직 기다린다.
         cb.accept(Global.JSON.parse(
-                "[{\"from\":\"build\",\"to\":\"docs\",\"socket\":\"/b\",\"state\":\"working\"}," +
-                 "{\"from\":\"build\",\"to\":\"ci\",\"socket\":\"/c\",\"state\":\"done\"}]"));
+                "[{\"from\":\"design\",\"to\":\"buttons\",\"socket\":\"/demo/buttons.sock\",\"state\":\"idle\"}," +
+                 "{\"from\":\"design\",\"to\":\"api\",\"socket\":\"/demo/api.sock\",\"state\":\"waiting\"}]"));
     }
 }
