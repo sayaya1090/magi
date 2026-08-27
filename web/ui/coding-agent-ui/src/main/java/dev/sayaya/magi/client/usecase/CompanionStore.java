@@ -43,9 +43,40 @@ public class CompanionStore implements CompanionSource.Listener {
 
     public CompanionContext context() { return ctx; }
 
+    /**
+     * 상자에 쓴 한 마디를 보낸다 — 지금 답을 기다리는 부름이 있으면 <b>답으로</b>, 아니면 부탁으로.
+     *
+     * 한 상자가 두 몫을 하는 이유는 운영과 같다: 질문에 답하는 상자와 새 부탁을 보내는 상자를
+     * 위아래로 세우면, 무엇이 무엇인지 말해 주는 표도 없이 글 상자 둘이 겹친다. 지금 무엇을
+     * 하는 자리인지는 부모가 알려 준다(AskSharing) — 컴패니언이 무엇에 걸려 있는지는 이
+     * 모듈이 아니라 컴패니언 패널이 아는 사실이라서.
+     */
     public void submit(String text, Consumer<String> why) {
         if (ctx == null) { why.accept("no companion"); return; }
+        if (answering != null) {
+            String call = str(answering, "call"), kind = str(answering, "kind");
+            source.answer(ctx, call, kind, text, why);
+            return;
+        }
         source.submit(ctx, text, why);
+    }
+
+    /** 지금 답을 기다리는 부름(없으면 null) — 부모가 알린 사실을 그대로 든다. */
+    private Object answering = null;
+
+    public boolean answering() { return answering != null; }
+
+    public void listenForAsk(Runnable changed) {
+        dev.sayaya.magi.bridge.AskSharing.subscribe(ask -> {
+            boolean was = answering != null;
+            answering = ask;
+            if (was != (answering != null)) changed.run();
+        });
+    }
+
+    private static String str(Object o, String key) {
+        Object v = jsinterop.base.Js.asPropertyMap(o).get(key);
+        return v == null ? "" : String.valueOf(v);
     }
 
     // ── 지난 일 층위: 목록 또는 한 세션의 전사 — ctx.past가 정한다 ──────────

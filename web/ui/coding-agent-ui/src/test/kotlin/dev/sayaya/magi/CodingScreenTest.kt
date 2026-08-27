@@ -218,6 +218,49 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_filedo") shouldBe "new-file|docs/new.md|"
             }
         }
+        When("부모가 '지금은 답하는 자리다'라고 알리면") {
+            page.evaluate("window.__magi_ask_test_before = document.querySelector('#dock #t')" +
+                ".getAttribute('label')")
+            // 쓰던 초고가 있는 채로 몫이 바뀐다 — 사람은 타이핑 중에도 질문을 받는다.
+            page.locator("#dock .composer #t textarea").fill("half a request")
+            page.evaluate("window.__magi_ask_publish({call:'call_9', kind:'question'," +
+                " socket:'/tmp/a1.sock', peer:null})")
+            Then("상자가 옷을 갈아입고, 쓰던 글은 지워지지 않고 맡겨진다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "label.answer"
+                }
+                page.locator("#dock #send").textContent() shouldBe "action.answer"
+                page.locator("#dock #cnote:not([hidden])").count() shouldBe 1
+                // 맡긴 글은 화면에서 비워진다 — 답 자리에 남의 초고가 서 있으면 안 된다.
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
+            }
+            Then("여기에 쓴 것은 부탁이 아니라 답으로 간다") {
+                page.locator("#dock .composer #t textarea").fill("yes, drop it")
+                page.locator("#dock .composer #send").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_answered") as String?) != null
+                }
+                page.evaluate("window.__magi_test_answered") shouldBe "call_9/question/yes, drop it"
+            }
+        }
+        When("질문이 걷히면") {
+            page.evaluate("window.__magi_ask_publish(null)")
+            Then("상자는 다시 부탁하는 자리가 되고, 맡겨 둔 초고가 돌아온다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "label.ask"
+                }
+                page.locator("#dock #send").textContent() shouldBe "action.send"
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe "half a request"
+                page.locator("#dock #cnote[hidden]").count() shouldBe 1
+            }
+            Then("그리고 그 뒤의 한 마디는 다시 부탁으로 간다 — 낡은 부름으로 새지 않는다") {
+                page.locator("#dock .composer #t textarea").fill("next request")
+                page.locator("#dock .composer #send").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_sent") as String).startsWith("next request")
+                }
+            }
+        }
         When("대화가 제 기둥에 놓이면") {
             Then("전사는 기둥 안에서 스크롤한다 — 페이지가 아니라 그것이 움직인다") {
                 // 부모가 준 자리는 이미 높이가 정해져 있고, 자식은 그 안에서 남는 높이를 받는다.

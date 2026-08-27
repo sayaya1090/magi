@@ -81,6 +81,15 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void answer(CompanionContext ctx, String call, String kind, String text, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("call", call);
+        body.set("kind", kind == null ? "question" : kind);
+        body.set("text", text);
+        Console.post("/answer", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("text", text);

@@ -32,6 +32,10 @@ public class TestApplication implements EntryPoint {
         DomGlobal.document.body.setAttribute("files", "open");
         DomGlobal.document.body.setAttribute("side", "open");
         DomGlobal.document.body.setAttribute("at", "agent");
+        // 부모가 알리는 그 사실 하나를 하네스가 대신 연다 — 스펙이 사람 대신 부모 노릇을 한다.
+        jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_ask_publish",
+                (dev.sayaya.magi.bridge.AskSharing.NextFn) ask ->
+                        dev.sayaya.magi.bridge.AskSharing.publish(ask));
         CodingTestComponent c = DaggerCodingTestComponent.create();
         c.conversation().mount(stream);
         c.conversation().mountComposer(bay);

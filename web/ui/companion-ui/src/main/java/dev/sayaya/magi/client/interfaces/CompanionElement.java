@@ -35,6 +35,7 @@ public class CompanionElement {
     private final CompanionStore store;
     private final DetailElement detail;
     private final SideElement side;
+    private final PromptElement prompt;
     private final Arrangement arrange;
     private final HTMLElement stage = el("div");      // #agentview — 세 기둥의 격자
     private final HTMLElement filecol = el("div");    // 왼쪽 기둥(자식의 것)
@@ -49,11 +50,12 @@ public class CompanionElement {
 
     @Inject
     public CompanionElement(CompanionStore store, DetailElement detail, SideElement side,
-                            Arrangement arrange) {
+                            Arrangement arrange, PromptElement prompt) {
         this.store = store;
         this.detail = detail;
         this.side = side;
         this.arrange = arrange;
+        this.prompt = prompt;
         // 뼈대의 이름은 운영 콘솔의 것이다 — #agentview/#filecol/#stream/#sidecol. 이름을 새로
         // 지었더니 console.css의 배치 기계(창 높이 앵커·기둥 접기·도크 여백)가 통째로 비켜갔다:
         // 실측으로 대화가 1024px 창에서 224px까지 눌리고 전사는 4천 픽셀로 자라 잘렸다.
@@ -82,6 +84,8 @@ public class CompanionElement {
         // 나머지(사실판·기둥)는 자리를 지키는 것들이라, 움직이면 화면이 통째로 흔들린다.
         Motion.enter(stream);
         arrange.engage();
+        // 무엇에 걸려 있는지는 컴포저 바로 위에 선다 — 답하려고 목록으로 되돌아가지 않게.
+        arrange.putPrompt(prompt.element());
         if (wired) return;
         wired = true;
         // 자식이 미는 렌더를 받을 자리 — 가운데는 하나, 왼쪽은 쌓인다.
@@ -101,6 +105,7 @@ public class CompanionElement {
             Js.<Render>cast(render).onInvoke(box);
         });
         store.onContext(this::adopt);
+        prompt.wire();
         buildTabs();
         // 폭이 바뀌면 다시 정한다 — 폰에서 넓어진 창은 탭을 걷고 전부를 보여야 한다.
         // 창의 resize를 듣는다: 미디어 질의의 change만 듣던 판은 좁힐 때만 발화하고 넓힐 때

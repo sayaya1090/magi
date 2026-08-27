@@ -45,8 +45,39 @@ public class FakeCompanionSource implements CompanionSource {
         l.turn(true, 12);
     }
 
+    private Consumer<Object> rosterCb = null;
+
+    /**
+     * 스펙이 "지금 이 컴패니언이 무엇을 묻는다"를 만들 수 있게 하는 문 —
+     * window.__magi_test_ask(kind, options)를 부르면 명단이 그 사실을 안고 다시 흐른다.
+     * 실제로도 명단은 계속 흐르며 이 사실을 나른다(스트림).
+     */
+    private void openAskDoor() {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_ask",
+                (AskFn) (kind, options) -> {
+                    if (rosterCb == null) return;
+                    String opts = options == null || options.isEmpty() ? ""
+                            : ",\"askOptions\":" + options;
+                    rosterCb.accept(Global.JSON.parse(
+                            "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":" +
+                            (kind == null ? "\"working\"" : "\"waiting\"") +
+                            ",\"steps\":7,\"idle\":42,\"workdir\":\"/Users/you/work/app\"," +
+                            "\"session\":\"s_demo1\",\"permission\":\"ask\"" +
+                            (kind == null ? "" :
+                             ",\"asking\":\"may I drop the table?\",\"askId\":\"call_7\"," +
+                             "\"askKind\":\"" + kind + "\",\"askIndex\":1,\"askTotal\":2," +
+                             "\"report\":[{\"key\":\"why\",\"text\":\"the migration needs it\"}]" + opts) +
+                            "}]"));
+                });
+    }
+
+    @jsinterop.annotations.JsFunction
+    public interface AskFn { void call(String kind, String optionsJson); }
+
     @Override
     public void roster(Consumer<Object> cb) {
+        rosterCb = cb;
+        openAskDoor();
         cb.accept(Global.JSON.parse(
                 "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
                 "\"steps\":7,\"idle\":42,\"role\":\"keeps the build green\",\"team\":\"core\",\"hub\":true," +

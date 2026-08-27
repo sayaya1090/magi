@@ -41,4 +41,11 @@ public interface CompanionSource {
 
     /** 대상 컴패니언으로 한 마디 — why는 거부 사유, 성공이면 빈 문자열. */
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
+
+    /**
+     * 기다리는 질문에 답한다 — 같은 상자에 쓴 글이 부탁이 아니라 답으로 간다.
+     * call은 어느 부름인지(부모가 알려 준 것), kind는 무엇을 물었는지.
+     */
+    void answer(CompanionContext ctx, String call, String kind, String text,
+                java.util.function.Consumer<String> why);
 }

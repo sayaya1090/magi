@@ -99,4 +99,12 @@ public class FakeCompanionSource implements CompanionSource {
         win.set("__magi_test_sent", text + "@" + ctx.socket);
         why.accept("");
     }
+
+    /** 답은 다른 곳에 적는다 — 같은 상자에 쓴 글이 어디로 갔는지가 이 스펙의 요점이라서. */
+    @Override
+    public void answer(CompanionContext ctx, String call, String kind, String text, Consumer<String> why) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set("__magi_test_answered", call + "/" + kind + "/" + text);
+        why.accept("");
+    }
 }
