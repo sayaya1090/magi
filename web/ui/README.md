@@ -47,8 +47,9 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
   이전 대화가 새 화면에 비치지 않는다.
 - **컨텍스트** (`__magi_companion_subscribe`): 지금 보는 컴패니언(CompanionContext:
   socket·peer·type). type은 셸이 타입 카탈로그로 이미 해석한 키다 — 화면 모듈은 읽기만.
-- **이동** (`__magi_go` / `__magi_go_view`): 화면이 셸에 이동을 청하는 두 문 — 컴패니언
-  으로(플릿의 행), 그리고 카탈로그 화면으로(플릿의 .toview → 보드처럼 문 없는 주소).
+- **이동** (`__magi_go` / `__magi_go_view` / `__magi_go_past`): 화면이 셸에 이동을 청하는
+  문들 — 컴패니언으로(플릿의 행), 카탈로그 화면으로(플릿의 .toview), 그리고 지난 일
+  층위로(?past= — null=지금 대화, ""=목록, 값=그 세션; 보드 카드·이력 행이 쓴다).
   주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
 - **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
   console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
