@@ -126,6 +126,19 @@ public class CompanionStore implements CompanionSource.Listener {
         source.models(ctx, got -> { modelNames = got; cb.accept(got); });
     }
 
+    private Object providerList = null;
+
+    /** 이 콘솔이 볼 수 있는 백엔드들 — 화면당 한 번 묻는다(콘솔의 사실이라 컴패니언과 무관). */
+    public void providers(Consumer<Object> cb) {
+        if (providerList != null) { cb.accept(providerList); return; }
+        source.providers(got -> { providerList = got; cb.accept(got); });
+    }
+
+    /** 이 컴패니언을 그 백엔드로 — 주소를 보낸다. */
+    public void useProvider(String base, Consumer<String> why) {
+        if (ctx != null) source.useProvider(ctx, base, why);
+    }
+
     public void model(String name, Consumer<String> why) {
         if (ctx != null) source.model(ctx, name, why);
     }

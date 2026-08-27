@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
@@ -51,13 +52,15 @@ public class SideElement {
         side.append(plan, strip, handoffs, queued, cron, empty);
         store.onPlan(this::paint);
         // 명단이 흐를 때마다 다시 묻는다 — 이 셋은 로그에 없어서 흐름에 실려 오지 않는다.
-        store.onRoster(list -> refresh());
+        store.onRoster(list -> { rosterList = list; refresh(); });
         store.onContext(c -> refresh());
     }
 
     public HTMLElement element() { return side; }
 
     /** 로그 밖의 사실들을 다시 읽는다 — 답이 같으면 다시 그리지 않는다(열린 메뉴·스크롤 보호). */
+    private Object rosterList = null;
+
     private void refresh() {
         if (store.context() == null) {
             for (HTMLElement card : new HTMLElement[]{strip, handoffs, queued, cron}) {
@@ -157,7 +160,10 @@ public class SideElement {
         for (int i = 0; i < list.getLength(); i++) {
             JsPropertyMap<Object> h = Js.uncheckedCast(list.getAt(i));
             HTMLElement row = cell("ho " + str(h, "state"), null);
-            row.append(cell("to", str(h, "to")));
+            // 이름은 그 컴패니언으로 가는 길이다 — 건넨 일은 이 화면이 <b>화면에 없는 누군가</b>를
+            // 이야기하는 유일한 자리이고, "그래서 그게 어떻게 되고 있나"의 답은 그쪽 화면에 있다.
+            // 이 콘솔이 그 이름을 아는 경우에만: 아무 데도 안 가는 링크는 맨 글자보다 나쁘다.
+            row.append(wayTo(str(h, "to")));
             HTMLElement req = cell("req", str(h, "request"));
             req.setAttribute("role", "button");
             req.setAttribute("tabindex", "0");
@@ -170,6 +176,30 @@ public class SideElement {
             handoffs.append(row);
         }
         handoffs.removeAttribute("hidden");
+    }
+
+    /** 건네받은 쪽으로 가는 길 — 명단에 그 이름이 있을 때만 링크가 된다. */
+    private HTMLElement wayTo(String name) {
+        FleetAgent peer = null;
+        JsArrayLike<Object> all = Js.uncheckedCast(rosterList);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            FleetAgent one = Js.uncheckedCast(all.getAt(i));
+            if (name.equals(one.name) && one.socket != null && !one.socket.isEmpty()) { peer = one; break; }
+        }
+        if (peer == null) return cell("to", name);
+        final FleetAgent go = peer;
+        HTMLElement a = el("a");
+        a.className = "to";
+        a.textContent = name;
+        a.setAttribute("href", dev.sayaya.magi.bridge.Windows.here() + "?d="
+                + elemental2.core.Global.encodeURIComponent(go.socket)
+                + (go.peer == null || go.peer.isEmpty() ? ""
+                   : "&p=" + elemental2.core.Global.encodeURIComponent(go.peer)));
+        a.addEventListener("click", evt -> {
+            evt.preventDefault();
+            dev.sayaya.magi.bridge.GoSharing.go(go.socket, go.peer == null || go.peer.isEmpty() ? null : go.peer);
+        });
+        return a;
     }
 
     /** 예약된 일 — 언제 다시 도는가, 또는 <b>왜 영영 안 도는가</b>(그 표시가 이 목록의 값이다). */

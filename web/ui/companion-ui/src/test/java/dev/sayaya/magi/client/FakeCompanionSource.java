@@ -138,6 +138,19 @@ public class FakeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void providers(java.util.function.Consumer<Object> cb) {
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"gateway\",\"base\":\"http://127.0.0.1:47311/v1\",\"models\":[\"fast\",\"deep\"]},"
+                        + "{\"name\":\"studio\",\"base\":\"http://127.0.0.1:11434/v1\",\"models\":[\"local-8b\"]}]"));
+    }
+
+    @Override
+    public void useProvider(CompanionContext ctx, String base, java.util.function.Consumer<String> why) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_provider", base);
+        why.accept("");
+    }
+
+    @Override
     public void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why) {
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_model", name);
         why.accept("");

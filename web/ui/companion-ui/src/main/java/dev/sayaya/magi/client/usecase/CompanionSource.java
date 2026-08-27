@@ -62,6 +62,18 @@ public interface CompanionSource {
     /** 이 컴패니언이 닿을 수 있는 모델 이름들(/model) — 콘솔의 설정이 아니라 그 데몬의 대답이다. */
     void models(CompanionContext ctx, java.util.function.Consumer<Object> namesOrNull);
 
+    /**
+     * 이 콘솔이 볼 수 있는 CLI 백엔드들(/providers) — 이름·주소·그 주소가 서빙하는 모델들.
+     * 컴패니언이 <b>어느 백엔드</b>에 물려 있는지는 명단의 backend가 말한다.
+     */
+    void providers(java.util.function.Consumer<Object> list);
+
+    /**
+     * 이 컴패니언을 그 백엔드로 옮긴다(/providers) — 이름이 아니라 <b>주소</b>를 보낸다:
+     * 어느 shim이 어디서 답하는지는 콘솔이 알고 있고, 데몬이 두 번째로 찾아보게 할 일이 아니다.
+     */
+    void useProvider(CompanionContext ctx, String base, java.util.function.Consumer<String> why);
+
     /** 모델을 바꾼다(/model). */
     void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why);
 

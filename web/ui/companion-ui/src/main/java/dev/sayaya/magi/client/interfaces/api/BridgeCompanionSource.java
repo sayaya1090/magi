@@ -81,6 +81,18 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void providers(Consumer<Object> cb) {
+        Console.fetchList("/providers", cb::accept);
+    }
+
+    @Override
+    public void useProvider(CompanionContext ctx, String base, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("base", base);
+        Console.post("/providers", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
     public void model(CompanionContext ctx, String name, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("model", name);

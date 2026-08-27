@@ -157,6 +157,7 @@ public class DetailElement {
     private final HTMLElement sessSel = el("md-outlined-select");
     private boolean permWired = false, modelWired = false, sessWired = false;
     private String permWant = "", modelWant = "";
+    private String modelWas = "";
     private String sessFor = null;
     private Object sessList = null;
     private static final String[][] PERM_MODES = {
@@ -187,10 +188,15 @@ public class DetailElement {
         return f;
     }
 
+    private final HTMLElement provSel = el("md-outlined-select");
+    private boolean provWired = false;
+    private Object provList = null;
+    private boolean modelBlank = false;   // 백엔드를 갈아탄 뒤: 이 칸은 비어 있어야 한다
+
     private HTMLElement modelField(String showing) {
         HTMLElement f = cell("f wide", null);
-        f.setAttribute("data-k", "field.model");
-        f.append(cell("k", tr("field.model")));
+        f.setAttribute("data-k", "field.provider_model");
+        f.append(cell("k", tr("field.provider_model")));
         if (!modelWired) {
             modelWired = true;
             modelSel.className = "permsel";
@@ -202,7 +208,11 @@ public class DetailElement {
             });
         }
         modelSel.setAttribute("aria-label", tr("field.model"));
-        String now = !modelWant.isEmpty() ? modelWant : showing;
+        // 갈아탄 뒤에는 비워 둔다 — 그 이름은 이전 백엔드의 것이다(데몬이 새 이름을 말하기 전까지).
+        // 갈아탄 뒤 데몬이 <b>새</b> 이름을 말하면 그때 다시 채운다 — 그 전까지는 비어 있다.
+        if (modelBlank && !showing.isEmpty() && !showing.equals(modelWas)) modelBlank = false;
+        modelWas = showing;
+        final String now = !modelWant.isEmpty() ? modelWant : modelBlank ? "" : showing;
         // 목록은 그 <b>데몬</b>이 답한 것이다 — 콘솔의 설정에서 뽑으면 그 컴패니언이 닿지도 못하는
         // 모델을 내놓는다. 답이 비면(너무 낡은 데몬, 죽은 백엔드) 지금 것 하나만 세운다.
         store.models(names -> {
@@ -218,9 +228,80 @@ public class DetailElement {
         });
         gate(modelSel, May.can("configure"));
         HTMLElement v = cell("v", null);
-        v.append(modelSel);
+        // 백엔드가 앞, 모델이 뒤 — 물음이 그 순서다("어느 백엔드, 그 다음 그 백엔드의 어느 모델").
+        // 한 줄인 이유는 앞의 것을 바꾸면 뒤의 것이 내놓을 수 있는 것이 바뀌기 때문이다.
+        HTMLElement pair = cell("modelpair", null);
+        pair.append(providerPick(), modelSel);
+        v.append(pair);
         f.append(v);
         return f;
+    }
+
+    /**
+     * 어느 백엔드에 물려 있나 — 그리고 갈아타는 문.
+     *
+     * 서빙하는 것이 하나도 없으면 서지 않는다: 뒤에 아무것도 없는 컨트롤이 된다. 갈아타면 모델
+     * 이름은 <b>비운다</b>: 백엔드끼리 어휘를 나눠 쓰지 않아서 이전 이름은 새 백엔드가 모르는
+     * 이름이고, 남겨 두면 다음 요청에서 거절당할 값이 아무 말 없이 서 있게 된다. 대신 고르지도
+     * 않는다 — 남의 카탈로그에서 무엇을 뜻했는지 아는 규칙이 없다. 그래서 비우고 캐럿을 준다.
+     */
+    private HTMLElement providerPick() {
+        if (!provWired) {
+            provWired = true;
+            provSel.className = "permsel";
+            provSel.setAttribute("aria-label", tr("field.provider"));
+            provSel.addEventListener("change", evt -> {
+                JsPropertyMap<Object> chosen = providerNamed(value(provSel));
+                if (chosen == null) return;
+                store.useProvider(str(chosen, "base"), why -> {
+                    if (why != null && !why.isEmpty()) return;
+                    modelWant = "";
+                    modelBlank = true;
+                    // 다음 폴은 3초 뒤다 — 그때까지 이전 백엔드의 모델을 이 백엔드의 것인 양
+                    // 세워 두지 않는다.
+                    Js.asPropertyMap(modelSel).set("value", "");
+                    Js.<HTMLElement>uncheckedCast(modelSel).focus();
+                    render();
+                });
+            });
+        }
+        provSel.setAttribute("aria-label", tr("field.provider"));
+        store.providers(got -> {
+            provList = got;
+            JsArrayLike<Object> all = Js.uncheckedCast(got);
+            int n = all == null ? 0 : all.getLength();
+            java.util.List<String[]> opts = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                opts.add(new String[]{str(Js.<JsPropertyMap<Object>>uncheckedCast(all.getAt(i)), "name"), null});
+            }
+            options(provSel, opts.toArray(new String[0][]));
+            pick(provSel, nameOfBackend());
+            if (n < 1) provSel.setAttribute("hidden", ""); else provSel.removeAttribute("hidden");
+            // 하나뿐이면 고를 것이 없다 — 읽을 수는 있게 두고 누름만 죽인다.
+            gate(provSel, May.can("configure") && n > 1);
+        });
+        return provSel;
+    }
+
+    /** 지금 물려 있는 백엔드의 이름 — 명단은 주소(backend)로 말한다. */
+    private String nameOfBackend() {
+        String base = a == null || a.backend == null ? "" : a.backend;
+        if (base.isEmpty()) return "";
+        JsArrayLike<Object> all = Js.uncheckedCast(provList);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (base.equals(str(one, "base"))) return str(one, "name");
+        }
+        return "";
+    }
+
+    private JsPropertyMap<Object> providerNamed(String name) {
+        JsArrayLike<Object> all = Js.uncheckedCast(provList);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (str(one, "name").equals(name)) return one;
+        }
+        return null;
     }
 
     private HTMLElement sessionField() {

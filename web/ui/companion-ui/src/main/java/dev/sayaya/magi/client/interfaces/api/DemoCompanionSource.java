@@ -74,6 +74,19 @@ public class DemoCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void providers(java.util.function.Consumer<Object> cb) {
+        // 구 콘솔의 데모와 같은 하나 — 짧은 카탈로그라 두 고르개가 하는 일이 보인다.
+        cb.accept(elemental2.core.Global.JSON.parse(
+                "[{\"name\":\"gateway\",\"base\":\"http://127.0.0.1:47311/v1\","
+                        + "\"models\":[\"fast\",\"balanced\",\"deep\"]}]"));
+    }
+
+    @Override
+    public void useProvider(CompanionContext ctx, String base, java.util.function.Consumer<String> why) {
+        why.accept("");
+    }
+
+    @Override
     public void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why) { why.accept(""); }
 
     @Override
