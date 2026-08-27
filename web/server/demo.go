@@ -72,6 +72,9 @@ const demoShim = `
     if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
     if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
     if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
+    if (url.startsWith('/transcript')) {
+      return Promise.resolve(new Response(JSON.stringify(rows)));
+    }
     if (url.startsWith('/history')) {
       const d = new URLSearchParams(url.split('?')[1] || '').get('d');
       return Promise.resolve(new Response(JSON.stringify(histories[d] || [])));

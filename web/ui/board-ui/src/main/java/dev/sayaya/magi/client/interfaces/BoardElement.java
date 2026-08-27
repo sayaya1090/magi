@@ -27,7 +27,7 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * 라벨 칩(누르면 그 말로 좁힌다). 마크업 클래스(.boardhead/.lanes/.lane/.lanehead/.wcard…)는
  * 운영 그대로 — console.css가 입힌다.
  *
- * 잔여: 과거 세션 화면이 아직 없어 카드는 컴패니언의 지금 화면으로 간다(&past는 주소에만).
+ * 카드의 &past= 주소는 컴패니언의 이력 층위가 받는다 — 그 세션의 전사로 곧장.
  */
 @Singleton
 public class BoardElement {
@@ -168,8 +168,7 @@ public class BoardElement {
             // 누가 했나 — 레인에 여럿이거나 레인 이름과 다를 때만(운영 규칙).
             if (crowded || !str(who, "name").equals(key)) when.append(cell("wwho", str(who, "name")));
             card.append(when);
-            // 제목이 길이다 — 그 대화로. 주소는 운영 모양(&past= 포함)을 지키고, 클릭은
-            // 셸의 문으로 간다(과거 세션 화면은 잔여 — 지금은 컴패니언의 현재 화면).
+            // 제목이 길이다 — 그 대화로: 주소도 클릭도 그 세션(이력 층위)에 닿는다.
             HTMLElement what = el("a");
             what.className = "wwhat";
             String href = "/next?d=" + str(who, "socket")
@@ -178,9 +177,11 @@ public class BoardElement {
             what.setAttribute("href", href);
             String title2 = str(h, "title");
             what.textContent = title2.isEmpty() ? tr("history.untitled") : title2;
+            final String pastId = str(h, "id");
             what.addEventListener("click", evt -> {
                 evt.preventDefault();
                 GoSharing.go(str(who, "socket"), nul(str(who, "peer")));
+                if (!pastId.isEmpty()) GoSharing.past(pastId);
             });
             card.append(what);
             if (!current && !str(h, "started").isEmpty() && !str(h, "ended").isEmpty()) {
