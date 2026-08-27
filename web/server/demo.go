@@ -64,6 +64,21 @@ const demoShim = `
        ended: now.slice(0,10)+'T08:50:00Z'},
     ],
   };
+  const me = {can: ['read','answer','prompt','curate','configure','admin','shell']};
+  const access = {
+    configured: true, named: true,
+    instance: {who: 'you@devbox', configDir: '~/.config/magi'},
+    roles: [
+      {name: 'viewer', can: ['read']},
+      {name: 'operator', can: ['read','answer','prompt','curate','configure','shell']},
+      {name: 'admin', can: ['read','answer','prompt','curate','configure','shell','admin']},
+    ],
+    groups: [{who: 'platform', role: 'operator', can: ['read','answer','prompt','curate','configure','shell'], companions: ['build']}],
+    people: [
+      {who: 'you@devbox', role: 'admin', can: ['read','answer','prompt','curate','configure','shell','admin'], me: true},
+      {who: 'sam@laptop', role: 'viewer', can: ['read'], companions: ['docs']},
+    ],
+  };
   const realFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -72,6 +87,8 @@ const demoShim = `
     if (url.startsWith('/skills')) return Promise.resolve(new Response(JSON.stringify(skills)));
     if (url.startsWith('/wiki')) return Promise.resolve(new Response(JSON.stringify(wiki)));
     if (url.startsWith('/mcp')) return Promise.resolve(new Response(JSON.stringify(mcp)));
+    if (url.startsWith('/me')) return Promise.resolve(new Response(JSON.stringify(me)));
+    if (url.startsWith('/access')) return Promise.resolve(new Response(JSON.stringify(access)));
     if (url.startsWith('/handoffs')) {
       return Promise.resolve(new Response(JSON.stringify(
         [{from: 'build', to: 'docs', socket: '/demo/docs.sock', state: 'done'}])));
