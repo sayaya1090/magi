@@ -359,6 +359,17 @@ public class WorkspaceElement {
         box.replaceChildren();
         if (folded) box.setAttribute("folded", ""); else box.removeAttribute("folded");
         HTMLElement bar = cell("filebar", null);
+        // 이 카드가 트리 자리에 혼자 서 있으면(폰) 돌아갈 문이 그 머리 줄에 선다 — 어디로
+        // 돌아가는지는 부모가 알고, 여기서는 문만 세운다.
+        if (CardSharing.alone()) {
+            HTMLElement back = el("md-text-button");
+            back.className = "fileback";
+            back.append(Icons.orGlyph("#i-sl-chevron-left", "\u2039", "sic"));
+            back.textContent = tr("nav.files");
+            back.setAttribute("aria-label", tr("action.back_to", "name", tr("nav.files")));
+            back.addEventListener("click", evt -> CardSharing.toList());
+            bar.append(back);
+        }
         bar.append(foldCaret(box, path));
         // 경로는 <b>통째로</b>다 — 이름은 탭이 이미 말했고, 사람이 복사해 명령에 붙이는 것은
         // 이 줄이다. 반쪽 경로는 아무도 붙여 넣을 수 없다(운영의 그 이유).

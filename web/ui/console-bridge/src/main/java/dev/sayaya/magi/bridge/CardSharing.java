@@ -19,6 +19,8 @@ import jsinterop.base.JsPropertyMap;
 public final class CardSharing {
     private static final String KEY = "__magi_cards";
     private static final String OBS = "__magi_cards_obs";
+    private static final String ALONE = "__magi_cards_alone";
+    private static final String BACK = "__magi_cards_back";
 
     private CardSharing() {}
 
@@ -48,6 +50,30 @@ public final class CardSharing {
 
     /** 부모: 바뀌면 다시 그린다. */
     public static void onChange(Listener l) { Js.asPropertyMap(DomGlobal.window).set(OBS, l); }
+
+    /**
+     * 부모: 이 카드가 <b>혼자 서 있는가</b>. 폰에서는 기둥이 하나라, 카드가 트리를 대신해 그
+     * 자리에 선다 — 그러면 돌아갈 문이 필요하고, 그 문은 카드의 머리 줄에 있어야 한다(운영도
+     * 파일 바 안이다). 자리 배치는 부모만 알고, 머리 줄은 자식만 안다: 그래서 사실 하나를
+     * 건네고 문 여는 일은 부모가 받는다.
+     */
+    public static void stand(boolean alone, Runner back) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set(ALONE, alone);
+        win.set(BACK, back);
+    }
+
+    /** 자식: 지금 이 카드가 혼자 선 자리인가(부모가 답한다; 아무도 안 답하면 아니다). */
+    public static boolean alone() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get(ALONE);
+        return v != null && Js.isTruthy(v);
+    }
+
+    /** 자식: 이 자리를 원래 내용에 돌려준다 — 무엇이 원래 내용인지는 부모가 안다. */
+    public static void toList() {
+        Object b = Js.asPropertyMap(DomGlobal.window).get(BACK);
+        if (b != null) Js.<Runner>cast(b).call();
+    }
 
     public static Card card(String key, String title, Object render, Runner close) {
         JsPropertyMap<Object> o = JsPropertyMap.of();

@@ -138,6 +138,16 @@ public class CompanionElement {
      * 줄은 서지 않는다(운영 규칙: 연 파일이 없으면 hidden).
      */
     private final java.util.Set<String> cardsSeen = new java.util.HashSet<>();
+    /**
+     * 폰의 작업공간 탭이 지금 무엇을 보이는가 — 트리("files")냐, 열린 카드냐.
+     *
+     * 폰에서 기둥은 하나다: 가운데에 세운 카드는 대화 탭 아래에 숨고, 파일을 눌러 열어도 화면이
+     * 그대로다(운영이 wsShows로 가르는 그 자리). 그래서 좁을 때는 카드 줄과 카드를 작업공간
+     * 기둥으로 옮겨 트리를 대신하게 하고, 트리로 돌아가는 문을 부모가 그 위에 세운다 — 자식은
+     * 제 카드가 어느 기둥에 서 있는지 알지 못한 채 같은 것을 그린다.
+     */
+    private String wsShows = "files";
+    private boolean cardsAlone = false;
 
     private void drawCards() {
         JsArrayLike<Object> cards = Js.uncheckedCast(CardSharing.current());
@@ -170,7 +180,7 @@ public class CompanionElement {
         }
         cardsSeen.retainAll(now);
         cardsSeen.addAll(now);
-        if (opened != null) { cardShows = opened; known = true; }
+        if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
         if (!known) cardShows = String.valueOf(Js.<JsPropertyMap<Object>>uncheckedCast(cards.getAt(n - 1)).get("key"));
         // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
         boolean facts = "facts".equals(cardShows);
@@ -190,6 +200,31 @@ public class CompanionElement {
             if (t == null) continue;
             Js.asPropertyMap(t).set("active", cardShows.equals(t.getAttribute("data-card")));
         }
+        layout();
+    }
+
+    /** 폰의 작업공간 탭이 지금 카드를 보이는가 — 트리 대신 그 자리에 선 것. */
+    private boolean cardInsteadOfTree() {
+        if ("files".equals(wsShows)) return false;
+        JsArrayLike<Object> cards = Js.uncheckedCast(CardSharing.current());
+        for (int i = 0; cards != null && i < cards.getLength(); i++) {
+            JsPropertyMap<Object> c = Js.uncheckedCast(cards.getAt(i));
+            if (wsShows.equals(String.valueOf(c.get("key")))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 이 카드가 혼자 선 자리인지 자식에게 알린다 — 바뀌었을 때만, 그리고 다시 그린다.
+     *
+     * 돌아가는 문은 카드의 머리 줄에 서야 하는데(운영도 파일 바 안이다) 그 줄은 자식의 것이다.
+     * 그래서 자리 배치라는 사실 하나만 건네고, 문이 눌렸을 때 무엇이 원래 내용인지는 여기서 안다.
+     */
+    private void standAlone(boolean alone) {
+        if (alone == cardsAlone) return;
+        cardsAlone = alone;
+        CardSharing.stand(alone, () -> { wsShows = "files"; layout(); });
+        drawCards();
     }
 
     /** 탭 하나 — 이름과, 파일이면 닫는 ×(사실판은 닫지 않는다: 늘 있는 것이다). */
@@ -249,9 +284,11 @@ public class CompanionElement {
         boolean narrow = DomGlobal.window.matchMedia("(max-width:52.4375em)").matches;
         boolean companion = store.context() != null;
         if (!narrow || !companion) {
+            standAlone(false);
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
-            show(detail.element(), companion);
+            show(detail.element(), companion && "facts".equals(cardShows));
+            show(cardArea, companion && !"facts".equals(cardShows));
             show(filecol, true);
             show(stream, true);
             show(sidecol, true);
@@ -260,10 +297,16 @@ public class CompanionElement {
         tabs.removeAttribute("hidden");
         DomGlobal.document.body.setAttribute("panel", panel);
         // 폰에서는 한 번에 하나 — 운영의 네 탭 그대로(대화·정보·파일·계획).
-        show(stream, "talk".equals(panel) || "facts".equals(panel));
+        // 폰의 작업공간은 <b>한 번에 하나</b>다 — 트리냐, 거기서 연 카드냐. 둘을 쌓으면 마흔 개
+        // 이름 아래에서 아무도 아래까지 내려가지 않는다(운영이 이 화면에서 배운 것).
+        boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
+        standAlone(cardHere);
+        show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);
         show(detail.element(), "facts".equals(panel));
         show(centreFill, "talk".equals(panel));
-        show(filecol, "files".equals(panel));
+        show(cardTabs, cardHere);
+        show(cardArea, cardHere);
+        show(filecol, "files".equals(panel) && !cardHere);
         show(sidecol, "plan".equals(panel));
         elemental2.dom.NodeList<elemental2.dom.Element> all = tabs.querySelectorAll("md-primary-tab");
         for (int i = 0; i < all.getLength(); i++) {
