@@ -106,16 +106,24 @@ public class DemoCompanionSource implements CompanionSource {
 
     @Override
     public void jobs(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        // 구 콘솔의 데모와 같은 둘: 지금 도는 자식 하나와, 나쁘게 끝난 배경 명령 하나 —
+        // 성공만 있는 픽스처는 이 카드가 무엇을 위해 있는지 보여 주지 못한다.
         cb.accept(elemental2.core.Global.JSON.parse(
-                "{\"children\":[{\"id\":\"c1\",\"tool\":\"spawn\",\"task\":\"read the adapter tests\",\"running\":true}]," +
-                "\"background\":[{\"command\":\"go test ./...\",\"tail\":\"ok  internal/app\",\"running\":true}]," +
-                "\"queued\":[{\"kind\":\"person\",\"text\":\"and then push it\"}]}"));
+                "{\"children\":[{\"id\":\"s_demo_child\",\"tool\":\"scout\","
+                        + "\"task\":\"find every component that draws an empty state\",\"running\":true,\"steps\":4}],"
+                        + "\"background\":[{\"id\":\"bg_demo\",\"command\":\"npm run build\",\"running\":false,\"exit\":1,"
+                        + "\"tail\":\"compiling\\u2026\\n3 warnings\\nerror: Token --surface-dim is not defined\"}]}"));
     }
 
     @Override
     public void handoffs(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
+        // 하나는 끝나 답이 와 있고 하나는 아직 기다린다 — 건넨 일의 두 상태.
         cb.accept(elemental2.core.Global.JSON.parse(
-                "[{\"to\":\"docs-1\",\"state\":\"working\",\"request\":\"Write the release notes for v0.26\"}]"));
+                "[{\"from\":\"design\",\"to\":\"buttons\",\"socket\":\"/demo/buttons.sock\",\"state\":\"idle\","
+                        + "\"request\":\"make the toggle read its state from the store\","
+                        + "\"answer\":\"the toggle now reads its state from the store rather than a prop\"},"
+                        + "{\"from\":\"design\",\"to\":\"api\",\"socket\":\"/demo/api.sock\",\"state\":\"waiting\","
+                        + "\"request\":\"confirm the invoice endpoint is idempotent\"}]"));
     }
 
     @Override
