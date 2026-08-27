@@ -64,10 +64,13 @@ public class WorkspaceElement {
         wired = true;
         // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
         // 만나지 않게(운영 labels$의 그 구독).
-        dev.sayaya.magi.bridge.Labels.onPack(this::render);
-        store.subscribe(this::render);
+        dev.sayaya.magi.bridge.Labels.onPack(() -> { treeDirty = gitDirty = true; render(); });
+        // 판마다 제 조각을 듣는다 — 파일 하나를 눌렀다고 깃 판이 다시 서지 않게(실측: 깜빡였다).
+        store.treeFacts().subscribe(sig -> { treeDirty = true; render(); });
+        store.gitFacts().subscribe(sig -> { gitDirty = true; render(); });
+        store.subscribe(this::arrange);
         // 부모가 다른 탭으로 옮기면 트리의 표시도 따라간다.
-        CardSharing.onShowing(this::render);
+        CardSharing.onShowing(() -> { treeDirty = true; render(); });
         // 판이 열리는 순간이 첫 걸음의 순간이다 — 닫힌 판은 걷지 않는다.
         dev.sayaya.magi.bridge.PaneSharing.onOpened((slot, open) -> { if (open && "left".equals(slot)) store.walk(); });
     }
@@ -75,24 +78,35 @@ public class WorkspaceElement {
     /** 폰의 작업공간이 지금 보이는 것 — 트리("files")냐 git이냐. 넓은 화면에서는 둘 다 선다. */
     private String shows = "files";
 
+    // 어느 판을 다시 지어야 하는가 — 조각이 흘렀을 때만 참이 된다.
+    private boolean treeDirty = true, gitDirty = true;
+    private HTMLElement treeBox = null, gitBox = null;
+
+    /** 무엇이 어디에 서는가 — 자리만 정한다(판을 짓지 않는다). */
+    private void arrange() { render(); }
+
     private void render() {
-        root.replaceChildren();
         // 아무도 열어 본 적 없는 판은 아직 아무것도 아니다 — 요청도, 마크업도(운영 규칙).
         // 열리는 순간 첫 걸음이 떨어지고, 그 답이 이 판을 짓는다.
         if (!dev.sayaya.magi.bridge.PaneSharing.isOpen("left") && !store.walked()) return;
         // 한 기둥이면 한 번에 하나다(운영의 그 규칙): 마흔 개 이름 아래에 깔린 git 판은 아무도
         // 스크롤해 내려가지 않고, 그 판의 행동들은 손끝이 닿을 자리에 있지도 않다.
         // console.css가 #files[data-shows]로 그 감춤을 맡는다 — 여기서는 무엇을 보이는지만 적는다.
+        // 판은 <b>제 조각이 흘렀을 때만</b> 다시 짓는다. 자리를 바꾸는 것은 노드를 옮기는 일이라
+        // 그 자체로는 다시 짓지 않는다.
+        if (treeDirty || treeBox == null) { treeBox = treeCard(); treeDirty = false; }
+        if (gitDirty || gitBox == null) { gitBox = gitCard(); gitDirty = false; }
+        root.replaceChildren();
         if (Windows.onePane()) {
             root.setAttribute("data-shows", shows);
             if ("git".equals(shows)) {
-                root.append(backRow(tr("nav.files_short"), () -> { shows = "files"; render(); }), gitCard());
+                root.append(backRow(tr("nav.files_short"), () -> { shows = "files"; render(); }), gitBox);
             } else {
-                root.append(treeCard(), gitRow(), gitCard());
+                root.append(treeBox, gitRow(), gitBox);
             }
         } else {
             root.removeAttribute("data-shows");
-            root.append(treeCard(), gitCard());
+            root.append(treeBox, gitBox);
         }
         publishCards();
     }

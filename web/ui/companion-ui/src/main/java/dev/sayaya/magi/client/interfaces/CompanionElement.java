@@ -200,6 +200,10 @@ public class CompanionElement {
         cardTabs.replaceChildren();
         cardTabs.removeAttribute("hidden");
         cardTabs.append(cardTab(tr("field.facts"), "facts", null));
+        // 누가 <b>이것을 보여 달라</b>고 말했으면 그것이 먼저다. 트리에서 이미 열어 둔 파일을
+        // 다시 누르는 것이 그 말이다 — 새 카드가 아니니 아래의 "방금 열린 것" 규칙에 걸리지
+        // 않고, 그래서 눌러도 아무 일이 없었다(실측: 세 번째 클릭에도 옆 파일이 서 있었다).
+        String asked = CardSharing.showing();
         boolean known = "facts".equals(cardShows);
         // 방금 열린 것으로 간다 — 파일을 눌렀는데 화면이 그대로면 아무 일도 안 일어난 것처럼
         // 읽힌다(운영: openFiles에 밀어 넣고 그 탭을 고른다). 이미 열려 있던 것을 다시 눌러
@@ -219,6 +223,11 @@ public class CompanionElement {
         cardsSeen.retainAll(now);
         cardsSeen.addAll(now);
         if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
+        else if (asked != null && !asked.isEmpty() && !asked.equals(cardShows)) {
+            boolean here = "facts".equals(asked);
+            for (int i = 0; i < n && !here; i++) here = asked.equals(cards.get(i).id);
+            if (here) { cardShows = asked; known = true; wsShows = asked; }
+        }
         if (!known) cardShows = cards.get(n - 1).id;
         CardSharing.showing(cardShows);
         // 가서 보는 것(도구·루프·표결)은 가운데를 <b>통째로</b> 쓴다: 그것들은 전사를 곁들여

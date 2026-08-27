@@ -100,8 +100,8 @@ public final class CardSharing {
         // 태운다(실측: Maximum call stack size exceeded, 워크스페이스가 통째로 빈 화면).
         if (had != null && String.valueOf(had).equals(key)) return;
         win.set(SHOWS, key);
-        Object l = win.get(SHOWS_OBS);
-        if (l != null) Js.<Runner>cast(l).call();
+        elemental2.core.JsArray<Runner> ls = listeners(SHOWS_OBS);
+        for (int i = 0; i < ls.length; i++) ls.getAt(i).call();
     }
 
     /** 자식: 지금 보이는 카드의 신원(없으면 빈 문자열). */
@@ -110,8 +110,30 @@ public final class CardSharing {
         return v == null ? "" : String.valueOf(v);
     }
 
-    /** 자식: 그것이 바뀌면 다시 그린다. */
-    public static void onShowing(Runner l) { Js.asPropertyMap(DomGlobal.window).set(SHOWS_OBS, l); }
+    /**
+     * 그것이 바뀌면 다시 그린다 — <b>듣는 쪽은 여럿이다</b>.
+     *
+     * 한 자리에 하나만 두고 있었다: 자식(트리)이 걸면 부모(탭 줄)의 것이 지워져, 트리에서 이미
+     * 열린 파일을 다시 눌러도 그 탭이 서지 않았다(실측: 눌러도 아무 일이 없다). 창에 걸리는
+     * 문은 여러 모듈이 함께 쓰는 문이라, 한 명만 들을 수 있으면 그것은 문이 아니다.
+     */
+    public static void onShowing(Runner l) { listeners(SHOWS_OBS).push(l); }
+
+    /**
+     * 창에 두는 목록은 <b>자바가 아니라 자바스크립트</b> 배열이다.
+     *
+     * 모듈마다 따로 컴파일되므로(페더레이션) 한 모듈이 만든 java.util.List를 다른 모듈이 제
+     * 타입으로 캐스팅해 쓰면 없는 메서드를 부른다(실측: "ti(...).Ib is not a function" —
+     * 파일을 누르는 순간 화면이 죽었다). 창을 건너는 것은 순수 JS 값이어야 한다.
+     */
+    private static elemental2.core.JsArray<Runner> listeners(String key) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        Object had = win.get(key);
+        if (had != null) return Js.uncheckedCast(had);
+        elemental2.core.JsArray<Runner> made = new elemental2.core.JsArray<>();
+        win.set(key, made);
+        return made;
+    }
 
     /** 부모: 이 카드를 닫는다. 닫는 법이 없는 카드는 닫히지 않는다(사실판이 그렇다). */
     public static void close(elemental2.dom.Element card) {

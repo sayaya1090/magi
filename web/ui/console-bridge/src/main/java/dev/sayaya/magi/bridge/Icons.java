@@ -83,24 +83,29 @@ public final class Icons {
      */
     public static void onReady(Runnable then) {
         if (Js.asPropertyMap(DomGlobal.window).has(READY)) { then.run(); return; }
-        java.util.List<Runnable> waiting = waiters();
-        waiting.add(then);
+        waiters().push(then::run);
     }
 
-    private static java.util.List<Runnable> waiters() {
+    /**
+     * 창에 두는 목록은 자바가 아니라 자바스크립트 배열이다 — 모듈마다 따로 컴파일되므로
+     * 한 모듈의 java.util.List를 다른 모듈이 제 타입으로 쓰면 없는 메서드를 부른다.
+     */
+    private static elemental2.core.JsArray<Runner> waiters() {
         Object had = Js.asPropertyMap(DomGlobal.window).get(WAITERS);
         if (had != null) return Js.uncheckedCast(had);
-        java.util.List<Runnable> made = new java.util.ArrayList<>();
+        elemental2.core.JsArray<Runner> made = new elemental2.core.JsArray<>();
         Js.asPropertyMap(DomGlobal.window).set(WAITERS, made);
         return made;
     }
 
+    @jsinterop.annotations.JsFunction
+    public interface Runner { void call(); }
+
     /** 셸: 그림판이 문서에 들어왔다. */
     public static void ready() {
         Js.asPropertyMap(DomGlobal.window).set(READY, true);
-        java.util.List<Runnable> waiting = waiters();
-        for (Runnable r : new java.util.ArrayList<>(waiting)) r.run();
-        waiting.clear();
+        elemental2.core.JsArray<Runner> waiting = waiters();
+        while (waiting.length > 0) waiting.shift().call();
     }
 
     private static final String READY = "__magi_sprite_ready";
