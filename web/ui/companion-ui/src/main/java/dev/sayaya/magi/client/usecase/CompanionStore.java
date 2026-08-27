@@ -6,6 +6,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -17,10 +18,11 @@ public class CompanionStore implements CompanionSource.Listener {
     private final CompanionSource source;
     private final List<Consumer<CompanionContext>> ctxObs = new ArrayList<>();
     private final List<Consumer<Object>> rowsObs = new ArrayList<>();
-    private final List<Consumer<Boolean>> turnObs = new ArrayList<>();
+    private final List<BiConsumer<Boolean, Double>> turnObs = new ArrayList<>();
     private CompanionContext ctx = null;
     private Object rows = null;
     private boolean turnOpen = false;
+    private double turnFor = 0;
     private boolean started = false;
 
     @Inject
@@ -36,7 +38,7 @@ public class CompanionStore implements CompanionSource.Listener {
 
     public void onRows(Consumer<Object> o) { rowsObs.add(o); o.accept(rows); }
 
-    public void onTurn(Consumer<Boolean> o) { turnObs.add(o); o.accept(turnOpen); }
+    public void onTurn(BiConsumer<Boolean, Double> o) { turnObs.add(o); o.accept(turnOpen, turnFor); }
 
     public CompanionContext context() { return ctx; }
 
@@ -60,6 +62,7 @@ public class CompanionStore implements CompanionSource.Listener {
     @Override
     public void turn(boolean open, double forSec) {
         turnOpen = open;
-        for (Consumer<Boolean> o : turnObs) o.accept(open);
+        turnFor = forSec;
+        for (BiConsumer<Boolean, Double> o : turnObs) o.accept(open, forSec);
     }
 }

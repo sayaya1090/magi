@@ -35,7 +35,8 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 public class CompanionElement {
     private final CompanionStore store;
     private final HTMLElement root = el("section");
-    private final HTMLElement turnbar = el("div");
+    private final HTMLElement turnwrap = el("div");
+    private final HTMLElement turnfor = el("span");
     private final HTMLElement facts = el("div");
     private final HTMLElement log = el("div");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
@@ -48,11 +49,20 @@ public class CompanionElement {
     public CompanionElement(CompanionStore store) {
         this.store = store;
         root.id = "companion";
-        turnbar.id = "turnbar";
-        turnbar.setAttribute("aria-hidden", "true");
+        // 턴바는 운영 콘솔의 그 마크업 그대로다 — #turnwrap[hidden] 속의 md-linear-progress
+        // #turnbar(aria-hidden: 행이 이미 말로 말한다)와 경과 숫자 #turnfor. 스타일도 표시
+        // 규칙도 console.css의 것이라, 여기는 hidden 토글과 1초 틱만 진다.
+        turnwrap.id = "turnwrap";
+        turnwrap.setAttribute("hidden", "");
+        HTMLElement bar = el("md-linear-progress");
+        bar.id = "turnbar";
+        Js.asPropertyMap(bar).set("indeterminate", true);
+        bar.setAttribute("aria-hidden", "true");
+        turnfor.id = "turnfor";
+        turnwrap.append(bar, turnfor);
         facts.className = "cfacts";
         log.id = "log";
-        root.append(turnbar, facts, log, composer());
+        root.append(turnwrap, facts, log, composer());
     }
 
     public void mount(HTMLElement frame) {
@@ -63,12 +73,42 @@ public class CompanionElement {
         store.start();
         store.onContext(ctx -> { lastSig = null; paintFacts(ctx); });
         store.onRows(this::paintRows);
-        store.onTurn(on -> turnbar.className = on ? "on" : "");
+        store.onTurn(this::paintTurn);
         // 사실 줄은 명단에서 읽는다 — 셸이 호스팅하는 그 스트림, 요청 0 추가.
         RosterSharing.subscribe(list -> {
             if (list != null) roster = Js.uncheckedCast(list);
             paintFacts(store.context());
         });
+    }
+
+    // ── 턴바: 운영 page.js showTurnbar/paintTurnFor의 이식 ───────────────────
+    private double turnFrom = 0;
+    private double turnTick = -1;
+    private boolean turnOpen = false;
+
+    private void paintTurn(boolean open, double forSec) {
+        turnOpen = open;
+        turnFrom = JsDate.now() - forSec * 1000;
+        if (open) turnwrap.removeAttribute("hidden");
+        else turnwrap.setAttribute("hidden", "");
+        if (turnTick >= 0) { DomGlobal.clearInterval(turnTick); turnTick = -1; }
+        paintTurnFor();
+        // 1초, 그리고 켜져 있는 동안만 — 숨은 요소를 상대로 도는 타이머는 탭의 수명만큼의
+        // 웨이크업이다(운영의 그 규칙).
+        if (open) turnTick = DomGlobal.setInterval(a -> paintTurnFor(), 1000);
+    }
+
+    private void paintTurnFor() {
+        turnfor.textContent = turnOpen
+                ? dur((int) Math.max(0, Math.round((JsDate.now() - turnFrom) / 1000))) : "";
+    }
+
+    /** s/m/h/d — 운영 dur()와 같은 축약: 단위는 언어를 타지 않는다. */
+    private static String dur(int s) {
+        if (s < 60) return s + "s";
+        if (s < 3600) return Math.round(s / 60f) + "m";
+        if (s < 86400) return Math.round(s / 3600f) + "h";
+        return Math.round(s / 86400f) + "d";
     }
 
     /** 이 화면 자신의 스타일시트 — 셸이 아는 파일이 아니라 이 모듈의 것이라 스스로 단다. */
@@ -83,7 +123,9 @@ public class CompanionElement {
 
     private HTMLElement composer() {
         form.className = "composer";
-        field.id = "say";
+        // 운영 컴포저의 그 계약: .composer 안의 md-outlined-text-field#t — 구분선·간격·
+        // flex 전부 console.css의 것이다.
+        field.id = "t";
         field.setAttribute("type", "textarea");
         field.setAttribute("rows", "1");
         HTMLElement send = el("md-filled-button");

@@ -51,20 +51,24 @@ internal class CompanionScreenTest : GwtTestSpec({
             Then("시각은 행의 홈통에 붙는다") {
                 page.locator("#log .row.user .who .when").count() shouldBe 1
             }
-            Then("턴이 열려 있으니 진행 바가 돈다 — 소리 내지 않고(aria-hidden)") {
-                page.locator("#turnbar.on").count() shouldBe 1
-                page.locator("#turnbar[aria-hidden=true]").count() shouldBe 1
+            Then("턴이 열려 있으니 운영의 그 턴바가 돈다 — 바는 조용하고(aria-hidden) 숫자가 말한다") {
+                page.waitForSelector("#turnwrap:not([hidden])")
+                // aria-hidden은 md 컴포넌트가 섀도로 위임하며 호스트 속성을 걷어간다(실측:
+                // 속성 셀렉터는 영원히 0) — 드로어 때와 같은 함정이라 존재만 잰다.
+                page.waitForSelector("#turnwrap md-linear-progress#turnbar")
+                // 12초에서 시작해 화면의 시계로 흐른다 — 초는 재지 말고 모양(s)만 잰다.
+                Regex("\\d+s").matches(page.locator("#turnfor").textContent() ?: "") shouldBe true
             }
         }
         When("컴포저에 한 마디 적어 보내면") {
-            page.locator("#companion .composer #say textarea").fill("keep going")
+            page.locator("#companion .composer #t textarea").fill("keep going")
             page.locator("#companion .composer #send").click()
             Then("그 컴패니언(?d=)으로 간다 — 가짜가 창에 적는다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_sent") != null }
                 page.evaluate("window.__magi_test_sent") shouldBe "keep going@/tmp/a1.sock"
             }
             Then("보낸 뒤 상자는 비어 있다") {
-                page.locator("#companion .composer #say textarea").inputValue() shouldBe ""
+                page.locator("#companion .composer #t textarea").inputValue() shouldBe ""
             }
         }
     }

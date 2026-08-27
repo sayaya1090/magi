@@ -1,17 +1,9 @@
-/* 컴패니언 화면(타입 1 = 코딩 에이전트) 자신의 것 — 전사 행(.row/.who/.txt)은
-   console.css 의 계약이 입히고, 여기는 이 화면이 새로 세운 뼈대만 말한다. */
+/* 컴패니언 화면(타입 1 = 코딩 에이전트) 자신의 것 — 최소한만: 전사 행(.row/.who/.txt)·
+   컴포저(.composer, #t)·턴바(#turnwrap/#turnbar/#turnfor)는 운영 콘솔의 계약이라
+   console.css가 그대로 입힌다. 여기는 이 화면이 새로 세운 뼈대(세로 배치·사실 줄)만,
+   토큰으로만 말한다 — 새 색·그림자·애니메이션은 짓지 않는다. */
 
 #companion { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
-
-/* 턴이 열려 있는 동안의 2px 진행 바 — 행 표식이 말하지 못하는 기다림(원본 규칙 이식).
-   aria-hidden: 행이 이미 말로 말한다 — 같은 사실을 두 번 읽히지 않는다. */
-#turnbar { height:2px; border-radius:1px; background:transparent; }
-#turnbar.on {
-  background:linear-gradient(90deg, transparent, var(--magi-ref-primary), transparent);
-  background-size:200% 100%;
-  animation:companion-turn 1.2s linear infinite;
-}
-@keyframes companion-turn { from { background-position:200% 0; } to { background-position:-200% 0; } }
 
 /* 사실 줄: 이름이 먼저, 그 다음 타입·상태·역할·모델·세션 — 접히는 사실판 전체는 잔여. */
 .cfacts { display:flex; flex-wrap:wrap; gap:var(--magi-sys-space-150); align-items:baseline; }
@@ -19,17 +11,16 @@
 .cfacts .ctype {
   font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
   color:var(--magi-ref-primary);
-  border:1px solid var(--magi-ref-outlineVariant); border-radius:999px;
+  border:1px solid var(--magi-ref-outlineVariant); border-radius:var(--magi-sys-shape-full, 999px);
   padding:0 var(--magi-sys-space-100);
 }
 .cfacts .cword { font:var(--md-sys-typescale-label-medium-size)/1.6 var(--magi-ref-mono); color:var(--magi-ref-muted); }
-.cfacts .cword.waiting { color:var(--magi-ref-warning); }
+.cfacts .cword.waiting { color:var(--magi-ref-warn); }
 .cfacts .cword.working { color:var(--magi-ref-success); }
 .cfacts .crole, .cfacts .cmodel, .cfacts .csession {
   font:var(--md-sys-typescale-label-small-size)/1.6 var(--magi-ref-mono);
   color:var(--magi-ref-muted);
 }
 
-/* 컴포저: 필드가 남는 폭을 다 갖고, 한 줄은 필드 높이에 세로 가운데. */
-#companion .composer { display:flex; gap:var(--magi-sys-space-150); align-items:center; }
-#companion .composer md-outlined-text-field { flex:1; }
+/* 턴바의 자리만 — 운영은 마스트헤드에 붙박이지만 이 화면은 제 머리 위에 둔다. */
+#companion #turnwrap { position:relative; min-height:2px; }

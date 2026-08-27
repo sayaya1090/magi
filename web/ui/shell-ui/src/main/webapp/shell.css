@@ -20,7 +20,8 @@ body:not([nav="open"]) #rail[tool="expand"] #railTool {
    본문을 밀지 않는다. */
 body:not([nav="open"]) #rail[tool="expand"] {
   width:15rem;
-  box-shadow:var(--md-sys-elevation-2, 0 2px 6px rgba(0,0,0,.25));
+  /* 그림자가 아니라 헤어라인 — 운영은 레일에 box-shadow를 쓰지 않는다(스크림이 요소다). */
+  border-right:1px solid var(--magi-ref-outlineVariant);
 }
 body:not([nav="open"]) #rail[tool="expand"] #railTool .words { display:block; }
 body:not([nav="open"]) #rail[tool="collapse"] #railTool .words { display:none; }
