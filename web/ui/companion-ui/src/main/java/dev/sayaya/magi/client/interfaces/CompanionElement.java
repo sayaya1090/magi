@@ -165,6 +165,7 @@ public class CompanionElement {
      */
     private String wsShows = "files";
     private boolean cardsAlone = false;
+    private boolean deepCard = false;   // 지금 선 카드가 가운데를 통째로 쓰는 것인가
 
     /** 지금 이 줄에 설 카드 전부 — 이 판의 것 다음에 자식의 것(연 순서대로). */
     private java.util.List<elemental2.dom.Element> allCards() {
@@ -217,6 +218,10 @@ public class CompanionElement {
         if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
         if (!known) cardShows = cards.get(n - 1).id;
         CardSharing.showing(cardShows);
+        // 가서 보는 것(도구·루프·표결)은 가운데를 <b>통째로</b> 쓴다: 그것들은 전사를 곁들여
+        // 읽는 것이 아니라 한 겹 들어간 화면이고, 운영도 전사를 물리고 그 자리에 편다.
+        // 파일·디프·작업대는 반대다 — 대화를 보며 읽는 것이라 전사가 그대로 남는다.
+        deepCard = !"facts".equals(cardShows) && (ownCards.containsKey(cardShows) || cardShows.startsWith("cr:"));
         // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
         boolean facts = "facts".equals(cardShows);
         show(detail.element(), facts && store.context() != null && detail.hasFacts());
@@ -322,6 +327,8 @@ public class CompanionElement {
             arrange.sayPanes();
             show(detail.element(), companion && detail.hasFacts() && "facts".equals(cardShows));
             show(cardArea, companion && !"facts".equals(cardShows));
+            // 한 겹 들어간 화면이 서면 전사는 물러난다(운영의 그 층위).
+            show(centreFill, !deepCard);
             show(filecol, true);
             show(stream, true);
             show(sidecol, true);
@@ -343,7 +350,7 @@ public class CompanionElement {
         standAlone(cardHere);
         show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);
         show(detail.element(), "facts".equals(panel) && detail.hasFacts());
-        show(centreFill, "talk".equals(panel));
+        show(centreFill, "talk".equals(panel) && !deepCard);
         show(cardTabs, cardHere);
         show(cardArea, cardHere);
         // 기둥은 서 있고, 그 <b>속</b>이 숨는다 — 운영도 그렇게 한다(폰에서 #filecol은 높이 0의

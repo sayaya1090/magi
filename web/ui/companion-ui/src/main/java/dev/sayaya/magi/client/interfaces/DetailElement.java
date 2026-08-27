@@ -98,6 +98,23 @@ public class DetailElement {
 
     public void cardsGo(Cards go) { this.cards = go; }
 
+    private String shown = "";
+
+    /**
+     * 이 판이 <b>지금 말하는 것</b> — 이것이 그대로면 다시 짓지 않는다.
+     *
+     * 도는 숫자(쉰 시간)는 넣지 않는다: 매 초 달라지는 값을 넣으면 매 초 다시 짓게 되고,
+     * 그것이 바로 이 서명이 막으려는 일이다. 쉰 시간은 다음 진짜 변화 때 함께 새로 그려진다.
+     */
+    private String signature(FleetAgent a) {
+        return String.valueOf(a.state) + "|" + a.steps + "|" + a.role + "|" + a.team + "|" + a.hub
+                + "|" + a.host + "|" + a.instance + "|" + a.addr + "|" + a.pid + "|" + a.version
+                + "|" + a.workdir + "|" + a.session + "|" + a.permission + "|" + a.model
+                + "|" + a.backend + "|" + a.handling + "|" + a.waiting
+                + "|" + (info == null ? "" : elemental2.core.Global.JSON.stringify(info))
+                + "|" + dev.sayaya.magi.bridge.Labels.tr("field.facts");
+    }
+
     /** 이 판에 할 말이 있는가 — 보일지는 부모가 정한다. */
     public boolean hasFacts() { return full; }
 
@@ -118,6 +135,12 @@ public class DetailElement {
         if (!has) { grid.replaceChildren(); return; }
         sum.textContent = stateWord(a.state) + " · " + (a.workdir == null ? "" : a.workdir);
         sum.setAttribute("title", sum.textContent);
+        // 명단은 몇 초마다 흐른다. 그때마다 이 격자를 다시 지으면 그 안의 고르개가 <b>다시
+        // 부모를 얻고</b>, 부모가 바뀐 md-select는 열려 있던 메뉴를 닫는다 — 사람이 고르는 중에
+        // 손 밑에서 닫히니 편집이 아예 되지 않는다(실측: 깜빡이며 못 고름). 말이 그대로면 그대로 둔다.
+        String words = signature(a);
+        if (words.equals(shown)) return;
+        shown = words;
         grid.replaceChildren();
         // 질문이 오는 순서 — 이 목록이 곧 배치다(그리드는 DOM 순서로 짠다, 운영 규칙).
         String load = carrying(a);
@@ -441,15 +464,39 @@ public class DetailElement {
      * 결재를 청할 때 실을 보고서의 뼈대 — 이것은 취향이 아니라 <b>빠뜨리면 거절당하는</b> 목록이다.
      * 그래서 어디서 온 뼈대인지도 함께 적는다(이 워크스페이스·이 콘솔·아직 아무것도).
      */
+    /**
+     * 결재를 청할 때 실을 보고서의 뼈대 — <b>다이얼로그</b>다(운영도 그렇다).
+     *
+     * 카드가 아닌 이유: 이것은 보는 것이 아니라 고쳐서 저장하는 짧은 일이고, 카드로 열면 그 자리에
+     * 있던 파일이나 전사를 밀어낸 채 사람이 저장을 누를 때까지 남는다. 그리고 이것은 취향이 아니라
+     * <b>빠뜨리면 거절당하는</b> 목록이라, 어디서 온 뼈대인지도 함께 적는다.
+     */
     private void showFormat() {
-        HTMLElement box = deepBox();
-        box.append(cell("dnote", tr("detail.loading")));
+        HTMLElement dialog = el("md-dialog");
+        dialog.id = "fmtDialog";
+        HTMLElement head = el("div");
+        head.setAttribute("slot", "headline");
+        head.textContent = tr("fmt.headline");
+        HTMLElement content = el("div");
+        content.setAttribute("slot", "content");
+        content.append(cell("dnote", tr("detail.loading")));
+        HTMLElement actions = el("div");
+        actions.setAttribute("slot", "actions");
+        HTMLElement cancel = el("md-text-button");
+        cancel.textContent = tr("action.cancel");
+        cancel.addEventListener("click", evt -> close(dialog));
+        HTMLElement save = el("md-filled-button");
+        save.textContent = tr("action.save");
+        actions.append(cancel, save);
+        dialog.append(head, content, actions);
+        DomGlobal.document.body.append(dialog);
+        open(dialog);
         store.reportFormat(got -> {
-            box.replaceChildren();
+            content.replaceChildren();
             JsPropertyMap<Object> f = got == null ? null : Js.uncheckedCast(got);
-            box.append(cell("dlgsup", tr("fmt.about")));
+            content.append(cell("dlgsup", tr("fmt.about")));
             String from = f == null ? "" : str(f, "from");
-            box.append(cell("dlgsup from", tr("workspace".equals(from) ? "fmt.from_workspace"
+            content.append(cell("dlgsup from", tr("workspace".equals(from) ? "fmt.from_workspace"
                     : "console".equals(from) ? "fmt.from_console" : "fmt.from_default")));
             HTMLElement form = cell("fmtform", null);
             HTMLElement more = el("md-text-button");
@@ -462,11 +509,7 @@ public class DetailElement {
             }
             more.addEventListener("click", evt -> form.insertBefore(fmtRow("", ""), more));
             form.append(more);
-            HTMLElement save = el("md-filled-button");
-            save.textContent = tr("action.save");
-            Icons.mark(save, "#i-sl-floppy-disk");
-            HTMLElement said = cell("dnote", "");
-            said.setAttribute("hidden", "");
+            content.append(form);
             save.addEventListener("click", evt -> {
                 java.util.List<String> keys = new ArrayList<>(), prompts = new ArrayList<>();
                 elemental2.dom.NodeList<elemental2.dom.Element> rows = form.querySelectorAll(".fmtrow");
@@ -477,14 +520,18 @@ public class DetailElement {
                     keys.add(k);
                     prompts.add(pmt);
                 }
-                store.reportFormat(keys, prompts, why -> {
-                    said.textContent = why == null || why.isEmpty() ? tr("fmt.saved") : why;
-                    said.removeAttribute("hidden");
-                });
+                store.reportFormat(keys, prompts, why -> close(dialog));
             });
-            box.append(form, save, said);
         });
-        cards.show("insp.format", tr("insp.format"), box);
+    }
+
+    private static native void open(HTMLElement dialog) /*-{
+        if (dialog.show) dialog.show(); else dialog.setAttribute('open', '');
+    }-*/;
+
+    private static void close(HTMLElement dialog) {
+        Js.asPropertyMap(dialog).set("open", false);
+        DomGlobal.setTimeout(a -> dialog.remove(), 300);
     }
 
     private HTMLElement fmtRow(String key, String prompt) {
