@@ -106,6 +106,18 @@ func councilVerdictLabel(decision string) (icon, word string) {
 	return "·", decision
 }
 
+// councilVoteLabel is councilVerdictLabel for a MEMBER's row, where one more fact is known: a
+// verdict nobody gave. Backend down, out of time, or a reply that could not be read — all three
+// arrive as "abstain" so the tally does not count them, and all three are the council failing to
+// answer rather than a member weighing the work and declining. A reader who sees ∅ abstain reads
+// the second, which is a claim about deliberation that never happened.
+func councilVoteLabel(v event.CouncilVerdictData) (icon, word string) {
+	if v.Silent {
+		return "⋯", "no answer"
+	}
+	return councilVerdictLabel(v.Decision)
+}
+
 // councilVerdictStyle gives a verdict its signal color, matching councilVerdictLabel's
 // severity tiers: approve/done → green; (plan) advise → amber, note → muted, revise →
 // red (blocking); (termination) reject → red; abstain/other → muted. Under NO_COLOR the
@@ -168,7 +180,7 @@ const (
 // councilMemberPlainAt is the visible (unstyled) text of one member's verdict at a detail level —
 // the same glyphs renderBlock styles, so a click column maps to the right member.
 func councilMemberPlainAt(v event.CouncilVerdictData, level int) string {
-	icon, word := councilVerdictLabel(v.Decision)
+	icon, word := councilVoteLabel(v)
 	s := "● " + v.Member
 	if v.Lens != "" && level < councilDetailNameOnly {
 		s += "  [" + v.Lens + "]"
@@ -1311,7 +1323,7 @@ func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
 	segs := make([]string, len(vs))
 	for i, v := range vs {
 		hue := m.councilColor(v.Member)
-		icon, word := councilVerdictLabel(v.Decision)
+		icon, word := councilVoteLabel(v)
 		// Each member is CLICKABLE (column hit-test → detail modal), so it carries the same
 		// low-emphasis container fill as the fold chip to read as tappable. The fill must NOT
 		// change width — openCouncilDetailAt hit-tests against councilMemberPlainAt's rune width —

@@ -539,8 +539,20 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	m.drawnVerdicts = nil // the round is closed; the next one starts with nothing printed
 	_, verdict := councilVerdictLabel(d.Decision)
 	counts := fmt.Sprintf("%d done / %d continue", d.Tally.Done, d.Tally.Continue)
-	if d.Tally.Abstain > 0 {
-		counts += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
+	// Abstentions, split by whether anyone actually abstained. A member that was never reached
+	// (backend down, deadline, unreadable reply) did not weigh the work — see Verdict.Silent.
+	if said := d.Tally.Abstain - d.Tally.Silent; said > 0 {
+		counts += fmt.Sprintf(" / %d abstain", said)
+	}
+	if d.Tally.Silent > 0 {
+		counts += fmt.Sprintf(" / %d no answer", d.Tally.Silent)
+	}
+	// A round nobody voted in is NOT a rejection. The gate still holds the turn open (a council
+	// that cannot be reached may not bless a finish), but saying "reject" claims the members read
+	// the work and turned it down — the exact opposite of what happened, and the reader's next
+	// move is different: fix the backend, not the work.
+	if d.Tally.Voters == 0 && d.Tally.Silent > 0 {
+		verdict = "no verdict"
 	}
 	line := fmt.Sprintf("⚖ council round %d: %s — %s", d.Round, verdict, counts)
 	// A rebuttal only runs when the independent vote split, and the tally beside it is the

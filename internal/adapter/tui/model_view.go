@@ -418,7 +418,7 @@ func (m *Model) renderCouncilDetail(width int) string {
 	wrap := lipgloss.NewStyle().Width(max(8, width-2))
 	var b strings.Builder
 	// (The "‹ back" breadcrumb is the fixed header — see View.)
-	icon, word := councilVerdictLabel(v.Decision)
+	icon, word := councilVoteLabel(*v)
 	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + councilVerdictStyle(v.Decision).Render(icon+" "+word))
 	if v.Lens != "" {
 		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
