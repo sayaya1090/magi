@@ -1,6 +1,6 @@
 package dev.sayaya.magi.domain;
 
-import dev.sayaya.magi.client.domain.AgentStates;
+import dev.sayaya.magi.bridge.AgentStates;
 import dev.sayaya.magi.client.domain.Spans;
 import dev.sayaya.magi.client.domain.Versions;
 

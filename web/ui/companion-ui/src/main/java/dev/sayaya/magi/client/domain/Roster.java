@@ -1,5 +1,7 @@
 package dev.sayaya.magi.client.domain;
 
+import dev.sayaya.magi.bridge.AgentStates;
+
 import dev.sayaya.magi.bridge.FleetAgent;
 
 import java.util.ArrayList;

@@ -1,6 +1,9 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.AgentStates;
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.StateMark;
 import dev.sayaya.magi.client.domain.Atlas;
 import dev.sayaya.magi.client.usecase.MapStore;
 import elemental2.dom.DomGlobal;
@@ -195,11 +198,10 @@ public class MapElement {
                 GoSharing.go(str(a, "socket"), str(a, "peer").isEmpty() ? null : str(a, "peer"));
             });
         }
-        HTMLElement mark = el("span");
-        mark.className = "nodemark";
-        mark.setAttribute("aria-hidden", "true");
-        mark.textContent = "•";
-        n.append(mark, cell("nodename", str(a, "name")));
+        // 상태가 입는 그림 — 있으면 스프라이트, 없으면 늘 그리던 점(운영 iconOr와 같은 계약).
+        // 점을 글자로 박아 두면 링크의 읽히는 이름이 "•ws1 Idle"이 된다(실측): 그림은 그림으로.
+        n.append(Icons.orGlyph(StateMark.of(AgentStates.groupOf(str(a, "state"))), "\u2022", "nodemark"),
+                cell("nodename", str(a, "name")));
         if (Js.isTruthy(a.get("hub"))) n.append(cell("nodehub", tr("team.speaks")));
         if (remote) {
             double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
