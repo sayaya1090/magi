@@ -74,6 +74,17 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void complete(CompanionContext ctx, String path, String prefix, String suffix, Consumer<String> text) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_complete", path + "|" + prefix + "|" + suffix);
+        text.accept("MORE");
+    }
+
+    @Override
+    public void openFileHint(CompanionContext ctx, String path, String text) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_openfile", path + "|" + text.length());
+    }
+
+    @Override
     public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_diff", path + "|" + which);
         cb.accept(Global.JSON.parse("{\"text\":\"@@ -1,2 +1,2 @@\\n-old\\n+new\"}"));

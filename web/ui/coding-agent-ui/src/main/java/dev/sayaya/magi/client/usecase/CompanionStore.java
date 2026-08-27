@@ -60,6 +60,12 @@ public class CompanionStore implements CompanionSource.Listener {
         source.submit(ctx, text, why);
     }
 
+    /** 컴포저가 쓰다 만 말의 다음 — 답은 이어붙일 글이다(빈 답은 "할 말 없음"이고 정상이다). */
+    public void suggest(String prefix, Consumer<String> text) {
+        if (ctx == null) { text.accept(""); return; }
+        source.suggest(ctx, prefix, text);
+    }
+
     /** 이 컴패니언의 턴을 멈춘다 — 무엇을 물어보고 멈출지는 화면의 몫이다(되돌릴 수 없는 일). */
     public void interrupt(Consumer<String> why) {
         if (ctx == null) return;

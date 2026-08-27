@@ -57,6 +57,13 @@ public class BridgeCompanionSource implements CompanionSource {
                 .then(w -> { why.accept(w); return null; });
     }
 
+    @Override
+    public void suggest(CompanionContext ctx, String prefix, Consumer<String> text) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("prefix", prefix);
+        Console.postText("/suggest", body, ctx.socket, ctx.peer).then(said -> { text.accept(said); return null; });
+    }
+
     private static String q(CompanionContext ctx) {
         return "?d=" + Global.encodeURIComponent(ctx.socket)
                 + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");

@@ -58,6 +58,21 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row.user .who .when").count() shouldBe 1
             }
         }
+        When("컴포저에 쓰다 말면") {
+            page.locator("#dock .composer #t textarea").fill("run the build")
+            Then("다음 말을 흐리게 내밀고, Tab이 그것을 이어붙인다") {
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_suggest") as? String) == "run the build"
+                }
+                page.waitForSelector("#dock .sughint:not([hidden])")
+                page.locator("#dock .sughint").textContent() shouldBe "and then some"
+                page.locator("#dock .composer #t textarea").press("Tab")
+                page.evaluate("document.querySelector('#dock .composer #t').value") shouldBe
+                    "run the build and then some"
+                page.locator("#dock .sughint:not([hidden])").count() shouldBe 0
+            }
+            page.locator("#dock .composer #t textarea").fill("")
+        }
         When("컴포저에 한 마디 적어 보내면") {
             page.locator("#dock .composer #t textarea").fill("keep going")
             page.locator("#dock .composer #send").click()
@@ -202,6 +217,23 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForSelector("#fileview .fileedit .fileeditarea")
                 page.locator("#fileview .fileedit .filebody.editbody .filegutter").count() shouldBe 1
                 page.locator("#fileview .fileedit .editghost").count() shouldBe 1
+            }
+            Then("타이핑이 멎으면 이어쓰기를 묻고, Tab이 그것을 가져간다") {
+                page.locator("#fileview .fileedit .fileeditarea").click()
+                page.locator("#fileview .fileedit .fileeditarea").fill("package main\nfunc x() {")
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_complete") as? String)?.contains("func x() {") == true
+                }
+                // 유령은 버퍼가 아니라 거울에 산다 — 가져가기 전에는 사람이 쓴 글이 아니다.
+                page.waitForSelector("#fileview .editghost .editcomplete")
+                page.evaluate("document.querySelector('#fileview .fileeditarea').value") shouldBe
+                    "package main\nfunc x() {"
+                page.locator("#fileview .fileedit .fileeditarea").press("Tab")
+                page.waitForCondition {
+                    (page.evaluate("document.querySelector('#fileview .fileeditarea').value") as? String)
+                        ?.endsWith("MORE") == true
+                }
+                page.locator("#fileview .editghost .editcomplete").count() shouldBe 0
             }
             Then("저장은 고친 자리만 보낸다 — 패치는 거절될 수 있고 통짜는 남의 일을 덮는다") {
                 page.locator("#fileview .fileedit .fileeditarea").fill("package main\n\nfunc main() { println(1) } // go\n")

@@ -139,6 +139,17 @@ public class WorkspaceStore {
         });
     }
 
+    /** 캐럿 자리의 이어쓰기 — 답이 늦게 오면 그 사이 캐럿이 어디로 갔는지는 화면이 판단한다. */
+    public void complete(String path, String prefix, String suffix, Consumer<String> text) {
+        if (ctx == null) { text.accept(""); return; }
+        source.complete(ctx, path, prefix, suffix, text);
+    }
+
+    /** 열어 둔 파일과 그 버퍼를 컴패니언에게 알린다 — 빈 본문은 그 사본을 지운다. */
+    public void openFileHint(String path, String text) {
+        if (ctx != null) source.openFileHint(ctx, path, text);
+    }
+
     public static String diffKey(String path, String which) {
         return "\u00B1" + path + "#" + (which == null ? "" : which);
     }

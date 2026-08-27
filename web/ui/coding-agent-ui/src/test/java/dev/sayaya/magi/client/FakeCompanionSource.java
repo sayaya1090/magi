@@ -78,4 +78,10 @@ public class FakeCompanionSource implements CompanionSource {
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_interrupt", "yes");
         why.accept("");
     }
+
+    @Override
+    public void suggest(CompanionContext ctx, String prefix, java.util.function.Consumer<String> text) {
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_suggest", prefix);
+        text.accept(" and then some");
+    }
 }

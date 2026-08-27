@@ -42,6 +42,18 @@ public interface WorkspaceSource {
     void find(CompanionContext ctx, String in, String q, Consumer<Object> gotOrNull);
 
     /**
+     * 캐럿 자리의 이어쓰기(/complete) — 앞과 뒤를 함께 보낸다(사람은 줄 끝에서만 쓰지 않는다).
+     * 답은 이어붙일 글 그대로이고, 없으면 빈 문자열이다.
+     */
+    void complete(CompanionContext ctx, String path, String prefix, String suffix, Consumer<String> text);
+
+    /**
+     * 열어 둔 파일과 아직 디스크에 없는 그 내용(/open-file) — 컴패니언의 다음 턴이 그 편집에
+     * 대해 답할 수 있게 한다. 빈 본문은 그 사본을 <b>지운다</b>(계약의 나머지 반).
+     */
+    void openFileHint(CompanionContext ctx, String path, String text);
+
+    /**
      * 한 파일의 차이(/diff) — which는 무엇에 대한 차이인가: ""(아직 안 실은 것) · staged · untracked.
      * 답은 {text}이고, 빈 본문은 "다른 데가 없다"는 <b>답</b>이다(못 읽은 것과 다르다).
      */

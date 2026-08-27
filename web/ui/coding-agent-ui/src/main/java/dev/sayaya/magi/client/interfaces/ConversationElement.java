@@ -178,6 +178,10 @@ public class ConversationElement {
     // 있는 사람에게는 남의 일을 끝내는 버튼을 내놓지 않는다.
     private final HTMLElement stopBtn = el("md-filled-tonal-button");
     private final HTMLElement note = el("div");   // 컴포저 아래 한 줄 — 지금 이 상자의 몫
+    private final HTMLElement hint = el("div");   // 모델이 내민 다음 말(흐리게, Tab이 가져간다)
+    private String suggested = "";
+    private int suggestAt = 0;
+    private double suggestTick = -1;
     private String parked = "";                   // 다른 몫으로 쓰던 초고는 지우지 않고 맡아 둔다
     private boolean wasAnswering = false;
     private boolean dressed = false;      // 옷을 한 번은 입혀야 한다 — 첫 상태가 기본값과 같아도
@@ -247,7 +251,13 @@ public class ConversationElement {
         box.append(field, group);
         note.id = "cnote";
         note.setAttribute("hidden", "");
-        form.append(box, note);
+        // 제안은 컴포저 <b>줄 아래</b>에 선다: .composer는 감싸지 않는 flex 한 줄(칸+버튼)이라,
+        // 그 사이에 두면 폰에서 칸을 눌러 버린다(운영이 이 자리를 고른 이유).
+        hint.className = "sughint";
+        hint.setAttribute("hidden", "");
+        hint.setAttribute("aria-hidden", "true");
+        form.append(box, hint, note);
+        wireSuggest();
         // 이 상자가 지금 무엇을 하는 자리인지는 부모가 알린다 — 그 사실이 바뀔 때만 옷을 갈아입는다.
         store.listenForAsk(this::answerMode);
         answerMode();
@@ -315,6 +325,62 @@ public class ConversationElement {
         if (!$wnd.navigator.clipboard) { ok(false); return; }
         $wnd.navigator.clipboard.writeText(String(text || ''))
             .then(function () { ok(true); })["catch"](function () { ok(false); });
+    }-*/;
+
+    /**
+     * 컴포저의 이어쓰기 — 칸 안에 유령을 끼워 넣지 않고 <b>아래에 흐리게</b> 적는다.
+     *
+     * 여기 칸은 컴포넌트(md-outlined-text-field)이고 그 속의 textarea는 섀도 루트 안이라,
+     * 편집기가 하는 것처럼 같은 자리에 거울을 깔 수가 없다(운영이 이 화면에서 고른 그 타협).
+     * Tab이 가져가고, Escape나 다음 타이핑이 지운다.
+     */
+    private void wireSuggest() {
+        HTMLElement inner = field;
+        inner.addEventListener("input", evt -> {
+            clearSuggest();                      // 방금 친 것이 달라졌다 — 서 있던 제안은 낡았다
+            if (suggestTick >= 0) DomGlobal.clearTimeout(suggestTick);
+            suggestTick = DomGlobal.setTimeout(a -> askSuggest(), 400);
+        });
+        inner.addEventListener("keydown", evt -> {
+            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            if ("Tab".equals(k.key) && !suggested.isEmpty() && !composing(k)) {
+                evt.preventDefault();
+                value(value() + suggested);      // 쓰다 만 자리에서 이어진다 — 대신하지 않는다
+                clearSuggest();
+                return;
+            }
+            if ("Escape".equals(k.key)) clearSuggest();
+        });
+        inner.addEventListener("blur", evt -> clearSuggest());
+    }
+
+    private void askSuggest() {
+        if (!May.can("prompt")) return;
+        String said = value();
+        if (said.trim().isEmpty()) { clearSuggest(); return; }   // 빈 칸은 짐작할 자리가 아니다
+        final int mine = ++suggestAt;
+        store.suggest(said, text -> {
+            if (mine != suggestAt) return;              // 더 새 요청이 앞질렀다
+            if (!value().equals(said)) return;          // 기다리는 사이 계속 쳤다
+            // 붙일 때는 온 그대로다(앞뒤 공백까지) — 이어붙는 글의 띄어쓰기는 그것을 쓴 쪽이
+            // 정한다. 흐리게 보일 때만 다듬는다: 줄 앞 공백은 화면에서 빈칸으로만 보인다.
+            suggested = text == null ? "" : text;
+            if (suggested.trim().isEmpty()) { clearSuggest(); return; }
+            hint.textContent = suggested.trim();
+            hint.removeAttribute("hidden");
+        });
+    }
+
+    private void clearSuggest() {
+        suggestAt++;
+        if (suggested.isEmpty() && hint.hasAttribute("hidden")) return;
+        suggested = "";
+        hint.textContent = "";
+        hint.setAttribute("hidden", "");
+    }
+
+    private static native boolean composing(elemental2.dom.KeyboardEvent e) /*-{
+        return !!(e.isComposing || e.keyCode === 229);
     }-*/;
 
     private String value() {

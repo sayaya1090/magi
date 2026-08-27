@@ -504,6 +504,45 @@ public class WorkspaceElement {
         return box;
     }
 
+    /** 거울에 한 조각 — 표시가 없으면 그냥 글자다. */
+    private static void emit(HTMLElement into, String text, String cls) {
+        if (text.isEmpty()) return;
+        if (cls == null) { into.append(DomGlobal.document.createTextNode(text)); return; }
+        HTMLElement m = el("span");
+        m.className = cls;
+        m.textContent = text;
+        into.append(m);
+    }
+
+    /** 모델이 내민 이어쓰기의 모양 — 캐럿이 그 앞에 서 있는 흐린 글자(운영 .editcomplete). */
+    private static HTMLElement ghostSpan(String text) {
+        HTMLElement g = el("span");
+        g.className = "editcomplete";
+        g.textContent = text;
+        return g;
+    }
+
+    private static native int caretOf(HTMLElement area) /*-{
+        return area.selectionStart == null ? -1 : area.selectionStart;
+    }-*/;
+
+    private static native void setCaret(HTMLElement area, int at) /*-{
+        area.selectionStart = area.selectionEnd = at;
+    }-*/;
+
+    /** 탭 한 번 — execCommand로 넣는다: value에 대입하면 되돌리기 더미가 통째로 지워진다. */
+    private static native void insertTab(HTMLElement area) /*-{
+        if ($doc.execCommand) $doc.execCommand('insertText', false, '\t');
+    }-*/;
+
+    /**
+     * 입력기가 글자를 만드는 중인가 — Tab과 Enter는 입력기의 키이기도 하다. 묻지 않고 가로채면
+     * 한글 음절을 맺는 순간 탭이 끼어든다(운영 composing()과 같은 이유).
+     */
+    private static native boolean composing(elemental2.dom.KeyboardEvent e) /*-{
+        return !!(e.isComposing || e.keyCode === 229);
+    }-*/;
+
     private static String diffClass(String line) {
         if (line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ")
                 || line.startsWith("+++ ") || line.startsWith("old mode ") || line.startsWith("new mode ")
@@ -593,29 +632,42 @@ public class WorkspaceElement {
         HTMLElement nums = el("pre");
         nums.className = "filegutter";
         nums.setAttribute("aria-hidden", "true");
+        // 모델이 내민 이어쓰기 — 버퍼가 아니라 <b>거울</b>에만 산다: 사람이 Tab으로 가져가거나
+        // 그냥 타이핑해 지나가면 사라지는 글이라, 필드의 값에 넣는 순간 그것은 남의 글이 된다.
+        final String[] ghost = {""};
+        final int[] ghostAt = {-1};
         Runnable repaint = () -> {
             String src = String.valueOf(Js.asPropertyMap(area).get("value"));
             behind.replaceChildren();
             String comment = Code.commentMark(path);
             StringBuilder g = new StringBuilder();
             int n = 0;
+            int pos = 0;
+            boolean[] placed = {false};
+            int at = ghost[0].isEmpty() ? -1 : Math.min(ghostAt[0], src.length());
+            // 줄 단위로 훑는다 — 주석은 <b>그 줄</b> 끝까지이고, 버퍼를 통째로 넘기면 파일의 첫
+            // `//`가 그 뒤 전부를 삼킨다(운영이 밟은 그 결함).
             for (String line : src.split("\n", -1)) {
                 g.append(++n).append('\n');
+                int col = pos;
                 for (Code.Part part : Code.parts(line, comment)) {
-                    if (part.cls == null) { behind.append(DomGlobal.document.createTextNode(part.text)); continue; }
-                    HTMLElement m = el("span");
-                    m.className = part.cls;
-                    m.textContent = part.text;
-                    behind.append(m);
+                    String t = part.text;
+                    if (at >= col && at <= col + t.length() && !placed[0]) {
+                        emit(behind, t.substring(0, at - col), part.cls);
+                        behind.append(ghostSpan(ghost[0]));
+                        placed[0] = true;
+                        emit(behind, t.substring(at - col), part.cls);
+                    } else {
+                        emit(behind, t, part.cls);
+                    }
+                    col += t.length();
                 }
+                if (!placed[0] && at == col) { behind.append(ghostSpan(ghost[0])); placed[0] = true; }
                 behind.append(DomGlobal.document.createTextNode("\n"));
+                pos = col + 1;
             }
             nums.textContent = g.toString();
         };
-        area.addEventListener("input", evt -> {
-            drafts.put(path, String.valueOf(Js.asPropertyMap(area).get("value")));
-            repaint.run();
-        });
         HTMLElement save = el("md-filled-button");
         save.append(Icons.orGlyph("#i-sl-floppy-disk", "\u2913", "sic"));
         save.textContent = tr("action.save");
@@ -646,6 +698,79 @@ public class WorkspaceElement {
             said = "";
             drafts.remove(path);
             publishCards();
+        });
+        final double[] tick = {-1};
+        final int[] asked = {0};
+        Runnable dismiss = () -> { if (!ghost[0].isEmpty()) { ghost[0] = ""; repaint.run(); } };
+        Runnable complete = () -> {
+            if (!May.can("prompt")) return;
+            int caret = caretOf(area);
+            if (caret < 0) return;
+            String all = String.valueOf(Js.asPropertyMap(area).get("value"));
+            String prefix = all.substring(0, Math.min(caret, all.length()));
+            String suffix = all.substring(Math.min(caret, all.length()));
+            if (prefix.trim().isEmpty() && suffix.trim().isEmpty()) return;
+            final int mine = ++asked[0];
+            store.complete(path, prefix, suffix, said -> {
+                if (mine != asked[0]) return;           // 더 새 요청이 이것을 앞질렀다
+                if (caretOf(area) != caret) return;     // 기다리는 사이 캐럿이 움직였다
+                ghost[0] = said == null ? "" : said;
+                ghostAt[0] = caret;
+                repaint.run();
+            });
+        };
+        area.addEventListener("input", evt -> {
+            String now = String.valueOf(Js.asPropertyMap(area).get("value"));
+            drafts.put(path, now);
+            dismiss.run();
+            repaint.run();
+            // 타이핑이 멎으면 묻는다 — 글자마다 물으면 백엔드를 타이핑 속도로 태운다.
+            if (tick[0] >= 0) DomGlobal.clearTimeout(tick[0]);
+            tick[0] = DomGlobal.setTimeout(a -> complete.run(), 350);
+            // 컴패니언의 곁사본도 따라간다 — 아직 디스크에 없는 그 편집에 대해 답할 수 있게.
+            store.openFileHint(path, now);
+        });
+        // 캐럿이 움직이면 그 자리의 이어쓰기는 낡은 것이다 — 마우스도 화살표도 마찬가지다.
+        area.addEventListener("pointerdown", evt -> dismiss.run());
+        area.addEventListener("blur", evt -> dismiss.run());
+        area.addEventListener("keydown", evt -> {
+            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            if ("Escape".equals(k.key)) { dismiss.run(); return; }
+            // Tab은 유령이 있으면 그것을 가져오고, 없으면 <b>탭</b>이다 — Tab이 다음 컨트롤로
+            // 걸어가는 편집기는 편집기인 척하는 입력칸이다. Shift+Tab은 그대로 둔다: 키보드로
+            // 읽는 사람이 이 칸에서 빠져나가는 유일한 문이다.
+            if ("Tab".equals(k.key) && !k.shiftKey && !composing(k)) {
+                evt.preventDefault();
+                if (!ghost[0].isEmpty() && caretOf(area) == ghostAt[0]) {
+                    String all = String.valueOf(Js.asPropertyMap(area).get("value"));
+                    int at = Math.min(ghostAt[0], all.length());
+                    String next = all.substring(0, at) + ghost[0] + all.substring(at);
+                    Js.asPropertyMap(area).set("value", next);
+                    setCaret(area, at + ghost[0].length());
+                    drafts.put(path, next);
+                    ghost[0] = "";
+                    repaint.run();
+                    store.openFileHint(path, next);
+                    return;
+                }
+                dismiss.run();
+                insertTab(area);
+                drafts.put(path, String.valueOf(Js.asPropertyMap(area).get("value")));
+                repaint.run();
+                return;
+            }
+            if (!"Tab".equals(k.key) && !k.metaKey && !k.ctrlKey) {
+                if ("ArrowLeft".equals(k.key) || "ArrowRight".equals(k.key) || "ArrowUp".equals(k.key)
+                        || "ArrowDown".equals(k.key) || "Home".equals(k.key) || "End".equals(k.key)) {
+                    dismiss.run();
+                }
+            }
+            // ⌘S·⌃S는 저장이다 — 편집기에서 그 키가 뜻하는 것이 그것이고, 브라우저의 기본
+            // 동작(페이지를 HTML로 저장)은 편집 중인 사람이 원한 적 없는 일이다.
+            if ((k.metaKey || k.ctrlKey) && ("s".equals(k.key) || "S".equals(k.key))) {
+                evt.preventDefault();
+                Js.<HTMLElement>uncheckedCast(save).click();
+            }
         });
         // 시작하는 컨트롤과 끝내는 둘이 같은 자리에 선다 — 움직이는 컨트롤은 두 번 찾게 된다.
         acts.append(save, stop);

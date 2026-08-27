@@ -46,4 +46,10 @@ public class DemoCompanionSource implements CompanionSource {
         // 데모에는 멈출 턴이 없다 — 받아 주고 잊는다.
         why.accept("");
     }
+
+    @Override
+    public void suggest(CompanionContext ctx, String prefix, java.util.function.Consumer<String> text) {
+        // 데모의 제안은 한 마디다 — 무엇이 일어나는지만 보이면 된다.
+        text.accept(prefix.trim().isEmpty() ? "" : " and then run the tests");
+    }
 }
