@@ -19,14 +19,14 @@ public class FakeSettingsSource implements SettingsSource {
     public void read(String socket, String peer, Consumer<Object> cb) {
         cb.accept(Global.JSON.parse("{\"file\":\"~/.config/magi/config.toml\"," +
                 "\"ambient\":true,\"crossSession\":false," +
-                "\"profiles\":[\"fast-local\",\"cloud-mini\"]," +
-                "\"codeProfile\":\"fast-local\",\"composerProfile\":\"\"}"));
+                "\"profiles\":[\"fast\",\"cloud\"]," +
+                "\"codeProfile\":\"fast\",\"composerProfile\":\"\"}"));
     }
 
     @Override
     public void profiles(String socket, Consumer<Object> list) {
         list.accept(elemental2.core.Global.JSON.parse(
-                "[{\"name\":\"fast-local\",\"model\":\"qwen2.5-coder:7b\",\"tier\":\"global\"}]"));
+                "[{\"name\":\"fast\",\"model\":\"qwen2.5-coder:7b\",\"tier\":\"global\"}]"));
     }
 
     @Override

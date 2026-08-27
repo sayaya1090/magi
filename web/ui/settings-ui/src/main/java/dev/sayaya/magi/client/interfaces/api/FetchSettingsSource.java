@@ -14,16 +14,28 @@ public class FetchSettingsSource implements SettingsSource {
     @Inject
     public FetchSettingsSource() {}
 
+    /**
+     * 어느 설정을 묻는가 — 컴패니언 하나면 그 소켓, 아니면 <b>전역</b>이다.
+     *
+     * 소켓 없이 그냥 묻는 것은 "이 디렉토리의 데몬"을 묻는 뜻이라, 콘솔이 서 있는 자리에
+     * 데몬이 없으면 거절이 돌아온다("no daemon in this directory") — 그러면 이 판은 답을
+     * 못 읽어 완성 설정 묶음이 통째로 사라졌다(실측: 운영 11줄, 이식 7줄). 쓸 때는 이미
+     * tier=global을 실어 보내고 있었으니, 읽지 못하는 곳에 쓰고 있던 셈이다.
+     */
+    private static String scope(String socket, String peer) {
+        if (socket == null || socket.isEmpty()) return "?tier=global";
+        String q = "?d=" + elemental2.core.Global.encodeURIComponent(socket);
+        return peer == null || peer.isEmpty() ? q : q + "&p=" + elemental2.core.Global.encodeURIComponent(peer);
+    }
+
     @Override
     public void read(String socket, String peer, Consumer<Object> cb) {
-        String q = socket == null || socket.isEmpty() ? "" : "?d=" + elemental2.core.Global.encodeURIComponent(socket);
-        Console.fetchList("/autocomplete" + q, cb::accept);
+        Console.fetchList("/autocomplete" + scope(socket, peer), cb::accept);
     }
 
     @Override
     public void profiles(String socket, Consumer<Object> list) {
-        String q = socket == null || socket.isEmpty() ? "" : "?d=" + elemental2.core.Global.encodeURIComponent(socket);
-        Console.fetchList("/profiles" + q, list::accept);
+        Console.fetchList("/profiles" + scope(socket, null), list::accept);
     }
 
     @Override

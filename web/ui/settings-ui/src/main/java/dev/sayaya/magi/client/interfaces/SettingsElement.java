@@ -305,12 +305,25 @@ public class SettingsElement {
         provModel.setAttribute("label", tr("prof.provider_model"));
         provRow.append(provSel, provModel);
         add(out, provRow);
+        // 그 두 고르개가 무엇인지 한 줄 — 골라도 저장되지 않고 아래 칸을 채울 뿐이라는 것을
+        // 여기서 말해 두지 않으면 사람이 고르고 나서 무엇을 더 해야 하는지 모른다(운영 provWhy).
+        HTMLElement provWhy = el("div");
+        provWhy.className = "prefsay";
+        provWhy.id = "provWhy";
+        provWhy.setAttribute("hidden", "");
+        HTMLElement provWhySay = el("div");
+        provWhySay.className = "say";
+        provWhySay.id = "provWhyText";
+        provWhySay.textContent = tr("prof.from_provider_why");
+        provWhy.append(provWhySay);
+        add(out, provWhy);
         store.providers(got -> {
             JsArrayLike<Object> all = Js.uncheckedCast(got);
             // 서빙하는 것이 하나도 없으면 그 줄은 아예 서지 않는다 — 빈 고르개는 사람들에게
             // "여기는 열어 볼 것 없다"를 가르친다.
             if (all == null || all.getLength() == 0) return;
             provRow.removeAttribute("hidden");
+            provWhy.removeAttribute("hidden");
             fill(provSel, names(all), tr("prof.provider"));
             fill(provModel, new java.util.ArrayList<>(), tr("prof.provider_model"));
             provSel.addEventListener("change", evt -> {
@@ -490,28 +503,47 @@ public class SettingsElement {
         // 줄의 제목은 어느 설정인지 말한다(코드 완성 모델) — 칸의 라벨은 고르는 것이 무엇인지
         // 말한다(프로필). 둘이 같은 말이면 한 줄에 같은 말이 두 번 선다(운영의 그 구분).
         sel.setAttribute("label", tr("ac.profile_pick"));
-        HTMLElement none = el("md-select-option");
-        none.setAttribute("value", "");
-        HTMLElement noneHead = el("div");
-        noneHead.setAttribute("slot", "headline");
-        noneHead.textContent = tr("ac.profile_none");
-        none.append(noneHead);
-        sel.append(none);
+        opt(sel, "", tr("ac.profile_none"), now);
+        // 항목마다 <b>어디에 적힌 것인지</b>를 함께: 이름만 세우면 방금 만든 프로필이 왜 여기
+        // 없는지 답할 수 없다 — 그것은 적힌 층에서만 풀린다(운영의 그 문장). 답이 이름 문자열
+        // 하나로 오는 낡은 데몬도 있어, 그때는 전역으로 읽는다.
         JsArrayLike<Object> profiles = Js.uncheckedCast(complete().get("profiles"));
+        boolean known = now == null || now.isEmpty();
         for (int i = 0; profiles != null && i < profiles.getLength(); i++) {
-            String name = String.valueOf(profiles.getAt(i));
-            HTMLElement opt = el("md-select-option");
-            opt.setAttribute("value", name);
-            HTMLElement head = el("div");
-            head.setAttribute("slot", "headline");
-            head.textContent = name;
-            opt.append(head);
-            sel.append(opt);
+            Object one = profiles.getAt(i);
+            JsPropertyMap<Object> pm = one instanceof String ? null : Js.uncheckedCast(one);
+            String name = pm == null ? String.valueOf(one) : str(pm, "name");
+            String tier = pm == null ? "global" : str(pm, "tier");
+            opt(sel, name, name + " — " + tr("project".equals(tier) ? "ac.profile_here" : "ac.profile_everywhere"), now);
+            if (name.equals(now)) known = true;
         }
-        Js.asPropertyMap(sel).set("value", now);
+        // 물려는 있는데 정의가 사라진 프로필 — 감추면 빈 고르개가 되어 그 어긋남이 안 보인다.
+        if (!known) opt(sel, now, now + " — " + tr("ac.profile_missing"), now);
+        // 값은 <b>컴포넌트가 그려진 뒤에</b> 넣는다: md-select의 setter는 아직 없는 메뉴에서
+        // 그 값을 찾다 조용히 포기한다(운영 실측: 저장된 선택이 매번 빈칸으로 열렸다).
+        Object done = Js.asPropertyMap(sel).get("updateComplete");
+        if (done != null) {
+            Js.<elemental2.promise.Promise<Object>>uncheckedCast(done)
+                    .then(x -> { Js.asPropertyMap(sel).set("value", now); return null; });
+        } else Js.asPropertyMap(sel).set("value", now);
         sel.addEventListener("change", evt -> store.save(field, value(sel)));
         put(r, sel);
         return r;
+    }
+
+    /** 고르개의 한 항목 — 고른 것은 속성으로도 표시한다(폼 reset이 프로퍼티만 든 선택을 지운다). */
+    private static void opt(HTMLElement sel, String value, String word, String now) {
+        HTMLElement o = el("md-select-option");
+        o.setAttribute("value", value);
+        HTMLElement head = el("div");
+        head.setAttribute("slot", "headline");
+        head.textContent = word;
+        o.append(head);
+        if (value.equals(now == null ? "" : now)) {
+            Js.asPropertyMap(o).set("selected", true);
+            o.setAttribute("selected", "");
+        }
+        sel.append(o);
     }
 
     private HTMLElement daemonSwitch(String kId, String whyId, String kKey, String whyKey,

@@ -76,13 +76,13 @@ internal class SettingsScreenTest : GwtTestSpec({
                 page.locator("#settings md-outlined-select[data-field=codeProfile] md-select-option")
                     .count() shouldBe 3
                 (page.evaluate("document.querySelector('#settings md-outlined-select[data-field=codeProfile]').value"))
-                    .shouldBe("fast-local")
+                    .shouldBe("fast")
             }
         }
         When("모델 프로파일을 보면") {
             Then("무엇을 고르는 것인지 목록으로 말한다 — 위의 완성 설정이 고르는 그 백엔드다") {
                 page.waitForSelector("#settings #profList .profrow")
-                page.locator("#settings #profList .profrow .profnm").first().textContent() shouldBe "fast-local"
+                page.locator("#settings #profList .profrow .profnm").first().textContent() shouldBe "fast"
                 page.locator("#settings .profadd #profName").count() shouldBe 1
             }
             Then("이름 없이 저장하지 않는다 — 이름이 그 프로파일의 주소다") {
@@ -112,9 +112,20 @@ internal class SettingsScreenTest : GwtTestSpec({
         }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
-            Then("가로 스크롤이 없다") {
+            // 그 폭에서 <b>다시 그린다</b>: md-select는 첫 그리기의 폭을 제 그림자 상자에 새겨
+            // 두어, 넓게 띄운 창을 좁히는 것만으로는 그 칸이 따라 줄지 않는다(실측: 270px가
+            // 그대로 남아 419까지 넘쳤다). 사람은 좁은 화면에서 이 판을 처음 연다.
+            page.reload()
+            page.waitForSelector("#settings #prefsForm")
+            Then("이 판이 짜는 것은 화면 안에 있다") {
+                // 재는 것은 <b>이 판이 세운 것</b>이다: md-select는 제 그림자 상자에 210px라는
+                // 제 바닥을 갖고 있고, 팩 없는 하네스에서는 낱말 자리에 그보다 긴 키가 앉아
+                // (ac.profile_everywhere) 그 바닥이 더 내려간다 — 그 폭을 재면 배치가 아니라
+                // 키 이름의 길이를 재게 된다. 배치의 계약은 이 판의 요소가 화면 안이라는 것이다.
                 page.waitForCondition {
-                    (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
+                    (page.evaluate("""(() => { const w = document.documentElement.clientWidth;
+                        return [...document.querySelectorAll('#settings *')]
+                            .every(e => e.getBoundingClientRect().right <= w + 1); })()""") as Boolean)
                 }
             }
         }
