@@ -35,10 +35,36 @@ permissions:
   actions: write
 
 jobs:
-  build:
+  # 아이콘은 한 번만 굽고 산출물로 넘긴다 — 사이트를 짓는 잡마다 npm을 다시 설치하지 않게.
+  icons:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: ./.github/actions/bake-icons
+        with:
+          fa-token: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
+      - name: hand the sprite on
+        uses: actions/upload-artifact@v4
+        with:
+          name: icon-sprite
+          path: internal/webassets/sprite_gen.go
+          if-no-files-found: ignore
+
+  build:
+    needs: icons
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: take the sprite from the earlier step
+        uses: actions/download-artifact@v4
+        with:
+          name: icon-sprite
+          path: internal/webassets
+        continue-on-error: true
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

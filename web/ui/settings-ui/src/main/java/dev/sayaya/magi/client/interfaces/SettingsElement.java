@@ -12,6 +12,8 @@ import jsinterop.base.JsPropertyMap;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import java.util.ArrayList;
+import java.util.List;
 
 import static dev.sayaya.magi.bridge.Labels.tr;
 
@@ -74,9 +76,9 @@ public class SettingsElement {
                     "suggest", true, on -> store.keep("suggest", Prefs.word(on))));
         }
         // 데몬이 읽는 것들 — config를 고치는 일이라 그 능력이 있어야 한다.
-        if (May.can("configure")) form.append(completeGroup());
-        if (May.can("configure")) form.append(profilesGroup());
-        form.append(consoleGroup());
+        if (May.can("configure")) for (HTMLElement one : completeGroup()) form.append(one);
+        if (May.can("configure")) for (HTMLElement one : profilesGroup()) form.append(one);
+        for (HTMLElement one : consoleGroup()) form.append(one);
         root.append(form);
     }
 
@@ -101,11 +103,12 @@ public class SettingsElement {
     }
 
     private HTMLElement themeRow() {
-        HTMLElement row = row("themeK", "themeWhy", "pref.theme", "");
+        String now = store.pref("theme", "system");
+        // 그림만으로는 "지금 무엇인가"를 말할 수 없다 — 운영도 그 줄에 지금의 테마를 적는다.
+        HTMLElement row = row("themeK", "themeWhy", "pref.theme", "pref.theme." + now);
         HTMLElement btn = el("md-icon-button");
         btn.id = "themeToggle";
         btn.setAttribute("type", "button");
-        String now = store.pref("theme", "system");
         btn.setAttribute("aria-label", tr("pref.theme." + now));
         btn.setAttribute("title", tr("pref.theme." + now));
         btn.textContent = "system".equals(now) ? "◐" : "light".equals(now) ? "☀" : "☾";
@@ -200,11 +203,11 @@ public class SettingsElement {
     }
 
     /** 데몬이 읽는 완성 설정 — 못 읽었으면 그 무리 자체를 그리지 않는다(빈 껍데기 금지). */
-    private HTMLElement completeGroup() {
-        HTMLElement box = el("div");
+    private List<HTMLElement> completeGroup() {
+        List<HTMLElement> out = new ArrayList<>();
         JsPropertyMap<Object> got = complete();
-        if (got == null) return box;
-        box.append(group("grpComplete", tr("ac.head")));
+        if (got == null) return out;
+        add(out, group("grpComplete", tr("ac.head")));
         HTMLElement why = el("div");
         why.className = "prefsay";
         why.id = "acsBlock";
@@ -213,21 +216,21 @@ public class SettingsElement {
         line.id = "acsWhy";
         line.textContent = tr("ac.head_why");
         why.append(line);
-        box.append(why);
+        add(out, why);
         // 없는 키는 켜짐이 기본이다(운영: absent/true = default on).
-        box.append(daemonSwitch("ambientK", "ambientWhy", "ac.ambient", "ac.ambient_why",
+        add(out, daemonSwitch("ambientK", "ambientWhy", "ac.ambient", "ac.ambient_why",
                 !Js.isTruthy(got.get("ambient")) && got.has("ambient") ? false : true, "ambient"));
-        box.append(daemonSwitch("crossK", "crossWhy", "ac.cross", "ac.cross_why",
+        add(out, daemonSwitch("crossK", "crossWhy", "ac.cross", "ac.cross_why",
                 !Js.isTruthy(got.get("crossSession")) && got.has("crossSession") ? false : true, "crossSession"));
-        box.append(profileRow("codeProfK", "codeProfWhy", "ac.code_profile", "ac.code_profile_why",
+        add(out, profileRow("codeProfK", "codeProfWhy", "ac.code_profile", "ac.code_profile_why",
                 "codeProfile", str(got, "codeProfile")));
-        box.append(profileRow("compProfK", "compProfWhy", "ac.composer_profile", "ac.composer_profile_why",
+        add(out, profileRow("compProfK", "compProfWhy", "ac.composer_profile", "ac.composer_profile_why",
                 "composerProfile", str(got, "composerProfile")));
         // 커밋과 PR의 규칙 — 이 워크스페이스에서 쓰는 말투를 적어 두면 그대로 따른다.
         // 누를 때마다가 아니라 <b>손을 뗄 때</b> 저장한다: 글은 한 글자마다 끝나지 않는다.
-        box.append(templateRow("commitTplK", "ac.commit_tpl", "commitTemplate", str(got, "commitTemplate")));
-        box.append(templateRow("prTplK", "ac.pr_tpl", "prTemplate", str(got, "prTemplate")));
-        return box;
+        add(out, templateRow("commitTplK", "ac.commit_tpl", "commitTemplate", str(got, "commitTemplate")));
+        add(out, templateRow("prTplK", "ac.pr_tpl", "prTemplate", str(got, "prTemplate")));
+        return out;
     }
 
     /**
@@ -237,9 +240,9 @@ public class SettingsElement {
      * 빈 폼에 적는 일이다. 두 화면으로 가르면 "이건 새 것인가 고치는 것인가"를 사람이 기억해야
      * 한다. 키는 적었을 때만 보낸다 — 빈 칸은 "지우라"가 아니라 "그대로 두라"이다.
      */
-    private HTMLElement profilesGroup() {
-        HTMLElement box = el("div");
-        box.append(group("grpProfiles", tr("prof.head")));
+    private List<HTMLElement> profilesGroup() {
+        List<HTMLElement> out = new ArrayList<>();
+        add(out, group("grpProfiles", tr("prof.head")));
         HTMLElement why = el("div");
         why.className = "prefsay";
         HTMLElement line = el("div");
@@ -247,7 +250,7 @@ public class SettingsElement {
         line.id = "profWhy";
         line.textContent = tr("prof.head_why");
         why.append(line);
-        box.append(why);
+        add(out, why);
 
         HTMLElement listBox = el("div");
         listBox.className = "prefsay";
@@ -255,7 +258,7 @@ public class SettingsElement {
         list.className = "proflist";
         list.id = "profList";
         listBox.append(list);
-        box.append(listBox);
+        add(out, listBox);
 
         HTMLElement name = field("profName", tr("prof.name"));
         HTMLElement base = field("profBase", tr("prof.base_url"));
@@ -278,9 +281,9 @@ public class SettingsElement {
             });
         });
         HTMLElement form = el("div");
-        form.className = "profform";
+        form.className = "profadd";
         form.append(name, base, model, key, save);
-        box.append(form);
+        add(out, form);
 
         JsArrayLike<Object> got = Js.uncheckedCast(store.profiles());
         for (int i = 0; got != null && i < got.getLength(); i++) {
@@ -293,7 +296,7 @@ public class SettingsElement {
             none.textContent = tr("prof.none");
             list.append(none);
         }
-        return box;
+        return out;
     }
 
     /** 한 줄 — 이름, 그것이 무엇인지, 그리고 고치기와 제거. */
@@ -332,9 +335,9 @@ public class SettingsElement {
     }
 
     /** 이 콘솔 — 좁은 화면에서 접근 제어로 가는 길(레일이 접힌 자리의 그 문). */
-    private HTMLElement consoleGroup() {
-        HTMLElement box = el("div");
-        box.append(group("grpConsole", tr("pref.grp.console")));
+    private List<HTMLElement> consoleGroup() {
+        List<HTMLElement> out = new ArrayList<>();
+        add(out, group("grpConsole", tr("pref.grp.console")));
         // 이 콘솔이 무엇인가 — 호스트, 어느 config를 읽고 있나, 그리고 판본 둘. 물어볼 데가
         // 여기뿐이라 적는다(창 전체의 사실이므로 셸이 읽어 올린 것을 든다).
         HTMLElement facts = el("div");
@@ -346,7 +349,7 @@ public class SettingsElement {
         HTMLElement lines = el("div");
         lines.id = "console";
         facts.append(k, lines);
-        box.append(facts);
+        add(out, facts);
         dev.sayaya.magi.bridge.Facts.onConsole(info -> {
             if (info == null) return;
             JsPropertyMap<Object> c = Js.uncheckedCast(info);
@@ -363,7 +366,7 @@ public class SettingsElement {
                 lines.append(line);
             }
         });
-        if (!May.can("admin")) return box;
+        if (!May.can("admin")) return out;
         HTMLElement r = row("accessK", "accessWhy", "nav.access", "nav.access_sub");
         r.className = "prefrow narrowonly";
         HTMLElement go = el("md-text-button");
@@ -371,8 +374,8 @@ public class SettingsElement {
         go.textContent = tr("nav.access");
         go.addEventListener("click", evt -> dev.sayaya.magi.bridge.GoSharing.view("access"));
         r.append(go);
-        box.append(r);
-        return box;
+        add(out, r);
+        return out;
     }
 
     private static String joinDaemons(JsPropertyMap<Object> c) {
@@ -384,6 +387,11 @@ public class SettingsElement {
             out.append(String.valueOf(all.getAt(i)));
         }
         return out.toString();
+    }
+
+    /** 여러 조각을 한 줄씩 — 무리는 폼의 직계다(익명 상자 한 겹이 구조를 다르게 만든다). */
+    private static void add(List<HTMLElement> out, HTMLElement... some) {
+        for (HTMLElement one : some) if (one != null) out.add(one);
     }
 
     private HTMLElement field(String id, String label) {
