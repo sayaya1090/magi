@@ -177,7 +177,7 @@ func (s *server) transcript(w http.ResponseWriter, r *http.Request) {
 	// A child holds councils of its own when it declares itself finished, so its transcript gets
 	// them spliced back in exactly as the parent's does.
 	if marks, cerr := s.reader.CouncilMarks(r.Context(), sid); cerr == nil {
-		rows = spliceCouncil(rows, marks)
+		rows = spliceCouncil(rows, marks, messageOrder(msgs))
 	}
 	writeJSON(w, "transcript", rows)
 }
