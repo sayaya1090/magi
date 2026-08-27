@@ -46,4 +46,24 @@ public final class ChromeSharing {
 
     @FunctionalInterface
     public interface Host { void mount(Object render); }
+
+    /**
+     * 본문 위에 얹히는 것이 달라졌다 — 창 높이에 물린 기둥의 앵커를 다시 재 달라는 말.
+     *
+     * 폰의 탭 줄은 화면 모듈의 것이고, 그 앵커는 셸의 것이다. 화면이 그 값을 직접 쓰면 두 곳이
+     * 같은 사실을 따로 계산하게 된다 — 여기서는 "바뀌었다"만 알린다.
+     */
+    private static final String REMEASURE = "__magi_chrome_remeasure";
+
+    @jsinterop.annotations.JsFunction
+    public interface Runner { void call(); }
+
+    public static void hostRemeasure(Runner r) {
+        Js.asPropertyMap(DomGlobal.window).set(REMEASURE, r);
+    }
+
+    public static void remeasure() {
+        Object r = Js.asPropertyMap(DomGlobal.window).get(REMEASURE);
+        if (r != null) Js.<Runner>cast(r).call();
+    }
 }

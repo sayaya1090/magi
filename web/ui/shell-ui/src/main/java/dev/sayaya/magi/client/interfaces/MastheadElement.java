@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.Facts;
 import dev.sayaya.magi.client.domain.Destination;
 import dev.sayaya.magi.client.domain.Place;
@@ -57,10 +58,14 @@ public class MastheadElement {
         // 화면이 제 손잡이를 놓을 자리를 연다 — 셸은 그것이 무엇을 여는지 모른다.
         dev.sayaya.magi.bridge.ChromeSharing.host(render ->
                 Js.<dev.sayaya.magi.bridge.Render>cast(render).onInvoke(chrome));
+        // 본문 위에 무엇이 얹히는지는 화면이 안다(폰의 탭 줄) — 그 자리를 재는 것은 셸이다.
+        dev.sayaya.magi.bridge.ChromeSharing.hostRemeasure(this::measureShelltop);
         // 컴패니언 화면은 창 높이에 물린다: page.css가 그 높이를 calc(100dvh - shelltop)으로
         // 잡고, shelltop은 실측값이다(운영도 잰다). 재지 않으면 기둥이 창 밖으로 흘러 마지막
         // 카드가 잘린다 — 기본값 5.5rem은 이 셸의 마스트헤드 높이가 아니다.
         DomGlobal.requestAnimationFrame(ts -> measureShelltop());
+        // 폭이 바뀌면 그 위에 얹히는 것도 바뀐다(폰의 탭 줄) — 다시 잰다.
+        DomGlobal.window.addEventListener("resize", evt -> measureShelltop());
     }
 
     public HTMLElement element() { return header; }
@@ -92,7 +97,7 @@ public class MastheadElement {
         // 이름과 목적지는 같은 곳이어야 한다 — 이 계단은 <b>서 있는 곳</b>이고, 그것이 곧 그리로
         // 돌아가는 길이다(운영 paintCrumbs의 규칙). 늘 /next를 걸어 두면, 설정에서 "설정"이라
         // 적힌 계단을 눌렀을 때 명단으로 나가 버린다.
-        back.setAttribute("href", Destination.FLEET.id.equals(screen.id) ? "/next" : "/next?v=" + screen.id);
+        back.setAttribute("href", Destination.FLEET.id.equals(screen.id) ? Windows.here() : Windows.here() + "?v=" + screen.id);
         back.className = inCompanion ? "" : "here";
         if (!inCompanion) {
             deep.remove();
@@ -243,13 +248,25 @@ public class MastheadElement {
         });
     }
 
-    /** 마스트헤드가 차지한 높이 + 본문이 시작되는 자리 — 컴패니언 기둥의 앵커. */
+    /**
+     * 본문이 <b>시작되는 자리</b> — 컴패니언 기둥의 앵커.
+     *
+     * 마스트헤드 높이가 아니라 &lt;main&gt;의 top이다(운영 measureMasthead도 그것을 잰다):
+     * 그 위에 서는 것이 마스트헤드만이 아니기 때문이다. 폰에서는 탭 줄이 하나 더 얹히고,
+     * 데모에는 띠가 하나 더 있다. 마스트헤드만 재면 그 차이만큼 기둥이 창 밖으로 흘러, 전사가
+     * 제 안에서 구르는 대신 페이지를 늘린다(실측: 390px에서 페이지 높이 1993px, 마지막 카드가
+     * 화면 밖).
+     */
     private void measureShelltop() {
-        double h = header.getBoundingClientRect().height;
-        if (h <= 0) return;
+        elemental2.dom.Element main = DomGlobal.document.querySelector("main");
+        double top = main == null ? 0 : main.getBoundingClientRect().top;
+        if (top <= 0) return;
         DomGlobal.document.documentElement.style.setProperty("--magi-comp-shelltop",
-                Math.round(h) + "px");
+                Math.ceil(top) + "px");
     }
+
+    /** 위에 얹히는 것이 바뀌면(폰의 탭 줄, 데모의 띠) 다시 잰다 — 그 자리는 창의 사실이다. */
+    public void remeasure() { measureShelltop(); }
 
     /** 이 손이 어느 기계의 것인가 — 단축키를 그 기계의 말로 적으려고. */
     private static boolean mac() {

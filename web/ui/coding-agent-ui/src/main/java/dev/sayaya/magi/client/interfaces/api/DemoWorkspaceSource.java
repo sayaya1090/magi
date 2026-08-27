@@ -36,6 +36,7 @@ public class DemoWorkspaceSource implements WorkspaceSource {
     private static String under(String path) {
         switch (path) {
             case ".":
+                // 구 콘솔의 데모와 같은 뿌리다(자료가 아니라 화면을 견주기 위해).
                 return "[{\"name\":\"cmd\",\"isDir\":true},{\"name\":\"internal\",\"isDir\":true},"
                         + "{\"name\":\"docs\",\"isDir\":true},{\"name\":\"README.md\"},{\"name\":\"go.mod\"}]";
             case "cmd":
@@ -51,18 +52,46 @@ public class DemoWorkspaceSource implements WorkspaceSource {
 
     @Override
     public void git(CompanionContext ctx, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse("{\"repo\":true,\"branch\":\"main\",\"ahead\":2,\"behind\":0,"
-                + "\"changes\":[{\"path\":\"internal/app/loop.go\",\"kind\":\"staged\",\"status\":\"M\"},"
-                + "{\"path\":\"docs/MANUAL.md\",\"kind\":\"worktree\",\"status\":\"M\"},"
-                + "{\"path\":\"scratch.txt\",\"kind\":\"worktree\",\"status\":\"?\"}]}"));
+        // 구 콘솔의 데모와 같은 작업 트리다 — 두 데모를 나란히 놓고 볼 때 다른 저장소를 보고
+        // 있으면 화면 차이인지 자료 차이인지 아무도 가릴 수 없다. 종류를 하나씩 담는 것이
+        // 요점이고, 그중 both가 가장 볼 값어치가 있다: 지금 커밋하면 화면에 보이는 것의 절반만
+        // 실린다.
+        cb.accept(Global.JSON.parse("{\"repo\":true,\"branch\":\"engine-ui-split\",\"head\":\"20ff4276\","
+                + "\"upstream\":\"origin/engine-ui-split\",\"ahead\":2,\"behind\":0,"
+                + "\"branches\":[\"engine-ui-split\",\"main\",\"fleet-door\"],\"changes\":["
+                + "{\"path\":\"cmd/magi-web/page.js\",\"kind\":\"unstaged\"},"
+                + "{\"path\":\"internal/app/git.go\",\"kind\":\"staged\"},"
+                + "{\"path\":\"docs/UI.md\",\"kind\":\"both\"},"
+                + "{\"path\":\"scratchpad/notes.md\",\"kind\":\"untracked\"}]}"));
     }
 
     @Override
     public void file(CompanionContext ctx, String path, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse("{\"path\":\"" + path + "\",\"text\":\"     1\\t" + path
-                + "\\n     2\\t\\n     3\\tThis is the demo. The real console reads the file out of the\\n"
-                + "     4\\tcompanion's workspace with the agent's own read tool — the same line\\n"
-                + "     5\\tnumbers it sees, so a person and their companion point at one line.\\n\"}"));
+        // 소스 파일 하나로 보인다(구 데모와 같은 파일): 주석·문자열·수가 표시되고, 번호는 read
+        // 툴의 것 그대로다 — 사람과 컴패니언이 같은 40행을 가리킬 수 있어야 한다.
+        String text = "internal/app/git.go".equals(path)
+                ? "    64\\t// GitFacts reads the workspace's git state, or reports that there is none.\\n"
+                + "    65\\tfunc (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {\\n"
+                + "    66\\t\\tif a.plat == nil {\\n"
+                + "    67\\t\\t\\treturn GitState{}, fmt.Errorf(\\\"platform unavailable\\\")\\n"
+                + "    68\\t\\t}\\n"
+                + "    69\\t\\tres, err := a.plat.Exec(ctx, port.Cmd{\\n"
+                + "    70\\t\\t\\tPath:      \\\"git\\\",\\n"
+                + "    71\\t\\t\\t// --porcelain=v2 is the format git documents for programs.\\n"
+                + "    72\\t\\t\\tArgs:      []string{\\\"status\\\", \\\"--porcelain=v2\\\", \\\"--branch\\\"},\\n"
+                + "    73\\t\\t\\tDir:       workdir,\\n"
+                + "    74\\t\\t\\tMaxOutput: 1048576,\\n"
+                + "    75\\t\\t})\\n"
+                + "    76\\t\\tif err != nil || res.ExitCode != 0 {\\n"
+                + "    77\\t\\t\\t// Not a checkout, no git, or a repository this account may not read.\\n"
+                + "    78\\t\\t\\treturn GitState{}, nil\\n"
+                + "    79\\t\\t}\\n"
+                + "    80\\t\\treturn parseGitStatus(string(res.Stdout)), nil\\n"
+                + "    81\\t}\\n"
+                : "     1\\t# " + path + "\\n     2\\t\\n"
+                + "     3\\tAn agent that runs where the work is: one companion per workspace, a daemon\\n"
+                + "     4\\tholding the conversation, and this console reading what they wrote down.\\n";
+        cb.accept(Global.JSON.parse("{\"path\":\"" + path + "\",\"text\":\"" + text + "\"}"));
     }
 
     @Override
@@ -91,12 +120,22 @@ public class DemoWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes) {
+        notes.accept("2\tthis line does nothing");
+    }
+
+    @Override
     public void openFileHint(CompanionContext ctx, String path, String text) { }
 
     @Override
     public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
         cb.accept(Global.JSON.parse("{\"text\":\"diff --git a/" + path + " b/" + path
                 + "\\n@@ -1,3 +1,4 @@\\n context line\\n-was this\\n+is this now\\n+and this\"}"));
+    }
+
+    @Override
+    public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
+        said.accept("workspace: read a file the way the console does\n\nThe body the model would write.");
     }
 
     @Override

@@ -40,6 +40,18 @@ public final class Windows {
         jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_one_pane", now);
     }
 
+    /**
+     * 이 콘솔이 사는 주소 — 링크의 앞머리.
+     *
+     * "/next"를 박아 두면 정적 데모(파일 하나가 /index.html에 있는 페이지)에서 모든 링크가
+     * 404가 된다(실측: 데모의 명단에서 어느 컴패니언으로도 갈 수 없었다). 지금 서 있는
+     * 경로가 답이고, 그것은 창이 이미 아는 사실이다.
+     */
+    public static String here() {
+        String path = DomGlobal.window.location.pathname;
+        return path == null || path.isEmpty() ? "/" : path;
+    }
+
     /** 주소가 컴패니언을 대고 있는가 — ?d= 가 그 표시다(운영 콘솔과 같은 주소). */
     public static boolean companionAimed() {
         String d = new URLSearchParams(DomGlobal.window.location.search).get("d");

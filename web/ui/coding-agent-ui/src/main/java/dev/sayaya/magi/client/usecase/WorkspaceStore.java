@@ -145,9 +145,35 @@ public class WorkspaceStore {
         source.complete(ctx, path, prefix, suffix, text);
     }
 
+    /** 캐럿 둘레를 읽어 달라는 청 — 보낼 자리를 고르는 것은 화면의 몫이다(진짜 줄 번호로). */
+    public void look(String path, String numbered, Consumer<String> notes) {
+        if (ctx == null) { notes.accept(""); return; }
+        source.look(ctx, path, numbered, notes);
+    }
+
     /** 열어 둔 파일과 그 버퍼를 컴패니언에게 알린다 — 빈 본문은 그 사본을 지운다. */
     public void openFileHint(String path, String text) {
         if (ctx != null) source.openFileHint(ctx, path, text);
+    }
+
+    /** 커밋 작업대 — 파일과 같은 자리(탭)에 서는 카드다. 신원은 하나뿐이라 두 번 열리지 않는다. */
+    public static final String COMMIT = "commit:";
+
+    public void openCommit() {
+        if (ctx == null) return;
+        if (!opened.containsKey(COMMIT)) opened.put(COMMIT, "");
+        emit();
+    }
+
+    /** 한 번 읽어 보는 차이 — 카드로 열지 않고 그 자리에서 그린다(작업대의 그 상자). */
+    public void diffOf(String path, String which, Consumer<Object> got) {
+        if (ctx == null) { got.accept(null); return; }
+        source.diff(ctx, path, which, got);
+    }
+
+    public void draftCommitMessage(String rules, Consumer<String> said) {
+        if (ctx == null) { said.accept(""); return; }
+        source.draftCommitMessage(ctx, rules, said);
     }
 
     public static String diffKey(String path, String which) {

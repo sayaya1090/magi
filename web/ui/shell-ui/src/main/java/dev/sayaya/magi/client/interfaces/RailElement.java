@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.client.domain.Destination;
 import dev.sayaya.magi.client.domain.RailModes;
@@ -203,7 +204,7 @@ public class RailElement implements RailView {
     private HTMLElement item(Destination d) {
         HTMLElement a = el("a");
         a.className = "raili";
-        a.setAttribute("href", d == Destination.FLEET ? "/next" : "/next?v=" + d.id);
+        a.setAttribute("href", d == Destination.FLEET ? Windows.here() : Windows.here() + "?v=" + d.id);
         HTMLElement icwrap = el("span");
         icwrap.className = "icwrap";
         // data-i: 스프라이트가 있으면 Icons.dress가 이 도형을 그 그림으로 갈아입힌다(운영 규칙).

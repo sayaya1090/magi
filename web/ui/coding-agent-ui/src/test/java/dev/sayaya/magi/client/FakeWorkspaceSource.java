@@ -80,6 +80,12 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_look", path + "|" + numbered.split("\n").length);
+        notes.accept("1\tsays nothing\nand a line outside the format");
+    }
+
+    @Override
     public void openFileHint(CompanionContext ctx, String path, String text) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_openfile", path + "|" + text.length());
     }
@@ -88,6 +94,12 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     public void diff(CompanionContext ctx, String path, String which, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_diff", path + "|" + which);
         cb.accept(Global.JSON.parse("{\"text\":\"@@ -1,2 +1,2 @@\\n-old\\n+new\"}"));
+    }
+
+    @Override
+    public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_gitmsg", rules);
+        said.accept("a drafted message");
     }
 
     @Override
