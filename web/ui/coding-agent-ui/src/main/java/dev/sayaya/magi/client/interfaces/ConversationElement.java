@@ -278,6 +278,45 @@ public class ConversationElement {
         return found[0];
     }
 
+    /**
+     * 복사 — 늘 서 있다(손끝이 올라올 때만 나타나는 컨트롤은 터치 화면에 영영 없는 컨트롤이고
+     * 키보드가 닿지 못하는 컨트롤이다). 컴포넌트가 아니라 맨 button인 이유는 이것이 산문 행마다
+     * 하나씩이기 때문이다 — 섀도 루트를 수백 개 더 짓지 않는다(운영 copyChip의 그 판단).
+     */
+    private HTMLElement copyChip(String text) {
+        HTMLElement b = el("button");
+        b.setAttribute("type", "button");
+        b.className = "copy hit48";
+        b.append(Icons.orGlyph("#i-sl-copy", "\u29C9", null));
+        b.setAttribute("aria-label", tr("action.copy"));
+        b.setAttribute("title", tr("action.copy"));
+        b.addEventListener("click", evt -> {
+            evt.preventDefault();
+            evt.stopPropagation();
+            // 조용히 실패한 복사는 시끄럽게 실패한 복사보다 나쁘다: 다음에 하는 일이 붙여넣기라
+            // 그때는 이유가 사라지고 없다.
+            copy(text, ok -> {
+                if (!ok) { note.textContent = tr("copy.refused"); note.removeAttribute("hidden"); return; }
+                b.textContent = "\u2713";
+                b.classList.add("done");
+                DomGlobal.setTimeout(a -> {
+                    b.replaceChildren(Icons.orGlyph("#i-sl-copy", "\u29C9", null));
+                    b.classList.remove("done");
+                }, 1200);
+            });
+        });
+        return b;
+    }
+
+    private interface Landed { void call(boolean ok); }
+
+    private static native void copy(String text, Landed then) /*-{
+        var ok = function (good) { then.@dev.sayaya.magi.client.interfaces.ConversationElement.Landed::call(Z)(good); };
+        if (!$wnd.navigator.clipboard) { ok(false); return; }
+        $wnd.navigator.clipboard.writeText(String(text || ''))
+            .then(function () { ok(true); })["catch"](function () { ok(false); });
+    }-*/;
+
     private String value() {
         Object v = Js.asPropertyMap(field).get("value");
         return v == null ? "" : String.valueOf(v);
@@ -330,6 +369,10 @@ public class ConversationElement {
         }
         if (pending) w.append(tag("row.working"));
         if (Js.isTruthy(r.get("abandoned"))) w.append(tag("row.abandoned"));
+        // 사람이 화면에서 못 얻는 것 하나 — 적힌 그대로의 본문. 골라서 복사하면 <b>그려진</b>
+        // 글이 나온다(표는 칸이 붙어 나오고 코드 울타리는 사라진다). 산문 두 행에만 둔다.
+        String said = str(r, "text");
+        if (("user".equals(who) || "assistant".equals(who)) && !said.trim().isEmpty()) w.append(copyChip(said));
         HTMLElement t = el("div");
         t.className = "txt";
         t.textContent = str(r, "text");

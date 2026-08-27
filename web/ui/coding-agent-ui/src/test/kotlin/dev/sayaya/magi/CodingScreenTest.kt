@@ -44,6 +44,16 @@ internal class CodingScreenTest : GwtTestSpec({
                     page.locator("#log .row.toolok .foldbody pre").last().textContent() shouldContain "warnings: 0"
                 }
             }
+            Then("산문 행에는 적힌 그대로를 복사하는 문이 늘 서 있다 — 손끝이 와야 나오는 것이 아니라") {
+                // 골라서 복사하면 그려진 글이 나온다(표는 칸이 붙고 코드 울타리는 사라진다).
+                // 사람이 화면에서 달리 얻을 수 없는 것이라 두 산문 행에만 둔다.
+                // 산문 행마다 하나씩, 그 행의 홈통에.
+                (page.evaluate("[...document.querySelectorAll('#log .row.user, #log .row.assistant')]" +
+                    ".every(r => r.querySelectorAll('.who .copy').length === 1)") as Boolean) shouldBe true
+                (page.locator("#log .row.user").count() > 0) shouldBe true
+                page.locator("#log .row.toolok .copy").count() shouldBe 0
+                page.locator("#log .row.user .who .copy").first().getAttribute("aria-label") shouldBe "action.copy"
+            }
             Then("시각은 행의 홈통에 붙는다") {
                 page.locator("#log .row.user .who .when").count() shouldBe 1
             }
