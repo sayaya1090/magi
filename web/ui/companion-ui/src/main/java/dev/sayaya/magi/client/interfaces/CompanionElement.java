@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CompanionContext;
+import dev.sayaya.magi.bridge.CardSharing;
 import dev.sayaya.magi.bridge.ModuleInject;
 import dev.sayaya.magi.bridge.Motion;
 import dev.sayaya.magi.bridge.PaneSharing;
@@ -10,6 +11,8 @@ import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
+import jsinterop.base.JsArrayLike;
+import jsinterop.base.JsPropertyMap;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -44,6 +47,11 @@ public class CompanionElement {
     private final HTMLElement leftFill = el("div");   // 자식이 채우는 껍데기(display:contents)
     private final HTMLElement centreFill = el("div");
     private final HTMLElement tabs = el("md-tabs");
+    private final HTMLElement cardTabs = el("md-tabs");   // 가운데의 카드 줄(사실판 + 자식의 카드들)
+    // 카드 자리는 <b>카드</b>다 — md-outlined-card. 운영의 그 요소이고, 안쪽 여백(16px)도 판의
+    // 테두리도 그 태그에 걸린 규칙에서 온다: div로 세우면 본문이 테두리에 붙는다(실측 16px 차).
+    private final HTMLElement cardArea = el("md-outlined-card");
+    private String cardShows = "facts";
     private boolean wired = false;
     private String childLoaded = null;
     private String panel = "talk";
@@ -69,7 +77,12 @@ public class CompanionElement {
         centreFill.className = "cfill";
         filecol.append(leftFill);
         // 운영의 그 순서: 사실판이 전사 위에 선다(같은 기둥 안에서).
-        stream.append(detail.element(), centreFill);
+        // 운영의 그 순서: 탭 줄 · 사실판 · 연 카드 · 그리고 자식의 전사.
+        cardTabs.id = "cardtabs";
+        cardTabs.setAttribute("hidden", "");
+        cardArea.id = "fileview";
+        cardArea.setAttribute("hidden", "");
+        stream.append(cardTabs, detail.element(), cardArea, centreFill);
         sidecol.append(side.element());
         stage.append(filecol, stream, sidecol);
         tabs.id = "ptabs";
@@ -106,6 +119,9 @@ public class CompanionElement {
         });
         store.onContext(this::adopt);
         prompt.wire();
+        // 자식이 카드를 열고 닫으면 줄이 따라간다 — 무엇이 열려 있는지는 자식만 안다.
+        CardSharing.onChange(cards -> drawCards());
+        drawCards();
         buildTabs();
         // 폭이 바뀌면 다시 정한다 — 폰에서 넓어진 창은 탭을 걷고 전부를 보여야 한다.
         // 창의 resize를 듣는다: 미디어 질의의 change만 듣던 판은 좁힐 때만 발화하고 넓힐 때
@@ -113,6 +129,93 @@ public class CompanionElement {
         DomGlobal.window.addEventListener("resize", evt -> layout());
         layout();
         store.start();
+    }
+
+    /**
+     * 가운데의 카드 줄 — 사실판과, 자식이 연 것들(파일·디프·커밋…).
+     *
+     * 한 자리에 둘을 그리지 않는다: 무엇이 보이는지 고르는 것이 이 줄이고, 고를 것이 하나뿐이면
+     * 줄은 서지 않는다(운영 규칙: 연 파일이 없으면 hidden).
+     */
+    private final java.util.Set<String> cardsSeen = new java.util.HashSet<>();
+
+    private void drawCards() {
+        JsArrayLike<Object> cards = Js.uncheckedCast(CardSharing.current());
+        int n = cards == null ? 0 : cards.getLength();
+        if (n == 0) {
+            cardTabs.setAttribute("hidden", "");
+            cardTabs.replaceChildren();
+            cardArea.setAttribute("hidden", "");
+            cardArea.replaceChildren();
+            show(detail.element(), store.context() != null);
+            cardShows = "facts";
+            return;
+        }
+        cardTabs.replaceChildren();
+        cardTabs.removeAttribute("hidden");
+        cardTabs.append(cardTab(tr("field.facts"), "facts", null));
+        boolean known = "facts".equals(cardShows);
+        // 방금 열린 것으로 간다 — 파일을 눌렀는데 화면이 그대로면 아무 일도 안 일어난 것처럼
+        // 읽힌다(운영: openFiles에 밀어 넣고 그 탭을 고른다). 이미 열려 있던 것을 다시 눌러
+        // 다시 그려지는 경우는 새것이 아니므로 보던 자리를 뺏지 않는다.
+        String opened = null;
+        java.util.Set<String> now = new java.util.HashSet<>();
+        for (int i = 0; i < n; i++) {
+            JsPropertyMap<Object> c = Js.uncheckedCast(cards.getAt(i));
+            String key = String.valueOf(c.get("key"));
+            now.add(key);
+            if (!cardsSeen.contains(key)) opened = key;
+            if (key.equals(cardShows)) known = true;
+            cardTabs.append(cardTab(String.valueOf(c.get("title")), key, c));
+        }
+        cardsSeen.retainAll(now);
+        cardsSeen.addAll(now);
+        if (opened != null) { cardShows = opened; known = true; }
+        if (!known) cardShows = String.valueOf(Js.<JsPropertyMap<Object>>uncheckedCast(cards.getAt(n - 1)).get("key"));
+        // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
+        boolean facts = "facts".equals(cardShows);
+        show(detail.element(), facts && store.context() != null);
+        show(cardArea, !facts);
+        if (!facts) {
+            cardArea.replaceChildren();
+            for (int i = 0; i < n; i++) {
+                JsPropertyMap<Object> c = Js.uncheckedCast(cards.getAt(i));
+                if (!cardShows.equals(String.valueOf(c.get("key")))) continue;
+                Object render = c.get("render");
+                if (render != null) Js.<Render>cast(render).onInvoke(cardArea);
+            }
+        }
+        for (int i = 0; i < cardTabs.childElementCount; i++) {
+            elemental2.dom.Element t = cardTabs.querySelectorAll("md-secondary-tab").getAt(i);
+            if (t == null) continue;
+            Js.asPropertyMap(t).set("active", cardShows.equals(t.getAttribute("data-card")));
+        }
+    }
+
+    /** 탭 하나 — 이름과, 파일이면 닫는 ×(사실판은 닫지 않는다: 늘 있는 것이다). */
+    private HTMLElement cardTab(String title, String key, JsPropertyMap<Object> card) {
+        HTMLElement t = el("md-secondary-tab");
+        t.setAttribute("data-card", key);
+        HTMLElement label = el("div");
+        label.className = "tablbl";
+        label.textContent = title;
+        t.append(label);
+        t.addEventListener("click", evt -> { cardShows = key; drawCards(); });
+        if (card != null) {
+            HTMLElement x = el("button");
+            x.setAttribute("type", "button");
+            x.className = "tabclose hit48";
+            x.setAttribute("aria-label", tr("action.close_named", "name", title));
+            x.append(dev.sayaya.magi.bridge.Icons.orGlyph("#i-sl-xmark", "×", "mk"));
+            Object close = card.get("close");
+            x.addEventListener("click", evt -> {
+                evt.stopPropagation();
+                if ("facts".equals(cardShows) || key.equals(cardShows)) cardShows = "facts";
+                if (close != null) Js.<CardSharing.Runner>cast(close).call();
+            });
+            t.append(x);
+        }
+        return t;
     }
 
     /** 폰의 탭 — 대화 · 정보 · 파일. 이름은 운영의 그 말이다(팩 키도 같다). */

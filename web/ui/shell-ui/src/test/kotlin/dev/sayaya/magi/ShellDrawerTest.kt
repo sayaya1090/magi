@@ -84,6 +84,22 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
             }
         }
+        When("가짜 회선이 턴이 열렸다고 말하면") {
+            Then("턴바는 창의 것이다 — body의 직계로 서서 창 폭을 가로지른다") {
+                page.waitForSelector("#turnwrap:not([hidden])")
+                // 화면 기둥 안에 서면 position:fixed의 기준 상자가 그 기둥이 된다(실측으로
+                // 한 번 밟은 함정) — 그래서 부모의 직계인지를 잰다.
+                page.evaluate("document.getElementById('turnwrap').parentElement.tagName") shouldBe "BODY"
+                page.locator("#turnwrap md-linear-progress#turnbar").count() shouldBe 1
+                // 4초에서 시작해 이 창의 시계로 흐른다 — 초는 재지 말고 모양(s)만 잰다.
+                Regex("\\d+s").matches(page.locator("#turnfor").textContent() ?: "") shouldBe true
+            }
+            Then("창 폭을 다 쓴다 — 기둥 폭이 아니라") {
+                val w = page.evaluate("document.getElementById('turnwrap').getBoundingClientRect().width") as Number
+                val win = page.evaluate("window.innerWidth") as Number
+                (w.toDouble() >= win.toDouble() - 1) shouldBe true
+            }
+        }
         When("뒤로가면 카탈로그로 돌아오고 조준이 풀린다") {
             page.goBack()
             Then("주소에 d가 없고 조준이 비었다") {
