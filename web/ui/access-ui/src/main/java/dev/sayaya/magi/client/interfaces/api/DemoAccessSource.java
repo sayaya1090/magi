@@ -20,8 +20,8 @@ import java.util.function.Consumer;
  */
 @Singleton
 public class DemoAccessSource implements AccessSource {
-    private String samRole = "viewer";
-    private String samScope = "docs";
+    private String samRole = "responder";
+    private String samScope = "api";
     private boolean samGone = false;
 
     @Inject
@@ -29,18 +29,29 @@ public class DemoAccessSource implements AccessSource {
 
     @Override
     public void roster(Consumer<Object> cb) {
+        // 구 콘솔의 데모와 같은 명부다. 무리가 위, 사람이 아래 — 디렉터리에 물린 콘솔에서는
+        // <b>무리가 곧 명부</b>이고(사람은 고용되고 떠나는 자리에서 관리된다) 개인은 그 예외다.
+        // 그래서 예외 둘을 담는다: 한 컴패니언으로 좁혀진 사람, 그리고 일을 시작하지는 못해도
+        // 물음에는 답할 수 있는 사람.
         String sam = samGone ? "" :
-                ",{\"who\":\"sam@laptop\",\"role\":\"" + samRole + "\",\"can\":[\"read\"]" +
+                ",{\"who\":\"sam@example.com\",\"role\":\"" + samRole + "\",\"can\":[\"read\",\"answer\"]" +
                 (samScope.isEmpty() ? "" : ",\"companions\":[\"" + samScope.replace(",", "\",\"") + "\"]") + "}";
         cb.accept(Global.JSON.parse(
                 "{\"configured\":true,\"named\":true," +
-                "\"instance\":{\"who\":\"you@devbox\",\"configDir\":\"~/.config/magi\"}," +
-                "\"roles\":[{\"name\":\"viewer\",\"can\":[\"read\"]}," +
-                          "{\"name\":\"operator\",\"can\":[\"read\",\"answer\",\"prompt\"]}," +
-                          "{\"name\":\"admin\",\"can\":[\"read\",\"answer\",\"prompt\",\"admin\"]}]," +
-                "\"groups\":[{\"who\":\"platform\",\"role\":\"operator\",\"can\":[\"read\",\"answer\",\"prompt\"],\"companions\":[\"build\"]}]," +
-                "\"people\":[{\"who\":\"you@devbox\",\"role\":\"admin\",\"can\":[\"read\",\"answer\",\"prompt\",\"admin\"],\"me\":true}" +
-                sam + "]}"));
+                "\"instance\":{\"who\":\"you@studio\",\"configDir\":\"/Users/you/.config/magi\"}," +
+                "\"roles\":[{\"name\":\"operator\",\"can\":[\"read\",\"answer\",\"prompt\",\"curate\"," +
+                          "\"configure\",\"admin\",\"shell\"]}," +
+                          "{\"name\":\"responder\",\"can\":[\"read\",\"answer\"]}," +
+                          "{\"name\":\"viewer\",\"can\":[\"read\"]}]," +
+                "\"groups\":[{\"who\":\"platform-team\",\"role\":\"operator\",\"can\":[\"read\",\"answer\"," +
+                          "\"prompt\",\"curate\",\"configure\",\"admin\",\"shell\"]}," +
+                          "{\"who\":\"design-guild\",\"role\":\"responder\",\"can\":[\"read\",\"answer\"]," +
+                          "\"companions\":[\"design\",\"palette\"]}," +
+                          "{\"who\":\"everyone\",\"role\":\"viewer\",\"can\":[\"read\"]}]," +
+                "\"people\":[{\"who\":\"you@studio\",\"role\":\"operator\",\"can\":[\"read\",\"answer\"," +
+                          "\"prompt\",\"curate\",\"configure\",\"admin\",\"shell\"],\"me\":true}" +
+                sam +
+                ",{\"who\":\"contractor@example.com\",\"role\":\"viewer\",\"can\":[\"read\"]}]}"));
     }
 
     @Override

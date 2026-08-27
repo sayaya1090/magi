@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CardSharing;
+import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.May;
