@@ -115,6 +115,18 @@ public class FleetElement {
     }
 
     /** 네 개의 숫자와 필터 — "뭔가 나를 필요로 하나"에 행을 세지 않고 답하는 줄. */
+    /** 이 목록에서 나가는 길 하나 — 같은 모양, 같은 자리(운영 .toview). */
+    private HTMLElement toView(String view, String labelKey, boolean lead, String path) {
+        HTMLElement b = el("md-icon-button");
+        b.className = "toview" + (lead ? " lead" : "");
+        b.setAttribute("aria-label", tr(labelKey));
+        b.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
+                + "<path d=\"" + path + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
+                + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+        b.addEventListener("click", evt -> GoSharing.view(view));
+        return b;
+    }
+
     private void summarise(FleetAgent[] list) {
         summary.replaceChildren();
         for (Map.Entry<String, Integer> e : Roster.counts(list).entrySet()) {
@@ -136,18 +148,16 @@ public class FleetElement {
             });
             summary.append(b);
         }
-        // 이 목록에서 나가는 길 — 보드는 칩들 곁의 아이콘이다(운영 .toview: 같은 줄 오른쪽,
-        // 폰에선 order로 앞). 볼 것이 있을 때만 — 빈 화면으로 가는 문은 없는 문보다 나쁘다.
+        // 이 목록에서 나가는 길들 — 같은 모양, 한 자리(운영 .toview). 볼 것이 있을 때만.
         if (last != null && last.length > 0) {
-            HTMLElement toBoard = el("md-icon-button");
-            toBoard.className = "toview lead";
-            toBoard.setAttribute("aria-label", tr("nav.board"));
-            toBoard.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
-                    + "<path d=\"M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z\" fill=\"none\" "
-                    + "stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
-            // 이동은 셸의 문으로 — 셸 없이 단독으로 떴으면(테스트) 조용한 무음이다.
-            toBoard.addEventListener("click", evt -> GoSharing.view("board"));
-            summary.append(toBoard);
+            summary.append(toView("board", "nav.board", true,
+                    "M4 5.5h5v13H4zM9.5 5.5h5v8h-5zM15 5.5h5v10.5h-5z"));
+        }
+        // 맵은 하나뿐일 때 상자 속 상자다 — 볼 것이 둘부터(운영 규칙).
+        if (last != null && last.length > 1) {
+            summary.append(toView("map", "nav.map", false,
+                    "M12 4.2a2 2 0 1 1 0 4 2 2 0 0 1 0-4M6 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4"
+                            + "M18 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4M12 8.2v3.6M12 11.8H6v4M12 11.8h6v4"));
         }
     }
 

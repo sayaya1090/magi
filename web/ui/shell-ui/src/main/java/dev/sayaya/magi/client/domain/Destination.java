@@ -40,10 +40,15 @@ public final class Destination {
     /** 레일에 문이 달리는 화면들 — 이식된 화면이어도 보드처럼 문 없는 주소가 있다. */
     public static Destination[] doors() { return new Destination[]{FLEET, KNOWLEDGE}; }
 
-    public static Destination[] all() { return new Destination[]{FLEET, KNOWLEDGE, BOARD}; }
+    // 맵 — 보드처럼 문 없는 주소: 플릿이 어떻게 놓여 있고 무엇이 오가는지, 같은 목록의
+    // 다른 시선이라 컴패니언 문이 켜진 채다.
+    public static final Destination MAP = new Destination("map",
+            "nav.map", "nav.map", "nav.map", "");
+
+    public static Destination[] all() { return new Destination[]{FLEET, KNOWLEDGE, BOARD, MAP}; }
 
     /** 레일이 켤 문 — 보드는 플릿의 다른 시선이라 컴패니언 문이 켜진 채다(운영 규칙). */
-    public Destination section() { return this == BOARD ? FLEET : this; }
+    public Destination section() { return this == BOARD || this == MAP ? FLEET : this; }
 
     /** 주소가 대는 이름의 목적지, 모르면 첫 문 — 잘못 친 주소가 빈 화면이 되지 않게. */
     public static Destination byId(String id) {
