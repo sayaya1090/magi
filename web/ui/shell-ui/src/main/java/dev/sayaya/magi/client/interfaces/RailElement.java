@@ -154,17 +154,16 @@ public class RailElement implements RailView {
 
         HTMLElement navBox = el("div");
         navBox.id = "railNav";
+        // 발치는 운영이 접근 제어 문에게 준 자리다 — 매일 다니는 문들과 한 줄에 서지 않는다.
+        // 빈 발의 헤어라인은 CSS가 스스로 걷는다(:has 규칙).
+        HTMLElement foot = el("div");
+        foot.id = "railFoot";
         for (Destination d : Destination.doors()) {
             HTMLElement item = item(d);
             items.put(d.id, item);
-            navBox.append(item);
+            (d.atFoot ? foot : navBox).append(item);
         }
         rail.append(navBox);
-
-        // 발치는 지금 비어 있다 — 접근 제어 문은 그 화면이 이식될 때 온다. 요소는 두는데,
-        // CSS가 빈 발의 헤어라인을 스스로 걷는다(:has 규칙).
-        HTMLElement foot = el("div");
-        foot.id = "railFoot";
         rail.append(foot);
 
         // 툴 레일 — 언제 어떤 모습인지는 RailMode(#rail의 menu/tool 속성)가 말한다.
@@ -203,7 +202,8 @@ public class RailElement implements RailView {
         a.setAttribute("href", d == Destination.FLEET ? "/next" : "/next?v=" + d.id);
         HTMLElement icwrap = el("span");
         icwrap.className = "icwrap";
-        icwrap.innerHTML = "<svg class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
+        // data-i: 스프라이트가 있으면 Icons.dress가 이 도형을 그 그림으로 갈아입힌다(운영 규칙).
+        icwrap.innerHTML = "<svg data-i=\"" + d.iconRef + "\" class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
                 + "<path d=\"" + d.iconPath + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
                 + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
         HTMLElement words = el("span");
@@ -239,6 +239,21 @@ public class RailElement implements RailView {
         DomGlobal.document.body.setAttribute("nav-wide", "");
         menu.setAttribute("aria-expanded", "true");
         mode.drawer(true);
+        placeBadge();
+    }
+
+    /**
+     * 배지의 자리는 모양(nav-wide)이 정한다 — 운영 placeRailBadge: 접히면 아이콘 위,
+     * 열려 행이 되면 라벨 뒤(기본 슬롯의 흐름). 어느 언어에서도 낱말 끝을 따라가라고
+     * 측정 대신 흐름에 맡긴다(운영에서 실측된 그 언어 의존을 피한다).
+     */
+    private void placeBadge() {
+        HTMLElement fleet = items.get(Destination.FLEET.id);
+        if (fleet == null) return;
+        boolean wide = DomGlobal.document.body.hasAttribute("nav-wide");
+        Element home = wide ? fleet : fleet.querySelector(".icwrap");
+        badge.removeAttribute("slot");
+        if (home != null && badge.parentNode != home) home.append(badge);
     }
 
     private void close() {
@@ -247,6 +262,7 @@ public class RailElement implements RailView {
         widePending = DomGlobal.setTimeout(a -> {
             DomGlobal.document.body.removeAttribute("nav-wide");
             widePending = -1;
+            placeBadge();   // 모양이 돌아온 뒤에 — 폭보다 늦게 걷히는 그 250ms의 몫
         }, 250);
         hover.next(null);
         mode.drawer(false);

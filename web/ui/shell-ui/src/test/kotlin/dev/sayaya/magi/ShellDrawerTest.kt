@@ -16,7 +16,9 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#rail")
                 page.locator("#rail #railMenu").count() shouldBe 1
                 page.locator("#scrim").count() shouldBe 1
-                page.locator("#railNav .raili").count() shouldBe 3
+                // 매일 다니는 문은 위, 접근 제어는 발치 — 운영의 그 자리(#railFoot).
+                page.locator("#railNav .raili").count() shouldBe 2
+                page.locator("#railFoot .raili").count() shouldBe 1
             }
             Then("주소의 목적지(fleet)가 선택돼 있고, 그 모듈이 정확히 한 번 로드된다") {
                 page.locator("#railNav .raili[selected]").count() shouldBe 1
