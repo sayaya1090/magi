@@ -28,6 +28,7 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
 | `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
 | `map-ui` | 맵 — 문 없는 주소(v=map): 머신·계정 상자와 오간 것의 와이어 | `map/map.nocache.js` |
+| `access-ui` | 접근 제어(v=access) — 레일의 셋째 문, admin 게이트 | `access/access.nocache.js` |
 
 ## 셸과 화면의 계약 (console-bridge)
 
@@ -106,11 +107,13 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
 2. domain → usecase → interfaces 순으로 이식한다. 마크업 id·클래스는 기존 콘솔 그대로.
 3. EntryPoint에서 RenderSharing.next로 렌더를 등록한다 — 프레임을 받아 Labels.load 뒤
    mount하는 함수(FleetApplication 참조).
-4. 문을 단다: Destination.all()에 한 줄 — 아이콘 패스는 기존 콘솔의 그 드로잉. 문은
+4. 문을 단다: Destination.doors()/all()에 한 줄(문 없는 주소는 all()에만, `section()`이
+   레일의 문을 답한다). 능력이 필요한 문은 `may`를 달면 셸의 MayStore가 접는다 —
+   게이트는 늘 서버가 지고, 이건 눌러서 거절에 닿는 문을 없애는 것뿐이다 — 아이콘 패스는 기존 콘솔의 그 드로잉. 문은
    이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
 5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
    html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, knowledge
-   18093, board 18094, map 18095, 다음은 18096.
+   18093, board 18094, map 18095, access 18096, 다음은 18097.
 6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
    화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
 7. `../README.md` 대조표의 그 행을 갱신한다.
