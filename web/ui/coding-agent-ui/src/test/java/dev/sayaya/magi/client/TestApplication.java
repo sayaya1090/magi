@@ -48,6 +48,17 @@ public class TestApplication implements EntryPoint {
         CodingTestComponent c = DaggerCodingTestComponent.create();
         c.conversation().mount(stream);
         c.conversation().mountComposer(bay);
+        // 카드 자리도 부모의 것이다 — 하네스가 그 자리를 만들고, 자식이 등록한 것을 그린다.
+        HTMLElement cards = div("fileview");
+        stream.append(cards);
+        dev.sayaya.magi.bridge.CardSharing.onChange(list -> {
+            cards.replaceChildren();
+            jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(list);
+            for (int i = 0; all != null && i < all.getLength(); i++) {
+                Object render = jsinterop.base.Js.asPropertyMap(all.getAt(i)).get("render");
+                if (render != null) jsinterop.base.Js.<dev.sayaya.magi.bridge.Render>cast(render).onInvoke(cards);
+            }
+        });
         c.workspace().mount(filecol);
     }
 

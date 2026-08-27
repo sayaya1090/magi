@@ -40,6 +40,15 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void save(CompanionContext ctx, String path, String patch, String text, Consumer<String> why) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("path", path);
+        if (patch != null && !patch.isEmpty()) body.set("patch", patch);
+        else body.set("text", text);
+        Console.post("/save", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
     public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("do", what);

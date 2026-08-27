@@ -5,6 +5,7 @@ import dev.sayaya.gwt.test.GwtTestSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 
 /**
  * 컴패니언 화면(타입 1 = 코딩 에이전트) 관통 — 가짜 포트의 고정 전사로 그린 DOM을 검사한다.
@@ -45,14 +46,6 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             Then("시각은 행의 홈통에 붙는다") {
                 page.locator("#log .row.user .who .when").count() shouldBe 1
-            }
-            Then("턴이 열려 있으니 운영의 그 턴바가 돈다 — 바는 조용하고(aria-hidden) 숫자가 말한다") {
-                page.waitForSelector("#turnwrap:not([hidden])")
-                // aria-hidden은 md 컴포넌트가 섀도로 위임하며 호스트 속성을 걷어간다(실측:
-                // 속성 셀렉터는 영원히 0) — 드로어 때와 같은 함정이라 존재만 잰다.
-                page.waitForSelector("#turnwrap md-linear-progress#turnbar")
-                // 12초에서 시작해 화면의 시계로 흐른다 — 초는 재지 말고 모양(s)만 잰다.
-                Regex("\\d+s").matches(page.locator("#turnfor").textContent() ?: "") shouldBe true
             }
         }
         When("컴포저에 한 마디 적어 보내면") {
@@ -123,15 +116,45 @@ internal class CodingScreenTest : GwtTestSpec({
         }
         When("파일을 누르면") {
             page.locator("#files .treerow:not(.dir)").first().click()
-            Then("같은 왼쪽에서 본문이 열린다 — 가운데는 대화의 자리다") {
-                page.waitForSelector("#files .fileview .filebody")
+            Then("본문은 가운데의 카드로 열린다 — 18rem 기둥은 코드를 읽는 폭이 아니다") {
+                page.waitForSelector("#fileview .filebody")
                 page.evaluate("window.__magi_test_opened") shouldBe "src/main.go"
-                page.locator("#files .fileview .filebody").textContent() shouldContain "package main"
+                page.locator("#fileview .filebody").textContent() shouldContain "package main"
                 page.locator("#cframe, #conversation").first().isVisible() shouldBe true
             }
-            page.locator("#files .fileview .fileclose").click()
-            Then("닫으면 트리만 남는다") {
-                page.waitForCondition { page.locator("#files .fileview").count() == 0 }
+            Then("번호는 제 기둥에 서고 본문에는 없다 — 끌어 복사하면 코드만 딸려온다") {
+                // 읽기 툴이 낸 `번호⇥본문`을 그대로 두면 붙여 넣은 모든 줄 앞에 번호가 붙는다.
+                page.locator("#fileview .filebody .filegutter").textContent()?.trim() shouldBe "1\n2\n3"
+                page.locator("#fileview .filebody .filecode").textContent() shouldContain "package main"
+                (page.locator("#fileview .filebody .filecode").textContent() ?: "") shouldNotContain "1\tpackage"
+            }
+            Then("훑기가 주석을 가른다 — 파서가 아니라 표시다") {
+                page.locator("#fileview .filebody .filecode .tok-note").first().textContent() shouldContain "// go"
+            }
+            Then("경로는 통째로 적힌다 — 사람이 복사해 명령에 붙이는 줄이다") {
+                page.locator("#fileview .filebar .filedir").textContent() shouldBe "src/main.go"
+            }
+        }
+        When("고치기를 누르면") {
+            page.locator("#fileview .filebar .fileacts md-text-button").first().click()
+            Then("같은 그림에 캐럿이 생긴다 — 번호 기둥은 그대로다") {
+                page.waitForSelector("#fileview .fileedit .fileeditarea")
+                page.locator("#fileview .fileedit .filebody.editbody .filegutter").count() shouldBe 1
+                page.locator("#fileview .fileedit .editghost").count() shouldBe 1
+            }
+            Then("저장은 고친 자리만 보낸다 — 패치는 거절될 수 있고 통짜는 남의 일을 덮는다") {
+                page.locator("#fileview .fileedit .fileeditarea").fill("package main\n\nfunc main() { println(1) } // go\n")
+                page.locator("#fileview .filebar .fileacts md-filled-button").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_save") as? String)?.contains("patch:") == true
+                }
+                val sent = page.evaluate("window.__magi_test_save") as String
+                sent shouldContain "src/main.go|patch:diff --git a/src/main.go"
+                sent shouldContain "+func main() { println(1) } // go"
+            }
+            Then("저장하면 읽는 그림으로 돌아온다 — 디스크의 그 파일이 사실이다") {
+                page.waitForSelector("#fileview .filebody .filecode")
+                page.locator("#fileview .fileedit").count() shouldBe 0
             }
         }
         When("찾기를 누르면") {
@@ -155,10 +178,9 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             Then("결과를 누르면 그 파일이 열린다") {
                 page.locator("#files .hits .treerow.hit").first().click()
-                page.waitForSelector("#files .fileview .filebody")
+                page.waitForSelector("#fileview .filebody")
                 page.evaluate("window.__magi_test_opened") shouldBe "src/main.go"
             }
-            page.locator("#files .fileview .fileclose").click()
             Then("지우면 트리가 돌아온다") {
                 page.locator("#files .filefind md-text-button").last().click()
                 page.waitForCondition { page.locator("#files .pane-files .treerow.dir").count() == 1 }
@@ -291,8 +313,10 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForSelector("#files .filefind md-text-button")
                 val h = (page.evaluate("document.querySelector('#files .filefind')" +
                     ".getBoundingClientRect().height") as Number).toDouble()
-                withClue("찾기 줄이 ${h}px — 좁은 기둥에서 트리가 먼저 보여야 한다") {
-                    (h <= 48.0) shouldBe true
+                // 찾는 중이 아니면 한 줄(누르는 버튼 하나)이다 — 찾는 중이면 무엇을 찾았는지
+                // 말하느라 두 줄이 되는데, 그건 사람이 청한 결과다.
+                withClue("찾기 줄이 ${h}px — 트리가 먼저 보여야 한다") {
+                    (h <= 130.0) shouldBe true
                 }
             }
             Then("줄 안의 것들이 열 밖으로 밀리지 않는다 — 눌리면 여기서 드러난다") {

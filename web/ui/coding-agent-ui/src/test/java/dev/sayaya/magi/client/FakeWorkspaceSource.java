@@ -59,6 +59,14 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void save(CompanionContext ctx, String path, String patch, String text, Consumer<String> why) {
+        // 무엇으로 보냈는지가 스펙의 관심사다 — 패치면 패치, 아니면 본문.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_save",
+                path + "|" + (patch == null || patch.isEmpty() ? "text:" + text : "patch:" + patch));
+        why.accept("");
+    }
+
+    @Override
     public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_filedo",
                 what + "|" + path + "|" + (to == null ? "" : to));
@@ -75,6 +83,8 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     @Override
     public void file(CompanionContext ctx, String path, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_opened", path);
-        cb.accept(Global.JSON.parse("{\"path\":\"" + path + "\",\"text\":\"package main\\n\"}"));
+        // 에이전트의 read 툴이 내는 그 모양(번호⇥본문) — 화면이 기둥을 가르는지 재려면 그래야 한다.
+        cb.accept(Global.JSON.parse("{\"path\":\"" + path
+                + "\",\"text\":\"1\\tpackage main\\n2\\t\\n3\\tfunc main() {} // go\\n\"}"));
     }
 }

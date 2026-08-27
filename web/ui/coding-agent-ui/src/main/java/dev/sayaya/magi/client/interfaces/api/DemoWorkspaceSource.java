@@ -74,6 +74,12 @@ public class DemoWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void save(CompanionContext ctx, String path, String patch, String text, Consumer<String> why) {
+        // 데모는 받아 주고 잊는다 — 이 페이지에 디스크는 없다.
+        why.accept("");
+    }
+
+    @Override
     public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
         why.accept("");
     }

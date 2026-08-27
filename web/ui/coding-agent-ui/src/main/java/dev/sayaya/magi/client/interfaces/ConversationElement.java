@@ -36,8 +36,6 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 public class ConversationElement {
     private final CompanionStore store;
     private final HTMLElement root = el("section");
-    private final HTMLElement turnwrap = el("div");
-    private final HTMLElement turnfor = el("span");
     private final HTMLElement log = el("div");
     private final HTMLElement past = el("section");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
@@ -53,17 +51,9 @@ public class ConversationElement {
         // 전사가 남는 높이를 받아 제 안에서 스크롤한다(운영 규칙). 사이에 상자가 하나라도 끼면
         // 그 사슬이 거기서 끊긴다 — 실측: 전사가 4190px로 자라 기둥 밖으로 흘렀다.
         root.id = "conversation";
-        // 턴바는 운영 콘솔의 그 마크업 그대로다 — #turnwrap[hidden] 속의 md-linear-progress
-        // #turnbar(aria-hidden: 행이 이미 말로 말한다)와 경과 숫자 #turnfor. 스타일도 표시
-        // 규칙도 console.css의 것이라, 여기는 hidden 토글과 1초 틱만 진다.
-        turnwrap.id = "turnwrap";
-        turnwrap.setAttribute("hidden", "");
-        HTMLElement bar = el("md-linear-progress");
-        bar.id = "turnbar";
-        Js.asPropertyMap(bar).set("indeterminate", true);
-        bar.setAttribute("aria-hidden", "true");
-        turnfor.id = "turnfor";
-        turnwrap.append(bar, turnfor);
+        // 턴바는 여기 없다 — 창을 가로지르는 줄(운영 css의 left:0;right:0 fixed)은 이 기둥이
+        // 기준 상자가 되는 순간 기둥 폭짜리가 된다. 그건 창의 것이고, 켜는 사실(turn 프레임)도
+        // 이미 셸에 와 있다(shell-ui TurnbarElement).
         log.id = "log";
         past.id = "agentdetail";
         past.setAttribute("hidden", "");
@@ -73,7 +63,7 @@ public class ConversationElement {
         // display:contents — 있는 셈 치지 않는 상자. 이 요소가 필요한 이유는 mount가 프레임을
         // 통째로 갈아끼우기 때문이고(자식 하나로 다루는 편이 안전하다), 배치에서는 없어야 한다.
         root.style.setProperty("display", "contents");
-        root.append(turnwrap, log, past);
+        root.append(log, past);
     }
 
     public void mount(HTMLElement frame) {
@@ -84,7 +74,6 @@ public class ConversationElement {
         store.start();
         store.onContext(ctx -> { lastSig = null; layer(ctx); });
         store.onRows(this::paintRows);
-        store.onTurn(this::paintTurn);
         store.onPast(this::paintPast);
     }
 
@@ -101,7 +90,6 @@ public class ConversationElement {
     private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
         pastNow = ctx == null ? null : ctx.past;
         boolean inPast = pastNow != null;
-        toggle(turnwrap, !inPast && turnwrap.classList.contains("on"));
         toggle(log, !inPast);
         toggle(form, !inPast);
         toggle(past, inPast);
@@ -170,28 +158,6 @@ public class ConversationElement {
     private static String str2(JsPropertyMap<Object> m, String k) {
         Object v = m.get(k);
         return v == null ? "" : String.valueOf(v);
-    }
-
-    // ── 턴바: 운영 page.js showTurnbar/paintTurnFor의 이식 ───────────────────
-    private double turnFrom = 0;
-    private double turnTick = -1;
-    private boolean turnOpen = false;
-
-    private void paintTurn(boolean open, double forSec) {
-        turnOpen = open;
-        turnFrom = JsDate.now() - forSec * 1000;
-        if (open) turnwrap.removeAttribute("hidden");
-        else turnwrap.setAttribute("hidden", "");
-        if (turnTick >= 0) { DomGlobal.clearInterval(turnTick); turnTick = -1; }
-        paintTurnFor();
-        // 1초, 그리고 켜져 있는 동안만 — 숨은 요소를 상대로 도는 타이머는 탭의 수명만큼의
-        // 웨이크업이다(운영의 그 규칙).
-        if (open) turnTick = DomGlobal.setInterval(a -> paintTurnFor(), 1000);
-    }
-
-    private void paintTurnFor() {
-        turnfor.textContent = turnOpen
-                ? dur((int) Math.max(0, Math.round((JsDate.now() - turnFrom) / 1000))) : "";
     }
 
     /** s/m/h/d — 운영 dur()와 같은 축약: 단위는 언어를 타지 않는다. */

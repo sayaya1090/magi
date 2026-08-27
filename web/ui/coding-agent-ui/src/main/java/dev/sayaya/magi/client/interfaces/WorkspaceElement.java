@@ -1,7 +1,10 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.CardSharing;
 import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.May;
+import dev.sayaya.magi.client.domain.Code;
 import dev.sayaya.magi.client.domain.Tree;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import dev.sayaya.magi.client.usecase.WorkspaceStore;
@@ -60,43 +63,50 @@ public class WorkspaceElement {
     private void render() {
         root.replaceChildren();
         root.append(treeCard(), gitCard());
+        publishCards();
     }
 
     // ── 트리 ─────────────────────────────────────────────────────────────────
 
-    /** 판의 머리 — 제목과, 다시 읽는 문(운영 .panerow > .panehead + .paneagain). */
-    private HTMLElement paneRow(String title) {
+    /**
+     * 판의 머리 — 접는 제목과, (파일 판에만) 다시 읽는 문. 운영 paneCard의 .panerow 그대로.
+     *
+     * 다시 읽는 문이 git에 없는 이유: git 상태는 트리를 걸을 때 함께 온다 — 판마다 같은 걸음을
+     * 청하는 버튼을 두면 무엇이 무엇을 새로 읽는지가 흐려진다(운영도 파일 판에만 둔다).
+     */
+    private HTMLElement paneRow(HTMLElement card, String key, String title, Runnable again) {
         HTMLElement row = cell("panerow", null);
-        row.append(head(title));
-        HTMLElement again = el("md-icon-button");
-        again.className = "paneagain";
-        again.append(Icons.orGlyph("#i-sl-arrows-rotate", "↻", "sic"));
-        again.setAttribute("aria-label", tr("files.again"));
-        again.setAttribute("title", tr("files.again"));
-        again.addEventListener("click", evt -> store.walk());
-        row.append(again);
+        row.append(head(card, key, title));
+        if (again == null) return row;
+        HTMLElement b = el("md-icon-button");
+        b.className = "paneagain";
+        b.append(Icons.orGlyph("#i-sl-arrows-rotate", "\u21BB", "sic"));
+        b.setAttribute("aria-label", tr("files.again"));
+        b.setAttribute("title", tr("files.again"));
+        // 접는 버튼 안이 아니라 옆이다 — 컨트롤 속의 컨트롤은 어디를 눌렀느냐로 두 가지 일 중
+        // 하나를 하는 누름이 된다.
+        b.addEventListener("click", evt -> { evt.stopPropagation(); again.run(); });
+        row.append(b);
         return row;
     }
 
-    /** 홈 아래는 ~로 — 긴 절대경로는 좁은 기둥에서 뒤가 잘려 아무 말도 못 한다(운영 shortPath). */
+    /** 판의 머리에 적히는 이름 — 규칙은 도메인의 것(Tree.shortPath), 빈 자리의 말만 여기서. */
     private static String shortPath(String path) {
-        if (path == null || path.isEmpty()) return tr("nav.files");
-        int slash = path.lastIndexOf('/');
-        return slash > 0 && slash < path.length() - 1 ? path.substring(slash + 1) : path;
+        String name = Tree.shortPath(path);
+        return name.isEmpty() ? tr("nav.files") : name;
     }
 
     private HTMLElement treeCard() {
         HTMLElement card = cell("filescard pane-files", null);
         // 제목은 <b>어느 작업공간인가</b>이다 — 화면에 판이 하나뿐이라 "파일"이라는 말은
         // 아무것도 더해 주지 않고, 두 컴패니언을 오갈 때 바뀌는 것은 경로다(운영 규칙).
-        card.append(paneRow(shortPath(store.workdir())));
+        card.append(paneRow(card, "files", shortPath(store.workdir()), store::walk));
         HTMLElement body = cell("panebody", null);
         body.append(findRow());
         // 찾는 동안 판이 보이는 것은 결과다 — 트리로 되돌리지 않는다(운영에서 배운 그 결함).
         if (store.finding()) {
             body.append(hitRows());
             card.append(body);
-            if (store.openPath() != null) card.append(fileView());
             return card;
         }
         Object rows = store.rowsAt(".");
@@ -110,9 +120,6 @@ public class WorkspaceElement {
             branches(body, ".", rows, 0);
         }
         card.append(body);
-        // 열어 둔 파일은 트리 밑에 — 같은 왼쪽 안에서 읽는다(운영은 가운데 슬롯의 탭이지만,
-        // 여기서 가운데는 대화의 것이다: 왼쪽에서 연 것은 왼쪽에서 읽는다).
-        if (store.openPath() != null) card.append(fileView());
         return card;
     }
 
@@ -315,25 +322,200 @@ public class WorkspaceElement {
     }
 
     /** 연 파일 — 아직 오지 않았으면 온다고 말하고, 비었으면 비었다고 말한다. */
-    private HTMLElement fileView() {
-        HTMLElement box = cell("fileview", null);
-        HTMLElement top = cell("filetop", null);
-        top.append(cell("filepath", store.openPath()));
-        HTMLElement close = el("md-text-button");
-        close.className = "fileclose";
-        close.textContent = tr("action.close");
-        close.addEventListener("click", evt -> store.closeFile());
-        top.append(close);
-        box.append(top);
+    /**
+     * 연 파일은 <b>가운데의 카드</b>로 간다 — 18rem 기둥은 코드를 읽는 폭이 아니다.
+     *
+     * 그 자리는 부모의 것이라(사실판과 한 줄을 나눠 쓴다) 여기서 그리지 않고 등록한다:
+     * 무엇이 열려 있는지는 이 화면이 알고, 그 중 무엇을 보일지는 탭 줄이 정한다.
+     */
+    private void publishCards() {
+        String path = store.openPath();
+        if (path == null) { CardSharing.provide(new Object[0]); return; }
+        CardSharing.provide(new Object[]{CardSharing.card(path, baseName(path),
+                (Render) box -> { fileInto(box); return true; },
+                () -> store.closeFile())});
+    }
+
+    private static String baseName(String path) {
+        int slash = path.lastIndexOf('/');
+        return slash >= 0 && slash < path.length() - 1 ? path.substring(slash + 1) : path;
+    }
+
+    // ── 연 파일: 운영 drawFile의 이식 ───────────────────────────────────────
+    //
+    // 자리는 부모가 준 카드 상자(#fileview)다 — 운영도 그 id의 한 요소를 파일·디프·커밋이
+    // 돌려 쓴다. 그래서 여기서 감싸는 상자를 새로 두지 않고 그 안에 바로 그린다: console.css의
+    // #fileview .foldwrap / .filebody 규칙이 그 구조를 그대로 입는다.
+
+    private boolean folded = false;              // 접어 두었는가 — 사실판과 같은 손잡이
+    private String editing = null;               // 편집 중인 경로(하나뿐이다)
+    private final java.util.Map<String, String> drafts = new java.util.HashMap<>();
+    private String said = "";                    // 거부 사유 — 이 버퍼에 대한 말이라 버퍼 위에 선다
+
+    /** 이 파일의 카드 속 — 머리 줄(경로·손잡이·행동)과, 접히는 본문. */
+    private void fileInto(HTMLElement box) {
+        String path = store.openPath();
         String text = store.openText();
-        if (text == null) box.append(cell("filesnote", tr("files.reading")));
-        else if (text.isEmpty()) box.append(cell("filesnote", tr("files.empty_file")));
-        else {
-            HTMLElement pre = el("pre");
-            pre.className = "filebody";
-            pre.textContent = text;
-            box.append(pre);
+        box.replaceChildren();
+        if (folded) box.setAttribute("folded", ""); else box.removeAttribute("folded");
+        HTMLElement bar = cell("filebar", null);
+        bar.append(foldCaret(box, path));
+        // 경로는 <b>통째로</b>다 — 이름은 탭이 이미 말했고, 사람이 복사해 명령에 붙이는 것은
+        // 이 줄이다. 반쪽 경로는 아무도 붙여 넣을 수 없다(운영의 그 이유).
+        bar.append(cell("filedir", path));
+        HTMLElement acts = cell("fileacts", null);
+        bar.append(acts);
+        boolean reading = text != null;
+        // 고치기는 <b>할 수 있는 사람</b>에게만 보인다 — 서버는 어차피 거절하고, 403을 답하는
+        // 버튼은 사람들이 누르지 않는 법을 배운다. 문은 shell이다: 그 워크스페이스에서 명령을
+        // 돌릴 수 있으면 이미 어느 파일이든 쓸 수 있다.
+        if (May.can("shell") && reading && !path.equals(editing)) {
+            HTMLElement go = el("md-text-button");
+            go.append(Icons.orGlyph("#i-sl-pen-to-square", "\u270E", "sic"));
+            go.textContent = tr("action.edit");
+            go.addEventListener("click", evt -> { editing = path; said = ""; publishCards(); });
+            acts.append(go);
         }
+        box.append(bar);
+        if (path.equals(editing) && reading) { box.append(editor(path, text, acts)); return; }
+        HTMLElement wrap = cell("foldwrap", null);
+        HTMLElement body = cell("filebody", null);
+        if (text == null) body.append(cell("filesnote", tr("files.reading")));
+        else if (text.isEmpty()) body.append(cell("filesnote", tr("file.empty")));
+        else read(body, path, text);
+        wrap.append(body);
+        box.append(wrap);
+    }
+
+    /** 접는 손잡이 — 열린 파일은 안 읽는 동안에도 화면의 60vh다(운영이 단 그 이유). */
+    private HTMLElement foldCaret(HTMLElement box, String path) {
+        HTMLElement caret = el("button");
+        caret.setAttribute("type", "button");
+        caret.className = "foldcaret hit48";
+        caret.setAttribute("aria-expanded", folded ? "false" : "true");
+        // 무엇을 접는지로 이름 짓는다 — 옆 판의 제목을 달고 있으면 다른 판을 접는 것처럼 읽힌다.
+        caret.setAttribute("aria-label", tr("action.fold_named", "name", path));
+        caret.append(Icons.orGlyph("#i-sl-chevron-down", "\u25BE", "caret"));
+        caret.addEventListener("click", evt -> { folded = !folded; publishCards(); });
+        return caret;
+    }
+
+    /**
+     * 읽는 그림 — 번호 기둥과 본문 기둥, 한 상자가 함께 구른다.
+     *
+     * 번호를 다시 매기지도 지우지도 않는 이유: 사람과 컴패니언이 서로 다른 40행을 가리키는 것이
+     * 그 정리의 값이다(운영 주석). 기둥으로 가르는 것은 끌어 복사할 때 번호가 딸려오지 않게.
+     */
+    private void read(HTMLElement body, String path, String text) {
+        HTMLElement nums = el("pre");
+        nums.className = "filegutter";
+        // 스크린 리더에서 숨긴다 — 줄마다 끼는 맨 숫자 기둥은 건너뛸 수 없는 잡음이다.
+        nums.setAttribute("aria-hidden", "true");
+        nums.textContent = Code.gutter(text);
+        HTMLElement code = el("pre");
+        code.className = "filecode";
+        String comment = Code.commentMark(path);
+        for (String line : text.split("\n", -1)) {
+            for (Code.Part part : Code.parts(Code.bodyOf(line), comment)) {
+                if (part.cls == null) { code.append(DomGlobal.document.createTextNode(part.text)); continue; }
+                HTMLElement m = el("span");
+                m.className = part.cls;
+                m.textContent = part.text;
+                code.append(m);
+            }
+            code.append(DomGlobal.document.createTextNode("\n"));
+        }
+        body.append(nums, code);
+    }
+
+    /**
+     * 고치는 그림 — <b>같은 그림에 캐럿이 있는 것</b>.
+     *
+     * 색은 글자 <i>아래</i> 놓인 사본에 칠한다: textarea는 문자열 하나를 들 뿐 색 있는 조각을
+     * 들지 못한다. 필드를 투명하게 하고 같은 활자·같은 크기의 pre를 밑에 깔면, 최악의 경우가
+     * "완벽히 읽히는 캐럿 뒤로 색이 한 픽셀 어긋난 것"이다(운영이 고른 그 타협).
+     */
+    private HTMLElement editor(String path, String text, HTMLElement acts) {
+        HTMLElement box = cell("fileedit", null);
+        HTMLElement note = cell("filesnote editsaid", said);
+        if (said.isEmpty()) note.setAttribute("hidden", "");
+        HTMLElement area = el("textarea");
+        area.className = "fileeditarea";
+        area.setAttribute("spellcheck", "false");
+        area.setAttribute("wrap", "off");
+        area.setAttribute("aria-label", path);
+        String opened = Code.plainText(text);
+        // 초고가 먼저다 — 반쯤 고치다 온 파일로 돌아오는 것은 그 반쯤으로 돌아오는 것이다.
+        String start = drafts.containsKey(path) ? drafts.get(path) : opened;
+        Js.asPropertyMap(area).set("value", start);
+        HTMLElement behind = el("pre");
+        behind.className = "filecode editghost";
+        behind.setAttribute("aria-hidden", "true");
+        HTMLElement nums = el("pre");
+        nums.className = "filegutter";
+        nums.setAttribute("aria-hidden", "true");
+        Runnable repaint = () -> {
+            String src = String.valueOf(Js.asPropertyMap(area).get("value"));
+            behind.replaceChildren();
+            String comment = Code.commentMark(path);
+            StringBuilder g = new StringBuilder();
+            int n = 0;
+            for (String line : src.split("\n", -1)) {
+                g.append(++n).append('\n');
+                for (Code.Part part : Code.parts(line, comment)) {
+                    if (part.cls == null) { behind.append(DomGlobal.document.createTextNode(part.text)); continue; }
+                    HTMLElement m = el("span");
+                    m.className = part.cls;
+                    m.textContent = part.text;
+                    behind.append(m);
+                }
+                behind.append(DomGlobal.document.createTextNode("\n"));
+            }
+            nums.textContent = g.toString();
+        };
+        area.addEventListener("input", evt -> {
+            drafts.put(path, String.valueOf(Js.asPropertyMap(area).get("value")));
+            repaint.run();
+        });
+        HTMLElement save = el("md-filled-button");
+        save.append(Icons.orGlyph("#i-sl-floppy-disk", "\u2913", "sic"));
+        save.textContent = tr("action.save");
+        save.addEventListener("click", evt -> {
+            Js.asPropertyMap(save).set("disabled", true);
+            String now = String.valueOf(Js.asPropertyMap(area).get("value"));
+            store.save(path, opened, now, why -> {
+                Js.asPropertyMap(save).set("disabled", false);
+                if (why != null && !why.isEmpty()) {
+                    // 여기서의 거부는 대개 파일이 움직인 것이다 — 열어 둔 사이 컴패니언이 고쳤다.
+                    said = why;
+                    publishCards();
+                    return;
+                }
+                said = "";
+                editing = null;
+                drafts.remove(path);
+                // 그린 것이 아니라 <b>다시 읽은 것</b>을 보여 준다: 디스크의 그 파일이 사실이고,
+                // 툴이 조금 다르게 썼을 수 있다(마지막 개행 같은 것).
+                store.openFile(path);
+            });
+        });
+        HTMLElement stop = el("md-text-button");
+        stop.append(Icons.orGlyph("#i-sl-xmark", "\u2715", "sic"));
+        stop.textContent = tr("action.cancel");
+        stop.addEventListener("click", evt -> {
+            editing = null;
+            said = "";
+            drafts.remove(path);
+            publishCards();
+        });
+        // 시작하는 컨트롤과 끝내는 둘이 같은 자리에 선다 — 움직이는 컨트롤은 두 번 찾게 된다.
+        acts.append(save, stop);
+        HTMLElement wrap = cell("filebody editbody", null);
+        HTMLElement stack = cell("editstack", null);
+        stack.append(behind, area);
+        wrap.append(nums, stack);
+        box.append(note, wrap);
+        repaint.run();
         return box;
     }
 
@@ -341,7 +523,7 @@ public class WorkspaceElement {
 
     private HTMLElement gitCard() {
         HTMLElement card = cell("filescard pane-git", null);
-        card.append(paneRow(tr("git.section")));
+        card.append(paneRow(card, "git", tr("git.section"), null));
         HTMLElement body = cell("panebody", null);
         JsPropertyMap<Object> g = Js.uncheckedCast(store.git());
         if (g == null) {
@@ -508,14 +690,40 @@ public class WorkspaceElement {
 
     // ── 잔손 ─────────────────────────────────────────────────────────────────
 
-    private static HTMLElement head(String title) {
+    /**
+     * 접는 제목. git은 처음부터 접혀 있다(운영 규칙): 트리와 git이 한 기둥에 쌓이는 폭에서,
+     * 바쁜 저장소의 펼친 git 판이 사람이 보러 온 트리를 띠 하나로 밀어냈다. 어느 쪽이든 사람이
+     * 고른 것은 기억한다 — localStorage `pane.<key>`.
+     */
+    private static HTMLElement head(HTMLElement card, String key, String title) {
+        boolean shut = shutAtFirst(key);
+        if (shut) card.classList.add("shut");
         HTMLElement h = el("button");
         h.setAttribute("type", "button");
         h.className = "panehead state";
-        h.setAttribute("aria-expanded", "true");
+        h.setAttribute("aria-expanded", String.valueOf(!shut));
         h.append(Icons.orGlyph("#i-sl-chevron-down", "\u25BE", "panecaret"), cell("panetitle", title));
+        h.addEventListener("click", evt -> {
+            boolean now = !card.classList.contains("shut");
+            card.classList.toggle("shut", now);
+            h.setAttribute("aria-expanded", String.valueOf(!now));
+            remember("pane." + key, now ? "shut" : "open");
+        });
         return h;
     }
+
+    private static boolean shutAtFirst(String key) {
+        String stored = recall("pane." + key);
+        return "shut".equals(stored) || (stored == null && "git".equals(key));
+    }
+
+    private static native String recall(String key) /*-{
+        try { return $wnd.localStorage.getItem(key); } catch (e) { return null; }
+    }-*/;
+
+    private static native void remember(String key, String value) /*-{
+        try { $wnd.localStorage.setItem(key, value); } catch (e) {}
+    }-*/;
 
     private static HTMLElement empty(String whatKey, String howKey) {
         HTMLElement e = el("div");

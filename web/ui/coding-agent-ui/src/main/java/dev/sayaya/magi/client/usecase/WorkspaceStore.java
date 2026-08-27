@@ -101,6 +101,19 @@ public class WorkspaceStore {
         });
     }
 
+    /**
+     * 저장 — 무엇을 보낼지(패치냐 본문이냐)는 순수 규칙이 정한다(Code.unifiedDiff).
+     * 성공하면 다시 걷는다: 저장은 파일을 만들기도 해서, 트리는 이 순간 낡았다.
+     */
+    public void save(String path, String opened, String now, Consumer<String> why) {
+        if (ctx == null) return;
+        String patch = dev.sayaya.magi.client.domain.Code.unifiedDiff(opened, now, path);
+        source.save(ctx, path, patch, now, w -> {
+            if (w == null || w.isEmpty()) { walked = false; walk(); }
+            why.accept(w);
+        });
+    }
+
     public void closeFile() { openPath = null; openText = null; emit(); }
 
     // ── 찾기 ─────────────────────────────────────────────────────────────────
