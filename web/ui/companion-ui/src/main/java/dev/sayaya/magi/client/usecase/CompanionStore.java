@@ -48,6 +48,32 @@ public class CompanionStore implements CompanionSource.Listener {
         source.submit(ctx, text, why);
     }
 
+    // ── 지난 일 층위: 목록 또는 한 세션의 전사 — ctx.past가 정한다 ──────────
+    private final List<Consumer<Object>> pastObs = new ArrayList<>();
+    private Object pastData = null;      // 목록(past=="")이거나 전사 행들(past=id)
+    private String pastFor = null;
+
+    /** 구독자는 (ctx.past, 자료)를 함께 읽는다 — 자료 null은 "아직/못 읽음". */
+    public void onPast(Consumer<Object> o) { pastObs.add(o); o.accept(pastData); }
+
+    private void askPast() {
+        if (ctx == null || ctx.past == null) { pastData = null; pastFor = null; emitPast(); return; }
+        final String want = ctx.socket + "\u0000" + ctx.past;
+        if (want.equals(pastFor)) return;
+        pastFor = want;
+        pastData = null;
+        emitPast();
+        java.util.function.Consumer<Object> land = d -> {
+            if (!want.equals(pastFor)) return;   // 늦은 답이 새 층위에 앉지 않게
+            pastData = d;
+            emitPast();
+        };
+        if (ctx.past.isEmpty()) source.history(ctx, land);
+        else source.pastTranscript(ctx, ctx.past, land);
+    }
+
+    private void emitPast() { for (Consumer<Object> o : pastObs) o.accept(pastData); }
+
     // ── 사실판이 읽는 것들: 명단과 컨텍스트 창 ──────────────────────────────
     private final List<Consumer<Object>> rosterObs = new ArrayList<>();
     private final List<Consumer<Object>> ctxInfoObs = new ArrayList<>();
@@ -91,6 +117,7 @@ public class CompanionStore implements CompanionSource.Listener {
         ctxInfo = null;
         for (Consumer<Object> o : ctxInfoObs) o.accept(null);
         askContextInfo();
+        askPast();
     }
 
     @Override

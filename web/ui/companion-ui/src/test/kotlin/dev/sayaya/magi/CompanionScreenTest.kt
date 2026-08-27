@@ -95,6 +95,37 @@ internal class CompanionScreenTest : GwtTestSpec({
                 page.locator("#companion .composer #t textarea").inputValue() shouldBe ""
             }
         }
+        When("지난 일 층위(빈 past=목록)로 갈아타면") {
+            page.evaluate("window.__magi_test_past('')")
+            Then("지금-대화의 판들이 물러나고 목록이 선다 — 여는 길은 행이다") {
+                page.waitForSelector("#agentdetail:not([hidden]) .hs")
+                page.locator("#log[hidden]").count() shouldBe 1
+                page.locator("#companion form[hidden]").count() shouldBe 1
+                page.locator("#agentdetail .hs").count() shouldBe 2
+                page.locator("#agentdetail .hs.now .when").textContent() shouldBe "state.working"
+                page.locator("#agentdetail .hs").last().locator(".what").textContent() shouldContain "retry storm"
+            }
+        }
+        When("한 세션(past=id)으로 들어가면") {
+            page.evaluate("window.__magi_test_past('s_old')")
+            Then("그 세션의 전사가 fetch로 선다 — 스트림이 아니다") {
+                page.waitForSelector("#agentdetail .dlog .row")
+                page.evaluate("window.__magi_test_past_read") shouldBe "s_old"
+                page.locator("#agentdetail .dlog .row").count() shouldBe 2
+                page.locator("#agentdetail .dlog .row.user .txt").textContent() shouldBe "old prompt"
+            }
+            Then("머리의 돌아가는 길이 목록을 가리킨다") {
+                page.locator("#agentdetail .sectionhead .backpast").count() shouldBe 1
+            }
+        }
+        When("지금 대화로 돌아오면") {
+            page.evaluate("window.__magi_test_past(null)")
+            Then("전사와 컴포저가 돌아온다") {
+                page.waitForSelector("#log:not([hidden])")
+                page.locator("#agentdetail[hidden]").count() shouldBe 1
+                page.locator("#companion form:not([hidden])").count() shouldBe 1
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고, 전사와 컴포저가 그대로 쓸 만하다") {

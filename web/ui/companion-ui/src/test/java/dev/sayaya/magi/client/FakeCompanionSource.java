@@ -5,6 +5,7 @@ import dev.sayaya.magi.client.usecase.CompanionSource;
 import elemental2.core.Global;
 import elemental2.dom.DomGlobal;
 import jsinterop.base.Js;
+import jsinterop.annotations.JsFunction;
 import jsinterop.base.JsPropertyMap;
 
 import javax.inject.Inject;
@@ -17,12 +18,21 @@ import java.util.function.Consumer;
  */
 @Singleton
 public class FakeCompanionSource implements CompanionSource {
+    private Listener listener;
+
     @Inject
     public FakeCompanionSource() {}
 
+    @JsFunction
+    interface PastHook { void call(String past); }
+
     @Override
     public void start(Listener l) {
-        l.context(CompanionContext.of("/tmp/a1.sock", null, "1"));
+        listener = l;
+        // 층위 전환은 주소(셸)의 것 — 단독 테스트는 이 훅으로 컨텍스트를 갈아탄다.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_past", (PastHook) past ->
+                listener.context(CompanionContext.of("/tmp/a1.sock", null, "1", past)));
+        l.context(CompanionContext.of("/tmp/a1.sock", null, "1", null));
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +
                 "{\"who\":\"thinking\",\"text\":\"read the log first\\nthen build\"}," +
@@ -43,6 +53,21 @@ public class FakeCompanionSource implements CompanionSource {
                 "\"host\":\"devbox\",\"addr\":\"10.0.0.7\",\"pid\":4242,\"version\":\"v0.28.0\"," +
                 "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\",\"permission\":\"ask\"," +
                 "\"handling\":true,\"waiting\":2,\"model\":\"gpt-oss:120b\"}]"));
+    }
+
+    @Override
+    public void history(CompanionContext ctx, Consumer<Object> cb) {
+        cb.accept(Global.JSON.parse(
+                "[{\"id\":\"s_now\",\"title\":\"the open one\",\"ago\":0,\"current\":true}," +
+                "{\"id\":\"s_old\",\"title\":\"fix the retry storm\",\"ago\":7200}]"));
+    }
+
+    @Override
+    public void pastTranscript(CompanionContext ctx, String session, Consumer<Object> cb) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_past_read", session);
+        cb.accept(Global.JSON.parse(
+                "[{\"who\":\"user\",\"text\":\"old prompt\"}," +
+                "{\"who\":\"assistant\",\"text\":\"old answer\"}]"));
     }
 
     @Override

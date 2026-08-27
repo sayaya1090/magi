@@ -51,10 +51,23 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
-    public void context(CompanionContext ctx, Consumer<Object> cb) {
-        String q = "?d=" + Global.encodeURIComponent(ctx.socket)
+    public void history(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/history" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void pastTranscript(CompanionContext ctx, String session, Consumer<Object> cb) {
+        Console.fetchList("/transcript" + q(ctx) + "&session=" + Global.encodeURIComponent(session), cb::accept);
+    }
+
+    private static String q(CompanionContext ctx) {
+        return "?d=" + Global.encodeURIComponent(ctx.socket)
                 + (ctx.peer != null && !ctx.peer.isEmpty() ? "&p=" + Global.encodeURIComponent(ctx.peer) : "");
-        Console.fetchList("/context" + q, cb::accept);
+    }
+
+    @Override
+    public void context(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/context" + q(ctx), cb::accept);
     }
 
     @Override
@@ -74,7 +87,9 @@ public class BridgeCompanionSource implements CompanionSource {
         URLSearchParams q = new URLSearchParams(DomGlobal.window.location.search);
         socket = q.get("d");
         peer = q.get("p");
-        listener.context(socket == null ? null : CompanionContext.of(socket, peer, q.get("type")));
+        listener.context(socket == null ? null
+                : CompanionContext.of(socket, peer, q.get("type"),
+                        q.has("past") ? (q.get("past") == null ? "" : q.get("past")) : null));
         if (socket != null) openStream();
     }
 

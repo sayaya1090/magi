@@ -23,6 +23,13 @@ public interface CompanionSource {
     /** 명단 — 셸이 호스팅하면 그 구독으로, 단독이면 /fleet 한 번. 사실판이 읽는다. */
     void roster(java.util.function.Consumer<Object> listOrNull);
 
+    /** 이 컴패니언의 지난 일 목록(/history). */
+    void history(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
+
+    /** 지난 한 세션의 전사(/transcript…&session=) — 스트림이 아니라 한 번의 읽기다. */
+    void pastTranscript(CompanionContext ctx, String session,
+                        java.util.function.Consumer<Object> rowsOrNull);
+
     /** 컨텍스트 창(/context) — 사실판의 그 줄. */
     void context(CompanionContext ctx, java.util.function.Consumer<Object> infoOrNull);
 

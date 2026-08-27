@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.client.domain.Rows;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.core.JsDate;
@@ -18,7 +19,10 @@ import javax.inject.Singleton;
 import static dev.sayaya.magi.bridge.Labels.tr;
 
 /**
- * 컴패니언 화면(타입 1 = 코딩 에이전트): 사실판(접는 카드) · 전사 · 컴포저.
+ * 컴패니언 화면(타입 1 = 코딩 에이전트): 사실판(접는 카드) · 전사 · 컴포저 — 그리고
+ * 지난 일 층위(?past=): 빈 past는 목록(/history), 값은 그 세션의 전사(한 번의 읽기).
+ * 층위에선 지금-대화의 판들이 물러난다: 과거를 보는 화면 밑에서 스트림이 그려지면
+ * 보는 것과 닿는 것이 갈라진다(운영 규칙).
  *
  * 전사 행의 클래스(.row/.who/.txt, toolok…)는 기존 콘솔 page.js rowNode와 같은 계약 —
  * console.css 가 그대로 입힌다. 이 화면 자신의 것(사실 줄·컴포저 배치·턴 바)만
@@ -35,6 +39,7 @@ public class CompanionElement {
     private final HTMLElement turnwrap = el("div");
     private final HTMLElement turnfor = el("span");
     private final HTMLElement log = el("div");
+    private final HTMLElement past = el("section");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
     private final HTMLElement field = el("md-outlined-text-field");
     private String lastSig = null;
@@ -57,8 +62,10 @@ public class CompanionElement {
         turnfor.id = "turnfor";
         turnwrap.append(bar, turnfor);
         log.id = "log";
-        // 운영의 그 순서: 사실판(#detail)이 전사 위에 선다.
-        root.append(turnwrap, detail.element(), log, composer());
+        past.id = "agentdetail";
+        past.setAttribute("hidden", "");
+        // 운영의 그 순서: 사실판(#detail)이 전사 위에 선다. 지난 일 층위는 그 전부를 대신한다.
+        root.append(turnwrap, detail.element(), log, composer(), past);
     }
 
     public void mount(HTMLElement frame) {
@@ -67,9 +74,88 @@ public class CompanionElement {
         if (wired) return;   // 재방문: 캐시된 렌더가 다시 앉는 것 — 구독은 이미 흐른다
         wired = true;
         store.start();
-        store.onContext(ctx -> lastSig = null);
+        store.onContext(ctx -> { lastSig = null; layer(ctx); });
         store.onRows(this::paintRows);
         store.onTurn(this::paintTurn);
+        store.onPast(this::paintPast);
+    }
+
+    // ── 지난 일 층위 ─────────────────────────────────────────────────────────
+
+    private String pastNow = null;
+
+    /** 층위가 정해지면 지금-대화의 판들이 물러난다 — 컴포저까지: 과거엔 보낼 곳이 없다(이동은 잔여). */
+    private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
+        pastNow = ctx == null ? null : ctx.past;
+        boolean inPast = pastNow != null;
+        toggle(turnwrap, !inPast && turnwrap.classList.contains("on"));
+        toggle(detail.element(), !inPast && !detail.element().hasAttribute("hidden") || !inPast);
+        if (inPast) { detail.element().setAttribute("hidden", ""); }
+        toggle(log, !inPast);
+        toggle(form, !inPast);
+        toggle(past, inPast);
+    }
+
+    private void paintPast(Object data) {
+        if (pastNow == null) { past.replaceChildren(); return; }
+        past.replaceChildren();
+        HTMLElement head = el("h2");
+        head.className = "sectionhead";
+        HTMLElement word = el("span");
+        word.textContent = tr("field.history");
+        head.append(word);
+        // 돌아가는 길이 머리에 산다: 세션에서는 목록으로, 목록에서는 지금 대화로.
+        HTMLElement back = el("md-text-button");
+        back.className = "backpast";
+        back.textContent = tr("action.back_to", "name",
+                pastNow.isEmpty() ? tr("nav.companions") : tr("field.history"));
+        back.addEventListener("click", evt -> GoSharing.past(pastNow.isEmpty() ? null : ""));
+        head.append(back);
+        past.append(head);
+        if (data == null) return;   // 아직 — 빈 화면과 "없다"를 섞지 않는다
+        JsArrayLike<Object> list = Js.uncheckedCast(data);
+        if (pastNow.isEmpty()) {
+            // 목록: 행 하나가 한 세션 — 여는 길은 그 행이다.
+            if (list.getLength() == 0) { past.append(cell("dnote", tr("find.none"))); return; }
+            for (int i = 0; i < list.getLength(); i++) {
+                JsPropertyMap<Object> h = Js.uncheckedCast(list.getAt(i));
+                HTMLElement row = el("button");
+                row.setAttribute("type", "button");
+                boolean current = Js.isTruthy(h.get("current"));
+                row.className = "hs hit48" + (current ? " now" : "");
+                double agoSec = h.get("ago") == null ? -1 : Js.coerceToDouble(h.get("ago"));
+                row.append(cell("when", current ? tr("state.working")
+                        : agoSec >= 0 ? tr("time.ago", "d", dur((int) agoSec)) : ""));
+                String title = str2(h, "title");
+                row.append(cell("what", title.isEmpty() ? tr("history.untitled") : title));
+                final String id = str2(h, "id");
+                row.addEventListener("click", evt -> GoSharing.past(id));
+                past.append(row);
+            }
+            return;
+        }
+        // 한 세션의 전사 — 같은 rowNode, 다른 원천(fetch): 스트림이 아니다.
+        HTMLElement dlog = el("div");
+        dlog.className = "dlog";
+        for (int i = 0; i < list.getLength(); i++) dlog.append(rowNode(Js.uncheckedCast(list.getAt(i))));
+        if (list.getLength() == 0) dlog.append(cell("dnote", tr("detail.nothing_yet")));
+        past.append(dlog);
+    }
+
+    private static void toggle(HTMLElement e, boolean show) {
+        if (show) e.removeAttribute("hidden"); else e.setAttribute("hidden", "");
+    }
+
+    private static HTMLElement cell(String cls, String text) {
+        HTMLElement d = el("div");
+        d.className = cls;
+        if (text != null) d.textContent = text;
+        return d;
+    }
+
+    private static String str2(JsPropertyMap<Object> m, String k) {
+        Object v = m.get(k);
+        return v == null ? "" : String.valueOf(v);
     }
 
     // ── 턴바: 운영 page.js showTurnbar/paintTurnFor의 이식 ───────────────────
