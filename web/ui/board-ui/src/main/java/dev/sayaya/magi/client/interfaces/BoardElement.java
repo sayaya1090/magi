@@ -62,6 +62,8 @@ public class BoardElement {
         Icons.glass(find);
         find.addEventListener("input", evt -> store.query(value(find)));
         head.append(prev, day, fwd, today, find);
+        // 그림판은 셸이 늦게 가져온다 — 화살은 한 번만 그려지므로 그때 다시 입힌다.
+        Icons.onReady(() -> { Icons.dress(prev); Icons.dress(fwd); });
         root.append(head, body);
     }
 
@@ -214,9 +216,13 @@ public class BoardElement {
 
     private static void arrow(HTMLElement b, boolean left, String key) {
         b.setAttribute("aria-label", tr(key));
-        b.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\"><path d=\""
+        // 제 도형을 그려 두고 그림판이 있으면 갈아입힌다(운영의 그 순서: data-i + dressIcons) —
+        // 없는 빌드에서는 이 화살이 그대로 남는다.
+        b.innerHTML = "<svg data-i=\"" + (left ? "#i-sl-chevron-left" : "#i-sl-chevron-right")
+                + "\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\"><path d=\""
                 + (left ? "M14.5 5.5 8 12l6.5 6.5" : "M9.5 5.5 16 12l-6.5 6.5")
                 + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+        Icons.dress(b);
     }
 
     private static String todayISO() {

@@ -32,6 +32,13 @@ public final class Icons {
      * 도형으로 산다.
      */
     public static void borrow(Runnable done) {
+        // 다 끝나면(있든 없든) 알린다: 기다리는 화면은 "그림판이 왔다"가 아니라 "이제 물어봐도
+        // 답이 확정이다"를 기다린다.
+        Runnable andSay = () -> { ready(); done.run(); };
+        borrowInner(andSay);
+    }
+
+    private static void borrowInner(Runnable done) {
         tryEach(new String[]{"/", "../"}, 0, done);
     }
 
@@ -67,6 +74,38 @@ public final class Icons {
      * 스프라이트의 그림, 없으면 null — 운영 icon()과 같은 계약이라 부르는 쪽이 분기한다.
      * 클래스는 'sic': 마크업이 오래 써 온 'ic'와 다른 이름이다(운영에서 실측된 그 충돌).
      */
+    /**
+     * 그림판이 도착하면 알려 준다 — 이미 와 있으면 지금.
+     *
+     * 그림판은 셸이 <b>가져와서</b> 심는다(fetch). 한 번만 그리는 화면은 그보다 먼저 그려질 수
+     * 있고, 그때 물어보면 "없다"는 답을 받아 낱말만 남는다 — 그러고는 다시 그릴 일이 없다
+     * (실측: 지식 판의 네 버튼만 그림이 없었다). 그래서 도착을 알리고, 화면은 그때 다시 그린다.
+     */
+    public static void onReady(Runnable then) {
+        if (Js.asPropertyMap(DomGlobal.window).has(READY)) { then.run(); return; }
+        java.util.List<Runnable> waiting = waiters();
+        waiting.add(then);
+    }
+
+    private static java.util.List<Runnable> waiters() {
+        Object had = Js.asPropertyMap(DomGlobal.window).get(WAITERS);
+        if (had != null) return Js.uncheckedCast(had);
+        java.util.List<Runnable> made = new java.util.ArrayList<>();
+        Js.asPropertyMap(DomGlobal.window).set(WAITERS, made);
+        return made;
+    }
+
+    /** 셸: 그림판이 문서에 들어왔다. */
+    public static void ready() {
+        Js.asPropertyMap(DomGlobal.window).set(READY, true);
+        java.util.List<Runnable> waiting = waiters();
+        for (Runnable r : new java.util.ArrayList<>(waiting)) r.run();
+        waiting.clear();
+    }
+
+    private static final String READY = "__magi_sprite_ready";
+    private static final String WAITERS = "__magi_sprite_waiters";
+
     public static Element of(String ref, String cls) {
         if (!has(ref)) return null;
         Element svg = DomGlobal.document.createElementNS(NS, "svg");
@@ -85,6 +124,24 @@ public final class Icons {
      * 그냥 자식으로 붙이면 라벨과 같은 글자 크기를 물려받아 작아진다(실측: 18px 자리에 14px).
      * md-*-button은 slot="icon"에 온 것을 제 규격으로 그린다.
      */
+    /**
+     * 낱말과 표를 한 번에 — <b>순서가 계약이다</b>: textContent는 자식을 통째로 갈아 치우므로
+     * 표를 먼저 달면 낱말이 그것을 지운다(실측: 지식 판의 네 버튼이 그렇게 낱말만 남았다).
+     * 부르는 쪽이 그 순서를 기억하게 두지 않고 여기서 지킨다. 표는 버튼에 적어 두어(data-mark)
+     * 나중에 말이 바뀌어도(reword) 되살아난다 — "정말?"로 갈아입는 버튼이 그런 자리다.
+     */
+    public static void say(HTMLElement button, String word, String ref) {
+        if (ref != null) button.setAttribute("data-mark", ref);
+        reword(button, word);
+    }
+
+    /** 버튼의 말을 갈아 끼운다 — 제 표(data-mark)는 잃지 않는다. */
+    public static void reword(HTMLElement button, String word) {
+        button.textContent = word;
+        String ref = button.getAttribute("data-mark");
+        if (ref != null && !ref.isEmpty()) mark(button, ref);
+    }
+
     public static void mark(HTMLElement button, String ref) {
         elemental2.dom.Element m = of(ref, null);
         // 없으면 아무것도 넣지 않는다 — 이 버튼에는 이미 말이 적혀 있다. 대신 글자 도형을 세우면

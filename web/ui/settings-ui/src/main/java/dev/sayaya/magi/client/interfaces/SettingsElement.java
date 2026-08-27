@@ -113,7 +113,17 @@ public class SettingsElement {
         String said = tr("pref.theme") + ": " + tr("pref.theme." + now);
         btn.setAttribute("aria-label", said);
         btn.setAttribute("title", said);
-        btn.textContent = "system".equals(now) ? "◐" : "light".equals(now) ? "☀" : "☾";
+        // 하늘 하나에 세 몸이 들어 있고, 지금 것만 자리에 선다(운영 .sky/.sun/.moon/.auto —
+        // 갈아 끼우는 것이 아니라 서로를 지나쳐 움직인다). 낱자(◐ ☀ ☾)로 대신하면 그 움직임도,
+        // 굵기도 옆 버튼들과 어긋난다.
+        btn.innerHTML = "<svg class=\"sky\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+                + "<g class=\"sun\"><circle cx=\"12\" cy=\"12\" r=\"4.2\" stroke=\"currentColor\" stroke-width=\"1.8\" fill=\"none\"/>"
+                + "<path d=\"M12 2.4v2.4M12 19.2v2.4M21.6 12h-2.4M4.8 12H2.4M18.6 5.4l-1.7 1.7M7.1 16.9l-1.7 1.7M18.6 18.6l-1.7-1.7M7.1 7.1L5.4 5.4\" "
+                + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" fill=\"none\"/></g>"
+                + "<g class=\"moon\"><path d=\"M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z\" "
+                + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\" fill=\"none\"/></g>"
+                + "<g class=\"auto\"><circle cx=\"12\" cy=\"12\" r=\"7.4\" stroke=\"currentColor\" stroke-width=\"1.8\" fill=\"none\"/>"
+                + "<path d=\"M12 4.6a7.4 7.4 0 0 0 0 14.8z\" fill=\"currentColor\"/></g></svg>";
         btn.addEventListener("click", evt -> {
             String next = Prefs.nextTheme(store.pref("theme", "system"));
             store.keep("theme", next);
@@ -412,7 +422,8 @@ public class SettingsElement {
         // 버튼의 말은 "연다"이다 — 줄의 제목이 무엇을 여는지 이미 말했고, 제목을 버튼에 한 번
         // 더 적으면 390px에서 글자 기둥이 반으로 눌려 두 줄이 된다(실측: 줄 높이 40 대 67).
         go.textContent = tr("access.open");
-        go.setAttribute("aria-label", tr("nav.access"));
+        // 접근 이름을 따로 달지 않는다: 달면 보이는 말("연다")과 읽히는 이름이 갈라져, 말로
+        // 부리는 사람이 화면에 적힌 그 낱말로는 이 버튼을 부를 수 없다(운영도 달지 않는다).
         go.addEventListener("click", evt -> dev.sayaya.magi.bridge.GoSharing.view("access"));
         r.append(go);
         add(out, r);

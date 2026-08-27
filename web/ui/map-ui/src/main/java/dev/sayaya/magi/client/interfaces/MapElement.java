@@ -66,7 +66,7 @@ public class MapElement {
         // 표로 돌아가는 길 — 두 목적지가 아니라 한 목적지의 두 시선(운영 toTable).
         HTMLElement back = el("md-text-button");
         back.className = "astable";
-        back.textContent = tr("map.as_table");
+        Icons.say(back, tr("map.as_table"), "#i-sl-layer-group");
         back.addEventListener("click", evt -> GoSharing.view("fleet"));
         head.append(back);
         if (rows == null || hands == null) {
