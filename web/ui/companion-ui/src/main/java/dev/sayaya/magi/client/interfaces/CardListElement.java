@@ -243,6 +243,10 @@ public class CardListElement {
                 b.addEventListener("click", evt -> { evt.preventDefault(); evt.stopPropagation(); send.accept(opt); });
                 box.append(b);
             }
+            // 목록이 왔다고 해서 <b>쓰는 자리</b>가 사라지지는 않는다: 누르거나, 목록에 없는
+            // 것을 쓰거나 — 같은 제안의 두 반쪽이다(운영도 둘 다 낸다). 목록만 내놓으면 답이
+            // 목록 밖일 때 사람은 위로 스크롤해 컴포저에 옮겨 적어야 했다.
+            for (HTMLElement n : textAnswer(send)) box.append(n);
         } else if ("question".equals(a.askKind)) {
             for (HTMLElement n : textAnswer(send)) box.append(n);
         } else {
