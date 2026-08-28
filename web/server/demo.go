@@ -75,6 +75,11 @@ const demoShim = `
 `
 
 // emitDemo writes the assembled console as a self-answering static site into dir.
+//
+// The answers come from one module (web/ui/demo-ui) rather than from the screens: it hangs its
+// fixtures on the console's own seam (Console.raw/stream), so the screens run the same code they
+// run in life. Production never sees it — assembleConsole leaves it out, and only this emitter
+// copies it in.
 func emitDemo(dir, ui, oldConsole string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -82,6 +87,14 @@ func emitDemo(dir, ui, oldConsole string) error {
 	// The compiled modules and stylesheets, laid out under ui/ the way the server serves them.
 	if err := copyTree(ui, filepath.Join(dir, "ui")); err != nil {
 		return fmt.Errorf("ui assets: %w", err)
+	}
+	// The demo's mock, beside the screens it answers for. The page loads it first and waits.
+	if mock := filepath.Join(filepath.Dir(ui), "demo-mock", "demo"); dirExists(mock) {
+		if err := copyTree(mock, filepath.Join(dir, "ui", "demo")); err != nil {
+			return fmt.Errorf("demo mock: %w", err)
+		}
+	} else {
+		return fmt.Errorf("demo mock not built: %s — run assembleDemoMock", mock)
 	}
 	// The single-source assets the BFF serves in life: the material bundle and the language packs.
 	if err := copyTree(filepath.Join(oldConsole, "i18n"), filepath.Join(dir, "i18n")); err != nil {
@@ -167,6 +180,11 @@ func emitDemo(dir, ui, oldConsole string) error {
 		}
 	}
 	return nil
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func copyTree(from, to string) error {

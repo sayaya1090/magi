@@ -28,6 +28,9 @@ val screens = linkedMapOf(
     "access-ui" to ("dev.sayaya.magi.Access" to "dev.sayaya.magi.AccessTest"),
     "meeting-ui" to ("dev.sayaya.magi.Meeting" to "dev.sayaya.magi.MeetingTest"),
     "settings-ui" to ("dev.sayaya.magi.Settings" to "dev.sayaya.magi.SettingsTest"),
+    // 화면이 아니다 — 정적 데모에서만 실리는 목. 표에 있는 이유는 빌드 규약이 같아서고,
+    // 운영 콘솔의 자산에는 들어가지 않는다(assembleConsole이 뺀다).
+    "demo-ui" to ("dev.sayaya.magi.Demo" to "dev.sayaya.magi.DemoTest"),
 )
 
 subprojects {
@@ -125,6 +128,15 @@ tasks.register<Copy>("assembleConsole") {
     // 팔레트·표 CSS는 기존 콘솔의 단일 원천에서 매 빌드 복사한다.
     from("../../cmd/magi-web/page.css") { rename { "console.css" } }
     subprojects.forEach { p -> from(p.layout.buildDirectory.dir("gwt/war")) }
+    // 목은 운영 자산이 아니다 — 데모를 낼 때만 따로 실어 나른다(assembleDemoMock).
+    exclude("demo/**", "demo.nocache.js")
     into(layout.buildDirectory.dir("console"))
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// 데모의 목만 따로 — 정적 데모를 낼 때 이 디렉토리가 페이지 곁으로 간다.
+tasks.register<Copy>("assembleDemoMock") {
+    dependsOn(":demo-ui:gwtCompile")
+    from(project(":demo-ui").layout.buildDirectory.dir("gwt/war"))
+    into(layout.buildDirectory.dir("demo-mock"))
 }

@@ -25,11 +25,16 @@ public final class Console {
 
     /** 이 창의 fetch — 회선이 한 자리에서 나가도록 모아 둔 문(데모의 목도 이 창에 들어온다). */
     public static Promise<Response> raw(String path, RequestInit init) {
+        // 데모면 목이 먼저 — 회선의 이음매가 여기라서, 프록시도 여기 선다(Demo.answer).
+        Promise<Response> mocked = Demo.answer(path, init);
+        if (mocked != null) return mocked;
         return init == null ? DomGlobal.fetch(path) : DomGlobal.fetch(path, init);
     }
 
     /** 이 창의 EventSource — fetch와 같은 이유로 한 자리에 모아 둔다. */
     public static elemental2.dom.EventSource stream(String path) {
+        Object mocked = Demo.stream(path);
+        if (mocked != null) return jsinterop.base.Js.uncheckedCast(mocked);
         return new elemental2.dom.EventSource(path);
     }
 

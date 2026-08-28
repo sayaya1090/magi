@@ -39,9 +39,23 @@
       import '/vendor/material.js';
       import * as rxjs from '/vendor/rxjs.js';
       window.rxjs = rxjs;
-      const boot = document.createElement('script');
-      boot.src = '/ui/shell/shell.nocache.js';
-      document.head.append(boot);
+      const boot = () => {
+        const s = document.createElement('script');
+        s.src = '/ui/shell/shell.nocache.js';
+        document.head.append(s);
+      };
+      // 데모라면 목이 먼저 선다 — 셸이 먼저 물으면 그 물음은 정적 사이트에서 404가 되고,
+      // 그 404를 받은 화면은 "못 읽었다"를 그린 채 다음 폴까지 서 있는다. 목이 실렸다는
+      // 사실은 그 모듈이 창에 적는다(bridge.Demo). 오지 않으면 3초 뒤 그냥 시작한다:
+      // 목이 없는 데모는 빈 콘솔이지만, 멈춘 콘솔보다는 낫다.
+      if (window.MAGI_DEMO) {
+        const mock = document.createElement('script');
+        mock.src = './ui/demo/demo.nocache.js';
+        document.head.append(mock);
+        const since = Date.now();
+        const wait = () => (window.__magi_demo_mock || Date.now() - since > 3000) ? boot() : setTimeout(wait, 20);
+        wait();
+      } else boot();
     </script>
 </head>
 <body>

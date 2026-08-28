@@ -1,57 +1,64 @@
-package dev.sayaya.magi.client.interfaces.api;
+package dev.sayaya.magi.demo;
 
-import dev.sayaya.magi.bridge.FleetAgent;
-import dev.sayaya.magi.client.usecase.RosterSource;
 import elemental2.core.Global;
 import elemental2.dom.DomGlobal;
+import elemental2.dom.Response;
+import elemental2.promise.Promise;
 import jsinterop.base.Js;
 import jsinterop.base.JsArrayLike;
-
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jsinterop.base.JsPropertyMap;
 
 /**
- * 데몬 없이 도는 셸 — 정적 데모의 명단과 전사.
+ * 함대 — 명단과 그 시계, 그리고 조준된 컴패니언의 전사 스트림.
  *
- * 명단은 <b>이 모듈의 것</b>이다: /fleet과 /events의 주인이 셸 하나이므로, 그 목도 여기
- * 하나뿐이다. 다른 화면들은 이 명단을 브리지로 받는다 — 진짜 콘솔에서와 똑같이.
+ * 셸이 묻는 것은 /fleet·/console·/me 셋과 /events 하나다. 여기서는 그 넷에만 답한다:
+ * 목이 화면의 포트가 아니라 <b>회선</b>에 걸리므로, 답하는 단위도 화면이 아니라 경로다.
+ *
+ * 명단은 상수가 아니라 움직이는 것이다 — 데모가 가만히 있으면 이 콘솔이 무엇을 위한 것인지
+ * 절반은 보이지 않는다: 걸음이 늘고, 기다리던 것이 답을 받아 일하러 가고, 하나가 나타났다
+ * 떠나고, 계획이 채워지는 것(구 콘솔 데모가 이 시계를 가진 이유).
  */
-@Singleton
-public class DemoRosterSource implements RosterSource {
-    private Listener listener;
-    private String aimed = null;
-    /**
-     * 지금의 명단 — 상수가 아니라 <b>움직이는 것</b>이다.
-     *
-     * 데모가 가만히 있으면 이 콘솔이 무엇을 위한 것인지 절반은 보이지 않는다: 걸음이 늘고,
-     * 기다리던 것이 답을 받아 일하러 가고, 하나가 나타났다 떠나고, 계획이 채워지는 것 —
-     * 그것들은 설명될 수는 있어도 <b>보여질</b> 수는 없다(구 콘솔 데모가 이 시계를 가진 이유).
-     */
-    private JsArrayLike<Object> now = null;
-    private int beat = 0;
-    private boolean ticking = false;
+final class Fleet {
+    private static JsArrayLike<Object> now = null;
+    private static int beat = 0;
+    private static boolean ticking = false;
+    /** 열려 있는 스트림들 — 박자마다 이들에게 명단을 흘린다. */
+    private static final elemental2.core.JsArray<Stream> open = new elemental2.core.JsArray<>();
 
-    @Inject
-    public DemoRosterSource() {}
+    private Fleet() {}
 
-    @Override
-    public void start(Listener l) {
-        listener = l;
-        l.link(true);
-        push();
-        // 1초에 한 박자 — 구 콘솔 데모와 같은 박자다. 한 번만 건다: start는 화면마다 불린다.
-        if (!ticking) {
-            ticking = true;
-            DomGlobal.setInterval(a -> tick(), 1000);
+    static Promise<Response> answer(String path) {
+        switch (path) {
+            case "/fleet": return Mock.json(Global.JSON.stringify(fleet()));
+            case "/console": return Mock.json("{\"user\":\"you\",\"host\":\"devbox\",\"version\":\"dev\","
+                    + "\"embed\":\"nomic-embed-text\"}");
+            // 데모의 사람은 전부 할 수 있다 — 무엇이 가려지는지가 아니라 무엇이 있는지를 보이는 자리다.
+            case "/me": return Mock.json("{\"can\":[\"read\",\"answer\",\"prompt\",\"curate\","
+                    + "\"configure\",\"shell\",\"admin\"]}");
+            default: return null;
         }
     }
 
+    /** /events — 이 소켓을 조준한 회선 하나. */
+    static Object stream(String url) {
+        clock();
+        Stream s = new Stream(Mock.param(url, "d"));
+        open.push(s);
+        return s.js();
+    }
+
+    private static void clock() {
+        if (ticking) return;
+        ticking = true;
+        DomGlobal.setInterval(a -> tick(), 1000);
+    }
+
     /** 한 박자 — 도는 것은 걸음이 늘고, 살아 있는 것은 쉰 시간이 늘고, 각본이 제 차례를 낸다. */
-    private void tick() {
+    private static void tick() {
         JsArrayLike<Object> all = fleet();
         beat++;
         for (int i = 0; i < all.getLength(); i++) {
-            jsinterop.base.JsPropertyMap<Object> a = Js.uncheckedCast(all.getAt(i));
+            JsPropertyMap<Object> a = Js.uncheckedCast(all.getAt(i));
             if ("working".equals(String.valueOf(a.get("state")))) {
                 a.set("steps", num(a, "steps") + 1);
                 a.set("idle", 0d);
@@ -62,14 +69,14 @@ public class DemoRosterSource implements RosterSource {
             }
         }
         script();
-        push();
+        for (int i = 0; i < open.length; i++) open.getAt(i).roster();
     }
 
     /**
      * 각본 — 무엇이 언제 바뀌는가. 구 콘솔 데모의 그 스무 박자다: 쉬던 것이 일하러 가고,
      * 일하던 것이 사람에게 묻고, 답을 받고, 하나가 나타났다 스무 박자 뒤에 떠난다.
      */
-    private void script() {
+    private static void script() {
         switch (beat) {
             case 2: set("buttons", "{\"state\":\"working\",\"live\":true,\"steps\":0,\"idle\":0,"
                     + "\"task\":\"give the switch a disabled state and the tokens for it\","
@@ -93,17 +100,16 @@ public class DemoRosterSource implements RosterSource {
         }
     }
 
-    /** 그 이름의 행에 이 사실들을 덮어쓴다. */
-    private void set(String name, String patch) {
-        jsinterop.base.JsPropertyMap<Object> row = named(name);
+    private static void set(String name, String patch) {
+        JsPropertyMap<Object> row = named(name);
         if (row == null) return;
-        jsinterop.base.JsPropertyMap<Object> more = Js.uncheckedCast(Global.JSON.parse(patch));
+        JsPropertyMap<Object> more = Js.uncheckedCast(Global.JSON.parse(patch));
         more.forEach(k -> row.set(k, more.get(k)));
     }
 
     /** 사람에게 묻기 시작했다 — 물음은 상태이자 문장이다. */
-    private void ask(String name, String asking, String kind, String id) {
-        jsinterop.base.JsPropertyMap<Object> row = named(name);
+    private static void ask(String name, String asking, String kind, String id) {
+        JsPropertyMap<Object> row = named(name);
         if (row == null) return;
         row.set("state", "waiting");
         row.set("asking", asking);
@@ -112,9 +118,9 @@ public class DemoRosterSource implements RosterSource {
         row.delete("doing");
     }
 
-    /** 답을 받았다 — 묻던 것이 사라지고 다시 일한다(물음이 남아 있으면 그것이 화면의 사실이다). */
-    private void answered(String name, String patch) {
-        jsinterop.base.JsPropertyMap<Object> row = named(name);
+    /** 답을 받았다 — 묻던 것이 사라지고 다시 일한다. */
+    private static void answered(String name, String patch) {
+        JsPropertyMap<Object> row = named(name);
         if (row == null) return;
         row.delete("asking");
         row.delete("askId");
@@ -125,7 +131,7 @@ public class DemoRosterSource implements RosterSource {
     }
 
     /** 하나가 온다 — 명단은 사람이 보고 있는 동안에도 늘어난다. */
-    private void arrive() {
+    private static void arrive() {
         elemental2.core.JsArray<Object> all = Js.uncheckedCast(fleet());
         all.push(Global.JSON.parse("{\"socket\":\"/demo/docs2.sock\",\"name\":\"docs2\","
                 + "\"role\":\"the handbook and its examples\",\"team\":\"frontend\","
@@ -136,103 +142,36 @@ public class DemoRosterSource implements RosterSource {
     }
 
     /** 그리고 떠난다 — 사라지는 것도 이 화면이 보여야 할 사실이다. */
-    private void leave(String name) {
+    private static void leave(String name) {
         elemental2.core.JsArray<Object> all = Js.uncheckedCast(fleet());
         for (int i = 0; i < all.length; i++) {
-            jsinterop.base.JsPropertyMap<Object> row = Js.uncheckedCast(all.getAt(i));
+            JsPropertyMap<Object> row = Js.uncheckedCast(all.getAt(i));
             if (name.equals(String.valueOf(row.get("name")))) { all.splice(i, 1); return; }
         }
     }
 
-    private jsinterop.base.JsPropertyMap<Object> named(String name) {
+    private static JsPropertyMap<Object> named(String name) {
         JsArrayLike<Object> all = fleet();
         for (int i = 0; i < all.getLength(); i++) {
-            jsinterop.base.JsPropertyMap<Object> row = Js.uncheckedCast(all.getAt(i));
+            JsPropertyMap<Object> row = Js.uncheckedCast(all.getAt(i));
             if (name.equals(String.valueOf(row.get("name")))) return row;
         }
         return null;
     }
 
-    private static double num(jsinterop.base.JsPropertyMap<Object> m, String k) {
+    private static double num(JsPropertyMap<Object> m, String k) {
         Object v = m.get(k);
         return v == null ? 0 : Js.coerceToDouble(v);
     }
 
     /** 지금의 명단 — 처음 물을 때 픽스처에서 한 번 만들어 두고, 그 뒤로는 그것이 사실이다. */
-    private JsArrayLike<Object> fleet() {
+    static JsArrayLike<Object> fleet() {
         if (now == null) now = Js.uncheckedCast(Global.JSON.parse(FLEET));
         return now;
     }
 
-    @Override
-    public void aim(String socket, String peer) {
-        aimed = socket;
-        push();
-    }
+    static String transcript() { return TRANSCRIPT; }
 
-    @Override
-    public void facts(java.util.function.Consumer<Object> consoleInfo, java.util.function.Consumer<Object> caps) {
-        consoleInfo.accept(Global.JSON.parse("{\"user\":\"you\",\"host\":\"devbox\",\"version\":\"dev\"," +
-                "\"embed\":\"nomic-embed-text\"}"));
-        // 데모의 사람은 전부 할 수 있다 — 무엇이 가려지는지가 아니라 무엇이 있는지를 보이는 자리다.
-        caps.accept(Global.JSON.parse("[\"read\",\"answer\",\"prompt\",\"curate\",\"configure\",\"shell\",\"admin\"]"));
-    }
-
-    @Override
-    public void refresh() { push(); }
-
-    private double tick = -1;
-    private int shown = 0;
-    private String streaming = null;
-
-    /** 이 컴패니언의 전사를 한 턴씩 흘린다 — 다른 컴패니언으로 옮기면 처음부터. */
-    private void stream() {
-        JsArrayLike<Object> all = Js.uncheckedCast(Global.JSON.parse(TRANSCRIPT));
-        if (!aimed.equals(streaming)) {
-            streaming = aimed;
-            shown = 0;
-            if (tick >= 0) DomGlobal.clearTimeout(tick);
-            tick = DomGlobal.setTimeout(a -> step(all), 200);
-            listener.transcript(Global.JSON.parse("[]"));
-            return;
-        }
-        listener.transcript(slice(all, shown));
-    }
-
-    private void step(JsArrayLike<Object> all) {
-        shown++;
-        listener.transcript(slice(all, shown));
-        if (shown < all.getLength()) tick = DomGlobal.setTimeout(a -> step(all), 1400);
-    }
-
-    private static Object slice(JsArrayLike<Object> all, int n) {
-        Object[] out = new Object[Math.min(n, all.getLength())];
-        for (int i = 0; i < out.length; i++) out[i] = all.getAt(i);
-        return out;
-    }
-
-    private void push() {
-        listener.roster(Js.uncheckedCast(fleet()));
-        if (aimed == null || aimed.isEmpty()) {
-            listener.transcript(null);
-            listener.turn(false, 0);
-            return;
-        }
-        // 한 턴씩 온다 — 진짜 스트림이 그렇고, 완성된 대화를 통째로 건네는 데모는 그 사실을
-        // 한 번도 보여 주지 않는다(구 콘솔 데모와 같은 박자: 200ms 뒤 첫 턴, 이후 1.4초마다).
-        stream();
-        // 기다리는 컴패니언의 턴은 열려 있지 않다 — 무엇을 물었는지가 화면의 사실이다.
-        listener.turn(!aimed.contains("docs"), 42);
-    }
-
-    /** 아홉이면 표가 표처럼 읽힌다 — 하나짜리 데모는 이 화면이 무엇을 위한 것인지 못 보여 준다. */
-    /**
-     * 아홉이면 표가 표처럼 읽힌다 — 하나짜리 데모는 이 화면이 무엇을 위한 것인지 못 보여 준다.
-     *
-     * 명단은 <b>구 콘솔의 데모와 같은 아홉</b>이다: 두 데모를 나란히 놓고 볼 때 다른 함대를 보고
-     * 있으면 화면 차이인지 자료 차이인지 아무도 가릴 수 없다. 네 가지 인스턴스(내 기계의 내 것,
-     * 내 다른 기계, 남의 이 기계, 소문으로만 아는 것)가 한 벌씩 들어 있는 것이 이 픽스처의 요점이다.
-     */
     private static final String FLEET = "[{\"socket\": \"/demo/design.sock\", \"name\": \"design\", \"role\": \"the design system: component specs and visual review\","
             + " \"team\": \"frontend\", \"hub\": true, \"workdir\": \"/Users/you/work/design-system\", \"session\": \"d1\","
             + " \"state\": \"working\", \"live\": true, \"task\": \"spec the empty state for the fleet table, and name the exact tokens\","
