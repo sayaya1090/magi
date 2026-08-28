@@ -1,0 +1,107 @@
+{
+  "platform": "darwin",
+  "shortHash": [
+    [
+      "/private/tmp/ws1",
+      "b1lp9vc8"
+    ],
+    [
+      "/a",
+      "3rdt71jr"
+    ],
+    [
+      "/",
+      "ov1j1jmu"
+    ],
+    [
+      "/Users/sayaya/IdeaProjects/magi",
+      "6lw0yxf3"
+    ],
+    [
+      "/프로젝트/앱",
+      "87toz40s"
+    ]
+  ],
+  "sanitize": [
+    [
+      "a😀b",
+      "a-b"
+    ],
+    [
+      "앱",
+      "-"
+    ],
+    [
+      "my-repo_2",
+      "my-repo_2"
+    ],
+    [
+      "a.b c",
+      "a-b-c"
+    ]
+  ],
+  "socketPath": [
+    [
+      "/tmp/mw1",
+      "/private/tmp/ws1",
+      "/tmp/mw1/daemon-ws1-b1lp9vc8.sock"
+    ]
+  ],
+  "layout": [
+    "mkdir casedir",
+    "mkdir real",
+    "symlink link -\u003e real",
+    "mkdir real/x",
+    "symlink hop -\u003e $ROOT/real",
+    "symlink entry -\u003e $ROOT/hop/x",
+    "mkdir Cellar/x/bin",
+    "mkdir usr/local/bin",
+    "symlink usr/local/bin/foo -\u003e ../../../Cellar/x/bin",
+    "mkdir b/c",
+    "symlink alink -\u003e $ROOT/b/c"
+  ],
+  "cases": [
+    {
+      "name": "case-as-written",
+      "note": "the case on disk is not corrected",
+      "input": "$ROOT/casedir",
+      "real": "$ROOT/casedir"
+    },
+    {
+      "name": "case-as-typed",
+      "note": "…nor is the case as typed, even where the volume folds it",
+      "input": "$ROOT/CaseDir",
+      "real": "$ROOT/CaseDir"
+    },
+    {
+      "name": "missing-component",
+      "note": "a component that does not exist is an error, not a half-resolved path",
+      "input": "$ROOT/link/nope",
+      "errors": true
+    },
+    {
+      "name": "link-inside-target",
+      "note": "a link inside an absolute target is resolved too — the walk restarts",
+      "input": "$ROOT/entry",
+      "real": "$ROOT/real/x"
+    },
+    {
+      "name": "dotdot-target",
+      "note": "a target starting with .. rewinds the resolved destination",
+      "input": "$ROOT/usr/local/bin/foo",
+      "real": "$ROOT/Cellar/x/bin"
+    },
+    {
+      "name": "dotdot-after-link",
+      "note": "…and a trailing .. rewinds the resolved dest, not the path as written",
+      "input": "$ROOT/alink/..",
+      "real": "$ROOT/b"
+    },
+    {
+      "name": "case-two-spellings-one-key",
+      "note": "whether CaseDir and casedir are one companion — a fact about the volume, not the code",
+      "input": "$ROOT/CaseDir vs $ROOT/casedir",
+      "real": "different"
+    }
+  ]
+}
