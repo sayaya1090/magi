@@ -138,6 +138,14 @@ export class OfficeDeck extends DeckPort {
       // 두 번이 틀리지는 않는다.
       context.presentation.setSelectedSlides([slideId]);
       await context.sync();
+      // ⚠ **여기가 `FakeDeck` 과 갈린다 — 안 고치고 적어 둔다.** 문은 빈 목록이면 잡은 것을
+      // 놓으라고 하고(`DeckPort.point`) 가짜 덱은 그렇게 하는데, 이 줄은 놓지 않고 그냥 나간다.
+      // 그러면 앞 안내의 도형이 그대로 잡힌 채 새 안내가 뜬다. 사유 없는 조기 이탈이라 아무도
+      // 안 물었고, 이 함수는 오늘 한 번도 안 돌아서 아무도 못 봤다.
+      //
+      // 고치려면 `setSelectedShapes([])` 를 부르면 되는데, **그게 놓는지·던지는지·아무 일도
+      // 안 하는지를 문서가 안 적는다**(§12 #9). 던지는 쪽이면 도형 없는 안내가 전부 실패로
+      // 바뀐다 — 안 재고 바꾸면 도는 길을 못 도는 길로 만들 수 있어서, 재고 나서 고친다.
       if (!shapeIds || shapeIds.length === 0) return;
       const slide = context.presentation.slides.getItem(slideId);
       slide.setSelectedShapes(shapeIds);

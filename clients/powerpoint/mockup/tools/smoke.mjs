@@ -160,6 +160,17 @@ ok('없는 도형은 대체 없이 실패', bad.ok === false, bad.reason);
 const cross = await point.run(new Advice({ message: '뒷장', slideId: 's7', shapeIds: ['sh7b'] }));
 ok('슬라이드 이동 후 가리킨다', cross.ok === true && deck.currentSlide === 's7');
 
+// 도형을 안 실은 안내. **슬라이드는 가되 앞의 것을 놓는다** — 안 놓으면 캔버스에 서 있는
+// 것이 앞 안내의 도형이라, 새 안내가 저 도형에 대한 것이라고 말하게 된다(§12 #9).
+{
+  const bare = await point.run(
+    new Advice({ message: '이 장 전체', slideId: 's4f2a1', shapeIds: [] }));
+  ok('도형 없는 안내도 가리켜진다',
+     bare.ok === true && deck.currentSlide === 's4f2a1', bare.reason);
+  ok('도형이 없으면 앞의 선택을 놓는다', deck.selected.size === 0,
+     [...deck.selected].join(','));
+}
+
 // 계측이 스스로에 대해 거짓말하지 않는가. 가짜 덱이 `measured:true` 를 내면 화면이 실측처럼
 // 보이고, 그러면 §12 #4 를 답해 줄 유일한 줄이 처음부터 못 쓰게 된다.
 const caps = deck.capabilities();

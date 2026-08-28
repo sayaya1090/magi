@@ -51,10 +51,32 @@ async function boot() {
   readTranscript.attach(SESSION);
 
   // 첫 폴을 기다렸다가 돌린다 — 겹쳐 돌면 같은 물음에 답이 두 번 갈 자리가 생긴다.
+  //
+  // **작업창이 접혀 있는 동안 이 시계가 느려진다.** 브라우저는 안 보이는 판의 `setTimeout` 을
+  // 1분까지 늘린다. 접힌 동안 낡는 것은 아무도 안 보므로 거짓말이 아닌데, **펴는 순간**이
+  // 다르다 — 다음 틱까지 최대 1분 전 사실이 「지금」으로 서 있고, 그중 하나가 **단추 달린
+  // 물음**이다(§5.7). 이미 끝난 물음에 답을 보내면 코어가 *"이미 결정됐거나 만료됐다"* 는
+  // **틀린 사유**로 떨어뜨린다. 좁아진 구간에서 봐야 하는 곳은 구간이 아니라 **구간의 끝**이다.
+  //
+  // 그래서 다시 보이는 순간에 한 번 더 묻는다. 겹치지 않게 `busy` 로 막는데, 도는 폴이 있으면
+  // 그 답이 곧 새 답이라 안 물어도 맞다. 최악이 폴 한 번 더인 값이다.
+  let timer = null;
+  let busy = false;
   const tick = async () => {
-    try { await watchPrompt.poll(); } finally { setTimeout(tick, POLL_MS); }
+    if (busy) return;
+    busy = true;
+    try {
+      await watchPrompt.poll();
+    } finally {
+      busy = false;
+      clearTimeout(timer);
+      timer = setTimeout(tick, POLL_MS);
+    }
   };
   tick();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tick();
+  });
 
   if (deck instanceof FakeDeck) {
     document.body.classList.add('standalone');
