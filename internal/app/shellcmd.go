@@ -134,8 +134,26 @@ func splitShellSegments(cmd string) []string {
 		}
 		seg.Reset()
 	}
+	inComment := false
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
+		// A comment runs to the end of its LINE, and it is shell text that does nothing. Dropping
+		// it here rather than at each caller is the same reason stripHeredocs is shared: every
+		// consumer of a segment is asking what the command does, and none of them may read a
+		// comment's words as operands. redirectTargets has stopped at a `#` since it was written;
+		// the operand scans never did, so `rm -rf build # clean up the tree` named six paths — one
+		// real and five English words. Both directions of that are bad: it fed the self-revert
+		// check destinations that never existed, and it wrote `clean`, `up`, `the` and `tree` into
+		// a child's restore journal as files the child had CREATED, which is the one journal shape
+		// restoreOne answers with os.Remove. A restore would then delete four files it never
+		// touched and report Restored: true for each.
+		if inComment {
+			if c == '\n' {
+				inComment = false
+				flush()
+			}
+			continue
+		}
 		if quote != 0 {
 			// Inside single quotes nothing is special. Inside double quotes a backslash escapes
 			// the next byte, so an escaped quote does not close the run.
@@ -151,16 +169,20 @@ func splitShellSegments(cmd string) []string {
 			seg.WriteByte(c)
 			continue
 		}
-		switch c {
-		case '\'', '"':
+		switch {
+		case c == '#' && (i == 0 || isCommentStart(cmd[i-1])):
+			// Only at a word boundary: a `#` inside a path or a URL fragment is part of the token,
+			// and quoted text never reaches here at all — the quote arm above holds it.
+			inComment = true
+		case c == '\'' || c == '"':
 			quote = c
 			seg.WriteByte(c)
-		case '&', '|':
+		case c == '&' || c == '|':
 			if i+1 < len(cmd) && cmd[i+1] == c { // && or ||
 				i++
 			}
 			flush()
-		case ';', '\n':
+		case c == ';' || c == '\n':
 			flush()
 		default:
 			seg.WriteByte(c)
