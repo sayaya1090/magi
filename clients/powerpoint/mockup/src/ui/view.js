@@ -98,12 +98,18 @@ export class View {
 
   setThinking(on) { $('#thinking').hidden = !on; }
 
-  note(text) {
+  /**
+   * 한 줄 알림. `sticky` 면 안 사라진다.
+   *
+   * 사라지는 알림은 **방금 누른 사람**에게 하는 말이고, 안 사라지는 것은 **화면이 지금 거짓말을
+   * 하고 있다**는 말이다. 둘을 같은 수명으로 두면 뒤엣것이 4초 만에 없어진다.
+   */
+  note(text, { sticky = false } = {}) {
     const el = $('#note');
     el.textContent = text;
     el.hidden = false;
     clearTimeout(this._noteTimer);
-    this._noteTimer = setTimeout(() => { el.hidden = true; }, 4000);
+    if (!sticky) this._noteTimer = setTimeout(() => { el.hidden = true; }, 4000);
   }
 
   renderPending() {
