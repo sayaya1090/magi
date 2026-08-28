@@ -194,10 +194,18 @@ class MagiToolWindow : ToolWindowFactory {
             bottom.add(hint, BorderLayout.SOUTH)
 
             // 치는 동안 제안을 묻는다. 매 글자마다가 아니라 멈추면 — 모델 호출이라 값이 있다.
+            //
+            // **다시 묻는 것과 지금 답을 거두는 것은 한 사건이다.** 전에는 치면 타이머만 다시 돌고
+            // 화면의 제안은 그대로 서 있었다. 그 제안은 **한 글자 전의 앞머리로 만든 것**인데 라벨은
+            // `Tab` 이라고 적혀 있으니, 시킨 대로 누르면 지금 안 맞는 글자가 붙는다("git" 의 제안
+            // " status" 가 "gith" 뒤에 붙어 "gith status"). 낡은 **답을 안 붙이는** 문지기는 아래
+            // `askSuggestion` 에 있었지만 그건 늦게 온 답을 막을 뿐, **이미 화면에 선 제안**은 아무도
+            // 안 거뒀다. 물음을 다시 여는 자리에서 같이 거둔다.
             input.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-                override fun insertUpdate(e: javax.swing.event.DocumentEvent) = debounce.restart()
-                override fun removeUpdate(e: javax.swing.event.DocumentEvent) = debounce.restart()
+                override fun insertUpdate(e: javax.swing.event.DocumentEvent) = retract()
+                override fun removeUpdate(e: javax.swing.event.DocumentEvent) = retract()
                 override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
+                private fun retract() { dropSuggestion(); debounce.restart() }
             })
             // 탭으로 받아들인다. 제안이 없으면 탭은 원래 하던 일을 한다.
             input.registerKeyboardAction({ acceptSuggestion() },
@@ -448,6 +456,11 @@ class MagiToolWindow : ToolWindowFactory {
         private fun acceptSuggestion() {
             val s = suggestion ?: return
             input.text = input.text + s
+            dropSuggestion()
+        }
+
+        /** 선 제안을 거둔다. 값과 그 값을 광고하는 줄이 **같이** 없어져야 한다. */
+        private fun dropSuggestion() {
             suggestion = null
             hint.text = " "
         }
@@ -514,7 +527,7 @@ class MagiToolWindow : ToolWindowFactory {
             onDaemon { comp ->
                 val r = comp.say(text)
                 report(if (r.ok) "보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
-                if (r.ok) SwingUtilities.invokeLater { input.text = ""; suggestion = null; hint.text = " " }
+                if (r.ok) SwingUtilities.invokeLater { input.text = ""; dropSuggestion() }
             }
         }
 

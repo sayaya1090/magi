@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
@@ -48,6 +49,18 @@ class FactsToolWindow : ToolWindowFactory {
         val timer = Timer(3_000) { if (toolWindow.isVisible) view.refresh() }.apply { isRepeats = true }
         timer.start()
         Disposer.register(toolWindow.disposable) { timer.stop() }
+        // **문을 좁혔으면 좁힌 문이 다시 열리는 순간을 잡아야 한다.** 위의 `isVisible` 은 접어 둔
+        // 판이 소켓을 두드리는 것을 막는데, 그것만 두면 한 시간 접어 뒀다 펴는 사람이 **한 시간 전
+        // 사실을 「지금」으로** 읽는다 — 다음 틱까지 최대 3초. 접힌 동안 낡는 것은 아무도 안 보니
+        // 결함이 아니고, 결함은 **보기 시작하는 순간**에 있다. 그 순간에 종이 하나 있다.
+        project.messageBus.connect(toolWindow.disposable).subscribe(
+            ToolWindowManagerListener.TOPIC,
+            object : ToolWindowManagerListener {
+                override fun toolWindowShown(shown: ToolWindow) {
+                    if (shown.id == toolWindow.id) view.refresh()
+                }
+            }
+        )
     }
 
     private class View(project: Project) {
