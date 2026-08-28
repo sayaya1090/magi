@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -183,7 +182,23 @@ func (a *App) probeContextWindow(id, askedAt string) {
 		// third one.
 		return
 	}
-	if a.cfg.Models.RegisterIfAbsent(model.Info{ID: id, ContextWindow: w, MaxOutput: w / 4, Tools: true}) {
+	// Start from what the table was already handing this id, and overwrite only what the probe is
+	// entitled to say: the window it measured, the output budget derived from it, and tools, which
+	// is what Get asserts for an unknown name anyway. Built fresh, the entry answered 0/false for
+	// Vision and the two costs — fields the probe learned nothing about — and creating the exact
+	// name is precisely what stops Get falling through to the family that DID know them. So probing
+	// a ":tag" variant of a vision model turned pictures off and its price to zero, at the moment
+	// the probe landed and not before, which is the hardest shape to report from a live session.
+	// Inheriting here is not new behaviour, it is the rule the rest of the file already follows:
+	// SetContextWindow reads Get and overwrites one field, and familyLocked exists so a variant
+	// inherits sane metadata.
+	info := a.cfg.Models.Get(id)
+	info.ID, info.ContextWindow, info.MaxOutput, info.Tools = id, w, w/4, true
+	// RegisterIfAbsent, and false when there already is one: that return is what makes windowProbed
+	// mean "an entry THIS probe created", which is in turn what makes forgetWindowsOfAnotherBackend
+	// safe to delete by. If it ever became idempotent-true, deleting would reach entries we did not
+	// write and this would quietly be the bug it replaced.
+	if a.cfg.Models.RegisterIfAbsent(info) {
 		a.probingWindows[id] = windowProbed
 	}
 }

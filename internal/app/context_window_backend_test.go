@@ -218,3 +218,55 @@ func TestForgettingDoesNotReachAnEntryTheProbeNeverMade(t *testing.T) {
 			"was deleted, and 0 turns compaction off", got)
 	}
 }
+
+// A probe writes the window it measured, and does not answer for the rest.
+//
+// The registration was built fresh, so Vision and both costs came out 0/false — and creating an
+// entry under the exact name is exactly what stops Get falling through to the family that knew
+// them. Probing a ":tag" variant of a vision model therefore turned pictures off and its price to
+// zero, but only once the probe landed: before that the same call was right. Left in, it also
+// blinks, because forgetting another backend's windows now drops that entry and restores the
+// family until the next probe lands — the same model answering differently at different moments
+// for a reason that has nothing to do with pictures.
+//
+// The window itself must still narrow: that is what the probe is for.
+func TestAProbeDoesNotAnswerForWhatItDidNotMeasure(t *testing.T) {
+	llm := &wholeRedirectLLM{models: []string{"seer:8b"}}
+	a := newAppWith(t, GuardProvider(llm))
+	a.cfg.Models.Register(model.Info{ID: "seer", ContextWindow: 128000, MaxOutput: 32000,
+		Tools: true, Vision: true, InputCost: 2, OutputCost: 8})
+	a.cfg.ContextWindowProber = twoBackends(llm, map[string]int{"": 96000, "http://b/v1": 64000})
+	sid := open(t, a)
+	a.SetModel(sid, "seer:8b")
+
+	if !a.VisionOf("seer:8b") {
+		t.Fatalf("the variant does not read the family before probing; the test measures nothing")
+	}
+	a.contextWindow("seer:8b")
+	settle(t)
+
+	if got := a.contextWindow("seer:8b"); got != 96000 {
+		t.Fatalf("window = %d, want the probed 96000 — the probe must still narrow the window", got)
+	}
+	if !a.VisionOf("seer:8b") {
+		t.Errorf("a window probe turned pictures off for a model that reads them: it is answering " +
+			"for a field it never measured, and the model now gets a filename instead of the image")
+	}
+	if c := a.cfg.Models.Get("seer:8b").Cost(1_000_000, 1_000_000); c != 10 {
+		t.Errorf("cost of 1M/1M after probing = $%.2f, want $10.00 — the probe zeroed the price", c)
+	}
+
+	// And it does not blink: dropping the probed entry on a switch, then probing again, has to land
+	// on the same answer both times.
+	if err := a.UseBackend(sid, "http://b/v1"); err != nil {
+		t.Fatal(err)
+	}
+	a.contextWindow("seer:8b")
+	settle(t)
+	if got := a.contextWindow("seer:8b"); got != 64000 {
+		t.Fatalf("window on the second backend = %d, want 64000; the test measures nothing", got)
+	}
+	if !a.VisionOf("seer:8b") {
+		t.Errorf("pictures went off again once the new backend's probe landed")
+	}
+}
