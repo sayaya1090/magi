@@ -16,9 +16,39 @@ final class Workspace {
     private Workspace() {}
 
     static Promise<Response> answer(String path, String url, RequestInit init) {
+        // 편집기의 유령 글자 — 타이핑이 <b>멈출 때</b> 뜬다. 아래 삼킴 목록에 들어 있던 동안은
+        // 빈 답이었고, 빈 답은 지우라는 뜻이라 데모에서 이 기능이 통째로 없는 것으로 보였다
+        // (실측: 운영은 fmt.Errorf 한 줄을 그리는데 신규는 .editcomplete 자체가 없었다).
+        // 짝은 컴포저의 이어쓰기(/suggest)이고, 그쪽은 Companion이 같은 이유로 답한다.
+        if (Mock.wrote(init) && "/complete".equals(path)) {
+            return Mock.json("\n\treturn nil, fmt.Errorf(\"demo: %w\", err)");
+        }
+        // 모델이 대신 써 주는 초안 둘 — 커밋 메시지와 PR 본문. 받아만 두면 빈 상자가 뜨고,
+        // 빈 상자는 "이 버튼은 아무것도 못 한다"로 읽힌다. 채워진 상자를 사람이 고치는 것이
+        // 이 컨트롤의 계약이므로 둘 다 초안을 몸으로 돌려준다(운영 /git-msg가 그 모양).
+        //
+        // PR 쪽은 운영과 <b>일부러</b> 다르다: 운영은 같은 초안을 몸이 아니라 배너에 적고
+        // 204를 준다(script.go의 회의 셋과 한 묶음). 그래서 운영에서 이 버튼을 누르면 상자는
+        // 빈 채다 — 실측: PROD after="" / NEXT after="web: keep the dock off the phone…".
+        // 신규 데모에는 그 배너가 없으니(잔여 항목) 같은 204를 흉내내면 버튼이 죽은 것으로만
+        // 보인다. 초안이 초안으로 보이는 쪽을 고른다.
+        if (Mock.wrote(init) && "/git-msg".equals(path)) {
+            return Mock.json("git: name the branch the card is showing\n\n"
+                    + "The pane read the checkout every time it drew, so a detached head was drawn "
+                    + "as a branch called nothing at all. It says the sha now, and says that is what it is.");
+        }
+        if (Mock.wrote(init) && "/pr-msg".equals(path)) {
+            return Mock.json("web: keep the dock off the phone\n\n"
+                    + "The strip of running work belongs with the conversation. On the other three "
+                    + "screens it was ninety pixels of somebody else\u2019s business over the thing the "
+                    + "reader came to use, and the file card\u2019s own actions were drawn underneath it.");
+        }
         if (Mock.wrote(init)) {
             switch (path) {
-                case "/save": case "/file-do": case "/git-do": case "/open-file": case "/complete":
+                // PR을 여는 것은 초안과 다르다 — 답이 주소이고, 이 페이지에 열 저장소는 없다.
+                // 빈 주소가 "열지 않았다"이다(운영도 이 길은 빈 몸으로 답한다).
+                case "/git-pr":
+                case "/save": case "/file-do": case "/git-do": case "/open-file":
                 case "/look": case "/pr": case "/council":
                     return Mock.json("");
                 default: break;
