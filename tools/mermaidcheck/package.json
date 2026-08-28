@@ -1,0 +1,10 @@
+{
+  "name": "mermaidcheck",
+  "private": true,
+  "type": "module",
+  "description": "저장소 마크다운의 mermaid 도표가 아직 파싱되는지 본다 (.github/workflows/citations.yml)",
+  "dependencies": {
+    "mermaid": "^11.12.0",
+    "jsdom": "^25.0.1"
+  }
+}

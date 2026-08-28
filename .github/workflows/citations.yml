@@ -1,4 +1,4 @@
-# 문서와 주석이 짚는 것이 아직 거기 있는가.
+# 문서가 기계로 확인되는 것 둘: 짚는 것이 아직 거기 있는가, 그리고 그린 것이 아직 파싱되는가.
 #
 # 자기 레인인 이유는 트리거가 다른 어느 레인과도 안 맞아서다. 인용이 썩는 계기는 셋인데 —
 # Go 쪽 rename, 이 문서들의 편집, 형제 문서의 편집 — 기존 둘 중 어느 것도 셋을 다 못 본다.
@@ -6,35 +6,28 @@
 # test-jetbrains.yml 은 paths 가 clients/jetbrains/** 라 형제 문서 편집을 못 본다.
 # 실제로 `clients/powerpoint/DESIGN.md` 만 바뀌면 **아무 레인도 안 돌았다.**
 #
-# 그리고 값이 싸다. python3 하나에 몇 초라, 문서 한 줄 고치자고 JDK 를 받고 Gradle 을 돌리던
-# 것보다 낫다. 그래서 다른 두 레인에서는 이 스텝을 뺐다 — 같은 검사가 세 곳에 있으면 세 곳이
+# 그리고 값이 싸다. 둘 다 합쳐 몇십 초라, 문서 한 줄 고치자고 JDK 를 받고 Gradle 을 돌리던 것보다
+# 낫다. 그래서 다른 두 레인에서는 인용 검사 스텝을 뺐다 — 같은 검사가 세 곳에 있으면 세 곳이
 # 갈린다.
 #
-# paths 는 짐작이 아니라 **인용된 파일을 세서** 정했다. 검사 대상 문서들이 실제로 짚는 것은
-# internal 29 · cmd 9 · docs 5 · clients 4 · web/ui/README.md 1 · SECURITY.md 1 이다. 앞의 둘은
-# `**/*.go` 가 덮고 나머지를 이름으로 적었다. 목록으로 두면 새 디렉토리를 짚기 시작할 때 여기가
-# 낡는데, 그때는 그 인용이 검사에서 조용히 빠지는 게 아니라 **레인이 안 도는** 것이라 총계가
-# 그대로 0 이 된다 — 오늘 고친 것과 같은 모양이다. 인용처가 늘면 여기도 늘린다.
+# paths 는 짐작이 아니라 실측이다. 인용 쪽은 검사 대상 문서가 실제로 짚는 것을 세서 정했고
+# (internal 29 · cmd 9 · docs 5 · clients 4 · web/ui/README.md 1 · SECURITY.md 1 — 앞의 둘은
+# `**/*.go` 가 덮는다), 도표 쪽은 추적되는 마크다운 전체가 대상이라 `**/*.md` 다. 인용처가 늘면
+# 여기도 늘린다 — 빠지면 그 인용이 검사에서 조용히 빠지는 게 아니라 **레인이 안 도는** 것이라
+# 총계가 그대로 0 이 된다.
 name: citations
 
 on:
   push:
     branches: [main]
-    paths:
+    paths: &watched
       - "clients/**"
       - "**/*.go"
-      - "docs/**"
-      - "web/ui/README.md"
-      - "SECURITY.md"
+      - "**/*.md"
+      - "tools/mermaidcheck/**"
       - ".github/workflows/citations.yml"
   pull_request:
-    paths:
-      - "clients/**"
-      - "**/*.go"
-      - "docs/**"
-      - "web/ui/README.md"
-      - "SECURITY.md"
-      - ".github/workflows/citations.yml"
+    paths: *watched
 
 permissions:
   contents: read
@@ -43,9 +36,25 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      # 색인을 `git ls-files` 로 만든다. 얕은 체크아웃이면 목록이 비고, 그러면 검사기가
-      # "문서가 아니라 내가 고장났다"고 말하며 죽는다 — 조용히 전부 실패하는 것보다 낫다.
+      # 두 검사 다 색인을 `git ls-files` 로 만든다. 얕은 체크아웃이면 목록이 비는데, 그때
+      # citecheck 는 "문서가 아니라 내가 고장났다"고 말하며 죽는다 — 조용히 전부 실패하는 것보다
+      # 낫다.
       - uses: actions/checkout@v7
 
       - name: 인용이 아직 무언가를 가리키는가
         run: python3 clients/jetbrains/tools/citecheck.py
+
+      # 도표는 눈으로 못 잡는 부류다 — 형제 문서의 도표 하나가 라벨 따옴표를 안 닫아 통째로 파스
+      # 에러를 내고 있었는데 아무도 몰랐다. 렌더된 그림을 보는 사람이 없으면 깨진 도표는 조용하다.
+      #
+      # 브라우저를 안 띄운다. mermaid 11 의 `parse()` 는 jsdom 하나면 Node 에서 돈다.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tools/mermaidcheck/package-lock.json
+
+      - name: 도표가 아직 파싱되는가
+        run: |
+          npm ci --prefix tools/mermaidcheck
+          node tools/mermaidcheck/check.mjs

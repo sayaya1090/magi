@@ -61,6 +61,9 @@ scratchpad/overnight_log.md
 internal/webassets/sprite_gen.go
 
 cmd/magi-web/node_modules/
+# 도표 검사기의 의존(mermaid + jsdom). package-lock.json 은 추적한다 — CI 가 `npm ci` 로 그것을
+# 읽어야 매 런이 같은 파서를 쓴다. 파서가 판마다 다르면 "통과했다"가 어제와 다른 말이 된다.
+tools/mermaidcheck/node_modules/
 cmd/magi-web/.npmrc
 cmd/magi-web/package-lock.json
 bench/harbor/state/
