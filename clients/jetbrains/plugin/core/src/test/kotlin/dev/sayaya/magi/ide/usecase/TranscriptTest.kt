@@ -6,6 +6,7 @@ import dev.sayaya.magi.ide.model.Response
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CountDownLatch
@@ -48,6 +49,9 @@ class TranscriptTest {
         val seen = mutableListOf<String>()
         val done = CountDownLatch(1)
         var end: End? = null
+        var begins = 0
+        // 시작도 같은 줄에 쌓는다. 따로 세면 **순서**를 못 본다 — 이 시험이 보려는 것이 그 순서다.
+        override fun began() { begins++; synchronized(seen) { seen += "began" } }
         override fun frame(e: LogEvent) { synchronized(seen) { seen += "e${e.seq}" } }
         override fun note(why: String) { synchronized(seen) { seen += "note:$why" } }
         override fun ended(end: End) { this.end = end; done.countDown() }
@@ -64,7 +68,7 @@ class TranscriptTest {
     @Test
     fun `보낸 차례 그대로 온다 — 재생이 먼저면 재생이 먼저 보인다`() {
         val (sink, _) = run(listOf(ev(1), ev(2), ev(3)))
-        assertEquals(listOf("e1", "e2", "e3"), sink.seen)
+        assertEquals(listOf("began", "e1", "e2", "e3"), sink.seen)
         assertEquals(End.ByDaemon, sink.end, "데몬이 닫은 것은 고장이 아니다")
     }
 
@@ -72,8 +76,7 @@ class TranscriptTest {
     fun `커서 통보는 첫 이벤트보다 먼저 보인다`() {
         // 데몬이 그 순서로 보낸다. 늦게 오면 화면이 이미 그린 뒤라 지울 수 없다.
         val (sink, _) = run(listOf(Response(ok = true, why = "커서를 못 믿겠다"), ev(1), ev(2)))
-        assertEquals("note:커서를 못 믿겠다", sink.seen.first())
-        assertEquals(listOf("e1", "e2"), sink.seen.drop(1))
+        assertEquals(listOf("began", "note:커서를 못 믿겠다", "e1", "e2"), sink.seen)
     }
 
     @Test
@@ -88,7 +91,7 @@ class TranscriptTest {
     @Test
     fun `에러 프레임은 스트림을 끝낸다`() {
         val (sink, _) = run(listOf(ev(1), Response(ok = false, error = "문이 없다")))
-        assertEquals(listOf("e1"), sink.seen)
+        assertEquals(listOf("began", "e1"), sink.seen)
         assertEquals(End.Broken("문이 없다"), sink.end)
     }
 
@@ -142,7 +145,7 @@ class TranscriptTest {
         // 이 층은 정책을 안 담는다(`Wire.kt` 의 LogEvent 주석). 여기서 미리 버리면 §8 의 깊은
         // 렌더가 흐르는 말을 그릴 방법을 잃는다 — 술어는 주되 프레임은 다 넘긴다.
         val (sink, _) = run(listOf(Response(ok = true, event = LogEvent(seq = 0, type = "part.delta")), ev(1)))
-        assertEquals(listOf("e0", "e1"), sink.seen)
+        assertEquals(listOf("began", "e0", "e1"), sink.seen)
     }
 
     @Test
@@ -160,6 +163,38 @@ class TranscriptTest {
         for (t in listOf("part.appended", "part.delta", "tool.progress", "council.verdict")) {
             assertFalse(Transcript.movesPrompt(LogEvent(seq = 0, type = t)), t)
         }
+    }
+
+    @Test
+    fun `프레임이 하나도 없어도 붙었다는 말은 온다`() {
+        // **화면이 「끊겼다」를 지우는 유일한 기회다.** 데몬이 재시작하면 새 세션의 전사는 비어
+        // 있어서 프레임이 안 오고, 프레임으로만 판을 고치는 화면은 다시 붙은 뒤에도 끊겼다는
+        // 말을 세워 둔 채 있는다. 살아 있는 창이 죽어 보이고, 사람이 안 쓰니 프레임도 안 생겨서
+        // 그 상태가 스스로를 붙든다.
+        val (sink, _) = run(emptyList())
+        assertEquals(listOf("began"), sink.seen)
+        assertEquals(1, sink.begins)
+        assertEquals(End.ByDaemon, sink.end)
+    }
+
+    @Test
+    fun `붙었다는 말은 첫 프레임보다 먼저 정확히 한 번 온다`() {
+        // 늦게 오면 화면이 이미 그린 뒤라 판을 비우는 쪽과 순서가 갈리고, 두 번 오면 다시 붙지도
+        // 않았는데 붙었다는 줄이 쌓인다. [note] 를 첫 이벤트보다 먼저 보내는 것과 같은 사유다.
+        val (sink, _) = run(listOf(ev(1), ev(2)))
+        assertEquals("began", sink.seen.first())
+        assertEquals(1, sink.begins)
+    }
+
+    @Test
+    fun `연결을 못 열면 붙었다고 하지 않는다`() {
+        // 안 붙었는데 붙었다고 하면 이 통지는 있으나 마나가 아니라 **틀린 말**이 된다. 화면은
+        // 이 말을 보고 「끊겼다」를 거두므로, 못 붙은 자리에서 거두면 사람이 원인을 잃는다.
+        val sink = Collect()
+        val boom = Transcript({ throw java.io.IOException("소켓이 없다") }, "s_1")
+        assertThrows(java.io.IOException::class.java) { boom.follow(sink) }
+        assertEquals(0, sink.begins)
+        assertTrue(sink.seen.isEmpty())
     }
 
     private fun ev(seq: Long) = Response(ok = true, event = LogEvent(seq = seq, type = "part.appended"))
