@@ -105,11 +105,24 @@ async function boot() {
       { sticky: true });
   }
   // 늦게라도 풀리면 말해 준다. **바꿔 끼우지 않고 말만 한다** — 바꾸면 조용한 오작동과 같아진다.
+  //
+  // 늦은 답이 PowerPoint 가 **아닐** 때도 말한다. 위의 시한 쪽지는 「PowerPoint 안이라면
+  // 새로고침하세요」라고 적혀 있는데, 늦게 온 답이 Word 면 그 권유는 **틀린 권유**다 —
+  // 새로고침해도 같은 자리에 온다. 방금 안 것을 안 실어 보내면 화면은 우리보다 덜 아는 채로
+  // 남고, 사람은 새로고침을 되풀이한다. 쪽지 자리는 하나라 늦은 말이 앞의 말을 덮는다.
   late?.then((host) => {
     if (host === Office.HostType.PowerPoint) {
       view.note('PowerPoint 를 늦게 잡았습니다. 새로고침하면 진짜 덱에 붙습니다.', { sticky: true });
+    } else {
+      view.note(`Office 가 늦게 답했는데 PowerPoint 가 아닙니다(${host ?? '호스트를 안 밝힘'}). `
+        + '새로고침해도 같은 자리입니다.', { sticky: true });
     }
-  }).catch(() => {});
+  }).catch((e) => {
+    // 던진 것도 답이다 — "끝내 못 잡았다". 앞의 쪽지는 「PowerPoint 안이라면」이라는 **조건부**라
+    // 이 사실을 대신 말해 주지 못한다: 조건이 틀렸다는 것이 바로 지금 알게 된 것이다.
+    view.note(`Office 를 끝내 못 잡았습니다(${e?.message ?? String(e)}). 가짜 덱으로 계속합니다.`,
+      { sticky: true });
+  });
 }
 
 boot();
