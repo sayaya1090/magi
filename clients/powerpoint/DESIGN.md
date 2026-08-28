@@ -432,16 +432,16 @@ magi가 안 막기로 정한 자리를 우리가 막는 것이지, 겹쳐 말하
 **그리고 이 검사 전체가 우리가 스키마를 어떻게 적느냐에 달려 있다.** `properties`를 못 읽으면 검사는
 **아무 의견도 안 낸다**(읽지 못한 인자 면에 대해 불평을 지어내지 않는다는 것이 그 함수의 규칙이다).
 게다가 `inputSchema`를 비워 보내면 매니저가 `{"type":"object"}`로 채워 넣으므로
-(`internal/adapter/mcp/manager.go`), **모양은 멀쩡한데 검사만 꺼진 스키마**가 만들어진다. 그러니
-§6의 도구는 전부 `properties`와 `required`를 적는다. 안 적으면 오타가 도로 조용해지고, 증상은
-「스키마를 덜 적었다」가 아니라 **「모델이 묻지 않은 질문에 답을 받았다」**로 나타난다 — magi가
-실측 25291건 중 387건에서 본 바로 그 모양이다.
+(`internal/adapter/mcp/manager.go`의 `registerClient`), **모양은 멀쩡한데 검사만 꺼진 스키마**가
+만들어진다. 그러니 §6의 도구는 전부 `properties`와 `required`를 적는다. 안 적으면 오타가 도로
+조용해지고, 증상은 「스키마를 덜 적었다」가 아니라 **「모델이 묻지 않은 질문에 답을 받았다」**로
+나타난다 — magi가 실측 25291건 중 387건에서 본 바로 그 모양이다.
 
 ⚠ **「능력 협상」이 협상이 아니다 — 우리가 답한 것을 아무도 안 읽는다.** `Client.Initialize`는
 결과를 `&struct{}{}`로 받는다(`internal/adapter/mcp/client.go`). 서버가 답한 `protocolVersion`도
 `capabilities`도 `serverInfo`도 **파싱되지 않고 버려진다.** 보내는 쪽도 마찬가지다 — magi가 싣는
-`capabilities`는 빈 맵이고, `protocolVersion`은 `jsonrpc.go`에 상수로 박힌 `2025-06-18`이다.
-그래서 결과가 셋으로 갈린다.
+`capabilities`는 빈 맵이고, 프로토콜 판본은 `jsonrpc.go`의 상수 `protocolVersion`에 `2025-06-18`로
+박혀 있다. 그래서 결과가 셋으로 갈린다.
 
 - **헬퍼는 클라이언트 능력에 아무것도 못 기댄다.** magi는 빈 맵을 보내므로 `sampling`도 `roots`도
   `elicitation`도 없다. 즉 **MCP 자신의 물음 기전으로 사용자에게 물을 수 없다.** §6이 권한 물음을
@@ -584,12 +584,13 @@ ok=false를 돌려주고 `newPolicy`가 그 줄을 **말없이 버린다.** 규�
   끝난 작업 위에서 무해하게. 취소 알림이 오기를 전제하지 않는다. (코어가 그것을 보내 주면 낭비가
   줄지만, 그건 별건이고 이 의무를 없애 주지도 않는다.)
 - **에러 문구가 누가 끊었는지를 말하지 않는다.** HTTP 경로에서 나오는 것은
-  `Post "http://127.0.0.1:PORT/mcp": context deadline exceeded`이고, `tool.go`가 그것을 그대로
-  `IsError: true`로 싣는다. **60초라는 말이 없고, 그 선을 magi가 그었다는 말이 없고, 서버가 아직 일하는
-  중일 수 있다는 말이 없다.** 모델이 읽으면 "서버가 실패했다"로 읽힌다. 같은 문제를 같은 저장소가 이미
-  한 번 풀었다 — `internal/adapter/daemon/daemon.go`의 `tooLong`은 OS가 "invalid argument"라고만
-  하는 자리에서 **사유를 직접 만들어 붙인다**(`Listen`이 부른다). 여기도 같은 처방이 되고, **이 수정은 60초가 얼마로 정해지든 상관없이 맞다**(재기
-  전에 요청할 수 있는 유일한 몫이 이것이다).
+  `Post "http://127.0.0.1:PORT/mcp": context deadline exceeded`이고, `tool.go`의 `mcpTool`이
+  그것을 그대로 `IsError: true`로 싣는다. **60초라는 말이 없고, 그 선을 magi가 그었다는 말이 없고,
+  서버가 아직 일하는 중일 수 있다는 말이 없다.** 모델이 읽으면 "서버가 실패했다"로 읽힌다. 같은
+  문제를 같은 저장소가 이미 한 번 풀었다 — `internal/adapter/daemon/daemon.go`의 `tooLong`은
+  OS가 "invalid argument"라고만 하는 자리에서 **사유를 직접 만들어 붙인다**(`Listen`이 부른다).
+  여기도 같은 처방이 되고, **이 수정은 60초가 얼마로 정해지든 상관없이 맞다**(재기 전에 요청할 수
+  있는 유일한 몫이 이것이다).
 
 즉 **수 자체는 S6 전까지 미측정으로 둔다.** 근거 없이 올려 달라고 하지 않는다.
 
@@ -638,7 +639,7 @@ magi 규약이 필요하다(입력 스키마의 `x-magi-file-arg`가 후보다).
 | 매달린 것 | 덱에 걸면 |
 | --- | --- |
 | 비밀·가드레일 바닥 | `.pptx`는 `secretGlobs`에도 `guardrailGlobs`에도 없다 — 걸릴 것이 없다 |
-| 편집 후 진단 | `internal/app/hooks.go`가 `filepath.Ext(path) == ".go"`로 막는다 — 덱에는 안 돈다 |
+| 편집 후 진단 | `internal/app/hooks.go`의 `runPostToolHooks`가 **내장 gofmt만** `filepath.Ext(path) == ".go"`로 막는다 — 덱에는 안 돈다. ⚠ 그 아래 `a.cfg.Hooks`의 PostToolUse 순회는 확장자를 안 본다: 워크스페이스가 걸어 두면 **덱 편집에도 돈다** |
 | 카운슬 before→after | **아래 참조** |
 | 반복 가드 epoch | 유용하다 — 같은 슬라이드를 계속 고치는 것을 세는 축이 생긴다 |
 | 턴 변경 기록 | ~~유용하다~~ → **안 선다 — 아래 두 번째 ⚠** |
@@ -656,12 +657,12 @@ readForChange(300KiB)  before="" readable=false  exists=true
 **한 질문에 두 답이 있고, 틀린 쪽이 다른 쪽 주석이 경고하는 바로 그 답이다.** bash 쪽은 내용이
 아니라 **stat**(`existedBefore`)으로 묻고 그 이유를 적어 두었다 — *"An absent path and an empty file
 both read as '', so content alone cannot tell a creation or a deletion from a no-op."* 파일-툴 쪽은
-내용으로 묻는다. `readForChange`가 준 `changeReadable`은 **저널로만 가고**(`execute.go`, `depth > 0`)
-이 가지는 읽지 않는다. 그래서 **256 KiB를 넘는 파일에 쓰기가 일어나면 매번 "이 런이 그 경로를
-만들었다"로 기록된다.** `.pptx`는 사실상 항상 그 위다.
+내용으로 묻는다. `readForChange`가 준 값은 이 가지가 안 읽고 **저널로만 간다**
+(`execute.go`의 `changeReadable`, `depth > 0`). 그래서 **256 KiB를 넘는 파일에 쓰기가 일어나면
+매번 "이 런이 그 경로를 만들었다"로 기록된다.** `.pptx`는 사실상 항상 그 위다.
 
 그 기록이 무엇을 하는지도 실측했다 — `didCreate`를 읽는 유일한 자리가 되돌릴 수 없는 명령의
-카운슬 게이트다(`internal/app/irreversible.go`):
+카운슬 게이트다(`internal/app/irreversible.go`의 `didCreate`):
 
 ```
 rm -rf ~/Decks/q3.pptx   didCreate=false -> council gate=true  "rm -rf /Users/…/q3.pptx"
@@ -833,12 +834,12 @@ magi **자신의** 쓰는 파일 툴인가).
    막는다). **선언이 그것을 매 성공 호출마다 도달 가능하게 만든다.**
 
    **빈 경로가 닿는 자리를 전부 세어 봤다**(2026-08-28, 코어를 읽어 확인). **일곱 중 여섯은 이미
-   막혀 있다** — `policy.go`의 거부 규칙(`touch.path != ""`), `execute.go`의 편집 전 스냅숏
-   (`changePath != ""`), 같은 파일의 편집 후 진단(`diagnose`가 `path == ""`에서 바로 돌아온다),
-   `tool_outcome.go`의 `noteCreated`(`p != ""` **그리고** `pathExists`), 바로 옆의
-   `dropReadCoverage`(함수 첫 줄이 `path == ""`), `observed.go`의 변경 기록(`path != ""`).
-   **안 막힌 하나가 루프 가드다** — 그리고 거기서만 빈 문자열이 무해하지 않다. `lastMut`은 경로로
-   키를 잡는 맵이고 `""`도 **멀쩡한 키**라서다.
+   막혀 있다** — `policy.go`의 `Decide`가 든 거부 규칙(`touch.path != ""`), `execute.go`의 편집 전
+   스냅숏(`changePath != ""`), 같은 파일의 편집 후 진단(`diagnose`가 `path == ""`에서 바로
+   돌아온다), `tool_outcome.go`의 `noteCreated`(`p != ""` **그리고** `pathExists`), 바로 옆의
+   `dropReadCoverage`(함수 첫 줄이 `path == ""`), `observed.go`의 `observeEvents`가 남기는 변경
+   기록(`path != ""`). **안 막힌 하나가 루프 가드다** — 그리고 거기서만 빈 문자열이 무해하지 않다.
+   `lastMut`은 경로로 키를 잡는 맵이고 `""`도 **멀쩡한 키**라서다.
 
    그 한 칸을 두 군데가 읽는다. `mutated("")`는 `lastMut[""]`와 sig를 비교하므로, 호출마다 인자가
    다른 쓰기 도구들이 **번갈아** 불리면 매번 "새 판본"으로 읽혀 `sinceProgress`가 0으로 돌아가고
@@ -1018,9 +1019,10 @@ compact · set-model · set-permission · use-backend · reload-cron · hand 이
 
 런타임 등록 자체는 있다. `Manager.AddHTTP` / `AddHTTPDynamic` / `Remove`가 있고 **Lua 플러그인
 브리지가 이미 그것을 부른다** — `magi.register_mcp{name=, url=, headers=fn}` → `AddHTTPDynamic`
-(`internal/adapter/plugin/lua/bridge.go`). 즉 **프로세스 안에서는 열려 있고 밖에서는 닫혀 있다.**
-`[mcp]`는 플러그인이 읽지도 쓰지도 못하는 config 섹션이기도 하다(`denyConfigSections`,
-`internal/adapter/plugin/lua/permission.go`) — 설정을 고쳐 붙이는 길은 **의도적으로** 막혀 있다.
+(`internal/adapter/plugin/lua/bridge.go`의 `bridgeRegisterMCP`). 즉 **프로세스 안에서는 열려 있고
+밖에서는 닫혀 있다.** `[mcp]`는 플러그인이 읽지도 쓰지도 못하는 config 섹션이기도
+하다(`denyConfigSections`, `internal/adapter/plugin/lua/permission.go`) — 설정을 고쳐 붙이는 길은
+**의도적으로** 막혀 있다.
 
 | | 무엇 | 새 표면 | 값 |
 |---|---|---|---|
@@ -1041,8 +1043,8 @@ compact · set-model · set-permission · use-backend · reload-cron · hand 이
 `denyConfigSections`의 `mcp`는 grant가 있어도 못 만진다. `magi.register_mcp`는 예외처럼 보이지만
 `mcp` capability를 요구하고 **그 capability는 오퍼레이터가 그 플러그인을 설치하면서 준 것**이라
 여전히 설치 시점 결정이다. 콘솔의 `/mcp` 쓰기는 공유 상태에서 거부되고, 사유 문자열이
-`"changing which MCP servers this machine runs"`다(`cmd/magi-web/mcp.go`) — 목록 **읽기**는 열려
-있고 바꾸기만 닫힌다.
+`"changing which MCP servers this machine runs"`다(`cmd/magi-web/mcp.go`의 `refuseWhenShared`) —
+목록 **읽기**는 열려 있고 바꾸기만 닫힌다.
 
 세 자리가 전부 "이 결정은 머신 주인의 것"으로 수렴한다. 그런데 **데몬 소켓은 0600이고 호출자가 곧
 그 주인이다**(`daemon.go`의 `os.Chmod(path, 0o600)`). 그러니 소켓 위의 `mcp-attach`는 공유되지
@@ -1097,7 +1099,7 @@ door가 나면서 새로 보이게 된 것은 §5.0.4에 적었다.
 
 `registerClient`는 등록 후 `<-client.Done()`을 기다렸다가 `Remove(name)`을 한다. stdio에서는
 프로세스가 죽으면 파이프가 닫히고 `readLoop`가 끝나 `done`이 닫힌다 — 자동 청소가 돈다. **HTTP는
-아니다.** `httpTransport.Done()`은 `Close()`가 불릴 때만 닫힌다(`http_transport.go`). 즉
+아니다.** `http_transport.go`의 `httpTransport.Done`은 `Close()`가 불릴 때만 닫힌다. 즉
 **헬퍼가 죽어도 그 도구들은 목록에 그대로 남는다.** 게다가 이름은 한 번 쓰면 잠기므로, 애드인이
 다시 켜져 같은 이름으로 붙으려 하면 **죽은 엔드포인트를 가리키는 등록 때문에 거부당한다.**
 
@@ -1361,15 +1363,15 @@ magi의 `claim_unix.go`에서 왔다.
 - **접속 실패의 원인을 진단하지 않는다.** 소켓 파일이 없는 것과 아무도 안 듣는 것은 겉보기만
   다르고 답은 같다 — 시도하고 `flock`이 판정하게 둔다. 진단하려고 락을 열어 보면 **알아보는
   행위가 상태를 바꾼다**(`clients/jetbrains/README.md` §2).
-- **잔재 소켓을 지우기 전에 dial로 증명한다.** 락만으로는 부족하다. magi의 순서는
-  `claimPath` → **`net.Dial`** → `os.Remove`이고, 코드 옆에 이유가 적혀 있다 —
-  *"This Remove is only safe BECAUSE the dial above proved nothing is listening"*
-  (`internal/adapter/daemon/daemon.go`). 프로브가 잡는 것은 **클레임을 모르는 옛 빌드**가
-  살아있는 소켓을 쥐고 있는 경우다. 락은 비어 있으니 새 프로세스가 락을 잡고 **남의 살아있는
-  소켓을 지운다** — 유닉스 소켓은 평범한 디렉토리 엔트리라 산 것을 지워도 성공하고, 그 데몬의
-  리스너는 조용히 고아가 된다. 자기 업데이트가 있는 제품이면 이 상황이 실제로 온다.
-  (락 자체가 필요 없다는 뜻은 아니다. 락 없이 하는 "안 듣네 → 지우고 바인드"는 두 틈이 생겨
-  동시에 시작한 둘이 둘 다 빠지고, magi가 **300회 중 25회**로 실측했다 — `claim_unix.go`.)
+- **잔재 소켓을 지우기 전에 dial로 증명한다.** 락만으로는 부족하다. magi의 순서는 `claimPath` →
+  **`net.Dial`** → `os.Remove`이고, 코드 옆에 이유가 적혀 있다 — *"This Remove is only safe BECAUSE
+  the dial above proved nothing is listening"* (`internal/adapter/daemon/daemon.go`). 프로브가 잡는
+  것은 **클레임을 모르는 옛 빌드**가 살아있는 소켓을 쥐고 있는 경우다. 락은 비어 있으니 새
+  프로세스가 락을 잡고 **남의 살아있는 소켓을 지운다** — 유닉스 소켓은 평범한 디렉토리 엔트리라 산
+  것을 지워도 성공하고, 그 데몬의 리스너는 조용히 고아가 된다. 자기 업데이트가 있는 제품이면 이
+  상황이 실제로 온다. (락 자체가 필요 없다는 뜻은 아니다. 락 없이 하는 "안 듣네 → 지우고 바인드"는
+  두 틈이 생겨 동시에 시작한 둘이 둘 다 빠지고, magi가 **300회 중 25회**로 실측했다 —
+  `claim_unix.go`의 주석: "Measured at 25 out of 300".)
 - ⚠ **dial이 증명하는 것은 「누가 듣는다」까지고, 이 그림을 포트에 걸면 그 차이가 값이 된다.**
   소켓에서는 그 바구니가 좁다 — 홈 아래 0600이라 그 자리에 설 수 있는 것이 사실상 우리 옛 빌드뿐이고
   (그래서 가지 이름이 그렇다), 물러나는 **행동이 바구니 전체에 맞다.** **포트에서는 안 좁다**(§5.2).
@@ -1421,28 +1423,28 @@ magi의 `claim_unix.go`에서 왔다.
     사라진 것이 아니다. 그러니 **오래 걸리는 렌더가 세 번 잘려도 헬퍼의 도구는 안 내려간다.**
     §4.4 ③이 말없이 기대고 있던 것이고, 확인했으니 여기 적는다.
 - **자기재시작에는 유예를 준다.** 유닉스에서 graceful 재시작은 리스너를 닫고 **락까지 놓은 뒤**
-  `syscall.Exec`한다(`internal/graceful/graceful_unix.go`). 소켓도 락도 잠깐 빈다. 유예가 없으면
-  감시자가 그 창에서 경쟁 프로세스를 띄운다. **3초를 시작값으로 두되 실측 아님을 적어 둔다** —
-  재시작 창을 실제로 재서 고쳐야 한다.
+  `syscall.Exec`한다(`internal/graceful/graceful_unix.go`의 `reexec`). 소켓도 락도 잠깐 빈다. 유예가
+  없으면 감시자가 그 창에서 경쟁 프로세스를 띄운다. **3초를 시작값으로 두되 실측 아님을 적어 둔다**
+  — 재시작 창을 실제로 재서 고쳐야 한다.
 - **자기재시작은 유닉스에서 스포너를 안 죽이고, 윈도우에서는 죽인다.** 앞 항목이 "소켓도 락도 잠깐
   빈다"까지만 말하는데 그건 유닉스 얘기다. `internal/graceful`은 플랫폼이 갈린다 — 유닉스는
   `syscall.Exec`이라 **PID가 그대로고 이미지만 바뀐다.** 윈도우는 execve가 없어서
   `exec.Command(...).Start()`로 후계자를 띄우고 **자기는 `os.Exit(0)`으로 나간다**
-  (`graceful_windows.go`). 그러므로 데몬이 헬퍼를 띄운 배치에서는 **윈도우에서 업데이트 한 번이
-  스포너의 죽음이다** — 사람이 아무것도 안 눌렀는데.
-  거기다 유닉스는 스포너가 **진짜로** 나가도 자식이 안 죽는다 — init에 재부모될 뿐이다. 그러니
-  비대칭이 한 방향으로만 선다: **떼어 냄이 실제로 걸리는 쪽은 윈도우다.**
+  (`graceful_windows.go`의 `reexec`). 그러므로 데몬이 헬퍼를 띄운 배치에서는 **윈도우에서 업데이트
+  한 번이 스포너의 죽음이다** — 사람이 아무것도 안 눌렀는데. 거기다 유닉스는 스포너가 **진짜로**
+  나가도 자식이 안 죽는다 — init에 재부모될 뿐이다. 그러니 비대칭이 한 방향으로만 선다: **떼어 냄이
+  실제로 걸리는 쪽은 윈도우다.**
 
   여기서 요구 하나가 따라 나온다: **헬퍼를 띄우는 쪽이 윈도우에서 헬퍼를 부모의 콘솔에서 떼어 줘야
   한다.** magi는 자기 후계자에게는 이미 그렇게 한다(`CREATE_NEW_PROCESS_GROUP`, 주석이 *"나가는
   중인 부모의 그룹으로 간 Ctrl-C가 후계자까지 데려가지 않게"*라고 적어 뒀다).
 
-  ⚠ **앞 판본이 여기서 `internal/adapter/platform/detach_windows.go`가 아무것도 안 하는 것을
-  결함으로 적었다. 물린다 — 그 파일은 이 일을 하는 자리가 아니다.** `detach()`의 호출자는 같은
-  디렉토리 `platform.go`의 `OS.Exec` 하나뿐이고, 그건 `cmd.Run()`으로 **출력을 잡는 동기
-  명령**이다. 유닉스 쪽 `Setsid`의 명시된 목적도 그룹 격리가 아니라 **tty 분리**이며 격리는
-  부수효과다. 그러니 "윈도우가 안 한다"는 비교의 대상이 애초에 아니었다.
-  (`ide/` 쪽 세션이 짚었고, 호출자를 세어 확인했다.)
+  ⚠ **앞 판본이 여기서 `internal/adapter/platform/detach_windows.go`의 `detach`가 아무것도 안 하는
+  것을 결함으로 적었다. 물린다 — 그 파일은 이 일을 하는 자리가 아니다.** `detach()`의 호출자는 같은
+  디렉토리 `platform.go`의 `OS.Exec` 하나뿐이고, 그건 `cmd.Run()`으로 **출력을 잡는 동기 명령**이다.
+  유닉스 쪽 `Setsid`의 명시된 목적도 그룹 격리가 아니라 **tty 분리**이며 격리는 부수효과다. 그러니
+  "윈도우가 안 한다"는 비교의 대상이 애초에 아니었다. (`ide/` 쪽 세션이 짚었고, 호출자를 세어
+  확인했다.)
 
   물리고 나면 남는 것은 결함이 아니라 **빈자리**다 — **magi에는 오늘 오래 사는 자식을 띄우는 경로가
   아예 없다.** 그래서 이건 고칠 코드가 아니라 **헬퍼 기동을 처음 쓸 때 지켜야 할 것**이고, 지켜야
@@ -1797,12 +1799,12 @@ id를 seq 옆에 같이 들고 있는 것은 클라이언트 몫이다. 위 문�
 `Seq == 0`·`transient`·`버스 전용`으로 훑어 확인했다(권한 물음 한 군데만 나왔다). 짓다가 걸렸으니
 지금 적는다.
 
-**하나 — 로그에 안 앉는 이벤트는 `Seq`가 0이다.** `event.go`가 그렇게 적어 두었다: 버스 전용
-이벤트는 자리를 안 가진다. `part.delta`·`tool.progress`·`permission.requested`·
+**하나 — 로그에 안 앉는 이벤트는 `Seq`가 0이다.** `event.go`의 `Seq` 주석이 그렇게 적어 두었다 —
+"transient (bus-only) events carry Seq == 0". `part.delta`·`tool.progress`·`permission.requested`·
 `question.requested`·`context.usage`·`workflow.phase`·`council.deliberating`·`model.changed`·
-`user.label.changed`가 그렇다. 그래서 **받은 이벤트의 `seq`를 그대로 커서에 넣는 창은 커서가
-0으로 뒤로 간다.** 그리고 0은 이 문의 계약에서 "전부"다 — `answerable`은 `since <= 0`을 정상으로
-보고 **거절 프레임도 안 보낸다**. §5.7이 커서에 이만큼 말을 쓴 이유가 화면이 두 벌 되는 것을 막는
+`user.label.changed`가 그렇다. 그래서 **받은 이벤트의 `seq`를 그대로 커서에 넣는 창은 커서가 0으로
+뒤로 간다.** 그리고 0은 이 문의 계약에서 "전부"다 — `answerable`은 `since <= 0`을 정상으로 보고
+**거절 프레임도 안 보낸다**. §5.7이 커서에 이만큼 말을 쓴 이유가 화면이 두 벌 되는 것을 막는
 것이었는데, **바로 그 사고가 아무 소리 없이 일어난다.** 규칙: 커서를 미는 것은 `seq > 0`인
 이벤트뿐이다. (목업의 `Cursor`는 오늘 이걸 안 지켜도 안 다치는데, 그건 단조 규칙과 「-1과 0이
 와이어에서 같다」는 두 우연 덕이다. 우연에 기대는 면역은 규칙이 아니라서 코드에도 같이 적었다.)
@@ -1950,8 +1952,8 @@ call id가 맞아서 데몬이 받아 버린다」고 적었는데, 세어 보�
 남은 낡은 주장이다. **닿음이 돌아온 것 자체가 사건**이고, 창은 그걸 물음과 따로 알아야 한다.
 바깥에서 `status`를 폴하는 창은 전부 같은 자리가 있다(§5.7의 우회는 이 창만 쓰는 것이 아니다).
 
-**「에러로 만들면 된다」가 답이 아니라는 것도 같이 적어 둔다.** `attach.go`의 폴 루프는
-`w.Event(sid)`가 에러면 `p.id = drawn`으로 두고 **아무것도 안 그린다.** 즉 조용한 오그리기를
+**「에러로 만들면 된다」가 답이 아니라는 것도 같이 적어 둔다.** `attach.go`의 `pendingPrompt` 폴
+루프는 `w.Event(sid)`가 에러면 `p.id = drawn`으로 두고 **아무것도 안 그린다.** 즉 조용한 오그리기를
 에러로 바꾸면 조용한 안 그리기가 된다. 사유는 값에 실어야지 없애는 것으로 처리되지 않는다.
 
 **그리고 이 창이 없으면 §6의 안전 규칙이 사용자를 가둔다.** §6은 쓰기 도구를 허용 규칙에 **일부러
@@ -2059,12 +2061,13 @@ call id**로 간다.
 "몇 분을 도는 spawn이 화면에서는 조용한 공백"이라 적고 **거울이 아니라 요약**을 보낸다 —
 자식의 도구 호출 하나당 `spawn · step N · 도구이름` 한 줄이다.
 
-**그 요약은 로그에 안 앉는다. 그래서 다시 붙은 창에는 그 구간이 아예 없다.** `payload.go`의
-`ToolProgressData`가 계약을 적어 두었다 — 임시고 버려도 되며 **영속되지 않고**, UI는 **마지막
-하나만** 보이다가 그 호출의 결과가 오면 **지운다.** `Cursor.js`가 이미 아는 `seq == 0`의 실제
-값이 이것이다: 커서로 되받을 수 없다. 그러니 이 줄은 **기록이 아니라 지금 상태**로 그린다.
-대화 줄로 그리면 결과가 온 뒤에도 남고, 새로 붙은 창에는 그 줄이 없어서 **두 창이 서로 다른
-과거를 갖는다.** 작업창이 덱 전환·새로고침마다 다시 뜨는 우리에게 이건 예외가 아니라 일상이다.
+**그 요약은 로그에 안 앉는다. 그래서 다시 붙은 창에는 그 구간이 아예 없다.** 계약은
+`payload.go`의 `ToolProgressData`가 적어 두었다 — 임시고 버려도 되며 **영속되지 않고**,
+UI는 **마지막 하나만** 보이다가 그 호출의 결과가 오면 **지운다.** `Cursor.js`가 이미 아는
+`seq == 0`의 실제 값이 이것이다: 커서로 되받을 수 없다. 그러니 이 줄은 **기록이 아니라 지금
+상태**로 그린다. 대화 줄로 그리면 결과가 온 뒤에도 남고, 새로 붙은 창에는 그 줄이 없어서 **두 창이
+서로 다른 과거를 갖는다.** 작업창이 덱 전환·새로고침마다 다시 뜨는 우리에게 이건 예외가 아니라
+일상이다.
 
 **그리고 그 빈 구간을 「아무 일도 없었다」로 적으면 안 된다.** 자식이 도는 동안 덱은 **눈앞에서
 바뀐다.** 창이 침묵하면 사람은 모델이 아무것도 안 했다고 읽는다 — 같은 날 코어에 보고한
@@ -2083,11 +2086,26 @@ call id**로 간다.
 **그 문**이다. 대화 스트림은 대화를 위한 것이고, 「무엇이 바뀌었나」는 바뀐 것이 실제로 지나가는
 자리에서 읽는다.
 
-⚠ **자식이 우리 도구를 물려받는지는 안 재 봤다.** `SpawnSpec`의 `Tools`는 띄우는 쪽이 정하고,
-미팅 자식은 `meetingLook` 넷뿐이라 애초에 못 쓴다. 못 쓰면 자식은 덱을 못 바꾸니 이 구멍도 안
-생긴다 — **둘 중 하나는 참이고, 어느 쪽인지는 우리가 문에서 본다.** 문을 지나는 호출이 있으면
-그 자식은 쓸 수 있는 것이고, 없으면 그 창의 침묵은 덱이 안 변했다는 뜻이다. 재 보기 전까지
-**침묵을 어느 쪽으로도 읽지 않는다.**
+**자식은 우리 도구를 물려받는다 — 띄우는 쪽이 목록을 안 적었다면.** 앞 판본은 이것을 "안 재
+봤다"로 남기고 **둘 중 하나만 참**이라고 적었는데, 코드를 읽으면 둘 다 참이고 갈림목이 어디인지도
+보인다.
+
+- **빈 목록은 「전부」다.** `internal/app/config.go`의 `allows`가 그렇게 읽고,
+  `internal/app/prompt.go`의 `toolSpecs`가 그 술어로 광고를 거른다. 거기서 한 번 더 빠지는 것은
+  `Internal` 표가 붙은 도구뿐인데, MCP 도구는 `tool.go`의 `mcpTool`이 메타를 아예 안 내므로 그
+  표가 없다 — **광고에 그대로 실린다.** 부름 쪽도 같은 술어다(`execute.go`의 `gateAllowlist`).
+  그리고 자식은 부모와 **같은 레지스트리**에서 돈다: `spawn.go`의 `spawnChild`가 같은 `App`의
+  `runLoop`을 부른다.
+- **목록을 적은 자식은 적은 것만 쓴다.** 미팅 자식이 그 경우다 — `internal/app/meeting.go`의
+  `meetingLook`은 `read`·`glob`·`grep`·`list` 넷이라 덱에 못 닿는다.
+
+그러니 **어느 쪽인지는 띄우는 쪽이 정하고, 기본값(빈 목록)은 물려받는 쪽이다.** 이 구멍은
+"자식은 덱을 못 고친다"는 가정으로 지워지지 않는다 — 안내의 출처를 대화 스트림이 아니라 문에
+두는 앞 문단의 결론이 그래서 필요하다.
+
+⚠ 여기까지는 **코드를 읽어서 유도한 것이고 라이브로 재 보지는 않았다.** 재는 자리는 문이다:
+문을 지나는 호출의 세션이 우리 것이 아니면 그 자식은 쓸 수 있는 것이다. 재기 전까지 **창의
+침묵을 「덱이 안 변했다」로 읽지 않는다** — 그 유보는 그대로 둔다.
 
 ### 5.8 선택을 채팅에 인용하기 — 제스처는 못 보고, 누름은 볼 수 있다
 
@@ -2427,13 +2445,13 @@ magi가 집계 도구 넷을 지우면서 세운 기준("호출 0회면 도구�
 
 **도구 두 개의 계약.**
 
-- `advise(items[])` — 창에 건다. **덱을 안 고친다.** 그래서 `annotations.readOnlyHint: true`를
-  달고 파일 인자는 없다. ⚠ **다만 오늘 magi는 그 어노테이션을 안 읽는다** — `jsonrpc.go`의
-  `toolDef`가 `{name, description, inputSchema}` 셋뿐이라 `annotations`는 통째로 버려진다
-  (§4.4 ⑤). 그러니 이 줄은 **다른 클라이언트를 향한 선언이자 §4.4 ⑤ 규약이 붙을 자리를 미리
-  맞춰 두는 것**이지 지금 무엇을 막고 있다는 뜻이 아니다. 지금 `advise`를 실제로 가르는 것은
-  **이름 하나**다: `mcp__ppt__advise`도 danger-gated이므로(§4.4 ②) **읽기와 같이 허용 규칙에
-  넣는다** — 쓰기 쪽이 아니다.
+- `advise(items[])` — 창에 건다. **덱을 안 고친다.** 그래서 `annotations.readOnlyHint: true`를 달고
+  파일 인자는 없다. ⚠ **다만 오늘 magi는 그 어노테이션을 안 읽는다** — `jsonrpc.go`의 `toolDef`가
+  `{name, description, inputSchema}` 셋뿐이라 `annotations`는 통째로 버려진다 (§4.4 ⑤). 그러니 이
+  줄은 **다른 클라이언트를 향한 선언이자 §4.4 ⑤ 규약이 붙을 자리를 미리 맞춰 두는 것**이지 지금
+  무엇을 막고 있다는 뜻이 아니다. 지금 `advise`를 실제로 가르는 것은 **이름 하나**다:
+  `mcp__ppt__advise`도 danger-gated이므로(§4.4 ②) **읽기와 같이 허용 규칙에 넣는다** — 쓰기 쪽이
+  아니다.
 - `clear_advice()` — 걷는다. 되돌리기(§2.1)의 대상이 아니다. 되돌릴 것이 애초에 없다.
 - **안내는 완료가 아니다.** §7이 "됐다"고 말하는 근거에 `advise` 호출을 넣지 않는다. 붙여 놓은
   포스트잇은 **한 일이 아니라 할 말**이고, 둘을 섞는 것이 이 저장소가 이름까지 붙여 둔 거짓 완료다.
@@ -2544,9 +2562,9 @@ not what you get from running the same weights again; it is what you get from di
 
 그리고 그 핀은 내가 발명할 것이 아니라 **이미 깔려 있는 스위치다.** `council.Member`에
 `Provider`/`Model` 필드가 있고, `OnePanel(members)`가 **백엔드를 공유하면 한 호출, 아니면 위원당 한
-호출**로 갈라진다(`internal/core/council/council.go`). 주석이 그 설정의 요점을 적어 뒀다 — 약한
-모델과 강한 모델이 같은 작업을 판정하게 하는 것. 그러니 "서로 다른 백엔드는 사용자가 갖췄다고 가정할
-수 없다"는 앞 판본의 반론은 **설정 부담의 문제이지 기전의 문제가 아니다.**
+호출**로 갈라진다(`internal/core/council/council.go`의 `OnePanel`). 주석이 그 설정의 요점을 적어
+뒀다 — 약한 모델과 강한 모델이 같은 작업을 판정하게 하는 것. 그러니 "서로 다른 백엔드는 사용자가
+갖췄다고 가정할 수 없다"는 앞 판본의 반론은 **설정 부담의 문제이지 기전의 문제가 아니다.**
 
 정리하면 **증거의 질과 판정자의 수는 독립 변수다.** 하나가 얇아졌으니 다른 하나로 메우자는 거래가
 게이트를 얇게 만드는 바로 그 동작이다. 위원은 **셋으로 두고**, 서로 다른 백엔드에 핀하는 것을 기본
@@ -3042,8 +3060,8 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
    `watch` 하나뿐인데 흘리는 것이 `Handover{Done, Answer, News, Over}`이고, 그것도 `hand`가 준
    **접수증 하나**의 것이며, `Taker`가 아닌 엔진은 아예 거절한다. 형제가 적은 이유 그대로다.
    하나 더 있다: `News`는 **진행 산문이지 모델이 말하는 중인 토큰이 아니다**(채우는 자리가
-   `cmd/magi/hand.go`와 `across.go`뿐이다). 그러니 `hand` + `watch`로 **답 한 덩어리**는 받아도
-   **말하는 동안**은 못 받는다. 채팅창에서 그 차이는 작지 않다.
+   `cmd/magi/hand.go`의 `Handover`와 `across.go`의 `heard` 둘뿐이다). 그러니 `hand` + `watch`로 **답
+   한 덩어리**는 받아도 **말하는 동안**은 못 받는다. 채팅창에서 그 차이는 작지 않다.
 
    **그 우회에는 값도 따로 붙는다.** `handover.Hand`는 라벨로 **곁 세션**을 잡고
    `companion.Labelled`로 텍스트에 출처를 박는다 — 즉 사용자가 창에 친 말이 **다른 컴패니언이 보낸
