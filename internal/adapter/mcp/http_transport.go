@@ -16,6 +16,8 @@ import (
 
 // httpTransport implements MCP Streamable HTTP transport.
 // Specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+// The revision this client advertises is older — see protocolVersion in jsonrpc.go — so where the
+// two could differ, the advertised one governs and is the one cited at the point of use.
 //
 // Each call() is a self-contained HTTP request/response (the server may answer
 // with a single application/json body or a text/event-stream), so unlike the
@@ -257,10 +259,18 @@ func (t *httpTransport) notify(method string, params any) error {
 	defer resp.Body.Close()
 	t.captureSession(resp)
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+	// 202 is the answer the spec asks for here, and it was the one status this rejected:
+	// "If the server accepts the input, the server MUST return HTTP status code 202 Accepted
+	// with no body" — and its sequence diagram answers notifications/initialized with exactly
+	// that. So a server that followed the spec was turned away mid-handshake, and the ones that
+	// attached were the ones that did not. 200 and 204 are not specified for this direction but
+	// cost nothing to keep taking from servers that already send them.
+	switch resp.StatusCode {
+	case http.StatusAccepted, http.StatusOK, http.StatusNoContent:
+		return nil
+	default:
 		return fmt.Errorf("mcp: http %d: %s", resp.StatusCode, resp.Status)
 	}
-	return nil
 }
 
 // unreachableStreak is how many calls in a row may fail to reach the server before this transport

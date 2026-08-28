@@ -186,7 +186,12 @@ func (c *Client) Initialize(ctx context.Context) error {
 	if err := c.call(ctx, "initialize", params, &struct{}{}); err != nil {
 		return err
 	}
-	return c.notify("notifications/initialized", nil)
+	// Name the half that failed. The call site wraps all of this as `initialize %q`, so a refused
+	// notification used to send the reader to inspect the request that had already succeeded.
+	if err := c.notify("notifications/initialized", nil); err != nil {
+		return fmt.Errorf("notifications/initialized: %w", err)
+	}
+	return nil
 }
 
 // ListTools returns the tools advertised by the server.

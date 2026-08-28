@@ -72,9 +72,11 @@ func fakeHTTPServer() http.HandlerFunc {
 			json.NewEncoder(w).Encode(resp)
 
 		default:
-			// Handle notifications (no response)
+			// Handle notifications (no response). 202 is what the spec tells a server to answer
+			// here, so the double answers it — it used to send 204, which is why every test
+			// passed while no conforming server could finish the handshake.
 			if strings.HasPrefix(req.Method, "notifications/") {
-				w.WriteHeader(http.StatusNoContent)
+				w.WriteHeader(http.StatusAccepted)
 				return
 			}
 			http.Error(w, "unknown method", http.StatusBadRequest)
@@ -278,4 +280,59 @@ func (r *testRegistry) Register(t port.Tool) {
 
 func (r *testRegistry) Unregister(name string) {
 	delete(r.tools, name)
+}
+
+// TestHTTPTransportNotificationStatuses pins which answers to a notification count as accepted.
+//
+// The one that matters is 202: the spec says a server that accepts a notification MUST answer with
+// it, and this transport used to reject it, so conformance was the thing that failed to attach.
+// 200 and 204 stay accepted because servers in the wild send them. A refusal must still be a
+// refusal, and it must say which half of the handshake refused — the call site labels the whole
+// thing "initialize", which sent readers to the request that had already succeeded.
+func TestHTTPTransportNotificationStatuses(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		wantOK bool
+	}{
+		{http.StatusAccepted, true},
+		{http.StatusOK, true},
+		{http.StatusNoContent, true},
+		{http.StatusBadRequest, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req request
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if strings.HasPrefix(req.Method, "notifications/") {
+				w.WriteHeader(tc.status)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(message{
+				JSONRPC: jsonRPCVersion,
+				ID:      &req.ID,
+				Result:  json.RawMessage(`{"protocolVersion":"2025-06-18","capabilities":{}}`),
+			})
+		}))
+
+		client := newHTTPClient(srv.URL, nil, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := client.Initialize(ctx)
+		cancel()
+		client.Close()
+		srv.Close()
+
+		if tc.wantOK && err != nil {
+			t.Errorf("status %d: Initialize: %v", tc.status, err)
+		}
+		if !tc.wantOK {
+			if err == nil {
+				t.Errorf("status %d: Initialize succeeded, want refusal", tc.status)
+			} else if !strings.Contains(err.Error(), "notifications/initialized") {
+				t.Errorf("status %d: error %q does not name the step that failed", tc.status, err)
+			}
+		}
+	}
 }
