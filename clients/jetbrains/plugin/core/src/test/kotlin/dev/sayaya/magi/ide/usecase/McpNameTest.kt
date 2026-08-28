@@ -45,7 +45,15 @@ class McpNameTest {
         assertEquals("mcp__jetbrains__apply_edit", McpName.ours("apply_edit"))
     }
 
-    /** 거절의 갈래가 다르면 사람이 할 일도 다르다. */
+    /**
+     * 거절의 갈래가 다르면 사람이 할 일도 다르다.
+     *
+     * **입력은 코어가 실제로 내는 문장이어야 한다.** 여기 한 번 `\"read\"` 로 적었는데 코틀린
+     * raw string 은 이스케이프를 처리하지 않아 백슬래시가 글자로 들어갔다. 코어는 `%q` 라
+     * `"read"` 를 낸다. `contains` 가 꼬리만 봐서 통과했지만, 그러면 이 케이스는 **코어가 낸 적
+     * 없는 문자열**로 "코어 문장을 갈래로 읽는다"를 주장하게 된다. 매처를 조이는 날 옆 둘은 살고
+     * 이것만 죽거나, 더 나쁘게는 조인 매처가 이 가짜에 맞춰진다.
+     */
     @Test
     fun `두 거절을 갈래로 읽는다`() {
         assertEquals(McpName.Refusal.ALREADY_ATTACHED,
@@ -53,7 +61,7 @@ class McpNameTest {
         assertEquals(McpName.Refusal.COLLIDES_AFTER_SANITISE,
             McpName.refusalOf("""mcp: "jetbrains" collides with "jet.brains", which is already attached (both become "jetbrains" in tool names)"""))
         assertEquals(McpName.Refusal.NAME_TAKEN_BY_TOOL,
-            McpName.refusalOf("""\"read\" is the name of a tool this companion already has"""))
+            McpName.refusalOf(""""read" is the name of a tool this companion already has"""))
         assertEquals(McpName.Refusal.OTHER, McpName.refusalOf("mcp: dial tcp: connection refused"))
         assertEquals(McpName.Refusal.OTHER, McpName.refusalOf(null))
     }
