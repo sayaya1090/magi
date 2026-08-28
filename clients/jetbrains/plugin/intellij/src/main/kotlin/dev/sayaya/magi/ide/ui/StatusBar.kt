@@ -49,14 +49,20 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         override fun getClickConsumer(): Consumer<MouseEvent>? = null
 
         /**
-         * 컴패니언이 못 만지는 컨텐트 루트가 몇 개인가. 프로젝트가 열릴 때 한 번 센다 — 데몬이
-         * 아니라 IDE 가 아는 사실이라 붙기 전에도 답이 있다.
+         * 컴패니언이 못 만지는 컨텐트 루트가 몇 개인가. 데몬이 아니라 IDE 가 아는 사실이라 붙기
+         * 전에도 답이 있다 — 그래서 이 줄만은 데몬을 안 기다린다.
          *
          * **우측 판에만 두면 안 보인다.** 그 판은 툴윈도라 게으르고, 사람이 안 열면 만들어지지도
          * 않는다(실측: 루트가 밖에 있는 프로젝트를 열었는데 판이 안 만들어져 경고가 계산조차 안
          * 됐다). 경고를 게으른 자리에만 두면 **경고가 필요한 사람이 제일 못 본다.**
+         *
+         * ⚠ 여기 `val` 로 세어 두면 **같은 잘못을 시간 축에서 반복한다.** 「데몬을 안 기다린다」의
+         * 근거가 「한 번만 센다」의 근거로 미끄러졌던 자리다. 루트를 세션 중에 더하면 경고가 영영
+         * 안 뜨고, 사람이 루트를 고쳐도 경고가 안 사라진다 — 시킨 대로 했는데 문장이 안 변한다.
+         * 게으른 자리에서 경고를 옮겨 온 이유가 그대로 여기에도 적용된다: **경고가 필요해지는
+         * 순간에 만들어진 사람이 제일 못 본다.** 매 틱 그리는 줄이니 매 틱 센다.
          */
-        private val unreachable = workspace.rootsOutsideWorkspace().size
+        private fun unreachable() = workspace.rootsOutsideWorkspace().size
 
         override fun install(statusBar: StatusBar) {
             bar = statusBar
@@ -71,7 +77,8 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             // 화면에는 "데몬 없음" 넉 자뿐이라 사람이 원인을 볼 길이 없다 — 이 위젯의 결함 하나가
             // 정확히 그 모양으로 숨어 있었다(사유는 Workspace.onDaemon 의 주석).
             LOG.info("magi: 상태를 못 읽었다 — $it")
-            say("magi: 데몬 없음" + if (unreachable > 0) " · 못 만지는 루트 $unreachable" else "")
+            val n = unreachable()
+            say("magi: 데몬 없음" + if (n > 0) " · 못 만지는 루트 $n" else "")
         }) { comp -> say(label(comp.facts())) }
 
         /**
@@ -84,7 +91,8 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
                 f.doing != null -> "도는 중"
                 else -> "쉬는 중"
             }
-            val jail = if (unreachable > 0) " · 못 만지는 루트 $unreachable" else ""
+            val n = unreachable()
+            val jail = if (n > 0) " · 못 만지는 루트 $n" else ""
             return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + jail
         }
 

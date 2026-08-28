@@ -120,4 +120,35 @@ class SourceTextTest {
                 "— 에서 지난 대화가 그대로 서 있는다. 비움은 `began` 에 건다")
     }
 
+    @Test
+    fun `열 때 한 번 센 값을 지금인 양 그리지 않는다`() {
+        // 이 저장소가 이미 아는 결함의 시간 축 판본이다. 「경고를 게으른 자리에만 두면 경고가
+        // 필요한 사람이 제일 못 본다」로 우측 판에서 상태 표시줄로 옮긴 경고가, 옮긴 자리에서
+        // **열릴 때 한 번만** 세어졌다. 컨텐트 루트는 세션 중에 바뀌므로 이건 같은 잘못이다 —
+        // 경고가 필요해지는 순간에 루트를 더한 사람이 제일 못 본다. 반대쪽도 같다: 사람이 루트를
+        // 워크스페이스 안으로 옮겨 **시킨 대로 해도** 경고가 안 사라졌다.
+        //
+        // 미끄러진 자리를 적어 둔다. 두 주석 다 「데몬을 안 기다린다」를 근거로 들고 있었는데,
+        // 그건 **데몬을 안 부른다**의 근거이지 **한 번만 센다**의 근거가 아니다. 근거 하나로 둘을
+        // 사면 나중에 읽는 사람이 안 나눈다.
+        //
+        // 되돌아오는 모양 둘에 정확히 걸린다: 세어 필드에 두기, 그리고 그리기 문을 생성 시점
+        // 하나로 되돌리기. 숫자가 아니라 **자리**를 보므로 호출자가 늘어도 안 약해진다.
+        val bar = sources.first { it.name == "StatusBar.kt" }.readText()
+        assertTrue("private fun unreachable()" in bar,
+            "못 만지는 루트 수를 부를 때마다 안 센다. 필드에 두면 세션 중에 루트가 바뀌어도 안 변한다")
+        assertTrue("private val unreachable" !in bar,
+            "못 만지는 루트 수를 `val` 로 세어 뒀다. 매 틱 그리는 줄이 한 번 잰 값을 실어 나른다")
+
+        val facts = sources.first { it.name == "FactsToolWindow.kt" }.readText()
+        val refresh = facts.substringAfter("fun refresh() {").substringBefore("}")
+        assertTrue("sayOutside()" in refresh,
+            "그리기 문이 밖 루트 줄을 안 다시 쓴다. 생성 때 한 번 쓰면 고쳐도 안 지워진다")
+        val outside = facts.substringAfter("private fun sayOutside() {").substringBefore("\n        }")
+        assertTrue("say(outside, \" \")" in outside,
+            "밖 루트가 없을 때 지우는 갈래가 없다. 안 쓰는 것으로 지움을 흉내내면 처음 한 번만 맞는다")
+        assertTrue("isRepeats = true" in facts,
+            "사실 판이 다시 안 묻는다. 「지금 무엇을 하나」를 판 연 순간의 뜻으로 세워 두게 된다")
+    }
+
 }

@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.ui
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
@@ -36,19 +37,26 @@ internal class Workspace(private val project: Project) {
      * IDE 가 왜 그것을 보여 주는지 설명하지 않는다. 화면과 에이전트가 서로 다른 워크스페이스를
      * 믿는 상태다. **거절이 오기 전에 말하는 것**이 §0.5-7 이 요구하는 모양이라 여기서 센다.
      *
+     * **부를 때마다 센다.** 컨텐트 루트는 세션 중에 바뀐다(Project Structure 에서 더하고 뺀다).
+     * 그리고 읽기 락 안에서 세므로 **어느 스레드에서 불러도 된다** — 이건 편의가 아니라 자물쇠다.
+     * 풀 스레드에서 못 부르면 부르는 쪽이 "그럼 열 때 한 번 세어 필드에 두자"로 가고, 그렇게 적어
+     * 둔 값은 사람이 루트를 고쳐도 안 변한다. 실제로 두 자리가 그 모양이었다.
+     *
      * 경로 비교로만 판정한다 — 심링크는 풀지 않는다. 이 목록은 사람에게 보여 줄 말이지 툴 게이트가
      * 아니고, 진짜 판정은 코어가 자기 규칙으로 한다. 여기서 흉내내면 **두 번째 표현**이 생긴다.
      */
     fun rootsOutsideWorkspace(): List<String> {
         val base = project.basePath ?: return emptyList()
         val basePath = Paths.get(base).normalize()
-        return ModuleManager.getInstance(project).modules
-            .flatMap { ModuleRootManager.getInstance(it).contentRoots.asList() }
-            .map { Paths.get(it.path).normalize() }
-            .filterNot { it.startsWith(basePath) }
-            .map { it.toString() }
-            .distinct()
-            .sorted()
+        return runReadActionBlocking {
+            ModuleManager.getInstance(project).modules
+                .flatMap { ModuleRootManager.getInstance(it).contentRoots.asList() }
+                .map { Paths.get(it.path).normalize() }
+                .filterNot { it.startsWith(basePath) }
+                .map { it.toString() }
+                .distinct()
+                .sorted()
+        }
     }
 
     /**
