@@ -306,6 +306,24 @@ public class ConversationElement {
      */
     private void reach() {
         if (!composerBuilt) return;
+        // 능력 둘이 한 상자에서 만난다. 막힌 것을 <b>풀어 주는 것</b>과 <b>새 일을 주는 것</b>은
+        // 일부러 다른 권한이다 — 컴패니언을 풀어 줘도 되는 사람이 그것이 무슨 일을 할지 정해도
+        // 되는 사람은 아니다 — 그런데 사람이 손대는 컨트롤은 둘 다 이 상자다. 그래서 어느 하나만
+        // 있어도 상자는 남고, 지금 몫이 마침 없는 그 능력일 때만 거절한다.
+        //
+        // 게이트는 서버가 진다(May의 규칙). 여기서 하는 일은 눌러서 거절에 닿을 컨트롤을 잠그고,
+        // 왜 잠겼는지를 그 줄에 적는 것뿐이다 — 잠긴 채 이름이 "묻기"인 상자는 고장으로 읽힌다.
+        boolean asked = store.answering();
+        boolean canAnswer = May.can("answer"), canPrompt = May.can("prompt");
+        // 물리기만 한다(운영의 `f.hidden = f.hidden || …`): 층위가 이미 물린 상자를 여기서 되살리면
+        // 지난 일 목록 위에 보낼 곳 없는 상자가 다시 선다.
+        if (!canAnswer && !canPrompt) toggle(form, false);
+        if (asked ? !canAnswer : !canPrompt) {
+            able(field, true);
+            able(sendBtn, true);
+            field.setAttribute("label", tr(asked ? "may.not_answer" : "may.not_prompt"));
+            return;
+        }
         String session = aimed == null ? null : aimed.session;
         String to = Moves.to(pastNow, session);
         boolean blocked = Moves.blocked(to, aimed == null ? null : aimed.state);
