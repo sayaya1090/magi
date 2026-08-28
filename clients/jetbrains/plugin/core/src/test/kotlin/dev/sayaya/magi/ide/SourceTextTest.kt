@@ -252,6 +252,32 @@ class SourceTextTest {
                 "조용히 갈라지게 두는 것만 안 된다")
     }
 
+    @Test
+    fun `재생으로 또 오는 신호는 이벤트에서 그리지 않는다`() {
+        // `Transcript.movesPrompt` 의 넷 중 `permission.decided` 는 전이가 아니라 사실이라
+        // 저장되고, 창이 다시 붙을 때마다 재생으로 또 온다(실측: 저장분 69 벌 중 여섯 벌,
+        // 가장 많은 것이 여덟). 그래도 화면이 안 틀리는 것은 받는 쪽이 그걸 **신호로만** 쓰기
+        // 때문이다 — 그릴 값은 그때 데몬에게 새로 묻는다.
+        //
+        // 그 줄이 `e` 의 내용으로 그리기 시작하면 재생이 지나간 물음을 지금 것으로 그린다:
+        // 붙어 있던 창과 나중에 다시 붙은 창이 같은 대화를 다르게 그리는, `echoesFact` 로 이미
+        // 한 번 고친 그 결함이다. 컴파일러는 이걸 안 잡는다 — `e` 를 읽는 것은 그 자체로 완벽히
+        // 올바른 코드이고, 틀린 것은 **그 값이 언제 오느냐**인데 그건 타입에 안 적혀 있다.
+        //
+        // 지금 이 조건은 주석으로만 서 있었다. 맞는 답이 맞는 근거로 맞고 있는 자리라, 다음
+        // 사람이 근거를 모른 채 옳은 방향으로 손대면 답이 틀려진다.
+        val window = sources.first { it.name == "MagiToolWindow.kt" }.readText()
+        val branch = Regex("movesPrompt\\(e\\)\\)(.*)").find(window)
+        assertTrue(branch != null,
+            "`movesPrompt` 를 쓰는 자리를 못 찾았다. 없앤 것이면 이 시험도 같이 지우고, 옮긴 " +
+                "것이면 옮긴 자리를 보게 고쳐라 — 못 찾은 것을 통과로 읽지 않는다")
+        val did = branch!!.groupValues[1].trim()
+        assertTrue(did == "refresh()",
+            "재생으로 또 오는 신호에서 `refresh()` 말고 다른 것을 한다: `$did`. 그 자리에서 " +
+                "`e` 를 읽으면 지나간 물음을 지금 것으로 그린다. 정말 필요하면 재생분과 " +
+                "라이브분을 먼저 갈라라 — 지금 `Sink.frame` 은 그 둘을 구분해 주지 않는다")
+    }
+
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
 }

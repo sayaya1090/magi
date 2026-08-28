@@ -152,9 +152,15 @@ class MagiToolWindow : ToolWindowFactory {
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
                     authors.feed(e)
                     Problems.of(e)?.let { note(it) }
-                    // 물음이 움직였으면 다시 묻는다. 프롬프트는 로그에 안 실려서(전이 이벤트)
-                    // 이 신호가 없으면 창을 연 뒤에 올라온 물음은 단추가 영영 안 생긴다 — 로그에
-                    // 줄 하나 뜨고 끝이었다(사유는 `Transcript.movesPrompt`).
+                    // 물음이 움직였으면 다시 묻는다. 물음 자체(`*.requested`)는 전이라 로그에 안
+                    // 실려서, 이 신호가 없으면 창을 연 뒤에 올라온 물음은 단추가 영영 안 생긴다 —
+                    // 로그에 줄 하나 뜨고 끝이었다(사유는 `Transcript.movesPrompt`).
+                    //
+                    // **여기서 `e` 를 읽지 않는다.** 넷이 다 전이인 것은 아니다 —
+                    // `permission.decided` 는 사실이라 저장되고, 다시 붙을 때마다 재생으로 또 온다
+                    // (실측도 그쪽에 적었다). 신호로만 쓰고 그릴 값은 데몬에게 새로 물으니 옛
+                    // 프레임이 불러도 지금 값이 그려진다. 이 줄이 `e` 를 보기 시작하면 재생이
+                    // 지나간 물음을 지금 것으로 그린다.
                     if (Transcript.movesPrompt(e)) refresh()
                     Problems.dissentOf(e)?.let { d ->
                         problems.append("· 카운슬 ${d.member} 반대  #${d.seq}  ${d.at.orEmpty()}\n    ${d.why}\n")
