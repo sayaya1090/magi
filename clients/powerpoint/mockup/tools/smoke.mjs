@@ -8,8 +8,12 @@ import { Quote } from '../src/domain/Quote.js';
 import { Advice } from '../src/domain/Advice.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
+import { SendTurn } from '../src/usecase/SendTurn.js';
+import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { fixture } from '../src/ui/deckFixture.js';
+import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
+import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -133,6 +137,103 @@ ok('슬라이드 이동 후 가리킨다', cross.ok === true && deck.currentSlid
 const caps = deck.capabilities();
 ok('가짜 덱은 잰 게 없다고 말한다', caps.measured === false && caps.sets.length === 0);
 ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.length > 0);
+
+
+// ── 대화 스트림(§5.7). 문의 계약을 그대로 시험한다 — 여기는 PowerPoint 가 없어도 다 잰다.
+{
+  const ev = (seq, type, text) => ({ seq, sessionId: 'A', type, data: { text } });
+  const port = new FakeTranscript({
+    A: [ev(1, 'prompt.submitted', '제목 키워'), ev(2, 'part.appended', '키웠습니다')],
+    B: [{ seq: 1, sessionId: 'B', type: 'prompt.submitted', data: { text: '다른 대화' } }],
+  });
+  const read = new ReadTranscript(port);
+
+  ok('첫 접속은 전부를 청한다', read.attach('A') === -1);
+  ok('받은 만큼 커서가 선다', read.cursor.seq === 2 && read.cursor.sessionId === 'A');
+  ok('다시 붙으면 그 자리부터', read.attach('A') === 2);
+
+  // 대화가 바뀌면 커서를 버린다. **서버가 못 잡아 주는 자리**라 우리가 메운다.
+  ok('대화가 바뀌면 커서를 버린다', read.attach('B') === -1);
+  ok('앞 대화가 화면에 안 남는다', read.view.rows.every((r) => r.text !== '키웠습니다'));
+
+  // 거절 프레임. 안 읽으면 보던 대화 뒤에 같은 대화의 처음이 이어 붙는다.
+  const port2 = new FakeTranscript({ A: [ev(1, 'prompt.submitted', '첫 줄')] });
+  const read2 = new ReadTranscript(port2);
+  read2.cursor = read2.cursor.advanced('A', 40);   // 어제 커서를 들고 왔다
+  read2.sessionId = 'A';
+  read2.attach('A');
+  ok('로그 끝을 넘은 커서는 거절당한다', read2.view.refusal !== null);
+  ok('거절 뒤 화면은 한 벌뿐이다', read2.view.rows.length === 1, `${read2.view.rows.length}줄`);
+  ok('거절당한 커서는 버려진다', read2.cursor.seq === 1);
+
+  // 모르는 종류를 안 버린다. 버리면 화면이 "아무 일도 없었다"처럼 보인다.
+  const port3 = new FakeTranscript({ A: [] });
+  const read3 = new ReadTranscript(port3);
+  read3.attach('A');
+  port3.push({ seq: 1, sessionId: 'A', type: 'council.verdict', data: {} });
+  port3.push({ seq: 2, sessionId: 'A', type: 'todos.changed', data: {} });
+  ok('모르는 종류는 안 그려도 안 사라진다', read3.view.rows.length === 0
+    && read3.view.unknownNote !== null, read3.view.unknownNote ?? '(말이 없다)');
+  ok('모르는 것도 커서는 민다', read3.cursor.seq === 2);
+
+  // 배우를 안 보면 정책이 한 일이 사용자가 한 말로 붙는다. §5.7 이 이름까지 대 놓은 결함이라
+  // 여기서 못 박는다 — 버리지도 않고(그건 TUI 가 겪은 반대쪽 결함), 말풍선으로도 안 그린다.
+  const port4 = new FakeTranscript({ A: [] });
+  const read4 = new ReadTranscript(port4);
+  read4.attach('A');
+  port4.push({ seq: 1, sessionId: 'A', type: 'prompt.submitted',
+    actor: { kind: 'user', id: 'u' }, data: { text: '제목 키워' } });
+  port4.push({ seq: 2, sessionId: 'A', type: 'prompt.submitted',
+    actor: { kind: 'system', id: 'policy' }, data: { text: 'allow-once (기본값)' } });
+  const kinds4 = read4.view.rows.map((r) => r.kind);
+  ok('정책이 낸 줄은 사용자 말풍선이 아니다',
+    kinds4.length === 2 && kinds4[0] === 'user' && kinds4[1] === 'note', kinds4.join('/'));
+
+  // 버스 전용 이벤트는 자리를 안 가진다(seq 0). 그대로 커서에 넣으면 자리가 **뒤로 가고**,
+  // 0 은 계약상 "전부"라 다음 접속이 대화를 통째로 다시 받는다 — 거절 프레임도 없이 조용히.
+  port4.push({ seq: 0, sessionId: 'A', type: 'part.delta',
+    data: { messageId: 'm1', text: '키' } });
+  ok('자리 없는 이벤트는 자리를 안 만든다',
+    read4.transcript.rows.at(-1).positioned === false);
+  ok('그래서 다시 붙어도 처음부터가 아니다', read4.attach('A') === 2);
+
+  // 델타와 완성본은 같은 말 두 번이다(같은 messageId). 둘 다 쌓으면 모델의 답이 두 번 뜨고,
+  // 다시 붙은 창은 `appended` 만 받으므로 **붙어 있던 창과 화면이 갈린다.**
+  const port5 = new FakeTranscript({ A: [] });
+  const read5 = new ReadTranscript(port5);
+  read5.attach('A');
+  port5.push({ seq: 0, sessionId: 'A', type: 'part.delta', data: { messageId: 'm1', text: '키' } });
+  port5.push({ seq: 0, sessionId: 'A', type: 'part.delta',
+    data: { messageId: 'm1', text: '웠습니다' } });
+  const live5 = read5.view.rows.map((r) => r.text);
+  ok('조각은 한 줄로 이어진다', live5.length === 1 && live5[0] === '키웠습니다', live5.join('|'));
+  port5.push({ seq: 1, sessionId: 'A', type: 'part.appended',
+    data: { messageId: 'm1', part: { text: '키웠습니다' } } });
+  const after5 = read5.view.rows;
+  ok('완성본이 와도 줄이 늘지 않는다',
+    after5.length === 1 && after5[0].text === '키웠습니다', `${after5.length}줄`);
+  ok('완성본이 오면 자리가 생긴다', after5[0].positioned && read5.cursor.seq === 1);
+
+  // 그리고 나중에 붙은 창(= replay 로 `appended` 만 받는 쪽)이 같은 화면을 봐야 한다.
+  const read5b = new ReadTranscript(port5);
+  read5b.attach('A');
+  ok('나중에 붙은 창도 같은 화면이다',
+    read5b.view.rows.length === 1 && read5b.view.rows[0].text === '키웠습니다',
+    read5b.view.rows.map((r) => r.text).join('|'));
+
+  // 끊김. 문은 깨끗한 끝을 에러로 안 준다 — 그래서 조용한 대화와 죽은 스트림이 똑같이 생겼다.
+  ok('붙어 있는 동안은 살아 있다', read3.view.live === true);
+  port3.drop();
+  ok('끊기면 화면이 그걸 안다', read3.view.live === false);
+
+  // 연결이 둘이라는 사실(§5.7 — `transcript` 는 연결을 통째로 가져가므로 헬퍼는 두 번 붙는다).
+  // 요청 쪽이 멀쩡히 도는 것이 스트림이 살아 있다는 증거가 아니다. 그래서 제출이 성공해도
+  // `live` 가 되살아나면 안 된다 — 되살아나면 화면은 죽은 스트림을 살아 있다고 그린다.
+  const chat = new FakeChat();
+  const sent = await new SendTurn(chat, new Conversation()).run('제목 줄여줘');
+  ok('스트림이 죽어도 제출은 간다', sent !== null && sent.text === '제목 줄여줘');
+  ok('제출 성공이 스트림을 되살리지 않는다', read3.view.live === false);
+}
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);
