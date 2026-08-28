@@ -612,9 +612,10 @@ HTTP면 헬퍼가 먼저 서고 데몬들이 클라이언트로 붙는다. 헬�
   사용자당 하나로 남는 것은 Office 애드인을 받아주는 로컬 헬퍼뿐이고(§5.2), 그건 magi 데몬이
   아니라 **다른 층**이다.
 
-**⚠ 그런데 밖에서 붙일 door가 없다.** 데몬 프로토콜 메서드 전량이 submit · steer · interrupt ·
-permission · answer · resume · rewind · compact · set-model · set-permission · use-backend ·
-reload-cron · hand 이고, **MCP를 다루는 것이 하나도 없다.**
+**~~⚠ 그런데 밖에서 붙일 door가 없다.~~ → 났다(§5.0.3). 아래는 그 요청이 선 경위다.**
+요청하던 시점의 메서드 전량이 submit · steer · interrupt · permission · answer · resume · rewind ·
+compact · set-model · set-permission · use-backend · reload-cron · hand 이었고, **MCP를 다루는 것이
+하나도 없었다.** 지금은 `mcp-attach`·`mcp-detach` 둘이 있다.
 
 런타임 등록 자체는 있다. `Manager.AddHTTP` / `AddHTTPDynamic` / `Remove`가 있고 **Lua 플러그인
 브리지가 이미 그것을 부른다** — `magi.register_mcp{name=, url=, headers=fn}` → `AddHTTPDynamic`
@@ -692,7 +693,8 @@ door가 나면서 새로 보이게 된 것은 §5.0.4에 적었다.
 - **실패 사유도 이미 셋 있다**: 이름 중복(`"%q is already attached; two servers cannot share one
   name"`), initialize 실패, list tools 실패. 새로 발명하지 않는다.
 
-**⚠ 그런데 수명이 비어 있다. 이건 door 요청서에 실을 증거다.**
+**~~⚠ 그런데 수명이 비어 있다. 이건 door 요청서에 실을 증거다.~~ → 닫혔다(§5.0.3, 같은 커밋).
+아래는 그 요구가 선 경위이고, 계약으로 남은 것은 마지막 두 항목이다.**
 
 `registerClient`는 등록 후 `<-client.Done()`을 기다렸다가 `Remove(name)`을 한다. stdio에서는
 프로세스가 죽으면 파이프가 닫히고 `readLoop`가 끝나 `done`이 닫힌다 — 자동 청소가 돈다. **HTTP는
