@@ -25,6 +25,16 @@ interface Daemon : Closeable {
      * 시작할 수 없다** — 구현이 잠근다.
      */
     fun exchange(request: Request): Response
+
+    /**
+     * 이 연결을 **스트림으로 넘긴다.** 요청 한 줄을 보내고, 그 뒤로는 데몬이 미는 프레임을
+     * [each] 에 넘긴다. [each] 가 false 를 돌려주거나 데몬이 연결을 닫으면 끝난다.
+     *
+     * 부른 순간부터 **이 연결로 다른 교환을 할 수 없다.** 락스텝이 성립하지 않기 때문이고,
+     * 데몬 쪽도 같은 규칙이다 — `watch` 와 `transcript` 만 연결을 통째로 넘겨받는다. 그래서
+     * 부르는 쪽은 **스트림 전용 연결**을 따로 열어야 한다.
+     */
+    fun stream(request: Request, each: (Response) -> Boolean)
 }
 
 /**

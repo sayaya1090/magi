@@ -36,6 +36,10 @@ class DaemonLifecycleTest {
             if (attempts < aliveFrom) throw java.io.IOException("아직 아무도 안 듣는다")
             return object : Daemon {
                 override fun exchange(request: Request) = Response(ok = true)
+                // 수명주기는 스트림을 안 쓴다. 부르면 시험이 조용히 아무것도 안 하는 대신 터지게 둔다 —
+                // 안 쓰는 것을 빈 몸으로 채우면 나중에 쓰기 시작해도 아무 말이 없다.
+                override fun stream(request: Request, each: (Response) -> Boolean) =
+                    throw UnsupportedOperationException("수명주기는 스트림을 열지 않는다")
                 override fun close() {}
             }
         }

@@ -11,8 +11,11 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
+import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
+import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
+import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.JButton
@@ -54,6 +57,13 @@ class MagiToolWindow : ToolWindowFactory {
         private var suggestion: String? = null
         private val debounce = javax.swing.Timer(400) { askSuggestion() }.apply { isRepeats = false }
 
+        /**
+         * 전사. **연결을 단독으로 소유한다** — 스트림은 락스텝이 아니라 연결을 통째로 넘겨받으므로
+         * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
+         */
+        private val log = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+        private var following: java.io.Closeable? = null
+
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
             top.add(state, BorderLayout.NORTH)
@@ -77,7 +87,51 @@ class MagiToolWindow : ToolWindowFactory {
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
 
             root.add(top, BorderLayout.NORTH)
+            root.add(JBScrollPane(log), BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
+            follow()
+        }
+
+        /**
+         * 전사에 붙는다. 붙는 순간부터 **재생 먼저, 그다음 라이브**다 — 데몬이 그 계약을 지키고
+         * 이쪽은 온 차례대로 그린다.
+         *
+         * 커서를 안 준다. 창이 열릴 때마다 전량을 받는 것이 지금의 답이다 — IDE 가 사는 동안
+         * 이어 받는 것은 §8 의 미결이고, 옛 커서를 새 대화로 들고 가면 그 대화의 앞을 못 본다.
+         */
+        private fun follow() {
+            val sock = socket() ?: return
+            val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return
+            following?.let { runCatching { it.close() } }
+            following = Transcript({ DaemonClient.connect(sock) }, sid).follow(object : Transcript.Sink {
+                override fun frame(e: LogEvent) = append(render(e))
+                // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
+                // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
+                override fun note(why: String) = SwingUtilities.invokeLater {
+                    log.text = ""
+                    append("— $why")
+                }
+                override fun ended(error: String?) =
+                    append(if (error == null) "— 전사가 끝났다(데몬이 닫았다)." else "— 전사가 끊겼다: ${'$'}error")
+            })
+        }
+
+        /**
+         * 이벤트 하나를 한 줄로. **얕게 그린다.**
+         *
+         * 사람이 읽는 전사로 바꾸는 것은 파생이고, 콘솔이 `cmd/magi-web/main.go` 의 `line` 에서
+         * 이미 하고 있다. 그것을 코틀린으로 다시 쓰면 **같은 규칙의 두 번째 표현**이 생긴다 —
+         * §3 이 안 C 를 고른 바로 그 사유다. 그래서 여기서는 사실만 적고, 깊은 렌더를 어디서 할지는
+         * §8 에 미결로 남긴다.
+         */
+        private fun render(e: LogEvent): String {
+            val who = e.actor?.name?.takeIf { it.isNotBlank() } ?: e.actor?.kind.orEmpty()
+            return "#${'$'}{e.seq} ${'$'}{e.type}" + if (who.isBlank()) "" else "  (${'$'}who)"
+        }
+
+        private fun append(line: String) = SwingUtilities.invokeLater {
+            log.append(line + "\n")
+            log.caretPosition = log.document.length
         }
 
         /** 거들기는 연결을 따로 판다 — 모델 호출이 락스텝 연결을 물면 그동안 다른 교환이 선다. */

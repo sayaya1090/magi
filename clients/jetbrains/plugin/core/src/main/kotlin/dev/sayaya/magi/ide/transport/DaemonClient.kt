@@ -47,6 +47,24 @@ class DaemonClient private constructor(
         Wire.json.decodeFromString(Response.serializer(), line)
     }
 
+    /**
+     * 요청 한 줄을 쓰고 그 뒤로 오는 것을 전부 넘긴다.
+     *
+     * **락을 잡지 않는다.** `exchange` 가 잡는 락은 "요청 하나에 답 하나"를 지키려는 것인데
+     * 스트림은 그 계약을 쓰지 않는다 — 이 연결은 이제 스트림의 것이고, 다른 교환은 애초에 오면
+     * 안 된다. 락을 잡으면 스트림이 사는 내내 그 연결이 잠겨 같은 결과를 **에러 대신 교착**으로
+     * 만든다.
+     */
+    override fun stream(request: Request, each: (Response) -> Boolean) {
+        writer.write(Wire.json.encodeToString(Request.serializer(), request))
+        writer.write("\n")
+        writer.flush()
+        while (true) {
+            val line = reader.readLine() ?: return // 데몬이 닫았다 — 깨끗한 끝이지 에러가 아니다
+            if (!each(Wire.json.decodeFromString(Response.serializer(), line))) return
+        }
+    }
+
     override fun close() {
         runCatching { channel.close() }
     }
