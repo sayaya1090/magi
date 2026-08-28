@@ -1,0 +1,19 @@
+# 버전은 여기 한 곳에서만 고친다.
+[versions]
+kotlin = "2.4.10"
+serialization = "1.11.0"
+junit = "6.1.3"
+# IntelliJ Platform Gradle Plugin. 플러그인 자체의 버전이고 IDE 버전과 다르다.
+intellij = "2.18.1"
+# 컴파일 대상 IDE. sinceBuild 는 intellij/build.gradle.kts 에 있다.
+idea = "2026.1"
+
+[libraries]
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+junit = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-launcher = { module = "org.junit.platform:junit-platform-launcher", version = "1.14.3" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+intellij = { id = "org.jetbrains.intellij.platform", version.ref = "intellij" }

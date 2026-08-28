@@ -1,0 +1,16 @@
+<idea-plugin>
+    <id>dev.sayaya.magi.ide</id>
+    <name>magi</name>
+    <vendor email="codemate.team@gmail.com">sayaya</vendor>
+
+    <description><![CDATA[
+        Runs a magi companion for the open project: it starts the workspace's daemon or attaches to
+        the one already there, shows the turn as it happens, and answers the prompts it raises.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="magi" anchor="right" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
+    </extensions>
+</idea-plugin>
