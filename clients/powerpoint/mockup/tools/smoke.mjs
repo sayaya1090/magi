@@ -116,7 +116,9 @@ ok('가짜 덱은 번호표를 준다', (await deck.slideNumbers()).get('s7') ==
 
 // 긴 글은 자르되 **자른 티가 나야** 한다 — 모델이 그걸 전문으로 읽으면 뒤쪽을 없는 셈 친다.
 {
-  const long = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '가'.repeat(900) });
+  const long = new Quote({
+    slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '가'.repeat(900),
+  });
   const p = long.toPrompt();
   ok('긴 인용은 잘리고 잘렸다고 적힌다', p.includes('textTruncated=900') && p.length < 900);
   const short = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '짧다' });
@@ -147,9 +149,11 @@ ok('추가 인용은 쌓인다', conv.pending.length === 2);
 }
 
 // 안내가 가리키는 것 — 있는 도형은 되고, 없는 도형은 **다른 걸 대신 가리키지 않고 실패한다.**
-const good = await point.run(new Advice({ message: '여기가 넘칩니다', slideId: 's4f2a1', shapeIds: ['sh8c30'] }));
+const good = await point.run(
+  new Advice({ message: '여기가 넘칩니다', slideId: 's4f2a1', shapeIds: ['sh8c30'] }));
 ok('가리키기 성공', good.ok === true);
-const bad = await point.run(new Advice({ message: '사라진 도형', slideId: 's4f2a1', shapeIds: ['sh-없음'] }));
+const bad = await point.run(
+  new Advice({ message: '사라진 도형', slideId: 's4f2a1', shapeIds: ['sh-없음'] }));
 ok('없는 도형은 대체 없이 실패', bad.ok === false, bad.reason);
 
 // 다른 슬라이드의 도형은 슬라이드까지 옮겨야 가리켜진다.
