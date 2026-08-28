@@ -9,7 +9,7 @@ import kotlin.random.Random
 /**
  * 워크스페이스에 데몬 하나가 계속 서 있게 한다.
  *
- * 설계 근거는 `ide/README.md` §2 에 있다. 여기 있는 것은 그 규칙의 코드이고, 규칙마다
+ * 설계 근거는 `clients/jetbrains/README.md` §2 에 있다. 여기 있는 것은 그 규칙의 코드이고, 규칙마다
  * 왜 그런지가 아니라 **어느 절인지**를 적는다.
  */
 class DaemonLifecycle(

@@ -1,4 +1,4 @@
-# ide/ — IntelliJ 플러그인 (IDE 안의 코딩 에이전트)
+# clients/jetbrains/ — IntelliJ 플러그인 (IDE 안의 코딩 에이전트)
 
 IDE에서 열어 둔 프로젝트를 **컴패니언 하나**로 만든다. 플러그인이 켜지면 그 워크스페이스의 데몬을
 찾고, 없으면 띄우고, 있으면 붙는다.
@@ -37,8 +37,8 @@ IDE에서 열어 둔 프로젝트를 **컴패니언 하나**로 만든다. 플�
 ## 1. 디렉토리
 
 ```
-ide/
-├── README.md              # 이 문서 — 설계
+clients/jetbrains/
+├── README.md          # 이 문서 — 설계
 └── plugin/
     ├── settings.gradle.kts
     ├── gradle/libs.versions.toml   # 버전은 여기 한 곳
@@ -549,7 +549,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   env로 잠근다 — `MAGI_IDE_PROBE_SOCK=<socket> ./gradlew :core:test`. 부르는 것은 `about` 과 `models`
   뿐이라 턴을 안 건드리고, 같은 요청을 두 번 보내 답이 밀리지 않는 것으로 락스텝을 확인한다.
 
-빌드는 `cd ide/plugin && ./gradlew build` 하나다. `core` 만 보려면 `:core:test`.
+빌드는 `cd clients/jetbrains/plugin && ./gradlew build` 하나다. `core` 만 보려면 `:core:test`.
 - **파생 대조.** 같은 세션에 대해 플러그인이 그린 전사와 콘솔이 그린 전사를 행 단위로 비교한다.
   `web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
   필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md:127`).
