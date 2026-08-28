@@ -1,9 +1,7 @@
 package dev.sayaya.magi.client.usecase;
 
+import dev.sayaya.magi.bridge.Prefs;
 import dev.sayaya.magi.bridge.Windows;
-import dev.sayaya.magi.client.domain.Prefs;
-import elemental2.dom.DomGlobal;
-import jsinterop.base.Js;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -90,31 +88,22 @@ public class SettingsStore extends dev.sayaya.magi.bridge.Told {
 
     // ── 이 브라우저의 것 ───────────────────────────────────────────────────────
 
+    // 저장소를 직접 만지지 않는다: 이 화면이 적는 값을 읽는 것은 다른 모듈이라
+    // 읽는 규칙과 적는 낱말이 한 자리(bridge/Prefs)에 있어야 한다.
+
     public String pref(String key, String byDefault) {
-        String v = stored(key);
-        return v == null || v.isEmpty() ? byDefault : v;
+        return Prefs.text(key, byDefault);
     }
 
     public boolean switchOn(String key, boolean byDefault) {
-        return Prefs.on(stored(key), byDefault);
+        return Prefs.on(key, byDefault);
     }
 
-    public void keep(String key, String value) { store(key, value); }
+    public void keep(String key, String value) { Prefs.keepText(key, value); }
 
-    /** 사적 창에서는 접근 자체가 던진다 — 기억이 없으면 기본값으로 산다. */
-    private static String stored(String key) {
-        try {
-            Object ls = Js.asPropertyMap(DomGlobal.window).get("localStorage");
-            if (ls == null) return null;
-            Object v = Js.asPropertyMap(ls).get(key);
-            return v == null ? null : String.valueOf(v);
-        } catch (Exception e) { return null; }
-    }
+    /** 스위치가 적는 값 — 낱말을 화면이 고르지 않게 한다(읽는 쪽이 다른 모듈이다). */
+    public void keep(String key, boolean on) { Prefs.keep(key, on); }
 
-    private static void store(String key, String value) {
-        try {
-            Object ls = Js.asPropertyMap(DomGlobal.window).get("localStorage");
-            if (ls != null) Js.asPropertyMap(ls).set(key, value);
-        } catch (Exception ignored) { }
-    }
+    /** 데몬 쪽 스위치도 같은 낱말을 쓴다 — config가 읽는 것은 "on"/"off"다. */
+    public void save(String field, boolean on) { save(field, Prefs.word(on)); }
 }

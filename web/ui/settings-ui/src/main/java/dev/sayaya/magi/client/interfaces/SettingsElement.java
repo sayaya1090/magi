@@ -69,11 +69,11 @@ public class SettingsElement {
         if (May.can("prompt")) {
             form.append(group("grpAssist", tr("pref.grp.assist")));
             form.append(switchRow("lookK", "lookWhy", "files.look", "files.look_why",
-                    "lookover", true, on -> store.keep("lookover", Prefs.word(on))));
+                    "lookover", true, on -> store.keep("lookover", on)));
             form.append(switchRow("acK", "acWhy", "pref.autocomplete", "pref.autocomplete_why",
-                    "autocomplete", true, on -> store.keep("autocomplete", Prefs.word(on))));
+                    "autocomplete", true, on -> store.keep("autocomplete", on)));
             form.append(switchRow("sugK", "sugWhy", "pref.suggest", "pref.suggest_why",
-                    "suggest", true, on -> store.keep("suggest", Prefs.word(on))));
+                    "suggest", true, on -> store.keep("suggest", on)));
         }
         // 데몬이 읽는 것들 — config를 고치는 일이라 그 능력이 있어야 한다.
         if (May.can("configure")) for (HTMLElement one : completeGroup()) form.append(one);
@@ -558,7 +558,7 @@ public class SettingsElement {
         sw.setAttribute("data-field", field);
         Js.asPropertyMap(sw).set("selected", on);
         sw.addEventListener("change", evt ->
-                store.save(field, Prefs.word(Js.isTruthy(Js.asPropertyMap(sw).get("selected")))));
+                store.save(field, Js.isTruthy(Js.asPropertyMap(sw).get("selected"))));
         put(r, sw);
         return r;
     }

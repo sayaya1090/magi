@@ -26,12 +26,18 @@ class PrefsTest {
         assertEquals("dark", Prefs.themeAttribute("dark"));
     }
 
+    /**
+     * 스위치의 낱말은 이 화면의 것이 아니다 — 적는 것은 설정이고 읽는 것은 편집기·컴포저라
+     * 규칙이 bridge에 산다. 그 자리를 여기서 재는 이유는 갈리면 조용히 어긋나기 때문이다.
+     */
     @Test
     void anUnsetSwitchIsItsDefault() {
-        assertTrue(Prefs.on(null, true));
-        assertFalse(Prefs.on(null, false));
-        assertFalse(Prefs.on("off", true));
-        assertTrue(Prefs.on("on", false));
+        assertTrue(dev.sayaya.magi.bridge.Prefs.means(null, true));
+        assertFalse(dev.sayaya.magi.bridge.Prefs.means(null, false));
+        assertFalse(dev.sayaya.magi.bridge.Prefs.means("off", true));
+        assertTrue(dev.sayaya.magi.bridge.Prefs.means("on", false));
+        assertEquals("off", dev.sayaya.magi.bridge.Prefs.word(false));
+        assertEquals("on", dev.sayaya.magi.bridge.Prefs.word(true));
     }
 
     @Test

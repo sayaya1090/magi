@@ -25,14 +25,8 @@ public final class Prefs {
         return "light".equals(pref) || "dark".equals(pref) ? pref : null;
     }
 
-    /** 켬/끔 — 저장된 적 없으면 그 설정의 기본이 답한다. */
-    public static boolean on(String stored, boolean byDefault) {
-        if ("on".equals(stored)) return true;
-        if ("off".equals(stored)) return false;
-        return byDefault;
-    }
-
-    public static String word(boolean on) { return on ? "on" : "off"; }
+    // 켬/끔의 낱말("on"/"off")과 없는 값을 무엇으로 읽을지는 여기 없다: 그 규칙은 이 화면이
+    // 적고 <b>다른 모듈</b>(편집기·컴포저)이 읽으므로 둘 다 보는 자리인 bridge/Prefs에 산다.
 
     /**
      * 이 설정이 어느 파일의 것인가 — 컴패니언을 보고 있으면 그 컴패니언의 것, 아니면
