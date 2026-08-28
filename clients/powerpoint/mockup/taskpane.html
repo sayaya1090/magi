@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>magi — PowerPoint 목업</title>
+  <link rel="stylesheet" href="taskpane.css" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+  <!-- 목업에서만 보인다. 애드인 안에서는 PowerPoint 가 이 자리다. -->
+  <section id="fake"></section>
+
+  <section id="pane">
+    <header>
+      <strong>magi</strong>
+      <span id="adapter" class="adapter"></span>
+    </header>
+
+    <div id="turns" class="turns"></div>
+
+    <div id="thinking" class="thinking" hidden>생각 중…</div>
+
+    <div id="advice-wrap" class="advice-wrap" hidden>
+      <h2>안내</h2>
+      <p class="advice-note">누르면 그 도형을 잡습니다. 저절로 움직이지는 않습니다.</p>
+      <div id="advice"></div>
+    </div>
+
+    <div id="note" class="note" hidden></div>
+
+    <div class="composer">
+      <div id="pending" class="pending"></div>
+      <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (⌘Enter 로 보내기)"></textarea>
+      <div class="buttons">
+        <button id="quote" class="ghost" title="지금 잡혀 있는 도형을 인용에 담습니다">⌸ 선택 인용</button>
+        <button id="send" class="primary">보내기</button>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

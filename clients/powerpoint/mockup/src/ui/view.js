@@ -1,0 +1,142 @@
+// 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
+import { Advice } from '../domain/Advice.js';
+
+const $ = (sel) => document.querySelector(sel);
+
+export class View {
+  constructor({ conversation, quoteSelection, pointAt, sendTurn, chat, deck }) {
+    this.conversation = conversation;
+    this.quoteSelection = quoteSelection;
+    this.pointAt = pointAt;
+    this.sendTurn = sendTurn;
+    this.chat = chat;
+    this.deck = deck;
+    this.advices = [];
+  }
+
+  mount() {
+    $('#adapter').textContent = this.deck.label;
+    $('#quote').addEventListener('click', () => this.onQuote());
+    $('#send').addEventListener('click', () => this.onSend());
+    $('#input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) this.onSend();
+    });
+    this.chat.subscribe((ev) => this.onEvent(ev));
+    this.renderPending();
+    this.renderTurns();
+  }
+
+  async onQuote() {
+    const { added, skipped, empty } = await this.quoteSelection.run();
+    if (empty) {
+      // **사유를 뭉개지 않는다.** 아무것도 안 잡혔을 수도 있고, 포커스가 창으로 오면서
+      // 선택이 날아갔을 수도 있다(S14). 목업은 그 둘을 구분 못 한다는 사실 자체를 말한다.
+      this.note('잡힌 도형이 없습니다 — 캔버스에서 도형을 클릭한 뒤 다시 눌러 주세요.');
+      return;
+    }
+    if (skipped) this.note(`${skipped}개는 이미 인용돼 있습니다.`);
+    this.renderPending();
+    if (added.length) $('#input').focus();
+  }
+
+  async onSend() {
+    const text = $('#input').value;
+    const turn = await this.sendTurn.run(text);
+    if (!turn) return;
+    $('#input').value = '';
+    this.renderPending();
+    this.renderTurns();
+  }
+
+  onEvent(ev) {
+    if (ev.kind === 'thinking') { this.setThinking(true); return; }
+    if (ev.kind === 'say') {
+      this.setThinking(false);
+      this.conversation.hear(ev.text);
+      this.renderTurns();
+      return;
+    }
+    if (ev.kind === 'advise') {
+      this.advices.push(new Advice(ev.advice));
+      this.renderAdvice();
+    }
+  }
+
+  setThinking(on) { $('#thinking').hidden = !on; }
+
+  note(text) {
+    const el = $('#note');
+    el.textContent = text;
+    el.hidden = false;
+    clearTimeout(this._noteTimer);
+    this._noteTimer = setTimeout(() => { el.hidden = true; }, 4000);
+  }
+
+  renderPending() {
+    const box = $('#pending');
+    box.replaceChildren();
+    for (const q of this.conversation.pending) {
+      box.append(this.quoteEl(q, true));
+    }
+  }
+
+  quoteEl(q, removable) {
+    const el = document.createElement('div');
+    el.className = 'quote';
+    const head = document.createElement('div');
+    head.className = 'quote-head';
+    head.textContent = `슬라이드 ${q.slideId} · ${q.headline}`;
+    const body = document.createElement('div');
+    body.className = 'quote-body';
+    body.textContent = q.text ? `"${q.preview()}"` : '(글 없음)';
+    const meta = document.createElement('div');
+    meta.className = 'quote-meta';
+    meta.textContent = [q.type, q.sizeLabel].filter(Boolean).join(' · ');
+    el.append(head, body, meta);
+    if (removable) {
+      const x = document.createElement('button');
+      x.className = 'quote-x';
+      x.textContent = '×';
+      x.title = '인용 빼기';
+      x.addEventListener('click', () => {
+        this.conversation.detach(q.shapeId);
+        this.renderPending();
+      });
+      el.append(x);
+    }
+    return el;
+  }
+
+  renderTurns() {
+    const box = $('#turns');
+    box.replaceChildren();
+    for (const t of this.conversation.turns) {
+      const el = document.createElement('div');
+      el.className = `turn ${t.role}`;
+      for (const q of t.quotes) el.append(this.quoteEl(q, false));
+      const p = document.createElement('p');
+      p.textContent = t.text;
+      el.append(p);
+      box.append(el);
+    }
+    box.scrollTop = box.scrollHeight;
+  }
+
+  renderAdvice() {
+    const box = $('#advice');
+    box.replaceChildren();
+    $('#advice-wrap').hidden = this.advices.length === 0;
+    for (const a of this.advices) {
+      const el = document.createElement('button');
+      el.className = 'advice';
+      el.disabled = !a.pointable;
+      el.textContent = a.message;
+      // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
+      el.addEventListener('click', async () => {
+        const { ok, reason } = await this.pointAt.run(a);
+        if (!ok) this.note(reason);
+      });
+      box.append(el);
+    }
+  }
+}

@@ -1,0 +1,101 @@
+:root {
+  --bg: #fff; --fg: #201f1e; --muted: #605e5c; --line: #e1dfdd;
+  --accent: #b7472a;            /* PowerPoint 의 붉은색 계열 */
+  --sel: #0078d4;
+  --quote-bg: #faf9f8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; display: flex; height: 100vh;
+  font: 14px/1.5 -apple-system, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+  color: var(--fg); background: var(--bg);
+}
+
+/* 애드인 안에서는 작업창 하나뿐이다. 목업일 때만 왼쪽이 생긴다. */
+#fake { display: none; }
+body.standalone { background: #f3f2f1; }
+body.standalone #fake {
+  display: block; flex: 1; min-width: 0; padding: 20px;
+}
+body.standalone #pane {
+  width: 340px; flex: none; border-left: 1px solid var(--line); background: var(--bg);
+}
+#pane { display: flex; flex-direction: column; width: 100%; min-width: 0; }
+
+header {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+header strong { color: var(--accent); }
+.adapter { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+.turns { flex: 1; overflow-y: auto; padding: 12px 14px; }
+.turn { margin-bottom: 14px; }
+.turn p { margin: 0; white-space: pre-wrap; }
+.turn.user p {
+  background: #eff6fc; border-radius: 8px; padding: 8px 10px;
+}
+.turn.model p { padding: 0 2px; }
+
+.quote {
+  position: relative; border-left: 3px solid var(--accent);
+  background: var(--quote-bg); border-radius: 4px;
+  padding: 6px 26px 6px 9px; margin-bottom: 6px;
+}
+.quote-head { font-size: 11px; color: var(--muted); }
+.quote-body { font-size: 13px; }
+.quote-meta { font-size: 11px; color: var(--muted); }
+.quote-x {
+  position: absolute; top: 4px; right: 4px; border: 0; background: none;
+  color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1;
+}
+
+.thinking { padding: 0 14px 8px; color: var(--muted); font-size: 12px; }
+
+.advice-wrap { border-top: 1px solid var(--line); padding: 10px 14px; }
+.advice-wrap h2 { font-size: 12px; margin: 0 0 2px; color: var(--muted); }
+.advice-note { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+.advice {
+  display: block; width: 100%; text-align: left; margin-bottom: 6px;
+  padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; cursor: pointer; font: inherit; font-size: 13px;
+}
+.advice:hover:not(:disabled) { border-color: var(--sel); }
+.advice:disabled { color: var(--muted); cursor: default; }
+
+.note {
+  margin: 0 14px 8px; padding: 6px 9px; border-radius: 6px;
+  background: #fff4ce; font-size: 12px;
+}
+
+.composer { border-top: 1px solid var(--line); padding: 10px 14px 12px; }
+.pending:not(:empty) { margin-bottom: 8px; }
+textarea {
+  width: 100%; resize: vertical; font: inherit;
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;
+}
+textarea:focus { outline: none; border-color: var(--sel); }
+.buttons { display: flex; gap: 8px; margin-top: 8px; }
+button { font: inherit; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.ghost { background: #fff; border: 1px solid var(--line); }
+.ghost:hover { border-color: var(--sel); }
+.primary { margin-left: auto; background: var(--accent); border: 0; color: #fff; }
+
+/* ── 목업의 가짜 캔버스 ───────────────────────────────────────── */
+.strip { display: flex; gap: 6px; margin-bottom: 12px; }
+.thumb {
+  width: 32px; height: 24px; border: 1px solid var(--line);
+  background: #fff; color: var(--muted); font-size: 11px;
+}
+.thumb.on { border-color: var(--sel); color: var(--sel); }
+.canvas {
+  position: relative; aspect-ratio: 16 / 9; background: #fff;
+  border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+.shape {
+  position: absolute; border: 1px dashed #edebe9; padding: 4px 6px;
+  overflow: hidden; cursor: pointer; font-size: 13px; color: #333;
+}
+.shape:hover { border-color: #a19f9d; }
+.shape.sel { border: 2px solid var(--sel); border-style: solid; }
+.hint { color: var(--muted); font-size: 12px; }
