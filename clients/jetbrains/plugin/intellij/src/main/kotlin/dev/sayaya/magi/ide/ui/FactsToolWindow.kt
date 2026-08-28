@@ -43,9 +43,15 @@ class FactsToolWindow : ToolWindowFactory {
         private val session = JBLabel(" ")
         private val trouble = JBLabel(" ")
 
+        private val outside = JBLabel(" ")
+
         init {
             root.add(card("지금", doing, "승인", permission, "대화", session))
             root.add(trouble)
+            // 거절이 오기 전에 말한다. 컴패니언이 못 만지는 루트가 있으면 그 사실이 화면에 있어야
+            // 하고, 없으면 이 줄은 아예 안 뜬다 — 없는 문제를 광고하지 않는다.
+            root.add(outside)
+            sayOutside()
             // 아직 문이 없어 못 채우는 장들. 이름을 세워 두는 것이 빈자리로 두는 것보다 낫다 —
             // 사람이 "이 화면이 원래 이만큼인가"를 묻지 않게 된다.
             for (name in listOf("계획", "건넨 일", "예약·크론", "받은 지시")) {
@@ -65,6 +71,17 @@ class FactsToolWindow : ToolWindowFactory {
         }
 
         fun refresh() = workspace.onDaemon({ say(trouble, it) }) { comp -> paint(comp.facts()) }
+
+        /**
+         * 워크스페이스 밖 컨텐트 루트를 한 번 센다. 데몬을 안 부르므로 붙기 전에도 뜬다 — 이 사실은
+         * 데몬이 아니라 **IDE 가** 아는 것이다.
+         */
+        private fun sayOutside() {
+            val out = workspace.rootsOutsideWorkspace()
+            if (out.isEmpty()) return
+            say(outside, "<html>이 컴패니언이 <b>못 만지는</b> 컨텐트 루트 ${out.size}개 — " +
+                "워크스페이스는 프로젝트 디렉토리 하나다:<br/>" + out.joinToString("<br/>") + "</html>")
+        }
 
         /**
          * 모름과 없음을 갈라 그린다. `doing` 이 null 인 것은 "쉬는 중"이 아니라 **이 데몬이 말해

@@ -1,7 +1,9 @@
 package dev.sayaya.magi.ide.ui
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ModuleRootManager
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.transport.SocketDaemons
@@ -21,6 +23,33 @@ internal class Workspace(private val project: Project) {
 
     /** 이 프로젝트의 소켓. 심링크를 푸는 자리는 SocketPath 안이다(§2). */
     fun socket() = project.basePath?.let { SocketPath.of(SocketPath.configDir(), Paths.get(it)) }
+
+    /**
+     * 컴패니언이 **못 만지는** 컨텐트 루트들. 없으면 빈 목록.
+     *
+     * magi 의 워크스페이스는 디렉토리 하나이고 파일 툴이 거기 갇힌다 — 밖을 짚으면
+     * `"%s is outside this workspace"` 로 거절한다(`internal/app/query.go`). 그런데 IntelliJ 의
+     * 컨텐트 루트는 `basePath` 밖에 있을 수 있다. 실측했다(§8): `.iml` 둘짜리 프로젝트에서 하나가
+     * `basePath` 아래, 하나가 완전히 밖이었다.
+     *
+     * 그러면 사람은 Project 뷰에서 그 파일을 **보면서** 컴패니언에게 시킬 수 없고, 거절 문장은
+     * IDE 가 왜 그것을 보여 주는지 설명하지 않는다. 화면과 에이전트가 서로 다른 워크스페이스를
+     * 믿는 상태다. **거절이 오기 전에 말하는 것**이 §0.5-7 이 요구하는 모양이라 여기서 센다.
+     *
+     * 경로 비교로만 판정한다 — 심링크는 풀지 않는다. 이 목록은 사람에게 보여 줄 말이지 툴 게이트가
+     * 아니고, 진짜 판정은 코어가 자기 규칙으로 한다. 여기서 흉내내면 **두 번째 표현**이 생긴다.
+     */
+    fun rootsOutsideWorkspace(): List<String> {
+        val base = project.basePath ?: return emptyList()
+        val basePath = Paths.get(base).normalize()
+        return ModuleManager.getInstance(project).modules
+            .flatMap { ModuleRootManager.getInstance(it).contentRoots.asList() }
+            .map { Paths.get(it.path).normalize() }
+            .filterNot { it.startsWith(basePath) }
+            .map { it.toString() }
+            .distinct()
+            .sorted()
+    }
 
     /**
      * 데몬에 한 번 붙어 무언가 하고 끊는다. 연결을 들고 있지 않는 이유는 스트림이 아직 없어서다 —
