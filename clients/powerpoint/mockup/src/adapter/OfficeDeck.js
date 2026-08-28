@@ -138,6 +138,11 @@ export class OfficeDeck extends DeckPort {
       // **슬라이드를 먼저 고르고 도형을 잡는다.** 안 보고 있는 슬라이드에서 setSelectedShapes 가
       // 도는지를 문서가 안 적으므로(S13) 두 번 부르는 쪽을 계약으로 둔다 — 한 번으로 되더라도
       // 두 번이 틀리지는 않는다.
+      //
+      // 이 「안 적는다」는 **2026-08-29 에 페이지를 다시 읽어 확인한 것**이다. 바로 아래 빈
+      // 배열 건이 「안 적는다」고 해 놓고 실은 적혀 있던 자리라 같은 페이지를 다시 봤고, 이쪽은
+      // 진짜로 없었다. 대신 예제 하나가 **저장된 슬라이드 id 로 getItem 한 뒤 곧장** 도형을
+      // 잡는 것이 나왔는데(부록 A), 한 번으로 될 가능성을 높일 뿐 결정하진 않는다.
       context.presentation.setSelectedSlides([slideId]);
       await context.sync();
       // **빈 목록도 여기까지 온다 — 그때는 잡은 것을 놓는다**(`DeckPort.point` 의 계약).
