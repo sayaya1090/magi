@@ -5,7 +5,26 @@ plugins {
     alias(libs.plugins.intellij)
 }
 
-kotlin { jvmToolchain(21) }
+// **못 켜지는 가드는 컴파일러가 이미 안다 — 다만 말하고 지나간다.**
+//
+// 감싸는 쪽이 무조건 값을 채우는데 받는 쪽에 `== null` 가드가 남아 있으면 그 가드는 영영 안
+// 돈다. 코어 쪽 자매 프로젝트에서 실제로 그 모양이 났고(가드 둘이 도달 불가, 주석은 그 가드가
+// 막는다고 적힌 죽음으로 한 프레임 뒤에 죽었다), 코틀린은 그것을 `Condition is always 'false'`
+// 로 **이미 잡는다.** 재 봤다(2026-08-29, Kotlin 2.4.10): 잡긴 잡는데 경고라 빌드가 안 서고,
+// 증분 빌드에서는 그 파일이 캐시된 뒤로 **다시 말하지도 않는다.** 처음 한 번 스크롤을 지나가면
+// 그걸로 끝이다.
+//
+// 그래서 이 진단 **하나만** 오류로 올린다. `allWarningsAsErrors` 가 아닌 이유는 SDK 를 올릴
+// 때마다 쏟아지는 deprecation 이 빌드를 세우면 다음 사람이 이 줄 전체를 지우기 때문이다 —
+// 안 서는 규칙보다 지워지는 규칙이 나쁘다.
+//
+// 일부러 방어할 자리는 남아 있다. `@Suppress("SENSELESS_COMPARISON")` 이 그대로 듣는 것을
+// 재 봤다(플랫폼이 `@NotNull` 이라 해 놓고 null 을 주는 자리가 있다). 막힌 게 아니라 **적어야
+// 지나가는** 것이고, 그러면 그 방어가 grep 되는 결정으로 남는다.
+kotlin {
+    jvmToolchain(21)
+    compilerOptions { freeCompilerArgs.add("-Xwarning-level=SENSELESS_COMPARISON:error") }
+}
 
 // 릴리스 레인이 -PpluginVersion=… 으로 태그에서 넘긴다. 붙이지 않으면 dev 다 — 손으로 만든
 // 빌드가 릴리스처럼 보이지 않게(Makefile 의 VERSION 이 같은 이유로 --dirty 를 단다).
