@@ -88,6 +88,18 @@ func (a *App) ContextWindows(ctx context.Context, sid session.SessionID) []Model
 // the window is resolved here and the cap is applied at the wire.
 func (a *App) WindowOf(id string) int { return a.contextWindow(id) }
 
+// VisionOf says whether a model reads pictures, from the same table WindowOf answers from.
+//
+// Exported for the same one caller, and for the same reason: the table is filled in while magi runs
+// — a plugin contributes models, and the window probe registers what it learns — so an adapter that
+// kept its own copy of the built-in catalogue would answer for a model nobody had declared yet.
+//
+// A model the table does not know answers false. That is the safe direction: an image block sent to
+// a backend that cannot read one is an error, or silently dropped content the model is then asked
+// about, while a model that CAN see and is told it cannot still gets the line of text naming the
+// file.
+func (a *App) VisionOf(id string) bool { return a.cfg.Models.Get(id).Vision }
+
 func (a *App) contextWindow(id string) int {
 	if id == "" {
 		return 0

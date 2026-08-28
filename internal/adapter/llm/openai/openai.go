@@ -34,10 +34,11 @@ type Client struct {
 	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
 	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
 
-	reasoningEffort string                 // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
-	maxTokens       int                    // per-request output cap ([limits] max_output_tokens); 0 = provider default
-	window          func(model string) int // a model's context window, so the cap is held under it
-	sampling        Sampling               // configured sampling defaults ([sampling]); nil fields = provider default
+	reasoningEffort string                  // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
+	maxTokens       int                     // per-request output cap ([limits] max_output_tokens); 0 = provider default
+	window          func(model string) int  // a model's context window, so the cap is held under it
+	vision          func(model string) bool // whether a model reads pictures; nil = the static catalogue
+	sampling        Sampling                // configured sampling defaults ([sampling]); nil fields = provider default
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
 }
@@ -162,6 +163,16 @@ func WithPromptCache() Option { return func(c *Client) { c.cache = true } }
 // must not import an LLM adapter.
 func WithWindow(f func(model string) int) Option {
 	return func(c *Client) { c.window = f }
+}
+
+// WithVision tells the client which models read pictures, so a tool result's images are sent only
+// where they can be looked at.
+//
+// Injected for the same reason WithWindow is, and for one more: the authoritative table is filled
+// in while magi runs — a plugin contributes models, and the context-window probe registers what it
+// learns. A copy of the static catalogue taken at process start answers for none of that.
+func WithVision(f func(model string) bool) Option {
+	return func(c *Client) { c.vision = f }
 }
 
 // fitMaxTokens holds the configured output cap under what the model can actually accept.
@@ -353,7 +364,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	triedNoTools := false
 	var lastRoleDiag string // role sequence of the most recent request, for 400/422 diagnostics
 	for {
-		br := buildRequest(r, true, useCache, c.reasoningEffort, c.fitMaxTokens(r), c.sampling)
+		br := buildRequest(r, true, useCache, c.reasoningEffort, c.fitMaxTokens(r), c.sampling, c.seesImages)
 		lastRoleDiag = wireRoleDiag(br.Messages)
 		body, merr := json.Marshal(br)
 		if merr != nil {

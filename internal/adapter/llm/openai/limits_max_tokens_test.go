@@ -15,7 +15,7 @@ import (
 func TestMaxOutputTokensReachesTheWireAndZeroDoesNot(t *testing.T) {
 	req := port.ChatRequest{Model: "m", Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "hi"}}}}}
 
-	body := buildRequest(req, false, false, "", 4096, Sampling{})
+	body := buildRequest(req, false, false, "", 4096, Sampling{}, nil)
 	if body.MaxTokens != 4096 {
 		t.Fatalf("the configured cap is carried, got %d", body.MaxTokens)
 	}
@@ -28,7 +28,7 @@ func TestMaxOutputTokensReachesTheWireAndZeroDoesNot(t *testing.T) {
 	}
 
 	// Unset means unset: omitempty must drop the field rather than send a zero cap.
-	b, err = json.Marshal(buildRequest(req, false, false, "", 0, Sampling{}))
+	b, err = json.Marshal(buildRequest(req, false, false, "", 0, Sampling{}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

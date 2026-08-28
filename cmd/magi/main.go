@@ -289,6 +289,10 @@ func newEmbedder(cfg config.Config, baseURL, apiKey string, plat port.Platform, 
 // until then, and nil answers 0, which leaves the cap exactly as configured.
 var windowOf func(string) int
 
+// visionOf is the same holder for the picture question: which models can be shown a render rather
+// than told about one. Same lifetime problem, same answer.
+var visionOf func(string) bool
+
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
@@ -991,6 +995,7 @@ func run() int {
 	// instead of going out as a demand. Set here because this is the first moment the answer
 	// exists; before it, the holder is nil and the cap is sent exactly as configured.
 	windowOf = a.WindowOf
+	visionOf = a.VisionOf
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
 	mcpMgr := mcp.NewManager(reg)
@@ -1514,6 +1519,14 @@ func llmOptions(cfg config.Config, noCache bool, httpTimeout time.Duration) []op
 			return windowOf(model)
 		}))
 	}
+	// Which models can be shown a picture. Not gated on [limits] like the window is: whether a
+	// model reads images has nothing to do with an output cap being configured.
+	opts = append(opts, openai.WithVision(func(model string) bool {
+		if visionOf == nil {
+			return false // before the app exists nothing is known, and false loses only the picture
+		}
+		return visionOf(model)
+	}))
 	// [sampling]
 	return append(opts, openai.WithSampling(openai.Sampling{
 		Temperature:     cfg.Sampling.Temperature,

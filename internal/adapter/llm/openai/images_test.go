@@ -2,11 +2,13 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -33,6 +35,19 @@ func called(callID, text string, imgs ...session.ImageRef) []session.Message {
 			ToolResult: &session.ToolResult{CallID: callID, Content: body, Images: imgs},
 		}}},
 	}
+}
+
+// Which calls carried pictures, named by the line that says whose they are.
+func whoCarried(out []wireMessage) []string {
+	var carried []string
+	for _, m := range out {
+		if m.Role == "user" {
+			if blocks, ok := m.Content.([]any); ok {
+				carried = append(carried, blocks[0].(textBlock).Text)
+			}
+		}
+	}
+	return carried
 }
 
 // The tool message among them, with its pictures behind it if any rode along.
@@ -97,13 +112,7 @@ func TestTheNewestPicturesAreTheOnesThatRide(t *testing.T) {
 		name := string(rune('a'+i)) + ".png"
 		msgs = append(msgs, called("c"+string(rune('0'+i)), "rendered", withImage(t, dir, name, 10))...)
 	}
-	out := convertMessages(msgs, true)
-	var carried []string
-	for _, m := range out {
-		if m.Role == "user" {
-			carried = append(carried, m.Content.([]any)[0].(textBlock).Text)
-		}
-	}
+	carried := whoCarried(convertMessages(msgs, true))
 	if len(carried) != imagesPerReply {
 		t.Fatalf("%d requests carried pictures, want %d", len(carried), imagesPerReply)
 	}
@@ -129,10 +138,110 @@ func TestAMissingFileIsNotAFailedRequest(t *testing.T) {
 // pictures: an image_url block to a backend that does not know one is an error or, worse, content
 // silently dropped and then asked about.
 func TestAnUnknownModelIsNotAssumedToSee(t *testing.T) {
-	if canSeeImages("some-local-model-nobody-catalogued") {
+	var c Client // no injected table: the static catalogue answers, and it must not panic
+	if c.seesImages("some-local-model-nobody-catalogued") {
 		t.Error("an unknown model was treated as able to read pictures")
 	}
-	if !canSeeImages("gpt-4o") {
+	if !c.seesImages("gpt-4o") {
 		t.Error("a catalogued vision model was treated as unable — the flag has a reader now")
+	}
+}
+
+// The table magi actually runs on is filled in while it runs: a plugin contributes models, and the
+// context-window probe registers what it learns. An adapter holding its own copy of the built-in
+// catalogue answers "cannot see" for every one of them, forever — the answer was frozen at start.
+func TestAModelRegisteredWhileRunningCanBeSeenToSee(t *testing.T) {
+	live := model.NewRegistry()
+	live.Register(model.Info{ID: "local-vlm", ContextWindow: 32000, Vision: true})
+	c := Client{}
+	WithVision(func(id string) bool { return live.Get(id).Vision })(&c)
+
+	if !c.seesImages("local-vlm") {
+		t.Error("a model registered at runtime is still told it cannot read pictures")
+	}
+	if c.seesImages("another-one-nobody-declared") {
+		t.Error("the injected table turned unknown into yes — the safe direction is no")
+	}
+}
+
+// A picture too large for what is left of the budget is SKIPPED, and the walk keeps going. It used
+// to stop there, so one oversized render blanked every smaller picture behind it — for as long as
+// it stayed in the window, which is every turn of a review.
+func TestAPictureThatDoesNotFitIsSkippedNotAFullStop(t *testing.T) {
+	dir := t.TempDir()
+	var msgs []session.Message
+	msgs = append(msgs, called("older", "rendered", withImage(t, dir, "older.png", 500<<10))...)
+	msgs = append(msgs, called("middle", "rendered", withImage(t, dir, "middle.png", 2<<20))...)
+	msgs = append(msgs, called("newest", "rendered", withImage(t, dir, "newest.png", 2<<20))...)
+
+	carried := strings.Join(whoCarried(convertMessages(msgs, true)), " ")
+	if !strings.Contains(carried, "newest") {
+		t.Errorf("the newest render did not ride: %s", carried)
+	}
+	if strings.Contains(carried, "middle") {
+		t.Errorf("a picture over the remaining budget rode anyway: %s", carried)
+	}
+	if !strings.Contains(carried, "older") {
+		t.Errorf("the walk stopped at the one that did not fit: %s", carried)
+	}
+}
+
+// …and the first one rides even when it alone is over budget. It is bounded already — the daemon
+// refuses to keep a picture over its own cap — and the alternative is a render that is on disk,
+// named in the log, and invisible to the only reader that could look at it.
+func TestTheOnePictureBeingTalkedAboutAlwaysRides(t *testing.T) {
+	dir := t.TempDir()
+	msgs := called("huge", "rendered", withImage(t, dir, "huge.png", imageBudget+1))
+	if len(whoCarried(convertMessages(msgs, true))) != 1 {
+		t.Error("a single over-budget render was left invisible; its bytes are on disk and nothing can look at them")
+	}
+}
+
+// The count is still a count. Ten small pictures do not all ride because they are small.
+func TestTheLimitIsStillALimit(t *testing.T) {
+	dir := t.TempDir()
+	var msgs []session.Message
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, called(fmt.Sprintf("c%d", i), "rendered",
+			withImage(t, dir, fmt.Sprintf("i%d.png", i), 100))...)
+	}
+	if got := len(whoCarried(convertMessages(msgs, true))); got != imagesPerReply {
+		t.Errorf("%d calls carried pictures, want %d", got, imagesPerReply)
+	}
+}
+
+// The budget is one budget for the request, not one per tool call. Handing every chosen call the
+// whole allowance again sent seven pictures under a limit of four — and the limit exists because
+// the window accounting cannot see them at all.
+func TestTheBudgetIsNotHandedOutAgainToEveryCall(t *testing.T) {
+	dir := t.TempDir()
+	var msgs []session.Message
+	for i := 0; i < 3; i++ {
+		msgs = append(msgs, called(fmt.Sprintf("one%d", i), "rendered",
+			withImage(t, dir, fmt.Sprintf("one%d.png", i), 100))...)
+	}
+	four := []session.ImageRef{
+		withImage(t, dir, "m1.png", 100), withImage(t, dir, "m2.png", 100),
+		withImage(t, dir, "m3.png", 100), withImage(t, dir, "m4.png", 100),
+	}
+	msgs = append(msgs, called("many", "rendered", four...)...)
+
+	sent := 0
+	for _, m := range convertMessages(msgs, true) {
+		if m.Role != "user" {
+			continue
+		}
+		for _, b := range m.Content.([]any) {
+			if _, isImg := b.(imageBlock); isImg {
+				sent++
+			}
+		}
+	}
+	if sent > imagesPerReply {
+		t.Errorf("%d pictures went on the wire under a limit of %d", sent, imagesPerReply)
+	}
+	// And the ones that rode are the newest: the last call is what the next question is about.
+	if !strings.Contains(strings.Join(whoCarried(convertMessages(msgs, true)), " "), "many") {
+		t.Error("the newest call did not carry its pictures — backwards walking was undone by forward emitting")
 	}
 }

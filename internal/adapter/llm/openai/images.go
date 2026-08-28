@@ -21,17 +21,25 @@ type imageURL struct {
 	URL string `json:"url"`
 }
 
-// modelFacts is the capability table, built once. Vision is the only field read here.
-var modelFacts = sync.OnceValue(func() *model.Registry { return model.NewRegistry() })
+// catalogue is the static capability table: what magi ships knowing, before anything runs.
+var catalogue = sync.OnceValue(func() *model.Registry { return model.NewRegistry() })
 
-// canSeeImages says whether this model takes image input.
+// seesImages says whether this model takes image input.
 //
-// Until now nothing read that flag: seven models declared Vision and no code anywhere asked, because
-// the pictures never reached the wire. This is the reader it was waiting for. A model the table does
-// not know answers false — a request with an image_url block to a backend that cannot read one is
-// either an error or, worse, silently dropped content the model is then asked about.
-func canSeeImages(modelID string) bool {
-	return modelFacts().Get(modelID).Vision
+// It asks the injected reader first — the app's live table, which a plugin contributes to and the
+// context-window probe writes into while magi runs. Reading a private copy of the static catalogue
+// instead (the first version of this did) means a model somebody registered at runtime, declaring
+// Vision, is still told it cannot see: the answer was frozen at process start.
+//
+// A model nobody has declared answers false. A request with an image_url block to a backend that
+// cannot read one is either an error or, worse, silently dropped content the model is then asked
+// about. The text line naming the file goes either way, so false costs the model a picture, never
+// the fact that there was one.
+func (c *Client) seesImages(modelID string) bool {
+	if c.vision != nil {
+		return c.vision(modelID)
+	}
+	return catalogue().Get(modelID).Vision
 }
 
 // What one request may carry in pictures, in bytes and in count.
@@ -43,32 +51,94 @@ func canSeeImages(modelID string) bool {
 // bound is deliberately small and BOTH kinds: four pictures and four megabytes, whichever runs out
 // first, counted from the END of the conversation.
 //
+// The bytes counted are what goes on the WIRE, not what is on disk: a picture is base64 there, four
+// bytes for every three. Counting the file made the real request a third larger than the budget it
+// was checked against.
+//
 // The most recent are the ones being talked about. An older one keeps its line of text, which
 // names the file and its type — the same line a model that cannot see pictures at all reads.
 const (
 	imageBudget    = 4 << 20
 	imagesPerReply = 4
+	// How far back to look for them. Bounds the work, not the choice: every candidate costs a
+	// stat, and a long session holds hundreds. Anything older than this is history in text.
+	imageScanDepth = 64
 )
 
-// imagesFor turns the pictures attached to a tool result into content blocks, newest first, until
-// the budget is spent. Returns what fitted and how many were left out.
+// onWire is what a file of n bytes costs inside the request: base64, four characters per three
+// bytes, rounded up to the padded quantum.
+func onWire(n int) int { return (n + 2) / 3 * 4 }
+
+// riders are the pictures of one tool call that go on this request, and how many of that call's
+// pictures did not.
+type riders struct {
+	refs []session.ImageRef
+	left int
+}
+
+// pickImages decides which pictures ride, walking BACKWARDS from the end of the conversation.
 //
-// Read from disk here rather than carried in the log: the log holds references precisely so that it
-// stays small, and the bytes are only needed at the moment a request is built.
-func imagesFor(refs []session.ImageRef, budget, count int) (blocks []any, left int, spent int) {
-	for _, ref := range refs {
-		if len(blocks) >= count {
-			left++
+// Backwards because a conversation grows and a request cannot. The render just made is what the
+// next question is about; the one from twenty turns ago is history, and its line of text is what
+// history needs. Forwards would have pinned the oldest picture in every request for the life of the
+// session and dropped the newest.
+//
+// Two things this gets right that the first version did not, both of which only show at deck size:
+//
+//   - A picture too big for the remaining budget is SKIPPED, not a full stop. Returning at the
+//     first one that did not fit meant a single large render at the end of a conversation blanked
+//     every smaller picture behind it, for as long as it stayed in the window.
+//   - The FIRST picture rides even when it alone is over budget. It is bounded already (the daemon
+//     refuses to keep one over its own cap), and the alternative is a render that is on disk, named
+//     in the log, and permanently invisible to the only reader that could look at it.
+func pickImages(msgs []session.Message) map[string]riders {
+	picked := map[string]riders{}
+	bytes, count, looked := 0, 0, 0
+	for i := len(msgs) - 1; i >= 0 && looked < imageScanDepth && count < imagesPerReply; i-- {
+		if msgs[i].Role != session.RoleTool {
 			continue
 		}
+		for _, p := range msgs[i].Parts {
+			if p.Kind != session.PartToolResult || p.ToolResult == nil || len(p.ToolResult.Images) == 0 {
+				continue
+			}
+			r := picked[p.ToolResult.CallID]
+			for _, ref := range p.ToolResult.Images {
+				looked++
+				fi, err := os.Stat(ref.Path)
+				if err != nil {
+					continue // gone; its line of text still names it, and that is not an error
+				}
+				cost := onWire(int(fi.Size()))
+				switch {
+				case count >= imagesPerReply:
+					r.left++
+				case count > 0 && bytes+cost > imageBudget:
+					r.left++
+				default:
+					r.refs = append(r.refs, ref)
+					bytes += cost
+					count++
+				}
+			}
+			if len(r.refs) > 0 || r.left > 0 {
+				picked[p.ToolResult.CallID] = r
+			}
+		}
+	}
+	return picked
+}
+
+// encodeImages turns the chosen references into content blocks. Whatever fails to read here is
+// counted as left behind rather than failing the request: the result's own text still names it.
+//
+// Read from disk at this moment rather than carried in the log: the log holds references precisely
+// so that it stays small, and the bytes are only needed while a request is being built.
+func encodeImages(r riders) (blocks []any, left int) {
+	left = r.left
+	for _, ref := range r.refs {
 		raw, err := os.ReadFile(ref.Path)
 		if err != nil {
-			// A picture that no longer resolves is not worth a failed request: the tool result's
-			// own text already names it, and that line is what the model reads instead.
-			left++
-			continue
-		}
-		if len(raw) > budget-spent {
 			left++
 			continue
 		}
@@ -80,9 +150,8 @@ func imagesFor(refs []session.ImageRef, budget, count int) (blocks []any, left i
 			Type:     "image_url",
 			ImageURL: imageURL{URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)},
 		})
-		spent += len(raw)
 	}
-	return blocks, left, spent
+	return blocks, left
 }
 
 // imageMessage is the user message that carries a tool call's pictures.
@@ -99,39 +168,4 @@ func imageMessage(callID string, blocks []any, left int) wireMessage {
 	}
 	content := append([]any{textBlock{Type: "text", Text: said}}, blocks...)
 	return wireMessage{Role: "user", Content: content}
-}
-
-// recentImages picks the tool calls whose pictures ride on this request: walking backwards from the
-// end of the conversation until the budget is spent.
-//
-// Backwards because a conversation grows and a request cannot. The render just made is what the
-// next question is about; the one from twenty turns ago is history, and its line of text is what
-// history needs. Forwards would have pinned the oldest picture in every request for the life of the
-// session and dropped the newest.
-func recentImages(msgs []session.Message) map[string]bool {
-	picked := map[string]bool{}
-	bytes, count := 0, 0
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role != session.RoleTool {
-			continue
-		}
-		for _, p := range msgs[i].Parts {
-			if p.Kind != session.PartToolResult || p.ToolResult == nil || len(p.ToolResult.Images) == 0 {
-				continue
-			}
-			for _, ref := range p.ToolResult.Images {
-				fi, err := os.Stat(ref.Path)
-				if err != nil {
-					continue // gone; its line of text still names it
-				}
-				if count >= imagesPerReply || bytes+int(fi.Size()) > imageBudget {
-					return picked
-				}
-				bytes += int(fi.Size())
-				count++
-				picked[p.ToolResult.CallID] = true
-			}
-		}
-	}
-	return picked
 }
