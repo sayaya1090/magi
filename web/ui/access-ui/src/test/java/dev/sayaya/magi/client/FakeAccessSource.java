@@ -22,6 +22,7 @@ public class FakeAccessSource implements AccessSource {
 
     @Override
     public void roster(Consumer<Object> cb) {
+        if (unreachable()) { cb.accept(null); return; }
         String sam = samGone ? "" :
                 ",{\"who\":\"sam@laptop\",\"role\":\"" + samRole + "\",\"can\":[\"read\"]" +
                 (samScope.isEmpty() ? "" : ",\"companions\":[\"" + samScope.replace(",", "\",\"") + "\"]") + "}";
@@ -57,7 +58,20 @@ public class FakeAccessSource implements AccessSource {
 
     /** 스펙이 창에 적어 두면 그 다음 쓰기가 거절당한다 — 서버가 사유를 실어 돌려보내듯. */
     private static String refuses() {
-        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_access_refuses");
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_press_refuses");
         return v == null ? "" : String.valueOf(v);
+    }
+
+    /**
+     * 회선이 끊긴 판 — 명부 읽기가 <b>null</b>로 온다({@code Console.fetchList}가 거부·불통·
+     * 깨진 본문을 전부 null로 접으므로).
+     *
+     * <p>이것이 거절과 <b>겹치는</b> 판을 만들 수 있어야 한다: 쓰기가 못 닿아 우리가 지어낸
+     * 말이 설 때는 뒤따르는 읽기도 못 닿는다. 그 겹침이 페이크에 없어서 — 여기 명부 읽기는
+     * 언제나 성공했다 — 스펙이 「사유가 명부 실패 갈래에서 버려진다」를 볼 길이 없었다.</p>
+     */
+    private static boolean unreachable() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_unreachable");
+        return v != null && !"false".equals(String.valueOf(v));
     }
 }

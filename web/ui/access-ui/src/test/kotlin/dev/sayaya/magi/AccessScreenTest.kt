@@ -76,7 +76,7 @@ internal class AccessScreenTest : GwtTestSpec({
             }
         }
         When("서버가 그 쓰기를 거절하면") {
-            page.evaluate("window.__magi_test_access_refuses = 'the last admin cannot be demoted'")
+            page.evaluate("window.__magi_test_press_refuses = 'the last admin cannot be demoted'")
             page.locator("#access .acc.person .drop").last().click()
             page.locator("#access .acc.person .drop.armed").click()
             Then("서버가 한 말이 명부 위에 선다 — 눌린 줄은 눌리기 전 그대로다") {
@@ -89,7 +89,7 @@ internal class AccessScreenTest : GwtTestSpec({
             }
         }
         When("다음에 누른 것이 받아들여지면") {
-            page.evaluate("delete window.__magi_test_access_refuses")
+            page.evaluate("delete window.__magi_test_press_refuses")
             page.locator("#access .acc.person .drop").last().click()
             page.locator("#access .acc.person .drop.armed").click()
             Then("그 말은 사라진다 — 명부가 이제 청한 대로이므로") {
@@ -103,6 +103,26 @@ internal class AccessScreenTest : GwtTestSpec({
                     (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean)
                 }
                 page.locator("#access .acc").first().isVisible() shouldBe true
+            }
+        }
+        // 끊긴 회선은 <b>맨 끝</b>에 잰다: 이 판도 다시 읽는 문이 쓰기의 답 하나뿐이라
+        // (poll이 없다), 명부를 못 읽은 뒤에는 누를 줄조차 없어 스스로 돌아오지 못한다.
+        When("회선이 끊긴 채로 눌러 거절당하면") {
+            // 우리가 지어낸 말(`error.unreachable`)이 서는 경우가 곧 <b>명부도 못 읽는</b>
+            // 경우다: 쓰기가 못 닿았으면 뒤따르는 읽기도 못 닿는다. 그래서 이 둘은 겹쳐서
+            // 재야 한다 — 겹치지 않게 재면 「말할 것이 우리 것뿐인 때에만 말하지 않는」
+            // 화면을 초록으로 통과시킨다.
+            page.evaluate("window.__magi_test_press_refuses = 'error.unreachable'")
+            page.evaluate("window.__magi_test_unreachable = true")
+            page.locator("#access .acc.person .drop").last().click()
+            page.locator("#access .acc.person .drop.armed").click()
+            Then("명부를 못 읽어도 사유는 선다 — 그때가 이 줄이 가장 필요한 때다") {
+                page.waitForCondition { page.locator("#access .refused").count() == 1 }
+                page.locator("#access .refused").textContent() shouldBe "error.unreachable"
+                // 명부는 못 읽었으니 줄이 없다 — 사유는 명부의 자식이 아니라 판의 것이다.
+                page.locator("#access .acc.person").count() shouldBe 0
+                page.evaluate("delete window.__magi_test_unreachable")
+                page.evaluate("delete window.__magi_test_press_refuses")
             }
         }
     }

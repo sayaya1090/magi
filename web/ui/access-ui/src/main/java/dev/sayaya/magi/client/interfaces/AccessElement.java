@@ -68,27 +68,18 @@ public class AccessElement {
         word.textContent = tr("nav.access");
         head.append(word);
         head.setAttribute("aria-label", tr("nav.access"));
-        if (got == null) { root.replaceChildren(head, empty("error.pane", "error.pane_how")); return; }
+        if (got == null) { draw(head, java.util.List.of(empty("error.pane", "error.pane_how"))); return; }
         List<HTMLElement> kids = new ArrayList<>();
-        kids.add(head);
         kids.addAll(instanceLine(Js.uncheckedCast(got.get("instance"))));
         boolean configured = Js.isTruthy(got.get("configured"));
         boolean named = Js.isTruthy(got.get("named"));
         if (!configured) {
             // 빈 표가 아니라 1인 콘솔의 문장 — "내 파일이 읽혔나"의 답(운영 규칙).
             kids.add(empty("access.nobody", named ? "access.nobody_how" : "access.nobody_unnamed"));
-            root.replaceChildren(kids.toArray(new HTMLElement[0]));
+            draw(head, kids);
             return;
         }
         kids.add(cell("accsay", tr("access.lead")));
-        // 거절당한 사유는 <b>맨 위</b>에 선다: 누른 줄이 명부 아래쪽일 수 있는데다, 거절되면
-        // 그 줄은 눌리기 전 모습 그대로라 곁에 세워 봐야 무엇이 안 됐는지 가리키지 못한다.
-        // 서버의 문장을 그대로 옮긴다 — 우리가 지어낼 수 있는 말이 아니다.
-        if (!store.refusal().isEmpty()) {
-            HTMLElement no = cell("refused", store.refusal());
-            no.setAttribute("role", "alert");
-            kids.add(no);
-        }
         String filter = store.capFilter();
         if (filter != null) kids.add(capNote(filter));
         List<String> roles = new ArrayList<>();
@@ -114,7 +105,31 @@ public class AccessElement {
         }
         kids.add(rosterHead("access.legend", null));
         kids.add(legend(got));
-        root.replaceChildren(kids.toArray(new HTMLElement[0]));
+        draw(head, kids);
+    }
+
+    /**
+     * 이 판을 칠하는 <b>유일한</b> 자리 — 그래서 거절 사유가 갈래마다 손으로 끼워지지 않는다.
+     *
+     * <p>사유는 머리 바로 다음, 목록 <b>위</b>에 선다: 거절되면 눌린 줄은 눌리기 전 그대로라
+     * 곁에 세워 봐야 가리킬 것이 없고, 누른 줄이 명부 아래쪽일 수도 있다. 서버의 문장을 그대로
+     * 옮긴다 — 우리가 지어낼 수 있는 말이 아니다.</p>
+     *
+     * <p>예전엔 명부를 <b>읽어낸</b> 갈래에만 이 줄이 있었다. 그런데 우리가 지어낸 말
+     * (`error.unreachable`)이 서는 경우가 바로 못 읽는 경우다 — 쓰기가 못 닿았으면 뒤따르는
+     * 읽기도 못 닿아 {@code got}이 null로 온다. 말할 것이 우리 것뿐인 때에만 말하지 않는
+     * 화면이었던 셈이라, 자리를 갈래에서 걷어 여기로 옮겼다(지식 화면의 그 수선과 같다).</p>
+     */
+    private void draw(HTMLElement head, List<HTMLElement> kids) {
+        List<HTMLElement> all = new ArrayList<>();
+        all.add(head);
+        if (!store.refusal().isEmpty()) {
+            HTMLElement no = cell("refused", store.refusal());
+            no.setAttribute("role", "alert");
+            all.add(no);
+        }
+        all.addAll(kids);
+        root.replaceChildren(all.toArray(new HTMLElement[0]));
     }
 
     /** 사람을 들이는 문 — 누구를, 어떤 역할로. */
