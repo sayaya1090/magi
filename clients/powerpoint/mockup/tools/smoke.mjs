@@ -59,6 +59,26 @@ ok('빈 선택은 empty', (await quote.run()).empty === true);
   // 인용에 성공한 길에도 사유 칸이 있고, 거기엔 사유가 없다.
   const okrun = new QuoteSelection(scripted(one), new Conversation());
   ok('인용되면 사유는 null', (await okrun.run()).reason === null);
+
+  // 앞 읽기는 **왕복**이라 누름보다 늦게 올 수 있다. 빨리 누르면 실제로 그렇다.
+  // 늦게 온 값을 안 버리면 그게 다음 누름의 앞 읽기 자리에 앉아 lostFocus 를 지어낸다.
+  {
+    let release;
+    const slow = new Promise((r) => { release = r; });
+    let firstRead = true;
+    const laggy = { async selection() {
+      if (firstRead) { firstRead = false; await slow; return one; }
+      return none;
+    } };
+    const q = new QuoteSelection(laggy, new Conversation());
+    const inflight = q.sampleBeforeFocus();      // 호버 — 안 기다린다. 화면도 안 기다린다.
+    const fast = await q.run();                  // 읽기가 오기 전에 눌렸다
+    release();
+    await inflight;                              // 늦은 읽기가 이제 도착한다
+    ok('늦게 온 앞 읽기는 그 누름에 못 쓴다', fast.reason === 'unknown', fast.reason);
+    ok('늦게 온 앞 읽기는 다음 누름에도 안 앉는다',
+       (await q.run()).reason === 'unknown');
+  }
 }
 
 // 하나 고르고 인용.

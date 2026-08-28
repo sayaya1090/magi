@@ -24,12 +24,17 @@ import { Quote } from '../domain/Quote.js';
  * 앞 읽기가 아예 없는 길도 있다 — 단축키·키보드로 누르면 포인터가 단추에 들어온 적이 없다.
  * 그때는 `none` 이 아니라 **`unknown`** 이다. 모르는 것을 「안 골랐다」로 적으면 그게 바로
  * 이 계측이 없애려던 그 뭉갬이다.
+ *
+ * 앞 읽기는 **왕복**이라 누름보다 늦게 도착할 수 있다. 그래서 세대(`epoch`)를 센다 — 읽는 동안
+ * 눌렸으면 그 읽기는 이미 「누르기 전」이 아니므로 **버린다.** 안 버리면 늦게 온 값이 다음
+ * 누름의 앞 읽기 자리에 앉아 `lostFocus` 를 지어낸다(빨리 누르면 실제로 그랬다).
  */
 export class QuoteSelection {
   constructor(deck, conversation) {
     this.deck = deck;
     this.conversation = conversation;
     this.beforeFocus = null;   // null = 「누르기 전」 읽기가 없다(모른다)
+    this.epoch = 0;            // 누름 세대. 늦게 온 읽기가 자기 세대를 확인하는 데 쓴다.
   }
 
   /**
@@ -39,11 +44,13 @@ export class QuoteSelection {
    * 새 값이 앉는다. 덱을 안 건드리는 읽기라 이 계측이 사용자의 선택을 흔들지 않는다.
    */
   async sampleBeforeFocus() {
+    const mine = this.epoch;
     try {
       const sel = await this.deck.selection();
+      if (mine !== this.epoch) return;   // 읽는 사이에 눌렸다 — 이건 「누르기 전」이 아니다
       this.beforeFocus = { count: sel?.shapes?.length ?? 0 };
     } catch {
-      this.beforeFocus = null;   // 계측이 본 작업을 막지 않는다
+      if (mine === this.epoch) this.beforeFocus = null;   // 계측이 본 작업을 막지 않는다
     }
   }
 
@@ -52,6 +59,7 @@ export class QuoteSelection {
    *                    reason:('none'|'lostFocus'|'unknown'|null), beforeCount:number}>}
    */
   async run() {
+    this.epoch += 1;           // 아직 안 온 앞 읽기를 여기서 무효로 만든다
     const before = this.beforeFocus;
     this.beforeFocus = null;   // 한 번 쓰고 버린다 — 낡은 읽기가 다음 누름에 새면 거짓 진단이 된다
     const beforeCount = before?.count ?? 0;
