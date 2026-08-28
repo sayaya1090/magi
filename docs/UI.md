@@ -583,8 +583,10 @@ test fails if anything but the rail's own width reads the second one.
 The **scrim is an element**, at every width. Drawn as a box-shadow on the rail it darkened the page
 without covering it, so a page that looked disabled took a click and navigated away underneath; and
 its spread animated with the rail's width, so the dimming swept across rather than arriving. It
-does not animate at all now — what is behind the drawer is behind it the moment it opens — and a
-click on it closes the drawer, which is the dismissal every modal surface has.
+fades now, on its background colour and in 200ms: the thing that was wrong was a dimming that
+travelled, not a dimming that arrives. Nothing under it is clickable during the fade — pointer
+events flip on the first frame — and somebody who asked for less motion gets the dim without it.
+A click on the scrim closes the drawer, which is the dismissal every modal surface has.
 
 Which destination is current is written once, in `render()`, beside the tabs' own index. Two places
 saying where you are is how they come to disagree. ⚠ The selected state is painted on the **host**,

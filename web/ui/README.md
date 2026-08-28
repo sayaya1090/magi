@@ -15,7 +15,7 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
     └── window 브리지(console-bridge)    셸↔화면의 유일한 만남
 ```
 
-모듈 다섯. 의존은 `화면 모듈 → console-bridge ← shell-ui` 한 방향이고, 화면끼리는 서로를
+모듈 열둘. 의존은 `화면 모듈 → console-bridge ← shell-ui` 한 방향이고, 화면끼리는 서로를
 모른다.
 
 | 모듈 | 무엇 | 산출물 |
@@ -23,13 +23,16 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
 | `console-bridge` | 셸↔화면 계약: 창 브리지(Render·Roster)·와이어 DTO(FleetAgent)·언어 팩(Labels)·HTTP 관용구(Console) | 소스 실린 jar (GWT 라이브러리 규약) |
 | `ui-components` | 공용 위젯 자리 — 지금은 모듈 선언(`UiComponents.gwt.xml`)만 | 소스 실린 jar |
 | `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation(Place)·RenderStore·RosterStore·타입 카탈로그(CompanionType)·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
-| `fleet-ui` | 플릿 화면 — 이식 완료, 카탈로그 화면의 레퍼런스 | `fleet/fleet.nocache.js` |
+| ~~`fleet-ui`~~ | 목록 화면이 **컴패니언 목적지의 것**이 되면서 companion-ui로 들어갔다(513e26c6). 디렉토리는 남아 있지만 빌드 표(settings.gradle.kts)에 없다 — 참고용이고, 새 화면의 본은 companion-ui/knowledge-ui다 | — |
 | `companion-ui` | 컴패니언이라는 목적지의 주인 — **목록**과 **상세 레이아웃**(위 사실판·오른쪽 판), 가운데·왼쪽은 자식에게 내준다 | `companion/companion.nocache.js` + companion.css |
 | `coding-agent-ui` | 타입 1(코딩 에이전트)의 자식 UI — 가운데(대화·컴포저)와 왼쪽(워크스페이스: 트리·git) | `coding/coding.nocache.js` + coding.css |
 | `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
 | `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
 | `map-ui` | 맵 — 문 없는 주소(v=map): 머신·계정 상자와 오간 것의 와이어 | `map/map.nocache.js` |
 | `access-ui` | 접근 제어(v=access) — 레일의 셋째 문, admin 게이트 | `access/access.nocache.js` |
+| `meeting-ui` | 회의(v=meet) — 방 목록과 방 하나 | `meeting/meeting.nocache.js` |
+| `settings-ui` | 환경설정(v=settings) — 이 브라우저의 것과 데몬이 읽는 것 | `prefs/prefs.nocache.js` |
+| `demo-ui` | **화면이 아니다** — 정적 데모에서만 실리는 목. 경로로 답하고 회선의 이음매에 걸린다 | `demo/demo.nocache.js` (운영 자산에는 없다) |
 
 ## 셸과 화면의 계약 (console-bridge)
 
@@ -50,18 +53,26 @@ console.html                     ← web/server(7778)가 /next 에서 서빙
   이전 대화가 새 화면에 비치지 않는다.
 - **컨텍스트** (`__magi_companion_subscribe`): 지금 보는 컴패니언(CompanionContext:
   socket·peer·type). type은 셸이 타입 카탈로그로 이미 해석한 키다 — 화면 모듈은 읽기만.
-- **이동** (`__magi_go` / `__magi_go_view` / `__magi_go_past`): 화면이 셸에 이동을 청하는
-  문들 — 컴패니언으로(플릿의 행), 카탈로그 화면으로(플릿의 .toview), 그리고 지난 일
-  층위로(?past= — null=지금 대화, ""=목록, 값=그 세션; 보드 카드·이력 행이 쓴다).
-  주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
+- **이동** (`__magi_go` / `__magi_go_view` / `__magi_go_past` / `__magi_go_sub`): 화면이
+  셸에 이동을 청하는 문들 — 컴패니언으로(플릿의 행), 카탈로그 화면으로(플릿의 .toview),
+  지난 일 층위로(?past= — null=지금 대화, ""=목록, 값=그 세션), 그리고 자식 하나로
+  (?sub=<id> — 그 컴패니언이 낳은 아이의 전사). 지난 일과 자식은 **같은 자리**를 대신하고
+  함께 서지 않는다. 주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
 - **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
   console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
   (성공=빈 문자열, 거부=사유). 기존 page.js의 fetchList/post 이식이다.
-- **말** (`__magi_labels`): Labels — 기존 콘솔과 같은 `/i18n/language.{en,ko}.json`.
+- **말** (`__magi_labels` / `__magi_labels_stream` / `__magi_labels_v`): Labels — 기존
+  콘솔과 같은 `/i18n/language.{en,ko}.json`.
   팩도 창에 하나다: 먼저 읽은 모듈이 창에 올리고 뒤에 오는 모듈은 그것을 든다. 이게
   없으면 **모듈 수만큼** 받는다(static은 모듈마다다) — 게다가 렌더는 마운트마다 불려서
   이동할 때마다 한 번씩 더 샜다(실측: 부팅 2회 + 이동마다 1회 → 지금 창당 1회). tr()은 키 폴백("번역
   빠짐"이 보이게), stateWord()는 원어 상태어 폴백(행에 "state.gone"을 안 적으려고).
+  팩은 **흐름**이다(운영 labels$과 같은 계약): 화면이 `Labels.onPack(this::render)` 한 줄로
+  듣고, 사람이 언어를 갈면 그 자리에서 다시 칠한다. 모듈마다 제 사본을 들고 있어서
+  갈렸다는 사실은 창이 센다(`__magi_labels_v`) — 이게 없으면 이미 한 번 읽은 모듈이 옛말을
+  계속 든다(실측: 설정 화면만 한국어가 되고 마스트헤드·레일은 영어였다). 고른 언어는
+  운영과 같은 자리(localStorage `lang`)에서 읽고, 팩이 아닌 것(배열·오류 페이지)은 앉히지
+  않으며, 못 읽으면 영어로 물러선다.
 - **와이어**: FleetAgent — `/fleet` 행의 JsType DTO. 필드명은 `internal/adapter/fleet`의
   json 태그와 일대일이고, omitempty 필드는 JS에서 undefined라 읽는 쪽이 가드를 진다.
 
@@ -93,12 +104,24 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
 
 ## 클린 아키텍처 규칙 (모든 화면 모듈 공통)
 
-`interfaces → usecase → domain` 한 방향. fleet-ui가 레퍼런스 구현이다.
+`interfaces → usecase → domain` 한 방향. knowledge-ui가 한 화면의 레퍼런스이고(포트 하나·
+스토어 하나·판 셋), companion-ui는 목적지의 주인이 어떻게 자식에게 자리를 내주는지의 본이다.
 
 - `client/domain` — 순수 규칙, DOM 무지. JVM 단위 테스트가 여기 붙는다. 단, 테스트
   파일은 `client/` 밖(`dev/sayaya/magi/domain/`)에 둔다: client/ 안은 GWT source path라
   gwtCompile이 JUnit까지 컴파일하려 든다.
-- `client/usecase` — 포트와 스토어. rx 미배포라 순수 자바 옵저버로 쓴다.
+- `client/usecase` — 포트와 스토어. 스토어는 **흐름 그 자체**다(handbook의 그 관용구:
+  `@Delegate BehaviorSubject`): 구독하면 지금 값이 즉시 오고, 같은 값이 두 번 오는 일은
+  스토어에서 끊는다. "무언가 달라졌다"만 나르던 여덟은 공용 밑감 하나로 모았다
+  (`bridge/Told`). RxJS는 창의 `rxjs`를 쓰고(페이지가 셸보다 먼저 올린다), 그 바인딩은
+  dev.sayaya.rx다.
+- **조각을 내려보낸다.** 큰 스토어가 전부를 흘리면 받는 판마다 "내 것이 바뀌었나"를 제
+  손으로 따져야 하고, 한 곳이라도 빠뜨리면 아무 소식 없는 판이 초당 한 번 다시 선다.
+  그래서 스토어가 잘라서 내려보낸다: `RosterStore.of(socket, peer)`(그 컴패니언의 행),
+  `CompanionStore.aimed()`·`alive()`, `WorkspaceStore.treeFacts()`·`gitFacts()`,
+  `Told.when(그리는 것)`. 비교에서 **도는 숫자는 뺀다** — 매 초 달라지는 값을 넣으면
+  "바뀌었다"가 늘 참이라 거른다는 말에 뜻이 없다(실측: 사실판이 12초에 1402번 →
+  0번, 전사 49번 → 7번, 지도 70 → 8, 우측 판 30 → 0).
 - `client/interfaces` — DOM과 HTTP 어댑터. 마크업의 id·클래스는 기존 page.js와 동일하게
   간다 — console.css가 읽는 계약이다.
 - Dagger가 포트에 구현을 묶고(FleetModule), 테스트는 같은 자리에 페이크를 묶는다
@@ -106,7 +129,7 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
 
 ## 화면 하나 이식하기
 
-1. 모듈 디렉토리 + `build.gradle.kts`(fleet-ui 것 복사) + `<Name>.gwt.xml`을 만들고
+1. 모듈 디렉토리 + `<Name>.gwt.xml`을 만들고(빌드 스크립트는 모듈에 두지 않는다 — 루트 표에 한 줄)
    `settings.gradle.kts`에 include.
 2. domain → usecase → interfaces 순으로 이식한다. 마크업 id·클래스는 기존 콘솔 그대로.
 3. EntryPoint에서 RenderSharing.next로 렌더를 등록한다 — 프레임을 받아 Labels.load 뒤
@@ -155,6 +178,7 @@ css에 적되 토큰(--magi-ref-*·--magi-sys-*·--md-sys-typescale-*)으로만 
 |---|---|---|
 | console.css | `cmd/magi-web/page.css` | assembleConsole → `build/console/` · 각 테스트 webapp `css/` |
 | material.js | `cmd/magi-web/vendor/material.js` | 테스트 webapp `js/` (프로덕션은 BFF `/vendor/` 프록시 — 두 콘솔이 한 번들) |
+| rxjs.js | `cmd/magi-web/vendor/rxjs.js` | 테스트 webapp `js/` · 데모 `vendor/` (스토어가 그 위에 산다 — 페이지가 셸보다 먼저 `window.rxjs`에 올린다) |
 | shell.css | `shell-ui/src/main/webapp/shell.css` (원천이 여기) | assembleConsole · 테스트 webapp `css/` |
 | companion.css | `companion-ui/src/main/webapp/companion.css` (원천이 여기 — 모듈이 스스로 <link>를 단다) | assembleConsole · 테스트 webapp `css/` |
 
@@ -166,9 +190,29 @@ assembleConsole은 모든 모듈의 `src/main/webapp`을 함께 나른다 — �
 
 ## 정적 데모 (Pages의 next/)
 
-`go run ./web/server -emit-demo <dir>` — 조립된 콘솔을 자답(自答) 정적 사이트로 쓴다:
-fetch(/fleet·/i18n)와 EventSource를 픽스처 목으로 갈아끼우는 심 한 조각을 페이지 앞에
-붙이고, 루트절대 자산 경로(/ui/·/vendor/)를 상대로 고쳐 하위 경로(Pages의 `next/`)에서도
+`go run ./web/server -emit-demo <dir>` — 조립된 콘솔을 자답(自答) 정적 사이트로 쓴다.
+
+목은 **화면이 아니라 회선의 이음매**에 걸린다. 모듈마다 `Demo*Source`를 싣던 방식(11개,
+1193줄)은 운영 번들에 데모를 함께 실었고, 화면이 실제로 쓰는 회선 코드(경로 조립·스트림
+열기·프레임 파싱·쓰기)는 데모에서 한 번도 돌지 않았다. 지금은 `demo-ui` 모듈 하나가
+경로로 답하고 `Console.raw`/`Console.stream`이 그 답을 건넨다(프록시). 화면 모듈은 살아
+있는 소스 하나만 갖고 데모를 모른다.
+
+`window.fetch`를 갈아끼우지 않는 이유는 그대로다: GWT 모듈은 제 프레임에서 돌아 그
+프레임의 fetch를 쓴다 — 페이지가 제 창의 것을 갈아도 닿지 않는다. 창을 건너는 것은
+**속성**이라(DomGlobal.window는 호스트 창) 목을 그 자리에 걸어 둔다.
+
+밟은 함정 셋(전부 실측): elemental2의 `EventListener`는 @JsFunction이 아니라 native
+@JsType이라 자바 람다가 **객체로** 건너온다 — `handleEvent`를 떼어내 부르면 this가 사라진다.
+흉내 낸 평범한 객체 대신 **진짜 MessageEvent**를 건네야 한다. 그리고 목은 회선보다 빨라선
+안 된다 — 같은 틱에 알리면 아직 마운트되지 않은 화면에 말을 건다(50ms 뒤에 연다).
+
+빌드가 갈라 놓는다: `assembleConsole`은 `demo/**`를 빼고(운영 자산에 데모는 없다),
+`assembleDemoMock`이 목만 따로 싣고, `-emit-demo`가 그것을 페이지 옆에 놓고 **먼저**
+로드한다(페이지가 `window.__magi_demo_mock`을 기다린다). 회귀 가드는
+`TestTheMockAnswersEveryPathTheScreensAsk` — 화면이 부르는 모든 경로를 목이 답하는지 본다.
+
+루트절대 자산 경로(/ui/·/vendor/)는 상대로 고쳐 하위 경로(Pages의 `next/`)에서도
 산다 — 구콘솔 demo.go의 그 수법. CI에선 `.github/actions/pages-site`(복합 액션)가 구
 데모(루트)+벤치 보고서+새 데모(next/)를 한 사이트로 짓고, pages.yml(코어 변경)과
 test-web.yml(웹 변경)이 같은 조리법을 쓴다 — deploy-pages는 사이트를 통째로 갈아끼우므로
@@ -186,6 +230,9 @@ test-web.yml(웹 변경)이 같은 조리법을 쓴다 — deploy-pages는 사�
 | 스타일시트 걸기 | 스크립트를 들이는 쪽(`ModuleLoader.ensure(module, styles)`) | 잊은 화면이 민얼굴로 뜬다 |
 | 기둥 여닫이·도크·`--dock` 실측 | 컴패니언 패널(`Arrangement`) | 자식이 `body[files]`와 창 바닥 상자를 알아야 한다 |
 | 자리의 옷(id·격자·높이) | 부모가 입혀서 건넨다 | 자식이 운영 CSS의 이름 계약을 외워야 한다 |
+| 그 컴패니언의 행이 바뀌었나 | 스토어가 조각을 잘라 준다(`aimed()`·`drawn()`) | 판마다 제 서명을 손으로 쓰고, 하나 빠뜨리면 초당 한 번 다시 선다(실측 1402회) |
+| 낱말이 갈렸나 | 팩이 흐름이다(`Labels.onPack`) | 마운트 때 한 번 읽고 언어를 갈아도 옛말을 든다(실측: 설정만 바뀌었다) |
+| 뒤에 데몬이 없을 때 답하기 | 회선의 이음매(`demo-ui`) | 화면마다 목을 싣고, 운영 번들이 데모를 함께 나른다(1193줄) |
 
 선언은 **카탈로그**에 있다: `Destination.styles`(화면), `CompanionType.styles`(타입 UI).
 자식 코드에는 그 이름이 하나도 없다.
@@ -221,6 +268,16 @@ console.css의 배치 기계가 통째로 비켜갔다(실측: 1024px 창에서 
 | `soak` | 오래 켜 둔 화면 — 화면을 돌고 와도 한 벌씩만 그려지는가, 스트림이 화면을 갉지 않는가 |
 | `a11y` | 이름 없는 아이콘 컨트롤 0, 제목 존재, 흐린 글씨 3:1, 라이트·다크 |
 | `demo` | 정적 데모에서 쓰기까지 — 다이얼로그·라벨 좁히기·능력 필터·스테이지 |
+
+그리고 **두 콘솔을 나란히 놓고 수치로 견주는** 라운드가 하나 더 있다. 눈으로 "비슷"한
+것들이 여기서 갈렸다: `widths`(7화면 × 8폭의 자리), `controls`(보이는 컨트롤의 이름),
+`iconsweep`(버튼마다 어느 그림), `demodiff2`(데모 두 벌의 rect), `churnsweep`(초당 몇 번
+다시 그리나 — 이 콘솔에서 가장 많이 잡아낸 검사다). 데모 비교는 `-emit-demo`로 낸 두
+디렉토리를 각각 정적 서버로 띄워 쓴다.
+
+⚠ 데모 두 벌은 **각자의 시계**로 돈다(픽스처가 같아도 상태가 같은 순간이 아니다) —
+`screensweep`처럼 순간의 컨트롤 목록을 견주는 검사는 그래서 구조 차이와 시각 차이를
+가리지 못한다. 자리(rect)를 재는 `demodiff2`가 그 자리를 대신한다.
 
 ⚠ 브라우저 스펙의 함정은 스킬(`web_ui_module_dev`)에 모아 두었다 — hover 노출 컨트롤,
 폭 트랜지션, `matchMedia` change가 한 방향만 오는 것.
