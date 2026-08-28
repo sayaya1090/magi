@@ -123,6 +123,14 @@ header strong { color: var(--accent); }
   background: #fff4ce; font-size: 12px;
 }
 
+/* 이 판이 무엇인가. `.note`(이번 한 번의 일)와 **다르게 생겨야** 한다 — 같은 노랑이면
+   나란히 떴을 때 어느 쪽이 방금 누른 결과인지 못 가린다. */
+.where {
+  margin: 0 14px 8px; padding: 6px 9px; border-radius: 6px;
+  background: #eef1f5; color: var(--muted);
+  border-left: 3px solid #c8ccd4; font-size: 12px;
+}
+
 /* ── 데몬이 묻는 자리 ─────────────────────────────────────────── */
 /* 위의 `.sent` 는 이 창이 낸 것이고, 이건 데몬이 스스로 말한 「지금 하는 일」이다.
    짐작과 사실이라 자리를 나눠 둔다. */

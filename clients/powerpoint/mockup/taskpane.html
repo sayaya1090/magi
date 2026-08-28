@@ -16,6 +16,15 @@
       <strong>magi</strong>
       <span id="adapter" class="adapter"></span>
     </header>
+
+    <!--
+      **이 판이 무엇인가.** 어느 호스트에 붙었는지, 못 붙었으면 왜인지. 누름의 결과인 아래
+      `#note` 와 자리를 나눈다 — 한 칸을 같이 쓰면 첫 누름이 이 사실을 지우고(그 뒤로는
+      PowerPoint 안이 아니라는 걸 영영 알 수 없다), 반대로 이 사실이 누름의 사유를 덮는다.
+      수명이 다르다: 이건 창이 사는 동안 계속 참이고, 저건 이번 한 번의 일이다.
+    -->
+    <div id="where" class="where" hidden></div>
+
     <div id="caps" class="caps"></div>
 
     <!-- 스트림 자체에 대한 말. 대화가 조용한 것과 스트림이 죽은 것은 화면에서 똑같이 생겼다. -->
@@ -45,6 +54,8 @@
       <div id="advice"></div>
     </div>
 
+    <!-- **이번 한 번의 일.** 방금 누른 것이 어떻게 됐는지. 다음 누름이 물린다(`View.guard`).
+         이 판이 무엇인가는 위 `#where` 가 말한다. -->
     <div id="note" class="note" hidden></div>
 
     <!--
@@ -59,7 +70,8 @@
       <div id="pending" class="pending"></div>
       <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (⌘Enter 로 보내기)"></textarea>
       <div class="buttons">
-        <button id="quote" class="ghost" title="지금 잡혀 있는 도형을 인용에 담습니다">⌸ 선택 인용</button>
+        <button id="quote" class="ghost"
+          title="지금 잡혀 있는 도형을 인용에 담습니다">⌸ 선택 인용</button>
         <button id="send" class="primary">보내기</button>
       </div>
     </div>

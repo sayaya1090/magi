@@ -66,15 +66,18 @@ async function boot() {
   // 사유 넷 중 **화면이 말해야 하는 셋**. 어느 문장이 나갈지는 `pickNote` 가 정한다 — 여기
   // 두면 「호스트를 안 밝힌 답」과 「Word 라고 밝힌 답」이 같은 문장으로 나가고, 그 차이를
   // 시험이 못 잰다(이 파일은 DOM 이 있어야 돈다).
+  //
+  // **누름 쪽지(`note`)가 아니라 판 자리(`where`)로 간다.** 이건 이번 한 번의 일이 아니라 창이
+  // 사는 동안 계속 참인 말이라 수명이 다르다. 한 칸을 같이 쓰던 동안엔 첫 누름이 이 문장을
+  // 지웠고, 그 뒤로 사람은 자기가 PowerPoint 안이 아니라는 걸 다시 알 길이 없었다.
   const note = pickNote({ why, host, error });
-  if (note) view.note(note, { sticky: true });
+  if (note) view.where(note);
 
   // 늦게라도 풀리면 말해 준다. **바꿔 끼우지 않고 말만 한다** — 바꾸면 조용한 오작동과 같아진다.
-  // 쪽지 자리는 하나라 늦은 말이 앞의 말을 덮는다.
+  // 판 자리는 하나라 늦은 말이 앞의 말을 덮는다. 여기선 그게 맞다 — 같은 것에 대한 더 새 사실이다.
   late
-    ?.then((lateHost) => view.note(lateNote(lateHost, office?.HostType?.PowerPoint ?? null),
-      { sticky: true }))
-    .catch((e) => view.note(lateFailNote(e), { sticky: true }));
+    ?.then((lateHost) => view.where(lateNote(lateHost, office?.HostType?.PowerPoint ?? null)))
+    .catch((e) => view.where(lateFailNote(e)));
 }
 
 boot();
