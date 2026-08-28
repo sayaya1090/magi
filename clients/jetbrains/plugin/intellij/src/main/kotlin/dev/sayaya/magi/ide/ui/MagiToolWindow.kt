@@ -262,11 +262,11 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun offerHand() {
             val server = runCatching { HandServer.start(Hand(IdeHand(project))) }.getOrNull()
-                ?: return say(state, "손을 못 세웠다 — 루프백 포트를 못 열었다.")
+                ?: return report("손을 못 세웠다 — 루프백 포트를 못 열었다.")
             hand = server
             onDaemon { comp ->
                 val r = comp.attachHand(server.url, mapOf("X-Magi-Hand" to server.token))
-                say(state, when {
+                report(when {
                     r.ok -> "손을 붙였다: " + (r.tools?.joinToString(", ") ?: "도구 목록을 안 줬다")
                     else -> "손을 못 붙였다 — " + (r.error ?: "사유 없음")
                 })
@@ -353,6 +353,26 @@ class MagiToolWindow : ToolWindowFactory {
             log.caretPosition = log.document.length
         }
 
+        /**
+         * 내가 방금 한 것이 어떻게 됐는지 알린다. **윗줄 라벨이 아니라 전사로 나간다.**
+         *
+         * 보고와 수준은 다른 말이다. "안 갔다: 사유"는 한 번 일어난 사건이고 "컴패니언이 붙어
+         * 있다"는 지금 계속 참인 상태다. 둘을 같은 자리에 쓰면 뒤엣것이 앞엣것을 지우는데,
+         * **뒤엣것이 이겨도 앞엣것이 거짓이 되지 않는다** — 그냥 사유가 사라진다. 실제로 그랬다:
+         * [interrupt] 와 [say] 가 세운 거절은 전사에 `movesPrompt` 프레임이 하나만 들어와도
+         * [refresh] 가 돌면서 "컴패니언이 붙어 있다"로 덮였다.
+         *
+         * 순서로는 못 막는다. 그 프레임이 언제 올지는 저쪽이 정하고, 사람이 라벨을 언제 볼지는
+         * 아무도 안 정한다. 그래서 이기는 쪽을 고르는 대신 **자리를 갈랐다** — 사건은 여기로,
+         * 수준은 [redraw] 가 라벨로. 전사는 덧붙이기만 하므로 덮일 자리가 아예 없고, 사유가 그
+         * 사건이 난 자리 옆에 남는다. [Transcript.Sink.ended] 가 처음부터 그러고 있었다.
+         *
+         * 앞머리 `—` 는 그 줄들과 같은 표시다: 전사가 아니라 **창이 하는 말**.
+         *
+         * 되돌아오지 않게 `SourceTextTest` 가 라벨에 쓰는 자리 수를 붙들고 있다.
+         */
+        private fun report(text: String) = append("— $text")
+
         /** 거들기는 연결을 따로 판다 — 모델 호출이 락스텝 연결을 물면 그동안 다른 교환이 선다. */
         private fun assist() = socket()?.let { s -> Assist({ DaemonClient.connect(s) }) }
 
@@ -386,33 +406,28 @@ class MagiToolWindow : ToolWindowFactory {
         fun refresh() = onDaemon { redraw(it) }
 
         /**
-         * 프롬프트를 다시 묻고 다시 그린다. [note] 가 있으면 **그것이 상태 문구를 이긴다.**
+         * 프롬프트를 다시 묻고 다시 그린다. **이 라벨에는 수준만 쓴다.**
          *
-         * 이기는 쪽을 정해 둔 이유가 있다. 예전에는 단추가 답을 보낸 뒤 [refresh] 를 따로 불렀는데,
-         * 그러면 리프레시가 세우는 "사람을 기다리는 중이다"가 방금 받은 거절을 덮었다 — 그것도
-         * 연결을 새로 하나 더 열어 가면서, 어느 쪽이 먼저 EDT 에 닿을지는 운이었다. 지금은 한
-         * 왕복 안에서 끝나고 순서가 코드에 박혀 있다.
+         * 예전에는 보고를 여기로 받았다(`note` 인자). 단추가 답을 보낸 뒤 [refresh] 를 따로
+         * 불렀고, 그러면 리프레시가 세우는 "사람을 기다리는 중이다"가 방금 받은 거절을 덮었기
+         * 때문이다 — 그것도 연결을 새로 하나 더 열어 가면서, 어느 쪽이 먼저 EDT 에 닿을지는
+         * 운이었다. 그래서 한 왕복 안으로 넣고 이기는 쪽을 코드에 박았다.
          *
-         * **다 닫히지는 않았다 — 아직 안 고쳤다.** [note] 는 **단추 경로만** 덮는다. 이 라벨에
-         * 쓰는 자리가 여섯인데 계산해서 쓰는 것은 여기뿐이고 다섯은 보고다. [interrupt] 와 [say]
-         * 가 세우는 "안 갔다: 사유"는, 전사로 `movesPrompt` 프레임이 하나 들어와 [refresh] 가
-         * 돌면 "컴패니언이 붙어 있다"로 덮인다 — 단추가 만든 창은 닫았는데 **이벤트가 만드는
-         * 창은 그대로다.**
+         * 그건 **단추 경로만** 막았다. [interrupt] 와 [say] 가 세운 "안 갔다: 사유"는, 전사에
+         * `movesPrompt` 프레임이 하나 들어와 [refresh] 가 돌면 그대로 덮였다 — 단추가 만든
+         * 창은 닫았는데 **이벤트가 만드는 창은 그대로였다.** 순서를 더 박아도 안 닫힌다: 그
+         * 프레임이 언제 올지는 이 창이 안 정한다.
          *
-         * 성공 쪽은 문제가 아니다("보냈다" → "사람을 기다리는 중이다"는 진짜로 갱신이다). 실패
-         * 쪽이 문제다: **내 동작에 대한 보고를 연결 상태에 대한 보고가 덮는다.** 둘은 같은 것에
-         * 대한 새 소식이 아니라 서로 다른 것에 대한 말이라, 뒤엣것이 이겨도 앞엣것이 거짓이 되지
-         * 않는다 — 그냥 사유가 사라진다.
+         * 지금은 [report] 가 사건을 전사로 내보내고 여기는 수준만 쓴다. 덮일 것이 없으니 이기는
+         * 쪽을 정할 일도 없어서 `note` 가 없어졌다.
          *
-         * 제대로 고치면 보고를 라벨이 아니라 **전사로** 내보내야 한다([ended] 가 [append] 로
-         * 하듯이). 라벨에는 수준만 남기고 사건은 전사에 쌓는 모양이다. 그건 이 모듈에서 **못 재는
-         * 변경**이고(테스트 소스셋이 없다), 못 재는 고침은 다음 사람이 지워도 아무것도 안 빨개진다.
-         * 재는 자리가 생길 때까지 **알고 있다는 것만** 여기 적어 둔다.
+         * 이 라벨에 남은 나머지 한 자리는 [onDaemon] 의 못 붙은 사유인데, **그것도 수준이다** —
+         * 방금 일어난 일이 아니라 지금 데몬이 없다는 말이다.
          */
-        private fun redraw(comp: Companion, note: String? = null) {
+        private fun redraw(comp: Companion) {
             val w = comp.waiting()
             SwingUtilities.invokeLater { drawPrompt(w) }
-            say(state, note ?: if (w == null) "컴패니언이 붙어 있다." else "사람을 기다리는 중이다.")
+            say(state, if (w == null) "컴패니언이 붙어 있다." else "사람을 기다리는 중이다.")
         }
 
         /**
@@ -431,7 +446,7 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun interrupt() = onDaemon { comp ->
             val r = comp.interrupt()
-            say(state, if (r.ok) "세우라고 보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
+            report(if (r.ok) "세우라고 보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
         }
 
         private fun say() {
@@ -439,7 +454,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (text.isEmpty()) return
             onDaemon { comp ->
                 val r = comp.say(text)
-                say(state, if (r.ok) "보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
+                report(if (r.ok) "보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
                 if (r.ok) SwingUtilities.invokeLater { input.text = ""; suggestion = null; hint.text = " " }
             }
         }
@@ -491,7 +506,8 @@ class MagiToolWindow : ToolWindowFactory {
                 addActionListener {
                     onDaemon { c ->
                         val r = act(c)
-                        redraw(c, if (r.ok) null else "안 갔다: ${r.error ?: "사유 없음"}")
+                        if (!r.ok) report("안 갔다: ${r.error ?: "사유 없음"}")
+                        redraw(c)
                     }
                 }
             })
