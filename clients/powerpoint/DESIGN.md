@@ -5,7 +5,7 @@ Status: **제안. 구현하지 않았다.** (2026-08-28)
 > **개정 (같은 날).** 첫 판본은 호스트 어댑터 계약을 직접 설계하고 새 코어 데몬을 두었다. 사용자가
 > **도구를 MCP로 내놓으라**고 방향을 정했고, 그게 더 낫다 — 컨텍스트가 갈리지 않고(§4.2), 계약을
 > 발명할 필요가 없으며(§4.3), `ide/`와의 데몬 범위 충돌이 통째로 사라진다. §0·§4·§5를 다시 썼다.
-> 무엇이 어떻게 뒤집혔는지는 [`../clients/jetbrains/README.md`](../clients/jetbrains/README.md) §9에 남겼다. 두 플러그인이
+> 무엇이 어떻게 뒤집혔는지는 [`clients/jetbrains/README.md`](../jetbrains/README.md) §9에 남겼다. 두 플러그인이
 > 주고받던 대화 문서 둘(`clients/jetbrains/INTEROP.md`·`clients/jetbrains/INTEROP-MCP.md`)은 각자의 설계 문서로 접었다.
 
 > **개정 2 (같은 날).** 사용자가 §5의 전제를 바꿨다 — **애드인이 어느 컴패니언에 붙을지 고르고,
@@ -878,7 +878,7 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
 3. **배포 형태.** 애드인 매니페스트를 어디서 호스팅하나 — 사내 카탈로그인가, AppSource인가,
    sideload인가. AppSource면 심사 규칙이 §5.5의 로컬 헬퍼 요구와 부딪힐 가능성이 있다(미확인).
 4. **LTSC를 정말 버리는가.** §3.3(c)의 대가 중 되돌릴 수 없는 것.
-5. **어디에 살 것인가.** 지금은 magi 저장소 안의 `powerpoint-agent/`다. MCP로 가면서 이 질문이
+5. **어디에 살 것인가.** 지금은 magi 저장소 안의 `clients/powerpoint/`다. MCP로 가면서 이 질문이
    **쉬워졌다** — 만드는 것이 magi의 일부가 아니라 magi에 붙는 외부 서버이므로 따로 나가도
    아무것도 안 끊긴다. 다만 §4.4 ①처럼 magi 쪽 수정과 짝을 이루는 동안은 한 저장소가 편하다.
    그 수정들이 끝나면 다시 본다.
@@ -887,7 +887,7 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
    config에 적는 길은 door가 열릴 때까지의 임시 경로로만 남는다(M1).
 7. **수명주기 규율을 공유 패키지로 뺄 것인가.** `claim_unix.go`(출하됨) · `clients/jetbrains/README.md` §2
    (설계) · 이 문서 §5.3–5.4(설계) 셋이 같은 것을 세 번 적고 있다. **안 뺀다**가 지금의 답이고,
-   공유되는 것은 코드가 아니라 §9의 시험 문장이다 — 경위는 [`../clients/jetbrains/README.md`](../clients/jetbrains/README.md)
+   공유되는 것은 코드가 아니라 §9의 시험 문장이다 — 경위는 [`clients/jetbrains/README.md`](../jetbrains/README.md)
    §9.
 
 ## 부록 A. 확인한 API 사실과 출처
@@ -936,8 +936,8 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
 - `getGraphicOrNullObject`는 **프리뷰**이고 문서가 *"Do not use this API in a production
   environment"*라고 적었다. 쓰지 않는다.
 
-**참고한 magi 문서** — [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §11(데몬·flock 순서·유도된 상태), §3(포트와 nil
-규약, "모른다≠없다"), §5(종료 경로), §7(도구가 자리를 얻는 기준), [`../docs/EXTENDING.md`](../docs/EXTENDING.md) §1(MCP
-네임스페이스), [`../docs/DESIGN_COMPAT_UPDATE.md`](../docs/DESIGN_COMPAT_UPDATE.md)(추가 전용 와이어·핸드셰이크 게이팅),
-[`../docs/MANUAL.md`](../docs/MANUAL.md) §13(어태치와 큐), [`../SECURITY.md`](../SECURITY.md)(신뢰 경계). 같은 사고를 두 번 하지 않으려고
+**참고한 magi 문서** — [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §11(데몬·flock 순서·유도된 상태), §3(포트와 nil
+규약, "모른다≠없다"), §5(종료 경로), §7(도구가 자리를 얻는 기준), [`docs/EXTENDING.md`](../../docs/EXTENDING.md) §1(MCP
+네임스페이스), [`docs/DESIGN_COMPAT_UPDATE.md`](../../docs/DESIGN_COMPAT_UPDATE.md)(추가 전용 와이어·핸드셰이크 게이팅),
+[`docs/MANUAL.md`](../../docs/MANUAL.md) §13(어태치와 큐), [`SECURITY.md`](../../SECURITY.md)(신뢰 경계). 같은 사고를 두 번 하지 않으려고
 가져왔고, 다르게 간 곳은 §5.2와 §7에 이유를 적었다.
