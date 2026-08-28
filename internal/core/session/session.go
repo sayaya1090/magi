@@ -153,6 +153,14 @@ type ToolResult struct {
 	// So the two questions are separated. IsError still steers the agent; this says the work
 	// happened, and a surface can draw "done, with something to read" instead of "failed".
 	Advisory bool `json:"advisory,omitempty"`
+	// Images are what the call produced that is not words: a rendered slide, a chart, a screenshot.
+	// References, not bytes — the log stays small and a viewer opens the file (ImageRef).
+	//
+	// On the result rather than as its own Part: a Part carries exactly one kind, so an image Part
+	// beside a tool-result Part would be two entries that only a convention ties together, and the
+	// first surface to forget the convention shows the picture under the wrong call. This says
+	// whose picture it is by being inside that answer.
+	Images []ImageRef `json:"images,omitempty"`
 }
 
 // ImageRef references image data stored outside the event log (file path or

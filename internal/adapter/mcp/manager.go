@@ -32,6 +32,11 @@ type Manager struct {
 	// on purpose, so it is confined on the same terms as bash — turn the sandbox off and it runs
 	// as wide as before.
 	Confine func([]string) ([]string, bool)
+	// ImageDir is where a tool's pictures are kept — the daemon's data directory, beside the
+	// sessions. Supplied by the binary that knows the platform paths; empty means this host keeps
+	// no pictures, and a server that returns one is told so in the result rather than having the
+	// bytes written somewhere that will not be there tomorrow.
+	ImageDir string
 
 	mu      sync.Mutex
 	servers map[string]*serverConn
@@ -130,7 +135,8 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 			schema = []byte(`{"type":"object"}`)
 		}
 		reg := namespacedToolName(name, d.Name)
-		t := &mcpTool{client: client, name: reg, remote: d.Name, description: d.Description, schema: schema}
+		t := &mcpTool{client: client, name: reg, remote: d.Name, description: d.Description,
+			schema: schema, imageDir: m.ImageDir}
 		m.sink.Register(t)
 		sc.tools = append(sc.tools, reg)
 	}
