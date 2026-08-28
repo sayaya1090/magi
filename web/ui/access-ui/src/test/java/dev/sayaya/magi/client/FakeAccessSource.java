@@ -37,17 +37,27 @@ public class FakeAccessSource implements AccessSource {
     }
 
     @Override
-    public void setPerson(String who, String role, String companions, Runnable done) {
+    public void setPerson(String who, String role, String companions, Consumer<String> why) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set("__magi_test_set", who + "|" + role + "|" + companions);
+        String no = refuses();
+        if (!no.isEmpty()) { why.accept(no); return; }
         if (who.startsWith("sam")) { samRole = role; samScope = companions == null ? "" : companions; }
-        done.run();
+        why.accept("");
     }
 
     @Override
-    public void removePerson(String who, Runnable done) {
+    public void removePerson(String who, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_removed_person", who);
+        String no = refuses();
+        if (!no.isEmpty()) { why.accept(no); return; }
         if (who.startsWith("sam")) samGone = true;
-        done.run();
+        why.accept("");
+    }
+
+    /** 스펙이 창에 적어 두면 그 다음 쓰기가 거절당한다 — 서버가 사유를 실어 돌려보내듯. */
+    private static String refuses() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_access_refuses");
+        return v == null ? "" : String.valueOf(v);
     }
 }

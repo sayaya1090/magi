@@ -2395,6 +2395,19 @@
     color:var(--magi-ref-muted);
   }
   .accsay { margin:calc(-1 * var(--magi-sys-space-100)) 0 var(--magi-sys-space-200); }
+  /* What the server said when it turned a press down. Above the roster, because the row that was
+     pressed looks exactly as it did before -- there is nothing down there for this line to point
+     at. Error colour and a rule down the side: this is the one line on the screen that says the
+     console asked for something and did not get it. The text is the server's own sentence, so it
+     is left at the body face and wrapped rather than clipped. */
+  .accnote {
+    margin:calc(-1 * var(--magi-sys-space-100)) 0 var(--magi-sys-space-200);
+    padding:var(--magi-sys-space-100) var(--magi-sys-space-150);
+    border-left:2px solid var(--magi-ref-error);
+    color:var(--magi-ref-error);
+    font:var(--magi-sys-body-s) var(--magi-ref-display);
+    max-width:92ch;
+  }
   /* Under the heading rather than beside it: a heading and a sentence on one line is two type
      roles competing for the same baseline, and the sentence loses. */
   .rosterhead .why { display:block; margin-top:var(--magi-sys-space-50); font-weight:400; letter-spacing:0; }

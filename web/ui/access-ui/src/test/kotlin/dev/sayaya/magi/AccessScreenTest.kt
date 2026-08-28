@@ -75,6 +75,27 @@ internal class AccessScreenTest : GwtTestSpec({
                 page.waitForCondition { page.locator("#access .acc.person").count() == 1 }
             }
         }
+        When("서버가 그 쓰기를 거절하면") {
+            page.evaluate("window.__magi_test_access_refuses = 'the last admin cannot be demoted'")
+            page.locator("#access .acc.person .drop").last().click()
+            page.locator("#access .acc.person .drop.armed").click()
+            Then("서버가 한 말이 명부 위에 선다 — 눌린 줄은 눌리기 전 그대로다") {
+                // 거절된 줄은 하나도 안 바뀌어서, 곁에 세워 봐야 가리킬 것이 없다. 그래서 위다.
+                page.waitForSelector("#access .accnote")
+                page.locator("#access .accnote").textContent() shouldBe "the last admin cannot be demoted"
+                page.locator("#access .acc.person").count() shouldBe 1
+                // 눈으로 보는 사람만 아는 사고는 사고가 아니다 — 읽는 기계도 이 줄을 받는다.
+                page.locator("#access .accnote").getAttribute("role") shouldBe "alert"
+            }
+        }
+        When("다음에 누른 것이 받아들여지면") {
+            page.evaluate("delete window.__magi_test_access_refuses")
+            page.locator("#access .acc.person .drop").last().click()
+            page.locator("#access .acc.person .drop.armed").click()
+            Then("그 말은 사라진다 — 명부가 이제 청한 대로이므로") {
+                page.waitForCondition { page.locator("#access .accnote").count() == 0 }
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤 없이 명부가 그대로 읽힌다") {

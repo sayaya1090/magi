@@ -17,21 +17,19 @@ public class FetchAccessSource implements AccessSource {
     public void roster(Consumer<Object> cb) { Console.fetchList("/access", cb::accept); }
 
     @Override
-    public void setPerson(String who, String role, String companions, Runnable done) {
+    public void setPerson(String who, String role, String companions, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("who", who);
         body.set("role", role);
         body.set("companions", companions == null ? "" : companions);
-        // ⚠ 사유가 설 자리가 이 포트에 없다(done은 명단을 다시 읽는 일이다) — 거절당하면
-        // 명단이 그대로 다시 서고, 사람은 제가 누른 것이 왜 안 됐는지 듣지 못한다.
-        Console.post("/access", body, null, null, (ok, w) -> done.run());
+        Console.post("/access", body, null, null, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
-    public void removePerson(String who, Runnable done) {
+    public void removePerson(String who, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("who", who);
         body.set("remove", "1");
-        Console.post("/access", body, null, null, (ok, w) -> done.run());   // ⚠ 위와 같다
+        Console.post("/access", body, null, null, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 }
