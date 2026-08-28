@@ -6,6 +6,7 @@ import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.util.Consumer
+import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
 import java.awt.event.MouseEvent
 
@@ -84,12 +85,20 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         /**
          * 모름을 없음으로 그리지 않는다. 데몬이 `permission` 을 안 실어 보내면 모드를 안 적는다 —
          * 없는 것을 지어내느니 짧게 두는 편이 낫다(§0.5-7).
+         *
+         * **`doing` 에는 그 규칙을 안 지키고 있었다.** 여기 `else` 가 "쉬는 중"이었는데, 그 갈래에
+         * 오는 것은 「안 도는 중」이 아니라 **데몬이 안 말한 것**이다(`Facts` 주석이 그 둘을 같은
+         * null 로 받는다고 이름 대어 적어 뒀다). 우측 판은 같은 자리를 "도는 것 없음"으로 그리고
+         * 있었으니, 한 규칙을 두 화면이 한 벌씩 적어 두고 그중 안 재지는 쪽이 갈라진 것이다.
+         * 판정은 [Activity] 로 내렸고 여기 남은 일은 **폭에 맞는 글자를 고르는 것**뿐이다.
          */
         private fun label(f: Companion.Facts): String {
-            val what = when {
-                f.waiting != null -> "기다리는 중"
-                f.doing != null -> "도는 중"
-                else -> "쉬는 중"
+            val what = when (Activity.of(f)) {
+                // 표시줄은 폭이 없어 무엇을 도는지는 안 적는다 — 그건 우측 판이 그린다.
+                is Activity.Doing -> "도는 중"
+                Activity.Waiting -> "기다리는 중"
+                // 아는 것만 말한다: 답을 받았으니 닿긴 닿았고, 그 이상은 데몬이 안 말했다.
+                Activity.Unsaid -> "붙어 있음"
             }
             val n = unreachable()
             val jail = if (n > 0) " · 못 만지는 루트 $n" else ""

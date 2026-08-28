@@ -9,6 +9,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
+import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
 import java.awt.GridLayout
 import javax.swing.BoxLayout
@@ -126,10 +127,10 @@ class FactsToolWindow : ToolWindowFactory {
          * 주지 않았다**이고, 둘을 같은 글자로 그리면 화면이 모르는 것을 아는 척한다.
          */
         private fun paint(f: Companion.Facts) = SwingUtilities.invokeLater {
-            doing.text = when {
-                f.waiting != null -> "사람을 기다리는 중"
-                f.doing != null -> f.doing
-                else -> "도는 것 없음"
+            doing.text = when (val a = Activity.of(f)) {
+                Activity.Waiting -> "사람을 기다리는 중"
+                is Activity.Doing -> a.what
+                Activity.Unsaid -> "도는 것 없음"
             }
             permission.text = f.permission ?: "데몬이 안 말했다"
             session.text = f.session
