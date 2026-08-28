@@ -509,6 +509,7 @@
   "perm.deny": "쓰기·실행·외부접속 거절",
   "plan.progress": "{total}개 중 {done}개 완료",
   "pr.needs_words": "PR에는 제목이 필요합니다 — 첫 줄이 제목입니다",
+  "pr.opened": "요청이 열렸습니다. 어디에 열렸는지는 컴패니언이 말하지 않았습니다.",
   "pr.no_base": "요청을 올릴 대상이 없습니다 — 이 체크아웃에 origin도, main이나 master도 없습니다.",
   "pr.nothing_to_send": "베이스에 없는 커밋이 이 브랜치에 없습니다.",
   "pr.unreachable": "이 컴패니언이 PR에 대해 답하지 않았습니다. 이 콘솔보다 오래된 빌드이거나, 멈췄을 수 있습니다.",

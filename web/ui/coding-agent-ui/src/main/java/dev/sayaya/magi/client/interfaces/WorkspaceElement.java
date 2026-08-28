@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CardSharing;
+import dev.sayaya.magi.bridge.Console;
 import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
@@ -643,7 +644,7 @@ public class WorkspaceElement {
             // 그것을 검토문으로 파싱하면 사유가 결함 목록인 척하고, 파싱에서 다 떨어져 나가면
             // 아래에서 "여기서 할 말이 없다"로 적혀 검토가 <b>돌았다고</b> 거짓말한다.
             if (!ok) {
-                if (force) extra.append(out == null || out.isEmpty() ? tr("error.unreachable") : out);
+                if (force) extra.append(Console.why(ok, out));
             } else for (String raw : String.valueOf(out == null ? "" : out).split("\n")) {
                 String line = raw.trim();
                 if (line.isEmpty()) continue;
@@ -800,7 +801,7 @@ public class WorkspaceElement {
             // 눌렀는데 아무 일도 안 일어나는 단추는 <b>고장 난 단추</b>와 구별되지 않는다.
             // 거절에는 서버가 사람 읽으라고 쓴 사유가 실려 오므로, 그것을 옆 줄에 세운다.
             if (!ok) {
-                said.textContent = out == null || out.isEmpty() ? tr("error.unreachable") : out;
+                said.textContent = Console.why(ok, out);
                 said.removeAttribute("hidden");
                 return;
             }
@@ -890,7 +891,7 @@ public class WorkspaceElement {
         draft.addEventListener("click", evt -> store.draftPullRequest(prRules, (ok, out) -> {
             // 커밋 초안과 같은 규칙 — 사람이 누른 것이므로 거절도 사람에게 돌려준다.
             if (!ok) {
-                said.textContent = out == null || out.isEmpty() ? tr("error.unreachable") : out;
+                said.textContent = Console.why(ok, out);
                 said.removeAttribute("hidden");
                 return;
             }
@@ -915,10 +916,35 @@ public class WorkspaceElement {
             String title = nl < 0 ? text : text.substring(0, nl);
             String body = nl < 0 ? "" : text.substring(nl + 1).trim();
             store.openPullRequest(title, body, (ok, urlOrWhy) -> {
-                // 닿지 못한 것만 우리 말로 적는다. 거절은 서버가 사유를 적어 보냈고(가지가 없다,
-                // 원격이 없다, gh가 없다), 그 문장이 "닿지 못했다"보다 언제나 더 많이 말한다.
-                said.textContent = urlOrWhy == null || urlOrWhy.isEmpty() ? tr("error.unreachable") : urlOrWhy;
+                String out = urlOrWhy == null ? "" : urlOrWhy.trim();
+                said.replaceChildren();
                 said.removeAttribute("hidden");
+                if (!ok) {
+                    // 닿지 못한 것만 우리 말로 적는다. 거절은 서버가 사유를 적어 보냈고(가지가
+                    // 없다, 원격이 없다, gh가 없다), 그 문장이 "닿지 못했다"보다 언제나 더 많이
+                    // 말한다.
+                    said.textContent = Console.why(ok, out);
+                    return;
+                }
+                // 됐다. 앞서 여기는 <b>됐는지를 받아 놓고 한 번도 안 읽었다</b> — 만들어진
+                // 요청의 주소와 거절의 사유가 한 칸에 같은 모양으로 서서, 사람은 제가 누른 것이
+                // 통했는지를 문장을 읽어 짐작해야 했다. 주소는 <b>열라고</b> 돌아온 것이므로
+                // 열 수 있는 문으로 세운다 — 그 모양이 곧 됐다는 말이다.
+                prDraft = "";
+                Js.asPropertyMap(msg).set("value", "");
+                if (out.isEmpty()) {
+                    // 답은 왔는데 주소가 없다 — 못 닿은 것이 아니므로 그렇게 적지 않는다.
+                    said.textContent = tr("pr.opened");
+                    return;
+                }
+                elemental2.dom.HTMLAnchorElement door =
+                        (elemental2.dom.HTMLAnchorElement) DomGlobal.document.createElement("a");
+                door.className = "childlink";
+                door.href = out;
+                door.target = "_blank";
+                door.rel = "noopener noreferrer";
+                door.textContent = out;
+                said.append(door);
             });
         });
         acts.append(rulesGo, draft, go);

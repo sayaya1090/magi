@@ -504,12 +504,36 @@ internal class CodingScreenTest : GwtTestSpec({
                 }
                 page.evaluate("delete window.__magi_test_refuses_pr")
             }
-            Then("답한 요청은 그 주소가 선다") {
+            Then("거절은 <b>열 수 있는 문이 아니다</b> — 그 줄에 링크가 없다") {
+                // 아래에서 성공을 문으로 세우므로, 그 모양이 거절에도 서면 가른 것이 아니다.
+                page.locator("#fileview .commitfoot .filesnote a").count() shouldBe 0
+            }
+            Then("답한 요청의 주소는 <b>열 수 있는 문</b>으로 선다 — 사유와 같은 모양이면 가른 것이 아니다") {
+                // 여기는 됐는지를 받아 놓고 안 읽었다: 만들어진 요청의 주소와 거절의 사유가 한
+                // 칸에 같은 모양으로 섰다. 주소는 열라고 돌아온 것이므로 열리는지를 잰다.
                 page.locator("#fileview .commitacts md-filled-tonal-button").click()
                 page.waitForCondition {
-                    page.locator("#fileview .commitfoot .filesnote").textContent() ==
-                        "https://example.test/pr/1"
+                    page.locator("#fileview .commitfoot .filesnote a").count() == 1
                 }
+                page.locator("#fileview .commitfoot .filesnote a").getAttribute("href")
+                    .shouldBe("https://example.test/pr/1")
+                page.locator("#fileview .commitfoot .filesnote a").textContent()
+                    .shouldBe("https://example.test/pr/1")
+                withClue("쓴 글은 요청이 되어 나갔다 — 다음 사람이 같은 글을 다시 보내지 않게") {
+                    page.evaluate("document.querySelector('#fileview .commitmsg').value") shouldBe ""
+                }
+            }
+            Then("답했는데 주소가 없으면 그렇게 적는다 — 못 닿은 것이 아니므로") {
+                page.evaluate("window.__magi_test_pr_no_url = true")
+                // 앞의 요청이 나가면서 칸이 비었다 — 빈 칸으로는 누를 수 없다(그 갈래는 위에서
+                // 이미 잰다). 화면은 누르는 순간 이 값을 읽으므로 값만 놓으면 된다.
+                page.evaluate("document.querySelector('#fileview .commitmsg').value = 'another request'")
+                page.locator("#fileview .commitacts md-filled-tonal-button").click()
+                page.waitForCondition {
+                    page.locator("#fileview .commitfoot .filesnote").textContent() == "pr.opened"
+                }
+                page.locator("#fileview .commitfoot .filesnote a").count() shouldBe 0
+                page.evaluate("delete window.__magi_test_pr_no_url")
             }
             page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
         }

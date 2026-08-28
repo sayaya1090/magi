@@ -155,7 +155,10 @@ public class FakeWorkspaceSource implements WorkspaceSource {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_pr", title + "|" + text);
         String why = refuses("pr");
         if (why != null) { urlOrWhy.call(false, why); return; }
-        urlOrWhy.call(true, "https://example.test/pr/1");
+        // 답했는데 주소가 없는 판도 만들 수 있어야 한다 — 그것은 못 닿은 것과 다른 사건이고,
+        // 둘을 갈라 놓지 않으면 화면이 그 둘을 같은 말로 적는 것을 스펙이 볼 수 없다.
+        Object none = Js.asPropertyMap(DomGlobal.window).get("__magi_test_pr_no_url");
+        urlOrWhy.call(true, none == null ? "https://example.test/pr/1" : "");
     }
 
     @Override
