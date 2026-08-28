@@ -194,10 +194,13 @@ internal/
     session/                Session, Message, Part, ToolCall, ToolResult, Todo, SessionMeta
     event/                  Event 봉투 + 타입(사실 vs 휘발) + 페이로드
     command/                커맨드 (CreateSession, SubmitPrompt, Interrupt, …)
-    artifact/               Artifact (검토 대상 산출물, D11)
     bus/                    인메모리 pub/sub 팬아웃 (세션별)
     model/                  모델 레지스트리 (컨텍스트 창 / 가격 / 능력)
-    agent/ plugin/ tool/    (자리표시 디렉토리 — 타입은 app/과 adapter/에 있다)
+    council/                종료 합의(D14): 멤버·라운드·집계
+    cluster/ meeting/       이 기계의 컴패니언들, 그리고 그들이 말하는 방
+    auth/ webpush/          누가 콘솔을 읽어도 되는지, 그리고 폰에 어떻게 알리는지
+    change/ rank/ embed/    편집 추적·랭킹·임베딩(회상)
+    cron/ lang/ text/ report/  스케줄·언어 감지·텍스트 정형·런 리포트
   port/                     코어가 의존하는 인터페이스(port.go): LLMProvider, Store,
                             Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
   app/                      애플리케이션 서비스 + 에이전트 루프 + 가드레일 + 워크플로
@@ -337,18 +340,20 @@ type Actor struct { Kind ActorKind; ID string } // user | agent | system
 액터(`loop`, `orchestrator`, `hook`, `plugin`, 권한)는 의도적으로 그 경계가 아닙니다 — magi가 주입한
 넛지가 사용자가 새 턴을 시작한 것으로 읽히면 안 됩니다.
 
-- **사실(Fact)** (영속, JSONL, 재생 가능) — `event.go`의 첫 const 블록:
-  `session.created`, `prompt.submitted`, `part.appended`, `permission.decided`,
-  `artifact.emitted`, `compaction`, `turn.finished`, `todos.changed`, `error`,
-  `diagnostic`, `council.convened`, `council.verdict`, `council.decided`,
-  `interjection.deferred`, `prompt.abandoned`.
-  그중 둘은 영속되지만 **메시지로 재구성되지 않습니다.** 그래서 모델의 컨텍스트에 들어가지 않고도
-  감사 가능합니다: `diagnostic`(부수 호출이 복구해낸 날 입력)과 `prompt.abandoned`(취소된 턴의 씨앗,
-  `seedPromptIdx`가 읽습니다).
-- **휘발(Transient)** (버스 전용, 영속 안 함): `part.delta`, `tool.started`, `tool.progress`,
-  `permission.requested`, `question.requested`, `context.usage`, `workflow.phase`,
-  `council.deliberating`, `model.changed`, `user.label.changed`.
-  이 집합은 호출 지점마다 다시 나열하지 않고 한 곳(`transientTypes`)에서만 열거합니다.
+- **사실(Fact)** (영속, JSONL, 재생 가능)과 **휘발(Transient)** (버스 전용, 영속 안 함).
+  어느 쪽인지는 `Type.IsTransient()`가 답하며, 그 근거는 스토어가 한 줄을 쓰기 전에 스스로 묻는
+  그 지도(`transientTypes`) 하나입니다. **이름들은 `docs/SPEC.md` F-EVENT-FACT-TRANSIENT에
+  있습니다** — 그 두 규칙을 시험(`vocab-1`)이 지도에 붙들어 두므로, 이 문서는 다시 나열하지
+  않습니다.
+
+  예전에는 나열했고, 그래서 사본 하나를 더 두는 대신 가리키기로 했습니다. 이 문장 자리에는 휘발
+  열 개를 손으로 적어 놓고 **바로 다음 문장**이 "이 집합은 다시 나열하지 않고 한 곳에서만
+  열거한다"고 말하는 목록이 있었습니다. 그 열 중 셋이 지도와 어긋나 있었고요. 자기가 정본이라고
+  말하는 목록은 사본이라고 밝히는 목록보다 나쁩니다 — 읽는 사람에게 **대조할 필요가 없다고**
+  말하기 때문입니다.
+
+  영속되는 것과 모델의 컨텍스트에 들어가는 것은 다릅니다: `reconstruct()`는 대화를 이루는 몇 개
+  타입만 읽고 나머지는 지나치므로, 어떤 결정은 모델에게 되읽히지 않으면서 로그에서 감사됩니다.
 
 저장 경로: `<dataDir>/projects/<cwd>/<sessionId>.jsonl`. `Store.Read(fromSeq)`는 `Seq > fromSeq`인
 이벤트를 돌려줍니다. `Subscribe` = 라이브 버스 먼저, 그 다음 저장소 재생, seq로 중복 제거

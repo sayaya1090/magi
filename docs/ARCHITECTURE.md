@@ -201,10 +201,13 @@ internal/
     session/                Session, Message, Part, ToolCall, ToolResult, Todo, SessionMeta
     event/                  Event envelope + types (facts vs transient) + payloads
     command/                Commands (CreateSession, SubmitPrompt, Interrupt, …)
-    artifact/               Artifact (reviewable outputs, D11)
     bus/                    in-memory pub/sub fan-out (per session)
     model/                  model registry (context window / pricing / caps)
-    agent/ plugin/ tool/    (placeholder dirs — types live in app/ and adapter/)
+    council/                the termination consensus (D14): members, rounds, tally
+    cluster/ meeting/       companions on the machine, and the rooms they talk in
+    auth/ webpush/          who may read a console, and how a phone is told
+    change/ rank/ embed/    edit tracking, ranking, embeddings (recall)
+    cron/ lang/ text/ report/  schedules, language detection, text shaping, run reports
   port/                     interfaces the core depends on (port.go): LLMProvider, Store,
                             Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
   app/                      application service + the agent loop + guardrails + workflow
@@ -350,18 +353,20 @@ The `Actor.Kind` is load-bearing, not decoration: several scans use `ActorUser` 
 permission) are deliberately not it — a nudge magi injected must not read as the user
 starting a new turn.
 
-- **Facts** (persisted, JSONL, replayable) — `event.go`'s first const block:
-  `session.created`, `prompt.submitted`, `part.appended`, `permission.decided`,
-  `artifact.emitted`, `compaction`, `turn.finished`, `todos.changed`, `error`,
-  `diagnostic`, `council.convened`, `council.verdict`, `council.decided`,
-  `interjection.deferred`, `prompt.abandoned`.
-  Two of them are persisted but **never reconstructed into a message**, so they are
-  auditable without entering the model's context: `diagnostic` (a raw input a side call
-  recovered from) and `prompt.abandoned` (a cancelled turn's seed, read by `seedPromptIdx`).
-- **Transient** (bus only, never persisted): `part.delta`, `tool.started`,
-  `tool.progress`, `permission.requested`, `question.requested`, `context.usage`,
-  `workflow.phase`, `council.deliberating`, `model.changed`, `user.label.changed`.
-  The set is enumerated once (`transientTypes`) instead of re-listed at each call site.
+- **Facts** (persisted, JSONL, replayable) and **transient** (bus only, never persisted).
+  `Type.IsTransient()` answers which, from the one map (`transientTypes`) the store itself asks
+  before it will write a line. **The names live in `docs/SPEC.md` F-EVENT-FACT-TRANSIENT**, whose
+  two rules are held to that map by a test (`vocab-1`) — this page does not re-list them.
+
+  It used to, and that is why the pointer is here rather than another copy. The list below this
+  sentence once named ten transients and then claimed, in the sentence after it, that the set was
+  enumerated once instead of re-listed; three of the ten disagreed with the map. A list that says
+  it is authoritative is worse than one that admits it is a copy, because it tells the reader not
+  to check.
+
+  Persisting is not the same as entering the model's context: `reconstruct()` reads the handful of
+  types a conversation is made of and ignores the rest, so a decision can be auditable in the log
+  without being said back to the model.
 
 Store path: `<dataDir>/projects/<cwd>/<sessionId>.jsonl`. `Store.Read(fromSeq)`
 returns events with `Seq > fromSeq`. `Subscribe` = live bus first, then store

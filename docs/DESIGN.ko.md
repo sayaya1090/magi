@@ -161,7 +161,6 @@ type Actor struct {
 | `prompt.submitted` | `{messageId, parts[]}` (role=user) |
 | `part.appended` | `{messageId, role, part}` (완성된 part 1개) |
 | `permission.decided` | `{callId, decision}` (감사용) |
-| `artifact.emitted` | `{artifact}` |
 | `council.convened` | `{round, members[], rule}` (D14 출하 M9 — 종료 게이트 소집) |
 | `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback}` |
 | `council.decided` | `{round, decision, tally, injectedFeedback}` (continue면 feedback이 prompt.submitted로 주입됨) |
@@ -174,15 +173,23 @@ type Actor struct {
 | Type | Data |
 |---|---|
 | `part.delta` | `{messageId, partId, kind, text}` (스트리밍 텍스트 조각) |
-| `tool.started` | `{callId, name}` |
 | `tool.progress` | `{callId, ...}` |
 | `permission.requested` | `{callId, name, args}` → UI 프롬프트(결정은 A로 저장) |
-| `agent.spawned` / `agent.status` | `{agentId, parent, role, state}` (멀티에이전트 라이브) |
 | `context.usage` | `{used, max, …}` (컨텍스트 미터 — 전이) |
 | `workflow.phase` | `{phase, status, detail}` (워크플로 엔진 단계 진행 — 전이) |
 | `council.deliberating` | `{round, member, state}` (라이브 심의 패널 — 전이, D14 출하 M9) |
 
 > 원칙: **사실(fact)은 영속, 진행상황(delta/progress)은 전이.** 재생 시 delta는 불필요(완성 part로 충분). → 로그가 깔끔하고 D6의 "버스=저장" 정신 유지.
+
+> ★교정(실제 구현): 위 표들은 **어휘 전부가 아니라 표본**입니다. 오랫동안 전부로 읽혔지만 양쪽
+> 방향으로 다 틀렸습니다. `artifact.emitted`와 `tool.started`는 상수도 페이로드도 발신자도 없이
+> 행으로만 있었고 — 그래서 클라이언트가 오지 않을 툴-시작 줄을 기다렸습니다(툴 시작은 사실인
+> `part.appended(tool-call)`로 모든 화면에 닿습니다. 그래서 없다는 걸 아무도 눈치채지 못했습니다).
+> 반대로 로그에는 `result.elided`·`labels.changed`·`session.moved`·`model.changed`·
+> `interjection.deferred`·`interjection.answered`가 실려 나가는데 여기 적힌 적이 없습니다.
+> `agent.spawned`/`agent.status` 행은 실제로 없어졌습니다(EN 문서의 교정 참고).
+> **완전한 집합은 `docs/SPEC.md` F-EVENT-FACT-TRANSIENT**이며, 그 두 규칙을 시험이
+> `transientTypes`에 붙들어 둡니다. 페이로드 모양은 `internal/core/event/payload.go`입니다.
 
 **JSONL 로그 예시** (`~/<datadir>/projects/<cwd>/<sessionId>.jsonl`):
 ```json
@@ -416,7 +423,7 @@ run(sessionID):
     for call in toolcalls:
       if needsPermission(call): bus.Publish(permission.requested); wait RespondPermission
       store.Append(permission.decided)
-      bus.Publish(tool.started)
+      // 툴-호출 part는 답이 도착할 때 이미 append 됐습니다 — tool.started는 없습니다
       res = registry.Get(call.name).Execute(...)
       store.Append(part.appended{tool-result})
     if budget/depth exceeded (D7): graceful stop

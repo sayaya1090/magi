@@ -176,18 +176,31 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
 ## F-EVENT — the event model
 
 ### F-EVENT-FACT-TRANSIENT — facts vs transients
+Both sets below are the WHOLE vocabulary, not a sample. A client reads the log and the bus by
+these names, so a name missing here is a line it will meet and not know, and a name here that the
+code does not have is a line it will wait for for ever. `vocab-1` holds them to `event.go`.
+
 Rules:
 - R1 The persisted types (`session.created` / `prompt.submitted` / `part.appended` /
-  `permission.decided` / `artifact.emitted` / `compaction` / `turn.finished` / `error`) are written
-  to the Store.
-- R2 The transient types (`part.delta` / `tool.started` / `tool.progress` /
-  `permission.requested`) go to the bus only and are never recorded.
+  `permission.decided` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` /
+  `labels.changed` / `error` / `council.convened` / `council.verdict` / `council.decided` /
+  `interjection.deferred` / `interjection.answered` / `prompt.abandoned` / `session.moved` /
+  `model.changed`) are written to the Store.
+- R2 The transient types (`part.delta` / `tool.progress` / `permission.requested` /
+  `question.requested` / `context.usage` / `workflow.phase` / `council.deliberating` /
+  `question.answered` / `user.label.changed`) go to the bus only and are never recorded.
 - R3 Every envelope (seq/sessionId/type/actor/ts/data) round-trips through JSON losslessly.
+- R4 The two sets say which types the Store MAY hold — not which frames arrive carrying a seq. A
+  client reads `seq == 0` off the envelope it has and never infers it from the type: one type can
+  arrive both ways. `model.changed` is appended (and so seq-stamped) when the App has a Store and
+  merely announced (seq 0) when it does not, from the same call.
 
 ```
 fact-1:      bus.Publish(part.delta)        ⇒ Store unchanged (not persisted)
 fact-2:      app completes a part           ⇒ exactly 1 part.appended line in Store
 roundtrip-1: Event → JSON → Event           ⇒ deep-equal to original
+vocab-1:     R1 and R2 above                ⇒ exactly event.go's fact consts / transientTypes
+seq-1:       SetModel with no Store         ⇒ model.changed on the bus with seq 0 (R1 type, no seq)
 ```
 
 ### F-EVENT-RECON — log → conversation

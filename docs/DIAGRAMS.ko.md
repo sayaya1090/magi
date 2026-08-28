@@ -750,7 +750,7 @@ sequenceDiagram
   M->>L: tool_call(name, args)
   L->>G: check(name, args)
   G-->>L: n(반복 횟수), fp — block은 항상 false
-  L->>S: tool.started (transient)
+  L->>S: part.appended(tool-call) — 사실입니다. tool.started 이벤트는 없습니다
   L->>P: allowlist → policy.Decide → permission 프롬프트 → PreToolUse 훅
   alt 거부됨
     P-->>L: 거부 사유

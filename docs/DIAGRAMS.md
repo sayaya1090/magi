@@ -763,7 +763,7 @@ sequenceDiagram
   M->>L: tool_call(name, args)
   L->>G: check(name, args)
   G-->>L: n (repeat count), fp — block is always false
-  L->>S: tool.started (transient)
+  L->>S: part.appended(tool-call) — a fact, and there is no tool.started event
   L->>P: allowlist → policy.Decide → permission prompt → PreToolUse hook
   alt refused
     P-->>L: the reason

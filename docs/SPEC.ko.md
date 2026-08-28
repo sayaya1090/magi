@@ -169,15 +169,30 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
 ## F-EVENT — 이벤트 모델
 
 ### F-EVENT-FACT-TRANSIENT — 사실 vs 전이
+아래 두 집합은 표본이 아니라 **어휘 전부**입니다. 클라이언트는 로그와 버스를 이 이름들로 읽으므로,
+여기 빠진 이름은 그 클라이언트가 만나고도 모를 줄이고, 여기 있는데 코드에 없는 이름은 영영 기다릴
+줄입니다. `vocab-1`이 이 둘을 `event.go`에 붙들어 둡니다.
+
 규칙:
-- R1 영속 타입(`session.created/prompt.submitted/part.appended/permission.decided/artifact.emitted/compaction/turn.finished/error`)은 Store 기록.
-- R2 전이 타입(`part.delta/tool.started/tool.progress/permission.requested/agent.*`)은 버스만, 기록 안 함.
+- R1 영속 타입(`session.created` / `prompt.submitted` / `part.appended` / `permission.decided` /
+  `compaction` / `result.elided` / `turn.finished` / `todos.changed` / `labels.changed` / `error` /
+  `council.convened` / `council.verdict` / `council.decided` / `interjection.deferred` /
+  `interjection.answered` / `prompt.abandoned` / `session.moved` / `model.changed`)은 Store 기록.
+- R2 전이 타입(`part.delta` / `tool.progress` / `permission.requested` / `question.requested` /
+  `context.usage` / `workflow.phase` / `council.deliberating` / `question.answered` /
+  `user.label.changed`)은 버스만, 기록 안 함.
 - R3 모든 이벤트 봉투(seq/sessionId/type/actor/ts/data) JSON 왕복 무손실.
+- R4 두 집합은 **어느 타입이 Store에 앉을 수 있는가**를 말하며, **어느 프레임이 seq를 갖고
+  오는가**를 말하지 않습니다. 클라이언트는 `seq == 0`을 손에 든 봉투에서 읽어야 하고 타입에서
+  유도하면 안 됩니다 — 한 타입이 양쪽으로 다 옵니다. `model.changed`는 App에 Store가 있으면
+  append 되어 seq가 찍히고, 없으면 **같은 호출이** 그냥 알리기만 해서 seq가 0입니다.
 
 ```
 fact-1:      bus.Publish(part.delta)        ⇒ Store unchanged (not persisted)
 fact-2:      app completes a part           ⇒ exactly 1 part.appended line in Store
 roundtrip-1: Event → JSON → Event           ⇒ deep-equal to original
+vocab-1:     위 R1·R2                       ⇒ event.go의 사실 상수 / transientTypes와 정확히 일치
+seq-1:       Store 없는 SetModel            ⇒ 버스에 model.changed, seq 0 (R1 타입인데 seq 없음)
 ```
 
 ### F-EVENT-RECON — 로그→대화 복원

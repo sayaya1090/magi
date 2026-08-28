@@ -169,7 +169,6 @@ type Actor struct {
 | `prompt.submitted` | `{messageId, parts[]}` (role=user) |
 | `part.appended` | `{messageId, role, part}` (one completed part) |
 | `permission.decided` | `{callId, decision}` (for audit) |
-| `artifact.emitted` | `{artifact}` |
 | `council.convened` | `{round, members[], rule}` (D14) |
 | `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback}` |
 | `council.decided` | `{round, decision, tally, feedback}` |
@@ -183,12 +182,21 @@ type Actor struct {
 | Type | Data |
 |---|---|
 | `part.delta` | `{messageId, partId, kind, text}` (a streaming text fragment) |
-| `tool.started` | `{callId, name}` |
 | `tool.progress` | `{callId, ...}` |
 | `permission.requested` | `{callId, name, args}` → UI prompt (the decision is stored as A) |
 | `context.usage` | `{used, max, …}` (the context meter) |
 | `workflow.phase` | `{phase, status, detail}` (workflow engine progress) |
 | `council.deliberating` | `{round, member, state}` (the live deliberation panel, D14) |
+
+> ★Correction (as-built): both tables above are a **sample, not the vocabulary** — they were read
+> as complete for a long time and were not, in both directions. `artifact.emitted` and
+> `tool.started` were rows here with no constant, no payload and no emitter behind them; a client
+> waited for a tool-start line that is not sent (a tool start reaches every screen as
+> `part.appended(tool-call)`, a fact, which is why nobody noticed the absence). Going the other
+> way, the log carries `result.elided`, `labels.changed`, `session.moved`, `model.changed`,
+> `interjection.deferred` and `interjection.answered`, none of which were ever written down here.
+> **The complete set is `docs/SPEC.md` F-EVENT-FACT-TRANSIENT**, whose two rules a test holds to
+> `transientTypes`; payload shapes are in `internal/core/event/payload.go`.
 
 > ★Correction: the original listed `agent.spawned` / `agent.status` here. Both are gone and stay
 > gone. A plugin can spawn a child again, but its state is not reported through the bus: the child
@@ -448,7 +456,7 @@ run(sessionID):
     for call in toolcalls:
       if needsPermission(call): bus.Publish(permission.requested); wait RespondPermission
       store.Append(permission.decided)
-      bus.Publish(tool.started)
+      // the tool-call part was appended when the reply landed — there is no tool.started
       res = registry.Get(call.name).Execute(...)
       store.Append(part.appended{tool-result})
 ```
