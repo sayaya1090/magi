@@ -57,12 +57,10 @@ public class MastheadElement {
             crumbs();
             // 자리가 바뀌면 그 줄의 몫도 바뀐다 — 목록에서는 수를, 컴패니언 곁에서는 점만.
             count(lastRoster);
+            connFor(lastRoster);
         });
-        roster.subscribe(list -> { count(list); crumbs(); });
-        roster.subscribeLink(up -> {
-            state.classList.toggle("live", up);
-            state.classList.toggle("lost", !up);
-        });
+        roster.subscribe(list -> { count(list); crumbs(); connFor(list); });
+        roster.subscribeLink(up -> { linkUp = up; paintConn(); });
         whoami();
         scrolledMark();
         // 화면이 제 손잡이를 놓을 자리를 연다 — 셸은 그것이 무엇을 여는지 모른다.
@@ -88,6 +86,8 @@ public class MastheadElement {
         palBtn.setAttribute("aria-label", tr("pal.head"));
         palBtn.setAttribute("title", tr("pal.head") + "  ·  " + cmdKey);
         gear.setAttribute("title", tr("nav.preferences"));
+        // 점의 말도 팩을 탄다 — 색은 그대로여도 읽어 주는 말은 언어가 정해진 뒤라야 맞다.
+        paintConn();
         crumbs();
     }
 
@@ -201,6 +201,44 @@ public class MastheadElement {
         header.append(mark, whereami, crumbs, state, chrome, palBtn, gear);
         // 그림이 구워져 있으면 지금 갈아입는다(스프라이트는 셸이 들여놓은 뒤에 온다).
         Icons.dress(header);
+    }
+
+    // 점이 말하는 사실은 둘이고, 그래서 <b>따로</b> 둔다. 회선이 서 있는가는 이 콘솔과 그것을
+    // 내주는 서버 사이의 일이고, 곁에 선 컴패니언이 아직 답하는가는 그 서버 <b>너머</b>의 일이다
+    // — 서버는 데몬보다 오래 살아서, 방금 멈춘 컴패니언 옆에서 점이 초록으로 남아 있었다(운영이
+    // 이 자리에서 세 번째 사실을 배운 그 경위). 한 변수에 둘을 쓰면 명단 프레임이 회선의 답을
+    // 덮어쓴다: 읽는 곳이 하나여도 쓰는 곳이 둘이면 그것은 두 사실이다.
+    private boolean linkUp = true;
+    private boolean companionUp = true;
+
+    private void paintConn() {
+        boolean lost = !linkUp || !companionUp;
+        state.classList.toggle("live", !lost);
+        state.classList.toggle("lost", lost);
+        // 그리고 어느 쪽인지 말한다 — 컴패니언 곁에서 이 줄은 점 하나가 전부다(수는 목록의
+        // 몫이라 걷힌다). 말을 안 달면 연결은 색으로만 말해진다.
+        state.setAttribute("aria-label", tr(lost ? "state.lost" : "state.live"));
+    }
+
+    /**
+     * 곁에 선 컴패니언이 아직 답하는가. 명단에서 아예 사라졌거나, 남아 있어도 답하지 않으면
+     * 멈춘 것이다 — 어느 쪽이든 사람 앞의 화면은 멈춘 컴패니언에 대한 것이다(운영 규칙).
+     *
+     * 목록 화면에서는 늘 참이다: 그 화면은 전부에 대한 것이라 어느 하나가 멈춘 것을 이 점이
+     * 말할 수 없다. 명단을 아직 못 읽은 것도 참이다 — "모른다"는 "죽었다"가 아니다.
+     */
+    private void connFor(dev.sayaya.magi.bridge.FleetAgent[] list) {
+        companionUp = standing == null || !standing.isCompanion() || list == null
+                || dev.sayaya.magi.bridge.AgentStates.answering(rowFor(list));
+        paintConn();
+    }
+
+    private dev.sayaya.magi.bridge.FleetAgent rowFor(dev.sayaya.magi.bridge.FleetAgent[] list) {
+        String peer = standing.peer == null ? "" : standing.peer;
+        for (dev.sayaya.magi.bridge.FleetAgent a : list) {
+            if (standing.socket.equals(a.socket) && peer.equals(a.peer == null ? "" : a.peer)) return a;
+        }
+        return null;
     }
 
     /** 몇이 있고 몇이 기다리는가 — 그리고 기다림은 누르면 그리로 간다. */

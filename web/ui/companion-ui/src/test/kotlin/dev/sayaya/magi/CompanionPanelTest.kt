@@ -224,5 +224,35 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#sidecol:not([hidden])").count() shouldBe 1
             }
         }
+        When("이 컴패니언이 답하기를 멈추면(명단에 남은 채 live=false)") {
+            page.evaluate("window.__magi_test_stopped()")
+            Then("사실판은 그대로 선다 — 멈춘 순간이 바로 이것들을 읽고 싶은 때다") {
+                // 한때 여기서 판이 통째로 숨었다: 스토어가 "답하지 않는 행"을 "없는 행"으로
+                // 돌려주어서, 어디서 무엇을 하던 컴패니언이었는지가 멈추는 순간 사라졌다.
+                // 요약 줄이 먼저 바뀐다 — 그 한 줄이 상태와 작업공간을 같이 인다.
+                // 팩이 없는 페이지에서 stateWord는 원어를 돌려준다(키가 아니라 "stopped").
+                page.waitForCondition {
+                    (page.locator("#detail .foldbar .sum").textContent() ?: "").startsWith("stopped")
+                }
+                page.locator("#detail[hidden]").count() shouldBe 0
+                page.locator("#detail .foldbar .sum").textContent() shouldContain "/Users/you/work/app"
+                page.locator("#detail .f[data-k=\"field.workspace\"] .v")
+                    .textContent() shouldBe "/Users/you/work/app"
+                page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "7"
+            }
+        }
+        When("세션 고르개를 읽으면") {
+            Then("줄마다 아이디와 제목을 함께 적는다 — 아이디만이면 해시 목록이다") {
+                val opts = page.locator("#detail .f[data-k=\"field.session\"] md-select-option")
+                page.waitForCondition { opts.count() == 4 }
+                // 첫 줄은 명단이 아직 못 따라잡은 지금 이 세션(픽스처의 history엔 없다).
+                // 팩이 없는 페이지에서 tr은 키를 돌려주므로 키 계약으로 잰다.
+                opts.nth(0).textContent()?.trim() shouldBe "s_demo1 · session.thisone"
+                opts.nth(1).textContent()?.trim() shouldBe "s_now · the open one"
+                opts.nth(2).textContent()?.trim() shouldBe "s_old · fix the retry storm"
+                // 지난 세션의 제목 없음은 지금 이 세션의 그것과 다른 말이다.
+                opts.nth(3).textContent()?.trim() shouldBe "s_bare · session.untitled"
+            }
+        }
     }
 })

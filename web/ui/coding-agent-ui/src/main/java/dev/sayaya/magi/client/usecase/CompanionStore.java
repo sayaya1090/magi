@@ -59,10 +59,16 @@ public class CompanionStore implements CompanionSource.Listener {
     /** 이 소켓의 데몬이 아직 답하는가 — 명단을 아직 못 받았으면 "산 것"으로 둔다. */
     public Observable<Boolean> alive() {
         return rosterOf.map(list -> list == null || ctx == null || ctx.socket == null
-                        || ctx.socket.isEmpty() || rowOf(list) != null)
+                        || ctx.socket.isEmpty()
+                        || dev.sayaya.magi.bridge.AgentStates.answering(rowOf(list)))
                 .distinctUntilChanged();
     }
 
+    /**
+     * 어디에 있나 — 소켓과 거쳐 온 콘솔이 둘 다 맞는 행이고, <b>답하는지는 묻지 않는다</b>.
+     * 멈춘 컴패니언도 이름이 있고 어느 세션에 있었는지가 있다: 그것을 없는 것으로 돌려주면
+     * 멈추는 순간 읽을 것이 사라진다. 답하는지는 {@link #alive()}가 따로 답한다.
+     */
     private FleetAgent rowOf(Object list) {
         if (list == null || ctx == null || ctx.socket == null || ctx.socket.isEmpty()) return null;
         jsinterop.base.JsArrayLike<Object> rows = jsinterop.base.Js.uncheckedCast(list);
@@ -70,11 +76,7 @@ public class CompanionStore implements CompanionSource.Listener {
         for (int i = 0; i < rows.getLength(); i++) {
             FleetAgent r = jsinterop.base.Js.uncheckedCast(rows.getAt(i));
             String had = r.peer == null ? "" : r.peer;
-            // 소켓과 거쳐 온 콘솔이 둘 다 맞아야 이 컴패니언이고, 명단에 있어도 답하지 않으면
-            // 없는 것과 같다 — 다만 말하지 않은 것은 산 것이다(운영 live !== false).
-            if (ctx.socket.equals(r.socket) && peer.equals(had)) {
-                return !jsinterop.base.Js.asPropertyMap(r).has("live") || r.live ? r : null;
-            }
+            if (ctx.socket.equals(r.socket) && peer.equals(had)) return r;
         }
         return null;
     }

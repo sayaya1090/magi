@@ -196,8 +196,12 @@ public class DetailElement {
         put(wide(field("field.workspace", a.workdir, null)));
         put(wide(sessionField()));
         put(permField());
-        contextRows();
+        // 이 줄이 컨텍스트 줄들보다 <b>앞</b>이다. 운영에서는 순서가 저절로 그렇게 났다: 모델·캐시·
+        // 창은 /context가 답한 뒤에야 놓이는 줄이라(`dataset.late='1'`) 뒤로 밀렸고, 이 줄은
+        // drawDetail 안에서 그 자리에 놓였다. 여기서는 모델을 명단이 이미 실어 와서 순서가 코드가
+        // 정하는 것이 되었으니, 운영이 그리는 순서를 그대로 적는다(실측으로 갈렸던 한 칸).
         put(actionsRow());
+        contextRows();
         sweep();
     }
 
@@ -506,6 +510,26 @@ public class DetailElement {
         return f;
     }
 
+    /**
+     * 고르개 한 줄에 적을 말 — <b>id와 제목 둘 다</b>다(운영 규칙 그대로). 아이디만 적으면 메뉴가
+     * 해시 목록이 되고, 제목만 적으면 비슷한 두 줄 사이에서 무엇을 고르는지 알 수 없다.
+     *
+     * 제목은 첫 프롬프트에서 나므로 <b>방금 연 세션에는 없다</b> — 그리고 화면에 가장 자주 서
+     * 있는 줄이 바로 그것이다. 그래서 없음을 두 가지로 나눠 적는다: 지금 이 세션이면 "아직 제목이
+     * 없다"고, 지난 세션이면 "말이 오간 적이 없다"고.
+     */
+    private static String what(String title, boolean current) {
+        if (title != null && !title.isEmpty()) return oneLine(title, 48);
+        return tr(current ? "session.thisone" : "session.untitled");
+    }
+
+    /** 한 줄로 접어 자른다 — 메뉴 한 줄이 문단이 되지 않게(운영 oneLine). */
+    private static String oneLine(String s, int n) {
+        if (s == null) return "";
+        String one = s.replaceAll("\\s+", " ").trim();
+        return one.length() <= n ? one : one.substring(0, n - 1) + "\u2026";
+    }
+
     private void paintSessions() {
         java.util.List<String[]> opts = new java.util.ArrayList<>();
         JsArrayLike<Object> all = Js.uncheckedCast(sessList);
@@ -514,13 +538,14 @@ public class DetailElement {
             String id = str(one, "id");
             if (id.isEmpty()) continue;
             String title = str(one, "title");
-            opts.add(new String[]{id, null, title.isEmpty() ? id : title});
+            opts.add(new String[]{id, null, id + " \u00B7 " + what(title, bool(one, "current"))});
         }
         String now = a == null || a.session == null ? "" : a.session;
         if (!now.isEmpty()) {
             boolean known = false;
             for (String[] o : opts) if (now.equals(o[0])) known = true;
-            if (!known) opts.add(0, new String[]{now, null, tr("session.this_one")});
+            // 명단이 아직 못 따라잡은 세션도 화면에 서 있는 세션이다(운영 규칙).
+            if (!known) opts.add(0, new String[]{now, null, now + " \u00B7 " + what("", true)});
         }
         options(sessSel, opts.toArray(new String[0][]));
         pick(sessSel, now);
@@ -893,6 +918,11 @@ public class DetailElement {
     private static String str(JsPropertyMap<Object> m, String k) {
         Object v = m.get(k);
         return v == null ? "" : String.valueOf(v);
+    }
+
+    private static boolean bool(JsPropertyMap<Object> m, String k) {
+        Object v = m.get(k);
+        return v != null && Js.isTruthy(v);
     }
 
     private static double num(JsPropertyMap<Object> m, String k) {

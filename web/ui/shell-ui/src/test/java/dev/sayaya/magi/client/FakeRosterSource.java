@@ -62,6 +62,13 @@ public class FakeRosterSource implements RosterSource {
         idle.state = "idle";
         idle.socket = "/tmp/solo.sock";
         idle.live = true;
-        return new FleetAgent[]{waiting, idle};
+        // 셋째는 멈춘 것 — 명단에는 남아 있고 답하지 않는다. 소켓 파일은 데몬보다 오래 살아서,
+        // 이 조합이 실제로 온다(데모의 ops가 그 자리다).
+        FleetAgent dead = new FleetAgent();
+        dead.name = "gone";
+        dead.state = "stopped";
+        dead.socket = "/tmp/gone.sock";
+        dead.live = false;
+        return new FleetAgent[]{waiting, idle, dead};
     }
 }

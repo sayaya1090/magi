@@ -37,4 +37,20 @@ public final class AgentStates {
             default: return "idle";
         }
     }
+
+    /**
+     * 그 행이 아직 답하는가 — <b>명단에 있다는 것과 답한다는 것은 다른 사실이다</b>(운영
+     * `live !== false`). 소켓은 남아 있는데 데몬이 죽은 경우가 있어서, 명단은 그 행을 계속
+     * 실어 나르며 답하지 않는다고만 적는다.
+     *
+     * 말하지 않은 것은 산 것으로 읽는다. 이 값을 안 싣는 자리가 있고(오래된 데몬, 테스트 목),
+     * 없음을 죽음으로 읽으면 멀쩡한 컴패니언의 판이 통째로 사라진다.
+     *
+     * 여기 사는 이유는 groupOf와 같다: 이 한 줄을 읽는 화면이 셋이다(마스트헤드의 점, 사실판,
+     * 전사의 빈 자리). 화면마다 제 판을 두면 같은 컴패니언이 한 화면에서는 죽고 다른 화면에서는
+     * 살아 있다.
+     */
+    public static boolean answering(FleetAgent a) {
+        return a != null && (!jsinterop.base.Js.asPropertyMap(a).has("live") || a.live);
+    }
 }
