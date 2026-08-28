@@ -38,17 +38,23 @@ IDE에서 열어 둔 프로젝트를 **컴패니언 하나**로 만든다. 플�
 
 ```
 ide/
-├── README.md      # 이 문서 — 설계
-└── plugin/        # IntelliJ Platform 플러그인 (Kotlin, Gradle)
-    ├── transport/ # 소켓 클라이언트: JSON Lines, 재접속, 버전 협상
-    ├── model/     # 와이어 DTO — Go 구조체와 필드 이름이 같다
-    ├── usecase/   # 세션 상태, 데몬 수명주기, 퍼미션 대기열
-    └── ui/        # 툴윈도·에디터 마커·액션·설정
+├── README.md              # 이 문서 — 설계
+└── plugin/
+    ├── settings.gradle.kts
+    ├── gradle/libs.versions.toml   # 버전은 여기 한 곳
+    ├── core/              # 평범한 Kotlin/JVM. IntelliJ SDK 를 모른다
+    │   └── …/ide/model/        와이어 DTO — Go 의 json 태그와 이름이 같다
+    │   └── …/ide/transport/    소켓 경로 계산 + JSON Lines 클라이언트
+    │   └── …/ide/usecase/      데몬 수명주기(붙거나 띄우거나·감시)
+    └── intellij/          # IntelliJ Platform. 화면만 여기 산다
+        └── …/ide/ui/
 ```
 
-의존은 `ui → usecase → model ← transport`로 한 방향이다. `web/ui`의 방향과 같지만 같은 규칙은
-아니다. 거기는 `interfaces → usecase → domain`이고 `domain`에 순수 규칙과 JVM 테스트가 산다
-(`web/ui/README.md:96`). 여기 `model`은 와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
+**모듈 둘로 나눈 것은 취향이 아니라 시험 가능성이다.** `core` 가 SDK 를 모르므로 화면 없이 계약을
+시험할 수 있고, SDK 를 못 받는 자리에서도 컴파일된다. 의존은 `intellij → core` 한 방향뿐이고, 그
+반대가 생기면 `core` 가 SDK 를 끌어온다. `web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
+같은 규칙은 아니다(`web/ui/README.md:96`) — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
+와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
 
 ---
 
@@ -347,6 +353,45 @@ capability가 없고, 플러그인은 자기 주력 창을 못 여는 상태를 
 빈 채로 두지 않고, 데몬이 이 기능을 모르는 빌드라고 말하고 버전을 함께 보여 준다. 없는 메서드를 불러
 에러를 읽는 방식으로 알아내지 않는다.
 
+### 제안 — `mcp-attach` / `mcp-detach`
+
+**아직 없는 메서드다.** 두 제품이 같은 문을 쓰게 되므로 모양을 한 곳에 적어 둔다. 구현은 코어 쪽
+일이고, 여기 적힌 것은 그쪽이 기준으로 삼을 계약이다.
+
+| | 요청 | 뜻 |
+|---|---|---|
+| `mcp-attach` | `name`, `url`, `headers`(선택) | 이 컴패니언에 HTTP MCP 서버를 **런타임으로** 붙인다 |
+| `mcp-detach` | `name` | 떼어 낸다 |
+
+`name` 은 네임스페이스가 된다. 붙고 나면 도구가 `mcp__<name>__<tool>` 로 목록에 들어간다
+(`internal/app/execute.go:52`). 응답은 `ok`, 실패면 `error`, 성공이면 등록된 도구 이름을 `tools` 에
+싣는다 — 호출자가 무엇이 생겼는지 알아야 화면에 그린다. 셋 다 이미 있는 응답 필드다.
+
+**실패는 구분되어야 한다.** "안 붙었다" 하나로 뭉치면 사용자가 고칠 수가 없다. 최소한 이 넷이다:
+서버에 못 닿음(URL·포트 문제) / 그 이름이 이미 붙어 있음 / 이름이 내장 도구를 가림 / 정책이 거부함.
+
+둘째 것은 **문이 새로 막을 필요가 없다.** `registerClient` 가 이미 거부한다. 그 방어가 들어온 사유가
+이 문의 사유이기도 하다 — 커밋 `449d02bc` 가 "설정 맵에서만 이름이 오는 동안에는 도달 불가였다"고
+적는데, 밖에서 런타임에 붙이기 시작하면 도달 가능해지는 결함이었다. 맵이 두 번째를 조용히 받아
+첫 연결이 영영 안 닫히고 `Remove(name)` 이 절반만 지우던 것이다.
+
+**런타임 전용이고 config 에 쓰지 않는다.** `internal/adapter/mcp/manager.go` 의 `AddHTTPDynamic` 과
+`Remove` 가 이미 그 자리다(이 파일은 지금 손이 가고 있어 줄 번호 대신 함수 이름으로 짚는다). config 에 쓰면 서버가 없는 날에도 `[mcp.<name>]` 이 남아 매 기동마다
+붙으러 간다. 그리고 **`[mcp]` 는 플러그인이 grant 를 받아도 못 만지는 섹션**이라
+(`internal/adapter/plugin/lua/permission.go:32`), 그 옆에 config 를 쓰는 길을 내면 닫아 둔 문 옆의
+쪽문이 된다.
+
+**그래서 데몬이 재시작하면 붙은 것이 사라진다.** 이건 결함이 아니라 런타임 전용의 값이고, 대신
+**붙이는 쪽이 다시 붙일 책임을 진다.** §2의 감시자가 재접속을 이미 감지하므로 그 자리에서 다시
+`mcp-attach` 를 보낸다.
+
+**권한 논증.** 어떤 MCP 서버를 돌릴지는 오퍼레이터가 정한다는 규칙이 세 자리에 일관되게 있다 —
+위의 `denyConfigSections`, `register_mcp` 의 capability 가 설치 시점 부여라는 것, 공유 콘솔의 `/mcp`
+쓰기 거부(`cmd/magi-web/mcp.go:111`). 소켓은 0600 이라(`daemon.go:700`) 호출자가 곧 머신 주인이므로
+이 문은 공유 안 된 콘솔과 같은 자리다. 한 칸 더 있다 — 콘솔이 거부하는 대상은 주석이
+*"a command line this machine will spawn"* 이라고 규정하는데, `mcp-attach` 가 받는 것은 URL이라
+**스폰이 없다.** 그래서 같은 등급이 아니라 한 칸 약하다.
+
 ---
 
 ## 5. 무엇을 만드나 — 화면과 손
@@ -494,8 +539,17 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   되살리지 않아야 한다.
 - **config 디렉토리 어긋남.** `MAGI_CONFIG_DIR`을 셸에만 설정하고 IDE를 Dock으로 띄운다. 데몬이 둘
   생기지 않아야 한다.
+- **소켓 이름 골든.** JVM이 Go와 같은 소켓 이름을 내는지 본다. 지어낸 값이 아니라 돌던 데몬에서
+  가져온다 — `/tmp/mw1/daemon-ws1-b1lp9vc8.sock` 의 레코드가 workdir 를 `/tmp/ws1` 이라 했고,
+  macOS에서 풀린 `/private/tmp/ws1` 이 `b1lp9vc8` 을 낸다. 그 해시는 상위 비트가 서 있어서 부호 없는
+  연산의 시험을 겸한다. 룬 단위 sanitize는 이모지 하나가 하이픈 하나가 되는지로 본다.
 - **와이어 골든.** 요청·응답 JSON을 고정 문자열로 두고 코틀린 DTO가 그대로 읽는지 본다. Go 쪽
   `wire_invariant_test.go`와 짝이다. 한쪽만 있으면 필드가 조용히 갈라진다.
+- **라이브 데몬.** 골든이 맞아도 전송이 틀리면 소용없으므로 한 번은 실물에 붙는다. 이 트리의 관례대로
+  env로 잠근다 — `MAGI_IDE_PROBE_SOCK=<socket> ./gradlew :core:test`. 부르는 것은 `about` 과 `models`
+  뿐이라 턴을 안 건드리고, 같은 요청을 두 번 보내 답이 밀리지 않는 것으로 락스텝을 확인한다.
+
+빌드는 `cd ide/plugin && ./gradlew build` 하나다. `core` 만 보려면 `:core:test`.
 - **파생 대조.** 같은 세션에 대해 플러그인이 그린 전사와 콘솔이 그린 전사를 행 단위로 비교한다.
   `web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
   필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md:127`).
@@ -504,9 +558,11 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 
 ## 8. 아직 정하지 않은 것
 
-- **IntelliJ Platform 최소 버전.** JDK 16 이상이라는 바닥은 §4에서 정해졌고, 그 위에서 어느 IDE
-  버전부터 지원할지가 남는다. `web/ui`는 Gradle 9.3에 Java 25를 쓰지만(`web/README.md:124`)
-  플러그인은 IDE가 도는 JDK를 따라야 하므로 같을 수 없다.
+- ~~**IntelliJ Platform 최소 버전.**~~ 정해졌다. IDEA 2026.1(`sinceBuild = 261`), IntelliJ Platform
+  Gradle Plugin 2.18.1, Kotlin 2.4.10, Gradle 9.3, JDK 21 툴체인. 조회해서 정했고 빌드가 통과한다.
+  하나 배웠다 — **Community 판(`IC`)은 2025.3부터 따로 배포되지 않아** `intellijIdeaCommunity` 가 아니라
+  `intellijIdea` 를 쓴다. 플러그인이 그 사실을 에러 메시지로 알려 준다. 남은 것은 `untilBuild` 를
+  열어 둔 채로 갈지인데, 지금은 열어 뒀다.
 - **전사 문의 정확한 이름과 인자.** `transcript`에 `session`·`since`를 받는 안이 자연스럽다. 남은
   것은 통째로 보낼지 증분으로 보낼지(콘솔은 통째로 보내고 diff 프로토콜이 없다), 그리고 **끊긴 뒤
   재접속했을 때 빠진 구간을 어떻게 아는지**다. `since`가 데몬 재시작을 건너뛰면 무슨 뜻인지도 같이
@@ -553,7 +609,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 같은 판정이 디스크에서 유도된다.
 
 magi 쪽에 남은 것은 그쪽 제품의 문제이고 그쪽 문서가 들고 있다. 이 플러그인은 이미지 증거를 안 쓰므로
-영향을 받지 않는다: MCP 이미지 컨텐트 블록이 버려지는 것(`internal/adapter/mcp/jsonrpc.go:82`,
-`tool.go:41`), 그 고침이 세 층이고 하나는 magi가 가진 적 없는 멀티모달 요청 조립이라는 것,
+영향을 받지 않는다: MCP 이미지 컨텐트 블록이 버려지는 것(`internal/adapter/mcp/jsonrpc.go` 의 `contentBlock`,
+`tool.go` 의 결과 이어붙이기), 그 고침이 세 층이고 하나는 magi가 가진 적 없는 멀티모달 요청 조립이라는 것,
 그리고 `internal/core/model/model.go:17`의 `Vision` 플래그가 일곱 모델에 붙어 있는데 읽는 곳이 없다는
 것. 마지막 것은 이 제품과 무관한 별건이다.
