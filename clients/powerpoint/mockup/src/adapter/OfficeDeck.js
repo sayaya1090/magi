@@ -3,9 +3,11 @@ import { DeckPort } from '../port/DeckPort.js';
 /**
  * DeckPort 를 Office.js 로 구현한다. **이 파일만 Office 를 안다.**
  *
- * ⚠ 이 머신에는 PowerPoint 가 없어 **한 번도 안 돌려 봤다.** 목업의 나머지는 FakeDeck 으로
- * 확인했고 이쪽은 못 했다. 그러니 여기 적힌 것은 문서를 읽고 쓴 것이고, S13·S14 를 재는 자리가
- * 정확히 이 파일이다. 돌려 보기 전까지 "된다"고 적지 않는다.
+ * ⚠ 이 머신에는 PowerPoint 가 없다. **`capabilities()` 만 돈다** — Office.js 를 안 부르고
+ * `isSetSupported` 가 답한 것을 나르기만 해서 stub 위에서 나르는 계약을 실제로 잰다
+ * (`tools/smoke.mjs`). `selection()` 과 `point()` 는 `PowerPoint.run` 이 필요해 **한 번도
+ * 안 돌았다** — 여기 적힌 것은 문서를 읽고 쓴 것이고, S13·S14 를 재는 자리가 정확히 그 둘이다.
+ * 돌려 보기 전까지 "된다"고 적지 않는다.
  */
 export class OfficeDeck extends DeckPort {
   get label() { return 'PowerPoint (Office.js)'; }

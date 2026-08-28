@@ -53,7 +53,13 @@ export class DeckPort {
    *
    * 실패해도 던지지 않는다 — 계측이 본 작업을 못 막는다. 대신 `measured:false` 로 말한다.
    *
-   * @returns {{measured:boolean, note:string, sets:Array<{name:string,version:string,ok:boolean}>}}
+   * `ok` 는 **불리언이 아니라 셋**이다 — `true` 지원, `false` 호스트가 「아니오」라고 답했다,
+   * `null` **물어보다 던졌다.** 셋째를 `false` 로 접으면 화면에 ✗ 가 서는데 그건 「호스트가
+   * 아니라고 답했다」는 말이고, 그러면 §12 #4 를 **없는 실측으로 답해 버린다.** 이 목록이
+   * 요약을 안 하는 이유(어디서 끊겼는지)와 같은 이유로 여기서도 접지 않는다.
+   *
+   * @returns {{measured:boolean, note:string,
+   *            sets:Array<{name:string, version:string, ok:?boolean}>}}
    */
   capabilities() { return { measured: false, note: '안 잼', sets: [] }; }
 }

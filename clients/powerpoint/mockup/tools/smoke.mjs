@@ -3,8 +3,10 @@
 // 이게 이 목업에서 **오늘 실제로 검증되는 전부**다. 유스케이스가 Office.js 를 모르기 때문에
 // FakeDeck 하나만 갈아 끼우면 흐름이 끝까지 돈다.
 //
-// `OfficeDeck` 은 이름만 들어온다 — `pickDeck` 이 **어느 것을 골랐는지**를 재려면 그 이름이
-// 있어야 한다. 메서드는 하나도 안 부른다: 이 머신에 PowerPoint 가 없고, 안 돌려 본 것을
+// `OfficeDeck` 에서 **오늘 도는 것은 `capabilities()` 하나**다. 그건 Office.js 를 호출하지
+// 않고 `isSetSupported` 가 답한 것을 나르기만 하는 함수라, 그 자리에 stub 을 세우면 나르는
+// 계약(여섯을 요약 안 한다 / 던진 것을 「아니오」로 안 접는다)을 진짜로 잰다. `selection()`
+// 과 `point()` 는 `PowerPoint.run` 이 필요해 **여전히 한 번도 안 돌았다** — 안 돌려 본 것을
 // "된다"고 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
@@ -935,6 +937,49 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 새 리스너가 아무 심사 없이 통과한다.
   const dead = [...allowed.keys()].filter((k) => !sites.includes(k));
   ok('허용 목록에 없어진 자리가 남아 있지 않다', dead.length === 0, dead.join(' / '));
+}
+
+// ── 요구 집합 계측(§12 #4). `OfficeDeck.capabilities()` 를 stub 위에서 실제로 돌린다.
+//
+// 여기 단언이 있는 이유는 `ok` 가 **불리언이 아니라 셋**이라서다 — 지원/아니오/**물어보다
+// 던졌다.** 셋째를 `false` 로 접으면 화면에 ✗ 가 서고, 그건 「호스트가 아니라고 답했다」는
+// 말이라 §12 #4 를 없는 실측으로 답해 버린다. 주석으로만 적어 두면 다음 어댑터가 `catch`
+// 에서 `false` 를 쓰는 것을 아무도 안 막는다.
+{
+  const asked = [];
+  globalThis.Office = {
+    context: {
+      requirements: {
+        isSetSupported(name, version) {
+          asked.push(`${name} ${version}`);
+          if (version === '1.7') throw new Error('호스트가 이 물음에 터진다');
+          return name === 'SharedRuntime' || version === '1.2' || version === '1.5';
+        },
+      },
+    },
+  };
+  try {
+    const caps = new OfficeDeck().capabilities();
+    ok('물어봤으면 쟀다고 말한다', caps.measured === true && caps.note === '', caps.note);
+    // 셈이 아니라 **명단**으로 못박는다. 하나가 빠지면 빠진 이름이 diff 에 보인다.
+    const want = 'PowerPointApi 1.2,PowerPointApi 1.5,PowerPointApi 1.6,'
+      + 'PowerPointApi 1.7,PowerPointApi 1.8,SharedRuntime 1.1';
+    const got = caps.sets.map((s) => `${s.name} ${s.version}`).join(',');
+    ok('여섯을 요약 없이 그대로 돌려준다', got === want, got);
+    ok('물어본 것과 돌려준 것이 같다', asked.join(',') === want, asked.join(','));
+    const by = new Map(caps.sets.map((s) => [`${s.name} ${s.version}`, s.ok]));
+    ok('그렇다고 답한 집합은 true', by.get('PowerPointApi 1.5') === true);
+    ok('아니라고 답한 집합은 false', by.get('PowerPointApi 1.8') === false);
+    // 이 한 줄이 이 블록의 값이다: `null` 이지 `false` 가 아니다.
+    ok('물어보다 던진 집합은 false 가 아니라 null',
+      by.get('PowerPointApi 1.7') === null, String(by.get('PowerPointApi 1.7')));
+  } finally {
+    delete globalThis.Office;
+  }
+  // Office 가 없는 곳에서는 **잰 척을 안 한다.** 이 머신이 바로 그런 곳이라 늘 여기로 온다.
+  const bare = new OfficeDeck().capabilities();
+  ok('Office 가 없으면 안 쟀다고 말한다', bare.measured === false && bare.sets.length === 0);
+  ok('안 쟀으면 사유를 댄다', typeof bare.note === 'string' && bare.note.length > 0, bare.note);
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
