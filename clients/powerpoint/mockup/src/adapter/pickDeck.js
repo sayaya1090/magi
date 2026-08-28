@@ -98,7 +98,13 @@ export function pickNote({ why, host, error } = {}) {
     return `Office 를 부르다 던졌습니다(${msgOf(error)}). `
       + '가짜 덱으로 계속합니다 — 새로고침해도 같은 자리일 수 있습니다.';
   }
-  if (why !== 'not-powerpoint') return null;
+  // **다섯째 사유가 생기면 여기서 소리가 나야 한다.** `why !== 'not-powerpoint'` 로 걸러
+  // 내면 새 사유가 조용히 `null` 로 떨어져, 갈라 둔 값을 화면이 도로 뭉치는 그 상태로 아무
+  // 표시 없이 돌아간다. 컴파일러가 안 우는 자리라 이 줄이 대신 운다.
+  if (why !== 'not-powerpoint') {
+    if (why === 'no-office') return null;
+    return `이 창이 모르는 사유로 가짜 덱에 붙었습니다(${why}). 이 창을 고쳐야 합니다.`;
+  }
   // **안 밝힌 것을 「다른 호스트」라고 적지 않는다.** `Office.js` 가 떴는데 호스트를 안 실어
   // 보내면 우리가 아는 것은 「PowerPoint 라고 안 했다」뿐이다. 브라우저에서 이 목업을 여는
   // 것이 바로 그 경우라, 「PowerPoint 가 아닌 Office 호스트입니다」는 **가장 흔한 길에서

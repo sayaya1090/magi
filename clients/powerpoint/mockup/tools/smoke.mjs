@@ -8,7 +8,7 @@
 // "된다"고 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
-import { Advice, targetLabel } from '../src/domain/Advice.js';
+import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
 import { foldAdvice } from '../src/domain/AdviceBoard.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { OfficeDeck } from '../src/adapter/OfficeDeck.js';
@@ -702,6 +702,48 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const d = new FakeDeck(structuredClone(fixture));
   d.numbering = false;
   ok('번호를 못 주는 덱은 null 을 준다', (await d.slideNumbers()) === null);
+
+  // ── 답이 **언제 것인가**. 「물어본 적 있다」를 「이 안내에 답을 받았다」로 쓰면, 첫 답 뒤에
+  // 도착한 안내가 낡은 스냅숏에 없다는 이유로 「지금 덱에 없습니다」가 된다 — 덱에는 있고
+  // 우리가 안 물어봤을 뿐이다.
+  const sn = new SlideNumbers();
+  sn.note('s7');
+  ok('묻기 전에는 답이 아니다', sn.answered('s7') === false);
+  const t1 = sn.ask();
+  ok('묻는 중에도 아직 답이 아니다', sn.answered('s7') === false);
+  sn.answer(t1, new Map([['s7', 7]]));
+  ok('답이 오면 답이다', sn.answered('s7') === true);
+
+  // 그 뒤에 온 안내. 같은 답이 앉아 있지만 **이 id 를 물어본 적은 없다.**
+  sn.note('s9');
+  ok('첫 답 뒤에 온 id 는 아직 답을 못 받았다', sn.answered('s9') === false);
+  const lateAdvice = new Advice({ message: '나중에 온 안내', slideId: 's9', shapeIds: ['sh2'] });
+  const lateLabel = targetLabel(lateAdvice, sn.map, sn.answered('s9'));
+  ok('안 물어본 슬라이드를 「덱에 없다」고 단정하지 않는다',
+    !lateLabel.includes('없습니다') && lateLabel.includes('확인 중'), lateLabel);
+  const t2 = sn.ask();
+  sn.answer(t2, new Map([['s7', 7]]));
+  ok('물어본 뒤에도 없으면 그때는 없다고 적는다',
+    targetLabel(lateAdvice, sn.map, sn.answered('s9')).includes('없습니다'));
+
+  // 그릴 때마다 다시 묻는다 — 왕복 둘이 겹치면 앞엣것이 뒤늦게 돌아온다. 낡은 번호는 없는
+  // 번호보다 나쁘다는 것이 `OfficeDeck` 이 캐시를 안 두는 이유고, 화면이 뒤집으면 그 결정은
+  // 없는 것과 같다.
+  const t3 = sn.ask();
+  const t4 = sn.ask();
+  sn.answer(t4, new Map([['s7', 4]]));
+  ok('늦게 온 옛 답은 안 앉는다', sn.answer(t3, new Map([['s7', 3]])) === false);
+  ok('새 답이 그대로 있다', sn.map.get('s7') === 4);
+
+  // 아무것도 안 돌려주는 포트. `undefined` 가 그대로 앉으면 `nos === null` 이 빗나가
+  // 「지금 덱에 없습니다」로 샌다 — 안 준 것을 없다고 적는 자리다.
+  const sn2 = new SlideNumbers();
+  sn2.note('s7');
+  sn2.answer(sn2.ask(), undefined);
+  ok('안 준 답을 null 로 눕힌다', sn2.map === null);
+  ok('그래서 「못 줍니다」로 적힌다',
+    targetLabel(a, sn2.map, sn2.answered('s7')).includes('못 줍니다'),
+    targetLabel(a, sn2.map, sn2.answered('s7')));
 }
 
 // ── 「글이 없다」와 「글을 못 읽었다」. `OfficeDeck.selection` 의 두 번째 왕복이 죽으면 신원만
@@ -803,6 +845,15 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     pickNote(none) === null && pickNote(threw) !== null && pickNote(slow) !== null);
   ok('던진 것은 시한 초과와 다른 문장이다', pickNote(threw) !== pickNote(slow));
   ok('던진 사유를 문장이 싣는다', pickNote(threw).includes('office.js 를 못 읽었습니다'));
+
+  // 사유가 **다섯째로 늘어날 때** 이 목록이 같이 자라지 않으면, 갈라 둔 값을 화면이 도로
+  // 뭉치는 상태로 조용히 돌아간다. 컴파일러가 안 우는 자리라 문장이 대신 운다.
+  const fifth = pickNote({ why: 'quota', host: null, error: null });
+  ok('모르는 사유는 잠잠하지 않다', fifth !== null, String(fifth));
+  ok('모르는 사유를 아는 사유의 문장으로 적지 않는다',
+    fifth !== pickNote(slow) && fifth !== pickNote(threw) && fifth !== pickNote(blind));
+  ok('무엇이 모르는 사유였는지 싣는다',
+    String(fifth).includes('quota'), String(fifth));
 
   // 시한 쪽지는 「PowerPoint 안이라면 새로고침하세요」라는 **조건부**다. 늦게 온 답이 조건을
   // 깨면 그 권유가 틀린 권유가 되므로 늦은 쪽지가 덮어써야 한다.

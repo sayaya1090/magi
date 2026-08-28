@@ -1,6 +1,6 @@
 // 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
 import { foldAdvice } from '../domain/AdviceBoard.js';
-import { targetLabel } from '../domain/Advice.js';
+import { targetLabel, SlideNumbers } from '../domain/Advice.js';
 import { DECISIONS, WIDTH_NOTE, CLEARED } from '../domain/Pending.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -19,12 +19,11 @@ export class View {
     this.advices = [];
     this.adviceNote = '';
     /**
-     * 덱이 준 번호표(Map) 또는 못 얻었다는 뜻의 `null`. **둘을 「안 물어봤다」와 안 뭉친다** —
-     * 뭉치려면 `slideNumbers` 가 빈 Map 을 줬어도 됐고, 포트가 굳이 null 을 고른 이유가 없어진다.
+     * 덱이 준 번호표와 **그게 몇 번째 물음의 답인가**. 「못 얻었다(`map === null`)」와 「아직
+     * 안 물어봤다」를 안 뭉치는 것이 첫 이유고(뭉치려면 `slideNumbers` 가 빈 Map 을 줬어도
+     * 됐다), 「이 안내에 대해선 아직 안 물어봤다」까지 가르는 것이 둘째 이유다.
      */
-    this.slideNos = null;
-    /** 물어보고 답을 받았는가. 이게 없으면 `slideNos === null` 이 두 가지 뜻을 갖는다. */
-    this.slideNosAnswered = false;
+    this.slideNos = new SlideNumbers();
     /**
      * 마지막으로 그린 물음의 모양. 폴은 계속 도는데 그때마다 다시 그리면 사람이 고르던 것과
      * 적던 글이 지워진다 — `WatchPrompt`가 값에서 하는 일을 화면에서도 한 번 더 한다.
@@ -551,18 +550,16 @@ export class View {
     }
     if (dropped) notes.push(`안내 ${dropped}건은 무엇을 말하는지 안 실려 못 붙였습니다.`);
     this.adviceNote = notes.join(' · ');
+    // 이 안내들의 슬라이드를 **언제 처음 봤는지** 먼저 적는다. 물음보다 앞이라야 「그 뒤에 던진
+    // 물음의 답」이라는 말이 성립한다.
+    for (const a of items) this.slideNos.note(a.slideId);
     this.renderAdvice();
     if (items.length) {
-      this.deck.slideNumbers().then((m) => {
-        this.slideNos = m;
-        this.slideNosAnswered = true;
-        this.renderAdvice();
-      }).catch(() => {
+      const token = this.slideNos.ask();
+      this.deck.slideNumbers()
+        .then((m) => { if (this.slideNos.answer(token, m)) this.renderAdvice(); })
         // 던진 것도 **답이다** — "못 준다"는 답. 삼키면 목록이 영영 「확인 중」으로 남는다.
-        this.slideNos = null;
-        this.slideNosAnswered = true;
-        this.renderAdvice();
-      });
+        .catch(() => { if (this.slideNos.answer(token, null)) this.renderAdvice(); });
     }
   }
 
@@ -588,7 +585,7 @@ export class View {
       const where = document.createElement('div');
       where.className = 'advice-target';
       where.textContent = a.pointable
-        ? targetLabel(a, this.slideNos, this.slideNosAnswered)
+        ? targetLabel(a, this.slideNos.map, this.slideNos.answered(a.slideId))
         : a.unpointableReason;
       el.append(where);
       // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
