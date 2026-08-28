@@ -28,7 +28,8 @@ import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
 import { FakeStatus } from '../src/adapter/FakeStatus.js';
 import { WatchPrompt } from '../src/usecase/WatchPrompt.js';
-import { DECISIONS, CLEARED } from '../src/domain/Pending.js';
+import { Pending, DECISIONS, CLEARED } from '../src/domain/Pending.js';
+import { Cursor } from '../src/domain/Cursor.js';
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -1052,6 +1053,207 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const bare = new OfficeDeck().capabilities();
   ok('Office 가 없으면 안 쟀다고 말한다', bare.measured === false && bare.sets.length === 0);
   ok('안 쟀으면 사유를 댄다', typeof bare.note === 'string' && bare.note.length > 0, bare.note);
+}
+
+// ── 돌연변이가 살아남은 자리 ─────────────────────────────────────────────────
+//
+// 이 블록은 **한 번의 계측에서 나왔다.** 2026-08-29 에 `src/domain/*.js` 와 `src/usecase/*.js`
+// 의 판단 연산자를 한 줄에 하나씩 뒤집고(`===`↔`!==`, `<=`→`<`, `&&`↔`||`,
+// `return true`↔`return false`) 그때마다 이 파일을 통째로 돌렸다. **74 를 뒤집어 18 이
+// 살아남았다** — 211개 단언 중 어느 것도 안 죽는 줄이 18 개였다는 뜻이다.
+//
+// 살아남은 줄은 둘 중 하나다: 시험이 없거나, **맞는데 맞는 이유가 아무 데도 안 적혀 있거나.**
+// 앞은 여기서 메우고, 뒤는 고칠 것이 없으니 결정이 사는 자리에 이유를 적는다(§5.7 의 셋째).
+// 뒤에 해당하는 것 둘을 먼저 이름 대 둔다:
+//
+// - `Cursor.advanced` 의 `seq <= 0` — 그 줄이 지금 이 클라이언트를 안 지킨다. 왜 그런데도
+//   두는지는 그 파일 안에 적혀 있다.
+// - `WatchPrompt.poll` 의 `wasReachable || !this.saidLost` — 뒤 절이 **판단을 한 번도
+//   안 한다.** `saidLost` 가 참인 폴은 끝에서 `reachable` 을 거짓으로 두고, 닿는 폴은
+//   `saidLost` 를 거짓으로 되돌리므로 `wasReachable && saidLost` 는 이 클래스 안에서 못
+//   나온다. 그래서 `||` 를 `&&` 로 바꿔도 아무 시험이 안 죽는다 — 시험의 구멍이 아니라
+//   **불변식이 뒤 절을 삼킨 것**이다. 그 불변식을 아래에서 시험이 붙든다.
+{
+  // 커서. 이 파일이 `Cursor` 를 직접 부른 적이 없어서 세 줄이 통째로 안 잡혀 있었다.
+  const c = new Cursor('sess-a', 12);
+  ok('같은 대화면 그 자리부터', c.sinceFor('sess-a') === 12);
+  ok('다른 대화면 처음부터', c.sinceFor('sess-b') === -1);
+  ok('다른 대화의 커서는 못 쓴다', c.usableFor('sess-b') === false);
+  ok('안 읽은 커서도 못 쓴다', new Cursor('sess-a', 0).usableFor('sess-a') === false);
+  ok('같은 대화에서 읽은 것이 있으면 쓴다', c.usableFor('sess-a') === true);
+
+  ok('같은 대화에서 뒤로 가는 자리는 안 민다', c.advanced('sess-a', 5) === c);
+  ok('같은 자리를 다시 봐도 안 민다', c.advanced('sess-a', 12) === c);
+  ok('앞으로 가면 민다', c.advanced('sess-a', 13).seq === 13);
+  // **대화가 바뀌면 낮은 자리도 앉는다.** 남의 대화에서 센 12 는 이 대화의 12 와 아무 상관이
+  // 없으므로, 여기서 「뒤로 간다」고 막으면 새 대화의 앞부분을 영영 못 읽는다.
+  const moved = c.advanced('sess-b', 3);
+  ok('대화가 바뀌면 낮은 자리도 앉는다', moved.sessionId === 'sess-b' && moved.seq === 3);
+}
+
+{
+  // 물음. 종류를 가르는 두 줄과 「1개뿐이면 안 센다」가 안 잡혀 있었다.
+  const perm = new Pending({ id: 'c1', kind: 'permission', what: 'bash' });
+  const ques = new Pending({ id: 'c2', kind: 'question', what: '어느 쪽?' });
+  ok('권한 물음은 권한 물음이다', perm.isPermission === true && perm.isQuestion === false);
+  ok('질문은 질문이다', ques.isQuestion === true && ques.isPermission === false);
+  ok('모르는 종류는 둘 다 아니다',
+    new Pending({ id: 'c3', kind: 'confirm', what: 'x' }).known === false);
+  // 하나뿐인 물음에 「1번째 · 모두 1개」를 다는 것은 없는 줄을 세우는 일이다.
+  ok('하나뿐이면 자리를 안 적는다',
+    new Pending({ id: 'c4', kind: 'question', what: 'x', index: 1, total: 1 }).placement === null);
+}
+
+{
+  // 치수. **둘 중 하나만 없어도 없는 것이다** — 안 그러면 `NaN×3.0cm` 이 화면에 뜬다.
+  const both = new Quote({ slideId: 's1', shapeId: 'a', width: 72, height: 72 });
+  ok('둘 다 있으면 적는다', both.sizeLabel === '2.5×2.5cm', String(both.sizeLabel));
+  ok('높이가 없으면 안 적는다',
+    new Quote({ slideId: 's1', shapeId: 'a', width: 72 }).sizeLabel === null);
+  ok('폭이 없어도 안 적는다',
+    new Quote({ slideId: 's1', shapeId: 'a', height: 72 }).sizeLabel === null);
+}
+
+{
+  // 인용 빼기. 붙이는 쪽만 잡혀 있었고 빼는 쪽이 통째로 안 잡혀 있었다.
+  const cv = new Composer();
+  cv.attach(new Quote({ slideId: 's1', shapeId: 'a' }));
+  cv.attach(new Quote({ slideId: 's1', shapeId: 'b' }));
+  ok('없는 것을 빼면 아무 일도 안 일어난다', cv.detach('zz') === false);
+  ok('안 뺐으면 둘 다 그대로', cv.pending.length === 2);
+  ok('뺐으면 뺐다고 한다', cv.detach('a') === true);
+  ok('지목한 것만 빠진다',
+    cv.pending.length === 1 && cv.pending[0].shapeId === 'b',
+    cv.pending.map((q) => q.shapeId).join(','));
+}
+
+{
+  // 번호표의 세대. `note` 가 이미 본 id 를 다시 적으면 그 id 는 **받은 답을 잃는다.**
+  const sn = new SlideNumbers();
+  sn.note('s7');
+  const t = sn.ask();
+  ok('답을 앉히면 앉혔다고 한다', sn.answer(t, new Map([['s7', 3]])) === true);
+  ok('답을 받은 id 다', sn.answered('s7') === true);
+  sn.note('s7');   // 화면은 그릴 때마다 다시 적는다 — 여기서 세대가 밀리면 안 된다
+  ok('이미 본 id 를 다시 적어도 답을 안 잃는다', sn.answered('s7') === true);
+  // 낡은 답과 같은 물음의 두 번째 답은 **안 앉는다.** 돌려주는 불리언이 「다시 그려라」다.
+  ok('같은 물음의 답이 두 번 오면 둘째는 안 앉는다', sn.answer(t, new Map()) === false);
+  ok('둘째가 안 앉았으니 답은 그대로', sn.map.get('s7') === 3, String(sn.map.get('s7')));
+  ok('낡은 물음의 답은 안 앉는다', sn.answer(t - 1, new Map()) === false);
+}
+
+{
+  // 안내 접기의 두 관문. 문자열이 아닌 값을 그대로 앉히면 화면이 객체를 슬라이드 id 로 적는다.
+  const odd = foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c1',
+    args: { items: [{ message: '어딘가', slideId: 7, shapeIds: ['sh1', 9] }] } }]);
+  ok('문자열이 아닌 슬라이드 id 는 없는 것이다', odd.items[0].slideId === null,
+    String(odd.items[0].slideId));
+  ok('문자열이 아닌 도형 id 는 걸러진다',
+    odd.items[0].shapeIds.length === 1 && odd.items[0].shapeIds[0] === 'sh1');
+  // **한 장을 그냥 펴서 부른 호출도 받는다.** 못 알아들으면 그 안내는 아무 데도 안 남는다.
+  const flat = foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c2',
+    args: { message: '한 장짜리', slideId: 's1' } }]);
+  ok('items 없이 한 장으로 부른 것도 받는다',
+    flat.items.length === 1 && flat.items[0].message === '한 장짜리',
+    `${flat.items.length}장`);
+  // **못 읽은 호출과 빈 목록은 다른 답이다.** 앞은 모델이 말을 빼고 부른 것이라 사람에게
+  // 알려야 하고, 뒤는 모델이 「없다」고 말한 것이라 알릴 것이 없다. 접으면 앞이 사라진다.
+  ok('항목을 못 꺼내는 호출은 센다',
+    foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c3',
+      args: { slideId: 's1' } }]).dropped === 1);
+  const none = foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c4',
+    args: { items: [] } }]);
+  ok('빈 목록을 실은 호출은 안 센다', none.dropped === 0 && none.items.length === 0,
+    `dropped=${none.dropped}`);
+  ok('인자가 아예 없는 호출은 못 읽은 것이다',
+    foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c5',
+      args: null }]).dropped === 1);
+}
+
+{
+  // 접는 종류. 델타로 쌓는 줄만 접고, **messageId 가 있다는 것만으로는 안 접는다** —
+  // 같은 메시지에서 도구를 두 번 부르면 두 줄이다.
+  const t = new Transcript();
+  const call = (name) => ({ type: 'part.appended', seq: 1, data: { messageId: 'm1',
+    part: { kind: 'tool-call', toolCall: { name, callId: `c-${name}`, args: {} } } } });
+  t.append(call('mcp__ppt__advise'));
+  t.append(call('mcp__ppt__set_text'));
+  ok('같은 메시지의 도구 호출 둘은 두 줄이다', t.rows.length === 2, `${t.rows.length}줄`);
+  ok('둘째 줄이 둘째 도구다', t.rows[1].tool === 'mcp__ppt__set_text', String(t.rows[1].tool));
+  // 반대쪽: 델타는 같은 messageId 로 접힌다.
+  const t2 = new Transcript();
+  t2.append({ type: 'part.delta', seq: 0, data: { messageId: 'm2',
+    part: { kind: 'text', text: '가' } } });
+  t2.append({ type: 'part.delta', seq: 0, data: { messageId: 'm2',
+    part: { kind: 'text', text: '나' } } });
+  ok('델타는 한 줄로 접힌다', t2.rows.length === 1 && t2.rows[0].text === '가나',
+    `${t2.rows.length}줄 "${t2.rows[0]?.text}"`);
+
+  // callId 는 안내 포스트잇의 신원(`${callId}#${i}`)이 된다. 문자열이 아닌 것을 그대로 실으면
+  // 그 자리에서 신원이 객체가 된다.
+  const t3 = new Transcript();
+  t3.append({ type: 'part.appended', seq: 1, data: { messageId: 'm3',
+    part: { kind: 'tool-call', toolCall: { name: 'mcp__ppt__advise', callId: 42, args: {} } } } });
+  ok('문자열이 아닌 callId 는 없는 것이다', t3.rows[0].callId === null,
+    String(t3.rows[0].callId));
+}
+
+// ── 늦게 죽은 계측이 남의 세대를 안 건드린다 ──────────────────────────────────
+//
+// `sampleBeforeFocus` 의 catch 에 있는 `mine === this.epoch` 가 이 두 줄이다. 앞은 「실패한
+// 읽기는 낡은 값을 지운다」(안 지우면 「놓쳤습니다」가 거짓으로 뜬다), 뒤는 「지우되 **내 세대의
+// 값만**」이다.
+{
+  const two = { slideId: 's1', slideNo: 1, shapes: [{ id: 'a' }, { id: 'b' }] };
+  let mode = 'ok';
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const deck = {
+    async selection() {
+      if (mode === 'slow') { await gate; throw new Error('늦게 죽었다'); }
+      if (mode === 'fail') throw new Error('못 읽는다');
+      return mode === 'empty' ? { slideId: 's1', slideNo: 1, shapes: [] } : two;
+    },
+  };
+  const qs = new QuoteSelection(deck, new Composer());
+
+  await qs.sampleBeforeFocus();
+  ok('읽었으면 몇 개였는지 든다', qs.beforeFocus?.count === 2, JSON.stringify(qs.beforeFocus));
+  mode = 'fail';
+  await qs.sampleBeforeFocus();
+  ok('실패한 읽기는 낡은 값을 지운다', qs.beforeFocus === null, JSON.stringify(qs.beforeFocus));
+  mode = 'empty';
+  const r = await qs.run();
+  ok('앞을 모르면 사유가 「모른다」다', r.reason === 'unknown', String(r.reason));
+
+  // 이제 늦게 죽는 읽기. 그 사이에 눌렸고, 눌린 뒤의 읽기가 새 값을 앉혔다.
+  mode = 'slow';
+  const late = qs.sampleBeforeFocus();
+  mode = 'ok';
+  await qs.run();                    // 세대가 하나 오른다
+  await qs.sampleBeforeFocus();      // 새 세대의 값
+  ok('새 세대의 값이 앉았다', qs.beforeFocus?.count === 2, JSON.stringify(qs.beforeFocus));
+  release();
+  await late;
+  ok('늦게 죽은 앞 세대는 남의 값을 안 지운다', qs.beforeFocus?.count === 2,
+    JSON.stringify(qs.beforeFocus));
+}
+
+// ── 못 닿는다는 말이 한 번뿐인 이유는 불변식이다 ──────────────────────────────
+//
+// 위 머리글이 이름 댄 `wasReachable || !this.saidLost` 의 뒤 절은 판단을 안 한다. 그게 참인
+// 근거가 **「닿으면 `saidLost` 가 거짓으로 돌아간다」** 하나뿐이라, 그 한 줄을 여기서 붙든다.
+// 이 시험이 죽는 날은 뒤 절이 살아나는 날이고, 그때 위 머리글의 설명이 틀린 설명이 된다.
+{
+  const st = new FakeStatus();
+  const w = new WatchPrompt(st, {});
+  st.reachable = false;
+  await w.poll();
+  ok('못 닿으면 그렇게 말한다', w.saidLost === true);
+  st.reachable = true;
+  await w.poll();
+  ok('닿으면 말한 것을 잊는다', w.saidLost === false && w.reachable === true);
+  ok('닿는 동안 「말했다」가 남아 있지 않다', !(w.reachable && w.saidLost));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

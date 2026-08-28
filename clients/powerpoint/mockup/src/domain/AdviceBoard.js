@@ -41,6 +41,12 @@ export function foldAdvice(rows, { server = 'ppt' } = {}) {
     }
 
     const list = itemsOf(r.args);
+    // **못 읽은 호출도 센다.** `itemsOf` 가 `null` 을 주는 것은 「빈 목록을 실었다」가 아니라
+    // 「이 인자에서는 항목을 못 꺼낸다」다 — 모델이 `advise({slideId:'s1'})` 처럼 말을 빼고
+    // 부른 판이 그렇다. 여기서 안 세면 그 호출은 포스트잇도 쪽지도 없이 **통째로 사라지고**,
+    // 사람은 모델이 아무 말도 안 한 것으로 읽는다. 화면의 문장(「무엇을 말하는지 안 실려」)이
+    // 그대로 맞는 경우라 세는 자리도 같다.
+    if (list === null) { dropped += 1; continue; }
     list.forEach((it, i) => {
       // **말이 없으면 안 붙인다.** 붙이면 빈 포스트잇이 뜨고, 빈 포스트잇은 사람이 무엇을
       // 놓쳤는지 알 길을 안 준다. 대신 몇 장을 못 붙였는지 센다.
@@ -67,11 +73,16 @@ function tail(name) {
 /**
  * 호출 인자에서 항목 목록. **한 장짜리 호출도 받는다** — 설계는 `items[]` 지만, 모델이 한 장을
  * 그냥 펴서 부른 것을 못 알아듣고 버리면 그 안내는 아무 데도 안 남는다.
+ *
+ * **`null` 과 `[]` 는 다른 답이다.** `[]` 는 「빈 목록을 실었다」고, `null` 은 「이 인자에서는
+ * 항목을 못 꺼낸다」다. 둘을 같은 값으로 접으면 못 읽은 호출이 조용히 없던 일이 되는데, 그것이
+ * 이 파일이 `strays` 를 두는 이유와 같은 결함이다(§5.7 — 부재의 사유를 값에 싣는다).
  */
 function itemsOf(args) {
-  if (args == null) return [];
+  if (args == null) return null;
   if (Array.isArray(args)) return args;
+  // 빈 배열이면 **빈 목록이다** — 못 읽은 게 아니다.
   if (Array.isArray(args.items)) return args.items;
   if (typeof args.message === 'string') return [args];
-  return [];
+  return null;
 }
