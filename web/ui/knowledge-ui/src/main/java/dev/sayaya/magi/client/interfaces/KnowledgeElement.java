@@ -51,7 +51,8 @@ public class KnowledgeElement {
         // 사유는 <b>그 판의 것</b>이다 — 하나로 모으면 서버를 지우려다 들은 말이 규칙 목록
         // 위에 선다. 위키는 이 화면에서 쓰지 않으므로 세울 사유가 없다.
         skills = new Pane("skills", "nav.lessons", true, store::skillQuery, store::skillsRefusal);
-        wiki = new Pane("wiki", "nav.wiki", false, store::wikiQuery);
+        // 위키는 아직 이 판에서 쓰지 않는다 — 거절이 올 press가 없다(있게 되면 여기가 바뀐다).
+        wiki = new Pane("wiki", "nav.wiki", false, store::wikiQuery, () -> "");
         mcp = new Pane("mcp", "nav.mcp", false, store::mcpQuery, store::mcpRefusal);
         dialog = new McpDialog();
         // 다이얼로그는 <b>창의 것</b>이라 창(body)에 붙인다 — 판 안에 두면 그 판의 등장
@@ -167,11 +168,13 @@ public class KnowledgeElement {
          */
         private final java.util.function.Supplier<String> refusal;
         private HTMLElement refused = null;
+        private String saidWhy = null;   // 마지막으로 <b>세운</b> 말 — 같은 말이면 다시 세우지 않는다
 
-        Pane(String id, String headKey, boolean lead, java.util.function.Consumer<String> onQuery) {
-            this(id, headKey, lead, onQuery, () -> "");
-        }
-
+        /**
+         * 사유를 어디서 읽는지는 <b>부르는 쪽이 반드시 적는다</b> — 「없음」도 적어서 고른다
+         * ({@code () -> ""}). 편의 생성자를 하나 두었더니 그것이 곧 「사유 없음」의 기본값이
+         * 되어, 다음에 판이 하나 더 늘 때 <b>아무 말도 안 하는 판</b>이 조용히 생길 자리였다.
+         */
         Pane(String id, String headKey, boolean lead, java.util.function.Consumer<String> onQuery,
              java.util.function.Supplier<String> refusal) {
             this.refusal = refusal;
@@ -205,14 +208,21 @@ public class KnowledgeElement {
         private void sayRefusal() {
             String why = refusal.get();
             if (why == null || why.isEmpty()) {
-                if (refused != null) { refused.remove(); refused = null; }
+                if (refused != null) { refused.remove(); refused = null; saidWhy = null; }
                 return;
             }
+            // 이미 서 있는 <b>그 말</b>이면 손대지 않는다. role=alert는 이 줄이 바뀔 때마다
+            // 읽는 기계가 다시 읽어 주는 자리인데, 이 판은 찾기 칸에 글자 하나가 들어올 때마다
+            // 다시 그려진다(skillQuery → told → render → fill) — 그대로 두면 한 번 거절당한
+            // 사람은 타이핑하는 내내 같은 문장을 듣는다. 이웃한 안내 줄이 saidQuery/saidCount로
+            // 이미 이렇게 굴고 있었다.
+            if (refused != null && why.equals(saidWhy) && refused.parentNode == box) return;
             if (refused == null) {
                 refused = cell("refused", null);
                 refused.setAttribute("role", "alert");
             }
             refused.textContent = why;
+            saidWhy = why;
             // 머리(그리고 있으면 소개 줄) 바로 다음 — 찾기 상자보다 위다.
             box.insertBefore(refused, say != null ? say.nextSibling : head.nextSibling);
         }

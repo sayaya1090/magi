@@ -247,6 +247,39 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.locator("#mcp .refused").count() shouldBe 0
             }
         }
+        When("사유가 선 채로 찾기 칸에 글자를 넣으면") {
+            // role=alert는 <b>바뀔 때마다</b> 읽히는 줄이다. 이 판은 글자 하나마다 다시
+            // 그려지므로(skillQuery → told → render → fill), 사유를 매번 다시 세우면 한 번
+            // 거절당한 사람은 타이핑하는 내내 같은 문장을 듣는다. 그래서 세는 것은 화면의
+            // 모습이 아니라 <b>그 노드에 일어난 변화의 수</b>다.
+            page.evaluate("""
+                (() => {
+                  const no = document.querySelector('#skills .refused');
+                  window.__magi_test_alerts = 0;
+                  window.__magi_test_obs = new MutationObserver(ms => {
+                    for (const m of ms) {
+                      if (m.target === no) { window.__magi_test_alerts++; continue; }
+                      m.removedNodes.forEach(n => { if (n === no) window.__magi_test_alerts++; });
+                      m.addedNodes.forEach(n => { if (n === no) window.__magi_test_alerts++; });
+                    }
+                  });
+                  window.__magi_test_obs.observe(document.querySelector('#skills'),
+                    {childList: true, subtree: true, characterData: true});
+                })()
+            """)
+            val box = "#skills .skfind md-outlined-text-field textarea, " +
+                "#skills .skfind md-outlined-text-field input"
+            page.locator(box).first().fill("c")
+            page.locator(box).first().fill("ca")
+            page.locator(box).first().fill("cac")
+            Then("그 줄은 한 번도 다시 서지 않는다 — 같은 말은 다시 읽힐 일이 아니다") {
+                page.waitForCondition { page.locator("#skills .refused").count() == 1 }
+                page.evaluate("window.__magi_test_alerts") shouldBe 0
+                page.locator("#skills .refused").textContent() shouldBe "that rule is pinned by the workspace"
+                page.evaluate("window.__magi_test_obs.disconnect()")
+                page.locator(box).first().fill("")
+            }
+        }
         When("이번엔 서버 제거가 거절당하면") {
             page.locator("#mcp .srv .drop").first().click()
             page.locator("#mcp .srv .drop.armed").click()
