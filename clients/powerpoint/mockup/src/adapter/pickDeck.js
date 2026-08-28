@@ -76,3 +76,66 @@ export async function pickDeck({
   }
   return { deck: deck(), why: 'timeout', host: null, late: ready, error: null, office };
 }
+
+/**
+ * 그 고름을 사람에게 알리는 한 줄. 없으면 `null` — 할 말이 없다는 뜻이다.
+ *
+ * **글을 여기서 짓는다.** 화면에 두면 `host` 를 안 밝힌 답과 밝힌 답이 같은 문장으로 나가고,
+ * 그건 못 잰다(화면은 DOM 이 있어야 돈다). 사유를 갈라 놓고 문장을 안 가르면 갈라 놓은 값이
+ * 없는 것과 같다 — `not-powerpoint` 가 갈라만 놓고 아무도 안 읽던 채로 있던 것과 같은 모양이다.
+ *
+ * `no-office` 만 잠잠하다. 브라우저에서 그냥 연 것이고, 옆에 뜬 가짜 캔버스가 그 자체로
+ * 설명이다. 나머지는 옆에 아무 설명이 없다.
+ */
+export function pickNote({ why, host, error } = {}) {
+  if (why === 'timeout') {
+    return 'Office 응답이 1.5초 안에 안 와 가짜 덱으로 갔습니다. '
+      + 'PowerPoint 안이라면 새로고침하세요.';
+  }
+  // **던진 것은 늦은 것이 아니다.** 새로고침 권유가 여기서는 틀린 권유고, 늦은 답이 없어서
+  // 뒤에 바로잡아 줄 것도 없다.
+  if (why === 'threw') {
+    return `Office 를 부르다 던졌습니다(${msgOf(error)}). `
+      + '가짜 덱으로 계속합니다 — 새로고침해도 같은 자리일 수 있습니다.';
+  }
+  if (why !== 'not-powerpoint') return null;
+  // **안 밝힌 것을 「다른 호스트」라고 적지 않는다.** `Office.js` 가 떴는데 호스트를 안 실어
+  // 보내면 우리가 아는 것은 「PowerPoint 라고 안 했다」뿐이다. 브라우저에서 이 목업을 여는
+  // 것이 바로 그 경우라, 「PowerPoint 가 아닌 Office 호스트입니다」는 **가장 흔한 길에서
+  // 거짓말**이 된다. 잠잠해지지는 않는다 — 호스트를 안 밝힌 진짜 Office 도 여기로 오고,
+  // 그건 옆의 가짜 캔버스가 설명해 주지 못한다.
+  if (host === null || host === undefined) {
+    return 'Office.js 는 떴는데 어느 호스트인지 안 밝혔습니다 — 브라우저에서 그냥 열면 '
+      + '그렇습니다. 이 창은 PowerPoint 안에서만 진짜 덱에 붙습니다.';
+  }
+  return `PowerPoint 가 아닌 Office 호스트입니다(${host}). `
+    + '이 창은 PowerPoint 에서만 진짜 덱에 붙습니다.';
+}
+
+/**
+ * 시한을 넘긴 뒤 **늦게 온 답**에 대한 한 줄.
+ *
+ * 앞의 시한 쪽지는 「PowerPoint 안이라면 새로고침하세요」라는 **조건부**다. 늦게 온 답이
+ * 조건을 깨면(Word 였다, 끝내 던졌다) 그 권유가 틀린 권유가 되므로 여기서 덮어써야 한다.
+ *
+ * `want` 는 부르는 쪽이 넣어 준다 — 전역 `Office` 를 여기서 다시 짚으면 `pickDeck` 에 넣어 준
+ * 물건과 다른 것을 보게 된다.
+ */
+export function lateNote(lateHost, want) {
+  // `want` 가 `null` 인 판에서 `lateHost` 도 `null` 이면 「둘 다 모른다」지 「같다」가 아니다.
+  if (want != null && lateHost === want) {
+    return 'PowerPoint 를 늦게 잡았습니다. 새로고침하면 진짜 덱에 붙습니다.';
+  }
+  if (lateHost === null || lateHost === undefined) {
+    return 'Office 가 늦게 답했지만 어느 호스트인지 안 밝혔습니다. 새로고침해도 같은 자리입니다.';
+  }
+  return `Office 가 늦게 답했는데 PowerPoint 가 아닙니다(${lateHost}). `
+    + '새로고침해도 같은 자리입니다.';
+}
+
+/** 늦은 답이 **던졌다**. 앞의 조건부 쪽지가 이 사실을 대신 말해 주지 못한다. */
+export function lateFailNote(e) {
+  return `Office 를 끝내 못 잡았습니다(${msgOf(e)}). 가짜 덱으로 계속합니다.`;
+}
+
+function msgOf(e) { return e?.message ?? String(e); }

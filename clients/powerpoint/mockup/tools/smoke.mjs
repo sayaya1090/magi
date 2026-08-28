@@ -12,7 +12,7 @@ import { Advice, targetLabel } from '../src/domain/Advice.js';
 import { foldAdvice } from '../src/domain/AdviceBoard.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { OfficeDeck } from '../src/adapter/OfficeDeck.js';
-import { pickDeck } from '../src/adapter/pickDeck.js';
+import { pickDeck, pickNote, lateNote, lateFailNote } from '../src/adapter/pickDeck.js';
 import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
 import { SendTurn } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
@@ -786,6 +786,39 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const blind = await pickDeck({ office: { onReady: async () => ({}) } });
   ok('모르는 둘을 같다고 세지 않는다',
     blind.why === 'not-powerpoint' && blind.deck instanceof FakeDeck, blind.why);
+
+  // 갈라 둔 사유가 **문장에서도** 갈라지는가. 앞 판본은 `not-powerpoint` 하나를 한 문장으로
+  // 내보내서, 호스트를 안 밝힌 답에 대고 「PowerPoint 가 아닌 Office 호스트입니다(호스트를
+  // 안 밝힘)」이라 적었다 — 브라우저에서 그냥 여는 **가장 흔한 길**에서 없는 호스트를 있다고
+  // 말한 것이다. 값이 갈라져 있어도 읽는 쪽이 안 가르면 안 가른 것과 같다.
+  ok('안 밝힌 호스트를 「다른 호스트」라고 적지 않는다',
+    !pickNote(blind).includes('PowerPoint 가 아닌 Office 호스트'), pickNote(blind));
+  ok('밝힌 호스트는 그 이름으로 적는다',
+    pickNote(word).includes('Word'), pickNote(word));
+  ok('그 둘이 서로 다른 문장이다', pickNote(blind) !== pickNote(word));
+  ok('없는 호스트를 괄호로 지어내지 않는다', !pickNote(blind).includes('('), pickNote(blind));
+
+  // 옆에 가짜 캔버스가 떠 설명이 되는 길만 잠잠하다. 나머지 셋은 아무 설명이 없다.
+  ok('Office 가 없는 길만 잠잠하다',
+    pickNote(none) === null && pickNote(threw) !== null && pickNote(slow) !== null);
+  ok('던진 것은 시한 초과와 다른 문장이다', pickNote(threw) !== pickNote(slow));
+  ok('던진 사유를 문장이 싣는다', pickNote(threw).includes('office.js 를 못 읽었습니다'));
+
+  // 시한 쪽지는 「PowerPoint 안이라면 새로고침하세요」라는 **조건부**다. 늦게 온 답이 조건을
+  // 깨면 그 권유가 틀린 권유가 되므로 늦은 쪽지가 덮어써야 한다.
+  ok('늦게 잡은 PowerPoint 는 새로고침하라 한다',
+    lateNote('PowerPoint', 'PowerPoint').includes('새로고침하면'));
+  ok('늦게 온 딴 호스트는 이름으로 적는다',
+    lateNote('Word', 'PowerPoint').includes('Word'));
+  ok('늦게 왔는데 안 밝힌 것을 「PowerPoint 가 아니다」라고 단정하지 않는다',
+    !lateNote(null, 'PowerPoint').includes('PowerPoint 가 아닙니다'), lateNote(null, 'PowerPoint'));
+  // `HostType` 이 없는 판: `want` 도 `null` 이다. 「둘 다 모른다」를 「같다」로 세면 Word 위에서
+  // 「PowerPoint 를 늦게 잡았습니다」가 나간다.
+  ok('모르는 둘을 늦은 쪽지에서도 같다고 세지 않는다',
+    !lateNote(null, null).includes('늦게 잡았습니다'), lateNote(null, null));
+  ok('끝내 못 잡은 것은 늦게 온 답과 다른 문장이다',
+    lateFailNote(boom).includes('office.js 를 못 읽었습니다')
+      && lateFailNote(boom) !== lateNote(null, 'PowerPoint'));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
