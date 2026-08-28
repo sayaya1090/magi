@@ -4,8 +4,9 @@
 // 여기 담긴 값은 안 바뀌고, 나중에 shapeId 가 안 맞으면 그때 **멈추는 것이 계약**이다 — 비슷한
 // 것을 찾아 대신 고치면 모델이 엉뚱한 도형을 고치고도 성공했다고 말한다.
 export class Quote {
-  constructor({ slideId, shapeId, name, type, text, width, height }) {
+  constructor({ slideId, slideNo, shapeId, name, type, text, width, height }) {
     this.slideId = slideId;
+    this.slideNo = slideNo ?? null;   // 사람에게 보여 줄 번호. 없으면 화면이 id 를 쓴다
     this.shapeId = shapeId;
     this.name = name ?? '';
     this.type = type ?? 'Unknown';
@@ -18,6 +19,16 @@ export class Quote {
   /** 사람이 창에서 읽는 한 줄. */
   get headline() {
     return this.name ? `${this.name}` : this.type;
+  }
+
+  /**
+   * 카드 머리에 적을 자리. 번호를 아는 날은 번호로, 모르는 날은 id 로 적는다.
+   *
+   * **번호는 여기까지만 산다.** `toPrompt()` 에는 안 싣는데, 슬라이드를 한 번 끌어 옮기면 그
+   * 자리에서 낡는 값이라 크기와 같은 부류이기 때문이다(§5.8).
+   */
+  get where() {
+    return this.slideNo == null ? `슬라이드 ${this.slideId}` : `슬라이드 ${this.slideNo}`;
   }
 
   /** 길면 자른다 — 인용은 요약이 아니라 지시 대상이다. */

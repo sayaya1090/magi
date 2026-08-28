@@ -32,6 +32,13 @@ ok('하나 인용', r1.added.length === 1 && conv.pending.length === 1);
 ok('인용문에 식별자가 남는다', conv.pending[0].toPrompt().includes('shape=sh8c30'),
    conv.pending[0].headline);
 
+// 사람은 번호로, 도구는 id 로. 번호는 슬라이드를 끌어 옮기면 낡으므로 모델에게 안 간다.
+ok('카드는 번호로 적는다', conv.pending[0].where === '슬라이드 4', conv.pending[0].where);
+ok('인용문에는 번호가 없다', !conv.pending[0].toPrompt().includes('슬라이드'));
+ok('번호를 모르면 id 로 적는다',
+   new Quote({ slideId: 's9', shapeId: 'x' }).where === '슬라이드 s9');
+ok('가짜 덱은 번호표를 준다', (await deck.slideNumbers()).get('s7') === 7);
+
 // 긴 글은 자르되 **자른 티가 나야** 한다 — 모델이 그걸 전문으로 읽으면 뒤쪽을 없는 셈 친다.
 {
   const long = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '가'.repeat(900) });

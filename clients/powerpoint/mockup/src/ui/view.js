@@ -12,6 +12,7 @@ export class View {
     this.chat = chat;
     this.deck = deck;
     this.advices = [];
+    this.slideNos = null;   // null = 안 물어봤거나 못 얻었다. 그때는 id 로 적는다.
   }
 
   mount() {
@@ -86,6 +87,12 @@ export class View {
     if (ev.kind === 'advise') {
       this.advices.push(new Advice(ev.advice));
       this.renderAdvice();
+      // 번호는 덱에 물어야 안다. 먼저 id 로 그려 놓고, 답이 오면 다시 그린다 — 목록이 늦게 뜨는
+      // 것보다 늦게 예뻐지는 쪽이 낫다. 순서가 바뀌었을 수 있으니 **매번 다시 묻는다.**
+      this.deck.slideNumbers().then((m) => {
+        this.slideNos = m;
+        this.renderAdvice();
+      }).catch(() => {});
     }
   }
 
@@ -112,7 +119,7 @@ export class View {
     el.className = 'quote';
     const head = document.createElement('div');
     head.className = 'quote-head';
-    head.textContent = `슬라이드 ${q.slideId} · ${q.headline}`;
+    head.textContent = `${q.where} · ${q.headline}`;
     const body = document.createElement('div');
     body.className = 'quote-body';
     body.textContent = q.text ? `"${q.preview()}"` : '(글 없음)';
@@ -166,7 +173,8 @@ export class View {
       if (a.pointable) {
         const where = document.createElement('div');
         where.className = 'advice-target';
-        where.textContent = [`슬라이드 ${a.slideId}`, ...a.shapeIds].join(' · ');
+        const no = this.slideNos?.get(a.slideId);
+        where.textContent = [`슬라이드 ${no ?? a.slideId}`, ...a.shapeIds].join(' · ');
         el.append(where);
       }
       // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
