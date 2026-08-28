@@ -79,6 +79,7 @@ export class QuoteSelection {
         name: s.name,
         type: s.type,
         text: s.text,
+        textUnavailable: s.textUnavailable,
         width: s.width,
         height: s.height,
       });

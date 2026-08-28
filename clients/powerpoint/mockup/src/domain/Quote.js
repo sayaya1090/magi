@@ -4,13 +4,20 @@
 // 여기 담긴 값은 안 바뀌고, 나중에 shapeId 가 안 맞으면 그때 **멈추는 것이 계약**이다 — 비슷한
 // 것을 찾아 대신 고치면 모델이 엉뚱한 도형을 고치고도 성공했다고 말한다.
 export class Quote {
-  constructor({ slideId, slideNo, shapeId, name, type, text, width, height }) {
+  constructor({ slideId, slideNo, shapeId, name, type, text, width, height,
+                textUnavailable = false }) {
     this.slideId = slideId;
     this.slideNo = slideNo ?? null;   // 사람에게 보여 줄 번호. 없으면 화면이 id 를 쓴다
     this.shapeId = shapeId;
     this.name = name ?? '';
     this.type = type ?? 'Unknown';
     this.text = text ?? '';
+    /**
+     * 글을 **못 읽었다**(비어 있는 것이 아니라). 두 번째 왕복이 통째로 실패하면 신원은 살고
+     * 텍스트만 없어지는데(`OfficeDeck.selection`), 그때 빈 문자열로 두면 **글이 없는 도형과
+     * 같은 값**이 된다. 화면에도 프롬프트에도 그 둘은 달리 적혀야 한다.
+     */
+    this.textUnavailable = Boolean(textUnavailable);
     this.width = width ?? null;   // pt
     this.height = height ?? null; // pt
     Object.freeze(this);
@@ -53,6 +60,8 @@ export class Quote {
   toPrompt(limit = 400) {
     const head = `[인용] slide=${this.slideId} shape=${this.shapeId} type=${this.type}` +
       (this.name ? ` name="${this.name}"` : '');
+    // 자른 것을 적는 이유와 같다 — **안 적으면 모델은 글이 없는 줄 알고** 빈 상자로 치고 고친다.
+    if (this.textUnavailable) return `${head} textUnavailable=true`;
     if (!this.text) return head;
     const cut = this.text.length > limit;
     const body = cut ? this.text.slice(0, limit) : this.text;

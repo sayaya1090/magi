@@ -19,6 +19,8 @@ export class FakeDeck extends DeckPort {
      * `null` 을 준다)를 눌러 볼 길이 여기 말고는 없고, 안 눌러 보면 그 화면은 안 만든 것이다.
      */
     this.numbering = true;
+    /** 글을 읽어 주는가. false 면 신원만 오고 텍스트는 **못 읽은 것**으로 온다(목업 전용). */
+    this.readText = true;
   }
 
   /**
@@ -54,7 +56,13 @@ export class FakeDeck extends DeckPort {
   async selection() {
     const slide = this.slide(this.currentSlide);
     const shapes = slide.shapes.filter((s) => this.selected.has(s.id));
-    return { slideId: slide.id, slideNo: slide.no ?? null, shapes: shapes.map((s) => ({ ...s })) };
+    return {
+      slideId: slide.id,
+      slideNo: slide.no ?? null,
+      shapes: shapes.map((s) => (this.readText
+        ? { ...s }
+        : { ...s, text: '', textUnavailable: true })),
+    };
   }
 
   async slideNumbers() {

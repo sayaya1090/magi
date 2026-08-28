@@ -427,7 +427,10 @@ export class View {
     head.textContent = `${q.where} · ${q.headline}`;
     const body = document.createElement('div');
     body.className = 'quote-body';
-    body.textContent = q.text ? `"${q.preview()}"` : '(글 없음)';
+    // 「글이 없다」와 「글을 못 읽었다」는 다른 문장이다 — 뒤엣것을 앞엣것으로 적으면 사람도
+    // 모델도 빈 상자를 고치러 간다.
+    body.textContent = q.text ? `"${q.preview()}"`
+      : (q.textUnavailable ? '(글을 못 읽었습니다)' : '(글 없음)');
     const meta = document.createElement('div');
     meta.className = 'quote-meta';
     meta.textContent = [q.type, q.sizeLabel].filter(Boolean).join(' · ');

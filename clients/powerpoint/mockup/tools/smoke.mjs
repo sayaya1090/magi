@@ -630,5 +630,25 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('번호를 못 주는 덱은 null 을 준다', (await d.slideNumbers()) === null);
 }
 
+// ── 「글이 없다」와 「글을 못 읽었다」. `OfficeDeck.selection` 의 두 번째 왕복이 죽으면 신원만
+// 살고 텍스트가 빈 문자열이 되는데, 그대로 두면 **빈 상자와 값이 같다.** 인용은 모델에게 가는
+// 말이라 그 거짓은 화면이 아니라 프롬프트에서 값을 치른다(자른 것을 적는 이유와 같다).
+{
+  const empty = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '' });
+  const unread = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '',
+    textUnavailable: true });
+  ok('빈 상자는 아무 표시도 안 붙는다', !empty.toPrompt().includes('textUnavailable'));
+  ok('못 읽은 글은 그렇다고 실린다', unread.toPrompt().includes('textUnavailable=true'));
+  ok('둘은 모델에게 다른 말이다', empty.toPrompt() !== unread.toPrompt());
+
+  // 덱에서 유스케이스를 지나 인용까지 **실려 와야** 한다 — 한 층만 빠져도 값이 도로 같아진다.
+  const d2 = new FakeDeck(structuredClone(fixture));
+  d2.readText = false;
+  d2.click(fixture.slides[0].shapes[0].id, false);
+  const got = await new QuoteSelection(d2, new Composer()).run();
+  ok('덱이 못 읽었다고 하면 인용까지 실려 온다',
+     got.added[0]?.textUnavailable === true, JSON.stringify(got.added[0] ?? null));
+}
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

@@ -125,6 +125,17 @@ export function mountFakePrompts(status, root, { stream, readTranscript, session
         pushAdviceRows(stream);
       });
       box.append(nums);
+
+      // 두 번째 왕복이 죽는 날(`OfficeDeck.selection` 의 catch). 「글 없음」으로 적히면 사람도
+      // 모델도 빈 상자를 고치러 간다 — 그 화면이 실제로 어떻게 생겼는지는 눌러 봐야 안다.
+      const text = document.createElement('button');
+      text.textContent = '글 못 읽는 덱';
+      text.title = '신원은 오고 텍스트만 못 온 선택 — 인용이 「글 없음」이라 적으면 안 된다';
+      text.addEventListener('click', () => {
+        deck.readText = !deck.readText;
+        text.textContent = deck.readText ? '글 못 읽는 덱' : '글 읽는 덱';
+      });
+      box.append(text);
     }
   }
 

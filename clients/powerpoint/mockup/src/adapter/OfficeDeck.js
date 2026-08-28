@@ -84,13 +84,18 @@ export class OfficeDeck extends DeckPort {
         return tf;
       });
       let texts;
+      let textUnavailable = false;
       try {
         await context.sync();
         texts = frames.map((tf) => tf.textRange.text ?? '');
       } catch {
         // 텍스트가 없는 도형이 섞이면 통째로 실패할 수 있다. 그때는 텍스트를 포기하고
         // **신원은 살린다** — 인용의 몸은 신원이지 텍스트가 아니다.
+        //
+        // 다만 **포기했다는 사실을 실어 보낸다.** 빈 문자열로만 두면 「글이 없는 도형」과 값이
+        // 같아지고, 그 인용은 모델에게 "이 상자는 비었다"고 말하는 셈이 된다.
         texts = shapes.items.map(() => '');
+        textUnavailable = true;
       }
 
       return {
@@ -98,7 +103,7 @@ export class OfficeDeck extends DeckPort {
         slideNo,
         shapes: shapes.items.map((s, i) => ({
           id: s.id, name: s.name, type: s.type,
-          width: s.width, height: s.height, text: texts[i],
+          width: s.width, height: s.height, text: texts[i], textUnavailable,
         })),
       };
     });
