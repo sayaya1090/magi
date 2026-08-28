@@ -739,6 +739,47 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   try { foldAdvice(nameless.rows); } catch (e) { threw = e; }
   ok('이름 없는 호출이 안내 층을 안 끈다', threw === null, String(threw));
 }
+// ── **한 값으로만 불린 인자**가 가리킨 자리. 돌연변이 계측이 구조적으로 못 보는 종류다 —
+// 안 밟는 가지에는 뒤집을 연산자가 없어서 무엇을 뒤집어도 초록이 안 흔들린다. 대신 싸게 셀 수
+// 있는 것이 있다: 스위트 전체에서 그 인자에 **몇 가지 값이 갔는가**. 세어 보니 `FakeChat.reply`
+// 의 둘째 인자는 값이 하나뿐이었다 — 늘 인용이 박힌 글이었다. 즉 **인용 없이 낸 턴을 이 스위트가
+// 한 번도 안 밟았다.** 창에서 사람이 그냥 타이핑하면 나오는 가장 흔한 길인데도 그렇다.
+//
+// ⚠ 그 계측에도 눈먼 자리가 있다. 자유 함수는 **이 파일이 부른 것만** 세어져서, `promptOf` 도
+// 「인용 하나뿐」으로 나왔는데 실은 `SendTurn` 을 지나는 시험이 빈 인용으로 이미 밟고 있었다
+// (`filter` 를 빼 보면 그 시험이 먼저 빨개진다). 그러니 이 셈은 **후보를 주지 결론을 안 준다** —
+// 아래 두 줄은 그래서 「메운 구멍」이 아니라 계약을 직접 이름 붙여 두는 값이다.
+{
+  const q = new Quote({ slideId: 's4', slideNo: 4, shapeId: 'sh1', name: '제목',
+    type: 'TextBox', text: '3분기 매출 전망' });
+  // `filter(length > 0)` 가 있는 이유가 이 두 줄이다. 없으면 인용 없는 글에 빈 줄 둘이 앞서고,
+  // 모델이 받는 첫 글자가 개행이 된다.
+  ok('인용이 없으면 앞에 빈 줄이 안 붙는다', promptOf('줄여줘', []) === '줄여줘');
+  ok('글이 비면 인용만 간다', promptOf('', [q]) === q.toPrompt());
+
+  const port = new FakeTranscript({ s2: [] });
+  const read = new ReadTranscript(port);
+  read.attach('s2');
+  const chat = new FakeChat(port, { sessionId: 's2', delay: -1 });
+
+  // 먼저 인용을 실은 턴 하나. 뒤엣것과 **비교할 앞**이 있어야 「안 낳는다」와 「지운다」가 갈린다.
+  await chat.submit(promptOf('줄여줘', [q]));
+  chat.reply('m1', promptOf('줄여줘', [q]));
+  const before = foldAdvice(read.view.rows);
+  ok('앞 턴이 안내를 낳았다', before.items.length === 2, String(before.items.length));
+
+  await chat.submit('그냥 줄여줘');
+  chat.reply('m2', '그냥 줄여줘');
+  const after = foldAdvice(read.view.rows);
+  ok('인용 없는 턴은 되묻는다',
+    read.view.rows.some((r) => r.kind === 'model' && r.text.includes('「선택 인용」')));
+  ok('되물어도 턴은 끝난다', read.view.rows.filter((r) => r.kind === 'turn').length === 2);
+  // **안 낳는 것과 지우는 것은 다르다.** 안내 층은 로그를 접은 결과지 쌓아 둔 상태가 아니라,
+  // 안내 없는 턴이 하나 지나가도 앞의 포스트잇은 그 자리에 있어야 한다. 여기서 0 이 나오면
+  // 화면은 사람이 안 걷은 안내를 조용히 걷은 것이고, 4 가 나오면 같은 안내를 두 번 붙인 것이다.
+  ok('앞 턴의 안내가 그대로 서 있다', after.items.length === 2, String(after.items.length));
+  ok('못 붙인 셈이 생기지 않았다', after.dropped === 0 && after.strays.length === 0);
+}
 
 // ── 끝난 턴에 검증 딱지가 실려 온다(`TurnFinishedData.Unverified`). 「고쳤다」와 「고쳤다는데
 // 아무도 못 봤다」가 같은 종류로 오므로, 안 실으면 화면에서 둘이 똑같이 생긴다.
