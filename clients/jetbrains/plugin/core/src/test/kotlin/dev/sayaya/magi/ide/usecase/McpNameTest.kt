@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
 
 class McpNameTest {
@@ -14,24 +15,34 @@ class McpNameTest {
         assertEquals(McpName.VALUE, McpName.sanitize(McpName.VALUE))
     }
 
+    /**
+     * 다듬기와 이름 조립이 코어와 같은 답을 내는지 — **기대값은 Go 가 뱉은 것**이다.
+     *
+     * 여기 값을 손으로 적었을 때 두 자리가 갈렸고(서로게이트 쌍, 빈 이름) 고치면서 하나 더
+     * 틀렸다(`"..."` 를 `"x"` 로 적었는데 `___` 다 — 비허용 문자는 지워지는 게 아니라 바뀐다).
+     * 손으로 적은 기대값은 적는 사람이 이미 아는 것만 덮는다.
+     */
     @Test
-    fun `그래서 도구 이름이 예측 가능하다`() {
-        assertEquals("mcp__jetbrains__apply_edit", "mcp__${McpName.sanitize(McpName.VALUE)}__apply_edit")
+    fun `다듬기와 이름 조립이 골든과 같다`() {
+        val g = Json.parseToJsonElement(
+            javaClass.getResourceAsStream("/mcpname-golden.json")!!.readBytes().decodeToString()
+        ).jsonObject
+        val why = g["regenerate"]!!.jsonPrimitive.content
+
+        for (row in g["sanitizeToolPart"]!!.jsonArray) {
+            val (input, want) = row.jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(want, McpName.sanitize(input), "sanitize(${'$'}input)\n${'$'}why")
+        }
+        for (row in g["namespacedToolName"]!!.jsonArray) {
+            val (server, tool, want) = row.jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(want, McpName.toolName(server, tool), "toolName(${'$'}server, ${'$'}tool)\n${'$'}why")
+        }
     }
 
-    /** 코어가 다듬는 규칙과 같은 답을 내야 한다(mcp/manager.go 의 sanitizeToolPart). */
+    /** 우리 도구의 이름은 예측 가능해야 한다 — allow 룰이 그 문자열로 쓰인다. */
     @Test
-    fun `다듬기가 코어와 같다`() {
-        assertEquals("ppt_one", McpName.sanitize("ppt.one"))
-        assertEquals("ppt_one", McpName.sanitize("ppt_one"))   // 둘이 한 이름이 되는 그 자리
-        assertEquals("a-b_C9", McpName.sanitize("a-b_C9"))
-        assertEquals("__", McpName.sanitize("한글"))
-        // 갈렸던 둘. 서로게이트 쌍은 룬 하나라 `_` 하나이고, 빈 이름은 "x" 가 된다.
-        assertEquals("a_b", McpName.sanitize("a😀b"))
-        assertEquals("x", McpName.sanitize(""))
-        // 여기서 한 번 틀렸다: "..." 는 빈 문자열이 아니라 `___` 가 된다. 지워지는 게 아니라
-        // 바뀌기 때문이다. 손으로 적은 기대값이 또 틀린 자리이고, 골든이 필요한 이유이기도 하다.
-        assertEquals("___", McpName.sanitize("..."))
+    fun `우리 도구 이름`() {
+        assertEquals("mcp__jetbrains__apply_edit", McpName.ours("apply_edit"))
     }
 
     /** 거절의 갈래가 다르면 사람이 할 일도 다르다. */

@@ -45,6 +45,15 @@ object McpName {
         return if (b.isEmpty()) "x" else b.toString()
     }
 
+    /**
+     * 붙고 나면 도구가 이 이름으로 목록에 들어간다(`mcp/manager.go` 의 `namespacedToolName`).
+     * 사람이 allow 룰에 적어야 하는 문자열이 이것이라, 조립을 여기 두고 골든이 건다.
+     */
+    fun toolName(server: String, tool: String): String = "mcp__" + sanitize(server) + "__" + sanitize(tool)
+
+    /** 이 플러그인이 내놓는 도구의 이름. */
+    fun ours(tool: String): String = toolName(VALUE, tool)
+
     /** 붙기를 거절당했을 때, 사유가 둘이고 사람이 할 일이 다르다. */
     enum class Refusal {
         /** 같은 이름이 이미 붙어 있다 — 이 워크스페이스의 손이 이미 있다는 뜻이다. */
