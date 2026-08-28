@@ -159,14 +159,18 @@ func (a *App) AttachToolServer(ctx context.Context, name, url string, headers ma
 	if a.toolServers == nil {
 		return nil, fmt.Errorf("this build attaches no tool servers")
 	}
-	// A server may not take a namespace the companion already has tools in. The registry names an
-	// MCP tool mcp__<server>__<tool>, so the collision to look for is that PREFIX — comparing the
-	// server name against tool names (which this did) could never match one, because no tool is
-	// ever called plainly "ppt". Refused here, where the whole roster is known.
-	ns := "mcp__" + name + "__"
+	// A server may not take a name the companion already answers to. What this guard can catch is a
+	// server called `read` or `bash`: MCP tools are namespaced (mcp__<server>__<tool>) so one cannot
+	// shadow a builtin by advertising the name, but nothing stopped the SERVER from being called
+	// that and reading oddly in every list.
+	//
+	// The namespace collision — two server names that become one prefix — is deliberately NOT
+	// checked here. It is decided on the sanitised name, and sanitising belongs to the adapter that
+	// does the naming; core computing its own version of that word is how the two came to disagree
+	// in the first place. The adapter refuses it, with both names in the message.
 	for _, t := range a.tools.List() {
-		if t.Name() == name || strings.HasPrefix(t.Name(), ns) {
-			return nil, fmt.Errorf("%q is already the name of tools this companion has", name)
+		if t.Name() == name {
+			return nil, fmt.Errorf("%q is the name of a tool this companion already has", name)
 		}
 	}
 	return a.toolServers.Attach(ctx, name, url, headers)
