@@ -17,6 +17,7 @@ import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
 import { SendTurn } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
+import { readFileSync } from 'node:fs';
 import { fixture } from '../src/ui/deckFixture.js';
 import { headOf } from '../src/ui/view.js';
 import { Transcript } from '../src/domain/Transcript.js';
@@ -887,6 +888,53 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('끝내 못 잡은 것은 늦게 온 답과 다른 문장이다',
     lateFailNote(boom).includes('office.js 를 못 읽었습니다')
       && lateFailNote(boom) !== lateNote(null, 'PowerPoint'));
+}
+
+// ── 단추는 조용히 죽지 않는다 ────────────────────────────────────────────────
+//
+// `View.guard` 는 안쪽 유스케이스의 **약속**(던지는 대신 사유를 값에 싣는다)이 깨진 날을 위해
+// 있다. 그런데 그 규칙을 **콜사이트마다 손으로** 지키고 있었고, 그래서 `guard` 자기 주석이
+// 이름 댄 셋 중 하나를 빠뜨린 채로 있었다(30599cda). 손으로 지키는 규칙은 자리가 하나 늘 때
+// 안 지키는 쪽이 나온다.
+//
+// 그래서 여기서 **세어 보는 게 아니라 하나도 빠짐없이 분류한다.** 개수 단언은 프록시라, 자리가
+// 둘 늘고 둘 줄면 잠잠하다. 분류가 안 되는 자리가 하나라도 있으면 그 줄을 이름 대고 운다 —
+// 새로 붙는 리스너는 `guard`/`send` 를 지나거나, 왜 안 지나도 되는지 **여기 적혀야** 한다.
+//
+// 정규식이 깨지면 자리 0개로 조용히 초록이 되므로, 찾은 자리가 0 이면 그것부터 운다.
+{
+  const src = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+  const lines = src.split('\n');
+  // 지나도 되는 자리 — 손 대는 것이 이 창 안의 값뿐이라 던질 것이 없거나, 던지는 것을
+  // 제가 잡는 자리. 여는 줄을 그대로 적어 둔다(줄 번호는 움직이므로).
+  const allowed = new Map([
+    ["$('#quote').addEventListener('pointerenter', () => this.quoteSelection.sampleBeforeFocus());",
+      'QuoteSelection.sampleBeforeFocus 가 제 안에서 잡는다 — 사람이 누른 것이 아니라 계측이다'],
+    ["input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });",
+      'go() 가 this.send 를 지난다'],
+    ["b.addEventListener('click', go);", 'go() 가 this.send 를 지난다'],
+    ["b.addEventListener('click', () => {", '그만 기다리기 — composer.release 와 다시 그리기뿐'],
+    ["x.addEventListener('click', () => {", '인용 빼기 — composer.detach 와 다시 그리기뿐'],
+  ]);
+  const sites = [];
+  const stray = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].includes('addEventListener(')) continue;
+    const head = lines[i].trim();
+    sites.push(head);
+    if (allowed.has(head)) continue;
+    // 핸들러가 여러 줄일 수 있어 뒤를 조금 본다. `guard`/`send` 중 하나를 지나야 한다.
+    const body = lines.slice(i, i + 8).join('\n');
+    if (!body.includes('this.guard(') && !body.includes('this.send(')) {
+      stray.push(`${i + 1}: ${head}`);
+    }
+  }
+  ok('view.js 의 리스너 자리를 실제로 찾았다', sites.length > 0, sites.length);
+  ok('guard 를 안 지나는 리스너는 여기 사유가 적혀 있다', stray.length === 0, stray.join(' / '));
+  // 허용 목록이 **낡는 것**도 잡는다. 지운 자리를 계속 허용해 두면, 나중에 같은 첫 줄을 가진
+  // 새 리스너가 아무 심사 없이 통과한다.
+  const dead = [...allowed.keys()].filter((k) => !sites.includes(k));
+  ok('허용 목록에 없어진 자리가 남아 있지 않다', dead.length === 0, dead.join(' / '));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

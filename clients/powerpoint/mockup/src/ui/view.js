@@ -589,10 +589,17 @@ export class View {
         : a.unpointableReason;
       el.append(where);
       // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
-      el.addEventListener('click', async () => {
+      //
+      // `guard` 를 지난다. `PointAtAdvice.run` 은 오늘 약속을 지키지만(던지는 대신 `ok/reason`
+      // 을 싣는다), **그 약속을 못 믿겠다는 것이 `guard` 가 있는 이유**다 — 그 문서주석이
+      // 이름을 댄 셋 중 하나가 바로 이 유스케이스인데, 셋 중 둘만 감싸여 있었다. 여기서 깨지면
+      // async 리스너의 거절이라 갈 곳이 없다: 콘솔에만 남고 누른 사람에게는 **아무 일도 안
+      // 일어난다.** 실측했다 — 쪽지가 안 바뀌어서, 마침 서 있던 앞 쪽지가 이 누름의 답인 척
+      // 자리를 지켰다. 침묵보다 나쁘다.
+      el.addEventListener('click', () => this.guard(async () => {
         const { ok, reason } = await this.pointAt.run(a);
         if (!ok) this.note(reason);
-      });
+      }, '안내를 못 따라갔습니다'));
       box.append(el);
     }
   }
