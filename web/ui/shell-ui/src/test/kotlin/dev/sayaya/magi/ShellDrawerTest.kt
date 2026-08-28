@@ -149,7 +149,7 @@ internal class ShellDrawerTest : GwtTestSpec({
                 // 문장이 남의 말을 덮지 않는다.
                 page.waitForSelector("#masthead #note")
                 page.locator("#note").textContent() shouldBe "state.companion_gone"
-                page.locator("#note").getAttribute("title") shouldBe "state.companion_gone"
+                page.locator("#note").getAttribute("data-tip") shouldBe "state.companion_gone"
             }
             Then("답하는 컴패니언으로 옮기면 점이 돌아온다 — 사실이 바뀐 것이지 회선이 아니다") {
                 page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
@@ -159,7 +159,7 @@ internal class ShellDrawerTest : GwtTestSpec({
             }
             Then("그 말은 걷힌다 — 빈 줄은 자리도 차지하지 않는다(#note:empty)") {
                 page.waitForCondition { page.locator("#note").textContent().isEmpty() }
-                page.locator("#note[title]").count() shouldBe 0
+                page.locator("#note[data-tip]").count() shouldBe 0
                 page.evaluate("getComputedStyle(document.querySelector('#note')).display") shouldBe "none"
             }
             Then("목록으로 나오면 다시 회선만의 것이다 — 하나가 멈춘 것을 이 점이 말할 수는 없다") {
@@ -428,6 +428,55 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#rail[menu=expand]").count() shouldBe 1
                 page.locator("#railTool .railpanel-head").textContent() shouldBe "nav.companions"
                 page.locator("#railTool .raili.tooli").count() shouldBe 2
+            }
+        }
+        When("그림뿐인 컨트롤에 포인터가 올라가면") {
+            // 드로어를 걷고 시작한다 — 앞 장면이 열어 둔 판이 톱니를 덮는다.
+            page.evaluate("(() => { const s = document.getElementById('scrim'); if (s) s.click(); })()")
+            page.waitForCondition { page.locator("body[nav=open]").count() == 0 }
+            page.locator("#prefs").hover()
+            Then("창에 하나뿐인 판이 그 컨트롤의 말로 선다") {
+                page.waitForCondition { page.locator("#tip").isVisible() }
+                // 팩 없는 테스트 페이지라 키가 폴백이다 — 계약은 "그 컨트롤의 data-tip".
+                page.locator("#tip").textContent() shouldBe "nav.preferences"
+                page.locator("#tip").count() shouldBe 1
+            }
+            Then("포인터가 떠나도 곧바로는 아니다 — 1.5초는 그 말을 읽는 시간이다") {
+                page.mouse().move(600.0, 600.0)
+                page.locator("#tip").isVisible() shouldBe true
+            }
+            Then("셈은 마우스가 움직일 때마다 되감기지 않는다 — 되감으면 판이 영영 안 걷힌다") {
+                // 주인 밖에서 2초 동안 계속 움직인다. 운영이 밟은 자리라 여기서 기다리지 않고
+                // 잰다: 되감기는 구현이면 이 순간 판은 아직 서 있다.
+                repeat(10) { page.mouse().move(600.0 + it, 600.0); page.waitForTimeout(200.0) }
+                page.locator("#tip").isVisible() shouldBe false
+            }
+        }
+        When("키보드로 탭해 오면") {
+            page.locator("#prefs").focus()
+            Then("포인터 없이도 뜬다 — title=이 한 번도 하지 않던 절반") {
+                page.waitForCondition { page.locator("#tip").isVisible() }
+                page.locator("#tip").textContent() shouldBe "nav.preferences"
+            }
+            Then("초점이 떠나면 걷힌다") {
+                page.evaluate("document.getElementById('prefs').blur()")
+                page.waitForCondition { !page.locator("#tip").isVisible() }
+            }
+        }
+        When("툴팁의 주인이 다시 그려져 사라지면") {
+            // 판은 몇 초마다 다시 그려진다. 하필 그때 호버 중이던 컨트롤은 떠나는 것이 아니라
+            // 치워지는 것이고, 사라진 노드는 pointerout을 내지 않는다 — 아무도 나가라고 하지
+            // 않는다. 진짜 컨트롤을 지우지 않으려고 제 것을 하나 세워 재현한다.
+            page.evaluate("(() => { const b = document.createElement('button'); b.id = 'tipprobe';" +
+                " b.setAttribute('data-tip', 'probe'); b.textContent = 'p';" +
+                " b.style.cssText = 'position:fixed;top:300px;left:300px;z-index:99';" +
+                " document.body.append(b); })()")
+            page.locator("#tipprobe").hover()
+            page.waitForCondition { page.locator("#tip").textContent() == "probe" }
+            Then("남은 판도 걷힌다 — 주인 없는 설명은 아무 말도 아니다") {
+                page.evaluate("document.getElementById('tipprobe').remove()")
+                page.mouse().move(700.0, 700.0)
+                page.waitForCondition { !page.locator("#tip").isVisible() }
             }
         }
     }

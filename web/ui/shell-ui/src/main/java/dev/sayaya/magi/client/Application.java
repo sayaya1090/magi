@@ -24,7 +24,10 @@ public class Application implements EntryPoint {
                     component.rail().element(),
                     component.frame().element(),
                     // 팔레트는 창의 것이라 화면 밖에 선다 — 어느 화면에서 눌러도 같은 상자다.
-                    component.palette().element());
+                    component.palette().element(),
+                    // 툴팁도 창의 것이다: 판 하나를 세워 두면 어느 화면의 컨트롤이든 제
+                    // data-tip만 적으면 된다(셸이 그 화면들을 알 필요가 없다).
+                    component.tip().element());
             component.masthead().paint();
             component.rail().paint();
             component.initializer().initialize();

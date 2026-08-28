@@ -15,6 +15,7 @@ public interface ShellComponent {
     dev.sayaya.magi.client.interfaces.TurnbarElement turnbar();
 
     dev.sayaya.magi.client.interfaces.PaletteElement palette();
+    dev.sayaya.magi.client.interfaces.TipElement tip();
     RailElement rail();
     FrameElement frame();
 }

@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Keys;
 import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.Tips;
 
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.Facts;
@@ -92,8 +93,8 @@ public class MastheadElement {
         // 어느 수정자인지는 이 화면의 사실이 아니다 — 편집기의 두 버튼도 같은 낱말을 광고한다.
         String cmdKey = Keys.mac() ? "⌘K" : "Ctrl+K";
         palBtn.setAttribute("aria-label", tr("pal.head"));
-        palBtn.setAttribute("title", tr("pal.head") + "  ·  " + cmdKey);
-        gear.setAttribute("title", tr("nav.preferences"));
+        Tips.on(palBtn, tr("pal.head") + "  ·  " + cmdKey);
+        Tips.on(gear, tr("nav.preferences"));
         // 점의 말도 팩을 탄다 — 색은 그대로여도 읽어 주는 말은 언어가 정해진 뒤라야 맞다.
         paintConn();
         crumbs();
@@ -260,16 +261,15 @@ public class MastheadElement {
      * 보이는 한 줄. 빈 문자열은 걷는다는 뜻이다(console.css의 `#note:empty{display:none}`).
      *
      * 같은 문장을 다시 쓰지 않는 이유는 이것이 polite 라이브영역이기 때문이다: 같은 글을 두 번
-     * 넣으면 두 번 발표된다. 잘린 꼬리는 title이 들고 있는다 — 운영은 제가 그리는 툴팁(data-tip)에
-     * 실었고 이 콘솔에는 그 기계가 없어 브라우저의 것을 쓴다. 잘라 놓고 읽을 길을 안 주는 것만
-     * 아니면 되는 자리다.
+     * 넣으면 두 번 발표된다. 잘린 꼬리는 툴팁이 들고 있는다(data-tip) — 이 줄은 좁은 폭에서
+     * 줄임표로 잘리고, 잘라 놓고 읽을 길을 안 주지 않는 것이 이 자리의 규칙이다.
      */
     private void says(String text) {
         String t = text == null ? "" : text;
         if (t.equals(note.textContent)) return;
         note.textContent = t;
-        if (t.isEmpty()) note.removeAttribute("title");
-        else note.setAttribute("title", t);
+        // 빈 말은 스스로 걷힌다(Tips.on의 계약) — 여기서 두 갈래를 쓸 일이 없다.
+        Tips.on(note, t);
     }
 
     /**
