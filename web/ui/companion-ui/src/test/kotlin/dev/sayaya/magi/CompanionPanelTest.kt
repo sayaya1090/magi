@@ -391,5 +391,34 @@ internal class CompanionPanelTest : GwtTestSpec({
             page.evaluate("delete window.__magi_test_loop_says")
             page.locator("#cardtabs md-secondary-tab[data-card=\"insp.loop\"] .tabclose").click()
         }
+        When("자식이 <b>이것을 보이라</b>고 청하면") {
+            // 부탁과 보고는 다른 칸이다(CardSharing.ask/asked 대 showing). 한 칸이었을 때 부모가
+            // 적은 보고가 다음 그리기에 요청으로 되읽혔고, 눌러서 연 카드 대신 사실판이 섰다.
+            // 갈라 둔 지금은 그 일이 표현되지 않는다 — 부모는 부탁을 적을 수 없다.
+            //
+            // 자식은 여기 없으므로(코딩 화면은 다른 모듈이다) 자식이 하는 일을 그대로 한다:
+            // 부탁 칸에 적고 부탁의 종을 울린다. 그 종이 <b>따로</b> 있다는 것이 여기서 재는 것이다 —
+            // 보고의 종에 얹어 두었을 때 부탁은 자식이 카드를 다시 건네 주는 우연으로만 도착했다.
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").first().click()
+            page.waitForSelector("#fileview .dinsp#insp\\.tools")
+            Then("서 있던 것은 방금 연 카드다 — 이 장면이 재는 것은 <b>바뀌는가</b>다") {
+                page.evaluate("window.__magi_cards_showing") shouldBe "insp.tools"
+                page.locator("#detail").isVisible() shouldBe false
+            }
+            Then("청한 것이 선다 — 카드 줄은 그대로인데") {
+                page.evaluate("(() => { window.__magi_cards_ask = 'facts';" +
+                    " window.__magi_cards_ask_obs.forEach(f => f()); true })()")
+                page.waitForCondition { page.evaluate("window.__magi_cards_showing") == "facts" }
+                page.locator("#detail").isVisible() shouldBe true
+                // 닫은 것이 아니라 <b>갈아탄</b> 것이다: 그 카드의 탭은 그대로 있다.
+                page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"]").count() shouldBe 1
+            }
+            Then("이뤄진 부탁은 지워진다 — 읽을 때가 아니라 <b>이뤄질 때</b>") {
+                // 읽자마자 비우면, 아직 카드가 서지 않은 것을 청한 부탁은 그것이 설 기회를 갖기 전
+                // 그리기에서 증발한다(코딩 화면의 팔레트가 그 자리다: 본문이 와야 카드가 선다).
+                page.evaluate("window.__magi_cards_ask || ''") shouldBe ""
+            }
+            page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"] .tabclose").click()
+        }
     }
 })

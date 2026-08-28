@@ -142,7 +142,7 @@ public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
         if (isNew) opened.put(path, null);
         // 이미 열려 있던 파일이면 <b>그 탭으로 간다</b> — 누른 사람이 원한 것은 새 탭이 아니라
         // 그 파일이고, 아무 일도 일어나지 않으면 눌리지 않은 것처럼 읽힌다(실측).
-        dev.sayaya.magi.bridge.CardSharing.showing(path);
+        dev.sayaya.magi.bridge.CardSharing.ask(path);
         told();
         if (!isNew && opened.get(path) != null) return;   // 이미 읽어 둔 본문을 다시 묻지 않는다
         source.file(ctx, path, got -> {

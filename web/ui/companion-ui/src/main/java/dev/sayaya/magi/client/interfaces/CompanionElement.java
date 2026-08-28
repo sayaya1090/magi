@@ -127,6 +127,9 @@ public class CompanionElement {
         prompt.wire();
         // 자식이 카드를 열고 닫으면 줄이 따라간다 — 무엇이 열려 있는지는 자식만 안다.
         CardSharing.onChange(cards -> drawCards());
+        // 부탁도 직접 듣는다 — 자식이 카드를 다시 건네 주기를 기다리지 않는다(폰의 대화 탭에서는
+        // 왼쪽 판이 닫혀 있어 그 다시 그리기가 아예 안 일어난다).
+        CardSharing.onAsk(this::drawCards);
         // 사실판이 "가서 보는 것"을 세우면 그것도 같은 줄에 선다 — 이 판도 이 기둥의 것이라,
         // 자식의 카드와 한 줄을 나눠 쓴다(운영도 한 자리를 탭으로 가른다).
         detail.cardsGo((key, title, body) -> {
@@ -190,13 +193,16 @@ public class CompanionElement {
             cardArea.replaceChildren();
             show(detail.element(), store.context() != null && detail.hasFacts());
             cardShows = "facts";
-            CardSharing.showing(cardShows);
             // 줄이 비면 <b>본 것도 없다</b>. 이 갈래가 아래의 장부 손질을 건너뛰는 바람에 방금
             // 닫은 카드가 "이미 본 것"으로 남았고, 그러면 그것을 다시 열어도 새로 열린 것으로
-            // 세어지지 않는다 — 그 자리를 이어받는 것은 이 줄이 방금 적어 둔 "facts"이고, 그
-            // 보고가 다음 그리기에서 요청으로 읽힌다. 눌러서 연 카드가 서지 않고 사실판이
-            // 서는 이유가 그것이었다(실측: 도구를 닫고 다시 누르면 사실판).
+            // 세어지지 않았다(실측: 도구를 닫고 다시 누르면 사실판). 빈 자리를 무엇이 이어받았는지는
+            // 이제 물을 필요가 없다 — 바로 위에서 적은 "facts"는 보고이고, 보고를 요청으로 읽는
+            // 자리는 없다(CardSharing.ask/asked로 갈라 두었다). 남은 것은 장부 한 줄뿐이다.
             cardsSeen.clear();
+            // 장부를 먼저 손질하고 보고한다 — 보고는 종을 울리고, 그 종 안에서 그리기가 한 번 더
+            // 돌 수 있다. 그러면 안쪽이 적어 둔 장부를 바깥이 돌아와 지운다(지금은 못 닿는다:
+            // 이 갈래로 온 것은 카드가 없어서다. 그래도 순서에 기대지 않게 둔다).
+            CardSharing.showing(cardShows);
             // 여기서도 배치가 마지막 말이다 — 폰에서는 사실판이 제 탭에서만 선다. 이 갈래가
             // layout()을 건너뛰는 바람에, 카드가 하나도 없는 화면(대부분의 화면)에서 사실판이
             // 대화 탭 위에 그대로 서 있었다(실측: 데모 390px에서 페이지가 1993px).
@@ -209,7 +215,11 @@ public class CompanionElement {
         // 누가 <b>이것을 보여 달라</b>고 말했으면 그것이 먼저다. 트리에서 이미 열어 둔 파일을
         // 다시 누르는 것이 그 말이다 — 새 카드가 아니니 아래의 "방금 열린 것" 규칙에 걸리지
         // 않고, 그래서 눌러도 아무 일이 없었다(실측: 세 번째 클릭에도 옆 파일이 서 있었다).
-        String asked = CardSharing.showing();
+        //
+        // 이 자리는 아래에서 적는 보고(showing)와 <b>다른 칸</b>이라, 제가 적은 말이 다음
+        // 그리기에 요청으로 돌아오지 않는다. 지우는 것도 여기가 아니라 그 보고가 한다 —
+        // 부탁한 파일의 카드는 본문이 와야 서는데, 읽자마자 비우면 그 전에 증발한다.
+        String asked = CardSharing.asked();
         boolean known = "facts".equals(cardShows);
         // 방금 열린 것으로 간다 — 파일을 눌렀는데 화면이 그대로면 아무 일도 안 일어난 것처럼
         // 읽힌다(운영: openFiles에 밀어 넣고 그 탭을 고른다). 이미 열려 있던 것을 다시 눌러
@@ -229,7 +239,7 @@ public class CompanionElement {
         cardsSeen.retainAll(now);
         cardsSeen.addAll(now);
         if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
-        else if (asked != null && !asked.isEmpty() && !asked.equals(cardShows)) {
+        else if (!asked.isEmpty() && !asked.equals(cardShows)) {
             boolean here = "facts".equals(asked);
             for (int i = 0; i < n && !here; i++) here = asked.equals(cards.get(i).id);
             if (here) { cardShows = asked; known = true; wsShows = asked; }

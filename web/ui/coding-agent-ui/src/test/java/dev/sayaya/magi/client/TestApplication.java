@@ -51,7 +51,10 @@ public class TestApplication implements EntryPoint {
         // 카드 자리도 부모의 것이다 — 하네스가 그 자리를 만들고, 자식이 등록한 것을 그린다.
         HTMLElement cards = div("fileview");
         stream.append(cards);
-        dev.sayaya.magi.bridge.CardSharing.onChange(list -> {
+        // 부모는 <b>무엇을 세워 두었는지</b> 기억한다 — 카드 줄이 다시 와도 보던 자리를 잃지
+        // 않게(진짜 부모의 cardShows).
+        String[] stood = { "" };
+        dev.sayaya.magi.bridge.CardSharing.Listener draw = list -> {
             // 부모는 마지막에 열린 것을 세운다(진짜 부모는 탭 줄로 고르게 한다) — 자식이 건넨
             // 노드를 그대로 붙일 뿐이라, 그 안을 무엇으로 그렸는지는 알지 못한다.
             cards.replaceChildren();
@@ -65,10 +68,31 @@ public class TestApplication implements EntryPoint {
             }
             // 스펙이 부모 노릇을 재는 자리: 무엇을 카드로 받았는지(신원·이름·닫힘)를 적어 둔다.
             jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_test_cards", said.toString());
-            if (all != null && all.getLength() > 0) {
-                cards.append(jsinterop.base.Js.<HTMLElement>uncheckedCast(all.getAt(all.getLength() - 1)));
+            // 부탁이 있으면 그것이 먼저다 — 그리고 <b>무엇을 세웠는지 보고한다</b>. 진짜 부모가
+            // 하는 일이 그것이고(CompanionElement.drawCards), 부탁 칸과 보고 칸은 서로 다른
+            // 칸이다: 자식이 부탁을 적고 부모가 가져가며 비우고, 보고는 부모만 적는다.
+            // 하네스가 보고를 안 적으면 트리의 강조도 스펙의 계기판도 부모 없는 값을 읽는다.
+            String asked = dev.sayaya.magi.bridge.CardSharing.asked();
+            elemental2.dom.Element stand = null, last = null;
+            for (int i = 0; all != null && i < all.getLength(); i++) {
+                elemental2.dom.Element one = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+                last = one;
+                if (asked.equals(one.id)) stand = one;
+                // 보던 것이 아직 있으면 그대로 둔다. "늘 마지막"으로 두었더니 제 보고가 자식의
+                // 다시 그리기를 부르고, 그 다시 그리기가 목록을 또 건네면서 방금 세운 것을
+                // 마지막 것으로 되돌렸다(실측: 팔레트로 고른 파일이 한 순간 섰다가 옆 파일로).
+                else if (stand == null && one.id.equals(stood[0])) stand = one;
             }
-        });
+            if (stand == null) stand = last;
+            stood[0] = stand == null ? "" : stand.id;
+            if (stand != null) {
+                cards.append(jsinterop.base.Js.<HTMLElement>uncheckedCast(stand));
+                dev.sayaya.magi.bridge.CardSharing.showing(stand.id);
+            } else dev.sayaya.magi.bridge.CardSharing.showing("facts");
+        };
+        dev.sayaya.magi.bridge.CardSharing.onChange(draw);
+        // 부탁의 종도 듣는다 — 진짜 부모가 그렇다(CompanionElement.onAsk).
+        dev.sayaya.magi.bridge.CardSharing.onAsk(() -> draw.call(dev.sayaya.magi.bridge.CardSharing.current()));
         c.workspace().mount(filecol);
     }
 
