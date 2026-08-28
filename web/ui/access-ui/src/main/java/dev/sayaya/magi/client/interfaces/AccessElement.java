@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Confirm;
 import dev.sayaya.magi.bridge.May;
 
 import dev.sayaya.magi.client.usecase.AccessStore;
@@ -182,7 +183,7 @@ public class AccessElement {
         HTMLElement drop = el("md-text-button");
         drop.className = "drop";
         drop.setAttribute("aria-label", tr("action.remove_named", "name", who));
-        arm(drop, tr("action.remove"), () -> store.removePerson(who));
+        Confirm.arm(drop, tr("action.remove"), () -> store.removePerson(who));
         controls.append(pick, drop);
         row.append(controls, scopeSection(p));
         return row;
@@ -317,30 +318,6 @@ public class AccessElement {
         line.append(why);
         out.add(line);
         return out;
-    }
-
-    private static void arm(HTMLElement btn, String word, Runnable act) {
-        btn.textContent = word;
-        final boolean[] armed = {false};
-        final double[] timer = {-1};
-        btn.addEventListener("click", evt -> {
-            if (armed[0]) {
-                DomGlobal.clearTimeout(timer[0]);
-                armed[0] = false;
-                btn.className = btn.className.replace(" armed", "");
-                btn.textContent = word;
-                act.run();
-                return;
-            }
-            armed[0] = true;
-            btn.className += " armed";
-            btn.textContent = tr("action.confirm");
-            timer[0] = DomGlobal.setTimeout(a -> {
-                armed[0] = false;
-                btn.className = btn.className.replace(" armed", "");
-                btn.textContent = word;
-            }, 5000);
-        });
     }
 
     private static HTMLElement list(List<HTMLElement> rows) {

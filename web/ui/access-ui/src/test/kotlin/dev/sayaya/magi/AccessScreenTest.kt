@@ -53,8 +53,21 @@ internal class AccessScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_set") shouldBe "sam@laptop|viewer|build"
             }
         }
-        When("삭제를 두 번 눌러 확인하면") {
+        When("삭제를 한 번 누르면") {
             page.locator("#access .acc.person .drop").last().click()
+            Then("눈에 보이는 말만이 아니라 읽히는 이름도 무장한다") {
+                // 이 버튼에는 사람 이름이 적힌 aria-label이 달려 있다(action.remove_named).
+                // 말만 갈면 화면은 "확인?"을 묻는데 읽는 기계에는 여전히 그냥 지우기 버튼이고,
+                // 하필 이것이 남의 접근을 걷어내는 버튼이다.
+                page.waitForSelector("#access .acc.person .drop.armed")
+                // 읽는 기계가 닿는 자리는 호스트가 아니라 그림자 속 <button>이다 — md-*는
+                // 호스트의 aria-label을 제 것으로 가져가 거기에 단다(실측).
+                page.evaluate("document.querySelector('#access .acc.person .drop.armed')"
+                        + ".shadowRoot.querySelector('button').getAttribute('aria-label')")
+                        .toString() shouldContain "action.confirm"
+            }
+        }
+        When("한 번 더 눌러 확인하면") {
             page.locator("#access .acc.person .drop.armed").click()
             Then("사람이 명부에서 빠진다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_removed_person") != null }

@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Confirm;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.RosterSharing;
 import dev.sayaya.magi.bridge.Says;
@@ -320,7 +321,7 @@ public class KnowledgeElement {
             top.append(readFold(folded, name));
         }
         HTMLElement drop = button("drop", tr("action.forget_named", "name", name), "#i-sl-eraser");
-        arm(drop, tr("action.forget"), () -> store.forget(name, str(sk, "tier"), str(sk, "team"),
+        Confirm.arm(drop, tr("action.forget"), () -> store.forget(name, str(sk, "tier"), str(sk, "team"),
                 str(sk, "socket"), nul(str(sk, "peer"))));
         top.append(drop);
         row.append(top);
@@ -432,7 +433,7 @@ public class KnowledgeElement {
         edit.addEventListener("click", evt -> dialog.open(sv));
         top.append(edit);
         HTMLElement drop = button("drop", tr("action.remove_named", "name", name), "#i-ss-trash-can");
-        arm(drop, tr("action.remove"), () -> store.removeServer(name, nul(str(sv, "socket"))));
+        Confirm.arm(drop, tr("action.remove"), () -> store.removeServer(name, nul(str(sv, "socket"))));
         top.append(drop);
         row.append(top);
         String url = str(sv, "url");
@@ -532,34 +533,6 @@ public class KnowledgeElement {
             if (!one.isEmpty()) out.add(one);
         }
         return String.join(", ", out);
-    }
-
-    /** 두 단계 확인 — 누르면 "확인?"으로 무장, 5초면 풀린다(운영 arm의 이식). */
-    private static void arm(HTMLElement btn, String word, Runnable act) {
-        Icons.reword(btn, word);
-        final boolean[] armed = {false};
-        final double[] timer = {-1};
-        String named = btn.getAttribute("aria-label");
-        btn.addEventListener("click", evt -> {
-            if (armed[0]) {
-                DomGlobal.clearTimeout(timer[0]);
-                armed[0] = false;
-                btn.className = btn.className.replace(" armed", "");
-                Icons.reword(btn, word);
-                act.run();
-                return;
-            }
-            armed[0] = true;
-            btn.className += " armed";
-            Icons.reword(btn, tr("action.confirm"));
-            if (named != null) btn.setAttribute("aria-label", tr("action.confirm") + " — " + named);
-            timer[0] = DomGlobal.setTimeout(a -> {
-                armed[0] = false;
-                btn.className = btn.className.replace(" armed", "");
-                Icons.reword(btn, word);
-                if (named != null) btn.setAttribute("aria-label", named);
-            }, 5000);
-        });
     }
 
     private String tierWords(JsPropertyMap<Object> r) {

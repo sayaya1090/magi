@@ -420,32 +420,6 @@ public class WorkspaceElement {
         if ($wnd.navigator.clipboard) $wnd.navigator.clipboard.writeText(text);
     }-*/;
 
-    /** 두 번 눌러야 도는 것 — 지우기·되돌리기처럼 되돌릴 수 없는 일에만(운영 arm). */
-    private static void arm(HTMLElement btn, String word, Runnable act) {
-        btn.textContent = word;
-        final boolean[] armed = {false};
-        final double[] timer = {-1};
-        btn.addEventListener("click", evt -> {
-            evt.stopPropagation();
-            if (armed[0]) {
-                DomGlobal.clearTimeout(timer[0]);
-                armed[0] = false;
-                btn.className = btn.className.replace(" armed", "");
-                btn.textContent = word;
-                act.run();
-                return;
-            }
-            armed[0] = true;
-            btn.className += " armed";
-            btn.textContent = tr("action.confirm");
-            timer[0] = DomGlobal.setTimeout(a -> {
-                armed[0] = false;
-                btn.className = btn.className.replace(" armed", "");
-                btn.textContent = word;
-            }, 5000);
-        });
-    }
-
     private static String value(HTMLElement f) {
         Object v = Js.asPropertyMap(f).get("value");
         return v == null ? "" : String.valueOf(v);
