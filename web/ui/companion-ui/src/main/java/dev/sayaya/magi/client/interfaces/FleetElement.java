@@ -101,16 +101,75 @@ public class FleetElement {
             return;
         }
         String newest = Roster.newest(last);
-        fleetEl.replaceChildren();
-        fleetEl.append(tableHead());
+        java.util.List<HTMLElement> want = new java.util.ArrayList<>();
+        want.add(head());
         if (!Roster.teamed(rows)) {
-            for (FleetAgent a : rows) fleetEl.append(row(a, newest));
+            for (FleetAgent a : rows) want.add(row(a, newest));
         } else {
             for (Roster.Team t : Roster.teams(rows)) {
-                fleetEl.append(teamHead(t));
-                for (FleetAgent a : t.members) fleetEl.append(row(a, newest));
+                want.add(teamHeadOf(t));
+                for (FleetAgent a : t.members) want.add(row(a, newest));
             }
         }
+        place(want);
+    }
+
+    /**
+     * 원하는 순서대로 세운다 — <b>이미 제자리인 것은 건드리지 않는다</b>.
+     *
+     * 행은 이미 기억해 두고 있었는데(같은 사실이면 같은 노드), 목록을 매번 비우고 그 노드를
+     * 다시 붙이고 있었다. 문서에서 떼였다 돌아온 노드는 새로 나타난 것과 같아서 CSS의 등장
+     * 애니메이션이 다시 돌고, 그래서 아무 일 없는 행이 초당 한 번 깜빡였다(실측: 8초에
+     * 115번의 교체, 그동안 운영은 0번).
+     */
+    private void place(java.util.List<HTMLElement> want) {
+        java.util.Set<elemental2.dom.Node> keep = new java.util.HashSet<>(want);
+        elemental2.dom.Node at = fleetEl.firstChild;
+        for (HTMLElement w : want) {
+            // 걸어가며 <b>버릴 것부터 걷는다</b>. 이 줄이 없으면 새로 지은 행이 옛 행 <i>앞에</i>
+            // 끼워지고 옛 행은 그대로 남아, 그 뒤의 모든 행이 한 칸씩 밀려 다시 옮겨진다 —
+            // 옮겨진 행은 문서를 떠났다 돌아온 행이라 깜빡인다(실측: 한 행만 바뀐 초에도
+            // 아홉 행이 전부 움직였다).
+            while (at != null && !keep.contains(at)) {
+                elemental2.dom.Node next = at.nextSibling;
+                fleetEl.removeChild(at);
+                at = next;
+            }
+            if (at == w) { at = w.nextSibling; continue; }
+            fleetEl.insertBefore(w, at);
+        }
+        while (at != null) {
+            elemental2.dom.Node next = at.nextSibling;
+            fleetEl.removeChild(at);
+            at = next;
+        }
+    }
+
+    /** 표의 머리는 하나면 된다 — 말이 바뀌면 그때 다시 짓는다. */
+    private HTMLElement headNode = null;
+    private String headWords = "";
+
+    private HTMLElement head() {
+        String words = tr("col.status") + "|" + tr("col.agent") + "|" + tr("col.doing")
+                + "|" + tr("col.steps") + "|" + tr("col.age") + "|" + tr("col.host");
+        if (headNode == null || !words.equals(headWords)) {
+            headNode = tableHead();
+            headWords = words;
+        }
+        return headNode;
+    }
+
+    /** 무리의 머리도 그 무리의 사실이 그대로면 그대로 둔다. */
+    private final java.util.Map<String, HTMLElement> teamHeads = new java.util.HashMap<>();
+    private final java.util.Map<String, String> teamSigs = new java.util.HashMap<>();
+
+    private HTMLElement teamHeadOf(Roster.Team t) {
+        String sig = t.name + "|" + String.join(",", t.hubs()) + "|" + t.waiting() + "|" + t.members.size();
+        if (!sig.equals(teamSigs.get(t.name))) {
+            teamHeads.put(t.name, teamHead(t));
+            teamSigs.put(t.name, sig);
+        }
+        return teamHeads.get(t.name);
     }
 
     private HTMLElement row(FleetAgent a, String newest) {

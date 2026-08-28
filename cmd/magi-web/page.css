@@ -726,13 +726,22 @@
      reads every opacity in this sheet as text being dimmed, because a container's opacity takes
      everything inside it down too — and it cannot tell from CSS that this box never holds text.
 
-     And it does not animate. What is behind the drawer is behind it the moment it opens; a scrim
-     that arrives over a quarter of a second is a quarter of a second in which the page is half
-     covered and still live-looking. (It used to be a box-shadow on the rail, whose spread grew with
-     the rail's width — so the dimming really did sweep across the page.) */
+     It fades, and it fades FAST. The objection this comment used to record — that a scrim arriving
+     over a quarter of a second leaves the page half covered and still live-looking — was about
+     appearance, not about reach: pointer-events flip on the same frame the drawer opens, so nothing
+     under it is clickable at any point in the fade. What is left is the choice between a dim that
+     appears between two frames (which reads as a flash) and one that arrives in under a fifth of a
+     second, which is how every other surface in this console arrives — short4, the same duration and
+     easing this sheet already gives a surface that changes state.
+     (It used to be a box-shadow on the rail, whose spread grew with the rail's width — so the
+     dimming really did sweep across the page. That is the thing this must not go back to.) */
   #scrim {
     position:fixed; inset:0; z-index:3; background-color:transparent; pointer-events:none;
+    transition:background-color var(--magi-sys-dur-short4) var(--magi-sys-ease-standard);
   }
+  /* Somebody who asked for less motion gets the dim without the fade — the scrim's job is to say
+     "not this", and that is said the moment it appears. */
+  @media (prefers-reduced-motion:reduce) { #scrim { transition:none; } }
   body[nav="open"] #scrim {
     background-color:color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
     pointer-events:auto;

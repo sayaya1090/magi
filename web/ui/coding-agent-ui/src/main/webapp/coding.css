@@ -12,9 +12,11 @@
    두 판의 높이 배분이 8px씩 어긋난다(실측: 트리 338 대 342, git 515 대 518). */
 #files { display:flex; flex-direction:column; gap:var(--magi-sys-space-300); min-width:0; }
 
-/* 카드마다 제 스크롤 — 삼백 개짜리 저장소에서 하나로 묶으면 git을 보러 내려가는 동안
-   트리가 읽던 자리를 잃는다(운영에서 확인된 그 규칙). */
-#files .panebody { max-height:26rem; overflow:auto; overscroll-behavior:contain; }
+/* 카드마다 제 스크롤은 console.css의 .panebody가 이미 준다(overflow:hidden auto). 여기서
+   높이를 26rem으로 묶고 있었는데, 그 뚜껑이 두 카드의 높이 배분을 바꿔 놓았다: 두 판은
+   "속에 든 만큼"으로 기둥을 나눠 갖는데(flex:1 1 max-content) 한쪽이 미리 잘리면 그 나눔이
+   운영과 어긋난다(실측 1024px: 트리 338/깃 514 대 운영 326/526, 그리고 깃이 이유 없이
+   스크롤됐다). 뚜껑은 기둥이 씌운다 — 카드가 제 몸에 씌울 일이 아니다. */
 
 /* 왼쪽에서 연 것은 왼쪽에서 읽는다 — 가운데는 대화의 자리다. */
 #files .fileview { border-top:1px solid var(--magi-ref-outlineVariant); margin-top:var(--magi-sys-space-100); }
