@@ -13,4 +13,9 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="magi" anchor="right" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
     </extensions>
+
+    <projectListeners>
+        <listener class="dev.sayaya.magi.ide.ui.OpenBufferListener"
+                  topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+    </projectListeners>
 </idea-plugin>
