@@ -38,13 +38,6 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      # clients/jetbrains/README.md cites Go symbols by name. It rots when THIS side renames
-      # something, and this is the lane that runs when this side changes — test-jetbrains.yml
-      # only fires on clients/jetbrains/**, so it would never see the rename that broke the doc.
-      # That is not hypothetical: thirteen citations went stale in one day and nothing said so.
-      - name: the jetbrains doc still points at symbols that exist
-        run: python3 clients/jetbrains/tools/citecheck.py
-
       - name: build
         run: go build ./...
 

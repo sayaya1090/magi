@@ -121,7 +121,14 @@ def prose(path):
 
 
 def documents():
-    out = [os.path.join(HERE, "README.md")]
+    # 형제 문서도 본다. 둘이 서로의 **절 번호**를 짚고 있었고, 절 번호는 줄 번호와 같은 성질이다 —
+    # 위치이지 이름이라 재배치하면 조용히 딴 데를 가리킨다. 답도 같다: 절의 이름은 **제목**이고,
+    # 제목을 번호까지 인용하면 재번호와 개제가 둘 다 걸린다(검사 3이 그대로 그 검사다).
+    #
+    # 켜기 전에 쟀다 — 그쪽 문서는 BAD 0, UNCHECKED 18(전부 "심볼 없이 가리킨다"). 켜는 순간
+    # 빨개지지 않는다. 그리고 켜자마자 값이 났다: 이쪽이 그쪽 절 제목 하나를 기억으로 지어냈고
+    # (실제는 "5.4 죽으면 다시") 검사기가 그것을 잡았다.
+    out = [os.path.join(ROOT, "clients/powerpoint/DESIGN.md"), os.path.join(HERE, "README.md")]
     for base, dirs, names in os.walk(os.path.join(HERE, "plugin")):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         out += [os.path.join(base, n) for n in sorted(names) if n.endswith(".kt")]
