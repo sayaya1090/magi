@@ -38,6 +38,8 @@ public class MapElement {
     private final HTMLElement root = el("div");
     private boolean wired = false;
     private ResizeObserver watch = null;
+    // 선을 마지막으로 그린 상자 크기. 관찰자가 제 그림 때문에 다시 불리는 것을 여기서 끊는다.
+    private String drawnAt = "";
 
     @Inject
     public MapElement(MapStore store) {
@@ -55,6 +57,10 @@ public class MapElement {
         // 명단 전체가 아니라 <b>이 지도가 그리는 것</b>만 듣는다 — 걸음 수가 늘었다고 지도가
         // 다시 설 이유는 없다(실측: 10초에 70번).
         store.drawn().subscribe(sig -> render());
+        // 쉰 시간은 판을 다시 세우지 않고 <b>서 있는 줄의 낱말만</b> 고쳐 쓴다. 갓 쉰 노드의 그
+        // 낱말은 초 단위라 매 초 달라지는데, 그때마다 판을 다시 세우면 그 사이의 클릭이 사라지고
+        // 스크롤이 튄다(실측: 10초에 70번 다시 섰다).
+        store.ticked().subscribe(sig -> paintAges());
         store.start();
     }
 
@@ -118,12 +124,41 @@ public class MapElement {
         root.replaceChildren(head, cell("accsay", tr("map.lead")), canvas, legend);
         drawWires(canvas, wires, rows, hands);
         if (watch != null) watch.disconnect();
+        // 선은 상자의 <b>크기</b>에 달렸다. 그런데 선을 다시 그리는 것 자체가 관찰 대상 안을
+        // 건드려 관찰자를 다시 부르므로, 조건 없이 다시 그리면 제 꼬리를 문다(실측: 10초에
+        // 60번, 크기는 한 번도 안 변했다). 그래서 <b>정말 달라졌을 때만</b> 다시 그린다.
+        drawnAt = "";
         watch = new ResizeObserver((entries, obs) -> {
+            elemental2.dom.DOMRect box = canvas.getBoundingClientRect();
+            String now = ((int) box.width) + "x" + ((int) box.height);
+            if (now.equals(drawnAt)) return null;
+            drawnAt = now;
             clear(wires);
             drawWires(canvas, wires, rows, hands);
             return null;
         });
         watch.observe(canvas);
+    }
+
+    /**
+     * 이미 서 있는 노드의 쉰 시간만 고쳐 쓴다 — 자리도 순서도 그대로. 노드는 그린 순서 그대로
+     * 서 있으므로, 같은 순서로 걸으며 남의 기계의 것에만 적는다(그리는 규칙과 같은 조건).
+     */
+    private void paintAges() {
+        elemental2.dom.NodeList<elemental2.dom.Element> drawn = root.querySelectorAll(".nodeage");
+        JsArrayLike<Object> rows = Js.uncheckedCast(store.fleet());
+        int at = 0;
+        for (int i = 0; rows != null && i < rows.getLength(); i++) {
+            JsPropertyMap<Object> a = Js.uncheckedCast(rows.getAt(i));
+            if (!Js.isTruthy(a.get("elsewhere"))) continue;
+            if (at >= drawn.getLength()) return;
+            double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
+            String word = idle >= 0 ? tr("time.ago", "d", dur((int) idle)) : "";
+            elemental2.dom.Element line = drawn.getAt(at++);
+            // 같은 낱말을 다시 쓰는 것은 무동작이 아니다 — textContent 는 글자 노드를 갈아치우므로
+            // 판이 바뀌었다고 보는 눈(관찰자·스크린리더)에는 매번 바뀐 것으로 보인다.
+            if (!word.equals(line.textContent)) line.textContent = word;
+        }
     }
 
     private int bestRank(Map<String, List<JsPropertyMap<Object>>> accounts) {
