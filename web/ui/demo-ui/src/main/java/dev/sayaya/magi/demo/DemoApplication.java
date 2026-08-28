@@ -39,6 +39,6 @@ public class DemoApplication implements EntryPoint {
     }
 
     private static Object stream(String url) {
-        return Mock.pathOf(url).equals("/events") ? Fleet.stream(url) : null;
+        return "/events".equals(Mock.pathOf(url)) ? Fleet.stream(url) : null;
     }
 }

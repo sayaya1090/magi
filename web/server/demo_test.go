@@ -9,66 +9,67 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
 
-// 목은 모듈마다 함께 실린다 — 포트가 있으면 그 모듈 안에 데모 구현이 있어야 한다.
+// 화면이 묻는 길은 목이 답해야 한다 — 하나라도 빠지면 그 판은 배포된 데모에서 빈 채로 뜬다.
 //
-// 페이지가 fetch를 갈아끼우던 시절의 검사(경로 채굴)를 대신한다: 화면이 제 iframe에서 제
-// 회선으로 말하므로, 데모에서 무엇을 답할지는 그 모듈만 답할 수 있다. 새 화면이 포트를
-// 하나 늘리고 목을 잊으면, 그 화면은 배포된 데모에서 빈 채로 뜬다 — 여기서 걸린다.
-func TestEveryPortShipsItsOwnDemo(t *testing.T) {
-	ports := map[string]string{} // 포트 이름 → 그 모듈
-	demos := map[string]bool{}   // 데모 구현이 있는 포트 이름
+// 목이 화면마다 있던 시절의 검사(모듈마다 Demo* 구현을 요구)를 대신한다. 이제 목은 회선의
+// 이음매에 걸린 모듈 하나이고, 답하는 단위도 화면이 아니라 <b>경로</b>다. 그래서 여기서
+// 재는 것도 경로다: 화면들이 부르는 길을 소스에서 캐고, demo-ui가 그 길에 답하는지 본다.
+func TestTheMockAnswersEveryPathTheScreensAsk(t *testing.T) {
+	asked := map[string]string{} // 경로 → 그 길을 부르는 모듈
+	answers := map[string]bool{} // 목이 답하는 경로
 	root := filepath.Join("..", "ui")
+	call := regexp.MustCompile(`Console\.(?:fetchList|raw|post|stream)\("(/[a-zA-Z0-9_-]+)`)
+	// 목이 답하는 모양 둘: switch의 case와, 길 하나만 보는 자리의 equals(스트림이 그렇다).
+	answered := regexp.MustCompile(`(?:case "(/[a-zA-Z0-9_-]+)"|"(/[a-zA-Z0-9_-]+)"\.equals\()`)
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".java") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".java") ||
+			!strings.Contains(p, filepath.Join("src", "main", "java")) {
 			return err
 		}
 		rel := strings.TrimPrefix(p, root+string(filepath.Separator))
 		mod := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-		name := strings.TrimSuffix(d.Name(), ".java")
-		switch {
-		case strings.Contains(p, filepath.Join("src", "main", "java")) &&
-			strings.Contains(p, string(filepath.Separator)+"usecase"+string(filepath.Separator)) &&
-			(strings.HasSuffix(name, "Source") || strings.HasSuffix(name, "Repository") ||
-				strings.HasSuffix(name, "Commander")):
-			src, rerr := os.ReadFile(p)
-			if rerr != nil {
-				return rerr
+		src, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		if mod == "demo-ui" {
+			for _, m := range answered.FindAllStringSubmatch(string(src), -1) {
+				answers[m[1]+m[2]] = true
 			}
-			// 포트만 — 그 안의 구현 클래스는 세지 않는다.
-			if strings.Contains(string(src), "public interface "+name) {
-				ports[mod+"/"+name] = mod
-			}
-		case strings.HasPrefix(name, "Demo") && strings.Contains(p, filepath.Join("src", "main", "java")):
-			demos[mod+"/"+strings.TrimPrefix(name, "Demo")] = true
+			return nil
+		}
+		for _, m := range call.FindAllStringSubmatch(string(src), -1) {
+			asked[m[1]] = mod
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walking %s: %v", root, err)
 	}
-	if len(ports) < 8 {
-		t.Fatalf("only %d ports found under %s — the miner has gone stale, and a stale miner "+
-			"passes by finding nothing", len(ports), root)
+	if len(asked) < 20 {
+		t.Fatalf("only %d paths found under %s — the miner has gone stale, and a stale miner "+
+			"passes by finding nothing", len(asked), root)
 	}
-	for port, mod := range ports {
-		// 브리지로만 사는 포트는 목이 필요 없다: 답하는 쪽이 다른 모듈이라서(명단이 그렇다).
-		if bridged[port] {
+	for path, mod := range asked {
+		// 파일로 서빙되는 것들은 목의 것이 아니다 — 데모 사이트가 제 사본을 함께 낸다.
+		if served[path] {
 			continue
 		}
-		if !demos[port] {
-			t.Errorf("%s has no Demo implementation in %s — on the published demo that screen "+
-				"comes up empty, and nothing else can answer for it", port, mod)
+		if !answers[path] {
+			t.Errorf("%s asks for %s and the mock does not answer it — that screen comes up "+
+				"empty on the published demo", mod, path)
 		}
 	}
 }
 
-// 셸이 답하는 것을 받아 쓰는 포트들 — 그 모듈에 목이 없는 것이 옳다(있으면 세상이 둘이 된다).
-var bridged = map[string]bool{
-	"companion-ui/FleetRepository": true,
+// 목이 아니라 파일이 답하는 길 — 데모 사이트가 그 사본을 함께 내보낸다.
+var served = map[string]bool{
+	"/i18n": true,
 }
 
 // What the emitter leaves behind, read off disk. Pages serves the console from a subpath, so any
@@ -90,6 +91,8 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 	write(t, filepath.Join(old, "vendor", "material.js"), "export const md = 1;\n")
 	write(t, filepath.Join(old, "vendor", "rxjs.js"), "export const BehaviorSubject = 1;\n")
 	write(t, filepath.Join(old, "i18n", "language.ko.json"), `{"nav.companions":"컴패니언"}`)
+	// 목은 콘솔 자산 옆의 제 디렉토리에서 온다(운영 번들에는 없다) — 데모를 낼 때만 실린다.
+	write(t, filepath.Join(dir, "demo-mock", "demo", "demo.nocache.js"), "// the mock\n")
 
 	if err := emitDemo(out, ui, old); err != nil {
 		t.Fatalf("emitDemo: %v", err)

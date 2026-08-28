@@ -203,18 +203,24 @@ GWT의 IFrameLinker는 컴파일된 모듈을 숨은 0×0 iframe 안에서 돌�
 shell-ui(RosterSource)와 companion-ui(FleetRepository)가, `CompanionSource`를 companion-ui와
 coding-agent-ui가 각각 갖고 있다. 다음 정리 대상.
 
-⚠ **데모의 목은 모듈마다 제 것을 실어야 한다**(사용자 지적): GWT가 모듈을 iframe에서 돌리므로
-페이지의 fetch만 갈아끼우면 모듈에 닿지 않고, 부모 창의 fetch로 몰아 두면 배포 구조(모듈마다
-제 주기로 배포)를 거스른다. 지금은 옛 방식(페이지 목)이라 신 콘솔 데모가 그 자리에 멈춰 있다.
+⚠ **데모의 목은 회선의 이음매에 건다**(2026-08-28 재정리): 모듈마다 `Demo*Source`를 싣던 방식은
+운영 번들에 데모를 함께 실었고, 화면의 진짜 회선 코드가 데모에서 한 번도 돌지 않았다. 지금은
+`demo-ui` 하나가 경로로 답하고 `Console.raw`/`Console.stream`이 그것을 건넨다. `window.fetch`를
+갈지 않는 것은 그대로 유효하다(모듈 프레임의 fetch에 닿지 않는다) — 창의 **속성**으로 건넨다.
 
 ## 목은 모듈이 싣고, API의 주인은 하나다 (2026-08-27, 사용자 지적 둘)
 
-**① 데모의 목은 모듈마다.** `Demo.on()`(window.MAGI_DEMO)을 보고 그 모듈의 Dagger 그래프가
-`Demo*Source`를 문다. 페이지가 fetch를 갈아끼우는 방식은 두 번 틀렸다: 모듈은 GWT의 iframe
-안에서 돌아 페이지의 전역을 보지 못하고(실측: 모든 화면 빈 채), 부모 창에 묶어 고치면 배포
-구조를 거스른다(화면은 저마다의 주기로 배포된다). 데모 emitter가 하는 일은 한 줄 —
-`window.MAGI_DEMO = true`. ⚠ 새 포트를 만들면 목도 만들 것: `TestEveryPortShipsItsOwnDemo`가
-포트마다 `Demo*` 구현을 요구한다(브리지로만 사는 포트는 `bridged` 표에 적어 면제).
+**① 데모의 목은 모듈 하나, 회선에 건다**(2026-08-28 정정). 뒤에 데몬이 있느냐는 화면의 성질이
+아니라 회선의 성질이다: `demo-ui`가 경로별로 답하고, `Console.raw`/`Console.stream`이 그 답을
+건넨다(프록시). 화면 모듈은 살아 있는 소스 하나만 갖고 데모를 모른다. 운영 자산에는 목이
+없다(`assembleConsole`이 `demo/**`를 뺀다 · `assembleDemoMock`이 따로 싣는다). 페이지가
+`window.fetch`를 갈아끼우는 방식이 안 되는 이유는 그대로다 — 모듈은 제 프레임의 fetch를 쓴다.
+⚠ 새 경로를 부르면 목에도 한 줄: `TestTheMockAnswersEveryPathTheScreensAsk`가 화면이 부르는
+모든 길을 목이 답하는지 본다(파일로 서빙되는 것은 `served` 표에 적어 면제).
+밟은 함정 셋(전부 실측): elemental2의 `EventListener`는 @JsFunction이 아니라 native @JsType이라
+자바 람다가 **객체로** 건너온다 — `handleEvent`를 떼어내 부르면 this가 사라진다(그 객체에게
+물어야 한다). 흉내 낸 평범한 객체 대신 **진짜 MessageEvent**를 건네야 한다. 그리고 목은
+회선보다 빨라선 안 된다 — 같은 틱에 알리면 아직 마운트되지 않은 화면에 말을 건다(50ms).
 
 **② 한 API를 두 모듈이 읽으면 단일 원천이 아니다.** 정리한 것:
 - `/fleet`+`/events` → 셸 하나. companion-ui·coding-agent-ui의 "브리지 없으면 제 회선" 폴백을
