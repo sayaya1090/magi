@@ -16,7 +16,10 @@ object McpName {
      * 면하는 **유일한 수단이 오퍼레이터가 쓰는 allow 룰**이다. 이름에 PID 나 창 번호를 넣으면
      * 그 룰이 재시작마다 무효가 된다 — 유일한 완화책을 못 쓰게 만드는 이름은 고를 이유가 없다.
      *
-     * IDEA 만이 아니라 PyCharm·GoLand 도 같은 플랫폼이라 제품명이 아니라 플랫폼 이름을 쓴다.
+     * 기준은 **도구 한 벌에 이름 하나**다. IDEA·PyCharm·GoLand 는 같은 플러그인이 같은 도구를
+     * 내놓으므로 한 이름이 맞고, 그래서 제품명이 아니라 플랫폼 이름이다. 반대로 넓게 지으면
+     * 나중에 다른 도구 벌이 붙을 자리가 없어진다 — 한 이름에 서버 둘은 코어가 거부한다.
+     * (형제 프로젝트가 같은 기준으로 `office` 를 기각하고 `ppt` 를 골랐다.)
      */
     const val VALUE = "jetbrains"
 
@@ -62,6 +65,13 @@ object McpName {
         /** 다른 이름이 다듬어진 뒤 이 이름과 같아졌다 — 설정에 그런 서버가 적혀 있다는 뜻이다. */
         COLLIDES_AFTER_SANITISE,
 
+        /**
+         * 서버 이름이 **이 컴패니언이 이미 가진 도구 이름**과 같다. `read` 나 `bash` 같은 내장
+         * 도구, 또는 이미 붙어 있는 서버의 도구 이름. 앞의 둘보다 **먼저** 걸리고
+         * (`internal/app/app.go` 의 `AttachToolServer`), 뜻은 "다른 이름을 고르라"이다.
+         */
+        NAME_TAKEN_BY_TOOL,
+
         /** 그 외. 서버에 못 닿았거나 정책이 막았거나. */
         OTHER,
     }
@@ -74,6 +84,7 @@ object McpName {
         error == null -> Refusal.OTHER
         error.contains("collides with") -> Refusal.COLLIDES_AFTER_SANITISE
         error.contains("already attached") -> Refusal.ALREADY_ATTACHED
+        error.contains("is the name of a tool this companion already has") -> Refusal.NAME_TAKEN_BY_TOOL
         else -> Refusal.OTHER
     }
 }
