@@ -281,6 +281,23 @@ CompanionSharing이 해석된 컨텍스트를 나른다. 화면이 이동을 청
   - 넷을 쟀다(`CodingScreenTest`, 총 107). 되돌려 확인: 명단에 없다는 줄을 빼면 하나가,
     `list == null || 길이 0` 옛 접기로 되돌리면 둘이, 두 「돌아왔는가」를 늘 참으로 박으면
     하나가 깨진다.
+- 못 받은 답에 붙은 사유(2026-08-29): `DetailElement.showTools`가 `all == null || 길이 0`을
+  한 갈래로 묶고 **낡은 데몬**이라는 사유를 적고 있었다(`insp.tools_unknown`은 원인을 단정하는
+  문장이다 — "이 콘솔이 묻기 전에 뜬 데몬은 답할 수 없습니다"). 그런데 낡은 데몬은 그 값으로
+  오지 않는다: BFF가 browse 실패를 <b>일부러</b> 빈 목록으로 접으므로(`inspect.go`, 주석이
+  "a companion that cannot say … which is what an empty list means") 낡은 데몬은 `[]`로
+  도착하고, `null`은 magi-web에 못 닿았거나 BFF가 에러를 냈거나 본문이 깨진 것이다
+  (`Console.fetchList`). 그 문장이 **유일하게 설명할 수 없는** 경우에 그 문장이 붙어 있었다.
+  - 고칠 모양은 열두 줄 아래 자매 함수에 이미 있었다 — `showLoop`는 `shape == null`을
+    `error.unreachable`로, 빈 지도를 `detail.nothing_yet`으로 가른다. `showTools`도 같게 했다.
+  - 잰 자리가 `[]`뿐이었던 것이 이것이 오래 서 있던 까닭이다(`CompanionPanelTest`의 "빈 답"은
+    `__magi_test_tools_says = '[]'`만 문다). 운영에서 더 흔한 쪽은 null 갈래다 — 사람이 이 문을
+    여는 까닭이 대개 그것이라. 페이크는 고칠 것이 없었다: `'null'`을 놓으면 `JSON.parse`가
+    null을 돌려준다(주석에 적어 두었다). 하나를 쟀고(총 43), 되돌려 확인 — 두 갈래를 도로
+    묶으면 그 줄 하나만 깨진다.
+  - 곁가지(값은 사람이 정할 일): `[]` 바구니도 문장보다 넓다. `inspect.go`가 접는 것은 낡은
+    데몬만이 아니라 죽은 소켓·없는 세션·RPC 실패까지다. 여기까지 가르려면 BFF가 사유를 실어
+    보내야 한다.
 
 ## 빌드
 
