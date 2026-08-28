@@ -42,9 +42,10 @@ object SocketPath {
      *
      * 소켓 이름의 주인은 데몬이므로 맞춰야 하는 쪽은 이쪽이다. 그래서 심링크만 푼다.
      *
-     * `normalize()` 도 부르지 않는다. 그것은 `..` 를 **어휘적으로** 지우는데 Go 는 풀고 나서
-     * 물러난다 — `/a/link/..` 에서 `link → /b/c` 면 Go 는 `/b`, 어휘적 처리는 `/a` 다. IDE 가
-     * 주는 경로에 `..` 가 낄 일은 사실상 없지만 두 답이 다르다는 것은 적어 둔다.
+     * `normalize()` 는 쓰지 않는다. 그것은 `..` 를 **어휘적으로** 지우는데 Go 는 풀고 나서
+     * 물러난다 — `/a/link/..` 에서 `link → /b/c` 면 Go 는 `/b`, 어휘적 처리는 `/a` 다. 대신
+     * `..` 를 걷는 중에 처리해서 **해소된 dest** 를 되감는다. 그러면 입력의 `..` 와 링크
+     * 타깃의 `..` 가 같은 규칙 하나로 덮인다.
      */
     internal fun evalSymlinks(path: Path): Path {
         var current = path
@@ -57,7 +58,19 @@ object SocketPath {
             val parts = current.toList()
             var restarted = false
             for (i in parts.indices) {
-                val next = out.resolve(parts[i])
+                val name = parts[i].toString()
+                if (name == ".") continue
+                if (name == "..") {
+                    // Go 는 `..` 를 **어휘적으로** 지우지 않고 **이미 해소된 dest** 를 한 칸
+                    // 되감는다. 실측: alink -> $TMP/b/c 일 때
+                    //   EvalSymlinks(".../alink/..") = ".../b"      ← 되감기
+                    //   어휘적 처리라면                ".../evt4"    ← 다른 답
+                    // 링크 타깃이 `..` 로 시작하는 경우(Homebrew 가 그리는 모양)도 여기서 접힌다.
+                    // 앞 컴포넌트의 존재는 이미 아래 exists 가 확인했으므로 다시 보지 않는다.
+                    out = out.parent ?: out
+                    continue
+                }
+                val next = out.resolve(name)
                 if (Files.isSymbolicLink(next)) {
                     val target = runCatching { Files.readSymbolicLink(next) }.getOrNull() ?: return path
                     // **타깃 + 남은 컴포넌트로 경로를 새로 만들고 처음부터 다시 걷는다.**

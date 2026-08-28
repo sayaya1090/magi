@@ -176,3 +176,29 @@ class NestedSymlinkTest {
         assertEquals(real.toRealPath(), got, "Go 가 내는 답과 달라진다")
     }
 }
+
+/**
+ * `..` 는 어휘적으로 지우는 것이 아니라 **해소된 dest** 를 되감는 것이다. 링크 타깃이 `..` 로
+ * 시작하는 모양은 Homebrew 가 실제로 그린다(`ln -s ../../../Cellar/x/bin/foo usr/local/bin/foo`).
+ */
+class DotDotTest {
+    @Test
+    fun `링크 타깃의 상위 참조가 접힌다`() {
+        val t = java.nio.file.Files.createTempDirectory("magi-dd")
+        java.nio.file.Files.createDirectories(t.resolve("Cellar/x/bin"))
+        java.nio.file.Files.createFile(t.resolve("Cellar/x/bin/foo"))
+        java.nio.file.Files.createDirectories(t.resolve("usr/local/bin"))
+        val link = java.nio.file.Files.createSymbolicLink(
+            t.resolve("usr/local/bin/foo"), java.nio.file.Paths.get("../../../Cellar/x/bin/foo"))
+        assertEquals(t.resolve("Cellar/x/bin/foo").toRealPath(), SocketPath.evalSymlinks(link))
+    }
+
+    @Test
+    fun `입력의 상위 참조는 해소된 자리에서 되감는다`() {
+        val t = java.nio.file.Files.createTempDirectory("magi-dd2")
+        java.nio.file.Files.createDirectories(t.resolve("b/c"))
+        val link = java.nio.file.Files.createSymbolicLink(t.resolve("alink"), t.resolve("b/c"))
+        // 어휘적 처리라면 t 가 나온다. Go 는 b 를 낸다.
+        assertEquals(t.resolve("b").toRealPath(), SocketPath.evalSymlinks(link.resolve("..")))
+    }
+}
