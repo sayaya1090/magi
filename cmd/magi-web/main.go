@@ -1789,6 +1789,14 @@ func councilText(m app.CouncilMark) string {
 		if m.Tally != "" {
 			head += " — " + m.Tally
 		}
+		// Whether the members argued before landing there. The tally above is the POST-rebuttal
+		// one, so a unanimous line can be the product of an argument rather than of agreement, and
+		// a reader who cannot see that reads three members agreeing where there were two and one
+		// who was talked round. The terminal, the headless transcript and the loop map have all
+		// said this; the console is the last surface to be told.
+		if m.Debate != "" {
+			head += " · " + m.Debate
+		}
 		if m.Why != "" {
 			return head + "\n\n" + m.Why
 		}
