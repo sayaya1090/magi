@@ -158,7 +158,10 @@ class MagiToolWindow : ToolWindowFactory {
             following?.let { runCatching { it.close() } }
             following = Transcript({ DaemonClient.connect(sock) }, sid).follow(object : Transcript.Sink {
                 override fun frame(e: LogEvent) {
-                    append(render(e))
+                    // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
+                    // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
+                    // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
+                    if (!Transcript.echoesFact(e)) append(render(e))
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
                     authors.feed(e)

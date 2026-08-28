@@ -4,6 +4,7 @@ import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.Response
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -86,6 +87,30 @@ class TranscriptTest {
         Transcript({ fake }, "s_1").follow(sink).close()
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
         assertTrue(fake.closed, "연결을 안 닫았다")
+    }
+
+    @Test
+    fun `조각은 뒤따를 사실과 같은 말이라 줄을 안 받는다`() {
+        // 코어가 하는 중인 말을 조각으로 흘리고(`part.delta`, 자리가 없어 seq 0) 끝나면 같은
+        // 말을 사실로 앉힌다. 둘 다 새 줄로 쌓으면 답이 두 번 뜬다.
+        assertTrue(Transcript.echoesFact(LogEvent(seq = 0, type = "part.delta")))
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 7, type = "part.appended")))
+    }
+
+    @Test
+    fun `조각이 아닌 버스 이벤트는 줄을 받는다`() {
+        // 재생에 안 실리는 것은 조각과 같지만 **되풀이가 아니다** — 사실로 뒤따르는 같은 말이
+        // 없다. 자리가 0 이라는 이유로 싸잡아 버리면 화면이 권한 요청을 못 보게 된다.
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "permission.requested")))
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "tool.progress")))
+    }
+
+    @Test
+    fun `조각도 싱크에는 그대로 온다 — 거르는 것은 화면이다`() {
+        // 이 층은 정책을 안 담는다(`Wire.kt` 의 LogEvent 주석). 여기서 미리 버리면 §8 의 깊은
+        // 렌더가 흐르는 말을 그릴 방법을 잃는다 — 술어는 주되 프레임은 다 넘긴다.
+        val (sink, _) = run(listOf(Response(ok = true, event = LogEvent(seq = 0, type = "part.delta")), ev(1)))
+        assertEquals(listOf("e0", "e1"), sink.seen)
     }
 
     private fun ev(seq: Long) = Response(ok = true, event = LogEvent(seq = seq, type = "part.appended"))
