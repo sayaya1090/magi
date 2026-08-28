@@ -1,0 +1,51 @@
+# 문서와 주석이 짚는 것이 아직 거기 있는가.
+#
+# 자기 레인인 이유는 트리거가 다른 어느 레인과도 안 맞아서다. 인용이 썩는 계기는 셋인데 —
+# Go 쪽 rename, 이 문서들의 편집, 형제 문서의 편집 — 기존 둘 중 어느 것도 셋을 다 못 본다.
+# ci.yml 은 paths-ignore 에 clients/** 가 있어 클라이언트 문서 편집을 못 보고,
+# test-jetbrains.yml 은 paths 가 clients/jetbrains/** 라 형제 문서 편집을 못 본다.
+# 실제로 `clients/powerpoint/DESIGN.md` 만 바뀌면 **아무 레인도 안 돌았다.**
+#
+# 그리고 값이 싸다. python3 하나에 몇 초라, 문서 한 줄 고치자고 JDK 를 받고 Gradle 을 돌리던
+# 것보다 낫다. 그래서 다른 두 레인에서는 이 스텝을 뺐다 — 같은 검사가 세 곳에 있으면 세 곳이
+# 갈린다.
+#
+# paths 는 짐작이 아니라 **인용된 파일을 세서** 정했다. 검사 대상 문서들이 실제로 짚는 것은
+# internal 29 · cmd 9 · docs 5 · clients 4 · web/ui/README.md 1 · SECURITY.md 1 이다. 앞의 둘은
+# `**/*.go` 가 덮고 나머지를 이름으로 적었다. 목록으로 두면 새 디렉토리를 짚기 시작할 때 여기가
+# 낡는데, 그때는 그 인용이 검사에서 조용히 빠지는 게 아니라 **레인이 안 도는** 것이라 총계가
+# 그대로 0 이 된다 — 오늘 고친 것과 같은 모양이다. 인용처가 늘면 여기도 늘린다.
+name: citations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clients/**"
+      - "**/*.go"
+      - "docs/**"
+      - "web/ui/README.md"
+      - "SECURITY.md"
+      - ".github/workflows/citations.yml"
+  pull_request:
+    paths:
+      - "clients/**"
+      - "**/*.go"
+      - "docs/**"
+      - "web/ui/README.md"
+      - "SECURITY.md"
+      - ".github/workflows/citations.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # 색인을 `git ls-files` 로 만든다. 얕은 체크아웃이면 목록이 비고, 그러면 검사기가
+      # "문서가 아니라 내가 고장났다"고 말하며 죽는다 — 조용히 전부 실패하는 것보다 낫다.
+      - uses: actions/checkout@v7
+
+      - name: 인용이 아직 무언가를 가리키는가
+        run: python3 clients/jetbrains/tools/citecheck.py

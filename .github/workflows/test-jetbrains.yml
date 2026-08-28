@@ -35,12 +35,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Cheapest check in the lane, so it goes first: does the design doc still point at things
-      # that exist? Seconds, no toolchain. See tools/citecheck.py for why this is not optional.
-      - name: the doc's citations resolve
-        working-directory: .
-        run: python3 clients/jetbrains/tools/citecheck.py
-
       # The build asks for a JDK 21 toolchain. Providing it here means Gradle resolves it locally
       # instead of downloading one.
       - uses: actions/setup-java@v5
