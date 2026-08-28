@@ -76,9 +76,14 @@ public class FakeCompanionSource implements CompanionSource {
     @Override
     public void pastTranscript(CompanionContext ctx, String session, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_past_read", session);
+        // 끝난 일에도 표는 있다 — 그리고 그 표의 근거를 물을 때 어느 세션에 묻는가가
+        // 운영이 되밟은 자리다("일이 끝나면 카운슬의 근거에 닿을 수 없다"). 그 갈래를
+        // 여기서만 열 수 있으므로 지난 전사에도 카운슬 행 하나를 둔다.
         cb.accept(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"old prompt\"}," +
-                "{\"who\":\"assistant\",\"text\":\"old answer\"}]"));
+                "{\"who\":\"assistant\",\"text\":\"old answer\"}," +
+                "{\"who\":\"council\",\"round\":5,\"member\":\"Casper\",\"decision\":\"done\"," +
+                    "\"text\":\"\\u2713 done\"}]"));
     }
 
 
@@ -119,7 +124,10 @@ public class FakeCompanionSource implements CompanionSource {
 
     @Override
     public void councilEvidence(CompanionContext ctx, int round, java.util.function.Consumer<Object> cb) {
-        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_council", round);
+        // 라운드만이 아니라 <b>어느 세션에</b> 물었는지까지 적는다 — 지난 세션의 표를 열고
+        // 지금 대화에 물으면 근거는 null로 오고, 화면에는 이름 하나만 남는다(운영의 그 결함).
+        jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_council",
+                round + "@" + (ctx.past == null ? "" : ctx.past));
         cb.accept(elemental2.core.Global.JSON.parse(
                 "{\"task\":\"the task it judged\",\"report\":\"what was reported\",\"actions\":\"read · edit\"}"));
     }

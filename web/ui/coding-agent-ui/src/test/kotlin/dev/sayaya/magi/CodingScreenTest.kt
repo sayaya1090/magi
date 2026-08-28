@@ -80,7 +80,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row.council button.whoin").first().click()
                 Then("표 자체가 읽힌다 — 결정·렌즈·확신이 한 칩에") {
                     page.waitForSelector("#fileview .dinsp")
-                    page.evaluate("window.__magi_test_council") shouldBe 2
+                    page.evaluate("window.__magi_test_council") shouldBe "2@"
                     page.locator("#fileview .filebar .filedir").textContent() shouldBe "Melchior"
                     // tr()이 키로 폴백하는 페이지라 문구가 아니라 고른 키를 잰다.
                     page.locator("#fileview .filebar .dchip").textContent() shouldBe
@@ -190,11 +190,23 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("그 세션의 전사가 fetch로 선다 — 스트림이 아니다") {
                 page.waitForSelector("#agentdetail .dlog .row")
                 page.evaluate("window.__magi_test_past_read") shouldBe "s_old"
-                page.locator("#agentdetail .dlog .row").count() shouldBe 2
+                page.locator("#agentdetail .dlog .row").count() shouldBe 3
                 page.locator("#agentdetail .dlog .row.user .txt").textContent() shouldBe "old prompt"
             }
             Then("머리의 돌아가는 길이 목록을 가리킨다") {
                 page.locator("#agentdetail .sectionhead .backpast").count() shouldBe 1
+            }
+            Then("끝난 일의 표도 열리고 — 근거는 <b>그 세션에</b> 묻는다") {
+                // 운영이 되밟은 자리다: 표를 여는 길이 층위를 전부 지우는 바람에 지난 세션의
+                // 라운드를 지금 대화에 물었고, 근거는 null로 와서 이름 하나만 남은 화면이
+                // 됐다("일이 끝나면 카운슬의 근거에 닿을 수 없다"). 여기서 표는 층위를
+                // 갈아타는 것이 아니라 보고 있는 전사 안에서 카드로 서므로 그 세션을 잃을
+                // 자리가 없다 — 잃지 않는다는 것을 재는 것은 그래도 이 줄이 해야 한다.
+                page.locator("#agentdetail .dlog .row.council button.whoin").click()
+                page.waitForSelector("#fileview .dinsp")
+                page.evaluate("window.__magi_test_council") shouldBe "5@s_old"
+                page.locator("#fileview .filebar .filedir").textContent() shouldBe "Casper"
+                page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
             }
             Then("컴포저는 남는다 — 다만 어느 대화에 닿는지를 이름으로 말한다") {
                 // 목록과 다른 점: 보고 있는 그 대화가 곧 말이 갈 곳이다. 컴패니언이 아직 거기
