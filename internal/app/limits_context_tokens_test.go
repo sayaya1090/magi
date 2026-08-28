@@ -16,7 +16,7 @@ import (
 func TestContextTokensOverridesTheWindowForEveryModel(t *testing.T) {
 	var probes atomic.Int32
 	a := &App{
-		probingWindows: map[string]struct{}{},
+		probingWindows: map[string]windowMark{},
 		cfg: Config{
 			Models:        model.NewRegistry(),
 			ContextTokens: 40000,
@@ -52,7 +52,7 @@ func TestContextTokensOverridesTheWindowForEveryModel(t *testing.T) {
 // Unset means unset: the registry and the probe keep their old authority.
 func TestWithoutContextTokensTheRegistryStillDecides(t *testing.T) {
 	a := &App{
-		probingWindows: map[string]struct{}{},
+		probingWindows: map[string]windowMark{},
 		cfg:            Config{Models: model.NewRegistry()},
 	}
 	if w := a.contextWindow("qwen3-coder:30b"); w != 262144 {

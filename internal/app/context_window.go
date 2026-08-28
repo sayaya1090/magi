@@ -104,6 +104,16 @@ func (a *App) WindowOf(id string) int { return a.contextWindow(id) }
 // it cannot still gets the line of text naming the file.
 func (a *App) VisionOf(id string) bool { return a.cfg.Models.Get(id).Vision }
 
+// windowMark is why a model will not be probed again — three reasons that shared one slot until a
+// redirect needed to tell them apart. Only the pinned one outlives a change of backend.
+type windowMark uint8
+
+const (
+	windowProbing windowMark = iota // a probe is in flight, or ran and found nothing
+	windowProbed                    // a backend answered, and that entry is in the registry
+	windowPinned                    // a person set it with /context
+)
+
 func (a *App) contextWindow(id string) int {
 	if id == "" {
 		return 0
@@ -111,13 +121,14 @@ func (a *App) contextWindow(id string) int {
 	if a.cfg.ContextTokens > 0 {
 		return a.cfg.ContextTokens // [limits] context_tokens: the operator's number, for every model
 	}
+	a.forgetWindowsOfAnotherBackend()
 	if a.cfg.Models.Has(id) {
 		return a.cfg.Models.Get(id).ContextWindow
 	}
 	a.mu.Lock()
 	_, seen := a.probingWindows[id]
 	if !seen && a.cfg.ContextWindowProber != nil {
-		a.probingWindows[id] = struct{}{} // mark before unlocking so we probe at most once
+		a.probingWindows[id] = windowProbing // mark before unlocking so we probe at most once
 		a.mu.Unlock()
 		// Fall back to the family window while the exact-window probe runs, so a variant
 		// we already have a sane window for (e.g. "qwen3-coder:480b-cloud" inheriting
@@ -136,7 +147,8 @@ func (a *App) contextWindow(id string) int {
 
 // probeContextWindow asks the backend for id's real window and registers it, so
 // subsequent contextWindow calls (Has == true) return the accurate value. A
-// failed probe leaves id marked in probingWindows so we don't hammer the backend.
+// failed probe leaves id marked in probingWindows so we don't hammer the backend
+// (until requests are pointed at a different one, which the mark does not outlive).
 // It uses RegisterIfAbsent, not Register: an in-flight probe must NOT clobber a
 // manual /context override that SetContextWindow set while the probe was running
 // (marking probingWindows only blocks a FUTURE probe, not this one) — so if the id
@@ -144,8 +156,63 @@ func (a *App) contextWindow(id string) int {
 func (a *App) probeContextWindow(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	if w, ok := a.cfg.ContextWindowProber(ctx, id); ok && w > 0 {
-		a.cfg.Models.RegisterIfAbsent(model.Info{ID: id, ContextWindow: w, MaxOutput: w / 4, Tools: true})
+	w, ok := a.cfg.ContextWindowProber(ctx, id)
+	if !ok || w <= 0 {
+		return
+	}
+	// The registration and the mark that records where it came from, under one lock. Apart, a
+	// /context pin could land between them — taking the entry, then being recorded as something a
+	// backend gave us, so the next redirect would throw away a number a person typed. Held
+	// together the pair has no in-between to land in: SetContextWindow either writes its entry
+	// first, and RegisterIfAbsent defers to it, or it writes after both of these and overwrites
+	// them. Neither ordering leaves the entry saying one thing and the mark another.
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg.Models.RegisterIfAbsent(model.Info{ID: id, ContextWindow: w, MaxOutput: w / 4, Tools: true}) {
+		a.probingWindows[id] = windowProbed
+	}
+}
+
+// forgetWindowsOfAnotherBackend drops what we learned from a backend we are no longer talking to.
+//
+// A window is a fact about a (backend, model) pair, not about a model: two servers can serve the
+// same name — probe.go's own reason for existing is that one started with a 96K num_ctx answers
+// differently from one that did not — and this cache was keyed by the name alone. So after a
+// /route switch, or a plugin pointing the agent at its own gateway, compaction went on sizing
+// itself against the OLD server's number. Too large is the dangerous direction: the turn is not
+// compacted and the backend refuses it, which is the exact failure the probe was written to
+// prevent.
+//
+// Checked here, on the read, rather than announced by whoever redirects: the console's switch, a
+// plugin's set_base_url and a hot reload all reach the same client and none of them tells the App.
+// A redirect nobody remembered to report is the shape this tree keeps finding.
+//
+// A pinned window stays. A person who typed /context was not talking about a backend.
+func (a *App) forgetWindowsOfAnotherBackend() {
+	reader, ok := a.llm.(interface{ BaseURL() string })
+	if !ok {
+		return // a provider that cannot say where it points cannot have moved
+	}
+	base := reader.BaseURL()
+	a.mu.Lock()
+	if base == a.windowBase {
+		a.mu.Unlock()
+		return
+	}
+	a.windowBase = base
+	var forget []string
+	for id, mark := range a.probingWindows {
+		if mark == windowPinned {
+			continue
+		}
+		// windowProbing too: a backend that could not answer said nothing about the next one, and
+		// the mark that stopped us hammering IT must not stop us asking THIS one.
+		forget = append(forget, id)
+		delete(a.probingWindows, id)
+	}
+	a.mu.Unlock()
+	for _, id := range forget {
+		a.cfg.Models.Forget(id)
 	}
 }
 
@@ -170,7 +237,8 @@ func (a *App) SetContextWindow(ctx context.Context, sid session.SessionID, id st
 	info.ContextWindow = tokens
 	a.cfg.Models.Register(info)
 	a.mu.Lock()
-	a.probingWindows[id] = struct{}{} // keep the manual value: don't lazy-probe over it
+	a.probingWindows[id] = windowPinned // keep the manual value: don't lazy-probe over it, and don't
+	// drop it when the backend changes — this number is the person's, not a backend's
 	a.mu.Unlock()
 	if tokens == 0 {
 		return fmt.Sprintf("context window for %s set to unlimited", id), nil

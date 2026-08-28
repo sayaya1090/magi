@@ -93,7 +93,13 @@ type App struct {
 	permPolicy string  // runtime-adjustable permission policy (guarded by mu)
 	policy     *Policy // guardrail rules engine (deny floor, allow rules, bash scan)
 
-	probingWindows map[string]struct{} // models whose context window is being (or was) lazily probed (guarded by mu)
+	// probingWindows says, for each model whose window will not be probed again, WHY — because a
+	// probe is in flight or already failed, because a backend answered, or because a person pinned
+	// it. It was a bare set, one slot for three reasons, and a redirect could not tell a number a
+	// backend gave us from one a person did. Guarded by mu; windowBase is where requests went when
+	// these marks were taken.
+	probingWindows map[string]windowMark
+	windowBase     string
 
 	pendingUserLabel string // user label set before any session existed (SSO startup login); applied at CreateSession (guarded by mu)
 
@@ -123,7 +129,7 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		cfg:            c,
 		permPolicy:     c.Permission,
 		policy:         newPolicy(c.Allow, c.Deny, c.AllowDomains),
-		probingWindows: map[string]struct{}{},
+		probingWindows: map[string]windowMark{},
 		states:         map[session.SessionID]*sessionState{},
 		bg:             bg,
 		bgStop:         stop,

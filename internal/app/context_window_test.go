@@ -15,7 +15,7 @@ import (
 func TestContextWindowLazyProbe(t *testing.T) {
 	var probes atomic.Int32
 	a := &App{
-		probingWindows: map[string]struct{}{},
+		probingWindows: map[string]windowMark{},
 		cfg: Config{
 			Models: model.NewRegistry(),
 			ContextWindowProber: func(_ context.Context, _ string) (int, bool) {
@@ -55,7 +55,7 @@ func TestContextWindowFamilyFallbackWhileProbing(t *testing.T) {
 	var probes atomic.Int32
 	probed := make(chan struct{})
 	a := &App{
-		probingWindows: map[string]struct{}{},
+		probingWindows: map[string]windowMark{},
 		cfg: Config{
 			Models: model.NewRegistry(),
 			ContextWindowProber: func(_ context.Context, _ string) (int, bool) {
@@ -88,7 +88,7 @@ func TestContextWindowFamilyFallbackWhileProbing(t *testing.T) {
 func TestContextWindowProbeFailNoRetry(t *testing.T) {
 	var probes atomic.Int32
 	a := &App{
-		probingWindows: map[string]struct{}{},
+		probingWindows: map[string]windowMark{},
 		cfg: Config{
 			Models: model.NewRegistry(),
 			ContextWindowProber: func(_ context.Context, _ string) (int, bool) {
