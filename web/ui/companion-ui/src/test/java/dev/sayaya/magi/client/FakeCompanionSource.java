@@ -235,6 +235,9 @@ public class FakeCompanionSource implements CompanionSource {
      * 가진 도구들. 스펙이 window.__magi_test_tools_says에 JSON을 놓아 두면 그것으로 답한다 —
      * 특히 <b>빈 배열</b>: 그것은 "도구가 없다"가 아니라 "물어볼 수 없을 만큼 낡은 데몬"이고,
      * 화면이 다른 말을 적으면 사실을 지어내는 것이 된다(운영 규칙). 그 갈래는 여기로만 온다.
+     * <p>
+     * `'null'`을 놓으면 <b>못 받은 답</b>이 된다(JSON.parse가 null을 돌려준다). 빈 배열과 같은
+     * 사정이 아니다 — 그쪽은 데몬이 답한 것이고, 이쪽은 답이 오지 않은 것이다.
      */
     @Override
     public void tools(CompanionContext ctx, java.util.function.Consumer<Object> cb) {

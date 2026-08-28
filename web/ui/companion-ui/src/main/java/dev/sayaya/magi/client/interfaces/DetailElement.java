@@ -601,7 +601,13 @@ public class DetailElement {
         store.tools(names -> {
             box.replaceChildren();
             JsArrayLike<Object> all = Js.uncheckedCast(names);
-            if (all == null || all.getLength() == 0) {
+            // 못 받은 답과 빈 답은 <b>다른 사정</b>이다. 못 받은 것은 null로 온다(Console.fetchList가
+            // 거부·불통·깨진 본문을 다 null로 접는다) — 그 셋 중 어느 것도 낡은 데몬이 아니다.
+            // 낡은 데몬은 `[]`로 도착하는 쪽이다: BFF가 browse 실패를 일부러 빈 목록으로 접는다
+            // (inspect.go — "a companion that cannot say … which is what an empty list means").
+            // 둘을 한 문장으로 접으면, 그 문장이 유일하게 설명할 수 없는 경우에 그 문장이 붙는다.
+            if (all == null) { box.append(cell("dnote", tr("error.unreachable"))); return; }
+            if (all.getLength() == 0) {
                 // "도구가 없다"가 아니다 — 컴패니언은 늘 무언가를 갖고 있다. 빈 답이 뜻하는 것은
                 // 이 데몬이 물어볼 수 없을 만큼 낡았다는 것이고, 다른 말을 적으면 화면이 사실을
                 // 지어내는 것이 된다.

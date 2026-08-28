@@ -362,6 +362,21 @@ internal class CompanionPanelTest : GwtTestSpec({
             }
             page.evaluate("delete window.__magi_test_tools_says")
         }
+        When("도구를 물었는데 답이 아예 안 오면") {
+            // 빈 답과 같은 사정이 아니다. 낡은 데몬은 `[]`로 도착한다(BFF가 browse 실패를 일부러
+            // 빈 목록으로 접는다) — null은 magi-web에 못 닿았거나 본문이 깨진 것이고, 그 셋 중
+            // 어느 것도 낡은 데몬이 아니다. 둘을 한 문장으로 접으면 그 문장이 유일하게 설명할 수
+            // 없는 경우에 그 문장이 붙는다.
+            page.evaluate("window.__magi_test_tools_says = 'null'")
+            page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"] .tabclose").click()
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").first().click()
+            Then("닿지 못했다고 적는다 — 낡은 데몬이라고 단정하지 않는다") {
+                page.waitForSelector("#fileview .dinsp .dnote")
+                page.locator("#fileview .dinsp .dnote").textContent() shouldBe "error.unreachable"
+                page.locator("#fileview .dinsp .dlog").count() shouldBe 0
+            }
+            page.evaluate("delete window.__magi_test_tools_says")
+        }
         When("가서 보는 것 — 루프") {
             page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"] .tabclose").click()
             page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").nth(1).click()
