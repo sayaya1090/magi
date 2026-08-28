@@ -30,7 +30,9 @@ import (
 // command records every file the test opened and hashes it into the cache key — but only for files
 // under the module root. An open outside it is ignored, and the result stays green while the file
 // it was watching changes underneath. Measured: cached on a second run, then re-ran after a comment
-// was appended to styles.go; and no test in this repo opens anything outside the module root.
+// was appended to styles.go. And no check here depends on an input outside the module root: the
+// paths that do fall outside it — t.TempDir(), the sandbox probe's $HOME scratch — are files the
+// test itself makes, so there is nothing stale for them to stay green on.
 func TestTheWebTakesItsColoursFromHere(t *testing.T) {
 	src, err := os.ReadFile("../../internal/adapter/tui/styles.go")
 	if err != nil {
