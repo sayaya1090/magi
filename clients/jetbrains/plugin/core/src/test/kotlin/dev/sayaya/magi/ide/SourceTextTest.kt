@@ -1,5 +1,7 @@
 package dev.sayaya.magi.ide
 
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -424,6 +426,29 @@ class SourceTextTest {
     }
 
     /**
+     * 뽑는 것과 판정하는 것을 **따로 잰다.**
+     *
+     * 그물 전체(`labelLeaks`)로는 이 둘이 안 갈린다 — 뽑기가 잘려도, 판정이 헐거워도, 옆 규칙이
+     * 대신 울어서 목록은 여전히 비어 있지 않다. 「울었으니 됐다」로 읽으면 **다른 줄이 울고 있는
+     * 것**이고, 그 사이 이 두 줄은 죽어도 아무 말이 없다(실측: 둘 다 눌러도 초록이었다).
+     */
+    @Test
+    fun `보간을 뽑는 것과 거른 것을 가리는 것`() {
+        // 겹친 중괄호에서 잘리면 앞의 것이 짧아지고 **뒤의 것이 통째로** 없어진다. 목록을 통째로
+        // 못 박아야 「몇 개 나왔나」가 아니라 「무엇이 나왔나」가 검사가 된다.
+        assertEquals(listOf("a.let { b }", "raw"), interpolations("\${a.let { b }}\$raw"))
+        // 안 닫힌 채 끝나면 남은 것을 통째로 내놓는다. 조용히 버리면 「없다」와 같아진다.
+        assertEquals(listOf("a.let { b"), interpolations("\${a.let { b"))
+
+        assertTrue(escaped("Markup.text(it)"), "거친 것을 아니라고 했다")
+        assertTrue(escaped("Markup.text(f(a))"), "안에 괄호가 있다고 아니라고 했다")
+        // 앞머리만 보면 이 줄이 통과한다. 거른 것으로 **시작**하기만 하면 뒤는 자유였다.
+        assertFalse(escaped("Markup.text(a) + raw"), "거른 것 뒤에 이어 붙인 날것을 축복했다")
+        assertFalse(escaped("Markup.text(a).plus(raw)"), "거른 것에 이어 붙인 날것을 축복했다")
+        assertFalse(escaped("raw + Markup.text(a)"), "날것으로 시작하는데 통과시켰다")
+    }
+
+    /**
      * 라벨에서 안 거치고 붙는 자리들. 파일 하나의 글자만 보고 판정한다.
      *
      * [safe] 를 받는 이유는 시험 때문이다 — 규칙 하나만 걸리는 가짜 소스를 만들려면 그 소스에
@@ -580,15 +605,26 @@ class SourceTextTest {
      */
     @Test
     fun `라벨 예외의 근거는 그 파일에 남아 있어야 한다`() {
-        val bad = safeInLabels.flatMap { (key, safe) ->
-            val file = key.substringBefore(':')
-            val f = sources.firstOrNull { it.name == file }
-                ?: return@flatMap listOf("$key: 그런 파일이 없다 — 근거가 가리키는 것이 사라졌다")
-            val text = f.readText()
-            safe.anchors.filterNot { it in text }.map { "$key: 근거의 닻이 없어졌다(${safe.why}): $it" }
-        }
+        val bad = staleAnchors(safeInLabels) { f -> sources.firstOrNull { it.name == f }?.readText() }
         assertTrue(bad.isEmpty(), "라벨 예외의 근거가 낡았다: $bad")
+
+        // **닻 검사가 실제로 우는지도 여기서 잰다.** 위 줄은 저장소가 성하면 초록이고, 검사를
+        // 통째로 눌러도 똑같이 초록이다 — 지키는 것이 성할 때 가드가 조용한 것은 정상이라
+        // 「돌연변이가 죽나」로는 이 줄이 서 있는지 알 수 없다. 막으려던 상태를 만들어 본다.
+        val gone = mapOf("Fake.kt:x" to Safe("사라진 근거", listOf("val x = Markup.text(raw)")))
+        assertTrue(staleAnchors(gone) { "// 정리했다" }.isNotEmpty(), "없어진 닻을 못 봤다")
+        assertTrue(staleAnchors(gone) { "val x = Markup.text(raw)" }.isEmpty(), "성한 닻에 울었다")
+        assertTrue(staleAnchors(gone) { null }.isNotEmpty(), "근거가 가리키는 파일이 없는데 조용했다")
     }
+
+    /** 근거의 닻이 아직 그 파일에 남아 있나. [read] 는 파일 이름을 글자로 바꾼다. */
+    private fun staleAnchors(safe: Map<String, Safe>, read: (String) -> String?): List<String> =
+        safe.flatMap { (key, s) ->
+            val file = key.substringBefore(':')
+            val text = read(file)
+                ?: return@flatMap listOf("$key: 그런 파일이 없다 — 근거가 가리키는 것이 사라졌다")
+            s.anchors.filterNot { it in text }.map { "$key: 근거의 닻이 없어졌다(${s.why}): $it" }
+        }
 
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
