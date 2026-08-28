@@ -10,6 +10,8 @@ import (
 // those 200 chars were spent on the advisory and the demand that held the turn open appeared nowhere.
 // A run whose council refused three rounds in a row cannot be diagnosed afterward if no record says
 // what it refused over.
+//
+// F-HEADLESS headless-6: very long feedback is cut at 12 lines with a "feedback continues" marker.
 func TestCouncilFeedbackLinesKeepTheObjectionAndStayBounded(t *testing.T) {
 	lines := func(fb string) []string { return CouncilDecidedData{Feedback: fb}.FeedbackLines() }
 

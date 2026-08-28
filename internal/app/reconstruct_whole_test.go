@@ -17,6 +17,10 @@ import (
 // reader the model's amnesia — reported from a live console, where a fold landed mid-read and the
 // scrollback being followed was replaced by a summary of itself, on a machine whose log still had
 // every word of it.
+//
+// This is also F-COMPACT compact-ctx-2 — after a compaction, Read(s, 0) still returns the whole
+// history — and states the reason the probe leaves implicit: preserved FOR WHOM. The agent's view
+// folds (asserted below), the reader's does not.
 func TestTheDisplayKeepsWhatTheAgentForgot(t *testing.T) {
 	a := newTestApp(t)
 	ctx := context.Background()

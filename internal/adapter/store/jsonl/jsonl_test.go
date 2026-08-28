@@ -144,7 +144,10 @@ func lastSeq(evs []event.Event) int64 {
 	return evs[len(evs)-1].Seq
 }
 
-// append: transient events are rejected.
+// F-EVENT-FACT-TRANSIENT fact-1: a transient type offered to Append is refused.
+//
+// The probe frames it at the bus; this holds it one layer lower, at the Store, which is the only
+// place that can actually refuse. append: transient events are rejected.
 func TestAppendRejectsTransient(t *testing.T) {
 	s := newStore(t)
 	_, err := s.Append(context.Background(), "s1", fact(event.TypePartDelta, time.Now()))

@@ -46,6 +46,8 @@ func lastCompaction(t *testing.T, a *App, sid session.SessionID) (event.Compacti
 	return event.CompactionData{}, false
 }
 
+// F-COMPACT compact-ctx-3: a Compact command produces a compaction event immediately.
+//
 // TestManualCompactUsesRealSummary pins the fix for the /compact wipe bug: manual
 // compaction must write the model's actual summary (here fakeLLM's "done"), never the
 // old fixed "[compacted N earlier messages]" stub that collapsed the whole context.

@@ -10,6 +10,12 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 )
 
+// F-LOOP-STOP loop-stop-3: a working turn that never declares completion is asked for the
+// declaration, and the asking is bounded.
+//
+// The probe drives it through the loop with N tool-call replies; this drives requireFinishDeclaration
+// directly, which is the seam the loop calls and the only place the cap lives.
+//
 // A turn ends because someone decided to end it. Going quiet is not a decision: a turn that trailed
 // off mid-thought and a turn that was actually finished used to end identically, and neither was
 // ever asked which one it was.

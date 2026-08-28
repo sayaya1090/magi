@@ -167,6 +167,11 @@ func countType(evs []event.Event, typ event.Type) int {
 }
 
 // F-LOOP-STOP loop-stop-1: text-only reply finishes in one step.
+//
+// F-EVENT-FACT-TRANSIENT fact-2 rides along: one completed part is exactly one part.appended. The
+// count comes through Subscribe, which replays the Store and then tails the bus with the seq
+// already delivered suppressed — so a fact written twice, or written to only one of the two, fails
+// here.
 func TestLoopStopTextOnly(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep("안녕")}}
 	a, wd := newApp(t, llm, Config{Permission: "allow"})
@@ -184,6 +189,11 @@ func TestLoopStopTextOnly(t *testing.T) {
 }
 
 // F-LOOP-STOP loop-stop-2: tool-call then completion runs two steps.
+//
+// F-LOOP-PERMISSION perm-2 (policy=allow, tool=write executes without a request) is held here by
+// construction rather than by an assertion: nothing in this test answers a permission, so a write
+// that asked would either hang until waitForTerminal's 5s or be refused, and out.txt would not say
+// "hello" either way.
 func TestLoopToolThenFinish(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
 		toolStep("write", `{"path":"out.txt","content":"hello"}`),

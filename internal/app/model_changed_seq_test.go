@@ -14,7 +14,9 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// SPEC F-EVENT-FACT-TRANSIENT `seq-1`: a fact type does not promise a seq on every frame.
+// SPEC F-EVENT-FACT-TRANSIENT `seq-1` and `seq-2`: a fact type does not promise a seq on every
+// frame. The two ids are one test because the claim is a comparison — either half alone is
+// satisfied by a routing bug that sends both ways down the same exit.
 //
 // SetModel takes two exits out of one call — appendFact when the App has a Store, publishTransient
 // when it does not — so `model.changed` reaches the bus stamped in one arrangement and at Seq 0 in

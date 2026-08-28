@@ -68,7 +68,12 @@ func TestTurnCost(t *testing.T) {
 	}
 }
 
-// Auto-compaction triggers when context exceeds the model window budget.
+// F-COMPACT compact-ctx-1: history over threshold, next turn compacts.
+//
+// Half of the probe. It holds "1 compaction event"; the clause after it — that the request the
+// model then receives is SHORTER — is not asserted anywhere, and a fold that emitted the event
+// while sending the same history would pass. Auto-compaction triggers when context exceeds the
+// model window budget.
 func TestAutoCompactionTriggers(t *testing.T) {
 	reg := model.NewRegistry()
 	reg.Register(model.Info{ID: "tiny", ContextWindow: 64, Tools: true}) // ~256 chars budget*0.8
