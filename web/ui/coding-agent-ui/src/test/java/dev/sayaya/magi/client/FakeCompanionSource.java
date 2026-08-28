@@ -126,8 +126,13 @@ public class FakeCompanionSource implements CompanionSource {
     public void councilEvidence(CompanionContext ctx, int round, java.util.function.Consumer<Object> cb) {
         // 라운드만이 아니라 <b>어느 세션에</b> 물었는지까지 적는다 — 지난 세션의 표를 열고
         // 지금 대화에 물으면 근거는 null로 오고, 화면에는 이름 하나만 남는다(운영의 그 결함).
+        //
+        // null을 ""로 접지 않는다. past는 세 뜻이고(null=지금 대화, ""=지난 일 목록, 값=그 세션)
+        // 층위를 잃는 회귀의 실제 산출물이 ""이다(Moves.to가 null과 ""를 같이 ""로 돌려준다).
+        // 접으면 잃은 날의 계기판이 건강한 날과 같은 글자를 읽는다 — 재는 자리가 재는 것을
+        // 표현할 수 없으면 그 자리는 없는 것이다.
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_council",
-                round + "@" + (ctx.past == null ? "" : ctx.past));
+                round + "@" + (ctx.past == null ? "-" : ctx.past));
         cb.accept(elemental2.core.Global.JSON.parse(
                 "{\"task\":\"the task it judged\",\"report\":\"what was reported\",\"actions\":\"read · edit\"}"));
     }

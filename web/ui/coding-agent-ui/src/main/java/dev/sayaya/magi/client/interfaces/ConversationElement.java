@@ -36,8 +36,16 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * console.css 가 그대로 입힌다. 이 화면 자신의 것(사실 줄·컴포저 배치·턴 바)만
  * companion.css 가 말하고, 모듈이 로드될 때 스스로 <link>를 단다.
  *
- * 아직 아닌 것(대조표의 잔여): 접히는 사실판 전체·워크스페이스 판·툴 행 펼침(인자·출력)·
- * 마크다운·행 재사용 윈도우잉. 여기 없는 것은 없다고 그린다 — 반쯤 그리지 않는다.
+ * 한때 잔여로 적혀 있던 다섯은 다 착지했고 재 두었다(CodingScreenTest): 마크다운(같은 렉서를
+ * 물고 노드로 조립 — href 검사·raw HTML은 글자), 툴 행 펼침(요약=마크+이름+인자+답 첫 줄,
+ * 속=물은 것·답한 것, 실패는 열려 도착), 행 재사용 윈도우잉(위치별 {@code drawn}/{@code sigs} —
+ * 같은 말이면 그 노드를 그대로 둔다), 워크스페이스 판(WorkspaceElement), 접히는 사실판(그것은
+ * 여기가 아니라 부모 companion-ui의 DetailElement 몫이다 — 이 파일에 적혀 있던 것이 잘못이다).
+ *
+ * 잔여: <b>주소</b>뿐이다. 셸이 아는 조각은 {@code d}·{@code p}·{@code past}·{@code sub} 넷이고
+ * (Navigation), 운영이 갖고 있던 {@code ask}·{@code insp}·{@code cr} 셋은 여기서 주소가 아니다 —
+ * 도크와 카드가 그 셋을 <b>읽을 자리</b>는 이미 갖고 있으므로(재 두었다) 없는 것은 읽을 자리가
+ * 아니라 보낼 수 있는 링크와 뒤로가기다. 여기 없는 것은 없다고 그린다 — 반쯤 그리지 않는다.
  */
 @Singleton
 public class ConversationElement {

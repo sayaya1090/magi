@@ -80,7 +80,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row.council button.whoin").first().click()
                 Then("표 자체가 읽힌다 — 결정·렌즈·확신이 한 칩에") {
                     page.waitForSelector("#fileview .dinsp")
-                    page.evaluate("window.__magi_test_council") shouldBe "2@"
+                    page.evaluate("window.__magi_test_council") shouldBe "2@-"
                     page.locator("#fileview .filebar .filedir").textContent() shouldBe "Melchior"
                     // tr()이 키로 폴백하는 페이지라 문구가 아니라 고른 키를 잰다.
                     page.locator("#fileview .filebar .dchip").textContent() shouldBe
