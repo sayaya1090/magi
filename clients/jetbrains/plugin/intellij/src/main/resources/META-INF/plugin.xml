@@ -60,6 +60,15 @@
                 description="열어 둔 버퍼를 컴패니언에게 보내 훑어보게 한다 (저장 안 한 내용 그대로)">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
+        <!--
+            Same place as look-over, and for the same reason: it acts on the line you are looking at.
+            No shortcut claimed — every free chord belongs to somebody's muscle memory.
+        -->
+        <action id="magi.wroteThis" class="dev.sayaya.magi.ide.ui.WroteThisAction"
+                text="magi: 이 줄을 쓴 턴"
+                description="이 줄을 어느 턴이 썼고 그 턴은 무엇을 하라는 요청이었나 — 못 짚으면 못 짚는다고 말한다">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
     </actions>
 
     <projectListeners>

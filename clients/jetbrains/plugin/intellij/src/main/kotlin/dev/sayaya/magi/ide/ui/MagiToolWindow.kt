@@ -15,6 +15,7 @@ import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
+import dev.sayaya.magi.ide.usecase.Authorship
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
@@ -40,13 +41,14 @@ class MagiToolWindow : ToolWindowFactory {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val view = View(project)
+        MagiWindows.put(project, view)
         toolWindow.contentManager.addContent(
             ContentFactory.getInstance().createContent(view.root, null, false)
         )
         view.refresh()
     }
 
-    private class View(project: Project) {
+    internal class View(project: Project) {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         private val state = JBLabel(" ")
@@ -70,6 +72,14 @@ class MagiToolWindow : ToolWindowFactory {
          * 사라진다. §5-4 가 요구하는 것이 정확히 그 두 가지라 따로 세운다.
          */
         private val problems = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+
+        /**
+         * 어느 턴이 무엇을 건드렸나. 전사에서 같이 쌓는다 — 두 번째 스트림을 열지 않는다.
+         *
+         * 이 창이 사는 동안만 안다. 데몬이 재생해 준 만큼이 전부이고, 그전 것은 모른다 —
+         * 모르는 것을 아는 척하지 않는 것이 §5-5 의 규칙이다.
+         */
+        val authors = Authorship()
         private var following: java.io.Closeable? = null
 
         init {
@@ -119,6 +129,7 @@ class MagiToolWindow : ToolWindowFactory {
                     append(render(e))
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
+                    authors.feed(e)
                     Problems.of(e)?.let { note(it) }
                     Problems.dissentOf(e)?.let { d ->
                         problems.append("· 카운슬 ${'$'}{d.member} 반대  #${'$'}{d.seq}  ${'$'}{d.at.orEmpty()}\n    ${'$'}{d.why}\n")
@@ -241,4 +252,23 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun say(label: JBLabel, text: String) = SwingUtilities.invokeLater { label.text = text }
     }
+}
+
+/**
+ * 살아 있는 창을 찾는 길. 액션이 전사에서 쌓인 것을 물어야 하는데, 그 자료는 창이 들고 있고
+ * 창은 게으르게 만들어진다.
+ *
+ * **`companion object` 가 아니라 이름 있는 객체다.** 처음엔 `MagiToolWindow` 안에 companion 으로
+ * 뒀는데, 그러면 코틀린이 만드는 `MagiToolWindow.Companion` 이 **usecase 의 `Companion` 클래스를
+ * 가린다** — 같은 파일이 그 클래스를 쓰고 있어서 그 자리들이 통째로 컴파일을 못 했다. 도메인에
+ * `Companion` 이라는 이름이 있는 한 이 파일에 companion object 를 두면 안 된다.
+ *
+ * `WeakHashMap` 인 이유는 프로젝트가 닫히면 이 참조가 그것을 붙잡고 있으면 안 되기 때문이다.
+ * 그리고 **없으면 null 을 준다** — 액션이 "창이 아직 안 열렸다"고 말할 수 있어야 하고, 빈 답을
+ * 내면 "이 파일은 아무도 안 건드렸다"와 구분이 안 된다.
+ */
+internal object MagiWindows {
+    private val live = java.util.WeakHashMap<Project, MagiToolWindow.View>()
+    fun put(project: Project, view: MagiToolWindow.View) = synchronized(live) { live[project] = view }
+    fun of(project: Project): MagiToolWindow.View? = synchronized(live) { live[project] }
 }
