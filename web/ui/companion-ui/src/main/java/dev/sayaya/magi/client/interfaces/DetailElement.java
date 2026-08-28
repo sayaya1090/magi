@@ -9,6 +9,7 @@ import dev.sayaya.magi.client.domain.Roster;
 import dev.sayaya.magi.client.domain.Updates;
 import dev.sayaya.magi.client.domain.Versions;
 import dev.sayaya.magi.client.usecase.CompanionStore;
+import dev.sayaya.magi.component.Dialogs;
 import elemental2.core.JsDate;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
@@ -650,6 +651,7 @@ public class DetailElement {
         dialog.id = "fmtDialog";
         HTMLElement head = el("div");
         head.setAttribute("slot", "headline");
+        head.id = "fmtK";
         head.textContent = tr("fmt.headline");
         HTMLElement content = el("div");
         content.setAttribute("slot", "content");
@@ -663,6 +665,7 @@ public class DetailElement {
         save.textContent = tr("action.save");
         actions.append(cancel, save);
         dialog.append(head, content, actions);
+        Dialogs.closeX(dialog, () -> close(dialog));
         DomGlobal.document.body.append(dialog);
         open(dialog);
         store.reportFormat(got -> {

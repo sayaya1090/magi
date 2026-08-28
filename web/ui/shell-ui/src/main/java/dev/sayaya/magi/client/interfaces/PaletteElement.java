@@ -6,6 +6,7 @@ import dev.sayaya.magi.client.domain.Destination;
 import dev.sayaya.magi.client.domain.Match;
 import dev.sayaya.magi.client.usecase.Navigation;
 import dev.sayaya.magi.client.usecase.RosterStore;
+import dev.sayaya.magi.component.Dialogs;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import elemental2.dom.KeyboardEvent;
@@ -121,6 +122,7 @@ public class PaletteElement {
         cancel.addEventListener("click", evt -> close());
         actions.append(cancel);
         dialog.append(headline, body, actions);
+        Dialogs.closeX(dialog, this::close);
         field.addEventListener("input", evt -> gather());
         field.addEventListener("keydown", evt -> {
             KeyboardEvent k = Js.uncheckedCast(evt);

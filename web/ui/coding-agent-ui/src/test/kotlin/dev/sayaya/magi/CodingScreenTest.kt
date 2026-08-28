@@ -570,6 +570,13 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForSelector("md-dialog.askline md-outlined-text-field")
                 page.locator("md-dialog.askline .askwhere .wherechip").count() shouldBe 2
             }
+            Then("머리글은 이름을 갖고(#askK), 나가는 길 ✕는 머리글이 아니라 내용 슬롯에 선다") {
+                // #askK는 좁은 화면 css의 계약이다(✕가 앉을 앞여백). ✕를 머리글에 두면
+                // md-dialog가 거기서 제 이름을 가져가 상자가 "닫기 (제목)"으로 제 이름을 댄다.
+                page.locator("md-dialog.askline [slot=headline]#askK").count() shouldBe 1
+                page.locator("md-dialog.askline > .dlgclose").getAttribute("slot") shouldBe "content"
+                page.locator("md-dialog.askline [slot=headline] md-icon-button").count() shouldBe 0
+            }
             Then("이름으로 찾으면 결과가 트리를 대신한다 — 찾는 동안 판이 보이는 것은 결과다") {
                 page.locator("md-dialog.askline md-outlined-text-field input, " +
                     "md-dialog.askline md-outlined-text-field textarea").first().fill("main")

@@ -247,9 +247,65 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForCondition { page.evaluate("window.__magi_palette_ran") == "main.go" }
             }
             // 다음 장면에 상자를 열어 둔 채 넘기지 않는다 — 화면을 덮은 채로는 아무것도 못 잰다.
+            // 이미 걷힌 상자를 또 닫지 않는다 — md-dialog의 close는 비동기다.
             page.evaluate("(() => { window.__magi_palette = []; const d = document.getElementById('palDialog');" +
-                " if (d && d.close) d.close(); })()")
-            page.waitForCondition { page.locator("#palDialog[open]").count() == 0 }
+                " if (d && d.open && d.close) d.close(); })()")
+            // 겉의 open 속성이 걷혔다고 다 걷힌 것이 아니다: md-dialog는 닫는 애니메이션이 끝난
+            // <b>뒤에</b> 안쪽 <dialog>를 닫는다. 그 사이에 다시 show()를 하면 새로 연 상자를
+            // 늦게 도착한 close의 꼬리가 도로 닫는다(실측: open→showModal.ok→close("")→closed가
+            // 1ms 안에 줄지어 찍혔고 ⌘K는 조용히 아무 일도 하지 않았다). 안쪽까지 닫힌 것을 본다.
+            page.waitForCondition {
+                page.evaluate("(() => { const d = document.getElementById('palDialog');" +
+                    " const i = d && d.shadowRoot && d.shadowRoot.querySelector('dialog');" +
+                    " return !!d && !d.open && !(i && i.open) })()") == true
+            }
+        }
+        // ── 좁은 화면의 나가는 길 ✕ (운영 closeX) ────────────────────────────────
+        When("상자를 열어 두고 나가는 길을 재면") {
+            // 앞 장면이 상자를 닫은 직후다. 여기서 곧바로 다시 열면 md-dialog가 제 닫기 꼬리로
+            // 방금 연 상자를 도로 닫는다(실측 순서: open@1788 → showModal.ok@1789 → close("")@1789
+            // → closed@1789 → opened@2294 — ⌘K는 조용히 아무 일도 하지 않은 것처럼 보인다).
+            // 겉의 open 속성도, 그림자 안쪽 <dialog>.open도 그 꼬리가 남았는지 말해 주지 않는다.
+            // 그러니 열릴 때까지 문을 다시 두드린다 — 사람이 하는 그대로고, show()는 이미 열려
+            // 있으면 곧장 돌아서므로 두 번 눌러도 상자가 겹치지 않는다.
+            page.waitForCondition {
+                if (page.locator("#palDialog[open] #palField").count() == 0) {
+                    page.keyboard().press("Meta+k")
+                    page.waitForTimeout(300.0)
+                }
+                page.locator("#palDialog[open] #palField").count() > 0
+            }
+            Then("✕는 머리글이 아니라 내용 슬롯에 있다") {
+                // 머리글 슬롯에 두면 md-dialog가 거기서 제 이름을 가져가 상자가 "닫기 (제목)"으로
+                // 제 이름을 댄다(운영 실측 다섯 자리). 그래서 이 슬롯이 계약이다.
+                page.locator("#palDialog > .dlgclose").count() shouldBe 1
+                page.locator("#palDialog > .dlgclose").getAttribute("slot") shouldBe "content"
+                page.locator("#palDialog [slot=headline] md-icon-button").count() shouldBe 0
+                // 이름은 겉에 남지 않는다: Material이 호스트의 aria-label을 제 안쪽 <button>으로
+                // 옮기고 겉에는 data-aria-label만 남긴다(실측 속성 목록: class,slot,data-aria-label,value).
+                // 그래서 두 자리를 다 본다 — 운영 콘솔을 재는 프로브도 같은 이유로 그렇게 한다.
+                // 팩 없는 페이지라 키가 곧 말이고, 여기서 재는 것은 이름이 붙었다는 사실뿐이다.
+                page.evaluate("(() => { const x = document.querySelector('#palDialog > .dlgclose');" +
+                    " return x.getAttribute('aria-label') || x.getAttribute('data-aria-label') })()") shouldBe "action.close"
+            }
+            Then("넓은 창에서는 서지 않는다 — 바깥을 눌러 닫을 바깥이 아직 있다") {
+                page.evaluate("getComputedStyle(document.querySelector('#palDialog .dlgclose')).display") shouldBe "none"
+            }
+            Then("폰 폭에서는 서고, 그림이 실제로 그려진다") {
+                page.setViewportSize(390, 844)
+                page.waitForCondition {
+                    page.evaluate("getComputedStyle(document.querySelector('#palDialog .dlgclose')).display") != "none"
+                }
+                // 표를 slot="icon"으로 달면 md-icon-button의 그림자에 그런 슬롯이 없어 0×0으로
+                // 접힌다(실측) — 자식으로 넣은 같은 그림은 24가 된다. 그 수치가 계약이다.
+                ((page.evaluate("(() => { const s = document.querySelector('#palDialog .dlgclose svg');" +
+                    " return s ? Math.round(s.getBoundingClientRect().width) : 0 })()") as Number).toInt()) shouldBe 24
+            }
+            Then("누르면 상자가 걷힌다") {
+                page.locator("#palDialog .dlgclose").click()
+                page.waitForCondition { page.locator("#palDialog[open]").count() == 0 }
+                page.setViewportSize(1280, 800)
+            }
         }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)

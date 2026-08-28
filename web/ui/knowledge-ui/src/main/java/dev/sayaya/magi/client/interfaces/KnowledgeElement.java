@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.RosterSharing;
+import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.component.Rank;
 import dev.sayaya.magi.client.usecase.KnowledgeStore;
 import elemental2.dom.DomGlobal;
@@ -600,6 +601,7 @@ public class KnowledgeElement {
             go.setAttribute("value", "add");
             actions.append(cancel, go);
             element.append(headline, form, actions);
+            Dialogs.closeX(element, () -> Js.<Dialog>uncheckedCast(element).close("cancel"));
             // 버튼의 폼 연계(form=)는 컴포넌트 업그레이드 타이밍에 기대는 길이라(실측:
             // submit 미발화) 명시 클릭으로 결정적으로 간다. Enter 제출은 폼 리스너가 받는다.
             cancel.addEventListener("click", evt -> Js.<Dialog>uncheckedCast(element).close("cancel"));

@@ -99,6 +99,24 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.waitForCondition { page.locator("#mcpDialog[open]").count() == 0 }
             }
         }
+        // 이 상자는 지워지지 않고 <b>다시 쓰인다</b> — 열 때마다 ✕가 하나씩 늘면 안 된다.
+        When("같은 상자를 다시 열어 ✕를 재면") {
+            page.locator("#mcp .sectionhead .mcpopen").click()
+            page.waitForSelector("#mcpDialog[open]")
+            Then("✕는 여전히 하나고, 내용 슬롯에 있다") {
+                page.locator("#mcpDialog > .dlgclose").count() shouldBe 1
+                page.locator("#mcpDialog > .dlgclose").getAttribute("slot") shouldBe "content"
+                page.locator("#mcpDialog [slot=headline] md-icon-button").count() shouldBe 0
+            }
+            Then("누르면 아무것도 저장하지 않고 걷힌다 — 취소가 하는 그 일이다") {
+                // 넓은 창에서 이 표는 display:none이라(그 자리는 셸 스펙이 폰 폭에서 잰다) 여기서
+                // 재는 것은 픽셀이 아니라 <b>손잡이가 무엇에 물렸는가</b>다 — 그래서 이벤트로 친다.
+                page.evaluate("window.__magi_test_saved = null")
+                page.locator("#mcpDialog .dlgclose").dispatchEvent("click")
+                page.waitForCondition { page.locator("#mcpDialog[open]").count() == 0 }
+                page.evaluate("window.__magi_test_saved") shouldBe null
+            }
+        }
         When("서버 제거를 확인까지 누르면") {
             page.locator("#mcp .srv .drop").first().click()
             page.locator("#mcp .srv .drop.armed").click()

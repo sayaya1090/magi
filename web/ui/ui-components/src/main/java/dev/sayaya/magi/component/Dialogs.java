@@ -2,6 +2,7 @@ package dev.sayaya.magi.component;
 
 import dev.sayaya.magi.bridge.Icons;
 import elemental2.dom.DomGlobal;
+import elemental2.dom.Element;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
 
@@ -38,6 +39,8 @@ public class Dialogs {
         dialog.className = "askline";
         HTMLElement h = el("div");
         h.setAttribute("slot", "headline");
+        // 이름표는 좁은 화면의 계약이다 — console.css가 #askK에 ✕가 앉을 만큼의 앞여백을 준다.
+        h.id = "askK";
         h.textContent = head;
         HTMLElement content = el("div");
         content.setAttribute("slot", "content");
@@ -84,6 +87,7 @@ public class Dialogs {
         });
         actions.append(cancel, go);
         dialog.append(h, content, actions);
+        closeX(dialog, () -> close(dialog));
         DomGlobal.document.body.append(dialog);
         open(dialog);
         DomGlobal.setTimeout(a -> Js.<HTMLElement>uncheckedCast(field).focus(), 30);
@@ -149,6 +153,43 @@ public class Dialogs {
         confirm(who == null || who.isEmpty() ? tr("stop.headline_plain") : tr("stop.headline", "name", who),
                 tr("stop.body"), tr("action.keep_running"), "#i-sl-play",
                 tr("action.interrupt"), "#i-ss-circle-stop", null, then);
+    }
+
+    /**
+     * 상자를 닫는 ✕ — <b>좁은 화면에서만</b> 선다. console.css의 `.dlgclose`는 기본이
+     * display:none이고 compact(≤599px)에서만 켜지는데, 그 폭에서 이 상자들은 화면 전체라
+     * (width:100vw/height:100dvh) 눌러서 닫을 "바깥"이 남지 않는다. 넓은 창에서는 바깥이 있으니
+     * 이 표도 필요 없다.
+     *
+     * <b>머리글이 아니라 내용 슬롯에 넣는다.</b> md-dialog는 제 이름을 headline 슬롯에서 가져온다
+     * — 그 슬롯을 감싼 그림자 h2를 aria-labelledby로 가리킨다 — 그래서 그 슬롯에 컨트롤을 넣으면
+     * 이름에 접혀 들어간다(운영 실측: 다섯 상자가 "Close Preferences", "Close Go to, or do"로
+     * 제 이름을 댔다). 호스트에 aria-label을 적어도 labelledby가 이긴다. 내용 슬롯에 넣고
+     * 스타일시트가 모서리에 고정하면 이름은 다시 제목이 되고, 상자에서 처음 초점을 받는 것도
+     * 나가는 길이 아니라 입력칸이 된다.
+     *
+     * 표는 <b>슬롯 없는 자식</b>으로 단다. 운영은 이 한 자리에서만 withMark(slot="icon")를 쓰는데,
+     * md-icon-button의 그림자에는 이름 있는 슬롯이 없다(실측: 슬롯 목록은 기본 하나뿐이고,
+     * slot="icon"인 자식은 assignedSlot=null에 0×0으로 접힌다 — 자식으로 넣은 같은 그림은 24×24).
+     * 운영의 다른 아이콘 버튼 아홉 자리도 전부 자식으로 넣는다.
+     *
+     * 무르는 일은 상자마다 다르다(어떤 상자는 스스로를 지우고, MCP 상자는 다시 쓰인다) —
+     * 그래서 ✕는 제 방식으로 닫지 않고 <b>그 상자의 취소가 하는 일</b>을 그대로 한다.
+     */
+    public static void closeX(HTMLElement dialog, Runnable cancel) {
+        if (dialog == null) return;
+        HTMLElement x = Js.uncheckedCast(dialog.querySelector(".dlgclose"));
+        if (x == null) {
+            x = el("md-icon-button");
+            x.className = "dlgclose";
+            x.setAttribute("slot", "content");
+            Element m = Icons.shape("#i-sl-xmark", null);
+            if (m != null) x.append(m);
+            x.addEventListener("click", evt -> cancel.run());
+            dialog.append(x);
+        }
+        // 말은 매번 다시 적는다 — 상자가 다시 열릴 때 언어가 바뀌어 있을 수 있다(운영도 그렇다).
+        x.setAttribute("aria-label", tr("action.close"));
     }
 
     private static void close(HTMLElement d) {
