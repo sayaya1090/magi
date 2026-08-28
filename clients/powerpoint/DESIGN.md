@@ -1212,7 +1212,10 @@ is unavailable."*고 위 예제는 빈 문자열이다. 어느 쪽이든 **아�
 창을 닫는 순간 런타임이 통째로 죽는다. 그러면 이벤트를 구독하던 쪽이 사라지므로 위 문단의 사고가
 "창이 없으면"이 아니라 **"창을 한 번 닫았으면"**으로 훨씬 쉽게 일어난다. `"lifetime": "long"`
 (공유 런타임, 부록 A)이 그것을 막는다 — 창이 닫혀 있어도 코드가 살아 `permission`을 받고, 받으면
-`Office.addin.showAsTaskpane()`으로 **스스로 창을 도로 연다.** 이건 선택 사항이 아니라 §6의
+`Office.addin.showAsTaskpane()`으로 **스스로 창을 도로 연다.** 그리고 PowerPoint를 껐다 켠 뒤에도
+그러려면 한 줄이 더 필요하다 — `Office.addin.setStartupBehavior(load)`. 그게 없으면 코드가 도는
+시점이 "덱을 열 때"가 아니라 "사람이 창을 열 때"고, **그 덱에서 창을 한 번도 안 연 사용자에게는
+그 한 줄조차 안 듣는다**(부록 A). 이건 선택 사항이 아니라 §6의
 안전 규칙이 성립하기 위한 조건이고, 대가로 **작업창을 하나만 쓸 수 있다** — 채팅과 §6.1의 안내
 목록은 같은 창의 두 영역이지 두 창이 아니다.
 
@@ -1884,6 +1887,16 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
   environment."* "지금 보고 있는 슬라이드"는 대신 `getSelectedSlides()`로 묻는다. 문서가
   *"The first item in the collection is the active slide that is visible in the editing area"*
   라고 적어 첫 항목이 그것임을 보장한다.
+- **⚠ 이 결론을 뒤집을 뻔한 것이 하나 있는데, MS 문서끼리 어긋난다.** 공통 API에
+  `Office.EventType.DocumentSelectionChanged`가 있고, 위 "문서 열 때 코드 돌리기" 안내의
+  **PowerPoint 예제가 그것을 직접 등록한다**(`Office.context.document.addHandlerAsync`). 그런데
+  [`Office.EventType`](https://learn.microsoft.com/en-us/javascript/api/office/office.eventtype)의
+  그 항목 설명은 *"Occurs when a document-level selection happens in Excel or Word."* — **PowerPoint가
+  없다.** 같은 페이지에서 PowerPoint 몫으로 적힌 것은 `ActiveViewChanged`뿐이다.
+  그래서 **결론은 그대로 두되 이유를 하나 더 단다**: 프로덕션에서 열려 있다고 적힌 곳이 없고,
+  돈다 해도 그 이벤트는 *바뀌었다*만 말하지 *무엇이 선택됐는지*는 안 주므로 어차피 `selection()`을
+  당겨야 한다. **적어 두는 이유는 다음 사람이 저 예제를 보고 이 문단을 틀렸다고 읽을 것이기
+  때문이다.** 재 보고 싶으면 S14 옆에 붙이면 된다.
 - **`onSlideSelectionChanged`도 프리뷰이고, 그나마 도형은 안 센다** — *"This event is not raised
   when the selection of the contents (for example, shapes) in the slide changes."* 즉 **사용자의
   선택을 화면이 따라가는 방향은 프로덕션에서 안 열려 있다.** §6.1의 화살표가 한쪽인 이유다.
@@ -1951,7 +1964,8 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
 
 - 켜는 법은 매니페스트 한 줄이다 — 통합 매니페스트는 `"lifetime": "long"`, XML은
   `<Runtime resid="Taskpane.Url" lifetime="long" />`.
-- 얻는 것: **작업창이 닫혀 있어도 코드가 살아 있다** · 문서를 열 때 코드가 돈다 ·
+- 얻는 것: **작업창이 닫혀 있어도 코드가 살아 있다** · 문서를 열 때 코드가 돈다(⚠ 저절로는 아니다,
+  아래) ·
   코드로 창을 열고 닫는다(`Office.addin.showAsTaskpane`/`hide`) ·
   `Office.addin.onVisibilityModeChanged` · 사용자 지정 단축키.
 - 대가: **공유 런타임 하나에 작업창은 하나다**(페이지는 여럿 둘 수 있다). §5.7의 채팅과 §6.1의
@@ -1964,6 +1978,25 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
 - **다만 iPad만은 축이 둘 다 막는다.** §3.3은 iPad를 PowerPointApi 1.1 천장으로 뺐는데,
   공유 런타임이 아예 없다는 **독립된 이유**가 하나 더 있다. 버전이 올라가도 안 풀린다.
 - SharedRuntime **1.2**는 Excel 전용이라 우리와 무관하다.
+
+**⚠ "문서를 열 때 코드가 돈다"는 저절로가 아니고, 첫 번째 열기에는 절대 안 된다.**
+[안내](https://learn.microsoft.com/en-us/office/dev/add-ins/develop/run-code-on-document-open)가
+공유 런타임이 여는 **별도 기능**으로 적어 뒀고, 켜는 것은 매니페스트가 아니라 우리가 부르는 한 줄이다
+— `Office.addin.setStartupBehavior(Office.StartupBehavior.load)`. 그리고 그게 런타임 호출이라는 데서
+따라 나오는 단서가 하나 붙는다.
+
+> the add-in *won't* run the *first time* a user opens the document. The add-in must be opened
+> manually for the first time on any document.
+
+**즉 문서마다 한 번은 사람이 창을 열어 줘야 한다.** 그다음부터 그 덱은 열리기만 하면 코드가 돈다.
+
+**이게 §5.7의 시계를 바꾼다.** §5.7은 "창을 닫아도 코드가 산다"에 기대는데, PowerPoint를 껐다 켜면
+그 코드도 죽는다(§5.7이 이미 적었다). 그때 데몬은 살아 있고 물음도 서 있을 수 있다 — 데몬은 덱
+디렉토리에 살지 PowerPoint 안에 살지 않으니까. 그러니 이 한 줄을 부르느냐가 **"덱을 다시 열면
+듣는다"와 "창을 열어야 듣는다"의 차이**다. 부른다. 대신 남는 구멍은 정직하게 적는다 — **그 덱에서
+창을 한 번도 안 연 사용자**에게는 어느 쪽도 안 통하고, 그건 §5.7의 `status` 규칙이 창이 열리는
+순간 주워 담는 것으로 끝난다. 못 주워 담는 것은 그사이에 3분이 지난 경우고, 그건 컴패니언 모드
+얘기지 이 줄 얘기가 아니다.
 
 **⚠ 켜는 값이 매니페스트 한 줄이 아니다 — 두 줄이고, 둘째 줄을 MS가 시키는 자리에 두면 §3.3이 깨진다.**
 `<Runtime ... lifetime="long" />`만으로는 안 되고 `<Set Name="SharedRuntime" MinVersion="1.1" />`을
