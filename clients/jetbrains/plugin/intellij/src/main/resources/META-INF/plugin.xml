@@ -28,7 +28,39 @@
         <toolWindow id="magi" anchor="bottom" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
         <toolWindow id="magi.facts" anchor="right"
                     factoryClass="dev.sayaya.magi.ide.ui.FactsToolWindow"/>
+
+        <!--
+            The status bar is not a duplicate of the tool windows. Tool windows are LAZY: they are
+            not created until somebody opens them, which was measured in a sandbox IDE — the plugin
+            loaded and the facts window never connected to the daemon because nothing clicked it.
+            With only the two windows, "the companion is working" and "nobody opened the panel"
+            look the same.
+        -->
+        <statusBarWidgetFactory id="magi.status" order="first"
+                                implementation="dev.sayaya.magi.ide.ui.MagiStatusBarFactory"/>
+
+        <!--
+            Grey-text completion at the caret, calling the same daemon method the browser console's
+            /complete route calls. One switch, not two: magi's own [autocomplete] settings decide,
+            and a disabled companion answers with an empty string.
+        -->
+        <inline.completion.provider
+            implementation="dev.sayaya.magi.ide.ui.MagiInlineCompletion"/>
     </extensions>
+
+    <actions>
+        <!--
+            In the editor's context menu rather than a toolbar button: it acts on the file you are
+            looking at, and that is where the IDE puts things that act on the file you are looking
+            at. No keyboard shortcut is claimed — every free chord in this IDE belongs to somebody's
+            muscle memory, and a plugin taking one is a plugin picking a fight.
+        -->
+        <action id="magi.lookOver" class="dev.sayaya.magi.ide.ui.LookOverAction"
+                text="magi: 이 파일 훑어보기"
+                description="열어 둔 버퍼를 컴패니언에게 보내 훑어보게 한다 (저장 안 한 내용 그대로)">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
 
     <projectListeners>
         <listener class="dev.sayaya.magi.ide.ui.OpenBufferListener"

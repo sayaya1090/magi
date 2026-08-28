@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
@@ -20,6 +21,27 @@ import java.io.File
 class ArchitectureTest {
 
     private val usecase = File("src/main/kotlin/dev/sayaya/magi/ide/usecase")
+
+    /**
+     * 두 모듈의 Kotlin 원본 전부. 아래 "달린 문장" 검사는 모듈 경계와 무관한 결함이라 둘 다 본다 —
+     * `intellij` 에는 시험 소스 세트가 없고(SDK 를 받아야 돌아서), 그 결함이 실제로 거기서 났다.
+     *
+     * **뿌리마다 실제로 파일이 나왔는지 못박는다.** 없는 디렉토리에 `walkTopDown()` 을 걸면 예외가
+     * 아니라 **빈 시퀀스**라, 경로가 한 칸만 밀려도 검사가 0개를 훑고 초록이 된다. 모듈 이름이
+     * 바뀌거나 시험의 작업 디렉토리가 옮겨지면 그렇게 된다 — 그리고 그때 증상이 "규칙 통과"다.
+     * 이 파일이 잡으라고 있는 결함과 정확히 같은 부류라(참이 아니면서 참처럼 보이는 것) 여기서
+     * 봉합한다. 실측으로 확인했다: 뿌리를 틀린 이름으로 바꾸면 시험이 그대로 통과했다.
+     */
+    private fun sources(): List<File> {
+        val roots = listOf(File("src/main/kotlin"), File("../intellij/src/main/kotlin"))
+        val byRoot = roots.associateWith { d ->
+            d.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        }
+        byRoot.forEach { (root, files) ->
+            assertTrue(files.isNotEmpty(), "$root 에서 .kt 를 하나도 못 찾았다 — 경로가 밀렸거나 모듈이 옮겨졌다")
+        }
+        return byRoot.values.flatten()
+    }
 
     @Test
     fun `usecase 는 transport 를 import 하지 않는다`() {
@@ -49,6 +71,48 @@ class ArchitectureTest {
             setOf("Assist.kt", "Companion.kt", "DaemonLifecycle.kt", "McpName.kt", "Ports.kt"),
             names,
             "usecase 의 파일 목록이 예상과 다르다 — 옮겼으면 이 시험의 경로도 같이 옮길 것",
+        )
+    }
+
+    /**
+     * 이어지는 것처럼 보이는 `return@` 을 막는다.
+     *
+     * 실제로 난 결함이다. `Workspace.onDaemon` 이 이렇게 적혀 있었다 — `if (...)` 뒤에
+     * `return@executeOnPooledThread` 로 줄이 끝나고, 다음 줄에 `trouble(...)` 이 더 들여쓴 채
+     * 있었다. 눈에는 조건의 몸으로 보이는데 코틀린은 **별개 문장**으로 읽는다. 그래서 정상일
+     * 때마다 "데몬 없음"을 말한 다음 이어서 성공했다 — 메시지가 정확히 거꾸로였다.
+     *
+     * 단위 시험으로는 안 잡혔다. 그 자리가 IntelliJ `Project` 를 요구해 시험이 없었고,
+     * **샌드박스 IDE 를 실제로 띄워 로그를 읽고서야** 나왔다(폴 46회 전부 trouble 과 ok 가 같은
+     * 밀리초에 찍혔다).
+     *
+     * 잡는 모양은 좁다: `return@…` 으로 줄이 끝나고 **다음 줄이 더 들여쓰였을 때**. 같은 들여쓰기면
+     * 이어지는 척을 안 하므로 정상이다 — `MagiToolWindow` 의 낡은-제안 가드가 그 모양이고 의도대로다.
+     */
+    @Test
+    fun `return 뒤에 이어지는 척하는 문장이 없다`() {
+        // 라벨 있는 것과 없는 것 둘 다. 함수 안의 `if (x) return` 뒤에 더 들여쓴 줄도 같은 함정이고
+        // 눈에 속는 정도도 같다. 넓혀도 이 트리에서 오탐 0으로 실측됐다.
+        val dangling = Regex("""(return@\w+|(?<![\w.])return)\s*$""")
+        fun indent(s: String) = s.length - s.trimStart().length
+        val bad = sources().flatMap { f ->
+            val lines = f.readLines()
+            lines.indices.mapNotNull { i ->
+                val here = lines[i]
+                val next = lines.getOrNull(i + 1)
+                when {
+                    !dangling.containsMatchIn(here) -> null
+                    next == null || next.isBlank() -> null
+                    indent(next) > indent(here) -> "${f.name}:${i + 1}"
+                    else -> null
+                }
+            }
+        }
+        assertEquals(
+            emptyList<String>(),
+            bad,
+            "`return@…` 으로 줄을 끝내고 다음 줄을 더 들여쓰면 그 줄은 조건 밖의 문장이다. " +
+                "의도가 '조건일 때만'이면 중괄호를 쓸 것.",
         )
     }
 }
