@@ -30,7 +30,12 @@ final class Fleet {
     static Promise<Response> answer(String path) {
         switch (path) {
             case "/fleet": return Mock.json(Global.JSON.stringify(fleet()));
-            case "/console": return Mock.json("{\"user\":\"you\",\"host\":\"devbox\",\"version\":\"dev\","
+            // 이 콘솔의 사실들 — 운영 데모와 같은 답이다. 설정이 어디에 사는지와 데몬들의
+            // 판본까지 오는 이유는 "이 콘솔" 묶음이 그 넷을 적기 때문이다(하나라도 비면 그 줄이
+            // 통째로 빠진다).
+            case "/console": return Mock.json("{\"host\":\"studio\",\"user\":\"you\","
+                    + "\"configDir\":\"/Users/you/.config/magi\",\"peers\":[\"mini\",\"laptop\"],"
+                    + "\"version\":\"v0.6.2\",\"daemons\":[\"v0.6.1\",\"v0.6.2\"],"
                     + "\"embed\":\"nomic-embed-text\"}");
             // 데모의 사람은 전부 할 수 있다 — 무엇이 가려지는지가 아니라 무엇이 있는지를 보이는 자리다.
             case "/me": return Mock.json("{\"can\":[\"read\",\"answer\",\"prompt\",\"curate\","

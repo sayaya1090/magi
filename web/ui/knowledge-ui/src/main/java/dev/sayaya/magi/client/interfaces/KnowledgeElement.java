@@ -316,6 +316,10 @@ public class KnowledgeElement {
         if (!updated.isEmpty()) bits.add(updated.length() > 10 ? updated.substring(0, 10) : updated);
         String summary = str(p, "summary");
         if (!summary.isEmpty()) bits.add(summary);
+        // 이 쪽이 가리키는 다른 쪽들 — 위키가 낱장이 아니라 얽힌 것이라는 사실이 이 한 줄이다
+        // (운영과 같은 자리·같은 표시: "→ 이름, 이름").
+        String links = joinList(p, "links");
+        if (!links.isEmpty()) bits.add("\u2192 " + links);
         if (!bits.isEmpty()) row.append(cell("meta", String.join(" · ", bits)));
         if (folded != null) row.append(folded);   // 본문은 메타 다음 — 읽는 차례가 문서의 차례다
         return row;

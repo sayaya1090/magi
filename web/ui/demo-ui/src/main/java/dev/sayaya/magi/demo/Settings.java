@@ -17,10 +17,17 @@ final class Settings {
         switch (path) {
             case "/autocomplete":
                 if (Mock.wrote(init)) return Mock.json("");
-                return Mock.json("{\"file\":\"~/.config/magi/config.toml\","
-                        + "\"ambient\":true,\"crossSession\":false,"
-                        + "\"profiles\":[\"fast-local\",\"cloud-mini\"],"
-                        + "\"codeProfile\":\"fast-local\",\"composerProfile\":\"\"}");
+                // 운영 데모와 같은 답이다 — 두 데모를 나란히 놓고 볼 때 다른 설정을 보고 있으면
+                // 화면 차이인지 자료 차이인지 가릴 수 없다. 프로파일은 이름만이 아니라 <b>어느
+                // 층에 적힌 것인지</b>까지 온다(고르개가 그 사실을 적는다).
+                return Mock.json("{\"ambient\":true,\"crossSession\":true,"
+                        + "\"codeProfile\":\"fast\",\"composerProfile\":\"balanced\","
+                        + "\"commitTemplate\":\"Layer the commits: docs, then core, then the outward "
+                        + "change.\\nDescribe only what the diff shows — no issue numbers.\","
+                        + "\"prTemplate\":\"\","
+                        + "\"profiles\":[{\"name\":\"balanced\",\"tier\":\"global\"},"
+                        + "{\"name\":\"fast\",\"tier\":\"project\"}],"
+                        + "\"file\":\"/Users/you/work/design-system/.magi/config.toml\"}");
             case "/profiles":
                 if (Mock.wrote(init)) return Mock.json("");
                 return Mock.json(
