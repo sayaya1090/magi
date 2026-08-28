@@ -215,7 +215,7 @@ func firstNonZero(vs ...int) int {
 // cache is set, it attaches cache_control breakpoints to the (large, stable)
 // system prompt and tool list so an Anthropic model behind LiteLLM caches that
 // prefix instead of re-billing it every turn.
-func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string, maxTokens int, samp Sampling) chatRequest {
+func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string, maxTokens int, samp Sampling, sees func(string) bool) chatRequest {
 	out := chatRequest{Model: r.Model, Stream: stream, ReasoningEffort: reasoningEffort, MaxTokens: maxTokens}
 	out.Temperature, out.TopP, out.TopK = samp.Temperature, samp.TopP, samp.TopK
 	// A per-request pin overrides the configured default, field by field: a call that pins only
@@ -240,9 +240,16 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 		}
 		out.Messages = append(out.Messages, sys)
 	}
-	// Pictures ride only to a model that can read them — see canSeeImages, the first reader the
-	// Vision flag has ever had.
-	out.Messages = append(out.Messages, convertMessages(r.Messages, canSeeImages(r.Model))...)
+	// Pictures ride only to a model that can read them. sees is the client's reader — the app's
+	// live model table, which a plugin or the context-window probe can add to while magi runs; nil
+	// falls back to the static catalogue, which is what a caller with no app behind it has.
+	withImages := false
+	if sees != nil {
+		withImages = sees(r.Model)
+	} else {
+		withImages = catalogue().Get(r.Model).Vision
+	}
+	out.Messages = append(out.Messages, convertMessages(r.Messages, withImages)...)
 	out.Messages = normalizeSystemPlacement(out.Messages)
 
 	for _, t := range r.Tools {
@@ -482,9 +489,9 @@ func convertMessages(msgs []session.Message, withImages bool) []wireMessage {
 	// Which tool results get to carry their pictures, decided BACKWARDS from the end of the
 	// conversation: the newest are the ones being talked about. Without this the first render of a
 	// long session would keep its place in every request while the one just made was dropped.
-	showImages := map[string]bool{}
+	riding := map[string]riders{}
 	if withImages {
-		showImages = recentImages(msgs)
+		riding = pickImages(msgs)
 	}
 	msgs = repairToolOrdering(msgs)
 	// The resend window: assistant reasoning travels back only for messages AFTER the last user
@@ -532,10 +539,11 @@ func convertMessages(msgs []session.Message, withImages bool) []wireMessage {
 					// result nowhere to put one (role "tool" takes a string). The result's text
 					// names them either way, so a model that cannot see them still knows they
 					// exist — and one that can is shown them next to the call they came from.
-					if !showImages[p.ToolResult.CallID] {
+					r, ok := riding[p.ToolResult.CallID]
+					if !ok {
 						continue
 					}
-					blocks, left, _ := imagesFor(p.ToolResult.Images, imageBudget, imagesPerReply)
+					blocks, left := encodeImages(r)
 					if len(blocks) > 0 {
 						out = append(out, imageMessage(p.ToolResult.CallID, blocks, left))
 					}

@@ -15,7 +15,7 @@ func TestPinnedZeroTemperatureReachesTheWire(t *testing.T) {
 	body, _ := json.Marshal(buildRequest(port.ChatRequest{
 		Model:  "m",
 		Params: map[string]any{"temperature": 0.0},
-	}, true, false, "", 0, Sampling{}))
+	}, true, false, "", 0, Sampling{}, nil))
 	if !strings.Contains(string(body), `"temperature":0`) {
 		t.Fatalf("temperature 0 was dropped from the request body: %s", body)
 	}
@@ -24,7 +24,7 @@ func TestPinnedZeroTemperatureReachesTheWire(t *testing.T) {
 // No pin means no field: the provider's own default must stay in force, so an ordinary agent turn
 // is unaffected by this plumbing.
 func TestNoTemperatureParamOmitsTheField(t *testing.T) {
-	body, _ := json.Marshal(buildRequest(port.ChatRequest{Model: "m"}, true, false, "", 0, Sampling{}))
+	body, _ := json.Marshal(buildRequest(port.ChatRequest{Model: "m"}, true, false, "", 0, Sampling{}, nil))
 	if strings.Contains(string(body), "temperature") {
 		t.Fatalf("an unpinned request must not carry a temperature: %s", body)
 	}
@@ -78,8 +78,7 @@ func ptrI(n int) *int         { return &n }
 // [sampling] reaches every ordinary request. top_k rides along only when set, because it is not
 // part of the OpenAI schema and a strict backend rejects fields it does not know.
 func TestConfiguredSamplingReachesTheWire(t *testing.T) {
-	body, _ := json.Marshal(buildRequest(port.ChatRequest{Model: "m"}, true, false, "", 0,
-		Sampling{Temperature: ptrF(0.2), TopP: ptrF(0.8), TopK: ptrI(20)}))
+	body, _ := json.Marshal(buildRequest(port.ChatRequest{Model: "m"}, true, false, "", 0, Sampling{Temperature: ptrF(0.2), TopP: ptrF(0.8), TopK: ptrI(20)}, nil))
 	for _, want := range []string{`"temperature":0.2`, `"top_p":0.8`, `"top_k":20`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("configured sampling lost %s from the body: %s", want, body)
@@ -88,8 +87,7 @@ func TestConfiguredSamplingReachesTheWire(t *testing.T) {
 }
 
 func TestUnsetSamplingFieldsAreOmitted(t *testing.T) {
-	body, _ := json.Marshal(buildRequest(port.ChatRequest{Model: "m"}, true, false, "", 0,
-		Sampling{Temperature: ptrF(0.2)}))
+	body, _ := json.Marshal(buildRequest(port.ChatRequest{Model: "m"}, true, false, "", 0, Sampling{Temperature: ptrF(0.2)}, nil))
 	for _, unwanted := range []string{"top_p", "top_k"} {
 		if strings.Contains(string(body), unwanted) {
 			t.Errorf("an unconfigured %s must not be sent: %s", unwanted, body)
@@ -104,7 +102,7 @@ func TestAPerRequestPinOutranksTheConfiguredDefaultFieldByField(t *testing.T) {
 	body, _ := json.Marshal(buildRequest(port.ChatRequest{
 		Model:  "m",
 		Params: map[string]any{"temperature": 0.0},
-	}, true, false, "", 0, Sampling{Temperature: ptrF(0.9), TopP: ptrF(0.8)}))
+	}, true, false, "", 0, Sampling{Temperature: ptrF(0.9), TopP: ptrF(0.8)}, nil))
 	if !strings.Contains(string(body), `"temperature":0`) || strings.Contains(string(body), `"temperature":0.9`) {
 		t.Errorf("the pinned temperature 0 must win over the configured 0.9: %s", body)
 	}

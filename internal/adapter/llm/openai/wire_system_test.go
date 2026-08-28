@@ -121,7 +121,7 @@ func TestAPromptMagiWroteArrivesMarkedAsNotThePerson(t *testing.T) {
 			{Role: session.RoleSystem, Parts: []session.Part{{Kind: session.PartText,
 				Text: "You stopped without saying you are finished."}}},
 		},
-	}, false, false, "", 0, Sampling{})
+	}, false, false, "", 0, Sampling{}, nil)
 
 	last := req.Messages[len(req.Messages)-1]
 	// A user turn, so it works on every backend — including the ones that reject a system message
