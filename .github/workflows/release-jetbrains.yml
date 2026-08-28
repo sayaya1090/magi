@@ -34,6 +34,23 @@ jobs:
         working-directory: clients/jetbrains/plugin
         run: ./gradlew :core:test --no-daemon
 
+      # Does it actually run in the IDEs it claims? plugin.xml depends only on
+      # com.intellij.modules.platform, which is SAID to mean every JetBrains IDE — but the
+      # compile target is the IDEA SDK, so nothing had ever proved it. The verifier runs the
+      # bytecode against each IDE in the sinceBuild range and fails on a call that is not there.
+      #
+      # Release lane only: it downloads ~1.7GB and takes ~6 minutes. A push should not pay that,
+      # and what it catches (a class present in IDEA and absent in PyCharm) arrives with a code
+      # change, not with a doc edit.
+      #
+      # Measured 2026-08-28 at IU-261, IU-262, PY-261: Compatible on all three, with 4 deprecated
+      # and 6 experimental API usages that are NOT ours — Kotlin materialises ToolWindowFactory's
+      # default methods when a Kotlin class implements that Java interface. The report is never
+      # empty, so read the verdict line rather than the count.
+      - name: it runs in more than IDEA
+        working-directory: clients/jetbrains/plugin
+        run: ./gradlew :intellij:verifyPlugin --no-daemon
+
       - name: build
         working-directory: clients/jetbrains/plugin
         run: |
