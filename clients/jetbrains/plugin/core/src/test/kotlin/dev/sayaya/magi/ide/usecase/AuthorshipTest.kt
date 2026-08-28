@@ -28,15 +28,20 @@ class AuthorshipTest {
     @Test
     fun `파일을 건드린 턴들과 그 요청이 온 차례대로 나온다`() {
         val a = Authorship()
-        listOf(asked("가드를 고쳐라"), edit("g.go", 10, 12), asked("시험을 붙여라"), edit("g.go")).forEach(a::feed)
+        val evs = listOf(asked("가드를 고쳐라"), edit("g.go", 10, 12), asked("시험을 붙여라"), edit("g.go"))
+        evs.forEach(a::feed)
         val t = a.of("g.go")
         assertEquals(2, t.size)
         assertEquals("가드를 고쳐라", t[0].asked)
         assertEquals("시험을 붙여라", t[1].asked)
         // `WroteThisAction` 이 `#<seq> <tool>` 로 그린다. 차례는 목록 순서가 지키지만 **번호**는
         // 사건에서 옮겨 실어야 나오는 값이고, 0 이 되어도 이 시험의 나머지는 전부 초록이다.
-        assertEquals(2L, t[0].seq)
-        assertEquals(4L, t[1].seq)
+        //
+        // 기대값을 `2L`·`4L` 로 적었다가 **사건에서 도로 꺼내는 쪽**으로 고쳤다. 리터럴로 적으면
+        // 이 시험이 지키는 것이 「편집 사건의 번호를 실어 온다」가 아니라 **위 헬퍼가 번호를 매기는
+        // 규칙**이 된다 — 헬퍼가 100 부터 세기 시작하면 프로덕션은 멀쩡한데 시험이 운다.
+        assertEquals(evs[1].seq, t[0].seq)
+        assertEquals(evs[3].seq, t[1].seq)
     }
 
     @Test
