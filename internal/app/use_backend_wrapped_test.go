@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/port"
@@ -15,17 +16,40 @@ type plainLLM struct{ fakeLLM }
 // wholeRedirectLLM implements the WHOLE of port.BaseRedirector, which is the shape the wrappers
 // forward: the concrete *openai.Client answers all three, and a double that answers only the
 // setter is dropped by the wrapper before UseBackend ever sees it.
+//
+// Locked, like the real one: the window probe reads BaseURL from a goroutine while a switch writes
+// it, so a double that skipped the lock the *openai.Client keeps would report a race of its own
+// making — and a race detector that is busy pointing at the double is not looking at the code.
 type wholeRedirectLLM struct {
 	fakeLLM
 	models []string
-	base   string
-	tok    uint64
+
+	mu   sync.Mutex
+	base string
+	tok  uint64
 }
 
 func (l *wholeRedirectLLM) ListModels(context.Context) ([]string, error) { return l.models, nil }
-func (l *wholeRedirectLLM) SetBaseURL(b string) uint64                   { l.base = b; l.tok++; return l.tok }
-func (l *wholeRedirectLLM) ClearBaseURL(uint64)                          { l.base = "" }
-func (l *wholeRedirectLLM) BaseURL() string                              { return l.base }
+
+func (l *wholeRedirectLLM) SetBaseURL(b string) uint64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.base = b
+	l.tok++
+	return l.tok
+}
+
+func (l *wholeRedirectLLM) ClearBaseURL(uint64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.base = ""
+}
+
+func (l *wholeRedirectLLM) BaseURL() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.base
+}
 
 // A backend that cannot be pointed anywhere is refused THROUGH ITS WRAPPERS.
 //

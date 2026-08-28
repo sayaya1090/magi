@@ -129,6 +129,7 @@ func (a *App) contextWindow(id string) int {
 	_, seen := a.probingWindows[id]
 	if !seen && a.cfg.ContextWindowProber != nil {
 		a.probingWindows[id] = windowProbing // mark before unlocking so we probe at most once
+		askedAt := a.windowBase              // where this probe's answer will be a fact about
 		a.mu.Unlock()
 		// Fall back to the family window while the exact-window probe runs, so a variant
 		// we already have a sane window for (e.g. "qwen3-coder:480b-cloud" inheriting
@@ -138,7 +139,7 @@ func (a *App) contextWindow(id string) int {
 		// probe never writes, so this stays deterministic and free of the probe-write race
 		// (Get on an id the probe DID populate would read a non-zero window nondeterministically).
 		fallback := a.cfg.Models.Get(id).ContextWindow
-		go a.probeContextWindow(id)
+		go a.probeContextWindow(id, askedAt)
 		return fallback
 	}
 	a.mu.Unlock()
@@ -153,7 +154,14 @@ func (a *App) contextWindow(id string) int {
 // manual /context override that SetContextWindow set while the probe was running
 // (marking probingWindows only blocks a FUTURE probe, not this one) — so if the id
 // already has a value by the time the probe lands, the probe defers to it.
-func (a *App) probeContextWindow(id string) {
+//
+// askedAt is where requests went when the probe was launched, and an answer is a fact about that
+// backend, not about whichever one we are pointed at when it comes back. A probe outlives a
+// redirect: it is a goroutine with a 4s timeout and switching takes one call. Landing without
+// this check, the old server's number registered under the new base and was marked as something
+// THIS backend had said — so it survived the next read's invalidation, and the correct answer
+// from the probe the switch started was then dropped by RegisterIfAbsent as a duplicate.
+func (a *App) probeContextWindow(id, askedAt string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	w, ok := a.cfg.ContextWindowProber(ctx, id)
@@ -168,6 +176,13 @@ func (a *App) probeContextWindow(id string) {
 	// them. Neither ordering leaves the entry saying one thing and the mark another.
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if askedAt != a.windowBase {
+		// Answered by a backend we have since left. Drop it, and leave the marks alone: the read
+		// that noticed the move already cleared this id and started a probe against the backend we
+		// are on now. Clearing it here would erase THAT probe's mark and let the next read start a
+		// third one.
+		return
+	}
 	if a.cfg.Models.RegisterIfAbsent(model.Info{ID: id, ContextWindow: w, MaxOutput: w / 4, Tools: true}) {
 		a.probingWindows[id] = windowProbed
 	}
@@ -205,9 +220,18 @@ func (a *App) forgetWindowsOfAnotherBackend() {
 		if mark == windowPinned {
 			continue
 		}
-		// windowProbing too: a backend that could not answer said nothing about the next one, and
-		// the mark that stopped us hammering IT must not stop us asking THIS one.
-		forget = append(forget, id)
+		// Every non-pinned mark goes: windowProbing too, because a backend that could not answer
+		// said nothing about the next one, and the mark that stopped us hammering IT must not stop
+		// us asking THIS one.
+		//
+		// But only a windowProbed entry is OURS to delete. Under windowProbing there is either no
+		// entry at all or one that arrived by another route while the probe was running — a
+		// plugin's Register, or a built-in default — and Registry.Forget deletes by exact id
+		// without asking who wrote it. Deleting one of those is the dangerous direction twice over:
+		// Get then answers 0, and every consumer reads 0 as unlimited, so compaction stops.
+		if mark == windowProbed {
+			forget = append(forget, id)
+		}
 		delete(a.probingWindows, id)
 	}
 	a.mu.Unlock()

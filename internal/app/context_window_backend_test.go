@@ -128,3 +128,93 @@ func TestAConfiguredWindowIsNotForgottenOnASwitch(t *testing.T) {
 		t.Errorf("window after the switch = %d, want the configured 8000", got)
 	}
 }
+
+// An answer from the backend we left is not stamped as the new one's.
+//
+// A probe is a goroutine with a 4s timeout and a redirect is one call, so a probe outlives one
+// routinely. Landing without checking where it asked, the old server's 262144 registered under the
+// new base and was marked as something THIS backend had said — so the next read's invalidation
+// left it alone, and the correct answer from the probe that read had started was dropped by
+// RegisterIfAbsent as a duplicate. The wrong number then governed compaction until the NEXT switch.
+func TestAnAnswerFromTheBackendWeLeftIsNotStampedAsTheNewOnes(t *testing.T) {
+	llm := &wholeRedirectLLM{models: []string{"shared-name"}}
+	a := newAppWith(t, GuardProvider(llm))
+	// Both probes are held on channels, so the landing order is decided here and not by whichever
+	// goroutine the scheduler happens to run: the late one lands first, which is the whole case.
+	old, current := make(chan struct{}), make(chan struct{})
+	asked := make(chan string, 4)
+	a.cfg.ContextWindowProber = func(_ context.Context, _ string) (int, bool) {
+		base := llm.BaseURL()
+		asked <- base
+		if base == "" {
+			<-old
+			return 262144, true
+		}
+		<-current
+		return 96000, true
+	}
+	sid := open(t, a)
+	a.SetModel(sid, "shared-name")
+
+	a.contextWindow("shared-name") // launches the probe against the first backend, now held
+	if b := <-asked; b != "" {
+		t.Fatalf("the first probe asked at %q, not the first backend; the test measures nothing", b)
+	}
+	if err := a.UseBackend(sid, "http://b/v1"); err != nil {
+		t.Fatal(err)
+	}
+	a.contextWindow("shared-name") // notices the move and starts a probe against the new backend
+	if b := <-asked; b != "http://b/v1" {
+		t.Fatalf("the second probe asked at %q, not the new backend; the test measures nothing", b)
+	}
+
+	close(old) // the answer from the backend we left arrives first
+	settle(t)
+	// Dropping that answer must not clear the mark either: the mark standing now is the second
+	// probe's, and erasing it lets the next read start a third probe against a backend already
+	// being asked.
+	a.contextWindow("shared-name")
+	settle(t) // the probe would be a goroutine, so give it the same chance to report as a real one
+	if len(asked) != 0 {
+		t.Errorf("a third probe was started while the second is still out — the dropped answer " +
+			"cleared a mark that was not its own")
+	}
+	close(current)
+	settle(t)
+
+	if got := a.contextWindow("shared-name"); got != 96000 {
+		t.Errorf("window = %d, want 96000 — an answer from the backend we left is being served "+
+			"as this one's, and it will outlive the read that should have dropped it", got)
+	}
+}
+
+// Forgetting a backend's windows does not reach an entry the probe never made.
+//
+// Registry.Forget deletes by exact id without asking who wrote it, so the ids it is handed have to
+// be ours. Under windowProbing they are not: the probe registered nothing, and an entry under that
+// id arrived by another route — a plugin's Register, or a built-in default. Deleting one is the
+// dangerous direction twice over, because Get then answers 0 and every consumer reads 0 as
+// unlimited, so compaction stops entirely for a model that had a perfectly good window.
+func TestForgettingDoesNotReachAnEntryTheProbeNeverMade(t *testing.T) {
+	llm := &wholeRedirectLLM{models: []string{"plug-model"}}
+	a := newAppWith(t, GuardProvider(llm))
+	a.cfg.ContextWindowProber = func(context.Context, string) (int, bool) { return 0, false }
+	sid := open(t, a)
+	a.SetModel(sid, "plug-model")
+
+	a.contextWindow("plug-model") // marks the id; the probe finds nothing and the mark stays
+	settle(t)
+	// Someone else supplies the window while that mark is standing.
+	a.cfg.Models.Register(model.Info{ID: "plug-model", ContextWindow: 8000, MaxOutput: 2000, Tools: true})
+	if got := a.contextWindow("plug-model"); got != 8000 {
+		t.Fatalf("window before the switch = %d, want 8000; the test measures nothing", got)
+	}
+
+	if err := a.UseBackend(sid, "http://b/v1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.contextWindow("plug-model"); got != 8000 {
+		t.Errorf("window after the switch = %d, want 8000 — a registration the probe never made "+
+			"was deleted, and 0 turns compaction off", got)
+	}
+}
