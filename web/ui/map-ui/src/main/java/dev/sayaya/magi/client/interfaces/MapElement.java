@@ -57,6 +57,10 @@ public class MapElement {
         // 명단 전체가 아니라 <b>이 지도가 그리는 것</b>만 듣는다 — 걸음 수가 늘었다고 지도가
         // 다시 설 이유는 없다(실측: 10초에 70번).
         store.drawn().subscribe(sig -> render());
+        // 상태는 판을 다시 세우지 않고 <b>서 있는 노드만</b> 고쳐 입힌다. 지도에서 가장 자주
+        // 달라지는 것이 상태인데, 그때마다 통째로 다시 세우면 그 노드에 포커스를 두고 있던
+        // 사람이 body로 떨어지고(키보드로 지도를 걷던 중이다) 선을 재는 일까지 다시 한다.
+        store.lit().subscribe(sig -> paintStates());
         // 쉰 시간은 판을 다시 세우지 않고 <b>서 있는 줄의 낱말만</b> 고쳐 쓴다. 갓 쉰 노드의 그
         // 낱말은 초 단위라 매 초 달라지는데, 그때마다 판을 다시 세우면 그 사이의 클릭이 사라지고
         // 스크롤이 튄다(실측: 10초에 70번 다시 섰다).
@@ -92,8 +96,7 @@ public class MapElement {
         Map<String, Map<String, List<JsPropertyMap<Object>>>> machines = new LinkedHashMap<>();
         for (int i = 0; i < rows.getLength(); i++) {
             JsPropertyMap<Object> a = Js.uncheckedCast(rows.getAt(i));
-            String host = !str(a, "peer").isEmpty() ? str(a, "peer")
-                    : !str(a, "host").isEmpty() ? str(a, "host") : tr("map.here");
+            String host = hostOf(a);
             String who = Atlas.accountOf(str(a, "instance"));
             if (who.isEmpty()) who = tr("map.here");
             machines.computeIfAbsent(host, k -> new LinkedHashMap<>())
@@ -159,6 +162,66 @@ public class MapElement {
             // 판이 바뀌었다고 보는 눈(관찰자·스크린리더)에는 매번 바뀐 것으로 보인다.
             if (!word.equals(line.textContent)) line.textContent = word;
         }
+        paintUnseen(rows);
+    }
+
+    /**
+     * 통째로 침묵한 상자 위의 그 줄도 늙는다 — "3분 전"은 4분째에 거짓말이다.
+     *
+     * 노드의 쉰 시간과 함께 고쳐 쓴다: 이 줄이 세는 것은 그 상자의 가장 최근 소식이고,
+     * 그것은 상자 안 행들의 idle 중 가장 작은 값이다(그리는 자리와 같은 셈).
+     */
+    private void paintUnseen(JsArrayLike<Object> rows) {
+        elemental2.dom.NodeList<Element> lines = root.querySelectorAll(".placeseen[data-host]");
+        for (int i = 0; i < lines.getLength(); i++) {
+            Element line = lines.getAt(i);
+            String host = line.getAttribute("data-host");
+            double fresh = Double.MAX_VALUE;
+            for (int j = 0; rows != null && j < rows.getLength(); j++) {
+                JsPropertyMap<Object> a = Js.uncheckedCast(rows.getAt(j));
+                if (!host.equals(hostOf(a))) continue;
+                double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
+                if (idle >= 0) fresh = Math.min(fresh, idle);
+            }
+            String said = unseenWord(fresh);
+            if (!said.equals(line.textContent)) line.textContent = said;
+        }
+    }
+
+    /**
+     * 이미 서 있는 노드에 지금 상태를 <b>고쳐 입힌다</b> — 자리도 순서도 그대로.
+     *
+     * 순서에 기대지 않고 소켓으로 찾는다: 상태는 그리는 순서를 정하지 않지만(정렬은 신뢰가
+     * 한다) 명단이 실어 오는 순서는 그때그때 다르고, 순서로 짚으면 두 노드가 서로의 상태를
+     * 입는다 — 그러면 고친 것이 아니라 거짓말이 된다.
+     *
+     * 그림은 <b>달라졌을 때만</b> 갈아 끼운다. 상태 다섯이 그림 다섯은 아니어서(stopped와
+     * abandoned는 한 그림) 매번 갈면 아무것도 안 달라진 자리에서 자식이 사라졌다 생긴다.
+     */
+    private void paintStates() {
+        JsArrayLike<Object> rows = Js.uncheckedCast(store.fleet());
+        for (int i = 0; rows != null && i < rows.getLength(); i++) {
+            JsPropertyMap<Object> a = Js.uncheckedCast(rows.getAt(i));
+            Element n = bySock(str(a, "socket"));
+            if (n == null) continue;
+            String state = str(a, "state");
+            String cls = "node state " + state + (Js.isTruthy(a.get("elsewhere")) ? " faroff" : "");
+            if (!cls.equals(n.className)) n.className = cls;
+            String mark = StateMark.of(AgentStates.groupOf(state));
+            if (!mark.equals(n.getAttribute("data-mark"))) {
+                n.setAttribute("data-mark", mark);
+                Element had = n.querySelector(".nodemark");
+                if (had != null) n.replaceChild(Icons.orGlyph(mark, "\u2022", "nodemark"), had);
+            }
+            Element word = n.querySelector(".nodestate");
+            String said = stateWord(state);
+            if (word != null && !said.equals(word.textContent)) word.textContent = said;
+        }
+    }
+
+    /** 이 소켓의 노드 — 그리는 자리와 재는 자리가 같은 열쇠를 쓴다({@link #spot}). */
+    private Element bySock(String sock) {
+        return root.querySelector(".node[data-sock=\"" + sock.replace("\"", "") + "\"]");
     }
 
     private int bestRank(Map<String, List<JsPropertyMap<Object>>> accounts) {
@@ -189,8 +252,12 @@ public class MapElement {
             if (idle >= 0) fresh = Math.min(fresh, idle);
         }
         if (!t.isEmpty() && !"own".equals(t) && !anyLive) {
-            box.append(cell("placeseen down", tr("map.unseen", "ago",
-                    fresh == Double.MAX_VALUE ? "—" : tr("time.ago", "d", dur((int) fresh)))));
+            HTMLElement seen = cell("placeseen down", unseenWord(fresh));
+            // 이 줄의 말도 초마다 늙는다 — 어느 상자의 것인지 적어 두어야 판을 다시 세우지 않고
+            // 고쳐 쓸 수 있다. 상태가 판을 다시 세우지 않게 된 지금, 적어 두지 않으면 이 말은
+            // 판이 다시 설 때까지 "3분 전"에 얼어붙는다.
+            seen.setAttribute("data-host", host);
+            box.append(seen);
         }
         HTMLElement inner = cell("accounts", null);
         List<Map.Entry<String, List<JsPropertyMap<Object>>>> ordered = new ArrayList<>(accounts.entrySet());
@@ -241,8 +308,11 @@ public class MapElement {
         }
         // 상태가 입는 그림 — 있으면 스프라이트, 없으면 늘 그리던 점(운영 iconOr와 같은 계약).
         // 점을 글자로 박아 두면 링크의 읽히는 이름이 "•ws1 Idle"이 된다(실측): 그림은 그림으로.
-        n.append(Icons.orGlyph(StateMark.of(AgentStates.groupOf(str(a, "state"))), "\u2022", "nodemark"),
-                cell("nodename", str(a, "name")));
+        String mark = StateMark.of(AgentStates.groupOf(str(a, "state")));
+        // 표를 적어 둔다 — 고쳐 입힐 때 <b>같은 그림인지</b>를 물어볼 자리가 여기뿐이다
+        // (상태 다섯이 그림 다섯은 아니다: stopped와 abandoned는 한 그림이다).
+        n.setAttribute("data-mark", mark);
+        n.append(Icons.orGlyph(mark, "\u2022", "nodemark"), cell("nodename", str(a, "name")));
         if (Js.isTruthy(a.get("hub"))) n.append(cell("nodehub", tr("team.speaks")));
         if (remote) {
             double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
@@ -341,6 +411,18 @@ public class MapElement {
     }
 
     // ── 잔손 ─────────────────────────────────────────────────────────────────
+
+    /** 이 행이 서 있는 머신 — 피어는 그 콘솔 이름이 곧 머신이다(운영 규칙). */
+    private static String hostOf(JsPropertyMap<Object> a) {
+        return !str(a, "peer").isEmpty() ? str(a, "peer")
+                : !str(a, "host").isEmpty() ? str(a, "host") : tr("map.here");
+    }
+
+    /** 통째로 침묵한 상자가 이고 있는 말 — 들은 적이 없으면 줄표. */
+    private static String unseenWord(double fresh) {
+        return tr("map.unseen", "ago",
+                fresh == Double.MAX_VALUE ? "\u2014" : tr("time.ago", "d", dur((int) fresh)));
+    }
 
     private static String trustOf(List<JsPropertyMap<Object>> list) {
         for (JsPropertyMap<Object> a : list) if (!str(a, "trust").isEmpty()) return str(a, "trust");

@@ -37,6 +37,51 @@ internal class MapScreenTest : GwtTestSpec({
                 page.locator("#map .sectionhead .astable").count() shouldBe 1
             }
         }
+        When("서 있는 노드의 상태만 달라지면") {
+            page.waitForSelector("#map .node[data-sock='/a']")
+            // 판이 다시 섰는지를 묻는 유일한 방법: 그 순간 서 있던 바로 그 요소에 표를 하나
+            // 꽂아 두고, 새 프레임 뒤에도 그 표가 붙어 있는지 본다. 다시 세우면 표는 버려진다.
+            page.evaluate(
+                """var n = document.querySelector('#map .node[data-sock="/a"]');
+                   n.__magi_same = 'kept'; n.focus();
+                   window.__magi_test_map_tick('/a', 'idle');"""
+            )
+            Then("그 노드는 그대로 서 있고 — 포커스도, 그 자리도") {
+                page.waitForCondition {
+                    page.evaluate("""document.querySelector('#map .node[data-sock="/a"]').className""") ==
+                        "node state idle"
+                }
+                page.evaluate("""document.querySelector('#map .node[data-sock="/a"]').__magi_same""") shouldBe "kept"
+                page.evaluate("""document.activeElement.getAttribute('data-sock')""") shouldBe "/a"
+            }
+            Then("입은 것만 갈아입는다 — 말도 그림도") {
+                page.locator("#map .node[data-sock='/a'] .nodestate").textContent() shouldBe "idle"
+                page.evaluate("""document.querySelector('#map .node[data-sock="/a"]').getAttribute('data-mark')""") shouldBe
+                    "#i-ss-moon"
+            }
+            Then("옆 노드는 건드리지 않는다") {
+                page.locator("#map .node").count() shouldBe 3
+                page.locator("#map .node[data-sock='/b'] .nodestate").textContent() shouldBe "idle"
+                page.locator("#map div.node.faroff .nodestate").textContent() shouldBe "remote"
+            }
+        }
+        When("같은 그림을 입는 상태로 또 달라지면(stopped→abandoned)") {
+            page.evaluate("window.__magi_test_map_tick('/a', 'stopped')")
+            page.waitForCondition {
+                page.evaluate("""document.querySelector('#map .node[data-sock="/a"] .nodestate').textContent""") == "stopped"
+            }
+            page.evaluate(
+                """document.querySelector('#map .node[data-sock="/a"] .nodemark').__magi_same = 'kept';
+                   window.__magi_test_map_tick('/a', 'abandoned');"""
+            )
+            Then("말은 갈리지만 그림은 그 자리에 그대로 — 다섯 상태가 그림 다섯은 아니다") {
+                page.waitForCondition {
+                    page.evaluate("""document.querySelector('#map .node[data-sock="/a"] .nodestate').textContent""") ==
+                        "abandoned"
+                }
+                page.evaluate("""document.querySelector('#map .node[data-sock="/a"] .nodemark').__magi_same""") shouldBe "kept"
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고 상자들이 그대로 읽힌다") {

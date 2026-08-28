@@ -26,8 +26,17 @@ public class MapStore extends dev.sayaya.magi.bridge.Told {
     }
 
     /**
-     * 지도의 <b>뼈대</b>가 되는 것 — 이름·자리·상태와 오간 것들. 걸음 수는 여기 없다:
+     * 지도의 <b>뼈대</b>가 되는 것 — 이름·자리와 오간 것들. 걸음 수는 여기 없다:
      * 지도는 그것을 그리지 않으므로 그 때문에 다시 설 이유도 없다.
+     *
+     * <p>상태도 여기 없다. 지도는 그것을 <b>그리기는 한다</b>(노드의 클래스·표·낱말) — 그런데
+     * 이 콘솔에서 가장 자주 달라지는 것이 그것이라, 여기 두면 컴패니언 하나가 일을 시작할
+     * 때마다 지도가 통째로 다시 선다. 통째로 다시 서면 그 순간 포커스를 두고 있던 노드가
+     * 사라지고(키보드로 지도를 걷던 사람은 body로 떨어진다), 선을 재는 일까지 다시 한다.
+     * 뼈대는 이 서명이, 상태는 {@link #lit()}가 나른다.
+     *
+     * <p>{@code live}는 여기 남는다 — 그것이 바뀌면 상자 위에 없던 줄이 생긴다(침묵 소식).
+     * 낱말을 고쳐 쓰는 일과 없던 것이 서는 일은 다른 일이다.
      *
      * <p>쉰 시간도 여기 없다. 지도는 남의 기계의 노드에 그 줄을 적으므로 <b>그리기는 한다</b> —
      * 그래서 한때 그려지는 낱말(dur)을 여기 넣었는데, 갓 쉰 노드의 그 낱말은 초 단위라 매 초
@@ -44,7 +53,7 @@ public class MapStore extends dev.sayaya.magi.bridge.Told {
         jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(fleet);
         for (int i = 0; all != null && i < all.getLength(); i++) {
             jsinterop.base.JsPropertyMap<Object> a = jsinterop.base.Js.uncheckedCast(all.getAt(i));
-            for (String k : new String[]{"socket", "name", "state", "team", "host", "instance",
+            for (String k : new String[]{"socket", "name", "team", "host", "instance",
                     "addr", "peer", "trust", "hub", "live", "elsewhere"}) {
                 b.append(a.get(k)).append(',');
             }
@@ -52,6 +61,22 @@ public class MapStore extends dev.sayaya.magi.bridge.Told {
         }
         b.append('|').append(handoffs == null ? "" : elemental2.core.Global.JSON.stringify(handoffs));
         return b.toString();
+    }
+
+    /**
+     * 노드가 <b>입고 있는</b> 것 — 상태 낱말 하나. 자리도 순서도 이것으로는 바뀌지 않으므로
+     * (정렬은 신뢰가 정하고 상태는 거기 없다) 판은 이 소식에 서 있는 노드만 고쳐 입힌다.
+     */
+    public dev.sayaya.rx.Observable<String> lit() {
+        return when(() -> {
+            StringBuilder b = new StringBuilder();
+            jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(fleet);
+            for (int i = 0; all != null && i < all.getLength(); i++) {
+                jsinterop.base.JsPropertyMap<Object> a = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+                b.append(a.get("socket")).append('=').append(a.get("state")).append(';');
+            }
+            return b.toString();
+        });
     }
 
     /**
