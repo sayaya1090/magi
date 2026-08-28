@@ -810,13 +810,26 @@ public class ConversationElement {
         return (h < 10 ? "0" : "") + (int) h + ":" + (m < 10 ? "0" : "") + (int) m;
     }
 
-    private static boolean atBottom() {
-        Element s = DomGlobal.document.scrollingElement;
+    /**
+     * 새 말이 왔을 때 따라 내려갈 것인가 — <b>흐르는 상자를 보고</b> 정한다.
+     *
+     * 페이지만 보고 있었다: 넓은 창에서 전사는 제 상자 안에서 흐르는데(가운데 기둥은 높이가
+     * 정해져 있다) 그 상자의 자리를 페이지에게 물으니, 전사가 상자를 넘긴 순간부터 따라가기가
+     * 꺼졌다 — 새 턴이 와도 화면은 첫 줄에 머물렀다(실측 1280px: 운영은 바닥에 붙어 85,
+     * 이 콘솔은 0).
+     */
+    private boolean atBottom() {
+        Element s = scroller();
         return s == null || s.scrollHeight - s.scrollTop - clientHeight(s) < 80;
     }
 
-    private static void toBottom() {
-        Element s = DomGlobal.document.scrollingElement;
+    /** 전사가 제 안에서 흐르면 그 상자가, 아니면 페이지가 스크롤러다(폰이 그렇다). */
+    private Element scroller() {
+        return log.scrollHeight - clientHeight(log) > 4 ? log : DomGlobal.document.scrollingElement;
+    }
+
+    private void toBottom() {
+        Element s = scroller();
         if (s != null) s.scrollTop = s.scrollHeight;
     }
 
