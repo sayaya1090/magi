@@ -42,17 +42,31 @@ export class OfficeDeck extends DeckPort {
     return { measured: true, note: '', sets };
   }
 
+  /** 이 호스트가 그 집합을 지원한다고 말하는가. 왕복이 없다 — `isSetSupported` 는 동기다. */
+  #supports(name, version) {
+    const req = (typeof Office !== 'undefined') && Office.context && Office.context.requirements;
+    if (!req || typeof req.isSetSupported !== 'function') return false;
+    try { return req.isSetSupported(name, version) === true; } catch { return false; }
+  }
+
   async selection() {
+    // 번호(`Slide.index`)는 **1.8**이라 §3.3 의 바닥과 같은 높이다. 바닥 아래 호스트에서도 창은
+    // 열리므로(§3.3 — 매니페스트로 막지 않는다) 그런 데서 이 속성을 load 하면 **sync 가 통째로
+    // 실패해 선택까지 잃는다.** 그래서 물어보고 넣는다 — 여기 왕복이 안 붙는 이유는 위 주석.
+    const wantsNo = this.#supports('PowerPointApi', '1.8');
     return PowerPoint.run(async (context) => {
       // 슬라이드 신원부터. getSelectedSlides 는 **첫 항목이 활성 슬라이드**라고 문서가 보장한다.
       const slides = context.presentation.getSelectedSlides();
-      slides.load('items/id');
+      slides.load(wantsNo ? 'items/id,items/index' : 'items/id');
       const shapes = context.presentation.getSelectedShapes();
       shapes.load('items/id,items/name,items/type,items/width,items/height');
       await context.sync();
 
       const slideId = slides.items[0]?.id ?? null;
-      if (shapes.items.length === 0) return { slideId, shapes: [] };
+      // 문서가 **zero-based** 라고 적는다. 사람에게 보여 줄 번호는 그래서 +1 이다.
+      const idx = slides.items[0]?.index;
+      const slideNo = (wantsNo && typeof idx === 'number') ? idx + 1 : null;
+      if (shapes.items.length === 0) return { slideId, slideNo, shapes: [] };
 
       // 텍스트는 두 번째 왕복에서. 도형에 textFrame 이 없을 수 있어 낱개로 묻고, 없으면 빈 문자열이다.
       const frames = shapes.items.map((s) => {
@@ -72,12 +86,33 @@ export class OfficeDeck extends DeckPort {
 
       return {
         slideId,
+        slideNo,
         shapes: shapes.items.map((s, i) => ({
           id: s.id, name: s.name, type: s.type,
           width: s.width, height: s.height, text: texts[i],
         })),
       };
     });
+  }
+
+  /**
+   * 덱 전체의 번호표. 1.8 아래면 **null 이다** — 지어내지 않는다.
+   *
+   * 한 번 왕복한다. 안내가 도착할 때만 부르므로 누를 때마다 드는 값이 아니고, 여기서 캐시하지
+   * 않는 이유는 **슬라이드 순서가 사용자 손에서 바뀌기 때문**이다. 낡은 번호는 없는 번호보다 나쁘다.
+   */
+  async slideNumbers() {
+    if (!this.#supports('PowerPointApi', '1.8')) return null;
+    try {
+      return await PowerPoint.run(async (context) => {
+        const slides = context.presentation.slides;
+        slides.load('items/id,items/index');
+        await context.sync();
+        return new Map(slides.items.map((s) => [s.id, s.index + 1]));
+      });
+    } catch {
+      return null;   // 계측이 본 작업을 못 막는다 — 번호가 없으면 화면이 id 로 적는다
+    }
   }
 
   async point(slideId, shapeIds) {

@@ -49,7 +49,11 @@ export class FakeDeck extends DeckPort {
   async selection() {
     const slide = this.slide(this.currentSlide);
     const shapes = slide.shapes.filter((s) => this.selected.has(s.id));
-    return { slideId: slide.id, shapes: shapes.map((s) => ({ ...s })) };
+    return { slideId: slide.id, slideNo: slide.no ?? null, shapes: shapes.map((s) => ({ ...s })) };
+  }
+
+  async slideNumbers() {
+    return new Map(this.model.slides.map((s) => [s.id, s.no]));
   }
 
   async point(slideId, shapeIds) {

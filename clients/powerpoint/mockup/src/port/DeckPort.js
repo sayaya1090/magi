@@ -11,7 +11,15 @@
  * - 실패는 던진다. **못 찾은 것을 비슷한 것으로 갈음하지 않는다**(§5.8).
  */
 export class DeckPort {
-  /** @returns {Promise<{slideId:string, shapes:Array}>} 지금 잡혀 있는 것. 없으면 shapes:[] */
+  /**
+   * 지금 잡혀 있는 것. 없으면 `shapes:[]`.
+   *
+   * `slideNo` 는 **사람에게 보여 줄 번호**다(1부터). 못 얻으면 `null` 이고, 그때 화면은 id 를
+   * 보여 준다 — 없는 번호를 지어내지 않는다. 이 값이 모델에게는 안 가는데, 슬라이드를 한 번
+   * 끌어 옮기면 그 자리에서 낡기 때문이다(§5.8 의 "신원은 인용이, 값은 도구가").
+   *
+   * @returns {Promise<{slideId:string, slideNo:?number, shapes:Array}>}
+   */
   async selection() { throw new Error('not implemented'); }
 
   /**
@@ -19,6 +27,18 @@ export class DeckPort {
    * 슬라이드를 먼저 고르고 도형을 잡는다).
    */
   async point(_slideId, _shapeIds) { throw new Error('not implemented'); }
+
+  /**
+   * 슬라이드 id → 사람에게 보여 줄 번호. **못 얻으면 `null` 을 돌려준다**(빈 Map 이 아니다 —
+   * "번호가 없다"와 "안 재 봤다"를 화면이 갈라야 한다).
+   *
+   * 안내 목록이 이걸 쓴다. 모델은 id 로 말하는데(§6.1 의 항목은 도형을 id 로 짚는다) 사람에게
+   * `s7` 은 아무 뜻이 없고, **목록이 정본인 이상 눌러 보지 않고도 어디인지 알 수 있어야 한다.**
+   * 누르는 것은 사용자가 잡고 있던 선택을 뺏는 일이라 "확인용 누름"이 공짜가 아니다.
+   *
+   * @returns {Promise<?Map<string,number>>}
+   */
+  async slideNumbers() { return null; }
 
   /** 이 어댑터가 무엇인지 화면이 정직하게 말할 수 있게. */
   get label() { return 'unknown'; }

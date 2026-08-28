@@ -20,7 +20,7 @@ export class QuoteSelection {
 
   /** @returns {Promise<{added:Quote[], skipped:number, empty:boolean}>} */
   async run() {
-    const { slideId, shapes } = await this.deck.selection();
+    const { slideId, slideNo, shapes } = await this.deck.selection();
     if (!shapes || shapes.length === 0) {
       return { added: [], skipped: 0, empty: true };
     }
@@ -29,6 +29,7 @@ export class QuoteSelection {
     for (const s of shapes) {
       const q = new Quote({
         slideId,
+        slideNo,
         shapeId: s.id,
         name: s.name,
         type: s.type,
