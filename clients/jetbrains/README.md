@@ -458,9 +458,14 @@ capability가 없고, 플러그인은 자기 주력 창을 못 여는 상태를 
 ### `mcp-attach` / `mcp-detach` — 착지함
 
 **착지했다.** 여기 적힌 계약대로 코어에 들어갔다 — `daemon.go` 의 디스패치에 `mcp-attach` 와
-`mcp-detach` 가 있고, 클라이언트는 `AttachMCP(name, url, headers) → []string` 과
-`DetachMCP(name) → bool` 이다. 성공하면 등록된 도구 이름이 `tools` 로 돌아온다. 두 제품이 같은 문을
-쓰므로 모양은 계속 여기 둔다.
+`mcp-detach` 가 있고, Go 쪽 호출자는 `daemon.Client.AttachMCP(name, url, headers) → []string` 과
+`daemon.Client.DetachMCP(name) → (removed bool, err error)` 다. **이 플러그인의 메서드가 아니다** —
+코틀린에는 아직 부르는 자리가 없고 `Wire.Request` 에 `url`·`headers` 필드만 생겼다. 두 제품이 같은
+문을 쓰므로 모양은 계속 여기 둔다.
+
+부를 자리가 생기면 둘을 지킨다. **이름은 문자열 리터럴이 아니라 `McpName.VALUE` 를 지난다** — 호출부가
+`"jetbrains"` 를 다시 적으면 상수를 둔 이유가 그 자리에서 없어진다. 그리고 **detach 의 `false, nil` 을
+삼키지 않는다**: 그건 실패가 아니라 "뗄 것이 없었다"이고, 크래시 뒤 재접속하는 쪽에는 정상이다.
 
 | | 요청 | 뜻 |
 |---|---|---|
@@ -855,8 +860,8 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 §2의 "사람이 끈 것과 죽은 것"에 있다 — 상태 파일은 커널도 defer도 뒤를 봐주지 않아 낡은 채 남고,
 같은 판정이 디스크에서 유도된다.
 
-magi 쪽에 남은 것은 그쪽 제품의 문제이고 그쪽 문서가 들고 있다. 이 플러그인은 이미지 증거를 안 쓰므로
-영향을 받지 않는다: MCP 이미지 컨텐트 블록이 버려지는 것(`internal/adapter/mcp/jsonrpc.go` 의 `contentBlock`,
-`tool.go` 의 결과 이어붙이기), 그 고침이 세 층이고 하나는 magi가 가진 적 없는 멀티모달 요청 조립이라는 것,
-그리고 `internal/core/model/model.go:17`의 `Vision` 플래그가 일곱 모델에 붙어 있는데 읽는 곳이 없다는
-것. 마지막 것은 이 제품과 무관한 별건이다.
+magi 쪽에서 그 제품을 막고 있던 것들은 하루 사이에 닫혔다 — MCP 이미지 컨텐트 블록이 버려지던 것,
+그 고침이 세 층이라는 것, 그리고 `model.Vision` 이 죽은 플래그였던 것까지. 지금은 어댑터가 이미지를
+싣고(`internal/adapter/llm/openai/images.go`) `Vision` 을 읽는다. 이 플러그인은 이미지 증거를 안 쓰므로
+어느 쪽으로도 영향을 받지 않았지만, **선행조건을 적어 둔 문장은 그 조건이 닫히면 거짓이 된다** —
+그래서 여기 남겨 두지 않고 고친다.
