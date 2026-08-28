@@ -290,9 +290,13 @@ export class View {
   async onQuote() {
     const { added, skipped, empty, reason, beforeCount } = await this.quoteSelection.run();
     if (empty) {
-      // **사유를 뭉개지 않는다.** 셋이 다른 말이고, 셋째는 「모른다」다 — 앞 읽기가 없는 채로
-      // 「안 골랐다」라고 적으면 그게 S14 를 못 재게 만드는 그 뭉갬이다.
-      if (reason === 'lostFocus') {
+      // **사유를 뭉개지 않는다.** 넷이 다른 말이다 — 못 읽었다 / 날아갔다 / 모른다 / 안 골랐다.
+      // 앞 읽기가 없는 채로 「안 골랐다」라고 적으면 그게 S14 를 못 재게 만드는 그 뭉갬이고,
+      // 읽기가 죽은 채로 그렇게 적으면 **덱이 죽은 것을 사람 탓으로 돌리는** 셈이다.
+      if (reason === 'readFailed') {
+        this.note('선택을 못 읽었습니다 — 덱이 답하지 않았습니다. '
+          + '골라 둔 것은 그대로이니, 잠시 뒤 다시 누르거나 새로고침하세요.', { sticky: true });
+      } else if (reason === 'lostFocus') {
         this.note(`선택이 날아갔습니다 — 누르기 직전엔 ${beforeCount}개를 잡고 있었습니다. (S14)`);
       } else if (reason === 'unknown') {
         this.note('잡힌 도형이 없습니다 — 누르기 전 읽기가 없어 '

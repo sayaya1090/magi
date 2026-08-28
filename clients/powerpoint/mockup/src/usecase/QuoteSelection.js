@@ -55,8 +55,8 @@ export class QuoteSelection {
   }
 
   /**
-   * @returns {Promise<{added:Quote[], skipped:number, empty:boolean,
-   *                    reason:('none'|'lostFocus'|'unknown'|null), beforeCount:number}>}
+   * @returns {Promise<{added:Quote[], skipped:number, empty:boolean, beforeCount:number,
+   *                    reason:('none'|'lostFocus'|'unknown'|'readFailed'|null)}>}
    */
   async run() {
     this.epoch += 1;           // 아직 안 온 앞 읽기를 여기서 무효로 만든다
@@ -64,7 +64,16 @@ export class QuoteSelection {
     this.beforeFocus = null;   // 한 번 쓰고 버린다 — 낡은 읽기가 다음 누름에 새면 거짓 진단이 된다
     const beforeCount = before?.count ?? 0;
 
-    const { slideId, slideNo, shapes } = await this.deck.selection();
+    let sel;
+    try {
+      sel = await this.deck.selection();
+    } catch {
+      // **던진 것도 답이다** — "못 읽었다". 여기서 위로 새게 두면 단추는 조용히 죽고(누른
+      // 사람에게는 아무 일도 안 일어난다), 사람은 자기가 도형을 안 골랐다고 생각한다.
+      // 아래 세 사유가 서로 다른 말인 것과 같은 이유로, 이것도 제 이름으로 올라가야 한다.
+      return { added: [], skipped: 0, empty: true, reason: 'readFailed', beforeCount };
+    }
+    const { slideId, slideNo, shapes } = sel;
     if (!shapes || shapes.length === 0) {
       const reason = before === null ? 'unknown' : (beforeCount > 0 ? 'lostFocus' : 'none');
       return { added: [], skipped: 0, empty: true, reason, beforeCount };

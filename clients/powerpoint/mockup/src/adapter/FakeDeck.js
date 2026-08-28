@@ -21,6 +21,12 @@ export class FakeDeck extends DeckPort {
     this.numbering = true;
     /** 글을 읽어 주는가. false 면 신원만 오고 텍스트는 **못 읽은 것**으로 온다(목업 전용). */
     this.readText = true;
+    /**
+     * 선택을 읽어 주기는 하는가. false 면 `selection()` 이 **던진다** — `OfficeDeck` 의 첫
+     * `sync` 가 죽는 날(호스트가 사라졌거나 창이 낡았을 때)이 그 모양이다. 위의 `readText`
+     * 는 글만 못 읽는 반쪽이고, 이건 신원까지 못 얻는 경우라 화면이 달라야 한다(목업 전용).
+     */
+    this.reading = true;
   }
 
   /**
@@ -54,6 +60,7 @@ export class FakeDeck extends DeckPort {
   }
 
   async selection() {
+    if (!this.reading) throw new Error('덱이 선택을 안 내줍니다 (가짜 덱 손잡이)');
     const slide = this.slide(this.currentSlide);
     const shapes = slide.shapes.filter((s) => this.selected.has(s.id));
     return {

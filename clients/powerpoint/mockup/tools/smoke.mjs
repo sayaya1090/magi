@@ -650,5 +650,24 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
      got.added[0]?.textUnavailable === true, JSON.stringify(got.added[0] ?? null));
 }
 
+// ── 선택을 **아예** 못 읽는 날. 위가 반쪽(글만 못 옴)이면 이건 통째다. `run()` 이 던지면
+// `onQuote` 는 그걸 안 받으므로 단추가 조용히 죽는다 — 누른 사람에게는 아무 일도 안 일어나고,
+// 그건 「안 골랐다」와 화면에서 구별이 안 된다. 사유는 던져지는 게 아니라 실려 올라와야 한다.
+{
+  const d = new FakeDeck(structuredClone(fixture));
+  d.click(fixture.slides[0].shapes[0].id, false);
+  const qs = new QuoteSelection(d, new Composer());
+  await qs.sampleBeforeFocus();
+  d.reading = false;
+  const r = await qs.run().catch((e) => ({ threw: String(e) }));
+  ok('선택을 못 읽어도 던지지 않는다', !r.threw, r.threw);
+  ok('못 읽은 것은 제 이름으로 올라온다', r.reason === 'readFailed', JSON.stringify(r));
+  ok('못 읽은 것을 「안 골랐다」로 적지 않는다', r.reason !== 'none' && r.reason !== 'unknown');
+
+  d.reading = true;
+  const ok2 = await qs.run();
+  ok('손잡이를 되돌리면 다시 읽는다', ok2.added.length === 1, JSON.stringify(ok2.reason));
+}
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

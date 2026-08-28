@@ -136,6 +136,17 @@ export function mountFakePrompts(status, root, { stream, readTranscript, session
         text.textContent = deck.readText ? '글 못 읽는 덱' : '글 읽는 덱';
       });
       box.append(text);
+
+      // 첫 왕복이 죽는 날. 위의 「글 못 읽는 덱」은 반쪽이고 이건 통째라, 인용은 한 장도 안
+      // 붙는다 — 그때 화면이 **아무 말도 안 하면** 사람은 자기가 안 골랐다고 읽는다.
+      const read = document.createElement('button');
+      read.textContent = '선택 못 읽는 덱';
+      read.title = 'selection() 이 던지는 경우 — 단추가 조용히 죽으면 안 된다';
+      read.addEventListener('click', () => {
+        deck.reading = !deck.reading;
+        read.textContent = deck.reading ? '선택 못 읽는 덱' : '선택 읽는 덱';
+      });
+      box.append(read);
     }
   }
 
