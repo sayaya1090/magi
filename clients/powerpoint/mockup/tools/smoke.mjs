@@ -23,7 +23,7 @@ import { QuoteSelection, quoteNote } from '../src/usecase/QuoteSelection.js';
 import { SendTurn, logShapeOf, sendNote } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fixture } from '../src/ui/deckFixture.js';
 import { headOf } from '../src/ui/view.js';
 import { Transcript } from '../src/domain/Transcript.js';
@@ -1514,6 +1514,47 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     .filter(([, n]) => n > 1);
   ok('허용된 첫 줄 하나가 자리 둘을 덮고 있지 않다', doubled.length === 0,
     doubled.map(([k, n]) => `${n}× ${k}`).join(' / '));
+}
+
+// ── 화면에 넣는 길은 마크업을 못 읽는 길 하나뿐이다 ──────────────────────────
+//
+// **숨기는 것과 뭉개는 것이 같은 결함이다.** 인자가 안 실려 칸이 통째로 없어진 자리에서
+// 사람이 무엇을 허가하는지 모르고 누르는데(44152fd2), 실린 인자를 마크업으로 읽어
+// `rm x && echo <done>` 의 `<done>` 을 삼켜도 **같은 것을 모르고 누른다.** 안 보이는 창이나
+// 실제와 다른 글자를 보이는 창이나 결과가 같다. IDE 쪽 창이 스윙 `<html>` 라벨에서 실제로
+// 그랬고(44699bd1), 거기서는 이스케이프하는 문을 하나 두고 넷을 다 지나게 해서 닫았다.
+//
+// 이 창은 오늘 그 자리가 없다 — 넣는 자리가 전부 `textContent` 다. 그런데 **그건 지켜지는
+// 규칙이 아니라 습관**이라, 첫 `innerHTML` 이 들어오는 날 아무 데서도 소리가 안 난다.
+// 위 리스너 검사가 「손으로 지키는 규칙은 자리가 하나 늘 때 안 지키는 쪽이 나온다」로 세운
+// 것과 같은 자리다. 그래서 습관을 문으로 바꾼다: 마크업을 읽는 길은 이 목업에 **없어야**
+// 하고, 없다는 것을 매 런이 다시 잰다.
+//
+// 파일 목록을 손으로 안 적는다 — 규칙을 어길 자리는 보통 **새로 생기는 파일**이고, 적어 둔
+// 목록은 그 파일을 안 본다. `taskpane.html` 도 같이 훑는다: 오늘 두 `<script>` 는 둘 다
+// `src=` 지만, 인라인 블록이 하나 생기면 그건 `src/` 밖이라 위 훑기에 안 걸린다.
+//
+// 스캔이 깨지면 자리 0개로 조용히 초록이 되므로, 훑은 파일과 **넣는 자리**를 실제로 찾았는지
+// 부터 운다. 뒤엣것이 특히 그렇다: 「마크업 읽는 길이 없다」는 넣는 자리가 하나도 없어도 참이다.
+{
+  const root = new URL('../src/', import.meta.url);
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(new URL(`${e.name}/`, dir)) : [new URL(e.name, dir)]);
+  const files = [...walk(root).filter((u) => u.pathname.endsWith('.js')),
+    new URL('../taskpane.html', import.meta.url)];
+  const SINKS = /\b(innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b/;
+  const sunk = [];
+  let puts = 0;
+  for (const f of files) {
+    const text = readFileSync(f, 'utf8');
+    puts += (text.match(/\.textContent\b/g) ?? []).length;
+    text.split('\n').forEach((line, i) => {
+      if (SINKS.test(line)) sunk.push(`${f.pathname.split('/mockup/')[1]}:${i + 1}`);
+    });
+  }
+  ok('훑을 파일을 실제로 찾았다', files.length > 1, `${files.length} 파일`);
+  ok('글을 넣는 자리를 실제로 찾았다', puts > 0, `${puts} 자리`);
+  ok('마크업을 읽는 길이 하나도 없다', sunk.length === 0, sunk.join(' / '));
 }
 
 // ── 요구 집합 계측(§12 #4). `OfficeDeck.capabilities()` 를 stub 위에서 실제로 돌린다.
