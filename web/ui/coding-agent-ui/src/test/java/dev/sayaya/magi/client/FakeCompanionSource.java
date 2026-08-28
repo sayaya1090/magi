@@ -36,7 +36,9 @@ public class FakeCompanionSource implements CompanionSource {
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +
                 "{\"who\":\"thinking\",\"text\":\"read the log first\\nthen build\"}," +
-                "{\"who\":\"assistant\",\"text\":\"looking at the log\"}," +
+                // 모델이 쓴 글은 마크다운으로 도착한다 — 표·펜스·강조가 한 행에 다 들어 있는
+                // 본문 하나면 그리는 규칙 전부를 한 번에 잰다.
+                "{\"who\":\"assistant\",\"text\":\"looking at the **log**\\n\\n| a | b |\\n|---|---|\\n| 1 | 2 |\\n\\n- one\\n- two\\n\\n```go\\nfmt.Println()\\n```\\n\\n[x](https://e.com) [no](javascript:alert(1))\\n\\n<b>raw</b>\"}," +
                 "{\"who\":\"tool\",\"tool\":\"bash\",\"args\":\"{\\\"command\\\":\\\"go build ./...\\\"}\"," +
                     "\"out\":\"\\\"ok: 12 packages\\\\nwarnings: 0\\\"\",\"ok\":true}," +
                 "{\"who\":\"tool\",\"tool\":\"edit\",\"args\":\"{\\\"path\\\":\\\"main.go\\\"}\"," +

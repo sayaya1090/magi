@@ -22,6 +22,29 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row.tool.toolfail").count() shouldBe 1
                 page.locator("#log .row.pending").count() shouldBe 1
             }
+            Then("모델이 쓴 글은 마크다운으로 그려진다 — 원문이 아니라 읽으라고 쓴 모양으로") {
+                val said = page.locator("#log .row.assistant .txt").first()
+                said.locator("strong").count() shouldBe 1
+                said.locator("table thead th").count() shouldBe 2
+                said.locator("table tbody td").count() shouldBe 2
+                said.locator("ul li").count() shouldBe 2
+                said.locator("pre code[data-lang=go]").count() shouldBe 1
+            }
+            Then("링크는 검사받는다 — javascript: 주소에는 href가 실리지 않는다") {
+                val links = page.locator("#log .row.assistant .txt a")
+                links.count() shouldBe 2
+                links.nth(0).getAttribute("href") shouldBe "https://e.com"
+                withClue("전사는 javascript: 주소를 실어 나를 수 있고, 그것을 실행할 수 있는 노드는 앵커뿐이다") {
+                    links.nth(1).getAttribute("href") shouldBe null
+                }
+            }
+            Then("원문의 HTML은 마크업이 아니라 글자로 선다") {
+                val txt = page.locator("#log .row.assistant .txt").first()
+                txt.textContent() shouldContain "<b>raw</b>"
+                withClue("여기서 HTML 문자열이 만들어지면 새니타이저가 옳거나 그를 자리가 생긴다") {
+                    txt.locator("b").count() shouldBe 0
+                }
+            }
             Then("기계 행들은 접혀 도착한다 — 요약이 결말(마크)과 답 첫 줄을 말한다") {
                 page.locator("#log .row.toolok details.fold").count() shouldBe 1
                 page.locator("#log .row.toolok summary .mk.ok").count() shouldBe 1

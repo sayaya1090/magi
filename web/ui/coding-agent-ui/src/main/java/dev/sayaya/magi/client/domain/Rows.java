@@ -70,4 +70,36 @@ public final class Rows {
         if (flat.length() <= n) return flat;
         return flat.substring(0, Math.max(0, n - 1)) + "…";
     }
+
+    /**
+     * 인자를 <b>있는 그대로</b> 읽는다 — 아는 키를 가진 납작한 객체. 없으면 null.
+     *
+     * 문자열 값은 제 줄바꿈과 따옴표를 지킨다(그게 이 표의 전부다). 그 밖의 것은 JSON으로 다시
+     * 적는다 — "[object Object]"는 원래의 JSON보다 나쁘다. 운영 jsonPairs의 순수 반.
+     */
+    public static java.util.List<String[]> jsonPairs(String text) {
+        String t = text == null ? "" : text.trim();
+        if (!t.startsWith("{")) return null; // 전사를 파서에 넘기기 전의 값싼 거절
+        elemental2.core.JsObject parsed;
+        try {
+            Object v = elemental2.core.Global.JSON.parse(t);
+            if (v == null || !(v instanceof Object) || jsinterop.base.Js.isTruthy(
+                    elemental2.core.JsArray.isArray(v))) return null;
+            parsed = jsinterop.base.Js.uncheckedCast(v);
+        } catch (Throwable e) {
+            return null;
+        }
+        jsinterop.base.JsPropertyMap<Object> m = jsinterop.base.Js.uncheckedCast(parsed);
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        elemental2.core.JsArray<String> keys = elemental2.core.JsObject.keys(parsed);
+        for (int i = 0; i < keys.length; i++) {
+            String k = keys.getAt(i);
+            Object raw = m.get(k);
+            String val;
+            if (raw instanceof String) val = (String) raw;
+            else val = elemental2.core.Global.JSON.stringify(raw);
+            out.add(new String[]{k, val == null ? "" : val});
+        }
+        return out.isEmpty() ? null : out;
+    }
 }

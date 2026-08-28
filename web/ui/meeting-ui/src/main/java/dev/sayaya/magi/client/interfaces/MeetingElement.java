@@ -381,7 +381,9 @@ public class MeetingElement {
                 line.append(cell("meettext", str(u, "text").isEmpty() ? tr("meet.passed")
                         : tr("meet.passed_why", "why", str(u, "text"))));
             } else {
-                line.append(cell("meettext txt", str(u, "text")));
+                // 회의에서 오간 말도 전사와 같은 규칙으로 그린다 — 여기 도착하는 것은 모델이
+                // 쓴 글이고, `txt` 클래스가 이 페이지의 마크다운 스타일을 이미 입고 있다.
+                line.append(dev.sayaya.magi.bridge.Markdown.into(cell("meettext txt", null), str(u, "text")));
             }
             String room = orEmpty(rooms.get(who)), socket = orEmpty(sockets.get(who));
             if (!room.isEmpty() && !socket.isEmpty()) {
@@ -483,8 +485,8 @@ public class MeetingElement {
             String who = str(t, "who"), what = str(t, "what");
             HTMLElement row = cell("meettask" + (what.isEmpty() ? " nothing" : ""), null);
             row.append(cell("meettaskwho", who));
-            row.append(cell(what.isEmpty() ? "meettaskwhat" : "meettaskwhat txt",
-                    what.isEmpty() ? tr("meet.task_none") : what));
+            row.append(what.isEmpty() ? cell("meettaskwhat", tr("meet.task_none"))
+                    : dev.sayaya.magi.bridge.Markdown.into(cell("meettaskwhat txt", null), what));
             if (!what.isEmpty()) {
                 if (store.handedTo(who)) {
                     row.append(sent(m, who));
