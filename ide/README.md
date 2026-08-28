@@ -38,17 +38,23 @@ IDE에서 열어 둔 프로젝트를 **컴패니언 하나**로 만든다. 플�
 
 ```
 ide/
-├── README.md      # 이 문서 — 설계
-└── plugin/        # IntelliJ Platform 플러그인 (Kotlin, Gradle)
-    ├── transport/ # 소켓 클라이언트: JSON Lines, 재접속, 버전 협상
-    ├── model/     # 와이어 DTO — Go 구조체와 필드 이름이 같다
-    ├── usecase/   # 세션 상태, 데몬 수명주기, 퍼미션 대기열
-    └── ui/        # 툴윈도·에디터 마커·액션·설정
+├── README.md              # 이 문서 — 설계
+└── plugin/
+    ├── settings.gradle.kts
+    ├── gradle/libs.versions.toml   # 버전은 여기 한 곳
+    ├── core/              # 평범한 Kotlin/JVM. IntelliJ SDK 를 모른다
+    │   └── …/ide/model/        와이어 DTO — Go 의 json 태그와 이름이 같다
+    │   └── …/ide/transport/    소켓 경로 계산 + JSON Lines 클라이언트
+    │   └── …/ide/usecase/      데몬 수명주기(붙거나 띄우거나·감시)
+    └── intellij/          # IntelliJ Platform. 화면만 여기 산다
+        └── …/ide/ui/
 ```
 
-의존은 `ui → usecase → model ← transport`로 한 방향이다. `web/ui`의 방향과 같지만 같은 규칙은
-아니다. 거기는 `interfaces → usecase → domain`이고 `domain`에 순수 규칙과 JVM 테스트가 산다
-(`web/ui/README.md:96`). 여기 `model`은 와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
+**모듈 둘로 나눈 것은 취향이 아니라 시험 가능성이다.** `core` 가 SDK 를 모르므로 화면 없이 계약을
+시험할 수 있고, SDK 를 못 받는 자리에서도 컴파일된다. 의존은 `intellij → core` 한 방향뿐이고, 그
+반대가 생기면 `core` 가 SDK 를 끌어온다. `web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
+같은 규칙은 아니다(`web/ui/README.md:96`) — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
+와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
 
 ---
 
@@ -494,8 +500,17 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   되살리지 않아야 한다.
 - **config 디렉토리 어긋남.** `MAGI_CONFIG_DIR`을 셸에만 설정하고 IDE를 Dock으로 띄운다. 데몬이 둘
   생기지 않아야 한다.
+- **소켓 이름 골든.** JVM이 Go와 같은 소켓 이름을 내는지 본다. 지어낸 값이 아니라 돌던 데몬에서
+  가져온다 — `/tmp/mw1/daemon-ws1-b1lp9vc8.sock` 의 레코드가 workdir 를 `/tmp/ws1` 이라 했고,
+  macOS에서 풀린 `/private/tmp/ws1` 이 `b1lp9vc8` 을 낸다. 그 해시는 상위 비트가 서 있어서 부호 없는
+  연산의 시험을 겸한다. 룬 단위 sanitize는 이모지 하나가 하이픈 하나가 되는지로 본다.
 - **와이어 골든.** 요청·응답 JSON을 고정 문자열로 두고 코틀린 DTO가 그대로 읽는지 본다. Go 쪽
   `wire_invariant_test.go`와 짝이다. 한쪽만 있으면 필드가 조용히 갈라진다.
+- **라이브 데몬.** 골든이 맞아도 전송이 틀리면 소용없으므로 한 번은 실물에 붙는다. 이 트리의 관례대로
+  env로 잠근다 — `MAGI_IDE_PROBE_SOCK=<socket> ./gradlew :core:test`. 부르는 것은 `about` 과 `models`
+  뿐이라 턴을 안 건드리고, 같은 요청을 두 번 보내 답이 밀리지 않는 것으로 락스텝을 확인한다.
+
+빌드는 `cd ide/plugin && ./gradlew build` 하나다. `core` 만 보려면 `:core:test`.
 - **파생 대조.** 같은 세션에 대해 플러그인이 그린 전사와 콘솔이 그린 전사를 행 단위로 비교한다.
   `web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
   필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md:127`).
@@ -504,9 +519,11 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 
 ## 8. 아직 정하지 않은 것
 
-- **IntelliJ Platform 최소 버전.** JDK 16 이상이라는 바닥은 §4에서 정해졌고, 그 위에서 어느 IDE
-  버전부터 지원할지가 남는다. `web/ui`는 Gradle 9.3에 Java 25를 쓰지만(`web/README.md:124`)
-  플러그인은 IDE가 도는 JDK를 따라야 하므로 같을 수 없다.
+- ~~**IntelliJ Platform 최소 버전.**~~ 정해졌다. IDEA 2026.1(`sinceBuild = 261`), IntelliJ Platform
+  Gradle Plugin 2.18.1, Kotlin 2.4.10, Gradle 9.3, JDK 21 툴체인. 조회해서 정했고 빌드가 통과한다.
+  하나 배웠다 — **Community 판(`IC`)은 2025.3부터 따로 배포되지 않아** `intellijIdeaCommunity` 가 아니라
+  `intellijIdea` 를 쓴다. 플러그인이 그 사실을 에러 메시지로 알려 준다. 남은 것은 `untilBuild` 를
+  열어 둔 채로 갈지인데, 지금은 열어 뒀다.
 - **전사 문의 정확한 이름과 인자.** `transcript`에 `session`·`since`를 받는 안이 자연스럽다. 남은
   것은 통째로 보낼지 증분으로 보낼지(콘솔은 통째로 보내고 diff 프로토콜이 없다), 그리고 **끊긴 뒤
   재접속했을 때 빠진 구간을 어떻게 아는지**다. `since`가 데몬 재시작을 건너뛰면 무슨 뜻인지도 같이
