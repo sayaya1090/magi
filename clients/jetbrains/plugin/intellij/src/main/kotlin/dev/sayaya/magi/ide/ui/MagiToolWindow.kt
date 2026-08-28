@@ -1,7 +1,9 @@
 package dev.sayaya.magi.ide.ui
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBLabel
@@ -46,13 +48,15 @@ class MagiToolWindow : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val view = View(project)
         MagiWindows.put(project, view)
+        // 창의 수명에 건다. 이걸 안 걸면 창이 닫혀도 스트림·손·등록이 그대로 남는다.
+        Disposer.register(toolWindow.disposable, view)
         toolWindow.contentManager.addContent(
             ContentFactory.getInstance().createContent(view.root, null, false)
         )
         view.refresh()
     }
 
-    internal class View(private val project: Project) {
+    internal class View(private val project: Project) : Disposable {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         private val state = JBLabel(" ")
@@ -125,6 +129,35 @@ class MagiToolWindow : ToolWindowFactory {
             root.add(bottom, BorderLayout.SOUTH)
             follow()
             offerHand()
+        }
+
+        /**
+         * 창이 닫히면 내놓은 것을 도로 거둔다.
+         *
+         * 이 자리가 통째로 비어 있었다. 창은 전사 스트림 하나와 루프백 서버 하나를 세우고
+         * **아무것도 안 거뒀다.** 창을 닫아도 스트림 스레드가 계속 돌고, 손 포트가 계속 열려
+         * 있고, 무엇보다 **데몬은 손이 붙어 있다고 계속 믿는다** — 컴패니언이 편집을 죽은 창으로
+         * 보낸다.
+         *
+         * 그 계약은 이미 두 곳에 적혀 있었다 — [hand] 필드 주석이 창이 사는 동안만 손이 산다고 하고,
+         * `Companion.kt` 는 "창이 닫히거나 IDE 가 나갈 때 — 안 떼면 데몬이 죽은 주소를 계속 들고 있는다"
+         * 고 적어 뒀다. 둘 다 적어 두기만 하고 **부르는 자리를 안 만들었다.** 주석이 약속한 것을 코드가
+         * 안 지키면 다음 사람은 지켜지는 줄 알고 그 위에 쌓는다.
+         *
+         * **문을 먼저 닫고 그다음에 뗀다.** 떼는 것은 소켓 왕복이라 늦을 수 있고 그동안에도 편집이
+         * 들어오면 안 된다. 못 떼도 포트는 이미 닫혔으니 죽은 창을 고치는 일은 없다 — 데몬이 죽은
+         * 주소를 잠깐 들고 있을 뿐이고, 그건 다음 `mcp-attach` 가 정리한다.
+         */
+        override fun dispose() {
+            MagiWindows.remove(project)
+            debounce.stop()
+            runCatching { following?.close() }
+            following = null
+            val server = hand ?: return
+            hand = null
+            runCatching { server.close() }
+            // 떼는 것은 best-effort 다. 사유를 화면에 안 싣는다 — 그 화면이 지금 사라지는 중이다.
+            runCatching { workspace.onDaemon({ }, { it.detachHand() }) }
         }
 
         /**
@@ -342,7 +375,12 @@ class MagiToolWindow : ToolWindowFactory {
  * 가린다** — 같은 파일이 그 클래스를 쓰고 있어서 그 자리들이 통째로 컴파일을 못 했다. 도메인에
  * `Companion` 이라는 이름이 있는 한 이 파일에 companion object 를 두면 안 된다.
  *
- * `WeakHashMap` 인 이유는 프로젝트가 닫히면 이 참조가 그것을 붙잡고 있으면 안 되기 때문이다.
+ * `WeakHashMap` **만으로는 안 놓아준다.** 값인 [MagiToolWindow.View] 가 자기 키인 `Project` 를
+ * 필드로 들고 있어서 키가 값에서 강하게 닿고, 그러면 엔트리가 영영 안 걷힌다 — WeakHashMap 의
+ * 고전적인 오용이다. 여기 주석은 한때 그 반대를 적어 두고 있었다. 실제로 놓아주는 것은
+ * [MagiToolWindow.View.dispose] 가 부르는 [remove] 이고, 약한 키는 그것이 못 돌았을 때를 위한
+ * 둘째 줄이다.
+ *
  * 그리고 **없으면 null 을 준다** — 액션이 "창이 아직 안 열렸다"고 말할 수 있어야 하고, 빈 답을
  * 내면 "이 파일은 아무도 안 건드렸다"와 구분이 안 된다.
  */
@@ -350,4 +388,5 @@ internal object MagiWindows {
     private val live = java.util.WeakHashMap<Project, MagiToolWindow.View>()
     fun put(project: Project, view: MagiToolWindow.View) = synchronized(live) { live[project] = view }
     fun of(project: Project): MagiToolWindow.View? = synchronized(live) { live[project] }
+    fun remove(project: Project) = synchronized(live) { live.remove(project) }
 }
