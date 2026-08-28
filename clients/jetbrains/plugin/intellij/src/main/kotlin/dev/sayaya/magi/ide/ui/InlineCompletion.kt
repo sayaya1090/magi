@@ -22,6 +22,15 @@ import kotlinx.coroutines.withContext
  * 두 번째 스위치를 만들지 않는다**(설계 문서 §5).
  *
  * 접두와 접미를 둘 다 보낸다. 커서 **뒤**를 모르는 모델은 이미 닫힌 괄호를 또 닫는다.
+ *
+ * **선 제안을 거두는 문은 여기 없고, 없는 것이 맞다 — 재 보고 적는다.** 채팅 입력줄의 거들기는
+ * 라벨이 내 것이라 내가 안 지우면 아무도 안 지웠고 그게 결함이었다(`43128efe`). 여기는 회색
+ * 글씨를 플랫폼이 그리고 플랫폼이 거둔다: `InlineCompletionDocumentListener.
+ * documentChangedNonBulk` 가 `hideInlineCompletion` 과 `collectTypedCharOrInvalidateSession` 을
+ * 부르고, 세션 매니저에 `Invalidated.Reason.UnclassifiedDocumentChange` 라는 갈래가 따로 있다
+ * (2026.1.5 바이트코드에서 확인). **「플랫폼이 해 주겠지」로 통과시킨 게 아니라 그 문을 찾아서
+ * 통과시킨 것**이고, 이 문단이 있는 이유가 그것이다 — 맞는 답과 맞는 근거는 다른 말이라,
+ * 안 적어 두면 다음 사람이 같은 자리를 「거두는 갈래가 없다」로 읽고 없는 결함을 고친다.
  */
 class MagiInlineCompletion : InlineCompletionProvider {
 
