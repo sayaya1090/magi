@@ -3,7 +3,6 @@ package dev.sayaya.magi.ide.usecase
 import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Waiting
-import dev.sayaya.magi.ide.transport.DaemonClient
 
 /**
  * 붙어 있는 컴패니언에게 말을 걸고, 그가 묻는 것에 답한다.
@@ -13,7 +12,7 @@ import dev.sayaya.magi.ide.transport.DaemonClient
  * 먼저 붙인다 — 사람이 기다리는 화면을 빈 채로 두지 않는 것이 §2의 규칙이기도 하다.
  */
 class Companion(
-    private val client: DaemonClient,
+    private val client: Daemon,
     private val session: String,
 ) {
 
