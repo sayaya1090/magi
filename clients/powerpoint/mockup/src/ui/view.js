@@ -501,7 +501,7 @@ export class View {
     // `class="turn turn"` 이 되고, `.turn.turn` 은 CSS 에서 그냥 `.turn` 이라
     // 그 한 줄에 준 모양이 **모든 줄에** 걸린다. 실제로 사용자 말이 가운데 정렬됐었다.
     el.className = `turn kind-${r.kind}`;
-    const head = ROW_HEAD[r.kind];
+    const head = headOf(r);
     if (head) {
       const h = document.createElement('div');
       h.className = 'turn-head';
@@ -601,7 +601,18 @@ export class View {
   }
 }
 
-/** 줄머리. 없는 종류는 머리 없이 글만 — 사용자와 모델의 말이 그렇다. */
+/**
+ * 이 줄에 붙일 머리. 없으면 머리 없이 글만 — 사용자와 모델의 말이 그렇다.
+ *
+ * `note` 만 줄을 들여다본다. 「사람이 아닌 배우가 넣었다」는 **배우를 밝혔을 때만** 할 수 있는
+ * 말이고, 안 밝힌 줄에 그렇게 적으면 모르는 것을 아는 것처럼 적는 것이다(`Row.attributed`).
+ */
+export function headOf(r) {
+  if (r.kind !== 'note') return ROW_HEAD[r.kind];
+  return r.attributed ? ROW_HEAD.note : '⟳ 누가 넣었는지 안 밝힌 줄';
+}
+
+/** 종류별 줄머리. */
 const ROW_HEAD = {
   think: '혼잣말 (사용자에게 한 말이 아님)',
   note: '⟳ 사람이 아닌 배우가 넣은 줄',

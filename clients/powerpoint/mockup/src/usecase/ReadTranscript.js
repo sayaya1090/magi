@@ -2,7 +2,8 @@ import { Cursor } from '../domain/Cursor.js';
 import { Transcript } from '../domain/Transcript.js';
 
 /**
- * 대화를 읽어 화면 상태로 만든다. **커서를 드는 자리이기도 하다**(DESIGN.md §5.7).
+ * 대화를 읽어 화면 상태로 만든다. **커서를 드는 자리이기도 하다**
+ * (clients/powerpoint/DESIGN.md §5.7).
  *
  * 여기서 정하는 것 셋:
  *

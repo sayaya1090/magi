@@ -4,7 +4,7 @@ import { Pending, CLEARED, KINDS } from '../domain/Pending.js';
  * 데몬이 무엇을 묻고 있는지 화면에 세워 두고, 답을 보낸다.
  *
  * `ReadTranscript`와 **따로 도는 이유**가 계약이다 — 물음은 로그에 없으므로 스트림으로 안 온다.
- * 둘은 같은 화면의 두 영역이지 한 흐름이 아니다(DESIGN.md §5.7).
+ * 둘은 같은 화면의 두 영역이지 한 흐름이 아니다(clients/powerpoint/DESIGN.md §5.7).
  *
  * 여기서 정하는 것 넷:
  *

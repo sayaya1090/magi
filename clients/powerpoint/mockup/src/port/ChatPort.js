@@ -1,6 +1,6 @@
 /**
  * 모델에게 **내는** 쪽. 목업에서는 가짜가 물리고, 진짜는 데몬의 문(`dispatchNow` 의 submit)에
- * 붙는다(DESIGN.md §5.7).
+ * 붙는다(clients/powerpoint/DESIGN.md §5.7).
  *
  * # 받는 쪽이 여기 없는 이유
  *

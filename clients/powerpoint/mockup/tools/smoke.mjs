@@ -1,8 +1,11 @@
 // PowerPoint 없이 도는 확인. `node tools/smoke.mjs`
 //
 // 이게 이 목업에서 **오늘 실제로 검증되는 전부**다. 유스케이스가 Office.js 를 모르기 때문에
-// FakeDeck 하나만 갈아 끼우면 흐름이 끝까지 돈다. OfficeDeck 은 여기 안 들어온다 — 이 머신에
-// PowerPoint 가 없고, 안 돌려 본 것을 "된다"고 세지 않는다.
+// FakeDeck 하나만 갈아 끼우면 흐름이 끝까지 돈다.
+//
+// `OfficeDeck` 은 이름만 들어온다 — `pickDeck` 이 **어느 것을 골랐는지**를 재려면 그 이름이
+// 있어야 한다. 메서드는 하나도 안 부른다: 이 머신에 PowerPoint 가 없고, 안 돌려 본 것을
+// "된다"고 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel } from '../src/domain/Advice.js';
@@ -15,6 +18,7 @@ import { SendTurn } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { fixture } from '../src/ui/deckFixture.js';
+import { headOf } from '../src/ui/view.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
@@ -212,6 +216,35 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('자리 없는 이벤트는 자리를 안 만든다',
     read4.transcript.rows.at(-1).positioned === false);
   ok('그래서 다시 붙어도 처음부터가 아니다', read4.attach('A') === 2);
+
+  // 배우를 **안 밝힌** 줄. 코어의 `Actor` 는 구조체라 빈 `kind` 로도 오고, 그건 「사용자가
+  // 넣었다」가 아니다. 「user 가 아니면」으로 물으면 이게 말풍선이 되고, 그 다음이 더 나쁘다 —
+  // 낸 글을 지우는 신호가 사용자 줄의 **수**라 남의 줄 하나가 사람이 쓰던 글을 지운다.
+  port4.push({ seq: 3, sessionId: 'A', type: 'prompt.submitted',
+    actor: { kind: '', id: '' }, data: { text: '누가 넣었는지 안 실린 줄' } });
+  port4.push({ seq: 4, sessionId: 'A', type: 'prompt.submitted',
+    data: { text: '배우 자체가 없는 줄' } });
+  const kindsAnon = read4.view.rows.slice(3).map((r) => r.kind);
+  ok('안 밝힌 배우를 사용자로 세지 않는다',
+    kindsAnon.length === 2 && kindsAnon.every((k) => k === 'note'), kindsAnon.join('/'));
+  ok('안 밝힌 것과 밝힌 것을 줄이 구분해 든다',
+    read4.view.rows[1].attributed === true && read4.view.rows[3].attributed === false
+      && read4.view.rows[4].attributed === false);
+
+  // 화면이 그 차이를 실제로 말하는가. 「사람이 아닌 배우가 넣었다」는 밝혔을 때만 할 수 있는
+  // 말이고, 안 밝힌 줄에 그걸 적으면 모르는 것을 아는 것처럼 적는 것이다.
+  ok('머리도 둘을 다르게 적는다',
+    headOf(read4.view.rows[1]) !== headOf(read4.view.rows[3])
+      && headOf(read4.view.rows[3]) === '⟳ 누가 넣었는지 안 밝힌 줄',
+    String(headOf(read4.view.rows[3])));
+
+  // 그리고 이게 왜 화면 모양만의 문제가 아닌지 — 컴포저까지 내려가서 잰다.
+  const anonComp = new Composer();
+  anonComp.hold('사람이 쓰던 글', read4.view.rows.filter((r) => r.kind === 'user').length);
+  port4.push({ seq: 5, sessionId: 'A', type: 'prompt.submitted',
+    actor: { kind: '', id: '' }, data: { text: '또 안 밝힌 줄' } });
+  ok('안 밝힌 줄은 사람이 쓰던 글을 안 지운다',
+    anonComp.echoed(read4.view.rows.filter((r) => r.kind === 'user').length) === false);
 
   // 델타와 완성본은 같은 말 두 번이다(같은 messageId). 둘 다 쌓으면 모델의 답이 두 번 뜨고,
   // 다시 붙은 창은 `appended` 만 받으므로 **붙어 있던 창과 화면이 갈린다.**

@@ -4,7 +4,7 @@
  * 문은 렌더를 안 준다 — `Response.Event` 가 `internal/core/event/event.go` 의 `Event` 를
  * 통째로, 이름도 안 바꾸고 싣는다. 코어가 그렇게 고른 이유도 적어 뒀다: 렌더만 받은 쪽은
  * 콘솔이 하는 일을 못 하고, 한 스트림을 두 가지로 적으면 한쪽을 고칠 때 갈라진다.
- * **그래서 그리는 것이 읽는 쪽 일이고, 이 파일이 그 자리다**(DESIGN.md §5.7).
+ * **그래서 그리는 것이 읽는 쪽 일이고, 이 파일이 그 자리다**(clients/powerpoint/DESIGN.md §5.7).
  *
  * # 못 박는 것 셋
  *
@@ -16,6 +16,10 @@
  * (`noteUnanswered`) 그 종류로 오는데 배우가 `system` 이다. 다 말풍선으로 그리면 **정책이 한
  * 일이 사용자가 한 말로 붙고**, 반대로 사람 아닌 배우를 버리면 아무것도 안 보인다 — 뒤엣것은
  * TUI 가 실제로 겪은 결함이다. 그래서 `⟳ … note:` 정보 줄로 그린다(§5.7).
+ *
+ * 그 물음은 **긍정으로** 물어야 한다. 「`user` 가 아니면 note」로 물으면 배우를 **안 밝힌**
+ * 줄이 사용자 말풍선이 되는데, 그건 화면 모양만의 문제가 아니다 — 낸 글을 지우는 신호가
+ * 사용자 줄의 **수**라서(`Composer` 의 `echoed`), 남의 줄 하나가 사람이 쓰던 글을 지운다.
  *
  * **셋 — `part.delta` 와 `part.appended` 는 같은 말 두 번이다.** 델타는 도는 중에 조각으로
  * 오고(버스 전용), `appended` 는 끝난 뒤 통째로 온다(로그). `messageId` 가 같다. 둘 다 새 줄로
@@ -85,6 +89,11 @@ export class Row {
     this.settled = false;
   }
   get drawn() { return this.kind !== 'unknown'; }
+  /**
+   * 배우를 **밝힌** 줄인가. 「사람이 아닌 배우가 넣었다」와 「누가 넣었는지 안 실렸다」는 다른
+   * 말이라, 줄머리를 고르는 쪽이 둘을 가를 수 있어야 한다.
+   */
+  get attributed() { return typeof this.actor?.kind === 'string' && this.actor.kind !== ''; }
   /** 로그에 자리가 있는가. 버스 전용 이벤트는 `seq == 0` 이라 자리가 없다. */
   get positioned() { return this.seq > 0; }
 }
@@ -176,7 +185,13 @@ function kindOf(type, actor, partKind) {
   const base = DRAWN.get(type);
   if (!base) return 'unknown';
   // 정책·플래너·카운슬이 밀어 넣은 줄은 사람이 한 말이 아니다. 버리지도 않는다.
-  if (type === 'prompt.submitted' && actor?.kind && actor.kind !== 'user') return 'note';
+  //
+  // **「user 인가」를 묻지 「user 가 아닌가」를 묻지 않는다.** 코어의 `Actor` 는 포인터가 아니라
+  // 구조체라 프레임에 늘 실리고, 아무도 안 채우면 `kind` 가 **빈 문자열**로 온다. 「안 밝혔다」를
+  // 「사용자가 넣었다」로 세는 자리가 바로 거기고, 코어에서 이걸 읽는 쪽들은 전부 긍정으로
+  // 묻는다(`internal/app/loop_helpers.go` 의 `lastUserPromptText`, `internal/app/fork.go` 의
+  // `Replay`).
+  if (type === 'prompt.submitted' && actor?.kind !== 'user') return 'note';
   return base;
 }
 

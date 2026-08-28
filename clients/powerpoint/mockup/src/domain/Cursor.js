@@ -7,7 +7,7 @@
  * 것은 **로그 끝을 넘은** 커서 하나뿐이고, 범위 안에 떨어지는 낡은 커서는 못 잡는다.
  *
  * 그래서 세션 id 를 seq 옆에 같이 드는 것이 **클라이언트 몫**이고, 이 클래스가 그 자리다.
- * 콘솔이 로컬에서 하는 일과 같은 것을 우리는 소켓 너머에서 한다(DESIGN.md §5.7).
+ * 콘솔이 로컬에서 하는 일과 같은 것을 우리는 소켓 너머에서 한다(clients/powerpoint/DESIGN.md §5.7).
  *
  * 값이다 — 옮길 때마다 새것을 만든다.
  */
@@ -54,7 +54,8 @@ export class Cursor {
     // 세션이 다르면 `sinceFor` 가 -1 을 내며, 와이어에서 0 과 -1 이 같은 뜻이기 때문이다.
     // 그래도 남긴다 — **면역이 두 번의 우연에 기대고 있어서**다. 단조 규칙을 손대거나
     // `sinceFor` 의 -1 을 0 으로 바꾸는 순간 조용히 뚫린다. 규칙은 그때 적는 게 아니라 지금
-    // 적는 것이고, 이 사실 자체는 DESIGN.md §5.7 에도 없던 것이라 거기에도 적었다.
+    // 적는 것이고, 이 사실 자체는 clients/powerpoint/DESIGN.md §5.7 에도 없던 것이라
+    // 거기에도 적었다.
     if (seq <= 0) return this;
     if (this.sessionId === sessionId && seq <= this.seq) return this;
     return new Cursor(sessionId, seq);
