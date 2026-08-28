@@ -176,6 +176,31 @@ internal class CompanionPanelTest : GwtTestSpec({
                     .shouldBe("bridge/call_7")
             }
         }
+        When("컴포저가 그 문으로 답을 넘기는데 서버가 거부하면") {
+            // 자식이 하는 그대로 문을 두드린다(AskSharing.answer가 이 함수를 부른다).
+            page.evaluate(
+                """window.__magi_test_refuse = 'that call was already answered';
+                   window.__magi_test_landed = null;
+                   window.__magi_ask_send('yes, drop it', function (why) { window.__magi_test_landed = why; });"""
+            )
+            Then("사유가 자식에게 그대로 간다 — 이것만이 쓴 글을 되돌려 놓을 수 있다") {
+                page.waitForCondition { page.evaluate("window.__magi_test_landed") != null }
+                page.evaluate("window.__magi_test_landed") shouldBe "that call was already answered"
+                // 답 자체는 보냈다 — 버려진 것은 사유였지 부름이 아니다.
+                page.evaluate("window.__magi_test_last") shouldBe "answer alpha yes, drop it"
+            }
+        }
+        When("같은 문으로 답이 서면") {
+            page.evaluate(
+                """delete window.__magi_test_refuse;
+                   window.__magi_test_landed = null;
+                   window.__magi_ask_send('yes, drop it', function (why) { window.__magi_test_landed = why; });"""
+            )
+            Then("빈 사유가 간다 — 되돌릴 것이 없다는 뜻") {
+                page.waitForCondition { page.evaluate("window.__magi_test_landed") != null }
+                page.evaluate("window.__magi_test_landed") shouldBe ""
+            }
+        }
         When("질문이 걷히면") {
             page.evaluate("window.__magi_test_ask(null, null)")
             Then("상자도 걷히고, 알림도 비워진다 — 낡은 부름에 답하는 상자가 남지 않게") {

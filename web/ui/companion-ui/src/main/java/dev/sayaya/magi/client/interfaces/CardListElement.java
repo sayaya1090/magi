@@ -236,7 +236,10 @@ public class CardListElement {
     private HTMLElement answerBox(FleetAgent a, Runnable after, Consumer<String> jumpNext) {
         HTMLElement box = el("div");
         box.className = "answer";
-        Consumer<String> send = text -> commander.answer(a, text, () -> {
+        // 거부 사유를 버린다 — 카드에는 그것을 적을 줄이 없다. 대신 after가 명단을 다시
+        // 읽으므로, 서지 못한 답은 그 컴패니언을 waiting인 채로 되돌려 놓는다(화면이 명단을
+        // 이기지 않는다). 운영의 그 자리도 같다.
+        Consumer<String> send = text -> commander.answer(a, text, why -> {
             after.run();
             jumpNext.accept(a.socket);
         });

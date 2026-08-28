@@ -54,7 +54,9 @@ public class PromptElement {
         AskSharing.hostSend((text, landed) -> {
             FleetAgent a = rowOf(lastRoster);
             if (a == null || !"waiting".equals(a.state)) { landed.call("nothing is waiting"); return; }
-            commander.answer(a, text, () -> landed.call(""));
+            // 문이 서기까지의 사유는 여기서 짓지만, 답이 <b>거부된</b> 사유는 서버의 것이다 —
+            // 그대로 넘긴다. 자식은 이것을 받아야 사람이 쓴 글을 상자에 되돌려 놓을 수 있다.
+            commander.answer(a, text, landed::call);
         });
         store.onContext(ctx -> { socket = ctx == null ? null : ctx.socket; render(null); });
         store.onRoster(list -> render(list));
@@ -100,7 +102,10 @@ public class PromptElement {
     }
 
     private void answer(FleetAgent a, String text) {
-        commander.answer(a, text, () -> { });
+        // 여기(패널의 답 상자)는 사유를 놓을 자리가 없다 — 되돌릴 타이핑도 없고(누른 것은
+        // 버튼이다), 이 화면에 알림 줄도 없다. 그래서 버린다: 답이 서지 못했으면 그 컴패니언은
+        // 다음 명단에도 waiting인 채로 와서 상자가 그대로 다시 선다(운영도 그렇다).
+        commander.answer(a, text, why -> { });
     }
 
     /** 근거 — 있으면 접힌 폭에 맞춰 나란히, 없으면 없다(운영 grounds). */

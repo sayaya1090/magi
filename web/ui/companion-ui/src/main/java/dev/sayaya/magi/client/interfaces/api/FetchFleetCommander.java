@@ -22,11 +22,13 @@ public class FetchFleetCommander implements FleetCommander {
     }
 
     @Override
-    public void answer(FleetAgent a, String text, Runnable then) {
+    public void answer(FleetAgent a, String text, java.util.function.Consumer<String> then) {
         URLSearchParams p = new URLSearchParams();
         p.append("call", a.askId == null ? "" : a.askId);
         p.append("kind", a.askKind == null ? "" : a.askKind);
         p.append("text", text);
-        Console.post("/answer", p, a.socket, a.peer).then(r -> { then.run(); return null; });
+        // post가 이미 재어 온 것을 그대로 넘긴다 — 성공이면 "", 거부면 서버가 적은 사유.
+        // 여기서 버리면 그 사유를 다시 만들 수 있는 곳이 없다.
+        Console.post("/answer", p, a.socket, a.peer).then(r -> { then.accept(r == null ? "" : r); return null; });
     }
 }
