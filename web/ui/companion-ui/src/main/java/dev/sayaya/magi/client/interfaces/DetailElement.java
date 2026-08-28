@@ -10,6 +10,7 @@ import dev.sayaya.magi.client.domain.Roster;
 import dev.sayaya.magi.client.domain.Updates;
 import dev.sayaya.magi.client.domain.Versions;
 import dev.sayaya.magi.client.usecase.CompanionStore;
+import dev.sayaya.magi.component.Ages;
 import dev.sayaya.magi.component.Dialogs;
 import elemental2.core.JsDate;
 import elemental2.dom.DomGlobal;
@@ -191,7 +192,13 @@ public class DetailElement {
             put(field("field.status", stateWord(a.state) + " · " + load, "state " + a.state));
         }
         put(field("field.steps", a.steps > 0 ? String.valueOf(a.steps) : "—", null));
-        put(field("field.last_activity", a.idle >= 0 ? tr("time.ago", "d", dur(a.idle)) : "—", null));
+        // 이 줄은 <b>이 창의 시계로</b> 늙는다. 프레임은 쉰 시간을 초로 싣고, 서버는 그 초가
+        // 달라졌다는 이유만으로는 프레임을 보내지 않는다 — 그래서 여기 적힌 초를 낱말로
+        // 바꿔 두기만 하면 「마지막 활동」은 처음 본 그 순간의 뜻으로 굳는다(Ages).
+        HTMLElement last = field("field.last_activity",
+                a.idle >= 0 ? tr("time.ago", "d", dur(a.idle)) : "—", null);
+        Ages.on(last.querySelector(".v"), a.idle);
+        put(last);
         if (a.role != null && !a.role.isEmpty()) put(wide(field("field.role", a.role, null)));
         if (a.team != null && !a.team.isEmpty()) {
             put(field("field.team", a.team + (a.hub ? " · " + tr("team.speaks") : ""), null));

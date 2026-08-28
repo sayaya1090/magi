@@ -112,6 +112,34 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.evaluate("delete window.__magi_test_refuse")
             }
         }
+        // 아무 일도 일어나지 않는 동안의 나이 — 이 화면에서 나이를 보는 <b>이유</b>가 그것이다.
+        //
+        // 명단 프레임은 쉰 시간을 초로 싣지만, 서버는 그 초가 달라졌다는 이유만으로는 프레임을
+        // 보내지 않는다(magi-web fleetKey에서 Idle이 빠져 있고, 거기 적힌 계약이 "세는 것은
+        // 화면의 몫"이다). 그런데 이 콘솔에는 세는 시계가 없었다 — 가짜 포트도 명단을 딱 한 번
+        // 놓아주고 그 뒤로 조용하다. 그 판이 정확히 여기서 재는 판이다.
+        When("명단이 다시 오지 않은 채 시간이 흐르면") {
+            // 팩 없는 하네스에서는 낱말 자리에 키가 앉아("time.ago") 늙는지 볼 수가 없다.
+            // 그래서 진짜 문(창의 팩 + 판 번호)으로 팩을 들여놓는다 — Labels가 판이 갈리면
+            // 다시 읽는다고 스스로 적어 둔 그 문이다.
+            page.evaluate("window.__magi_labels = {'time.ago': '{d}'}; window.__magi_labels_v = 1")
+            Then("쉰 행의 나이 칸은 늙는다 — 그 행은 한 번도 다시 서지 않았는데도") {
+                // 나이 칸: 이 행의 숫자 칸 둘 중 뒤엣것(앞은 스텝 수).
+                val age = page.locator("#fleet .card.idle .num.r").nth(1)
+                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent()) }
+                val first = Regex("\\d+").find(age.textContent())!!.value.toInt()
+
+                // 이 행이 그대로 서 있다는 것을 노드에 표를 해서 잰다: 「늙었다」가 「행을
+                // 매초 새로 세운다」로 이루어지면 그것은 고친 것이 아니라 이 화면이 일부러
+                // 피한 깜빡임을 도로 들이는 것이다(카드 서명이 쉰 시간을 빼는 이유).
+                page.evaluate("document.querySelector('#fleet .card.idle').__magi_mark = 1")
+
+                page.waitForCondition {
+                    Regex("\\d+").find(age.textContent())!!.value.toInt() >= first + 2
+                }
+                page.evaluate("document.querySelector('#fleet .card.idle').__magi_mark") shouldBe 1
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤 없이 행들이 그대로 읽힌다(운영 css의 폰 배치)") {

@@ -48,6 +48,20 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#detail .foldbar .sum").textContent() shouldContain "/Users/you/work/app"
                 page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "7"
             }
+            // 「마지막 활동」은 이 판에서 <b>가만히 있을 때</b> 보는 값이다 — 그래서 명단
+            // 프레임에 매달아 두면 정확히 볼 이유가 있는 동안 얼어붙는다(서버는 쉰 시간만
+            // 달라진 프레임을 보내지 않는다). 이 줄은 창의 시계로 늙는다.
+            Then("마지막 활동은 프레임 없이도 늙는다") {
+                page.evaluate(
+                    "window.__magi_labels = {'time.ago': '{d}'}; window.__magi_labels_v = 1;"
+                )
+                val age = page.locator("#detail .f[data-k=\"field.last_activity\"] .v")
+                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent()) }
+                val first = Regex("\\d+").find(age.textContent())!!.value.toInt()
+                page.waitForCondition {
+                    Regex("\\d+").find(age.textContent())!!.value.toInt() >= first + 2
+                }
+            }
             Then("손잡이를 누르면 그 기둥이 열린다 — 닫힌 기둥의 속은 보이지 않는 것이 옳다") {
                 // 손잡이는 마스트헤드에 선다(셸이 내준 자리) — 여는 것은 이 화면의 기둥이지만
                 // 손잡이 자체는 이 창을 어떻게 배치할지에 대한 것이라서.

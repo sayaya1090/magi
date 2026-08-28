@@ -82,6 +82,33 @@ internal class MapScreenTest : GwtTestSpec({
                 page.evaluate("""document.querySelector('#map .node[data-sock="/a"] .nodemark').__magi_same""") shouldBe "kept"
             }
         }
+        // 이 화면이 나이를 두 번 적는다: 노드 곁의 낱말 하나, 그리고 상자 위의 <b>문장 안에</b>
+        // 든 하나("{ago}부터 소식이 없다"). 둘 다 프레임이 실어 온 초를 낱말로 바꿔 두기만
+        // 하면, 그 프레임이 다시 오지 않는 동안 — 즉 침묵이 길어지는 바로 그 동안 — 얼어붙는다.
+        When("아무 프레임도 오지 않은 채 시간이 흐르면") {
+            // 팩 없는 하네스는 낱말 자리에 키를 앉힌다. 진짜 문(창의 팩 + 판 번호)으로 들여놓되,
+            // 감싸는 문장은 나이가 <b>안에</b> 있다는 것만 드러나게 짧게 둔다.
+            page.evaluate(
+                "window.__magi_labels = {'time.ago': '{d}', 'map.unseen': '[{ago}]'};" +
+                    "window.__magi_labels_v = 1;"
+            )
+            Then("딴 머신 노드의 나이가 자란다") {
+                val age = page.locator("#map .node.faroff .nodeage")
+                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent()) }
+                val first = Regex("\\d+").find(age.textContent())!!.value.toInt()
+                page.waitForCondition {
+                    Regex("\\d+").find(age.textContent())!!.value.toInt() >= first + 2
+                }
+            }
+            Then("침묵한 상자 위의 문장도 자란다 — 「3분 전」은 4분째에 거짓말이므로") {
+                val seen = page.locator("#map .machine .placeseen.down")
+                page.waitForCondition { Regex("^\\[\\d+[smhd]]$").matches(seen.textContent()) }
+                val first = Regex("\\d+").find(seen.textContent())!!.value.toInt()
+                page.waitForCondition {
+                    Regex("\\d+").find(seen.textContent())!!.value.toInt() >= first + 2
+                }
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤이 없고 상자들이 그대로 읽힌다") {

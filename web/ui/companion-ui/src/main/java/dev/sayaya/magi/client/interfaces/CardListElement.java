@@ -4,6 +4,7 @@ import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.component.Ages;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.component.Spans;
 import dev.sayaya.magi.client.domain.Versions;
@@ -89,9 +90,16 @@ public class CardListElement {
     private String sig(FleetAgent a, String newestVer) {
         StringBuilder r = new StringBuilder();
         // 쉰 시간(idle)은 여기 없다 — <b>매 초 달라지는 값</b>이라, 넣으면 아무 일도 없는 행이
-        // 초당 한 번씩 새 노드가 되어 깜빡인다(실측: 멈춰 있는 ops 행이 그랬다; 운영은 그
-        // 자리에서 8초 동안 한 번도 다시 서지 않는다). 나이는 다음 진짜 변화 때 함께 새로
-        // 그려진다 — 운영이 하는 그대로다.
+        // 초당 한 번씩 새 노드가 되어 깜빡인다(실측: 멈춰 있는 ops 행이 그랬다).
+        //
+        // 빼는 대신 <b>이 서명 밖에서</b> 늙힌다: 나이 칸은 마지막 소식의 순간을 이고, 창의
+        // 시계가 그 칸의 글자만 고쳐 쓴다(Ages). 서 있던 노드를 그대로 두는 것과 그 노드의
+        // 나이가 흐르는 것이 이제 같이 참이다.
+        //
+        // 「다음 진짜 변화 때 함께 새로 그려진다」고 여기 적혀 있었는데 <b>둘 다 틀렸다</b>:
+        // 운영의 cardSig는 idle을 넣고 있고(page.js), 그런데도 그 프레임이 오지 않아 운영도
+        // 같이 얼어 있었다. 그리고 조용한 행에는 「다음 진짜 변화」가 오지 않는다 — 나이를
+        // 보는 이유가 바로 아무 일도 안 일어났다는 것이므로.
         for (Object v : new Object[]{a.state, a.name, a.role, a.team, a.hub, a.workdir, a.session,
                 a.steps, a.task, a.doing, a.asking, a.askId, a.askKind, a.planDone, a.planTotal,
                 a.host, a.addr, a.pid, a.peer, a.live, a.permission, a.user, a.version, newestVer}) {
@@ -169,7 +177,9 @@ public class CardListElement {
         HTMLElement steps = cell("num r", a.steps > 0 ? String.valueOf(a.steps) : "—");
         steps.append(cell("colk", tr("field.steps")));
         row.append(steps);
-        row.append(cell("num r", ago(a.idle)));
+        HTMLElement idle = cell("num r", ago(a.idle));
+        Ages.on(idle, a.idle);
+        row.append(idle);
 
         HTMLElement host = cell("host", null);
         HTMLElement b = el("b");

@@ -47,8 +47,11 @@ public class FakeMapSource implements MapSource {
                   "\"host\":\"mac\",\"addr\":\"10.0.0.7\",\"instance\":\"you@mac\",\"trust\":\"own\",\"hub\":true,\"idle\":3}," +
                  "{\"socket\":\"/b\",\"name\":\"docs\",\"team\":\"core\",\"state\":\"idle\",\"live\":true," +
                   "\"host\":\"mac\",\"instance\":\"you@mac\",\"trust\":\"own\",\"idle\":60}," +
+                 // 쉰 시간이 <b>작다</b>(8초): 이 상자의 나이는 초 단위로 자라야 스펙이 늙는 것을 볼 수
+                 // 있다 — 300이면 "5m"이 1분 내내 그대로다. 침묵을 만드는 것은 이 숫자가
+                 // 아니라 live:false다.
                  "{\"socket\":\"/c\",\"name\":\"ci\",\"state\":\"remote\",\"live\":false,\"elsewhere\":true," +
-                  "\"host\":\"buildbox\",\"instance\":\"agent@buildbox\",\"trust\":\"admitted\",\"idle\":300}]");
+                  "\"host\":\"buildbox\",\"instance\":\"agent@buildbox\",\"trust\":\"admitted\",\"idle\":8}]");
     }
 
     @Override

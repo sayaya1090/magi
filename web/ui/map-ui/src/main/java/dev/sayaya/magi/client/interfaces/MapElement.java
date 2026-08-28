@@ -7,6 +7,7 @@ import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.StateMark;
 import dev.sayaya.magi.client.domain.Atlas;
 import dev.sayaya.magi.client.usecase.MapStore;
+import dev.sayaya.magi.component.Ages;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.Element;
 import elemental2.dom.HTMLElement;
@@ -156,11 +157,11 @@ public class MapElement {
             if (!Js.isTruthy(a.get("elsewhere"))) continue;
             if (at >= drawn.getLength()) return;
             double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
-            String word = idle >= 0 ? tr("time.ago", "d", dur((int) idle)) : "";
             elemental2.dom.Element line = drawn.getAt(at++);
-            // 같은 낱말을 다시 쓰는 것은 무동작이 아니다 — textContent 는 글자 노드를 갈아치우므로
-            // 판이 바뀌었다고 보는 눈(관찰자·스크린리더)에는 매번 바뀐 것으로 보인다.
-            if (!word.equals(line.textContent)) line.textContent = word;
+            // 낱말이 아니라 <b>기준 순간</b>을 다시 건다 — 초를 세는 것은 창의 시계이고(Ages),
+            // 여기가 하는 일은 새 소식이 왔을 때 그 시계를 맞춰 주는 것뿐이다. 같은 낱말을
+            // 다시 쓰지 않는 규칙(textContent는 글자 노드를 갈아치운다)도 시계 쪽으로 갔다.
+            Ages.on(line, (int) idle);
         }
         paintUnseen(rows);
     }
@@ -183,8 +184,12 @@ public class MapElement {
                 double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
                 if (idle >= 0) fresh = Math.min(fresh, idle);
             }
-            String said = unseenWord(fresh);
-            if (!said.equals(line.textContent)) line.textContent = said;
+            if (fresh == Double.MAX_VALUE) {
+                // 들은 적이 없으면 셀 것이 없다 — 줄표는 늙지 않는다.
+                Ages.off(line);
+                String said = unseenWord(fresh);
+                if (!said.equals(line.textContent)) line.textContent = said;
+            } else Ages.in(line, (int) fresh, "map.unseen", "ago");
         }
     }
 
@@ -256,6 +261,9 @@ public class MapElement {
             // 이 줄의 말도 초마다 늙는다 — 어느 상자의 것인지 적어 두어야 판을 다시 세우지 않고
             // 고쳐 쓸 수 있다. 상태가 판을 다시 세우지 않게 된 지금, 적어 두지 않으면 이 말은
             // 판이 다시 설 때까지 "3분 전"에 얼어붙는다.
+            // 그리고 초를 세는 것은 프레임이 아니라 창의 시계다 — 여기 나이는 문장 <b>안에</b>
+            // 있으므로(「{ago}부터 소식이 없다」) 감싸는 키까지 같이 걸어 둔다.
+            Ages.in(seen, fresh == Double.MAX_VALUE ? -1 : (int) fresh, "map.unseen", "ago");
             seen.setAttribute("data-host", host);
             box.append(seen);
         }
@@ -316,8 +324,10 @@ public class MapElement {
         if (Js.isTruthy(a.get("hub"))) n.append(cell("nodehub", tr("team.speaks")));
         if (remote) {
             double idle = a.get("idle") == null ? -1 : Js.coerceToDouble(a.get("idle"));
-            n.append(cell("nodeage" + (Js.isTruthy(a.get("live")) ? "" : " down"),
-                    idle >= 0 ? tr("time.ago", "d", dur((int) idle)) : ""));
+            HTMLElement age = cell("nodeage" + (Js.isTruthy(a.get("live")) ? "" : " down"),
+                    idle >= 0 ? tr("time.ago", "d", dur((int) idle)) : "");
+            Ages.on(age, (int) idle);
+            n.append(age);
         }
         n.append(cell("nodestate", stateWord(str(a, "state"))));
         return n;

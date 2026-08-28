@@ -149,8 +149,16 @@ public class RosterStore implements RosterSource.Listener {
         return null;
     }
 
-    /** 두 행이 같은 소식인가 — 도는 숫자(쉰 시간)는 빼고 본다: 매 초 달라지는 값을 넣으면
-     *  "바뀌었다"가 매 초 참이 되어 거르는 뜻이 없어진다. */
+    /**
+     * 두 행이 같은 소식인가 — 도는 숫자(쉰 시간)는 빼고 본다: 매 초 달라지는 값을 넣으면
+     * "바뀌었다"가 매 초 참이 되어 거르는 뜻이 없어진다.
+     *
+     * <p>이 뺌이 <b>옳으려면</b> 나이가 프레임 말고 다른 데서 흘러야 한다. 그것이
+     * {@code component.Ages}다: 나이 칸은 마지막 소식의 순간을 이고, 창에 하나뿐인 시계가
+     * 그 글자를 고쳐 쓴다. 그 시계가 없던 동안은 이 뺌이 거르기가 아니라 <b>멈춤</b>이었다 —
+     * 서버도 같은 이유로 그 프레임을 안 보내므로(magi-web {@code fleetKey}), 조용한 행의
+     * 나이는 마지막으로 상태가 바뀐 그 순간의 값에 영영 붙들려 있었다.</p>
+     */
     private static boolean same(FleetAgent a, FleetAgent b) {
         if (a == null || b == null) return a == b;
         return sig(a).equals(sig(b));
