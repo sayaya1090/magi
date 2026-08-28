@@ -14,6 +14,7 @@ import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Companion
+import dev.sayaya.magi.ide.usecase.Assist
 import dev.sayaya.magi.ide.usecase.DaemonLifecycle
 import java.awt.BorderLayout
 import java.awt.FlowLayout
@@ -46,6 +47,10 @@ class MagiToolWindow : ToolWindowFactory {
         private val prompt = JBLabel(" ")
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT))
         private val input = JBTextArea(3, 40)
+        private val hint = JBLabel(" ")
+        /** 마지막으로 받은 제안. 탭으로 받아들인다. */
+        private var suggestion: String? = null
+        private val debounce = javax.swing.Timer(400) { askSuggestion() }.apply { isRepeats = false }
 
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
@@ -57,9 +62,44 @@ class MagiToolWindow : ToolWindowFactory {
             val bottom = JBPanel<JBPanel<*>>(BorderLayout())
             bottom.add(JBScrollPane(input), BorderLayout.CENTER)
             bottom.add(send, BorderLayout.EAST)
+            bottom.add(hint, BorderLayout.SOUTH)
+
+            // 치는 동안 제안을 묻는다. 매 글자마다가 아니라 멈추면 — 모델 호출이라 값이 있다.
+            input.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+                override fun insertUpdate(e: javax.swing.event.DocumentEvent) = debounce.restart()
+                override fun removeUpdate(e: javax.swing.event.DocumentEvent) = debounce.restart()
+                override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
+            })
+            // 탭으로 받아들인다. 제안이 없으면 탭은 원래 하던 일을 한다.
+            input.registerKeyboardAction({ acceptSuggestion() },
+                javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
 
             root.add(top, BorderLayout.NORTH)
             root.add(bottom, BorderLayout.SOUTH)
+        }
+
+        /** 거들기는 연결을 따로 판다 — 모델 호출이 락스텝 연결을 물면 그동안 다른 교환이 선다. */
+        private fun assist() = socket()?.let { s -> Assist({ DaemonClient.connect(s) }) }
+
+        private fun askSuggestion() {
+            val prefix = input.text
+            val a = assist() ?: return
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val said = a.suggest(prefix)
+                SwingUtilities.invokeLater {
+                    // 그새 사람이 더 쳤으면 낡은 제안이다. 붙이지 않는다.
+                    if (input.text != prefix) return@invokeLater
+                    suggestion = said?.takeIf { it.isNotBlank() }
+                    hint.text = suggestion?.let { "<html><i>제안: ${'$'}it &nbsp;<b>Tab</b></i></html>" } ?: " "
+                }
+            }
+        }
+
+        private fun acceptSuggestion() {
+            val s = suggestion ?: return
+            input.text = input.text + s
+            suggestion = null
+            hint.text = " "
         }
 
         /** 이 프로젝트의 소켓. 심링크를 푸는 자리는 SocketPath 안이다(§2). */
@@ -105,7 +145,7 @@ class MagiToolWindow : ToolWindowFactory {
             onDaemon { comp ->
                 val r = comp.say(text)
                 say(state, if (r.ok) "보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
-                if (r.ok) SwingUtilities.invokeLater { input.text = "" }
+                if (r.ok) SwingUtilities.invokeLater { input.text = ""; suggestion = null; hint.text = " " }
             }
         }
 
