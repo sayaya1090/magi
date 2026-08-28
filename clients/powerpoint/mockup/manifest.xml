@@ -2,7 +2,7 @@
 <!--
   목업 애드인의 매니페스트.
 
-  두 가지를 일부러 그렇게 뒀다.
+  세 가지를 일부러 그렇게 뒀다.
 
   1) 최상위 <Requirements> 에 PowerPointApi 를 **안 적는다.** 적으면 조건이 안 맞는 PowerPoint 에서
      애드인이 목록에서 아예 사라져 사용자가 *왜* 없는지 모른다(DESIGN.md §3.3). 확인은 런타임에
@@ -12,10 +12,13 @@
      하기 때문이다(§5.7) — 이게 없으면 창을 한 번 닫은 사용자에게는 permission 물음이 아무
      데도 안 도착한다. 이 요구는 §3.3 의 1.8 바닥보다 낮아 새로 걸러내는 것이 없다(부록 A).
 
-     ⚠ 다만 공짜는 아니다. VersionOverrides 안의 <Requirements> 는 못 맞추면 이 절 전체가
-     무시돼 **리본 단추가 통째로 사라진다** — 1) 이 피하려던 그 침묵이 단추에서 다시 난다.
-     사람을 새로 걸러내진 않아서(걸리는 빌드는 이미 1.8 미달) 그대로 두는 것이고, 근거는
-     부록 A 에 적었다.
+     ⚠ 자리가 중요하다. MS 절차는 이걸 **최상위** <Requirements> 에 넣으라고 하는데, 그러면
+     못 맞추는 빌드에서 애드인이 아예 안 뜬다 — 1) 이 금지한 바로 그것이다. 그래서 여기로
+     옮겨 뒀다. 대신 못 맞추면 이 절 전체가 무시돼 **리본 단추가 사라진다**(애드인은 남는다).
+     셋 중 가운데를 고른 것이고, 근거는 부록 A 에 적었다.
+
+  3) <Action> 에 <TaskpaneId> 를 **안 적는다.** 긴 수명 런타임 아래에서는 작업창이 하나여야
+     한다(부록 A). 아래 Control 에 그 이유를 다시 적어 뒀다.
 
   ⚠ 이 파일은 **한 번도 PowerPoint 에 붙여 본 적이 없다.** 이 머신에 PowerPoint 가 없다.
 -->
@@ -87,8 +90,13 @@
                     <bt:Image size="32" resid="Icon.32" />
                     <bt:Image size="80" resid="Icon.80" />
                   </Icon>
+                  <!--
+                    <TaskpaneId> 를 **일부러 안 적는다.** 긴 수명 <Runtime> 이 있는 <Host> 아래에서
+                    Action 이 TaskpaneId 를 가지면 작업창이 둘이 되는 구성이고, 공유 런타임은
+                    작업창 하나만 받는다(DESIGN.md 부록 A). 창이 둘이면 §5.7 의 "창을 닫아도
+                    코드가 산다" 가 어느 창 얘기인지 모르게 된다.
+                  -->
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>magi.taskpane</TaskpaneId>
                     <SourceLocation resid="Taskpane.Url" />
                   </Action>
                 </Control>
