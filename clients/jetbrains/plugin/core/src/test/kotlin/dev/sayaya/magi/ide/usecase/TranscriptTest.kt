@@ -32,13 +32,25 @@ class TranscriptTest {
         override fun close() { closed = true }
     }
 
+    /** 진짜 소켓처럼 군다 — 읽기가 막혀 있다가 닫히면 던진다. */
+    private class Blocking : Daemon {
+        private val shut = CountDownLatch(1)
+        var closed = false
+        override fun exchange(request: Request) = Response(ok = true)
+        override fun stream(request: Request, each: (Response) -> Boolean) {
+            shut.await()
+            throw java.io.IOException("socket closed")
+        }
+        override fun close() { closed = true; shut.countDown() }
+    }
+
     private class Collect : Transcript.Sink {
         val seen = mutableListOf<String>()
         val done = CountDownLatch(1)
-        var error: String? = null
+        var end: End? = null
         override fun frame(e: LogEvent) { synchronized(seen) { seen += "e${e.seq}" } }
         override fun note(why: String) { synchronized(seen) { seen += "note:$why" } }
-        override fun ended(error: String?) { this.error = error; done.countDown() }
+        override fun ended(end: End) { this.end = end; done.countDown() }
     }
 
     private fun run(frames: List<Response>, since: Long? = null): Pair<Collect, Scripted> {
@@ -53,7 +65,7 @@ class TranscriptTest {
     fun `보낸 차례 그대로 온다 — 재생이 먼저면 재생이 먼저 보인다`() {
         val (sink, _) = run(listOf(ev(1), ev(2), ev(3)))
         assertEquals(listOf("e1", "e2", "e3"), sink.seen)
-        assertNull(sink.error, "데몬이 닫은 것은 에러가 아니다")
+        assertEquals(End.ByDaemon, sink.end, "데몬이 닫은 것은 고장이 아니다")
     }
 
     @Test
@@ -77,16 +89,36 @@ class TranscriptTest {
     fun `에러 프레임은 스트림을 끝낸다`() {
         val (sink, _) = run(listOf(ev(1), Response(ok = false, error = "문이 없다")))
         assertEquals(listOf("e1"), sink.seen)
-        assertEquals("문이 없다", sink.error)
+        assertEquals(End.Broken("문이 없다"), sink.end)
     }
 
     @Test
-    fun `사람이 끄면 연결이 닫히고 고장으로 안 보인다`() {
-        val fake = Scripted(emptyList())
+    fun `사람이 끄면 연결이 닫히고 사람이 끝냈다고 말한다`() {
+        // 대본이 빈 가짜로는 못 재는 것이 있다. 그 가짜는 `stream` 이 곧바로 돌아와서 워커가
+        // **사람이 닫기 전에** 끝나 버리고, 그러면 [End.ByDaemon] 이 이겨서 시험이 운에 걸린다.
+        // 그래서 진짜 소켓처럼 **닫힐 때까지 막혀 있다가 던지는** 가짜를 쓴다.
+        val fake = Blocking()
         val sink = Collect()
         Transcript({ fake }, "s_1").follow(sink).close()
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
         assertTrue(fake.closed, "연결을 안 닫았다")
+        // 이 갈래가 창의 재접속을 막는다. 여기서 [End.Broken] 이 나오면 닫은 창이 되살아난다.
+        assertEquals(End.ByUs, sink.end)
+    }
+
+    @Test
+    fun `아무도 안 껐는데 끊긴 것은 사람이 끈 것과 다르게 온다`() {
+        // 데몬이 죽거나 소켓이 끊긴 자리다. 창은 이걸 받고 다시 붙어야 하고, 그래서 사람이 끈
+        // 것과 **반드시 갈려야 한다** — 뭉치면 둘 중 하나는 틀린 일을 한다.
+        val broken = object : Daemon {
+            override fun exchange(request: Request) = Response(ok = true)
+            override fun stream(request: Request, each: (Response) -> Boolean) = throw java.io.IOException("연결이 끊겼다")
+            override fun close() {}
+        }
+        val sink = Collect()
+        Transcript({ broken }, "s_1").follow(sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertEquals(End.Broken("연결이 끊겼다"), sink.end)
     }
 
     @Test

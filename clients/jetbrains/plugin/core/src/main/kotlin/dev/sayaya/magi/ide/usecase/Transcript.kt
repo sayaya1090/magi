@@ -84,13 +84,18 @@ class Transcript(
         fun note(why: String)
 
         /**
-         * 스트림이 끝났다. 사유가 없으면 깨끗한 끝이다 — 데몬이 닫았거나 사람이 껐다.
+         * 스트림이 끝났다. **누가 끝냈는지가 같이 온다.**
+         *
+         * 처음엔 `error: String?` 하나였고 `null` 이 "깨끗한 끝"이었다. 그런데 깨끗한 끝이 둘이다 —
+         * **사람이 창을 닫은 것**과 **데몬이 스트림을 닫은 것**. 둘을 한 값으로 뭉쳐 두면 화면이
+         * 다시 붙어야 할 때를 못 고른다: 무조건 다시 붙으면 닫은 창이 되살아나고, 안 붙으면 데몬이
+         * 재시작한 뒤로 창이 살아 보이는 채 죽어 있다. 스트림은 그 답을 [End] 로 말한다.
          *
          * **정확히 한 번 온다.** 처음엔 아니었다: 에러 프레임으로 끝나면 `ended(에러)` 뒤에
          * `ended(null)` 이 이어져 고장이 깨끗한 끝으로 덮였고, 사람이 끄면 아예 안 왔다 —
          * 정리를 기다리는 화면이 영영 못 받는다. 시험이 둘 다 잡았다.
          */
-        fun ended(error: String?)
+        fun ended(end: End)
     }
 
     /**
@@ -105,7 +110,7 @@ class Transcript(
         val ended = AtomicBoolean(false)
         // 끝은 한 번만 말한다. 첫 사유가 이긴다 — 나중 것은 거의 항상 앞의 결과이고(닫힌 연결이
         // 만든 예외), 그것으로 진짜 사유를 덮으면 화면이 원인을 잃는다.
-        fun finish(why: String?) { if (ended.compareAndSet(false, true)) sink.ended(why) }
+        fun finish(end: End) { if (ended.compareAndSet(false, true)) sink.ended(end) }
         val conn = open()
         val worker = Thread {
             try {
@@ -116,15 +121,15 @@ class Transcript(
                         // 이벤트가 아닌 프레임. 거절이든 안내든 사람에게 보인다 — 조용히 버리면
                         // 화면이 "커서가 무시됐다"를 알 길이 없다(§0.5-7).
                         !r.why.isNullOrBlank() -> { sink.note(r.why); true }
-                        !r.error.isNullOrBlank() -> { finish(r.error); false }
+                        !r.error.isNullOrBlank() -> { finish(End.Broken(r.error)); false }
                         else -> true
                     }
                 }
-                finish(null)
+                finish(End.ByDaemon)
             } catch (e: Exception) {
                 // 사람이 껐으면 그건 고장이 아니다. 닫힌 소켓이 던진 예외를 에러로 올리면
                 // 사용자가 누른 버튼이 실패로 보인다.
-                finish(if (stopped.get()) null else (e.message ?: e.toString()))
+                finish(if (stopped.get()) End.ByUs else End.Broken(e.message ?: e.toString()))
             } finally {
                 runCatching { conn.close() }
             }
@@ -135,7 +140,28 @@ class Transcript(
             // 먼저 표시하고 그다음 닫는다. 순서가 반대면 닫힘이 만든 예외를 워커가 고장으로 읽는다.
             stopped.set(true)
             runCatching { conn.close() }
-            finish(null) // 워커가 이미 끝났을 수도 있다 — compareAndSet 이 두 번을 막는다
+            finish(End.ByUs) // 워커가 이미 끝났을 수도 있다 — compareAndSet 이 두 번을 막는다
         }
     }
+}
+
+/**
+ * 전사가 어떻게 끝났나. **다시 붙을지를 이것이 정한다.**
+ *
+ * 갈래가 셋인 이유는 화면이 할 일이 셋이라서다. 사람이 닫았으면 아무것도 안 한다. 데몬이 닫았거나
+ * 끊겼으면 **다시 붙어야 한다** — 안 그러면 창은 살아 보이는데 아무것도 안 오고, 특히
+ * [Transcript.movesPrompt] 로 그리던 물음이 같이 죽어서 사람이 답할 단추를 영영 못 본다.
+ *
+ * 왜 스트림이 답하나. 스트림만 안다. 화면에서 "내가 닫았다"를 따로 기억하게 하면 같은 사실이 두
+ * 곳에 생기고, 둘이 어긋나는 날 창이 스스로 되살아난다.
+ */
+sealed interface End {
+    /** 사람이 닫았다(창이 닫혔거나 일부러 끊었다). 다시 붙지 않는다. */
+    data object ByUs : End
+
+    /** 데몬이 스트림을 닫았다. 고장은 아니지만 **말은 끊겼다** — 다시 붙어야 한다. */
+    data object ByDaemon : End
+
+    /** 끊겼다. [why] 는 사람에게 그대로 보인다 — 조용히 죽는 것보다 낫다. */
+    data class Broken(val why: String) : End
 }

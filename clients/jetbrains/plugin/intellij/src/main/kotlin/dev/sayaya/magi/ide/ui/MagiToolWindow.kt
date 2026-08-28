@@ -20,6 +20,7 @@ import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
+import dev.sayaya.magi.ide.usecase.End
 import dev.sayaya.magi.ide.usecase.Authorship
 import dev.sayaya.magi.ide.usecase.Hand
 import dev.sayaya.magi.ide.usecase.Problems
@@ -90,6 +91,18 @@ class MagiToolWindow : ToolWindowFactory {
         val authors = Authorship()
         private var following: java.io.Closeable? = null
 
+        /** 창이 닫히는 중인가. 서면 재접속이 멈춘다 — 닫은 창이 스스로 되살아나면 안 된다. */
+        private val closing = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /**
+         * 다음 프레임이 **새 스트림의 첫 프레임**인가. 그때 판을 비운다.
+         *
+         * 이 창은 커서를 안 보내므로 다시 붙을 때마다 재생이 **통째로** 다시 온다. 안 비우면 대화가
+         * 두 벌 쌓이고 손댐 장부도 같이 부푼다. 붙자마자 비우지 않고 첫 프레임까지 미루는 이유는,
+         * 붙기에 실패한 시도가 사람이 읽고 있던 전사를 지워 버리면 안 되기 때문이다.
+         */
+        private val fresh = java.util.concurrent.atomic.AtomicBoolean(false)
+
         /**
          * 손. 창이 서면 같이 서고, 창이 살아 있는 동안만 산다.
          *
@@ -98,6 +111,53 @@ class MagiToolWindow : ToolWindowFactory {
          * 곧 프로젝트가 열려 있다는 것이라 그 자리에 맨다.
          */
         private var hand: HandServer? = null
+
+        /**
+         * 전사를 화면으로 옮기는 자리. **연결에 안 매인다** — 다시 붙을 때마다 새로 만들면
+         * 같은 규칙이 매번 다시 쓰이고, 그중 한 벌만 고치는 날이 온다.
+         */
+        private val sink = object : Transcript.Sink {
+                override fun frame(e: LogEvent) {
+                    // 새 스트림의 첫 프레임이면 판을 비운다. 장부는 **여기서 바로** 비운다 —
+                    // EDT 로 미루면 아래 `feed` 가 먼저 돌아서 방금 비운 것이 그것을 지운다.
+                    if (fresh.compareAndSet(true, false)) {
+                        authors.forget()
+                        SwingUtilities.invokeLater { log.text = ""; problems.text = "" }
+                    }
+                    // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
+                    // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
+                    // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
+                    if (!Transcript.echoesFact(e)) append(render(e))
+                    // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
+                    // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
+                    authors.feed(e)
+                    Problems.of(e)?.let { note(it) }
+                    // 물음이 움직였으면 다시 묻는다. 프롬프트는 로그에 안 실려서(전이 이벤트)
+                    // 이 신호가 없으면 창을 연 뒤에 올라온 물음은 단추가 영영 안 생긴다 — 로그에
+                    // 줄 하나 뜨고 끝이었다(사유는 `Transcript.movesPrompt`).
+                    if (Transcript.movesPrompt(e)) refresh()
+                    Problems.dissentOf(e)?.let { d ->
+                        problems.append("· 카운슬 ${'$'}{d.member} 반대  #${'$'}{d.seq}  ${'$'}{d.at.orEmpty()}\n    ${'$'}{d.why}\n")
+                    }
+                }
+                // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
+                // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
+                override fun note(why: String) = SwingUtilities.invokeLater {
+                    log.text = ""
+                    append("— $why")
+                }
+                /**
+                 * **누가 끝냈는지로 갈린다.** 사람이 닫았으면 그걸로 끝이고, 데몬이 닫았거나
+                 * 끊겼으면 다시 붙는다 — 안 그러면 창은 살아 보이는데 아무것도 안 오고, 물음을
+                 * 다시 그리던 신호(`Transcript.movesPrompt`)가 그 스트림을 타고 오므로 **답할
+                 * 단추가 같이 죽는다.**
+                 */
+                override fun ended(end: End) = when (end) {
+                    End.ByUs -> append("— 전사를 끊었다.")
+                    End.ByDaemon -> { append("— 전사가 끝났다(데몬이 닫았다). 다시 붙어 본다."); reattach() }
+                    is End.Broken -> { append("— 전사가 끊겼다: ${'$'}{end.why}. 다시 붙어 본다."); reattach() }
+                }
+            }
 
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
@@ -149,6 +209,8 @@ class MagiToolWindow : ToolWindowFactory {
          * 주소를 잠깐 들고 있을 뿐이고, 그건 다음 `mcp-attach` 가 정리한다.
          */
         override fun dispose() {
+            // 먼저 세운다. 아래에서 스트림을 닫으면 `ended` 가 도는데, 그때 이미 서 있어야 안 되살아난다.
+            closing.set(true)
             MagiWindows.remove(project)
             debounce.stop()
             runCatching { following?.close() }
@@ -187,37 +249,44 @@ class MagiToolWindow : ToolWindowFactory {
          * 커서를 안 준다. 창이 열릴 때마다 전량을 받는 것이 지금의 답이다 — IDE 가 사는 동안
          * 이어 받는 것은 §8 의 미결이고, 옛 커서를 새 대화로 들고 가면 그 대화의 앞을 못 본다.
          */
-        private fun follow() {
-            val sock = socket() ?: return
-            val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return
+        private fun follow(): Boolean {
+            val sock = socket() ?: return false
+            val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return false
             following?.let { runCatching { it.close() } }
-            following = Transcript({ DaemonClient.connect(sock) }, sid).follow(object : Transcript.Sink {
-                override fun frame(e: LogEvent) {
-                    // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
-                    // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
-                    // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
-                    if (!Transcript.echoesFact(e)) append(render(e))
-                    // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
-                    // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
-                    authors.feed(e)
-                    Problems.of(e)?.let { note(it) }
-                    // 물음이 움직였으면 다시 묻는다. 프롬프트는 로그에 안 실려서(전이 이벤트)
-                    // 이 신호가 없으면 창을 연 뒤에 올라온 물음은 단추가 영영 안 생긴다 — 로그에
-                    // 줄 하나 뜨고 끝이었다(사유는 `Transcript.movesPrompt`).
-                    if (Transcript.movesPrompt(e)) refresh()
-                    Problems.dissentOf(e)?.let { d ->
-                        problems.append("· 카운슬 ${'$'}{d.member} 반대  #${'$'}{d.seq}  ${'$'}{d.at.orEmpty()}\n    ${'$'}{d.why}\n")
+            // 여는 것보다 **먼저** 세운다. 스트림은 자기 스레드를 바로 띄우므로 첫 프레임이
+            // 이 줄보다 빨리 올 수 있다.
+            fresh.set(true)
+            val started = runCatching {
+                Transcript({ DaemonClient.connect(sock) }, sid).follow(sink)
+            }.getOrNull() ?: return false
+            following = started
+            return true
+        }
+
+        /**
+         * 끊긴 전사에 다시 붙는다. **창이 닫혔으면 안 붙는다.**
+         *
+         * 스트림만 되살리는 것으로는 모자란다. 끊겨 있는 동안 올라온 물음은 이 창이 **못 본
+         * 이벤트로 지나갔으므로**, 붙자마자 지금 무엇을 묻고 있는지 다시 물어야 한다. 창을 열 때
+         * 한 번 묻는 것과 같은 사유가 재접속마다 있다 — 닿음이 돌아온 것 자체가 사건이다.
+         *
+         * 물러서며 기다린다(1초에서 30초까지 배로). 데몬이 오래 없으면 30초마다 유닉스 소켓에
+         * 한 번 붙어 보는 값이고, 실패는 화면에 안 적는다 — 같은 줄을 무한히 쌓으면 사람이
+         * 읽던 전사가 밀려난다.
+         */
+        private fun reattach() {
+            if (closing.get()) return
+            runCatching {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    var wait = 1_000L
+                    while (!closing.get()) {
+                        try { Thread.sleep(wait) } catch (e: InterruptedException) { return@executeOnPooledThread }
+                        if (closing.get()) return@executeOnPooledThread
+                        if (follow()) return@executeOnPooledThread refresh()
+                        wait = (wait * 2).coerceAtMost(30_000L)
                     }
                 }
-                // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
-                // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
-                override fun note(why: String) = SwingUtilities.invokeLater {
-                    log.text = ""
-                    append("— $why")
-                }
-                override fun ended(error: String?) =
-                    append(if (error == null) "— 전사가 끝났다(데몬이 닫았다)." else "— 전사가 끊겼다: ${'$'}error")
-            })
+            }
         }
 
         /**
