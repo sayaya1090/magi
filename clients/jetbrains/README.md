@@ -6,9 +6,18 @@
 > 고친다. magi 본체의 계약을 서술하는 자리에서는 `docs/ARCHITECTURE.md` 가 이긴다 — 여기 적힌
 > `daemon.go` 인용은 그 계약을 **이 클라이언트가 어떻게 쓰는지**를 말할 뿐이다.
 >
-> 인용이 `파일:줄` 이기도 하고 `파일 의 심볼` 이기도 한 것은 실수가 아니다. 지금 손이 가고 있는
-> 파일(`internal/adapter/mcp/*`, `daemon.go`, `cmd/magi/main.go`)은 하루에도 줄이 밀려서 — 실제로
-> 세 번 밀렸다 — 그쪽만 심볼로 짚는다. 줄 번호는 안정된 자리에만 쓴다.
+> **인용은 줄 번호로 적지 않는다. 심볼로 적거나, 주석의 한 줄을 따옴표로 옮긴다.** 처음에는 "손이
+> 가는 파일만 심볼, 안정된 자리는 줄 번호"라는 규칙이었는데, 안정된 자리도 안정적이지 않았다. 하루
+> 만에 인용 일흔 개 중 열셋이 밀렸다 — `daemon.go:587`(WorkspaceKey)은 `typ =
+> event.TypePermissionRequested` 를, `main.go:1097`(디태치 주석)은 `if bound != nil` 을,
+> `daemon.go:1701`(`set-permission`)은 `Client.Hand` 를 가리키고 있었다. **인용한 사실은 하나도
+> 틀리지 않았다. 썩은 것은 손가락뿐이다.** 그런데 이 문서의 목적의 절반이 손가락이다.
+>
+> 심볼도 이름이 바뀌면 똑같이 썩는다. 다른 점은 **기계가 확인할 수 있다**는 것뿐이라,
+> `tools/citecheck.py` 가 CI에서 이 문서의 모든 심볼과 인용문을 원본에 맞춰 본다. 인용문은 **한
+> 줄에 담기는 조각**이어야 한다 — grep 이 줄 단위여서, 주석에서 줄바꿈을 넘어가는 문장은 존재해도
+> 안 찾힌다. 검사기를 처음 돌렸을 때 방금 쓴 인용문이 그 두 가지로 다 걸렸다(원문은 "25 **out of**
+> 300" 인데 "25 of 300" 으로 적었고, 고친 뒤에도 줄바꿈을 넘어갔다).
 
 IDE에서 열어 둔 프로젝트를 **컴패니언 하나**로 만든다. 플러그인이 켜지면 그 워크스페이스의 데몬을
 찾고, 없으면 띄우고, 있으면 붙는다.
@@ -56,14 +65,14 @@ flowchart TB
 
 **워크스페이스 키.** 한 저장소를 두 곳에 체크아웃하면 컴패니언도 둘이어야 하는데, 경로를 그대로
 쓰면 파일 이름이 못 된다. 그래서 `WorkspaceKey`는 베이스 디렉토리 이름 + 전체 경로 해시다
-(`internal/adapter/daemon/daemon.go:587`). 덕분에 `ls`로 사람이 자기 것을 찾을 수 있고, 두 체크아웃이
+(`internal/adapter/daemon/daemon.go` 의 `WorkspaceKey`). 덕분에 `ls`로 사람이 자기 것을 찾을 수 있고, 두 체크아웃이
 서로 다른 소켓을 갖는다.
 
 **데몬.** UI 없이 도는 엔진. 워크스페이스당 하나이고, 소켓은
-`<configDir>/daemon-<WorkspaceKey>.sock` (`daemon.go:576`). 뷰어가 다 떨어져도 계속 일한다.
+`<configDir>/daemon-<WorkspaceKey>.sock` (`daemon.go` 의 `SocketPath`). 뷰어가 다 떨어져도 계속 일한다.
 
 **뷰어.** 데몬에 붙어 보고 지시하는 화면. 데몬을 소유하지 않으므로 **디태치는 정지가 아니다**
-(`cmd/magi/main.go:1097` 주석: 붙었던 프로세스가 배경 작업이나 LSP 풀을 거둬가면 안 된다).
+(`cmd/magi/main.go`, 주석 "Detaching a viewer must not reap the daemon's work": 붙었던 프로세스가 배경 작업이나 LSP 풀을 거둬가면 안 된다).
 
 **문(door).** 소켓 위에서 데몬이 받는 메서드 하나. 새 프로세스가 파일을 뒤져 데몬이 이미 아는 것을
 다시 유도하는 대신, 데몬에게 물어보는 통로다.
@@ -115,7 +124,7 @@ clients/jetbrains/
 **모듈 둘로 나눈 것은 취향이 아니라 시험 가능성이다.** `core` 가 SDK 를 모르므로 화면 없이 계약을
 시험할 수 있고, SDK 를 못 받는 자리에서도 컴파일된다. 의존은 `intellij → core` 한 방향뿐이고, 그
 반대가 생기면 `core` 가 SDK 를 끌어온다. `web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
-같은 규칙은 아니다(`web/ui/README.md:96`) — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
+같은 규칙은 아니다(`web/ui/README.md` 의 "클린 아키텍처 규칙") — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
 와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
 
 ---
@@ -124,22 +133,22 @@ clients/jetbrains/
 
 ### 소켓 경로를 어떻게 만드나
 
-`SocketPath(configDir, workdir)`에 두 조각이 든다(`daemon.go:576`). 둘 다 틀리기 쉽다.
+`SocketPath(configDir, workdir)`에 두 조각이 든다(`daemon.go` 의 `SocketPath`). 둘 다 틀리기 쉽다.
 
 **`workdir`는 심링크를 푼 뒤에 해시한다.** `/tmp/x`와 `/private/tmp/x`는 같은 디렉토리인데 해시가
-달라 "여기 데몬 없음"이 된다. 실측된 방식 그대로다(`daemon.go:592-595`). JVM 쪽은
+달라 "여기 데몬 없음"이 된다. 실측된 방식 그대로다(`daemon.go` 의 `WorkspaceKey` 안 `filepath.EvalSymlinks`). JVM 쪽은
 `Path.toRealPath()`가 같은 일을 한다. IntelliJ의 `project.basePath`는 심링크를 푼다는 보장이 없으니
 플러그인이 직접 푼다.
 
 **`configDir`는 `MAGI_CONFIG_DIR`이 있으면 그것, 없으면 `os.UserConfigDir()/magi`다**
-(`internal/adapter/platform/platform.go:89`). 여기가 조용한 함정이다. macOS에서 Dock으로 띄운 IDE는
+(`internal/adapter/platform/platform.go` 의 `ConfigDir`). 여기가 조용한 함정이다. macOS에서 Dock으로 띄운 IDE는
 셸 프로필의 환경변수를 물려받지 않으므로, `MAGI_CONFIG_DIR`을 쓰는 사용자는 **플러그인과 터미널이
 서로 다른 소켓 경로를 계산한다.** 한 워크스페이스에 데몬이 둘 생기거나, 하나가 도는데 "없다"고
 나온다. 플러그인은 (a) 사용자가 지정할 수 있게 하고, (b) 데몬을 띄울 때 **경로를 계산할 때 쓴 것과
 같은 환경**으로 띄우고, (c) 지금 어느 config 디렉토리를 보고 있는지를 설정 화면에 적는다.
 
 **경로가 100바이트를 넘으면 그 사유를 그대로 보여 준다.** magi가 전용 에러를 준비해 두었고 해법까지
-문장에 들어 있다(`daemon.go:605`, "set MAGI_CONFIG_DIR to somewhere shorter"). 이것을 "데몬 없음"으로
+문장에 들어 있다(`daemon.go` 의 `tooLong`, "set MAGI_CONFIG_DIR to somewhere shorter"). 이것을 "데몬 없음"으로
 읽으면 사용자는 영원히 고칠 수 없는 실패를 본다.
 
 ### 갈래는 dial 하나로 정한다
@@ -174,28 +183,28 @@ flowchart TD
 
 **끝내 못 붙으면 말한다.** 재시도를 다 쓰고도 실패하면 툴윈도를 빈 채로 두지 않고 못 붙었다고 그
 사유와 함께 적는다. 빈 화면은 "할 일 없음"처럼 보이는데 사실은 "모른다"이고, 이 트리는 그 둘을
-구분한다(`docs/UI.md:671`).
+구분한다(`docs/UI.md` 의 "The rules this page keeps").
 
 **락 파일을 열어 보지 않는다.** 두 가지 이유가 각각으로 충분하다. 첫째, `flock`으로 확인하려면 락을
 직접 잡아야 하는데 성공하면 플러그인이 그 락을 쥐고 진짜 데몬을 막는다. 둘째, **애초에 확인할 수도
-없다.** magi는 `flock(2)`을 쓰고(`claim_unix.go:34`) 자바의 `FileChannel.tryLock()`은 리눅스·macOS에서
+없다.** magi는 `flock(2)`을 쓰고(`claim_unix.go` 의 `claimPath`) 자바의 `FileChannel.tryLock()`은 리눅스·macOS에서
 `fcntl` 레코드 락으로 내려가는데, 이 둘은 서로 충돌하지 않는다. 잡히지도 않고 잡아도 소용없다.
 
 **소켓 파일도 지우지 않는다.** magi의 `Listen`이 그 일을 이미 안전하게 한다. 순서가 핵심이다. 먼저
 클레임을 잡고, 그다음 dial로 "정말 아무도 안 듣는다"를 증명하고, 그때서야 지운다
-(`daemon.go:674-689`, 주석: 살아있는 소켓을 지우면 성공하면서 도는 데몬의 리스너를 조용히 고아로
+(`daemon.go` 의 `Listen`, 주석 "removing a LIVE one succeeds, silently orphans the running": 살아있는 소켓을 지우면 성공하면서 도는 데몬의 리스너를 조용히 고아로
 만든다). 그 증명 없이 플러그인이 먼저 지우면 정확히 그 사고가 난다. 클레임을 안 잡고 하던 시절의
-실측이 300회 동시 기동 중 25회다(`claim_unix.go:19`).
+실측이 300회 동시 기동 중 25회다(`claim_unix.go` 머리 주석, "Measured at 25 out of 300").
 
 ### 데몬을 IDE에서 떼어 놓고 띄운다
 
 **`magi --daemon`은 스스로 배경으로 가지 않는다.** `cmd/magi` 어디에도 `setsid`도 fork도 없고, 그냥
-소켓과 세션을 찍고 서빙한다(`cmd/magi/main.go:1171`). `ProcessBuilder`로 그냥 띄우면 유닉스에서는
+소켓과 세션을 찍고 서빙한다(`cmd/magi/main.go` 의 `run`, `daemon.Serve` 호출). `ProcessBuilder`로 그냥 띄우면 유닉스에서는
 IDE의 프로세스 그룹에 남고, 윈도우에서는 IDE의 Job Object에 묶여 **IDE와 함께 죽는다.** "IDE를 닫아도
 데몬은 남는다"가 공짜로 되지 않는다.
 
 그래서 플러그인이 떼어 준다. 유닉스는 자식을 새 세션으로 보내고(magi 자신이 배경 작업에 쓰는 것과
-같은 수단이다, `internal/adapter/platform/detach_unix.go:20`), 윈도우는 `DETACHED_PROCESS`와
+같은 수단이다, `internal/adapter/platform/detach_unix.go` 의 `detach`), 윈도우는 `DETACHED_PROCESS`와
 `CREATE_BREAKAWAY_FROM_JOB`을 준다.
 
 **stderr는 파일로 보낸다.** 크래시 루프를 진단하려면 마지막 기동의 stderr가 있어야 하는데, 떼어 낸
@@ -214,9 +223,9 @@ IDE의 프로세스 그룹에 남고, 윈도우에서는 IDE의 Job Object에 �
 | 진짜 죽음 | 유예를 넘겨도 dial 실패 | 기동한다 |
 
 자기재시작이 실제로 저 창을 만든다. 유닉스에서는 데몬이 리스너를 닫고 **락까지 놓은 뒤**
-`syscall.Exec`으로 같은 PID 위에 새 이미지를 올린다(`internal/graceful/graceful_unix.go:13`,
-`daemon.go:646`). 윈도우는 execve가 없어 후계 프로세스를 띄우고 자기는 나간다
-(`graceful_windows.go:11`). 어느 쪽이든 소켓도 락도 잠깐 비어 있다. 그러니 락이 비었다는 것으로
+`syscall.Exec`으로 같은 PID 위에 새 이미지를 올린다(`internal/graceful/graceful_unix.go` 의 `reexec`,
+`daemon.go` 의 `Serve` 주석). 윈도우는 execve가 없어 후계 프로세스를 띄우고 자기는 나간다
+(`graceful_windows.go` 의 `reexec`). 어느 쪽이든 소켓도 락도 잠깐 비어 있다. 그러니 락이 비었다는 것으로
 죽음을 판정할 수 없다. 그리고 이 일은 사람이 부를 때만 나지 않는다. 자동 업데이트 루프가 자기
 일정으로도 재시작한다(`cmd/magi/autoupdate.go`).
 
@@ -241,10 +250,10 @@ sequenceDiagram
 ```
 
 **그 경합에서 감시자는 반드시 져야 한다.** 앞서 "결과가 같으니 무해하다"고 쓸 뻔했는데, 같지 않다.
-후계는 이전 대화 id를 환경변수로 물려받아 그 대화를 다시 연다(`cmd/magi/main.go:167`, 소비는
-`1113`). 감시자가 이겨서 후계가 못 뜨면 감시자의 데몬은 `CreateSession`으로 **빈 대화를 새로 만들어
-게시하고**(`main.go:1121`), `RunCron`이 그 위에서 시작하며(`main.go:1173`), 다른 뷰어는 전부
-`PublishedSession`으로 그 빈 대화를 따라간다(`main.go:1091`). 자기 자신만 나중에 `resume`으로
+후계는 이전 대화 id를 환경변수로 물려받아 그 대화를 다시 연다(`cmd/magi/main.go` 의 `restartSessionEnv`, 소비는
+같은 파일의 `os.Getenv(restartSessionEnv)`). 감시자가 이겨서 후계가 못 뜨면 감시자의 데몬은 `CreateSession`으로 **빈 대화를 새로 만들어
+게시하고**(`main.go` 의 `a.CreateSession` 호출), `RunCron`이 그 위에서 시작하며(`main.go` 의 `a.RunCron` 호출), 다른 뷰어는 전부
+`PublishedSession`으로 그 빈 대화를 따라간다(`main.go` 의 `daemon.PublishedSession` 호출). 자기 자신만 나중에 `resume`으로
 돌아오는 것은 고침이 아니다. 나머지 모두에게 결함이 재현된다. 그래서 유예는 재시작 창보다 넉넉히
 길어야 하고, 이 값은 실측해서 정한다.
 
@@ -255,9 +264,9 @@ sequenceDiagram
 있는 것은 `resume` 뿐이고, 그건 임시방편이라고 적어 둔다.
 
 **기동이 됐는지는 dial로 판정한다.** `<socket>.session`이 나타났는지로 보면 안 된다. SIGKILL로 죽은
-데몬은 그 파일을 **남기고** 가므로(`daemon.go:616`) 조건이 t=0에 이미 참이다. 파일을 쓰려면 기동
+데몬은 그 파일을 **남기고** 가므로(`daemon.go` 의 `Serve`, 주석 "a daemon killed with SIGKILL leaves the file behind") 조건이 t=0에 이미 참이다. 파일을 쓰려면 기동
 전에 읽어 둔 `pid`·`started`와 달라졌는지까지 봐야 한다(둘 다 와이어 불변 필드다,
-`wire_invariant_test.go:66`).
+`wire_invariant_test.go` 의 `TestWireStructsAreAdditiveOnly`).
 
 **크래시 루프에서 손을 뗀다.** 60초 안에 세 번 띄웠는데 또 죽으면 감시를 멈추고, 로그 파일에 남은
 마지막 stderr를 툴윈도에 그대로 보여 준다. 설정 하나가 잘못돼 데몬이 즉사하는 경우 무한 재기동은
@@ -274,11 +283,11 @@ sequenceDiagram
 
 사용자가 A 창에서 `Stop companion`을 눌렀는데 B 창의 감시자가 그것을 죽음으로 읽으면 정지 버튼이
 동작하지 않는다. 그런데 디스크는 이 둘을 절반만 구분해 준다. 깨끗한 종료는 소켓과 레코드를 지우고
-가지만(`daemon.go:724`의 defer, `daemon.go:2528`의 unpublish), SIGKILL은 둘 다 남긴다
-(`daemon.go:616`). 남은 절반 — 사람이 껐나, 데몬이 자기 오류로 나갔나 — 은 파일로 안 보인다.
+가지만(`daemon.go` 의 `Serve` 가 나가며 소켓을, `Publish` 가 돌려주는 정리 함수가 레코드를 지운다), SIGKILL은 둘 다 남긴다
+(`daemon.go` 의 `Serve`). 남은 절반 — 사람이 껐나, 데몬이 자기 오류로 나갔나 — 은 파일로 안 보인다.
 
 **상태 파일을 만들지 않는다.** 이 트리의 규칙은 "아무것도 status 파일을 쓰지 않으므로 낡을 수가
-없다"이고(`docs/ARCHITECTURE.md:976`, `docs/UI.md:671`), `.stopped` 같은 표식은 정확히 그 규칙이 막는
+없다"이고(`docs/ARCHITECTURE.md` §11, `docs/UI.md` 의 "The rules this page keeps"), `.stopped` 같은 표식은 정확히 그 규칙이 막는
 것이다. `.lock`은 커널이 거두고 `.session`은 defer가 지우지만, 표식 뒤에는 커널도 defer도 없다.
 누군가 터미널에서 `magi --daemon`으로 다시 켜면 그 표식은 영원히 낡은 채 남아 그 워크스페이스를
 영영 감시 대상에서 빼 버린다.
@@ -288,8 +297,8 @@ sequenceDiagram
 줄을 그 요청의 답으로** 읽으므로, 청하지 않은 프레임은 진행 중인 호출의 답으로 소비되거나 버퍼에
 남아 다음 호출의 답이 된다. 그 뒤로 그 연결의 모든 교환이 한 칸씩 밀린다. 데몬 자신이 이것을 불변식으로
 적어 두었고, 유일한 예외인 `watch`가 예외인 이유가 바로 연결을 통째로 넘겨받기 때문이라고 밝힌다
-(`daemon.go:980`: "A UI's connection, which interleaves calls under one mutex, never sees an
-unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이지(`wire_invariant_test.go:42`)
+(`daemon.go` 의 `serveConn`: "A UI's connection, which interleaves calls under one mutex, never sees an
+unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이지(`wire_invariant_test.go` 의 `requireFields`)
 프레이밍에 대한 것이 아니다.
 
 **대신 디스크에서 유도한다.** 위의 절반이 이미 답을 준다.
@@ -314,7 +323,7 @@ unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이�
 프로토콜을 만들지 않는다.** 이미 있는 것으로 충분하다.
 
 - **누가 데몬인가는 `flock`이 정한다.** 감시자 N개가 동시에 재기동을 시도해도 하나만 바인드하고
-  나머지는 "another magi is starting or running"을 받는다(`claim_unix.go:36`). 진 쪽은 이것을
+  나머지는 "another magi is starting or running"을 받는다(`claim_unix.go` 의 `claimPath`). 진 쪽은 이것을
   에러로 띄우지 않고 그냥 다시 dial한다. 원하던 결과가 이미 이루어졌기 때문이다.
 - **누가 살아있는가는 dial이 말한다.** 위의 이유로 파일 존재는 답이 아니다.
 
@@ -332,9 +341,9 @@ unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이�
 데몬의 기본은 `allow`다. 아무도 안 보는 동안 도는 일이 사람을 기다리며 서면 안 되기 때문이다
 (SECURITY.md §7). IDE에서는 사람이 보고 있으니 `auto`가 나아 보이는데, **그 직관이 틀린다.**
 
-무응답 프롬프트는 `Permission() == "allow"`일 때만 통과로 해소된다(`internal/app/permission.go:195`).
-`auto`에서는 3분(`cmd/magi/agents.go:163`)을 다 태운 뒤 **거부**로 끝난다. 그리고 그 타이머는 데몬이면
-모드와 무관하게 항상 걸려 있다(`cmd/magi/agents.go:189`). 그러니 `auto`로 켜 둔 채 IDE를 닫으면
+무응답 프롬프트는 `Permission() == "allow"`일 때만 통과로 해소된다(`internal/app/permission.go` 의 `requestPermission`).
+`auto`에서는 3분(`cmd/magi/agents.go` 의 `daemonAnswerWait`)을 다 태운 뒤 **거부**로 끝난다. 그리고 그 타이머는 데몬이면
+모드와 무관하게 항상 걸려 있다(`cmd/magi/agents.go` 의 `answerableRun`). 그러니 `auto`로 켜 둔 채 IDE를 닫으면
 컴패니언은 게이트가 걸린 호출마다 3분을 서 있다가 거절당한다. SECURITY.md §7이 데몬 기본을 `allow`로
 둔 이유가 바로 그 문장이다.
 
@@ -343,7 +352,7 @@ unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이�
 설정은 이 에이전트가 자기 머신에서 무엇을 해도 되는지를 정하는 값이다.
 
 대신 세 가지를 한다. 지금 어떤 모드로 도는지를 상태 표시줄에 **항상 보이게** 두고, 바꾸고 싶으면 한 번
-눌러 `set-permission`을 보내고(`daemon.go:1701`), **`ask`나 `auto`로 바꿀 때는 "지켜보는 사람이 없으면
+눌러 `set-permission`을 보내고(`daemon.go` 의 `Client.SetPermission`), **`ask`나 `auto`로 바꿀 때는 "지켜보는 사람이 없으면
 호출마다 3분 뒤 거부된다"를 그 자리에서 말한다.** 이미 도는 데몬에 붙을 때는 그 데몬의 모드를 절대
 바꾸지 않는다. 다른 창이나 터미널이 고른 값이다.
 
@@ -354,7 +363,7 @@ unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이�
 두 기존 뷰어가 이미 같은 모양이다.
 
 - `magi --attach`의 `attached`는 `*app.App`을 임베드해 **읽고**, `daemon.Client`로 **쓴다**
-  (`cmd/magi/attach.go:59`).
+  (`cmd/magi/attach.go` 의 `attached`).
 - `magi-web`은 LLM도 툴도 없는 자기 App으로 로그를 읽고, 변경 라우트만 소켓으로 넘긴다.
 
 JVM에는 `app.App`이 없다. 그래서 이 문서가 답해야 하는 질문은 하나다: **읽기 쪽 파생을 어디서
@@ -374,21 +383,21 @@ JVM에는 `app.App`이 없다. 그래서 이 문서가 답해야 하는 질문�
    `/open-file` `/suggest` `/save` `/git-do` `/file-do` `/git-msg` `/pr-msg` `/git-pr`에서 하는 일은
    전부 `daemon.Client`의 `LookOver`·`CompleteCode`·`SetOpenFile`·`Suggest`·`PatchFile`·`WriteTool`·
    `GitDo`·`FileDo`·`DraftCommit`·`DraftPR`·`OpenPR` 호출이다. 플러그인은 같은 것을 그대로 부른다.
-3. 와이어가 **추가만 허용**하도록 이미 테스트로 못 박혀 있다(`wire_invariant_test.go:54`). 필드를
+3. 와이어가 **추가만 허용**하도록 이미 테스트로 못 박혀 있다(`wire_invariant_test.go` 의 `TestWireStructsAreAdditiveOnly`). 필드를
    지우거나 이름을 바꾸면 실패하고, 더하는 것은 통과한다. 읽기 문을 내는 일은 그 규칙이 전제하는
    종류의 변경이다.
 
 이 추가는 **보안 경계를 넓히지 않는다.** 새 메서드는 컨트롤 소켓에 붙고, 그 소켓은 만들어지는 첫
-순간부터 소유자만 닿는다(`listen_unix.go:30`이 umask를 `0o177`로 뒤집는다). 다른 머신이 오는 문은
-`--fleet-door`이고 거기는 `about, hand, hand-state, watch` 넷만 지난다(`cmd/magi/door.go:53`). 그
+순간부터 소유자만 닿는다(`listen_unix.go` 의 `listenOwnerOnly` 가 umask를 `0o177`로 뒤집는다). 다른 머신이 오는 문은
+`--fleet-door`이고 거기는 `about, hand, hand-state, watch` 넷만 지난다(`cmd/magi/door.go` 의 `doorMethods`). 그
 목록에 아무것도 더하지 않는다.
 
 ### C의 크기와 대가를 줄여 말하지 않는다
 
 **한 메서드가 아니다.** `magi-web`이 스토어에서 직접 파생하는 것은 `ContextStateOf`·`PlanOf`·
 `LoopMap`·`SessionDiff`·`ChildSessions`·`SessionState`·`UnfinishedTurnOf`·`CouncilMarks`·
-`CouncilEvidenceOf`·`ListSessions`·`RankSessions`로 열한 개 남짓이다(`cmd/magi-web/context.go:23`,
-`plan.go:23`, `inspect.go:131`, `subagent.go:78`, `history.go:70`, `search.go:56`). 플러그인이 첫판에
+`CouncilEvidenceOf`·`ListSessions`·`RankSessions`로 열한 개 남짓이다(`cmd/magi-web` 의 `server.context`,
+`server.plan`, `server.loop`, `server.subagents`, `server.history`, `server.search`). 플러그인이 첫판에
 필요한 것은 전사와 카운슬 정도이고 나머지는 화면이 생길 때 따라간다.
 
 **데몬이 죽으면 읽을 것도 사라진다.** 이것이 A·B에 없는 C의 진짜 대가다. `magi-web`과
@@ -402,7 +411,7 @@ JVM에는 `app.App`이 없다. 그래서 이 문서가 답해야 하는 질문�
 
 ### 없는 것: 전사
 
-플러그인에 가장 먼저 필요한 것은 전사다. 그 모양은 이미 정의돼 있다. `cmd/magi-web/main.go:1445`의
+플러그인에 가장 먼저 필요한 것은 전사다. 그 모양은 이미 정의돼 있다. `cmd/magi-web/main.go` 의 `line` 구조체가 가진
 `line`이 `who, text, tool, args, note, ok, out, pending, round, decision, member, at, diff,
 abandoned, by`를 갖는다. `ok`가 포인터라서 "아직 안 끝난 호출"과 "실패한 호출"이 구분된다.
 
@@ -411,16 +420,16 @@ abandoned, by`를 갖는다. `ok`가 포인터라서 "아직 안 끝난 호출"�
 
 ### 스트리밍
 
-`watch`가 이미 연결 하나를 스트림으로 바꾼다. 다른 메서드는 안 그런다(`daemon.go:973`). 전사도
+`watch`가 이미 연결 하나를 스트림으로 바꾼다. 다른 메서드는 안 그런다(`daemon.go` 의 `serveConn`). 전사도
 같은 방식으로 낸다: 한 줄 요청, 그 뒤로는 데몬이 프레임을 밀어 준다.
 
 **구독은 재생으로 시작한다.** 붙는 순간 지금까지의 로그를 먼저 받고 그다음 라이브를 받는다. 늦게 붙은
-클라이언트가 앞을 못 보면 안 된다. magi의 `Subscribe`가 이미 그 계약이고(`internal/app/app.go:900`:
+클라이언트가 앞을 못 보면 안 된다. magi의 `Subscribe`가 이미 그 계약이고(`internal/app/app.go` 의 `Subscribe`:
 영속 이벤트를 리플레이한 뒤 라이브로 잇는다), 콘솔도 첫 패스를 `lastSeq = -1`로 열어 백로그를 통째로
 받는다. 새 `transcript` 메서드가 지켜야 할 계약이 그것이다.
 
-폴링 간격은 콘솔이 실측한 값을 따른다. 전사는 400ms(`cmd/magi-web/main.go:1326`), 명단은
-700ms(`cmd/magi-web/main.go:489`). 데몬이 미는 쪽이 되면 그 값은 데몬 안으로 들어가고 플러그인은 안
+폴링 간격은 콘솔이 실측한 값을 따른다. 전사는 400ms(`cmd/magi-web/main.go` 의 `server.events`), 명단은
+700ms(`cmd/magi-web/main.go` 의 `server.fleetStream`). 데몬이 미는 쪽이 되면 그 값은 데몬 안으로 들어가고 플러그인은 안
 갖는다.
 
 **창 하나에 스트림 하나.** 콘솔이 브라우저 연결 6개 한도에서 배운 규칙이다. IDE에는 그 한도가 없지만
@@ -432,20 +441,20 @@ abandoned, by`를 갖는다. `ok`가 포인터라서 "아직 안 끝난 호출"�
 ## 4. 와이어
 
 한 줄에 JSON 객체 하나. 프레이밍이 그 이상 필요 없고 `nc`로 사람이 읽을 수 있다
-(`daemon.go:417` 주석). 서버는 `bufio.Scanner`, 클라이언트는 `json.NewEncoder`
-(`daemon.go:850`).
+(`daemon.go` 의 `Request` 주석, "One object per line"). 서버는 `bufio.Scanner`, 클라이언트는 `json.NewEncoder`
+(`daemon.go` 의 `serveConn` 과 `newClient`).
 
 요청 필드: `method, session, text, callId, decision, answer, name, looking, meeting, n, args, ask`.
 응답 필드: `ok, error, waiting, doing, out, exit, permission, user, jobs, tools, models, why,
-session, handover, version, proto, caps`(`wire_invariant_test.go:55`).
+session, handover, version, proto, caps`(`wire_invariant_test.go` 의 `TestWireStructsAreAdditiveOnly`).
 
 전송은 어디서나 AF_UNIX다. Windows도 마찬가지고, 거기서는 소켓이 담긴 디렉토리의 ACL이 권한을
-정한다(`listen_windows.go:8`). JVM은 `UnixDomainSocketAddress` + `SocketChannel`로 같은 것을 연다.
+정한다(`listen_windows.go` 의 `listenOwnerOnly`). JVM은 `UnixDomainSocketAddress` + `SocketChannel`로 같은 것을 연다.
 이것이 **JDK 16 이상을 요구하고**, 그 요구가 지원 가능한 IDE 최소 버전을 정한다. 열린 질문이 아니라
 제약이다.
 
 **버전 협상은 `about`으로 한다.** 응답의 `version`·`proto`·`caps`를 읽는다. 다만 지금 `Caps()`는
-`{"handshake"}` 하나만 돌려준다(`daemon.go:1497`). 그러니 오늘 나가는 어떤 데몬에도 `transcript`
+`{"handshake"}` 하나만 돌려준다(`daemon.go` 의 `Caps`). 그러니 오늘 나가는 어떤 데몬에도 `transcript`
 capability가 없고, 플러그인은 자기 주력 창을 못 여는 상태를 **정상 경로로** 다뤄야 한다. 그 화면은
 빈 채로 두지 않고, 데몬이 이 기능을 모르는 빌드라고 말하고 버전을 함께 보여 준다. 없는 메서드를 불러
 에러를 읽는 방식으로 알아내지 않는다.
@@ -473,7 +482,7 @@ capability가 없고, 플러그인은 자기 주력 창을 못 여는 상태를 
 | `mcp-detach` | `name` | 떼어 낸다 |
 
 `name` 은 네임스페이스가 된다. 붙고 나면 도구가 `mcp__<name>__<tool>` 로 목록에 들어간다
-(`internal/app/execute.go:52`). 응답은 `ok`, 실패면 `error`, 성공이면 등록된 도구 이름을 `tools` 에
+(`internal/app/execute.go` 의 `gateAllowlist`). 응답은 `ok`, 실패면 `error`, 성공이면 등록된 도구 이름을 `tools` 에
 싣는다 — 호출자가 무엇이 생겼는지 알아야 화면에 그린다. 셋 다 이미 있는 응답 필드다.
 
 **실패는 구분되어야 한다.** "안 붙었다" 하나로 뭉치면 사용자가 고칠 수가 없다. 최소한 이 넷이다:
@@ -487,7 +496,7 @@ capability가 없고, 플러그인은 자기 주력 창을 못 여는 상태를 
 **런타임 전용이고 config 에 쓰지 않는다.** `internal/adapter/mcp/manager.go` 의 `AddHTTPDynamic` 과
 `Remove` 가 이미 그 자리다(이 파일은 지금 손이 가고 있어 줄 번호 대신 함수 이름으로 짚는다). config 에 쓰면 서버가 없는 날에도 `[mcp.<name>]` 이 남아 매 기동마다
 붙으러 간다. 그리고 **`[mcp]` 는 플러그인이 grant 를 받아도 못 만지는 섹션**이라
-(`internal/adapter/plugin/lua/permission.go:32`), 그 옆에 config 를 쓰는 길을 내면 닫아 둔 문 옆의
+(`internal/adapter/plugin/lua/permission.go` 의 `denyConfigSections`), 그 옆에 config 를 쓰는 길을 내면 닫아 둔 문 옆의
 쪽문이 된다.
 
 **그래서 데몬이 재시작하면 붙은 것이 사라진다.** 이건 결함이 아니라 런타임 전용의 값이고, 대신
@@ -510,7 +519,7 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 결론**에 닿았다: `office` 를 기각하고 `ppt` 로 좁혔다. Word 애드인이 생기면 도구가 다른 벌이라서다.
 
 이름은 **자기 자신으로 다듬어져야 한다.** 코어가 `[a-zA-Z0-9_-]` 만 남기고 나머지를 `_` 로 바꾸므로
-(`mcp/manager.go` 의 `sanitizeToolPart`), 다듬어진 뒤 달라지는 이름을 고르면 사람이 목록에서 보는
+(`internal/adapter/mcp/manager.go` 의 `sanitizeToolPart`), 다듬어진 뒤 달라지는 이름을 고르면 사람이 목록에서 보는
 이름과 allow 룰에 적어야 하는 이름이 갈린다. `jetbrains` 는 그 조건을 만족한다. 제품명(`intellij`)이
 아니라 플랫폼 이름인 이유는 PyCharm·GoLand 도 같은 플러그인이기 때문이다.
 
@@ -552,7 +561,7 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 
 **권한 논증.** 어떤 MCP 서버를 돌릴지는 오퍼레이터가 정한다는 규칙이 세 자리에 일관되게 있다 —
 위의 `denyConfigSections`, `register_mcp` 의 capability 가 설치 시점 부여라는 것, 공유 콘솔의 `/mcp`
-쓰기 거부(`cmd/magi-web/mcp.go:111`). 소켓은 0600 이라(`daemon.go:700`) 호출자가 곧 머신 주인이므로
+쓰기 거부(`cmd/magi-web/mcp.go` 의 `server.mcpWrite`). 소켓은 0600 이라(`daemon.go` 의 `Listen`) 호출자가 곧 머신 주인이므로
 이 문은 공유 안 된 콘솔과 같은 자리다. 한 칸 더 있다 — 콘솔이 거부하는 대상은 주석이
 *"a command line this machine will spawn"* 이라고 규정하는데, `mcp-attach` 가 받는 것은 URL이라
 **스폰이 없다.** 그래서 같은 등급이 아니라 한 칸 약하다.
@@ -585,12 +594,12 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 1. **전사 툴윈도.** 스텝, 툴 호출과 진짜 종료 코드, 카운슬 라운드와 세 위원의 판정, 착지가
    VERIFIED인지 UNVERIFIED인지. `line`의 `ok`가 없으면 "도는 중"으로 그린다.
 2. **컴포저.** 턴 중에도 입력이 열려 있고 보내면 `steer`다. 돌지 않을 때는 `submit`.
-3. **퍼미션 프롬프트.** 응답의 `waiting`이 실어 온다(`daemon.go:511`): `id`(답이 실어야 할 call
+3. **퍼미션 프롬프트.** 응답의 `waiting`이 실어 온다(`daemon.go` 의 `Response`): `id`(답이 실어야 할 call
    id)·`kind`(`permission` | `question`)·`what`·`args`·`reason`·`options`·`report`·`index`·`total`·
    `since`. IDE 알림으로 띄우되 답하는 자리는 툴윈도 안이고, 답은 `answer`로 되돌린다.
 
    이 대목이 §3의 결정을 다시 증명한다. `permission.requested`는 **전이 이벤트라 로그에 없다.**
-   그래서 데몬이 대기 중인 프롬프트를 한 곳에서 다시 조립해 준다(`daemon.go:542`, 주석: 두 번째
+   그래서 데몬이 대기 중인 프롬프트를 한 곳에서 다시 조립해 준다(`daemon.go` 의 `Waiting`, 주석: 두 번째
    클라이언트가 자기 버전을 쓰면 네 필드 중 셋만 채운 프롬프트가 그럴듯하게 보이면서 아무것도
    답하지 못한다). JSONL만 꼬리 무는 플러그인은 **퍼미션 프롬프트를 영영 못 본다.**
 4. **문제 마커.** 컴패니언 자신이 돌린 빌드·테스트 출력과 카운슬의 반대 의견을 에디터 거터와
@@ -607,7 +616,7 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 diff 보여주기), **파일을 고친다.** 그런데 그 요청이 오는 통로가 스트림이 아니다.
 
 **데몬은 뷰어에게 명령을 밀어 넣을 수 없다.** 컨트롤 소켓이 락스텝이라 청하지 않은 프레임이 진행 중인
-호출의 답으로 소비된다(§2, `daemon.go:980`). 그러니 "IDE에게 시킨다"는 것은 **에이전트가 IDE가 내놓은
+호출의 답으로 소비된다(§2, `daemon.go` 의 `serveConn`). 그러니 "IDE에게 시킨다"는 것은 **에이전트가 IDE가 내놓은
 도구를 부르는 것**이어야 한다. 그 모양이 이미 1급으로 있다 — 플러그인이 **MCP 서버**가 되고, 도구는
 `mcp__ide__open_at` 같은 이름으로 컴패니언의 도구 목록에 들어간다. 네임스페이스 강제·서버 사망 시
 자동 제거가 딸려 오고, 무엇보다 **호출이 로그에 남는다.** 사람이 나중에 "왜 이 파일이 열렸나"를 읽을 수
@@ -664,23 +673,23 @@ type FileTool interface {
 
 **읽기도 같은 이유로 걸린다.** 사람이 저장을 안 하면 magi의 `read`는 디스크를 읽고 에이전트는 낡은
 내용을 추론한다. magi에 자리가 하나 있다 — `SetOpenFile(path, text)`가 에디터의 저장 안 된 버퍼를
-다음 턴을 위해 기록한다(`cmd/magi/main.go` 의 `daemonEngine.SetOpenFile`, `internal/app/app.go:48`의 `openFiles`). 다만 그건
+다음 턴을 위해 기록한다(`cmd/magi/main.go` 의 `daemonEngine.SetOpenFile`, `internal/app/app.go` 의 `App` 이 가진 `openFiles`). 다만 그건
 **콘솔 에디터의 현재 버퍼 하나**이고 완성·룩오버가 읽는 자리라, `read` 툴은 그것을 안 본다. 플러그인은
 이 자리를 쓰되, `read`가 열린 버퍼를 보게 할지는 코어 결정이라 여기서 정하지 않는다.
 
 **이 요구가 §3의 결론을 하나 바꾼다.** 뷰어였을 때 필요한 문은 `transcript` 하나였다. 지금은
 **밖에서 "이 컴패니언에 이 도구 서버를 붙여라"라고 말할 문**이 하나 더 필요하고, 그런 메서드가 데몬에
-없다. 런타임 등록은 `Manager.AddHTTPDynamic`(`internal/adapter/mcp/manager.go:91`)으로 프로세스
+없다. 런타임 등록은 `Manager.AddHTTPDynamic`(`internal/adapter/mcp/manager.go`)으로 프로세스
 안에서만 열려 있고, `[mcp]` config는 플러그인이 grant를 받아도 못 만진다
-(`internal/adapter/plugin/lua/permission.go:32`). 형제 프로젝트가 같은 벽에 먼저 부딪혀
+(`internal/adapter/plugin/lua/permission.go` 의 `denyConfigSections`). 형제 프로젝트가 같은 벽에 먼저 부딪혀
 `mcp-attach{name, url, headers}` door를 제안하고 있다. **같은 문을 쓴다.** 두 플러그인이 각자 우회를
 만드는 것이 가장 나쁜 결과다. 붙는 것은 런타임 전용이고 config에 안 쓴다 — 헬퍼가 없는 날에도 남아
 매 기동마다 붙으러 가는 항목이 생기면 안 된다.
 
 전송은 루프백 HTTP다. JVM은 유닉스 소켓도 열 수 있지만, magi의 MCP 클라이언트가 자기가 띄우지 않은
-서버에 붙는 길이 Streamable HTTP이고(`manager.go:83`) 그 길이 이미 있다.
+서버에 붙는 길이 Streamable HTTP이고(`manager.go` 의 `AddStdio`) 그 길이 이미 있다.
 
-**대가 하나.** `mcp__` 접두가 붙은 도구는 전부 위험 도구로 취급된다(`internal/app/execute.go:59`).
+**대가 하나.** `mcp__` 접두가 붙은 도구는 전부 위험 도구로 취급된다(`internal/app/execute.go` 의 `dangerGated`).
 `apply_edit`에는 맞지만 `open_at`에도 걸리므로 파일 하나 여는 데 매번 확인이 뜬다. 오퍼레이터가
 allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이고, 그 판단은 사람 몫이다.
 
@@ -719,8 +728,8 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 사람이 파일을 직접 고치는 곳이라 이 규칙이 훨씬 어렵다.
 
 여기서 "턴이 시작될 때 컴패니언이 트리를 다시 읽으니 괜찮다"고 넘어갈 뻔했는데 **그런 재독은
-없다.** 매 스텝 붙는 것은 `volatileContext`(계획·경험·회수·런 상태, `internal/app/prompt.go:80`)와
-`envInfo`(OS·아키텍처·셸·워크디렉토리·날짜, `prompt.go:319`)뿐이다. 트리를 훑거나 git 상태를 읽는
+없다.** 매 스텝 붙는 것은 `volatileContext`(계획·경험·회수·런 상태, `internal/app/prompt.go` 의 `volatileContext`)와
+`envInfo`(OS·아키텍처·셸·워크디렉토리·날짜, `internal/app/prompt.go` 의 `envInfo`)뿐이다. 트리를 훑거나 git 상태를 읽는
 단계는 없다. 모델은 툴을 불러야만 파일을 안다. 제안이 "에이전트가 감지할 수 없는 방식으로 컨텍스트를
 틀리게 만든다"고 지목한 상황이 정확히 이것이다.
 
@@ -745,14 +754,14 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   (`daemon.go` 의 `resume` 분기). 플러그인이 기억한 세션 id는 그 순간 낡는다. 따라갈지 붙박을지를 정해야 하고,
   이 문서는 **따라간다**로 둔다. 데몬이 지금 무슨 대화를 하는지가 정본이기 때문이다.
 - **느린 모델 호출이 연결을 물고 있는 것.** 콘솔은 이 때문에 풀링된 연결과 별도로 일회용 연결을
-  판다(`cmd/magi-web/main.go:909`, `cmd/magi/attach.go:62`). 커밋 메시지 초안 같은 호출은 전사
+  판다(`cmd/magi-web/main.go` 의 `server.alone`, `cmd/magi/attach.go` 의 `attached.sock`). 커밋 메시지 초안 같은 호출은 전사
   스트림과 같은 연결을 쓰면 안 된다.
 - **워크스페이스 설정은 신뢰 경계다.** 클론해 온 저장소의 `.magi/config.toml`은 조일 수만 있고
   `.magi/plugins/`는 `magi --trust` 전에는 안 돈다(SECURITY.md §2). 플러그인이 IDE의 "신뢰된
   프로젝트" 표시를 magi의 trust로 자동 번역하면 안 된다. 두 신뢰는 다른 질문이다.
 - **플러그인은 콘솔의 역할 검사를 지나지 않는다.** `magi-web`은 `auth.toml`로 사람마다 할 수 있는 일을
   가르지만(SECURITY.md §8), 플러그인은 소켓을 직접 연다. 그래도 되는 이유는 그 소켓이 0600이고 그
-  사용자 것이기 때문이다(`daemon.go:700`의 `os.Chmod`. `listen_unix.go:30`의 umask 뒤집기는 유닉스
+  사용자 것이기 때문이다(`daemon.go` 의 `Listen` 이 하는 `os.Chmod`. `listen_unix.go` 의 `listenOwnerOnly` 가 하는 umask 뒤집기는 유닉스
   전용이라 양쪽을 덮는 것은 chmod 쪽이다). 즉 **플러그인 사용자는 언제나 그 머신의 소유자**이고,
   역할이 갈릴 사람이 애초에 없다. SECURITY.md를 읽고 온 사람이 물을 질문이라 적어 둔다.
 
@@ -816,7 +825,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 을 두지 않는다. 한 숫자를 두 곳에서 말하면 한 곳을 잊는다.
 - **파생 대조.** 같은 세션에 대해 플러그인이 그린 전사와 콘솔이 그린 전사를 행 단위로 비교한다.
   `web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
-  필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md:127`).
+  필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md` 의 "클린 아키텍처 규칙").
 
 ---
 
@@ -842,7 +851,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   호스트에 있다. 소켓은 코드가 있는 쪽에 생기므로 플러그인의 백엔드 부분이 거기서 돌아야 한다.
   IntelliJ의 플러그인 모델이 그것을 어떻게 나누는지 확인하지 않았다.
 - **붙을 컴패니언을 고르는 화면을 그린다면 `caps` 를 두 뜻으로 갈라야 한다.** `PeerSupports` 는
-  `c.peer == nil` 일 때도 false 를 준다(`daemon.go:1638`) — **"이 빌드는 문이 없다"와 "아직 안
+  `c.peer == nil` 일 때도 false 를 준다(`daemon.go` 의 `PeerSupports`) — **"이 빌드는 문이 없다"와 "아직 안
   물어봤다"가 같은 답으로 온다.** `Hello` 가 `(PeerInfo, error)` 를 주므로 에러는 "지금 못 물었다"
   (재시도)이고, 성공하고도 cap 이 없으면 "못 받는 빌드"(제안하지 않음)다. 그리고 그 답이
   `Client` 인스턴스에 캐시되므로(`c.peer`), 고른 클라이언트를 attach 까지 쥐고 있어야 두 번 안 묻는다.
