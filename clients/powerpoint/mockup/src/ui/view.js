@@ -1,20 +1,22 @@
 // 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
-import { Advice } from '../domain/Advice.js';
+import { foldAdvice } from '../domain/AdviceBoard.js';
 import { DECISIONS, WIDTH_NOTE, CLEARED } from '../domain/Pending.js';
 
 const $ = (sel) => document.querySelector(sel);
 
 export class View {
-  constructor({ conversation, quoteSelection, pointAt, sendTurn, chat, deck, watchPrompt }) {
-    this.conversation = conversation;
+  constructor({ composer, quoteSelection, pointAt, sendTurn, deck, watchPrompt, readTranscript }) {
+    this.composer = composer;
     this.quoteSelection = quoteSelection;
     this.pointAt = pointAt;
     this.sendTurn = sendTurn;
-    this.chat = chat;
     this.deck = deck;
     /** 없을 수도 있다(문이 없는 자리). 없으면 그 칸은 **안 그린다** — 빈 칸을 지어내지 않는다. */
     this.watchPrompt = watchPrompt ?? null;
+    /** 대화가 흘러 들어오는 자리. **화면의 대화는 전부 여기서 나온다**(§5.7). */
+    this.readTranscript = readTranscript ?? null;
     this.advices = [];
+    this.adviceNote = '';
     this.slideNos = null;   // null = 안 물어봤거나 못 얻었다. 그때는 id 로 적는다.
     /**
      * 마지막으로 그린 물음의 모양. 폴은 계속 도는데 그때마다 다시 그리면 사람이 고르던 것과
@@ -34,9 +36,11 @@ export class View {
     $('#input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) this.onSend();
     });
-    this.chat.subscribe((ev) => this.onEvent(ev));
     this.renderPending();
-    this.renderTurns();
+    if (this.readTranscript) {
+      this.readTranscript.onChange = () => this.onLog();
+      this.onLog();
+    }
     if (this.watchPrompt) {
       this.watchPrompt.onChange = () => this.renderAsk();
       this.renderAsk();
@@ -296,36 +300,90 @@ export class View {
     if (added.length) $('#input').focus();
   }
 
+  /**
+   * 보낸다. **화면에 미리 붙이지 않는다**(§5.7).
+   *
+   * 낸 것을 그 자리에서 대화에 붙이면 로그가 같은 말을 다시 실어 올 때 두 벌이 되고, 신원으로
+   * 걸러 낼 방법이 없다 — `submit` 은 식별자를 안 돌려주고 밖에서 붙은 창은 전부 `attach` 로
+   * 찍힌다(`Composer` 주석). 그래서 컴포저는 **쥔 채 잠기고**, 지우는 것은 로그의 메아리다.
+   */
   async onSend() {
-    const text = $('#input').value;
-    const turn = await this.sendTurn.run(text);
-    if (!turn) return;
-    $('#input').value = '';
-    this.renderPending();
-    this.renderTurns();
-  }
-
-  onEvent(ev) {
-    if (ev.kind === 'thinking') { this.setThinking(true); return; }
-    if (ev.kind === 'say') {
-      this.setThinking(false);
-      this.conversation.hear(ev.text);
-      this.renderTurns();
+    const log = this.logShape();
+    const r = await this.sendTurn.run($('#input').value, log);
+    if (!r.sent) {
+      if (r.why === 'failed') this.note(`못 보냈습니다: ${r.error.message}`, { sticky: true });
+      if (r.why === 'waiting') this.note('앞서 낸 말이 아직 로그에 안 떴습니다.');
       return;
     }
-    if (ev.kind === 'advise') {
-      this.advices.push(new Advice(ev.advice));
-      this.renderAdvice();
-      // 번호는 덱에 물어야 안다. 먼저 id 로 그려 놓고, 답이 오면 다시 그린다 — 목록이 늦게 뜨는
-      // 것보다 늦게 예뻐지는 쪽이 낫다. 순서가 바뀌었을 수 있으니 **매번 다시 묻는다.**
-      this.deck.slideNumbers().then((m) => {
-        this.slideNos = m;
-        this.renderAdvice();
-      }).catch(() => {});
+    if (r.blind) {
+      // 갔지만 확인할 길이 없다. **글을 안 지운다** — 지우면 「갔다」를 말한 셈이 된다.
+      this.note('보냈습니다. 이 창이 로그를 못 읽고 있어 갔는지 확인은 못 합니다 — '
+        + '적은 글은 그대로 뒀습니다.', { sticky: true });
     }
+    this.renderPending();
+    this.renderSent();
   }
 
-  setThinking(on) { $('#thinking').hidden = !on; }
+  /** 지금 로그에서 보이는 것. 없으면 **읽는 중이 아니다**(`live:false`). */
+  logShape() {
+    const v = this.readTranscript?.view;
+    if (!v) return { userRows: 0, live: false };
+    return { userRows: v.rows.filter((r) => r.kind === 'user').length, live: v.live };
+  }
+
+  /** 로그가 움직였다. 여기 하나로 대화·안내·컴포저가 다 따라간다. */
+  onLog() {
+    const v = this.readTranscript.view;
+    if (this.sendTurn.settle(this.logShape().userRows)) {
+      // 메아리가 왔다 — 이제 지운다.
+      $('#input').value = '';
+      this.renderPending();
+    }
+    this.renderStream(v);
+    this.renderRows(v.rows);
+    this.renderUnknown(v.unknownNote);
+    this.renderAdviceFrom(v.rows);
+    this.renderSent();
+  }
+
+  /**
+   * 스트림 자체에 대한 한 줄. **조용한 대화와 죽은 스트림을 가른다** — 문은 깨끗한 끝을
+   * 에러로 안 주므로, 이 줄이 없으면 사람은 안 오는 답을 영원히 기다린다.
+   */
+  renderStream(v) {
+    const el = $('#stream');
+    const parts = [];
+    if (v.refusal) parts.push(`서버가 이 창의 커서를 안 받았습니다: ${v.refusal}`);
+    if (!v.live) parts.push('대화 스트림이 끊겼습니다 — 새 말이 안 옵니다.');
+    el.textContent = parts.join(' · ');
+    el.hidden = parts.length === 0;
+  }
+
+  renderUnknown(note) {
+    const el = $('#unknown');
+    el.textContent = note ?? '';
+    el.hidden = !note;
+  }
+
+  /** 냈는데 아직 로그에 안 뜬 것. **나가는 문을 같이 준다** — 없으면 잠금이 사람을 가둔다. */
+  renderSent() {
+    const el = $('#sent');
+    el.replaceChildren();
+    el.hidden = !this.composer.waiting;
+    if (!this.composer.waiting) return;
+    const p = document.createElement('span');
+    p.textContent = '보냈습니다 — 로그에 뜨기를 기다립니다.';
+    const b = document.createElement('button');
+    b.className = 'ghost';
+    b.textContent = '그만 기다리기';
+    b.title = '잠금만 풉니다. 적은 글은 안 지웁니다 — 갔는지는 여전히 모릅니다.';
+    b.addEventListener('click', () => {
+      this.composer.release();
+      this.renderSent();
+      this.renderPending();
+    });
+    el.append(p, b);
+  }
 
   /**
    * 한 줄 알림. `sticky` 면 안 사라진다.
@@ -344,9 +402,14 @@ export class View {
   renderPending() {
     const box = $('#pending');
     box.replaceChildren();
-    for (const q of this.conversation.pending) {
-      box.append(this.quoteEl(q, true));
+    // 기다리는 동안은 **빼지도 못한다.** 이미 나간 글에 붙어 나간 인용이라, 여기서 빼면
+    // 화면과 모델이 본 것이 갈린다.
+    const locked = this.composer.waiting;
+    for (const q of this.composer.pending) {
+      box.append(this.quoteEl(q, !locked));
     }
+    box.classList.toggle('locked', locked);
+    $('#send').disabled = locked;
   }
 
   quoteEl(q, removable) {
@@ -368,7 +431,7 @@ export class View {
       x.textContent = '×';
       x.title = '인용 빼기';
       x.addEventListener('click', () => {
-        this.conversation.detach(q.shapeId);
+        this.composer.detach(q.shapeId);
         this.renderPending();
       });
       el.append(x);
@@ -376,25 +439,94 @@ export class View {
     return el;
   }
 
-  renderTurns() {
+  /**
+   * 대화. **로그가 그린다** — 이 창이 따로 쌓아 두는 대화는 없다.
+   *
+   * 종류마다 다르게 그리는 것이 이 칸의 일이다. 다 말풍선으로 그리면 모델의 혼잣말이 답이
+   * 되고, 정책이 밀어 넣은 줄이 사람이 한 말이 되고, 슬라이드를 고친 도구 호출이 안 보인다
+   * (§5.7). 매번 통째로 다시 그리는데, 여기엔 사람이 적던 것이 없어서 그래도 된다.
+   */
+  renderRows(rows) {
     const box = $('#turns');
+    const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
     box.replaceChildren();
-    for (const t of this.conversation.turns) {
-      const el = document.createElement('div');
-      el.className = `turn ${t.role}`;
-      for (const q of t.quotes) el.append(this.quoteEl(q, false));
-      const p = document.createElement('p');
-      p.textContent = t.text;
-      el.append(p);
-      box.append(el);
+    for (const r of rows) box.append(this.rowEl(r));
+    // 위로 올려 읽는 중이면 **안 끌어내린다.** 도구가 줄줄이 도는 턴에서 읽던 자리를 뺏는다.
+    if (atEnd) box.scrollTop = box.scrollHeight;
+  }
+
+  rowEl(r) {
+    const el = document.createElement('div');
+    // 종류를 **접두사와 함께** 적는다. 그냥 `turn ${r.kind}` 로 적으면 끝난 턴이
+    // `class="turn turn"` 이 되고, `.turn.turn` 은 CSS 에서 그냥 `.turn` 이라
+    // 그 한 줄에 준 모양이 **모든 줄에** 걸린다. 실제로 사용자 말이 가운데 정렬됐었다.
+    el.className = `turn kind-${r.kind}`;
+    const head = ROW_HEAD[r.kind];
+    if (head) {
+      const h = document.createElement('div');
+      h.className = 'turn-head';
+      h.textContent = r.kind === 'tool' ? `⚙ ${r.tool ?? '(이름 없음)'}` : head;
+      el.append(h);
     }
-    box.scrollTop = box.scrollHeight;
+    if (r.kind === 'tool') {
+      // **인자를 적는다.** 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다.
+      const pre = document.createElement('pre');
+      pre.className = 'turn-args';
+      pre.textContent = r.args == null ? '(인자 없음)' : clip(this.pretty(r.args), 300);
+      el.append(pre);
+      return el;
+    }
+    if (r.kind === 'turn') {
+      // 끝난 턴. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`).
+      el.classList.toggle('unverified', r.unverified);
+      const p = document.createElement('p');
+      p.textContent = r.unverified
+        ? `검증되지 않은 끝${r.reason ? ` — ${r.reason}` : ''}`
+        : '— 턴 끝 —';
+      el.append(p);
+      return el;
+    }
+    const p = document.createElement('p');
+    // 사용자 줄에는 인용이 **글로 접혀** 들어 있다(`promptOf`). 예쁘게 걷어 내지 않는다 —
+    // 모델이 받은 것이 이것이고, 걷어 내면 화면이 모델보다 덜 아는 것을 감추게 된다.
+    p.textContent = r.text || '(글 없음)';
+    el.append(p);
+    return el;
+  }
+
+  /**
+   * 안내 층. **로그의 도구 호출에서 유도한다** — 따로 쌓아 두지 않는다(`AdviceBoard`).
+   *
+   * 번호는 덱에 물어야 안다. 먼저 id 로 그려 놓고, 답이 오면 다시 그린다 — 목록이 늦게 뜨는
+   * 것보다 늦게 예뻐지는 쪽이 낫다. 순서가 바뀌었을 수 있으니 **매번 다시 묻는다.**
+   */
+  renderAdviceFrom(rows) {
+    const { items, strays, dropped } = foldAdvice(rows);
+    this.advices = items;
+    const notes = [];
+    // 이름이 우리 서버가 아니라서 못 붙인 것. **조용히 안 끝낸다** — 설정 한 줄이 기능을
+    // 껐다는 사실이 화면 어딘가엔 있어야 한다.
+    if (strays.length) {
+      notes.push(`안내를 부른 도구가 이 창이 아는 이름이 아닙니다: ${strays.join(', ')}`);
+    }
+    if (dropped) notes.push(`안내 ${dropped}건은 무엇을 말하는지 안 실려 못 붙였습니다.`);
+    this.adviceNote = notes.join(' · ');
+    this.renderAdvice();
+    if (items.length) {
+      this.deck.slideNumbers().then((m) => {
+        this.slideNos = m;
+        this.renderAdvice();
+      }).catch(() => {});
+    }
   }
 
   renderAdvice() {
     const box = $('#advice');
     box.replaceChildren();
-    $('#advice-wrap').hidden = this.advices.length === 0;
+    $('#advice-wrap').hidden = this.advices.length === 0 && this.adviceNote === '';
+    const note = $('#advice-strays');
+    note.textContent = this.adviceNote;
+    note.hidden = this.adviceNote === '';
     for (const a of this.advices) {
       const el = document.createElement('button');
       el.className = 'advice';
@@ -421,3 +553,13 @@ export class View {
     }
   }
 }
+
+/** 줄머리. 없는 종류는 머리 없이 글만 — 사용자와 모델의 말이 그렇다. */
+const ROW_HEAD = {
+  think: '혼잣말 (사용자에게 한 말이 아님)',
+  note: '⟳ 사람이 아닌 배우가 넣은 줄',
+  tool: '⚙',
+  error: '오류',
+};
+
+function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }

@@ -33,7 +33,7 @@ const CASES = [
   },
 ];
 
-export function mountFakePrompts(status, root) {
+export function mountFakePrompts(status, root, { stream, readTranscript, sessionId } = {}) {
   const box = document.createElement('div');
   box.className = 'fake-prompts';
 
@@ -58,6 +58,36 @@ export function mountFakePrompts(status, root) {
   cut.textContent = '문 끊기 / 잇기';
   cut.addEventListener('click', () => { status.reachable = !status.reachable; });
   box.append(cut);
+
+  // **연결이 둘이라는 것을 손으로 겪게 하는 자리.** 요청 쪽은 멀쩡한데 전사 스트림만 죽는
+  // 경우가 진짜로 있고(§5.7), 그때 화면이 어떻게 되는지는 눌러 봐야 안다.
+  if (stream && readTranscript) {
+    const drop = document.createElement('button');
+    drop.textContent = '스트림 끊기';
+    drop.addEventListener('click', () => stream.drop());
+    const back = document.createElement('button');
+    back.textContent = '스트림 잇기';
+    back.addEventListener('click', () => readTranscript.attach(sessionId));
+    box.append(drop, back);
+
+    // 두 화면은 **프레임이 있어야만 뜬다.** 눌러 볼 자리가 없으면 CSS 한 줄이 틀려도 아무도
+    // 모른 채 착지한다 — 목업이 있는 이유가 바로 그것이다.
+    const unver = document.createElement('button');
+    unver.textContent = '검증 못 한 끝';
+    unver.title = '`TurnFinishedData.Unverified` — 「고쳤다」와 「고쳤다는데 아무도 못 봤다」';
+    unver.addEventListener('click', () => stream.push({ type: 'turn.finished',
+      data: { unverified: true, reason: '독립 실행으로 확인된 것이 없습니다' } }));
+
+    const stray = document.createElement('button');
+    stray.textContent = '남의 서버 안내';
+    stray.title = 'MCP 서버 이름이 설정값이라, 다르면 포스트잇이 한 장도 안 붙는다';
+    stray.addEventListener('click', () => stream.push({ type: 'part.appended',
+      data: { messageId: 'stray', part: { kind: 'tool-call', toolCall: {
+        name: 'mcp__powerpoint__advise', callId: 'c-stray',
+        args: { items: [{ message: '이건 안 붙어야 한다', slideId: 's4f2a1' }] } } } } }));
+
+    box.append(unver, stray);
+  }
 
   root.append(box);
 }

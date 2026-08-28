@@ -61,6 +61,10 @@ export class ReadTranscript {
         this.onChange();
       },
     });
+    // **붙었다는 것도 사건이다.** 로그가 빈 대화에서는 첫 이벤트가 영영 안 올 수 있고, 그동안
+    // 화면에는 붙기 전에 그린 「스트림이 끊겼습니다」가 그대로 서 있다. `detach` 는 알리는데
+    // `attach` 는 안 알리던 비대칭이 그 거짓말의 자리였다.
+    this.onChange();
     return since;
   }
 

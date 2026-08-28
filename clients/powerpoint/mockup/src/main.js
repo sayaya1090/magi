@@ -1,5 +1,5 @@
 // 조립하는 자리. **여기만 무엇이 무엇인지 안다** — 안쪽 층은 서로를 인터페이스로만 안다.
-import { Conversation } from './domain/Conversation.js';
+import { Composer } from './domain/Composer.js';
 import { QuoteSelection } from './usecase/QuoteSelection.js';
 import { PointAtAdvice } from './usecase/PointAtAdvice.js';
 import { SendTurn } from './usecase/SendTurn.js';
@@ -8,6 +8,8 @@ import { OfficeDeck } from './adapter/OfficeDeck.js';
 import { FakeDeck } from './adapter/FakeDeck.js';
 import { FakeChat } from './adapter/FakeChat.js';
 import { FakeStatus } from './adapter/FakeStatus.js';
+import { FakeTranscript } from './adapter/FakeTranscript.js';
+import { ReadTranscript } from './usecase/ReadTranscript.js';
 import { View } from './ui/view.js';
 import { mountFakeCanvas } from './ui/fakeCanvas.js';
 import { mountFakePrompts } from './ui/fakePrompts.js';
@@ -59,24 +61,31 @@ async function pickDeck() {
  */
 const POLL_MS = 1000;
 
+/** 목업이 붙은 척하는 대화. 진짜에서는 헬퍼가 데몬에게 물어 얻는다. */
+const SESSION = 'sess-mock';
+
 async function boot() {
   const { deck, why, late } = await pickDeck();
-  const conversation = new Conversation();
-  const chat = new FakeChat();
+  const composer = new Composer();
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
   const status = new FakeStatus();
   const watchPrompt = new WatchPrompt(status);
+  // **연결이 둘이다**(§5.7). 내는 것과 받는 것이 다른 연결이고, 서로의 생사 증거가 아니다.
+  const stream = new FakeTranscript();
+  const chat = new FakeChat(stream, { sessionId: SESSION });
+  const readTranscript = new ReadTranscript(stream);
 
   const view = new View({
-    conversation,
-    quoteSelection: new QuoteSelection(deck, conversation),
+    composer,
+    quoteSelection: new QuoteSelection(deck, composer),
     pointAt: new PointAtAdvice(deck),
-    sendTurn: new SendTurn(chat, conversation),
-    chat,
+    sendTurn: new SendTurn(chat, composer),
     deck,
     watchPrompt,
+    readTranscript,
   });
   view.mount();
+  readTranscript.attach(SESSION);
 
   // 첫 폴을 기다렸다가 돌린다 — 겹쳐 돌면 같은 물음에 답이 두 번 갈 자리가 생긴다.
   const tick = async () => {
@@ -87,7 +96,8 @@ async function boot() {
   if (deck instanceof FakeDeck) {
     document.body.classList.add('standalone');
     mountFakeCanvas(deck, document.querySelector('#fake'));
-    mountFakePrompts(status, document.querySelector('#fake'));
+    mountFakePrompts(status, document.querySelector('#fake'), { stream, readTranscript,
+      sessionId: SESSION });
   }
 
   if (why === 'timeout') {

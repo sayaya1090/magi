@@ -21,6 +21,11 @@
  * 오고(버스 전용), `appended` 는 끝난 뒤 통째로 온다(로그). `messageId` 가 같다. 둘 다 새 줄로
  * 쌓으면 모델의 답이 화면에 두 번 뜬다. 그래서 **같은 messageId 는 한 줄**이고, `appended` 가
  * 오면 그 줄을 **덮어쓴다** — 붙어 있던 창과 나중에 붙은 창이 같은 화면을 보게 된다.
+ *
+ * **넷 — 끝난 턴에는 검증됐는지가 실려 온다.** `turn.finished` 는 검증 못 한 착지에도 오고
+ * (`TurnFinishedData.Unverified`), 그 딱지를 안 실으면 「고쳤다」와 「고쳤다는데 아무도 못
+ * 봤다」가 화면에서 똑같이 생긴다. 슬라이드를 고치는 물건에서 그 차이는 사람이 덱을 그대로
+ * 발표하느냐 열어 보느냐를 가른다.
  */
 
 /** 채팅창이 실제로 그릴 줄 아는 종류. 나머지는 버리지 않고 `unknown` 으로 남는다. */
@@ -52,7 +57,7 @@ const PART_DRAWN = new Map([
 const FOLDED = new Set(['model', 'think']);
 
 export class Row {
-  constructor({ seq, kind, type, text, actor, ts, messageId, tool }) {
+  constructor({ seq, kind, type, text, actor, ts, messageId, call, finish }) {
     this.seq = seq ?? 0;
     this.kind = kind;       // user | model | think | tool | note | turn | error | unknown
     this.type = type;       // 로그의 이름 그대로
@@ -61,7 +66,17 @@ export class Row {
     this.ts = ts ?? null;
     this.messageId = messageId ?? null;
     /** 도구 이름. `kind === 'tool'` 일 때만 있다 — 이 줄이 「모델이 한 일」이다. */
-    this.tool = tool ?? null;
+    this.tool = call?.name ?? null;
+    /** 그 호출의 인자와 신원. 안내 포스트잇이 여기서 나온다(§6.1). */
+    this.args = call?.args ?? null;
+    this.callId = call?.callId ?? null;
+    /**
+     * 끝난 턴이 **검증된 끝인가.** `turn.finished` 는 검증 못 한 착지에도 온다
+     * (`TurnFinishedData.Unverified`) — 「했다」와 「했다는데 아무도 못 봤다」가 같은 종류로
+     * 온다는 뜻이라, 이걸 안 실으면 화면은 둘을 똑같이 그린다.
+     */
+    this.unverified = finish?.unverified === true;
+    this.reason = finish?.reason ?? '';
     /**
      * 완성본이 한 번이라도 앉았는가. **덮어쓸지 이어 붙일지가 여기 달렸다** — 델타로 쌓던 줄에
      * 오는 첫 완성본은 같은 말의 되풀이라 덮어쓰고, 그 뒤에 오는 완성본은 **다음 조각**이라
@@ -132,7 +147,7 @@ export class Transcript {
 
     const row = new Row({
       seq: ev?.seq, kind, type, actor: ev?.actor, ts: ev?.ts, messageId,
-      text: textOf(ev, kind), tool: toolNameOf(ev),
+      text: textOf(ev, kind), call: toolCallOf(ev), finish: finishOf(ev, type),
     });
     row.settled = type === 'part.appended';
     this.rows.push(row);
@@ -185,9 +200,19 @@ function partKindOf(ev, type) {
  * `Advisory` 를 따로 둔 이유가 그 주석에 적혀 있다(한 일은 했는데 읽을 것이 붙은 호출도
  * `IsError` 를 세우므로, 두 창이 성공한 쓰기를 실패로 그린 적이 있다).
  */
-function toolNameOf(ev) {
-  const n = ev?.data?.part?.toolCall?.name;
-  return typeof n === 'string' && n !== '' ? n : null;
+function toolCallOf(ev) {
+  const c = ev?.data?.part?.toolCall;
+  if (!c || typeof c.name !== 'string' || c.name === '') return null;
+  // `Args` 는 `json.RawMessage` 라 **프레임 안에 JSON 그대로** 실린다 — 문자열 한 겹이 아니다.
+  // 그래서 여기서 다시 파싱하지 않는다. 다시 파싱하면 진짜 객체를 받은 날 조용히 비게 된다.
+  return { name: c.name, callId: typeof c.callId === 'string' ? c.callId : null,
+    args: c.args ?? null };
+}
+
+/** 끝난 턴이 스스로 붙인 딱지. 다른 종류에는 없다. */
+function finishOf(ev, type) {
+  if (type !== 'turn.finished') return null;
+  return { unverified: ev?.data?.unverified === true, reason: ev?.data?.reason ?? '' };
 }
 
 /**

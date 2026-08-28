@@ -43,12 +43,28 @@ export class FakeTranscript extends TranscriptPort {
     return () => { this._handlers = null; };
   }
 
-  /** 라이브 이벤트 하나. */
+  /**
+   * 라이브 이벤트 하나.
+   *
+   * **자리는 서버가 준다.** `seq` 를 안 실어 보내면 여기서 다음 번호를 찍는다. 0 을 **실어**
+   * 보내면 그대로 둔다 — 버스 전용 이벤트는 로그에 안 앉아 자리가 없고(`part.delta` 가
+   * 그렇다), 그 0 이 커서 규칙이 지키는 바로 그 값이다(`Cursor.advanced`).
+   */
   push(ev) {
-    (this.logs[this._session] ??= []).push(ev);
-    this._handlers?.onEvent(ev);
+    const log = (this.logs[this._session ?? ev?.sessionId] ??= []);
+    const seq = ev?.seq === undefined ? nextSeq(log) : ev.seq;
+    const stamped = { ...ev, seq };
+    log.push(stamped);
+    this._handlers?.onEvent(stamped);
+    return stamped;
   }
 
   /** 스트림이 끊겼다. **에러가 아니다** — 문이 그렇게 적어 뒀다. */
   drop() { this._handlers?.onEnd(); this._handlers = null; }
+}
+
+function nextSeq(log) {
+  let max = 0;
+  for (const e of log) if (typeof e?.seq === 'number' && e.seq > max) max = e.seq;
+  return max + 1;
 }

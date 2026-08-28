@@ -3,9 +3,10 @@
 // 이게 이 목업에서 **오늘 실제로 검증되는 전부**다. 유스케이스가 Office.js 를 모르기 때문에
 // FakeDeck 하나만 갈아 끼우면 흐름이 끝까지 돈다. OfficeDeck 은 여기 안 들어온다 — 이 머신에
 // PowerPoint 가 없고, 안 돌려 본 것을 "된다"고 세지 않는다.
-import { Conversation } from '../src/domain/Conversation.js';
+import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice } from '../src/domain/Advice.js';
+import { foldAdvice } from '../src/domain/AdviceBoard.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
 import { SendTurn } from '../src/usecase/SendTurn.js';
@@ -26,7 +27,7 @@ const ok = (name, cond, detail = '') => {
 };
 
 const deck = new FakeDeck(structuredClone(fixture));
-const conv = new Conversation();
+const conv = new Composer();
 const quote = new QuoteSelection(deck, conv);
 const point = new PointAtAdvice(deck);
 
@@ -44,28 +45,28 @@ ok('빈 선택은 empty', (await quote.run()).empty === true);
     label: 'scripted', async selection() { return answers.shift() ?? none; },
   });
 
-  const lost = new QuoteSelection(scripted(one, none), new Conversation());
+  const lost = new QuoteSelection(scripted(one, none), new Composer());
   await lost.sampleBeforeFocus();
   const rl = await lost.run();
   ok('포커스가 가져간 선택은 lostFocus',
      rl.reason === 'lostFocus' && rl.beforeCount === 1, rl.reason);
 
-  const empty2 = new QuoteSelection(scripted(none, none), new Conversation());
+  const empty2 = new QuoteSelection(scripted(none, none), new Composer());
   await empty2.sampleBeforeFocus();
   ok('원래 빈 선택은 none', (await empty2.run()).reason === 'none');
 
   // 단축키·키보드로 누르면 포인터가 단추에 들어온 적이 없다 → 앞 읽기가 아예 없다.
-  const blind = new QuoteSelection(scripted(none), new Conversation());
+  const blind = new QuoteSelection(scripted(none), new Composer());
   ok('앞 읽기가 없으면 unknown', (await blind.run()).reason === 'unknown');
 
   // 앞 읽기는 한 번 쓰고 버린다. 안 버리면 두 번째 누름이 낡은 값으로 lostFocus 를 지어낸다.
-  const stale = new QuoteSelection(scripted(one, none, none), new Conversation());
+  const stale = new QuoteSelection(scripted(one, none, none), new Composer());
   await stale.sampleBeforeFocus();
   await stale.run();
   ok('낡은 앞 읽기는 다음 누름에 안 샌다', (await stale.run()).reason === 'unknown');
 
   // 인용에 성공한 길에도 사유 칸이 있고, 거기엔 사유가 없다.
-  const okrun = new QuoteSelection(scripted(one), new Conversation());
+  const okrun = new QuoteSelection(scripted(one), new Composer());
   ok('인용되면 사유는 null', (await okrun.run()).reason === null);
 
   // 앞 읽기는 **왕복**이라 누름보다 늦게 올 수 있다. 빨리 누르면 실제로 그렇다.
@@ -78,7 +79,7 @@ ok('빈 선택은 empty', (await quote.run()).empty === true);
       if (firstRead) { firstRead = false; await slow; return one; }
       return none;
     } };
-    const q = new QuoteSelection(laggy, new Conversation());
+    const q = new QuoteSelection(laggy, new Composer());
     const inflight = q.sampleBeforeFocus();      // 호버 — 안 기다린다. 화면도 안 기다린다.
     const fast = await q.run();                  // 읽기가 오기 전에 눌렸다
     release();
@@ -121,10 +122,19 @@ deck.click('sh8c31', true);
 await quote.run();
 ok('추가 인용은 쌓인다', conv.pending.length === 2);
 
-// 보내면 pending 이 턴으로 넘어간다.
-conv.say('이 두 개를 한 줄로 붙여줘');
-ok('보내면 pending 이 빈다', conv.pending.length === 0 && conv.turns.length === 1);
-ok('턴이 인용을 들고 간다', conv.turns[0].quotes.length === 2);
+// 내면 인용이 **글로 접혀** 나간다 — 문의 submit 은 글 하나만 받는다.
+{
+  const held = conv.hold('이 두 개를 한 줄로 붙여줘', 0);
+  ok('인용이 프롬프트 글에 실린다',
+    held.prompt.includes('shape=sh8c30') && held.prompt.includes('shape=sh8c31'),
+    held.prompt.slice(0, 40));
+  ok('사람이 적은 말이 뒤에 붙는다', held.prompt.endsWith('이 두 개를 한 줄로 붙여줘'));
+  // **안 비운다.** 지우는 것은 로그의 메아리다(§5.7).
+  ok('내도 인용은 그대로 있다', conv.pending.length === 2);
+  ok('기다리는 동안은 못 낸다', conv.canSend('또') === false);
+  conv.clear();
+  ok('메아리가 오면 비운다', conv.pending.length === 0 && conv.waiting === false);
+}
 
 // 안내가 가리키는 것 — 있는 도형은 되고, 없는 도형은 **다른 걸 대신 가리키지 않고 실패한다.**
 const good = await point.run(new Advice({ message: '여기가 넘칩니다', slideId: 's4f2a1', shapeIds: ['sh8c30'] }));
@@ -225,6 +235,18 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     read5b.view.rows.length === 1 && read5b.view.rows[0].text === '키웠습니다',
     read5b.view.rows.map((r) => r.text).join('|'));
 
+  // 빈 대화에 붙으면 이벤트가 한 장도 안 온다. 그때 알려 주지 않으면 화면에는 **붙기 전에
+  // 그린 그림**이 그대로 서 있다 — 브라우저에서 「스트림이 끊겼습니다」가 그렇게 떠 있었다.
+  {
+    const empty = new FakeTranscript({ Z: [] });
+    let drew = 0;
+    const r = new ReadTranscript(empty);
+    r.onChange = () => { drew += 1; };
+    r.attach('Z');
+    ok('빈 대화에 붙어도 한 번은 알린다', drew === 1, String(drew));
+    ok('붙자마자 살아 있다고 말한다', r.view.live === true);
+  }
+
   // 끊김. 문은 깨끗한 끝을 에러로 안 준다 — 그래서 조용한 대화와 죽은 스트림이 똑같이 생겼다.
   ok('붙어 있는 동안은 살아 있다', read3.view.live === true);
   port3.drop();
@@ -233,10 +255,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 연결이 둘이라는 사실(§5.7 — `transcript` 는 연결을 통째로 가져가므로 헬퍼는 두 번 붙는다).
   // 요청 쪽이 멀쩡히 도는 것이 스트림이 살아 있다는 증거가 아니다. 그래서 제출이 성공해도
   // `live` 가 되살아나면 안 된다 — 되살아나면 화면은 죽은 스트림을 살아 있다고 그린다.
-  const chat = new FakeChat();
-  const sent = await new SendTurn(chat, new Conversation()).run('제목 줄여줘');
-  ok('스트림이 죽어도 제출은 간다', sent !== null && sent.text === '제목 줄여줘');
+  const chat = new FakeChat(new FakeTranscript(), { sessionId: 'sess-other', delay: -1 });
+  const send = new SendTurn(chat, new Composer());
+  const sent = await send.run('제목 줄여줘', { userRows: 0, live: read3.view.live });
+  ok('스트림이 죽어도 제출은 간다', sent.sent === true && chat.sent[0] === '제목 줄여줘');
   ok('제출 성공이 스트림을 되살리지 않는다', read3.view.live === false);
+  // 메아리가 올 곳이 없는데 잠그면 **영영 안 풀린다.** 그 대신 갔는지 모른다고 말한다.
+  ok('메아리를 못 받을 땐 안 잠근다',
+    sent.blind === true && send.composer.waiting === false);
 }
 
 // ── 조각의 종류(§5.7). 코어는 `messageId` 하나에 조각 **하나**를 싣는다(`PartAppendedData`).
@@ -462,6 +488,115 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await w5.poll();
   ok('안 실린 자리는 비워 둔다', w5.view.pending.placement === null
     && w5.view.pending.report.length === 0);
+}
+
+// ── 낸 것을 언제 화면에서 지우는가(§5.7). 문의 `submit` 은 식별자를 안 돌려주고 밖에서
+// 붙은 창은 전부 `attach` 로 찍히므로, 메아리를 **신원으로는 못 맞춘다.**
+{
+  const port = new FakeTranscript({ live: [] });
+  const read = new ReadTranscript(port);
+  read.attach('live');
+  const chat = new FakeChat(port, { sessionId: 'live', delay: -1 });
+  const comp = new Composer();
+  const send = new SendTurn(chat, comp);
+  const shape = { id: 'sh1', name: '제목', type: 'TextBox', text: '3분기 매출 전망과 지역별 분해',
+    width: 100, height: 20 };
+  comp.attach(new Quote({ slideId: 's4', slideNo: 4, ...shape, shapeId: 'sh1' }));
+
+  const rows = () => read.view.rows.filter((r) => r.kind === 'user').length;
+  const r1 = await send.run('제목 줄여줘', { userRows: rows(), live: true });
+  ok('보내면 간다', r1.sent === true && chat.sent.length === 1);
+  // 여기서 화면에 미리 붙이면 로그가 같은 말을 실어 올 때 두 벌이 된다.
+  ok('낸 것을 화면이 미리 안 붙인다',
+    read.view.rows.filter((r) => r.kind === 'user').length === 1
+    && read.view.rows[0].text.includes('제목 줄여줘'));
+  ok('메아리가 오면 컴포저가 빈다',
+    send.settle(rows()) === true && comp.pending.length === 0 && comp.waiting === false);
+
+  // 낸 뒤 메아리 전에는 잠긴다 — 두 벌로 나가는 것을 막는 자리.
+  const comp2 = new Composer();
+  comp2.attach(new Quote({ slideId: 's4', slideNo: 4, shapeId: 'sh2', name: '부제',
+    type: 'TextBox', text: '지역별 분해' }));
+  const send2 = new SendTurn(chat, comp2);
+  const before = rows();
+  await send2.run('한 번 더', { userRows: 999, live: true });   // 로그가 아직 안 따라왔다
+  ok('메아리 전에는 잠긴다', comp2.waiting === true);
+  const again = await send2.run('또', { userRows: 999, live: true });
+  ok('잠긴 동안은 두 번 안 나간다', again.sent === false && again.why === 'waiting');
+  ok('안 나간 것은 로그에도 없다', rows() === before + 1, String(rows()));
+  // 로그가 움직였다고 다 메아리는 아니다. 도구 줄 하나에 컴포저를 비우면 사람이 낸 글이
+  // **가지도 않은 채** 화면에서 사라진다.
+  ok('메아리가 아니면 안 비운다',
+    send2.settle(rows()) === false && comp2.waiting === true && comp2.pending.length === 1);
+  // 데몬이 물음에 막혀 있으면 메아리가 한참 뒤에 오거나 안 온다. 나가는 문이 있어야 한다.
+  comp2.release();
+  ok('그만 기다리면 잠금이 풀린다', comp2.waiting === false);
+  // 갔는지 모르는 채로 사람 글을 지우면 화면이 「갔다」를 말한 셈이 된다.
+  ok('그만 기다려도 인용은 그대로다',
+    comp2.pending.length === 1 && comp2.pending[0].shapeId === 'sh2');
+
+  // 문이 던지면 잠금을 푼다. 삼키면 사람은 간 줄 안다.
+  const bad = { async submit() { throw new Error('문이 닫혔습니다'); } };
+  const comp3 = new Composer();
+  const r3 = await new SendTurn(bad, comp3).run('안 갈 말', { userRows: 0, live: true });
+  ok('못 가면 사유가 온다', r3.sent === false && r3.why === 'failed');
+  ok('못 갔으면 안 잠긴다', comp3.waiting === false);
+}
+
+// ── 안내는 모델의 말이 아니라 **도구 호출**이다(§6.1). 로그에서 유도하고 따로 안 쌓는다.
+{
+  const port = new FakeTranscript({ s: [] });
+  const read = new ReadTranscript(port);
+  read.attach('s');
+  const chat = new FakeChat(port, { sessionId: 's', delay: -1 });
+  const q = new Quote({ slideId: 's4', slideNo: 4, shapeId: 'sh1', name: '제목',
+    type: 'TextBox', text: '3분기 매출 전망과 지역별 분해' });
+  await chat.submit(promptOf('줄여줘', [q]));
+  chat.reply('m1', promptOf('줄여줘', [q]));
+
+  const fold = foldAdvice(read.view.rows);
+  ok('안내가 도구 호출에서 나온다', fold.items.length === 2, String(fold.items.length));
+  ok('안내가 인용한 도형을 가리킨다', fold.items[0].shapeIds[0] === 'sh1');
+  ok('가짜 답도 모델의 말로 선다',
+    read.view.rows.some((r) => r.kind === 'model' && r.text.includes('상자 폭')));
+  ok('턴이 끝난 것이 줄로 남는다', read.view.rows.some((r) => r.kind === 'turn'));
+
+  // 걷으면 걷힌다. 쌓아 두는 상태가 아니라 **로그를 접은 결과**라 다시 붙어도 같다.
+  const cleared = foldAdvice([...read.view.rows,
+    { kind: 'tool', tool: 'mcp__ppt__clear_advice', args: {} }]);
+  ok('걷으면 없어진다', cleared.items.length === 0);
+
+  // 서버 이름은 설정값이다. 이름이 다르면 포스트잇이 **한 장도 안 붙는데**, 그걸 조용히
+  // 끝내면 설정 한 줄이 기능 하나를 지운 것이 화면 어디에도 안 남는다.
+  const other = foldAdvice([{ kind: 'tool', tool: 'mcp__powerpoint__advise', callId: 'c9',
+    args: { items: [{ message: '여기' }] } }]);
+  ok('남의 서버 안내는 안 붙인다', other.items.length === 0);
+  ok('안 붙인 이유를 값에 싣는다', other.strays[0] === 'mcp__powerpoint__advise');
+  const empty = foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c8',
+    args: { items: [{ slideId: 's1' }] } }]);
+  ok('말 없는 안내는 안 붙이고 센다', empty.items.length === 0 && empty.dropped === 1);
+
+  // 이름이 글이 아닌 도구 호출 하나가 오면 접다가 터진다 — 그러면 프레임 **한 장이**
+  // 안내 층 전체를 끈다. `Transcript` 가 이름을 못 믿을 땐 null 로 눕힌다.
+  const nameless = new Transcript();
+  nameless.append({ seq: 1, type: 'part.appended', data: { messageId: 'm1',
+    part: { kind: 'tool-call', toolCall: { name: 7, callId: 'c1', args: {} } } } });
+  ok('이름이 글이 아니면 도구 이름을 안 만든다', nameless.rows[0].tool === null);
+  let threw = null;
+  try { foldAdvice(nameless.rows); } catch (e) { threw = e; }
+  ok('이름 없는 호출이 안내 층을 안 끈다', threw === null, String(threw));
+}
+
+// ── 끝난 턴에 검증 딱지가 실려 온다(`TurnFinishedData.Unverified`). 「고쳤다」와 「고쳤다는데
+// 아무도 못 봤다」가 같은 종류로 오므로, 안 실으면 화면에서 둘이 똑같이 생긴다.
+{
+  const t = new Transcript();
+  t.append({ seq: 1, type: 'turn.finished', data: { usage: {} } });
+  t.append({ seq: 2, type: 'turn.finished',
+    data: { unverified: true, reason: 'no independent run passed' } });
+  ok('보통 끝에는 딱지가 없다', t.rows[0].unverified === false);
+  ok('검증 못 한 끝은 그렇다고 실린다',
+    t.rows[1].unverified === true && t.rows[1].reason === 'no independent run passed');
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

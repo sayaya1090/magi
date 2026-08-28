@@ -40,10 +40,38 @@ header strong { color: var(--accent); }
 .turns { flex: 1; overflow-y: auto; padding: 12px 14px; }
 .turn { margin-bottom: 14px; }
 .turn p { margin: 0; white-space: pre-wrap; }
-.turn.user p {
+.turn.kind-user p {
   background: #eff6fc; border-radius: 8px; padding: 8px 10px;
 }
-.turn.model p { padding: 0 2px; }
+.turn.kind-model p { padding: 0 2px; }
+
+/* 종류마다 다르게 그린다. 다 말풍선이면 모델의 혼잣말이 답이 되고, 정책이 밀어 넣은 줄이
+   사람의 말이 되고, 슬라이드를 고친 도구 호출이 안 보인다(DESIGN.md §5.7). */
+.turn-head { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.turn.kind-think { border-left: 2px solid var(--line); padding-left: 8px; }
+.turn.kind-think p { color: var(--muted); font-size: 13px; }
+.turn.kind-note p { color: var(--muted); font-size: 13px; }
+.turn.kind-tool {
+  background: var(--quote-bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 9px;
+}
+.turn.kind-tool .turn-head { color: #3b3a39; font-variant-numeric: tabular-nums; }
+.turn-args {
+  margin: 0; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all; color: var(--muted);
+}
+.turn.kind-error p { color: var(--accent); }
+/* 턴의 끝은 **줄이 아니라 자국이다.** 얇게 긋고 가운데 한 마디만 남긴다. */
+.turn.kind-turn p {
+  font-size: 11px; color: var(--muted); text-align: center;
+  border-top: 1px solid var(--line); padding-top: 8px;
+}
+/* 검증 못 한 착지를 보통 끝처럼 그리면 「고쳤다」와 「고쳤다는데 아무도 못 봤다」가
+   화면에서 똑같이 생긴다(`TurnFinishedData.Unverified`). */
+.turn.kind-turn.unverified p {
+  color: #8a5300; background: #fff4ce; border-top-color: #e0c281;
+  border-radius: 0 0 6px 6px; padding: 6px 8px; text-align: left;
+}
 
 .quote {
   position: relative; border-left: 3px solid var(--accent);
@@ -58,11 +86,29 @@ header strong { color: var(--accent); }
   color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1;
 }
 
-.thinking { padding: 0 14px 8px; color: var(--muted); font-size: 12px; }
+/* 스트림 자체가 아프다는 말. 대화가 조용한 것과 새 말이 영영 안 오는 것을 가른다. */
+.stream {
+  margin: 0 14px 8px; padding: 6px 9px; border-radius: 6px;
+  background: #fff4ce; font-size: 12px;
+}
+/* 이 창이 그릴 줄 몰라 안 그린 것. 안 그린 것과 없는 것은 다르다(DESIGN.md §5.7). */
+.unknown-note { padding: 0 14px 8px; color: var(--muted); font-size: 11px; }
+
+/* 냈는데 아직 로그에 안 뜬 것. 나가는 문을 같이 준다 — 없으면 잠금이 사람을 가둔다. */
+.sent {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px 8px; color: var(--muted); font-size: 12px;
+}
+.sent button { font-size: 11px; padding: 3px 8px; margin-left: auto; }
 
 .advice-wrap { border-top: 1px solid var(--line); padding: 10px 14px; }
 .advice-wrap h2 { font-size: 12px; margin: 0 0 2px; color: var(--muted); }
 .advice-note { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+/* 붙이려다 못 붙인 것. 설정 한 줄이 이 층을 껐다는 사실이 화면 어딘가엔 있어야 한다. */
+.advice-strays {
+  font-size: 11px; margin: 0 0 6px; padding: 5px 8px;
+  border-radius: 5px; background: #fff4ce; color: #8a5300;
+}
 .advice {
   display: block; width: 100%; text-align: left; margin-bottom: 6px;
   padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
@@ -78,7 +124,8 @@ header strong { color: var(--accent); }
 }
 
 /* ── 데몬이 묻는 자리 ─────────────────────────────────────────── */
-/* 위의 `.thinking` 은 이 창의 짐작이고 이건 데몬이 스스로 한 말이라 자리를 나눠 둔다. */
+/* 위의 `.sent` 는 이 창이 낸 것이고, 이건 데몬이 스스로 말한 「지금 하는 일」이다.
+   짐작과 사실이라 자리를 나눠 둔다. */
 .doing { padding: 0 14px 8px; color: var(--muted); font-size: 12px; }
 
 .ask { margin: 0 14px 10px; }
@@ -91,6 +138,8 @@ header strong { color: var(--accent); }
 .ask-box.unknown { border-color: var(--line); background: var(--quote-bg); }
 .ask-box h2 { font-size: 12px; margin: 0 0 6px; color: var(--accent); }
 .ask-box.unknown h2 { color: var(--muted); }
+/* 답할 단추가 **없는 것**이 이 칸의 내용이다. 그러니 이유는 흐리게 두지 않는다. */
+.ask-unknown { font-size: 12px; margin: 0; white-space: pre-wrap; }
 .ask-what { font-size: 13px; margin: 0 0 4px; white-space: pre-wrap; }
 .ask-reason { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
 .ask-args {
@@ -115,6 +164,9 @@ header strong { color: var(--accent); }
 
 .composer { border-top: 1px solid var(--line); padding: 10px 14px 12px; }
 .pending:not(:empty) { margin-bottom: 8px; }
+/* 기다리는 동안은 인용을 못 뺀다 — 이미 나간 글에 접혀 나갔다. 못 누르는 것이 아니라
+   **왜 못 누르는지**가 보여야 하므로 흐리게 두고 십자 단추 자체를 안 그린다. */
+.pending.locked { opacity: 0.55; }
 textarea {
   width: 100%; resize: vertical; font: inherit;
   border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;

@@ -18,15 +18,24 @@
     </header>
     <div id="caps" class="caps"></div>
 
+    <!-- 스트림 자체에 대한 말. 대화가 조용한 것과 스트림이 죽은 것은 화면에서 똑같이 생겼다. -->
+    <div id="stream" class="stream" hidden></div>
+
     <div id="turns" class="turns"></div>
 
-    <div id="thinking" class="thinking" hidden>생각 중…</div>
-    <!-- 데몬이 스스로 말하는 「지금 하는 일」. 위의 「생각 중」은 짐작이고 이건 사실이다. -->
+    <!-- 이 창이 그릴 줄 몰라 안 그린 것. 안 그린 것과 없는 것은 다르다(DESIGN.md §5.7). -->
+    <div id="unknown" class="unknown-note" hidden></div>
+
+    <!-- 냈는데 아직 로그에 안 뜬 것. 「생각 중…」이 아니다 — 짐작을 안 적는다. -->
+    <div id="sent" class="sent" hidden></div>
+    <!-- 데몬이 스스로 말하는 「지금 하는 일」. 이건 짐작이 아니라 status 가 말한 사실이다. -->
     <div id="doing" class="doing" hidden></div>
 
     <div id="advice-wrap" class="advice-wrap" hidden>
       <h2>안내</h2>
       <p class="advice-note">누르면 그 도형을 잡습니다. 저절로 움직이지는 않습니다.</p>
+      <!-- 붙이려다 못 붙인 것. 안 붙은 이유가 어디엔가 있어야 한다(DESIGN.md §5.7). -->
+      <p id="advice-strays" class="advice-strays" hidden></p>
       <div id="advice"></div>
     </div>
 
