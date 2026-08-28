@@ -180,6 +180,21 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForCondition { !page.url().contains("past=") }
                 page.url().contains("d=") shouldBe true
             }
+            // 자식 층위(?sub=)도 같은 문의 규칙이다 — 화면은 아이디만 대고, 주소는 셸이 쓴다.
+            page.evaluate("window.__magi_go_past('s_old')")
+            page.waitForCondition { page.url().contains("past=") }
+            page.evaluate("window.__magi_go_sub('s_kid')")
+            Then("자식으로 가면 sub가 실리고 past는 <b>함께 서지 않는다</b>") {
+                // 둘 다 지금-대화 자리를 대신하는 층위라, 주소에 나란히 서면 어느 쪽이
+                // 서 있는지를 주소가 말하지 못한다(화면 쪽 layer는 자식을 먼저 세운다).
+                page.waitForCondition { page.url().contains("sub=") }
+                page.url().contains("past=") shouldBe false
+            }
+            page.evaluate("window.__magi_go_sub(null)")
+            Then("null이면 지금 대화로 — sub가 걷힌다") {
+                page.waitForCondition { !page.url().contains("sub=") }
+                page.url().contains("d=") shouldBe true
+            }
             // 다음 장면은 카탈로그에서 시작한다 — 히스토리에 기대지 않고 문으로 나간다.
             page.evaluate("window.__magi_go_view('fleet')")
             page.waitForCondition { !page.url().contains("d=") }

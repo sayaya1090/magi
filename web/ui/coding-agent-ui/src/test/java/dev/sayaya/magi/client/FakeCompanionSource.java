@@ -26,12 +26,20 @@ public class FakeCompanionSource implements CompanionSource {
     @JsFunction
     interface PastHook { void call(String past); }
 
+    @JsFunction
+    interface SubHook { void call(String sub); }
+
     @Override
     public void start(Listener l) {
         listener = l;
         // 층위 전환은 주소(셸)의 것 — 단독 테스트는 이 훅으로 컨텍스트를 갈아탄다.
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_past", (PastHook) past ->
                 listener.context(CompanionContext.of("/tmp/a1.sock", null, "1", past)));
+        // 자식 층위도 주소의 것이다 — past와 나란한 또 하나의 조각이라 훅도 나란히 둔다.
+        // 둘을 한 훅으로 묶지 않는다: 지난 일과 자식은 <b>같이 서지 않는</b>다(셸의 Place도
+        // 그렇게 만든다). 한 훅에 둘을 받게 하면 스펙이 설 수 없는 자리를 세울 수 있다.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_sub", (SubHook) sub ->
+                listener.context(CompanionContext.of("/tmp/a1.sock", null, "1", null, null, false, "", sub)));
         l.context(CompanionContext.of("/tmp/a1.sock", null, "1", null));
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +

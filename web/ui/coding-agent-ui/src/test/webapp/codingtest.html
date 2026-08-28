@@ -27,6 +27,14 @@
       window.__magi_test_fleet = fleet;
       // 주소: 층위를 접는 문. 셸이라면 주소를 고쳐 컨텍스트를 다시 흘린다 — 가짜도 그렇게 한다.
       window.__magi_go_past = v => window.__magi_test_past(v);
+      // 자식 층위의 문도 같은 자리에 — 청한 값을 적어 둔다. 화면이 <b>무엇을</b> 청했는지는
+      // 화면 안에서는 보이지 않는다(GoSharing.sub는 문이 없으면 조용하다). 스펙에서 문을
+      // 걸어 두는 대신 여기 두는 까닭: page.evaluate에 함수로 끝나는 식을 주면 플레이라이트가
+      // 그것을 곧바로 호출한다 — 문을 거는 그 한 줄이 인자 없이 문을 열어 층위를 접었다.
+      window.__magi_go_sub = v => {
+        window.__magi_test_went_sub = String(v);
+        window.__magi_test_sub(v);
+      };
       const boot = document.createElement('script');
       boot.src = 'codingtest/codingtest.nocache.js';
       document.head.append(boot);

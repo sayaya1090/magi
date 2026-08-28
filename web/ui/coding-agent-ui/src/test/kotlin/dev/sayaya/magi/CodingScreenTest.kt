@@ -310,6 +310,46 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock #send[disabled]").count() shouldBe 0
             }
         }
+        When("자식 하나(?sub=)로 들어가면") {
+            // 지난 일과 나란한 또 하나의 층위다 — 둘 다 지금-대화 자리를 대신한다. 다른 것은
+            // <b>상자</b>다: 한 세션을 열어 둔 화면은 보고 있는 그 대화가 곧 말이 갈 곳이라
+            // 컴포저가 남지만, 자식은 다시 부를 수 없다. 그 갈림이 여기서 재는 것이다.
+            page.evaluate("window.__magi_test_sub('s_kid')")
+            Then("그 아이의 자리가 서고 — 컴포저는 물러난다(한 세션을 연 화면과 갈리는 자리)") {
+                page.waitForSelector("#agentdetail:not([hidden]) .dlog .row")
+                page.locator("#log[hidden]").count() shouldBe 1
+                page.locator("#dock form[hidden]").count() shouldBe 1
+            }
+            Then("머리는 그 아이의 <b>역할</b>을 말한다 — 없을 때만 '자식'이라는 낱말이다") {
+                page.locator("#agentdetail .sectionhead span").first().textContent() shouldBe "scout"
+                page.locator("#agentdetail .sectionhead .backpast").count() shouldBe 1
+            }
+            Then("도는 중인지와 어느 모델인지 한 줄 — 다시 부를 수 없으니 사실만 적는다") {
+                page.locator("#agentdetail .dnote").first().textContent() shouldBe
+                    "detail.finished \u00b7 qwen3-coder-next"
+            }
+            Then("무엇을 하라고 보내졌는지 — 그것이 이 화면의 절반이다") {
+                page.locator("#agentdetail .dk").first().textContent() shouldBe "detail.asked"
+                page.locator("#agentdetail .dv").first().textContent() shouldBe "find the empty states"
+            }
+            Then("전사는 <b>그 아이디로</b> 읽고, 지난 일과 같은 행으로 그린다") {
+                // 자식의 전사도 전사다 — 이 콘솔에서 전사가 읽히는 방식은 하나여야 한다
+                // (운영 drawChild의 그 판단). 그래서 여기서 세는 행은 지난 세션의 그 행이다.
+                page.evaluate("window.__magi_test_past_read") shouldBe "s_kid"
+                page.locator("#agentdetail .dlog .row").count() shouldBe 3
+                page.locator("#agentdetail .dlog .row.user .txt").textContent() shouldBe "old prompt"
+            }
+            Then("돌아가는 길은 셸에 <b>청한다</b> — 주소를 화면이 직접 쓰지 않는다") {
+                // 문이 없으면 GoSharing.sub는 조용히 아무 일도 하지 않는다. 이 페이지가 셸을
+                // 대신해 문을 걸고(codingtest.html, __magi_go_past 옆) 청한 값을 적어 둔다 —
+                // 셸 쪽 문(주소에 sub가 실리고 null이면 걷힌다)은 ShellDrawerTest가 잰다.
+                page.locator("#agentdetail .sectionhead .backpast").click()
+                page.waitForSelector("#log:not([hidden])")
+                page.evaluate("window.__magi_test_went_sub") shouldBe "null"
+                page.locator("#agentdetail[hidden]").count() shouldBe 1
+                page.locator("#dock form:not([hidden])").count() shouldBe 1
+            }
+        }
         When("새 일을 줄 능력이 없는 사람이 보면") {
             page.evaluate("window.__magi_may = ['answer']; window.__magi_test_fleet('working', 's_now')")
             Then("상자는 남되 잠기고, 왜 잠겼는지를 그 자리가 적는다") {
