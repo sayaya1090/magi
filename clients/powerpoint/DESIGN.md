@@ -694,7 +694,7 @@ door가 나면서 새로 보이게 된 것은 §5.0.4에 적었다.
 - **응답은 붙은 도구 이름이다.** `AddHTTP`가 이미 handshake와 `ListTools`까지 하고(30초 타임아웃,
   `mcpRegisterTimeout`) 실패하면 에러를 낸다. 그러니 응답이 ack가 아니라 **증거**일 수 있다 —
   `mcp__ppt__*` 몇 개가 실제로 등록됐는지. 애드인은 그걸로 "붙었다"를 확인하고, 못 붙었으면
-  §9의 세 번째 시나리오("할 일 없음처럼 보이지 않는가")를 피할 문장을 만든다.
+  §9 「감시 세 케이스」의 (c)("할 일 없음처럼 보이지 않는가")를 피할 문장을 만든다.
 - **실패 사유도 이미 셋 있다**: 이름 중복(`"%q is already attached; two servers cannot share one
   name"`), initialize 실패, list tools 실패. 새로 발명하지 않는다.
 
