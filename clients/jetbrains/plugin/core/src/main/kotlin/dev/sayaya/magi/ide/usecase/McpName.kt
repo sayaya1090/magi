@@ -27,10 +27,22 @@ object McpName {
      * 여기 두는 이유는 [VALUE] 가 **자기 자신으로 다듬어지는지**를 걸기 위해서다. 다듬어진 뒤에
      * 달라지는 이름을 고르면, 사람이 목록에서 보는 이름과 allow 룰에 적어야 하는 이름이 갈린다.
      */
-    fun sanitize(s: String): String = buildString {
-        for (ch in s) append(
-            if (ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' || ch == '_' || ch == '-') ch else '_'
-        )
+    fun sanitize(s: String): String {
+        // 코드포인트로 걷는다. `for (ch in s)` 는 UTF-16 코드 유닛을 도는데 원본은 룬 단위라,
+        // 서로게이트 쌍이 Go 에서는 `_` 하나이고 char 로 걸으면 `__` 둘이 된다. 이 저장소가 이미
+        // 한 번 밟은 함정이다 — `SocketPath.sanitize` 의 주석이 같은 것을 경고한다. 여기서 그
+        // 교훈 앞의 모양으로 돌아가 있었다.
+        val b = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            val keep = cp in 'a'.code..'z'.code || cp in 'A'.code..'Z'.code ||
+                cp in '0'.code..'9'.code || cp == '_'.code || cp == '-'.code
+            b.append(if (keep) cp.toChar() else '_')
+            i += Character.charCount(cp)
+        }
+        // 빈 이름은 네임스페이스가 될 수 없다. 코어가 "x" 로 대신한다.
+        return if (b.isEmpty()) "x" else b.toString()
     }
 
     /** 붙기를 거절당했을 때, 사유가 둘이고 사람이 할 일이 다르다. */
