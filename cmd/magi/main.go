@@ -997,6 +997,14 @@ func run() int {
 	// A stdio server is a program a config file names and the daemon keeps alive for its whole
 	// life, and it was the last child started with nothing around it. Same terms as the bash tool:
 	// confined when the sandbox is on, as wide as before when it is off.
+	// Where a tool's pictures are kept. The data directory, not the turn's scratch: the log
+	// references them and a viewer opens the log later, so they outlive the turn that made them.
+	mcpMgr.ImageDir = plat.DataDir()
+	// The runtime door. An application that IS a tool server (an editor plugin, a slide add-in)
+	// starts on the person's clock, not the operator's, so it cannot be in the config this daemon
+	// read at startup — it asks to be attached instead. Wired here because core holds the port and
+	// this is where the adapter exists.
+	a.UseToolServers(mcpMgr)
 	mcpMgr.Confine = func(argv []string) ([]string, bool) {
 		return builtin.SandboxWrap(port.SandboxSpec{
 			Mode: cfg.Sandbox, Workdir: wd, AllowNet: cfg.Permission == "allow",

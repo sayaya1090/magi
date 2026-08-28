@@ -79,7 +79,18 @@ type callToolResult struct {
 	IsError bool           `json:"isError"`
 }
 
+// contentBlock is one piece of a tool's answer. MCP defines several kinds and this daemon reads
+// two of them: text, and images.
+//
+// It read only text until 2026-08-28, and the shape said so — {Type, Text}. An image block carries
+// no text field at all, so a server that answered with a rendered slide produced the empty string:
+// the tool "succeeded" and returned nothing, which is the worst of the three possible failures
+// (the other two being an error and a refusal, both of which say something).
 type contentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// Data is base64 as the protocol sends it, and MimeType names what it decodes to. Kept as the
+	// wire spells them: the decode belongs where the bytes are given somewhere to live, not here.
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
 }

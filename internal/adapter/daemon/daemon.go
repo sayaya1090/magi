@@ -188,6 +188,23 @@ type ToolLister interface {
 	ToolNames() []string
 }
 
+// ToolServerHost is an engine that can attach a tool server while it runs.
+//
+// Two products arrived at this door independently — a slide add-in and an editor plugin, each of
+// which IS a tool server that starts and stops on the person's clock rather than the operator's.
+// The set of servers is otherwise fixed at startup from a config file, which cannot describe an
+// application that was not running when the daemon read it.
+//
+// Optional like the rest: a daemon that cannot attach says so, and the caller can tell that from a
+// server that refused.
+type ToolServerHost interface {
+	// AttachToolServer connects to an HTTP MCP server and answers with the tool names it
+	// registered — evidence, not an ack.
+	AttachToolServer(ctx context.Context, name, url string, headers map[string]string) ([]string, error)
+	// DetachToolServer removes one by name; false when there was none to remove.
+	DetachToolServer(name string) bool
+}
+
 // UserNamer is an engine that knows what to call the person it is talking to.
 //
 // A plugin can rename them — an SSO bridge puts the authenticated username there through
@@ -439,6 +456,12 @@ type Request struct {
 	// what this participant had already said.
 	Meeting string `json:"meeting,omitempty"`
 	N       int    `json:"n,omitempty"`
+	// URL and Headers are the attach door's arguments: which HTTP MCP server, and what to send
+	// with every request to it. There is deliberately no command field — this door's safety
+	// argument is that it spawns nothing, and an argument kept in the signature cannot be lost to
+	// convenience later (a caller that needs a process needs a different door).
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 	// Args is the tool method's arguments, verbatim, as the tool's own schema spells them. Raw
 	// JSON rather than a field per argument: the caller and the tool already agree on a schema,
 	// and re-declaring it here would be a third copy to keep in step with the other two.
@@ -1059,6 +1082,44 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"open-file":  answerOpenFile,
 	"suggest":    answerSuggest,
 	"shell":      answerShell,
+	"mcp-attach": answerMCPAttach,
+	"mcp-detach": answerMCPDetach,
+}
+
+// answerMCPAttach opens the runtime door: attach an HTTP MCP server to this companion.
+//
+// The reply carries the tool names rather than a bare ok. A caller told "ok" knows the handshake
+// worked; a caller told mcp__ppt__render, mcp__ppt__open knows what it may now ask for; a caller
+// told nothing at all knows the server answered and offers nothing. One ack flattens three
+// different situations into one.
+func answerMCPAttach(ctx context.Context, eng Engine, req Request) Response {
+	h, ok := eng.(ToolServerHost)
+	if !ok {
+		return Response{Err: "this daemon cannot attach tool servers"}
+	}
+	names, err := h.AttachToolServer(ctx, req.Name, req.URL, req.Headers)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	// Never nil: a client reading JSON should see an empty list rather than null when a server
+	// attached and advertised nothing.
+	if names == nil {
+		names = []string{}
+	}
+	return Response{OK: true, Tools: names}
+}
+
+// answerMCPDetach is the other half. A helper reconnecting after a crash sends detach first, and
+// the answer tells it whether it was cleaning up or was already clean.
+func answerMCPDetach(ctx context.Context, eng Engine, req Request) Response {
+	h, ok := eng.(ToolServerHost)
+	if !ok {
+		return Response{Err: "this daemon cannot attach tool servers"}
+	}
+	if !h.DetachToolServer(req.Name) {
+		return Response{Err: fmt.Sprintf("no tool server named %q is attached", req.Name)}
+	}
+	return Response{OK: true}
 }
 
 func answerStatus(ctx context.Context, eng Engine, req Request) Response {
@@ -1953,6 +2014,26 @@ func (c *Client) Tools() ([]string, error) {
 		return nil, err
 	}
 	return resp.Tools, nil
+}
+
+// AttachMCP asks the daemon to attach an HTTP MCP server and returns the tools it brought.
+//
+// The caller is an application that IS the server — it starts, tells the companion where to reach
+// it, and is expected to detach on the way out. Nothing is written to config: a daemon that
+// restarts has forgotten, and the application attaches again when it notices.
+func (c *Client) AttachMCP(name, url string, headers map[string]string) ([]string, error) {
+	resp, err := c.exchange(Request{Method: "mcp-attach", Name: name, URL: url, Headers: headers})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Tools, nil
+}
+
+// DetachMCP removes one by name. An application reconnecting after its own crash sends this first:
+// the name is locked while a dead registration holds it.
+func (c *Client) DetachMCP(name string) error {
+	_, err := c.exchange(Request{Method: "mcp-detach", Name: name})
+	return err
 }
 
 func (c *Client) Status(sid string) (Status, error) {

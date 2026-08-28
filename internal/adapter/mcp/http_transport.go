@@ -30,6 +30,9 @@ type httpTransport struct {
 	sessionID   string // Mcp-Session-Id assigned by the server, echoed on later requests
 	lastEventID string // last SSE event id, sent as Last-Event-ID to resume a stream
 	closed      bool
+	// unreachable counts calls in a row that never reached the server. An HTTP endpoint has no
+	// moment of death to notice, so this is the substitute — see missed().
+	unreachable int
 	done        chan struct{}
 }
 
@@ -112,9 +115,20 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 
 	resp, err := t.httpClient.Do(httpReq)
 	if err != nil {
+		// Only when NOBODY was there. Do also fails when this side gave up — the per-call deadline
+		// in tool.go, or a person interrupting the turn — and neither says anything about the
+		// server. Measured on the first version of this: a live server that took longer than the
+		// deadline was reached three times and had its tools taken away anyway, and three
+		// interrupted turns closed a transport nothing had even dialled. The client carries no
+		// Timeout of its own, so every deadline arrives through ctx and this one line separates
+		// "we stopped waiting" from "there is nobody to wait for".
+		if ctx.Err() == nil {
+			t.missed()
+		}
 		return err
 	}
 	defer resp.Body.Close()
+	t.answered()
 
 	t.captureSession(resp)
 
@@ -233,6 +247,44 @@ func (t *httpTransport) notify(method string, params any) error {
 		return fmt.Errorf("mcp: http %d: %s", resp.StatusCode, resp.Status)
 	}
 	return nil
+}
+
+// unreachableStreak is how many calls in a row may fail to reach the server before this transport
+// gives up and closes itself.
+//
+// Three, and only for calls that never reached anybody — a refused dial, a dropped connection.
+// Not a call this side abandoned: our own deadline and a person's interrupt both look like a failed
+// request here, and neither is evidence about the server.
+// An HTTP status is not counted: a server that answers 500 is present and having a bad time, and
+// dropping its tools mid-conversation would be this daemon deciding a running server is dead.
+const unreachableStreak = 3
+
+// missed records a call that could not reach the server, and closes the transport once nothing has
+// answered three times running.
+//
+// Without this a tool server that is simply GONE stays attached forever. A stdio server dies and
+// its pipe closes, which is what Done() reports and what unregisters its tools; an HTTP endpoint
+// has no such moment — Done() closed only on an explicit Close(), so a helper that crashed left
+// mcp__helper__* advertised to the model with nothing behind them, and its own restart was then
+// refused because the name was still held by the dead registration.
+//
+// Not a health check on a timer: this counts the calls the daemon was making anyway. A server
+// nobody is calling costs nothing by staying, and the first thing that touches it cleans it up.
+func (t *httpTransport) missed() {
+	t.mu.Lock()
+	t.unreachable++
+	gone := t.unreachable >= unreachableStreak && !t.closed
+	t.mu.Unlock()
+	if gone {
+		t.Close()
+	}
+}
+
+// answered resets the streak. One success means somebody is home.
+func (t *httpTransport) answered() {
+	t.mu.Lock()
+	t.unreachable = 0
+	t.mu.Unlock()
 }
 
 // Close shuts down the transport.

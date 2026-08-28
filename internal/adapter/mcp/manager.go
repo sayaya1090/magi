@@ -32,6 +32,11 @@ type Manager struct {
 	// on purpose, so it is confined on the same terms as bash — turn the sandbox off and it runs
 	// as wide as before.
 	Confine func([]string) ([]string, bool)
+	// ImageDir is where a tool's pictures are kept — the daemon's data directory, beside the
+	// sessions. Supplied by the binary that knows the platform paths; empty means this host keeps
+	// no pictures, and a server that returns one is told so in the result rather than having the
+	// bytes written somewhere that will not be there tomorrow.
+	ImageDir string
 
 	mu      sync.Mutex
 	servers map[string]*serverConn
@@ -130,7 +135,8 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 			schema = []byte(`{"type":"object"}`)
 		}
 		reg := namespacedToolName(name, d.Name)
-		t := &mcpTool{client: client, name: reg, remote: d.Name, description: d.Description, schema: schema}
+		t := &mcpTool{client: client, name: reg, remote: d.Name, description: d.Description,
+			schema: schema, imageDir: m.ImageDir}
 		m.sink.Register(t)
 		sc.tools = append(sc.tools, reg)
 	}
@@ -145,6 +151,43 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		m.Remove(name)
 	}()
 	return nil
+}
+
+// Attach is the runtime door (port.ToolServers): connect to an HTTP MCP server, register its
+// tools, and answer with the names that were registered.
+//
+// The names are the point of the answer. A caller that gets "ok" has been told the handshake
+// worked; a caller that gets mcp__ppt__render, mcp__ppt__open has been told what it can now ask
+// for, and a caller that gets an empty list has been told the server answered and offers nothing —
+// three different situations that one ack flattens into one.
+func (m *Manager) Attach(ctx context.Context, name, url string, headers map[string]string) ([]string, error) {
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(url) == "" {
+		return nil, fmt.Errorf("mcp: attach needs a name and a url")
+	}
+	if err := m.AddHTTP(ctx, name, url, headers); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	sc := m.servers[name]
+	m.mu.Unlock()
+	if sc == nil {
+		return nil, fmt.Errorf("mcp: %q attached and then vanished", name)
+	}
+	out := make([]string, len(sc.tools))
+	copy(out, sc.tools)
+	return out, nil
+}
+
+// Detach removes a server by name and says whether there was one.
+func (m *Manager) Detach(name string) bool {
+	m.mu.Lock()
+	_, had := m.servers[name]
+	m.mu.Unlock()
+	if !had {
+		return false
+	}
+	m.Remove(name)
+	return true
 }
 
 // Remove unregisters a server's tools and stops it.
