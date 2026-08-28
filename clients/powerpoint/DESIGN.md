@@ -961,8 +961,14 @@ iframe 제약 밖에서 돈다"로 든다.
   로 **위임**돼야 한다는 것, 그리고 **Chrome 147부터 WebSocket·WebTransport까지** 확대된다는 것.
   마지막 것이 특히 나쁘다 — **위 문단이 고른 전송이 바로 그것이다.** 지금 데스크톱이 무사한 것과
   무관하게, 이 설계의 전송은 몇 판 뒤 게이트 안으로 들어온다.
+  ⚠ 셋의 **출처가 서로 다르다.** 142와 혼합 콘텐츠 면제만 Chrome 자신의 공지에 있고, 147과 iframe
+  위임은 다른 데서 온다. 한동안 셋을 한 링크 아래 묶어 뒀는데 그 링크는 셋 중 하나만 받친다.
+  갈라 놓은 자리는 부록 A다.
 - **추정으로 남기는 것**: 웹판이 막히는 *원인*이 Office가 그 iframe에 위임을 안 걸어서라는 것.
   증상과는 맞지만 **재 본 적이 없다.** 맞다면 고칠 수 있는 쪽은 Microsoft뿐이고 우리가 할 일이 없다.
+  다만 **같은 기전이 M365의 다른 표면에서 확인됐다** — SharePoint Online이 모던 페이지에서 이
+  속성을 떼어내고, Microsoft 직원이 *"by design"*이라고 답했다(부록 A). Office를 증명하진 않는다.
+  올라간 것은 그럴듯함이지 확실성이 아니고, 그래서 이 항목은 계속 추정이다.
 - **근거의 질**: 데스크톱이 무사하다는 것의 출처가 **제보자의 GitHub 이슈 하나**다(닫혔고 backlog
   딱지, Microsoft 응답 없음). 설계가 거기 기대고 있으므로 **S10에서 우리 타깃으로 직접 잰다.**
 
@@ -976,8 +982,11 @@ iframe 제약 밖에서 돈다"로 든다.
   나오는데 **아니다.** 면제는 **권한이 떨어진 뒤**의 얘기고, Chromium 얘기다. Mac 데스크톱의
   웹뷰는 WKWebView라 이 면제가 없다. **위 문단의 https 요구는 그대로다.**
 - 기업 정책 `LocalNetworkAccessAllowedForUrls`가 **요청하는 페이지의 오리진**을 허용목록에 넣는다.
-  사내 배포(§12 #3)에서 쓸 수 있어 보이는데, **iframe 위임이 없는 경우까지 이게 덮는지는 모른다** —
-  권한 부여와 Permissions Policy 위임은 같은 게이트가 아니다.
+  사내 배포(§12 #3)에서 쓸 수 있어 보이는데, **iframe 위임이 없는 경우까지 이게 덮지는 않는 것으로
+  보인다** — 위임이 벗겨진 SharePoint 사례에서 제보자가 오리진을 허용목록에 넣고도 막혔다고 적는다
+  (부록 A). ⚠ 그 문장은 결정적이지 않다: 제보자가 허용한 것을 *"target origin"*이라 부르는데, 이
+  정책이 받는 것은 **요청하는** 오리진이라 애초에 다른 것을 넣었을 수 있다. 그래서 결론은 그대로
+  둔다 — 권한 부여와 Permissions Policy 위임은 같은 게이트가 아니고, 하나로 다른 하나를 못 산다.
 
 **설계에 지금 반영하는 것은 하나다: 지원 대상에서 웹판을 뺀다**(§3.3 c). **전송은 안 바꾼다** —
 데스크톱에서 도는 한 §5.5는 서 있고, 그게 사실인지를 S10이 잰다.
@@ -1326,7 +1335,7 @@ not what you get from running the same weights again; it is what you get from di
 | **S7** | ~~모델이 이미지를 받을 수 있나~~ → **세 층이 다 섰고 결함 넷도 닫혔다(§4.4 ①). 남은 질문은 우리 크기에서 도는가** | 100장 덱을 실제로 리뷰하며 잰다: 슬라이드 하나만 고치고 다시 렌더했을 때 **바뀌지 않은 슬라이드의 같은 경로가 네 장 중 몇 장을 먹는지**(§4.4 ① ㄱ), 검토 루프 열 턴 동안 실제로 간 그림 수와 바이트, 애드인이 붙일 로컬 모델이 `Vision`으로 잡히는지(§4.4 ① ㄴ) | 넷은 실측으로 닫혔으니 이제 재야 할 것은 **남은 셋이 덱 크기에서 얼마나 무거운가**다. ㄱ은 성능이 아니라 정확도 문제다 — 예산을 먹은 만큼 다른 슬라이드가 안 보인다 |
 | **S8** | 데몬 둘이 한 덱을 만질 때 | 워크스페이스 둘에서 같은 슬라이드를 동시에 고치게 한다. **붙이는 방법을 config에서 door로 바꾼다** — 그게 실제 경로다 | 거짓 완료가 재현되면(§5.6) 개정 카운터가 M5가 아니라 M3으로 올라온다. §5.0이 뿌리를 잘랐지만 **재현되는지는 재야 한다** — 일부러 두 번 붙이는 경로가 남아 있고, ~~§5.0.4 ①·③은 **일부러가 아닌** 경로다~~ → 그 둘은 닫혔다(§5.0.4). 남은 것은 일부러 붙이는 경로뿐이라 **시나리오가 사람이 두 번 붙이는 것으로 좁혀진다** |
 | **S9** | `mcp-attach` door가 실제로 필요한가 | 켜진 데몬에 런타임으로 HTTP MCP 서버를 붙여 본다: (나)로 — 작은 Lua 플러그인 + `register_mcp` — 되는 데까지 가 보고 어디서 막히는지 적는다 | **돌렸다 → §5.0.2.** (나)는 기동 때 붙이는 데까지는 되고, 런타임에 고르는 것은 예상과 **다른 이유로** 막힌다 |
-| **S10** | 브라우저의 Local Network Access가 **우리 타깃에서** 어디를 막나 | 데스크톱 PowerPoint(Mac 16.96+ · Windows 2504+)와 Office on the web에서 **같은** 루프백 https 호출을 하고 거부 사유를 그대로 적는다. Chrome은 `chrome://flags/#local-network-access-check`를 Enabled(Blocking)으로 두면 미리 재현된다 | **데스크톱도 막히면 §5.5의 전송이 무너진다** — 브라우저 밖을 도는 길(커스텀 스킴, 파일 폴링)로 다시 고르거나 §3.4의 B가 살아난다. 웹판만 막히면 §3.3(c)의 배제가 확정되고 배포 형태가 사내 카탈로그로 굳는다(§12 #3) |
+| **S10** | 브라우저의 Local Network Access가 **우리 타깃에서** 어디를 막나 | 데스크톱 PowerPoint(Mac 16.96+ · Windows 2504+)와 Office on the web에서 **같은** 루프백 https 호출을 하고 거부 사유를 그대로 적는다. Chrome은 `chrome://flags/#local-network-access-check`를 Enabled(Blocking)으로 두면 미리 재현된다. **fetch만 재면 안 된다** — 147이 게이트에 넣는 것은 WebSocket이고 그게 §5.5가 고른 전송이다. 그러니 같은 자리에서 fetch 한 번, WebSocket 핸드셰이크 한 번을 **따로** 걸고 각각의 거부 사유를 적는다. 프롬프트가 뜨는지도 같이 적는다(부록 A의 벤더 공지 둘이 이 점에서 갈린다) | **데스크톱도 막히면 §5.5의 전송이 무너진다** — 브라우저 밖을 도는 길(커스텀 스킴, 파일 폴링)로 다시 고르거나 §3.4의 B가 살아난다. **fetch는 되는데 WebSocket만 막히면** 전송을 롱폴로 내리는 것으로 끝나므로 그 갈래를 따로 본다. 웹판만 막히면 §3.3(c)의 배제가 확정되고 배포 형태가 사내 카탈로그로 굳는다(§12 #3) |
 | **S11** | **문서 신원이 무엇인가** — 저장 안 된 덱에서도 서는가(§5.6) | 저장 전 새 덱 **둘**을 열고 각 창에서 `context.presentation.id` · `Office.context.document.url` · `getFilePropertiesAsync().url` 셋을 다 읽어 값을 비교한다. 그다음 한쪽을 저장하고 셋이 어떻게 바뀌는지, 특히 `id`가 그대로인지 본다 | 두 새 덱의 `id`가 다르고 저장이 그것을 안 바꾸면 §5.6의 키는 `presentation.id`다. 같거나 바뀌면 **헬퍼가 발급**하는 쪽으로 간다. 셋 다 못 가르면 저장 안 된 덱은 **거부하고 저장을 청한다**(§5.0) |
 | **S12** | 슬라이드 치수를 **1.8 안에서** 얻을 수 있나(§6.1의 핀) | 4:3 · 16:9 · 사용자 지정 크기 셋으로 덱을 만들고, `pageSetup` 없이 아는 길을 잰다 — 렌더 이미지의 픽셀 비율, `export_slide_ooxml`에 `p:sldSz`가 실려 오는지 | 못 얻으면 §6.1의 핀은 **기본 두 크기에서만** 뜨고 나머지는 목록과 선택만이다(그렇게 적어 뒀다). `sldSz`가 슬라이드 OOXML에 실려 오면 셋 다 정확해진다 |
 | **S13** | **안 보고 있는 슬라이드의 도형을 잡을 수 있나**(§6.1의 "여기") | 3번 슬라이드를 보는 채로 5번 슬라이드의 도형에 `setSelectedShapes`를 부른다. 그다음 `setSelectedSlides`를 먼저 부르고 같은 것을 다시 한다. 각각 화면이 실제로 따라가는지, 조용히 아무 일도 안 일어나는지 본다 | 첫째가 되면 항목 클릭 한 번에 끝난다. 안 되면 **두 번 부르는 것이 계약**이 된다(문서가 침묵하므로 어느 쪽이든 그 순서로 적는다). 둘 다 안 되면 도형 지시를 핀에 넘기고, 그때는 S12가 **선택 과제가 아니라 필수**가 된다 |
@@ -1519,13 +1528,42 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
 가져왔고, 다르게 간 곳은 §5.2와 §7에 이유를 적었다.
 
 **브라우저 쪽 사실 — 출처는 있고 실측은 없다(§5.5, S10).** 위의 API 사실과 **근거의 질이 다르므로**
-따로 둔다. Microsoft Learn이 아니고, 우리 타깃에서 재 본 것도 아니다.
+따로 둔다. Microsoft Learn이 아니고, 우리 타깃에서 재 본 것도 아니다. **여기서 출처를 한 번 잘못
+달았다** — 주장 다섯을 한 URL 아래 묶어 놨는데, 그 페이지가 받치는 것은 **둘**이다(142 게이팅,
+혼합 콘텐츠 면제). 나머지 셋 — iframe 위임 토큰, 기업 정책의 **이름**, 147 — 은 그 페이지에 없다.
+셋이 거짓이라는 말이 아니라 **내가 댄 근거가 셋을 받친 적이 없다**는 말이고, 둘은 다른 질문이다.
+그래서 출처별로 쪼갠다.
 
-- Chrome 142(2025-10-28)의 Local Network Access — [Chrome for Developers 공지](https://developer.chrome.com/blog/local-network-access).
-  공개 오리진 → 루프백·사설 주소를 권한으로 가둔다. iframe은 `allow="local-network-access"` 위임이
-  필요하고, 목적지가 사설 IP 리터럴이면 혼합 콘텐츠 검사를 면제한다. 기업 정책
-  `LocalNetworkAccessAllowedForUrls`는 **요청하는 오리진**을 허용한다. WebSocket·WebTransport는
-  **147**부터 같은 게이트로 들어온다.
-- Office 애드인에서의 증상 — [officedev/office-js#6281](https://github.com/officedev/office-js/issues/6281).
+- **Chrome 공지가 실제로 말하는 것** — [Chrome for Developers 공지](https://developer.chrome.com/blog/local-network-access).
+  Chrome 142(2025-10-28)에 권한 프롬프트가 나갔다는 것, 그리고 목적지가 사설 IP 리터럴·`.local`·
+  `targetAddressSpace: "local"`이면 **혼합 콘텐츠 검사를 면제**한다는 것. 기업 정책은 **이름 없이**
+  "앞으로 추가하겠다"고만 적혀 있다. WebSocket·WebTransport·WebRTC는 *"not yet gated"*이고 계획이
+  *"soon"*이다 — **이 페이지에는 147이 없다.** 페이지가 그 변경보다 앞선다.
+- **147은 다른 출처다** — [Citrix CTX696569](https://support.citrix.com/external/article/CTX696569/chrome-147-and-edge-147-local-network-ac.html) ·
+  [Visualware MCS](https://myconnectionserver.visualware.com/support/v11/userguide/chrome-lna-websocket) ·
+  [Sprinklr](https://www.sprinklr.com/help/articles/resolving-browser-local-network-access-restrictions-for-sprinklr-websockets/resolving-browser-local-network-access-restrictions-for-sprinklr-websockets/69fa06f8c8cbd953dd028264).
+  Chrome 147에서 WebSocket·WebTransport가 같은 게이트로 들어왔다는 데 **서로 독립인 벤더 공지 셋이
+  일치**한다(WebRTC는 아직). Chromium 자신의 페이지가 아니라 그것에 대응한 제품 공지라는 점은
+  적어 둔다. ⚠ 그중 둘이 **프롬프트가 뜨는지에서 갈린다** — Citrix는 뜬다고, Sprinklr은 WebSocket엔
+  안 떠서 사용자가 "허용"을 누를 수조차 없다고 적는다. 우리 쪽 결론은 어느 쪽이든 같아서(§3.3 c)
+  가르지 않는다.
+- **iframe 위임도 다른 출처다** — 상위 프레임이 `allow="local-network-access"`를 걸어야 하고,
+  중첩이면 **사슬 전체**가 걸어야 한다. Chrome 공지엔 이 토큰이 없다. 아래 SharePoint 보고가
+  이것을 **Microsoft 직원의 입으로** 확인해 주는 자리라, 근거는 그쪽에 있다.
+  ⚠ Chrome 145에서 사이트 설정 권한이 `local-network`/`loopback-network` 둘로 갈렸다는 말이 있는데
+  **1차 출처를 못 찾았다**(개인 블로그 집계). 우리 결론을 안 바꾸므로 확인 전까지 안 쓴다.
+- **Office 애드인에서의 증상** — [officedev/office-js#6281](https://github.com/officedev/office-js/issues/6281).
   **제보자 한 명의 보고이고 Microsoft 응답이 없다.** Office on the web은 세 호스트 다 차단,
   데스크톱 Windows·Mac은 정상이라고 적혀 있다. §5.5가 이 문장 하나에 기대고 있고 S10이 그것을 대체한다.
+- **같은 벤더의 다른 제품에서 같은 기전이 확인됐다** —
+  [SharePoint/sp-dev-docs#10571](https://github.com/SharePoint/sp-dev-docs/issues/10571)(2026-01-07,
+  열림). SharePoint Online이 모던 페이지에서 iframe의 `allow="local-network-access"`를 **DOM에서
+  떼어낸다**. Microsoft 직원 답이 두 개 붙어 있고 둘 다 *"by design"*이며, 하나는 *"there's no
+  supported way to preserve Permissions Policy delegation attributes in modern SPO pages"*라고
+  적는다. Office on the web이 아니므로 **§5.5의 추정을 증명하지 않는다.** 증명하는 것은 더 약한
+  문장이다 — **M365 표면이 호스트 iframe에서 이 위임을 떼는 일이 실제로 있고, 그것이 사고가 아니라
+  설계다.**
+  그리고 그 스레드가 제시한 **우회로는 우리에게 없다.** 두 번째 답은 SPFx 웹파트로 만들면 관리자가
+  승인한 코드라 필요한 속성을 단 iframe을 **직접 그릴 수 있다**고 한다. 그 길이 성립하는 이유는
+  프레임을 **그리는 쪽이 자기 코드**여서다. Office 애드인의 iframe은 **Office 호스트가 그린다** —
+  우리가 그 속성을 달 자리가 없다. 배포로 풀리는 문제가 아니다.
