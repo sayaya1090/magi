@@ -211,6 +211,10 @@ Windows 사용자를 버린다. D는 UI가 없어 §0의 물건이 아니다. �
 아니면 **기능을 조용히 줄이지 말고 못 돈다고 말한다.** 매니페스트 `<Requirements>`로 막지 않는
 이유는 그러면 애드인 목록에서 아예 사라져 사용자가 *왜* 없는지 모르기 때문이다.
 
+⚠ 이 문장은 **최상위** `<Requirements>` 얘기다. `<VersionOverrides>` 안에는 하나 적혀 있고
+(SharedRuntime 1.1, 공유 런타임을 켜는 값이라 뺄 수가 없다), 그쪽이 못 맞으면 사라지는 것은
+애드인이 아니라 **리본 단추**다. 그래서 이 원칙은 거기서 절반만 지켜진다 — 부록 A에 적었다.
+
 **그런데 이 확인 하나로는 위 넷 중 셋만 걸린다.** 웹판에서 `isSetSupported`는 **참을 준다** —
 부록 A의 웹 열이 ✅이고, 그게 바로 위 네 번째 항목이 "다른 축"이라고 말한 뜻이다. 버전 축에서
 통과하고 브라우저 축에서 막히므로 이 게이트만 두면 웹 사용자는 못 돈다는 말을 **듣지 못하고**
@@ -1960,6 +1964,29 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
 - **다만 iPad만은 축이 둘 다 막는다.** §3.3은 iPad를 PowerPointApi 1.1 천장으로 뺐는데,
   공유 런타임이 아예 없다는 **독립된 이유**가 하나 더 있다. 버전이 올라가도 안 풀린다.
 - SharedRuntime **1.2**는 Excel 전용이라 우리와 무관하다.
+
+**⚠ 켜는 값이 매니페스트 한 줄이 아니다 — 두 줄이고, 둘째 줄이 §3.3과 부딪친다.**
+`<Runtime ... lifetime="long" />`만으로는 안 되고, MS의 설정법이 `<VersionOverrides>` **안에**
+`<Set Name="SharedRuntime" MinVersion="1.1" />`을 같이 적으라고 한다 — 목업 `manifest.xml`이 실제로
+그렇게 돼 있다. 그런데 그 자리의 `<Requirements>`는 성격이 다르다. 못 맞추면 애드인이 안 뜨는 게
+아니라 **`<VersionOverrides>`가 통째로 무시되고 기본 매니페스트로 되돌아간다**
+([Requirements element](https://learn.microsoft.com/en-us/javascript/api/manifest/requirements)).
+같은 문서가 경고까지 달아 뒀고, 권하는 대안이 **정확히 §3.3이 이미 고른 것**이다 — 런타임
+`isSetSupported`로 묻고 못 돈다고 말하기.
+
+> none of the add-in commands will be installed, even those that invoke functionality that doesn't
+> need the requirement
+
+**그래서 §3.3의 "사라지지 않게 한다"가 절반만 지켜진다.** 최상위 `<Requirements>`를 비워 둔 덕에
+애드인 자체는 목록에 남지만(기본 매니페스트에 `<SourceLocation>`이 있다) **홈 탭의 단추는 없다.**
+사용자는 「삽입 > 내 추가 기능」으로만 창을 열 수 있고, §3.3이 약속한 그 한 줄은 **창을 연 뒤에야**
+읽는다. 단추가 왜 없는지는 끝내 안 나온다.
+
+**그래도 이 줄은 그대로 둔다 — 사람을 새로 걸러내지 않기 때문이다.** 여기 걸리는 빌드
+(2102 / 16.46 미만, iPad 전부)는 §3.3의 1.8 바닥(2504 / 16.96)에 **이미 다 걸린 사람들**이라,
+바뀌는 것은 누가 걸리느냐가 아니라 **어떻게 걸리느냐**다 — 말해 주는 실패에서 단추 없는 실패로.
+적어 두는 이유는 위 문단과 같다: 바닥을 1.8 아래로 내리자는 말이 나오는 순간 **이 줄이 §3.3보다
+먼저 걸리고, 그때는 대가가 "말투"가 아니라 "단추"다.**
 
 **사용자 지정 단축키** —
 [안내](https://learn.microsoft.com/en-us/office/dev/add-ins/design/keyboard-shortcuts) ·
