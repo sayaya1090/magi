@@ -1020,6 +1020,67 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('첫 쪽지도 같은 자리에서 안 비어야 한다',
     wordy.includes('boom') && !wordy.includes('undefined'), wordy);
 }
+// ── §9 의 스파이크 목록은 **여기서 못 재는 것**들이다. 그 사실을 산문으로만 들고 있으면
+// 낡는다 ─────────────────────────────────────────────────────────────────────
+//
+// 문서는 S1…S14 를 "아직 확인 안 된 전제"라고 적어 두고, 어느 것이 왜 아직인지는 여기저기
+// 흩어진 문장으로만 들고 있다. 그 상태에서 독자가 할 수 있는 것은 **없다** — 「안 재졌다」와
+// 「재려다 막혔다」와 「재는 것을 잊었다」가 화면에서 같게 생겼고, 다음 사람이 새 S 행을 하나
+// 더 붙일 때 사유를 안 적어도 아무 데서도 소리가 안 난다.
+//
+// 그래서 목록을 값으로 옮긴다. 요점은 **시험을 강요하는 것이 아니라 사유를 강요하는 것**이다:
+// 못 재는 항목마다 「이 저장소가 무엇을 못 줘서 못 재는가」를 한 줄로 적게 하고, 그 줄이
+// **자기가 낡았다고 말하게** 둔다 — 재게 되는 날 그 항목은 `ok()` 딱지에 이름이 실릴 텐데,
+// 그 순간 아래 마지막 검사가 「목록이 낡았다」고 운다.
+{
+  const design = readFileSync(new URL('../../DESIGN.md', import.meta.url), 'utf8');
+  const inDoc = [...design.matchAll(/^\| \*\*(S\d+)\*\* \|/gm)].map((m) => m[1]);
+  ok('§9 의 표를 읽었다', inDoc.length >= 10, String(inDoc.length));
+
+  // 여기서 **잰** 것. 무엇이 답을 들고 있는지까지 적는다 — 「끝났다」만으로는 다음 사람이
+  // 결과를 못 찾고, 못 찾으면 다시 재게 된다.
+  const measured = { S9: '§5.0.2 — 켜진 데몬에 런타임으로 붙이는 것이 예상과 다른 이유로 막혔다' };
+
+  // 여기서 **못 재는** 것과, 이 저장소가 무엇을 못 줘서 못 재는지. 「PowerPoint 가 없다」를
+  // 열세 번 적으면 목록이 제값을 못 한다 — 항목마다 **없는 것이 실제로 다르다.**
+  const cannotMeasureHere = {
+    S1: '진짜 PowerPoint 호스트 — stub 은 문서를 읽고 적은 흉내지 호스트가 아니다',
+    S2: '사람 눈 — 렌더가 알아볼 만한지는 단언으로 못 적는다',
+    S3: 'OS 의 URL 스킴 등록과 애드인이 실제로 도는 웹뷰',
+    S4: '편집기의 undo 스택 — 우리 가짜 덱에는 스택이 없다',
+    S5: '`exportAsBase64` 가 뱉는 진짜 바이트, 그리고 그것을 도로 받아 줄 호스트',
+    S6: '100장짜리 실덱과 진짜 왕복 시간',
+    S7: '실덱 100장 + 모델 예산 — 재는 것이 정확도라 흉내로는 수가 안 나온다',
+    S8: '동시에 도는 데몬 둘과 워크스페이스 둘',
+    S10: '브라우저 엔진의 LNA 게이트 — Node 에는 그 게이트가 아예 없다',
+    S11: '저장 안 된 새 덱 둘을 동시에 연 PowerPoint',
+    S12: '4:3 · 16:9 · 사용자 지정 크기로 만든 진짜 덱 셋',
+    S13: '3번을 보는 채로 5번 도형을 잡아 보는 실제 창',
+    S14: '작업창을 클릭하는 사람 손',
+  };
+
+  const known = new Set([...Object.keys(measured), ...Object.keys(cannotMeasureHere)]);
+  const unaccounted = inDoc.filter((id) => !known.has(id));
+  ok('§9 의 모든 항목이 둘 중 한 목록에 있다', unaccounted.length === 0, unaccounted.join(' '));
+  const gone = [...known].filter((id) => !inDoc.includes(id));
+  ok('없어진 항목을 목록이 붙들고 있지 않다', gone.length === 0, gone.join(' '));
+  const both = Object.keys(measured).filter((id) => id in cannotMeasureHere);
+  ok('한 항목이 잰 것이면서 못 재는 것일 수 없다', both.length === 0, both.join(' '));
+
+  // **사유가 사유여야 한다.** 빈 줄이나 id 를 되뇌는 줄은 「안 적었다」와 같다.
+  const thin = Object.entries(cannotMeasureHere)
+    .filter(([id, why]) => why.trim().length < 12 || why.includes(id));
+  ok('못 재는 사유가 한 줄이라도 비어 있지 않다',
+    thin.length === 0, thin.map(([i]) => i).join(' '));
+
+  // **낡음은 목록이 스스로 말한다.** 어떤 항목을 여기서 재게 되면 그 이름이 `ok()` 딱지에
+  // 실릴 텐데, 그러면 「못 잰다」가 거짓이 된 것이다. 이 검사는 그날 운다.
+  const self = readFileSync(new URL(import.meta.url), 'utf8');
+  const labels = [...self.matchAll(/^\s*ok\('([^']*)'/gm)].map((m) => m[1]).join('\n');
+  const aged = Object.keys(cannotMeasureHere)
+    .filter((id) => new RegExp(`\\b${id}\\b`).test(labels));
+  ok('못 잰다고 적은 것을 재고 있지 않다', aged.length === 0, aged.join(' '));
+}
 
 // ── 단추는 조용히 죽지 않는다 ────────────────────────────────────────────────
 //
