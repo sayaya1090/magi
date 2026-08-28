@@ -111,9 +111,11 @@ type Grant struct {
 	Can        []Capability
 	Companions []string
 	// Everywhere is true when any match left the scope open: a person in two groups, one of which
-	// is unscoped, is unscoped. Kept apart from an empty Companions list because those mean the
-	// same thing and are reached differently, and folding them would make "narrowed to nothing"
-	// indistinguishable from "narrowed to everything".
+	// is unscoped, is unscoped. It is NOT the difference between "narrowed to nothing" and
+	// "narrowed to everything" — there is no such difference here, because withinScope already
+	// reads an empty list as every companion. What it is for is the union: a person whose own
+	// entry names companions and who is also in an unscoped group ends with a NON-empty list, so
+	// the list check would narrow them, and only this flag opens the scope back up.
 	Everywhere bool
 }
 

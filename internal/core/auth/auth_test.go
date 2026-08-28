@@ -102,13 +102,15 @@ func TestGroupsAndNamesUnion(t *testing.T) {
 	}
 	// Case and surrounding space come from a gateway header, not from a person typing carefully.
 	if !p.AllowsWith("  LEE  ", []string{" Support "}, Read, "DOCS", "") {
-		t.Error("a name or group the gateway sent padded or capitalised must still resolve")
+		t.Error("a name, group, or companion the gateway sent padded or capitalised must still " +
+			"resolve; the companion is folded by withinScope, the other two on the way in")
 	}
 }
 
-// An unscoped match anywhere means unscoped. Everywhere is kept apart from an empty Companions
-// list because those mean the same thing and are reached differently: folding them would make
-// "narrowed to nothing" indistinguishable from "narrowed to everything".
+// An unscoped match anywhere means unscoped. The flag is not there to tell an empty scope from an
+// open one — withinScope reads empty as every companion, so those are one state. It is there for
+// the union below: lee's own entry names one companion, so the resolved list is NOT empty, and
+// without the flag the list check would narrow a person the unscoped group opened up.
 func TestAnUnscopedMatchOpensTheScope(t *testing.T) {
 	p := Policy{
 		Roles:  map[string]Role{"reader": {Can: []Capability{Read}}},
