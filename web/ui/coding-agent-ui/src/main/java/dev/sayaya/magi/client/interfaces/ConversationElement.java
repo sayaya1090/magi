@@ -297,7 +297,7 @@ public class ConversationElement {
         HTMLElement b = el("button");
         b.setAttribute("type", "button");
         b.className = "copy hit48";
-        b.append(Icons.orGlyph("#i-sl-copy", "\u29C9", null));
+        b.append(Icons.shape("#i-sl-copy", null));
         b.setAttribute("aria-label", tr("action.copy"));
         b.setAttribute("title", tr("action.copy"));
         b.addEventListener("click", evt -> {
@@ -310,7 +310,7 @@ public class ConversationElement {
                 b.textContent = "\u2713";
                 b.classList.add("done");
                 DomGlobal.setTimeout(a -> {
-                    b.replaceChildren(Icons.orGlyph("#i-sl-copy", "\u29C9", null));
+                    b.replaceChildren(Icons.shape("#i-sl-copy", null));
                     b.classList.remove("done");
                 }, 1200);
             });

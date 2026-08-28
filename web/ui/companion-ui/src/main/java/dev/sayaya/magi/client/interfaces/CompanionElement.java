@@ -287,7 +287,7 @@ public class CompanionElement {
             x.setAttribute("type", "button");
             x.className = "tabclose hit48";
             x.setAttribute("aria-label", tr("action.close_named", "name", title));
-            x.append(dev.sayaya.magi.bridge.Icons.orGlyph("#i-sl-xmark", "×", "mk"));
+            x.append(dev.sayaya.magi.bridge.Icons.shape("#i-sl-xmark", "mk"));
             x.addEventListener("click", evt -> {
                 evt.stopPropagation();
                 if ("facts".equals(cardShows) || key.equals(cardShows)) cardShows = "facts";

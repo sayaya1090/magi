@@ -405,7 +405,7 @@ public class MeetingElement {
         rows.setAttribute("hidden", "");
         HTMLElement b = el("md-text-button");
         b.className = "meetworkgo";
-        b.append(Icons.orGlyph("#i-sl-chevron-down", "▾", "mk"),
+        b.append(Icons.shape("#i-sl-chevron-down", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.working")));
         b.addEventListener("click", evt -> {
             if (!rows.hasAttribute("hidden")) { rows.setAttribute("hidden", ""); return; }
@@ -452,7 +452,7 @@ public class MeetingElement {
         });
         f.addEventListener("blur", evt -> { if (value(f).trim().isEmpty()) store.hold(false); });
         HTMLElement send = el("md-filled-button");
-        send.append(Icons.orGlyph("#i-sl-paper-plane-top", "➤", "mk"),
+        send.append(Icons.shape("#i-sl-paper-plane-top", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.send")));
         send.addEventListener("click", evt -> {
             String text = value(f).trim();
@@ -461,12 +461,12 @@ public class MeetingElement {
             value(f, "");
         });
         HTMLElement leave = el("md-text-button");
-        leave.append(Icons.orGlyph("#i-sl-chevron-left", "‹", "mk"),
+        leave.append(Icons.shape("#i-sl-chevron-left", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.leave")));
         leave.setAttribute("title", tr("meet.leave_why"));
         leave.addEventListener("click", evt -> GoSharing.viewWith("meet", "m", ""));
         HTMLElement stop = el("md-text-button");
-        stop.append(Icons.orGlyph("#i-sl-flag-checkered", "⚑", "mk"),
+        stop.append(Icons.shape("#i-sl-flag-checkered", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.wrap")));
         stop.addEventListener("click", evt -> whileItRuns(stop, store::close));
         box.append(f, send, leave, stop);
@@ -490,7 +490,7 @@ public class MeetingElement {
                     row.append(sent(m, who));
                 } else {
                     HTMLElement go = el("md-text-button");
-                    go.append(Icons.orGlyph("#i-sl-paper-plane-top", "➤", "mk"),
+                    go.append(Icons.shape("#i-sl-paper-plane-top", "mk"),
                             DomGlobal.document.createTextNode(" " + tr("meet.hand")));
                     // 건넨 뒤 그 자리에서 바뀐다 — 방의 내용은 그대로라 다시 그릴 일이 없고,
                     // 그리는 쪽이 아니라 누른 자리가 답을 보이는 것이 옳다(운영도 replaceWith).
@@ -537,7 +537,7 @@ public class MeetingElement {
         f.setAttribute("type", "textarea");
         f.setAttribute("rows", "2");
         HTMLElement go = el("md-filled-tonal-button");
-        go.append(Icons.orGlyph("#i-sl-play", "▶", "mk"),
+        go.append(Icons.shape("#i-sl-play", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.reopen")));
         go.addEventListener("click", evt -> whileItRuns(go, () -> store.reopen(value(f))));
         box.append(f, go);
@@ -619,7 +619,7 @@ public class MeetingElement {
 
     private HTMLElement back() {
         HTMLElement b = el("md-text-button");
-        b.append(Icons.orGlyph("#i-sl-chevron-left", "‹", "mk"),
+        b.append(Icons.shape("#i-sl-chevron-left", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.back")));
         b.addEventListener("click", evt -> GoSharing.viewWith("meet", "m", ""));
         return b;

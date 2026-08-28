@@ -171,6 +171,69 @@ public final class Icons {
         return field;
     }
 
+
+    /**
+     * 그림이 없을 때 <b>글자 대신 도형</b> — 스프라이트가 있으면 그것으로 갈아입는다.
+     *
+     * 라이선스가 없는 빌드(기여자·정적 데모)에서는 스프라이트가 없다. 그때 낱자로 떨어지면
+     * 새로고침이 "↻", 더보기가 "⋯"으로 읽히는데, 그 자리들은 <b>그림만 있는</b> 컨트롤이라
+     * 낱자가 곧 그 버튼의 얼굴이 된다(실측: 데모에서 아홉 자리). 여기 적힌 획은 그 자리에
+     * 서는 진짜 도형이고, 스프라이트가 있으면 data-i를 보고 dress가 갈아입힌다 — 운영이
+     * 보드의 화살에 쓰던 그 방법이다.
+     */
+    public static Element shape(String ref, String cls) {
+        String d = path(ref);
+        if (d == null) return of(ref, cls);
+        Element svg = DomGlobal.document.createElementNS(NS, "svg");
+        svg.setAttribute("class", "sic " + (cls == null ? "" : cls));
+        svg.setAttribute("data-i", ref);
+        svg.setAttribute("viewBox", "0 0 24 24");
+        // 크기는 <b>적지 않는다</b> — 스프라이트 그림(of)도 적지 않고, 자리마다 CSS가 정한다
+        // (트리의 행 메뉴는 16px, 카드의 것은 20px). 여기에 20을 박아 두었더니 그 규칙을 이겨
+        // 트리 행이 한 픽셀 자랐다(실측: 28 대 29).
+        svg.setAttribute("aria-hidden", "true");
+        Element p = DomGlobal.document.createElementNS(NS, "path");
+        p.setAttribute("d", d);
+        p.setAttribute("fill", "none");
+        p.setAttribute("stroke", "currentColor");
+        p.setAttribute("stroke-width", "1.7");
+        p.setAttribute("stroke-linecap", "round");
+        p.setAttribute("stroke-linejoin", "round");
+        svg.append(p);
+        dress(svg);   // 그림판이 이미 와 있으면 지금 갈아입고, 아니면 이 획으로 산다
+        return svg;
+    }
+
+    /** 이 콘솔이 그림 없이도 그려야 하는 것들 — 그 밖의 이름은 여기 없다(부르는 쪽이 제 낱자를 쓴다). */
+    private static String path(String ref) {
+        switch (ref == null ? "" : ref) {
+            case "#i-sl-magnifying-glass": return "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M20 20l-4.6-4.6";
+            case "#i-sl-arrows-rotate": return "M20 12a8 8 0 1 1-2.4-5.7M20 4.5V9h-4.5";
+            case "#i-sl-sliders": return "M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3M13 4.5v5M7 9.5v5M13 14.5v5";
+            case "#i-sl-xmark": return "M6.5 6.5l11 11M17.5 6.5l-11 11";
+            case "#i-sl-chevron-left": return "M14.5 5.5L8 12l6.5 6.5";
+            case "#i-sl-chevron-right": return "M9.5 5.5L16 12l-6.5 6.5";
+            case "#i-sl-chevron-down": return "M5.5 9.5L12 16l6.5-6.5";
+            case "#i-sl-check": return "M5 12.5l4.5 4.5L19 7.5";
+            case "#i-sl-pen-to-square": return "M4 20h4L18.5 9.5l-4-4L4 16zM14 6l4 4";
+            case "#i-sl-floppy-disk": return "M5 5h11l3 3v11H5zM8.5 5v5h7V5M8.5 19v-5h7v5";
+            case "#i-sl-share-from-square": return "M14 4h6v6M20 4l-8.5 8.5M18 14v5H5V6h5";
+            case "#i-sl-trash-can": return "M5 7h14M10 7V4.5h4V7M7 7l1 13h8l1-13M11 10.5v6M13 10.5v6";
+            case "#i-sl-copy": return "M9 4h8a2 2 0 0 1 2 2v8M6 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z";
+            case "#i-sl-paper-plane-top": return "M20 4L4 10.5l6.5 2.5L13 20z";
+            case "#i-sl-play": return "M7 5l12 7-12 7z";
+            case "#i-sl-clock-rotate-left": return "M12 7.5V12l3 2M20 12a8 8 0 1 1-3-6.2M20 4.5V9h-4.5";
+            case "#i-sl-layer-group": return "M12 3.5l8 4-8 4-8-4zM4 12l8 4 8-4M4 16.5l8 4 8-4";
+            case "#i-sl-flag-checkered": return "M5 3.5v17M5 5h13l-2.5 4L18 13H5";
+            case "#i-sl-lightbulb": return "M9.5 17h5M10 20h4M12 3.5a5.5 5.5 0 0 0-3 10.1V17h6v-3.4A5.5 5.5 0 0 0 12 3.5z";
+            case "#i-sl-reply": return "M9 6L4 11l5 5M4 11h8a7 7 0 0 1 7 7v1";
+            case "#i-sl-plus": return "M12 5v14M5 12h14";
+            case "#i-sl-file-lines": return "M6 3.5h8l4 4v13H6zM14 3.5v4h4M9 12.5h6M9 16h6";
+            case "#i-sl-wand-magic-sparkles": return "M4 20L15 9M13.5 3.5l.9 1.9 1.9.9-1.9.9-.9 1.9-.9-1.9-1.9-.9 1.9-.9zM19 12l.7 1.5 1.5.7-1.5.7-.7 1.5-.7-1.5-1.5-.7 1.5-.7z";
+            default: return null;
+        }
+    }
+
     /** 그림이 있으면 그림, 없으면 늘 그리던 글자 — 어느 쪽이든 노드를 돌려준다(운영 iconOr). */
     public static Element orGlyph(String ref, String glyph, String cls) {
         Element drawn = of(ref, cls);
