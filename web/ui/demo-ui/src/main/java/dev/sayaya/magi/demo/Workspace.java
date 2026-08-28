@@ -23,6 +23,17 @@ final class Workspace {
         if (Mock.wrote(init) && "/complete".equals(path)) {
             return Mock.json("\n\treturn nil, fmt.Errorf(\"demo: %w\", err)");
         }
+        // 룩오버 — 캐럿 둘레를 받아 그 줄들에 붙일 말을 답한다. 형식은 `<줄번호><TAB><말>`이라
+        // 답이 그 줄 곁에 가 선다. 삼킴 목록에 두면 빈 답이고, 빈 답은 지우라는 뜻이라 이 도움이
+        // 데모에서 통째로 없는 것으로 보인다(유령 글자가 같은 이유로 그러했다). 운영 목과
+        // 같은 표본이다: 받은 둘레의 첫 줄 번호를 읽어 두 마디를 몇 줄 아래에 건다 — 답은
+        // 보고 있는 자리에 서야 하고, 그 자리는 파일 어디를 고치는 중이냐에 따라 매번 다르다.
+        if (Mock.wrote(init) && "/look".equals(path)) {
+            int first = firstLine(Mock.field(init, "text"));
+            if (first < 0) return Mock.json("");
+            return Mock.json((first + 2) + "\tthis error is swallowed \u2014 return it to the caller\n"
+                    + (first + 5) + "\tthis can be nil here; the check two lines up does not cover it");
+        }
         // 모델이 대신 써 주는 초안 둘 — 커밋 메시지와 PR 본문. 받아만 두면 빈 상자가 뜨고,
         // 빈 상자는 "이 버튼은 아무것도 못 한다"로 읽힌다. 채워진 상자를 사람이 고치는 것이
         // 이 컨트롤의 계약이므로 둘 다 초안을 몸으로 돌려준다(운영 /git-msg가 그 모양).
@@ -49,7 +60,7 @@ final class Workspace {
                 // 빈 주소가 "열지 않았다"이다(운영도 이 길은 빈 몸으로 답한다).
                 case "/git-pr":
                 case "/save": case "/file-do": case "/git-do": case "/open-file":
-                case "/look": case "/pr": case "/council":
+                case "/pr": case "/council":
                     return Mock.json("");
                 default: break;
             }
@@ -86,6 +97,17 @@ final class Workspace {
                 + " }\"}");
             default: return null;
         }
+    }
+
+    /** 보낸 둘레의 첫 줄이 이름 대는 번호 — 운영 목의 /^\s*(\d+)\t/ 그대로, 없으면 -1. */
+    private static int firstLine(String text) {
+        String s = text == null ? "" : text;
+        int i = 0;
+        while (i < s.length() && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) i++;
+        int d = i;
+        while (d < s.length() && s.charAt(d) >= '0' && s.charAt(d) <= '9') d++;
+        if (d == i || d >= s.length() || s.charAt(d) != '\t') return -1;
+        return Integer.parseInt(s.substring(i, d));
     }
 
     /** 물은 디렉토리들만 — 펼침은 그 디렉토리 하나를 더 읽는 일이라는 규칙 그대로. */

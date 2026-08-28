@@ -5,6 +5,7 @@ import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.May;
+import dev.sayaya.magi.bridge.Prefs;
 import dev.sayaya.magi.bridge.Stylesheet;
 import dev.sayaya.magi.client.domain.Moves;
 import dev.sayaya.magi.client.domain.Rows;
@@ -645,6 +646,11 @@ public class ConversationElement {
 
     private void askSuggest() {
         if (!May.can("prompt")) return;
+        // 이것도 이 브라우저의 취향이다 — 설정의 스위치가 적는 값을 읽는 자리가 여기다.
+        // 기본은 켬(라우팅된 빠른 프로파일이 없으면 서버가 모델을 쓰기 전에 스스로 침묵한다).
+        // 편집기의 청하기 버튼과 달리 사람이 누를 자리가 없으므로 force는 없다: 끈 사람에게
+        // 이 도움은 없는 것이다.
+        if (!Prefs.on("suggest", true)) return;
         String said = value();
         if (said.trim().isEmpty()) { clearSuggest(); return; }   // 빈 칸은 짐작할 자리가 아니다
         final int mine = ++suggestAt;

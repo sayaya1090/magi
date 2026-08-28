@@ -3,6 +3,8 @@ package dev.sayaya.magi.client.interfaces;
 import dev.sayaya.magi.bridge.CardSharing;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.Keys;
+import dev.sayaya.magi.bridge.Prefs;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.Windows;
@@ -451,6 +453,10 @@ public class WorkspaceElement {
     private String editing = null;               // 편집 중인 경로(하나뿐이다)
     private final java.util.Map<String, String> drafts = new java.util.HashMap<>();
     private String said = "";                    // 거부 사유 — 이 버퍼에 대한 말이라 버퍼 위에 선다
+    // 그 말이 잘못인가 평범한 답인가. 같은 상자를 둘이 나눠 쓰기 때문에 색을 가를 값이 따로 있다:
+    // 저장을 거부당한 것은 잘못(경고색)이고, "여기서 할 말이 없다"는 그냥 답(무채색)이다.
+    private boolean saidPlain = false;
+    private static int lookSrSeq = 0;            // 편집기마다 다른 id — aria-describedby가 가리킬 자리
 
     /** 이 파일의 카드 속 — 머리 줄(경로·손잡이·행동)과, 접히는 본문. */
     private HTMLElement fileCard(String path) {
@@ -571,13 +577,47 @@ public class WorkspaceElement {
     }-*/;
 
     /**
+     * 한 편집기가 "읽어 달라"에 쓰는 것 한 묶음.
+     *
+     * 인자로 늘어놓지 않는 이유는 개수가 아니라 <b>구별되지 않음</b>이다: 말하는 자리 둘(눈에
+     * 보이는 상자와 귀로 가는 줄)은 둘 다 HTMLElement라, 순서를 바꿔 불러도 컴파일이 통과하고
+     * 화면은 조용히 반대로 말한다.
+     */
+    private static final class LookPad {
+        final HTMLElement area;
+        final java.util.Map<Integer, String> notes;
+        final HTMLElement srNotes;
+        final Runnable repaint;
+        final Say say;
+        final int[] fly;
+        final Runnable busy;
+        LookPad(HTMLElement area, java.util.Map<Integer, String> notes, HTMLElement srNotes,
+                Runnable repaint, Say say, int[] fly, Runnable busy) {
+            this.area = area; this.notes = notes; this.srNotes = srNotes;
+            this.repaint = repaint; this.say = say; this.fly = fly; this.busy = busy;
+        }
+    }
+
+    /**
+     * 이 편집기가 하는 말은 <b>두 번</b> 나간다 — 눈에 보이는 상자와, 필드가 가리키는 살아 있는
+     * 줄. 한 자리에서 둘 다 적는 이유는 운영이 밟은 그 결함이다: 나중에 난 길 셋이 보이는 쪽에만
+     * 적어, 읽는 기계를 쓰는 사람은 aria-busy가 켜졌다 꺼지는 것만 듣고 무슨 답이 왔는지는
+     * 듣지 못했다.
+     */
+    private interface Say { void call(String text, boolean plain); }
+
+    /**
      * 캐럿 둘레를 읽어 달라고 청한다 — 그 둘레만, 진짜 줄 번호를 달아서(운영의 ±60줄).
      *
      * 답이 형식 밖의 말이면 그것은 결함이라 경고 자리에 적는다: 줄에 붙일 수 없는 한 마디는
      * 어느 줄 이야기인지 아무도 모른다.
+     *
+     * force는 <b>사람이 누른 것</b>이다. 멈출 때마다 묻는 것은 취향(설정)이지만 한 번 봐 달라는
+     * 청은 늘 열려 있고, 그 청에 대한 침묵은 아무 일도 안 한 것과 구별되지 않는다.
      */
-    private void askLook(String path, HTMLElement area, java.util.Map<Integer, String> notes,
-                         Runnable repaint, HTMLElement said) {
+    private void askLook(String path, LookPad pad, boolean force) {
+        HTMLElement area = pad.area;
+        java.util.Map<Integer, String> notes = pad.notes;
         String all = String.valueOf(Js.asPropertyMap(area).get("value"));
         int caret = Math.max(0, caretOf(area));
         String[] lines = all.split("\n", -1);
@@ -585,7 +625,13 @@ public class WorkspaceElement {
         int from = Math.max(1, caretLine - 60), to = Math.min(lines.length, caretLine + 60);
         StringBuilder payload = new StringBuilder();
         for (int i = from; i <= to; i++) payload.append(i).append('\t').append(lines[i - 1]).append('\n');
+        // 도는 표는 <b>세어서</b> 켠다: 멈춤이 보낸 것이 아직 오는 중에 사람이 버튼을 누르면 둘이
+        // 떠 있고, 깃발이었다면 먼저 온 답이 아직 하나 남았는데도 표를 껐을 것이다.
+        pad.fly[0]++;
+        pad.busy.run();
         store.look(path, payload.toString(), out -> {
+            pad.fly[0]--;
+            pad.busy.run();
             notes.clear();
             StringBuilder extra = new StringBuilder();
             for (String raw : String.valueOf(out == null ? "" : out).split("\n")) {
@@ -610,18 +656,44 @@ public class WorkspaceElement {
             // 할 말이 없으면 침묵이 답이다 — 늘 세 가지를 찾아내는 리뷰어는 사람들이 읽기를
             // 그만두는 리뷰어다. 다만 <b>사람이 눌렀을 때</b>의 침묵은 아무 일도 안 한 것과
             // 구별되지 않아, 그때는 그렇다고 적는다.
-            if (extra.length() > 0) {
-                said.textContent = extra.toString();
-                said.removeAttribute("hidden");
-            } else if (notes.isEmpty()) {
-                said.textContent = tr("edit.look_none");
-                said.removeAttribute("hidden");
-            } else {
-                said.textContent = "";
-                said.setAttribute("hidden", "");
+            //
+            // 형식 밖의 말은 결함이라 경고색을 지킨다(plain=false). "여기서 할 말이 없다"는
+            // 결함이 아니므로 같은 상자에 무채색으로 적는다.
+            if (extra.length() > 0) pad.say.call(extra.toString(), false);
+            else if (notes.isEmpty() && force) pad.say.call(tr("edit.look_none"), true);
+            else pad.say.call("", false);
+            // 귀로 가는 줄은 <b>줄별 한 마디</b>까지 싣는다: 그것을 그리는 거울은 aria-hidden이라
+            // (필드의 글을 그대로 베끼므로 그럴 수밖에 없다) 이 줄이 없으면 읽는 기계에게 이
+            // 검토는 통째로 없던 일이 된다.
+            StringBuilder spoken = new StringBuilder();
+            for (java.util.Map.Entry<Integer, String> e : new java.util.TreeMap<>(notes).entrySet()) {
+                if (spoken.length() > 0) spoken.append(" \u00B7 ");
+                spoken.append(e.getKey()).append(": ").append(e.getValue());
             }
-            repaint.run();
+            if (extra.length() > 0) {
+                if (spoken.length() > 0) spoken.append(" \u00B7 ");
+                spoken.append(extra);
+            }
+            if (spoken.length() > 0) pad.srNotes.textContent = spoken.toString();
+            pad.repaint.run();
         });
+    }
+
+    /**
+     * 청하는 버튼 하나의 표·이름·상태 — 셋이 한 자리에 있어야 갈리지 않는다.
+     *
+     * 도는 중인지는 <b>세어서</b> 정한다(깃발이 아니라). armed는 이 도움이 멈출 때마다 스스로도
+     * 돈다는 것 — 답이 오기 <i>전에</i> 알 만한 것이라 색으로도 말하고, 색이 유일한 말이 되지
+     * 않도록 이름으로도 말한다.
+     */
+    private static void spinning(HTMLElement btn, int fly, String ref, String word, boolean armed) {
+        if (btn == null) return;
+        btn.className = "editask" + (armed ? " on" : "");
+        btn.replaceChildren(Icons.shape(fly > 0 ? "#i-sl-spinner-third" : ref, fly > 0 ? "mk spin" : "mk"));
+        String say = fly > 0 ? tr("action.working") : (armed ? tr("edit.ask_armed", "what", word) : word);
+        btn.setAttribute("aria-label", say);
+        btn.setAttribute("title", say);
+        btn.setAttribute("aria-busy", fly > 0 ? "true" : "false");
     }
 
     private static String diffClass(String line) {
@@ -932,13 +1004,25 @@ public class WorkspaceElement {
      */
     private HTMLElement editor(String path, String text, HTMLElement acts) {
         HTMLElement box = cell("fileedit", null);
-        HTMLElement note = cell("filesnote editsaid", said);
+        // 모델이 형식 밖으로 한 말과, 저장이 거부된 사유가 함께 서는 자리. 클래스가 계약이다 —
+        // console.css의 .looksaid가 경고색·왼쪽 띠를 입히고, .plain이 그 색만 거둔다. 앞서
+        // 쓰던 .editsaid는 어느 규칙에도 없어(실측 0건) 상자가 맨 글씨로 서 있었다.
+        HTMLElement note = cell("looksaid" + (saidPlain ? " plain" : ""), said);
         if (said.isEmpty()) note.setAttribute("hidden", "");
         HTMLElement area = el("textarea");
         area.className = "fileeditarea";
         area.setAttribute("spellcheck", "false");
         area.setAttribute("wrap", "off");
         area.setAttribute("aria-label", path);
+        // 같은 검토를 귀로도 — 줄별 한 마디를 그리는 거울은 필드의 글을 베낀 것이라 aria-hidden일
+        // 수밖에 없고, 그래서 깨끗이 파싱된 유일한 채널이 침묵한 채널이었다. 이 줄이 "줄: 한 마디"
+        // 짝을 싣고, 필드가 aria-describedby로 그것을 가리켜 언제든 다시 읽힌다.
+        HTMLElement srNotes = el("div");
+        srNotes.className = "sr-only";
+        srNotes.id = "looksr-" + (++lookSrSeq);
+        srNotes.setAttribute("role", "status");
+        srNotes.setAttribute("aria-live", "polite");
+        area.setAttribute("aria-describedby", srNotes.id);
         String opened = Code.plainText(text);
         // 초고가 먼저다 — 반쯤 고치다 온 파일로 돌아오는 것은 그 반쯤으로 돌아오는 것이다.
         String start = drafts.containsKey(path) ? drafts.get(path) : opened;
@@ -987,7 +1071,8 @@ public class WorkspaceElement {
                 if (remark != null && !remark.isEmpty()) {
                     HTMLElement mark = el("span");
                     mark.className = "linenote";
-                    mark.textContent = "    " + remark;
+                    // 운영과 같은 표식(‹): 여백만으로는 이 글이 코드인지 남의 말인지 갈리지 않는다.
+                    mark.textContent = "  \u2039 " + remark;
                     behind.append(mark);
                 }
                 behind.append(DomGlobal.document.createTextNode("\n"));
@@ -1005,7 +1090,9 @@ public class WorkspaceElement {
                 Js.asPropertyMap(save).set("disabled", false);
                 if (why != null && !why.isEmpty()) {
                     // 여기서의 거부는 대개 파일이 움직인 것이다 — 열어 둔 사이 컴패니언이 고쳤다.
+                    // 이것은 <b>잘못</b>이라 경고색을 지킨다(무채색은 "여기서 할 말이 없다" 쪽).
                     said = why;
+                    saidPlain = false;
                     publishCards();
                     return;
                 }
@@ -1026,11 +1113,47 @@ public class WorkspaceElement {
             drafts.remove(path);
             publishCards();
         });
-        final double[] tick = {-1};
+        // 이 편집기가 하는 말은 전부 여기를 지난다 — 보이는 상자와 들리는 줄, 둘 다.
+        Say say = (words, plain) -> {
+            String t = words == null ? "" : words;
+            note.textContent = t;
+            note.className = "looksaid" + (plain && !t.isEmpty() ? " plain" : "");
+            if (t.isEmpty()) note.setAttribute("hidden", ""); else note.removeAttribute("hidden");
+            srNotes.textContent = t;
+            repaint.run();
+        };
+        // 두 도움이 <b>스스로도</b> 도는가 — 이 브라우저의 취향이다. 룩오버는 기본 꺼짐이다:
+        // 멈출 때마다 백엔드를 쓰는 비용은 타이핑하는 사람이 고를 일이지 겪을 일이 아니다.
+        // 이어쓰기는 기본 켜짐 — 라우팅된 빠른 프로파일이 없으면 서버가 모델을 쓰기 전에
+        // 스스로 아무것도 답하지 않는다(운영의 두 기본값 그대로).
+        //
+        // 열릴 때 한 번 읽는다. 운영은 설정이 <b>다이얼로그</b>라 편집기와 한 화면에 설 수 있어
+        // 스위치가 켜진 편집기를 살아서 고쳐야 했지만(lookClearActive·askRelabelActive), 여기서
+        // 설정은 화면이라 그 둘은 같은 순간에 서지 않는다.
+        final boolean lookOn = Prefs.on("lookover", false);
+        final boolean acOn = Prefs.on("autocomplete", true);
+        final double[] tick = {-1}, lookTick = {-1};
         final int[] asked = {0};
+        // 청하는 컨트롤 둘과, 각자 <b>몇 개가 떠 있는지</b>. 표는 이름이기도 하다.
+        final HTMLElement[] lookGo = {null}, compGo = {null};
+        final int[] lookFly = {0}, compFly = {0};
+        // 말을 붙들지 않고 그릴 때마다 묻는다: 늦게 도착한 언어 팩이 이 페이지의 다른 모든 말을
+        // 다시 읽게 하는데, 하필 제 상태를 이름으로 말하는 이 둘만 열린 순간의 언어로 얼어 있으면
+        // 곤란하다(운영 lookWord/compWord가 함수인 이유).
+        final String mod = Keys.mod();
+        final java.util.function.Supplier<String> lookWord =
+                () -> tr("edit.look_now", "keys", mod + "\u21E7\u21A9");
+        final java.util.function.Supplier<String> compWord =
+                () -> tr("edit.complete_now", "keys", mod + "\u21A9");
+        Runnable lookBusy = () -> spinning(lookGo[0], lookFly[0], "#i-sl-magnifying-glass", lookWord.get(), lookOn);
+        Runnable compBusy = () -> spinning(compGo[0], compFly[0], "#i-sl-lightbulb", compWord.get(), acOn);
+        LookPad pad = new LookPad(area, notes, srNotes, repaint, say, lookFly, lookBusy);
         Runnable dismiss = () -> { if (!ghost[0].isEmpty()) { ghost[0] = ""; repaint.run(); } };
-        Runnable complete = () -> {
+        // force는 사람이 누른 것이다 — 취향이 껐어도 한 번 청하는 것은 늘 열려 있고, 그 청에
+        // 답이 없으면 그렇다고 말해야 한다(빈 화면은 죽은 컨트롤과 같아 보인다).
+        java.util.function.Consumer<Boolean> complete = force -> {
             if (!May.can("prompt")) return;
+            if (!acOn && !force) return;
             int caret = caretOf(area);
             if (caret < 0) return;
             String all = String.valueOf(Js.asPropertyMap(area).get("value"));
@@ -1038,22 +1161,41 @@ public class WorkspaceElement {
             String suffix = all.substring(Math.min(caret, all.length()));
             if (prefix.trim().isEmpty() && suffix.trim().isEmpty()) return;
             final int mine = ++asked[0];
-            store.complete(path, prefix, suffix, said -> {
+            compFly[0]++;
+            compBusy.run();
+            store.complete(path, prefix, suffix, out -> {
+                compFly[0]--;
+                compBusy.run();
                 if (mine != asked[0]) return;           // 더 새 요청이 이것을 앞질렀다
                 if (caretOf(area) != caret) return;     // 기다리는 사이 캐럿이 움직였다
-                ghost[0] = said == null ? "" : said;
+                ghost[0] = out == null ? "" : out;
                 ghostAt[0] = caret;
                 repaint.run();
+                // 룩오버와 같은 이유이고, 같은 상자를 나눠 쓰기 때문에 조건도 같다: 이어쓰기가
+                // 못 찾았다고 해서 방금 룩오버가 한 말을 덮어써서는 안 된다.
+                if (force && ghost[0].isEmpty() && note.hasAttribute("hidden")) {
+                    say.call(tr("edit.complete_none"), true);
+                }
             });
         };
         area.addEventListener("input", evt -> {
             String now = String.valueOf(Js.asPropertyMap(area).get("value"));
             drafts.put(path, now);
             dismiss.run();
+            // 방금 친 글자 앞의 텍스트에 대한 말이었다 — 줄에 붙은 것도, 위 상자의 산문도.
+            // 다음 멈춤에서 다시 묻는다.
+            notes.clear();
+            if (!note.hasAttribute("hidden")) say.call("", false);
             repaint.run();
             // 타이핑이 멎으면 묻는다 — 글자마다 물으면 백엔드를 타이핑 속도로 태운다.
             if (tick[0] >= 0) DomGlobal.clearTimeout(tick[0]);
-            tick[0] = DomGlobal.setTimeout(a -> complete.run(), 350);
+            tick[0] = DomGlobal.setTimeout(a -> complete.accept(false), 350);
+            // 검토는 더 기다린다(2초): 쓰고 있는 한 문장을 다섯 번 보내지 않을 만큼. 이어쓰기가
+            // 덜 기다리는 이유는 반대다 — 지나간 뒤에 오는 제안은 값이 없다.
+            if (lookOn) {
+                if (lookTick[0] >= 0) DomGlobal.clearTimeout(lookTick[0]);
+                lookTick[0] = DomGlobal.setTimeout(a -> askLook(path, pad, false), 2000);
+            }
             // 컴패니언의 곁사본도 따라간다 — 아직 디스크에 없는 그 편집에 대해 답할 수 있게.
             store.openFileHint(path, now);
         });
@@ -1097,33 +1239,39 @@ public class WorkspaceElement {
             if ((k.metaKey || k.ctrlKey) && ("s".equals(k.key) || "S".equals(k.key))) {
                 evt.preventDefault();
                 Js.<HTMLElement>uncheckedCast(save).click();
+                return;
+            }
+            // 지금 물어본다 — ⌘/⌃↩은 캐럿의 이어쓰기, ⌘/⌃⇧↩은 이 구역 읽기. 두 버튼이 제 이름에
+            // 이미 광고하고 있던 키다(광고만 하고 아무도 듣지 않던 키이기도 했다). Tab·Escape·
+            // 화살표가 전부 임자 있는 칸에서 남은 한 짝이고, Enter는 입력기가 음절을 맺는 키이기도
+            // 하므로 Tab과 같은 이유로 먼저 묻는다.
+            if ((k.metaKey || k.ctrlKey) && "Enter".equals(k.key) && !composing(k)) {
+                evt.preventDefault();
+                HTMLElement b = k.shiftKey ? lookGo[0] : compGo[0];
+                if (b != null) b.click();
+                return;
             }
         });
         // 지금 물어본다 — 멈출 때마다 묻는 것과 "한 번 봐 달라"는 다른 물음이다. 둘 다 백엔드를
         // 쓰기 때문에 자동은 취향(설정)이고, 사람이 청하는 한 번은 늘 열려 있다.
         // 아이콘 버튼이고 작다: 저장·취소 곁에 서기 때문에 세 번째 같은 무게로 읽히면 안 된다.
         if (May.can("prompt")) {
-            HTMLElement lookGo = el("md-icon-button");
-            lookGo.setAttribute("type", "button");
-            lookGo.className = "editask";
-            lookGo.append(Icons.shape("#i-sl-magnifying-glass", "mk"));
-            lookGo.setAttribute("aria-label", tr("edit.look_now", "keys", "\u2318\u21E7\u21A9"));
-            lookGo.setAttribute("title", tr("edit.look_now", "keys", "\u2318\u21E7\u21A9"));
-            lookGo.addEventListener("click", evt -> {
+            lookGo[0] = el("md-icon-button");
+            lookGo[0].setAttribute("type", "button");
+            lookGo[0].addEventListener("click", evt -> {
                 Js.<HTMLElement>uncheckedCast(area).focus();
-                askLook(path, area, notes, repaint, note);
+                askLook(path, pad, true);
             });
-            HTMLElement compGo = el("md-icon-button");
-            compGo.setAttribute("type", "button");
-            compGo.className = "editask";
-            compGo.append(Icons.shape("#i-sl-lightbulb", "mk"));
-            compGo.setAttribute("aria-label", tr("edit.complete_now", "keys", "\u2318\u21A9"));
-            compGo.setAttribute("title", tr("edit.complete_now", "keys", "\u2318\u21A9"));
-            compGo.addEventListener("click", evt -> {
+            compGo[0] = el("md-icon-button");
+            compGo[0].setAttribute("type", "button");
+            compGo[0].addEventListener("click", evt -> {
                 Js.<HTMLElement>uncheckedCast(area).focus();
-                complete.run();
+                complete.accept(true);
             });
-            acts.append(lookGo, compGo);
+            // 표·이름·도는 중인지를 한 자리에서 — 처음 그리는 것도 그 함수다.
+            lookBusy.run();
+            compBusy.run();
+            acts.append(lookGo[0], compGo[0]);
         }
         // 시작하는 컨트롤과 끝내는 둘이 같은 자리에 선다 — 움직이는 컨트롤은 두 번 찾게 된다.
         acts.append(save, stop);
@@ -1131,7 +1279,7 @@ public class WorkspaceElement {
         HTMLElement stack = cell("editstack", null);
         stack.append(behind, area);
         wrap.append(nums, stack);
-        box.append(note, wrap);
+        box.append(note, srNotes, wrap);
         repaint.run();
         return box;
     }

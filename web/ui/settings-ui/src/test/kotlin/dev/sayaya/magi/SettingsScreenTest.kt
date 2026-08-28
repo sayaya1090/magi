@@ -57,13 +57,24 @@ internal class SettingsScreenTest : GwtTestSpec({
             }
         }
         When("모델 보조 스위치를 끄면") {
-            page.locator("#settings md-switch[data-pref=lookover]").click()
+            page.locator("#settings md-switch[data-pref=autocomplete]").click()
             Then("이 브라우저에 남는다 — 다른 기계의 취향까지 바꾸지 않는다") {
                 page.waitForCondition {
-                    page.evaluate("window.localStorage.getItem('lookover')") == "off"
+                    page.evaluate("window.localStorage.getItem('autocomplete')") == "off"
                 }
                 // 그리고 데몬에는 아무것도 가지 않았다.
                 (page.evaluate("window.__magi_test_saved || ''")) shouldBe ""
+            }
+        }
+        // 셋 중 하나는 기본이 다르다. 멈출 때마다 백엔드를 쓰는 비용은 타이핑하는 사람이 고를
+        // 일이라, 룩오버만 꺼진 채로 시작한다 — 이 화면이 그 값을 적고 편집기가 읽는다.
+        When("룩오버 스위치를 처음 보면") {
+            Then("꺼져 있고, 켜면 그 낱말이 남는다") {
+                page.evaluate("document.querySelector('#settings md-switch[data-pref=lookover]').selected") shouldBe false
+                page.locator("#settings md-switch[data-pref=lookover]").click()
+                page.waitForCondition {
+                    page.evaluate("window.localStorage.getItem('lookover')") == "on"
+                }
             }
         }
         When("데몬이 읽는 칸을 바꾸면") {

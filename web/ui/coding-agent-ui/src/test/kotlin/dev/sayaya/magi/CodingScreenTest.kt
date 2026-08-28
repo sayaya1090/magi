@@ -1,5 +1,7 @@
 package dev.sayaya.magi
 
+import com.microsoft.playwright.Page
+import com.microsoft.playwright.options.AriaRole
 import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
 import io.kotest.assertions.withClue
@@ -146,6 +148,19 @@ internal class CodingScreenTest : GwtTestSpec({
                     "run the build and then some"
                 page.locator("#dock .sughint:not([hidden])").count() shouldBe 0
             }
+            page.locator("#dock .composer #t textarea").fill("")
+        }
+        // 컴포저의 이어쓰기도 같은 취향을 읽는다 — 설정이 적고 이 화면이 읽는 낱말 하나다.
+        // 편집기의 청하기 버튼과 달리 사람이 누를 자리가 없으니, 끈 사람에게 이 도움은 없다.
+        When("이어쓰기를 끈 채 컴포저에 쓰다 말면") {
+            page.evaluate("window.localStorage.setItem('suggest','off'); window.__magi_test_suggest = null")
+            page.locator("#dock .composer #t textarea").fill("build it twice")
+            Then("아무것도 묻지 않는다") {
+                // 멈춤 뒤 400ms에 묻는 것이라, 그보다 넉넉히 기다린 뒤에 없음을 재야 한다.
+                page.waitForTimeout(1000.0)
+                page.evaluate("window.__magi_test_suggest") shouldBe null
+            }
+            page.evaluate("window.localStorage.removeItem('suggest')")
             page.locator("#dock .composer #t textarea").fill("")
         }
         When("컴포저에 한 마디 적어 보내면") {
@@ -440,6 +455,113 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("저장하면 읽는 그림으로 돌아온다 — 디스크의 그 파일이 사실이다") {
                 page.waitForSelector("#fileview .filebody .filecode")
                 page.locator("#fileview .fileedit").count() shouldBe 0
+            }
+        }
+        // 이 편집기의 도움 둘 — 멈출 때마다 <b>스스로</b> 도는가는 이 브라우저의 취향이고(설정
+        // 화면이 적는 낱말을 편집기가 읽는다), 사람이 한 번 청하는 것은 취향과 무관하게 열려 있다.
+        When("고치기를 다시 누르면") {
+            page.evaluate("window.__magi_test_look = null; window.localStorage.removeItem('lookover')")
+            page.locator("#fileview .filebar .fileacts md-text-button").first().click()
+            page.waitForSelector("#fileview .fileedit .fileeditarea")
+            Then("청하는 컨트롤 둘이 제 상태를 이름으로 말한다 — 색만으로 말하지 않는다") {
+                val ask = page.locator("#fileview .filebar .fileacts .editask")
+                ask.count() shouldBe 2
+                // 스스로도 도는 쪽만 armed다. 룩오버는 기본이 꺼짐이라 이름이 갈린다.
+                ask.nth(0).getAttribute("class") shouldNotContain "on"
+                ask.nth(1).getAttribute("class") shouldContain "on"
+                // md-icon-button은 호스트의 aria-*를 제 것으로 삼아 data-aria-*로 옮긴다(실측:
+                // aria-label → data-aria-label). 이름은 그림자 안 버튼이 이어받으므로 읽는
+                // 기계에는 그대로 닿는다 — 그 사실을 역할·이름으로 따로 잰다. 운영도 같은
+                // 컴포넌트라 이 계약은 두 콘솔이 공유한다(page.js:9312).
+                ask.nth(0).getAttribute("title") shouldBe "edit.look_now"
+                ask.nth(1).getAttribute("title") shouldBe "edit.ask_armed"
+                ask.nth(0).getAttribute("data-aria-busy") shouldBe "false"
+                page.getByRole(AriaRole.BUTTON, Page.GetByRoleOptions().setName("edit.look_now"))
+                    .count() shouldBe 1
+            }
+            Then("룩오버가 꺼져 있으면 멈춰도 백엔드를 쓰지 않는다 — 그 비용은 고를 일이다") {
+                page.locator("#fileview .fileedit .fileeditarea").fill("package main\nfunc y() {")
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_complete") as? String)?.contains("func y() {") == true
+                }
+                // 스스로 도는 룩오버는 멈춤 2초 뒤다. 그보다 넉넉히 기다린 뒤에 없음을 재야 한다.
+                page.waitForTimeout(2600.0)
+                page.evaluate("window.__magi_test_look") shouldBe null
+            }
+            Then("그래도 사람이 청하면 한 번 본다 — 캐럿 둘레만 싣고") {
+                page.evaluate("window.__magi_test_look_hold = true")
+                page.locator("#fileview .filebar .fileacts .editask").nth(0).click()
+                page.waitForCondition { page.evaluate("window.__magi_test_look") != null }
+                (page.evaluate("window.__magi_test_look") as String) shouldContain "src/main.go|"
+            }
+            Then("도는 표는 세어서 켠다 — 먼저 온 답이 아직 뜬 물음의 표까지 끄지 않게") {
+                page.locator("#fileview .filebar .fileacts .editask").nth(0).click()
+                page.waitForCondition { page.evaluate("window.__magi_test_look_asked") == 2 }
+                val look = page.locator("#fileview .filebar .fileacts .editask").nth(0)
+                look.getAttribute("data-aria-busy") shouldBe "true"
+                look.getAttribute("title") shouldBe "action.working"
+                page.evaluate("window.__magi_test_look_release()")
+                withClue("깃발이었다면 여기서 표가 꺼진다 — 아직 하나가 떠 있는데도") {
+                    look.getAttribute("data-aria-busy") shouldBe "true"
+                }
+                page.evaluate("window.__magi_test_look_release()")
+                page.waitForCondition { look.getAttribute("data-aria-busy") == "false" }
+            }
+            Then("답은 그 줄 곁에 서고, 형식 밖의 말은 상자에 선다") {
+                page.waitForSelector("#fileview .editghost .linenote")
+                page.locator("#fileview .editghost .linenote").count() shouldBe 1
+                withClue("운영과 같은 표식(‹)이 코드와 남의 말을 가른다 — page.js:8980") {
+                    page.locator("#fileview .editghost .linenote").textContent() shouldBe
+                        "  \u2039 says nothing"
+                }
+                page.locator("#fileview .fileedit .looksaid").textContent() shouldBe
+                    "and a line outside the format"
+                withClue("형식 밖의 말은 결함이라 경고색을 지킨다 — .plain은 할 말이 없다는 쪽이다") {
+                    page.locator("#fileview .fileedit .looksaid.plain").count() shouldBe 0
+                }
+            }
+            Then("같은 검토가 귀로도 간다 — 그것을 그리는 거울은 aria-hidden이다") {
+                val sr = page.locator("#fileview .fileedit .sr-only[role=status]")
+                sr.count() shouldBe 1
+                sr.getAttribute("aria-live") shouldBe "polite"
+                sr.textContent() shouldBe "1: says nothing \u00B7 and a line outside the format"
+                withClue("필드가 그 줄을 가리켜야 언제든 다시 읽힌다") {
+                    page.evaluate(
+                        "document.querySelector('#fileview .fileeditarea').getAttribute('aria-describedby')" +
+                            " === document.querySelector('#fileview .fileedit .sr-only[role=status]').id"
+                    ) shouldBe true
+                }
+            }
+            Then("키 두 짝이 그 둘을 부른다 — 버튼이 제 이름에 이미 광고하던 키다") {
+                page.evaluate("window.__magi_test_look_hold = false;" +
+                    " window.__magi_test_look = null; window.__magi_test_complete = null")
+                val area = page.locator("#fileview .fileedit .fileeditarea")
+                area.press("Control+Shift+Enter")
+                page.waitForCondition { page.evaluate("window.__magi_test_look") != null }
+                page.evaluate("window.__magi_test_complete") shouldBe null
+                area.press("Control+Enter")
+                page.waitForCondition { page.evaluate("window.__magi_test_complete") != null }
+            }
+        }
+        When("룩오버를 켜고 편집기를 다시 세우면") {
+            // 취향은 편집기가 <b>설 때</b> 읽는다 — 설정은 다이얼로그가 아니라 화면이라 이 둘은
+            // 같은 순간에 서지 않는다(운영이 살아서 고쳐야 했던 이유가 여기엔 없다).
+            page.evaluate("window.localStorage.setItem('lookover','on'); window.__magi_test_look = null")
+            page.locator("#fileview .filebar .fileacts md-text-button").last().click()
+            page.waitForSelector("#fileview .filebody .filecode")
+            page.locator("#fileview .filebar .fileacts md-text-button").first().click()
+            page.waitForSelector("#fileview .fileedit .fileeditarea")
+            Then("멈추면 스스로 한 번 보고, 그 컨트롤은 armed로 선다") {
+                page.locator("#fileview .filebar .fileacts .editask").nth(0)
+                    .getAttribute("class") shouldContain "on"
+                page.locator("#fileview .fileedit .fileeditarea").fill("package main\nfunc z() {")
+                page.waitForCondition { page.evaluate("window.__magi_test_look") != null }
+            }
+            Then("취향은 이 브라우저에 남는다 — 편집기는 읽기만 한다") {
+                page.evaluate("window.localStorage.getItem('lookover')") shouldBe "on"
+                page.locator("#fileview .filebar .fileacts md-text-button").last().click()
+                page.waitForSelector("#fileview .filebody .filecode")
+                page.evaluate("window.localStorage.removeItem('lookover')")
             }
         }
         When("찾기를 누르면") {

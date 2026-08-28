@@ -4,6 +4,7 @@ import dev.sayaya.magi.bridge.CompanionContext;
 import dev.sayaya.magi.client.usecase.WorkspaceSource;
 import elemental2.core.Global;
 import elemental2.dom.DomGlobal;
+import jsinterop.annotations.JsFunction;
 import jsinterop.base.Js;
 
 import javax.inject.Inject;
@@ -79,10 +80,27 @@ public class FakeWorkspaceSource implements WorkspaceSource {
         text.accept("MORE");
     }
 
+    @JsFunction
+    interface Release { void call(); }
+
+    /** 아직 답하지 않은 물음들 — 붙들라고 했을 때만 쌓인다. */
+    private final java.util.List<Consumer<String>> heldLooks = new java.util.ArrayList<>();
+
     @Override
     public void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_look", path + "|" + numbered.split("\n").length);
-        notes.accept("1\tsays nothing\nand a line outside the format");
+        // 답을 붙들 수 있다. 도는 표를 <b>세어서</b> 켠다는 계약은 두 물음이 동시에 떠 있어야만
+        // 재진다 — 깃발이었다면 먼저 온 답 하나가 아직 남은 하나의 표까지 껐을 것이고, 동기로
+        // 답하는 가짜에서는 그 차이가 한 번도 드러나지 않는다.
+        heldLooks.add(notes);
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_look_release", (Release) this::release);
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_look_asked", heldLooks.size());
+        if (!Js.isTruthy(Js.asPropertyMap(DomGlobal.window).get("__magi_test_look_hold"))) release();
+    }
+
+    private void release() {
+        if (heldLooks.isEmpty()) return;
+        heldLooks.remove(0).accept("1\tsays nothing\nand a line outside the format");
     }
 
     @Override

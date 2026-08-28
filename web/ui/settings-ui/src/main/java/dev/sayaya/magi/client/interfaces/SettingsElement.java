@@ -68,8 +68,11 @@ public class SettingsElement {
         // 닿는 컨트롤은 없는 컨트롤보다 나쁘다(운영 data-may와 같은 판단).
         if (May.can("prompt")) {
             form.append(group("grpAssist", tr("pref.grp.assist")));
+            // 룩오버만 기본이 꺼짐이다: 타이핑이 멎을 때마다 백엔드를 쓰는 비용은 타이핑하는
+            // 사람이 <b>고를</b> 일이지 겪을 일이 아니다(운영 lookOn의 그 판단). 나머지 둘은
+            // 라우팅된 빠른 프로파일이 없으면 서버가 스스로 침묵하므로 기본이 켜짐이다.
             form.append(switchRow("lookK", "lookWhy", "files.look", "files.look_why",
-                    "lookover", true, on -> store.keep("lookover", on)));
+                    "lookover", false, on -> store.keep("lookover", on)));
             form.append(switchRow("acK", "acWhy", "pref.autocomplete", "pref.autocomplete_why",
                     "autocomplete", true, on -> store.keep("autocomplete", on)));
             form.append(switchRow("sugK", "sugWhy", "pref.suggest", "pref.suggest_why",

@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Keys;
 import dev.sayaya.magi.bridge.Icons;
 
 import dev.sayaya.magi.bridge.Windows;
@@ -82,7 +83,8 @@ public class MastheadElement {
     public void paint() {
         gear.setAttribute("aria-label", tr("nav.preferences"));
         // 어느 손가락인지도 말한다 — 맥이면 ⌘K, 아니면 Ctrl+K.
-        String cmdKey = mac() ? "⌘K" : "Ctrl+K";
+        // 어느 수정자인지는 이 화면의 사실이 아니다 — 편집기의 두 버튼도 같은 낱말을 광고한다.
+        String cmdKey = Keys.mac() ? "⌘K" : "Ctrl+K";
         palBtn.setAttribute("aria-label", tr("pal.head"));
         palBtn.setAttribute("title", tr("pal.head") + "  ·  " + cmdKey);
         gear.setAttribute("title", tr("nav.preferences"));
@@ -337,12 +339,6 @@ public class MastheadElement {
 
     /** 위에 얹히는 것이 바뀌면(폰의 탭 줄, 데모의 띠) 다시 잰다 — 그 자리는 창의 사실이다. */
     public void remeasure() { measureShelltop(); }
-
-    /** 이 손이 어느 기계의 것인가 — 단축키를 그 기계의 말로 적으려고. */
-    private static boolean mac() {
-        String ua = String.valueOf(DomGlobal.navigator.userAgent).toLowerCase();
-        return ua.contains("mac") || ua.contains("iphone") || ua.contains("ipad");
-    }
 
     private static String str(JsPropertyMap<Object> m, String k) {
         Object v = m.get(k);
