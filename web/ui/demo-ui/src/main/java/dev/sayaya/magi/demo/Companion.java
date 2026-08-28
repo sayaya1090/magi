@@ -32,6 +32,10 @@ final class Companion {
                     + "\"task\":\"find every component that draws an empty state\","
                     + "\"model\":\"qwen3-coder-next\",\"ago\":240,\"running\":false}]");
         }
+        // 갱신은 몸 없는 POST다 — 쓰는 부름인데 wrote(init)가 거짓이라 저 아래 분기로는 닿지
+        // 않는다. 데몬이 답한 <b>말</b>을 그대로 그리는 것이 이 컨트롤의 계약이므로, 데모도 말을
+        // 한 줄 답한다(그림자 상태는 두지 않는다 — 데모의 명단은 그대로 v0.22.0이다).
+        if ("/update".equals(path)) return Mock.json("updated v0.22.0 \u2192 v0.23.0, restarting");
         if (Mock.wrote(init)) {
             // 바꾸는 부름들(모델·결재·백엔드·보고서 양식·접기·보내기)은 받아만 둔다:
             // 데모의 값은 다음 물음에서 그대로 돌아온다 — 거짓 성공을 그리지 않는다.

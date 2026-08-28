@@ -106,6 +106,16 @@ public class BridgeCompanionSource implements CompanionSource {
         Console.post("/permission", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
     }
 
+    /**
+     * 갱신은 오래 걸린다 — 받고 세우고 다시 서는 일이다. 15분은 그 일이 끝나기를 기다리는
+     * 시간이고, 그 뒤에는 <b>답이 없었다</b>고 말하기 위한 시한이다(잠긴 버튼을 풀 근거).
+     */
+    @Override
+    public void update(CompanionContext ctx, Consumer<String> said) {
+        Console.postSaid("/update", ctx.socket, ctx.peer, 15 * 60 * 1000)
+                .then(w -> { said.accept(w); return null; });
+    }
+
     @Override
     public void tools(CompanionContext ctx, Consumer<Object> cb) {
         Console.fetchList("/tools" + q(ctx), cb::accept);

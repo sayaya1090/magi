@@ -80,6 +80,14 @@ public interface CompanionSource {
     /** 결재 방식을 바꾼다(/permission): ask · auto · allow · deny. */
     void permission(CompanionContext ctx, String mode, java.util.function.Consumer<String> why);
 
+    /**
+     * 그 데몬에게 최신 릴리스로 갱신하라고 한다(/update).
+     *
+     * 답은 <b>거부까지 포함해 사람이 읽을 한 줄</b>이다: 되든 안 되든 데몬이나 BFF가 무슨 일이
+     * 있었는지 말한다. 빈 문자열만 다른 뜻이다 — 아무도 아무 말도 하지 않았다(회선이 끊겼다).
+     */
+    void update(CompanionContext ctx, java.util.function.Consumer<String> said);
+
     /** 이 컴패니언이 가진 도구 이름들(/tools) — 빈 답은 "없다"가 아니라 "물어볼 수 없는 데몬"이다. */
     void tools(CompanionContext ctx, java.util.function.Consumer<Object> namesOrNull);
 

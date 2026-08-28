@@ -82,8 +82,13 @@ public class FakeCompanionSource implements CompanionSource {
                 "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
                 "\"steps\":7,\"idle\":42,\"role\":\"keeps the build green\",\"team\":\"core\",\"hub\":true," +
                 "\"host\":\"devbox\",\"addr\":\"10.0.0.7\",\"pid\":4242,\"version\":\"v0.28.0\"," +
+                "\"trust\":\"own\"," +
                 "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\",\"permission\":\"ask\"," +
-                "\"handling\":true,\"waiting\":2,\"model\":\"gpt-oss:120b\"}]"));
+                "\"handling\":true,\"waiting\":2,\"model\":\"gpt-oss:120b\"}," +
+                // 둘째 행은 그리지 않는다 — 여기 있는 이유는 하나다: 뒤처졌다는 것은 <b>명단이</b>
+                // 아는 사실이고, 견줄 상대가 없으면 갱신 버튼이 설 근거도 없다.
+                "{\"socket\":\"/tmp/a2.sock\",\"name\":\"beta\",\"state\":\"idle\"," +
+                "\"steps\":0,\"idle\":90,\"version\":\"v0.29.0\",\"trust\":\"own\"}]"));
     }
 
     @Override
@@ -160,6 +165,14 @@ public class FakeCompanionSource implements CompanionSource {
     public void permission(CompanionContext ctx, String mode, java.util.function.Consumer<String> why) {
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_perm", mode);
         why.accept("");
+    }
+
+    @Override
+    public void update(CompanionContext ctx, Consumer<String> said) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_update", ctx.socket);
+        // 데몬이 뭐라고 답할지는 스펙이 정한다 — 아무것도 정하지 않았으면 회선이 끊긴 셈이다.
+        Object canned = Js.asPropertyMap(DomGlobal.window).get("__magi_test_update_says");
+        said.accept(canned == null ? "" : String.valueOf(canned));
     }
 
     @Override

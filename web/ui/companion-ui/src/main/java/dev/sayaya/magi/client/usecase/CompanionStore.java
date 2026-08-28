@@ -196,6 +196,12 @@ public class CompanionStore implements CompanionSource.Listener {
         if (ctx != null) source.permission(ctx, mode, why);
     }
 
+    /** 그 데몬을 최신 릴리스로 — 들은 말을 그대로 돌려준다(빈 문자열은 "아무 말도 없음"). */
+    public void update(Consumer<String> said) {
+        if (ctx == null) { said.accept(""); return; }
+        source.update(ctx, said);
+    }
+
     public void tools(Consumer<Object> cb) {
         if (ctx == null) { cb.accept(null); return; }
         source.tools(ctx, cb);
