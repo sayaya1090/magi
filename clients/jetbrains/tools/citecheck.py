@@ -29,6 +29,7 @@
 """
 import os
 import re
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -40,7 +41,7 @@ SKIP_DIRS = {".git", "build", "node_modules", ".gradle", "vendor", "scratchpad",
 
 # 파일 이름의 백틱은 있어도 되고 없어도 된다. 마크다운은 두르고 KDoc 은 안 두른다. 처음엔
 # 백틱을 요구했고, 그래서 Kotlin 주석에 줄 번호를 되돌리는 시험이 통과해 버렸다.
-BARE = r'(?<![\w:/])([A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt))'
+BARE = r'(?<![\w:/])([A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt))(?![\w])'
 # 심볼에 숫자를 허용한다. `[A-Za-z_.]+` 이었을 때 `sha256Of` 같은 이름이 전부 조용히 빠졌다.
 SYMBOL = re.compile(r'`?' + BARE + r'`?[^`\n]{0,14}`([A-Za-z_][\w.]*)`')
 QUOTE = re.compile(r'`?' + BARE + r'`?[^`\n"]{0,30}"([^"\n]{12,120})"')
@@ -49,13 +50,17 @@ LINENO = re.compile(r'(?<![\w:/])[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt|ts|yml):\d+
 
 
 def sources():
-    """저장소의 소스 파일을 (basename, [경로…]) 로 색인한다."""
+    """저장소의 소스 파일을 (basename, [경로…]) 로 색인한다.
+
+    git 이 추적하는 것만 담는다. 처음엔 트리를 그냥 걸었더니 `bench/harbor/state` 의 생성물이
+    딸려 와 `README.md` 가 11 개가 됐고, 문서의 멀쩡한 인용이 "모호하다"로 실패했다. 무시되는
+    파일은 이 저장소의 사실이 아니다.
+    """
     index = {}
-    for base, dirs, names in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
-        for n in names:
-            if n.endswith((".go", ".md", ".kt")):
-                index.setdefault(n, []).append(os.path.join(base, n))
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
+    for rel in tracked.stdout.split("\0"):
+        if rel.endswith((".go", ".md", ".kt")):
+            index.setdefault(os.path.basename(rel), []).append(os.path.join(ROOT, rel))
     return index
 
 
@@ -77,7 +82,10 @@ def resolve(name):
     if len(hits) == 1:
         return hits[0], None
     if not hits:
-        return None, None  # 이 트리 밖 파일이거나 예시. 검사 못 한 것으로 센다.
+        # 없는 파일은 **실패**다. 한때 조용히 넘겼는데, 그러면 `daemon.go` 를 다른 이름으로
+        # 옮기는 순간 이 문서의 그 파일 인용 전부가 검사에서 빠지면서 총계는 그대로 0 이 된다 —
+        # 썩음의 가장 큰 형태가 제일 조용해진다.
+        return None, f"`{name}`: 그런 파일이 없다 — 옮겨졌거나 이름이 바뀌었다"
     return None, (
         f"`{name}` 는 저장소에 {len(hits)}개라 어느 것인지 모른다 — 경로를 붙여 적을 것 "
         f"({', '.join(os.path.relpath(h, ROOT) for h in sorted(hits)[:4])})"
@@ -89,6 +97,23 @@ def read(path):
         return f.read()
 
 
+COMMENT = re.compile(r"/\*\*?.*?\*/|//[^\n]*", re.S)
+
+
+def prose(path):
+    """검사 대상이 되는 글. Kotlin 은 **주석만** 본다.
+
+    코드까지 보면 문자열 리터럴이 인용으로 잡힌다 — `completeCode("a.kt", …)` 의 `a.kt` 는 시험
+    픽스처이지 원본을 가리키는 손가락이 아니다. 그것을 관용으로 넘기려다 "없는 파일"이라는 가장
+    큰 썩음까지 같이 삼켰다(동료 실측). 인용은 산문에 살지 리터럴에 안 사니까, 관용을 넓히는
+    대신 보는 범위를 좁힌다.
+    """
+    body = read(path)
+    if not path.endswith(".kt"):
+        return body
+    return "\n".join(m.group(0) for m in COMMENT.finditer(body))
+
+
 def documents():
     out = [os.path.join(HERE, "README.md")]
     for base, dirs, names in os.walk(os.path.join(HERE, "plugin")):
@@ -97,11 +122,19 @@ def documents():
     return out
 
 
+FENCE = re.compile(r"^```.*?^```", re.S | re.M)
+
+
 def check(doc, where, bad, unchecked):
-    # 규칙 자체를 적는 머리말(첫 `##` 앞)은 줄 번호 검사에서 뺀다. "이렇게 적으면 이렇게 썩는다"의
-    # 증거로 밀린 번호를 인용해야 하는데, 그것까지 잡으면 검사기가 자기 설명문을 잡는다.
+    # 규칙 자체를 적는 머리말(첫 `##` 앞)을 통째로 뺀다. "이렇게 적으면 이렇게 썩는다"의 증거로
+    # 밀린 번호를 인용해야 하는데, 그것까지 검사하면 검사기가 자기 설명문을 잡는다.
+    #
+    # 코드 펜스도 뺀다. 디렉토리 트리 그림의 `README.md          # 이 문서` 는 목록의 한 줄이지
+    # 원본을 가리키는 손가락이 아니다. Kotlin 을 주석만 보는 것과 같은 이유다 — 관용을 넓히는
+    # 대신 보는 범위를 좁힌다.
     cut = doc.find("\n## ")
-    for m in LINENO.finditer(doc[cut:] if cut > 0 else doc):
+    doc = FENCE.sub("", doc[cut:] if cut > 0 else doc)
+    for m in LINENO.finditer(doc):
         bad.append(f"{where}: 줄 번호 인용이 돌아왔다: {m.group(0)} — 심볼이나 한 줄 인용문으로")
 
     checked = set()
@@ -135,7 +168,10 @@ def check(doc, where, bad, unchecked):
     quotes = 0
     for name, quote in QUOTE.findall(doc):
         path, problem = resolve(name)
-        if problem or not path:
+        if problem:
+            bad.append(f"{where}: {problem}")
+            continue
+        if not path:
             continue
         quotes += 1
         if quote not in read(path):
@@ -145,12 +181,15 @@ def check(doc, where, bad, unchecked):
     mentioned = {m.group(1) for m in MENTION.finditer(doc)}
     covered = {n for n, _ in checked} | {n for n, _ in QUOTE.findall(doc)}
     for name in sorted(mentioned - covered):
-        # 문서가 문서를 가리키는 것(`docs/ARCHITECTURE.md`)은 파일 전체가 대상이라 정상이다.
-        # 소스 파일을 심볼 없이 가리키는 것만 약한 손가락으로 본다.
-        if name.endswith(".md"):
-            continue
         path, problem = resolve(name)
-        if path or problem:
+        # 이름이 없어졌거나 모호한 것은 **실패**다. 심볼을 안 달았다는 이유로 이것까지 조용히
+        # 넘기면, 코퍼스의 인용 대부분이 그 모양이라 가장 큰 썩음이 가장 조용해진다.
+        if problem:
+            bad.append(f"{where}: {problem}")
+            continue
+        # 문서가 문서를 가리키는 것(`docs/ARCHITECTURE.md`)은 파일 전체가 대상이라 정상이다.
+        # 소스 파일을 심볼 없이 가리키는 것만 약한 손가락으로 남긴다.
+        if path and not name.endswith(".md"):
             unchecked.append(f"{where}: `{name}` 를 심볼 없이 가리킨다")
     return len(checked), quotes
 
@@ -159,7 +198,7 @@ def main():
     bad, unchecked = [], []
     syms = quotes = 0
     for path in documents():
-        s, q = check(read(path), os.path.relpath(path, ROOT), bad, unchecked)
+        s, q = check(prose(path), os.path.relpath(path, ROOT), bad, unchecked)
         syms += s
         quotes += q
     for line in bad:
