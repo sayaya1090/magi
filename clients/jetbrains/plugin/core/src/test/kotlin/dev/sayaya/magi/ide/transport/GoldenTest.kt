@@ -47,7 +47,12 @@ class GoldenTest {
         val platform = golden["platform"]!!.jsonPrimitive.content
         assumeTrue(platform == goName(), "골든은 $platform 것 — 여기는 ${goName()}, 건너뛴다")
 
-        val root = Files.createTempDirectory("magi-golden").toRealPath()
+        // `$ROOT` 는 **만들어진 그대로**의 임시 디렉토리다 — macOS 에서는 그 자체가 /var → /private/var
+        // 뒤에 있고, 그 **긴 사슬**이 재려는 것이다. 해소한 형태를 쓰면 walker 가 Go 가 잰 것보다
+        // 한 홉 짧은 사슬을 걷는다(골든의 Go 쪽 주석이 그 드리프트를 겪고 적어 두었다).
+        // 답은 해소된 형태 기준이고 그쪽 자리표가 `$REAL` 이다.
+        val root = Files.createTempDirectory("magi-golden")
+        val real = root.toRealPath()
         build(root)
 
         for (c in golden["cases"]!!.jsonArray.map { it.jsonObject }) {
@@ -55,23 +60,24 @@ class GoldenTest {
             val raw = c["input"]!!.jsonPrimitive.content
             if (name == "case-two-spellings-one-key") {
                 // 코드가 아니라 볼륨의 성질이다. 두 철자가 한 컴패니언인지.
-                val a = SocketPath.workspaceKey(sub(root, "\$ROOT/CaseDir"))
-                val b = SocketPath.workspaceKey(sub(root, "\$ROOT/casedir"))
+                val a = SocketPath.workspaceKey(sub(root, real, "\$ROOT/CaseDir"))
+                val b = SocketPath.workspaceKey(sub(root, real, "\$ROOT/casedir"))
                 if (c["real"]!!.jsonPrimitive.content == "different") assertNotEquals(a, b, name) else assertEquals(a, b, name)
                 continue
             }
-            val input = sub(root, raw)
+            val input = sub(root, real, raw)
             val got = SocketPath.evalSymlinks(input)
             if (c["errors"]?.jsonPrimitive?.booleanOrNull == true) {
                 // Go 가 에러를 내면 WorkspaceKey 는 안 푼 경로를 그대로 쓴다. 반쯤 푼 것을 내면 안 된다.
                 assertEquals(input, got, "$name — 에러 자리에서 입력을 그대로 돌려줘야 한다")
             } else {
-                assertEquals(sub(root, c["real"]!!.jsonPrimitive.content), got, name)
+                assertEquals(sub(root, real, c["real"]!!.jsonPrimitive.content), got, name)
             }
         }
     }
 
-    private fun sub(root: Path, s: String): Path = Paths.get(s.replace("\$ROOT", root.toString()))
+    private fun sub(root: Path, real: Path, s: String): Path =
+        Paths.get(s.replace("\$REAL", real.toString()).replace("\$ROOT", root.toString()))
 
     /** 골든이 사람이 읽는 줄로 실어 온 배치를 그대로 세운다. */
     private fun build(root: Path) {
@@ -81,7 +87,7 @@ class GoldenTest {
                     Files.createDirectories(root.resolve(line.removePrefix("mkdir ")))
                 line.startsWith("symlink ") -> {
                     val (from, to) = line.removePrefix("symlink ").split(" -> ", limit = 2)
-                    val target = if (to.startsWith("\$ROOT")) sub(root, to) else Paths.get(to)
+                    val target = if (to.startsWith("\$ROOT")) sub(root, root, to) else Paths.get(to)
                     Files.createDirectories(root.resolve(from).parent)
                     Files.createSymbolicLink(root.resolve(from), target)
                 }

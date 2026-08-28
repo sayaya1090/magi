@@ -51,9 +51,12 @@ object SocketPath {
         var current = path
         var restarts = 0
         while (true) {
-            // 전체 반복 상한. Go 는 255에서 ELOOP 를 내고 그러면 WorkspaceKey 가 안 푼 경로를
-            // 쓰므로, 여기서도 입력을 그대로 돌려준다.
-            if (restarts++ > 64) return path
+            // 전체 반복 상한, Go 와 **같은 숫자**로 둔다. Go 는 255번째 확장에서 ELOOP 를 내고
+            // 그러면 WorkspaceKey 가 안 푼 경로를 쓰므로 여기서도 입력을 그대로 돌려준다. 세는
+            // 단위도 같다 — 사슬 길이가 아니라 총 확장 횟수다. 한때 64였는데, 주석이 255라 적고
+            // 코드가 다른 숫자면 다음 사람이 둘 중 무엇이 의도인지 물어야 한다(실측: 70단 사슬에서
+            // Go 는 끝까지 풀고 64 판본은 입력을 냈다).
+            if (restarts++ > 255) return path
             var out = current.root ?: return path
             val parts = current.toList()
             var restarted = false
