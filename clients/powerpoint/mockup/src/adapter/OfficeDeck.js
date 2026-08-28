@@ -140,17 +140,19 @@ export class OfficeDeck extends DeckPort {
       // 두 번이 틀리지는 않는다.
       context.presentation.setSelectedSlides([slideId]);
       await context.sync();
-      // ⚠ **여기가 `FakeDeck` 과 갈린다 — 안 고치고 적어 둔다.** 문은 빈 목록이면 잡은 것을
-      // 놓으라고 하고(`DeckPort.point`) 가짜 덱은 그렇게 하는데, 이 줄은 놓지 않고 그냥 나간다.
-      // 그러면 앞 안내의 도형이 그대로 잡힌 채 새 안내가 뜬다. 사유 없는 조기 이탈이라 아무도
-      // 안 물었고, 이 함수는 오늘 한 번도 안 돌아서 아무도 못 봤다.
+      // **빈 목록도 여기까지 온다 — 그때는 잡은 것을 놓는다**(`DeckPort.point` 의 계약).
+      // 조기 이탈이 아니라 빈 배열을 그대로 넘기는 것이 맞는데, 레퍼런스의 `shapeIds` 설명이
+      // 그 경우를 적고 있기 때문이다: *"If the list is empty, the selection is cleared."*
+      // (powerpoint.slide, `setSelectedShapes`, 1.8 모니커 · 2026-08-29 읽음). 놓아야 하는
+      // 이유는 안 놓았을 때 서는 것이 **앞 안내의 도형**이라서다 — 캔버스가 「이 안내는 저
+      // 도형에 대한 것」이라는 거짓을 말한다(§5.7 의 *남의 값이 부재의 자리에 앉는다*).
       //
-      // 고치려면 `setSelectedShapes([])` 를 부르면 되는데, **그게 놓는지·던지는지·아무 일도
-      // 안 하는지를 문서가 안 적는다**(§12 #9). 던지는 쪽이면 도형 없는 안내가 전부 실패로
-      // 바뀐다 — 안 재고 바꾸면 도는 길을 못 도는 길로 만들 수 있어서, 재고 나서 고친다.
-      if (!shapeIds || shapeIds.length === 0) return;
+      // 이 줄은 한 번 **사유 없는 조기 이탈**이었고, 그동안 이 문서 자신이 §6.1 에서는 「빈
+      // 배열이면 선택 해제」라고 적고 §12 #9 에서는 「문서가 안 적는다」고 적고 있었다. 결정을
+      // 산 쪽은 뒤엣말이었는데 틀린 쪽이 뒤엣말이었다 — **자기 문서 안에서 어긋난 두 문장 중
+      // 결정을 사는 쪽부터 확인한다.**
       const slide = context.presentation.slides.getItem(slideId);
-      slide.setSelectedShapes(shapeIds);
+      slide.setSelectedShapes(shapeIds ?? []);
       await context.sync();
     });
   }
