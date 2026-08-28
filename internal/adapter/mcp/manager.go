@@ -14,6 +14,11 @@ import (
 
 // ToolSink is the subset of a tool registry the manager needs (satisfied by
 // *builtin.Registry).
+//
+// Both calls run under the manager's own lock, so both must be leaves: a map write under the
+// registry's mutex, reaching nothing and blocking on nothing. That is what lets the manager change
+// the map and the registry as one fact — split apart, a server's cleanup unregisters names its
+// replacement had already registered, and the map says attached while the registry has nothing.
 type ToolSink interface {
 	Register(port.Tool)
 	Unregister(name string)
@@ -48,10 +53,11 @@ type serverConn struct {
 	cmd    *exec.Cmd
 	tools  []string
 	// viaDoor: attached at runtime through port.ToolServers, not declared in config. The door may
-	// only remove what the door added — see Detach. A reservation (no client yet) is also a
-	// serverConn: it holds the name while the handshake runs.
+	// only remove what the door added — see Detach. A reservation (client still nil) is also a
+	// serverConn: it holds the name while the handshake runs, and the SAME object is filled in and
+	// published when the handshake wins, so the pointer is this server's identity for its whole
+	// life. Everything that removes compares it, because a name outlives the server that held it.
 	viaDoor bool
-	pending bool
 }
 
 // NewManager returns a manager that registers tools into sink.
@@ -85,14 +91,16 @@ func (m *Manager) AddStdio(ctx context.Context, name, command string, args, env 
 	}
 
 	client := newClient(stdout, stdin, &procCloser{stdin: stdin, cmd: cmd})
-	return m.registerClient(ctx, name, client, cmd, false)
+	_, err = m.registerClient(ctx, name, client, cmd, false)
+	return err
 }
 
 // AddHTTP connects to an MCP server via HTTP transport (Streamable HTTP),
 // performs the handshake, discovers its tools, and registers them.
 func (m *Manager) AddHTTP(ctx context.Context, name, url string, headers map[string]string) error {
 	client := newHTTPClient(url, headers, nil)
-	return m.registerClient(ctx, name, client, nil, false)
+	_, err := m.registerClient(ctx, name, client, nil, false)
+	return err
 }
 
 // AddHTTPDynamic is like AddHTTP but takes a headers function evaluated fresh on
@@ -100,15 +108,18 @@ func (m *Manager) AddHTTP(ctx context.Context, name, url string, headers map[str
 // auth tokens) that change between requests rather than being frozen at setup.
 func (m *Manager) AddHTTPDynamic(ctx context.Context, name, url string, headersFn func() map[string]string) error {
 	client := newHTTPClient(url, nil, headersFn)
-	return m.registerClient(ctx, name, client, nil, false)
+	_, err := m.registerClient(ctx, name, client, nil, false)
+	return err
 }
 
 // mcpRegisterTimeout bounds the handshake + tool discovery so a hung/misbehaving
 // MCP server can't block startup forever (callers pass context.Background()).
 const mcpRegisterTimeout = 30 * time.Second
 
-// registerClient is the common logic for registering a client (stdio or HTTP).
-func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd, viaDoor bool) error {
+// registerClient is the common logic for registering a client (stdio or HTTP). It answers with the
+// published server so a caller can read the tools it registered without going back to the map by
+// name — by then the name may be someone else's.
+func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd, viaDoor bool) (*serverConn, error) {
 	// One name, one server — and the name is claimed BEFORE the handshake, which takes up to
 	// mcpRegisterTimeout. Checking and then releasing the lock let two attaches under one name both
 	// pass the check and both succeed: the loser stayed out of the map, never closed, its
@@ -127,23 +138,28 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		m.mu.Unlock()
 		client.Close()
 		if held.name != name {
-			return fmt.Errorf("mcp: %q collides with %q, which is already attached (both become %q in tool names)",
+			return nil, fmt.Errorf("mcp: %q collides with %q, which is already attached (both become %q in tool names)",
 				name, held.name, key)
 		}
-		return fmt.Errorf("mcp: %q is already attached; two servers cannot share one name", name)
+		return nil, fmt.Errorf("mcp: %q is already attached; two servers cannot share one name", name)
 	}
-	m.servers[key] = &serverConn{name: name, pending: true, viaDoor: viaDoor}
+	sc := &serverConn{name: name, cmd: cmd, viaDoor: viaDoor}
+	m.servers[key] = sc
 	m.mu.Unlock()
 	// The reservation is released on every failure below. Holding it would burn the name for the
 	// life of the daemon over one server that was not listening — worse than the collision it is
 	// there to prevent, because nothing would ever be able to take it.
+	//
+	// Released by identity, not by "whatever is under the key and unfinished": a Detach during the
+	// handshake frees the name, a second attach may already have reserved it, and deleting that
+	// one would hand the name to a third while the second is still handshaking.
 	ok := false
 	defer func() {
 		if ok {
 			return
 		}
 		m.mu.Lock()
-		if held := m.servers[key]; held != nil && held.pending {
+		if m.servers[key] == sc {
 			delete(m.servers, key)
 		}
 		m.mu.Unlock()
@@ -152,39 +168,65 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 	defer cancel()
 	if err := client.Initialize(ctx); err != nil {
 		client.Close()
-		return fmt.Errorf("mcp: initialize %q: %w", name, err)
+		return nil, fmt.Errorf("mcp: initialize %q: %w", name, err)
 	}
 	defs, err := client.ListTools(ctx)
 	if err != nil {
 		client.Close()
-		return fmt.Errorf("mcp: list tools %q: %w", name, err)
+		return nil, fmt.Errorf("mcp: list tools %q: %w", name, err)
 	}
 
-	sc := &serverConn{name: name, client: client, cmd: cmd, viaDoor: viaDoor}
+	tools := make([]*mcpTool, 0, len(defs))
 	for _, d := range defs {
 		schema := d.InputSchema
 		if len(schema) == 0 {
 			schema = []byte(`{"type":"object"}`)
 		}
-		reg := namespacedToolName(name, d.Name)
-		t := &mcpTool{client: client, name: reg, remote: d.Name, description: d.Description,
-			schema: schema, imageDir: m.ImageDir}
-		m.sink.Register(t)
-		sc.tools = append(sc.tools, reg)
+		t := &mcpTool{client: client, name: namespacedToolName(name, d.Name), remote: d.Name,
+			description: d.Description, schema: schema, imageDir: m.ImageDir}
+		tools = append(tools, t)
 	}
 
 	m.mu.Lock()
-	m.servers[key] = sc
+	// Our reservation is our identity. If the key no longer holds it, the name was taken from us
+	// while we were handshaking — a Detach for the crash this attach is recovering from, or Close
+	// — and the tools under that name belong to whoever holds it now. Publishing here would put a
+	// second server in the map under one name and let this one'"'"'s eventual removal unregister the
+	// other'"'"'s tools. Fold up and say so instead: a caller told "attached" that then finds nothing
+	// registered has been told something it has no way to check.
+	if m.servers[key] != sc {
+		m.mu.Unlock()
+		client.Close()
+		return nil, fmt.Errorf("mcp: %q was removed while it was attaching", name)
+	}
+	// Registering the tools under the same lock that publishes the server is what makes the map
+	// and the registry one fact. Split, an unregister running outside the lock deletes names the
+	// server that just took the key had already registered — the map says attached and the
+	// registry has nothing. Safe because the sink is a leaf: Register is a map write under the
+	// registry'"'"'s own mutex and never reaches back here, so Manager.mu → sink has no other
+	// direction to meet. Close still happens outside the lock; it waits on a subprocess.
+	for _, t := range tools {
+		m.sink.Register(t)
+		sc.tools = append(sc.tools, t.name)
+	}
+	sc.client = client
 	m.mu.Unlock()
 	ok = true
 
 	// Unregister tools when the server goes away. This net holds every server, however it was
-	// attached: a config server nobody can reach is exactly as dead as a runtime one.
-	go func() {
-		<-client.Done()
-		m.Remove(name)
-	}()
-	return nil
+	// attached: a config server nobody can reach is exactly as dead as a runtime one. It removes by
+	// identity: retiring a dead server closes its client, which wakes this goroutine, and by then
+	// the name it was given may belong to the replacement that was attached in its place.
+	go m.watch(key, sc)
+	return sc, nil
+}
+
+// watch is the lifetime net's body, named so a test can fix WHEN it runs: the interesting order is
+// a death that arrives after a replacement has taken the name, and a goroutine racing a second
+// attach can only be made likely, not certain.
+func (m *Manager) watch(key string, sc *serverConn) {
+	<-sc.client.Done()
+	m.removeConn(key, sc)
 }
 
 // Attach is the runtime door (port.ToolServers): connect to an HTTP MCP server, register its
@@ -199,13 +241,16 @@ func (m *Manager) Attach(ctx context.Context, name, url string, headers map[stri
 		return nil, fmt.Errorf("mcp: attach needs a name and a url")
 	}
 	client := newHTTPClient(url, headers, nil)
-	if err := m.registerClient(ctx, name, client, nil, true); err != nil {
+	sc, err := m.registerClient(ctx, name, client, nil, true)
+	if err != nil {
 		return nil, err
 	}
+	// Still the one we published, not merely something under that name. Going back to the map by
+	// name would answer with a replacement'"'"'s tool names as if this attach had registered them.
 	m.mu.Lock()
-	sc := m.servers[sanitizeToolPart(name)]
+	ours := m.servers[sanitizeToolPart(name)] == sc
 	m.mu.Unlock()
-	if sc == nil {
+	if !ours {
 		return nil, fmt.Errorf("mcp: %q attached and then vanished", name)
 	}
 	out := make([]string, len(sc.tools))
@@ -232,47 +277,75 @@ func (m *Manager) Detach(name string) (bool, error) {
 		m.mu.Unlock()
 		return false, fmt.Errorf("mcp: %q was declared in this daemon's config; the door removes only what it attached", name)
 	}
-	delete(m.servers, key) // taken under the same lock that found it: two detaches, one true
+	m.unpublishLocked(key, sc) // taken under the same lock that found it: two detaches, one true
 	m.mu.Unlock()
-	m.retire(sc)
+	closeConn(sc)
+	// True even when what we took was a reservation whose handshake is still running: the name is
+	// free, and that attach will find its reservation gone and fold up rather than land behind us.
+	// Answering false there would tell a caller reconnecting after a crash that nothing was there,
+	// moments before the thing it wanted gone finished arriving.
 	return true, nil
 }
 
-// Remove unregisters a server's tools and stops it. However it was attached.
+// Remove unregisters a server's tools and stops it. However it was attached — this is the
+// operator'"'"'s door, so it takes whatever holds the name. The lifetime net uses removeConn instead,
+// because a dead server must not reach past its own death to its successor.
 func (m *Manager) Remove(name string) {
 	key := sanitizeToolPart(name)
 	m.mu.Lock()
 	sc := m.servers[key]
-	delete(m.servers, key)
+	if sc != nil {
+		m.unpublishLocked(key, sc)
+	}
 	m.mu.Unlock()
-	m.retire(sc)
+	closeConn(sc)
 }
 
-// retire unregisters the tools and closes the client, outside the lock: Unregister reaches into
-// another registry's lock, and Close waits on a subprocess.
-func (m *Manager) retire(sc *serverConn) {
-	if sc == nil {
+// removeConn removes sc, and only sc: if the key has moved on to another server, this one is
+// already gone and there is nothing to do. Removing by name alone let a dead server'"'"'s cleanup
+// reach its own replacement — closing the dead client woke the net goroutine, which deleted
+// whatever had taken the name and unregistered the tools the replacement had just registered,
+// after Attach had already handed those names to the caller as the answer.
+func (m *Manager) removeConn(key string, sc *serverConn) {
+	m.mu.Lock()
+	if m.servers[key] != sc {
+		m.mu.Unlock()
 		return
 	}
+	m.unpublishLocked(key, sc)
+	m.mu.Unlock()
+	closeConn(sc)
+}
+
+// unpublishLocked takes a server out of the map and its tools out of the registry, under the one
+// lock, so the two never disagree about who is attached. Caller holds m.mu.
+func (m *Manager) unpublishLocked(key string, sc *serverConn) {
+	delete(m.servers, key)
 	for _, t := range sc.tools {
 		m.sink.Unregister(t)
 	}
-	if sc.client != nil {
-		sc.client.Close()
+}
+
+// closeConn stops the client, outside the lock: Close waits on a subprocess. The tools are already
+// gone by the time this runs — they are unregistered under the same lock that took the server out.
+func closeConn(sc *serverConn) {
+	if sc == nil || sc.client == nil {
+		return
 	}
+	sc.client.Close()
 }
 
 // Close stops all servers.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	conns := make([]*serverConn, 0, len(m.servers))
-	for _, sc := range m.servers {
+	for key, sc := range m.servers {
 		conns = append(conns, sc)
+		m.unpublishLocked(key, sc)
 	}
-	m.servers = map[string]*serverConn{}
 	m.mu.Unlock()
 	for _, sc := range conns {
-		m.retire(sc)
+		closeConn(sc)
 	}
 }
 

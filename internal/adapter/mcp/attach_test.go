@@ -292,3 +292,197 @@ func TestTheDoorDoesNotRemoveAConfigServer(t *testing.T) {
 		t.Error("Remove left a config server's tools registered — that is the leak the net exists for")
 	}
 }
+
+// mcpHTTPHeld is mcpHTTP whose tools/list waits, so a test can hold the reservation window — the
+// stretch between claiming the name and publishing the server — open for as long as it likes.
+func mcpHTTPHeld(t *testing.T, tool string, hold <-chan struct{}) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     int64  `json:"id"`
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05",` +
+				`"capabilities":{},"serverInfo":{"name":"t","version":"1"}}}`))
+		case "tools/list":
+			<-hold
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"` + tool +
+				`","description":"d","inputSchema":{"type":"object"}}]}}`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+}
+
+// A detach that lands mid-handshake used to answer "removed" and then let the attach finish behind
+// it: the caller — the crash-recovery case Detach's doc names — was told it was clean while the
+// thing it wanted gone was still arriving, and one second later the map held it and its tools were
+// advertised to the model. Either answer alone is defensible; the pair is a lie.
+func TestDetachDuringAttachIsTrueOnlyIfTheAttachAlsoFoldsUp(t *testing.T) {
+	hold := make(chan struct{})
+	srv := mcpHTTPHeld(t, "render", hold)
+	defer srv.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+
+	attached := make(chan error, 1)
+	go func() {
+		_, err := m.Attach(context.Background(), "ppt", srv.URL, nil)
+		attached <- err
+	}()
+	waitForServer(t, m, "ppt", true) // the reservation is in the map; the handshake is still out
+
+	removed, err := m.Detach("ppt")
+	if err != nil || !removed {
+		t.Fatalf("detach of a name that is claimed: removed=%v err=%v, want true/nil", removed, err)
+	}
+	close(hold) // the handshake completes, into a map that no longer holds its reservation
+	if err := <-attached; err == nil {
+		t.Error("attach reported success after its name was detached out from under it — the caller " +
+			"that asked for clean got clean, and the caller that asked for a server got one too")
+	}
+	m.mu.Lock()
+	held := m.servers["ppt"]
+	m.mu.Unlock()
+	if held != nil {
+		t.Errorf("detach said removed, then the attach landed anyway: %q is in the map", "ppt")
+	}
+	if sink.has("mcp__ppt__render") {
+		t.Error("mcp__ppt__render is advertised to the model by a server nothing is holding")
+	}
+}
+
+// A server's death must not reach past itself to its successor. Retiring the dead one closes its
+// client, which wakes its lifetime net, and removing by NAME there deleted whatever had taken the
+// name in the meantime — unregistering the replacement's tools right after Attach had handed those
+// very names back to the caller as its answer.
+//
+// watch is called here rather than raced: the death that matters is the one that arrives late, and
+// a goroutine racing a second attach can only be made likely.
+func TestADeadServerDoesNotTakeItsReplacementWithIt(t *testing.T) {
+	a := mcpHTTP(t, "render")
+	defer a.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+
+	if _, err := m.Attach(context.Background(), "ppt", a.URL, nil); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	dead := m.servers["ppt"]
+	m.mu.Unlock()
+	m.Remove("ppt") // the dead one is cleaned up and its client closed
+
+	b := mcpHTTP(t, "render")
+	defer b.Close()
+	if _, err := m.Attach(context.Background(), "ppt", b.URL, nil); err != nil {
+		t.Fatalf("replacement attach: %v", err)
+	}
+	if !sink.has("mcp__ppt__render") {
+		t.Fatal("the replacement did not register its tool — this test would pass for the wrong reason")
+	}
+
+	m.watch("ppt", dead) // the dead one's net, arriving after the replacement took the name
+
+	m.mu.Lock()
+	held := m.servers["ppt"]
+	m.mu.Unlock()
+	if held == nil {
+		t.Error("the dead server's cleanup deleted its replacement from the map")
+	}
+	if !sink.has("mcp__ppt__render") {
+		t.Error("the dead server's cleanup unregistered the replacement's tool — Attach had already " +
+			"answered with that name")
+	}
+}
+
+// waitForServer waits until name is (or is not) claimed in the map.
+func waitForServer(t *testing.T, m *Manager, name string, want bool) {
+	t.Helper()
+	for i := 0; i < 400; i++ {
+		m.mu.Lock()
+		_, got := m.servers[sanitizeToolPart(name)]
+		m.mu.Unlock()
+		if got == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("%q claimed=%v never became %v", name, !want, want)
+}
+
+// mcpHTTPRefusing holds tools/list open and then refuses it, so a test can keep a doomed attach's
+// reservation alive for as long as it likes and choose the moment the failure path runs.
+func mcpHTTPRefusing(t *testing.T, hold <-chan struct{}) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     int64  `json:"id"`
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05",` +
+				`"capabilities":{},"serverInfo":{"name":"t","version":"1"}}}`))
+		case "tools/list":
+			<-hold
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"error":{"code":-1,"message":"no"}}`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+}
+
+// A failed attach releases the name so one unreachable server does not burn it for the life of the
+// daemon. It must release ITS OWN claim and no other: released by "whatever is under the key and
+// has no client yet", it reaches the reservation of the attach that took the name after this one
+// lost it, and that second attach then fails too — refused on behalf of a server that was never in
+// its way. Nothing removed it; it is told it was removed.
+func TestAFailedAttachReleasesOnlyItsOwnClaim(t *testing.T) {
+	doomedHold, replacementHold := make(chan struct{}), make(chan struct{})
+	doomed := mcpHTTPRefusing(t, doomedHold)
+	defer doomed.Close()
+	replacement := mcpHTTPHeld(t, "render", replacementHold)
+	defer replacement.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := m.Attach(context.Background(), "ppt", doomed.URL, nil)
+		firstDone <- err
+	}()
+	waitForServer(t, m, "ppt", true)
+	if removed, err := m.Detach("ppt"); !removed || err != nil {
+		t.Fatalf("detach: removed=%v err=%v", removed, err)
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := m.Attach(context.Background(), "ppt", replacement.URL, nil)
+		secondDone <- err
+	}()
+	waitForServer(t, m, "ppt", true) // the second attach now holds the name
+
+	close(doomedHold) // the first attach fails and runs its release
+	if err := <-firstDone; err == nil {
+		t.Fatal("the doomed attach reported success — this test would prove nothing")
+	}
+	close(replacementHold)
+	if err := <-secondDone; err != nil {
+		t.Errorf("the second attach was refused because the first one's failure released a claim "+
+			"that was not its own: %v", err)
+	}
+	if !sink.has("mcp__ppt__render") {
+		t.Error("mcp__ppt__render is not registered: the surviving attach never published")
+	}
+}
