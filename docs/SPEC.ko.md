@@ -12,7 +12,14 @@
 > [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11, [`MANUAL.ko.md`](MANUAL.ko.md) §12 참조.
 
 > 각 기능 = **규칙(R)** + **예시 케이스**. 예시는 `given → when ⇒ then` 형식(코드블록)으로,
-> Go 테이블 테스트의 한 행에 1:1 대응. 케이스 ID(`read-1` 등)는 테스트 이름으로 그대로 사용.
+> Go 테이블 테스트의 한 행에 1:1 대응. 케이스 ID(`read-1` 등)는 그 규칙을 붙드는 테스트를 찾는
+> 방법입니다 — **Go 소스에서 ID를 검색하십시오.**
+>
+> 이 검색이 보장되는 것은 **Part A뿐**이고, 보장하는 주체는 테스트입니다. `internal/spec/probes_test.go`는
+> Part A의 ID가 어느 `.go` 파일에도 없으면 실패하며, 아직 못 찾은 몇 개는 사유와 함께 그 안에 적혀
+> 있습니다. 대신 두 가지는 약속하지 않습니다: ID는 테스트 이름이 아니라 **대개 테스트 위 주석에**
+> 있고, **Part B의 ID는 대부분 코드에 아예 없습니다**(2026-08-29 실측: 88개 중 44개가 어디에도 없음).
+> Part A 밖에서는 검색 결과가 없다는 사실이 아무것도 뜻하지 않습니다.
 >
 > 표 대신 코드블록을 쓰는 이유: 셀 안 백틱/중괄호/개행이 마크다운 테이블 렌더를 깨므로.
 > 표기: `\n`=개행, `ok`=IsError:false, `ERR("...")`=IsError:true + 메시지 포함.
@@ -173,6 +180,10 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
 여기 빠진 이름은 그 클라이언트가 만나고도 모를 줄이고, 여기 있는데 코드에 없는 이름은 영영 기다릴
 줄입니다. `vocab-1`이 이 둘을 `event.go`에 붙들어 둡니다.
 
+`vocab-1`이 붙드는 것은 R1·R2 — **어느 타입이 로그에 앉을 수 있는가**입니다. 어느 프레임이 seq를
+갖고 오는가에 대해서는 아무 말도 하지 않으며, 두 집합을 커서 규칙으로 읽는 사람은 R4가 이름을 대는
+그 타입에서 틀립니다. 두 물음은 하나처럼 보이지만 하나가 아닙니다.
+
 규칙:
 - R1 영속 타입(`session.created` / `prompt.submitted` / `part.appended` / `permission.decided` /
   `compaction` / `result.elided` / `turn.finished` / `todos.changed` / `labels.changed` / `error` /
@@ -193,6 +204,7 @@ fact-2:      app completes a part           ⇒ exactly 1 part.appended line in 
 roundtrip-1: Event → JSON → Event           ⇒ deep-equal to original
 vocab-1:     위 R1·R2                       ⇒ event.go의 사실 상수 / transientTypes와 정확히 일치
 seq-1:       Store 없는 SetModel            ⇒ 버스에 model.changed, seq 0 (R1 타입인데 seq 없음)
+seq-2:       Store 있는 SetModel            ⇒ 같은 호출·같은 타입이 버스에 seq를 갖고 옴
 ```
 
 ### F-EVENT-RECON — 로그→대화 복원

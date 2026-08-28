@@ -14,8 +14,14 @@
 > §11 and [`MANUAL.md`](MANUAL.md) §12.
 
 > Each feature = **rules (R)** + **example cases**. The examples are `given → when ⇒ then` (in code
-> blocks), one-to-one with a row of a Go table test. The case id (`read-1` and so on) is used
-> verbatim as the test name.
+> blocks), one-to-one with a row of a Go table test. The case id (`read-1` and so on) is how you
+> find the test that holds a rule: **search the id in Go source.**
+>
+> That search is guaranteed for **Part A only**, and by a test — `internal/spec/probes_test.go`
+> fails if a Part A id appears in no `.go` file, and the handful it cannot find are listed in it
+> with the reason for each. Two things it does not promise: the id is usually in the comment above
+> a test rather than in its name, and **Part B ids are mostly not in the code at all** (measured
+> 2026-08-29: of 88 ids, 44 appear nowhere). Outside Part A, finding nothing means nothing.
 >
 > Code blocks rather than tables, because a backtick, brace or newline inside a cell breaks markdown
 > table rendering. Notation: `\n` = newline, `ok` = IsError:false, `ERR("...")` = IsError:true with
@@ -180,6 +186,10 @@ Both sets below are the WHOLE vocabulary, not a sample. A client reads the log a
 these names, so a name missing here is a line it will meet and not know, and a name here that the
 code does not have is a line it will wait for for ever. `vocab-1` holds them to `event.go`.
 
+What `vocab-1` holds is R1 and R2 — WHICH TYPES MAY SIT IN THE LOG. It says nothing about which
+frames arrive carrying a seq, and a reader who takes the sets for a cursor rule will be wrong on
+the type R4 names. The two questions look like one and are not.
+
 Rules:
 - R1 The persisted types (`session.created` / `prompt.submitted` / `part.appended` /
   `permission.decided` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` /
@@ -200,7 +210,8 @@ fact-1:      bus.Publish(part.delta)        ⇒ Store unchanged (not persisted)
 fact-2:      app completes a part           ⇒ exactly 1 part.appended line in Store
 roundtrip-1: Event → JSON → Event           ⇒ deep-equal to original
 vocab-1:     R1 and R2 above                ⇒ exactly event.go's fact consts / transientTypes
-seq-1:       SetModel with no Store         ⇒ model.changed on the bus with seq 0 (R1 type, no seq)
+seq-1:       SetModel, no Store             ⇒ model.changed on the bus with seq 0 (R1 type, no seq)
+seq-2:       SetModel, with a Store         ⇒ the same call, the same type, on the bus WITH a seq
 ```
 
 ### F-EVENT-RECON — log → conversation
