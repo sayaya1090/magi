@@ -472,7 +472,9 @@ public class MeetingElement {
         HTMLElement stop = el("md-text-button");
         stop.append(Icons.shape("#i-sl-flag-checkered", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.wrap")));
-        stop.addEventListener("click", evt -> whileItRuns(stop, store::close));
+        // 사유는 <b>이 상자</b>에 선다 — 끝내기 단추가 여기 있고, 바로 위의 보내기가 거절당할
+        // 때 쓰는 자리와 같다. 방 목록 화면의 `.meetnote`는 남의 판이다.
+        stop.addEventListener("click", evt -> whileItRuns(stop, () -> store.close(why -> note(box, why))));
         box.append(f, send, leave, stop);
         return box;
     }
@@ -543,7 +545,8 @@ public class MeetingElement {
         HTMLElement go = el("md-filled-tonal-button");
         go.append(Icons.shape("#i-sl-play", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.reopen")));
-        go.addEventListener("click", evt -> whileItRuns(go, () -> store.reopen(value(f))));
+        go.addEventListener("click", evt -> whileItRuns(go, () ->
+                store.reopen(value(f), why -> note(box, why))));
         box.append(f, go);
         return box;
     }
@@ -638,7 +641,12 @@ public class MeetingElement {
         if (go != null) {
             if (ready) go.removeAttribute("disabled"); else go.setAttribute("disabled", "");
         }
-        if (note != null) {
+        // 서버가 거절하며 한 말이 이 자리에 서 있으면 건드리지 않는다(`data-fixed`). 이 줄은
+        // 두 가지를 실어 나른다 — <b>아직 열 수 없다</b>는 안내(이쪽이 쓴다)와 <b>열려다
+        // 거절당했다</b>는 서버의 말(note()가 쓴다). 안내는 폼을 볼 때마다 다시 계산되므로,
+        // 지키지 않으면 거절 사유가 다음 글자 하나에 지워진다. 운영은 이 검사를 갖고 있었고
+        // (`page.js`의 armConvene), 이식은 표시만 옮기고 <b>읽는 쪽을 빠뜨렸다</b>.
+        if (note != null && !note.hasAttribute("data-fixed")) {
             String key = Rooms.blockedKey(store.topic(), store.picked().size(), callableCount());
             note.textContent = ready || key.isEmpty() ? "" : tr(key);
         }

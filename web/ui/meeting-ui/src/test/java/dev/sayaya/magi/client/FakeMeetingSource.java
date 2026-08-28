@@ -72,6 +72,12 @@ public class FakeMeetingSource implements MeetingSource {
     @Override
     public void room(String id, Consumer<Object> cb) {
         waiting = cb;
+        // 몇 번 다시 읽었는지 — 「거절이면 다시 읽지 않는다」를 스펙이 <b>직접</b> 재기 위해서다.
+        // 화면으로만 재면 시간에 기댄다: 다시 읽기가 사유를 지우기 전에 스펙이 그 사유를 보고
+        // 지나가 버려, 지우는 코드를 넣어도 초록이 나온다(실측 — 되돌림 검사가 이걸 잡았다).
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        Object n = win.get("__magi_test_reads");
+        win.set("__magi_test_reads", (n == null ? 0 : (int) Double.parseDouble(String.valueOf(n))) + 1);
         if ("gone".equals(id)) { cb.accept(null); return; }
         cb.accept(roomOf());
     }
@@ -80,6 +86,8 @@ public class FakeMeetingSource implements MeetingSource {
     public void convene(String topic, String[] sockets, Consumer<Object> made, Consumer<String> why) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set("__magi_test_convened", topic + "|" + String.join(",", sockets));
+        String no = refuses();
+        if (!no.isEmpty()) { why.accept(no); return; }
         made.accept(Global.JSON.parse("{\"id\":\"m9\"}"));
     }
 
@@ -91,16 +99,27 @@ public class FakeMeetingSource implements MeetingSource {
     }
 
     @Override
-    public void close(String id, Runnable then) {
+    public void close(String id, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_closed", id);
+        String no = refuses();
+        // 거절하면 <b>아무것도 바꾸지 않는다</b> — 서버가 거절하고도 방을 닫아 두지는 않는다.
+        if (!no.isEmpty()) { why.accept(no); return; }
         stage = "closed";
-        then.run();
+        why.accept("");
     }
 
     @Override
-    public void reopen(String id, String why, Runnable then) {
-        Js.asPropertyMap(DomGlobal.window).set("__magi_test_reopened", id + "|" + (why == null ? "" : why));
-        then.run();
+    public void reopen(String id, String text, Consumer<String> why) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_reopened", id + "|" + (text == null ? "" : text));
+        String no = refuses();
+        if (!no.isEmpty()) { why.accept(no); return; }
+        why.accept("");
+    }
+
+    /** 스펙이 창에 적어 두면 그 다음 쓰기가 거절당한다 — 서버가 사유를 실어 돌려보내듯. */
+    private static String refuses() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_press_refuses");
+        return v == null ? "" : String.valueOf(v);
     }
 
     @Override

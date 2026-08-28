@@ -129,9 +129,25 @@ public class MeetingStore extends dev.sayaya.magi.bridge.Told {
 
     public void call(String who) { source.say(room, null, who, false, why -> read()); }
 
-    public void close() { source.close(room, this::read); }
+    /**
+     * 끝내기·다시 열기 — 거절당하면 <b>다시 읽지 않는다</b>. 이 화면의 사유는 저장소가 아니라
+     * 눌린 그 상자가 쥐고 있어서(`.meetnote`), 다시 읽으면 그 상자를 헐어 사유가 함께 사라진다.
+     * {@link #say}가 이미 그렇게 하고 있다 — 다른 화면들이 「사유를 쥐고 나서 다시 읽는」 것과
+     * 반대로 보이지만, 규칙은 하나다: <b>사유를 세운 것을 다시 읽기가 지우게 두지 않는다.</b>
+     */
+    public void close(Consumer<String> failed) {
+        source.close(room, why -> {
+            if (why != null && !why.isEmpty()) { failed.accept(why); return; }
+            read();
+        });
+    }
 
-    public void reopen(String why) { source.reopen(room, why, this::read); }
+    public void reopen(String text, Consumer<String> failed) {
+        source.reopen(room, text, why -> {
+            if (why != null && !why.isEmpty()) { failed.accept(why); return; }
+            read();
+        });
+    }
 
     /**
      * 결론 하나를 그 컴패니언에게 건넨다. 실패의 사유는 그대로 올려 보낸다 — 성공만 알리면

@@ -66,19 +66,18 @@ public class FetchMeetingSource implements MeetingSource {
     }
 
     @Override
-    public void close(String id, Runnable then) {
+    public void close(String id, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("id", id);
-        // ⚠ 사유가 설 자리가 이 포트에 없다 — 닫기가 거절당해도 방 목록만 다시 선다.
-        Console.post("/meet-close", body, null, null, (ok, t) -> then.run());
+        Console.post("/meet-close", body, null, null, (ok, t) -> why.accept(Console.why(ok, t)));
     }
 
     @Override
-    public void reopen(String id, String why, Runnable then) {
+    public void reopen(String id, String text, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("id", id);
-        if (why != null && !why.isEmpty()) body.set("why", why);
-        Console.post("/meet-open", body, null, null, (ok, t) -> then.run());   // ⚠ 위와 같다
+        if (text != null && !text.isEmpty()) body.set("why", text);
+        Console.post("/meet-open", body, null, null, (ok, t) -> why.accept(Console.why(ok, t)));
     }
 
     @Override

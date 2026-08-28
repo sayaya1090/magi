@@ -23,8 +23,16 @@ public interface MeetingSource {
     void say(String id, String text, String call, boolean hold, Consumer<String> why);
 
     /** 마무리 / 다시 열기 / 결론을 그 컴패니언에게 건네기. */
-    void close(String id, Runnable then);
-    void reopen(String id, String why, Runnable then);
+    /**
+     * 회의를 끝낸다. 답은 <b>사유 한 줄</b>이다(빈 것=됐다) — {@link #say}가 이미 쓰던 그 말.
+     *
+     * <p>앞서 이 자리는 {@code Runnable then}이라 방 목록을 다시 읽는 일만 했다: 끝내는 것이
+     * 거절당하면 아직 돌고 있는 그 방이 그대로 다시 서서, 누르기 전과 구별되지 않았다.</p>
+     */
+    void close(String id, Consumer<String> why);
+
+    /** 닫힌 방을 다시 돌린다 — {@code text}는 <b>보내는 사유</b>, 답은 <b>거절의 사유</b>다. */
+    void reopen(String id, String text, Consumer<String> why);
     void hand(String id, String who, Consumer<String> why);
 
     /** 한 컴패니언의 그 방 전사 — "무엇을 하는 중인가"를 보이는 데만 쓴다. */
