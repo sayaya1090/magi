@@ -78,6 +78,20 @@ const (
 	// attached to it both learn from the log they are already reading, rather than from a channel
 	// invented for the purpose — and a viewer that opens the session tomorrow learns the same way.
 	TypeSessionMoved Type = "session.moved"
+
+	// TypeModelChanged — the session's active model changed at runtime.
+	//
+	// It was declared as a transient for most of its life and this const block is where that
+	// mistake was visible: SetModel has recorded it since the console shipped (routing.go), for
+	// the reason written there — the bus reaches subscribers inside THIS process, and a browser
+	// reading the log is outside it, so the only model it could ever see was session.created's.
+	// A constant sitting under the wrong header is not a cosmetic error: three documents copied
+	// the header rather than the behaviour, and told outside clients not to expect this line.
+	//
+	// It earns the fact block on its own merits too: which model produced a turn is a judgement
+	// about work that happened, and no later pass can derive it from a transcript that never
+	// wrote it down — the same argument labels.changed carries.
+	TypeModelChanged Type = "model.changed"
 )
 
 // Transient events — bus only, not persisted.
@@ -89,7 +103,6 @@ const (
 	TypeContextUsage        Type = "context.usage"
 	TypeWorkflowPhase       Type = "workflow.phase"
 	TypeCouncilDeliberating Type = "council.deliberating" // a member is being polled (live panel)
-	TypeModelChanged        Type = "model.changed"        // session's active model changed at runtime — UI re-reads it
 	TypeUserLabelChanged    Type = "user.label.changed"   // user display label changed (plugin set_user_label) — UI re-reads it
 	// TypeQuestionAnswered — somebody answered an ask_user prompt. Announced because a prompt can
 	// be answered from a DIFFERENT process than the one showing it: a browser and a terminal on one
@@ -109,6 +122,11 @@ var transientTypes = map[Type]bool{
 	TypeWorkflowPhase:       true,
 	TypeCouncilDeliberating: true,
 	TypeQuestionAnswered:    true,
+	// Announced only, never appended: SetUserLabel publishes it and cmd/magi's attach synthesises
+	// it for a viewer. It was missing here, which made IsFact() say the opposite of what every
+	// caller does — and disarmed the one guard that would have caught a mistaken Append, since
+	// jsonl.Store rejects a persist by asking exactly this map.
+	TypeUserLabelChanged: true,
 }
 
 // IsTransient reports whether t is a bus-only event type (never persisted).
