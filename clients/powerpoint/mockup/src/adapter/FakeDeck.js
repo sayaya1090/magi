@@ -14,6 +14,11 @@ export class FakeDeck extends DeckPort {
     this.currentSlide = model.slides[0].id;
     this.selected = new Set();
     this.listeners = new Set();
+    /**
+     * 번호표를 줄 수 있는가. **목업 전용 손잡이다** — 1.8 아래 호스트(`OfficeDeck` 는 그때
+     * `null` 을 준다)를 눌러 볼 길이 여기 말고는 없고, 안 눌러 보면 그 화면은 안 만든 것이다.
+     */
+    this.numbering = true;
   }
 
   /**
@@ -53,15 +58,16 @@ export class FakeDeck extends DeckPort {
   }
 
   async slideNumbers() {
+    if (!this.numbering) return null;   // 1.8 아래 호스트 흉내. **지어내지 않는다.**
     return new Map(this.model.slides.map((s) => [s.id, s.no]));
   }
 
   async point(slideId, shapeIds) {
     const slide = this.slide(slideId);
-    if (!slide) throw new Error(`슬라이드 ${slideId} 가 없다`);
+    if (!slide) throw new Error(`덱에 없는 슬라이드입니다: ${slideId}`);
     const missing = (shapeIds ?? []).filter((id) => !slide.shapes.some((s) => s.id === id));
     // **비슷한 것으로 갈음하지 않는다.** 지워진 도형을 가리키면 그대로 실패한다(§5.8).
-    if (missing.length) throw new Error(`도형 ${missing.join(', ')} 을 찾을 수 없다`);
+    if (missing.length) throw new Error(`찾을 수 없는 도형입니다: ${missing.join(', ')}`);
     this.currentSlide = slideId;
     this.selected = new Set(shapeIds ?? []);
     this.#emit();

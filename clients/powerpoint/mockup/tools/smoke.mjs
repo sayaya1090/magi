@@ -5,7 +5,7 @@
 // PowerPoint 가 없고, 안 돌려 본 것을 "된다"고 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
-import { Advice } from '../src/domain/Advice.js';
+import { Advice, targetLabel } from '../src/domain/Advice.js';
 import { foldAdvice } from '../src/domain/AdviceBoard.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
@@ -597,6 +597,37 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('보통 끝에는 딱지가 없다', t.rows[0].unverified === false);
   ok('검증 못 한 끝은 그렇다고 실린다',
     t.rows[1].unverified === true && t.rows[1].reason === 'no independent run passed');
+}
+
+// ── 「가리킬 곳」 한 줄. 못 얻은 번호와 아직 안 물어본 번호를 **화면이 갈라야 한다**
+// (`DeckPort.slideNumbers` 가 빈 Map 대신 null 을 고른 이유가 그 갈림이다). 넷이 다 다른 글이
+// 아니면 그 계약은 값에만 있고 사람에겐 없는 것이다.
+{
+  const a = new Advice({ message: '넘칩니다', slideId: 's7', shapeIds: ['sh1'] });
+  const asked = targetLabel(a, new Map([['s7', 7]]), true);
+  const pending = targetLabel(a, null, false);
+  const cantNumber = targetLabel(a, null, true);
+  const gone = targetLabel(a, new Map([['s9', 9]]), true);
+  ok('번호를 얻으면 번호로 적는다', asked === '슬라이드 7 · sh1', asked);
+  ok('안 물어본 것과 못 얻은 것이 다른 글', pending !== cantNumber, `${pending} / ${cantNumber}`);
+  ok('답 전에는 확인 중이라고 적는다', pending.includes('확인 중'), pending);
+  ok('못 주는 호스트는 그렇다고 적는다', cantNumber.includes('못 줍니다'), cantNumber);
+  ok('답에 없는 슬라이드는 낡은 안내라고 적는다', gone.includes('덱에 없습니다'), gone);
+  ok('어느 글에나 도형 id 는 남는다',
+     [asked, pending, cantNumber, gone].every((t) => t.endsWith('sh1')));
+
+  // 안 눌리는 항목에도 **사유가 값에 실린다**. 누를 수 없으니 `PointAtAdvice` 의 사유는 영영
+  // 화면에 못 온다 — 목록이 그 자리에서 적어야 하고, 두 자리가 같은 문장이어야 한다.
+  const blind = new Advice({ message: '어딘지 안 실림' });
+  ok('가리킬 곳이 없으면 사유가 있다', typeof blind.unpointableReason === 'string');
+  ok('가리킬 수 있으면 사유가 없다', a.unpointableReason === null);
+  ok('누를 때 사유와 목록의 사유가 같다',
+     (await point.run(blind)).reason === blind.unpointableReason);
+
+  // 1.8 아래 호스트 흉내. **빈 Map 이 아니라 null 이다.**
+  const d = new FakeDeck(structuredClone(fixture));
+  d.numbering = false;
+  ok('번호를 못 주는 덱은 null 을 준다', (await d.slideNumbers()) === null);
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

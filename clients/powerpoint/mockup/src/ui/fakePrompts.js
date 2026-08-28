@@ -33,7 +33,26 @@ const CASES = [
   },
 ];
 
-export function mountFakePrompts(status, root, { stream, readTranscript, sessionId } = {}) {
+/**
+ * 안내 목록의 **성한 줄과 성치 못한 줄을 한 화면에** 올린다.
+ *
+ * 앞의 `clear_advice` 가 있어야 눌러도 목록이 안 불어난다(§6.1 의 걷기). 세 줄인 이유는 각각
+ * 사람이 할 일이 달라서다 — 따라가면 되는 것 / 그 슬라이드가 사라져 낡은 것 / 모델이 어딘지를
+ * 아예 안 말한 것.
+ */
+function pushAdviceRows(stream) {
+  const call = (name, args) => stream.push({ type: 'part.appended',
+    data: { messageId: 'adv', part: { kind: 'tool-call', toolCall: {
+      name: `mcp__ppt__${name}`, callId: `c-${name}-${Date.now()}`, args } } } });
+  call('clear_advice', {});
+  call('advise', { items: [
+    { message: '이 상자가 넘칩니다', slideId: 's4f2a1', shapeIds: ['sh8c30'] },
+    { message: '이 안내는 낡았습니다 — 그 슬라이드가 없습니다', slideId: 's-지워짐' },
+    { message: '어딘지는 안 실렸습니다', shapeIds: ['sh8c30'] },
+  ] });
+}
+
+export function mountFakePrompts(status, root, { stream, readTranscript, sessionId, deck } = {}) {
   const box = document.createElement('div');
   box.className = 'fake-prompts';
 
@@ -87,6 +106,26 @@ export function mountFakePrompts(status, root, { stream, readTranscript, session
         args: { items: [{ message: '이건 안 붙어야 한다', slideId: 's4f2a1' }] } } } } }));
 
     box.append(unver, stray);
+
+    // 안내 목록의 네 가지 「가리킬 곳」 표시는 **덱의 답이 달라야** 다 나온다. 눌러 볼 자리가
+    // 없으면 「번호 확인 중」과 「이 호스트는 번호를 못 줍니다」가 같은 회색 줄로 착지한다.
+    const rows = document.createElement('button');
+    rows.textContent = '안내 세 줄';
+    rows.title = '따라갈 것 · 낡은 것 · 어딘지 안 실린 것';
+    rows.addEventListener('click', () => pushAdviceRows(stream));
+    box.append(rows);
+
+    if (deck) {
+      const nums = document.createElement('button');
+      nums.textContent = '번호 못 주는 덱';
+      nums.title = 'PowerPointApi 1.8 아래 — 번호표가 null 이라 목록이 id 로 적는다';
+      nums.addEventListener('click', () => {
+        deck.numbering = !deck.numbering;
+        nums.textContent = deck.numbering ? '번호 못 주는 덱' : '번호 주는 덱';
+        pushAdviceRows(stream);
+      });
+      box.append(nums);
+    }
   }
 
   root.append(box);

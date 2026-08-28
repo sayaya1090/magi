@@ -1,5 +1,6 @@
 // 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
 import { foldAdvice } from '../domain/AdviceBoard.js';
+import { targetLabel } from '../domain/Advice.js';
 import { DECISIONS, WIDTH_NOTE, CLEARED } from '../domain/Pending.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -17,7 +18,13 @@ export class View {
     this.readTranscript = readTranscript ?? null;
     this.advices = [];
     this.adviceNote = '';
-    this.slideNos = null;   // null = 안 물어봤거나 못 얻었다. 그때는 id 로 적는다.
+    /**
+     * 덱이 준 번호표(Map) 또는 못 얻었다는 뜻의 `null`. **둘을 「안 물어봤다」와 안 뭉친다** —
+     * 뭉치려면 `slideNumbers` 가 빈 Map 을 줬어도 됐고, 포트가 굳이 null 을 고른 이유가 없어진다.
+     */
+    this.slideNos = null;
+    /** 물어보고 답을 받았는가. 이게 없으면 `slideNos === null` 이 두 가지 뜻을 갖는다. */
+    this.slideNosAnswered = false;
     /**
      * 마지막으로 그린 물음의 모양. 폴은 계속 도는데 그때마다 다시 그리면 사람이 고르던 것과
      * 적던 글이 지워진다 — `WatchPrompt`가 값에서 하는 일을 화면에서도 한 번 더 한다.
@@ -515,8 +522,14 @@ export class View {
     if (items.length) {
       this.deck.slideNumbers().then((m) => {
         this.slideNos = m;
+        this.slideNosAnswered = true;
         this.renderAdvice();
-      }).catch(() => {});
+      }).catch(() => {
+        // 던진 것도 **답이다** — "못 준다"는 답. 삼키면 목록이 영영 「확인 중」으로 남는다.
+        this.slideNos = null;
+        this.slideNosAnswered = true;
+        this.renderAdvice();
+      });
     }
   }
 
@@ -537,13 +550,14 @@ export class View {
       // **가리킬 곳을 글로도 적는다**(§6.1 층 1: 슬라이드 · 도형 id · 무엇을 · 왜).
       // 목업은 축소판을 안 그리므로 여기가 유일하게 "어느 슬라이드냐"가 사는 곳이다.
       // 이게 없으면 사람이 알아내는 길이 **눌러 보는 것**뿐인데, 누르면 잡고 있던 선택을 뺏는다.
-      if (a.pointable) {
-        const where = document.createElement('div');
-        where.className = 'advice-target';
-        const no = this.slideNos?.get(a.slideId);
-        where.textContent = [`슬라이드 ${no ?? a.slideId}`, ...a.shapeIds].join(' · ');
-        el.append(where);
-      }
+      // 안 눌리는 항목에는 **왜 안 눌리는지**가 그 자리에 온다. 회색으로만 두면 "모델이 어딜
+      // 말 안 했다"와 "이 창이 고장났다"가 같은 화면이 된다.
+      const where = document.createElement('div');
+      where.className = 'advice-target';
+      where.textContent = a.pointable
+        ? targetLabel(a, this.slideNos, this.slideNosAnswered)
+        : a.unpointableReason;
+      el.append(where);
       // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
       el.addEventListener('click', async () => {
         const { ok, reason } = await this.pointAt.run(a);

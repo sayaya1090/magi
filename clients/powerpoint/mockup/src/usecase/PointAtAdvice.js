@@ -9,7 +9,8 @@ export class PointAtAdvice {
 
   /** @returns {Promise<{ok:boolean, reason?:string}>} */
   async run(advice) {
-    if (!advice.pointable) return { ok: false, reason: '가리킬 곳이 없는 안내다' };
+    // 사유는 여기서 짓지 않는다 — 목록에도 같은 문장이 필요해서 `Advice` 한 자리에 있다.
+    if (!advice.pointable) return { ok: false, reason: advice.unpointableReason };
     try {
       await this.deck.point(advice.slideId, advice.shapeIds);
       return { ok: true };

@@ -97,7 +97,7 @@ async function boot() {
     document.body.classList.add('standalone');
     mountFakeCanvas(deck, document.querySelector('#fake'));
     mountFakePrompts(status, document.querySelector('#fake'), { stream, readTranscript,
-      sessionId: SESSION });
+      sessionId: SESSION, deck });
   }
 
   if (why === 'timeout') {
