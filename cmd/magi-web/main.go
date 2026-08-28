@@ -1473,6 +1473,24 @@ type line struct {
 	// the terminal uses. It is in the text too, and reading it back out of a rendered sentence is
 	// how the two surfaces come to disagree about who spoke.
 	Member string `json:"member,omitempty"`
+	// The vote itself, apart from the sentence councilText builds out of it. The verdict screen
+	// asks for exactly these six by these names and every one of them arrived undefined: measured
+	// on a live session, a council row on the wire carried decision, member, round, text and
+	// nothing else. So the screen for reading ONE vote drew a name, no lens, no confidence, no
+	// rationale, no next step, no keep — and "Grounds: none given" under every vote ever cast,
+	// including the ones that cited a tool result by name.
+	//
+	// Fields rather than the row's text, because the alternative is the page taking these back out
+	// of a rendered sentence, and this file already says (above, on Member) why that is how two
+	// surfaces come to disagree. Tally stays out: nothing reads it.
+	Lens       string  `json:"lens,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+	Why        string  `json:"why,omitempty"`
+	Feedback   string  `json:"feedback,omitempty"`
+	Keep       string  `json:"keep,omitempty"`
+	// Cite is the fragment a vote rests on. An empty one is a fact about the vote and not a gap —
+	// the screen says "none given" in words — so its absence is meant to be read, not filled in.
+	Cite string `json:"cite,omitempty"`
 	// At is when the message this row came out of began, RFC 3339, or empty when the log did not
 	// record one. The terminal has stamped its blocks with it since it had a transcript; the page
 	// showed a conversation with no times in it anywhere, which is the first thing somebody
@@ -1688,7 +1706,9 @@ func spliceCouncil(rows []line, marks []app.CouncilMark, order []string) []line 
 	var head, orphans []line
 	for _, m := range marks {
 		row := line{Who: "council", Text: councilText(m), Round: m.Round,
-			Decision: m.Decision, Member: m.Member}
+			Decision: m.Decision, Member: m.Member,
+			Lens: m.Lens, Confidence: m.Confidence,
+			Why: m.Why, Feedback: m.Feedback, Keep: m.Keep, Cite: m.Cite}
 		i, ok := after[m.After]
 		switch {
 		case !ok:

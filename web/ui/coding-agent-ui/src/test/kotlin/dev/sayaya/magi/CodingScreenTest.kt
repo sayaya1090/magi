@@ -13,10 +13,10 @@ import io.kotest.matchers.string.shouldNotContain
  */
 @GwtHtml("codingtest.html")
 internal class CodingScreenTest : GwtTestSpec({
-    Given("고정 컨텍스트(타입 1)와 여섯 행의 전사") {
+    Given("고정 컨텍스트(타입 1)와 여덟 행의 전사") {
         When("화면이 그려지면") {
-            Then("전사 여섯 행 — 목소리와 끝이 클래스에 실린다") {
-                page.locator("#log .row").count() shouldBe 6
+            Then("전사 여덟 행 — 목소리와 끝이 클래스에 실린다") {
+                page.locator("#log .row").count() shouldBe 8
                 page.locator("#log .row.user").count() shouldBe 1
                 page.locator("#log .row.tool.toolok").count() shouldBe 1
                 page.locator("#log .row.tool.toolfail").count() shouldBe 1
@@ -66,6 +66,58 @@ internal class CodingScreenTest : GwtTestSpec({
                     page.locator("#log .row.toolok .foldbody .foldk").count() shouldBe 2
                     page.locator("#log .row.toolok .foldbody pre").last().textContent() shouldContain "warnings: 0"
                 }
+            }
+            Then("카운슬의 행은 제 자리와 제 표를 입는다 — 같은 갈색 아홉 줄이 아니라") {
+                // 운영은 자리마다 색이 다르고 찬성 행이 다르게 접힌다. 그 CSS가 읽는 것은
+                // 클래스뿐이라, 행이 그것을 입지 않으면 규칙 전부가 조용히 빗나간다.
+                page.locator("#log .row.council").count() shouldBe 2
+                page.locator("#log .row.council.v-continue.seated.m-melchior").count() shouldBe 1
+                page.locator("#log .row.council.v-done.seated.m-balthasar").count() shouldBe 1
+            }
+            When("한 자리의 이름을 눌러 그 표를 열면") {
+                page.locator("#log .row.council button.whoin").first().click()
+                Then("표 자체가 읽힌다 — 결정·렌즈·확신이 한 칩에") {
+                    page.waitForSelector("#fileview .dinsp")
+                    page.evaluate("window.__magi_test_council") shouldBe 2
+                    page.locator("#fileview .filebar .filedir").textContent() shouldBe "Melchior"
+                    // tr()이 키로 폴백하는 페이지라 문구가 아니라 고른 키를 잰다.
+                    page.locator("#fileview .filebar .dchip").textContent() shouldBe
+                            "council.reject · correctness · 90%"
+                }
+                Then("증거 다음에 표의 넷이 선다 — 이유·다음·유지·근거") {
+                    val keys = page.locator("#fileview .dinsp .dk")
+                    val said = (0 until keys.count()).joinToString("|") { keys.nth(it).textContent() ?: "" }
+                    said shouldContain "detail.rationale|detail.next|detail.keep|detail.grounds"
+                    val body = page.locator("#fileview .dinsp").textContent() ?: ""
+                    body shouldContain "the report summarises instead of quoting"
+                    body shouldContain "paste the exact output"
+                    body shouldContain "the build fix already landed"
+                    body shouldContain "\"bash ls -la: exit 0\""
+                }
+                Then("라벨은 카드 안에서도 입혀진다 — 운영의 그 규칙이 id 하나에 걸려 있었다") {
+                    // 잰 값이 아니라 <b>다름</b>을 잰다(색·크기는 토큰이라 테마마다 다르다):
+                    // 규칙이 빗나가면 라벨은 본문과 글자 크기도 색도 같아진다 — 실측으로 그랬다.
+                    val said = page.evaluate("(() => { const k = getComputedStyle(" +
+                            "document.querySelector('#fileview .dinsp .dk')), d = getComputedStyle(" +
+                            "document.querySelector('#fileview .dinsp .dbody'));" +
+                            " return [k.fontSize === d.fontSize, k.color === d.color," +
+                            " k.fontFamily.includes('mono')].join(','); })()")
+                    withClue("라벨이 본문과 같은 크기·색이면 이 카드에는 제목이 없는 것이다") {
+                        said shouldBe "false,false,true"
+                    }
+                }
+                page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
+            }
+            When("아무 것도 대지 않은 표를 열면") {
+                page.locator("#log .row.council button.whoin").last().click()
+                Then("근거 없음을 말로 적는다 — 빈 자리로 두지 않는다") {
+                    page.waitForCondition {
+                        page.locator("#fileview .filebar .filedir").textContent() == "Balthasar"
+                    }
+                    page.locator("#fileview .filebar .dchip").textContent() shouldBe "council.accept"
+                    (page.locator("#fileview .dinsp").textContent() ?: "") shouldContain "detail.no_grounds"
+                }
+                page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
             }
             Then("산문 행에는 적힌 그대로를 복사하는 문이 늘 서 있다 — 손끝이 와야 나오는 것이 아니라") {
                 // 골라서 복사하면 그려진 글이 나온다(표는 칸이 붙고 코드 울타리는 사라진다).
