@@ -39,6 +39,9 @@ data class Request(
     val n: Int? = null,
     val args: JsonElement? = null,
     val ask: Boolean? = null,
+    // attach 문의 인자. 어느 HTTP MCP 서버이고, 무엇을 실어 보내나.
+    val url: String? = null,
+    val headers: Map<String, String>? = null,
 )
 
 @Serializable

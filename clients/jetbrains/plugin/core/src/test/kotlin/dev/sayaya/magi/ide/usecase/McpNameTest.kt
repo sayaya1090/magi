@@ -26,6 +26,12 @@ class McpNameTest {
         assertEquals("ppt_one", McpName.sanitize("ppt_one"))   // 둘이 한 이름이 되는 그 자리
         assertEquals("a-b_C9", McpName.sanitize("a-b_C9"))
         assertEquals("__", McpName.sanitize("한글"))
+        // 갈렸던 둘. 서로게이트 쌍은 룬 하나라 `_` 하나이고, 빈 이름은 "x" 가 된다.
+        assertEquals("a_b", McpName.sanitize("a😀b"))
+        assertEquals("x", McpName.sanitize(""))
+        // 여기서 한 번 틀렸다: "..." 는 빈 문자열이 아니라 `___` 가 된다. 지워지는 게 아니라
+        // 바뀌기 때문이다. 손으로 적은 기대값이 또 틀린 자리이고, 골든이 필요한 이유이기도 하다.
+        assertEquals("___", McpName.sanitize("..."))
     }
 
     /** 거절의 갈래가 다르면 사람이 할 일도 다르다. */
