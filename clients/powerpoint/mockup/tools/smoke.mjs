@@ -236,7 +236,13 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // 대화가 바뀌면 커서를 버린다. **서버가 못 잡아 주는 자리**라 우리가 메운다.
   ok('대화가 바뀌면 커서를 버린다', read.attach('B') === -1);
-  ok('앞 대화가 화면에 안 남는다', read.view.rows.every((r) => r.text !== '키웠습니다'));
+  // **`every` 는 빈 것에 참이다.** 지운 쪽만 물면 「앞엣것을 지웠다」와 「아무것도 안 그렸다」가
+  // 같은 초록이 되고, 통째로 비우는 구현이 만점을 받는다. 이 대화의 줄이 실제로 섰는지까지
+  // 같이 문다 — 부재를 재는 단언은 무엇이 남아 있어야 하는지를 같이 적어야 잰다.
+  ok('앞 대화가 화면에 안 남고 이 대화가 선다',
+    read.view.rows.every((r) => r.text !== '키웠습니다')
+      && read.view.rows.some((r) => r.text === '다른 대화'),
+    read.view.rows.map((r) => r.text).join('|'));
 
   // **말한 것과 보낸 것.** 위 세 줄이 무는 것은 `attach` 의 **반환값**이고, 문이 실제로 받은
   // 값은 가짜의 `calls` 에 있다. 가짜는 그걸 보라고(「시험이 보는 것: 실제로 보낸 since」)
@@ -1120,8 +1126,16 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // 번호 없는 슬라이드를 표에 실으면 값이 `undefined` 인 칸이 생기고, `targetLabel` 이
   // 그 칸을 못 알아봐 「지금 덱에 없습니다」로 샌다 — 표에 있는데 없다고 적는 것이다.
-  const noNo = new FakeDeck({ slides: [{ id: 'sx', title: '번호 없음', shapes: [] }] });
+  // **번호가 붙은 슬라이드를 하나 같이 둔다.** 안 두면 표가 통째로 비고, 비면 아래 두 줄이
+  // 「하나도 안 틀렸다」가 아니라 「볼 것이 없었다」로 초록이 된다. 앞 판본이 그랬다 —
+  // `typeof v === 'number'` 를 상수 거짓으로 바꿔도 스위트가 통과하는 것으로 쟀다. 그래서
+  // 표가 실제로 뭔가를 담았다는 것을 먼저 묻는다. 그게 아래 둘을 떠받치는 줄이다.
+  const noNo = new FakeDeck({ slides: [
+    { id: 'sx', title: '번호 없음', shapes: [] },
+    { id: 's9', title: '번호 있음', no: 9, shapes: [] },
+  ] });
   const m = await noNo.slideNumbers();
+  ok('표에 앉은 것이 실제로 있다', m.size === 1, JSON.stringify([...m]));
   ok('번호 없는 슬라이드는 표에 안 앉는다', m.has('sx') === false, JSON.stringify([...m]));
   ok('표의 값은 전부 숫자다', [...m.values()].every((v) => typeof v === 'number'));
 
