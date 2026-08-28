@@ -15,6 +15,7 @@ import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
+import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
 import java.awt.FlowLayout
@@ -62,6 +63,13 @@ class MagiToolWindow : ToolWindowFactory {
          * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
          */
         private val log = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+
+        /**
+         * 문제 판. IntelliJ 자신의 Problems 뷰에 넣지 않았다 — 거기는 IDE 가 자기 인스펙션으로
+         * 채우는 자리이고, 컴패니언이 자기 실행에서 본 것을 섞으면 **누가 언제 말한 것인지**가
+         * 사라진다. §5-4 가 요구하는 것이 정확히 그 두 가지라 따로 세운다.
+         */
+        private val problems = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
         private var following: java.io.Closeable? = null
 
         init {
@@ -87,7 +95,10 @@ class MagiToolWindow : ToolWindowFactory {
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
 
             root.add(top, BorderLayout.NORTH)
-            root.add(JBScrollPane(log), BorderLayout.CENTER)
+            val split = javax.swing.JSplitPane(
+                javax.swing.JSplitPane.HORIZONTAL_SPLIT, JBScrollPane(log), JBScrollPane(problems)
+            ).apply { resizeWeight = 0.65 }
+            root.add(split, BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
             follow()
         }
@@ -104,7 +115,15 @@ class MagiToolWindow : ToolWindowFactory {
             val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return
             following?.let { runCatching { it.close() } }
             following = Transcript({ DaemonClient.connect(sock) }, sid).follow(object : Transcript.Sink {
-                override fun frame(e: LogEvent) = append(render(e))
+                override fun frame(e: LogEvent) {
+                    append(render(e))
+                    // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
+                    // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
+                    Problems.of(e)?.let { note(it) }
+                    Problems.dissentOf(e)?.let { d ->
+                        problems.append("· 카운슬 ${'$'}{d.member} 반대  #${'$'}{d.seq}  ${'$'}{d.at.orEmpty()}\n    ${'$'}{d.why}\n")
+                    }
+                }
                 // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
                 // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
                 override fun note(why: String) = SwingUtilities.invokeLater {
@@ -127,6 +146,21 @@ class MagiToolWindow : ToolWindowFactory {
         private fun render(e: LogEvent): String {
             val who = e.actor?.name?.takeIf { it.isNotBlank() } ?: e.actor?.kind.orEmpty()
             return "#${'$'}{e.seq} ${'$'}{e.type}" + if (who.isBlank()) "" else "  (${'$'}who)"
+        }
+
+        /**
+         * 한 건을 적는다. **언제·어느 호출인지가 같이 간다** — 낡은 문제 목록은 없느니만 못하다는
+         * 것이 §5-4 의 요구이고, 그 답이 목록을 지우는 것이 아니라 **출처를 적는 것**이다.
+         *
+         * `where` 가 없으면 그대로 둔다. 못 읽은 앵커를 지어내면 엉뚱한 줄을 가리키고, 그건 항목이
+         * 안 눌리는 것보다 나쁘다.
+         */
+        private fun note(p: Problems.Problem) {
+            val head = if (p.advisory) "· 했음(읽을 것 있음)" else "· 실패"
+            val where = p.where?.let { "  ${'$'}{it.path}:${'$'}{it.line}" } ?: ""
+            problems.append("${'$'}head ${'$'}{p.tool.orEmpty()}  #${'$'}{p.seq}  ${'$'}{p.at.orEmpty()}${'$'}where\n")
+            problems.append("    " + p.text.trim().lines().firstOrNull().orEmpty().take(160) + "\n")
+            SwingUtilities.invokeLater { problems.caretPosition = problems.document.length }
         }
 
         private fun append(line: String) = SwingUtilities.invokeLater {
