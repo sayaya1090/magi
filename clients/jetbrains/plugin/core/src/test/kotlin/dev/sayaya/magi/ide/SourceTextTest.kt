@@ -334,6 +334,62 @@ class SourceTextTest {
         assertTrue(Regex("""n\s*<=\s*MAX_SOCKET_PATH""") in mine,
             "이쪽이 경계를 여는 자리를 `<=` 로 안 쓴다")
     }
+    /**
+     * 라벨에 남의 글자를 **안 거르고** 붙이는 자리를 잡는다.
+     *
+     * 스윙 라벨은 `<html>` 로 시작하면 안을 마크업으로 읽는다. `rm x && echo <done>` 의
+     * `<done>` 은 태그로 먹혀 사라지고, 사람은 짧아진 글을 보고 「허용」을 누르거나 Tab 을
+     * 누른다 — **보이는 것과 정해지는 것이 다른 창**이다.
+     *
+     * **이 시험이 있는 이유가 그것 자체다.** `Markup.text` 를 만들고 권한 물음을 고친 다음
+     * 「문을 뒀다」고 적었는데, 같은 저장소에 **안 거치는 라벨이 이미 둘 더 있었다**(모델이 지은
+     * 제안, 컨텐트 루트 경로). 손으로 부르는 함수는 문이 아니라 습관이고, 습관은 다음 사람에게
+     * 안 전해진다.
+     *
+     * **이건 트립와이어지 증명이 아니다.** 진짜 문은 타입이다 — 라벨 대입이 `String` 대신
+     * 「이미 거른 것」만 받으면 안 거른 것은 **적을 수가 없다.** 그건 아직 안 만들었다. 여기서
+     * 재는 것은 소스 글자뿐이라, 라벨을 딴 함수에 넘겨 짓거나 조각을 변수에 담아 두면 안 보인다.
+     * 그러니 초록은 「안 샌다」가 아니라 **「이 두 모양으로는 안 샌다」**로 읽어라.
+     */
+    @Test
+    fun `라벨에 붙는 남의 글자는 거쳐야 한다`() {
+        val labels = sources.filter { "\"<html>" in it.readText() }
+        assertTrue(labels.isNotEmpty(), "`<html>` 라벨을 한 장도 못 찾았다 — 이 시험이 " +
+            "아무것도 안 보고 있다(옮겼으면 같이 옮겨라)")
+
+        // 첫째: 라벨을 짓는 파일은 거르는 함수를 알아야 한다. 새 파일에 라벨이 생기는 것이
+        // 제일 흔한 모양이고, 그때 이 줄이 운다.
+        val unaware = labels.filter { "Markup" !in it.readText() }.map { it.name }
+        assertTrue(unaware.isEmpty(), "`<html>` 라벨을 짓는데 `Markup` 를 안 쓰는 파일: " +
+            "$unaware — 붙이는 글자가 전부 이 파일이 지은 것이면 주석으로 그렇게 적고 " +
+            "`Markup` 를 한 번은 거쳐라. 안 거른 채 남의 글자가 섞이면 화면이 조용히 딴것을 보인다")
+
+        // 둘째: 라벨 줄에 **끼워 넣는 것**은 거른 것이어야 한다. `${...}` 와 `$이름` 둘 다 본다 —
+        // 처음엔 앞의 것만 봤는데, 그러면 이 파일이 이미 쓰고 있는 뒤의 꼴이 통째로 그물 밖이라
+        // 「검사한다」는 말이 절반만 참이 된다.
+        //
+        // 예외는 이름만 적지 않고 **왜인지를 같이 적는다.** 예외가 이름뿐이면 다음 사람이 늘리는
+        // 데 드는 값이 0 이고, 값이 0 인 목록은 곧 전부가 된다.
+        val safe = mapOf(
+            "out.size" to "수다 — 글자가 아니라 마크업을 실을 수가 없다",
+            "at" to "이 파일이 지은 `(2/3)` 꼴, 안이 다 수다",
+            "subject" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+            "why" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+        )
+        val raw = labels.flatMap { f ->
+            f.readText().lines().withIndex()
+                .filter { (_, l) -> "<html>" in l }
+                .flatMap { (i, l) ->
+                    Regex("""\$(?:\{([^}]*)\}|([A-Za-z_][A-Za-z0-9_.]*))""").findAll(l)
+                        .map { (it.groupValues[1] + it.groupValues[2]).trim() }
+                        .filterNot { it.startsWith("Markup.text(") || it in safe }
+                        .map { "${f.name}:${i + 1}: \$$it" }
+                }
+        }
+        assertTrue(raw.isEmpty(), "라벨 안에서 안 거른 보간: $raw — `Markup.text(...)` 를 " +
+            "거치거나, 못 거칠 값이면 이 시험의 `safe` 에 **근거와 함께** 적어라")
+    }
+
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
 }

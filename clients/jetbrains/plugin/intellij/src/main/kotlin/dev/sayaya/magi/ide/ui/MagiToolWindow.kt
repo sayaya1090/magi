@@ -456,7 +456,10 @@ class MagiToolWindow : ToolWindowFactory {
                     // 그새 사람이 더 쳤으면 낡은 제안이다. 붙이지 않는다.
                     if (input.text != prefix) return@invokeLater
                     suggestion = said?.takeIf { it.isNotBlank() }
-                    hint.text = suggestion?.let { "<html><i>제안: $it &nbsp;<b>Tab</b></i></html>" } ?: " "
+                    // 보이는 것과 **Tab 이 붙이는 것**이 같아야 한다. 여긴 모델이 지은 글자라
+                    // 코드가 섞여 오고, 안 거르면 `<T>` 같은 조각이 태그로 먹혀 사라진다 —
+                    // 사람은 짧아진 제안을 보고 Tab 을 누르고, 입력창에는 안 보이던 것이 들어간다.
+                    hint.text = suggestion?.let { "<html><i>제안: ${Markup.text(it)} &nbsp;<b>Tab</b></i></html>" } ?: " "
                 }
             }
         }

@@ -11,6 +11,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
+import dev.sayaya.magi.ide.usecase.Markup
 import java.awt.GridLayout
 import javax.swing.BoxLayout
 import javax.swing.SwingUtilities
@@ -119,7 +120,8 @@ class FactsToolWindow : ToolWindowFactory {
             val out = workspace.rootsOutsideWorkspace()
             if (out.isEmpty()) return say(outside, " ")
             say(outside, "<html>이 컴패니언이 <b>못 만지는</b> 컨텐트 루트 ${out.size}개 — " +
-                "워크스페이스는 프로젝트 디렉토리 하나다:<br/>" + out.joinToString("<br/>") + "</html>")
+                "워크스페이스는 프로젝트 디렉토리 하나다:<br/>" +
+                out.joinToString("<br/>") { Markup.text(it) } + "</html>")
         }
 
         /**
