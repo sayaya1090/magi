@@ -55,5 +55,11 @@ ok('없는 도형은 대체 없이 실패', bad.ok === false, bad.reason);
 const cross = await point.run(new Advice({ message: '뒷장', slideId: 's7', shapeIds: ['sh7b'] }));
 ok('슬라이드 이동 후 가리킨다', cross.ok === true && deck.currentSlide === 's7');
 
+// 계측이 스스로에 대해 거짓말하지 않는가. 가짜 덱이 `measured:true` 를 내면 화면이 실측처럼
+// 보이고, 그러면 §12 #4 를 답해 줄 유일한 줄이 처음부터 못 쓰게 된다.
+const caps = deck.capabilities();
+ok('가짜 덱은 잰 게 없다고 말한다', caps.measured === false && caps.sets.length === 0);
+ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.length > 0);
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

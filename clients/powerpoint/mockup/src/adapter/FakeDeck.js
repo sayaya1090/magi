@@ -16,6 +16,14 @@ export class FakeDeck extends DeckPort {
     this.listeners = new Set();
   }
 
+  /**
+   * **가짜는 아무것도 안 잰다.** 여기서 "1.8 지원"을 돌려주면 화면이 실측처럼 보이고, 그게
+   * 정확히 이 목업이 안 하기로 한 것이다. 그래서 잰 적 없다고 말한다.
+   */
+  capabilities() {
+    return { measured: false, note: '가짜 덱 — 호스트가 없어 잰 것이 없다', sets: [] };
+  }
+
   get label() { return '가짜 덱 (PowerPoint 없이)'; }
 
   onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }

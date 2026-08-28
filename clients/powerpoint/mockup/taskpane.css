@@ -29,6 +29,14 @@ header {
 header strong { color: var(--accent); }
 .adapter { font-size: 11px; color: var(--muted); margin-left: auto; }
 
+/* 호스트가 자기 입으로 말한 요구 집합. 잰 것과 안 잰 것을 색으로 가른다 — 회색은 "아직 모른다"고
+   화면이 말하는 것이지 "괜찮다"가 아니다. */
+.caps {
+  font-size: 11px; color: var(--muted); padding: 6px 14px;
+  border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums;
+}
+.caps[data-measured="yes"] { color: #3b3a39; }
+
 .turns { flex: 1; overflow-y: auto; padding: 12px 14px; }
 .turn { margin-bottom: 14px; }
 .turn p { margin: 0; white-space: pre-wrap; }

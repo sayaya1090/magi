@@ -10,6 +10,38 @@ import { DeckPort } from '../port/DeckPort.js';
 export class OfficeDeck extends DeckPort {
   get label() { return 'PowerPoint (Office.js)'; }
 
+  /**
+   * 호스트에게 요구 집합을 **직접 묻는다.** `isSetSupported` 는 동기고 `PowerPoint.run` 밖에서
+   * 돈다 — 덱을 안 건드리므로 이 계측이 사용자의 선택을 흔들 일이 없다.
+   *
+   * 무엇을 묻는지가 임의가 아니다. 넷 다 설계가 어딘가에서 기대는 값이다:
+   * - **1.5** — LTSC 2021 의 천장. 여기서 멈추면 §12 #4(LTSC 를 받을 것인가)가 실물로 답해진다.
+   * - **1.6** — 하이퍼링크. **1.7** — customXmlParts.
+   * - **1.8** — §3.3 이 고른 바닥.
+   * - **SharedRuntime 1.1** — §5.7 의 전제. 이게 거짓이면 작업창을 닫는 순간 대화가 죽는다.
+   *
+   * 최고 지원 버전을 따로 세지 않고 **넷을 다 그대로 돌려준다.** 요약하면 어디서 끊겼는지가
+   * 사라지는데, 알고 싶은 것이 정확히 그 지점이다.
+   */
+  capabilities() {
+    const req = (typeof Office !== 'undefined') && Office.context && Office.context.requirements;
+    if (!req || typeof req.isSetSupported !== 'function') {
+      return { measured: false, note: 'Office.context.requirements 가 없다', sets: [] };
+    }
+    const want = [
+      ['PowerPointApi', '1.5'], ['PowerPointApi', '1.6'],
+      ['PowerPointApi', '1.7'], ['PowerPointApi', '1.8'],
+      ['SharedRuntime', '1.1'],
+    ];
+    const sets = want.map(([name, version]) => {
+      // 낱개로 감싼다. 하나가 던져서 나머지를 잃으면 계측이 계측을 못 하는 꼴이 된다.
+      let ok = null;
+      try { ok = req.isSetSupported(name, version); } catch { ok = null; }
+      return { name, version, ok };
+    });
+    return { measured: true, note: '', sets };
+  }
+
   async selection() {
     return PowerPoint.run(async (context) => {
       // 슬라이드 신원부터. getSelectedSlides 는 **첫 항목이 활성 슬라이드**라고 문서가 보장한다.

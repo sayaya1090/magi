@@ -16,6 +16,7 @@ export class View {
 
   mount() {
     $('#adapter').textContent = this.deck.label;
+    this.renderCaps();
     $('#quote').addEventListener('click', () => this.onQuote());
     $('#send').addEventListener('click', () => this.onSend());
     $('#input').addEventListener('keydown', (e) => {
@@ -24,6 +25,32 @@ export class View {
     this.chat.subscribe((ev) => this.onEvent(ev));
     this.renderPending();
     this.renderTurns();
+  }
+
+  /**
+   * 호스트가 무엇을 지원한다고 말했는지 한 줄.
+   *
+   * **안 잰 것을 잰 것처럼 안 적는다.** 가짜 덱이면 사유를 그대로 띄운다. 화면에도 쓰고 콘솔에도
+   * 한 줄 남기는데, 작업창은 닫히면 사라지지만 이 값이 필요한 순간은 대개 뭔가 안 될 때라 그때
+   * 남아 있는 쪽이 콘솔이다.
+   */
+  renderCaps() {
+    const el = $('#caps');
+    if (!el) return;
+    const c = (typeof this.deck.capabilities === 'function')
+      ? this.deck.capabilities()
+      : { measured: false, note: '어댑터가 안 답한다', sets: [] };
+    if (!c.measured) {
+      el.dataset.measured = 'no';
+      el.textContent = `요구 집합: ${c.note || '안 잼'}`;
+    } else {
+      el.dataset.measured = 'yes';
+      // ok 가 null 인 것은 "아니오"가 아니라 **물어보다 던졌다**이므로 `?` 로 갈라 둔다.
+      el.textContent = '요구 집합: ' + c.sets
+        .map((s) => `${s.name} ${s.version} ${s.ok === true ? '✓' : s.ok === false ? '✗' : '?'}`)
+        .join(' · ');
+    }
+    console.log('[magi] ' + el.textContent);
   }
 
   async onQuote() {
