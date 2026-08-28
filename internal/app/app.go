@@ -130,7 +130,15 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 	}
 	// Every other path writes through a store that flushes a held session.created first. See
 	// bornStore: the rule belongs to the seam, not to each caller that remembers it.
-	a.store = bornStore{Store: store, app: a}
+	//
+	// Only when there IS one. Wrapping unconditionally left a.store holding a non-nil struct around
+	// a nil Store, which quietly disarmed every `a.store == nil` guard in the package — SetModel's
+	// and recordObserved's both, each written so a store-less App announces instead of dying. They
+	// could not fire, and the App died anyway one frame later, on the nil rawStore inside bear.
+	// A guard that cannot be reached is worse than none: it is why nobody looked again.
+	if store != nil {
+		a.store = bornStore{Store: store, app: a}
+	}
 	// The floors ask the CALL what file it opens, and a tool can answer for itself now (see
 	// port.FileTool). Set after the App exists because the answer goes through its registry.
 	a.policy.touches = a.touchesFile
