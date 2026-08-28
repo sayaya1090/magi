@@ -45,15 +45,39 @@ export const WIDTH_NOTE =
 export const KINDS = Object.freeze({ permission: 'permission', question: 'question' });
 
 export class Pending {
-  constructor({ id, kind, what, args, reason, options, since }) {
+  constructor({ id, kind, what, args, reason, options, report, index, total, since }) {
     this.id = id;                       // 답이 실어야 하는 call id. **주소다.**
     this.kind = kind ?? '';             // 로그의 말 그대로. **기본값을 안 준다.**
     this.what = what ?? '';
     this.args = args ?? null;
     this.reason = reason ?? '';
     this.options = options ?? [];
+    /**
+     * 이 물음이 **무엇을 근거로** 사람에게 왔는가(`[{key, text}, …]`). 코어가 소켓으로
+     * 실어 보내는 이유가 주석에 적혀 있다 — 「근거가 뒤에 남은 물음이야말로 이것이 막으려던
+     * 그것」(`daemon.go`의 `Waiting.Report`). 이 창의 첫 판은 이 셋을 **받고도 버렸다.**
+     * 버리면 화면에 남는 것은 「예/아니오」뿐이고, 그 화면은 사람을 **판단이 아니라 클릭**으로
+     * 만든다.
+     *
+     * 순서를 그대로 든다. 코어의 `Contract.Fill`이 「무엇을 해 봤는가」를 「무엇을 고르겠는가」
+     * 앞에 두는 것은 **읽는 차례를 정한 것**이지 우연이 아니다.
+     */
+    this.report = report ?? [];
+    /**
+     * 한 호출이 묻는 여러 물음 중 **몇 번째인가**(1부터). 하나를 답하면 다음이 온다는 사실을
+     * 다른 창은 알 길이 없어 코어가 같이 싣는다. 0 은 「안 실렸다」로, 없는 것과 첫째를
+     * 안 헷갈리려고 그대로 둔다.
+     */
+    this.index = index ?? 0;
+    this.total = total ?? 0;
     this.since = since ?? null;
     Object.freeze(this);
+  }
+
+  /** 「2번째 · 모두 3개」. 안 실렸으면 `null` — **안 온 것을 1/1로 지어내지 않는다.** */
+  get placement() {
+    if (!this.index || !this.total || this.total <= 1) return null;
+    return `${this.index}번째 · 모두 ${this.total}개`;
   }
 
   /** 이 창이 그릴 줄 아는 종류인가. 아니면 단추 없이 「모르는 물음이 대기 중」으로만 그린다. */
@@ -61,8 +85,21 @@ export class Pending {
   get isPermission() { return this.kind === KINDS.permission; }
   get isQuestion() { return this.kind === KINDS.question; }
 
-  /** 같은 물음인가. 폴링이 같은 것을 계속 실어 오므로 **다시 그리지 않으려면** 이게 필요하다. */
-  same(other) { return other != null && other.id === this.id && other.kind === this.kind; }
+  /**
+   * 같은 물음인가. 폴링이 같은 것을 계속 실어 오므로 **다시 그리지 않으려면** 이게 필요하다.
+   *
+   * **물은 시각까지 본다.** id 와 종류만 보면, 두 폴 사이에 물음이 내려가고 같은 id·같은 종류의
+   * 새 물음이 올라온 경우가 「안 바뀜」으로 보인다. 그러면 앞의 답이 보내진 표시가 안 풀려
+   * **새 물음이 잠긴 채로 선다** — 답할 수 있는 것을 못 답한다. call id 는 모델이 붙이는 것이라
+   * 세션이 새로 세면 `call_1` 이 다시 나오고, 그때 물은 시각은 다르다. 코어가 `Since` 를 싣는
+   * 이유는 「얼마나 기다렸는지 말하라」였는데, 여기서는 그게 신원 노릇을 한다.
+   *
+   * 안 실렸으면 양쪽 다 `null` 이라 예전과 똑같이 군다 — 없는 것에 기대지는 않는다.
+   */
+  same(other) {
+    return other != null && other.id === this.id && other.kind === this.kind
+      && other.since === this.since;
+  }
 }
 
 /**

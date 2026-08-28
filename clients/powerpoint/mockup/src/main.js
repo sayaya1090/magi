@@ -3,11 +3,14 @@ import { Conversation } from './domain/Conversation.js';
 import { QuoteSelection } from './usecase/QuoteSelection.js';
 import { PointAtAdvice } from './usecase/PointAtAdvice.js';
 import { SendTurn } from './usecase/SendTurn.js';
+import { WatchPrompt } from './usecase/WatchPrompt.js';
 import { OfficeDeck } from './adapter/OfficeDeck.js';
 import { FakeDeck } from './adapter/FakeDeck.js';
 import { FakeChat } from './adapter/FakeChat.js';
+import { FakeStatus } from './adapter/FakeStatus.js';
 import { View } from './ui/view.js';
 import { mountFakeCanvas } from './ui/fakeCanvas.js';
+import { mountFakePrompts } from './ui/fakePrompts.js';
 import { fixture } from './ui/deckFixture.js';
 
 // 시계가 이겼다는 표시. `null` 은 "호스트가 PowerPoint 가 아니다"라는 **다른 사실**이라 못 쓴다.
@@ -47,10 +50,22 @@ async function pickDeck() {
   return { deck: new FakeDeck(fixture), why: 'timeout', late: ready };
 }
 
+/**
+ * 물음을 얼마나 자주 물어보는가.
+ *
+ * 스트림이 아니라 **폴이다.** 취향이 아니라 계약이라 그렇다 — 물음은 로그에 안 쌓이고 막힌
+ * 데몬의 버스로만 나가므로 이벤트 스트림으로는 영영 안 온다(§5.7). 1초는 「사람이 물음을
+ * 기다리는 시간」과 「빈 문을 두드리는 값」 사이에서 고른 값이고, 재 본 값이 아니다.
+ */
+const POLL_MS = 1000;
+
 async function boot() {
   const { deck, why, late } = await pickDeck();
   const conversation = new Conversation();
   const chat = new FakeChat();
+  // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
+  const status = new FakeStatus();
+  const watchPrompt = new WatchPrompt(status);
 
   const view = new View({
     conversation,
@@ -59,12 +74,20 @@ async function boot() {
     sendTurn: new SendTurn(chat, conversation),
     chat,
     deck,
+    watchPrompt,
   });
   view.mount();
+
+  // 첫 폴을 기다렸다가 돌린다 — 겹쳐 돌면 같은 물음에 답이 두 번 갈 자리가 생긴다.
+  const tick = async () => {
+    try { await watchPrompt.poll(); } finally { setTimeout(tick, POLL_MS); }
+  };
+  tick();
 
   if (deck instanceof FakeDeck) {
     document.body.classList.add('standalone');
     mountFakeCanvas(deck, document.querySelector('#fake'));
+    mountFakePrompts(status, document.querySelector('#fake'));
   }
 
   if (why === 'timeout') {

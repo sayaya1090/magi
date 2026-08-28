@@ -77,6 +77,42 @@ header strong { color: var(--accent); }
   background: #fff4ce; font-size: 12px;
 }
 
+/* ── 데몬이 묻는 자리 ─────────────────────────────────────────── */
+/* 위의 `.thinking` 은 이 창의 짐작이고 이건 데몬이 스스로 한 말이라 자리를 나눠 둔다. */
+.doing { padding: 0 14px 8px; color: var(--muted); font-size: 12px; }
+
+.ask { margin: 0 14px 10px; }
+/* 대화 흐름 안에 섞이면 안 된다. 이건 읽는 것이 아니라 **막고 있는 것**이다. */
+.ask-box {
+  padding: 10px 11px; border: 1px solid var(--accent);
+  border-radius: 8px; background: #fdf6f4;
+}
+/* 답할 줄 모르는 종류. 눈에 띄되 「누르라」로 안 읽히게 강조를 뺀다. */
+.ask-box.unknown { border-color: var(--line); background: var(--quote-bg); }
+.ask-box h2 { font-size: 12px; margin: 0 0 6px; color: var(--accent); }
+.ask-box.unknown h2 { color: var(--muted); }
+.ask-what { font-size: 13px; margin: 0 0 4px; white-space: pre-wrap; }
+.ask-reason { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+.ask-args {
+  margin: 0 0 6px; padding: 6px 8px; border-radius: 6px; background: var(--quote-bg);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow: auto;
+}
+.ask-report { margin: 0 0 8px; }
+.ask-report dt { font-size: 11px; color: var(--muted); }
+.ask-report dd { margin: 0 0 5px; font-size: 12px; white-space: pre-wrap; }
+.ask-place { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+.ask-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-picks button { font-size: 12px; padding: 5px 9px; }
+.ask-note { font-size: 11px; color: var(--muted); margin: 7px 0 0; }
+.ask-text { display: flex; gap: 6px; margin-top: 8px; }
+.ask-text input {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+}
+.ask-lost { padding: 6px 9px; border-radius: 6px; background: #fff4ce; font-size: 12px; }
+.ask-last { font-size: 12px; color: var(--muted); }
+
 .composer { border-top: 1px solid var(--line); padding: 10px 14px 12px; }
 .pending:not(:empty) { margin-bottom: 8px; }
 textarea {
@@ -108,3 +144,12 @@ button { font: inherit; border-radius: 6px; padding: 6px 12px; cursor: pointer; 
 .shape:hover { border-color: #a19f9d; }
 .shape.sel { border: 2px solid var(--sel); border-style: solid; }
 .hint { color: var(--muted); font-size: 12px; }
+/* 데몬이 묻는 상황을 손으로 만드는 칸. 목업에만 있다. */
+.fake-prompts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 14px; font-size: 12px; color: var(--muted);
+}
+.fake-prompts button {
+  font-size: 12px; padding: 4px 8px; background: #fff; border: 1px solid var(--line);
+}
+.fake-prompts button:hover { border-color: var(--sel); }

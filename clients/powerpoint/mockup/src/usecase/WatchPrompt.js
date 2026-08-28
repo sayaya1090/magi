@@ -28,6 +28,13 @@ export class WatchPrompt {
     this.saidLost = false;
     /** 데몬이 지금 뭘 하는 중인지. 바뀔 때만 화면에 올린다. */
     this.doing = '';
+    /**
+     * 답을 이미 보낸 물음의 id. **보냈다고 물음이 내려가지는 않으므로** 화면에는 단추가
+     * 그대로 서 있고, 두 번 누르면 같은 call id 로 답이 두 번 간다. 둘째는 코어가 거절한다
+     * (등록부에서 이미 지워졌다) — 문제는 그 거절이 *"이미 결정됐거나 만료됐다"*로 와서
+     * **아무 잘못도 안 한 사람에게 오류로 뜬다**는 것이다. 그러니 아예 안 보낸다.
+     */
+    this.sentFor = null;
   }
 
   /** 폴 한 번. 시험이 손으로 돌린다 — 여기서 재는 것은 시간이 아니라 상태 전이다. */
@@ -45,12 +52,19 @@ export class WatchPrompt {
 
     if (!this.reachable) {
       // 물음이 끝난 것이 아니라 **모르게 된 것**이다. 세워 둔 것을 내리되 사유를 그렇게 적는다.
-      if (this.pending) { this.pending = null; this.clearedBy = CLEARED.unreachable; }
+      if (this.pending) {
+        this.pending = null; this.clearedBy = CLEARED.unreachable; this.sentFor = null;
+      }
       const firstTime = wasReachable || !this.saidLost;
       this.saidLost = true;
       if (firstTime) this.onChange();
       return this.view;
     }
+
+    // 문이 다시 열린 것 자체가 바꿔 그려야 할 사실이다. 조용한 데몬에 다시 붙으면 아래
+    // 어느 분기도 안 타는데(물음도 없고 하는 일도 그대로), 그러면 「안 닿습니다」가 **닿는
+    // 동안 계속 서 있는다** — 화면이 아는 것보다 낡은 것을 사실로 말하는 그 모양이다.
+    if (!wasReachable) this.onChange();
 
     const next = s.pending ? new Pending(s.pending) : null;
     if (next && this.pending?.same(next)) {
@@ -58,11 +72,13 @@ export class WatchPrompt {
     } else if (next) {
       this.pending = next;
       this.clearedBy = null;
+      this.sentFor = null;
       this.onChange();
     } else if (this.pending) {
       // 답한 것이 우리면 `answer()`가 이미 사유를 적어 뒀다. 아니면 남이 답한 것이다.
       this.pending = null;
       this.clearedBy ??= CLEARED.elsewhere;
+      this.sentFor = null;
       this.onChange();
     }
 
@@ -81,7 +97,9 @@ export class WatchPrompt {
   async answer(decision) {
     const p = this.answering(KINDS.permission);
     await this.port.answerPermission(p.id, decision);
+    this.sentFor = p.id;
     this.clearedBy = CLEARED.answered;
+    this.onChange();
     return p.id;
   }
 
@@ -92,20 +110,30 @@ export class WatchPrompt {
   async choose(text) {
     const p = this.answering(KINDS.question);
     await this.port.answerQuestion(p.id, text);
+    this.sentFor = p.id;
     this.clearedBy = CLEARED.answered;
+    this.onChange();
     return p.id;
   }
 
   /**
-   * 답을 보내도 되는 상태인지 본다. **종류가 다르면 거절한다** — 모르는 종류를 권한으로
-   * 넘겨짚어 `allow`를 보내는 것이 이 창이 할 수 있는 제일 나쁜 일이다. call id 는 맞으니
-   * 데몬은 그 답을 받아 버린다.
+   * 답을 보내도 되는 상태인지 본다. **종류가 다르면 거절한다.**
+   *
+   * 코어까지 가면 어차피 떨어진다 — 등록부가 종류별로 갈려 있어(`st.questions` / `st.perms`)
+   * 어긋난 답은 채널을 못 찾는다. 여기서 먼저 막는 이유는 통과할까 봐가 아니라 **코어가 대는
+   * 사유가 틀리기 때문**이다: *"이미 결정됐거나 만료됐다"*. 그 말을 받은 사람은 없던 경합을
+   * 찾아 나서고, 물음은 그대로 서 있다. 사유를 아는 자리에서 사유를 대는 편이 낫다.
    */
   answering(kind) {
     if (!this.pending) throw new Error('묻고 있는 것이 없는데 답을 보내려 했습니다');
+    // 종류를 먼저 본다. 「이미 보냈다」는 사람이 두 번 누른 흔한 일이고 종류 어긋남은 **이
+    // 코드의 결함**이라, 둘이 겹치면 결함 쪽을 말해야 한다. 뒤에 두면 결함이 흔한 일에 가린다.
     if (this.pending.kind !== kind) {
       const got = this.pending.kind || '(없음)';
       throw new Error(`${kind} 이 아닌 물음에 ${kind} 의 답을 보내려 했습니다: kind=${got}`);
+    }
+    if (this.sentFor === this.pending.id) {
+      throw new Error('이미 답을 보냈습니다 — 물음이 내려가기를 기다리는 중입니다');
     }
     return this.pending;
   }
@@ -120,6 +148,8 @@ export class WatchPrompt {
         ? null
         : '데몬에 안 닿습니다 — 이 화면이 보여 주는 것은 마지막으로 읽은 것입니다',
       doing: this.doing,
+      /** 이 물음에 답을 이미 보냈나. 참이면 단추를 잠근다 — 값이 아니라 **보냈는지**다. */
+      answered: this.pending != null && this.sentFor === this.pending.id,
       /**
        * 이 창이 모르는 종류가 대기 중이다. **단추는 안 주고 사실만 준다** — 넘겨짚어 그리면
        * 사람이 엉뚱한 답을 보내고, 안 그리면 §6이 말한 「아무도 안 보는 곳에서 대기」다.

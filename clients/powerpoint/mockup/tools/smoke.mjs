@@ -287,6 +287,18 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await w.poll(); await w.poll();
   ok('못 닿는다는 말은 한 번뿐이다', drew === said, `${drew - said}회 더 말함`);
 
+  // 다시 닿음. **물음이 하나도 안 실려 오는 조용한 데몬**이라야 이 줄이 뭘 잡는지 보인다 —
+  // 물음이 같이 오면 그 분기가 대신 그려 줘서, 고장 나 있어도 시험은 통과한다.
+  st.clear();
+  st.reachable = true;
+  const lost = drew;
+  await w.poll();
+  ok('다시 닿으면 바꿔 그린다', drew > lost, '「안 닿습니다」가 그대로 서 있음');
+  ok('다시 닿아도 왜 내려갔는지는 남는다', w.view.clearedBy === CLEARED.unreachable);
+  const back = drew;
+  await w.poll(); await w.poll();
+  ok('다시 닿았다는 말도 한 번뿐이다', drew === back, `${drew - back}회 더 말함`);
+
   // 문이 아예 안 열리는 것도 못 닿은 것이다. 예외를 삼키되 사실은 남긴다.
   const st2 = new FakeStatus();
   st2.throwOnStatus = true;
@@ -330,9 +342,76 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('질문의 답은 글로 간다',
     st3.answers.length === 1 && st3.answers[0].callId === 'call_12'
     && st3.answers[0].text === '새 장');
-  let wrongHand = false;
-  try { await w3.answer('allow'); } catch { wrongHand = true; }
-  ok('질문에 권한의 낱말을 안 보낸다', wrongHand && st3.answers.length === 1);
+  // 사유까지 본다. 이 물음은 **이미 답한** 것이기도 해서 거절 이유가 둘 겹치는데, 종류
+  // 어긋남은 이 코드의 결함이고 「이미 보냄」은 사람이 두 번 누른 흔한 일이다. 결함이 흔한
+  // 일에 가리면 안 되므로 나와야 하는 말은 종류 쪽이다.
+  let wrongHand = '';
+  try { await w3.answer('allow'); } catch (e) { wrongHand = e.message; }
+  ok('질문에 권한의 낱말을 안 보낸다', wrongHand !== '' && st3.answers.length === 1);
+  ok('겹치면 종류 어긋남을 먼저 말한다', /kind=question/.test(wrongHand), wrongHand);
+
+  // 두 번 누르기. 답을 보내도 물음은 다음 `status` 까지 화면에 서 있으므로 단추도 서 있다.
+  // 둘째 답은 코어까지 가면 어차피 떨어지지만, 돌아오는 말이 "이미 결정됐거나 만료됐다"라
+  // 아무 잘못 없는 사람에게 오류로 뜬다. 여기서 막는다.
+  const st4 = new FakeStatus();
+  const w4 = new WatchPrompt(st4);
+  st4.ask({ id: 'call_20', kind: 'permission', what: 'bash' });
+  await w4.poll();
+  ok('보내기 전에는 안 잠겨 있다', w4.view.answered === false);
+  await w4.answer('allow');
+  ok('보낸 뒤에는 잠긴다', w4.view.answered === true);
+  let twice = false;
+  try { await w4.answer('deny'); } catch { twice = true; }
+  ok('같은 물음에 답이 두 번 안 간다',
+    twice && st4.answers.length === 1 && st4.answers[0].decision === 'allow');
+  // 폴이 계속 같은 것을 실어 와도 잠김이 안 풀린다 — 풀리면 두 번 누르기가 되살아난다.
+  await w4.poll();
+  ok('같은 물음이 계속 와도 잠김이 안 풀린다', w4.view.answered === true);
+  // 다음 물음은 새 물음이다. 앞의 잠김을 물려받으면 답할 수 있는 것을 못 답한다.
+  st4.ask({ id: 'call_21', kind: 'permission', what: 'write_file' });
+  await w4.poll();
+  ok('새 물음은 안 잠겨 있다', w4.view.answered === false);
+  await w4.answer('deny');
+  ok('새 물음에는 답이 간다', st4.answers.length === 2 && st4.answers[1].callId === 'call_21');
+
+  // 두 폴 사이에 물음이 갈렸는데 id 와 종류가 같은 경우. call id 는 모델이 붙이는 것이라
+  // 세션이 새로 세면 되풀이된다. 물은 시각을 안 보면 이게 「안 바뀜」으로 보이고, 그러면 앞
+  // 물음의 잠김이 새 물음에 그대로 걸려 **답할 수 있는 것을 못 답한다.**
+  const st6 = new FakeStatus();
+  const w6 = new WatchPrompt(st6);
+  st6.ask({ id: 'call_1', kind: 'permission', what: 'bash', since: '2026-08-29T01:00:00Z' });
+  await w6.poll();
+  await w6.answer('allow');
+  ok('보낸 뒤 잠긴다 (id 되풀이 대비)', w6.view.answered === true);
+  st6.ask({ id: 'call_1', kind: 'permission', what: 'bash', since: '2026-08-29T01:07:00Z' });
+  await w6.poll();
+  ok('id 가 같아도 물은 시각이 다르면 새 물음이다', w6.view.answered === false);
+  await w6.answer('deny');
+  ok('되풀이된 id 의 새 물음에도 답이 간다',
+    st6.answers.length === 2 && st6.answers[1].decision === 'deny');
+  // 같은 것이 계속 오는 것은 여전히 같은 것이다 — 이걸 새 것으로 보면 매 폴마다 다시 그린다.
+  await w6.poll();
+  ok('시각까지 같으면 같은 물음이다', w6.view.answered === true);
+
+  // 물음이 **무엇을 근거로** 왔는지. 코어가 소켓으로 실어 보내는데 이 창이 버리면 화면에
+  // 남는 것은 예/아니오뿐이고, 그건 판단이 아니라 클릭이다.
+  const st5 = new FakeStatus();
+  const w5 = new WatchPrompt(st5);
+  st5.ask({ id: 'call_30#1', kind: 'question', what: '어느 쪽으로 맞출까요?',
+    options: ['왼쪽', '가운데'],
+    report: [{ key: 'tried', text: '2·5·9쪽은 왼쪽입니다' },
+      { key: 'leaning', text: '왼쪽으로 기웁니다' }],
+    index: 1, total: 2 });
+  await w5.poll();
+  ok('근거를 버리지 않는다', w5.view.pending?.report.length === 2);
+  ok('근거의 차례를 안 바꾼다',
+    w5.view.pending.report.map((r) => r.key).join(',') === 'tried,leaning');
+  ok('몇 번째 물음인지 말한다', w5.view.pending.placement === '1번째 · 모두 2개');
+  // 안 실린 것을 1/1 로 지어내지 않는다.
+  st5.ask({ id: 'call_31', kind: 'permission', what: 'bash' });
+  await w5.poll();
+  ok('안 실린 자리는 비워 둔다', w5.view.pending.placement === null
+    && w5.view.pending.report.length === 0);
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
