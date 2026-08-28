@@ -1,0 +1,66 @@
+# The JetBrains plugin's own test lane. clients/jetbrains/ releases on its own clock
+# (jetbrains-v* → release-jetbrains.yml) and tests on it too, the same arrangement web/ has:
+# a plugin-only change runs this and not the Go CI (ci.yml ignores clients/**), and a core
+# change does not spend minutes downloading an IDE it did not touch.
+#
+# Two modules, and they cost very differently. core/ is plain Kotlin — no IntelliJ SDK, seconds.
+# intellij/ pulls a whole IDE (~1GB) to compile against. So core runs first and alone: when the
+# port breaks it is almost always there, and the failure arrives in under a minute instead of
+# after the download.
+#
+# The live-daemon test skips here on purpose. It needs MAGI_IDE_PROBE_SOCK and a running daemon,
+# and CI has neither — the goldens it complements are deterministic and do run.
+name: test-jetbrains
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clients/jetbrains/**"
+      - ".github/workflows/test-jetbrains.yml"
+  pull_request:
+    paths:
+      - "clients/jetbrains/**"
+      - ".github/workflows/test-jetbrains.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/jetbrains/plugin
+    steps:
+      - uses: actions/checkout@v7
+
+      # The build asks for a JDK 21 toolchain. Providing it here means Gradle resolves it locally
+      # instead of downloading one.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      # The contract that matters, without the SDK. If the socket name or the wire has drifted
+      # from Go, it fails here.
+      - name: core (no IntelliJ SDK)
+        run: ./gradlew :core:test --no-daemon
+
+      # And that the plugin still assembles: plugin.xml valid, since-build in range, zip produced.
+      - name: plugin
+        run: ./gradlew :intellij:buildPlugin verifyPluginProjectConfiguration --no-daemon
+
+      - name: what the tests said
+        if: always()
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import glob, xml.etree.ElementTree as ET
+          print("## JetBrains plugin")
+          for f in sorted(glob.glob("core/build/test-results/test/*.xml")):
+              r = ET.parse(f).getroot()
+              print(f"- `{r.get('name').split('.')[-1]}` — {r.get('tests')} tests, "
+                    f"{r.get('failures')} failed, {r.get('skipped')} skipped")
+          EOF
