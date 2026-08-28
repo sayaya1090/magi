@@ -57,6 +57,13 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void resume(CompanionContext ctx, String session, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("session", session);
+        Console.post("/resume", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+    }
+
+    @Override
     public void interrupt(CompanionContext ctx, Consumer<String> why) {
         Console.post("/interrupt", new URLSearchParams(), ctx.socket, ctx.peer)
                 .then(w -> { why.accept(w); return null; });

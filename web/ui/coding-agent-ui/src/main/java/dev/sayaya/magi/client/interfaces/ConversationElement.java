@@ -6,6 +6,7 @@ import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.Stylesheet;
+import dev.sayaya.magi.client.domain.Moves;
 import dev.sayaya.magi.client.domain.Rows;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.core.JsDate;
@@ -84,7 +85,9 @@ public class ConversationElement {
         store.onContext(ctx -> { lastSig = null; layer(ctx); });
         store.alive().subscribe(this::aliveIs);
         // 이름은 명단 조각에서 온다 — 그 행이 같은 말을 다시 하면 스토어가 흘리지 않는다.
-        store.aimed().subscribe(row -> aimed = row);
+        // 세션과 상태가 이 조각에서 온다 — 컴패니언이 다른 대화로 떠나거나 일을 시작하면
+        // 컴포저가 말하는 것도 달라져야 한다.
+        store.aimed().subscribe(row -> { aimed = row; reach(); });
         store.onRows(this::paintRows);
         store.onPast(this::paintPast);
         store.onSub(this::paintSub);
@@ -99,15 +102,27 @@ public class ConversationElement {
 
     private String pastNow = null;
 
-    /** 층위가 정해지면 지금-대화의 판들이 물러난다 — 컴포저까지: 과거엔 보낼 곳이 없다(이동은 잔여). */
+    /**
+     * 층위가 정해지면 지금-대화의 판들이 물러난다 — 다만 <b>컴포저는 하나를 남긴다</b>.
+     *
+     * 물러나는 이유는 "과거라서"가 아니라 <b>보낼 대화가 화면에 없어서</b>다: 자식 하나를
+     * 들여다보는 중이거나 지난 일 목록을 훑는 중에 누른 보내기는, 보이지 않는 대화에 말을
+     * 넣는다. 한 세션의 전사를 열어 둔 화면은 그 시험을 통과한다 — 보고 있는 그 대화가 곧 말이
+     * 갈 곳이고, 다만 컴패니언이 아직 거기 있지 않을 뿐이다. 그건 상자를 치울 이유가 아니라
+     * 보내기 전에 한 번 묻는 이유다(운영 paintCompanionChrome의 onSession).
+     */
     private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
         pastNow = ctx == null ? null : ctx.past;
         subNow = ctx == null || ctx.sub == null || ctx.sub.isEmpty() ? null : ctx.sub;
         // 지난 일과 자식은 <b>같은 자리</b>를 대신한다 — 둘 다 지금 대화를 물리고 그 자리에 선다.
         boolean layered = pastNow != null || subNow != null;
+        // 빈 past는 목록이다 — 고른 대화가 아직 없으니 보낼 곳도 없다.
+        boolean onSession = subNow == null && pastNow != null && !pastNow.isEmpty();
         toggle(log, !layered);
-        toggle(form, !layered);
+        toggle(form, !layered || onSession);
         toggle(past, layered);
+        // 화면을 옮기면 이 상자가 닿는 대화가 바뀐다 — 질문이 도착할 때만이 아니라 여기서도 알린다.
+        reach();
     }
 
     private String subNow = null;
@@ -273,6 +288,73 @@ public class ConversationElement {
         parked = had;
         note.textContent = now ? tr("answer.instead") : "";
         if (now) note.removeAttribute("hidden"); else note.setAttribute("hidden", "");
+        // 몫이 바뀌면 라벨을 새로 썼다 — 옮겨야 하는 화면이면 그 위에 다시 덮어야 한다.
+        reach();
+    }
+
+    /**
+     * 이 상자가 <b>어느 대화에 닿는가</b> — 그리고 닿지 못할 때 무엇이라 말하는가.
+     *
+     * 보통 화면 말고 두 경우가 더 있고, 둘 다 이것이 없던 시절의 결함이다. 컴패니언이 있지 않은
+     * 세션에 서면 상자는 살아 있는 것과 똑같이 보였고, 거기 쓴 말은 컴패니언이 마침 있던 대화로
+     * — 화면 밖으로 — 갔다. 그리고 턴이 도는 중인 컴패니언은 아예 옮길 수 없으니, 그 자리에서
+     * 문장을 받는 상자는 배달하지 못할 것을 받는 상자였다.
+     *
+     * 씌운 라벨은 <b>씌운 쪽이 벗긴다</b>: 몫이 바뀔 때만 라벨을 쓰는 answerMode는 화면을 걸어
+     * 나오는 일을 모른다. 그래서 옮길 것이 없어지는 순간 여기서 보통의 라벨을 되돌린다 —
+     * 아니면 아무도 보고 있지 않은 세션의 이름을 단 상자가 그대로 남는다(운영이 겪은 그것).
+     */
+    private void reach() {
+        if (!composerBuilt) return;
+        String session = aimed == null ? null : aimed.session;
+        String to = Moves.to(pastNow, session);
+        boolean blocked = Moves.blocked(to, aimed == null ? null : aimed.state);
+        able(field, blocked);
+        able(sendBtn, blocked);
+        if (to.isEmpty()) {
+            field.setAttribute("label", tr(store.answering() ? "label.answer" : "label.ask"));
+            // 질문이 서 있는 동안 그 한 줄은 answerMode의 것이다 — 옮기기가 빌린 자리만 돌려준다.
+            if (!store.answering()) {
+                if (!note.textContent.isEmpty()) note.textContent = "";
+                note.setAttribute("hidden", "");
+            }
+            return;
+        }
+        field.setAttribute("label", blocked ? tr("move.busy") : tr("move.into", "to", to));
+        note.textContent = blocked ? tr("move.busy_why") : tr("move.will_ask");
+        note.removeAttribute("hidden");
+    }
+
+    private static void able(HTMLElement e, boolean no) {
+        if (no) e.setAttribute("disabled", ""); else e.removeAttribute("disabled");
+    }
+
+    /**
+     * 묻고, 옮기고, 보낸다 — 그 순서로, 그 순서로만.
+     *
+     * 먼저 보내면 그 말은 컴패니언이 <b>지금</b> 있는 대화로 들어간다 — 아무도 보고 있지 않은
+     * 그 대화로. 묻지 않고 옮기면 지난주 일을 읽으려고 열어 본 사람이 그것을 조용히 지금
+     * 대화로 만들어 버린다.
+     *
+     * 그리고 옮기기가 거부되면 <b>보내지 않는다</b>: 답은 거부 사유이고 성공은 빈 문자열이라
+     * 판정은 "말이 있느냐"다(운영에서 이것을 거짓과 비교했을 때, 거부된 옮기기 뒤로 보내기가
+     * 그대로 따라간 적이 있다). 쓰던 말은 돌려준다 — 타이핑을 잃는 쪽이 늘 더 나쁘다.
+     */
+    private void moveAndSend(String to, String text) {
+        String session = aimed == null ? null : aimed.session;
+        String from = session == null || session.isEmpty() ? tr("move.somewhere") : session;
+        dialogs.confirm(tr("move.headline", "to", to),
+                tr("move.body", "from", from, "to", to),
+                tr("action.move_and_send"), "#i-ss-paper-plane", () -> {
+                    value("");
+                    clearSuggest();
+                    store.resume(to, why -> {
+                        if (why != null && !why.isEmpty()) { value(text); return; }
+                        store.submit(text, w -> { });
+                        // 옮겼으니 그 대화가 곧 지금 대화다 — 읽던 층위를 접고 돌아간다.
+                        GoSharing.past(null);
+                    });
+                });
     }
 
     private HTMLElement composer() {
@@ -327,6 +409,13 @@ public class ConversationElement {
             evt.preventDefault();
             String v = value().trim();
             if (v.isEmpty()) return;
+            // 컴패니언이 있지 않은 대화라면, 보내기 전에 물어야 할 것이 하나 있다.
+            String to = Moves.to(pastNow, aimed == null ? null : aimed.session);
+            if (!to.isEmpty()) {
+                if (Moves.blocked(to, aimed == null ? null : aimed.state)) return;
+                moveAndSend(to, v);
+                return;
+            }
             // 비우고, 거부되면 되돌린다 — 타이핑을 잃는 쪽이 늘 더 나쁘다(기존 콘솔 규칙).
             value("");
             store.submit(v, why -> {

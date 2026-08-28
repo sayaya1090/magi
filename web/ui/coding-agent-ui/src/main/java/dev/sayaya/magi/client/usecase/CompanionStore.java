@@ -81,10 +81,13 @@ public class CompanionStore implements CompanionSource.Listener {
 
     private static boolean same(FleetAgent a, FleetAgent b) {
         if (a == null || b == null) return a == b;
+        // 세션도 이 목록에 있어야 한다: 옮기고 나면 <b>세션만</b> 바뀌는 명단이 온다(상태도
+        // 이름도 그대로다). 빠뜨리면 그 조각이 흐르지 않아, 컴포저는 이미 들어와 있는 대화로
+        // "옮겨서 이어가겠다"고 계속 말한다.
         return (a.state + "|" + a.name + "|" + a.doing + "|" + a.user + "|" + a.waiting
-                + "|" + a.handling + "|" + a.live)
+                + "|" + a.handling + "|" + a.live + "|" + a.session)
                 .equals(b.state + "|" + b.name + "|" + b.doing + "|" + b.user + "|" + b.waiting
-                + "|" + b.handling + "|" + b.live);
+                + "|" + b.handling + "|" + b.live + "|" + b.session);
     }
 
     public void onTurn(BiConsumer<Boolean, Double> o) {
@@ -109,6 +112,17 @@ public class CompanionStore implements CompanionSource.Listener {
             return;
         }
         source.submit(ctx, text, why);
+    }
+
+    /**
+     * 컴패니언을 그 세션으로 옮긴다 — 보내기 <b>전에</b>, 그리고 옮기지 못하면 보내지 않는다.
+     *
+     * 순서를 여기서 강제하지 않는 이유: 무엇을 물어보고 옮길지는 화면의 몫이고(되돌릴 수 없는
+     * 일이라 한 번 묻는다), 스토어는 두 문을 따로 열어 둔다.
+     */
+    public void resume(String session, Consumer<String> why) {
+        if (ctx == null) { why.accept("no companion"); return; }
+        source.resume(ctx, session, why);
     }
 
     /** 그 라운드가 본 것 — 카드 하나로 펼쳐진다(전사 행에는 담을 자리가 없다). */
