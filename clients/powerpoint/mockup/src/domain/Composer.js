@@ -55,7 +55,14 @@ export class Composer {
    */
   hold(text, mark = 0) {
     const t = String(text ?? '').trim();
-    this.sent = { text: t, quotes: [...this.pending], prompt: promptOf(t, this.pending), mark };
+    // **`prompt` 와 `mark` 만 싣는다.** 앞 판본은 `text` 와 `quotes` 도 같이 실었는데, 이
+    // 저장소 어디에도 그 둘을 읽는 곳이 없다(필드 드롭 계측 — 통째로 비워도 아무 소리가 안
+    // 났다). 위 주석이 말하는 「쥔 채 잠근다」를 지키는 것은 이 칸이 아니라 **`this.pending`
+    // 과 화면의 입력칸**이다: `release()` 는 `sent` 만 비우고 `pending` 은 그대로 두고,
+    // 사람이 적은 글은 애초에 DOM 에 산다. 읽는 이 없는 칸은 나중에 낡은 값을 담고 앉아
+    // 있게 되고, 여기서는 특히 `quotes` 가 그렇다 — 낸 뒤 인용을 하나 떼면 `pending` 만
+    // 줄고 이 사본은 안 줄어서, 둘 중 어느 쪽이 진짜인지가 그 순간부터 안 정해진다.
+    this.sent = { prompt: promptOf(t, this.pending), mark };
     return this.sent;
   }
 

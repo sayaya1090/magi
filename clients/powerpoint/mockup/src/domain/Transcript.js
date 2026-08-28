@@ -61,13 +61,17 @@ const PART_DRAWN = new Map([
 const FOLDED = new Set(['model', 'think']);
 
 export class Row {
-  constructor({ seq, kind, type, text, actor, ts, messageId, call, finish }) {
+  constructor({ seq, kind, text, actor, messageId, call, finish }) {
     this.seq = seq ?? 0;
     this.kind = kind;       // user | model | think | tool | note | turn | error | unknown
-    this.type = type;       // 로그의 이름 그대로
+    // **`type` 과 `ts` 는 안 싣는다.** 로그의 이름 그대로와 시각을 각각 실어 뒀지만, 이
+    // 저장소 어디에도 그 둘을 읽는 곳이 없다(필드 드롭 계측 — 둘 다 통째로 비워도 아무
+    // 소리가 안 났다). `type` 은 특히 접히는 줄에서 위험했다: 델타 여럿을 한 줄로 접으면서
+    // 마지막 이벤트의 이름으로 덮어써서, **여러 이벤트가 만든 줄에 그중 하나의 이름만
+    // 앉아 있었다.** 나중에 이 칸을 읽는 사람은 그것을 그 줄 전체의 종류로 읽는다.
+    // 줄이 무엇으로 그려지는지는 `kind` 가 답하고, 그쪽은 읽는 데가 있다.
     this.text = text ?? '';
     this.actor = actor ?? null;
-    this.ts = ts ?? null;
     this.messageId = messageId ?? null;
     /** 도구 이름. `kind === 'tool'` 일 때만 있다 — 이 줄이 「모델이 한 일」이다. */
     this.tool = call?.name ?? null;
@@ -148,14 +152,13 @@ export class Transcript {
         } else {
           row.text += t;
         }
-        row.type = type;
         if (ev?.seq > 0) row.seq = ev.seq;   // 자리가 생겼다
         return row;
       }
     }
 
     const row = new Row({
-      seq: ev?.seq, kind, type, actor: ev?.actor, ts: ev?.ts, messageId,
+      seq: ev?.seq, kind, actor: ev?.actor, messageId,
       text: textOf(ev, kind), call: toolCallOf(ev), finish: finishOf(ev, type),
     });
     row.settled = type === 'part.appended';

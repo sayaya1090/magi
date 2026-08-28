@@ -180,6 +180,12 @@ ok('가리키기 성공', good.ok === true);
 const bad = await point.run(
   new Advice({ message: '사라진 도형', slideId: 's4f2a1', shapeIds: ['sh-없음'] }));
 ok('없는 도형은 대체 없이 실패', bad.ok === false, bad.reason);
+// **사유를 `ok` 의 곁다리로만 넘기고 있었다.** 위 줄은 `bad.reason` 을 detail 로만 찍지
+// 단언하지 않아서, 던진 것의 말을 통째로 버려도(`reason: undefined`) 초록이었다. 그러면
+// 화면은 「가리키지 못했습니다」라고만 적고 **왜인지는 어디에도 안 남는다** — 이 창에서만
+// 세 번째 같은 모양이다(`msgOf` 의 `?? String(e)`, `Transcript.restart(why)`).
+ok('실패에 던진 쪽의 말이 실려 온다',
+   /찾을 수 없는 도형/.test(bad.reason ?? '') && /sh-없음/.test(bad.reason ?? ''), bad.reason);
 
 // 다른 슬라이드의 도형은 슬라이드까지 옮겨야 가리켜진다.
 const cross = await point.run(new Advice({ message: '뒷장', slideId: 's7', shapeIds: ['sh7b'] }));
@@ -232,6 +238,16 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('대화가 바뀌면 커서를 버린다', read.attach('B') === -1);
   ok('앞 대화가 화면에 안 남는다', read.view.rows.every((r) => r.text !== '키웠습니다'));
 
+  // **말한 것과 보낸 것.** 위 세 줄이 무는 것은 `attach` 의 **반환값**이고, 문이 실제로 받은
+  // 값은 가짜의 `calls` 에 있다. 가짜는 그걸 보라고(「시험이 보는 것: 실제로 보낸 since」)
+  // 들고 있는데 **여태 아무도 안 봤다** — `since` 를 통째로 안 실어도 스위트가 초록이었다
+  // (필드 드롭 계측). 정직하게 적자면 셈을 상수로 바꾸는 뮤턴트는 옆의 거절·배우 시험들이
+  // 이미 잡는다. 이 줄이 혼자 잡는 것은 **계측기 쪽이 조용히 죽는 경우**고, 그게 제일 나쁜
+  // 종류다 — 계측기가 안 보면 나머지 단언들이 무엇을 봤는지도 못 믿게 된다.
+  ok('문에 실제로 간 것이 말한 것과 같다',
+    port.calls.map((c) => `${c.sessionId}:${c.since}`).join(' → ') === 'A:-1 → A:2 → B:-1',
+    port.calls.map((c) => `${c.sessionId}:${c.since}`).join(' → '));
+
   // 거절 프레임. 안 읽으면 보던 대화 뒤에 같은 대화의 처음이 이어 붙는다.
   const port2 = new FakeTranscript({ A: [ev(1, 'prompt.submitted', '첫 줄')] });
   const read2 = new ReadTranscript(port2);
@@ -255,8 +271,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   read3.attach('A');
   port3.push({ seq: 1, sessionId: 'A', type: 'council.verdict', data: {} });
   port3.push({ seq: 2, sessionId: 'A', type: 'todos.changed', data: {} });
+  // `!== null` 은 화면이 쓰는 물음이 아니다 — `renderUnknown` 은 `el.hidden = !note` 로
+  // 읽으므로 `undefined` 면 조용히 감춘다. 뷰 모델이 이 칸을 통째로 안 실어도 이 줄이
+  // `!== null` 이던 동안은 초록이었다(필드 드롭 계측). **거절 사유와 같은 어긋남이다.**
   ok('모르는 종류는 안 그려도 안 사라진다', read3.view.rows.length === 0
-    && read3.view.unknownNote !== null, read3.view.unknownNote ?? '(말이 없다)');
+    && Boolean(read3.view.unknownNote), read3.view.unknownNote ?? '(말이 없다)');
+  ok('안 그린 것이 몇 건인지 그 말에 든다',
+    /council\.verdict/.test(read3.view.unknownNote ?? '')
+    && /todos\.changed/.test(read3.view.unknownNote ?? ''), read3.view.unknownNote);
   ok('모르는 것도 커서는 민다', read3.cursor.seq === 2);
 
   // 위 두 사건은 `data` 가 비어 있어서 **못 그린 것과 안 실은 것이 같게 생긴다.** 알맹이를
@@ -469,7 +491,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await w.poll();
   ok('못 닿으면 세운 것을 내리되 사유가 다르다',
     w.view.pending === null && w.view.clearedBy === CLEARED.unreachable);
-  ok('못 닿으면 소리 내어 말한다', w.view.lostNote !== null);
+  // 여기도 `!== null` 이었다. 화면은 `lostEl(v.lostNote)` 의 `textContent` 에 그대로 꽂으므로
+  // 이 칸이 비면 **「undefined」라는 글자가 사람에게 뜬다** — 안 뜨는 것보다 나쁘다.
+  ok('못 닿으면 소리 내어 말한다', Boolean(w.view.lostNote), String(w.view.lostNote));
+  ok('그 말이 마지막으로 읽은 것임을 밝힌다',
+    /마지막으로 읽은/.test(w.view.lostNote ?? ''), w.view.lostNote);
   const said = drew;
   await w.poll(); await w.poll();
   ok('못 닿는다는 말은 한 번뿐이다', drew === said, `${drew - said}회 더 말함`);
@@ -491,7 +517,8 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   st2.throwOnStatus = true;
   const w2 = new WatchPrompt(st2);
   await w2.poll();
-  ok('dial 실패도 못 닿음이다', w2.view.reachable === false && w2.view.lostNote !== null);
+  ok('dial 실패도 못 닿음이다',
+    w2.view.reachable === false && Boolean(w2.view.lostNote), String(w2.view.lostNote));
 
   // 「…하는 중」은 **지금**에 대한 말이라 못 닿는 순간 근거가 없어진다. 로그 줄은 지나간
   // 일이라 못 닿아도 참인데 이건 아니다 — 그대로 두면 죽은 데몬이 영영 일하는 중으로 선다.
@@ -711,11 +738,18 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     r6.blind === true && comp6.waiting === false);
 
   // 문이 던지면 잠금을 푼다. 삼키면 사람은 간 줄 안다.
-  const bad = { async submit() { throw new Error('문이 닫혔습니다'); } };
+  const boom3 = new Error('문이 닫혔습니다');
+  const bad = { async submit() { throw boom3; } };
   const comp3 = new Composer();
   const r3 = await new SendTurn(bad, comp3).run('안 갈 말', { userRows: 0, live: true });
   ok('못 가면 사유가 온다', r3.sent === false && r3.why === 'failed');
   ok('못 갔으면 안 잠긴다', comp3.waiting === false);
+  // **`why` 만 재고 던진 물건을 안 쟀다.** 화면은 `r.error.message` 를 감싸는 것 없이 읽으므로
+  // (`view.js` 의 `onSend`), 이 칸이 비면 「못 보냈습니다」를 적으려다 그 자리에서 또 던진다 —
+  // 실패를 알리는 길이 실패한다. 값이 온다가 아니라 **던진 그 물건이** 와야 한다.
+  ok('못 간 사유에 던진 물건이 실린다', r3.error === boom3, String(r3.error));
+  // ⚠ 짝인 `blind: false` 는 **안 문다.** 소비자가 `if (r.blind)` 라 `undefined` 와 구별을
+  // 못 하고, 못 하는 것을 못박으면 아무도 안 쓰는 값을 시험이 지키는 꼴이 된다.
 }
 
 // ── 안내는 모델의 말이 아니라 **도구 호출**이다(§6.1). 로그에서 유도하고 따로 안 쌓는다.
@@ -861,8 +895,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const blind = new Advice({ message: '어딘지 안 실림' });
   ok('가리킬 곳이 없으면 사유가 있다', typeof blind.unpointableReason === 'string');
   ok('가리킬 수 있으면 사유가 없다', a.unpointableReason === null);
-  ok('누를 때 사유와 목록의 사유가 같다',
-     (await point.run(blind)).reason === blind.unpointableReason);
+  const blindRun = await point.run(blind);
+  ok('누를 때 사유와 목록의 사유가 같다', blindRun.reason === blind.unpointableReason);
+  // 사유만 보고 `ok` 를 안 봤다. 성공으로 읽히면 화면은 캔버스가 따라간 줄 알고 아무 말도
+  // 안 하는데, 실제로는 아무 데도 안 갔다.
+  ok('가리킬 곳이 없으면 성공이 아니다', blindRun.ok === false, String(blindRun.ok));
 
   // 1.8 아래 호스트 흉내. **빈 Map 이 아니라 null 이다.**
   const d = new FakeDeck(structuredClone(fixture));
@@ -947,6 +984,31 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const got = await new QuoteSelection(d2, new Composer()).run();
   ok('덱이 못 읽었다고 하면 인용까지 실려 온다',
      got.added[0]?.textUnavailable === true, JSON.stringify(got.added[0] ?? null));
+
+  // **옮겨 싣는 칸은 비워도 아무도 안 본다.** 위 한 줄이 따라온 것은 `textUnavailable`
+  // 하나고, 나머지 다섯 칸(name·type·text·width·height)은 통째로 `undefined` 를 실어도
+  // 스위트가 초록이었다(필드 드롭 계측). 가지는 뒤집으면 누가 알아채는데 옮겨 싣는 칸은
+  // 안 그렇다. 그중 `text` 는 **모델에게 가는 몸**이라 비면 인용이 「이 상자」라고만 말한다.
+  const src = fixture.slides[0].shapes[0];
+  const d3 = new FakeDeck(structuredClone(fixture));
+  d3.click(src.id, false);
+  const one = (await new QuoteSelection(d3, new Composer()).run()).added[0];
+  const carried = ['name', 'type', 'text', 'width', 'height'].filter((k) => one?.[k] === src[k]);
+  ok('덱의 도형이 인용에 그대로 실린다', carried.length === 5, carried.join(','));
+  // 슬라이드 신원은 도형이 아니라 **선택 전체**에서 온다. 그래서 위 목록에 안 들어가고,
+  // 안 들어간 채로 아무도 안 봤다(필드 드롭 계측). 이게 비면 모델이 받는 말이
+  // `slide=undefined` 가 되어 **어느 장 얘기인지 모르는 인용**이 되고, 안내가 돌아올 때
+  // 도형 id 만으로 장을 되찾아야 한다.
+  ok('선택의 슬라이드 신원이 인용에 실린다',
+    one.slideId === fixture.slides[0].id && one.toPrompt().includes(`slide=${one.slideId}`),
+    `${one.slideId} / ${one.toPrompt().split('\n')[0]}`);
+  // **실렸는지만 보면 모델에게 안 가도 초록이다.** 소비자가 묻는 물음으로 한 번 더 묻는다.
+  ok('실린 이름과 종류가 모델에게 가는 말에 든다',
+    one.toPrompt().includes(`type=${src.type}`) && one.toPrompt().includes(`name="${src.name}"`),
+    one.toPrompt().split('\n')[0]);
+  ok('실린 글이 모델에게 가는 말에 든다', one.toPrompt().includes(src.text), one.toPrompt());
+  // 크기의 소비자는 카드의 치수 한 줄이다. 한 짝만 빠져도 그 줄이 통째로 사라진다.
+  ok('실린 크기가 카드의 치수가 된다', one.sizeLabel !== null, String(one.sizeLabel));
 }
 
 // ── 선택을 **아예** 못 읽는 날. 위가 반쪽(글만 못 옴)이면 이건 통째다. `run()` 이 던지면
@@ -962,6 +1024,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('선택을 못 읽어도 던지지 않는다', !r.threw, r.threw);
   ok('못 읽은 것은 제 이름으로 올라온다', r.reason === 'readFailed', JSON.stringify(r));
   ok('못 읽은 것을 「안 골랐다」로 적지 않는다', r.reason !== 'none' && r.reason !== 'unknown');
+  // **사유가 실려도 문이 안 열리면 아무도 안 읽는다.** `onQuote` 는 위 사유 넷을 `if (empty)`
+  // 안에서만 본다 — `empty` 가 안 실리면(필드 드롭 계측: 안 실어도 초록이었다) 못 읽은 호출이
+  // **인용에 성공한 것처럼** 흘러간다. 0개를 인용하고, 쪽지 한 줄 없이, 사람은 자기가 도형을
+  // 안 골랐다고 생각한다. `reason` 을 갈라 놓은 값이 통째로 도달 불가가 되는 자리다.
+  ok('못 읽은 호출은 빈 것으로 올라온다', r.empty === true, String(r.empty));
 
   d.reading = true;
   const ok2 = await qs.run();
@@ -1037,6 +1104,21 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     fifth !== pickNote(slow) && fifth !== pickNote(threw) && fifth !== pickNote(blind));
   ok('무엇이 모르는 사유였는지 싣는다',
     String(fifth).includes('quota'), String(fifth));
+
+  // **그 그물이 성공을 같이 걷어 올렸다.** `why === null` 은 「사유가 없다」= 진짜 덱에
+  // 붙었다는 뜻인데(`pickDeck` 이 `OfficeDeck` 과 함께 돌려주는 값), 위 catch-all 이
+  // `why !== 'not-powerpoint'` 로 묻는 바람에 여기로 떨어졌다. 그래서 **진짜 PowerPoint 안에서**
+  // 「이 창이 모르는 사유로 가짜 덱에 붙었습니다(null). 이 창을 고쳐야 합니다.」가 떴다.
+  // 하필 판 자리(`view.where`)라 창이 사는 내내 남고, 성공 경로에는 `late` 도 없어 덮어써 줄
+  // 것도 없다. 이 제품이 존재하는 **유일한 환경에서 화면 맨 위가 거짓말**이었던 셈이다.
+  //
+  // 사유를 갈라 놓은 값에 시험이 다섯 줄이나 붙어 있었는데도 못 잡은 이유는, 다섯 줄이 전부
+  // **가짜로 간 갈래**만 물었기 때문이다. 성공은 아무도 안 물었다(필드 드롭 계측이
+  // `host` 를 성공 갈래에서 지워도 조용한 것을 보고 여기를 들여다봤다).
+  ok('진짜 덱에 붙은 것은 할 말이 없다',
+    pickNote({ why: null, host: 'PowerPoint', error: null }) === null,
+    String(pickNote({ why: null, host: 'PowerPoint', error: null })));
+  ok('그래도 다섯째 사유는 여전히 운다', pickNote({ why: 'quota' }) !== null);
 
   // 시한 쪽지는 「PowerPoint 안이라면 새로고침하세요」라는 **조건부**다. 늦게 온 답이 조건을
   // 깨면 그 권유가 틀린 권유가 되므로 늦은 쪽지가 덮어써야 한다.
@@ -1359,6 +1441,24 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('인자가 아예 없는 호출은 못 읽은 것이다',
     foldAdvice([{ kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c5',
       args: null }]).dropped === 1);
+
+  // **포스트잇의 신원.** `${callId}#${i}` 인데 여태 이 신원을 아무도 안 봤다 — `Transcript`
+  // 가 `callId` 를 아예 안 실어도, 여기서 `r.seq` 로만 지어도 스위트가 초록이었다(필드 드롭
+  // 계측). 그게 왜 위험한지가 바로 아래 두 줄이다: 도구 호출은 **버스 전용 이벤트**로 와서
+  // 로그 자리가 없는 일이 흔하고(`seq === 0`, `Row.positioned` 가 false 인 그 경우),
+  // 그러면 다른 호출 둘이 `0#0` 하나를 나눠 갖는다. 캔버스가 신원으로 포스트잇을 세우므로
+  // (§6.1), 겹치는 순간 **앞 안내가 뒤 안내 자리에 앉거나 뒤엣것이 아예 안 뜬다.**
+  const twoCalls = foldAdvice([
+    { kind: 'tool', tool: 'mcp__ppt__advise', seq: 0, callId: 'cA',
+      args: { items: [{ message: '가' }, { message: '나' }] } },
+    { kind: 'tool', tool: 'mcp__ppt__advise', seq: 0, callId: 'cB',
+      args: { items: [{ message: '다' }] } },
+  ]);
+  ok('포스트잇 신원에 호출 신원이 든다',
+    twoCalls.items.map((a) => a.id).join(',') === 'cA#0,cA#1,cB#0',
+    twoCalls.items.map((a) => a.id).join(','));
+  ok('자리 없는 호출 둘이 같은 신원을 안 쓴다',
+    new Set(twoCalls.items.map((a) => a.id)).size === 3);
 }
 
 {
@@ -1387,6 +1487,18 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     part: { kind: 'tool-call', toolCall: { name: 'mcp__ppt__advise', callId: 42, args: {} } } } });
   ok('문자열이 아닌 callId 는 없는 것이다', t3.rows[0].callId === null,
     String(t3.rows[0].callId));
+  // **거르는 쪽만 물면 안 싣는 것과 구분이 안 된다.** 위 한 줄은 `callId` 를 아예 안 옮겨
+  // 실어도 초록이다(둘 다 `null`). 실제로 안 실은 채로 스위트가 통과했다(필드 드롭 계측).
+  // 옮겨 실은 값을 무는 줄이 있어야 그 자리가 있다는 것이 확인된다.
+  const t4 = new Transcript();
+  t4.append({ type: 'part.appended', seq: 0, data: { messageId: 'm4',
+    part: { kind: 'tool-call',
+      toolCall: { name: 'mcp__ppt__advise', callId: 'c-42', args: {} } } } });
+  ok('문자열 callId 는 줄에 그대로 실린다', t4.rows[0].callId === 'c-42',
+    String(t4.rows[0].callId));
+  // 자리 없는 이벤트라는 사실도 같이 못박는다 — 위 포스트잇 신원 블록이 기대는 전제다.
+  ok('버스 전용 이벤트에는 자리가 없다', t4.rows[0].positioned === false,
+    String(t4.rows[0].seq));
 }
 
 // ── 늦게 죽은 계측이 남의 세대를 안 건드린다 ──────────────────────────────────
@@ -1584,7 +1696,8 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   try {
     // 하나 — 1.8 이 있으면 번호를 묻고, **0-based 를 1-based 로** 바꿔 올린다.
-    let seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [shape('sh1', '가나')] });
+    const src0 = shape('sh1', '가나');
+    let seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [src0] });
     let r = await new OfficeDeck().selection();
     ok('1.8 이면 index 까지 load 한다', seen.slides === 'items/id,items/index', seen.slides);
     // **무엇을 물었는지까지 문다.** 여태 이 블록의 stub 은 전부 상수 함수(`() => true`,
@@ -1598,6 +1711,19 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       r.slideId === 'sl1' && r.shapes[0].id === 'sh1' && r.shapes[0].text === '가나',
       JSON.stringify(r.shapes[0]));
     ok('글을 읽었으면 못 읽었다고 안 적는다', r.shapes[0].textUnavailable === false);
+    // **옮겨 싣는 칸을 전수로 문다.** 바로 위 두 줄은 `id` 와 `text` 만 봤는데 이 map 은
+    // 여섯 칸을 옮기고, `name`·`type`·`width`·`height` 는 **넷 다 통째로 안 실어도 스위트가
+    // 초록**이었다(필드 드롭 계측). 여기가 이 제품에서 제일 조용히 비는 자리다 — 넷은 그대로
+    // `Quote` 의 몸이 되어 이름과 종류는 **모델에게 가는 말**에 들고(`Quote.toPrompt`),
+    // 치수는 인용 카드에 뜬다. 비어도 화면은 그럴듯하게 그려지고 모델만 덜 받는다.
+    const kept = ['id', 'name', 'type', 'width', 'height']
+      .filter((k) => r.shapes[0][k] === src0[k]);
+    ok('호스트가 준 도형 칸이 그대로 실린다', kept.length === 5, kept.join(','));
+    // 그리고 **묻는 것과 싣는 것이 같아야 한다.** load 문자열에서 이름 하나가 빠지면 위
+    // 단언은 `undefined === undefined` 로 초록이 될 수 있는데, 그건 호스트가 안 준 것을
+    // 안 실었다는 말일 뿐이라 계약이 아니다.
+    ok('묻는 속성이 옮겨 싣는 칸과 같다',
+      seen.shapes === 'items/id,items/name,items/type,items/width,items/height', seen.shapes);
 
     // 둘 — 1.8 이 없으면 **묻지도 않는다.** §3.3: 바닥 아래 호스트에서 이 속성을 load 하면
     // sync 가 통째로 실패해 **선택까지 잃는다.** 흉내는 안 터지므로, 여기서 무는 것은

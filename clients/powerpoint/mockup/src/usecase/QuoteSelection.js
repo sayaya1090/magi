@@ -57,6 +57,12 @@ export class QuoteSelection {
   /**
    * @returns {Promise<{added:Quote[], skipped:number, empty:boolean, beforeCount:number,
    *                    reason:('none'|'lostFocus'|'unknown'|'readFailed'|null)}>}
+   *
+   * ⚠ 빈 답 두 갈래의 `added: []` 와 `skipped: 0` 은 **일부러 시험이 안 문다.** 부르는 쪽이
+   * `if (empty) … return;` 으로 먼저 빠지므로 그 두 칸에는 읽는 이가 없고(`view.onQuote`),
+   * 읽는 이 없는 칸에 세우는 단언은 계약이 아니라 구현 베끼기다. 그래도 **지우지는 않는다** —
+   * 모양을 갈래마다 다르게 하면 `empty` 를 안 보고 부른 쪽이 0 대신 예외를 받는다. 대신
+   * 문을 여는 `empty` 자체는 문다(위 갈래마다 하나씩).
    */
   async run() {
     this.epoch += 1;           // 아직 안 온 앞 읽기를 여기서 무효로 만든다

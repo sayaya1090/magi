@@ -82,7 +82,9 @@ export class ReadTranscript {
       refusal: this.transcript.refusal,
       rows: this.transcript.drawnRows,
       unknownNote: this.transcript.unknownNote,
-      cursor: this.cursor,
+      // **커서는 안 싣는다.** 실어 뒀지만 화면도 시험도 이 칸을 한 번도 안 읽었다(필드 드롭
+      // 계측 — 통째로 비워도 아무 소리가 안 났다). 읽는 이 없는 칸은 나중에 낡은 값을 담고
+      // 앉아 있게 되고, 커서가 필요한 쪽은 유스케이스의 `this.cursor` 를 그대로 본다.
     };
   }
 }
