@@ -135,9 +135,26 @@ public final class Destination {
         return this == BOARD || this == MAP || this == SETTINGS ? FLEET : this;
     }
 
+    /**
+     * 이름이 갈린 옛 주소 — 여전히 가리키던 곳에 닿는다.
+     *
+     * 운영이 이 둘을 지식으로 접었다(page.js의 {@code RENAMED}): 'interventions'는 이름이
+     * 바뀐 것이고, 'mcp'는 한 화면으로 합쳐진 것이다 — 무엇을 배웠나와 무엇에 닿을 수 있나는
+     * 같은 사람이 같은 오후에 보는 두 짝이라, 문 둘로 두면 읽는 이가 그 연결을 들고 다녀야 했다.
+     *
+     * <p>여기 없으면 그 주소들은 아래 폴백을 타고 <b>조용히</b> 플릿에 닿는다. 빈 화면이 아니라서
+     * 아무도 잘못 왔다고 말해 주지 않는 종류의 어긋남이다(실측: 새 콘솔의 {@code ?v=mcp}가
+     * 플릿, 운영의 같은 주소는 지식). 주소 자체는 고쳐 쓰지 않는다 — 운영도 그대로 두고,
+     * 뒤로가기가 지나온 자리는 사람이 실제로 친 주소여야 한다.
+     */
+    private static String renamed(String id) {
+        return "interventions".equals(id) || "mcp".equals(id) ? KNOWLEDGE.id : id;
+    }
+
     /** 주소가 대는 이름의 목적지, 모르면 첫 문 — 잘못 친 주소가 빈 화면이 되지 않게. */
     public static Destination byId(String id) {
-        for (Destination d : all()) if (d.id.equals(id)) return d;
+        String want = renamed(id);
+        for (Destination d : all()) if (d.id.equals(want)) return d;
         return FLEET;
     }
 }
