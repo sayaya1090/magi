@@ -88,12 +88,29 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     @JsFunction
     interface Release { void call(); }
 
+    /**
+     * 이 물음에 <b>거절</b>로 답하라고 스펙이 걸어 둔 사유 — 걸어 두지 않았으면 null.
+     *
+     * 빈 문자열도 값이다: 사유 없는 거절, 곧 <b>닿지 못한 것</b>이다. 그래서 있고 없음을
+     * 값이 아니라 `has`로 가른다 — 없는 것과 빈 것을 같은 것으로 접으면, 이 가짜는 바로
+     * 이 스펙이 재려는 그 접힘을 스스로 저지르게 된다.
+     */
+    private static String refuses(String key) {
+        jsinterop.base.JsPropertyMap<Object> w = Js.asPropertyMap(DomGlobal.window);
+        String k = "__magi_test_refuses_" + key;
+        if (!w.has(k)) return null;
+        Object v = w.get(k);
+        return v == null ? "" : String.valueOf(v);
+    }
+
     /** 아직 답하지 않은 물음들 — 붙들라고 했을 때만 쌓인다. */
-    private final java.util.List<Consumer<String>> heldLooks = new java.util.ArrayList<>();
+    private final java.util.List<WorkspaceSource.Said> heldLooks = new java.util.ArrayList<>();
 
     @Override
-    public void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes) {
+    public void look(CompanionContext ctx, String path, String numbered, WorkspaceSource.Said notes) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_look", path + "|" + numbered.split("\n").length);
+        String why = refuses("look");
+        if (why != null) { notes.call(false, why); return; }
         // 답을 붙들 수 있다. 도는 표를 <b>세어서</b> 켠다는 계약은 두 물음이 동시에 떠 있어야만
         // 재진다 — 깃발이었다면 먼저 온 답 하나가 아직 남은 하나의 표까지 껐을 것이고, 동기로
         // 답하는 가짜에서는 그 차이가 한 번도 드러나지 않는다.
@@ -105,7 +122,7 @@ public class FakeWorkspaceSource implements WorkspaceSource {
 
     private void release() {
         if (heldLooks.isEmpty()) return;
-        heldLooks.remove(0).accept("1\tsays nothing\nand a line outside the format");
+        heldLooks.remove(0).call(true, "1\tsays nothing\nand a line outside the format");
     }
 
     @Override
@@ -127,20 +144,26 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
-    public void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said) {
-        said.accept("a drafted request");
+    public void draftPullRequest(CompanionContext ctx, String rules, WorkspaceSource.Said said) {
+        String why = refuses("prmsg");
+        if (why != null) { said.call(false, why); return; }
+        said.call(true, "a drafted request");
     }
 
     @Override
-    public void openPullRequest(CompanionContext ctx, String title, String text, Consumer<String> urlOrWhy) {
+    public void openPullRequest(CompanionContext ctx, String title, String text, WorkspaceSource.Said urlOrWhy) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_pr", title + "|" + text);
-        urlOrWhy.accept("https://example.test/pr/1");
+        String why = refuses("pr");
+        if (why != null) { urlOrWhy.call(false, why); return; }
+        urlOrWhy.call(true, "https://example.test/pr/1");
     }
 
     @Override
-    public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
+    public void draftCommitMessage(CompanionContext ctx, String rules, WorkspaceSource.Said said) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_gitmsg", rules);
-        said.accept("a drafted message");
+        String why = refuses("gitmsg");
+        if (why != null) { said.call(false, why); return; }
+        said.call(true, "a drafted message");
     }
 
     @Override

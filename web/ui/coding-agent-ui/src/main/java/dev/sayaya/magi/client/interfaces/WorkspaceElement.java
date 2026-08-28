@@ -634,12 +634,17 @@ public class WorkspaceElement {
         // 떠 있고, 깃발이었다면 먼저 온 답이 아직 하나 남았는데도 표를 껐을 것이다.
         pad.fly[0]++;
         pad.busy.run();
-        store.look(path, payload.toString(), out -> {
+        store.look(path, payload.toString(), (ok, out) -> {
             pad.fly[0]--;
             pad.busy.run();
             notes.clear();
             StringBuilder extra = new StringBuilder();
-            for (String raw : String.valueOf(out == null ? "" : out).split("\n")) {
+            // 거절은 검토가 아니다 — 본문에 온 것은 줄별 한 마디가 아니라 <b>왜 안 됐는가</b>다.
+            // 그것을 검토문으로 파싱하면 사유가 결함 목록인 척하고, 파싱에서 다 떨어져 나가면
+            // 아래에서 "여기서 할 말이 없다"로 적혀 검토가 <b>돌았다고</b> 거짓말한다.
+            if (!ok) {
+                if (force) extra.append(out == null || out.isEmpty() ? tr("error.unreachable") : out);
+            } else for (String raw : String.valueOf(out == null ? "" : out).split("\n")) {
                 String line = raw.trim();
                 if (line.isEmpty()) continue;
                 int cut = -1;
@@ -785,20 +790,30 @@ public class WorkspaceElement {
             if (rulesWrap.hasAttribute("hidden")) rulesWrap.removeAttribute("hidden");
             else rulesWrap.setAttribute("hidden", "");
         });
+        // 거절의 사유가 설 자리를 <b>먼저</b> 세운다 — 초안 단추도 커밋 단추와 같은 줄을 쓴다.
+        HTMLElement said = cell("filesnote", "");
+        said.setAttribute("hidden", "");
         HTMLElement draft = el("md-text-button");
         draft.append(Icons.shape("#i-sl-wand-magic-sparkles", "sic"));
         draft.textContent = tr("git.draft");
-        draft.addEventListener("click", evt -> store.draftCommitMessage(commitRules, said -> {
-            if (said == null || said.trim().isEmpty()) return;
-            commitDraft = said;
-            Js.asPropertyMap(msg).set("value", said);
+        draft.addEventListener("click", evt -> store.draftCommitMessage(commitRules, (ok, out) -> {
+            // 눌렀는데 아무 일도 안 일어나는 단추는 <b>고장 난 단추</b>와 구별되지 않는다.
+            // 거절에는 서버가 사람 읽으라고 쓴 사유가 실려 오므로, 그것을 옆 줄에 세운다.
+            if (!ok) {
+                said.textContent = out == null || out.isEmpty() ? tr("error.unreachable") : out;
+                said.removeAttribute("hidden");
+                return;
+            }
+            said.setAttribute("hidden", "");
+            // 답했는데 글이 비었다 — 할 말이 없다는 <b>답</b>이지 사고가 아니다.
+            if (out == null || out.trim().isEmpty()) return;
+            commitDraft = out;
+            Js.asPropertyMap(msg).set("value", out);
         }));
         HTMLElement go = el("md-filled-tonal-button");
         go.append(Icons.shape("#i-sl-check", "sic"));
         go.textContent = tr("git.commit");
         go.setAttribute("aria-label", tr("git.commit_do"));
-        HTMLElement said = cell("filesnote", "");
-        said.setAttribute("hidden", "");
         go.addEventListener("click", evt -> {
             String text = value(msg).trim();
             // 메시지 없이 커밋하지 않는다 — 빈 메시지는 나중에 아무도 읽지 못하는 커밋이다.
@@ -872,7 +887,14 @@ public class WorkspaceElement {
         HTMLElement draft = el("md-text-button");
         draft.append(Icons.shape("#i-sl-wand-magic-sparkles", "sic"));
         draft.textContent = tr("git.draft");
-        draft.addEventListener("click", evt -> store.draftPullRequest(prRules, out -> {
+        draft.addEventListener("click", evt -> store.draftPullRequest(prRules, (ok, out) -> {
+            // 커밋 초안과 같은 규칙 — 사람이 누른 것이므로 거절도 사람에게 돌려준다.
+            if (!ok) {
+                said.textContent = out == null || out.isEmpty() ? tr("error.unreachable") : out;
+                said.removeAttribute("hidden");
+                return;
+            }
+            said.setAttribute("hidden", "");
             if (out == null || out.trim().isEmpty()) return;
             prDraft = out;
             Js.asPropertyMap(msg).set("value", out);
@@ -892,7 +914,9 @@ public class WorkspaceElement {
             int nl = text.indexOf('\n');
             String title = nl < 0 ? text : text.substring(0, nl);
             String body = nl < 0 ? "" : text.substring(nl + 1).trim();
-            store.openPullRequest(title, body, urlOrWhy -> {
+            store.openPullRequest(title, body, (ok, urlOrWhy) -> {
+                // 닿지 못한 것만 우리 말로 적는다. 거절은 서버가 사유를 적어 보냈고(가지가 없다,
+                // 원격이 없다, gh가 없다), 그 문장이 "닿지 못했다"보다 언제나 더 많이 말한다.
                 said.textContent = urlOrWhy == null || urlOrWhy.isEmpty() ? tr("error.unreachable") : urlOrWhy;
                 said.removeAttribute("hidden");
             });

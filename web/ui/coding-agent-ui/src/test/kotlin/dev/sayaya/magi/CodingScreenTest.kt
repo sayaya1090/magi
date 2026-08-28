@@ -463,6 +463,56 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
         }
+        When("요청 작업대를 열면") {
+            page.getByRole(AriaRole.BUTTON, Page.GetByRoleOptions().setName("git.pr")).first().click()
+            page.waitForSelector("#fileview .commitfoot .commitacts")
+            Then("초안을 청하면 그 글이 요청 칸에 선다") {
+                page.locator("#fileview .commitacts md-text-button").nth(1).click()
+                page.waitForCondition {
+                    page.evaluate("document.querySelector('#fileview .commitmsg').value") ==
+                        "a drafted request"
+                }
+            }
+            // 사람이 <b>누른</b> 단추다. 거절을 삼키면 눌렀는데 아무 일도 안 일어나고, 그것은
+            // 고장 난 단추와 구별되지 않는다 — 사람은 같은 단추를 다시 누른다.
+            Then("초안이 거절당하면 그 사유가 곁의 줄에 선다 — 조용히 지나가지 않는다") {
+                page.evaluate("window.__magi_test_refuses_prmsg = 'no branch to compare'")
+                page.locator("#fileview .commitacts md-text-button").nth(1).click()
+                page.waitForCondition {
+                    page.locator("#fileview .commitfoot .filesnote").textContent() ==
+                        "no branch to compare"
+                }
+                withClue("거절은 요청 칸을 덮지 않는다 — 사람이 쓰던 글이 사유로 갈리지 않게") {
+                    page.evaluate("document.querySelector('#fileview .commitmsg').value") shouldBe
+                        "a drafted request"
+                }
+                page.evaluate("delete window.__magi_test_refuses_prmsg")
+            }
+            Then("요청이 거절당하면 서버의 그 문장이 선다 — '닿지 못했다'로 덮어쓰지 않는다") {
+                page.evaluate("window.__magi_test_refuses_pr = 'gh is not installed'")
+                page.locator("#fileview .commitacts md-filled-tonal-button").click()
+                page.waitForCondition {
+                    page.locator("#fileview .commitfoot .filesnote").textContent() ==
+                        "gh is not installed"
+                }
+            }
+            Then("사유 없는 거절만 닿지 못한 것이다") {
+                page.evaluate("window.__magi_test_refuses_pr = ''")
+                page.locator("#fileview .commitacts md-filled-tonal-button").click()
+                page.waitForCondition {
+                    page.locator("#fileview .commitfoot .filesnote").textContent() == "error.unreachable"
+                }
+                page.evaluate("delete window.__magi_test_refuses_pr")
+            }
+            Then("답한 요청은 그 주소가 선다") {
+                page.locator("#fileview .commitacts md-filled-tonal-button").click()
+                page.waitForCondition {
+                    page.locator("#fileview .commitfoot .filesnote").textContent() ==
+                        "https://example.test/pr/1"
+                }
+            }
+            page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
+        }
         When("디렉토리를 펼치면") {
             page.locator("#files .treerow.dir").first().click()
             Then("그 디렉토리 하나만 더 읽고, 자식들이 한 칸 안으로 선다") {
@@ -637,6 +687,31 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_complete") shouldBe null
                 area.press("Control+Enter")
                 page.waitForCondition { page.evaluate("window.__magi_test_complete") != null }
+            }
+            // 답이 <b>안 온 것</b>과 <b>거절당한 것</b>과 <b>할 말이 없다는 답</b>은 셋이다.
+            // 셋을 한 값으로 접으면 사람이 누른 검토가 "여기서 할 말이 없다"로 적히고, 그것은
+            // 검토가 돌았는데 깨끗했다는 뜻이라 — 돌지도 않은 검토에 붙는 거짓말이 된다.
+            Then("거절은 '할 말이 없다'가 아니다 — 서버가 적어 보낸 사유를 그대로 세운다") {
+                page.evaluate("window.__magi_test_refuses_look = 'that file is not in the workspace'")
+                page.locator("#fileview .filebar .fileacts .editask").nth(0).click()
+                page.waitForCondition {
+                    page.locator("#fileview .fileedit .looksaid").textContent() ==
+                        "that file is not in the workspace"
+                }
+                withClue("사고이지 '깨끗함'이 아니므로 무채색(.plain)으로 적지 않는다") {
+                    page.locator("#fileview .fileedit .looksaid.plain").count() shouldBe 0
+                }
+                withClue("거절문은 검토문이 아니다 — 줄 곁의 한 마디로 파싱되지 않는다") {
+                    page.locator("#fileview .editghost .linenote").count() shouldBe 0
+                }
+            }
+            Then("사유 없는 거절만 닿지 못한 것이다 — 그때만 우리 말을 대신 세운다") {
+                page.evaluate("window.__magi_test_refuses_look = ''")
+                page.locator("#fileview .filebar .fileacts .editask").nth(0).click()
+                page.waitForCondition {
+                    page.locator("#fileview .fileedit .looksaid").textContent() == "error.unreachable"
+                }
+                page.evaluate("delete window.__magi_test_refuses_look")
             }
         }
         When("룩오버를 켜고 편집기를 다시 세우면") {
