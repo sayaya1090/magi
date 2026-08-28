@@ -15,6 +15,23 @@ final class Companion {
     private Companion() {}
 
     static Promise<Response> answer(String path, RequestInit init) {
+        // 한 번의 읽기로 오는 것들 — 지난 세션과 자식의 전사, 심의의 증거, 낳은 자식들.
+        // 쓰기 분기 <b>앞에</b> 둔다: 이것들은 몸 없는 물음이라 저 아래에서는 닿지 않는다.
+        // 한 세션을 물으면 <b>그 전사</b>다 — 데모의 전사는 하나이므로 스트림이 흘리는 것과
+        // 같은 것을 돌려준다(운영도 그 하나를 쓴다). 두 벌을 두면 지난 일과 지금이 서로 다른
+        // 대화를 이야기한다.
+        if ("/transcript".equals(path)) return Mock.json(Fleet.transcript());
+        if ("/council".equals(path)) {
+            return Mock.json("{\"task\":\"Make the console read the same as the terminal\","
+                    + "\"report\":\"Ported the workspace card and its editor.\","
+                    + "\"actions\":\"read · edit · build\",\"changes\":\"web/ui/…\"}");
+        }
+        // 낳은 자식 하나면 족하다 — 이 화면이 무엇을 보이는 화면인지는 하나로도 보인다.
+        if ("/subagents".equals(path)) {
+            return Mock.json("[{\"id\":\"s_demo_child\",\"role\":\"scout\","
+                    + "\"task\":\"find every component that draws an empty state\","
+                    + "\"model\":\"qwen3-coder-next\",\"ago\":240,\"running\":false}]");
+        }
         if (Mock.wrote(init)) {
             // 바꾸는 부름들(모델·결재·백엔드·보고서 양식·접기·보내기)은 받아만 둔다:
             // 데모의 값은 다음 물음에서 그대로 돌아온다 — 거짓 성공을 그리지 않는다.

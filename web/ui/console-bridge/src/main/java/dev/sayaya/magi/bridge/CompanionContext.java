@@ -20,6 +20,12 @@ public class CompanionContext {
     public String peer;   // ?p= — 어느 콘솔을 거쳐서인가 (없으면 null=로컬)
     public String type;   // 해석된 타입 키 — companion-ui(기본)면 "1"
     public String past;   // ?past= — null이면 지금 대화, ""면 지난 일 목록, 값이면 그 세션
+    /**
+     * ?sub= — 이 컴패니언이 낳은 자식 하나(그 아이디). 지난 일과 나란한 또 하나의 층위다:
+     * 둘 다 "지금 대화" 자리를 대신하고, 둘 다 한 번의 읽기로 온다. 다른 것은 머리다 —
+     * 자식은 무엇을 하라고 보내졌는지가 그 화면의 절반이다.
+     */
+    public String sub;
     public String ui;     // 이 타입의 자식 UI 모듈 이름 — 카탈로그가 푼 것(컴패니언이 대는 경로가 아니다)
     public boolean uiStyles;
     /** 어느 작업공간인가 — 셸이 명단에서 읽어 실어 보낸다(화면이 /fleet을 다시 묻지 않게). */
@@ -44,6 +50,12 @@ public class CompanionContext {
     @JsOverlay
     public static CompanionContext of(String socket, String peer, String type, String past, String ui,
                                       boolean uiStyles, String workdir) {
+        return of(socket, peer, type, past, ui, uiStyles, workdir, null);
+    }
+
+    @JsOverlay
+    public static CompanionContext of(String socket, String peer, String type, String past, String ui,
+                                      boolean uiStyles, String workdir, String sub) {
         JsPropertyMap<Object> o = JsPropertyMap.of();
         o.set("socket", socket);
         o.set("peer", peer);
@@ -52,6 +64,7 @@ public class CompanionContext {
         o.set("ui", ui);
         o.set("uiStyles", uiStyles);
         o.set("workdir", workdir);
+        o.set("sub", sub);
         return Js.uncheckedCast(o);
     }
 }

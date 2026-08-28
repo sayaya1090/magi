@@ -17,6 +17,7 @@ public final class GoSharing {
     private static final String VIEW_WITH = "__magi_go_view_with";
     private static final String VIEW = "__magi_go_view";
     private static final String PAST = "__magi_go_past";
+    private static final String SUB = "__magi_go_sub";
 
     private GoSharing() {}
 
@@ -60,6 +61,18 @@ public final class GoSharing {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         if (!win.has(PAST)) return;
         Js.<ViewFn>cast(win.get(PAST)).call(pastOrNull);
+    }
+
+    /** 셸 측: 자식 층위(?sub=)의 문 — null=지금 대화로, 값=그 자식. */
+    public static void hostSub(ViewFn sub) {
+        Js.asPropertyMap(DomGlobal.window).set(SUB, sub);
+    }
+
+    /** 화면 측: 그 자식의 화면으로. */
+    public static void sub(String idOrNull) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        if (!win.has(SUB)) return;
+        Js.<ViewFn>cast(win.get(SUB)).call(idOrNull);
     }
 
     /** 화면 측: 제 조각을 실어 그 화면으로. 호스트가 없으면 조용히 무시(앵커의 href가 폴백). */

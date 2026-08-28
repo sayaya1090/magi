@@ -173,6 +173,54 @@ public class CompanionStore implements CompanionSource.Listener {
 
     private void emitPast() { pastOf.next(pastData); }
 
+    // ── 자식 층위: 그 아이가 무엇이었나 + 그 아이의 전사 ────────────────────
+    private final BehaviorSubject<Object> subOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
+    private Object subMeta = null;    // /subagents의 그 행
+    private Object subRows = null;    // 그 아이디로 읽은 전사
+    private String subFor = null;
+
+    /** 구독자는 (그 아이, 그 전사)를 함께 받는다 — 둘 다 null이면 아직 읽는 중이다. */
+    public void onSub(Consumer<Object> o) { subOf.subscribe(o); }
+
+    public Object subMeta() { return subMeta; }
+
+    private void askSub() {
+        if (ctx == null || ctx.sub == null || ctx.sub.isEmpty()) {
+            subMeta = subRows = null;
+            subFor = null;
+            emitSub();
+            return;
+        }
+        final String want = ctx.socket + "\u0000" + ctx.sub;
+        if (want.equals(subFor)) return;
+        subFor = want;
+        subMeta = subRows = null;
+        emitSub();
+        final String id = ctx.sub;
+        source.subagents(ctx, list -> {
+            if (!want.equals(subFor)) return;   // 늦은 답이 새 층위에 앉지 않게
+            subMeta = rowWithId(list, id);
+            emitSub();
+        });
+        source.pastTranscript(ctx, id, rows -> {
+            if (!want.equals(subFor)) return;
+            subRows = rows;
+            emitSub();
+        });
+    }
+
+    private static Object rowWithId(Object list, String id) {
+        if (list == null) return null;
+        jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(list);
+        for (int i = 0; i < all.getLength(); i++) {
+            jsinterop.base.JsPropertyMap<Object> one = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+            if (id.equals(String.valueOf(one.get("id")))) return one;
+        }
+        return null;
+    }
+
+    private void emitSub() { subOf.next(subRows); }
+
     @Override
     public void context(CompanionContext c) {
         ctx = c;
@@ -182,6 +230,7 @@ public class CompanionStore implements CompanionSource.Listener {
         // (실측: 명단을 한 번만 내놓는 데모에서 사실판이 영영 비어 있었다).
         if (rosterOf.getValue() != null) rosterOf.next(rosterOf.getValue());
         askPast();
+        askSub();
     }
 
     @Override

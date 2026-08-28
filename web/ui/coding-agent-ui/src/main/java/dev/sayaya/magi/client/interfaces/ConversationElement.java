@@ -86,6 +86,7 @@ public class ConversationElement {
         store.aimed().subscribe(row -> aimed = row);
         store.onRows(this::paintRows);
         store.onPast(this::paintPast);
+        store.onSub(this::paintSub);
     }
 
     /** 한 마디 보내는 상자 — 부모가 내준 자리에 앉는다. 어느 자리인지는 묻지 않는다. */
@@ -100,13 +101,64 @@ public class ConversationElement {
     /** 층위가 정해지면 지금-대화의 판들이 물러난다 — 컴포저까지: 과거엔 보낼 곳이 없다(이동은 잔여). */
     private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
         pastNow = ctx == null ? null : ctx.past;
-        boolean inPast = pastNow != null;
-        toggle(log, !inPast);
-        toggle(form, !inPast);
-        toggle(past, inPast);
+        subNow = ctx == null || ctx.sub == null || ctx.sub.isEmpty() ? null : ctx.sub;
+        // 지난 일과 자식은 <b>같은 자리</b>를 대신한다 — 둘 다 지금 대화를 물리고 그 자리에 선다.
+        boolean layered = pastNow != null || subNow != null;
+        toggle(log, !layered);
+        toggle(form, !layered);
+        toggle(past, layered);
+    }
+
+    private String subNow = null;
+
+    /**
+     * 자식 하나 — 무엇을 하라고 보내졌고, 무엇을 했나.
+     *
+     * 지난 일 층위와 같은 자리에 같은 모양으로 선다(같은 rowNode): 자식의 전사도 전사이고,
+     * 이 콘솔에서 전사가 읽히는 방식은 하나여야 한다(운영 drawChild의 그 판단).
+     */
+    private void paintSub(Object rows) {
+        if (subNow == null) return;
+        past.replaceChildren();
+        dev.sayaya.magi.bridge.Motion.enter(past);
+        JsPropertyMap<Object> me = store.subMeta() == null ? null : Js.uncheckedCast(store.subMeta());
+        String role = me == null ? "" : str2(me, "role");
+        HTMLElement head = el("h2");
+        head.className = "sectionhead";
+        HTMLElement word = el("span");
+        word.textContent = role.isEmpty() ? tr("detail.subagent") : role;
+        head.append(word);
+        HTMLElement back = el("md-text-button");
+        back.className = "backpast";
+        back.textContent = tr("action.back_to", "name", tr("nav.companions"));
+        back.addEventListener("click", evt -> GoSharing.sub(null));
+        head.append(back);
+        past.append(head);
+        if (me != null) {
+            // 도는 중인지와 어느 모델인지 — 한 줄. 그 아이를 다시 부를 수는 없으니 사실만 적는다.
+            boolean running = Js.isTruthy(me.get("running"));
+            String model = str2(me, "model");
+            past.append(cell("dnote", tr(running ? "detail.running" : "detail.finished")
+                    + (model.isEmpty() ? "" : " · " + model)));
+            String task = str2(me, "task");
+            if (!task.isEmpty()) {
+                past.append(cell("dk", tr("detail.asked")));
+                past.append(cell("dv", task));
+            }
+        }
+        past.append(cell("dk dhero", tr("detail.what_it_did")));
+        HTMLElement dlog = el("div");
+        dlog.className = "dlog";
+        JsArrayLike<Object> list = rows == null ? null : Js.uncheckedCast(rows);
+        for (int i = 0; list != null && i < list.getLength(); i++) {
+            dlog.append(rowNode(Js.uncheckedCast(list.getAt(i))));
+        }
+        if (list == null || list.getLength() == 0) dlog.append(cell("dnote", tr("detail.nothing_yet")));
+        past.append(dlog);
     }
 
     private void paintPast(Object data) {
+        if (subNow != null) return;   // 자식 층위가 그 자리에 서 있다
         if (pastNow == null) { past.replaceChildren(); return; }
         past.replaceChildren();
         // 한 겹 들어간 층위도 들어온다 — 그 자리에 있던 전사를 대신하는 것이라, 아무 움직임 없이

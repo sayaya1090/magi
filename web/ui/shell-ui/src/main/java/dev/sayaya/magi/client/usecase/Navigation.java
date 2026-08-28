@@ -63,6 +63,12 @@ public class Navigation {
         move(Place.companion(getValue().socket, getValue().peer, pastOrNull));
     }
 
+    /** 자식 층위 — 그 컴패니언이 낳은 아이 하나로. null이면 지금 대화로 돌아온다. */
+    public void goSub(String idOrNull) {
+        if (getValue() == null || !getValue().isCompanion()) return;
+        move(Place.companion(getValue().socket, getValue().peer, null, idOrNull));
+    }
+
     private void move(Place p) {
         if (p.same(getValue())) { DomGlobal.window.scrollTo(0, 0); return; }
         String path = DomGlobal.window.location.pathname;
@@ -71,7 +77,9 @@ public class Navigation {
             url = path + "?d=" + Global.encodeURIComponent(p.socket)
                     + (p.peer != null ? "&p=" + Global.encodeURIComponent(p.peer) : "")
                     // ?past= 는 빈 값도 값이다: 빈 past는 목록이고, 없음만이 지금 대화다(운영 규칙).
-                    + (p.past != null ? "&past=" + Global.encodeURIComponent(p.past) : "");
+                    + (p.past != null ? "&past=" + Global.encodeURIComponent(p.past) : "")
+                    // 자식 층위 — 지난 일과 함께 서지 않는다(둘 다 지금 대화를 대신한다).
+                    + (p.sub != null && !p.sub.isEmpty() ? "&sub=" + Global.encodeURIComponent(p.sub) : "");
         } else {
             // 첫 문은 맨주소가 갖는다 — 기존 콘솔의 HREF 규칙(fleet은 '').
             url = p.screen == Destination.FLEET ? path : path + "?v=" + p.screen.id;
@@ -88,7 +96,7 @@ public class Navigation {
         URLSearchParams q = new URLSearchParams(DomGlobal.window.location.search);
         String d = q.get("d");
         if (d != null && !d.isEmpty()) {
-            return Place.companion(d, q.get("p"), q.has("past") ? nz(q.get("past")) : null);
+            return Place.companion(d, q.get("p"), q.has("past") ? nz(q.get("past")) : null, q.get("sub"));
         }
         String v = q.get("v");
         Destination screen = Destination.byId(v == null ? "fleet" : v);

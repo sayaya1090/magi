@@ -33,6 +33,12 @@ public interface CompanionSource {
     /** 이 컴패니언의 지난 일 목록(/history) — 그 층위를 그리는 것이 이 화면이라 이 화면의 것이다. */
     void history(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
 
+    /**
+     * 이 컴패니언이 낳은 자식들 — 하나를 열어 볼 때 그 아이가 <b>무엇이었는지</b>를 여기서 읽는다
+     * (무슨 일을 맡았고, 아직 도는지, 어느 모델로). 전사는 그 아이디로 /transcript에서 온다.
+     */
+    void subagents(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
+
     /** 지난 한 세션의 전사(/transcript…&session=) — 스트림이 아니라 한 번의 읽기다. */
     void pastTranscript(CompanionContext ctx, String session,
                         java.util.function.Consumer<Object> rowsOrNull);
