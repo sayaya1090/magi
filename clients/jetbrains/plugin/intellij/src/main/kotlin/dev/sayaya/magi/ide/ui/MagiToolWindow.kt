@@ -221,10 +221,22 @@ class MagiToolWindow : ToolWindowFactory {
             // 빈 전사에 붙은 것과 못 붙은 것이 **똑같이 빈 화면**이었다. `began` 이 그
             // 둘을 갈랐고(위), 이 줄이 못 붙은 쪽에 말과 재시도를 준다.
             //
-            // 사유는 안 댄다. [follow] 는 셋(basePath 없음·`.session` 없음·연결 실패)을
-            // 불리언 하나로 접어서 돌려주므로, 여기서 「데몬이 없다」고 쓰면 모르는 것을
-            // 아는 척하는 것이 된다. 되풀이되는 실패를 안 적는 것은 [reattach] 의 규칙 그대로다.
-            if (!follow()) { append("— 전사에 못 붙었다. 다시 붙어 본다."); reattach() }
+            // **사유를 댄다.** 예전엔 안 댔고 그게 맞기도 했다 — [follow] 가 셋을 불리언 하나로
+            // 접어 돌려줬으니 여기서 「데몬이 없다」고 쓰면 모르는 것을 아는 척하는 것이었다.
+            // 접힌 사유를 화면에서 펴지 않는 것은 지금도 규칙이고, 그래서 편 것이 아니라
+            // **안 접게 했다**([Attach]). 셋은 사람이 할 일이 서로 다르다: 자리가 없는 것은
+            // 프로젝트 문제고, `.session` 이 없는 것은 데몬을 띄우면 되고, 던진 것은 데몬이
+            // 있는데 말이 안 통하는 것이다. 가장 흔한 차례(IDE 를 먼저 열고 데몬을 나중에)가
+            // 하필 가운데다.
+            //
+            // `else` 를 안 쓴다. 넷째 갈래가 생기는 날 컴파일러가 울어야 한다 — 안 그러면 새
+            // 사유가 옛 문장 뒤에 조용히 숨는다.
+            when (val a = follow()) {
+                Attach.Ok -> {}
+                Attach.NoWorkspace -> lost("이 프로젝트에 붙일 자리가 없다(작업공간 경로를 못 찾았다)")
+                Attach.NoSession -> lost("데몬이 아직 없다")
+                is Attach.Failed -> lost("데몬에 말을 못 걸었다: ${a.why}")
+            }
             offerHand()
         }
 
@@ -286,15 +298,54 @@ class MagiToolWindow : ToolWindowFactory {
          * 커서를 안 준다. 창이 열릴 때마다 전량을 받는 것이 지금의 답이다 — IDE 가 사는 동안
          * 이어 받는 것은 §8 의 미결이고, 옛 커서를 새 대화로 들고 가면 그 대화의 앞을 못 본다.
          */
-        private fun follow(): Boolean {
-            val sock = socket() ?: return false
-            val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return false
+        /**
+         * 전사에 붙는 시도의 결과. **불리언이 아니다.**
+         *
+         * 예전엔 셋을 `false` 하나로 접어 돌려줬다. 그러면 화면은 둘 중 하나만 할 수 있다 —
+         * 아무 사유도 안 대거나(사람은 왜 안 되는지 모른 채 창을 닫았다 연다), 아니면 「데몬이
+         * 없다」고 **지어내거나**. 둘 다 접은 자리가 만든 것이지 화면의 잘못이 아니다.
+         *
+         * 셋인 이유는 사람이 할 일이 셋이라서다. 붙일 자리가 없는 것은 프로젝트 쪽 문제고,
+         * `.session` 이 없는 것은 데몬을 띄우면 되고, 던진 것은 데몬이 있는데 말이 안 통하는
+         * 것이다. `End` 의 갈래 셋과 같은 사유다 — **받는 쪽이 할 일이 다르면 갈래다.**
+         *
+         * `when` 에 `else` 를 안 쓴다. 넷째가 생기면 컴파일러가 울어야 한다 — 안 그러면 새
+         * 사유가 옛 문장 뒤에 조용히 숨고, 그건 접어 뒀던 때와 같은 상태다.
+         */
+        private sealed interface Attach {
+            data object Ok : Attach
+
+            /** 붙일 자리가 없다. 작업공간 경로를 못 찾았다 — 데몬 유무와 무관하다. */
+            data object NoWorkspace : Attach
+
+            /** 자리는 아는데 `.session` 이 없다. **데몬이 아직 안 떴다** — 가장 흔한 차례다. */
+            data object NoSession : Attach
+
+            /** 열다 실패했다. 데몬이 있는데 말이 안 통한다. [Failed.why] 는 던진 것이 한 말 그대로다. */
+            data class Failed(val why: String) : Attach
+        }
+
+        private fun follow(): Attach {
+            val sock = socket() ?: return Attach.NoWorkspace
+            val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return Attach.NoSession
             following?.let { runCatching { it.close() } }
+            // 던진 것을 **그대로** 싣는다. `getOrNull` 로 버리고 여기서 문장을 지으면 「데몬이
+            // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
+            // 사유가 하나뿐이라 더 그럴듯해서 더 나쁘다.
             val started = runCatching {
                 Transcript({ DaemonClient.connect(sock) }, sid).follow(sink)
-            }.getOrNull() ?: return false
+            }.getOrElse { return Attach.Failed(it.message ?: it.toString()) }
             following = started
-            return true
+            return Attach.Ok
+        }
+
+        /**
+         * 못 붙었다고 화면에 한 번 적고 다시 붙어 본다. **되풀이되는 실패는 안 적는다** —
+         * 같은 줄을 무한히 쌓으면 사람이 읽던 전사가 밀려난다([reattach] 의 규칙).
+         */
+        private fun lost(why: String) {
+            append("— 전사에 못 붙었다: $why. 다시 붙어 본다.")
+            reattach()
         }
 
         /**
@@ -316,7 +367,7 @@ class MagiToolWindow : ToolWindowFactory {
                     while (!closing.get()) {
                         try { Thread.sleep(wait) } catch (e: InterruptedException) { return@executeOnPooledThread }
                         if (closing.get()) return@executeOnPooledThread
-                        if (follow()) return@executeOnPooledThread refresh()
+                        if (follow() == Attach.Ok) return@executeOnPooledThread refresh()
                         wait = (wait * 2).coerceAtMost(30_000L)
                     }
                 }
