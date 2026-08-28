@@ -101,6 +101,25 @@ public class CompanionStore implements CompanionSource.Listener {
                         CompanionStore::same);
     }
 
+    /**
+     * 이 컴패니언이 아직 답하는가 — 명단에 없거나, 있어도 live가 거짓이면 멈춘 것이다.
+     * 명단을 아직 못 읽었으면 산 것으로 둔다("모른다"를 "죽었다"로 읽지 않는다).
+     */
+    public Observable<Boolean> alive() {
+        return rosterOf.map(list -> list == null || ctx == null || ctx.socket == null
+                        || ctx.socket.isEmpty()
+                        || dev.sayaya.magi.bridge.AgentStates.answering(rowOf(list)))
+                .distinctUntilChanged();
+    }
+
+    /**
+     * 어디에 있나 — 그 행을 찾는 것뿐이고, <b>답하는지는 묻지 않는다</b>.
+     *
+     * 한때 여기서 둘을 한꺼번에 했다: 답하지 않는 행을 없는 행으로 돌려주었다. 그래서 멈춘
+     * 컴패니언의 사실판이 통째로 숨었다 — 무엇을 하던 컴패니언이었는지, 어느 작업공간에
+     * 있었는지가 멈추는 순간 사라졌고, 그것은 바로 그때 읽고 싶은 것들이다. 운영은 그 행으로
+     * 판을 그리고 연결 줄에만 멈췄다고 적는다. 두 질문이니 답도 둘이다({@link #alive()}).
+     */
     private FleetAgent rowOf(Object list) {
         if (list == null || ctx == null || ctx.socket == null) return null;
         jsinterop.base.JsArrayLike<Object> rows = jsinterop.base.Js.uncheckedCast(list);
@@ -108,16 +127,9 @@ public class CompanionStore implements CompanionSource.Listener {
         for (int i = 0; i < rows.getLength(); i++) {
             FleetAgent r = jsinterop.base.Js.uncheckedCast(rows.getAt(i));
             String had = r.peer == null ? "" : r.peer;
-            // 명단에 남아 있어도 답하지 않으면(live 거짓) 없는 것과 같다(운영 companionAlive).
-            // 다만 <b>말하지 않은 것은 산 것</b>이다: 이 값을 안 싣는 자리가 있어서(오래된
-            // 데몬·테스트 목) 없음을 죽음으로 읽으면 멀쩡한 판이 통째로 사라진다.
-            if (ctx.socket.equals(r.socket) && peer.equals(had)) return answering(r) ? r : null;
+            if (ctx.socket.equals(r.socket) && peer.equals(had)) return r;
         }
         return null;
-    }
-
-    private static boolean answering(FleetAgent r) {
-        return !jsinterop.base.Js.asPropertyMap(r).has("live") || r.live;
     }
 
     /** 같은 소식인가 — 도는 숫자(쉰 시간)는 빼고 본다: 매 초 달라지는 값이 섞이면 "바뀌었다"가
