@@ -77,8 +77,12 @@ public class CardListElement {
 
     private String sig(FleetAgent a, String newestVer) {
         StringBuilder r = new StringBuilder();
+        // 쉰 시간(idle)은 여기 없다 — <b>매 초 달라지는 값</b>이라, 넣으면 아무 일도 없는 행이
+        // 초당 한 번씩 새 노드가 되어 깜빡인다(실측: 멈춰 있는 ops 행이 그랬다; 운영은 그
+        // 자리에서 8초 동안 한 번도 다시 서지 않는다). 나이는 다음 진짜 변화 때 함께 새로
+        // 그려진다 — 운영이 하는 그대로다.
         for (Object v : new Object[]{a.state, a.name, a.role, a.team, a.hub, a.workdir, a.session,
-                a.steps, a.idle, a.task, a.doing, a.asking, a.askId, a.askKind, a.planDone, a.planTotal,
+                a.steps, a.task, a.doing, a.asking, a.askId, a.askKind, a.planDone, a.planTotal,
                 a.host, a.addr, a.pid, a.peer, a.live, a.permission, a.user, a.version, newestVer}) {
             r.append(v).append('\1');
         }

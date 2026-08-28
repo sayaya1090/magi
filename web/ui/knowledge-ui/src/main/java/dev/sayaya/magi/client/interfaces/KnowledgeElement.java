@@ -49,7 +49,10 @@ public class KnowledgeElement {
         wiki = new Pane("wiki", "nav.wiki", false, store::wikiQuery);
         mcp = new Pane("mcp", "nav.mcp", false, store::mcpQuery);
         dialog = new McpDialog();
-        mcp.box.append(dialog.element);
+        // 다이얼로그는 <b>창의 것</b>이라 창(body)에 붙인다 — 판 안에 두면 그 판의 등장
+        // 애니메이션이 남긴 transform이 고정 위치의 기준을 그 판으로 바꿔, 화면을 덮어야 할
+        // 스크림이 판 크기로 잘린다(실측: 1400×950이어야 할 것이 120,509에서 1256×409).
+        DomGlobal.document.body.append(dialog.element);
         tabs.id = "sharedTabs";
         tabs.className = "onetabs";
         tabs.setAttribute("hidden", "");
