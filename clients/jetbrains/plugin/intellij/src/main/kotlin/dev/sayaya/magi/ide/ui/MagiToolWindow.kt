@@ -12,12 +12,14 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.model.Ask
+import dev.sayaya.magi.ide.model.Subject
 import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.HandServer
 import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
+import dev.sayaya.magi.ide.usecase.Markup
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
 import dev.sayaya.magi.ide.usecase.End
@@ -551,8 +553,20 @@ class MagiToolWindow : ToolWindowFactory {
             } else {
                 val at = if (w.total > 1) " (${w.index}/${w.total})" else ""
                 val ask = w.ask
-                val why = (ask as? Ask.Undrawable)?.why?.let { "<br/><i>$it</i>" }.orEmpty()
-                prompt.text = "<html><b>${w.what}</b>$at<br/>${w.reason ?: ""}$why</html>"
+                val why = (ask as? Ask.Undrawable)?.why?.let { "<br/><i>${Markup.text(it)}</i>" }.orEmpty()
+                // **무엇을 정하는지를 보인다.** 도구 이름은 요청의 설명이지 요청이 아니다 —
+                // 판정과 사유는 `Waiting.subject` 에 있다.
+                val subject = when (val sub = w.subject) {
+                    is Subject.Stated -> listOfNotNull(
+                        sub.args?.let { "<tt>${Markup.text(it)}</tt>" },
+                        sub.reason?.let { Markup.text(it) },
+                    ).joinToString("<br/>")
+                    // 못 받은 것을 못 받았다고 적는다. 이 줄이 없으면 사람은 아는 것(도구 이름)만
+                    // 보고 누르고, 창이 무엇을 덜 받았는지는 영영 안 나온다.
+                    Subject.Unstated -> "<i>이 물음에 정해지는 것이 안 실려 왔다 — " +
+                        "무엇을 허가하는지 이 창은 모른다.</i>"
+                }
+                prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<br/>$subject$why</html>"
                 when (ask) {
                     is Ask.Permission -> {
                         add("허용") { it.allow(w.id) }

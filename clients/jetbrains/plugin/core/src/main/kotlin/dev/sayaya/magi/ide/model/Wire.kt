@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 
 /**
  * 데몬 소켓 위의 한 줄.
@@ -127,6 +128,55 @@ data class Waiting(
         return if (opts.isEmpty()) Ask.Undrawable("선택지 없이 온 질문이다. 누를 것을 지어내지 않는다.")
         else Ask.Choose(opts)
     }
+
+    /**
+     * **무엇을 정하는 물음인가.** [ask] 가 「누를 것」을 정하고 이쪽이 「보일 것」을 정한다.
+     *
+     * 이게 없을 때 창은 `what` 과 `reason` 만 붙이고 [args] 는 **한 번도 안 그렸다.** 권한 물음에서
+     * `reason` 마저 없으면 화면에 남는 것은 굵은 글씨 «bash» 와 허용·거부·항상 셋뿐이다 —
+     * **무엇을 허가하는지 모르는 채로 누른다.** `args` 는 소켓에서 `omitempty` 라 진짜로 안 온다.
+     *
+     * 이 칸이 있는 이유를 코어가 이미 적어 뒀다(`daemon.go` 의 `Waiting`): *"the rest of the
+     * request, **so a viewer draws the prompt rather than a description of it**"*. 도구 이름은
+     * 요청의 설명이지 요청이 아니다.
+     *
+     * **같은 부재를 이 저장소가 다른 데서는 이름으로 부른다.** 우측 판은 승인 모드가 안 오면
+     * "데몬이 안 말했다"라고 적고, 로그 줄은 인자가 없으면 그렇게 적는다. 걸린 것이 제일 큰
+     * 자리만 조용했다 — 대접이 위험도와 반대로 붙어 있었다.
+     */
+    val subject: Subject get() {
+        val a = args?.takeIf { it !is JsonNull }?.toString()
+        val r = reason?.takeIf { it.isNotBlank() }
+        return if (a == null && r == null) Subject.Unstated else Subject.Stated(a, r)
+    }
+}
+
+/** [Waiting.subject] 의 결과. */
+sealed interface Subject {
+
+    /**
+     * 정해지는 것이 실려 왔다. 적어도 하나는 있다 — 둘 다 없는 것은 [Unstated] 이고, 그 둘을
+     * 같은 이름으로 두면 화면이 「빈 요청」과 「말 안 해 준 요청」을 같게 그린다.
+     *
+     * 둘을 안 합친다. [args] 는 정해지는 것 **그 자체**라 화면이 글자 그대로 보여야 하고
+     * (`Markup` 를 거친다), [reason] 은 정책이 왜 섰는지에 대한 산문이다. 합치면 화면이
+     * 어느 쪽을 그리고 있는지 모르게 된다.
+     */
+    data class Stated(val args: String?, val reason: String?) : Subject {
+        init {
+            require(args != null || reason != null) {
+                "둘 다 없으면 Unstated 다 — 빈 Stated 는 화면에서 「아무것도 안 정한다」로 보인다"
+            }
+        }
+    }
+
+    /**
+     * 무엇을 정하는지가 **안 실려 왔다.** 화면은 이것을 조용히 넘기면 안 된다.
+     *
+     * 조용히 넘기던 자리다: `reason ?: ""` 가 빈 줄을 그리고 단추 셋은 그대로 떴다. 사람은
+     * 창이 뭘 덜 받았다는 것을 알 길이 없으니 아는 것(«bash»)만 보고 누른다.
+     */
+    data object Unstated : Subject
 }
 
 /** [Waiting.ask] 의 결과. 화면은 이 셋만 그린다. */
