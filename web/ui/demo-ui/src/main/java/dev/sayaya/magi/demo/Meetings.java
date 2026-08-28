@@ -17,8 +17,23 @@ final class Meetings {
     private Meetings() {}
 
     static Promise<Response> answer(String path, String url, RequestInit init) {
+        // 회의의 행동 넷은 <b>이름을 대고</b> 답한다 — 바닥을 잡는 것, 논의를 끝내고 각자에게
+        // 무엇을 할 것인지 묻는 것, 결론을 일로 넘기는 것은 서로 다른 일이다. 셋 다
+        // "would have sent: POST"로 적으면 데모는 그것들이 같은 짓이라고 가르친다(운영 목이
+        // 이 넷만 따로 이름 댄 이유). 넘기기 하나가 이 기능에서 유일하게 워크스페이스에 닿는다.
+        switch (path) {
+            case "/meet-open":  return Mock.did("would have put the meeting back in session");
+            case "/meet-say":   return Mock.did("would have taken the floor and said it");
+            case "/meet-close": return Mock.did("would have ended the discussion and asked each of them "
+                    + "what they will do");
+            case "/meet-hand":  return Mock.did("would have sent that conclusion to the companion as work, "
+                    + "in its own session");
+            default: break;
+        }
         if (!"/meet".equals(path)) return null;
-        if (Mock.wrote(init)) return Mock.json("");   // 말하기·닫기·다시 열기: 받아만 둔다
+        // 방을 여는 것은 받아만 둔다 — 빈 답에 JSON.parse가 걸려 콘솔이 null을 내고, 그것이
+        // "이름 없는 주소로 사람을 보내지 않는다"이다(FetchMeetingSource.convene의 계약).
+        if (Mock.wrote(init)) return Mock.took(path, init);
         String id = Mock.param(url, "id");
         if (id.isEmpty()) return Mock.json(ROOMS);
         elemental2.core.JsArray<Object> all = Js.uncheckedCast(Global.JSON.parse(ROOMS));

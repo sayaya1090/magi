@@ -28,7 +28,7 @@ final class People {
                         if (!Mock.field(init, "delete").isEmpty()) gone = true;
                         else { role = Mock.field(init, "role"); scope = Mock.field(init, "companions"); }
                     }
-                    return Mock.json("");
+                    return Mock.took(path, init);
                 }
                 return Mock.json(roster());
             // 손길은 지도의 것이다 — 컴패니언 곁의 판도 같은 길로 묻는다(경로 하나, 주인 하나).

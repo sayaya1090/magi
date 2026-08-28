@@ -63,7 +63,7 @@ final class Companion {
                 // 여전히 그 세션을 지난 것으로 보는데, 그림자 상태를 두면 데모가 명단과 어긋난
                 // 두 번째 사실이 된다(갱신 버튼에서 한 그 판단).
                 case "/resume":
-                    return Mock.json("");
+                    return Mock.took(path, init);
                 default: break;
             }
         }

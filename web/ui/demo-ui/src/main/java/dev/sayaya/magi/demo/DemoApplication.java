@@ -35,6 +35,11 @@ public class DemoApplication implements EntryPoint {
         if (got == null) got = Settings.answer(path, init);
         if (got == null) got = Companion.answer(path, init);
         if (got == null) got = Workspace.answer(path, url, init);
+        // 아무도 이름 대지 않은 <b>쓰기</b>는 여기서 자기를 보고한다 — 띠의 첫 줄이 한 약속
+        // ("every action reports what it would have sent")을 지키는 자리다. 없던 동안 이 길들은
+        // 제 회선으로 나가 조용한 501이 됐다(실측: 회의의 넷). 읽기는 그대로 통과시킨다 —
+        // 자산과 말 팩이 그 길로 나가야 한다.
+        if (got == null && Mock.wrote(init)) got = Mock.took(path, init);
         return got;
     }
 

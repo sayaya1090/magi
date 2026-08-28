@@ -53,6 +53,9 @@ const demoShim = `
     banner.className = 'demo-banner';
     banner.textContent = 'demo \u2014 the real page, answered by a mock. Nothing here is a running agent, ' +
       'and every action reports what it would have sent.';
+    // 그 마지막 절은 이 띠가 혼자 지키는 약속이 아니다: 목(demo-ui의 Banner)이 아래 클래스
+    // 이름으로 이 자리를 찾아 글자를 갈아 끼운다. 클래스 이름 하나가 계약의 전부이고 양쪽
+    // 주석에 적혀 있다 — 띠가 없는 페이지(테스트 하네스)에서 목은 조용히 지나간다.
     var was = 0;
     function push() {
       var h = Math.ceil(banner.getBoundingClientRect().height);

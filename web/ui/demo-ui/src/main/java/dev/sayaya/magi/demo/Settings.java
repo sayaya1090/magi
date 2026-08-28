@@ -16,7 +16,7 @@ final class Settings {
     static Promise<Response> answer(String path, RequestInit init) {
         switch (path) {
             case "/autocomplete":
-                if (Mock.wrote(init)) return Mock.json("");
+                if (Mock.wrote(init)) return Mock.took(path, init);
                 // 운영 데모와 같은 답이다 — 두 데모를 나란히 놓고 볼 때 다른 설정을 보고 있으면
                 // 화면 차이인지 자료 차이인지 가릴 수 없다. 프로파일은 이름만이 아니라 <b>어느
                 // 층에 적힌 것인지</b>까지 온다(고르개가 그 사실을 적는다).
@@ -29,7 +29,7 @@ final class Settings {
                         + "{\"name\":\"fast\",\"tier\":\"project\"}],"
                         + "\"file\":\"/Users/you/work/design-system/.magi/config.toml\"}");
             case "/profiles":
-                if (Mock.wrote(init)) return Mock.json("");
+                if (Mock.wrote(init)) return Mock.took(path, init);
                 return Mock.json(
                         "[{\"name\":\"balanced\",\"tier\":\"global\",\"baseUrl\":\"http://localhost:11434/v1\","
                         + "\"model\":\"qwen3-coder:30b\",\"hasKey\":false,\"file\":\"~/.config/magi/config.toml\"},"
@@ -44,7 +44,7 @@ final class Settings {
                     "[{\"name\":\"gateway\",\"base\":\"http://127.0.0.1:47311/v1\","
                     + "\"models\":[\"fast\",\"balanced\",\"deep\"]}]");
             // 데모에는 뒤에 함대를 보는 것이 없다 — 키가 없다고 답하고, 화면이 그 사실을 적는다.
-            case "/push": return Mock.json(Mock.wrote(init) ? "" : "{\"key\":\"\"}");
+            case "/push": return Mock.wrote(init) ? Mock.took(path, init) : Mock.json("{\"key\":\"\"}");
             default: return null;
         }
     }

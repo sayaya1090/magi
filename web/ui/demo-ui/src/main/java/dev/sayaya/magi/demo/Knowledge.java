@@ -32,15 +32,15 @@ final class Knowledge {
                         String name = Mock.field(init, "name");
                         mcp = mcp().filter((v, i) -> !name.equals(Js.asPropertyMap(v).get("name")));
                     }
-                    return Mock.json("");
+                    return Mock.took(path, init);
                 }
                 return Mock.json(Global.JSON.stringify(mcp()));
             case "/forget": {
                 String name = Mock.field(init, "name");
                 skills = skills().filter((v, i) -> !name.equals(Js.asPropertyMap(v).get("name")));
-                return Mock.json("");
+                return Mock.took(path, init);
             }
-            case "/remember": return Mock.json("");
+            case "/remember": return Mock.took(path, init);
             default: return null;
         }
     }

@@ -41,8 +41,9 @@ final class Workspace {
         // PR 쪽은 운영과 <b>일부러</b> 다르다: 운영은 같은 초안을 몸이 아니라 배너에 적고
         // 204를 준다(script.go의 회의 셋과 한 묶음). 그래서 운영에서 이 버튼을 누르면 상자는
         // 빈 채다 — 실측: PROD after="" / NEXT after="web: keep the dock off the phone…".
-        // 신규 데모에는 그 배너가 없으니(잔여 항목) 같은 204를 흉내내면 버튼이 죽은 것으로만
-        // 보인다. 초안이 초안으로 보이는 쪽을 고른다.
+        // 띠가 생긴 지금도 이 갈래는 그대로 둔다. 이유가 바뀌었을 뿐이다: 커밋 메시지와 PR
+        // 본문은 같은 종류의 컨트롤이고(모델이 초안을 쓰고 사람이 고친다) 데모에서 같은 짓을
+        // 해야 한다. 운영은 그 둘을 갈라 놓은 쪽이다 — /git-msg는 몸으로, /pr-msg는 띠로.
         if (Mock.wrote(init) && "/git-msg".equals(path)) {
             return Mock.json("git: name the branch the card is showing\n\n"
                     + "The pane read the checkout every time it drew, so a detached head was drawn "
@@ -58,10 +59,15 @@ final class Workspace {
             switch (path) {
                 // PR을 여는 것은 초안과 다르다 — 답이 주소이고, 이 페이지에 열 저장소는 없다.
                 // 빈 주소가 "열지 않았다"이다(운영도 이 길은 빈 몸으로 답한다).
-                case "/git-pr":
-                case "/save": case "/file-do": case "/git-do": case "/open-file":
-                case "/pr": case "/council":
+                // 배경으로 밀어 넣는 것 하나는 조용하다 — 탭을 여는 것은 사람이 누른 행동이
+                // 아니라 다른 화면이 미는 것이라, 띠에 적으면 아무도 하지 않은 일이 보고된다
+                // (운영 목도 이 길만 말없이 받는다).
+                case "/open-file":
                     return Mock.json("");
+                case "/git-pr":
+                case "/save": case "/file-do": case "/git-do":
+                case "/pr": case "/council":
+                    return Mock.took(path, init);
                 default: break;
             }
         }

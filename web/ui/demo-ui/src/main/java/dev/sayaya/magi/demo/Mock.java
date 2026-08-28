@@ -21,6 +21,37 @@ final class Mock {
     /** 답할 것이 없다는 뜻 — 콘솔이 제 회선으로 나간다(자산·말 팩이 그 길로 간다). */
     static Promise<Response> none() { return null; }
 
+    /**
+     * 받아만 두되, <b>무엇을 보냈을지는 띠에 적고</b> 빈 답을 준다.
+     *
+     * 빈 답이 "했다"라는 뜻인 것은 그대로다 — 화면은 늘 하던 대로 다음을 묻는다. 달라지는
+     * 것은 사람이 보는 쪽이다: 지우기를 눌렀는데 아무 일도 일어나지 않으면 데모는 이 버튼이
+     * 죽었다고 가르치고, 조용히 성공한 것처럼 굴면 진짜 콘솔이 확인 없이 지운다고 가르친다.
+     * 띠가 그 사이를 말한다 — 무엇이 데몬으로 갔을 것인지.
+     */
+    static Promise<Response> took(String path, elemental2.dom.RequestInit init) {
+        Banner.say("would have sent: POST " + path + body(init));
+        return json("");
+    }
+
+    /**
+     * 이름이 있는 행동 — "POST /meet-close"가 아니라 그것이 <b>무슨 짓인지</b>를 적는다.
+     *
+     * 회의의 넷이 그렇다: 바닥을 잡는 것, 논의를 끝내는 것, 결론을 일로 넘기는 것은 서로 다른
+     * 일인데 셋 다 "would have sent: POST"로 적으면 데모는 그것들이 같은 짓이라고 가르친다.
+     */
+    static Promise<Response> did(String said) {
+        Banner.say(said);
+        return json("");
+    }
+
+    /** 보낸 몸을 있는 그대로 — 없으면 빈 문자열(운영 목이 배너에 붙이는 그 꼬리). */
+    static String body(elemental2.dom.RequestInit init) {
+        if (init == null) return "";
+        Object b = jsinterop.base.Js.asPropertyMap(init).get("body");
+        return b == null ? "" : " " + String.valueOf(b);
+    }
+
     /** 물음표 앞의 길만 — 목은 경로로 답하고, 딸린 것들은 각자가 읽는다. */
     static String pathOf(String url) {
         String u = url == null ? "" : url;
