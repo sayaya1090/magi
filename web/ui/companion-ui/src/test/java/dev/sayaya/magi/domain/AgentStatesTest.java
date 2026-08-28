@@ -1,7 +1,7 @@
 package dev.sayaya.magi.domain;
 
 import dev.sayaya.magi.bridge.AgentStates;
-import dev.sayaya.magi.client.domain.Spans;
+import dev.sayaya.magi.component.Spans;
 import dev.sayaya.magi.client.domain.Versions;
 
 import org.junit.jupiter.api.Test;
