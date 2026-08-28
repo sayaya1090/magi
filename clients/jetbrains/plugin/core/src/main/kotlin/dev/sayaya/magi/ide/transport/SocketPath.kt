@@ -118,3 +118,18 @@ object SocketPath {
         return p.fileName?.toString() ?: p.toString()
     }
 }
+
+/**
+ * 데몬이 소켓 옆에 공표한 것을 읽는다.
+ *
+ * 어느 대화에 붙을지를 **넘겨짚지 않기 위해** 있다. "이 워크스페이스의 최신 세션"으로 고르면
+ * 며칠 도는 데몬에서 그사이 누가 연 대화를 열게 된다 — daemon.go 가 레코드를 두는 사유가 그것이다.
+ */
+object Published {
+    fun of(socket: java.nio.file.Path): dev.sayaya.magi.ide.model.Published? = runCatching {
+        val text = java.nio.file.Files.readString(SocketPath.sessionFile(socket))
+        dev.sayaya.magi.ide.model.Wire.json.decodeFromString(
+            dev.sayaya.magi.ide.model.Published.serializer(), text
+        )
+    }.getOrNull()
+}

@@ -87,3 +87,28 @@ class SocketPathTest {
         assertEquals("/home/x/cfg/magi", xdg.toString())
     }
 }
+
+/**
+ * 데몬의 레코드를 읽는다. 어느 대화에 붙을지를 넘겨짚지 않기 위한 자리라, 모양이 바뀌면
+ * 조용히 빈 세션으로 붙는 대신 여기가 먼저 깨져야 한다.
+ */
+class PublishedTest {
+    @Test
+    fun `레코드에서 세션과 워크디렉토리를 읽는다`() {
+        val dir = java.nio.file.Files.createTempDirectory("magi-rec")
+        val sock = dir.resolve("daemon-ws1-b1lp9vc8.sock")
+        java.nio.file.Files.writeString(
+            SocketPath.sessionFile(sock),
+            """{"socket":"$sock","workdir":"/tmp/ws1","session":"s_abc","pid":42,"unknown":"무시된다"}""",
+        )
+        val rec = Published.of(sock)
+        assertEquals("s_abc", rec?.session)
+        assertEquals("/tmp/ws1", rec?.workdir)
+        assertEquals(42, rec?.pid)
+    }
+
+    @Test
+    fun `레코드가 없으면 null 이고, 그때는 넘겨짚지 않는다`() {
+        assertNull(Published.of(java.nio.file.Paths.get("/nope/none.sock")))
+    }
+}
