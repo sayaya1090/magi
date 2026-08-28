@@ -117,7 +117,7 @@ public class WorkspaceElement {
         HTMLElement row = el("button");
         row.setAttribute("type", "button");
         row.className = "panelrow state";
-        row.append(Icons.orGlyph("#i-sl-clock-rotate-left", "", "panelmark"));
+        row.append(Icons.shape("#i-sl-clock-rotate-left", "panelmark"));
         row.append(cell("panelword", tr("git.section")));
         JsPropertyMap<Object> g = store.git() == null ? null : Js.uncheckedCast(store.git());
         if (g != null && Js.isTruthy(g.get("repo"))) {
@@ -129,7 +129,7 @@ public class WorkspaceElement {
             if (n > 0) said = (said.isEmpty() ? "" : said + " \u00B7 ") + tr("git.n_changed", "n", String.valueOf(n));
             if (!said.isEmpty()) row.append(cell("panelcount", said));
         }
-        row.append(Icons.orGlyph("#i-sl-chevron-right", "\u203A", "panelgo"));
+        row.append(Icons.shape("#i-sl-chevron-right", "panelgo"));
         row.addEventListener("click", evt -> { shows = "git"; render(); });
         list.append(row);
         return list;
@@ -161,7 +161,7 @@ public class WorkspaceElement {
         if (again == null) return row;
         HTMLElement b = el("md-icon-button");
         b.className = "paneagain";
-        b.append(Icons.orGlyph("#i-sl-arrows-rotate", "\u21BB", "sic"));
+        b.append(Icons.shape("#i-sl-arrows-rotate", "sic"));
         b.setAttribute("aria-label", tr("files.again"));
         b.setAttribute("title", tr("files.again"));
         // 접는 버튼 안이 아니라 옆이다 — 컨트롤 속의 컨트롤은 어디를 눌렀느냐로 두 가지 일 중
@@ -227,7 +227,7 @@ public class WorkspaceElement {
         HTMLElement box = cell("filefind", null);
         if (!store.finding()) {
             HTMLElement open = el("md-text-button");
-            open.append(Icons.orGlyph("#i-sl-magnifying-glass", "⌕", "mk"),
+            open.append(Icons.shape("#i-sl-magnifying-glass", "mk"),
                     DomGlobal.document.createTextNode(" " + tr("files.find")));
             open.addEventListener("click", evt -> ask());
             box.append(open);
@@ -238,11 +238,11 @@ public class WorkspaceElement {
                 : "files.found_in_names", "q", store.query())));
         box.append(cell("findacts", null));
         HTMLElement again = el("md-text-button");
-        again.append(Icons.orGlyph("#i-sl-magnifying-glass", "⌕", "mk"),
+        again.append(Icons.shape("#i-sl-magnifying-glass", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("files.find_again")));
         again.addEventListener("click", evt -> ask());
         HTMLElement clear = el("md-text-button");
-        clear.append(Icons.orGlyph("#i-sl-xmark", "✕", "mk"),
+        clear.append(Icons.shape("#i-sl-xmark", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("files.find_clear")));
         clear.addEventListener("click", evt -> store.query(""));
         box.append(again, clear);
@@ -321,7 +321,7 @@ public class WorkspaceElement {
         HTMLElement box = cell("rowmenu", null);
         HTMLElement open = el("md-icon-button");
         open.id = "rm" + (++menuCount);
-        open.append(Icons.orGlyph("#i-sl-sliders", "⋯", "mk"));
+        open.append(Icons.shape("#i-sl-sliders", null));
         open.setAttribute("aria-label", tr("files.more_named", "name", name));
         open.setAttribute("title", tr("files.more"));
         HTMLElement menu = el("md-menu");
@@ -480,7 +480,7 @@ public class WorkspaceElement {
         // 돌릴 수 있으면 이미 어느 파일이든 쓸 수 있다.
         if (May.can("shell") && reading && !path.equals(editing)) {
             HTMLElement go = el("md-text-button");
-            go.append(Icons.orGlyph("#i-sl-pen-to-square", "\u270E", "sic"));
+            go.append(Icons.shape("#i-sl-pen-to-square", "sic"));
             go.textContent = tr("action.edit");
             go.addEventListener("click", evt -> { editing = path; said = ""; publishCards(); });
             acts.append(go);
@@ -702,14 +702,14 @@ public class WorkspaceElement {
         rulesWrap.append(rulesRow);
         HTMLElement acts = cell("commitacts", null);
         HTMLElement rulesGo = el("md-text-button");
-        rulesGo.append(Icons.orGlyph("#i-sl-sliders", "\u22EF", "sic"));
+        rulesGo.append(Icons.shape("#i-sl-sliders", "sic"));
         rulesGo.textContent = tr("git.rules");
         rulesGo.addEventListener("click", evt -> {
             if (rulesWrap.hasAttribute("hidden")) rulesWrap.removeAttribute("hidden");
             else rulesWrap.setAttribute("hidden", "");
         });
         HTMLElement draft = el("md-text-button");
-        draft.append(Icons.orGlyph("#i-sl-wand-magic-sparkles", "\u2726", "sic"));
+        draft.append(Icons.shape("#i-sl-wand-magic-sparkles", "sic"));
         draft.textContent = tr("git.draft");
         draft.addEventListener("click", evt -> store.draftCommitMessage(commitRules, said -> {
             if (said == null || said.trim().isEmpty()) return;
@@ -717,7 +717,7 @@ public class WorkspaceElement {
             Js.asPropertyMap(msg).set("value", said);
         }));
         HTMLElement go = el("md-filled-tonal-button");
-        go.append(Icons.orGlyph("#i-sl-check", "\u2713", "sic"));
+        go.append(Icons.shape("#i-sl-check", "sic"));
         go.textContent = tr("git.commit");
         go.setAttribute("aria-label", tr("git.commit_do"));
         HTMLElement said = cell("filesnote", "");
@@ -786,14 +786,14 @@ public class WorkspaceElement {
         said.setAttribute("hidden", "");
         HTMLElement acts = cell("commitacts", null);
         HTMLElement rulesGo = el("md-text-button");
-        rulesGo.append(Icons.orGlyph("#i-sl-sliders", "\u22EF", "sic"));
+        rulesGo.append(Icons.shape("#i-sl-sliders", "sic"));
         rulesGo.textContent = tr("git.rules");
         rulesGo.addEventListener("click", evt -> {
             if (rulesWrap.hasAttribute("hidden")) rulesWrap.removeAttribute("hidden");
             else rulesWrap.setAttribute("hidden", "");
         });
         HTMLElement draft = el("md-text-button");
-        draft.append(Icons.orGlyph("#i-sl-wand-magic-sparkles", "\u2726", "sic"));
+        draft.append(Icons.shape("#i-sl-wand-magic-sparkles", "sic"));
         draft.textContent = tr("git.draft");
         draft.addEventListener("click", evt -> store.draftPullRequest(prRules, out -> {
             if (out == null || out.trim().isEmpty()) return;
@@ -801,7 +801,7 @@ public class WorkspaceElement {
             Js.asPropertyMap(msg).set("value", out);
         }));
         HTMLElement go = el("md-filled-tonal-button");
-        go.append(Icons.orGlyph("#i-sl-share-from-square", "\u2197", "sic"));
+        go.append(Icons.shape("#i-sl-share-from-square", "sic"));
         go.textContent = tr("git.pr");
         go.addEventListener("click", evt -> {
             String text = value(msg).trim();
@@ -875,7 +875,7 @@ public class WorkspaceElement {
     private HTMLElement backToList() {
         HTMLElement back = el("md-text-button");
         back.className = "fileback";
-        back.append(Icons.orGlyph("#i-sl-chevron-left", "\u2039", "sic"));
+        back.append(Icons.shape("#i-sl-chevron-left", "sic"));
         back.textContent = tr("nav.files");
         back.setAttribute("aria-label", tr("action.back_to", "name", tr("nav.files")));
         back.addEventListener("click", evt -> CardSharing.toList());
@@ -890,7 +890,7 @@ public class WorkspaceElement {
         caret.setAttribute("aria-expanded", folded ? "false" : "true");
         // 무엇을 접는지로 이름 짓는다 — 옆 판의 제목을 달고 있으면 다른 판을 접는 것처럼 읽힌다.
         caret.setAttribute("aria-label", tr("action.fold_named", "name", path));
-        caret.append(Icons.orGlyph("#i-sl-chevron-down", "\u25BE", "caret"));
+        caret.append(Icons.shape("#i-sl-chevron-down", "caret"));
         caret.addEventListener("click", evt -> { folded = !folded; publishCards(); });
         return caret;
     }
@@ -996,7 +996,7 @@ public class WorkspaceElement {
             nums.textContent = g.toString();
         };
         HTMLElement save = el("md-filled-button");
-        save.append(Icons.orGlyph("#i-sl-floppy-disk", "\u2913", "sic"));
+        save.append(Icons.shape("#i-sl-floppy-disk", "sic"));
         save.textContent = tr("action.save");
         save.addEventListener("click", evt -> {
             Js.asPropertyMap(save).set("disabled", true);
@@ -1018,7 +1018,7 @@ public class WorkspaceElement {
             });
         });
         HTMLElement stop = el("md-text-button");
-        stop.append(Icons.orGlyph("#i-sl-xmark", "\u2715", "sic"));
+        stop.append(Icons.shape("#i-sl-xmark", "sic"));
         stop.textContent = tr("action.cancel");
         stop.addEventListener("click", evt -> {
             editing = null;
@@ -1106,7 +1106,7 @@ public class WorkspaceElement {
             HTMLElement lookGo = el("md-icon-button");
             lookGo.setAttribute("type", "button");
             lookGo.className = "editask";
-            lookGo.append(Icons.orGlyph("#i-sl-magnifying-glass", "\u2315", "mk"));
+            lookGo.append(Icons.shape("#i-sl-magnifying-glass", "mk"));
             lookGo.setAttribute("aria-label", tr("edit.look_now", "keys", "\u2318\u21E7\u21A9"));
             lookGo.setAttribute("title", tr("edit.look_now", "keys", "\u2318\u21E7\u21A9"));
             lookGo.addEventListener("click", evt -> {
@@ -1116,7 +1116,7 @@ public class WorkspaceElement {
             HTMLElement compGo = el("md-icon-button");
             compGo.setAttribute("type", "button");
             compGo.className = "editask";
-            compGo.append(Icons.orGlyph("#i-sl-lightbulb", "\u2726", "mk"));
+            compGo.append(Icons.shape("#i-sl-lightbulb", "mk"));
             compGo.setAttribute("aria-label", tr("edit.complete_now", "keys", "\u2318\u21A9"));
             compGo.setAttribute("title", tr("edit.complete_now", "keys", "\u2318\u21A9"));
             compGo.addEventListener("click", evt -> {
@@ -1156,7 +1156,7 @@ public class WorkspaceElement {
         }
         HTMLElement inner = cell("gitinner", null);
         HTMLElement top = cell("gittop", null);
-        top.append(Icons.orGlyph("#i-sl-layer-group", "\u2387", "gitmark"));
+        top.append(Icons.shape("#i-sl-layer-group", "gitmark"));
         String branch = str(g, "branch");
         String head = str(g, "head");
         String here = !branch.isEmpty() ? branch : !head.isEmpty() ? "@" + head : tr("git.detached");
@@ -1255,7 +1255,7 @@ public class WorkspaceElement {
         HTMLElement box = cell("gitacts", null);
         HTMLElement open = el("md-icon-button");
         open.id = "ga" + (++menuCount);
-        open.append(Icons.orGlyph("#i-sl-sliders", "\u22EF", "mk"));
+        open.append(Icons.shape("#i-sl-sliders", "mk"));
         // 다섯 개의 똑같은 "더 보기"는 스크린 리더에게 다섯 번의 "더 보기"다 — 읽히는 이름이
         // 어느 파일의 것인지 말한다(툴팁은 짧은 낱말 그대로).
         open.setAttribute("aria-label", tr("files.more_named", "name", baseName(path)));
@@ -1351,7 +1351,12 @@ public class WorkspaceElement {
     /** 이 줄의 행동 하나 — 낱말은 툴팁과 읽히는 이름에, 자리에는 그림만. */
     private void act(HTMLElement box, String key, String mark, String glyph, Runnable run) {
         HTMLElement b = el("md-icon-button");
-        b.append(Icons.orGlyph(mark, glyph, "mk"));
+        // 그림만 있는 자리라 낱자로 떨어뜨리지 않는다 — 그림판 없는 빌드에서 "←"가 곧 그
+        // 버튼의 얼굴이 된다(Icons.shape가 획을 그리고, 그림판이 오면 갈아입는다).
+        // 클래스 없이 — .mk는 <b>글줄 옆의 표</b>를 그 줄 크기(.9em)로 맞추는 규칙이라,
+        // 아이콘 버튼 안에 쓰면 버튼이 정한 크기를 이기고 줄 높이를 1px 밀어낸다(실측:
+        // 트리 행 28 대 29). 버튼 안의 그림 크기는 버튼이 정한다(운영 act/rowMenu와 같다).
+        b.append(Icons.shape(mark, null));
         b.setAttribute("aria-label", tr(key));
         b.setAttribute("title", tr(key));
         b.addEventListener("click", evt -> run.run());
@@ -1365,7 +1370,7 @@ public class WorkspaceElement {
     private HTMLElement commitRow(boolean anyStaged) {
         HTMLElement box = cell("gitcommit", null);
         HTMLElement go = el("md-filled-tonal-button");
-        go.append(Icons.orGlyph("#i-sl-check", "\u2713", "sic"));
+        go.append(Icons.shape("#i-sl-check", "sic"));
         go.textContent = tr("git.commit");
         if (!anyStaged) Js.asPropertyMap(go).set("disabled", true);
         // 작업대가 열리면 화면에 "커밋"이 둘이다 — 하나는 검토를 열고 하나는 실제로 쓴다.
@@ -1393,7 +1398,7 @@ public class WorkspaceElement {
         h.setAttribute("type", "button");
         h.className = "panehead state";
         h.setAttribute("aria-expanded", String.valueOf(!shut));
-        h.append(Icons.orGlyph("#i-sl-chevron-down", "\u25BE", "panecaret"), cell("panetitle", title));
+        h.append(Icons.shape("#i-sl-chevron-down", "panecaret"), cell("panetitle", title));
         h.addEventListener("click", evt -> {
             boolean now = !card.classList.contains("shut");
             card.classList.toggle("shut", now);

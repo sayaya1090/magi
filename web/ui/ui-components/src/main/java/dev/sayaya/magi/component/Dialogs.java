@@ -102,7 +102,7 @@ public class Dialogs {
         HTMLElement actions = el("div");
         actions.setAttribute("slot", "actions");
         HTMLElement keep = el("md-text-button");
-        keep.append(Icons.orGlyph("#i-sl-xmark", "✕", "mk"),
+        keep.append(Icons.shape("#i-sl-xmark", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("action.cancel")));
         keep.addEventListener("click", evt -> close(dialog));
         HTMLElement go = el("md-filled-tonal-button");

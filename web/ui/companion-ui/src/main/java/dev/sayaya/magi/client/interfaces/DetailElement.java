@@ -53,7 +53,7 @@ public class DetailElement {
         // 글자를 박아 두면, 그림이 있는 빌드에서도 이 판의 머리만 글자를 이고 선다(실측: 이
         // 카드의 캐럿만 span, 나머지 110개는 svg). 시트가 90° 돌리는 것은 .caret 쪽이라 어느
         // 쪽이든 한 요소이면 된다.
-        elemental2.dom.Element caret = dev.sayaya.magi.bridge.Icons.orGlyph("#i-sl-chevron-down", "▾", "caret");
+        elemental2.dom.Element caret = dev.sayaya.magi.bridge.Icons.shape("#i-sl-chevron-down", "caret");
         caret.setAttribute("aria-hidden", "true");
         sum.className = "sum";
         bar.append(caret, cell("k", tr("field.facts")), sum);
@@ -600,7 +600,7 @@ public class DetailElement {
         drop.setAttribute("type", "button");
         drop.className = "fmtdrop";
         drop.setAttribute("aria-label", tr("action.remove"));
-        drop.append(Icons.orGlyph("#i-sl-trash-can", "✕", "mk"));
+        drop.append(Icons.shape("#i-sl-trash-can", "mk"));
         drop.addEventListener("click", evt -> row.remove());
         row.append(k, p, drop);
         return row;
