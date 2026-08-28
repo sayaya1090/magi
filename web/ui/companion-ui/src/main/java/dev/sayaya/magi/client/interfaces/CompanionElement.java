@@ -191,6 +191,12 @@ public class CompanionElement {
             show(detail.element(), store.context() != null && detail.hasFacts());
             cardShows = "facts";
             CardSharing.showing(cardShows);
+            // 줄이 비면 <b>본 것도 없다</b>. 이 갈래가 아래의 장부 손질을 건너뛰는 바람에 방금
+            // 닫은 카드가 "이미 본 것"으로 남았고, 그러면 그것을 다시 열어도 새로 열린 것으로
+            // 세어지지 않는다 — 그 자리를 이어받는 것은 이 줄이 방금 적어 둔 "facts"이고, 그
+            // 보고가 다음 그리기에서 요청으로 읽힌다. 눌러서 연 카드가 서지 않고 사실판이
+            // 서는 이유가 그것이었다(실측: 도구를 닫고 다시 누르면 사실판).
+            cardsSeen.clear();
             // 여기서도 배치가 마지막 말이다 — 폰에서는 사실판이 제 탭에서만 선다. 이 갈래가
             // layout()을 건너뛰는 바람에, 카드가 하나도 없는 화면(대부분의 화면)에서 사실판이
             // 대화 탭 위에 그대로 서 있었다(실측: 데모 390px에서 페이지가 1993px).

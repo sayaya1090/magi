@@ -322,5 +322,74 @@ internal class CompanionPanelTest : GwtTestSpec({
             }
             page.setViewportSize(1400, 900)
         }
+
+        When("가서 보는 것 — 도구") {
+            // 이 셋은 전사의 행이 아니라 카드다: 누가 물어서 나온 답이지 일어난 일의 기록이
+            // 아니다(운영의 그 판단). 그래서 재는 것도 "전사 자리에 카드가 섰는가"다.
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").count() shouldBe 3
+            Then("문 셋은 한 줄에 머문다 — 넘치면 옆 칸 위에 그려진다, 겹치지 않은 채로") {
+                // 운영이 실측으로 되밟은 자리다: 아이콘까지 283px인 줄이 238px 트랙에 들어가며
+                // nowrap 플렉스가 줄어들지 않고 제 상자 밖에 <b>칠했다</b>. DOM은 겹치지 않으니
+                // 상자 교차 검사는 통과한다 — 재야 할 것은 픽셀이라, 칸의 오른쪽 끝을 본다.
+                (page.evaluate(
+                    "(() => { const r = document.querySelector('#detail .f[data-k=\"field.what_it_has\"]');" +
+                        " const g = r.querySelector('.bgroup');" +
+                        " return g.getBoundingClientRect().right <= r.getBoundingClientRect().right + 1; })()"
+                ) as Boolean) shouldBe true
+            }
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").first().click()
+            Then("카드가 서고 줄에 제 탭이 생긴다 — 사실판은 물러난다") {
+                page.waitForSelector("#fileview .dinsp#insp\\.tools")
+                page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"]").count() shouldBe 1
+                page.locator("#detail").isVisible() shouldBe false
+            }
+            Then("데몬이 말한 것만 적는다 — 이 콘솔의 목록이 아니라") {
+                page.locator("#fileview .dinsp .dlog .f .k").count() shouldBe 3
+                page.locator("#fileview .dinsp .dlog .f .k").first().textContent() shouldBe "read"
+            }
+        }
+        When("도구를 물었는데 데몬이 빈 답을 하면") {
+            // 빈 답은 "도구가 없다"가 아니다 — 컴패니언은 늘 무언가를 갖고 있고, 빈 답이
+            // 뜻하는 것은 물어볼 수 없을 만큼 낡은 데몬이다. 다른 말을 적으면 화면이 사실을
+            // 지어낸다. 이 갈래는 낡은 데몬이 없으면 영영 안 열리므로 여기서만 열린다.
+            page.evaluate("window.__magi_test_tools_says = '[]'")
+            page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"] .tabclose").click()
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").first().click()
+            Then("목록 대신 그 사정을 적는다 — 빈 목록을 그리지 않는다") {
+                page.waitForSelector("#fileview .dinsp .dnote")
+                page.locator("#fileview .dinsp .dnote").textContent() shouldBe "insp.tools_unknown"
+                page.locator("#fileview .dinsp .dlog").count() shouldBe 0
+            }
+            page.evaluate("delete window.__magi_test_tools_says")
+        }
+        When("가서 보는 것 — 루프") {
+            page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"] .tabclose").click()
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").nth(1).click()
+            Then("지도는 정렬이 곧 내용이다 — 공백을 접으면 걸음 번호가 줄줄이 붙은 문단이 된다") {
+                page.waitForSelector("#fileview .dinsp .dpre")
+                page.locator("#fileview .dinsp .dpre").textContent() shouldContain "1 plan"
+                (page.evaluate("getComputedStyle(document.querySelector('#fileview .dinsp .dpre'))" +
+                    ".whiteSpace.startsWith('pre')") as Boolean) shouldBe true
+            }
+            Then("갈라져 나온 세션이 아니면 원본 절은 서지 않는다 — 아무것도 아닌 것과의 차이는 전사 전체다") {
+                page.locator("#fileview .dinsp .dk").count() shouldBe 1
+            }
+        }
+        When("그 세션이 다른 세션에서 갈라져 나온 것이면") {
+            page.evaluate(
+                "window.__magi_test_loop_says = JSON.stringify(" +
+                    "{map: '1 plan\\n2 edit', origin: 's_parent', diff: '- old\\n+ new'})"
+            )
+            page.locator("#cardtabs md-secondary-tab[data-card=\"insp.loop\"] .tabclose").click()
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").nth(1).click()
+            Then("원본과 그 뒤의 차이가 함께 선다") {
+                page.waitForCondition { page.locator("#fileview .dinsp .dk").count() == 3 }
+                page.locator("#fileview .dinsp .dv").textContent() shouldBe "s_parent"
+                page.locator("#fileview .dinsp .dpre").count() shouldBe 2
+                page.locator("#fileview .dinsp .dpre").last().textContent() shouldContain "+ new"
+            }
+            page.evaluate("delete window.__magi_test_loop_says")
+            page.locator("#cardtabs md-secondary-tab[data-card=\"insp.loop\"] .tabclose").click()
+        }
     }
 })

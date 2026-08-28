@@ -231,14 +231,28 @@ public class FakeCompanionSource implements CompanionSource {
         said.accept(canned == null ? "" : String.valueOf(canned));
     }
 
+    /**
+     * 가진 도구들. 스펙이 window.__magi_test_tools_says에 JSON을 놓아 두면 그것으로 답한다 —
+     * 특히 <b>빈 배열</b>: 그것은 "도구가 없다"가 아니라 "물어볼 수 없을 만큼 낡은 데몬"이고,
+     * 화면이 다른 말을 적으면 사실을 지어내는 것이 된다(운영 규칙). 그 갈래는 여기로만 온다.
+     */
     @Override
     public void tools(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
-        cb.accept(elemental2.core.Global.JSON.parse("[\"read\",\"edit\",\"bash\"]"));
+        cb.accept(elemental2.core.Global.JSON.parse(canned("__magi_test_tools_says",
+                "[\"read\",\"edit\",\"bash\"]")));
     }
 
+    /** 턴의 지도. __magi_test_loop_says로 갈라져 나온 세션(origin·diff 있음)도 세울 수 있다. */
     @Override
     public void loop(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
-        cb.accept(elemental2.core.Global.JSON.parse("{\"map\":\"1 plan\\n2 edit\",\"origin\":\"\",\"diff\":\"\"}"));
+        cb.accept(elemental2.core.Global.JSON.parse(canned("__magi_test_loop_says",
+                "{\"map\":\"1 plan\\n2 edit\",\"origin\":\"\",\"diff\":\"\"}")));
+    }
+
+    /** 스펙이 놓아 둔 답, 아니면 늘 하던 답. */
+    private static String canned(String key, String fallback) {
+        Object said = Js.asPropertyMap(DomGlobal.window).get(key);
+        return said == null ? fallback : String.valueOf(said);
     }
 
     @Override
