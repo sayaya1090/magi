@@ -40,6 +40,22 @@ const ok = (name, cond, detail = '') => {
   if (!cond) failed++;
 };
 
+/**
+ * 훑어서 「전부 그렇다」를 묻는다. **빈 것에는 참을 안 준다.**
+ *
+ * `[].every(f)` 는 늘 참이라, 훑을 것이 없는 단언은 술어가 무엇이든 초록이다 — 「하나도 안
+ * 틀렸다」와 「볼 것이 없었다」가 같은 글자로 찍힌다. 이 파일에 그런 줄이 실제로 하나 서
+ * 있었다(번호 붙은 슬라이드가 없는 판에서 번호표를 훑었다). 술어를 상수 거짓으로 바꿔도
+ * 스위트가 통과하는 것으로 쟀다.
+ *
+ * 「없다」를 물을 때 이 파일이 쓰는 말은 `.length === 0` 이지 `every` 가 아니다. 그래서
+ * 여기서 `every` 는 언제나 「이만큼 있고 전부 그렇다」는 뜻이고, 빈 것은 답이 아니라 결함이다.
+ *
+ * 안에서 `.every(` 를 안 쓰는 것은 일부러다 — 쓰면 아래 스캔이 자기 정의를 예외로 빼야 하고,
+ * 늘리는 값이 0 인 예외 목록은 곧 전부가 된다.
+ */
+const everyOf = (arr, pred) => arr.length > 0 && !arr.some((x, i) => !pred(x, i));
+
 const deck = new FakeDeck(structuredClone(fixture));
 const conv = new Composer();
 const quote = new QuoteSelection(deck, conv);
@@ -240,7 +256,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 같은 초록이 되고, 통째로 비우는 구현이 만점을 받는다. 이 대화의 줄이 실제로 섰는지까지
   // 같이 문다 — 부재를 재는 단언은 무엇이 남아 있어야 하는지를 같이 적어야 잰다.
   ok('앞 대화가 화면에 안 남고 이 대화가 선다',
-    read.view.rows.every((r) => r.text !== '키웠습니다')
+    everyOf(read.view.rows, (r) => r.text !== '키웠습니다')
       && read.view.rows.some((r) => r.text === '다른 대화'),
     read.view.rows.map((r) => r.text).join('|'));
 
@@ -330,7 +346,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     data: { text: '배우 자체가 없는 줄' } });
   const kindsAnon = read4.view.rows.slice(3).map((r) => r.kind);
   ok('안 밝힌 배우를 사용자로 세지 않는다',
-    kindsAnon.length === 2 && kindsAnon.every((k) => k === 'note'), kindsAnon.join('/'));
+    kindsAnon.length === 2 && everyOf(kindsAnon, (k) => k === 'note'), kindsAnon.join('/'));
   ok('안 밝힌 것과 밝힌 것을 줄이 구분해 든다',
     read4.view.rows[1].attributed === true && read4.view.rows[3].attributed === false
       && read4.view.rows[4].attributed === false);
@@ -556,7 +572,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('넷이 다 있고 폭이 셋으로 갈린다',
     DECISIONS.length === 4 && widths.size === 3, [...widths].join('/'));
   ok('문구가 폭을 말한다',
-    DECISIONS.every((d) => d.width === 'call' || /세션|계속|설정/.test(d.label)),
+    everyOf(DECISIONS, (d) => d.width === 'call' || /세션|계속|설정/.test(d.label)),
     DECISIONS.map((d) => d.label).join(' · '));
 
   // 모르는 종류. 코어의 `Waiting.Event` 는 `default:` 로 질문 아닌 것을 전부 권한 물음으로
@@ -865,7 +881,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 {
   // 사유는 손으로 안 적고 `CLEARED` 를 그대로 쓴다. 값이 한쪽에서만 바뀌면 드리프트다.
   const said = Object.values(CLEARED).map((c) => clearedNote(c));
-  ok('세 사유가 다 제 말을 갖는다', said.every((t) => typeof t === 'string' && t.length > 0));
+  ok('세 사유가 다 제 말을 갖는다', everyOf(said, (t) => typeof t === 'string' && t.length > 0));
   ok('셋이 서로 다른 말이다', new Set(said).size === 3);
   // 「모르게 된 것」을 「답했다」로 읽으면 사람이 그 물음을 잊는다.
   ok('못 닿아 내려간 것은 끝난 것이 아니라고 적는다',
@@ -1096,7 +1112,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('못 주는 호스트는 그렇다고 적는다', cantNumber.includes('못 줍니다'), cantNumber);
   ok('답에 없는 슬라이드는 낡은 안내라고 적는다', gone.includes('덱에 없습니다'), gone);
   ok('어느 글에나 도형 id 는 남는다',
-     [asked, pending, cantNumber, gone].every((t) => t.endsWith('sh1')));
+     everyOf([asked, pending, cantNumber, gone], (t) => t.endsWith('sh1')));
 
   // 안 눌리는 항목에도 **사유가 값에 실린다**. 누를 수 없으니 `PointAtAdvice` 의 사유는 영영
   // 화면에 못 온다 — 목록이 그 자리에서 적어야 하고, 두 자리가 같은 문장이어야 한다.
@@ -1137,7 +1153,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const m = await noNo.slideNumbers();
   ok('표에 앉은 것이 실제로 있다', m.size === 1, JSON.stringify([...m]));
   ok('번호 없는 슬라이드는 표에 안 앉는다', m.has('sx') === false, JSON.stringify([...m]));
-  ok('표의 값은 전부 숫자다', [...m.values()].every((v) => typeof v === 'number'));
+  ok('표의 값은 전부 숫자다', everyOf([...m.values()], (v) => typeof v === 'number'));
 
   // ── 답이 **언제 것인가**. 「물어본 적 있다」를 「이 안내에 답을 받았다」로 쓰면, 첫 답 뒤에
   // 도착한 안내가 낡은 스냅숏에 없다는 이유로 「지금 덱에 없습니다」가 된다 — 덱에는 있고
@@ -1571,6 +1587,32 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('마크업을 읽는 길이 하나도 없다', sunk.length === 0, sunk.join(' / '));
 }
 
+// ── 훑는 단언은 빈 것에 초록을 안 준다 ─────────────────────────────────────────
+// 위 스캔과 같은 수를 이 파일 자신에게 쓴다. `[].every(f)` 가 늘 참이라 훑을 것이 없는 단언은
+// 술어가 무엇이든 통과하는데, 실제로 그런 줄이 하나 서 있었다 — 표가 빈 판에서 표의 값을
+// 훑었고, 술어를 상수 거짓으로 바꿔도 스위트가 초록이었다. 여덟 자리를 다 재 보니 나머지
+// 일곱은 오늘 안 비어 있다. **그건 규칙이 아니라 운이고, 여덟째가 올 때 아무 데서도 소리가
+// 안 난다.** 그래서 `everyOf` 하나로 길을 좁히고, 안 거친 것이 있으면 여기서 이름을 부른다.
+//
+// 주석 줄은 뺀다. 예외 목록이 아니라 문법 갈래라 늘어날 자리가 없다 — 바로 위 `everyOf` 의
+// 설명이 자기 이야기를 하느라 `.every(` 를 적고 있고, 그걸 예외로 적기 시작하면 목록이 산다.
+//
+// 두 겹인 이유도 같다. 「안 거친 것이 없다」는 훑을 것을 못 찾아도 참이라, 떠받치는 줄은
+// 「훑는 자리를 실제로 찾았다」 쪽이다.
+{
+  // 찾는 글자를 통째로 안 적는다. 적으면 **이 줄이 스스로 걸린다** — 첫 판에서 실제로 그랬고,
+  // 세는 자리도 하나 부풀어 「9 자리」라고 적었다(여덟이다). 스캐너가 제 바늘에 걸리는 것을
+  // 예외로 빼면 그 예외가 진짜 위반도 같이 가려 준다.
+  const CALL = `.${'every'}(`;
+  const VIA = `${'every'}Of(`;
+  const self = readFileSync(new URL(import.meta.url), 'utf8').split('\n')
+    .map((l, i) => [i + 1, l]).filter(([, l]) => !/^\s*(\*|\/\/)/.test(l));
+  const sweeps = self.filter(([, l]) => l.includes(VIA)).length;
+  const bare = self.filter(([, l]) => l.includes(CALL)).map(([n]) => `smoke.mjs:${n}`);
+  ok('훑는 단언 자리를 실제로 찾았다', sweeps > 1, `${sweeps} 자리`);
+  ok('훑는 단언이 전부 빈 것을 거르는 길로 간다', bare.length === 0, bare.join(' '));
+}
+
 // ── 요구 집합 계측(§12 #4). `OfficeDeck.capabilities()` 를 stub 위에서 실제로 돌린다.
 //
 // 여기 단언이 있는 이유는 `ok` 가 **불리언이 아니라 셋**이라서다 — 지원/아니오/**물어보다
@@ -1686,7 +1728,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // **빈 것을 빈 상자로 그리지 않는다.** 빈 `<pre>` 는 「인자가 이렇다」도 「없다」도 아니고
   // 화면이 고장 난 것처럼 보인다. 셋 다 「아무것도 안 실었다」의 다른 철자다.
   const blanks = [{}, [], '   '];
-  ok('빈 것은 빈 상자 대신 말로 나간다', blanks.every((a) =>
+  ok('빈 것은 빈 상자 대신 말로 나간다', everyOf(blanks, (a) =>
     askArgs(new Pending({ id: 'c7', kind: 'permission', what: 'bash', args: a }))?.note
       === '인자 없이 부릅니다.'), JSON.stringify(blanks.map((a) =>
     askArgs(new Pending({ id: 'c7', kind: 'permission', what: 'bash', args: a })))));
@@ -2134,7 +2176,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('글을 잃어도 신원 둘은 그대로 온다',
       r.shapes.map((x) => x.id).join(',') === 'sh1,sh2', r.shapes.length);
     ok('못 읽은 것은 못 읽었다고 적는다',
-      r.shapes.every((x) => x.textUnavailable === true && x.text === ''),
+      everyOf(r.shapes, (x) => x.textUnavailable === true && x.text === ''),
       JSON.stringify(r.shapes.map((x) => [x.text, x.textUnavailable])));
     // 여섯 — **`point()` 를 처음으로 돌린다.** 여태 이 함수는 스위트가 한 번도 안 불렀고,
     // 그래서 두 인자를 통째로 떨어뜨려도 아무도 안 울었다(인자 드롭 계측). 여기서 무는 것은
