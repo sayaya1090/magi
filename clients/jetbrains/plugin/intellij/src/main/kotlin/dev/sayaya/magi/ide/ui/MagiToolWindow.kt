@@ -166,9 +166,11 @@ class MagiToolWindow : ToolWindowFactory {
             top.add(buttons, BorderLayout.SOUTH)
 
             val send = JButton("보내기").apply { addActionListener { say() } }
+            val stop = JButton("세우기").apply { addActionListener { interrupt() } }
+            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT)).apply { add(stop); add(send) }
             val bottom = JBPanel<JBPanel<*>>(BorderLayout())
             bottom.add(JBScrollPane(input), BorderLayout.CENTER)
-            bottom.add(send, BorderLayout.EAST)
+            bottom.add(acts, BorderLayout.EAST)
             bottom.add(hint, BorderLayout.SOUTH)
 
             // 치는 동안 제안을 묻는다. 매 글자마다가 아니라 멈추면 — 모델 호출이라 값이 있다.
@@ -366,6 +368,25 @@ class MagiToolWindow : ToolWindowFactory {
             val w = comp.waiting()
             SwingUtilities.invokeLater { drawPrompt(w) }
             say(state, note ?: if (w == null) "컴패니언이 붙어 있다." else "사람을 기다리는 중이다.")
+        }
+
+        /**
+         * 돌고 있는 턴을 세운다.
+         *
+         * 이 단추가 없었다. 동사는 `Companion.interrupt` 로 있었는데 **부르는 자리가 없어서**,
+         * 파일을 고치는 플러그인에 도는 턴을 멈출 방법이 하나도 없었다. 안 쓰는 동사라고 지우면
+         * 지우는 것 자체가 결정이 된다 — 「멈출 수 없다」는 안전 속성이지 코드 정리 대상이 아니다.
+         *
+         * **"세웠다"고 안 한다.** 코어의 `app.go` 의 `Interrupt` 는 도는 턴이 없어도 `nil` 을
+         * 돌려주므로, `ok` 는 요청이 닿았다는 뜻이지 무엇을 세웠다는 뜻이 아니다. 화면이 와이어가
+         * 뒷받침 안 하는 말을 하면 사람은 안 멈춘 것을 멈춘 줄 안다. 실제로 무엇이 멈췄는지는
+         * 전사에 나온다.
+         *
+         * 답은 안 버린다 — 같은 파일의 [add] 가 삼키다 고친 그 규칙이다.
+         */
+        private fun interrupt() = onDaemon { comp ->
+            val r = comp.interrupt()
+            say(state, if (r.ok) "세우라고 보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
         }
 
         private fun say() {
