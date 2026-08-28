@@ -258,10 +258,14 @@ public class FakeCompanionSource implements CompanionSource {
         return said == null ? fallback : String.valueOf(said);
     }
 
+    /**
+     * 보고 양식. `__magi_test_format_says = 'null'`을 놓으면 <b>못 읽은 것</b>이 된다 —
+     * 절이 없는 것과 같은 사정이 아니다(그쪽은 데몬이 답한 것이다).
+     */
     @Override
     public void reportFormat(CompanionContext ctx, java.util.function.Consumer<Object> cb) {
-        cb.accept(elemental2.core.Global.JSON.parse(
-                "{\"from\":\"workspace\",\"sections\":[{\"key\":\"what\",\"prompt\":\"What changed\"}]}"));
+        cb.accept(elemental2.core.Global.JSON.parse(canned("__magi_test_format_says",
+                "{\"from\":\"workspace\",\"sections\":[{\"key\":\"what\",\"prompt\":\"What changed\"}]}")));
     }
 
     @Override
@@ -269,7 +273,9 @@ public class FakeCompanionSource implements CompanionSource {
                              java.util.function.Consumer<String> why) {
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window)
                 .set("__magi_test_format", String.join(",", keys) + "|" + String.join(",", prompts));
-        why.accept("");
+        // 서버가 거절하며 적어 보내는 사유를 스펙이 대신 놓아 둔다(reportfmt.go: "a report needs
+        // at least one section", "two sections named …"). 빈 문자열은 이 문의 말로 <b>성공</b>이다.
+        why.accept(canned("__magi_test_format_refuses", ""));
     }
 
     @Override

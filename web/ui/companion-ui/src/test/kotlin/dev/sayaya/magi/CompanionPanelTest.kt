@@ -406,6 +406,62 @@ internal class CompanionPanelTest : GwtTestSpec({
             page.evaluate("delete window.__magi_test_loop_says")
             page.locator("#cardtabs md-secondary-tab[data-card=\"insp.loop\"] .tabclose").click()
         }
+        When("가서 보는 것 — 보고 양식") {
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").nth(2).click()
+            Then("어느 층에서 온 양식인지와 그 절들이 선다") {
+                page.waitForSelector("#fmtDialog .fmtform .fmtrow")
+                page.locator("#fmtDialog .dlgsup.from").textContent() shouldBe "fmt.from_workspace"
+                page.locator("#fmtDialog .fmtrow").count() shouldBe 1
+            }
+            Then("절을 더할 수 있다 — 더하기는 늘 맨 아래에 남는다") {
+                // 이 폼이 무너진 자리가 여기였다: 절을 더하기 단추 <b>앞에</b> 끼워 넣는데
+                // 그 단추가 아직 폼의 자식이 아니라 첫 절에서 예외가 났고, 그러면 폼도 사유가
+                // 설 자리도 저장의 귀도 안 달린 채 끝났다. 그래서 둘 다 잰다 — 절이 서는가,
+                // 그리고 더하기가 여전히 맨 아래인가.
+                page.locator("#fmtDialog .fmtform > *").last().evaluate("e => e.tagName.toLowerCase()") shouldBe "md-text-button"
+                page.locator("#fmtDialog .fmtform md-text-button").click()
+                page.waitForCondition { page.locator("#fmtDialog .fmtrow").count() == 2 }
+                page.locator("#fmtDialog .fmtform > *").last().evaluate("e => e.tagName.toLowerCase()") shouldBe "md-text-button"
+            }
+            // 저장을 눌러 창이 닫히는 것은 <b>저장됐다</b>는 만국 공통의 신호다. 이 자리는 뒤에서
+            // 진실을 다시 읽는 것이 없다 — 절은 이 창을 열 때만 읽는 파일 안에 있다.
+            Then("거절당하면 닫지 않고 그 사유를 세운다") {
+                page.evaluate("window.__magi_test_format_refuses = 'two sections named what'")
+                page.locator("#fmtDialog md-filled-button").click()
+                page.waitForCondition {
+                    page.locator("#fmtDialog .fmtwhy").textContent() == "two sections named what"
+                }
+                page.locator("#fmtDialog").count() shouldBe 1
+                page.evaluate("delete window.__magi_test_format_refuses")
+            }
+            Then("받아들여지면 그때 닫힌다") {
+                page.locator("#fmtDialog md-filled-button").click()
+                page.waitForCondition { page.locator("#fmtDialog").count() == 0 }
+                // 이름 없는 절은 절이 아니다 — 위에서 더한 빈 줄은 저장에 실리지 않는다.
+                page.evaluate("window.__magi_test_format") shouldBe "what|What changed"
+            }
+        }
+        When("보고 양식을 못 읽으면") {
+            // 못 읽은 것은 「기본값」이 아니다 — from은 셋 중 어디서 왔는가를 말하는 값이고,
+            // 그중 「기본값」은 <i>파일이 아예 없다</i>는 뜻이다. 모르는 것을 없다는 적극적
+            // 진술로 바꿔 적는 셈이 된다.
+            page.evaluate("window.__magi_test_format_says = 'null'")
+            page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").nth(2).click()
+            Then("닿지 못했다고 적는다 — 어느 층에서 왔다고 단정하지 않는다") {
+                page.waitForSelector("#fmtDialog .dnote")
+                page.locator("#fmtDialog .dnote").textContent() shouldBe "error.unreachable"
+                page.locator("#fmtDialog .dlgsup.from").count() shouldBe 0
+            }
+            Then("저장 단추가 아예 없다 — 못 읽은 폼 위의 저장은 파일을 통째로 덮어쓴다") {
+                io.kotest.assertions.withClue("빈 폼은 '절이 없다'로 읽히고, 저장은 패치가 아니라 파일 전체다") {
+                    page.locator("#fmtDialog .fmtform").count() shouldBe 0
+                }
+                page.locator("#fmtDialog md-filled-button").count() shouldBe 0
+            }
+            page.evaluate("delete window.__magi_test_format_says")
+            page.locator("#fmtDialog md-text-button").first().click()
+            page.waitForCondition { page.locator("#fmtDialog").count() == 0 }
+        }
         When("자식이 <b>이것을 보이라</b>고 청하면") {
             // 부탁과 보고는 다른 칸이다(CardSharing.ask/asked 대 showing). 한 칸이었을 때 부모가
             // 적은 보고가 다음 그리기에 요청으로 되읽혔고, 눌러서 연 카드 대신 사실판이 섰다.

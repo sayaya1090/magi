@@ -683,23 +683,46 @@ public class DetailElement {
         open(dialog);
         store.reportFormat(got -> {
             content.replaceChildren();
-            JsPropertyMap<Object> f = got == null ? null : Js.uncheckedCast(got);
+            // 못 읽은 것은 「기본값」이 <b>아니다</b>. from은 셋 중 어디서 왔는가를 말하는 값이고
+            // (reportfmt.go — workspace·console·default), 모른다는 것은 그 셋 중 하나가 아니다.
+            // 앞서 이 자리는 못 읽은 것을 하필 "기본값" — 셋 중 <i>파일이 아예 없다</i>는 뜻인
+            // 층 — 으로 적었다: 모르는 것을 없다는 적극적 진술로 바꿔 놓은 것이다.
+            //
+            // 그리고 오표기에서 그치지 않는다. 못 읽으면 절이 <b>0개</b>라 빈 폼이 서고, 빈 폼은
+            // "절이 없다"로 읽힌다. 그 위에서 한 절 쓰고 저장하면 파일을 통째로 다시 쓰므로
+            // (reportfmt.go — "The whole file, not a patch") 원래 있던 절들이 사람이 본 적도
+            // 없이 사라진다. 그래서 저장을 <b>안 단다</b>: 못 읽은 것 위의 편집 가능한 폼은
+            // 표기 문제가 아니라 쓰기 사고다.
+            if (got == null) {
+                content.append(cell("dnote", tr("error.unreachable")));
+                save.remove();
+                return;
+            }
+            JsPropertyMap<Object> f = Js.uncheckedCast(got);
             content.append(cell("dlgsup", tr("fmt.about")));
-            String from = f == null ? "" : str(f, "from");
+            String from = str(f, "from");
             content.append(cell("dlgsup from", tr("workspace".equals(from) ? "fmt.from_workspace"
                     : "console".equals(from) ? "fmt.from_console" : "fmt.from_default")));
             HTMLElement form = cell("fmtform", null);
             HTMLElement more = el("md-text-button");
             more.setAttribute("type", "button");
             more.textContent = "+ " + tr("fmt.add_section");
-            JsArrayLike<Object> secs = f == null ? null : Js.uncheckedCast(f.get("sections"));
+            // 더하기 단추를 <b>먼저</b> 단다. 절들은 그 앞에 끼워 넣는데(insertBefore), 기준이
+            // 아직 이 폼의 자식이 아니면 브라우저가 NotFoundError를 던진다 — 그리고 그것은
+            // 콜백 한복판이라 폼도, 사유가 설 자리도, 저장의 귀도 전부 안 달린 채 끝난다.
+            // 절이 <b>하나라도</b> 있으면 그렇게 됐다: 사람이 실제로 겪는 유일한 경우다.
+            form.append(more);
+            JsArrayLike<Object> secs = Js.uncheckedCast(f.get("sections"));
             for (int i = 0; secs != null && i < secs.getLength(); i++) {
                 JsPropertyMap<Object> sec = Js.uncheckedCast(secs.getAt(i));
                 form.insertBefore(fmtRow(str(sec, "key"), str(sec, "prompt")), more);
             }
             more.addEventListener("click", evt -> form.insertBefore(fmtRow("", ""), more));
-            form.append(more);
             content.append(form);
+            // 거절이 설 자리 — 창이 닫히지 않는 것만으로는 왜 안 됐는지 말하지 못한다.
+            HTMLElement why = cell("dnote fmtwhy", "");
+            why.setAttribute("hidden", "");
+            content.append(why);
             save.addEventListener("click", evt -> {
                 java.util.List<String> keys = new ArrayList<>(), prompts = new ArrayList<>();
                 elemental2.dom.NodeList<elemental2.dom.Element> rows = form.querySelectorAll(".fmtrow");
@@ -710,7 +733,19 @@ public class DetailElement {
                     keys.add(k);
                     prompts.add(pmt);
                 }
-                store.reportFormat(keys, prompts, why -> close(dialog));
+                store.reportFormat(keys, prompts, said -> {
+                    // 저장을 눌러 창이 닫히는 것은 <b>저장됐다</b>는 만국 공통의 신호다. 거절을
+                    // 버리고 닫으면 그 신호가 거짓말이 된다. 이 파일의 다른 자리들이 사유를
+                    // 버려도 되는 까닭은 뒤에서 진실을 <b>다시 읽는 것</b>이 있기 때문이지만
+                    // (useProvider는 아예 검사하고, permission·model은 다음 폴이 되돌려 그린다),
+                    // 절은 이 창을 열 때만 읽는 파일 안에 있어 닫히고 나면 다시 읽는 것이 없다.
+                    if (said != null && !said.isEmpty()) {
+                        why.textContent = said;
+                        why.removeAttribute("hidden");
+                        return;
+                    }
+                    close(dialog);
+                });
             });
         });
     }
