@@ -27,17 +27,21 @@ tasks.test {
     ).withPropertyName("scannedSources").withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
-// **이 검사를 「한 번 실패시켜」 확인할 때는 `--no-daemon` 으로 하라.**
+// **이 검사를 「한 번 실패시켜」 확인할 때, 볼 것은 초록이 아니라 `> Task :core:test` 가
+// `UP-TO-DATE` 없이 찍혔는지다.** 안 돈 것과 돌아서 통과한 것은 같은 초록으로 보이고,
+// 규칙은 사람이 기억해야 서지만 저 한 줄은 로그에 남아 나중에 되짚을 수 있다.
 //
-// gradle 의 up-to-date 판정은 내용 해시라 크기·mtime 이 그대로여도 잡는다 — 새 JVM 에서는.
-// 그런데 **돌고 있는 데몬은 그 해시를 (경로, 크기, mtime) 로 캐시**하므로, 그 셋이 같은 채
-// 내용만 다른 파일은 못 본다. 실측: 한 글자만 바꾸고 `os.utime` 로 mtime 을 되돌린 뒤
+// 안 돌 수 있는 자리가 있다. gradle 의 up-to-date 판정은 내용 해시라 크기·mtime 이 같아도
+// 잡는다 — 새 JVM 에서는. 그런데 **돌고 있는 데몬은 그 해시를 (경로, 크기, mtime) 로 캐시**
+// 하므로 셋이 같은 채 내용만 다른 파일은 못 본다. 실측(재현 3회):
 //   따뜻한 데몬 → `:core:test UP-TO-DATE`   (안 돈다)
 //   `--no-daemon`  → `:core:test`            (돈다)
-// 같은 명령이 데몬이 따뜻한지에 따라 다른 답을 낸다.
+// 파일 감시가 막아 주지 않는다 — 같은 런에서 "File system watching is active" 를 확인하고도
+// 그대로 UP-TO-DATE 였다(이 트리에 `gradle.properties` 가 없어 감시는 기본값으로 켜져 있다).
 //
-// 사람이 손으로 고치면 mtime 이 오르니 평소엔 안 걸린다. 걸리는 것은 **타임스탬프를 보존하는
-// 것들**(rsync -t, tar 풀기, mtime 을 되돌리는 스크립트)과 — 하필 — **가드가 진짜 도는지
-// 확인하려고 일부러 넣었다 빼는 절차**다. 그때 위양성 통과를 받으면 없는 안전을 믿게 된다.
-// go 의 테스트 캐시도 같은 전제로 서 있다(`cmd/go/internal/test/test.go` 의 `hashOpen`:
+// **이건 평소 작업의 함정이 아니라 우리 검증 절차의 함정이다.** 편집기 저장도 `git checkout`
+// 도 mtime 을 올리므로 안 걸린다. 무는 것은 정확히 **`os.utime`/`touch -t` 로 시간을 되돌리는
+// 탐침 기법** — 즉 가드가 진짜 도는지 확인하려고 결함을 넣었다 빼는 그 절차다. 거기서 위양성
+// 통과를 받으면 없는 안전을 믿게 되고, 그게 이 `inputs.files` 가 막으려던 바로 그것이다.
+// go 의 테스트 캐시도 같은 전제로 선다(`cmd/go/internal/test/test.go` 의 `hashOpen` 은
 // 크기·모드·mtime 만 본다) — 같은 함정이 두 빌드 시스템에 따로 있다.
