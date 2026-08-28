@@ -26,21 +26,48 @@
 /** 채팅창이 실제로 그릴 줄 아는 종류. 나머지는 버리지 않고 `unknown` 으로 남는다. */
 const DRAWN = new Map([
   ['prompt.submitted', 'user'],
-  ['part.appended', 'model'],
-  ['part.delta', 'model'],
   ['turn.finished', 'turn'],
   ['error', 'error'],
 ]);
 
+/**
+ * 조각의 종류로 무엇으로 그릴지 정한다. **`part.appended` 를 조각 종류 안 보고 그리면 안 된다.**
+ *
+ * 코어의 `PartAppendedData` 는 `messageId` 하나에 **조각 하나**를 싣는다(`payload.go`). 그래서
+ * 모델이 글을 쓰고 도구를 부르면 **같은 `messageId` 로 이벤트가 둘** 온다 — 앞은 `text` 조각,
+ * 뒤는 `tool-call` 조각. 조각 종류를 안 보면 뒤엣것도 「모델의 말」이 되고, 완성본은 통째라
+ * 덮어쓰므로 **모델의 답이 자기 도구 호출에 지워진다.** 이 제품은 도구가 슬라이드를 고치는
+ * 물건이라 거의 매 턴이 그 모양이 된다.
+ *
+ * `part.delta` 도 마찬가지로 `kind` 를 싣는다(`PartDeltaData`). 안 보면 **추론이 답풍선으로
+ * 흘러 들어간다** — 모델이 혼잣말한 것이 사용자에게 답으로 붙는다.
+ */
+const PART_DRAWN = new Map([
+  ['text', 'model'],
+  ['reasoning', 'think'],
+  ['tool-call', 'tool'],
+]);
+
+/** 같은 `messageId` 로 이어 붙는 줄. 도구 호출은 **한 줄에 하나**라 여기 없다. */
+const FOLDED = new Set(['model', 'think']);
+
 export class Row {
-  constructor({ seq, kind, type, text, actor, ts, messageId }) {
+  constructor({ seq, kind, type, text, actor, ts, messageId, tool }) {
     this.seq = seq ?? 0;
-    this.kind = kind;       // user | model | note | turn | error | unknown
+    this.kind = kind;       // user | model | think | tool | note | turn | error | unknown
     this.type = type;       // 로그의 이름 그대로
     this.text = text ?? '';
     this.actor = actor ?? null;
     this.ts = ts ?? null;
     this.messageId = messageId ?? null;
+    /** 도구 이름. `kind === 'tool'` 일 때만 있다 — 이 줄이 「모델이 한 일」이다. */
+    this.tool = tool ?? null;
+    /**
+     * 완성본이 한 번이라도 앉았는가. **덮어쓸지 이어 붙일지가 여기 달렸다** — 델타로 쌓던 줄에
+     * 오는 첫 완성본은 같은 말의 되풀이라 덮어쓰고, 그 뒤에 오는 완성본은 **다음 조각**이라
+     * 이어 붙인다. 로그를 처음부터 다시 읽을 때는 델타가 아예 없어서 전부 뒤엣것이 된다.
+     */
+    this.settled = false;
   }
   get drawn() { return this.kind !== 'unknown'; }
   /** 로그에 자리가 있는가. 버스 전용 이벤트는 `seq == 0` 이라 자리가 없다. */
@@ -76,19 +103,27 @@ export class Transcript {
 
   append(ev) {
     const type = String(ev?.type ?? '');
-    const kind = kindOf(type, ev?.actor);
+    const partKind = partKindOf(ev, type);
+    const kind = kindOf(type, ev?.actor, partKind);
     if (kind === 'unknown') {
-      this.unknownCounts.set(type, (this.unknownCounts.get(type) ?? 0) + 1);
+      // 조각 종류까지 적는다. 「part.appended 3건」은 무엇을 못 그렸는지 안 알려 준다.
+      const label = partKind ? `${type} (${partKind})` : type;
+      this.unknownCounts.set(label, (this.unknownCounts.get(label) ?? 0) + 1);
     }
     const messageId = ev?.data?.messageId ?? null;
 
-    // 델타와 완성본은 같은 말이다. 같은 messageId 의 모델 줄이 이미 있으면 거기 접는다.
-    if (kind === 'model' && messageId) {
-      const at = this.rows.findIndex((r) => r.kind === 'model' && r.messageId === messageId);
+    // 델타와 완성본은 같은 말이다. 같은 messageId 의 **같은 종류** 줄이 있으면 거기 접는다.
+    if (FOLDED.has(kind) && messageId) {
+      const at = this.rows.findIndex((r) => r.kind === kind && r.messageId === messageId);
       if (at >= 0) {
         const row = this.rows[at];
-        // 완성본은 통째라 덮어쓰고, 델타는 조각이라 잇는다.
-        row.text = type === 'part.appended' ? textOf(ev, kind) : row.text + textOf(ev, kind);
+        const t = textOf(ev, kind);
+        if (type === 'part.appended') {
+          row.text = row.settled ? row.text + t : t;
+          row.settled = true;
+        } else {
+          row.text += t;
+        }
         row.type = type;
         if (ev?.seq > 0) row.seq = ev.seq;   // 자리가 생겼다
         return row;
@@ -97,8 +132,9 @@ export class Transcript {
 
     const row = new Row({
       seq: ev?.seq, kind, type, actor: ev?.actor, ts: ev?.ts, messageId,
-      text: textOf(ev, kind),
+      text: textOf(ev, kind), tool: toolNameOf(ev),
     });
+    row.settled = type === 'part.appended';
     this.rows.push(row);
     return row;
   }
@@ -120,12 +156,38 @@ export class Transcript {
 /**
  * 종류와 배우로 무엇으로 그릴지 정한다. **배우를 보는 자리가 여기 하나뿐**이라야 잊지 않는다.
  */
-function kindOf(type, actor) {
+function kindOf(type, actor, partKind) {
+  if (partKind !== null) return PART_DRAWN.get(partKind) ?? 'unknown';
   const base = DRAWN.get(type);
   if (!base) return 'unknown';
   // 정책·플래너·카운슬이 밀어 넣은 줄은 사람이 한 말이 아니다. 버리지도 않는다.
   if (type === 'prompt.submitted' && actor?.kind && actor.kind !== 'user') return 'note';
   return base;
+}
+
+/**
+ * 이 이벤트가 실은 조각 하나인가, 그렇다면 무슨 조각인가. 조각이 아니면 `null`.
+ *
+ * 종류가 안 실렸으면 `text` 로 본다 — 코어가 늘 채우지만, 안 채워진 낡은 줄을 **못 그리는 것**으로
+ * 떨어뜨리면 있던 대화가 화면에서 사라진다. 모르는 종류는 그대로 두어 `unknown` 으로 세게 한다.
+ */
+function partKindOf(ev, type) {
+  if (type === 'part.appended') return String(ev?.data?.part?.kind ?? 'text');
+  if (type === 'part.delta') return String(ev?.data?.kind ?? 'text');
+  return null;
+}
+
+/**
+ * 도구 호출 줄이 들고 있어야 하는 이름. **이 줄이 「모델이 한 일」**이고, 이 제품에서 그건
+ * 사용자의 슬라이드가 바뀌었다는 뜻이라 답보다 중요할 때가 있다.
+ *
+ * ⚠ 나중에 `tool-result` 를 그리게 되면 `IsError` 만 보고 ✗ 를 찍으면 안 된다 — 코어가
+ * `Advisory` 를 따로 둔 이유가 그 주석에 적혀 있다(한 일은 했는데 읽을 것이 붙은 호출도
+ * `IsError` 를 세우므로, 두 창이 성공한 쓰기를 실패로 그린 적이 있다).
+ */
+function toolNameOf(ev) {
+  const n = ev?.data?.part?.toolCall?.name;
+  return typeof n === 'string' && n !== '' ? n : null;
 }
 
 /**

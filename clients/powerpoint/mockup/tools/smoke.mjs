@@ -12,6 +12,7 @@ import { SendTurn } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { fixture } from '../src/ui/deckFixture.js';
+import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
 import { FakeStatus } from '../src/adapter/FakeStatus.js';
@@ -236,6 +237,55 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const sent = await new SendTurn(chat, new Conversation()).run('제목 줄여줘');
   ok('스트림이 죽어도 제출은 간다', sent !== null && sent.text === '제목 줄여줘');
   ok('제출 성공이 스트림을 되살리지 않는다', read3.view.live === false);
+}
+
+// ── 조각의 종류(§5.7). 코어는 `messageId` 하나에 조각 **하나**를 싣는다(`PartAppendedData`).
+// 그래서 「모델이 말하고 도구를 부른 턴」은 같은 messageId 로 이벤트가 둘 온다.
+{
+  const app = (mid, part) => ({ seq: 0, type: 'part.appended', data: { messageId: mid, part } });
+  const dlt = (mid, kind, text) =>
+    ({ seq: 0, type: 'part.delta', data: { messageId: mid, kind, text } });
+
+  // 도구 호출이 답을 지우던 자리. 완성본은 통째라 덮어쓰는데, 조각 종류를 안 보면
+  // **글 없는 도구 조각이 모델의 답을 덮는다.**
+  const t1 = new Transcript();
+  t1.append(app('m1', { kind: 'text', text: '키웠습니다' }));
+  const call = { callId: 'c1', name: 'mcp__ppt__set_text' };
+  t1.append(app('m1', { kind: 'tool-call', toolCall: call }));
+  const said = t1.rows.find((r) => r.kind === 'model');
+  ok('도구 호출이 모델의 답을 안 지운다', said?.text === '키웠습니다', said?.text ?? '(없음)');
+  ok('도구 호출은 제 줄로 선다', t1.rows.length === 2 && t1.rows[1].kind === 'tool');
+  ok('도구 줄은 이름을 들고 있다',
+    t1.rows[1].tool === 'mcp__ppt__set_text', t1.rows[1].tool ?? '(없음)');
+
+  // 추론은 모델의 혼잣말이지 사용자에게 한 말이 아니다. 델타도 종류를 싣는다(`PartDeltaData`).
+  const t2 = new Transcript();
+  t2.append(dlt('m2', 'reasoning', '음… 상자 폭 문제군'));
+  t2.append(dlt('m2', 'text', '키웠습니다'));
+  const answer = t2.rows.find((r) => r.kind === 'model');
+  ok('추론이 답풍선에 안 섞인다', answer?.text === '키웠습니다', answer?.text ?? '(없음)');
+  ok('그렇다고 추론을 버리지도 않는다', t2.rows.some((r) => r.kind === 'think'));
+
+  // 델타로 쌓다 완성본이 오면 같은 말이라 덮어쓴다. 여기까지는 예전 그대로.
+  const t3 = new Transcript();
+  t3.append(dlt('m3', 'text', '키'));
+  t3.append(dlt('m3', 'text', '웠습니다'));
+  t3.append(app('m3', { kind: 'text', text: '키웠습니다' }));
+  ok('델타 뒤 완성본은 되풀이가 아니다',
+    t3.rows.length === 1 && t3.rows[0].text === '키웠습니다', t3.rows.map((r) => r.text).join('|'));
+
+  // 그런데 **완성본 둘**은 되풀이가 아니라 다음 조각이다(로그를 처음부터 읽으면 델타가 없다).
+  const t4 = new Transcript();
+  t4.append(app('m4', { kind: 'text', text: '먼저.' }));
+  t4.append(app('m4', { kind: 'text', text: ' 그리고.' }));
+  ok('완성본 둘은 이어 붙는다',
+    t4.rows.length === 1 && t4.rows[0].text === '먼저. 그리고.', t4.rows[0].text);
+
+  // 못 그리는 조각. 「part.appended 3건」은 무엇을 못 그렸는지 안 알려 준다.
+  const t5 = new Transcript();
+  t5.append(app('m5', { kind: 'tool-result', toolResult: { callId: 'c1' } }));
+  ok('못 그린 조각은 조각 이름까지 적는다',
+    /part\.appended \(tool-result\)/.test(t5.unknownNote ?? ''), t5.unknownNote ?? '(없음)');
 }
 
 // ── 권한 물음(§5.7). 스트림에 안 오는 것이라 따로 돈다.
