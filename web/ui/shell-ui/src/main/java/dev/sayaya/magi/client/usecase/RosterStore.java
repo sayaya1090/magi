@@ -80,6 +80,15 @@ public class RosterStore implements RosterSource.Listener {
         cb.call(turnOpen, turnFor);
     }
 
+    private String aimedSub = null;
+
+    /** 자식 층위 — 지난 일과 같은 규칙이다: 스트림은 그대로, 컨텍스트만 갈아탄다. */
+    public void sub(String idOrNull) {
+        if (eq(aimedSub, idOrNull)) return;
+        aimedSub = idOrNull;
+        pushContext();
+    }
+
     /** 지난 일 층위 — 스트림은 그대로 두고 컨텍스트만 갈아탄다(과거는 fetch의 것이다). */
     public void past(String pastOrNull) {
         if (eq(aimedPast, pastOrNull)) return;
@@ -193,7 +202,8 @@ public class RosterStore implements RosterSource.Listener {
     private void pushContext() {
         ctx = aimedSocket == null ? null
                 : CompanionContext.of(aimedSocket, aimedPeer, typeOf(aimedSocket).id, aimedPast,
-                        typeOf(aimedSocket).module, typeOf(aimedSocket).styles, workdirOf(aimedSocket));
+                        typeOf(aimedSocket).module, typeOf(aimedSocket).styles, workdirOf(aimedSocket),
+                        aimedSub);
         for (CompanionSharing.NextFn o : ctxObs) o.call(ctx);
     }
 

@@ -39,6 +39,11 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void subagents(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/subagents" + q(ctx), cb::accept);
+    }
+
+    @Override
     public void pastTranscript(CompanionContext ctx, String session, Consumer<Object> cb) {
         Console.fetchList("/transcript" + q(ctx) + "&session=" + Global.encodeURIComponent(session),
                 cb::accept);

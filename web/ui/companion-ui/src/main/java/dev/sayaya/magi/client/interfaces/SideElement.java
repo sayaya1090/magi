@@ -116,9 +116,12 @@ public class SideElement {
             boolean running = Js.isTruthy(c.get("running"));
             boolean bad = Js.isTruthy(c.get("err"));
             if (!running && !bad) continue;
-            // 자식으로 들어가는 문은 아직 없다(그 화면은 잔여) — 문이 생기기 전까지는 사실로 둔다.
+            // 자식은 <b>들어가는 문</b>이다: 그 아이가 무엇을 했는지는 제 전사에 있고, 이 칩은
+            // 거기로 가는 길이다(운영도 이 칩만 누를 수 있다). 배경 명령은 사실로 남는다.
+            final String id = str(c, "id");
             box.append(chip(tr("detail.subagent"), str(c, "tool").isEmpty() ? tr("detail.subagent") : str(c, "tool"),
-                    oneLine(str(c, "task"), 48), running, bad, null));
+                    oneLine(str(c, "task"), 48), running, bad,
+                    id.isEmpty() ? null : () -> dev.sayaya.magi.bridge.GoSharing.sub(id)));
             n++;
         }
         for (int i = 0; background != null && i < background.getLength(); i++) {

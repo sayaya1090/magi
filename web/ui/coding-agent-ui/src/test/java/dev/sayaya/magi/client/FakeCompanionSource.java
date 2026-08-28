@@ -47,6 +47,14 @@ public class FakeCompanionSource implements CompanionSource {
 
 
     @Override
+    public void subagents(CompanionContext ctx, Consumer<Object> cb) {
+        // 하나면 족하다 — 스펙이 재는 것은 "그 아이의 자리가 서는가"이지 목록의 길이가 아니다.
+        cb.accept(Global.JSON.parse(
+                "[{\"id\":\"s_kid\",\"role\":\"scout\",\"task\":\"find the empty states\","
+                + "\"model\":\"qwen3-coder-next\",\"running\":false}]"));
+    }
+
+    @Override
     public void history(CompanionContext ctx, Consumer<Object> cb) {
         cb.accept(Global.JSON.parse(
                 "[{\"id\":\"s_now\",\"title\":\"the open one\",\"ago\":0,\"current\":true}," +
