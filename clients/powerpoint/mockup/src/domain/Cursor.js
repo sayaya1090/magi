@@ -43,26 +43,32 @@ export class Cursor {
   advanced(sessionId, seq) {
     if (typeof seq !== 'number' || !Number.isFinite(seq)) return this;
     // **자리 없는 이벤트는 자리를 못 민다.** 버스 전용(transient) 이벤트는 로그에 안 앉으므로
-    // `seq == 0` 으로 온다 — `part.delta`, `tool.progress`, `permission.requested`,
-    // `question.requested`, `context.usage`, `workflow.phase`, `council.deliberating`,
-    // `question.answered` 여덟이다(`internal/core/event/event.go` 의 `transientTypes`,
-    // 2026-08-29 에 세어 확인).
+    // `seq == 0` 으로 온다. **어느 타입들인지는 여기 안 적는다** — 정본은
+    // `internal/core/event/event.go` 의 `transientTypes` 고, 그 이유는 바로 아래에 있다.
     // 그대로 커서에 넣으면 자리가 0 으로 **뒤로 간다**. 그리고 0 은 계약상 "전부"라서
     // 다음 접속이 대화를 통째로 다시 받는데, `answerable` 은 `since <= 0` 을 정상으로 보고
     // **거절 프레임도 안 보낸다** — 화면은 두 벌이 되고 아무도 왜인지 모른다.
     //
-    // 그 여덟은 **2026-08-29 에 다시 셌고, 그때 이 주석이 틀린 것을 고쳤다.** 앞 판본은
-    // `model.changed`·`user.label.changed` 를 적고 `question.answered` 를 뺐는데, 그 둘은
-    // 전이가 아니라 **영속되는 타입**이다. 어디서 왔는지도 안다 — `event.go` 자신의
-    // `// Transient events — bus only, not persisted.` 머리글 아래에 그 둘이 앉아 있고,
-    // 지도(`transientTypes`)에는 안 들어 있다. 문서 셋이 그 머리글을 옮겼고 나는 문서를
-    // 옮겼다(§5.7 이 다섯을 세어 적는다).
+    // 여기 한때 그 목록이 여덟 줄로 적혀 있었고, **두 판본이 잇달아 틀렸다.** 첫 판본은
+    // `model.changed`·`user.label.changed` 를 전이로 세고 `question.answered` 를 뺐다 —
+    // `event.go` 의 `// Transient events — bus only, not persisted.` 머리글 아래에 그 셋이
+    // 어긋나게 앉아 있었고, 문서 셋이 그 머리글을 옮겼고 나는 문서를 옮겼다(§5.7 이 다섯을
+    // 세어 적는다). 그래서 2026-08-29 에 지도를 직접 세어 여덟으로 고치고 **센 날짜까지
+    // 적었다.** 그날 안에 그것도 낡았다 — 코어가 `model.changed` 를 사실 블록으로 옮기고
+    // `user.label.changed` 를 지도에 넣어(`core/event: a constant under the wrong header
+    // taught five documents the wrong set`) 지도가 아홉이 됐다.
     //
-    // **그런데 목록을 다 고쳐도 목록으로는 못 맞힌다.** `model.changed` 는 저장소가 있으면
-    // 자리를 갖고 오고 없으면 안 갖고 온다 — 같은 타입이 양쪽으로 온다
-    // (`internal/app/routing.go` 의 `SetModel`). 그래서 요점은 목록이 아니다:
-    // **판단은 값에 건다.** 아래 `seq <= 0` 은 이 목록을 한 번도 안 보므로, 주석이 틀려
-    // 있던 동안에도 그 줄은 안 틀렸다.
+    // **날짜는 정직을 사지 정확을 안 산다.** 낡은 줄인 것을 읽는 사람이 알 수 있게 될 뿐,
+    // 맞게 되지는 않는다. 그래서 이번엔 다시 안 센다 — 안 적는다.
+    //
+    // 안 적어도 되는 이유가 따로 있다. **목록을 다 고쳐도 목록으로는 못 맞힌다.**
+    // `model.changed` 는 저장소가 있으면 자리를 갖고 오고 없으면 안 갖고 온다 — 같은 타입이
+    // 양쪽으로 온다(`internal/app/routing.go` 의 `SetModel`). 그 없는 쪽 갈래는 한동안
+    // 도달 불가능한 죽은 코드였는데(`New` 가 저장소를 늘 감쌌다), 코어가 그걸 고쳐서
+    // **이제 진짜로 양쪽으로 온다**(`internal/app: the store-less guards could not fire,
+    // because New always wrapped`). 그래서 요점은 목록이 아니다: **판단은 값에 건다.**
+    // 아래 `seq <= 0` 은 목록을 한 번도 안 보므로, 주석이 두 번 틀려 있는 동안에도 그 줄은
+    // 안 틀렸다.
     //
     // ⚠ 오늘 이 줄은 **없어도 이 클라이언트는 안 다친다** — 돌연변이 시험으로 확인했다
     // (지우고 돌려도 아무 시험이 안 죽었다). 바로 아래 단조 규칙이 세션 안에서 이미 막고,
