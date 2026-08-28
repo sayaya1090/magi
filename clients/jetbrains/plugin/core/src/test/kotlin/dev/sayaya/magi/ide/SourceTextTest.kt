@@ -78,4 +78,34 @@ class SourceTextTest {
         assertTrue(n == 2, "라벨에 쓰는 자리가 $n 이다(둘이어야 한다). 늘어난 것이 보고라면 " +
             "라벨이 아니라 `report()` 로 전사에 낸다")
     }
+
+    @Test
+    fun `판을 비우는 것은 첫 프레임이 아니라 붙었다는 말에 걸린다`() {
+        // 이 창은 커서를 안 보내므로 다시 붙을 때마다 재생이 통째로 다시 온다 — 그래서 붙을 때마다
+        // 판을 비워야 한다. 그것을 **첫 프레임**에 걸면, 프레임이 안 오는 전사에서는 비울 기회가
+        // 영영 없다. 그런데 그게 예외가 아니라 **기본 경로**다: 데몬이 재시작하면 새 세션의 전사는
+        // 비어 있다. 즉 「끊겨서 다시 붙었다」가 곧 「프레임이 안 온다」이고, 그 자리에서 화면은 지난
+        // 세션의 대화를 지금 것인 양 세워 둔다.
+        //
+        // 붙자마자 비우면 **못 붙은 시도**가 사람이 읽던 전사를 지운다는 것이 첫 프레임에 걸어 둔
+        // 사유였는데, `began` 은 애초에 못 붙으면 안 온다(`TranscriptTest`). 그래서 이쪽이 그 사유를
+        // 잃지 않으면서 위의 구멍을 안 만드는 자리다. 순서도 스트림이 보장한다 — `follow` 는 워커를
+        // 띄우기 전에 `began` 을 부른다.
+        //
+        // 잰다고 이 시험이 화면을 띄우지는 않는다. 보는 것은 **비움이 어느 문 안에 적혀 있는가**뿐
+        // 이고, 그건 글자로 확인된다. 되돌아오는 모양(비움을 `frame` 으로 옮기기)에 정확히 걸린다.
+        val f = sources.first { it.name == "MagiToolWindow.kt" }
+        val src = f.readText()
+        val body = { from: String, to: String ->
+            val a = src.indexOf(from).also { assertTrue(it >= 0, "`$from` 이 없다") }
+            val b = src.indexOf(to, a).also { assertTrue(it >= 0, "`$from` 뒤에 `$to` 가 없다") }
+            src.substring(a, b)
+        }
+        assertTrue(body("override fun began()", "override fun frame(").contains("log.text = \"\""),
+            "붙었다는 말에 판을 비우는 것이 없다. 프레임에 걸면 프레임이 안 오는 전사를 못 비운다")
+        assertTrue(!body("override fun frame(", "override fun note(").contains("log.text = \"\""),
+            "프레임이 판을 비운다. 그러면 프레임이 하나도 안 오는 전사 — 데몬 재시작 뒤의 보통 경로 " +
+                "— 에서 지난 대화가 그대로 서 있는다. 비움은 `began` 에 건다")
+    }
+
 }

@@ -95,15 +95,6 @@ class MagiToolWindow : ToolWindowFactory {
         private val closing = java.util.concurrent.atomic.AtomicBoolean(false)
 
         /**
-         * 다음 프레임이 **새 스트림의 첫 프레임**인가. 그때 판을 비운다.
-         *
-         * 이 창은 커서를 안 보내므로 다시 붙을 때마다 재생이 **통째로** 다시 온다. 안 비우면 대화가
-         * 두 벌 쌓이고 손댐 장부도 같이 부푼다. 붙자마자 비우지 않고 첫 프레임까지 미루는 이유는,
-         * 붙기에 실패한 시도가 사람이 읽고 있던 전사를 지워 버리면 안 되기 때문이다.
-         */
-        private val fresh = java.util.concurrent.atomic.AtomicBoolean(false)
-
-        /**
          * 손. 창이 서면 같이 서고, 창이 살아 있는 동안만 산다.
          *
          * **창에 매단 이유**가 있다. 손은 IDE 의 편집기를 움직이는데, 편집기가 없는 IDE(웰컴 화면)
@@ -121,22 +112,37 @@ class MagiToolWindow : ToolWindowFactory {
                  * 붙었다고 말한다. **[ended] 가 말을 하므로 이쪽도 해야 한다.**
                  *
                  * 없을 때 이랬다: 데몬이 재시작하면 새 세션의 전사가 비어 있어 프레임이 하나도 안
-                 * 오고, 판을 비우는 것은 첫 프레임에 걸려 있으므로(아래 [fresh]) 화면의 마지막
-                 * 말이 「전사가 끊겼다」로 **다시 붙은 뒤에도** 서 있었다. 사람은 살아 있는 창을
-                 * 죽은 줄 알고 안 쓰고, 안 쓰면 프레임도 안 생겨서 그 화면이 스스로를 붙든다.
+                 * 오고, 판을 비우는 것이 첫 프레임에 걸려 있으므로 화면의 마지막 말이
+                 * 「전사가 끊겼다」로 **다시 붙은 뒤에도** 서 있었다. 사람은 살아 있는 창을 죽은 줄
+                 * 알고 안 쓰고, 안 쓰면 프레임도 안 생겨서 그 화면이 스스로를 붙든다.
                  *
-                 * 프레임이 오면 [fresh] 가 이 줄까지 같이 지운다. 그래도 맞다 — 그때는 재생분이
-                 * 통째로 다시 오고, **그것이 붙었다는 것의 더 나은 증거**다.
+                 * **판도 여기서 비운다.** 이 창은 커서를 안 보내므로 다시 붙을 때마다 재생이 통째로
+                 * 다시 온다 — 안 비우면 대화가 두 벌 쌓이고 손댐 장부도 같이 부푼다. 예전에는 그
+                 * 비움이 **첫 프레임**에 걸려 있었다(플래그 하나로). 붙자마자 비우면 붙기에 실패한
+                 * 시도가 사람이 읽던 전사를 지운다는 것이 사유였는데, 이 자리는 애초에 **못 붙으면
+                 * 안 온다** — 그 사유가 여기서는 이미 지켜진다(`TranscriptTest` 의
+                 * 「연결을 못 열면 붙었다고 하지 않는다」).
+                 *
+                 * 프레임에 걸어 두면 남는 것이 셋이었다. **(1)** 프레임이 안 오는 전사 — 즉 위에
+                 * 적은 바로 그 기본 경로 — 에서는 비울 기회가 영영 없어 **지난 세션의 대화가 그대로
+                 * 서 있었다.** 위의 고침이 말만 고치고 판은 안 고쳤던 것이다. **(2)** 이 줄 자신이
+                 * 나중에 지워졌다. **(3)** 붙은 뒤 [offerHand] 가 전사에 적는 손의 결과가 뒤늦게 온
+                 * 첫 프레임에 같이 지워졌다 — 재생이 다시 실어다 주지 않는 말이라 그대로 없어진다.
+                 *
+                 * 순서는 스트림이 보장한다. `Transcript.follow` 는 연결이 열린 뒤 **워커를 띄우기
+                 * 전에** 이 줄을 부르므로(같은 시험의 「붙었다는 말은 첫 프레임보다 먼저 정확히 한 번
+                 * 온다」), 여기서 큐에 넣은 비움이 어떤 프레임보다 먼저 EDT 에 닿는다. 장부는 EDT 를
+                 * 안 거치고 여기서 바로 비운다 — 미루면 워커의 `feed` 가 먼저 돌아서 방금 비운 것이
+                 * 그것을 지운다.
                  */
-                override fun began() = append("— 전사에 붙었다.")
+                override fun began() {
+                    authors.forget()
+                    SwingUtilities.invokeLater { log.text = ""; problems.text = "" }
+                    append("— 전사에 붙었다.")
+                }
 
                 override fun frame(e: LogEvent) {
-                    // 새 스트림의 첫 프레임이면 판을 비운다. 장부는 **여기서 바로** 비운다 —
-                    // EDT 로 미루면 아래 `feed` 가 먼저 돌아서 방금 비운 것이 그것을 지운다.
-                    if (fresh.compareAndSet(true, false)) {
-                        authors.forget()
-                        SwingUtilities.invokeLater { log.text = ""; problems.text = "" }
-                    }
+                    // 판을 비우는 것은 여기가 아니라 [began] 이다. 사유는 그쪽에 적었다.
                     // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
                     // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
@@ -284,9 +290,6 @@ class MagiToolWindow : ToolWindowFactory {
             val sock = socket() ?: return false
             val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return false
             following?.let { runCatching { it.close() } }
-            // 여는 것보다 **먼저** 세운다. 스트림은 자기 스레드를 바로 띄우므로 첫 프레임이
-            // 이 줄보다 빨리 올 수 있다.
-            fresh.set(true)
             val started = runCatching {
                 Transcript({ DaemonClient.connect(sock) }, sid).follow(sink)
             }.getOrNull() ?: return false
