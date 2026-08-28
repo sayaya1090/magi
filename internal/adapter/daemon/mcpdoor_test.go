@@ -107,3 +107,22 @@ func TestTheDoorIsInTheAcceptedList(t *testing.T) {
 		}
 	}
 }
+
+// A client has to be able to ASK whether the door is there. An application that is itself a tool
+// server attaches to whatever daemon is running — including one built before the door existed — and
+// the only alternative to a handshake answer is calling the method to read the error back, which
+// cannot tell "this build does not know it" from "this build refused you".
+func TestTheHandshakeAdvertisesTheDoor(t *testing.T) {
+	var has bool
+	for _, c := range Caps() {
+		if c == "tool-servers" {
+			has = true
+		}
+	}
+	if !has {
+		t.Errorf("mcp-attach is dispatched but unadvertised: %v", Caps())
+	}
+	if _, ok := answers["mcp-attach"]; !ok {
+		t.Error("…and the reverse would be worse: advertised and not dispatched")
+	}
+}

@@ -1,0 +1,50 @@
+{
+  "regenerate": "The MCP tool-name rule moved. Both sides build it — internal/adapter/mcp/manager.go (namespacedToolName, sanitizeToolPart) and the plugin's McpName — and a difference names two different tools, which reads as a tool that is not there. Fix both, then regenerate: MAGI_GOLDEN_UPDATE=1 go test ./internal/adapter/mcp/ -run Golden",
+  "sanitizeToolPart": [
+    [
+      "a😀b",
+      "a_b"
+    ],
+    [
+      "",
+      "x"
+    ],
+    [
+      "...",
+      "___"
+    ],
+    [
+      "ppt.one",
+      "ppt_one"
+    ],
+    [
+      "한글",
+      "__"
+    ],
+    [
+      "😀",
+      "_"
+    ],
+    [
+      "jetbrains",
+      "jetbrains"
+    ]
+  ],
+  "namespacedToolName": [
+    [
+      "ppt",
+      "render",
+      "mcp__ppt__render"
+    ],
+    [
+      "ppt.one",
+      "open file",
+      "mcp__ppt_one__open_file"
+    ],
+    [
+      "",
+      "x",
+      "mcp__x__x"
+    ]
+  ]
+}
