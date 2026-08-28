@@ -390,14 +390,27 @@ class SourceTextTest {
             "원소를 거쳐 붙였는데 울었다")
         assertTrue(leaks("\" + cmd + \"").isNotEmpty(), "이름을 그대로 이어 붙이는 꼴을 놓쳤다")
         assertTrue(leaks("ok").isEmpty(), "붙이는 것이 없는 라벨까지 울면 사람이 이 시험을 끈다")
+        assertTrue(leaks("\${Markup.text(cmd)}").isEmpty(), "거친 것을 붙였는데 울었다")
+
+        // 거른 것으로 **시작**하기만 하면 뒤에 뭘 붙여도 통과하던 자리. 순서만 바꾼 쪽은
+        // 잡히는데 이쪽은 안 잡히는 비대칭이라, 다음 사람이 어느 쪽을 쓸지가 운이었다.
+        assertTrue(leaks("\${Markup.text(a) + raw}").isNotEmpty(),
+            "거른 것 뒤에 이어 붙인 날것을 놓쳤다")
+        // 중괄호가 겹치면 정규식이 안쪽에서 잘리고, 잘린 **뒤쪽이 통째로** 그물 밖이 된다.
+        assertTrue(leaks("\${a.let { b }}\$raw").isNotEmpty(), "겹친 중괄호 뒤의 보간을 놓쳤다")
+
         // 규칙 하나씩 서 있는지 보려면 **그 규칙만 걸리는** 소스가 하나씩 있어야 한다. 아래는
         // 붙는 것이 근거 있는 이름뿐이라, 우는 이유가 「이 파일이 거르는 함수를 아예 모른다」
         // 하나로 좁혀진다.
-        assertTrue(labelLeaks("Fake.kt", "val x = $open\$at</html>\"").isNotEmpty(),
+        val fake = mapOf("Fake.kt:ok" to Safe("시험용", emptyList()))
+        assertTrue(labelLeaks("Fake.kt", "val x = $open\$ok</html>\"", fake).isNotEmpty(),
             "라벨에 붙이면서 `Markup` 를 모르는 파일을 놓쳤다")
-        assertTrue(labelLeaks("Fake.kt", "// Markup 을 쓴다\nval x = $open\$at</html>\"").isEmpty(),
+        assertTrue(labelLeaks("Fake.kt", "// Markup\nval x = $open\$ok</html>\"", fake).isEmpty(),
             "근거 있는 이름만 붙었는데 울었다")
-        assertTrue(leaks("\" + Markup.text(cmd) + \"").isEmpty(), "거친 것을 붙였는데 울었다")
+        // 근거는 **그 파일에 대한** 주장이다. 열쇠가 이름뿐이면 옆 파일의 같은 이름이 남의
+        // 근거로 축복받는다.
+        assertTrue(labelLeaks("Other.kt", "// Markup\nval x = $open\$ok</html>\"", fake).isNotEmpty(),
+            "옆 파일의 같은 이름이 남의 근거로 통과했다")
 
         // 라벨은 한 줄로 안 끝난다. 여는 태그 줄만 보면 **둘째 줄에 붙는 것**이 통째로 안 보이고,
         // 안 보이는 것은 위반이 없는 것과 화면에서 같아 보인다.
@@ -410,8 +423,13 @@ class SourceTextTest {
             .isNotEmpty(), "이름만 놓인 것을 근거 없이 통과시켰다")
     }
 
-    /** 라벨에서 안 거치고 붙는 자리들. 파일 하나의 글자만 보고 판정한다. */
-    private fun labelLeaks(name: String, text: String): List<String> {
+    /**
+     * 라벨에서 안 거치고 붙는 자리들. 파일 하나의 글자만 보고 판정한다.
+     *
+     * [safe] 를 받는 이유는 시험 때문이다 — 규칙 하나만 걸리는 가짜 소스를 만들려면 그 소스에
+     * 맞는 근거 목록을 같이 먹여야 한다. 프로덕션 호출자는 기본값을 쓴다.
+     */
+    private fun labelLeaks(name: String, text: String, safe: Map<String, Safe> = safeInLabels): List<String> {
         val lines = text.lines()
         val head = "\"" + "<" + "html>"
         val spans = mutableListOf<Pair<Int, String>>()
@@ -437,9 +455,8 @@ class SourceTextTest {
             // 둘째: 끼워 넣는 것은 거른 것이어야 한다. 중괄호 꼴과 이름 꼴을 **둘 다** 본다 —
             // 처음엔 앞의 것만 봤는데, 그러면 이 저장소가 이미 쓰고 있는 뒤의 꼴이 통째로 그물
             // 밖이라 「검사한다」는 말이 절반만 참이 된다.
-            Regex("""\$(?:\{([^}]*)\}|([A-Za-z_][A-Za-z0-9_.]*))""").findAll(span)
-                .map { (it.groupValues[1] + it.groupValues[2]).trim() }
-                .filterNot { it.startsWith("Markup.text(") || it in safeInLabels }
+            interpolations(span).map { it.trim() }
+                .filterNot { escaped(it) || "$name:$it" in safe }
                 .forEach { out += "$name:$at: \$$it" }
             // 셋째: 여럿을 이어 붙이는 자리. 원소 하나가 남의 글자면 하나짜리와 같은 결함이다.
             if ("joinToString(" in span &&
@@ -448,10 +465,64 @@ class SourceTextTest {
             // 넷째: 보간 말고 **이어 붙이는** 꼴. `"<b>" + cmd + "</b>"` 는 보간과 하는 일이
             // 같은데 글자 모양만 다르다. 이 갈래를 안 보면 다음 사람이 쓰는 꼴에 따라 그물이
             // 있다 없다 한다.
-            bareConcat(span).filterNot { it in safeInLabels }
+            bareConcat(span).filterNot { "$name:$it" in safe }
                 .forEach { out += "$name:$at: + $it" }
         }
         return out
+    }
+
+    /**
+     * 라벨 안에 끼워 넣는 것들을 뽑는다. **중괄호를 세면서 간다.**
+     *
+     * 정규식 `\$\{([^}]*)\}` 로 쓰면 안쪽 중괄호에서 잘린다 — `\${x.let { ... }}` 같은 줄이
+     * 생기는 순간 그 뒤가 통째로 그물 밖이 되고, 그물이 없어진 것은 위반이 없는 것과 화면에서
+     * 같아 보인다. 오늘 라벨에 람다가 없다는 것은 안전의 근거가 아니라 **아직 안 썼다**이다.
+     */
+    private fun interpolations(span: String): List<String> {
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < span.length) {
+            if (span[i] != '\$') { i++; continue }
+            if (i + 1 < span.length && span[i + 1] == '{') {
+                var depth = 0
+                var j = i + 1
+                while (j < span.length) {
+                    if (span[j] == '{') depth++
+                    if (span[j] == '}') { depth--; if (depth == 0) break }
+                    j++
+                }
+                // 안 닫힌 채 줄이 끝나면 남은 것을 통째로 내놓는다. 조용히 버리면 「없다」가 된다.
+                if (j >= span.length) { out += span.substring(i + 2); break }
+                out += span.substring(i + 2, j)
+                i = j + 1
+            } else {
+                val m = Regex("""^[A-Za-z_][A-Za-z0-9_.]*""").find(span.substring(i + 1))
+                if (m == null) i++ else { out += m.value; i += 1 + m.value.length }
+            }
+        }
+        return out
+    }
+
+    /**
+     * 이 표현이 **통째로** 거른 것인가.
+     *
+     * 앞머리만 보면(`startsWith`) `\${Markup.text(a) + raw}` 가 축복받는다 — 거른 것으로
+     * 시작하기만 하면 뒤에 뭘 붙여도 통과라, `\${raw + Markup.text(a)}` 는 잡히는데 순서만
+     * 바꾸면 안 잡히는 비대칭이 된다. 다음 사람이 어느 쪽을 쓸지는 운이다. 그래서 여는 괄호의
+     * **짝이 마지막 글자**여야 한다고 본다.
+     */
+    private fun escaped(expr: String): Boolean {
+        val call = "Markup.text("
+        if (!expr.startsWith(call)) return false
+        var depth = 0
+        for ((k, ch) in expr.withIndex()) {
+            if (ch == '(') depth++
+            if (ch == ')') {
+                depth--
+                if (depth == 0) return k == expr.length - 1
+            }
+        }
+        return false
     }
 
     /** 라벨에 함수 호출이 아니라 **이름 그대로** 이어 붙는 것들. */
@@ -460,17 +531,64 @@ class SourceTextTest {
             .map { it.groupValues[1] }.toList()
 
     /**
-     * 라벨에 이름만 놓여도 되는 것들. **이름만 적지 않고 왜인지를 같이 적는다** — 예외가
-     * 이름뿐이면 다음 사람이 늘리는 데 드는 값이 0 이고, 값이 0 인 목록은 곧 전부가 된다.
+     * 근거 하나. [why] 는 사람이 읽는 말이고, [anchors] 는 **그 말이 참인 동안 그 파일에 글자
+     * 그대로 남아 있어야 하는 조각**이다.
      *
-     * 이 목록의 항목은 검사가 아니라 **주장**이다. 틀리면 여기 적힌 근거를 보고 안다.
+     * 산문만 두면 근거가 반증 불가능해진다. 「바로 위에서 거쳐 붙인다」고 적어 둔 다음 누가 그
+     * 위를 정리해 버리면, 그 이름은 목록에 없는 것보다 **나쁘다** — 시험이 적극적으로 보증해
+     * 주니까. 안 적힌 구멍은 언젠가 걸리고 축복받은 구멍은 안 걸린다.
+     */
+    private data class Safe(val why: String, val anchors: List<String>)
+
+    /**
+     * 라벨에 이름만 놓여도 되는 것들. 열쇠는 **파일:이름**이다.
+     *
+     * 이름만으로 열쇠를 삼으면 근거가 저장소 전체에 걸린다 — `MagiToolWindow` 를 보고 적은
+     * 근거로 내일 다른 파일의 같은 이름이 축복받는다. 근거는 그 파일에 대한 주장이므로 열쇠도
+     * 그 파일까지다.
+     *
+     * 이 목록의 항목은 검사가 아니라 **주장**이고, [anchors] 가 그 주장을 반증 가능하게 만든다.
      */
     private val safeInLabels = mapOf(
-        "out.size" to "수다 — 글자가 아니라 마크업을 실을 수가 없다",
-        "at" to "이 파일이 지은 `(2/3)` 꼴, 안이 다 수다",
-        "subject" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
-        "why" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+        "FactsToolWindow.kt:out.size" to Safe(
+            "수다 — 글자가 아니라 마크업을 실을 수가 없다",
+            listOf("val out = workspace.rootsOutsideWorkspace()"),
+        ),
+        "MagiToolWindow.kt:at" to Safe(
+            "이 파일이 지은 `(2/3)` 꼴, 안이 다 수다",
+            listOf("val at = if (w.total > 1)"),
+        ),
+        "MagiToolWindow.kt:subject" to Safe(
+            "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+            listOf(
+                "sub.args?.let { \"<tt>\${Markup.text(it)}</tt>\" }",
+                "sub.reason?.let { Markup.text(it) }",
+            ),
+        ),
+        "MagiToolWindow.kt:why" to Safe(
+            "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+            listOf("?.why?.let { \"<br/><i>\${Markup.text(it)}</i>\" }"),
+        ),
     )
+
+    /**
+     * 근거가 아직 참인지 잰다.
+     *
+     * 이 시험이 없으면 [safeInLabels] 의 산문은 **다른 소스에 대한 검사 안 되는 주장**이다.
+     * 하필 거기 앉은 이름들(`subject`·`why`)이 데몬에서 온 남의 글자를 싣는 권한 창의 값이라,
+     * 강제가 제일 약한 칸이 값이 제일 비싼 줄에 앉아 있었다.
+     */
+    @Test
+    fun `라벨 예외의 근거는 그 파일에 남아 있어야 한다`() {
+        val bad = safeInLabels.flatMap { (key, safe) ->
+            val file = key.substringBefore(':')
+            val f = sources.firstOrNull { it.name == file }
+                ?: return@flatMap listOf("$key: 그런 파일이 없다 — 근거가 가리키는 것이 사라졌다")
+            val text = f.readText()
+            safe.anchors.filterNot { it in text }.map { "$key: 근거의 닻이 없어졌다(${safe.why}): $it" }
+        }
+        assertTrue(bad.isEmpty(), "라벨 예외의 근거가 낡았다: $bad")
+    }
 
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
