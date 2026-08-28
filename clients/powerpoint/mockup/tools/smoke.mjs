@@ -25,6 +25,42 @@ const point = new PointAtAdvice(deck);
 // 아무것도 안 골랐을 때. "빈 선택"과 "포커스가 선택을 가져감"을 뭉뚱그리면 S14 를 못 잰다.
 ok('빈 선택은 empty', (await quote.run()).empty === true);
 
+// S14 의 계측기. 누를 때 한 번 읽어서는 못 가른다 — 누르기 **전** 읽기가 있어야
+// "안 골랐다"·"포커스가 가져갔다"·"모른다"가 갈린다. 답을 정해 주는 덱으로 셋을 다 만든다.
+{
+  const shape = { id: 'shX', name: '제목', type: 'TextBox', text: '가', width: 1, height: 1 };
+  const one = { slideId: 's1', slideNo: 1, shapes: [shape] };
+  const none = { slideId: 's1', slideNo: 1, shapes: [] };
+  // 답을 순서대로 내고 다 떨어지면 빈 선택. 마지막을 되풀이하면 "낡은 읽기" 검사가 헛돈다.
+  const scripted = (...answers) => ({
+    label: 'scripted', async selection() { return answers.shift() ?? none; },
+  });
+
+  const lost = new QuoteSelection(scripted(one, none), new Conversation());
+  await lost.sampleBeforeFocus();
+  const rl = await lost.run();
+  ok('포커스가 가져간 선택은 lostFocus',
+     rl.reason === 'lostFocus' && rl.beforeCount === 1, rl.reason);
+
+  const empty2 = new QuoteSelection(scripted(none, none), new Conversation());
+  await empty2.sampleBeforeFocus();
+  ok('원래 빈 선택은 none', (await empty2.run()).reason === 'none');
+
+  // 단축키·키보드로 누르면 포인터가 단추에 들어온 적이 없다 → 앞 읽기가 아예 없다.
+  const blind = new QuoteSelection(scripted(none), new Conversation());
+  ok('앞 읽기가 없으면 unknown', (await blind.run()).reason === 'unknown');
+
+  // 앞 읽기는 한 번 쓰고 버린다. 안 버리면 두 번째 누름이 낡은 값으로 lostFocus 를 지어낸다.
+  const stale = new QuoteSelection(scripted(one, none, none), new Conversation());
+  await stale.sampleBeforeFocus();
+  await stale.run();
+  ok('낡은 앞 읽기는 다음 누름에 안 샌다', (await stale.run()).reason === 'unknown');
+
+  // 인용에 성공한 길에도 사유 칸이 있고, 거기엔 사유가 없다.
+  const okrun = new QuoteSelection(scripted(one), new Conversation());
+  ok('인용되면 사유는 null', (await okrun.run()).reason === null);
+}
+
 // 하나 고르고 인용.
 deck.click('sh8c30', false);
 const r1 = await quote.run();

@@ -19,6 +19,9 @@ export class View {
     $('#adapter').textContent = this.deck.label;
     this.renderCaps();
     $('#quote').addEventListener('click', () => this.onQuote());
+    // **누르기 전 읽기**(S14 의 대조군). 호버는 포커스를 안 옮기므로 여기서 읽은 선택이
+    // 「작업창이 포커스를 가져가기 전」의 값이다. 들어올 때마다 덮어써서 낡지 않게 둔다.
+    $('#quote').addEventListener('pointerenter', () => this.quoteSelection.sampleBeforeFocus());
     $('#send').addEventListener('click', () => this.onSend());
     $('#input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) this.onSend();
@@ -55,11 +58,18 @@ export class View {
   }
 
   async onQuote() {
-    const { added, skipped, empty } = await this.quoteSelection.run();
+    const { added, skipped, empty, reason, beforeCount } = await this.quoteSelection.run();
     if (empty) {
-      // **사유를 뭉개지 않는다.** 아무것도 안 잡혔을 수도 있고, 포커스가 창으로 오면서
-      // 선택이 날아갔을 수도 있다(S14). 목업은 그 둘을 구분 못 한다는 사실 자체를 말한다.
-      this.note('잡힌 도형이 없습니다 — 캔버스에서 도형을 클릭한 뒤 다시 눌러 주세요.');
+      // **사유를 뭉개지 않는다.** 셋이 다른 말이고, 셋째는 「모른다」다 — 앞 읽기가 없는 채로
+      // 「안 골랐다」라고 적으면 그게 S14 를 못 재게 만드는 그 뭉갬이다.
+      if (reason === 'lostFocus') {
+        this.note(`선택이 날아갔습니다 — 누르기 직전엔 ${beforeCount}개를 잡고 있었습니다. (S14)`);
+      } else if (reason === 'unknown') {
+        this.note('잡힌 도형이 없습니다 — 누르기 전 읽기가 없어 '
+          + '"안 골랐다"와 "포커스가 가져갔다"를 못 가릅니다.');
+      } else {
+        this.note('잡힌 도형이 없습니다 — 캔버스에서 도형을 클릭한 뒤 다시 눌러 주세요.');
+      }
       return;
     }
     if (skipped) this.note(`${skipped}개는 이미 인용돼 있습니다.`);
