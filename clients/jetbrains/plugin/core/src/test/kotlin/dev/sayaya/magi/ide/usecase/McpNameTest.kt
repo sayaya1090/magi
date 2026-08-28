@@ -52,6 +52,8 @@ class McpNameTest {
             McpName.refusalOf("""mcp: "jetbrains" is already attached; two servers cannot share one name"""))
         assertEquals(McpName.Refusal.COLLIDES_AFTER_SANITISE,
             McpName.refusalOf("""mcp: "jetbrains" collides with "jet.brains", which is already attached (both become "jetbrains" in tool names)"""))
+        assertEquals(McpName.Refusal.NAME_TAKEN_BY_TOOL,
+            McpName.refusalOf("""\"read\" is the name of a tool this companion already has"""))
         assertEquals(McpName.Refusal.OTHER, McpName.refusalOf("mcp: dial tcp: connection refused"))
         assertEquals(McpName.Refusal.OTHER, McpName.refusalOf(null))
     }
