@@ -14,6 +14,19 @@
       const marked = await import('./js/marked.js');
       window.mdlex = marked.lexer;
       window.rxjs = rxjs;
+      // 셸이 서 있을 자리 둘 — 이 페이지가 셸 없이 뜨기 때문에 여기서 대신 선다.
+      // 명단: 컴포저가 "이 컴패니언이 지금 어느 대화에 있나"를 묻는 곳이 이것뿐이다.
+      const roster = [];
+      const fleet = (state, session) => {
+        const list = [{socket: '/tmp/a1.sock', peer: '', name: 'alpha',
+                       state: state, live: true, session: session}];
+        roster.forEach(cb => cb(list));
+      };
+      window.__magi_roster_subscribe = cb => { roster.push(cb); fleet('idle', 's_now'); };
+      window.__magi_roster_refresh = () => {};
+      window.__magi_test_fleet = fleet;
+      // 주소: 층위를 접는 문. 셸이라면 주소를 고쳐 컨텍스트를 다시 흘린다 — 가짜도 그렇게 한다.
+      window.__magi_go_past = v => window.__magi_test_past(v);
       const boot = document.createElement('script');
       boot.src = 'codingtest/codingtest.nocache.js';
       document.head.append(boot);

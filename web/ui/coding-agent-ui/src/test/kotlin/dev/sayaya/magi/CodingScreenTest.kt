@@ -181,6 +181,65 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("머리의 돌아가는 길이 목록을 가리킨다") {
                 page.locator("#agentdetail .sectionhead .backpast").count() shouldBe 1
             }
+            Then("컴포저는 남는다 — 다만 어느 대화에 닿는지를 이름으로 말한다") {
+                // 목록과 다른 점: 보고 있는 그 대화가 곧 말이 갈 곳이다. 컴패니언이 아직 거기
+                // 있지 않을 뿐이고, 그건 상자를 치울 이유가 아니라 보내기 전에 묻는 이유다.
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "move.into"
+                }
+                page.locator("#dock form[hidden]").count() shouldBe 0
+                page.locator("#dock #cnote").textContent() shouldBe "move.will_ask"
+                page.locator("#dock #cnote[hidden]").count() shouldBe 0
+                page.locator("#dock #send[disabled]").count() shouldBe 0
+            }
+        }
+        When("옮기기가 거부되면") {
+            page.evaluate("window.__magi_test_resume_refuses = 's_old is not a conversation of this workspace'")
+            page.locator("#dock .composer #t textarea").fill("carry this on")
+            page.locator("#dock .composer #send").click()
+            page.waitForSelector("md-dialog.askconfirm")
+            page.locator("md-dialog.askconfirm md-filled-tonal-button").last().click()
+            Then("옮기기만 시도되고 보내기는 따라가지 않는다 — 쓰던 말은 돌아온다") {
+                page.waitForCondition { page.evaluate("window.__magi_test_resumed") == "s_old" }
+                // 직전 블록이 지금-대화로 보낸 그 한 마디 그대로다: 새로 보낸 것이 없다.
+                page.evaluate("window.__magi_test_sent") shouldBe "keep going@/tmp/a1.sock"
+                page.waitForCondition {
+                    page.locator("#dock .composer #t textarea").inputValue() == "carry this on"
+                }
+                page.locator("#agentdetail[hidden]").count() shouldBe 0
+            }
+        }
+        When("옮기고 보내기를 누르면") {
+            page.evaluate("delete window.__magi_test_resume_refuses; window.__magi_test_resumed = null")
+            page.locator("#dock .composer #send").click()
+            page.waitForSelector("md-dialog.askconfirm")
+            Then("무엇이 어디로 옮겨 가는지 두 이름을 대고 묻는다") {
+                val ask = page.locator("md-dialog.askconfirm").last()
+                ask.locator(".asksay").textContent() shouldBe "move.body"
+                ask.locator("md-filled-tonal-button").textContent().trim() shouldBe "action.move_and_send"
+            }
+            page.locator("md-dialog.askconfirm md-filled-tonal-button").last().click()
+            Then("옮기고, 그 다음에 보내고, 읽던 층위를 접는다") {
+                page.waitForCondition { page.evaluate("window.__magi_test_resumed") == "s_old" }
+                page.waitForCondition {
+                    page.evaluate("window.__magi_test_sent") == "carry this on@/tmp/a1.sock"
+                }
+                page.waitForCondition { page.locator("#agentdetail[hidden]").count() == 1 }
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
+            }
+        }
+        When("컴패니언이 아직 말하고 있는데 다른 세션에 서면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now')")
+            page.evaluate("window.__magi_test_past('s_old')")
+            Then("상자는 받지 않는다 — 배달하지 못할 것을 받는 상자는 두지 않는다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "move.busy"
+                }
+                page.locator("#dock #cnote").textContent() shouldBe "move.busy_why"
+                page.locator("#dock #send[disabled]").count() shouldBe 1
+                page.locator("#dock #t[disabled]").count() shouldBe 1
+            }
+            page.evaluate("window.__magi_test_fleet('idle', 's_now')")
         }
         When("지금 대화로 돌아오면") {
             page.evaluate("window.__magi_test_past(null)")
@@ -188,6 +247,13 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForSelector("#log:not([hidden])")
                 page.locator("#agentdetail[hidden]").count() shouldBe 1
                 page.locator("#dock form:not([hidden])").count() shouldBe 1
+            }
+            Then("씌웠던 라벨도 벗겨진다 — 아무도 보지 않는 세션의 이름이 남지 않게") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "label.ask"
+                }
+                page.locator("#dock #cnote[hidden]").count() shouldBe 1
+                page.locator("#dock #send[disabled]").count() shouldBe 0
             }
         }
         When("워크스페이스(왼쪽)가 그려지면") {
