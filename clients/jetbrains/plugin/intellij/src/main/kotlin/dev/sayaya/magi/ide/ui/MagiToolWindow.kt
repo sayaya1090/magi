@@ -23,6 +23,7 @@ import dev.sayaya.magi.ide.usecase.Assist
 import dev.sayaya.magi.ide.usecase.End
 import dev.sayaya.magi.ide.usecase.Authorship
 import dev.sayaya.magi.ide.usecase.Hand
+import dev.sayaya.magi.ide.usecase.Level
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
@@ -455,7 +456,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         /** 데몬에 한 번 붙어 무언가 하고 끊는다. 배선은 [Workspace] 가 갖는다 — 창 둘이 같이 쓴다. */
         private fun onDaemon(work: (Companion) -> Unit) =
-            workspace.onDaemon({ say(state, it) }, work)
+            workspace.onDaemon({ say(Level.Unreachable(it)) }, work)
 
         fun refresh() = onDaemon { redraw(it) }
 
@@ -477,11 +478,15 @@ class MagiToolWindow : ToolWindowFactory {
          *
          * 이 라벨에 남은 나머지 한 자리는 [onDaemon] 의 못 붙은 사유인데, **그것도 수준이다** —
          * 방금 일어난 일이 아니라 지금 데몬이 없다는 말이다.
+         *
+         * 「수준만 쓴다」는 이제 주석이 아니라 **타입**이다. 라벨은 [Level] 만 받으므로 사건은
+         * 여기 들어올 이름이 없다 — 세는 것으로 붙들던 때는 자리 수가 그대로인 채 하나가 조용히
+         * 사건으로 바뀔 수 있었다.
          */
         private fun redraw(comp: Companion) {
             val w = comp.waiting()
             SwingUtilities.invokeLater { drawPrompt(w) }
-            say(state, if (w == null) "컴패니언이 붙어 있다." else "사람을 기다리는 중이다.")
+            say(if (w == null) Level.Attached else Level.Waiting)
         }
 
         /**
@@ -567,7 +572,12 @@ class MagiToolWindow : ToolWindowFactory {
             })
         }
 
-        private fun say(label: JBLabel, text: String) = SwingUtilities.invokeLater { label.text = text }
+        /**
+         * 라벨에 글자를 넣는 **하나뿐인 문**. 밖에서 `state.text` 를 건드리지 않는다 — 문이
+         * 여럿이면 [Level] 을 받는 것이 그중 하나일 뿐이라 아무것도 못 막는다. 문이 하나인
+         * 것은 `SourceTextTest` 가 붙든다.
+         */
+        private fun say(l: Level) = SwingUtilities.invokeLater { state.text = l.text }
     }
 }
 

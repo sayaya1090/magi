@@ -68,7 +68,7 @@ class ArchitectureTest {
     fun `시험이 실제로 파일을 보고 있다`() {
         val names = usecase.listFiles { f -> f.name.endsWith(".kt") }.orEmpty().map { it.name }.toSet()
         assertEquals(
-            setOf("Assist.kt", "Authorship.kt", "Companion.kt", "Hand.kt", "DaemonLifecycle.kt", "McpName.kt", "Ports.kt", "Problems.kt", "Transcript.kt"),
+            setOf("Assist.kt", "Authorship.kt", "Companion.kt", "Hand.kt", "DaemonLifecycle.kt", "Level.kt", "McpName.kt", "Ports.kt", "Problems.kt", "Transcript.kt"),
             names,
             "usecase 의 파일 목록이 예상과 다르다 — 옮겼으면 이 시험의 경로도 같이 옮길 것",
         )
