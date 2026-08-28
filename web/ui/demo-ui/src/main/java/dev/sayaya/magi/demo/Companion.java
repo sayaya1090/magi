@@ -50,6 +50,10 @@ final class Companion {
         switch (path) {
                 case "/model": case "/permission": case "/providers": case "/report-format":
                 case "/compact": case "/submit": case "/answer": case "/interrupt":
+                // 옮기기도 받아만 둔다 — 빈 답이 "옮겼다"이다. 데모의 명단은 그대로라서 화면은
+                // 여전히 그 세션을 지난 것으로 보는데, 그림자 상태를 두면 데모가 명단과 어긋난
+                // 두 번째 사실이 된다(갱신 버튼에서 한 그 판단).
+                case "/resume":
                     return Mock.json("");
                 default: break;
             }

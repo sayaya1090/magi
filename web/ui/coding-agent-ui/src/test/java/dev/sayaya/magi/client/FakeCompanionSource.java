@@ -91,6 +91,18 @@ public class FakeCompanionSource implements CompanionSource {
         why.accept("");
     }
 
+    /**
+     * 옮기기 — 옮긴 곳을 창에 적고, 창에 미리 놓인 사유가 있으면 그것으로 거부한다.
+     * 거부된 옮기기 뒤에 보내기가 따라가지 않는다는 것이 이 포트로 재는 사실이다.
+     */
+    @Override
+    public void resume(CompanionContext ctx, String session, Consumer<String> why) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set("__magi_test_resumed", session);
+        Object no = win.get("__magi_test_resume_refuses");
+        why.accept(no == null ? "" : String.valueOf(no));
+    }
+
     /** 답은 다른 곳에 적는다 — 같은 상자에 쓴 글이 어디로 갔는지가 이 스펙의 요점이라서. */
 
     @Override

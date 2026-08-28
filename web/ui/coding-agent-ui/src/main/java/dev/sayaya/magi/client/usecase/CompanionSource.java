@@ -47,6 +47,15 @@ public interface CompanionSource {
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
 
     /**
+     * 컴패니언을 지난 한 세션으로 <b>옮긴다</b>(/resume) — 그 대화가 다시 지금 대화가 된다.
+     *
+     * 보내기와 나뉘어 있는 이유는 둘이 따로 거부되기 때문이다: 이 워크스페이스의 대화가 아니면
+     * 옮기기가 거부되고, 그때 보내기는 <b>일어나서는 안 된다</b>. 한 부름으로 묶으면 그 둘을
+     * 가를 자리가 없다. why는 거부 사유, 성공이면 빈 문자열.
+     */
+    void resume(CompanionContext ctx, String session, java.util.function.Consumer<String> why);
+
+    /**
      * 한 카운슬 라운드가 <b>무엇을 보고</b> 판단했는가(/council&round=) — 과제·플랜·보고서·
      * 행동·바뀐 것. 표결을 검증 가능하게 만드는 나머지 반이고, 전사 행에는 그것을 담을 자리가 없다.
      */
