@@ -75,6 +75,36 @@ public class WorkspaceElement {
         CardSharing.onShowing(() -> { treeDirty = true; render(); });
         // 판이 열리는 순간이 첫 걸음의 순간이다 — 닫힌 판은 걷지 않는다.
         dev.sayaya.magi.bridge.PaneSharing.onOpened((slot, open) -> { if (open && "left".equals(slot)) store.walk(); });
+        offerFiles();
+    }
+
+    /**
+     * ⌘K에 이 워크스페이스의 파일 이름을 댄다 — 운영 palGather가 `/find&in=names`로 하던 그것.
+     *
+     * 셸의 팔레트는 무엇을 물을지 모르고, 이 화면은 <b>무엇을 물으면 값이 드는지</b> 안다.
+     * 그래서 두 수가 셸이 아니라 여기 있다: 두 글자 아래로는 묻지 않고(⌘K를 열어 한 글자 친
+     * 것이 남의 저장소를 걷는 값이 되지 않게), 여덟 개까지만 준다(파일 이름 마흔 개가 서면
+     * 갈 곳들이 상자 밖으로 밀린다). 고르면 트리의 줄을 누른 것과 같은 부름이다.
+     *
+     * 컴패니언 화면을 떠나면 컨텍스트가 없어져(WorkspaceStore.findNames) 답은 빈 것이 된다 —
+     * 다른 화면에 서 있는 사람에게 지난 워크스페이스의 파일을 권하지 않는다.
+     */
+    private void offerFiles() {
+        dev.sayaya.magi.bridge.PaletteSharing.onAsk((q, back) -> {
+            String asked = q == null ? "" : q.trim();
+            if (asked.length() < 2) { back.call(new elemental2.core.JsArray<Object>()); return; }
+            store.findNames(asked, got -> {
+                elemental2.core.JsArray<Object> out = new elemental2.core.JsArray<>();
+                JsArrayLike<Object> hits = got == null ? null
+                        : Js.uncheckedCast(Js.asPropertyMap(got).get("hits"));
+                for (int i = 0; hits != null && i < hits.getLength() && out.length < 8; i++) {
+                    final String path = String.valueOf(hits.getAt(i));
+                    out.push(dev.sayaya.magi.bridge.PaletteSharing.entry(
+                            tr("pal.kind_file"), baseName(path), path, () -> store.openFile(path)));
+                }
+                back.call(out);
+            });
+        });
     }
 
     /** 폰의 작업공간이 지금 보이는 것 — 트리("files")냐 git이냐. 넓은 화면에서는 둘 다 선다. */

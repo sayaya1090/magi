@@ -54,6 +54,11 @@ public class FakeWorkspaceSource implements WorkspaceSource {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_find", in + ":" + q);
         if ("text".equals(in)) {
             cb.accept(Global.JSON.parse("{\"hits\":[\"src/main.go:12:func main\"],\"more\":3}"));
+        } else if (q.startsWith("lots")) {
+            // 여덟보다 많이 걸리는 물음 하나 — 몇 개까지 싣는지는 답이 그 수를 넘겨야만 재진다.
+            StringBuilder b = new StringBuilder("{\"hits\":[");
+            for (int i = 0; i < 12; i++) b.append(i == 0 ? "" : ",").append("\"src/f").append(i).append(".go\"");
+            cb.accept(Global.JSON.parse(b.append("]}").toString()));
         } else {
             cb.accept(Global.JSON.parse("{\"hits\":[\"src/main.go\",\"src/util.go\"]}"));
         }

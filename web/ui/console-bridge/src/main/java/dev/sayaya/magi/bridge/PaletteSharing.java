@@ -53,6 +53,36 @@ public final class PaletteSharing {
         Js.asPropertyMap(DomGlobal.window).set(KEY + "_obs", l);
     }
 
+    // ── 물어야 아는 것 ────────────────────────────────────────────────────────
+    //
+    // 등록(provide)은 <b>미리 아는 것</b>이다: 이 화면이 할 수 있는 일들. 워크스페이스의 파일
+    // 이름처럼 물어봐야 아는 것은 미리 실어 둘 수 없다 — 팔레트가 열릴 때마다 저장소를 통째로
+    // 걷는 일이 되고, 그것은 키 하나가 남의 디스크를 도는 값이다(운영 palGather의 그 주석).
+    // 그래서 문이 하나 더 있다: 셸이 지금 친 글자를 묻고(ask), 화면이 답한다(onAsk). 무엇을
+    // 물으면 값이 드는지는 화면만 알기 때문에, <b>답하지 않을 자유</b>도 화면 쪽에 있다.
+
+    private static final String ASK = KEY + "_ask";
+
+    @JsFunction
+    public interface Answer { void call(Object entries); }
+
+    @JsFunction
+    public interface Asker {
+        /** q는 지금 친 글자(다듬은 것), back은 그 물음에 대한 답 하나. */
+        void call(String q, Answer back);
+    }
+
+    /** 화면 측: 물으면 답하겠다 — 늦게 답해도 된다(그 사이 바뀐 글자는 셸이 가려낸다). */
+    public static void onAsk(Asker a) {
+        Js.asPropertyMap(DomGlobal.window).set(ASK, a);
+    }
+
+    /** 셸 측: 지금 서 있는 화면에 묻는다. 답하는 화면이 없으면 back은 불리지 않는다. */
+    public static void ask(String q, Answer back) {
+        Object a = Js.asPropertyMap(DomGlobal.window).get(ASK);
+        if (a != null) Js.<Asker>cast(a).call(q, back);
+    }
+
     public static Entry entry(String kind, String name, String hint, Runner run) {
         JsPropertyMap<Object> o = JsPropertyMap.of();
         o.set("kind", kind);

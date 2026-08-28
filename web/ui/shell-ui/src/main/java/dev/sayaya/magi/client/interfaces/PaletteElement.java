@@ -26,7 +26,9 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  *
  * 콘솔이 커지면 "그게 어디 있더라"가 사람이 가장 자주 하는 일이 된다. 팔레트는 그 질문에
  * 한 상자로 답한다: 갈 수 있는 화면들, 지금 있는 컴패니언들, 그리고 <b>지금 서 있는 화면이
- * 스스로 더한 것들</b>(PaletteSharing — 셸이 자식의 기능을 알 필요가 없게).
+ * 스스로 더한 것들</b>(PaletteSharing — 셸이 자식의 기능을 알 필요가 없게). 그 마지막은 둘로
+ * 온다: 미리 등록해 둔 것(current)과 지금 친 글자로 물어야 아는 것(ask — 워크스페이스의 파일
+ * 이름 같은, 왕복이 드는 것).
  *
  * 마크업은 운영의 것이다(#palDialog/#palField/#palList/.palrow): console.css가 그 이름으로
  * 입히고, 목록은 role=listbox와 option으로 스크린리더에게도 목록이다.
@@ -43,6 +45,8 @@ public class PaletteElement {
     private final HTMLElement cancel = el("md-text-button");
     private final List<Row> rows = new ArrayList<>();
     private int at = 0;
+    // 몇 번째 물음인가 — 늦게 오는 답이 방금 친 글자를 덮지 않게(운영 palAsked).
+    private int asked = 0;
     private FleetAgent[] fleet = null;
 
     private static final class Row {
@@ -171,13 +175,49 @@ public class PaletteElement {
             String name = str(e, "name");
             int score = q.isEmpty() ? Match.INSIDE : Match.score(name + " " + str(e, "hint"), q);
             if (score <= 0) continue;
-            Object run = e.get("run");
-            rows.add(new Row(str(e, "kind"), name, str(e, "hint"), score,
-                    () -> { if (run != null) Js.<PaletteSharing.Runner>cast(run).call(); }));
+            rows.add(row(e, score));
         }
         rows.sort((x, y) -> y.score - x.score);
+        trim();
         at = 0;
         draw();
+        // 그리고 화면에 <b>묻는다</b> — 지금 친 글자로만 알 수 있는 것들(그 화면의 파일 이름
+        // 같은)은 등록된 목록에 없다. 목록은 먼저 서고 답은 뒤에 얹힌다: 왕복이 끝날 때까지
+        // 아무것도 안 그리면, 아는 것(화면·컴패니언)까지 남의 디스크를 기다리게 된다.
+        final int turn = ++asked;
+        PaletteSharing.ask(q, entries -> {
+            // 먼저 보낸 물음의 늦은 답은 버린다(운영 palAsked의 그 수) — 그것을 얹으면 사람은
+            // 제가 이미 지운 글자의 결과를 고르게 된다. 걷힌 상자에도 얹지 않는다.
+            if (turn != asked || !open()) return;
+            JsArrayLike<Object> got = Js.uncheckedCast(entries);
+            for (int i = 0; got != null && i < got.getLength(); i++) {
+                // 점수는 고정이다(운영과 같은 자리): 찾은 쪽이 이미 물음으로 골라 온 것이라
+                // 여기서 다시 재면 저쪽의 규칙과 이쪽의 규칙 둘이 서게 된다.
+                rows.add(row(Js.uncheckedCast(got.getAt(i)), Match.INSIDE));
+            }
+            rows.sort((x, y) -> y.score - x.score);
+            trim();
+            if (at >= rows.size()) at = 0;
+            draw();
+        });
+    }
+
+    /**
+     * 스무 줄까지만 남긴다(운영 palGather의 그 수).
+     *
+     * 파일 이름이 붙기 전에는 닿을 일이 없던 자리다: 갈 곳 여섯에 명단 몇이면 스물이 안 된다.
+     * 이제 물어서 온 것이 뒤에 얹히므로, 자르지 않으면 상자보다 긴 목록이 서고 그 아래쪽은
+     * 화살표로 내려가야만 보인다 — 고를 수 있는 것이 아니다.
+     */
+    private void trim() {
+        while (rows.size() > 20) rows.remove(rows.size() - 1);
+    }
+
+    /** 화면이 건넨 항목 하나를 이 판의 줄로 — 고르면 그 화면의 것이 불린다. */
+    private Row row(JsPropertyMap<Object> e, int score) {
+        Object run = e.get("run");
+        return new Row(str(e, "kind"), str(e, "name"), str(e, "hint"), score,
+                () -> { if (run != null) Js.<PaletteSharing.Runner>cast(run).call(); });
     }
 
     private void draw() {

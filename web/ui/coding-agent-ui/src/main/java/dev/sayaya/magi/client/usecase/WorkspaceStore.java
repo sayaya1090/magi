@@ -293,6 +293,17 @@ public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
         find();
     }
 
+    /**
+     * 이름으로만 찾는다 — 이 판의 찾기 상태는 건드리지 않는다.
+     *
+     * 묻는 사람이 다르기 때문이다(팔레트): 여기서 query/hits를 쓰면 ⌘K에 두 글자 친 것이
+     * 왼쪽 기둥의 트리를 결과 목록으로 바꿔 놓는다. 답이 없으면 null이 답이다.
+     */
+    public void findNames(String q, Consumer<Object> gotOrNull) {
+        if (ctx == null) { gotOrNull.accept(null); return; }
+        source.find(ctx, "name", q, gotOrNull);
+    }
+
     private void find() {
         if (ctx == null) return;
         final int mine = ++findSeq;

@@ -600,6 +600,48 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForCondition { page.locator("#files .pane-files .treerow.dir").count() == 1 }
             }
         }
+        When("셸이 ⌘K에 실을 것을 물으면") {
+            // 이 페이지엔 셸이 없다 — 스펙이 셸 노릇을 한다(문은 window의 그 이름 하나다).
+            page.evaluate("(() => { window.__magi_pal = null;" +
+                " window.__magi_palette_ask('ma', es => { window.__magi_pal = es }); true })()")
+            Then("이 워크스페이스의 파일 이름이 온다 — 갈래말·이름, 그리고 곁에 경로") {
+                page.waitForCondition { page.evaluate("!!window.__magi_pal") == true }
+                page.evaluate("window.__magi_pal.map(e => e.kind + '|' + e.name + '|' + e.hint).join(',')") shouldBe
+                    "pal.kind_file|main.go|src/main.go,pal.kind_file|util.go|src/util.go"
+                page.evaluate("window.__magi_test_find") shouldBe "name:ma"
+            }
+            Then("왼쪽 기둥의 찾기는 그대로다 — 물은 사람이 다르다") {
+                // 이 판의 query/hits를 썼다면 ⌘K에 두 글자 친 것이 트리를 결과 목록으로 바꿔 놓는다.
+                page.locator("#files .pane-files .treerow.dir").count() shouldBe 1
+                page.locator("#files .hits .treerow.hit").count() shouldBe 0
+            }
+            Then("한 글자에는 아예 묻지 않는다 — 상자를 열고 한 글자가 남의 저장소를 걷는 값이 되지 않게") {
+                page.evaluate("(() => { window.__magi_test_find = 'none'; window.__magi_pal = null;" +
+                    " window.__magi_palette_ask('m', es => { window.__magi_pal = es }); true })()")
+                page.waitForCondition { page.evaluate("!!window.__magi_pal") == true }
+                val none = page.evaluate("window.__magi_pal.length") as Number
+                none.toInt() shouldBe 0
+                page.evaluate("window.__magi_test_find") shouldBe "none"
+            }
+            Then("많이 걸려도 여덟까지다 — 파일 이름 열둘이 갈 곳들을 상자 밖으로 밀지 않게") {
+                page.evaluate("(() => { window.__magi_pal = null;" +
+                    " window.__magi_palette_ask('lots', es => { window.__magi_pal = es }); true })()")
+                page.waitForCondition { page.evaluate("!!window.__magi_pal") == true }
+                val many = page.evaluate("window.__magi_pal.length") as Number
+                many.toInt() shouldBe 8
+            }
+            Then("고르면 그 파일로 간다 — 트리의 줄을 누른 것과 같은 부름이다") {
+                // 이미 열어 둔 파일이면 다시 읽지 않고 그 탭으로 간다(WorkspaceStore.openFile) —
+                // 그래서 재는 것은 "디스크를 다시 물었나"가 아니라 "무엇을 보이라 했나"다
+                // (CardSharing.showing: 어느 카드가 보이는지는 부모가 고른다).
+                val was = page.evaluate("window.__magi_cards_showing")
+                withClue("고르기 전부터 그 파일을 보고 있었다면 이 장면은 아무것도 재지 않는다") {
+                    was shouldBe "src/main.go"
+                }
+                page.evaluate("(() => { window.__magi_palette_ask('ma', es => es[1].run()); true })()")
+                page.waitForCondition { page.evaluate("window.__magi_cards_showing") == "src/util.go" }
+            }
+        }
         When("행의 메뉴에서 지우면") {
             page.locator("#files .treeline").first().hover()
             page.locator("#files .treeline .rowmenu md-icon-button").first().click()
