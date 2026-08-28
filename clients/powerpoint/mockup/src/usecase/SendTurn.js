@@ -87,3 +87,48 @@ export function logShapeOf(view) {
   if (!view) return { userRows: 0, live: false };
   return { userRows: view.rows.filter((r) => r.kind === 'user').length, live: view.live };
 }
+
+/**
+ * 낸 결과를 사람에게 주는 한 줄. `null` 은 **할 말이 없다**는 뜻이다.
+ *
+ * **화면에서 여기로 내렸다.** 앞 판본은 `View.onSend` 안의 `if` 둘이었고, 둘 다 안 걸린
+ * 결과는 **아무 말 없이 나갔다.** 오늘 거기 오는 것은 `empty` 하나뿐이고 빈 상자에는 할 말이
+ * 없는 게 맞지만, 새 사유가 그 침묵을 **물려받는다**. 위 `run` 주석이 `userRows` 를 필수로
+ * 못 만든 이유를 적으면서 이미 이름 대어 걱정한 자리다 — 새 `why` 를 늘리려면 화면의 닫힌
+ * 집합도 같이 늘어야 하는데, 안 늘어도 아무 데서도 소리가 안 났다.
+ *
+ * 침묵이 특히 나쁜 까닭은 이 자리에서 **글이 남기 때문**이다. 못 보냈는데 조용하면 사람은
+ * 자기 글이 그대로 있는 것을 보고 「아직 안 눌렀나」로 읽고 다시 누른다. 사유를 아는 자리에서
+ * 사유를 대는 편이 낫다.
+ *
+ * @param {{sent:boolean, why?:string, blind?:boolean, error?:Error}} r `run()` 의 답
+ * @returns {{text:string, sticky:boolean}|null}
+ */
+export function sendNote(r) {
+  if (r.sent) {
+    // 갔지만 확인할 길이 없다. **글을 안 지운다** — 지우면 「갔다」를 말한 셈이 된다. 그래서
+    // 왜 글이 남았는지를 같이 적고, 그 말은 스스로 안 사라진다(사라지면 남은 글만 남는다).
+    if (r.blind) {
+      return { sticky: true,
+        text: '보냈습니다. 이 창이 로그를 못 읽고 있어 갔는지 확인은 못 합니다 — '
+          + '적은 글은 그대로 뒀습니다.' };
+    }
+    // 갔고 로그도 읽는 중이다. 메아리가 곧 온다 — 그때 글이 지워지는 것이 곧 답이다.
+    return null;
+  }
+  switch (r.why) {
+    // **삼키면 사람은 간 줄 안다.** 던진 쪽의 말을 그대로 싣고, 스스로 안 사라진다.
+    case 'failed':
+      return { sticky: true, text: `못 보냈습니다: ${r.error?.message ?? String(r.error)}` };
+    case 'waiting':
+      return { sticky: false, text: '앞서 낸 말이 아직 로그에 안 떴습니다.' };
+    // 빈 상자. **여기만 조용해도 된다** — 사람이 방금 빈 칸에서 누른 것을 안다.
+    case 'empty':
+      return null;
+    // **새 사유는 이 침묵을 안 물려받는다.** 못 보냈는데 조용하면 사람은 글이 남은 것을 보고
+    // 다시 누른다. 갈래를 늘리고 여기를 안 늘리면 그 사유가 조용히 그 길로 간다.
+    default:
+      return { sticky: true,
+        text: `못 보냈는데 이 창이 사유를 모릅니다(${r.why}). 이 창을 고쳐야 합니다.` };
+  }
+}

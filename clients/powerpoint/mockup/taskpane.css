@@ -155,6 +155,11 @@ header strong { color: var(--accent); }
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow: auto;
 }
+/* 인자가 안 실렸다는 말. **흐리게 두지 않는다** — 이건 곁다리 정보가 아니라 지금 누르려는
+   것에 대한 경고고, 나머지 회색 글씨에 섞이면 안 읽힌다. */
+.ask-args-missing {
+  margin: 0 0 6px; font-size: 12px; color: var(--accent); white-space: pre-wrap;
+}
 .ask-report { margin: 0 0 8px; }
 .ask-report dt { font-size: 11px; color: var(--muted); }
 .ask-report dd { margin: 0 0 5px; font-size: 12px; white-space: pre-wrap; }

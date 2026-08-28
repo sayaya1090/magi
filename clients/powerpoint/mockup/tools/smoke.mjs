@@ -20,7 +20,7 @@ import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { OfficeDeck } from '../src/adapter/OfficeDeck.js';
 import { pickDeck, pickNote, lateNote, lateFailNote } from '../src/adapter/pickDeck.js';
 import { QuoteSelection, quoteNote } from '../src/usecase/QuoteSelection.js';
-import { SendTurn, logShapeOf } from '../src/usecase/SendTurn.js';
+import { SendTurn, logShapeOf, sendNote } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { readFileSync } from 'node:fs';
@@ -30,8 +30,8 @@ import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
 import { FakeStatus } from '../src/adapter/FakeStatus.js';
-import { WatchPrompt } from '../src/usecase/WatchPrompt.js';
-import { Pending, DECISIONS, CLEARED } from '../src/domain/Pending.js';
+import { WatchPrompt, askSig } from '../src/usecase/WatchPrompt.js';
+import { Pending, DECISIONS, CLEARED, clearedNote, askArgs } from '../src/domain/Pending.js';
 import { Cursor } from '../src/domain/Cursor.js';
 
 let failed = 0;
@@ -457,6 +457,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     reason: '쓰기 도구는 허용 규칙에 없습니다' });
   await w.poll();
   ok('묻는 것이 서면 화면에 선다', w.view.pending?.id === 'call_7');
+  // 이 물음에는 인자가 없다 — 소켓의 `Args` 는 `omitempty` 라 **진짜로 이렇게 온다.** 화면이
+  // 이때 인자 칸을 통째로 안 만들면 사람은 무엇을 허가하는지 모른 채 누른다(`askArgs`).
+  ok('인자 없이 온 권한 물음은 그 사실이 칸의 내용이다',
+    askArgs(w.view.pending)?.note != null);
 
   // 폴링이 같은 것을 계속 실어 온다. 매번 새로 그리면 고르던 것이 지워지고, 스크린 리더는
   // 대기가 이어지는 내내 같은 말을 되풀이한다.
@@ -781,6 +785,173 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('못 간 사유에 던진 물건이 실린다', r3.error === boom3, String(r3.error));
   // ⚠ 짝인 `blind: false` 는 **안 문다.** 소비자가 `if (r.blind)` 라 `undefined` 와 구별을
   // 못 하고, 못 하는 것을 못박으면 아무도 안 쓰는 값을 시험이 지키는 꼴이 된다.
+}
+
+// ── 낸 결과가 **무슨 말로 나가는가**. 앞 판본은 화면 안의 `if` 둘(`failed`·`waiting`)이라
+// 거기 안 걸린 결과는 **아무 말 없이** 나갔다 — 그런데 이 자리는 못 보냈을 때 사람 글을 **그대로
+// 남긴다.** 조용하면 사람은 남은 글을 보고 「아직 안 눌렀나」로 읽고 다시 누른다. `SendTurn` 의
+// `run` 주석이 이 침묵을 이름 대어 걱정해 두고도 아무 데서도 소리가 안 나던 자리다.
+//
+// **손으로 지은 답으로 안 잰다.** 다섯 중 넷은 진짜 `run` 이 낸 것을 그대로 먹인다 — 손으로
+// 적으면 생산자의 철자가 바뀌어도 여기는 초록이고, 그건 두 벌이 맞는 게 아니라 갈라진 것이다.
+{
+  const port = new FakeTranscript({ live: [] });
+  const read = new ReadTranscript(port);
+  read.attach('live');
+  const chat = new FakeChat(port, { sessionId: 'live', delay: -1 });
+  const rows = () => logShapeOf(read.view).userRows;
+
+  const comp = new Composer();
+  const send = new SendTurn(chat, comp);
+  const rLive = await send.run('갔다', { userRows: rows(), live: true });
+  ok('가고 로그도 읽는 중이면 할 말이 없다', sendNote(rLive) === null, JSON.stringify(rLive));
+
+  // 위에서 안 비웠으니 아직 잠겨 있다 — 그 잠금이 그대로 둘째 갈래를 만든다.
+  const rWait = await send.run('또', { userRows: rows(), live: true });
+  const nWait = sendNote(rWait);
+  ok('기다리는 중이면 왜 안 갔는지 말해 준다',
+    rWait.why === 'waiting' && nWait !== null && nWait.text.includes('아직'));
+  // 곧 메아리가 와서 스스로 풀리는 사정이라, 이 줄은 붙어 있을 필요가 없다.
+  ok('기다리라는 말은 붙어 있지 않는다', nWait.sticky === false);
+
+  // 눈감고 보낸 것. **글이 남는다는 사실까지 적어야** 사람이 다시 안 누른다.
+  const rBlind = await new SendTurn(chat, new Composer()).run('안 보이는 채로',
+    { userRows: 0, live: false });
+  const nBlind = sendNote(rBlind);
+  ok('눈감고 보낸 것은 확인 못 한다고 말한다',
+    rBlind.blind === true && nBlind !== null && nBlind.text.includes('확인'));
+  ok('남은 글이 왜 남았는지까지 적는다', nBlind.text.includes('그대로 뒀습니다'));
+  // 스스로 사라지면 남은 글만 남고, 그 글은 「안 눌렀다」로 읽힌다.
+  ok('눈감고 보낸 말은 붙어 있는다', nBlind.sticky === true);
+
+  const boom = new Error('문이 닫혔습니다');
+  const bad = { async submit() { throw boom; } };
+  const rFail = await new SendTurn(bad, new Composer()).run('안 갈 말',
+    { userRows: 0, live: true });
+  const nFail = sendNote(rFail);
+  // 던진 쪽의 말을 안 실으면 사람은 무엇을 고쳐야 할지 모른 채 같은 단추를 다시 누른다.
+  ok('못 간 것은 던진 말을 그대로 싣는다',
+    nFail !== null && nFail.text.includes('문이 닫혔습니다'), JSON.stringify(nFail));
+  ok('못 갔다는 말은 붙어 있는다', nFail.sticky === true);
+
+  // 빈 상자. **여기만 조용해도 된다** — 사람이 방금 빈 칸에서 누른 것을 안다.
+  const rEmpty = await new SendTurn(chat, new Composer()).run('   ',
+    { userRows: 0, live: true });
+  ok('빈 상자에는 할 말이 없다', rEmpty.why === 'empty' && sendNote(rEmpty) === null);
+
+  // 여섯째 결말. **이것만 손으로 짓는다** — 오늘 `run` 이 못 내는 값이고, 못 내는 값을 위해
+  // 생산자에 갈래를 하나 심으면 시험이 프로덕션을 늘리는 꼴이 된다. 재려는 것도 생산자가
+  // 아니라 **화면이 모르는 것을 만났을 때**다.
+  const nUnknown = sendNote({ sent: false, why: 'quota' });
+  ok('모르는 사유는 조용히 안 나간다',
+    nUnknown !== null && nUnknown.text.includes('quota') && nUnknown.sticky === true,
+    JSON.stringify(nUnknown));
+
+  // 갈라 놓고 같은 말로 내보내면 갈라 놓은 값이 없는 것과 같다.
+  const said = [nWait, nBlind, nFail, nUnknown].map((n) => n.text);
+  ok('결말마다 다른 말이 나간다', new Set(said).size === 4, said.join(' | '));
+}
+
+// ── 내려간 물음의 **사유가 무슨 말로 나가는가**. 「없다」만 남기면 셋이 화면에서 똑같이
+// 생긴다는 것이 `CLEARED` 를 둔 이유인데, 그 셋을 문장으로 바꾸는 자리가 화면 안이라 안 재고
+// 있었다. 게다가 거기서는 셋에 안 맞는 사유가 **`null` 로 떨어져 줄이 통째로 사라졌다** —
+// 「내려간 물음이 없다」와 같은 모양으로. 없애려던 뭉갬이 한 겹 위에서 되살아난 자리다.
+{
+  // 사유는 손으로 안 적고 `CLEARED` 를 그대로 쓴다. 값이 한쪽에서만 바뀌면 드리프트다.
+  const said = Object.values(CLEARED).map((c) => clearedNote(c));
+  ok('세 사유가 다 제 말을 갖는다', said.every((t) => typeof t === 'string' && t.length > 0));
+  ok('셋이 서로 다른 말이다', new Set(said).size === 3);
+  // 「모르게 된 것」을 「답했다」로 읽으면 사람이 그 물음을 잊는다.
+  ok('못 닿아 내려간 것은 끝난 것이 아니라고 적는다',
+    clearedNote(CLEARED.unreachable).includes('끝난 것이 아닙니다'));
+  // 무엇으로 답했는지는 이 창이 모른다. 찍으면 남의 입에 결정을 넣는 것이 된다.
+  ok('남이 답한 것은 무엇으로 답했는지 안 적는다',
+    !DECISIONS.some((d) => clearedNote(CLEARED.elsewhere).includes(d.value)),
+    clearedNote(CLEARED.elsewhere));
+  // **여기만 조용해도 된다.** 내려간 물음이 없다는 뜻이라 적을 말이 없다.
+  ok('내려간 것이 없으면 할 말이 없다',
+    clearedNote(null) === null && clearedNote(undefined) === null);
+  // **넷째 사유는 조용히 숨지 않는다.** 숨으면 물음이 사라진 자리에서 화면이 아무 말도 안 하고,
+  // 답을 기다리던 사람은 자기가 뭘 놓쳤는지도 모른다.
+  const fourth = clearedNote('expired');
+  ok('모르는 사유는 줄을 지우는 대신 제 말을 갖고 온다',
+    typeof fourth === 'string' && fourth.includes('expired'), String(fourth));
+  // 객체 조회는 프로토타입까지 뒤진다 — 사유가 그런 이름이면 함수가 문장 자리에 앉았다.
+  ok('프로토타입의 이름도 사유로 안 샌다', typeof clearedNote('constructor') === 'string');
+}
+
+// ── 판을 **다시 세울지** 재는 서명. 이 한 줄에 사람이 적던 답과 포커스가 달려 있는데,
+// 화면 안에 있는 동안은 DOM 이 있어야 돌아서 한 번도 안 재 봤다. 재는 쪽이 없으면 이 목록은
+// 나중에 고치는 사람에게 그냥 다섯 칸짜리 배열로 보이고, 한 칸 더 넣는 것이 사람이 적던 답을
+// 지우는 일이라는 것을 아무도 안 말해 준다.
+{
+  const st = new FakeStatus();
+  const w = new WatchPrompt(st, {});
+  const ask = { id: 'call_9', kind: 'permission', what: 'mcp__ppt__set_text',
+    reason: '쓰기 도구는 허용 규칙에 없습니다', index: 1, total: 2 };
+  st.ask({ ...ask });
+  await w.poll();
+  const base = askSig(w.view);
+
+  // **뒤에 쌓인 수는 서명에 안 든다.** 들면 뒤가 늘 때마다 판이 다시 서고 적던 답이 지워진다.
+  st.ask({ ...ask, total: 3 });
+  await w.poll();
+  ok('뒤가 늘어도 판을 다시 안 세운다',
+    askSig(w.view) === base && w.view.pending.placement.includes('3개'),
+    `${base} / ${w.view.pending.placement}`);
+
+  // 답을 보내면 단추가 잠긴다 — 그건 다시 그려야 보인다.
+  await w.answer('always');
+  ok('답을 보낸 것은 판을 다시 세운다', askSig(w.view) !== base && w.view.answered === true);
+
+  // 다른 물음이면 다른 판이다. 신원이 안 들면 새 물음이 옛 판 위에 그려진다.
+  const w2 = new WatchPrompt(new FakeStatus(), {});
+  const sigOf = async (p, f = () => {}) => {
+    const s2 = new FakeStatus(); const ww = new WatchPrompt(s2, {});
+    s2.ask(p); await ww.poll(); await f(ww, s2); return askSig(ww.view);
+  };
+  const a = await sigOf({ ...ask });
+  ok('물음이 바뀌면 판이 바뀐다', await sigOf({ ...ask, id: 'call_10' }) !== a);
+  ok('종류가 바뀌면 판이 바뀐다', await sigOf({ ...ask, kind: 'question' }) !== a);
+  // 못 닿는 동안 세워 둔 판은 답할 수 있는 판이면 안 된다.
+  ok('닿지 않게 되면 판이 바뀐다',
+    await sigOf({ ...ask }, async (ww, s2) => { s2.reachable = false; await ww.poll(); }) !== a);
+  // 내려간 사유가 화면에 뜬다(남이 답했다 / 정책이 답했다 / 못 닿는다). 사유가 안 들면 그 셋이
+  // 화면에서 똑같이 생기던 자리로 돌아간다.
+  ok('내려간 사유가 바뀌면 판이 바뀐다',
+    await sigOf({ ...ask }, async (ww, s2) => { s2.clear(); await ww.poll(); }) !== a);
+  ok('선 물음이 하나도 없던 처음과는 다르다', askSig(w2.view) !== a);
+
+  // **조용한 데몬이 죽는 길.** 물음이 하나도 없는 채로 못 닿게 되면 위 갈래 어느 것도 값이
+  // 안 바뀐다 — 내릴 물음이 없으니 사유도 안 적힌다(`poll` 의 `if (this.pending)` 밖이다).
+  // `reachable` 이 서명에 없으면 판이 그대로 서고, 화면은 「안 닿습니다」를 **영영 안 그린다.**
+  // 사람은 데몬이 죽은 줄 모르고 조용한 창을 본다. 위 다섯 칸 중 이 칸만 이 길을 잡는다.
+  {
+    const s3 = new FakeStatus(); const q = new WatchPrompt(s3, {});
+    await q.poll();
+    const quiet = askSig(q.view);
+    s3.reachable = false;
+    await q.poll();
+    ok('물음 없이 죽어도 판이 바뀐다', askSig(q.view) !== quiet,
+      `${quiet} / ${askSig(q.view)}`);
+  }
+
+  // **내려간 사유는 물음이 없는 자리에서 갈린다.** 둘 다 선 물음이 없고 닿는 중인데, 화면이
+  // 적을 말이 다르다(「남이 답했습니다」 / 「답을 보냈습니다」). 사유가 서명에 없으면 한쪽에서
+  // 다른 쪽으로 갈 때 판이 안 서고, 앞의 말이 그대로 남는다.
+  {
+    const down = async (answerFirst) => {
+      const s4 = new FakeStatus(); const q = new WatchPrompt(s4, {});
+      s4.ask({ ...ask }); await q.poll();
+      if (answerFirst) await q.answer('always');
+      s4.clear(); await q.poll();
+      return { sig: askSig(q.view), why: q.view.clearedBy };
+    };
+    const bySelf = await down(true); const byOther = await down(false);
+    ok('내려간 사유가 다르면 판도 다르다',
+      bySelf.sig !== byOther.sig && bySelf.why !== byOther.why,
+      `${bySelf.why} / ${byOther.why}`);
+  }
 }
 
 // ── 안내는 모델의 말이 아니라 **도구 호출**이다(§6.1). 로그에서 유도하고 따로 안 쌓는다.
@@ -1435,6 +1606,39 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 하나뿐인 물음에 「1번째 · 모두 1개」를 다는 것은 없는 줄을 세우는 일이다.
   ok('하나뿐이면 자리를 안 적는다',
     new Pending({ id: 'c4', kind: 'question', what: 'x', index: 1, total: 1 }).placement === null);
+
+  // **인자 칸.** 화면은 `if (p.args != null)` 한 줄이라, 안 실리면 칸이 통째로 없었다 —
+  // 「권한을 묻고 있습니다 · bash」와 허용/거절 단추만 서고, 사람은 무엇을 허가하는지 모르는
+  // 채로 누른다. 위의 `perm` 이 바로 그 모양이다(인자 없는 권한 물음).
+  const slot = askArgs(perm);
+  ok('인자가 안 실린 권한 물음은 그 사실을 말한다',
+    slot?.note != null && slot.args === undefined, JSON.stringify(slot));
+  // 소켓의 `Args` 는 `omitempty` 라 「인자 없이 부르는 도구」와 「오다 빠진 인자」가 여기
+  // 도착할 때 똑같이 생겼다. 못 가르는 것을 가른 척하면 그게 이 창이 없애려는 뭉갬이다.
+  ok('못 가르는 둘을 가른 척하지 않는다', slot.note.includes('못 가릅니다'));
+  ok('도구 이름만 보고 누르지 말라고 적는다', slot.note.includes('도구 이름만'));
+  // 질문에는 허가할 것이 없다 — 보기와 적는 칸이 그 물음의 내용이다.
+  ok('질문에는 안 붙인다', askArgs(ques) === null);
+
+  const real = { cmd: 'rm -rf build' };
+  ok('실린 인자는 그대로 나른다',
+    askArgs(new Pending({ id: 'c5', kind: 'permission', what: 'bash', args: real }))
+      .args === real);
+  ok('글로 실린 인자도 그대로 나른다',
+    askArgs(new Pending({ id: 'c6', kind: 'permission', what: 'bash', args: 'ls -al' }))
+      .args === 'ls -al');
+
+  // **빈 것을 빈 상자로 그리지 않는다.** 빈 `<pre>` 는 「인자가 이렇다」도 「없다」도 아니고
+  // 화면이 고장 난 것처럼 보인다. 셋 다 「아무것도 안 실었다」의 다른 철자다.
+  const blanks = [{}, [], '   '];
+  ok('빈 것은 빈 상자 대신 말로 나간다', blanks.every((a) =>
+    askArgs(new Pending({ id: 'c7', kind: 'permission', what: 'bash', args: a }))?.note
+      === '인자 없이 부릅니다.'), JSON.stringify(blanks.map((a) =>
+    askArgs(new Pending({ id: 'c7', kind: 'permission', what: 'bash', args: a })))));
+  // 「안 실렸다」와 「인자 없이 부른다」는 다른 말이다 — 앞엣것은 이 창이 모른다는 뜻이다.
+  ok('안 실린 것과 빈 것은 다른 말이다',
+    askArgs(new Pending({ id: 'c8', kind: 'permission', what: 'bash', args: {} })).note
+      !== slot.note);
 }
 
 {

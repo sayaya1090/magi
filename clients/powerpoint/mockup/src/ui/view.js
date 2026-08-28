@@ -1,9 +1,10 @@
 // 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
 import { foldAdvice, adviceNote } from '../domain/AdviceBoard.js';
 import { targetLabel, SlideNumbers } from '../domain/Advice.js';
-import { logShapeOf } from '../usecase/SendTurn.js';
+import { logShapeOf, sendNote } from '../usecase/SendTurn.js';
 import { quoteNote } from '../usecase/QuoteSelection.js';
-import { DECISIONS, WIDTH_NOTE, CLEARED } from '../domain/Pending.js';
+import { askSig } from '../usecase/WatchPrompt.js';
+import { DECISIONS, WIDTH_NOTE, clearedNote, askArgs } from '../domain/Pending.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -73,9 +74,9 @@ export class View {
     const v = this.watchPrompt.view;
     this.renderDoing(v.doing, v.doingFresh);
 
-    // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다.
-    const sig = [v.pending?.id ?? '', v.pending?.kind ?? '', v.answered ? '1' : '0',
-      v.reachable ? '1' : '0', v.clearedBy ?? ''].join('|');
+    // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다. 무엇이 서명에
+    // 들고 무엇이 일부러 빠지는지는 `askSig` 가 안다 — 화면 밖이라야 잰다.
+    const sig = askSig(v);
     if (sig === this.askSig) {
       // **줄 하나는 이 문 밖이다.** 서명에 없는 것이 하나 있다 — 뒤에 쌓인 물음의 수다. 같은
       // 물음을 보는 동안에도 뒤가 늘면 「모두 2개」가 3개가 되고, 서명이 그대로라 여기서
@@ -136,12 +137,10 @@ export class View {
    * 화면에서 똑같이 생긴다. 「무엇으로」는 안 적는다 — 남이 답한 것을 이 창은 모른다.
    */
   lastAskEl(clearedBy) {
-    const text = {
-      [CLEARED.answered]: '직전 물음: 답을 보냈고 내려갔습니다.',
-      [CLEARED.elsewhere]: '직전 물음: 다른 곳에서 답했습니다 — 무엇으로 답했는지는 모릅니다.',
-      [CLEARED.unreachable]: '직전 물음: 데몬에 못 닿아 내려갔습니다 — 끝난 것이 아닙니다.',
-    }[clearedBy];
-    if (!text) return null;
+    // 글은 `clearedNote` 가 짓는다 — 화면 밖이라야 잰다. `null` 은 **할 말이 없다**는 뜻이고
+    // 그때만 이 줄이 안 선다. 모르는 사유는 조용히 숨는 대신 제 말을 갖고 온다.
+    const text = clearedNote(clearedBy);
+    if (text === null) return null;
     const el = document.createElement('p');
     el.className = 'ask-last';
     el.textContent = text;
@@ -174,10 +173,18 @@ export class View {
     box.append(what);
 
     // 정해진 것은 **도구 이름이 아니라 인자다.** "permission: bash"는 아무도 못 답한다.
-    if (p.args != null) {
+    // 그래서 실린 게 없으면 **그 사실이 이 칸의 내용이다**(`askArgs`) — 칸을 없애면 사람은
+    // 무엇을 허가하는지 모른다는 것조차 모른 채 누른다.
+    const slot = askArgs(p);
+    if (slot?.note) {
+      const miss = document.createElement('p');
+      miss.className = 'ask-args-missing';
+      miss.textContent = slot.note;
+      box.append(miss);
+    } else if (slot) {
       const pre = document.createElement('pre');
       pre.className = 'ask-args';
-      pre.textContent = typeof p.args === 'string' ? p.args : this.pretty(p.args);
+      pre.textContent = typeof slot.args === 'string' ? slot.args : this.pretty(slot.args);
       box.append(pre);
     }
     if (p.reason) {
@@ -364,16 +371,10 @@ export class View {
   async onSend() {
     const log = this.logShape();
     const r = await this.sendTurn.run($('#input').value, log);
-    if (!r.sent) {
-      if (r.why === 'failed') this.note(`못 보냈습니다: ${r.error.message}`, { sticky: true });
-      if (r.why === 'waiting') this.note('앞서 낸 말이 아직 로그에 안 떴습니다.');
-      return;
-    }
-    if (r.blind) {
-      // 갔지만 확인할 길이 없다. **글을 안 지운다** — 지우면 「갔다」를 말한 셈이 된다.
-      this.note('보냈습니다. 이 창이 로그를 못 읽고 있어 갔는지 확인은 못 합니다 — '
-        + '적은 글은 그대로 뒀습니다.', { sticky: true });
-    }
+    // 글은 `sendNote` 가 짓는다 — 화면 밖이라야 잰다. `null` 만 조용하다.
+    const n = sendNote(r);
+    if (n) this.note(n.text, { sticky: n.sticky });
+    if (!r.sent) return;
     this.renderPending();
     this.renderSent();
   }

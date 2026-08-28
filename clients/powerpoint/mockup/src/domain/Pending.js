@@ -115,3 +115,74 @@ export class Pending {
 export const CLEARED = Object.freeze({
   answered: 'answered', elsewhere: 'elsewhere', unreachable: 'unreachable',
 });
+
+/**
+ * 그 사유를 사람에게 주는 한 줄. `null` 은 **할 말이 없다** — 내려간 물음이 없다는 뜻이다.
+ *
+ * **화면에서 여기로 내렸다.** 앞 판본은 `view.lastAskEl` 안의 객체 조회였고, 셋 중 아무것도
+ * 안 맞으면 `null` 을 내서 화면이 **그 줄을 통째로 숨겼다.** 그러면 「내려간 물음이 없다」와
+ * 「이 창이 모르는 사유로 내려갔다」가 화면에서 똑같이 생긴다 — 정확히 이 함수가 없애려던
+ * 그 뭉갬(「없다」만 남기면 셋이 똑같이 생긴다)이 한 겹 위에서 되살아난 모양이다.
+ *
+ * 침묵이 틀린 답인 이유는 사람이 잃는 것이 크기 때문이다. 물음이 사라진 자리에서 화면이 아무
+ * 말도 안 하면, 답을 기다리던 사람은 자기가 뭘 놓쳤는지도 모르고 창을 본다. 넷째 사유가
+ * 생기면 여기서 소리가 난다 — 조용히 숨는 대신 「이 창이 모르는 사유」라고 적는다.
+ *
+ * 객체 조회를 `switch` 로 바꾼 것도 같은 값이다. `{...}[clearedBy]` 는 프로토타입까지 뒤져서
+ * 사유가 `'constructor'` 같은 이름이면 함수를 문장 자리에 앉힌다.
+ */
+export function clearedNote(clearedBy) {
+  switch (clearedBy) {
+    case CLEARED.answered:
+      return '직전 물음: 답을 보냈고 내려갔습니다.';
+    // **무엇으로 답했는지는 안 적는다** — 남의 입에 결정을 넣는 것이 된다(위 주석).
+    case CLEARED.elsewhere:
+      return '직전 물음: 다른 곳에서 답했습니다 — 무엇으로 답했는지는 모릅니다.';
+    // **끝난 것이 아니라 모르게 된 것이다.** 「답했다」로 읽히면 사람이 그 물음을 잊는다.
+    case CLEARED.unreachable:
+      return '직전 물음: 데몬에 못 닿아 내려갔습니다 — 끝난 것이 아닙니다.';
+    // 내려간 물음이 없다. 여기만 조용해도 된다.
+    case null: case undefined:
+      return null;
+    default:
+      return `직전 물음이 이 창이 모르는 사유로 내려갔습니다(${clearedBy}). 이 창을 고쳐야 합니다.`;
+  }
+}
+
+/**
+ * 물음의 **인자 칸**이 무엇을 담는가. `null` 은 이 칸을 아예 안 만든다는 뜻이다.
+ *
+ * **화면에서 여기로 내렸다.** 앞 판본은 `askEl` 안의 `if (p.args != null)` 한 줄이었고, 안
+ * 걸리면 **칸이 통째로 없었다.** 그러면 권한 물음이 「권한을 묻고 있습니다 · bash」와 허용/거절
+ * 단추만으로 서고, 사람은 무엇을 허가하는지 모르는 채 누른다 — 이 파일 위쪽이 「정해진 것은
+ * 도구 이름이 아니라 인자다」라고 적어 둔 바로 그 자리인데, 인자가 없을 때 그 사실을 아무도
+ * 말하지 않았다. 같은 창의 로그 줄(`rowEl`)은 인자가 없으면 「(인자 없음)」이라고 적는다.
+ * **아무것도 안 걸린 쪽이 더 위험한데 대접은 반대였다.**
+ *
+ * 안 실린 것을 「인자가 없다」로 적지도 않는다. 소켓의 `Args` 는 `omitempty` 라, 인자 없이
+ * 부른 도구와 오다 빠진 인자가 **여기 도착할 때는 똑같이 생겼다**(`daemon.go` 의 `Waiting`).
+ * 못 가르는 것을 가른 척하면 그게 이 창이 없애려는 뭉갬이다 — 모르는 것은 모른다고 적는다.
+ *
+ * 질문에는 이 말을 안 붙인다. 허가할 것이 없고, 보기와 적는 칸이 그 물음의 내용이다.
+ *
+ * @param {Pending} p
+ * @returns {{args:*}|{note:string}|null}
+ */
+export function askArgs(p) {
+  if (p.args == null) {
+    if (!p.isPermission) return null;
+    return { note: '무엇에 대한 허가인지 이 창에 안 실렸습니다 — 인자 없이 부르는 도구인지 '
+      + '오다 빠진 것인지 못 가릅니다. 도구 이름만 보고 누르지 마세요.' };
+  }
+  // 빈 것을 **빈 상자로 그리지 않는다.** 빈 `<pre>` 는 「인자가 이렇다」도 「없다」도 아니고,
+  // 화면이 고장 난 것처럼 보인다.
+  if (isBlank(p.args)) return { note: '인자 없이 부릅니다.' };
+  return { args: p.args };
+}
+
+/** 실린 것이 **아무것도 안 실은 것**인가. 빈 글·빈 객체·빈 배열. */
+function isBlank(args) {
+  if (typeof args === 'string') return args.trim() === '';
+  if (Array.isArray(args)) return args.length === 0;
+  return typeof args === 'object' && Object.keys(args).length === 0;
+}
