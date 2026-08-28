@@ -56,11 +56,20 @@ public final class Console {
                 .catch_(err -> { h.take(null); return null; });
     }
 
+    /** 답이 왔는가와 그 본문 — 둘을 함께 넘기지 않으면 부르는 쪽이 셋을 가릴 수 없다. */
+    public interface Said { void call(boolean ok, String text); }
+
     /**
      * POST하고 <b>본문을 그대로</b> 받는다 — 답이 곧 글인 것들(완성·제안·초안)의 문.
-     * 닿지 못하면 빈 문자열이다: 이런 자리에서 실패는 "아무 말도 없음"이지 오류 화면이 아니다.
+     * <p>
+     * 셋을 갈라 넘긴다: 답했고 그 글이 이것 · <b>거절했고 그 사유가 이것</b> · 닿지 못했다.
+     * 앞서 이 함수는 셋을 빈 문자열 하나로 접었고(성공 본문만 읽고 거절 본문을 버렸다),
+     * 그러자 부르는 쪽이 셋을 구별할 수 없어 사람이 누른 단추가 <b>조용히</b> 아무것도
+     * 안 하거나(초안 둘), 서버가 사유까지 적어 보낸 거절을 "닿지 못했다"로 적었다(/git-pr).
+     * 사유를 버리는 것이 옳은 자리도 있지만(사람이 누르지 않은 도움), 그 버림은 부르는
+     * 쪽이 <b>골라서</b> 할 일이지 이 문이 대신 정할 일이 아니다.
      */
-    public static Promise<String> postText(String path, URLSearchParams body, String socket, String peer) {
+    public static void postText(String path, URLSearchParams body, String socket, String peer, Said then) {
         StringBuilder q = new StringBuilder();
         if (socket != null && !socket.isEmpty()) q.append("d=").append(elemental2.core.Global.encodeURIComponent(socket));
         if (peer != null && !peer.isEmpty()) {
@@ -70,9 +79,15 @@ public final class Console {
         RequestInit init = RequestInit.create();
         init.setMethod("POST");
         if (body != null) init.setBody(body);
-        return raw(path + (q.length() > 0 ? "?" + q : ""), init)
-                .then(r -> r.text().then(said -> Promise.resolve(r.ok ? said.trim() : "")))
-                .catch_(err -> Promise.resolve(""));
+        raw(path + (q.length() > 0 ? "?" + q : ""), init)
+                .then(r -> r.text().then(said -> {
+                    String text = said == null ? "" : said.trim();
+                    if (!r.ok) DomGlobal.console.warn("magi-console", r.status, path, text);
+                    then.call(r.ok, text);
+                    return null;
+                }))
+                // 닿지 못한 것은 거절이 아니다 — 아무도 아무 말도 하지 않았으므로 사유 자리는 빈다.
+                .catch_(err -> { then.call(false, ""); return null; });
     }
 
     /** POST path?d=socket&p=peer. resolve 값: 성공 ""; 거부면 사유 본문. */
@@ -102,8 +117,9 @@ public final class Console {
      *
      * 위의 둘로는 안 되는 자리가 있다. 갱신(/update)의 거부는 "실패"가 아니라 <b>지시</b>다:
      * 남의 기계 것을 여기서 갱신하려 하면 403과 함께 "그 기계에서 하라"가 오고, 데몬이 답을
-     * 못 내면 502와 함께 그 데몬이 말한 사유가 온다. postText는 그 몸을 버리고(성공만 읽는다),
-     * post는 성공한 몸을 버린다(사유만 읽는다) — 이 문은 어느 쪽이든 사람이 읽을 한 줄이다.
+     * 못 내면 502와 함께 그 데몬이 말한 사유가 온다. postText는 답했는가와 글을 <b>갈라</b> 넘겨
+     * 부르는 쪽이 조합하게 하고, post는 성공한 몸을 버린다(사유만 읽는다) — 이 문은 가를 것도
+     * 없이 어느 쪽이든 사람이 읽을 한 줄이다.
      *
      * 빈 문자열은 <b>회선이 끊긴 것</b>만 뜻한다(fetch 자체가 거절됨): 그때는 아무도 아무 말도
      * 하지 않았으므로 부르는 쪽이 제 말을 대신 세우고 다시 눌러 볼 수 있게 둔다.

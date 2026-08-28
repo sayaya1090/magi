@@ -11,6 +11,13 @@ import java.util.function.Consumer;
  * 왕복이 붙는다.
  */
 public interface WorkspaceSource {
+    /**
+     * 답이 왔는가와 그 글 — <b>거절의 사유도 글이다</b>. 성공한 본문만 받으면 부르는 쪽이
+     * 침묵(할 말 없음)과 거절(사유가 있다)과 불통(아무도 말하지 않았다)을 가릴 수 없고,
+     * 사람이 누른 단추가 조용히 아무것도 안 하게 된다.
+     */
+    interface Said { void call(boolean ok, String text); }
+
     /** 디렉토리들의 내용 — 답은 {dirs:{경로:[{name,isDir}]}} 그대로다. */
     void dirs(CompanionContext ctx, List<String> paths, Consumer<Object> gotOrNull);
 
@@ -52,7 +59,7 @@ public interface WorkspaceSource {
      * 보낸다: 4만 줄짜리 파일을 멈출 때마다 보내지 않고, 모델이 없는 줄을 가리키지도 않는다.
      * 답은 `줄번호⇥한 마디` 들이고, 할 말이 없으면 침묵이 답이다.
      */
-    void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes);
+    void look(CompanionContext ctx, String path, String numbered, Said notes);
 
     /**
      * 열어 둔 파일과 아직 디스크에 없는 그 내용(/open-file) — 컴패니언의 다음 턴이 그 편집에
@@ -70,13 +77,13 @@ public interface WorkspaceSource {
     void pullRequest(CompanionContext ctx, Consumer<Object> gotOrNull);
 
     /** 그 요청의 초안을 청한다(/pr-msg) — 첫 줄이 제목, 나머지가 본문(커밋과 같은 모양). */
-    void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said);
+    void draftPullRequest(CompanionContext ctx, String rules, Said said);
 
     /** 요청을 실제로 낸다(/git-pr) — 답은 그 주소이거나, 못 낸 사유다. */
-    void openPullRequest(CompanionContext ctx, String title, String body, Consumer<String> urlOrWhy);
+    void openPullRequest(CompanionContext ctx, String title, String body, Said urlOrWhy);
 
     /** 실린 것으로 커밋 메시지 초안을 청한다(/git-msg) — 규칙은 사람이 준 것(빈 값이면 기본). */
-    void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said);
+    void draftCommitMessage(CompanionContext ctx, String rules, Said said);
 
     /** git에 하는 일(/git-do): stage · unstage · discard · commit · switch · new-branch · pull · push. */
     void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why);

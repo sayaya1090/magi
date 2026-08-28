@@ -188,8 +188,9 @@ public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
     }
 
     /** 캐럿 둘레를 읽어 달라는 청 — 보낼 자리를 고르는 것은 화면의 몫이다(진짜 줄 번호로). */
-    public void look(String path, String numbered, Consumer<String> notes) {
-        if (ctx == null) { notes.accept(""); return; }
+    public void look(String path, String numbered, WorkspaceSource.Said notes) {
+        // 어느 컴패니언인지 모르는 것은 거절이 아니다 — 아무도 말하지 않았으므로 사유가 없다.
+        if (ctx == null) { notes.call(false, ""); return; }
         source.look(ctx, path, numbered, notes);
     }
 
@@ -227,18 +228,18 @@ public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
         source.pullRequest(ctx, got);
     }
 
-    public void draftPullRequest(String rules, Consumer<String> said) {
-        if (ctx == null) { said.accept(""); return; }
+    public void draftPullRequest(String rules, WorkspaceSource.Said said) {
+        if (ctx == null) { said.call(false, ""); return; }
         source.draftPullRequest(ctx, rules, said);
     }
 
-    public void openPullRequest(String title, String body, Consumer<String> urlOrWhy) {
-        if (ctx == null) { urlOrWhy.accept(""); return; }
+    public void openPullRequest(String title, String body, WorkspaceSource.Said urlOrWhy) {
+        if (ctx == null) { urlOrWhy.call(false, ""); return; }
         source.openPullRequest(ctx, title, body, urlOrWhy);
     }
 
-    public void draftCommitMessage(String rules, Consumer<String> said) {
-        if (ctx == null) { said.accept(""); return; }
+    public void draftCommitMessage(String rules, WorkspaceSource.Said said) {
+        if (ctx == null) { said.call(false, ""); return; }
         source.draftCommitMessage(ctx, rules, said);
     }
 

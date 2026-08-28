@@ -80,7 +80,9 @@ public class BridgeCompanionSource implements CompanionSource {
     public void suggest(CompanionContext ctx, String prefix, Consumer<String> text) {
         URLSearchParams body = new URLSearchParams();
         body.set("prefix", prefix);
-        Console.postText("/suggest", body, ctx.socket, ctx.peer).then(said -> { text.accept(said); return null; });
+        // 사유를 <b>일부러</b> 버린다 — 컴포저가 멈춘 것을 보고 부르는 도움이라, 사람은
+        // 아무것도 청한 적이 없다. 거절도 침묵으로 지나간다.
+        Console.postText("/suggest", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
     }
 
     private static String q(CompanionContext ctx) {

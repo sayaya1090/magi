@@ -63,15 +63,17 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         body.set("path", path);
         body.set("prefix", prefix);
         body.set("suffix", suffix);
-        Console.postText("/complete", body, ctx.socket, ctx.peer).then(said -> { text.accept(said); return null; });
+        // 사유를 <b>일부러</b> 버린다 — 사람이 누른 것이 아니라 타이핑이 부른 도움이라, 거절도
+        // 침묵으로 지나가는 것이 맞다(누를 단추도, 사유를 적을 줄도 없다).
+        Console.postText("/complete", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
     }
 
     @Override
-    public void look(CompanionContext ctx, String path, String numbered, Consumer<String> notes) {
+    public void look(CompanionContext ctx, String path, String numbered, WorkspaceSource.Said notes) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("path", path);
         body.set("text", numbered);
-        Console.postText("/look", body, ctx.socket, ctx.peer).then(said -> { notes.accept(said); return null; });
+        Console.postText("/look", body, ctx.socket, ctx.peer, notes::call);
     }
 
     @Override
@@ -94,25 +96,25 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
-    public void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said) {
+    public void draftPullRequest(CompanionContext ctx, String rules, WorkspaceSource.Said said) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("rules", rules == null ? "" : rules);
-        Console.postText("/pr-msg", body, ctx.socket, ctx.peer).then(w -> { said.accept(w); return null; });
+        Console.postText("/pr-msg", body, ctx.socket, ctx.peer, said::call);
     }
 
     @Override
-    public void openPullRequest(CompanionContext ctx, String title, String text, Consumer<String> urlOrWhy) {
+    public void openPullRequest(CompanionContext ctx, String title, String text, WorkspaceSource.Said urlOrWhy) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("title", title);
         body.set("body", text);
-        Console.postText("/git-pr", body, ctx.socket, ctx.peer).then(w -> { urlOrWhy.accept(w); return null; });
+        Console.postText("/git-pr", body, ctx.socket, ctx.peer, urlOrWhy::call);
     }
 
     @Override
-    public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
+    public void draftCommitMessage(CompanionContext ctx, String rules, WorkspaceSource.Said said) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("rules", rules == null ? "" : rules);
-        Console.postText("/git-msg", body, ctx.socket, ctx.peer).then(w -> { said.accept(w); return null; });
+        Console.postText("/git-msg", body, ctx.socket, ctx.peer, said::call);
     }
 
     @Override
