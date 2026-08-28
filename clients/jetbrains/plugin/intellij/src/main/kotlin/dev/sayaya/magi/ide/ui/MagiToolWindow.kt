@@ -11,11 +11,13 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
+import dev.sayaya.magi.ide.transport.HandServer
 import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
 import dev.sayaya.magi.ide.usecase.Authorship
+import dev.sayaya.magi.ide.usecase.Hand
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
@@ -48,7 +50,7 @@ class MagiToolWindow : ToolWindowFactory {
         view.refresh()
     }
 
-    internal class View(project: Project) {
+    internal class View(private val project: Project) {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         private val state = JBLabel(" ")
@@ -82,6 +84,15 @@ class MagiToolWindow : ToolWindowFactory {
         val authors = Authorship()
         private var following: java.io.Closeable? = null
 
+        /**
+         * 손. 창이 서면 같이 서고, 창이 살아 있는 동안만 산다.
+         *
+         * **창에 매단 이유**가 있다. 손은 IDE 의 편집기를 움직이는데, 편집기가 없는 IDE(웰컴 화면)
+         * 에서 서 있으면 데몬은 붙었다고 믿고 에이전트는 매번 거절을 받는다. 창이 있다는 것이
+         * 곧 프로젝트가 열려 있다는 것이라 그 자리에 맨다.
+         */
+        private var hand: HandServer? = null
+
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
             top.add(state, BorderLayout.NORTH)
@@ -111,6 +122,27 @@ class MagiToolWindow : ToolWindowFactory {
             root.add(split, BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
             follow()
+            offerHand()
+        }
+
+        /**
+         * 손을 세우고 컴패니언에게 준다.
+         *
+         * 거절을 **그대로 보인다.** 같은 워크스페이스를 IDE 둘로 열면 먼저 붙은 쪽만 손이 되고
+         * 둘째는 거절을 받는데, 그때 조용하면 둘째 IDE 의 사람은 자기 편집 도구가 왜 안 쓰이는지
+         * 알 길이 없다 — §7 의 다섯째 시나리오가 그것이다. 손이 아닌 것과 고장난 것은 다른 사건이다.
+         */
+        private fun offerHand() {
+            val server = runCatching { HandServer.start(Hand(IdeHand(project))) }.getOrNull()
+                ?: return say(state, "손을 못 세웠다 — 루프백 포트를 못 열었다.")
+            hand = server
+            onDaemon { comp ->
+                val r = comp.attachHand(server.url, mapOf("X-Magi-Hand" to server.token))
+                say(state, when {
+                    r.ok -> "손을 붙였다: " + (r.tools?.joinToString(", ") ?: "도구 목록을 안 줬다")
+                    else -> "손을 못 붙였다 — " + (r.error ?: "사유 없음")
+                })
+            }
         }
 
         /**

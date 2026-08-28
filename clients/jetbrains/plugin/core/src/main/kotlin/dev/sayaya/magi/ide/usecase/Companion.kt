@@ -49,6 +49,21 @@ class Companion(
     /** 돌고 있는 턴을 세운다. */
     fun interrupt(): Response = client.exchange(Request(method = "interrupt", session = session))
 
+    /**
+     * 손을 붙인다 — IDE 가 내놓는 도구를 이 컴패니언에게 준다.
+     *
+     * 이름은 **고정**이다([McpName]). 거절은 삼키지 않고 그대로 올린다: 이미 붙어 있다는 것과
+     * 이름이 겹친다는 것은 사람이 할 일이 다르고, §4 의 표가 그 갈래를 적는다. 특히 같은
+     * 워크스페이스를 IDE 둘로 열면 **먼저 붙은 쪽만 손**이 되고 둘째는 거절을 받는데, 그 사실이
+     * 화면에 보여야 한다(§7 의 다섯째 시나리오).
+     */
+    fun attachHand(url: String, headers: Map<String, String>): Response =
+        client.exchange(Request(method = "mcp-attach", name = McpName.VALUE, url = url, headers = headers))
+
+    /** 손을 뗀다. 창이 닫히거나 IDE 가 나갈 때 — 안 떼면 데몬이 죽은 주소를 계속 들고 있는다. */
+    fun detachHand(): Response =
+        client.exchange(Request(method = "mcp-detach", name = McpName.VALUE))
+
     private fun status(): Response = client.exchange(Request(method = "status", session = session))
 
     /**
