@@ -10,6 +10,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.model.Ask
+import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.HandServer
@@ -245,10 +246,20 @@ class MagiToolWindow : ToolWindowFactory {
         private fun onDaemon(work: (Companion) -> Unit) =
             workspace.onDaemon({ say(state, it) }, work)
 
-        fun refresh() = onDaemon { comp ->
+        fun refresh() = onDaemon { redraw(it) }
+
+        /**
+         * 프롬프트를 다시 묻고 다시 그린다. [note] 가 있으면 **그것이 상태 문구를 이긴다.**
+         *
+         * 이기는 쪽을 정해 둔 이유가 있다. 예전에는 단추가 답을 보낸 뒤 [refresh] 를 따로 불렀는데,
+         * 그러면 리프레시가 세우는 "사람을 기다리는 중이다"가 방금 받은 거절을 덮었다 — 그것도
+         * 연결을 새로 하나 더 열어 가면서, 어느 쪽이 먼저 EDT 에 닿을지는 운이었다. 지금은 한
+         * 왕복 안에서 끝나고 순서가 코드에 박혀 있다.
+         */
+        private fun redraw(comp: Companion, note: String? = null) {
             val w = comp.waiting()
-            say(state, if (w == null) "컴패니언이 붙어 있다." else "사람을 기다리는 중이다.")
             SwingUtilities.invokeLater { drawPrompt(w) }
+            say(state, note ?: if (w == null) "컴패니언이 붙어 있다." else "사람을 기다리는 중이다.")
         }
 
         private fun say() {
@@ -291,9 +302,26 @@ class MagiToolWindow : ToolWindowFactory {
             buttons.revalidate(); buttons.repaint()
         }
 
-        private fun add(label: String, act: (Companion) -> Unit) {
+        /**
+         * 프롬프트 단추 하나. [act] 의 답을 **버리지 않는다.**
+         *
+         * 버리고 있었다. `(Companion) -> Unit` 이라 `allow`·`deny`·`always`·`answer` 가 돌려주는
+         * [Response] 가 통째로 사라졌고, 데몬이 거절해도 화면은 다시 그리고 말았다 — 사람이 누른
+         * 것이 갔는지 안 갔는지 알 방법이 없는, **눌러도 아무 일도 안 나는 창**이었다. 같은 파일의
+         * `say()` 는 처음부터 "안 갔다"를 보고했다. 한 창이 한 동사는 보고하고 나머지 넷은 삼켰다.
+         *
+         * 이게 지금 더 중요한 이유. 코어의 거절 문구가 **없음의 사유를 못 가른다** — 종류가 어긋난
+         * 답도 "이미 답했거나 만료됐다"로 온다(`app.go` 의 `RespondQuestion`). 그 문장을 고치는 일이
+         * 논의 중인데, 받는 쪽이 버리고 있으면 고쳐 봐야 아무 데도 안 닿는다.
+         */
+        private fun add(label: String, act: (Companion) -> Response) {
             buttons.add(JButton(label).apply {
-                addActionListener { onDaemon { c -> act(c); refresh() } }
+                addActionListener {
+                    onDaemon { c ->
+                        val r = act(c)
+                        redraw(c, if (r.ok) null else "안 갔다: ${r.error ?: "사유 없음"}")
+                    }
+                }
             })
         }
 
