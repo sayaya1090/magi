@@ -22,4 +22,18 @@ export class DeckPort {
 
   /** 이 어댑터가 무엇인지 화면이 정직하게 말할 수 있게. */
   get label() { return 'unknown'; }
+
+  /**
+   * 이 호스트가 무엇을 지원한다고 **자기 입으로 말하는가**. 화면에 한 줄로 남긴다.
+   *
+   * 여기 있는 이유는 계측이다. 이 문서(§3.3·§12 #4)가 기대는 값 — PowerPointApi 천장 —
+   * 은 오늘 이 머신에서 못 잰다. 그런데 **사용자 머신에서 처음 도는 날 그 한 줄이 미검증
+   * 항목을 실측으로 바꾼다.** 없는 검증을 있는 척하지 않는 것 다음으로 좋은 것은, 검증이
+   * 가능해지는 순간 자동으로 남게 해 두는 것이다.
+   *
+   * 실패해도 던지지 않는다 — 계측이 본 작업을 못 막는다. 대신 `measured:false` 로 말한다.
+   *
+   * @returns {{measured:boolean, note:string, sets:Array<{name:string,version:string,ok:boolean}>}}
+   */
+  capabilities() { return { measured: false, note: '안 잼', sets: [] }; }
 }
