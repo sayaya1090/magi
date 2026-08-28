@@ -1562,7 +1562,16 @@ const ProtoVersion = 1
 // silently drop — encoding/json ignores unknown fields, which would turn a shape mismatch into wrong
 // behaviour rather than an error. The list grows as gated features land; "handshake" marks a build
 // that answers this versioned about at all (every build from this one on).
-func Caps() []string { return []string{"handshake"} }
+// "tool-servers" marks a build whose door accepts mcp-attach / mcp-detach. It is here because the
+// door landed without it, and a client had no way left to ask: an application that IS a tool server
+// (an editor plugin, a slide add-in) attaches to whatever daemon is running, including one built
+// before the door existed, and calling a method that is not there to read the error back is
+// precisely what a handshake exists to make unnecessary — the answer it gets, "unknown method",
+// cannot be told apart from a refusal by the daemon that does have it.
+//
+// This repository has a name for advertising that runs ahead of the code. This was the other
+// direction, which is quieter: the code ran ahead of the advertisement, and nothing failed.
+func Caps() []string { return []string{"handshake", "tool-servers"} }
 
 // About asks a companion to describe itself.
 func (c *Client) About() (string, error) {
