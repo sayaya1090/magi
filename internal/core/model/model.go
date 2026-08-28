@@ -61,6 +61,23 @@ func (r *Registry) RegisterIfAbsent(m Info) bool {
 	return true
 }
 
+// Forget removes an exact registration, and reports whether there was one. What it restores is the
+// state before that entry existed: Get falls back to the same-family seed, or to the unknown-model
+// answer. Its one caller is the context-window cache — a window a BACKEND answered for belongs to
+// that backend, and when requests are pointed somewhere else the number has to go with them.
+//
+// Exact only, and deliberately: the family fallback is a seed nobody registered at runtime, and
+// forgetting a variant must not reach through to the seed every other variant reads.
+func (r *Registry) Forget(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.models[id]; !ok {
+		return false
+	}
+	delete(r.models, id)
+	return true
+}
+
 // Has reports whether id is known.
 func (r *Registry) Has(id string) bool {
 	r.mu.RLock()
