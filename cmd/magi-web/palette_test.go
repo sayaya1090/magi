@@ -24,6 +24,13 @@ import (
 // variable to be spelled exactly like the Go map key, which the M3 roles are not
 // (--md-sys-color-on-primary vs onPrimary). One rule, checked once, in the direction that is
 // actually true.
+// A check that reads a file it did not declare will silently not run. This one reads a file no
+// package here imports (cmd/magi-web does not depend on adapter/tui at all), so nothing about
+// compiling this package can notice that styles.go moved. What notices is the test cache: the go
+// command records every file the test opened and hashes it into the cache key — but only for files
+// under the module root. An open outside it is ignored, and the result stays green while the file
+// it was watching changes underneath. Measured: cached on a second run, then re-ran after a comment
+// was appended to styles.go; and no test in this repo opens anything outside the module root.
 func TestTheWebTakesItsColoursFromHere(t *testing.T) {
 	src, err := os.ReadFile("../../internal/adapter/tui/styles.go")
 	if err != nil {
