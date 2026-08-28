@@ -3,13 +3,16 @@ name: CI
 on:
   push:
     branches: [main]
-    # The new console (web/) tests on its own clock — test-web.yml — the way it releases on
-    # its own clock. A web-only push has nothing here to prove.
+    # The new console (web/) and the editor clients (clients/) test on their own clocks —
+    # test-web.yml, test-jetbrains.yml — the way they release on their own clocks. A push that
+    # only touches one of them has nothing here to prove.
     paths-ignore:
       - "web/**"
+      - "clients/**"
   pull_request:
     paths-ignore:
       - "web/**"
+      - "clients/**"
 
 permissions:
   contents: write # the coverage-badge step pushes a JSON to the 'badges' branch

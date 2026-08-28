@@ -134,3 +134,26 @@ class PublishedTest {
         assertNull(Published.of(java.nio.file.Paths.get("/nope/none.sock")))
     }
 }
+
+/**
+ * Go 의 EvalSymlinks 는 컴포넌트가 하나라도 없으면 에러를 내고, WorkspaceKey 는 그때 **안 푼
+ * 경로**를 쓴다. 반쯤 푼 경로는 Go 가 절대 내지 않는 답이라 여기서도 내면 안 된다.
+ */
+class EvalSymlinksTest {
+    @Test
+    fun `꼬리가 없으면 입력을 그대로 돌려준다`() {
+        val base = java.nio.file.Files.createTempDirectory("magi-ev")
+        val real = java.nio.file.Files.createDirectory(base.resolve("real"))
+        val link = java.nio.file.Files.createSymbolicLink(base.resolve("link"), real)
+        val missing = link.resolve("아직없음")
+        // 반쯤 푼 것(.../real/아직없음)을 내면 Go 와 갈린다.
+        assertEquals(missing, SocketPath.evalSymlinks(missing))
+    }
+
+    @Test
+    fun `끊어진 심링크도 입력 그대로다`() {
+        val base = java.nio.file.Files.createTempDirectory("magi-ev2")
+        val dangling = java.nio.file.Files.createSymbolicLink(base.resolve("link"), base.resolve("nope"))
+        assertEquals(dangling, SocketPath.evalSymlinks(dangling))
+    }
+}

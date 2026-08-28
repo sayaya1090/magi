@@ -1,0 +1,55 @@
+# The JetBrains plugin's own release lane. The core binary releases on v* tags through goreleaser
+# and its asset layout is load-bearing (self-update pulls magi_<OS>_<arch> by name), so the plugin
+# does not ride that train — the same reason web/ has its own. A jetbrains-v* tag releases the
+# plugin zip alone, versioned on its own clock.
+#
+# The version comes from the tag and nowhere else. plugin.xml carries no <version>: two places to
+# say one number is one place to forget.
+name: release-jetbrains
+
+on:
+  push:
+    tags:
+      - "jetbrains-v*"
+
+permissions:
+  contents: write # gh release create uploads the asset
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      # Tests before the zip. A release that never ran the goldens is a release that cannot say
+      # whether it still speaks the daemon's socket name.
+      - name: test
+        working-directory: clients/jetbrains/plugin
+        run: ./gradlew :core:test --no-daemon
+
+      - name: build
+        working-directory: clients/jetbrains/plugin
+        run: |
+          version="${GITHUB_REF_NAME#jetbrains-v}"
+          ./gradlew :intellij:buildPlugin verifyPluginProjectConfiguration \
+            -PpluginVersion="$version" --no-daemon
+          # 이름을 글로브로 잡지 않는다. 앞선 빌드가 남긴 zip 이 하나 더 있으면 mv 가 죽고,
+          # 그 실패가 "릴리스에 뭐가 올라갔나"로만 보인다.
+          mv "intellij/build/distributions/intellij-$version.zip" "magi-jetbrains-$version.zip"
+
+      - name: release
+        working-directory: clients/jetbrains/plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "magi for JetBrains ${GITHUB_REF_NAME#jetbrains-v}" \
+            --generate-notes \
+            magi-jetbrains-*.zip

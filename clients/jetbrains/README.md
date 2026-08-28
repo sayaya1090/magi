@@ -692,6 +692,25 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   뿐이라 턴을 안 건드리고, 같은 요청을 두 번 보내 답이 밀리지 않는 것으로 락스텝을 확인한다.
 
 빌드는 `cd clients/jetbrains/plugin && ./gradlew build` 하나다. `core` 만 보려면 `:core:test`.
+
+**CI 는 레인 둘이고, `web/` 과 같은 방식이다.** 이 클라이언트만 건드린 푸시는 Go CI 를 안 돌린다
+(`ci.yml` 의 `paths-ignore` 에 `clients/**` 가 있다). 그리고 코어 변경이 안 건드린 IDE 를 받느라
+몇 분을 쓰지 않는다.
+
+| 레인 | 언제 | 무엇 |
+|---|---|---|
+| `test-jetbrains.yml` | `clients/jetbrains/**` 푸시·PR | `:core:test` 먼저(SDK 없이 몇 초), 그다음 플러그인 조립 |
+| `release-jetbrains.yml` | `jetbrains-v*` 태그 | 테스트 → zip → 릴리스 |
+
+`core` 를 먼저 따로 돌리는 이유가 있다. 이식이 깨지면 거의 항상 거기가 깨지는데, `intellij` 은
+컴파일하려고 IDE 를 통째로(~1GB) 받는다. 그래서 실패가 다운로드 **뒤**가 아니라 1분 안에 온다.
+라이브 데몬 테스트는 CI 에서 건너뛴다 — `MAGI_IDE_PROBE_SOCK` 도 데몬도 없고, 그것이 보완하는
+골든은 결정적이라 그대로 돈다.
+
+**태그는 `jetbrains-v*` 다.** 코어 바이너리는 `v*` 로 goreleaser 를 타는데 그 에셋 이름이
+자기업데이트가 읽는 계약이라(`magi_<OS>_<arch>`) 여기가 그 기차에 타면 안 된다. `web/` 이
+`web-v*` 로 따로 가는 것과 같은 사유다. 버전은 **태그에서만** 온다 — `plugin.xml` 에 `<version>`
+을 두지 않는다. 한 숫자를 두 곳에서 말하면 한 곳을 잊는다.
 - **파생 대조.** 같은 세션에 대해 플러그인이 그린 전사와 콘솔이 그린 전사를 행 단위로 비교한다.
   `web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
   필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md:127`).

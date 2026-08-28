@@ -41,16 +41,27 @@ object SocketPath {
      * **"여기 데몬 없음"** 이다 — 심링크를 푸는 단계가 애초에 막으려던 바로 그 증상이다.
      *
      * 소켓 이름의 주인은 데몬이므로 맞춰야 하는 쪽은 이쪽이다. 그래서 심링크만 푼다.
+     *
+     * `normalize()` 도 부르지 않는다. 그것은 `..` 를 **어휘적으로** 지우는데 Go 는 풀고 나서
+     * 물러난다 — `/a/link/..` 에서 `link → /b/c` 면 Go 는 `/b`, 어휘적 처리는 `/a` 다. IDE 가
+     * 주는 경로에 `..` 가 낄 일은 사실상 없지만 두 답이 다르다는 것은 적어 둔다.
      */
     internal fun evalSymlinks(path: Path): Path {
-        var out = path.root ?: return path.normalize()
-        for (part in path.normalize()) {
+        var out = path.root ?: return path
+        for (part in path) {
             var next = out.resolve(part)
             var hops = 0
-            while (Files.isSymbolicLink(next) && hops++ < 32) {
-                val target = runCatching { Files.readSymbolicLink(next) }.getOrNull() ?: break
-                next = if (target.isAbsolute) target.normalize() else next.parent.resolve(target).normalize()
+            while (Files.isSymbolicLink(next)) {
+                if (hops++ >= 32) return path        // 순환. Go 는 ELOOP 를 내고 안 푼 경로를 쓴다
+                val target = runCatching { Files.readSymbolicLink(next) }.getOrNull() ?: return path
+                next = if (target.isAbsolute) target else next.parent.resolve(target)
             }
+            // Go 는 컴포넌트마다 lstat 하고 하나라도 없으면 EvalSymlinks 가 에러를 낸다. 그러면
+            // WorkspaceKey 는 `if err == nil` 이라 **안 푼 abs 를 그대로 쓴다.** 실측:
+            //   EvalSymlinks("/tmp/evtest/link/nope") = "", err=lstat …/real/nope: no such file
+            // 반쯤 푼 경로는 Go 가 절대 내지 않는 답이고, 앞이 심링크이고 꼬리가 아직 없는
+            // 경로에서 소켓을 가른다. 그러니 여기서도 입력을 그대로 돌려준다.
+            if (!Files.exists(next)) return path
             out = next
         }
         return out
