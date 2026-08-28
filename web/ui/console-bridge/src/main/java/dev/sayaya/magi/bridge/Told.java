@@ -31,4 +31,15 @@ public class Told {
 
     /** 파생 흐름이 필요한 자리를 위해 — 조각을 잘라 distinctUntilChanged를 걸 수 있다. */
     protected Observable<Integer> stream() { return _this; }
+
+    /**
+     * <b>그리는 것이 달라졌을 때만</b> 흐르는 조각.
+     *
+     * 이 스토어들은 한 상자에 여러 답을 들고 있어서 "달라졌다"가 하나뿐이었다: 명단이 초당
+     * 한 번 흐르면 그 상자를 읽는 판이 전부 다시 섰고, 그중 아무 소식도 없는 판까지 함께
+     * 깜빡였다. 판이 무엇을 그리는지는 판이 아니까, 그 답을 여기 적어 두고 같으면 흘리지 않는다.
+     */
+    protected Observable<String> when(java.util.function.Supplier<String> drawn) {
+        return _this.map(n -> drawn.get()).distinctUntilChanged();
+    }
 }

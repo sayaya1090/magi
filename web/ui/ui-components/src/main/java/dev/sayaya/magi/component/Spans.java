@@ -1,4 +1,4 @@
-package dev.sayaya.magi.client.domain;
+package dev.sayaya.magi.component;
 
 /**
  * 아직 말이 되는 가장 큰 단위 하나로 줄인 시간 — s/m/h/d는 어느 언어 팩에서도 같다.

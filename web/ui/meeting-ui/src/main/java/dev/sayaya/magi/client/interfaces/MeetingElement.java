@@ -57,7 +57,9 @@ public class MeetingElement {
         // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
         // 만나지 않게(운영 labels$의 그 구독).
         dev.sayaya.magi.bridge.Labels.onPack(this::render);
-        store.subscribe(this::render);
+        // 이 화면이 그리는 것만 — 폴이 같은 답을 다시 가져왔다고 판을 새로 세우지 않는다
+        // (실측: 10초에 20번, 그 사이 사람이 쓰던 말이 사라진다).
+        store.drawn().subscribe(sig -> render());
         // 주소가 방을 바꾸면 그리로 — 셸이 흘리는 주소를 듣는다(뒤로가기도 이 길로 온다).
         DomGlobal.window.addEventListener("popstate", evt -> aim());
         // 두 초마다: 회의는 남이 말해서 바뀐다 — 이 화면만 스트림 밖이라 폴이 그 자리를 대신한다.

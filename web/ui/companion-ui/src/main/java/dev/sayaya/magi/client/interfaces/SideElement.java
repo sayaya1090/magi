@@ -54,8 +54,6 @@ public class SideElement {
         // 명단이 흐를 때마다 다시 묻는다 — 이 셋은 로그에 없어서 흐름에 실려 오지 않는다.
         store.onRoster(list -> {
             rosterList = list;
-            // 이름이 갈 수 있는 곳인지는 명단이 답한다 — 명단이 늦게 오면 그 답도 늦게 온다.
-            lastHands = "";
             refresh();
         });
         store.onContext(c -> refresh());
@@ -87,7 +85,11 @@ public class SideElement {
             sayEmpty();
         });
         store.handoffs(got -> {
-            String sig = got == null ? "" : elemental2.core.Global.JSON.stringify(got);
+            // 이름이 갈 수 있는 곳인지는 명단이 답한다(wayTo) — 그래서 그 답도 서명의 일부다.
+            // 명단이 흐를 때마다 서명을 지우고 있었는데, 그러면 초당 한 번씩 이 카드가 다시
+            // 서고 그 안에서 펼쳐 둔 부탁이 접힌다(실측: 10초에 30번).
+            String sig = (got == null ? "" : elemental2.core.Global.JSON.stringify(got))
+                    + "|" + reachable(got);
             if (sig.equals(lastHands)) return;
             lastHands = sig;
             drawHandoffs(Js.uncheckedCast(got));
@@ -185,6 +187,26 @@ public class SideElement {
     }
 
     /** 건네받은 쪽으로 가는 길 — 명단에 그 이름이 있을 때만 링크가 된다. */
+    /** 이 손길들이 가리키는 이름 중 <b>지금 명단에 있는</b> 것들 — 링크가 되느냐가 여기서 갈린다. */
+    private String reachable(Object list) {
+        if (list == null) return "";
+        StringBuilder b = new StringBuilder();
+        JsArrayLike<Object> hands = Js.uncheckedCast(list);
+        for (int i = 0; i < hands.getLength(); i++) {
+            JsPropertyMap<Object> h = Js.uncheckedCast(hands.getAt(i));
+            String name = str(h, "to");
+            JsArrayLike<Object> all = Js.uncheckedCast(rosterList);
+            for (int j = 0; all != null && j < all.getLength(); j++) {
+                FleetAgent one = Js.uncheckedCast(all.getAt(j));
+                if (name.equals(one.name) && one.socket != null && !one.socket.isEmpty()) {
+                    b.append(name).append('>').append(one.socket).append('|');
+                    break;
+                }
+            }
+        }
+        return b.toString();
+    }
+
     private HTMLElement wayTo(String name) {
         FleetAgent peer = null;
         JsArrayLike<Object> all = Js.uncheckedCast(rosterList);

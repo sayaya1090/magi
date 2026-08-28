@@ -494,6 +494,7 @@ public class ConversationElement {
             // 없고(운영 실측: 탭 띠와 컴포저 사이 378px의 빈 곳), 컴포저는 그대로 둔다 —
             // 다시 띄우면 이어서 말할 자리다.
             lastSig = null;
+            forgetDrawn();
             HTMLElement empty = el("div");
             empty.className = "empty";
             empty.append(DomGlobal.document.createTextNode(tr("state.companion_gone")),
@@ -504,11 +505,18 @@ public class ConversationElement {
         }
     }
 
+    /** 지금 서 있는 행들과 그 말 — 자리로 견주기 위한 것(운영의 shownRows). */
+    private final java.util.List<HTMLElement> drawn = new java.util.ArrayList<>();
+    private final java.util.List<String> sigs = new java.util.ArrayList<>();
+
+    private void forgetDrawn() { drawn.clear(); sigs.clear(); }
+
     private void paintRows(Object rowsOrNull) {
         if (!alive) return;   // 멈춘 컴패니언의 자리에는 그 사정이 서 있다.
         if (rowsOrNull == null) {
             // 아직 모른다 — 이전 컴패니언의 대화가 새 화면에 비치면 안 된다.
             lastSig = null;
+            forgetDrawn();
             log.replaceChildren();
             return;
         }
@@ -517,9 +525,32 @@ public class ConversationElement {
         if (sig.equals(lastSig)) return;
         lastSig = sig;
         boolean stick = atBottom();
-        // 첫 조각은 통째 다시 그린다 — 재사용 윈도우잉은 잔여(원본 draw()의 몫).
-        log.replaceChildren();
-        for (int i = 0; i < rows.getLength(); i++) log.append(rowNode(Js.uncheckedCast(rows.getAt(i))));
+        // 자리로 견주어 <b>달라진 행만</b> 짓는다(운영 draw()의 그 규칙).
+        //
+        // 전사는 한 턴씩 자라고, 통째로 다시 그리면 자란 것 하나 때문에 이미 읽고 있던 행이
+        // 전부 새 노드가 된다 — 펼쳐 둔 툴 결과가 접히고, 고르던 글자가 풀리고, 브라우저는
+        // 매 프레임 화면 전체를 다시 칠한다(실측: 10초에 49번, 그중 새 행은 여섯).
+        for (int i = 0; i < rows.getLength(); i++) {
+            JsPropertyMap<Object> row = Js.uncheckedCast(rows.getAt(i));
+            String want = rowSig(row);
+            HTMLElement had = i < drawn.size() ? drawn.get(i) : null;
+            if (had != null && want.equals(sigs.get(i))) continue;   // 같은 말이면 그대로 둔다
+            HTMLElement made = rowNode(row);
+            if (had == null) {
+                log.append(made);
+                drawn.add(made);
+                sigs.add(want);
+            } else {
+                had.replaceWith(made);
+                drawn.set(i, made);
+                sigs.set(i, want);
+            }
+        }
+        // 남은 것은 이제 없는 행이다(전사가 짧아지는 자리: 컴패니언을 옮기거나 접었을 때).
+        for (int i = drawn.size() - 1; i >= rows.getLength(); i--) {
+            drawn.remove(i).remove();
+            sigs.remove(i);
+        }
         if (stick) toBottom();
     }
 

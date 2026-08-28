@@ -52,7 +52,9 @@ public class MapElement {
         // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
         // 만나지 않게(운영 labels$의 그 구독).
         dev.sayaya.magi.bridge.Labels.onPack(this::render);
-        store.subscribe(this::render);
+        // 명단 전체가 아니라 <b>이 지도가 그리는 것</b>만 듣는다 — 걸음 수가 늘었다고 지도가
+        // 다시 설 이유는 없다(실측: 10초에 70번).
+        store.drawn().subscribe(sig -> render());
         store.start();
     }
 

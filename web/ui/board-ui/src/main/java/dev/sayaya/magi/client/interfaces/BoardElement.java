@@ -74,7 +74,9 @@ public class BoardElement {
         // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
         // 만나지 않게(운영 labels$의 그 구독).
         dev.sayaya.magi.bridge.Labels.onPack(this::render);
-        store.subscribe(this::render);
+        // 명단 전체가 아니라 이 보드가 그리는 것만 — 걸음 수가 늘었다고 하루치 표가 다시
+        // 설 이유는 없다(실측: 10초에 11번).
+        store.drawn().subscribe(sig -> render());
         store.start(todayISO());
     }
 

@@ -52,6 +52,27 @@ public class BoardStore extends dev.sayaya.magi.bridge.Told {
         return histories.get((peer == null ? "" : peer) + "|" + socket);
     }
 
+    /**
+     * 보드가 그리는 것 — 어느 컴패니언들이 있고(이름·소켓), 그들의 지난 일이 무엇이며,
+     * 보는 날과 좁히는 말이 무엇인가. 걸음 수나 지금 무엇을 하는지는 이 화면에 없다.
+     */
+    public dev.sayaya.rx.Observable<String> drawn() { return when(this::sig); }
+
+    private String sig() {
+        StringBuilder b = new StringBuilder(day).append('|').append(query).append('|').append(fleetAnswered);
+        jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(fleet);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            jsinterop.base.JsPropertyMap<Object> a = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+            b.append(a.get("socket")).append(',').append(a.get("name")).append(',')
+             .append(a.get("peer")).append(',').append(a.get("team")).append(';');
+        }
+        for (Map.Entry<String, Object> e : histories.entrySet()) {
+            b.append('|').append(e.getKey()).append('=')
+             .append(e.getValue() == null ? "" : elemental2.core.Global.JSON.stringify(e.getValue()));
+        }
+        return b.toString();
+    }
+
     public Object fleet() { return fleet; }
     public boolean fleetAnswered() { return fleetAnswered; }
     public String day() { return day; }

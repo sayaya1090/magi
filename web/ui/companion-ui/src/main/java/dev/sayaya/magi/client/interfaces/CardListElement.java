@@ -3,7 +3,7 @@ package dev.sayaya.magi.client.interfaces;
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
-import dev.sayaya.magi.client.domain.Spans;
+import dev.sayaya.magi.component.Spans;
 import dev.sayaya.magi.client.domain.Versions;
 import dev.sayaya.magi.client.usecase.FleetCommander;
 import elemental2.dom.DomGlobal;
