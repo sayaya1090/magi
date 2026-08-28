@@ -254,7 +254,7 @@ MCP로 내놓으면 한 세션 안에 **저장소 도구와 덱 도구가 같이
 | 서버가 죽으면 도구가 사라진다 | magi의 MCP 매니저가 자동 제거 | ✅ 있음 |
 | 손이 사라지면 턴 보류 | (없음 — 도구가 그냥 실패한다) | ⚠ §5.4 |
 
-### 4.4 MCP가 안 주는 것 — 넷, 전부 코드로 확인했다
+### 4.4 MCP가 안 주는 것 — 다섯, 전부 코드로 확인했다
 
 **① 모델에게 이미지를 보낼 길이 없다. 세 층이고, 이게 제일 크다.**
 
@@ -399,6 +399,79 @@ allow = ["mcp__ppt__list_*(**)", "mcp__ppt__read_*(**)", "mcp__ppt__render_*(**)
 **④ MCP에 scope 개념이 없다.** 어느 문서를 고치라는 것인지 MCP는 모른다. 그래서 **도구 인자로
 받는다** — 모든 도구가 `document`를 받고, 생략하면 지금 활성 문서다. 애드인이 여럿(창이 여럿)이면
 헬퍼가 그 인자로 손을 고른다(§5.6).
+
+**⑤ MCP 도구는 "내가 파일을 고친다"고 말할 길이 없다.** (2026-08-28에 새로 생긴 항목이다.)
+
+코어에 `port.FileTool`이 들어왔다("a tool says it edits files, instead of magi recognising three
+names"). **"이 호출은 파일 편집이었다"에 다섯 가지가 매달려 있다** — 비밀·가드레일 거부 바닥,
+카운슬에게 보여 줄 호출 전 스냅샷, 편집 후 진단 패스, 반복 가드의 경로별 epoch, 이번 턴에 무엇이
+바뀌었는지의 기록. 지금까지 이 다섯이 **툴 이름**으로 판정됐다(`write`/`edit`/`multiedit`, 읽기 쪽은
+`read`/`grep`/`glob`/`list`). 커밋이 든 동기 사례가 정확히 우리다 — *"an editor plugin attaches a
+tool that edits the same workspace and is called mcp\_\_jetbrains\_\_edit; a slide add-in the same."*
+
+**그런데 선언할 자리가 아직 없다. 실측했다.**
+
+- 비-테스트 Go 전체에서 `FileArg`/`WritesFile`를 구현하는 타입이 **0개**다. 나오는 곳은 선언
+  (`internal/port/port.go`)과 읽는 곳(`internal/app/filetools.go`의 `touchesFileIn`) 둘뿐이다.
+- `touchesFileIn`은 `reg.Get(name)`이 돌려준 값을 `port.FileTool`로 타입 단언한다. MCP 도구가
+  레지스트리에 드는 값은 `internal/adapter/mcp/tool.go`의 `mcpTool`이고, 이 타입은
+  `Name`/`Description`/`Schema`/`Execute` 넷만 갖는다.
+- 전선에도 자리가 없다. `internal/adapter/mcp/jsonrpc.go`의 `toolDef`는 `{name, description,
+  inputSchema}`뿐이고, MCP 표준의 `annotations`(`readOnlyHint` 등)를 **파싱하지 않는다**.
+
+그러니 **이음매는 섰고 우리가 꽂을 구멍은 아직 없다.** 필요한 두 반쪽 중 `writes`는 MCP 표준
+`annotations.readOnlyHint`가 이미 자리를 갖고 있으므로 파싱만 하면 되고, `fileArg`는 표준에 없어서
+magi 규약이 필요하다(입력 스키마의 `x-magi-file-arg`가 후보다). **이름 규칙과 마찬가지로 정하는 쪽이
+붙이는 쪽이므로 우리가 제안한다.**
+
+**그런데 우리가 선언하면 다섯 중 둘만 우리 것이다.** 셋을 하나씩 재 보면:
+
+| 매달린 것 | 덱에 걸면 |
+| --- | --- |
+| 비밀·가드레일 바닥 | `.pptx`는 `secretGlobs`에도 `guardrailGlobs`에도 없다 — 걸릴 것이 없다 |
+| 편집 후 진단 | `internal/app/hooks.go`가 `filepath.Ext(path) == ".go"`로 막는다 — 덱에는 안 돈다 |
+| 카운슬 before→after | **아래 참조** |
+| 반복 가드 epoch | 유용하다 — 같은 슬라이드를 계속 고치는 것을 세는 축이 생긴다 |
+| 턴 변경 기록 | 유용하다 — "이 턴에 덱이 바뀌었다"가 증거로 선다 |
+
+**그리고 before→after 자리에 결함이 하나 있다. 재서 확인했다.** 스냅샷은
+`internal/app/guard.go`의 `readForChange`인데 **256 KiB에서 끊고, 넘으면 `("", false)`를
+돌려준다** — "부분은 파일이 아니다"라는 옳은 판단이다. 문제는 그 답을 받는 쪽이다:
+
+```
+readForChange(300KiB)  before="" readable=false  exists=true
+  파일-툴 가지  (changeBefore == "" && pathExists) = true    ← tool_outcome.go
+  bash 가지     (!existedBefore  && pathExists)    = false   ← 같은 파일, 다른 질문
+```
+
+**한 질문에 두 답이 있고, 틀린 쪽이 다른 쪽 주석이 경고하는 바로 그 답이다.** bash 쪽은 내용이
+아니라 **stat**(`existedBefore`)으로 묻고 그 이유를 적어 두었다 — *"An absent path and an empty file
+both read as '', so content alone cannot tell a creation or a deletion from a no-op."* 파일-툴 쪽은
+내용으로 묻는다. `readForChange`가 준 `changeReadable`은 **저널로만 가고**(`execute.go`, `depth > 0`)
+이 가지는 읽지 않는다. 그래서 **256 KiB를 넘는 파일에 쓰기가 일어나면 매번 "이 런이 그 경로를
+만들었다"로 기록된다.** `.pptx`는 사실상 항상 그 위다.
+
+그 기록이 무엇을 하는지도 실측했다 — `didCreate`를 읽는 유일한 자리가 되돌릴 수 없는 명령의
+카운슬 게이트다(`internal/app/irreversible.go`):
+
+```
+rm -rf ~/Decks/q3.pptx   didCreate=false -> council gate=true  "rm -rf /Users/…/q3.pptx"
+rm -rf ~/Decks/q3.pptx   didCreate=true  -> council gate=false ""
+```
+
+**오늘은 무해하다.** 빌트인 파일 도구는 워크스페이스 감옥 안에만 쓰고, 게이트는 트리 **밖** 경로만
+보므로 둘이 만나지 않는다. **선언한 MCP 파일 도구가 그 만남을 만든다** — 감옥은 빌트인의
+`resolvePath`에 있지 정책에 있지 않아서, 선언된 경로는 트리 밖일 수 있다. 덱 둘째 장을 다른
+폴더에서 열면 정확히 그 모양이고, `.pptx`는 언제나 256 KiB를 넘는다. 그러면 **덱을 지우는 명령이
+게이트를 건너뛴다.**
+
+고치는 자리가 코어라 여기서 정하지 않는다. 보낸 제안은 파일-툴 가지도 bash 가지처럼 **stat으로**
+묻는 것이다 — `changeReadable`은 이미 손에 있고, `existedBefore`에 해당하는 값은 그 옆의
+`pathExists`를 호출 **전에** 한 번 부르면 된다.
+
+**우리 쪽 결정은 하나 남는다: 선언할 것인가.** 지금 답은 **선언한다**이다 — 얻는 둘(epoch, 턴 기록)이
+실제로 우리 것이고, 못 얻는 셋은 손해가 아니라 무관이다. 다만 **위 결함이 닫히기 전에는 선언하지
+않는다.** 순서가 반대면 우리가 게이트를 끄는 첫 사례가 된다.
 
 ### 4.5 전송은 HTTP여야 한다 — stdio가 아니라
 
