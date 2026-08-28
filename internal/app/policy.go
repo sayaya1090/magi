@@ -24,6 +24,18 @@ import (
 type Policy struct {
 	allow []policyRule
 	deny  []policyRule
+	// secret and guardrail are the built-in floors, held as patterns rather than as rules bound to
+	// tool names. They used to be expanded into one rule per name × glob for "read", "write",
+	// "edit", "multiedit" — exact while those were the only file tools, and silently empty for a
+	// tool that edits the same workspace under a name nobody listed. They are now matched against
+	// any call that says it touches a file (port.FileTool), which is decided per call by touches.
+	secret       []*regexp.Regexp
+	secretRaw    []string
+	guardrail    []*regexp.Regexp
+	guardrailRaw []string
+	// touches answers whether a call opens a file and whether it writes it. nil = the builtin
+	// names, which is what a Policy built without a registry behind it has always meant.
+	touches func(tool string, args json.RawMessage) (fileTouch, bool)
 	// allowDomains, when non-empty, restricts WebFetch/bash egress to these hosts
 	// (and subdomains); any other host is denied. Empty = no host allowlist.
 	allowDomains []string
@@ -93,20 +105,16 @@ func newPolicy(allow, deny, allowDomains []string) *Policy {
 			p.allow = append(p.allow, pr)
 		}
 	}
-	// Default secret protections come first, then user deny rules. Built directly rather than through
-	// parseRule so the regex is compiled with a case fold (compileGlob(g, true)) — see compileGlob.
+	// The two built-in floors. Compiled with a case fold (compileGlob(g, true)) — see compileGlob —
+	// and held as patterns, not as rules bound to a list of tool names: which calls they apply to
+	// is a question about the CALL (does it open a file?) and is asked per call in Decide.
 	for _, g := range secretGlobs {
-		re := compileGlob(g, true)
-		for _, t := range []string{"read", "write", "edit", "multiedit"} {
-			p.deny = append(p.deny, policyRule{tool: t, raw: g, re: re})
-		}
+		p.secret = append(p.secret, compileGlob(g, true))
+		p.secretRaw = append(p.secretRaw, g)
 	}
-	// Writes only: see guardrailGlobs. Folded for the same reason as the secrets.
 	for _, g := range guardrailGlobs {
-		re := compileGlob(g, true)
-		for _, t := range []string{"write", "edit", "multiedit"} {
-			p.deny = append(p.deny, policyRule{tool: t, raw: g, re: re})
-		}
+		p.guardrail = append(p.guardrail, compileGlob(g, true))
+		p.guardrailRaw = append(p.guardrailRaw, g)
 	}
 	for _, r := range deny {
 		if pr, ok := parseRule(r); ok {
@@ -221,6 +229,24 @@ func (p *Policy) Decide(toolName string, args json.RawMessage) (verdict, reason 
 	tool := strings.ToLower(toolName)
 	subj := subjectOf(tool, args)
 
+	// The built-in floors, applied to whatever this call says it opens. A secret is refused to
+	// readers and writers alike; the guardrail paths only to writers — .magi/config.toml is a file
+	// the agent may read and may not rewrite.
+	if touch, ok := p.fileTouch(toolName, args); ok && touch.path != "" {
+		for i, re := range p.secret {
+			if re.MatchString(touch.path) {
+				return "deny", "matches deny rule " + toolName + "(" + p.secretRaw[i] + ")"
+			}
+		}
+		if touch.writes {
+			for i, re := range p.guardrail {
+				if re.MatchString(touch.path) {
+					return "deny", "matches deny rule " + toolName + "(" + p.guardrailRaw[i] + ")"
+				}
+			}
+		}
+	}
+
 	for _, r := range p.deny {
 		if r.matches(tool, subj) {
 			return "deny", "matches deny rule " + ruleString(tool, r)
@@ -260,6 +286,16 @@ func (p *Policy) Decide(toolName string, args json.RawMessage) (verdict, reason 
 	return "", ""
 }
 
+// fileTouch asks what this call does to a file, through whatever the policy was given. A Policy
+// with no answer behind it falls back to the builtin names, which is what it did before a tool
+// could say so itself.
+func (p *Policy) fileTouch(tool string, args json.RawMessage) (fileTouch, bool) {
+	if p.touches != nil {
+		return p.touches(tool, args)
+	}
+	return touchesFileIn(nil, tool, args)
+}
+
 // AllowedByRule reports whether an explicit allow rule covers the call, letting
 // the loop skip the interactive prompt.
 func (p *Policy) AllowedByRule(toolName string, args json.RawMessage) bool {
@@ -287,17 +323,37 @@ func scanBash(cmd string, p *Policy) string {
 	if bashEgress.MatchString(cmd) {
 		return "network egress command"
 	}
-	// A bash command that names a secret-protected path.
+	// A bash command that names a protected path: the built-in floors, and any path rule the
+	// operator wrote. A shell command is not a file tool — nothing declares what it opens — so this
+	// is the one place that still has to guess, by matching each token of the command.
 	for _, r := range p.deny {
 		if r.domain || r.re == nil {
 			continue
 		}
-		// Match the rule's path glob against each whitespace token of the command.
-		for _, tok := range strings.Fields(cmd) {
-			tok = strings.Trim(tok, `"'`)
-			if r.re.MatchString(tok) {
-				return "command references a protected path (" + r.raw + ")"
-			}
+		if tok := firstTokenMatching(cmd, r.re); tok != "" {
+			return "command references a protected path (" + r.raw + ")"
+		}
+	}
+	for i, re := range p.secret {
+		if tok := firstTokenMatching(cmd, re); tok != "" {
+			return "command references a protected path (" + p.secretRaw[i] + ")"
+		}
+	}
+	for i, re := range p.guardrail {
+		if tok := firstTokenMatching(cmd, re); tok != "" {
+			return "command references a protected path (" + p.guardrailRaw[i] + ")"
+		}
+	}
+	return ""
+}
+
+// firstTokenMatching returns the first whitespace token of a command that the pattern matches,
+// quotes stripped, or "" when none does.
+func firstTokenMatching(cmd string, re *regexp.Regexp) string {
+	for _, tok := range strings.Fields(cmd) {
+		tok = strings.Trim(tok, `"'`)
+		if re.MatchString(tok) {
+			return tok
 		}
 	}
 	return ""

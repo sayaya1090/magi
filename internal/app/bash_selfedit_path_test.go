@@ -38,7 +38,7 @@ func TestBashSelfEditNamesTheFileItIsAbout(t *testing.T) {
 	tc := &session.ToolCall{CallID: "c", Name: "bash",
 		Args: json.RawMessage(`{"command":` + strconv.Quote(cmd) + `}`)}
 	res := session.ToolResult{CallID: "c", Content: json.RawMessage(`"exit 0"`)}
-	a.noteToolOutcome(sid, newRunGuard(), toolOutcome{
+	a.noteToolOutcome(sid, newRunGuard(nil), toolOutcome{
 		tc: tc, res: &res, workdir: dir, fp: "fp", novel: true, toolOK: true,
 		bashChanges: changes,
 	})

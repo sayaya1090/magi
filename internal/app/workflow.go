@@ -329,7 +329,7 @@ func (a *App) fileEditsSince(ctx context.Context, sid session.SessionID, fromSeq
 		}
 		switch d.Part.Kind {
 		case session.PartToolCall:
-			if d.Part.ToolCall != nil && fileModifiers[d.Part.ToolCall.Name] {
+			if d.Part.ToolCall != nil && a.changesFile(d.Part.ToolCall.Name) {
 				modCall[d.Part.ToolCall.CallID] = true
 			}
 		case session.PartToolResult:

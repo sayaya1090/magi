@@ -18,7 +18,7 @@ func TestAWorkingTurnMustDeclareItIsFinished(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	a.cfg.Workflow = false
 	ctx := context.Background()
-	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard()}
+	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard(nil)}
 	ts := &turnState{}
 
 	act, done := a.requireFinishDeclaration(ctx, tc, true, "", ts)
@@ -63,7 +63,7 @@ func TestNoCouncilNoDeclarationRequired(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	a.cfg.Workflow = false
 	ctx := context.Background()
-	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard()}
+	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard(nil)}
 	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", &turnState{}); done {
 		t.Error("without a council the turn must be free to end")
 	}
@@ -184,7 +184,7 @@ func TestWorkDoneSinceTheLastAskRestartsTheBudget(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	a.cfg.Workflow = false
 	ctx := context.Background()
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: g}
 	ts := &turnState{}
 
@@ -220,7 +220,7 @@ func TestBusyworkSinceTheLastAskDoesNotRestartTheBudget(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
 	a.cfg.Workflow = false
 	ctx := context.Background()
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: g}
 	ts := &turnState{}
 

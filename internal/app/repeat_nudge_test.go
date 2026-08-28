@@ -19,7 +19,7 @@ import (
 func TestTheRepeatNudgeDoesNotInventAFailure(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	s := a.sessionInfo(context.Background(), sid)
-	tc := turnCtx{s: s, agent: AgentSpec{Name: "coder"}, guard: newRunGuard()}
+	tc := turnCtx{s: s, agent: AgentSpec{Name: "coder"}, guard: newRunGuard(nil)}
 	tc.guard.blocked = nudgeThreshold // the same call, counted past the threshold
 	if kind := tc.guard.shouldNudge(); kind != "blocked" {
 		t.Fatalf("an exact repeat past the threshold is the blocked nudge, got %q", kind)

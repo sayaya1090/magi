@@ -14,7 +14,7 @@ import "testing"
 // left never reached contentHist and the count magi states as fact ("returned to a state it
 // already held N times, among M distinct versions") ran behind the truth from then on.
 func TestARepeatedBashWriteCommandStillGetsItsContentRead(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	cmd := "cat > f.vim << 'EOF'\nA\nEOF\n"
 
 	authored, reset := g.noteBashWrite(cmd)
@@ -44,7 +44,7 @@ func TestARepeatedBashWriteCommandStillGetsItsContentRead(t *testing.T) {
 // retractProgress must not take back a bump that was never made, or it steals the window from an
 // earlier, real mutation.
 func TestRetractionNeedsABumpToTakeBack(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	// Climb the window a little, then make a real mutation that resets it.
 	for i := 0; i < 5; i++ {
 		g.check("bash", nil)

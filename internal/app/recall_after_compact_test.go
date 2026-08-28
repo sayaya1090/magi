@@ -12,7 +12,7 @@ import (
 // (qemu-alpine-ssh, 2026-07-31): topic "setup_alpine.py" recalled 4 messages, then refused 48
 // events later.
 func TestATopicMayBeRecalledAgainAfterItsContentWasCompactedAway(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 
 	ok, why := g.allowRecall("setup_alpine.py")
 	if !ok {
@@ -35,7 +35,7 @@ func TestATopicMayBeRecalledAgainAfterItsContentWasCompactedAway(t *testing.T) {
 // allowance — it only makes one more request legitimate. A reset count would let recall→compact→
 // recall spin, which is the loop the budget exists to stop.
 func TestCompactionDoesNotRefillTheRecallBudget(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	for i := 0; i < recallBudget; i++ {
 		if ok, why := g.allowRecall(string(rune('a' + i))); !ok {
 			t.Fatalf("topic %d must fit in the budget: %s", i, why)

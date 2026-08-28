@@ -29,7 +29,7 @@ import (
 // These lock the record that brings the guard back without the gutter.
 
 func TestAnAnchorOntoAShiftedLineIsRefused(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "internal/app/loop.go"
 
 	// What the agent was shown: the read tool's own gutter, `N\tcontent`.
@@ -44,7 +44,7 @@ func TestAnAnchorOntoAShiftedLineIsRefused(t *testing.T) {
 }
 
 func TestAnUnchangedAnchorIsAllowed(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "internal/app/loop.go"
 	g.noteReadLines(p, "10\tfunc run() {\n11\t\tstart()\n12\t}")
 
@@ -57,7 +57,7 @@ func TestAnUnchangedAnchorIsAllowed(t *testing.T) {
 // The guard answers only where it has a record. A file the agent never read is not evidence of
 // drift, and treating it as such would refuse edits that were fine before this existed.
 func TestAnUnreadFileIsNotRefused(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if g.anchorDrifted("never/read.go", 3, "a\nb\nc\n") {
 		t.Fatal("no record is not evidence of drift")
 	}
@@ -70,7 +70,7 @@ func TestAnUnreadFileIsNotRefused(t *testing.T) {
 // An anchor past the end is checkAnchor's to report — it says how many lines the file has, which is
 // what the agent needs. Answering "drifted" here would replace that with a worse message.
 func TestPastEndIsLeftToTheBoundsCheck(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.noteReadLines("x.go", "1\tone\n2\ttwo\n3\tthree")
 	if g.anchorDrifted("x.go", 3, "one\ntwo") {
 		t.Fatal("past-end is reported by checkAnchor, not by the drift guard")
@@ -80,7 +80,7 @@ func TestPastEndIsLeftToTheBoundsCheck(t *testing.T) {
 // Half a file's record is worse than none: the tracked half would refuse and the untracked half
 // would allow, so the guard would be firing on where the line sits rather than on whether it moved.
 func TestAPathPastTheLineCapIsDroppedEntirely(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "huge.txt"
 	big := ""
 	for i := 1; i <= maxShownLinesPerPath+50; i++ {
@@ -102,7 +102,7 @@ func TestTheGateRefusesAnEditOntoAShiftedAnchor(t *testing.T) {
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	s := session.Session{ID: sid, Workdir: wd}
 	actor := event.Actor{Kind: event.ActorAgent, ID: "main"}
-	g := newRunGuard()
+	g := newRunGuard(nil)
 
 	if err := os.WriteFile(filepath.Join(wd, "loop.go"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestAStaleAnchoredEditNeverReachesTheFile(t *testing.T) {
 
 	s := a.sessionInfo(ctx, sid)
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
-	guard := newRunGuard()
+	guard := newRunGuard(nil)
 	guard.noteReadLines("loop.go", "1\tone\n2\ttwo\n3\tthree")
 
 	// The file shifts under the agent between its read and its edit.

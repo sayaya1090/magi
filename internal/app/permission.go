@@ -107,7 +107,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			// Accept-edits: file modifications are auto-approved, but commands and
 			// network access (bash/webfetch) still prompt — the convenient default
 			// for an editing session without going full YOLO.
-			if fileModifiers[tc.Name] {
+			if a.changesFile(tc.Name) {
 				return true
 			}
 			// Non-edit tools fall through to the interactive "ask" path below.

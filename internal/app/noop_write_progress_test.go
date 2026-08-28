@@ -28,7 +28,7 @@ func TestAnIdenticalWriteIsNotProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	g := newRunGuard()
+	g := newRunGuard(nil)
 
 	// One write call. The bytes written are always what the file already holds; only the tool
 	// call's identity varies, which is what a fresh signature amounts to.
@@ -75,7 +75,7 @@ func TestAnIdenticalWriteIsNotProgress(t *testing.T) {
 func TestAWriteMagiCouldNotReadBackKeepsItsProgress(t *testing.T) {
 	dir := t.TempDir()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	missing := filepath.Join(dir, "never-written.js")
 
 	args, err := json.Marshal(map[string]string{"path": missing, "content": "x"})
@@ -101,7 +101,7 @@ func TestAWriteMagiCouldNotReadBackKeepsItsProgress(t *testing.T) {
 func TestIdenticalBytesToADifferentFileIsStillProgress(t *testing.T) {
 	dir := t.TempDir()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const body = "shared boilerplate\n"
 
 	for i, name := range []string{"a.js", "b.js"} {

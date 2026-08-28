@@ -54,17 +54,18 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	// identical follow-up commands (e.g. re-running the test) are no longer read as a repeat.
 	mutatedReset := false // did mutated() reset the progress counters THIS call?
 	if guard != nil && guardFP != "" {
-		if !res.IsError && fileModifiers[tc.Name] {
-			if p := strings.TrimSpace(pathArg(tc.Args)); p != "" && changeBefore == "" &&
+		touch, touchesFile := a.touchesFile(tc.Name, tc.Args)
+		if !res.IsError && touchesFile && touch.writes {
+			if p := strings.TrimSpace(touch.path); p != "" && changeBefore == "" &&
 				pathExists(workdir, p) {
 				// Empty before + present after: this call is what made it.
 				guard.noteCreated(absUnder(workdir, p))
 			}
-			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
+			mutatedReset = guard.mutated(touch.path, canonicalArgs(tc.Args))
 			if mutatedReset {
 				// The file's contents are new, so what magi has already shown of it no longer
 				// describes it: reading it again is gathering information, not circling.
-				guard.dropReadCoverage(relForChange(workdir, pathArg(tc.Args)))
+				guard.dropReadCoverage(relForChange(workdir, touch.path))
 				a.bumpProductive(sid) // a real new version — productivity evidence (currently unread — see liveness.go)
 			}
 		}
@@ -250,7 +251,7 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 		// reading several DIFFERENT files — must not climb toward the stall nudge.
 		// File modifiers go through mutated(); bash is handled above; a spawn/report is
 		// its own path. Everything else here is inspection.
-		if !res.IsError && tc.Name != "bash" && !fileModifiers[tc.Name] && tc.Name != "task" {
+		if !res.IsError && tc.Name != "bash" && !(touchesFile && touch.writes) && tc.Name != "task" {
 			novel := guardNovel
 			// A read's fingerprint carries its offset, so shifting the window two lines makes a
 			// re-read first-seen. Ask what the read actually DELIVERED instead: coverage magi has
@@ -295,7 +296,7 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	// Record the agent's before→after change for the council. Gate on the tool's own success
 	// (toolOK), NOT res.IsError — a write that landed but failed gofmt/a hook is exactly the
 	// broken change the council should scrutinize, and must not read as a no-op turn.
-	if guard != nil && changePath != "" && toolOK && fileModifiers[tc.Name] {
+	if guard != nil && changePath != "" && toolOK && a.changesFile(tc.Name) {
 		rel := relForChange(workdir, changePath)
 		after, _ := readForChange(workdir, changePath)
 		guard.recordChange(rel, changeBefore, after)

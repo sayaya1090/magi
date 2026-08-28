@@ -239,7 +239,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	guard := newRunGuard()
+	guard := newRunGuard(a.touchesFile)
 	ts := turnState{} // per-turn mutable bookkeeping (finish guards, council accounting); zeroed field-wise on reground
 	tc := turnCtx{s: s, agent: agent, depth: depth, maxSteps: maxSteps, actor: agentActor, runStart: runStart, guard: guard}
 	// The turn's scratch directory: captured command output, and the TMPDIR every command runs
@@ -835,7 +835,7 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		// dangerGated rather than the raw map, so an MCP tool is serialized too: it can
 		// prompt (there is one modal slot), and what it does on its server is not
 		// something magi can prove read-only.
-		if fileModifiers[tc.Name] || a.dangerGated(tc.Name) {
+		if a.changesFile(tc.Name) || a.dangerGated(tc.Name) {
 			return false
 		}
 		// A subagent runs a whole child turn, which writes files under the PARENT's guard — and the

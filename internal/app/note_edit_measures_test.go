@@ -21,7 +21,7 @@ import (
 // COBOL binary over those same files and printed the post-restore result, proving the copy took.
 func TestTheNothingChangedNoteIsMeasuredNotRecalled(t *testing.T) {
 	const orig, applied = "balance 1180", "balance 0980"
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "data/ACCOUNTS.DAT"
 
 	// First restore: the file really moves, and magi records both states.
@@ -58,7 +58,7 @@ func TestTheNothingChangedNoteIsMeasuredNotRecalled(t *testing.T) {
 
 // The ordinary path is unchanged: a file magi has watched the whole way still reads the same.
 func TestAnObservedFileReadsTheSameAsBefore(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "main.go"
 	if warn, _ := g.noteEdit(p, "A", "B"); warn != "" {
 		t.Errorf("forward progress is silent: %s", warn)

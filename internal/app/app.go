@@ -131,6 +131,9 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 	// Every other path writes through a store that flushes a held session.created first. See
 	// bornStore: the rule belongs to the seam, not to each caller that remembers it.
 	a.store = bornStore{Store: store, app: a}
+	// The floors ask the CALL what file it opens, and a tool can answer for itself now (see
+	// port.FileTool). Set after the App exists because the answer goes through its registry.
+	a.policy.touches = a.touchesFile
 	return a
 }
 

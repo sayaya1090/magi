@@ -106,7 +106,7 @@ func TestSystemForCarriesOutputFormatGuide(t *testing.T) {
 // TestNoteEditRevertToBaseline: editing a file and then restoring its pre-turn content
 // is a self-revert and must be flagged.
 func TestNoteEditRevertToBaseline(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "a.go"
 	// First edit: baseline "orig" → "fixed". The `before` seeds the baseline.
 	if w, _ := g.noteEdit(path, "orig", "fixed"); w != "" {
@@ -121,7 +121,7 @@ func TestNoteEditRevertToBaseline(t *testing.T) {
 
 // TestNoteEditOscillation: returning to an earlier (non-baseline) state also flags.
 func TestNoteEditOscillation(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "a.go"
 	g.noteEdit(path, "orig", "v1") // baseline orig, now v1
 	g.noteEdit(path, "v1", "v2")   // now v2
@@ -136,7 +136,7 @@ func TestNoteEditOscillation(t *testing.T) {
 // but that was written while the guard could still stop the turn. It cannot, so a swing nobody
 // mentions is one the agent never learns about (see TestEverySwingIsReportedNotJustTheFirst).
 func TestNoteEditReportsAndRegressesEverySwing(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "a.go"
 	if w, r := g.noteEdit(path, "orig", "A"); w != "" || r {
 		t.Fatalf("forward edit: want (\"\", false), got (%q, %v)", w, r)
@@ -157,7 +157,7 @@ func TestNoteEditReportsAndRegressesEverySwing(t *testing.T) {
 
 // TestNoteEditForwardProgress: distinct new states never warn.
 func TestNoteEditForwardProgress(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "a.go"
 	for i, after := range []string{"v1", "v2", "v3", "v4"} {
 		before := "orig"
@@ -175,7 +175,7 @@ func TestNoteEditForwardProgress(t *testing.T) {
 // not reach it (its fingerprint carried a shared epoch that any other mutation reset), so 17 of one
 // turn's 24 writes changed nothing and the agent was never told.
 func TestNoteEditIdempotent(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "a.go"
 	g.noteEdit(path, "orig", "fixed")
 	w, regressed := g.noteEdit(path, "fixed", "fixed")
@@ -191,7 +191,7 @@ func TestNoteEditIdempotent(t *testing.T) {
 // ignore; each later one states the pattern and how big it has grown, because by then "I meant to do
 // that" no longer explains it.
 func TestNoteEditEscalatesAcrossOscillation(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "a.go"
 	g.noteEdit(path, "orig", "fixed")
 	first, _ := g.noteEdit(path, "fixed", "orig")
@@ -213,7 +213,7 @@ func TestNoteEditEscalatesAcrossOscillation(t *testing.T) {
 // land the run behind it; that force-stop is gone, and this kind has not been re-armed —
 // see TestTheStalledNudgeKeepsSayingItWhileNothingChanges for the kind that was.)
 func TestShouldNudge(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if g.shouldNudge() != "" {
 		t.Fatal("should not nudge with zero blocked repeats")
 	}
@@ -236,7 +236,7 @@ func TestShouldNudge(t *testing.T) {
 // Unlike the blocked nudge it RE-ARMS — it fires again after each further noProgressNudge
 // window with no mutation — but only every window, not every step.
 func TestShouldNudgeStalled(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.sinceProgress = noProgressNudge - 1
 	if g.shouldNudge() != "" {
 		t.Fatal("should not nudge below the no-progress threshold")
@@ -272,7 +272,7 @@ func TestShouldNudgeStalled(t *testing.T) {
 // Speech is the only lever this project uses; rationing it bought nothing. Twenty windows here is
 // not a new cap — it is more than any real run reaches, and it fails if a cap comes back.
 func TestTheStalledNudgeKeepsSayingItWhileNothingChanges(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	for i := 1; i <= 20; i++ {
 		g.sinceProgress = noProgressNudge * i
 		if got := g.shouldNudge(); got != "stalled" {
@@ -284,7 +284,7 @@ func TestTheStalledNudgeKeepsSayingItWhileNothingChanges(t *testing.T) {
 // A window with no motion still gets its nudge — that is the case the collapse used to swallow,
 // and it is exactly the case a nudge is for.
 func TestAWindowWithNoMotionStillGetsItsNudge(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.sinceProgress = noProgressNudge
 	if g.shouldNudge() != "stalled" {
 		t.Fatal("the first nudge should fire")
@@ -301,7 +301,7 @@ func TestAWindowWithNoMotionStillGetsItsNudge(t *testing.T) {
 // A real mutation restarts the window, so it does not spend a nudge — an agent that edited a file
 // in response to the redirect is not treated as stalled.
 func TestAMutationRestartsTheStallWindow(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.sinceProgress = noProgressNudge
 	if g.shouldNudge() != "stalled" {
 		t.Fatal("the first nudge should fire")
@@ -318,7 +318,7 @@ func TestAMutationRestartsTheStallWindow(t *testing.T) {
 // TestNoteBashExecNovelty (D18a): a NOVEL (first-seen) non-inspect exercising command sets the
 // progressSinceNudge motion flag; a repeat (novel=false) and any inspect-only command never set it.
 func TestNoteBashExecNovelty(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.noteBashExec("python x.py", true) // novel exercise → motion
 	if !g.progressSinceNudge {
 		t.Fatal("a novel exercise is motion")
@@ -348,7 +348,7 @@ func TestNoteBashExecNovelty(t *testing.T) {
 // and abort the recovery. The mutation epoch and captured changeSet (the parent's own edits)
 // must survive the reset.
 func TestResetStall(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	// Drive the stall accounting well into a stall: several nudges spent, window climbed.
 	const windows = 3
 	for i := 1; i <= windows; i++ {
@@ -384,7 +384,7 @@ func TestResetStall(t *testing.T) {
 // on every swing and the stall force-stop never accumulates (the implement→revert timeout seen in
 // self-verification #01, where council never even convened before the wall-clock killed the run).
 func TestRegressiveEditWithholdsProgress(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "calc.go"
 	// edit replays one oscillation swing exactly as the loop body does: count the tool call, record
 	// the mutation (which resets progress), then run the content check and retract on a self-revert.
@@ -431,7 +431,7 @@ func TestRegressiveEditWithholdsProgress(t *testing.T) {
 // progress); an idempotent rewrite is neither; and the count is per-PATH, so a different file
 // starts its own.
 func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "calc.go"
 
 	// Forward edit orig→stub: new state, forward progress — no warning, not regressed.
@@ -464,7 +464,7 @@ func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
 // epoch (progress), while re-running the identical write does not — the tool-agnostic
 // twin of write/edit's epoch rule, so bash-heavy tasks don't misfire stall nudges.
 func TestBashWriteCountsAsProgress(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.sinceProgress = noProgressNudge - 1
 	if authored, _ := g.noteBashWrite("echo hi > out.txt"); !authored {
 		t.Fatal("a redirect write should be recorded")
@@ -488,7 +488,7 @@ func TestBashWriteCountsAsProgress(t *testing.T) {
 // stall window, so a later stall gets a fresh nudge (and the per-run cap is not consumed by
 // windows that were separated by genuine progress within the same firing).
 func TestShouldNudgeStalledReArmsAfterMutation(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.sinceProgress = noProgressNudge
 	if g.shouldNudge() != "stalled" {
 		t.Fatal("should nudge (stalled) at the threshold")
@@ -506,7 +506,7 @@ func TestShouldNudgeStalledReArmsAfterMutation(t *testing.T) {
 // TestSinceProgressResetOnMutation: a real file mutation restarts the no-progress count,
 // so re-running a command after a genuine edit is not counted as a stall.
 func TestSinceProgressResetOnMutation(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	for i := 0; i < noProgressNudge; i++ {
 		g.check("bash", json.RawMessage(`{"command":"echo `+strconv.Itoa(i)+`"}`))
 	}
@@ -521,7 +521,7 @@ func TestSinceProgressResetOnMutation(t *testing.T) {
 
 // TestNoteEditPerFile: histories are independent per path.
 func TestNoteEditPerFile(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.noteEdit("a.go", "origA", "fixA")
 	g.noteEdit("b.go", "origB", "fixB")
 	if w, _ := g.noteEdit("b.go", "fixB", "origB"); w == "" {

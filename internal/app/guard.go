@@ -58,7 +58,11 @@ const (
 // loop if nothing changed between calls — so re-running a test after editing the file
 // under test (the correct thing to do) is allowed, instead of being blocked blind.
 type runGuard struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// touches answers what a call does to a file: the path from its own arguments, and whether it
+	// writes. A function rather than a name list because a tool can now say so itself — an editor
+	// plugin's edit tool is called mcp__jetbrains__edit and by name is nothing.
+	touches func(name string, args json.RawMessage) (fileTouch, bool)
 	seen    map[string]int
 	lastMut map[string]string // path → last mutation signature, to ignore idempotent rewrites
 	epoch   int               // bumped on each real file mutation; part of the fingerprint
@@ -162,8 +166,17 @@ type fileChange struct {
 	after  string // content just after the LATEST edit
 }
 
-func newRunGuard() *runGuard {
+// newRunGuard builds the guard for one run. touches answers what a call does to a file — handed in
+// because the guard cannot reach the tool registry, and because the answer is now a tool's own
+// (port.FileTool) rather than a list of three names. nil keeps the builtin names.
+func newRunGuard(touches func(name string, args json.RawMessage) (fileTouch, bool)) *runGuard {
+	if touches == nil {
+		touches = func(name string, args json.RawMessage) (fileTouch, bool) {
+			return touchesFileIn(nil, name, args)
+		}
+	}
 	return &runGuard{
+		touches: touches,
 		seen:    map[string]int{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
 		readSpans: map[string][]lineSpan{},
@@ -381,8 +394,8 @@ func (g *runGuard) forgetRecalledTopics() {
 // lastMut holds exactly that — the args of the last mutation recorded for the path — so an identical
 // write accumulates while the file stands still, and starts over the moment it does not.
 func (g *runGuard) repeatEpoch(name string, args json.RawMessage) string {
-	if fileModifiers[name] {
-		return g.lastMut[pathArg(args)]
+	if touch, ok := g.touches(name, args); ok && touch.writes {
+		return g.lastMut[touch.path]
 	}
 	return strconv.Itoa(g.epoch)
 }

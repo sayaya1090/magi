@@ -183,7 +183,7 @@ func TestReconstructRecallHintAggregates(t *testing.T) {
 }
 
 func TestRecallBudget(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if ok, _ := g.allowRecall("foo.go"); !ok {
 		t.Fatal("first recall of a topic should be allowed")
 	}

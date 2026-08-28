@@ -118,7 +118,7 @@ func (a *App) readEventsBestEffort(ctx context.Context, sid session.SessionID) [
 // observe reads what happened under sid. Best-effort: an unreadable session contributes nothing
 // rather than a guess, because a missing record must never be reported as an absence of work.
 func (a *App) observe(ctx context.Context, sid session.SessionID) observedRun {
-	return observeEvents(a.readEventsBestEffort(ctx, sid))
+	return observeEvents(a.readEventsBestEffort(ctx, sid), a.touchesFile)
 }
 
 // observedResult is what came back for one call, as the ledger needs it: the content, and the two
@@ -165,7 +165,15 @@ func neverRan(res observedResult, denied bool) bool {
 // observeEvents is observe over events already in hand. The per-step state block has just read the
 // session to build the request; reading it again there turns a cheap block into the loop's dominant
 // cost, which is how a block meant to be free stops being worth having.
-func observeEvents(all []event.Event) observedRun {
+// touches answers what a call did to a file. Handed in for the same reason the guard's is: the
+// evidence the council reads is "what changed", and a tool that edits under a name this switch
+// never listed used to leave no trace in it. nil = the builtin names.
+func observeEvents(all []event.Event, touches func(string, json.RawMessage) (fileTouch, bool)) observedRun {
+	if touches == nil {
+		touches = func(name string, args json.RawMessage) (fileTouch, bool) {
+			return touchesFileIn(nil, name, args)
+		}
+	}
 	var out observedRun
 	seen := map[string]bool{}
 	for _, evs := range [][]event.Event{all} {
@@ -203,36 +211,41 @@ func observeEvents(all []event.Event) observedRun {
 				continue
 			}
 			name := strings.ToLower(strings.TrimSpace(tc.Name))
-			switch name {
-			case "read", "grep", "glob", "list":
-				if neverRan(results[tc.CallID], denied[tc.CallID]) {
-					continue // refused, so nothing was looked at
+			// What this call did to a file, asked of the tool itself. The switch below still names
+			// the builtins — it also decides bash and the spawn/report kinds — but a tool that
+			// edits under a name nobody listed used to leave no trace in the evidence the council
+			// reads, so a turn that did its work through an editor plugin read as a turn that
+			// changed nothing.
+			if touch, isFile := touches(tc.Name, tc.Args); isFile && name != "bash" {
+				path := strings.TrimSpace(touch.path)
+				if !touch.writes {
+					if neverRan(results[tc.CallID], denied[tc.CallID]) {
+						continue // refused, so nothing was looked at
+					}
+					out.noteLook(path)
+					continue
 				}
-				var args struct{ Path string }
-				if json.Unmarshal(tc.Args, &args) == nil {
-					out.noteLook(args.Path)
-				}
-			case "write", "edit", "multiedit":
 				// Counted only when the write LANDED: an errored result that is not advisory means
-				// the file tools wrote nothing — a refusal, a jail denial, an edit whose anchor was
-				// not found. (A landed write that then failed diagnostics is IsError AND Advisory,
-				// and stays counted: the file on disk changed.) A call still in flight has no result
+				// nothing was written — a refusal, a jail denial, an edit whose anchor was not
+				// found. (A landed write that then failed diagnostics is IsError AND Advisory, and
+				// stays counted: the file on disk changed.) A call still in flight has no result
 				// yet and keeps the old benefit of the doubt.
 				if res := results[tc.CallID]; res.present && res.isError && !res.advisory {
 					continue
 				}
-				var args struct{ Path string }
-				if json.Unmarshal(tc.Args, &args) == nil && strings.TrimSpace(args.Path) != "" {
-					p := strings.TrimSpace(args.Path)
-					if !seen[p] {
-						seen[p] = true
-						out.changed = append(out.changed, p)
+				if path != "" {
+					if !seen[path] {
+						seen[path] = true
+						out.changed = append(out.changed, path)
 					}
 					if out.wrote == nil {
 						out.wrote = map[string]int{}
 					}
-					out.wrote[p]++
+					out.wrote[path]++
 				}
+				continue
+			}
+			switch name {
 			case "bash":
 				res := results[tc.CallID]
 				if neverRan(res, denied[tc.CallID]) {

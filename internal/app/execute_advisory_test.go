@@ -46,7 +46,7 @@ func TestAWriteThatWasLintedSaysTheWorkHappened(t *testing.T) {
 	args, _ := json.Marshal(map[string]string{"path": "hello.py", "content": "print(\"hello world\")\n"})
 	a.executeTool(ctx, a.sessionInfo(ctx, sid), AgentSpec{Name: "coder"}, 0,
 		event.Actor{Kind: event.ActorAgent, ID: "coder"},
-		&session.ToolCall{CallID: "c1", Name: "write", Args: args}, newRunGuard(), "")
+		&session.ToolCall{CallID: "c1", Name: "write", Args: args}, newRunGuard(nil), "")
 
 	// The file is the fact everything else has to agree with.
 	if _, serr := os.Stat(filepath.Join(wd, "hello.py")); serr != nil {

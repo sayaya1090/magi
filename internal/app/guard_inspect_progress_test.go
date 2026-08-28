@@ -7,7 +7,7 @@ import "testing"
 // (the reported false-stall while reading 7 report files). A REPEATED inspection is
 // not novel and does not credit progress — the read-loop guard owns that.
 func TestNovelInspectDefersStallNudge(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	// Simulate many distinct read calls: each check() climbs sinceProgress, and a
 	// novel result credits inspect progress (advancing lastStallAt).
 	for i := 0; i < noProgressNudge+4; i++ {

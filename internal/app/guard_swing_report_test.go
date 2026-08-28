@@ -14,7 +14,7 @@ import (
 // so the report is the only channel there is, and a swing nobody mentions is a swing the agent
 // never learns about.
 func TestEverySwingIsReportedNotJustTheFirst(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "/app/apply_macros.vim"
 
 	if w, reg := g.noteEdit(path, "v0", "L"); reg || w != "" {

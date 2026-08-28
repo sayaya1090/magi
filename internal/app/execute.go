@@ -357,8 +357,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// be shown the agent's actual before→after change (reconstructed from its own tools).
 	var changeBefore, changePath string
 	var changeReadable bool
-	if guard != nil && fileModifiers[tc.Name] {
-		changePath = pathArg(tc.Args)
+	if touch, ok := a.touchesFile(tc.Name, tc.Args); guard != nil && ok && touch.writes {
+		changePath = touch.path
 		if changePath != "" {
 			changeBefore, changeReadable = readForChange(workdir, changePath)
 		}
@@ -548,8 +548,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 
 	// Post-edit diagnostics + PostToolUse hooks: feed problems back so the agent
 	// self-corrects (built-in autoformat runs here too).
-	if !res.IsError && fileModifiers[tc.Name] {
-		path := pathArg(tc.Args)
+	if touch, ok := a.touchesFile(tc.Name, tc.Args); !res.IsError && ok && touch.writes {
+		path := touch.path
 		// IsError, because that is what makes the agent stop and read it rather than move on. And
 		// Advisory beside it, because the edit HAPPENED: without the second flag every screen drew
 		// a file that was written and then linted as a write that failed — the file on disk, the

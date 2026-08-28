@@ -34,7 +34,7 @@ func TestABackgroundCommandGetsNoSelfEditVerdict(t *testing.T) {
 		}
 		tc := &session.ToolCall{CallID: "c", Name: "bash", Args: json.RawMessage(args)}
 		res := session.ToolResult{CallID: "c", Content: json.RawMessage(`"started"`)}
-		a.noteToolOutcome(sid, newRunGuard(), toolOutcome{
+		a.noteToolOutcome(sid, newRunGuard(nil), toolOutcome{
 			tc: tc, res: &res, workdir: dir, fp: "fp", novel: true, toolOK: true,
 			bashChanges: []bashChange{{path: path, before: "print('probe')\n", readable: true}},
 		})
