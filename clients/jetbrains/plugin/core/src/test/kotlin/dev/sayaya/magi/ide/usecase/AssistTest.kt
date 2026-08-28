@@ -18,6 +18,13 @@ import kotlin.concurrent.thread
  * 여기서 한 번 틀렸다: 메서드 이름을 콘솔 라우트(`/look`)에서 가져와 `look` 이라 썼는데
  * 데몬 메서드는 `look-over` 다. 그리고 완성의 커서 양쪽은 `text` 가 아니라 `args` 에 간다.
  * 둘 다 조용히 안 되는 종류라 여기에 못박는다.
+ *
+ * **이름만 맞고 값이 안 실려도 여기는 초록이었다.** 인자를 하나씩 빈 값으로 바꿔 재 보니
+ * (2026-08-29) 이 파일이 지키던 것은 **메서드 이름**이었지 그 옆에 실린 것이 아니었다 —
+ * `name` 과 `text` 를 통째로 비워도 여섯 자리가 안 죽었다. 그중 제일 나쁜 것이 `open-file` 의
+ * `text` 다: 코어의 `app.SetOpenFile` 은 **빈 텍스트를 「닫혔다」로 읽으므로** 그 변이는 버퍼를
+ * 미는 일을 통째로 지우는 일로 바꿔 놓는데, 화면에서는 아무 일도 안 일어난 것과 구별이 안 된다.
+ * 그래서 아래 시험들은 메서드 이름 옆에 **실려 간 값**도 같이 못박는다.
  */
 class AssistTest {
 
@@ -52,6 +59,9 @@ class AssistTest {
         assertTrue(f.seen[0].contains("\"args\":{"), "커서 양쪽은 args 로 가야 한다: ${f.seen[0]}")
         assertTrue(f.seen[0].contains("\"prefix\":\"fun main() { \""), f.seen[0])
         assertTrue(f.seen[0].contains("\"suffix\":\" }\""), f.seen[0])
+        // 어느 파일인지가 안 실리면 데몬은 다른 파일의 문맥으로 완성한다 — 나오는 글자는
+        // 그럴듯해서 틀린 줄을 모른다.
+        assertTrue(f.seen[0].contains("\"name\":\"a.kt\""), f.seen[0])
     }
 
     @Test
@@ -61,6 +71,8 @@ class AssistTest {
         f.close()
         assertEquals("3번 줄: 널 검사가 없다", got)
         assertTrue(f.seen[0].contains("\"method\":\"look-over\""), "look 이 아니라 look-over: ${f.seen[0]}")
+        assertTrue(f.seen[0].contains("\"name\":\"a.kt\""), "어느 파일을 보는지가 안 실렸다: ${f.seen[0]}")
+        assertTrue(f.seen[0].contains("\"text\":\"val x = y!!\""), "볼 글자가 안 실렸다: ${f.seen[0]}")
     }
 
     @Test
@@ -72,6 +84,10 @@ class AssistTest {
         f.close()
         assertTrue(f.seen[0].contains("\"method\":\"suggest\""), f.seen[0])
         assertTrue(f.seen[1].contains("\"method\":\"open-file\""), f.seen[1])
+        assertTrue(f.seen[0].contains("\"text\":\"이 함수\""), "이어붙일 앞말이 안 실렸다: ${f.seen[0]}")
+        assertTrue(f.seen[1].contains("\"name\":\"a.kt\""), f.seen[1])
+        // 이 한 줄이 없으면 **미는 것**과 **지우는 것**이 이 시험에서 같아 보인다(위 KDoc).
+        assertTrue(f.seen[1].contains("\"text\":\"저장 안 한 내용\""), "저장 안 한 내용이 안 실렸다: ${f.seen[1]}")
     }
 
     @Test

@@ -44,6 +44,12 @@ class ProblemsTest {
         assertEquals("internal/app/guard.go", p!!.where?.path)
         assertEquals(441, p.where?.line)
         assertEquals(9, p.where?.column)
+        // 화면은 `실패 <tool>  #<seq>  <ts>` 로 그린다(`MagiToolWindow`). 셋 다 로그 사건에서
+        // **옮겨 싣는** 값이라 통째로 비워도 항목은 멀쩡히 뜬다 — `#0` 은 클릭할 자리를 잃은
+        // 것이고, 빈 도구 이름은 무엇이 실패했는지를 잃은 것이다.
+        assertEquals(7L, p.seq)
+        assertEquals("2026-08-28T10:00:00Z", p.at)
+        assertEquals("edit", p.tool)
     }
 
     @Test
@@ -73,6 +79,9 @@ class ProblemsTest {
         assertNotNull(d)
         assertEquals("casper", d!!.member)
         assertEquals("검사가 없다", d.why)
+        // 반대도 같은 줄에 `#<seq>  <ts>` 를 달고 나간다.
+        assertEquals(9L, d.seq)
+        assertEquals("2026-08-28T10:01:00Z", d.at)
     }
 
     @Test

@@ -48,7 +48,7 @@ class CompanionTest {
     @Test
     fun `사실 장은 데몬이 말한 것만 담는다`() {
         val fake = FakeDaemon(listOf(
-            """{"ok":true,"doing":"go test ./...","permission":"auto","session":"s_9"}""",
+            """{"ok":true,"doing":"go test ./...","permission":"auto","session":"s_9","waiting":{"id":"c1","kind":"permission","what":"bash","reason":"rm"}}""",
         ))
         fake.start()
         val f = DaemonClient.connect(fake.path).use { Companion(it, "s_1").facts() }
@@ -58,6 +58,11 @@ class CompanionTest {
         // 세션은 데몬이 말한 것이 이긴다. 부르는 쪽이 들고 있던 값은 낡을 수 있다.
         assertEquals("s_9", f.session)
         assertTrue(fake.seen[0].contains(""""method":"status""""))
+        // 두 화면(`FactsToolWindow`·`StatusBar`)이 「사람을 기다리는 중」을 이 칸 **하나**로
+        // 판단한다. 안 옮겨 실으면 사람이 막고 선 것이 화면에서 **쉬는 중**과 같아 보인다 —
+        // 화면의 마지막 말이 영영 거짓이 되는 그 종류다.
+        assertEquals("c1", f.waiting?.id)
+        assertEquals("permission", f.waiting?.kind)
     }
 
     @Test
@@ -108,6 +113,9 @@ class CompanionTest {
         assertTrue(fake.seen[1].contains("\"method\":\"steer\""), "턴이 도는데 steer 가 아니다: ${fake.seen[1]}")
         assertTrue(fake.seen[2].contains("\"method\":\"status\""), fake.seen[2])
         assertTrue(fake.seen[3].contains("\"method\":\"submit\""), "쉬는데 submit 이 아니다: ${fake.seen[3]}")
+        // 고른 메서드만 보면 **빈 말**을 보내도 초록이다. 사람이 친 글이 실렸는지 같이 본다.
+        assertTrue(fake.seen[1].contains("\"text\":\"타이핑 중에 보낸 말\""), fake.seen[1])
+        assertTrue(fake.seen[3].contains("\"text\":\"쉬는 중에 보낸 말\""), fake.seen[3])
     }
 
     @Test
@@ -139,6 +147,9 @@ class CompanionTest {
         assertTrue(fake.seen[0].contains("\"callId\":\"call-7\""), fake.seen[0])
         assertTrue(fake.seen[1].contains("\"method\":\"answer\""), fake.seen[1])
         assertTrue(fake.seen[1].contains("\"answer\":\"두 번째 선택지\""), fake.seen[1])
+        // 퍼미션 쪽은 `callId` 를 이미 보고 있었는데 이쪽은 안 봤다 — 재서 나온 비대칭이다.
+        assertTrue(fake.seen[1].contains("\"callId\":\"call-8\""),
+            "어느 질문의 답인지가 안 실리면 데몬은 **다른 프롬프트**의 답으로 읽는다: ${fake.seen[1]}")
     }
 
     @Test

@@ -33,6 +33,10 @@ class AuthorshipTest {
         assertEquals(2, t.size)
         assertEquals("가드를 고쳐라", t[0].asked)
         assertEquals("시험을 붙여라", t[1].asked)
+        // `WroteThisAction` 이 `#<seq> <tool>` 로 그린다. 차례는 목록 순서가 지키지만 **번호**는
+        // 사건에서 옮겨 실어야 나오는 값이고, 0 이 되어도 이 시험의 나머지는 전부 초록이다.
+        assertEquals(2L, t[0].seq)
+        assertEquals(4L, t[1].seq)
     }
 
     @Test
