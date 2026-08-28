@@ -12,6 +12,7 @@ import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
 import { foldAdvice } from '../src/domain/AdviceBoard.js';
+import { DeckPort } from '../src/port/DeckPort.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { OfficeDeck } from '../src/adapter/OfficeDeck.js';
 import { pickDeck, pickNote, lateNote, lateFailNote } from '../src/adapter/pickDeck.js';
@@ -160,6 +161,18 @@ ok('슬라이드 이동 후 가리킨다', cross.ok === true && deck.currentSlid
 const caps = deck.capabilities();
 ok('가짜 덱은 잰 게 없다고 말한다', caps.measured === false && caps.sets.length === 0);
 ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.length > 0);
+
+// 안 덮은 어댑터도 사유를 낸다 — 오늘 프로덕션 어댑터 둘은 `capabilities()` 를 다 덮으므로
+// 이 기본값을 보는 사람은 **다음 어댑터를 쓰는 사람**뿐이고, 그래서 아무도 안 밟는다. 여기서
+// 한 번 밟아 둔다: 사유가 비면 화면은 「요구 집합: 」만 적고 그건 계측을 안 한 것과 못 한 것을
+// 같은 침묵으로 만든다. (사유가 `measured:false` 를 되풀이하는 것만 적는 결함은 기계가 못
+// 가른다 — 그건 사람이 읽어야 한다.)
+{
+  class BarePort extends DeckPort {}
+  const base = new BarePort().capabilities();
+  ok('안 덮은 어댑터의 기본값도 사유를 낸다',
+     base.measured === false && typeof base.note === 'string' && base.note.length > 0, base.note);
+}
 
 
 // ── 대화 스트림(§5.7). 문의 계약을 그대로 시험한다 — 여기는 PowerPoint 가 없어도 다 잰다.

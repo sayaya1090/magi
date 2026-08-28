@@ -307,7 +307,7 @@ export class View {
       : { measured: false, note: '어댑터가 안 답한다', sets: [] };
     if (!c.measured) {
       el.dataset.measured = 'no';
-      el.textContent = `요구 집합: ${c.note || '안 잼'}`;
+      el.textContent = `요구 집합: ${c.note || '어댑터가 사유를 안 실었다'}`;
     } else {
       el.dataset.measured = 'yes';
       // ok 가 null 인 것은 "아니오"가 아니라 **물어보다 던졌다**이므로 `?` 로 갈라 둔다.

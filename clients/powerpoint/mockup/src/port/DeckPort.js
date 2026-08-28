@@ -61,5 +61,9 @@ export class DeckPort {
    * @returns {{measured:boolean, note:string,
    *            sets:Array<{name:string, version:string, ok:?boolean}>}}
    */
-  capabilities() { return { measured: false, note: '안 잼', sets: [] }; }
+  capabilities() {
+    // 사유가 「안 쟀다」면 그건 사유가 아니라 `measured:false` 를 한 번 더 적은 것이다.
+    // 여기까지 온 어댑터는 이 함수를 안 덮은 어댑터이므로, 그 사실이 사유다.
+    return { measured: false, note: '이 어댑터는 요구 집합을 재지 않는다', sets: [] };
+  }
 }
