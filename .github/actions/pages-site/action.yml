@@ -34,4 +34,9 @@ runs:
         else
           (cd web/ui && ./gradlew assembleConsole -q)
         fi
+        # 데모의 목은 콘솔 자산에 없다(운영 번들에 데모를 싣지 않는다는 규칙) — 데모를 낼
+        # 때만 따로 조립한다. 앞 단계가 넘겨 준 것에도 이것은 들어 있지 않다.
+        if [ ! -f web/ui/build/demo-mock/demo/demo.nocache.js ]; then
+          (cd web/ui && ./gradlew assembleDemoMock -q)
+        fi
         go run ./web/server -emit-demo ./_site/next
