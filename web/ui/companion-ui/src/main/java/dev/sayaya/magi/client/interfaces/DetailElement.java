@@ -5,6 +5,9 @@ import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.FleetAgent;
+import dev.sayaya.magi.client.domain.Roster;
+import dev.sayaya.magi.client.domain.Updates;
+import dev.sayaya.magi.client.domain.Versions;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.core.JsDate;
 import elemental2.dom.DomGlobal;
@@ -28,7 +31,7 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * 워크스페이스, 세션, 결재, 모델, 캐시, 컨텍스트 창+지금 접기, 접혀 나간 것).
  *
  * 잔여(대조표): 결재/모델/세션은 읽기 — 운영의 메뉴 컨트롤은 데몬 질의와 함께 온다.
- * 도구/루프/보고 서식 문, 자체 빌드 업데이트 컨트롤도 그 편이다.
+ * 도구/루프/보고 서식 문도 그 편이다.
  */
 @Singleton
 public class DetailElement {
@@ -67,6 +70,14 @@ public class DetailElement {
         // 흘리지 않으므로, 이 판은 "바뀌었나"를 스스로 따질 필요가 없다.
         store.aimed().subscribe(row -> { a = row; render(); });
         store.onContextInfo(i -> { info = i; render(); });
+        // 뒤처졌는지는 <b>명단 전체</b>가 아는 사실이라 여기서만 명단을 통으로 읽는다 — 그리고
+        // 그 답이 달라졌을 때만 다시 그린다(명단은 몇 초마다 흐르고, 그 답은 거의 늘 같다).
+        store.onRoster(list -> {
+            String top = list == null ? "" : Roster.newest(Js.uncheckedCast(list));
+            if (top.equals(newestVer)) return;
+            newestVer = top;
+            render();
+        });
         // 접힘의 기본은 창이 정한다 — 누른 적 있는 독자만 기억된다(운영 규칙).
         String said = stored("facts");
         fold(said == null ? DomGlobal.window.innerWidth < 1200 : "folded".equals(said), false);
@@ -158,7 +169,13 @@ public class DetailElement {
         // 부모를 얻고</b>, 부모가 바뀐 md-select는 열려 있던 메뉴를 닫는다 — 사람이 고르는 중에
         // 손 밑에서 닫히니 편집이 아예 되지 않는다(실측: 깜빡이며 못 고름). 말이 그대로면 그대로 둔다.
         String who = a.socket == null ? "" : a.socket;
-        if (!who.equals(shownFor)) { shownFor = who; grid.replaceChildren(); kept.clear(); }
+        if (!who.equals(shownFor)) {
+            shownFor = who;
+            grid.replaceChildren();
+            kept.clear();
+            // 떠나며 끝난 말을 잊는다 — 받는 중인 것은 남긴다(Updates가 그 둘을 가른다).
+            updates.forgetFinished();
+        }
         seen.clear();
         // 질문이 오는 순서 — 이 목록이 곧 배치다(그리드는 DOM 순서로 짠다, 운영 규칙).
         String load = carrying(a);
@@ -175,7 +192,7 @@ public class DetailElement {
                 + (a.addr != null && !a.addr.isEmpty() ? " · " + a.addr : "")
                 + (a.pid > 0 ? " · pid " + a.pid : "");
         put(field("field.host", host, null));
-        if (a.version != null && !a.version.isEmpty()) put(field("field.version", a.version, null));
+        if (a.version != null && !a.version.isEmpty()) put(versionField());
         put(wide(field("field.workspace", a.workdir, null)));
         put(wide(sessionField()));
         put(permField());
@@ -261,6 +278,89 @@ public class DetailElement {
         gate(permSel, May.can("configure"));
         hold(vOf(f), permSel);
         return f;
+    }
+
+    // ── 빌드 칸, 그리고 그 안의 갱신 ────────────────────────────────────────
+
+    private final Updates updates = new Updates();
+    private final HTMLElement vnum = cell("vnum", null);
+    private final HTMLElement updBtn = el("md-text-button");
+    private final HTMLElement updSay = cell("updsay", null);
+    private boolean updWired = false;
+    private String newestVer = "";
+
+    /**
+     * 이 데몬이 도는 빌드 — 그리고 <b>이 기계 것</b>이면 그것을 갱신하는 버튼.
+     *
+     * 셋 다 조건이다. own이 아니면 이 콘솔이 시킬 일이 아니고, elsewhere면 잰 사람이 따로 있고,
+     * peer가 있으면 남의 기계 것이다(페더레이션된 콘솔의 명단은 <b>그쪽</b> 신뢰를 싣고 온다 —
+     * trust만 보면 남의 기계 데몬에 버튼이 선다). BFF도 같은 자리를 막지만, 여기서 먼저 막는
+     * 이유는 눌러도 403이 오는 버튼을 세우지 않기 위해서다.
+     *
+     * 뒤처진 빌드에만 세우는 것도 같은 규칙이다: 최신인 것을 최신으로 만드는 버튼은 누른 사람에게
+     * 아무 일도 일어나지 않는 버튼이다. 볼 수만 있는 사람에게는 <b>잠가서</b> 보인다 — 걷어 내면
+     * 이 컴패니언이 뒤처졌다는 사실까지 함께 걷힌다.
+     */
+    private HTMLElement versionField() {
+        HTMLElement f = rowFor("field.version", "f");
+        HTMLElement v = vOf(f);
+        if (!own(a)) {
+            // 컨트롤을 이고 있던 칸이 그냥 글자로 돌아가는 자리다(신뢰가 바뀌면 그렇게 된다) —
+            // say는 글자만 견주므로 숨은 버튼이 남아 있어도 같은 말로 읽힌다. 먼저 비운다.
+            if (v.childElementCount > 0) v.replaceChildren();
+            say(v, a.version);
+            return f;
+        }
+        if (!updWired) {
+            updWired = true;
+            updBtn.addEventListener("click", evt -> ask());
+        }
+        // 말은 매번 확인한다(언어가 바뀌면 따라간다) — 다만 같은 말이면 손대지 않는다:
+        // textContent 대입은 표까지 지우고 다시 만든다. 표는 운영이 청하는 그것을 청한다
+        // (withMark). 스프라이트 없는 빌드에는 아무것도 달리지 않고, 그래서 이 빌드의 데모
+        // 실측에서 두 콘솔 다 말만 있다(valueHTML에 slot=icon 없음).
+        String word = tr("action.update");
+        if (!word.equals(updBtn.textContent)) Icons.say(updBtn, word, "#i-sl-cloud-arrow-down");
+        if (v.childNodes.getLength() != 3 || v.childNodes.getAt(0) != vnum) {
+            v.replaceChildren(vnum, updBtn, updSay);
+        }
+        say(vnum, a.version);
+        String who = a.socket == null ? "" : a.socket;
+        String line = updates.line(who);
+        say(updSay, line);
+        show(updSay, !line.isEmpty());
+        boolean behind = !newestVer.isEmpty() && Versions.compare(a.version, newestVer) < 0;
+        show(updBtn, updates.button(who, behind));
+        gate(updBtn, May.can("configure") && !updates.busy(who));
+        return f;
+    }
+
+    /** 이 콘솔이 갱신을 시킬 만한 데몬인가 — 이 기계 것이고, 이 콘솔이 직접 재고 있는 것. */
+    private static boolean own(FleetAgent a) {
+        return "own".equals(a.trust) && !a.elsewhere && (a.peer == null || a.peer.isEmpty());
+    }
+
+    /**
+     * 눌렀다. 답이 올 때까지 버튼은 사라지고 그 자리에 "확인 중"이 선다 — 두 번 보내지 않게.
+     * 답이 오면 그 말을 그대로 세운다: 거부도 답이고, 거부는 대개 다음에 무엇을 하라는 말이다.
+     */
+    private void ask() {
+        final String who = a == null || a.socket == null ? "" : a.socket;
+        if (updates.busy(who)) return;
+        updates.began(who, tr("update.working"));
+        render();
+        store.update(said -> {
+            updates.ended(who, said, tr("update.failed"));
+            render();
+            // 갱신된 데몬은 다시 서는 데 시간이 걸린다. 이 콘솔이 이고 있는 빌드 사실은 그
+            // 사이에 낡았으므로 두 번 다시 읽는다 — 한 번은 빠른 경우, 한 번은 그렇지 않은 경우.
+            DomGlobal.setTimeout(p -> dev.sayaya.magi.bridge.Facts.reread(), 4000);
+            DomGlobal.setTimeout(p -> dev.sayaya.magi.bridge.Facts.reread(), 12000);
+        });
+    }
+
+    private static void show(HTMLElement e, boolean want) {
+        if (want) e.removeAttribute("hidden"); else e.setAttribute("hidden", "");
     }
 
     private final HTMLElement provSel = el("md-outlined-select");

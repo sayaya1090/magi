@@ -101,6 +101,37 @@ internal class CompanionPanelTest : GwtTestSpec({
                     .shouldBe("contents")
             }
         }
+        When("이 기계 데몬이 플릿의 최신보다 뒤처져 있으면") {
+            Then("빌드 칸이 갱신 버튼을 인다 — 뒤처졌다는 사실은 명단이 안다") {
+                page.waitForSelector("#detail .f[data-k=\"field.version\"] md-text-button:not([hidden])")
+                page.locator("#detail .f[data-k=\"field.version\"] .vnum").textContent() shouldBe "v0.28.0"
+                // 버튼의 말은 팩 없는 테스트 페이지에서 키 그대로다(tr 폴백).
+                page.locator("#detail .f[data-k=\"field.version\"] md-text-button")
+                    .textContent() shouldContain "action.update"
+                // 아직 아무 일도 없었으니 할 말도 없다.
+                page.locator("#detail .f[data-k=\"field.version\"] .updsay[hidden]").count() shouldBe 1
+            }
+            Then("눌렀는데 아무 말도 없으면 — 회선이 끊긴 것이다 — 버튼은 그 자리에 남는다") {
+                page.locator("#detail .f[data-k=\"field.version\"] md-text-button").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_update") == "/tmp/a1.sock" }
+                page.waitForSelector("#detail .f[data-k=\"field.version\"] .updsay:not([hidden])")
+                page.locator("#detail .f[data-k=\"field.version\"] .updsay")
+                    .textContent() shouldBe "update.failed"
+                // 다시 눌러 볼 만한 유일한 경우다: 아무도 아무 말도 하지 않았다.
+                page.locator("#detail .f[data-k=\"field.version\"] md-text-button:not([hidden])").count() shouldBe 1
+            }
+            Then("데몬이 답하면 그 말이 그대로 서고, 버튼은 걷힌다") {
+                // 무엇을 답할지는 스펙이 정한다 — 데몬이 무엇을 말하든 그대로 서는 것이 계약이라서.
+                page.evaluate("window.__magi_test_update_says = 'updated v0.28.0 -> v0.29.0, restarting'")
+                page.locator("#detail .f[data-k=\"field.version\"] md-text-button").click()
+                page.waitForCondition {
+                    page.locator("#detail .f[data-k=\"field.version\"] .updsay").textContent() ==
+                        "updated v0.28.0 -> v0.29.0, restarting"
+                }
+                // 사유가 있는 답에 버튼을 다시 세우면 같은 사유를 한 번 더 받으라는 말이 된다.
+                page.locator("#detail .f[data-k=\"field.version\"] md-text-button[hidden]").count() shouldBe 1
+            }
+        }
         When("이 컴패니언이 퍼미션을 기다리면") {
             page.evaluate("window.__magi_test_ask('permission', null)")
             Then("도크에 질문이 서고, 컴포저 위다 — 답하러 목록으로 되돌아가지 않는다") {

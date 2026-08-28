@@ -66,7 +66,11 @@ public class ShellInitializer {
             loader.ensure(module, styles);
         });
         // 창 전체의 두 사실을 한 번 읽어 올린다 — 화면들은 그것을 들기만 한다.
-        roster.facts(dev.sayaya.magi.bridge.Facts::putConsole, dev.sayaya.magi.bridge.Facts::putMay);
+        Runnable readFacts = () ->
+                roster.facts(dev.sayaya.magi.bridge.Facts::putConsole, dev.sayaya.magi.bridge.Facts::putMay);
+        // 한 번은 규칙이되, 그 사실을 낡게 만든 화면은 다시 읽어 달라고 할 수 있다(데몬 갱신).
+        dev.sayaya.magi.bridge.Facts.reloader(readFacts::run);
+        readFacts.run();
         nav.start();
     }
 }

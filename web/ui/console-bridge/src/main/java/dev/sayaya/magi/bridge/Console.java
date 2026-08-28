@@ -96,4 +96,39 @@ public final class Console {
                 })
                 .catch_(err -> Promise.resolve("unreachable"));
     }
+
+    /**
+     * POST하고 <b>돌아온 말을 그대로</b> — 상태 코드와 <b>무관하게</b> 본문을 읽는다.
+     *
+     * 위의 둘로는 안 되는 자리가 있다. 갱신(/update)의 거부는 "실패"가 아니라 <b>지시</b>다:
+     * 남의 기계 것을 여기서 갱신하려 하면 403과 함께 "그 기계에서 하라"가 오고, 데몬이 답을
+     * 못 내면 502와 함께 그 데몬이 말한 사유가 온다. postText는 그 몸을 버리고(성공만 읽는다),
+     * post는 성공한 몸을 버린다(사유만 읽는다) — 이 문은 어느 쪽이든 사람이 읽을 한 줄이다.
+     *
+     * 빈 문자열은 <b>회선이 끊긴 것</b>만 뜻한다(fetch 자체가 거절됨): 그때는 아무도 아무 말도
+     * 하지 않았으므로 부르는 쪽이 제 말을 대신 세우고 다시 눌러 볼 수 있게 둔다.
+     *
+     * 시한을 다는 이유: 답이 영영 오지 않으면 promise가 영영 안 풀리고, 그동안 "하는 중"으로
+     * 잠가 둔 컨트롤은 영영 잠긴 채다. 릴리스 하나를 받아 세우는 시간이라 넉넉해야 한다.
+     */
+    public static Promise<String> postSaid(String path, String socket, String peer, int timeoutMs) {
+        RequestInit init = RequestInit.create();
+        init.setMethod("POST");
+        // 없는 브라우저에서는 시한 없이 간다 — 시한이 이 부름의 값어치를 정하지는 않는다.
+        try { init.setSignal(elemental2.dom.AbortSignal.timeout(timeoutMs)); } catch (Exception ignore) { }
+        return raw(path + query(socket, peer), init)
+                .then(r -> r.text().then(said -> Promise.resolve(said.trim())))
+                .catch_(err -> Promise.resolve(""));
+    }
+
+    /** ?d=<socket>[&p=<peer>] — 어느 컴패니언인가(운영 qFor). */
+    private static String query(String socket, String peer) {
+        StringBuilder q = new StringBuilder();
+        if (socket != null && !socket.isEmpty()) q.append("d=").append(elemental2.core.Global.encodeURIComponent(socket));
+        if (peer != null && !peer.isEmpty()) {
+            if (q.length() > 0) q.append('&');
+            q.append("p=").append(elemental2.core.Global.encodeURIComponent(peer));
+        }
+        return q.length() > 0 ? "?" + q : "";
+    }
 }
