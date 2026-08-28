@@ -51,7 +51,18 @@ type goldenCase struct {
 // both paths are in hand.
 
 type goldens struct {
-	Platform  string       `json:"platform"`
+	Platform string `json:"platform"`
+	// Placeholders says what the two tokens mean, in the file, because they mean different things
+	// and reading one as the other is exactly how the two sides drifted apart the first time.
+	Placeholders map[string]string `json:"placeholders"`
+	// Regenerate is the sentence a failing test should print, on EITHER side. The Go side says
+	// "the derivation moved, fix the Kotlin too"; the Kotlin side reads this so a plugin developer
+	// gets the same next step instead of only "does not match".
+	Regenerate string `json:"regenerate"`
+	// CaseFolds: whether two spellings of one directory are one companion here. A fact about the
+	// volume, not about the code — its own field rather than a row among the cases, which needed
+	// the reader to branch on a case NAME and had a different grammar in every column.
+	CaseFolds bool         `json:"caseFolds"`
 	ShortHash [][2]string  `json:"shortHash"` // input, output
 	Sanitize  [][2]string  `json:"sanitize"`
 	Socket    [][3]string  `json:"socketPath"` // configDir, workdir, output
@@ -76,28 +87,46 @@ var symlinkLayout = []string{
 	"symlink alink -> $ROOT/b/c", // …and alink/.. is b, not evt4 and not b/c/..
 }
 
-func buildSymlinkTree(t *testing.T, root string) {
+// buildSymlinkTree builds the tree BY READING symlinkLayout — the same lines the golden file ships
+// to the Kotlin side, interpreted by the same two rules.
+//
+// It used to be a second, hand-written builder standing beside the list, which is the mistake the
+// whole file exists to prevent: one word counted in two places is a word two places disagree about.
+// They had already drifted. The hand-written one pointed hop at the UNRESOLVED temp root while the
+// Kotlin side substitutes $ROOT with its resolved form, so the port was walking a chain one hop
+// shorter than the one Go measured — in the very case that measures how far the walk restarts.
+//
+// $ROOT is the temp directory AS CREATED, which on macOS is itself behind /var → /private/var. Not
+// its resolved form: the longer chain is the one worth testing, and the resolved form has its own
+// placeholder ($REAL) for the answers.
+func buildSymlinkTree(t *testing.T, root string, layout []string) {
 	t.Helper()
-	mk := func(p string) {
-		if err := os.MkdirAll(filepath.Join(root, p), 0o755); err != nil {
-			t.Fatal(err)
+	for _, line := range layout {
+		body, _, _ := strings.Cut(line, "//") // the list carries its reasons inline
+		body = strings.TrimSpace(body)
+		switch {
+		case body == "":
+		case strings.HasPrefix(body, "mkdir "):
+			dir := strings.TrimSpace(strings.TrimPrefix(body, "mkdir "))
+			if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		case strings.HasPrefix(body, "symlink "):
+			name, target, ok := strings.Cut(strings.TrimPrefix(body, "symlink "), " -> ")
+			if !ok {
+				t.Fatalf("layout line has no arrow: %q", line)
+			}
+			target = strings.ReplaceAll(strings.TrimSpace(target), "$ROOT", root)
+			at := filepath.Join(root, filepath.FromSlash(strings.TrimSpace(name)))
+			if err := os.Symlink(filepath.FromSlash(target), at); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			// The Kotlin side refuses an unknown line too. A layout instruction nobody executes is
+			// a case that silently stops being tested.
+			t.Fatalf("layout line is neither mkdir nor symlink: %q", line)
 		}
 	}
-	ln := func(target, name string) {
-		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	mk("casedir")
-	mk("real/x")
-	ln("real", "link")
-	ln(filepath.Join(root, "real"), "hop")
-	ln(filepath.Join(root, "hop", "x"), "entry")
-	mk("Cellar/x/bin")
-	mk("usr/local/bin")
-	ln("../../../Cellar/x/bin", "usr/local/bin/foo")
-	mk("b/c")
-	ln(filepath.Join(root, "b", "c"), "alink")
 }
 
 func TestSocketPathGoldens(t *testing.T) {
@@ -120,10 +149,20 @@ func TestSocketPathGoldens(t *testing.T) {
 			{"/tmp/mw1", "/private/tmp/ws1", SocketPath("/tmp/mw1", "/private/tmp/ws1")},
 		},
 		Layout: symlinkLayout,
+		Placeholders: map[string]string{
+			"$ROOT": "the temp directory as created, which may itself be a symlink — build the layout under this, " +
+				"and read the inputs as written against it",
+			"$REAL": "that directory after resolution (Go: filepath.EvalSymlinks, JVM: toRealPath) — every " +
+				"answer below is relative to this",
+		},
+		Regenerate: "The socket name derivation moved. Both sides derive it — internal/adapter/daemon/daemon.go " +
+			"(WorkspaceKey, sanitize, shortHash) and clients/jetbrains/plugin/core/src/main/kotlin/dev/sayaya/" +
+			"magi/ide/transport/SocketPath.kt — and a difference of one character reads as \"there is no daemon " +
+			"here\". Fix both, then regenerate: MAGI_GOLDEN_UPDATE=1 go test ./internal/adapter/daemon/ -run Golden",
 	}
 
 	root := t.TempDir()
-	buildSymlinkTree(t, root)
+	buildSymlinkTree(t, root, symlinkLayout)
 	// The root itself may be a symlink (it is, on macOS: /var → /private/var). Every answer is
 	// written relative to the RESOLVED root, so the file holds no temp path.
 	realRoot, err := filepath.EvalSymlinks(root)
@@ -133,13 +172,13 @@ func TestSocketPathGoldens(t *testing.T) {
 	rel := func(p string) string {
 		switch {
 		case p == realRoot:
-			return "$ROOT"
+			return "$REAL"
 		case strings.HasPrefix(p, realRoot+string(filepath.Separator)):
-			return "$ROOT/" + filepath.ToSlash(strings.TrimPrefix(p, realRoot+string(filepath.Separator)))
+			return "$REAL/" + filepath.ToSlash(strings.TrimPrefix(p, realRoot+string(filepath.Separator)))
 		case p == root:
-			return "$ROOT"
+			return "$REAL"
 		case strings.HasPrefix(p, root+string(filepath.Separator)):
-			return "$ROOT/" + filepath.ToSlash(strings.TrimPrefix(p, root+string(filepath.Separator)))
+			return "$REAL/" + filepath.ToSlash(strings.TrimPrefix(p, root+string(filepath.Separator)))
 		}
 		return p
 	}
@@ -174,13 +213,11 @@ func TestSocketPathGoldens(t *testing.T) {
 	if WorkspaceKey(filepath.Join(root, "real")) == WorkspaceKey(filepath.Join(root, "b")) {
 		t.Error("two directories gave one key")
 	}
-	// …and the case answer above is what makes the third relation true or false, per platform.
-	got.Cases = append(got.Cases, goldenCase{
-		Name:  "case-two-spellings-one-key",
-		Note:  "whether CaseDir and casedir are one companion — a fact about the volume, not the code",
-		Input: "$ROOT/CaseDir vs $ROOT/casedir",
-		Real:  map[bool]string{true: "same", false: "different"}[WorkspaceKey(filepath.Join(root, "CaseDir")) == WorkspaceKey(filepath.Join(root, "casedir"))],
-	})
+	// Whether the two spellings are one companion is a fact about the VOLUME, not about the code, so
+	// it is recorded as one — its own field, not a row among the cases. As a row it needed the
+	// reader to branch on a case name (which goes quiet the day the name is edited) and it filled
+	// the same columns with a different grammar.
+	got.CaseFolds = WorkspaceKey(filepath.Join(root, "CaseDir")) == WorkspaceKey(filepath.Join(root, "casedir"))
 
 	body, err := json.MarshalIndent(got, "", "  ")
 	if err != nil {
@@ -211,10 +248,6 @@ func TestSocketPathGoldens(t *testing.T) {
 		t.Skipf("golden was taken on %s; path resolution is a fact about the platform", prev.Platform)
 	}
 	if string(want) != string(body) {
-		t.Errorf("the socket name derivation moved. The JetBrains plugin derives it again in "+
-			"clients/jetbrains/plugin/core/src/main/kotlin/dev/sayaya/magi/ide/transport/SocketPath.kt "+
-			"and will stop finding the socket — a symptom that reads as \"no daemon here\". Update both, "+
-			"then MAGI_GOLDEN_UPDATE=1 go test ./internal/adapter/daemon/ -run Golden.\n\nwas:\n%s\n\nnow:\n%s",
-			want, body)
+		t.Errorf("%s\n\nwas:\n%s\n\nnow:\n%s", got.Regenerate, want, body)
 	}
 }

@@ -1,5 +1,11 @@
 {
   "platform": "darwin",
+  "placeholders": {
+    "$REAL": "that directory after resolution (Go: filepath.EvalSymlinks, JVM: toRealPath) — every answer below is relative to this",
+    "$ROOT": "the temp directory as created, which may itself be a symlink — build the layout under this, and read the inputs as written against it"
+  },
+  "regenerate": "The socket name derivation moved. Both sides derive it — internal/adapter/daemon/daemon.go (WorkspaceKey, sanitize, shortHash) and clients/jetbrains/plugin/core/src/main/kotlin/dev/sayaya/magi/ide/transport/SocketPath.kt — and a difference of one character reads as \"there is no daemon here\". Fix both, then regenerate: MAGI_GOLDEN_UPDATE=1 go test ./internal/adapter/daemon/ -run Golden",
+  "caseFolds": false,
   "shortHash": [
     [
       "/private/tmp/ws1",
@@ -65,13 +71,13 @@
       "name": "case-as-written",
       "note": "the case on disk is not corrected",
       "input": "$ROOT/casedir",
-      "real": "$ROOT/casedir"
+      "real": "$REAL/casedir"
     },
     {
       "name": "case-as-typed",
       "note": "…nor is the case as typed, even where the volume folds it",
       "input": "$ROOT/CaseDir",
-      "real": "$ROOT/CaseDir"
+      "real": "$REAL/CaseDir"
     },
     {
       "name": "missing-component",
@@ -83,25 +89,19 @@
       "name": "link-inside-target",
       "note": "a link inside an absolute target is resolved too — the walk restarts",
       "input": "$ROOT/entry",
-      "real": "$ROOT/real/x"
+      "real": "$REAL/real/x"
     },
     {
       "name": "dotdot-target",
       "note": "a target starting with .. rewinds the resolved destination",
       "input": "$ROOT/usr/local/bin/foo",
-      "real": "$ROOT/Cellar/x/bin"
+      "real": "$REAL/Cellar/x/bin"
     },
     {
       "name": "dotdot-after-link",
       "note": "…and a trailing .. rewinds the resolved dest, not the path as written",
       "input": "$ROOT/alink/..",
-      "real": "$ROOT/b"
-    },
-    {
-      "name": "case-two-spellings-one-key",
-      "note": "whether CaseDir and casedir are one companion — a fact about the volume, not the code",
-      "input": "$ROOT/CaseDir vs $ROOT/casedir",
-      "real": "different"
+      "real": "$REAL/b"
     }
   ]
 }
