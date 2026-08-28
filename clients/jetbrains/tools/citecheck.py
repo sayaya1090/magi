@@ -58,6 +58,10 @@ def sources():
     """
     index = {}
     tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
+    if tracked.returncode != 0 or not tracked.stdout.strip():
+        # 여기서 죽는다. 색인이 비면 모든 인용이 "그런 파일이 없다"로 떨어지는데, 시끄럽기만 하고
+        # 사인이 거짓이다 — 문서가 아니라 이 검사기가 고장난 것이다.
+        raise SystemExit(f"citecheck: git ls-files 가 아무것도 못 냈다 (rc={tracked.returncode})")
     for rel in tracked.stdout.split("\0"):
         if rel.endswith((".go", ".md", ".kt")):
             index.setdefault(os.path.basename(rel), []).append(os.path.join(ROOT, rel))
@@ -77,7 +81,9 @@ def resolve(name):
         hits = [c for c in INDEX.get(os.path.basename(name), []) if c.endswith(name)]
         if len(hits) == 1:
             return hits[0], None
-        return None, None if not hits else f"{name}: 같은 꼬리를 가진 파일이 {len(hits)}개다"
+        if not hits:
+            return None, f"`{name}`: 그런 파일이 없다 — 옮겨졌거나 이름이 바뀌었다"
+        return None, f"`{name}`: 같은 꼬리를 가진 파일이 {len(hits)}개다"
     hits = INDEX.get(name, [])
     if len(hits) == 1:
         return hits[0], None
@@ -138,13 +144,13 @@ def check(doc, where, bad, unchecked):
         bad.append(f"{where}: 줄 번호 인용이 돌아왔다: {m.group(0)} — 심볼이나 한 줄 인용문으로")
 
     checked = set()
+    said = set()  # 같은 이름을 여러 번 인용해도 한 번만 말한다
     for name, sym in SYMBOL.findall(doc):
         path, problem = resolve(name)
         if problem:
-            bad.append(f"{where}: {problem}")
-            continue
-        if not path:
-            unchecked.append(f"{where}: `{name}` 의 `{sym}` — 이 트리에 없는 파일")
+            if name not in said:
+                said.add(name)
+                bad.append(f"{where}: {problem}")
             continue
         checked.add((name, sym))
         body = read(path)
@@ -169,9 +175,9 @@ def check(doc, where, bad, unchecked):
     for name, quote in QUOTE.findall(doc):
         path, problem = resolve(name)
         if problem:
-            bad.append(f"{where}: {problem}")
-            continue
-        if not path:
+            if name not in said:
+                said.add(name)
+                bad.append(f"{where}: {problem}")
             continue
         quotes += 1
         if quote not in read(path):
@@ -185,7 +191,9 @@ def check(doc, where, bad, unchecked):
         # 이름이 없어졌거나 모호한 것은 **실패**다. 심볼을 안 달았다는 이유로 이것까지 조용히
         # 넘기면, 코퍼스의 인용 대부분이 그 모양이라 가장 큰 썩음이 가장 조용해진다.
         if problem:
-            bad.append(f"{where}: {problem}")
+            if name not in said:
+                said.add(name)
+                bad.append(f"{where}: {problem}")
             continue
         # 문서가 문서를 가리키는 것(`docs/ARCHITECTURE.md`)은 파일 전체가 대상이라 정상이다.
         # 소스 파일을 심볼 없이 가리키는 것만 약한 손가락으로 남긴다.

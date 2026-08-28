@@ -10,8 +10,24 @@
 
     <depends>com.intellij.modules.platform</depends>
 
+    <!--
+        Two windows, and the split is the layout the design doc settles in §5 "어디에 놓나".
+
+        The browser console puts the conversation in the centre column with the facts beside it,
+        because a browser has no editor to put there. An IDE does: the centre belongs to the file
+        being edited, and taking it would break §5's first rule ("do not build what the IDE has")
+        with the layout rather than with a feature. So the conversation goes where IntelliJ already
+        puts text that scrolls — the bottom dock, beside Run and Terminal — and the facts pane
+        takes the right, where a tool window is independent and the console's sticky side column
+        comes for free.
+
+        The left is not ours at all: the console's workspace pane is the Project view and the Git
+        tool window.
+    -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="magi" anchor="right" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
+        <toolWindow id="magi" anchor="bottom" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
+        <toolWindow id="magi.facts" anchor="right"
+                    factoryClass="dev.sayaya.magi.ide.ui.FactsToolWindow"/>
     </extensions>
 
     <projectListeners>

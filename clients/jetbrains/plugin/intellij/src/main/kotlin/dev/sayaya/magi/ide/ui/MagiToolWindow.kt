@@ -11,20 +11,20 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
-import dev.sayaya.magi.ide.transport.Published
-import dev.sayaya.magi.ide.transport.SocketDaemons
-import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Assist
-import dev.sayaya.magi.ide.usecase.DaemonLifecycle
 import java.awt.BorderLayout
 import java.awt.FlowLayout
-import java.nio.file.Paths
 import javax.swing.JButton
 import javax.swing.SwingUtilities
 
 /**
- * 컴패니언에게 말을 걸고, 그가 묻는 것에 답하는 창.
+ * 대화 — 컴패니언에게 말을 걸고, 그가 묻는 것에 답하는 창. **하단 독**에 산다.
+ *
+ * 콘솔에서는 대화가 가운데다(`docs/UI.md` §2.2). IDE 에서 가운데는 **고치는 것**의 자리라 그대로
+ * 옮기면 §5 의 첫 규칙("IDE 와 겹치는 것은 만들지 않는다")을 배치로 어긴다. 그리고 계속 흘러내리는
+ * 글을 IntelliJ 가 두는 자리는 아래다 — Run, Terminal, Build 가 전부 거기 있다. 사실 판은 우측으로
+ * 갈렸다([FactsToolWindow]).
  *
  * 전사는 아직 없다 — 데몬에 `transcript` 문이 생겨야 온다(설계 문서 §3). 그때까지도 이 창은
  * 비어 있으면 안 되므로(§0.5 불변식 7) 지금 할 수 있는 둘을 먼저 한다: 지시를 보내는 것과
@@ -42,7 +42,8 @@ class MagiToolWindow : ToolWindowFactory {
         view.refresh()
     }
 
-    private class View(private val project: Project) {
+    private class View(project: Project) {
+        private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         private val state = JBLabel(" ")
         private val prompt = JBLabel(" ")
@@ -103,36 +104,11 @@ class MagiToolWindow : ToolWindowFactory {
             hint.text = " "
         }
 
-        /** 이 프로젝트의 소켓. 심링크를 푸는 자리는 SocketPath 안이다(§2). */
-        private fun socket() = project.basePath?.let { SocketPath.of(SocketPath.configDir(), Paths.get(it)) }
+        private fun socket() = workspace.socket()
 
-        /**
-         * 데몬에 한 번 붙어 무언가 하고 끊는다. 연결을 들고 있지 않는 이유는 스트림이 아직
-         * 없어서다 — 전사 문이 생기면 그때 스트림 하나를 usecase 가 단독으로 소유한다(§3).
-         */
-        private fun onDaemon(work: (Companion) -> Unit) {
-            val sock = socket() ?: return say(state, "이 프로젝트에는 경로가 없어 워크스페이스를 정할 수 없다.")
-            ApplicationManager.getApplication().executeOnPooledThread {
-                val long = SocketPath.tooLong(sock)
-                if (long != null) return@executeOnPooledThread say(state, long)
-                try {
-                    // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로
-                    // 고르면 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(daemon.go 의 사유).
-                    val sid = Published.of(sock)?.session
-                    if (sid.isNullOrBlank()) return@executeOnPooledThread
-                        say(state, "데몬이 어느 대화에 있는지 공표하지 않았다 — 붙을 자리를 넘겨짚지 않는다.")
-                    DaemonClient.connect(sock).use { work(Companion(it, sid)) }
-                } catch (e: Exception) {
-                    // 못 붙은 것을 빈 화면으로 말하지 않는다(§0.5-7).
-                    val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
-                    say(state, when (v) {
-                        DaemonLifecycle.Verdict.LEFT -> "데몬이 없다 — 아직 안 켰거나 질서 있게 나갔다."
-                        DaemonLifecycle.Verdict.KILLED -> "소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다."
-                        DaemonLifecycle.Verdict.ALIVE -> "붙었다가 끊겼다: ${e.message}"
-                    })
-                }
-            }
-        }
+        /** 데몬에 한 번 붙어 무언가 하고 끊는다. 배선은 [Workspace] 가 갖는다 — 창 둘이 같이 쓴다. */
+        private fun onDaemon(work: (Companion) -> Unit) =
+            workspace.onDaemon({ say(state, it) }, work)
 
         fun refresh() = onDaemon { comp ->
             val w = comp.waiting()

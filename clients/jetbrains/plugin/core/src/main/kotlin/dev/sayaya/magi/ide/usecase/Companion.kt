@@ -52,6 +52,37 @@ class Companion(
     private fun status(): Response = client.exchange(Request(method = "status", session = session))
 
     /**
+     * 우측 판의 **사실 장** — 지금 무엇을 하고 있고, 어떤 승인 모드이고, 어느 대화인가.
+     *
+     * `docs/UI.md` §2.2 가 콘솔에서 그 카드에 담는 것과 같은 질문이되, **오늘 데몬이 답할 수 있는
+     * 것만** 담는다. 컨텍스트·압축·계획은 읽기 문이 생겨야 온다(설계 문서 §3·§5).
+     *
+     * 모델은 일부러 안 담는다. 응답의 `models` 는 **고를 수 있는 목록**이지 지금 쓰는 것이 아니라,
+     * 첫 항목을 현재 모델로 그리면 그럴듯하게 틀린다.
+     */
+    fun facts(): Facts = status().let {
+        Facts(
+            doing = it.doing?.takeIf { d -> d.isNotBlank() },
+            permission = it.permission?.takeIf { p -> p.isNotBlank() },
+            session = it.session?.takeIf { x -> x.isNotBlank() } ?: session,
+            waiting = it.waiting,
+        )
+    }
+
+    /**
+     * 한 번의 `status` 로 읽히는 것들. 화면이 이것을 그린다.
+     *
+     * 필드가 널 가능인 것은 **모름과 없음이 다르기 때문**이다 — `doing` 이 null 이면 "이 데몬이 안
+     * 말해 줬다"이고 화면은 그것을 "쉬는 중"으로 그리면 안 된다(§0.5-7).
+     */
+    data class Facts(
+        val doing: String?,
+        val permission: String?,
+        val session: String,
+        val waiting: Waiting?,
+    )
+
+    /**
      * 턴이 열려 있나. `doing` 은 도는 툴이 자기에 대해 마지막으로 말한 것이라, 값이 있으면 무언가
      * 돌고 있다는 뜻이다. 사람을 기다리는 중(`waiting`)도 턴 안이므로 열린 것으로 센다 — 그때
      * 보낸 말은 새 대화가 아니라 지금 턴에 얹혀야 한다.

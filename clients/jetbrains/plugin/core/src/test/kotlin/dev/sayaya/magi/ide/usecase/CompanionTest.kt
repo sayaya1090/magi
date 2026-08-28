@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.transport.DaemonClient
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.StandardProtocolFamily
@@ -41,6 +42,48 @@ class CompanionTest {
         }
 
         fun close() = server.close()
+    }
+
+    @Test
+    fun `사실 장은 데몬이 말한 것만 담는다`() {
+        val fake = FakeDaemon(listOf(
+            """{"ok":true,"doing":"go test ./...","permission":"auto","session":"s_9"}""",
+        ))
+        fake.start()
+        val f = DaemonClient.connect(fake.path).use { Companion(it, "s_1").facts() }
+        fake.close()
+        assertEquals("go test ./...", f.doing)
+        assertEquals("auto", f.permission)
+        // 세션은 데몬이 말한 것이 이긴다. 부르는 쪽이 들고 있던 값은 낡을 수 있다.
+        assertEquals("s_9", f.session)
+        assertTrue(fake.seen[0].contains(""""method":"status""""))
+    }
+
+    @Test
+    fun `모름과 없음을 섞지 않는다`() {
+        // 데몬이 doing 도 permission 도 안 실어 보냈다. 그것은 "쉬는 중"도 "모드 없음"도 아니다 —
+        // 화면이 그 둘을 같은 글자로 그리면 모르는 것을 아는 척하게 된다(§0.5-7).
+        val fake = FakeDaemon(listOf("""{"ok":true}"""))
+        fake.start()
+        val f = DaemonClient.connect(fake.path).use { Companion(it, "s_1").facts() }
+        fake.close()
+        assertNull(f.doing)
+        assertNull(f.permission)
+        // 데몬이 세션을 안 말하면 부르는 쪽이 들고 있던 것으로 물러선다 — 빈 문자열이 아니다.
+        assertEquals("s_1", f.session)
+    }
+
+    @Test
+    fun `빈 문자열은 값이 아니라 모름이다`() {
+        // 데몬이 필드를 빈 값으로 채워 보내는 경우. 있는 것처럼 세면 화면에 빈칸이 그려지고,
+        // 사람은 그것을 "이 컴패니언은 아무것도 안 한다"로 읽는다.
+        val fake = FakeDaemon(listOf("""{"ok":true,"doing":"","permission":"","session":""}"""))
+        fake.start()
+        val f = DaemonClient.connect(fake.path).use { Companion(it, "s_1").facts() }
+        fake.close()
+        assertNull(f.doing)
+        assertNull(f.permission)
+        assertEquals("s_1", f.session)
     }
 
     @Test
