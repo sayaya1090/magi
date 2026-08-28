@@ -91,6 +91,14 @@ public class Dialogs {
 
     /** 되돌릴 수 없는 일 — 무엇이 사라지는지 이름을 대고 묻는다. */
     public void confirm(String head, String body, String doIt, Runnable then) {
+        confirm(head, body, doIt, null, then);
+    }
+
+    /**
+     * 하는 쪽 버튼에도 표를 단다 — 무엇이 일어나는지는 낱말만이 아니라 그림으로도 말한다
+     * (운영 confirmThis는 doMark 없이 불리는 자리가 없다).
+     */
+    public void confirm(String head, String body, String doIt, String doMark, Runnable then) {
         HTMLElement dialog = el("md-dialog");
         dialog.className = "askconfirm";
         HTMLElement h = el("div");
@@ -101,17 +109,27 @@ public class Dialogs {
         content.append(cell("asksay", body));
         HTMLElement actions = el("div");
         actions.setAttribute("slot", "actions");
-        HTMLElement keep = el("md-text-button");
-        keep.append(Icons.shape("#i-sl-xmark", "mk"),
-                DomGlobal.document.createTextNode(" " + tr("action.cancel")));
+        HTMLElement keep = marked(el("md-text-button"), "#i-sl-xmark", tr("action.cancel"));
         keep.addEventListener("click", evt -> close(dialog));
-        HTMLElement go = el("md-filled-tonal-button");
-        go.textContent = doIt;
+        HTMLElement go = marked(el("md-filled-tonal-button"), doMark, doIt);
         go.addEventListener("click", evt -> { close(dialog); then.run(); });
         actions.append(keep, go);
         dialog.append(h, content, actions);
         DomGlobal.document.body.append(dialog);
         open(dialog);
+    }
+
+    /**
+     * 낱말에 표를 붙인다 — <b>붙일 표가 있을 때만</b>. 스프라이트가 없는 빌드(기여자·정적
+     * 데모)에서 shape는 null을 돌려주는데, DOM의 append는 null을 "null"이라는 글자로 적는다:
+     * 확인 버튼이 "null 옮기고 보내기"로 읽혔다(실측). 운영의 withMark도 같은 자리에서
+     * 그림이 없으면 그냥 돌아선다.
+     */
+    private static HTMLElement marked(HTMLElement btn, String ref, String word) {
+        elemental2.dom.Element m = ref == null || ref.isEmpty() ? null : Icons.shape(ref, "mk");
+        if (m == null) { btn.textContent = word; return btn; }
+        btn.append(m, DomGlobal.document.createTextNode(" " + word));
+        return btn;
     }
 
     private static void close(HTMLElement d) {
