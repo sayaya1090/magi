@@ -1,4 +1,4 @@
-import { Pending, CLEARED } from '../domain/Pending.js';
+import { Pending, CLEARED, KINDS } from '../domain/Pending.js';
 
 /**
  * 데몬이 무엇을 묻고 있는지 화면에 세워 두고, 답을 보낸다.
@@ -79,11 +79,35 @@ export class WatchPrompt {
    * 답이 실패했는데도 화면에서 물음이 사라진다.
    */
   async answer(decision) {
-    if (!this.pending) throw new Error('묻고 있는 것이 없는데 답을 보내려 했습니다');
-    const id = this.pending.id;
-    await this.port.answerPermission(id, decision);
+    const p = this.answering(KINDS.permission);
+    await this.port.answerPermission(p.id, decision);
     this.clearedBy = CLEARED.answered;
-    return id;
+    return p.id;
+  }
+
+  /**
+   * 질문의 답. **권한과 손이 다른 이유**는 답의 모양이 다르기 때문이다 — 권한은 정해진 낱말
+   * 넷이고 질문은 사람이 고른 글이다. 종류를 안 보고 한 손으로 보내면 질문에 `allow`가 간다.
+   */
+  async choose(text) {
+    const p = this.answering(KINDS.question);
+    await this.port.answerQuestion(p.id, text);
+    this.clearedBy = CLEARED.answered;
+    return p.id;
+  }
+
+  /**
+   * 답을 보내도 되는 상태인지 본다. **종류가 다르면 거절한다** — 모르는 종류를 권한으로
+   * 넘겨짚어 `allow`를 보내는 것이 이 창이 할 수 있는 제일 나쁜 일이다. call id 는 맞으니
+   * 데몬은 그 답을 받아 버린다.
+   */
+  answering(kind) {
+    if (!this.pending) throw new Error('묻고 있는 것이 없는데 답을 보내려 했습니다');
+    if (this.pending.kind !== kind) {
+      const got = this.pending.kind || '(없음)';
+      throw new Error(`${kind} 이 아닌 물음에 ${kind} 의 답을 보내려 했습니다: kind=${got}`);
+    }
+    return this.pending;
   }
 
   get view() {
@@ -96,6 +120,15 @@ export class WatchPrompt {
         ? null
         : '데몬에 안 닿습니다 — 이 화면이 보여 주는 것은 마지막으로 읽은 것입니다',
       doing: this.doing,
+      /**
+       * 이 창이 모르는 종류가 대기 중이다. **단추는 안 주고 사실만 준다** — 넘겨짚어 그리면
+       * 사람이 엉뚱한 답을 보내고, 안 그리면 §6이 말한 「아무도 안 보는 곳에서 대기」다.
+       */
+      unknownKindNote: this.pending && !this.pending.known
+        ? '이 창이 모르는 종류의 물음이 대기 중입니다'
+          + `(kind=${this.pending.kind || '(없음)'}, id=${this.pending.id})`
+          + ' — 답할 수 있는 창에서 답해 주십시오.'
+        : null,
     };
   }
 }

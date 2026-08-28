@@ -31,10 +31,23 @@ export const DECISIONS = [
 export const WIDTH_NOTE =
   '넓은 선택은 코어가 이번 호출 하나로 줄일 수 있습니다 — 줄이면 대화에 그렇게 적힙니다.';
 
+/**
+ * 이 창이 답할 줄 아는 종류 둘. **모르는 종류를 이 둘 중 하나로 넘겨짚지 않는다.**
+ *
+ * 넘겨짚으면 어떻게 되는지가 코어에 실물로 있다 — `daemon.go`의 `Waiting.Event`는 `switch
+ * w.Kind`의 `default:`가 **질문이 아닌 것을 전부 권한 물음으로** 되살린다. 새 종류가 생기면
+ * 옛 뷰어가 그것을 「허용/거절」 단추와 함께 그리고, 사람이 누른 결정은 그 종류가 기다리는
+ * 답이 아니다. 이 파일의 첫 판에도 `kind ?? 'permission'`이 그대로 있었다(자백이다).
+ *
+ * 그래서 규칙: **모르면 모른다고 든다.** 무엇이 대기 중인지는 보여 주되(안 보여 주면 §6이
+ * 말한 「아무도 안 보는 곳에서 대기」로 돌아간다), 단추는 안 준다.
+ */
+export const KINDS = Object.freeze({ permission: 'permission', question: 'question' });
+
 export class Pending {
   constructor({ id, kind, what, args, reason, options, since }) {
     this.id = id;                       // 답이 실어야 하는 call id. **주소다.**
-    this.kind = kind ?? 'permission';   // permission | question
+    this.kind = kind ?? '';             // 로그의 말 그대로. **기본값을 안 준다.**
     this.what = what ?? '';
     this.args = args ?? null;
     this.reason = reason ?? '';
@@ -42,6 +55,11 @@ export class Pending {
     this.since = since ?? null;
     Object.freeze(this);
   }
+
+  /** 이 창이 그릴 줄 아는 종류인가. 아니면 단추 없이 「모르는 물음이 대기 중」으로만 그린다. */
+  get known() { return this.kind === KINDS.permission || this.kind === KINDS.question; }
+  get isPermission() { return this.kind === KINDS.permission; }
+  get isQuestion() { return this.kind === KINDS.question; }
 
   /** 같은 물음인가. 폴링이 같은 것을 계속 실어 오므로 **다시 그리지 않으려면** 이게 필요하다. */
   same(other) { return other != null && other.id === this.id && other.kind === this.kind; }

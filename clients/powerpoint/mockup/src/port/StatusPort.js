@@ -23,4 +23,13 @@ export class StatusPort {
   async answerPermission(_callId, _decision) {
     throw new Error('StatusPort.answerPermission 미구현');
   }
+
+  /**
+   * 질문의 답. **권한과 손이 다르다** — 권한은 `allow`/`deny` 같은 정해진 낱말이고 질문은
+   * 사람이 고른 글이다. 웹 콘솔도 `kind`와 `text`를 같이 실어 보내며 둘을 따로 검사한다
+   * (`cmd/magi-web`의 답 처리기). 한 손으로 합치면 질문에 `allow`를 보낼 수 있게 된다.
+   */
+  async answerQuestion(_callId, _text) {
+    throw new Error('StatusPort.answerQuestion 미구현');
+  }
 }

@@ -25,6 +25,10 @@ export class FakeStatus extends StatusPort {
     // 다음 `status`가 말한다. 그래서 여기서도 안 내린다. 시험이 `clear()`로 내린다.
   }
 
+  async answerQuestion(callId, text) {
+    this.answers.push({ callId, text });
+  }
+
   ask(p) { this.pending = p; }
   clear() { this.pending = null; }
 }

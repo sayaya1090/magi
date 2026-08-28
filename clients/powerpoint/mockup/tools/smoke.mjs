@@ -302,6 +302,37 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('문구가 폭을 말한다',
     DECISIONS.every((d) => d.width === 'call' || /세션|계속|설정/.test(d.label)),
     DECISIONS.map((d) => d.label).join(' · '));
+
+  // 모르는 종류. 코어의 `Waiting.Event` 는 `default:` 로 질문 아닌 것을 전부 권한 물음으로
+  // 되살린다 — 새 종류가 생기면 옛 창이 「허용/거절」 단추를 달고 그리고, 사람이 누른 결정은
+  // 그 종류가 기다리는 답이 아니다. 이 창은 넘겨짚지 않는다.
+  const st3 = new FakeStatus();
+  const w3 = new WatchPrompt(st3);
+  st3.ask({ id: 'call_10', kind: 'confirm', what: '무언가' });
+  await w3.poll();
+  ok('모르는 종류도 대기 중이라는 사실은 보여 준다', w3.view.pending?.id === 'call_10');
+  ok('모르는 종류를 권한으로 넘겨짚지 않는다', w3.view.pending?.known === false);
+  ok('모르는 종류는 사실만 적는다', /kind=confirm/.test(w3.view.unknownKindNote ?? ''));
+  let refused = false;
+  try { await w3.answer('allow'); } catch { refused = true; }
+  ok('모르는 종류에 allow 를 안 보낸다', refused && st3.answers.length === 0);
+
+  // 종류가 없는 것도 권한이 아니다 — 없는 것을 기본값으로 메우면 위와 같은 사고가 된다.
+  st3.ask({ id: 'call_11', what: '종류 없음' });
+  await w3.poll();
+  ok('종류가 없으면 없는 대로 든다', w3.view.pending?.kind === '' && !w3.view.pending.known);
+
+  // 질문은 손이 다르다. 권한은 정해진 낱말 넷이고 질문은 사람이 고른 글이다.
+  st3.ask({ id: 'call_12', kind: 'question', what: '어느 장에 넣을까요?',
+    options: ['3장', '새 장'] });
+  await w3.poll();
+  await w3.choose('새 장');
+  ok('질문의 답은 글로 간다',
+    st3.answers.length === 1 && st3.answers[0].callId === 'call_12'
+    && st3.answers[0].text === '새 장');
+  let wrongHand = false;
+  try { await w3.answer('allow'); } catch { wrongHand = true; }
+  ok('질문에 권한의 낱말을 안 보낸다', wrongHand && st3.answers.length === 1);
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
