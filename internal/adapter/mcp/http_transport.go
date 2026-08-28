@@ -128,11 +128,10 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 		return err
 	}
 	defer resp.Body.Close()
-	t.answered()
-
 	t.captureSession(resp)
 
 	if resp.StatusCode != http.StatusOK {
+		t.answered() // a refusal is the server speaking: somebody is home to refuse
 		// Surface a bounded snippet of the error body — servers often explain why.
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		if s := strings.TrimSpace(string(snippet)); s != "" {
@@ -142,14 +141,25 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 	}
 
 	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-		return t.readSSEStream(ctx, resp.Body, id, out)
+		err := t.readSSEStream(ctx, resp.Body, id, out)
+		if err == nil {
+			t.answered()
+		}
+		// A stream that broke halfway neither resets the streak nor adds to it: the headers came
+		// from somewhere, so it is not "nobody home", and the break may be ours (a cancelled turn
+		// closes the body from this side).
+		return err
 	}
 
-	// Single JSON response.
+	// Single JSON response. The streak resets on a message that ARRIVED WHOLE — including one
+	// carrying the server's own error, which is still the server talking. Resetting on the response
+	// headers (where this used to be) meant a helper that accepted every call and died mid-body was
+	// never dropped: each half-answer wiped the count of the ones before it.
 	var msg message
 	if err := json.NewDecoder(resp.Body).Decode(&msg); err != nil {
 		return err
 	}
+	t.answered()
 	if msg.Error != nil {
 		return fmt.Errorf("mcp: %s: %s", method, msg.Error.Message)
 	}
@@ -164,8 +174,12 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 // (which closes the body, unblocking the scanner) and an explicit ctx check.
 func (t *httpTransport) readSSEStream(ctx context.Context, r io.Reader, id int64, out any) error {
 	scanner := bufio.NewScanner(r)
-	// MCP frames can exceed bufio's 64KB default line size; allow up to 1MB.
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	// One SSE line has to hold a whole JSON-RPC message, and a message answering with a picture
+	// carries it base64'd — a third larger than the file. This used to be a flat 1MB while
+	// imageCap said 8MB, so a picture over roughly 750KB died here as a scanner error: two limits
+	// that disagreed, and the smaller one was the invisible one. It is now derived from the cap
+	// that is written down, plus room for the JSON around it.
+	scanner.Buffer(make([]byte, 0, 64*1024), sseFrameCap)
 	var eventID, data string
 
 	for scanner.Scan() {

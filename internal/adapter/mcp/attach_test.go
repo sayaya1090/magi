@@ -6,22 +6,47 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// sink is a tool registry that only remembers names, which is all these tests ask about.
-type namesSink struct{ names map[string]bool }
+// sink is a tool registry that only remembers names, which is all these tests ask about. Locked
+// because a manager registers from whatever goroutine attached and unregisters from the one
+// watching the server die — which is the arrangement under test.
+type namesSink struct {
+	mu    sync.Mutex
+	named map[string]bool
+}
 
 func (s *namesSink) Register(t port.Tool) {
-	if s.names == nil {
-		s.names = map[string]bool{}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.named == nil {
+		s.named = map[string]bool{}
 	}
-	s.names[t.Name()] = true
+	s.named[t.Name()] = true
 }
-func (s *namesSink) Unregister(name string) { delete(s.names, name) }
+
+func (s *namesSink) Unregister(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.named, name)
+}
+
+func (s *namesSink) has(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.named[name]
+}
+
+func (s *namesSink) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.named)
+}
 
 // mcpHTTP is the smallest server that completes a handshake and offers one tool.
 func mcpHTTP(t *testing.T, tool string) *httptest.Server {
@@ -63,7 +88,7 @@ func TestAttachAnswersWithTheToolsItBrought(t *testing.T) {
 	if len(names) != 1 || names[0] != "mcp__ppt__render" {
 		t.Fatalf("attached %v — the namespaced name is what the model calls", names)
 	}
-	if !sink.names["mcp__ppt__render"] {
+	if !sink.has("mcp__ppt__render") {
 		t.Error("the tool is not in the registry the model reads")
 	}
 }
@@ -98,14 +123,14 @@ func TestDetachFreesTheNameAndTheTools(t *testing.T) {
 	if _, err := m.Attach(context.Background(), "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
-	if !m.Detach("ppt") {
-		t.Fatal("detach said there was nothing attached")
+	if removed, err := m.Detach("ppt"); err != nil || !removed {
+		t.Fatalf("detach said removed=%v err=%v — it attached this one itself", removed, err)
 	}
-	if sink.names["mcp__ppt__render"] {
+	if sink.has("mcp__ppt__render") {
 		t.Error("the tool is still advertised after its server was detached")
 	}
-	if m.Detach("ppt") {
-		t.Error("detaching twice reported a removal the second time")
+	if removed, err := m.Detach("ppt"); removed || err != nil {
+		t.Errorf("detaching twice said removed=%v err=%v — already clean is an answer, not a failure", removed, err)
 	}
 	if _, err := m.Attach(context.Background(), "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("re-attach after detach: %v — that is the reconnect path", err)
@@ -125,7 +150,7 @@ func TestAServerThatStopsAnsweringIsDropped(t *testing.T) {
 	}
 	srv.Close() // the helper dies without a word
 
-	tool, ok := sink.names["mcp__ppt__render"], true
+	tool, ok := sink.has("mcp__ppt__render"), true
 	if !tool {
 		t.Fatal("nothing was registered to begin with")
 	}
@@ -157,7 +182,113 @@ func TestAServerThatStopsAnsweringIsDropped(t *testing.T) {
 	if still {
 		t.Error("a server nobody can reach is still attached")
 	}
-	if sink.names["mcp__ppt__render"] {
+	if sink.has("mcp__ppt__render") {
 		t.Error("its tools are still advertised to the model — a hand that is not there")
+	}
+}
+
+// Two callers attaching the same name at the same instant. The name used to be checked and then
+// released for the length of a handshake — up to thirty seconds — so both passed the check and both
+// succeeded: one connection stayed out of the map, never closed, its tools registered under names
+// the other also claimed.
+func TestTwoAttachesRacingForOneNameLeaveOneServer(t *testing.T) {
+	a, b := mcpHTTP(t, "one"), mcpHTTP(t, "two")
+	defer a.Close()
+	defer b.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, url := range []string{a.URL, b.URL} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = m.Attach(context.Background(), "ppt", url, nil)
+		}()
+	}
+	wg.Wait()
+
+	won := 0
+	for _, err := range errs {
+		if err == nil {
+			won++
+		}
+	}
+	if won != 1 {
+		t.Fatalf("%d of 2 attaches succeeded under one name: %v", won, errs)
+	}
+	if got := sink.count(); got != 1 {
+		t.Errorf("%d tools registered — the loser left its own behind, and nothing can remove them", got)
+	}
+}
+
+// The reservation is released when the handshake fails. Holding it would burn the name for the life
+// of the daemon over one server that was not listening: worse than the collision it prevents.
+func TestANameIsNotBurnedByAnAttachThatFailed(t *testing.T) {
+	dead := mcpHTTP(t, "render")
+	dead.Close() // nobody home
+	live := mcpHTTP(t, "render")
+	defer live.Close()
+
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+
+	if _, err := m.Attach(context.Background(), "ppt", dead.URL, nil); err == nil {
+		t.Fatal("attaching to a closed server succeeded")
+	}
+	if _, err := m.Attach(context.Background(), "ppt", live.URL, nil); err != nil {
+		t.Fatalf("the name was still held after a failed attach: %v", err)
+	}
+}
+
+// Two names that are one namespace. Tool names are sanitised — "ppt.one" and "ppt_one" both become
+// mcp__ppt_one__* — so the second used to take the first's tool names silently, and detaching it
+// left the first in the map claiming to be attached with nothing registered.
+func TestTwoNamesThatSanitiseToOneAreRefused(t *testing.T) {
+	a, b := mcpHTTP(t, "render"), mcpHTTP(t, "render")
+	defer a.Close()
+	defer b.Close()
+	m := NewManager(&namesSink{})
+	defer m.Close()
+
+	if _, err := m.Attach(context.Background(), "ppt.one", a.URL, nil); err != nil {
+		t.Fatalf("first attach: %v", err)
+	}
+	_, err := m.Attach(context.Background(), "ppt_one", b.URL, nil)
+	if err == nil || !strings.Contains(err.Error(), "collides") {
+		t.Fatalf("second attach said %v — one namespace, one server", err)
+	}
+	// …and the name it was refused under is still the first one's to give up.
+	if removed, err := m.Detach("ppt.one"); err != nil || !removed {
+		t.Errorf("detach of the original name said removed=%v err=%v", removed, err)
+	}
+}
+
+// The door removes what the door attached. A server the operator declared in config is not a
+// caller's to take away: nothing here can put it back until the daemon restarts.
+func TestTheDoorDoesNotRemoveAConfigServer(t *testing.T) {
+	srv := mcpHTTP(t, "render")
+	defer srv.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+
+	if err := m.AddHTTP(context.Background(), "ppt", srv.URL, nil); err != nil {
+		t.Fatalf("config attach: %v", err)
+	}
+	removed, err := m.Detach("ppt")
+	if removed || err == nil {
+		t.Fatalf("the door removed a config server (removed=%v err=%v)", removed, err)
+	}
+	if !sink.has("mcp__ppt__render") {
+		t.Error("its tools went away anyway")
+	}
+	// But the lifetime net still holds it: a config server nobody can reach is as dead as any other.
+	m.Remove("ppt")
+	if sink.has("mcp__ppt__render") {
+		t.Error("Remove left a config server's tools registered — that is the leak the net exists for")
 	}
 }

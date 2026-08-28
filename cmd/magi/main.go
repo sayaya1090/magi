@@ -1005,6 +1005,15 @@ func run() int {
 	// Where a tool's pictures are kept. The data directory, not the turn's scratch: the log
 	// references them and a viewer opens the log later, so they outlive the turn that made them.
 	mcpMgr.ImageDir = plat.DataDir()
+	// …and swept, once, off the startup path. Nothing else ever removes one: the turn that made a
+	// picture ends in minutes, the log naming it is kept forever, and a deck review writes tens of
+	// megabytes in an afternoon. A log older than the sweep window keeps the line naming the file;
+	// what it loses is the file.
+	go func() {
+		if n, freed := mcp.SweepImages(plat.DataDir(), time.Now()); n > 0 {
+			fmt.Fprintf(os.Stderr, "magi: removed %d tool images older than a month (%d bytes)\n", n, freed)
+		}
+	}()
 	// The runtime door. An application that IS a tool server (an editor plugin, a slide add-in)
 	// starts on the person's clock, not the operator's, so it cannot be in the config this daemon
 	// read at startup — it asks to be attached instead. Wired here because core holds the port and
