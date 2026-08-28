@@ -245,3 +245,82 @@ func TestTheBudgetIsNotHandedOutAgainToEveryCall(t *testing.T) {
 		t.Error("the newest call did not carry its pictures — backwards walking was undone by forward emitting")
 	}
 }
+
+// The same picture twice is one picture. keepImages names a file by its content, so two calls that
+// produced the same bytes share one path — which is exactly what re-rendering a deck after changing
+// one slide produces. Counted per reference, one 1MB picture took two of the four places and two
+// thirds of the budget, and went on the wire twice.
+func TestTheSamePictureReferencedTwiceRidesOnce(t *testing.T) {
+	dir := t.TempDir()
+	shared := withImage(t, dir, "slide.png", 1<<20)
+	var msgs []session.Message
+	for i := 0; i < 4; i++ {
+		msgs = append(msgs, called(fmt.Sprintf("c%d", i), "rendered", shared)...)
+	}
+	if got := countBlocks(convertMessages(msgs, true)); got != 1 {
+		t.Errorf("one picture went on the wire %d times", got)
+	}
+
+	// …and four DIFFERENT pictures still all ride.
+	var four []session.Message
+	for i := 0; i < 4; i++ {
+		four = append(four, called(fmt.Sprintf("d%d", i), "rendered",
+			withImage(t, dir, fmt.Sprintf("d%d.png", i), 1000))...)
+	}
+	if got := countBlocks(convertMessages(four, true)); got != 4 {
+		t.Errorf("four different pictures sent %d blocks", got)
+	}
+}
+
+// Why a picture was left behind, not just how many. Told "too large" about pictures that were left
+// behind by the COUNT, a model renders smaller and gets nowhere: at four pictures the size of each
+// one is not what ran out.
+func TestTheModelIsToldWhyAPictureWasLeftBehind(t *testing.T) {
+	dir := t.TempDir()
+	var refs []session.ImageRef
+	for i := 0; i < 6; i++ {
+		refs = append(refs, withImage(t, dir, fmt.Sprintf("s%d.png", i), 100))
+	}
+	msgs := called("c1", "rendered", refs...)
+
+	said := strings.Join(whoCarried(convertMessages(msgs, true)), " ")
+	if !strings.Contains(said, "at most") {
+		t.Errorf("the count limit was not named: %s", said)
+	}
+	if strings.Contains(said, "too large") {
+		t.Errorf("pictures cut by the count were reported as too large: %s", said)
+	}
+}
+
+// A ":tag" variant is answered from its family, which is how every other field in the table
+// behaves. Worth pinning because Vision is the one field where being wrong is an API error rather
+// than a worse estimate — and because the guarantee written beside it says "not declared, and no
+// family either".
+func TestAVariantInheritsFromItsFamilyAndAStrangerDoesNot(t *testing.T) {
+	live := model.NewRegistry()
+	live.Register(model.Info{ID: "qwen3-vl", ContextWindow: 32000, Vision: true})
+	c := Client{}
+	WithVision(func(id string) bool { return live.Get(id).Vision })(&c)
+
+	if !c.seesImages("qwen3-vl:8b") {
+		t.Error("a size variant of a declared vision model was told it cannot see")
+	}
+	if c.seesImages("some-other-model:8b") {
+		t.Error("a model with no relative in the table was assumed to see")
+	}
+}
+
+func countBlocks(out []wireMessage) int {
+	n := 0
+	for _, m := range out {
+		if m.Role != "user" {
+			continue
+		}
+		for _, b := range m.Content.([]any) {
+			if _, isImg := b.(imageBlock); isImg {
+				n++
+			}
+		}
+	}
+	return n
+}
