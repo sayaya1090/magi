@@ -23,7 +23,11 @@ func TestTheMockAnswersEveryPathTheScreensAsk(t *testing.T) {
 	asked := map[string]string{} // 경로 → 그 길을 부르는 모듈
 	answers := map[string]bool{} // 목이 답하는 경로
 	root := filepath.Join("..", "ui")
-	call := regexp.MustCompile(`Console\.(?:fetchList|raw|post|stream)\("(/[a-zA-Z0-9_-]+)`)
+	// 부르는 모양을 하나라도 빠뜨리면 이 검사는 통과하면서 아무것도 안 본다. postText와
+	// postSaid가 빠져 있던 동안 /suggest·/complete·/git-msg·/git-pr·/pr-msg 다섯이 이 눈
+	// 밖에 있었고, 그 중 /suggest는 공개 데모에서 501이었다(실측). 그러니 이름을 열거하지
+	// 말고 Console의 <b>모든</b> 부름을 본다 — 다음에 늘어나는 이름도 저절로 들어온다.
+	call := regexp.MustCompile(`Console\.[a-zA-Z]+\("(/[a-zA-Z0-9_-]+)`)
 	// 목이 답하는 모양 둘: switch의 case와, 길 하나만 보는 자리의 equals(스트림이 그렇다).
 	answered := regexp.MustCompile(`(?:case "(/[a-zA-Z0-9_-]+)"|"(/[a-zA-Z0-9_-]+)"\.equals\()`)
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
