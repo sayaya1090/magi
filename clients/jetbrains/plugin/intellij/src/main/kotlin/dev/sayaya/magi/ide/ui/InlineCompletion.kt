@@ -31,6 +31,20 @@ import kotlinx.coroutines.withContext
  * (2026.1.5 바이트코드에서 확인). **「플랫폼이 해 주겠지」로 통과시킨 게 아니라 그 문을 찾아서
  * 통과시킨 것**이고, 이 문단이 있는 이유가 그것이다 — 맞는 답과 맞는 근거는 다른 말이라,
  * 안 적어 두면 다음 사람이 같은 자리를 「거두는 갈래가 없다」로 읽고 없는 결함을 고친다.
+ *
+ * 그리고 **출처가 붙어야 재 본 것이 재 본 것으로 남는다.** 위 문단은 확인한 사실이지 추론이
+ * 아닌데, 어느 쪽인지가 글에서 안 갈리면 다음 사람은 안전한 쪽으로 읽어 다시 연다. 그래서
+ * 잰 명령을 그대로 적는다 — 특히 **패키지를 이름에서 못 유추한다**(`...inline.completion.`
+ * 아래가 아니라 `...listeners.typing.` 아래다). 잘못 짚으면 `class not found` 가 돌아오고,
+ * 그건 「그런 문이 없다」와 화면에서 같아 보인다:
+ *
+ * ```
+ * javap -p -c -cp <IDEA>/lib/intellij.platform.lang.impl.jar \
+ *   com.intellij.codeInsight.inline.completion.listeners.typing.InlineCompletionDocumentListener
+ * ```
+ *
+ * (`idea-2026.1.5-aarch64` 로 2026-08-29 에 읽었다. 클래스 이름을 찾는 것은 `javap` 이 아니라
+ * python 의 `zipfile` 로 — 이 jar 는 `unzip -l` 이 못 연다.)
  */
 class MagiInlineCompletion : InlineCompletionProvider {
 

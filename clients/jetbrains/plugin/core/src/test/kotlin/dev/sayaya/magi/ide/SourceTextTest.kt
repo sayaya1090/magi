@@ -197,7 +197,7 @@ class SourceTextTest {
         // 나머지 반은 지우는 갈래가 아예 없던 것. 코어 주석이 그 없음을 이미 이름으로 부르고 있었다
         // — "an old console that never learned to clear". 탭을 닫아도 버퍼는 TTL 이 끊을 때까지
         // 세션의 남은 턴마다 「사람이 편집 중인 파일」로 실려 갔다.
-        val buffer = sources.first { it.name == "OpenBufferListener.kt" }.readText()
+        val buffer = buffer()
         assertTrue("documentChanged" in buffer,
             "타이핑에 안 걸려 있다. 탭 전환에서만 보내면 보내는 값이 「지금 버퍼」가 아니라 " +
                 "탭을 바꾼 순간의 스냅샷이고, 코어의 TTL 이 근거로 삼는 재밀기도 안 일어난다")
@@ -212,5 +212,46 @@ class SourceTextTest {
             "탭이 닫혀도 데몬의 사본을 안 지운다. 빈 텍스트가 「닫혔다」인데 그걸 안 보내면 " +
                 "떠난 파일이 세션의 남은 턴마다 「편집 중인 파일」로 실려 간다")
     }
+
+    @Test
+    fun `빌려 쓰는 안전장치의 전제가 움직이면 여기서 운다`() {
+        // 위 시험이 「보내긴 보내는가」를 붙든다면 이건 **얼마나 자주**를 붙든다. 그리고 그 수를
+        // 고른 것은 이 저장소의 이쪽이 아니다.
+        //
+        // 코어는 밀어 둔 버퍼를 `ambientTTL` 뒤에 조용히 버린다. 15분이 정당한 근거로 주석에 적혀
+        // 있는 것이 **"editing re-pushes every 600ms"** 다. 즉 코어의 안전장치는 「살아 있는
+        // 에디터라면 그 안에 다시 민다」를 전제로 서 있고, 이 플러그인의 디바운스가 그 전제를 지키는
+        // 쪽이다. 콘솔을 보고 고른 수가 아니라 **콘솔과 같아야 하는 수**다.
+        //
+        // 위험한 것은 어긋나는 방향이 아니라 어긋나는 게 **안 보이는** 것이다. 코어가 저 수나 저
+        // 문장을 바꿔도 이 모듈은 컴파일되고 시험도 다 통과하고 화면도 멀쩡하다. 드러나는 자리는
+        // 사람이 십 분째 고치던 파일이 모델에게서 사라지는 순간뿐이고, 그건 아무도 결함으로 안
+        // 읽는다. 남의 안전장치가 내 전제를 안 지키면 그건 내 것이 아니다 — 그러니 잰다.
+        //
+        // **늦게 운다는 것도 같이 적어 둔다.** `test-jetbrains.yml` 은 `clients/jetbrains/**` 에만
+        // 걸리므로 코어만 고친 커밋에서는 안 돈다. 듣는 사람은 이 파일을 다음에 건드리는 사람이다 —
+        // 안 듣는 것보다 낫고, 「코어가 바꾸는 순간 운다」로 읽으면 틀린다.
+        val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .firstOrNull { File(it, "go.mod").isFile }
+        assertTrue(root != null,
+            "저장소 뿌리(`go.mod`)를 못 찾았다. 플러그인만 떼어 내 빌드하면 이 짝을 잴 수가 없고, " +
+                "그때 이 시험이 말하는 것은 「지킨다」가 아니라 「못 봤다」이다")
+
+        val core = File(root, "internal/app/complete.go")
+        assertTrue(core.isFile, "코어의 `complete.go` 가 없다(${core.path})")
+        val premise = Regex("re-pushes every (\\d+)ms").find(core.readText())
+        assertTrue(premise != null,
+            "`ambientTTL` 의 근거 문장이 없어졌다. 15분이 무엇을 믿고 고른 값인지 코어가 더 이상 " +
+                "안 적으면, 이쪽 디바운스가 무엇에 맞춘 수인지도 같이 근거를 잃는다")
+
+        val mine = Regex("Timer\\((\\d+)\\)").find(buffer())
+        assertTrue(mine != null, "`OpenBufferListener` 에 디바운스 타이머가 없다")
+        assertTrue(mine!!.groupValues[1] == premise!!.groupValues[1],
+            "재밀기 주기가 코어의 전제와 다르다 — 이쪽 ${mine.groupValues[1]}ms, 코어가 믿는 값 " +
+                "${premise.groupValues[1]}ms. 둘 중 하나를 고치든 `ambientTTL` 을 다시 논하든, " +
+                "조용히 갈라지게 두는 것만 안 된다")
+    }
+
+    private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
 }
