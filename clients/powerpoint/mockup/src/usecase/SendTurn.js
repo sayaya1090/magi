@@ -19,11 +19,29 @@ export class SendTurn {
   }
 
   /**
+   * `live` 에 **기본값을 안 준다.** 안 주면 없는 것이 `undefined` 라 아래 `!live` 가 잡아
+   * 세 번째 갈래로 간다 — 「모른다」와 「끊겼다」가 같은 길로 가는 것이 맞기 때문이다. 한쪽만
+   * 안전하지 않다: 모르는 채 잠그면 안 올 메아리를 영영 기다리고(위 두 번째 갈래가 있는 바로
+   * 그 이유), 모르는 채 안 잠그면 「확인 못 한다」고 말하고 글을 남긴다. 뒤엣것은 사실이다.
+   *
+   * 예전엔 `live = true` 였다. 그건 **안 잰 것을 잰 것처럼 적는 것**이었다 — 안 넘긴 호출자에게
+   * 「스트림이 살아 있다」를 대신 단언해 주고, 그 대가를 사람이 갇혀서 치른다. 오늘 프로덕션
+   * 호출자는 하나뿐이고 늘 넘기므로 그 기본값은 아무도 안 쓰는 함정이었다.
+   *
+   * ⚠ **`userRows` 는 아직 기본값이 있고, 그건 같은 결함이다** — 미결로 적어 둔다. `live:true`
+   * 인데 `userRows` 를 안 넘기면 `mark` 가 0 이라, 로그에 이미 있던 남의 줄 하나에 `echoed`
+   * 가 참이 되어 **메아리가 오기 전에 사람 글이 지워진다.** `live` 쪽과 달리 안전한 기본값이
+   * 없어서 안 고쳤다: 0 이면 이르게 지우고, `undefined` 면 `echoed` 가 영영 거짓이라 갇힌다.
+   * 제대로 막으려면 값이 **필수**여야 하는데, 이 클래스는 거절을 던지지 않고 `{sent:false,
+   * why}` 로 말하므로 새 `why` 가 하나 늘고 `View.onSend` 의 닫힌 집합도 같이 늘어야 한다
+   * (거기 안 걸린 `why` 는 조용히 나간다 — 오늘 그런 것은 `empty` 하나뿐이고 빈 상자에는 할
+   * 말이 없는 게 맞지만, 새 사유가 그 침묵을 물려받으면 안 된다). 오늘 호출자는 늘 넘긴다.
+   *
    * @param {string} text
-   * @param {{userRows:number, live:boolean}} log 지금 로그에서 보이는 것
+   * @param {{userRows:number, live:boolean}} log 지금 로그에서 보이는 것. `live` 는 필수다.
    * @returns {Promise<{sent:boolean, why?:string, blind?:boolean, error?:Error}>}
    */
-  async run(text, { userRows = 0, live = true } = {}) {
+  async run(text, { userRows = 0, live } = {}) {
     if (!this.composer.canSend(text)) {
       return { sent: false, why: this.composer.waiting ? 'waiting' : 'empty' };
     }

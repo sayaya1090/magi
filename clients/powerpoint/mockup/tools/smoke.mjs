@@ -593,6 +593,25 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('그만 기다려도 인용은 그대로다',
     comp2.pending.length === 1 && comp2.pending[0].shapeId === 'sh2');
 
+  // 셋째 갈래 — **갔는데 로그를 못 읽는다.** 잠그느냐 마느냐는 이미 위에서 진짜 끊긴
+  // 스트림으로 잰다(「메아리를 못 받을 땐 안 잠근다」). 여기서 더 재는 것은 **쥐고 있던
+  // 인용**이다: 갔는지 모르는 채로 그걸 버리면 화면이 「갔다」를 말한 셈이 된다.
+  const comp4 = new Composer();
+  comp4.attach(new Quote({ slideId: 's4', slideNo: 4, shapeId: 'sh3', name: '표',
+    type: 'Table', text: '지역별' }));
+  const r4 = await new SendTurn(chat, comp4).run('안 보이는 채로', { userRows: 0, live: false });
+  ok('끊겨도 인용은 그대로다', r4.blind === true && comp4.pending.length === 1);
+
+  // `live` 를 **안 넘기면** 「살아 있다」가 아니라 「모른다」다. 모르는 채 잠그면 갇힌다.
+  const comp5 = new Composer();
+  const r5 = await new SendTurn(chat, comp5).run('안 알려주고 낸다', { userRows: 0 });
+  ok('live 를 안 넘기면 살아 있다고 치지 않는다', r5.sent === true && r5.blind === true);
+  ok('안 넘겼으면 안 잠근다', comp5.waiting === false);
+  const comp6 = new Composer();
+  const r6 = await new SendTurn(chat, comp6).run('두 번째 인자 자체가 없다');
+  ok('둘째 인자가 통째로 없어도 마찬가지다',
+    r6.blind === true && comp6.waiting === false);
+
   // 문이 던지면 잠금을 푼다. 삼키면 사람은 간 줄 안다.
   const bad = { async submit() { throw new Error('문이 닫혔습니다'); } };
   const comp3 = new Composer();
