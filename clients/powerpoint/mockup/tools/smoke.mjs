@@ -138,6 +138,27 @@ deck.click('sh8c31', true);
 await quote.run();
 ok('추가 인용은 쌓인다', conv.pending.length === 2);
 
+// 그런데 **위 두 줄은 shift 를 안 눌러도 초록이다.** 인용은 누를 때마다 쌓이니까 「둘이 됐다」가
+// 「둘을 한꺼번에 골랐다」를 안 말한다 — `click` 의 `additive` 를 통째로 떨어뜨려도 스위트가
+// 안 죽었다(인자 드롭 계측). shift-클릭은 사람이 「이것과 이것」을 한 번에 말하는 유일한 손짓이라,
+// 조용히 없어지면 두 번째 클릭이 첫 번째를 지우고 사람은 왜 하나만 인용됐는지 모른다.
+{
+  const d = new FakeDeck(structuredClone(fixture));
+  const c = new Composer();
+  const q = new QuoteSelection(d, c);
+  const [a, b] = d.slide(d.currentSlide).shapes;
+  d.click(a.id, false);
+  d.click(b.id, true);
+  ok('shift 를 누르면 고른 것이 쌓인다', d.selected.size === 2, d.selected.size);
+  const r = await q.run();
+  ok('한 번 눌러 둘이 인용된다', r.added.length === 2 && c.pending.length === 2,
+    `${r.added.length} / ${c.pending.length}`);
+  // 그리고 shift 없이 다시 고르면 **앞엣것이 지워진다.** 쌓이기만 하면 사람이 고름을 못 되돌린다.
+  d.click(a.id, false);
+  ok('shift 없이 고르면 앞엣것이 풀린다', d.selected.size === 1 && d.selected.has(a.id),
+    [...d.selected].join(','));
+}
+
 // 내면 인용이 **글로 접혀** 나간다 — 문의 submit 은 글 하나만 받는다.
 {
   const held = conv.hold('이 두 개를 한 줄로 붙여줘', 0);
@@ -217,7 +238,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   read2.cursor = read2.cursor.advanced('A', 40);   // 어제 커서를 들고 왔다
   read2.sessionId = 'A';
   read2.attach('A');
-  ok('로그 끝을 넘은 커서는 거절당한다', read2.view.refusal !== null);
+  // **`!== null` 은 화면이 쓰는 물음이 아니다.** view 는 `if (v.refusal)` 로 읽으므로 빈
+  // 문자열이면 아무 줄도 안 그린다 — 그런데 `!== null` 은 초록이다. 그 틈으로 「거절당했다」가
+  // 시험에서만 참이고 사람에게는 아무 말도 안 하는 상태가 지나간다. 서버가 준 문장을 그대로
+  // 실어 오는지까지 문다(인자 드롭 계측: `Transcript.restart` 의 `why` 를 비워도 초록이었다).
+  ok('로그 끝을 넘은 커서는 거절당한다', Boolean(read2.view.refusal), read2.view.refusal);
+  ok('거절에 서버가 댄 사유가 실려 온다',
+    /40/.test(read2.view.refusal ?? '') && /past the end/.test(read2.view.refusal ?? ''),
+    read2.view.refusal);
   ok('거절 뒤 화면은 한 벌뿐이다', read2.view.rows.length === 1, `${read2.view.rows.length}줄`);
   ok('거절당한 커서는 버려진다', read2.cursor.seq === 1);
 
@@ -230,6 +258,19 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('모르는 종류는 안 그려도 안 사라진다', read3.view.rows.length === 0
     && read3.view.unknownNote !== null, read3.view.unknownNote ?? '(말이 없다)');
   ok('모르는 것도 커서는 민다', read3.cursor.seq === 2);
+
+  // 위 두 사건은 `data` 가 비어 있어서 **못 그린 것과 안 실은 것이 같게 생긴다.** 알맹이를
+  // 실은 모르는 사건을 하나 넣어 본다: 줄은 서되 **글은 안 옮겨 실려야** 한다. 못 알아본 모양의
+  // 페이로드를 화면 글로 옮기는 것은 우리가 무슨 말을 그리는지 모르는 채로 그리는 일이다
+  // (`textOf` 의 `kind === 'unknown'` 줄). 그 인자를 떨어뜨려도 스위트가 안 죽었다.
+  {
+    const t = new Transcript();
+    t.append({ seq: 1, type: 'council.verdict', data: { text: '카운슬이 아니라고 했다' } });
+    ok('모르는 종류도 줄은 선다', t.rows.length === 1 && t.rows[0].kind === 'unknown',
+      `${t.rows.length} / ${t.rows[0]?.kind}`);
+    ok('모르는 종류의 알맹이는 글로 안 옮겨진다', t.rows[0].text === '', t.rows[0].text);
+    ok('모르는 줄은 안 그려진다', t.drawnRows.length === 0, t.drawnRows.length);
+  }
 
   // 배우를 안 보면 정책이 한 일이 사용자가 한 말로 붙는다. §5.7 이 이름까지 대 놓은 결함이라
   // 여기서 못 박는다 — 버리지도 않고(그건 TUI 가 겪은 반대쪽 결함), 말풍선으로도 안 그린다.
@@ -685,8 +726,12 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const chat = new FakeChat(port, { sessionId: 's', delay: -1 });
   const q = new Quote({ slideId: 's4', slideNo: 4, shapeId: 'sh1', name: '제목',
     type: 'TextBox', text: '3분기 매출 전망과 지역별 분해' });
-  await chat.submit(promptOf('줄여줘', [q]));
-  chat.reply('m1', promptOf('줄여줘', [q]));
+  // **번호는 가짜가 준다.** 여기서 `'m1'` 이라 적으면 시험이 가짜의 번호 규칙을 베낀 것이고,
+  // 규칙이 바뀌어도 초록이다. 받아서 그대로 되민다.
+  const mid = await chat.submit(promptOf('줄여줘', [q]));
+  chat.reply(mid, promptOf('줄여줘', [q]));
+  ok('답이 물음과 같은 번호로 선다',
+    read.view.rows.some((r) => r.kind === 'model' && r.messageId === mid), mid);
 
   const fold = foldAdvice(read.view.rows);
   ok('안내가 도구 호출에서 나온다', fold.items.length === 2, String(fold.items.length));
@@ -763,13 +808,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const chat = new FakeChat(port, { sessionId: 's2', delay: -1 });
 
   // 먼저 인용을 실은 턴 하나. 뒤엣것과 **비교할 앞**이 있어야 「안 낳는다」와 「지운다」가 갈린다.
-  await chat.submit(promptOf('줄여줘', [q]));
-  chat.reply('m1', promptOf('줄여줘', [q]));
+  const mid1 = await chat.submit(promptOf('줄여줘', [q]));
+  chat.reply(mid1, promptOf('줄여줘', [q]));
   const before = foldAdvice(read.view.rows);
   ok('앞 턴이 안내를 낳았다', before.items.length === 2, String(before.items.length));
 
-  await chat.submit('그냥 줄여줘');
-  chat.reply('m2', '그냥 줄여줘');
+  const mid2 = await chat.submit('그냥 줄여줘');
+  chat.reply(mid2, '그냥 줄여줘');
+  ok('두 턴의 번호가 다르다', mid1 !== mid2, `${mid1} / ${mid2}`);
   const after = foldAdvice(read.view.rows);
   ok('인용 없는 턴은 되묻는다',
     read.view.rows.some((r) => r.kind === 'model' && r.text.includes('「선택 인용」')));
@@ -1241,6 +1287,25 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 }
 
 {
+  // 카드에 적는 글토막. **스위트가 한 번도 안 불렀다** — 유일한 소비자가 `view.js` 라
+  // DOM 이 있어야 도는 자리고, 그래서 길이 제한을 통째로 떨어뜨려도 아무도 안 울었다.
+  // 도메인 함수니 DOM 없이 그냥 부르면 된다.
+  const q = (text) => new Quote({ slideId: 's1', shapeId: 'a', text });
+  ok('짧으면 그대로 둔다', q('3분기 매출').preview() === '3분기 매출');
+  // 줄바꿈과 연속 공백이 남으면 카드가 한 줄이 아니게 된다.
+  ok('공백은 한 칸으로 접는다', q(' 3분기\n\n 매출  전망 ').preview() === '3분기 매출 전망',
+    q(' 3분기\n\n 매출  전망 ').preview());
+  // 자른 티가 나야 한다 — 안 나면 사람이 **그게 도형의 전문인 줄 안다**.
+  const long = q('가'.repeat(80)).preview();
+  ok('길면 자르고 자른 표를 남긴다', long.length === 60 && long.endsWith('…'),
+    `${long.length} / ${long.slice(-1)}`);
+  ok('제한은 부르는 쪽이 바꾼다', q('가'.repeat(80)).preview(10).length === 10,
+    q('가'.repeat(80)).preview(10).length);
+  // 경계 한 칸: 딱 제한만큼이면 안 자른다. `>` 를 `>=` 로 고치면 멀쩡한 글에 …가 붙는다.
+  ok('딱 제한만큼이면 안 자른다', q('가'.repeat(60)).preview() === '가'.repeat(60));
+}
+
+{
   // 인용 빼기. 붙이는 쪽만 잡혀 있었고 빼는 쪽이 통째로 안 잡혀 있었다.
   const cv = new Composer();
   cv.attach(new Quote({ slideId: 's1', shapeId: 'a' }));
@@ -1447,7 +1512,17 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const off = d.onChange(() => { rang += 1; });
   d.goTo(s2.id);
   ok('같은 슬라이드로 옮기면 종을 안 친다', rang === 0, rang);
+  // **안 친다만 재고 친다를 안 쟀다.** 위 한 줄만 있으면 `onChange` 가 등록을 통째로 버려도
+  // 초록이다(인자를 떨어뜨려 봤다 — 살아남았다). 미니 캔버스는 이 종 하나로 다시 그리므로,
+  // 안 울리면 화면은 클릭해도 그대로다 — 아무도 안 우는 자리다.
+  d.goTo(s1.id);
+  ok('슬라이드를 옮기면 종을 친다', rang === 1, rang);
+  d.click(s1.shapes[0].id, false);
+  ok('도형을 고르면 종을 친다', rang === 2, rang);
+  // 뗀 뒤에도 울리면 화면 하나를 닫아도 그 화면이 계속 다시 그린다.
   off();
+  d.goTo(s2.id);
+  ok('떼면 종이 멎는다', rang === 2, rang);
 }
 {
   // 다섯 — `pickDeck()` 을 **인자 없이** 부르는 길. 시험은 늘 `office` 를 손으로 넣었고,
@@ -1472,17 +1547,29 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 // 번호를 안 읽는 조용한 퇴화**가 된다(화면은 id 로 적고 아무도 안 운다).
 {
   const stub = ({ slide, shapes, textThrows = false, supports = () => true }) => {
-    const seen = { slides: null, shapes: null, syncs: 0 };
-    globalThis.Office = { context: { requirements: { isSetSupported: supports } } };
+    const seen = { slides: null, shapes: null, syncs: 0, asked: [], calls: [] };
+    globalThis.Office = { context: { requirements: {
+      isSetSupported: (n, v) => { seen.asked.push(`${n} ${v}`); return supports(n, v); },
+    } } };
     globalThis.PowerPoint = {
       run: async (cb) => cb({
         presentation: {
           getSelectedSlides: () => ({ items: slide ? [slide] : [],
             load(q) { seen.slides = q; } }),
           getSelectedShapes: () => ({ items: shapes, load(q) { seen.shapes = q; } }),
+          setSelectedSlides: (ids) => { seen.calls.push(`고른 슬라이드 ${ids.join('|')}`); },
+          slides: {
+            getItem: (id) => {
+              seen.calls.push(`getItem ${id}`);
+              return { setSelectedShapes: (ids) => {
+                seen.calls.push(`고른 도형 [${ids.join('|')}]`);
+              } };
+            },
+          },
         },
         sync: async () => {
           seen.syncs += 1;
+          seen.calls.push('왕복');
           if (seen.syncs > 1 && textThrows) throw new Error('textFrame 없는 도형이 섞였다');
         },
       }),
@@ -1500,6 +1587,12 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     let seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [shape('sh1', '가나')] });
     let r = await new OfficeDeck().selection();
     ok('1.8 이면 index 까지 load 한다', seen.slides === 'items/id,items/index', seen.slides);
+    // **무엇을 물었는지까지 문다.** 여태 이 블록의 stub 은 전부 상수 함수(`() => true`,
+    // `() => false`)라 `#supports` 에 간 인자를 아무도 안 봤다 — 1.8 자리에 1.2 를 적어도
+    // 스위트가 초록이었다(인자 드롭 계측). 그런데 여기서 재려는 것이 정확히 **§3.3 이 고른
+    // 바닥**이고, 다른 집합을 물으면 1.2 짜리 호스트에서 index 를 load 해 선택을 통째로 잃는다.
+    ok('selection 이 묻는 집합은 PowerPointApi 1.8 하나다',
+      seen.asked.join(',') === 'PowerPointApi 1.8', seen.asked.join(','));
     ok('번호는 0-based 를 +1 해서 올린다', r.slideNo === 5, r.slideNo);
     ok('신원과 글이 같이 온다',
       r.slideId === 'sl1' && r.shapes[0].id === 'sh1' && r.shapes[0].text === '가나',
@@ -1523,6 +1616,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('true 아닌 답은 지원으로 안 읽는다', seen.slides === 'items/id' && r.slideNo === null,
       `${seen.slides} / ${r.slideNo}`);
 
+    // 셋의 반 — 다른 집합을 다 지원해도 **1.8 만 아니면 안 묻는다.** 위 한 줄이 이름을
+    // 못박고, 이 한 줄이 그 이름에 매달린 가지를 못박는다.
+    seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [shape('sh1', '가')],
+      supports: (n, v) => !(n === 'PowerPointApi' && v === '1.8') });
+    r = await new OfficeDeck().selection();
+    ok('1.8 말고 다 된다고 해도 번호는 안 읽는다', seen.slides === 'items/id' && r.slideNo === null,
+      `${seen.slides} / ${r.slideNo}`);
+
     // 넷 — 고른 도형이 없으면 **둘째 왕복을 안 돈다.** 빈 선택에 텍스트를 물으러 가는 것은
     // 사람이 아무것도 안 골랐는데 덱을 한 번 더 건드리는 일이다.
     seen = stub({ slide: { id: 'sl1', index: 0 }, shapes: [] });
@@ -1541,6 +1642,26 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('못 읽은 것은 못 읽었다고 적는다',
       r.shapes.every((x) => x.textUnavailable === true && x.text === ''),
       JSON.stringify(r.shapes.map((x) => [x.text, x.textUnavailable])));
+    // 여섯 — **`point()` 를 처음으로 돌린다.** 여태 이 함수는 스위트가 한 번도 안 불렀고,
+    // 그래서 두 인자를 통째로 떨어뜨려도 아무도 안 울었다(인자 드롭 계측). 여기서 무는 것은
+    // 호스트의 대답이 아니라 **함수가 스스로 적어 둔 차례**다: 슬라이드를 먼저 고르고, 왕복
+    // 한 번, 그 다음 도형. 흉내가 틀려도 이 차례는 우리 쪽 코드에만 달려 있다.
+    //
+    // ⚠ **S13·S14 는 그대로 열려 있다.** 안 보고 있는 슬라이드에서 진짜 PowerPoint 가 이
+    // 차례를 받아 주는지는 여기서 못 잰다 — 그건 창이 있어야 한다.
+    seen = stub({ slide: { id: 'sl1', index: 0 }, shapes: [] });
+    await new OfficeDeck().point('sl9', ['shA', 'shB']);
+    ok('짚을 때 슬라이드를 먼저 고르고 왕복한 뒤 도형을 잡는다',
+      seen.calls.join(' → ')
+        === '고른 슬라이드 sl9 → 왕복 → getItem sl9 → 고른 도형 [shA|shB] → 왕복',
+      seen.calls.join(' → '));
+
+    // 일곱 — **빈 목록도 끝까지 간다.** 조기 이탈로 고치면 잡은 것이 안 풀려서, 캔버스가
+    // 「이 안내는 저 도형에 대한 것」이라는 거짓을 말한다(`point()` 의 주석).
+    seen = stub({ slide: { id: 'sl1', index: 0 }, shapes: [] });
+    await new OfficeDeck().point('sl9', []);
+    ok('빈 목록이면 잡은 것을 놓는다', seen.calls.includes('고른 도형 []'),
+      seen.calls.join(' → '));
   } finally {
     clear();
   }

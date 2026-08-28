@@ -31,8 +31,13 @@ export class FakeChat extends ChatPort {
       actor: { kind: 'user', id: 'attach' },
       data: { messageId: `u${n}`, parts: [{ kind: 'text', text: prompt }] },
     });
-    if (this.delay < 0) return;   // 시험이 손으로 민다
+    // **번호를 돌려준다.** 손으로 미는 길(`delay < 0`)에서도 답은 같은 `mid` 로 와야 하는데,
+    // 앞 판본은 여기서 그냥 돌아가서 그 번호를 버렸다. 그러면 시험이 `reply('m1', …)` 처럼
+    // **가짜의 번호 매기는 규칙을 베껴 적는 수밖에 없고**, 규칙이 바뀌어도 시험은 초록이다
+    // (`m${n}` 을 `msg-${n}` 으로 고쳐도 아무도 안 운다). 돌려주면 베낄 것이 없어진다.
+    if (this.delay < 0) return mid;   // 시험이 손으로 민다
     setTimeout(() => this.reply(mid, prompt), this.delay);
+    return mid;
   }
 
   /** 한 턴의 답. 시험이 시계 없이 부를 수 있게 갈라 뒀다. */
